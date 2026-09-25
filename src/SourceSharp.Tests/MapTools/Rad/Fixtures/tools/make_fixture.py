@@ -119,13 +119,12 @@ def main():
                             text=True).stdout.strip()
     with open('/dev/stdout', 'w') as out:
         print('# Stock vrad shadow-caster reference, captured by', file=out)
-        print('# scratchpad/p4b/make_fixture.py from vrad.exe -dumptrace output.', file=out)
+        print('# Fixtures/make_fixture.py from the reference radiosity tool', file=out)
+        print('# (stock x64 build, Feb 17 2025) -dumptrace output under wine.', file=out)
         print('#', file=out)
-        print('# vrad: Valve Software - vrad.exe SSE (Feb 17 2025), SDK Base 2013', file=out)
-        print('#       Multiplayer, run under Proton Experimental wine.', file=out)
         print('# map:  dm_lockdown.bsp with its sprp game lump upgraded from', file=out)
-        print('#       version 5 to version 10 (gamebspfile.h:244-262 field', file=out)
-        print('#       mapping, all 261 props kept), because SDK-2013 vrad', file=out)
+        print('#       version 5 to version 10 (the static-prop game-lump field', file=out)
+        print('#       mapping, all 261 props kept), because the reference build', file=out)
         print('#       refuses version 5 outright and a stage that loads props', file=out)
         print('#       cannot be gated against a map with none.', file=out)
         print('# original sha256 %s' % hashlib.sha256(open(bsp, 'rb').read()).hexdigest(),

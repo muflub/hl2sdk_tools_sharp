@@ -1,6 +1,6 @@
-# p4c stock vrad reference. Regenerate with Fixtures/mkfixture.py.
-# Stock x64 vrad.exe (Valve Software - vrad.exe SSE, Feb 17 2025) under wine,
-#   vrad.exe -threads 1 -verbose -game <tools/mapgame> <map>   (and -both for wlh)
+# Stock vrad reference. Regenerate with Fixtures/mkfixture.py.
+# Stock x64 reference radiosity build (Feb 17 2025) run under wine,
+#   -threads 1 -verbose -game <tools/mapgame> <map>   (and -both for wlh)
 # on stock vbsp + vvis -threads 1 output. A count stock did not print is -1
 # (a map with no vis never subdivides and prints no patch lines).
 #

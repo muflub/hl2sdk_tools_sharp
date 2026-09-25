@@ -46,14 +46,14 @@ def record(name, path, out):
 def main():
     cat, p4c = sys.argv[1], sys.argv[2]
     out = [
-        "# p4d stock bounce reference. Regenerate with Fixtures/mkbounce.py.",
-        "# Stock x64 vrad.exe (Valve Software - vrad.exe SSE, Feb 17 2025) under wine,",
-        "#   vrad.exe -threads 1 -verbose -game <tools/mapgame> <map>",
-        "# on stock vbsp + vvis -threads 1 output (ref/catmaps-all; p4c_texlights from ref/p4c/rad).",
+        "# Stock bounce reference. Regenerate with Fixtures/mkbounce.py.",
+        "# Stock x64 reference radiosity build (Feb 17 2025) run under wine,",
+        "#   -threads 1 -verbose -game <tools/mapgame> <map>",
+        "# on stock vbsp + vvis -threads 1 output.",
         "#",
         "# map <name>",
-        "# transfers <total_transfer> <max_transfer>       vrad.cpp:1933",
-        "# bounce <n> <r> <g> <b>                          vrad.cpp:1715, %.0f each",
+        "# transfers <total_transfer> <max_transfer>",
+        "# bounce <n> <r> <g> <b>       %.0f each",
         "",
     ]
     for log in sorted(glob.glob(os.path.join(cat, "*.vradv.log"))):

@@ -1,11 +1,10 @@
 # Stock vrad shadow-caster reference, captured by
-# scratchpad/p4b/make_fixture.py from vrad.exe -dumptrace output.
+# Fixtures/make_fixture.py from the reference radiosity tool's -dumptrace output.
 #
-# vrad: Valve Software - vrad.exe SSE (Feb 17 2025), SDK Base 2013
-#       Multiplayer, run under Proton Experimental wine.
+# tool: the stock x64 radiosity reference build (Feb 17 2025), run under wine.
 # map:  dm_lockdown.bsp with its sprp game lump upgraded from
-#       version 5 to version 10 (gamebspfile.h:244-262 field
-#       mapping, all 261 props kept), because SDK-2013 vrad
+#       version 5 to version 10 (the static-prop game-lump field
+#       mapping, all 261 props kept), because the reference build
 #       refuses version 5 outright and a stage that loads props
 #       cannot be gated against a map with none.
 # original sha256 93e4c7367b99cf35bae30467acc10c31c8bea48ac5199e80f5e73cc490da3523

@@ -75,9 +75,9 @@ def main():
                 name = n[:-4]
                 entries.append((name, f"{rad}/{name}.log", f"{rad}/{name}.bsp"))
 
-    print("# p4c stock vrad reference. Regenerate with Fixtures/mkfixture.py.")
-    print("# Stock x64 vrad.exe (Valve Software - vrad.exe SSE, Feb 17 2025) under wine,")
-    print("#   vrad.exe -threads 1 -verbose -game <tools/mapgame> <map>   (and -both for wlh)")
+    print("# Stock vrad reference. Regenerate with Fixtures/mkfixture.py.")
+    print("# Stock x64 reference radiosity build (Feb 17 2025) run under wine,")
+    print("#   -threads 1 -verbose -game <tools/mapgame> <map>   (and -both for wlh)")
     print("# on stock vbsp + vvis -threads 1 output. A count stock did not print is -1")
     print("# (a map with no vis never subdivides and prints no patch lines).")
     print("#")
