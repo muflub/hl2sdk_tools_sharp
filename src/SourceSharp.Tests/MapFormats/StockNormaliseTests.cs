@@ -88,7 +88,7 @@ public class StockNormaliseTests
 
         try
         {
-            string source = Path.Combine(directory, "stock.cpp");
+            string source = Path.Combine(directory, "rsqrt-reference.cpp");
             string binary = Path.Combine(directory, "stock");
             File.WriteAllText(source, CppSource);
 
@@ -243,7 +243,7 @@ internal static class NativeCompiler
     }
 
     /// <summary>Compiles one source file to one binary.</summary>
-    /// <param name="source">The .cpp to compile.</param>
+    /// <param name="source">The reference source to compile.</param>
     /// <param name="binary">Where to write the executable.</param>
     /// <param name="error">The compiler's diagnostics when it fails.</param>
     /// <returns>True when the compile succeeded.</returns>
