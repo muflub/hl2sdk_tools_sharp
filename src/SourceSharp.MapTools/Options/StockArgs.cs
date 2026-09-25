@@ -1073,8 +1073,7 @@ public static class StockArgs
 
     /// <summary>
     /// Reads <c>-compliance &lt;mode&gt;[,&lt;+/-Quirk&gt;…]</c>: the baseline
-    /// policy first, then per-quirk exceptions — the CLI seam
-    /// <c>docs/compliance-matrix.md</c> names and plan_maptools §11a promised.
+    /// policy first, then per-quirk exceptions.
     /// </summary>
     /// <remarks>
     /// <para>
