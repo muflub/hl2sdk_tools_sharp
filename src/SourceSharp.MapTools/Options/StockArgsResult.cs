@@ -89,7 +89,7 @@ public static class StockArgsCodes
 /// <param name="MapPath">
 /// The map the command line named, exactly as written and with its extension
 /// left alone, or null when none was given. Stock strips the extension and
-/// lowercases the basename inside <c>RunVBSP</c> (<c>vbsp.cpp:919-921</c>);
+/// lowercases the basename inside <c>RunVBSP</c>;
 /// that is a decision for whoever resolves the path, not for the parser.
 /// </param>
 /// <param name="Diagnostics">
@@ -107,7 +107,7 @@ public static class StockArgsCodes
 /// <para>
 /// <b>The library does not act on <see cref="GameDirectory"/> or
 /// <see cref="ExtraSearchPaths"/>.</b> Stock skips both flags in its parse loop
-/// (<c>vbsp.cpp:1128</c>, <c>vvis.cpp:969</c>, <c>vrad.cpp:2616</c>) because
+/// because
 /// <c>CmdLib_InitFileSystem</c> has already read them off the global command
 /// line and mounted the game's search paths as a side effect. There is no
 /// global command line here and no mounting side effect: content comes from the
@@ -145,8 +145,8 @@ public sealed record StockArgsResult<TOptions>(
     /// <para>
     /// So it is recorded here, for the host to map onto
     /// <c>CompileParallelism.MaxDegree</c>. Null when the flag was absent.
-    /// vbsp records it too, although stock vbsp ignores it (<c>vbsp.cpp:935</c>
-    /// parses it and <c>:1302</c> overwrites it with <c>numthreads = 1</c>):
+    /// vbsp records it too, although stock vbsp ignores it — it parses the
+    /// flag and then overwrites it with <c>numthreads = 1</c>:
     /// this port's vbsp has parallel stages (plan 3p), and they write the same
     /// bytes at every degree.
     /// </para>
@@ -173,8 +173,8 @@ public sealed record StockArgsResult<TOptions>(
     /// (<c>VbspOptions.Format</c>), and that field is the host's after
     /// <see cref="FormatResolution.Resolve"/> ran; this field is the raw CLI
     /// overlay the resolver consumes, parse output only. Preset flags and
-    /// manual flags share one accumulator in argument order, which is how ++
-    /// stores its globals as tokens are walked — <c>-csgo -bspformat 19</c>
+    /// manual flags share one accumulator in argument order, which is how the
+    /// reference stores its state as tokens are walked — <c>-csgo -bspformat 19</c>
     /// writes 19, <c>-bspformat 19 -csgo</c> writes 21.
     /// </remarks>
     public FormatOverrides? Format { get; init; }

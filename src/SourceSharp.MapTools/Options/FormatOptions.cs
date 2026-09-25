@@ -17,12 +17,13 @@ namespace SourceSharp.MapTools.Options;
 /// existed (a corpus-identity fact pins that).
 /// </para>
 /// <para>
-/// The fields are ++'s format globals, not this port's writer vocabulary.
+/// The fields are the extended format vocabulary, not this port's writer
+/// vocabulary.
 /// The one adapter that turns them into the writer's format record is
 /// <c>Compile.BspFormatWriter.ToWriteFormat</c> — translation only. The
 /// write-path call sites (the <c>MapCompiler</c> chain write and
-/// <c>VbspCommand.WriteBspAsync</c>) are wired to it by the tools++ T3 lane:
-/// a null from the adapter means the legacy <c>BspFile.SaveAsync</c> call.
+/// <c>VbspCommand.WriteBspAsync</c>) are wired to it by the format-plumbing
+/// lane: a null from the adapter means the legacy <c>BspFile.SaveAsync</c> call.
 /// </para>
 /// </remarks>
 public sealed record FormatOptions
@@ -95,8 +96,8 @@ public sealed record FormatOptions
     public const int DefaultStaticPropsVersion = 10;
 
     /// <summary>
-    /// The ++ token table for <c>-staticpropformat</c>, index order verbatim
-    /// from the dump's jump table and token strings (<c>10_TF2</c> compared
+    /// The token table for <c>-staticpropformat</c>, in stored index order
+    /// (<c>10_TF2</c> compared
     /// first, then the digit range 6–14).
     /// </summary>
     public static IReadOnlyList<string> StaticPropsTokens { get; } =
@@ -105,37 +106,37 @@ public sealed record FormatOptions
     /// <summary>The no-preset default: every field at today's writer behavior.</summary>
     public static FormatOptions Default { get; } = new();
 
-    /// <summary>GAMELUMP_MAPVERS version (++ <c>bspver</c>).</summary>
+    /// <summary>GAMELUMP_MAPVERS version.</summary>
     public int BspVersion { get; init; }
 
-    /// <summary>GAMELUMP_LIGHTGROUPS version (++ <c>lightgroups</c>).</summary>
+    /// <summary>GAMELUMP_LIGHTGROUPS version.</summary>
     public int WorldLightVersion { get; init; }
 
     /// <summary>
-    /// The written static-props token (++ <c>propper</c>); null keeps the
+    /// The written static-props token; null keeps the
     /// writer's pinned default version.
     /// </summary>
     public string? StaticPropsToken { get; init; }
 
-    /// <summary>The matsys-compat lump set (++ <c>matsyscompat</c>).</summary>
+    /// <summary>The matsys-compat lump set.</summary>
     public bool MatsysCompat { get; init; }
 
-    /// <summary>Simple ladders (++ <c>simpleladders</c>).</summary>
+    /// <summary>Simple ladders.</summary>
     public bool SimpleLadders { get; init; }
 
-    /// <summary>Suppress the disp 4 virtual mesh (++ <c>nodisp4virtualmesh</c>).</summary>
+    /// <summary>Suppress the disp 4 virtual mesh.</summary>
     public bool NoDisp4VirtualMesh { get; init; }
 
-    /// <summary>Skip props ineligible for vertex lighting (++ <c>noineligiblevertexlitprops</c>).</summary>
+    /// <summary>Skip props ineligible for vertex lighting.</summary>
     public bool NoIneligibleVertexLitProps { get; init; }
 
-    /// <summary>The csgo clip contents (++ <c>csgoclipcontents</c>).</summary>
+    /// <summary>The csgo clip contents.</summary>
     public bool CsgoClipContents { get; init; }
 
-    /// <summary>The disp-info cap (++ <c>dispinfolimit</c>); null is the writer default.</summary>
+    /// <summary>The disp-info cap; null is the writer default.</summary>
     public int? DispInfoLimit { get; init; }
 
-    /// <summary>The L4D2 lump-directory layout (++ <c>l4d2lumpdirlayout</c>).</summary>
+    /// <summary>The L4D2 lump-directory layout.</summary>
     public bool L4d2LumpDirLayout { get; init; }
 
     /// <summary>Provenance: the preset last applied, or null.</summary>
@@ -167,7 +168,7 @@ public sealed record FormatOptions
 /// One overlay step of the format resolution: a preset's fields, or the
 /// hand-typed <c>-bspformat</c>/<c>-lightformat</c>/<c>-staticpropformat</c>
 /// flags. A null field means "not said", so merging is last-write-wins per
-/// field, which is how ++'s globals behave — later stores overwrite only the
+/// field, which is how the reference behaves — later stores overwrite only the
 /// fields later code names.
 /// </summary>
 /// <param name="BspVersion">The GAMELUMP_MAPVERS version, or null.</param>
@@ -240,27 +241,26 @@ public sealed record FormatOverrides(
 /// <para>
 /// Order, pinned by facts: defaults, then the appid's auto-detected preset,
 /// then the mounted gameinfo's <c>Tools → vbsp</c> key (tokenised and parsed
-/// as if typed), then the real command line. That is ++'s order exactly: the
+/// as if typed), then the real command line. The
 /// appid auto-apply stores its preset during registration, ahead of the real
-/// argv walk (<c>dumps/vbsp.all.c</c> registration tail, the
-/// <c>jmp 0x140041c9a</c> region), ++ then prepends the Tools tokens and
-/// walks them, and finally walks the typed argv — so the Tools line WINS
+/// argv walk; the Tools tokens are then prepended and
+/// walked, and finally the typed argv — so the Tools line WINS
 /// over the auto-detected preset (which is what lets a Tools line select its
 /// own preset), and the typed flags win over both. A Tools line may itself
 /// select a preset (its own <c>-csgo</c> token) or name fields; a preset is
 /// an overlay, so a Tools preset over an auto preset merges field-wise
-/// exactly like ++'s switch cases over already-set globals.
+/// over already-set values.
 /// </para>
 /// </remarks>
 public static class FormatResolution
 {
-    /// <summary>++'s auto-detect message, formatted with the preset name.</summary>
+    /// <summary>The auto-detect message, formatted with the preset name.</summary>
     public const string AutoDetectMessage = "Auto-detected that this game requires {0} BSP format";
 
-    /// <summary>++'s splice log (<c>Msg("Adding arguments from gameinfo: %s")</c>).</summary>
+    /// <summary>The Tools splice log line.</summary>
     public const string ToolsSpliceMessage = "Adding arguments from gameinfo: {0}";
 
-    /// <summary>++'s unknown-token message for <c>-staticpropformat</c>.</summary>
+    /// <summary>The unknown-token message for <c>-staticpropformat</c>.</summary>
     public const string UnrecognizedPropFormatMessage = "Unrecognized prop format {0}";
 
     /// <summary>Code of the auto-detect info diagnostic.</summary>
@@ -276,14 +276,14 @@ public static class FormatResolution
     public const string ToolsProblemCode = "ARGS0012";
 
     /// <summary>
-    /// Code of the warning for the flat <c>Tools "…"</c> form that ++ reads as
-    /// a section and ignores — <see cref="GameInfo.HasFlatToolsValue"/>.
+    /// Code of the warning for the flat <c>Tools "…"</c> form that the
+    /// reference reads as a section and ignores — <see cref="GameInfo.HasFlatToolsValue"/>.
     /// </summary>
     public const string FlatToolsCode = "ARGS0013";
 
     /// <summary>
     /// The warning for the flat form: the file's author typed arguments no
-    /// tool will ever see. ++ says nothing at all here (the flags are simply
+    /// tool will ever see. The reference says nothing at all here (the flags are simply
     /// never read); saying it is this port's deviation, and a deliberate one,
     /// because the shape is a mod author's mistake rather than a choice.
     /// </summary>
@@ -309,8 +309,8 @@ public static class FormatResolution
     /// <para>
     /// <b>Tools-parse problems are surfaced, never fatal.</b> The Tools line
     /// is parsed with the same parser as a real command line and can produce
-    /// its diagnostics; the file system authored that line, and ++ would have
-    /// spliced and ACTED on the flags in it (an unknown flag there reaches
+    /// its diagnostics; the file system authored that line, and the reference
+    /// would have spliced and ACTED on the flags in it (an unknown flag there reaches
     /// the real parser and kills the process). This port reports such
     /// problems as warnings naming the Tools key and carries on — a broken
     /// Tools line must not fail a compile the rest of which is fine. The
@@ -411,10 +411,11 @@ public static class FormatResolution
     }
 
     /// <summary>
-    /// ++'s tokenization of the <c>Tools</c> key value: a plain whitespace
+    /// The tokenization of the <c>Tools</c> key value, matching the reference:
+    /// a plain whitespace
     /// split (strtok-style — no quote handling, consecutive separators
     /// collapse, empty runs drop), so a quoted value's quotes stay inside the
-    /// tokens just as they do in ++.
+    /// tokens.
     /// </summary>
     /// <param name="toolsValue">The raw key value as written.</param>
     /// <returns>The tokens to splice into the command line.</returns>
@@ -427,10 +428,10 @@ public static class FormatResolution
     }
 
     /// <summary>
-    /// Validates a <c>-staticpropformat</c> token against ++'s table.
+    /// Validates a <c>-staticpropformat</c> token against the token table.
     /// </summary>
     /// <param name="token">The token as typed.</param>
-    /// <returns>Whether ++ would accept it.</returns>
+    /// <returns>Whether the token is accepted.</returns>
     public static bool IsKnownStaticPropsToken(string token) =>
         token is not null && FormatOptions.StaticPropsTokens.Contains(token, StringComparer.Ordinal);
 
@@ -440,7 +441,7 @@ public static class FormatResolution
     /// <c>BspStaticPropsFormatInfo.GameLumpVersion</c>) — <c>"9"</c> writes 9,
     /// <c>"10"</c> (Insurgency) writes 10, <c>"10_TF2"</c> writes 10 with the
     /// TF2 flavour. Tokens are named by the wire version they select; the
-    /// ++ token INDEX (0..9) is a different numbering and is not the version.
+    /// token's table INDEX (0..9) is a different numbering and is not the version.
     /// </summary>
     /// <param name="token">The token.</param>
     /// <returns>The version.</returns>
@@ -462,7 +463,8 @@ public static class FormatResolution
     }
 
     /// <summary>
-    /// The validated value of <c>-bspformat</c>: ++ parses it with <c>atoi</c>
+    /// The validated value of <c>-bspformat</c>: the reference parses it with
+    /// <c>atoi</c>
     /// and no range check, but this port's writer ctor validates 19/20/21, so
     /// an out-of-table version is a parse error here rather than a late one.
     /// </summary>

@@ -1,37 +1,32 @@
 namespace SourceSharp.MapTools.Options;
 
 /// <summary>
-/// One of the six output-format presets Tools++ switches between, as a
+/// One of the six output-format presets this tool switches between, as a
 /// frozen overlay: a null field means the preset does not touch it, so
-/// presets compose as last-write-wins per field exactly like ++'s callback
-/// bodies, which each store only their own fields and leave the rest of the
-/// globals as they found them.
+/// presets compose as last-write-wins per field — each preset stores only
+/// its own fields and leaves the rest as they were.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The table is the decompilation report
-/// (<c>~/re/toolsplusplus/toolsplusplus-findings.md</c> §1.1) as
-/// re-derived from the binary during this port: the callback bodies at
-/// <c>0x1400429c0…0x140042aff</c> and the auto-detect switch at
-/// <c>0x140041c9a…0x140041dbe</c> of <c>vbspplusplus.exe</c>
-/// (<c>objdump -M intel</c>, this session). Where the report and the dump
-/// disagree the dump wins, and the findings file names each correction:
-/// the <c>-singleplayer</c> callback is NOT a default-reset no-op (it stores
+/// Each preset stores exactly the fields its flag is documented to set; the
+/// notes on the members record what a preset stores and what it deliberately
+/// leaves alone. Notable behaviours that read like bugs and are not: the
+/// <c>-singleplayer</c> preset is NOT a default-reset no-op (it stores
 /// matsys-compat and the static-props token), the plain token <c>"10"</c>
 /// is the Insurgency flavour while <c>"10_TF2"</c> is the TF2 one, and
 /// appid 4465480 falls in the csgo bucket, not the singleplayer one.
 /// </para>
 /// <para>
-/// The token strings in <see cref="StaticPropsToken"/> are ++'s
-/// <c>-staticpropformat</c> token table exactly. ++ maps a token to a
+/// The token strings in <see cref="StaticPropsToken"/> are the
+/// <c>-staticpropformat</c> token table exactly. A token maps to a
 /// stored index 0..9 (<c>"6"→0, "7"→1, "8"→2, "9"→3, "10_TF2"→4, "10"→5,
-/// "11"→6, "12"→7, "13"→8, "14"→9</c>; the jump table at
-/// <c>0x1400e696c</c>, <c>"10_TF2"</c> compared by <c>strcmp</c> first);
+/// "11"→6, "12"→7, "13"→8, "14"→9</c>; <c>"10_TF2"</c> is matched before
+/// the digits);
 /// the written GAMELUMP_STATIC_PROPS version of a digit token is the digit
 /// and <c>"10_TF2"</c> writes version 10 with the TF2 flavour. That mapping
 /// is the seam into the BSP writer (<c>Compile.BspFormatWriter.ToWriteFormat</c>,
-/// wired into the save call sites by the format-plumbing lane); this port does
-/// not invent it. The default preset leaves the token null, which means the
+/// wired into the save call sites by the format-plumbing lane). The default
+/// preset leaves the token null, which means the
 /// writer default — today's pinned version 10 — so the no-preset path stays
 /// byte-identical.
 /// </para>
@@ -88,14 +83,14 @@ public sealed record MapFormatPreset
     /// <summary>The preset's command-line name (also its diagnostics label).</summary>
     public string Name { get; }
 
-    /// <summary>GAMELUMP_MAPVERS version (++ <c>bspver</c>).</summary>
+    /// <summary>GAMELUMP_MAPVERS version.</summary>
     public int? BspVersion { get; }
 
-    /// <summary>GAMELUMP_LIGHTGROUPS version (++ <c>lightver</c>).</summary>
+    /// <summary>GAMELUMP_LIGHTGROUPS version.</summary>
     public int? WorldLightVersion { get; }
 
     /// <summary>
-    /// The written static-props token (++ <c>propper</c>), from
+    /// The written static-props token, from
     /// <see cref="FormatOptions.StaticPropsTokens"/>; null keeps the writer default.
     /// </summary>
     public string? StaticPropsToken { get; }
@@ -122,13 +117,11 @@ public sealed record MapFormatPreset
     public bool? L4d2LumpDirLayout { get; }
 
     /// <summary>
-    /// The <c>-singleplayer</c> preset: the 2007 singleplayer branch. The
-    /// dump's callback (<c>0x1400429c0</c>) stores exactly two globals —
+    /// The <c>-singleplayer</c> preset: the 2007 singleplayer branch. It
+    /// stores exactly two fields —
     /// matsys-compat and the static-props token <c>"6"</c> (stored index 0)
-    /// — and leaves bsp and light versions at the writer defaults (20 and 0),
-    /// which matches the report matrix's "19/20 path, flag resets to 20"
-    /// cell; the report's "resets defaults / writes none" claim is wrong
-    /// against the dump (the stores are there at <c>0x1400429c0</c>).
+    /// — and leaves bsp and light versions at the writer defaults (20 and 0);
+    /// it is NOT a default-reset preset.
     /// </summary>
     public static MapFormatPreset Singleplayer { get; } =
         new("singleplayer", null, null, "6", true);
@@ -136,7 +129,7 @@ public sealed record MapFormatPreset
     /// <summary>
     /// The <c>-portal2</c> preset: bsp version 21, lightgroups on, the
     /// version-9 (L4D2-era) static-props token, matsys-compat and the disp
-    /// virtual-mesh suppression on (callback <c>0x140042a10</c>).
+    /// virtual-mesh suppression on.
     /// </summary>
     public static MapFormatPreset Portal2 { get; } =
         new("portal2", 21, 1, "9", true, null, true);
@@ -145,8 +138,7 @@ public sealed record MapFormatPreset
     /// The <c>-l4d2</c> preset: bsp version 21, lightgroups on, the
     /// version-9 static-props token, matsys-compat, simple ladders, the disp
     /// virtual-mesh suppression, and the tail store of the L4D2 lump-dir
-    /// layout (callback <c>0x140042a40</c>, tail <c>jmp 0x140051b50</c> with
-    /// <c>cl = 1</c>).
+    /// layout.
     /// </summary>
     public static MapFormatPreset L4d2 { get; } =
         new("l4d2", 21, 1, "9", true, true, true, null, null, null, true);
@@ -154,8 +146,7 @@ public sealed record MapFormatPreset
     /// <summary>
     /// The <c>-asw</c> preset: bsp version 21, lightgroups on, and the
     /// version-7 (L4D-era) static-props token, with matsys-compat and the
-    /// disp virtual-mesh suppression (callback <c>0x1400429e0</c>; the
-    /// report's table cell missed the lightgroups store, the dump has it).
+    /// disp virtual-mesh suppression, and the lightgroups store.
     /// </summary>
     public static MapFormatPreset Asw { get; } = new("asw", 21, 1, "7", true, null, true);
 
@@ -163,31 +154,29 @@ public sealed record MapFormatPreset
     /// The <c>-insurgency</c> preset: bsp version 21, lightgroups on, the
     /// plain version-10 static-props token (the Insurgency flavour, stored
     /// index 5 — NOT the TF2 flavour), matsys-compat, the disp virtual-mesh
-    /// suppression, and ineligible vertex-lit props skipped (callback
-    /// <c>0x140042a80</c>). CLI-only: no appid selects it (222880, the
+    /// suppression, and ineligible vertex-lit props skipped.
+    /// CLI-only: no appid selects it (222880, the
     /// Insurgency game, selects csgo).
     /// </summary>
     public static MapFormatPreset Insurgency { get; } =
         new("insurgency", 21, 1, "10", true, null, true, true);
 
     /// <summary>
-    /// The <c>-csgo</c> preset: the 2013 branch — bsp version 21, lightgroups
+    /// The <c>-csgo</c> preset: bsp version 21, lightgroups
     /// on, the version-11 static-props token, matsys-compat, the disp
     /// virtual-mesh suppression, ineligible vertex-lit props skipped, the
-    /// csgo clip contents, and 32,768 disp infos (callback
-    /// <c>0x140042ac0</c>, tail <c>mov ecx,0x8000; jmp 0x140055ec0</c> — the
-    /// literal is the ground truth).
+    /// csgo clip contents, and 32,768 disp infos.
     /// </summary>
     public static MapFormatPreset Csgo { get; } = new(
         "csgo", 21, 1, "11", true, null, true, true, true, 32768);
 
-    /// <summary>Every named preset, in ++'s registration order.</summary>
+    /// <summary>Every named preset, in flag-registration order.</summary>
     public static IReadOnlyList<MapFormatPreset> All { get; } =
         [Singleplayer, Portal2, L4d2, Asw, Insurgency, Csgo];
 
     /// <summary>
     /// Looks up a preset by the flag spelling, with or without the leading
-    /// dash, case-insensitive like ++'s table walk.
+    /// dash, case-insensitive.
     /// </summary>
     /// <param name="name">The flag or preset name.</param>
     /// <param name="preset">The preset, when the name is one.</param>
@@ -228,17 +217,14 @@ public sealed record MapFormatPreset
         L4d2LumpDirLayout);
 
     /// <summary>
-    /// The auto-detect table: an appid to its preset. The compared constants
-    /// are disassembly ground truth (the switch at
-    /// <c>0x140041c9a…0x140041dbe</c>: the targets load one of the five
-    /// preset names into <c>r12</c> and jump to the apply block, and every
-    /// other appid jumps to <c>0x140041dbe</c>, which applies nothing and
-    /// prints nothing); the titles are this port's guesses at what each
-    /// appid is, so they stay comments, not data. Three placements the
-    /// report got wrong and the dump corrects (findings file, fact list):
-    /// 550 is the l4d2 preset (its own compare + register), 4465480 is csgo,
-    /// and 619 is only a range bound, not a bucket member — it selects
-    /// nothing. No TF2 appid bucket exists at all: a TF2 gameinfo lands in
+    /// The auto-detect table: an appid to its preset. Apps outside the
+    /// table apply nothing and print nothing;
+    /// the titles are this port's guesses at what each
+    /// appid is, so they stay comments, not data. Three placements are
+    /// load-bearing: 550 is the l4d2 preset, 4465480 is csgo,
+    /// and 619 selects
+    /// nothing — it is a range bound elsewhere, not a bucket member.
+    /// No TF2 appid bucket exists at all: a TF2 gameinfo lands in
     /// the default (no preset applied) bucket.
     /// </summary>
     public static IReadOnlyDictionary<int, MapFormatPreset> AutoDetectTable { get; } =
@@ -263,7 +249,7 @@ public sealed record MapFormatPreset
 
     /// <summary>
     /// The preset a mounted game's <c>SteamAppId</c> selects, or null when no
-    /// bucket matches — no match is the SDK-2013 default bucket (nothing
+    /// bucket matches — no match is the default bucket (nothing
     /// applied, nothing printed), not an error.
     /// </summary>
     /// <param name="steamAppId">The mounted <c>gameinfo.txt</c>'s appid.</param>

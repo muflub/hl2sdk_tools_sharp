@@ -64,7 +64,7 @@ public enum CompliancePolicy
 /// because X" can be written with X naming a concrete consequence.
 /// </para>
 /// <para>
-/// Each member's remarks carry the C++ site, what stock does, what
+/// Each member's remarks carry the reference site, what stock does, what
 /// <see cref="CompliancePolicy.Correct"/> does instead, and how the difference
 /// was observed. A member with no observation is a suspicion, not a quirk.
 /// </para>
@@ -77,7 +77,7 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>polylib.cpp</c>'s <c>BaseWindingForPlane</c> calls
+    /// The reference's <c>BaseWindingForPlane</c> calls
     /// <c>VectorNormalize</c>, which on Windows and Linux alike is the SSE
     /// reciprocal-square-root approximation refined once, not an exact divide.
     /// The winding it produces is then scaled by <c>MAX_COORD_INTEGER*4</c> and
@@ -85,7 +85,7 @@ public enum StockQuirk
     /// last bits decide whether a sliver survives the clip.
     /// </para>
     /// <para>
-    /// Measured in Phase 4b: stock's world-brush shadow casters come to 23,549
+    /// Measured: stock's world-brush shadow casters come to 23,549
     /// triangles and this port's to 23,545 -- and that gap is the <b>net of 53
     /// lost and 49 gained</b>, not a deficit. The disagreeing triangles have
     /// median area zero.
@@ -114,7 +114,7 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>map.cpp:550</c> and <c>:568</c>. Both are <c>VectorNormalize</c>, so
+    /// The edge and candidate normal both go through <c>VectorNormalize</c>, so
     /// both are the estimate rather than a divide — the same instruction
     /// sequence as <see cref="BaseWindingNormalise"/> but a different function,
     /// and separately switchable because a gate needs to attribute a moved
@@ -148,10 +148,10 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>portals.cpp:952</c>. The <c>continue</c> that skips <c>pStart</c>
+    /// The <c>continue</c> that skips <c>pStart</c>
     /// jumps over the line that assigns <c>s</c>, so the next step uses the
     /// value assigned above the loop -- the complement of the convention every
-    /// other loop in the file uses -- and the walk proceeds into the other
+    /// other portal walk in the reference uses -- and the walk proceeds into the other
     /// node's portal list.
     /// </para>
     /// <para>
@@ -169,7 +169,7 @@ public enum StockQuirk
     /// <c>0.2f</c> counts as a long edge.
     /// </summary>
     /// <remarks>
-    /// <c>brushbsp.cpp:647</c>. <c>EDGE_LENGTH</c> is spelled <c>0.2</c> with no
+    /// <c>EDGE_LENGTH</c> is spelled <c>0.2</c> with no
     /// <c>f</c>, so the comparison happens in double and <c>0.2f</c>
     /// (0.20000000298...) compares as <b>greater</b> than the threshold.
     /// Comparing in float, as the surrounding code's types imply, flips the
@@ -182,7 +182,7 @@ public enum StockQuirk
     /// origin the flood actually started from.
     /// </summary>
     /// <remarks>
-    /// <c>leakfile.cpp</c> re-reads the <c>origin</c> key when writing, so the
+    /// The reference's leak writer re-reads the <c>origin</c> key when writing, so the
     /// trace it draws begins at a point the flood never used: the flood starts
     /// at origin + 1 unit in z. The line is drawn from the wrong end by one
     /// unit. <see cref="CompliancePolicy.Correct"/> writes the point the flood
@@ -209,7 +209,7 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>leaf_ambient_lighting.cpp:533-538</c>. The heuristic wants about one
+    /// The heuristic wants about one
     /// candidate sample per player-sized volume, so it divides the leaf's
     /// extents by 32, 32 and 64 -- and then clamps with
     /// </para>
@@ -252,12 +252,12 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>vector.h:2207</c> computes <c>1/max(1,|v|^2)</c> with
+    /// The reference's <c>InvRSquared</c> computes <c>1/max(1,|v|^2)</c> with
     /// <c>_mm_rcp_ss</c> -- a 12-bit approximation, over an input nudged by
     /// <c>1e-10f</c>, and with NO Newton-Raphson step -- and
-    /// <c>vector.h:2239</c> normalises with <c>rsqrtss</c> plus one refinement.
+    /// <c>VectorNormalize</c> normalises with <c>rsqrtss</c> plus one refinement.
     /// Both sit on the path <c>AddEmitSurfaceLights</c>
-    /// (<c>leaf_ambient_lighting.cpp:92</c>) takes, and <c>InvRSquared</c> is
+    /// takes, and <c>InvRSquared</c> is
     /// also how <c>IsLeafAmbientSurfaceLight</c>'s 512-unit threshold is
     /// computed -- which decides which lights are baked into the cubes at all,
     /// and that decision is written back into <c>LUMP_WORLDLIGHTS</c>.
@@ -288,7 +288,7 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>leaf_ambient_lighting.cpp:330</c> declares
+    /// The reference's <c>AddSampleToList</c> declares
     /// <c>float nearestNeighborTotal = 0;</c> and nothing ever writes to it, so
     /// the second half of
     /// </para>
@@ -331,8 +331,8 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>disp_vbsp.cpp:266</c> in <c>DispMapToCoreDispInfo</c> and the
-    /// identical three lines at <c>:347</c> in <c>EmitInitialDispInfos</c>. Both
+    /// <c>DispMapToCoreDispInfo</c> and the
+    /// identical three lines in <c>EmitInitialDispInfos</c>. Both
     /// take <c>v = fieldVector * dist + offset</c>, record
     /// <c>VectorLength(v)</c> -- an exact <c>sqrt</c> -- and then store
     /// <c>VectorNormalize(v)</c>, which is the SSE reciprocal-square-root
@@ -370,16 +370,16 @@ public enum StockQuirk
 
     /// <summary>
     /// A displacement whose luxel layout runs across its texinfo's lightmap
-    /// axes has them swapped into a new texinfo (<c>disp_vbsp.cpp:222-242</c>)
-    /// — but only on the MAP face, after the BSP face was emitted
-    /// (<c>writebsp.cpp:933</c>), so the swap never reaches LUMP_FACES and
+    /// axes has them swapped into a new texinfo
+    /// — but only on the MAP face, after the BSP face was emitted,
+    /// so the swap never reaches LUMP_FACES and
     /// <c>CompactTexinfos</c> deletes the copy.
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>Why this is a defect.</b> The face's lightmap vectors are what vrad
     /// uses to map world positions into the face's luxel grid for displacement
-    /// faces (<c>lightmap.cpp:429</c> fills <c>worldToLuxelSpace</c> from it; <c>radial.cpp:23</c>, <c>vraddetailprops.cpp:508-514</c> read it), and
+    /// faces (the reference fills <c>worldToLuxelSpace</c> from it, and its radial pass and detail-prop lighting read it), and
     /// the grid itself is laid out by the displacement's own luxel
     /// coordinates. Unswapped, the two disagree by a transpose: on
     /// <c>p3f_swap</c> the texinfo projects to 9 x 33 luxels while the face
@@ -398,12 +398,12 @@ public enum StockQuirk
     /// <summary>
     /// A displacement's contribution to <c>world_mins</c>/<c>world_maxs</c>
     /// is its FLAT base quad puffed by 0.1 (<c>ComputeDispInfoBounds</c>,
-    /// <c>disp_vbsp.cpp:39</c>, reusing the neighbour finder's
+    /// reusing the neighbour finder's
     /// <c>GetDispBox</c>), so its height never counts.
     /// </summary>
     /// <remarks>
-    /// <c>AddDispsToBounds</c>' own comment is "Adds the displacement surfaces
-    /// in the world to the bounds" (<c>writebsp.cpp:1510</c>): a terrain raised
+    /// The reference's <c>AddDispsToBounds</c> comment is "Adds the displacement surfaces
+    /// in the world to the bounds": a terrain raised
     /// above every brush leaves the world box short of it.
     /// <see cref="CompliancePolicy.Correct"/> uses the box of the displaced
     /// vertices (the quad-tree root box); <see cref="CompliancePolicy.Stock"/>
@@ -413,13 +413,12 @@ public enum StockQuirk
 
     /// <summary>
     /// A displacement vertex normal is the MEAN of its fan's unit triangle
-    /// normals and is never renormalised (<c>CalcNormalFromEdges</c>,
-    /// <c>builddisp.cpp:1835</c>), so it is shorter than one wherever the fan
+    /// normals and is never renormalised (<c>CalcNormalFromEdges</c>), so it is shorter than one wherever the fan
     /// is not coplanar.
     /// </summary>
     /// <remarks>
-    /// vrad blends these normals bilinearly and normalises only the blend
-    /// (<c>vrad_dispcoll.cpp:361-378</c>), and <c>disp_vrad.cpp</c> sums them
+    /// vrad blends these normals bilinearly and normalises only the blend,
+    /// and its displacement lighting sums them
     /// before normalising — in both, a short normal is a smaller WEIGHT, so a
     /// crease vertex pulls less than its neighbours for no geometric reason.
     /// Every consumer treats the value as a direction.
@@ -435,7 +434,7 @@ public enum StockQuirk
     /// the order they were found in -- reversed -- instead of by distance.
     /// </summary>
     /// <remarks>
-    /// <c>ivp.cpp:717-722</c>. The branch tests
+    /// The branch tests
     /// <c>newleaf.surfaceDist &lt; currentleaf.surfaceDist</c>, returns true if
     /// so, and then falls through to <c>return true</c> anyway. The ordering
     /// decides which water volume is emitted first, so the order of the
@@ -451,7 +450,7 @@ public enum StockQuirk
     /// hard-coded to -1.
     /// </summary>
     /// <remarks>
-    /// <c>ivp.cpp:1211-1221</c>: <c>int waterSurfaceTexInfoID = -1;</c> and then
+    /// The reference seeds <c>int waterSurfaceTexInfoID = -1;</c> and then
     /// <c>if ( waterSurfaceTexInfoID &gt;= 0 )</c>. <see cref="CompliancePolicy.Correct"/>
     /// takes the surface property of the volume's water surface material,
     /// falling back to <c>water</c> when it has none.
@@ -463,8 +462,8 @@ public enum StockQuirk
     /// sentinel entry, and 2 for a faceless model's first side.
     /// </summary>
     /// <remarks>
-    /// <c>ivp.cpp:1384-1396</c> seeds <c>proplist</c> with those areas so that
-    /// SOME property wins the vote; <c>:1436</c> then adds them to
+    /// The reference's shell-mass pass seeds <c>proplist</c> with those areas so that
+    /// SOME property wins the vote, then adds them to
     /// <c>totalArea</c>, which is the surface area in the shell formula
     /// (<c>mass = totalArea * thickness * density</c>). A model with faces is
     /// one square inch heavier than its faces; a faceless one weighs three
@@ -478,7 +477,7 @@ public enum StockQuirk
     /// collision, so the fluid extends above its own surface.
     /// </summary>
     /// <remarks>
-    /// <c>ivp.cpp:1196-1199</c>, stock's own "BUGBUG ... Right now map makers
+    /// The reference's own "BUGBUG ... Right now map makers
     /// must cut such brushes. It could be automatically cut by adding the
     /// surface plane to the list for each brush before calling
     /// ConvexFromPlanes()". <see cref="CompliancePolicy.Correct"/> does exactly
@@ -492,12 +491,12 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>EmitDrawNode_r</c> copies <c>node-&gt;area</c> into the lump
-    /// (<c>writebsp.cpp:602</c>); <c>SetNodeAreaIndices_R</c>, whose comment
+    /// <c>EmitDrawNode_r</c> copies <c>node-&gt;area</c> into the lump;
+    /// <c>SetNodeAreaIndices_R</c>, whose comment
     /// says it "sets node_t::area for non-leaf nodes (this allows an
     /// optimization in the renderer)", runs at the END of
-    /// <c>EmitAreaPortals</c> (<c>portals.cpp:1359</c>), which <c>WriteBSP</c>
-    /// calls after the walk (<c>writebsp.cpp:921</c>). The values land in the
+    /// <c>EmitAreaPortals</c>, which <c>WriteBSP</c>
+    /// calls after the walk. The values land in the
     /// tree and never reach the file. Measured: all 47/27/67 nodes of
     /// l1_areaportal, l1_sealed_room and l2_areaportal_between_pools read 0 in
     /// stock's own output.
@@ -518,10 +517,10 @@ public enum StockQuirk
     /// <remarks>
     /// <para>
     /// <c>for (i = pModel-&gt;firstface; i &lt; pModel-&gt;firstface +
-    /// pModel-&gt;numfaces; i++)</c> (<c>ivp.cpp:880</c>) runs from
-    /// <c>EmitWaterVolumesForBSP</c> inside <c>WriteBSP</c>
-    /// (<c>writebsp.cpp:937</c>); <c>numfaces</c> is set by <c>EndModel</c>
-    /// (<c>writebsp.cpp:1360</c>), after <c>WriteBSP</c> returns, and until
+    /// pModel-&gt;numfaces; i++)</c> runs from
+    /// <c>EmitWaterVolumesForBSP</c> inside <c>WriteBSP</c>;
+    /// <c>numfaces</c> is set by <c>EndModel</c>
+    /// after <c>WriteBSP</c> returns, and until
     /// then is the zero of the cleared <c>dmodels</c> global. The loop body --
     /// which would ALSO read <c>leafWaterDataID</c> before
     /// <c>EmitPhysCollision</c> assigns it, and <c>dplanes</c> before
@@ -543,10 +542,10 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>mathlib_base.cpp:1353-1357</c> writes three divisions by
-    /// <c>det</c>. The shipped x64 <c>vrad.exe</c> is built <c>/fp:fast</c>,
+    /// The reference's <c>SolveInverseQuadratic</c> writes three divisions by
+    /// <c>det</c>. The reference build's x64 <c>vrad.exe</c> is built <c>/fp:fast</c>,
     /// and the numbers it writes are those of <c>num * (1.0f / det)</c>: on
-    /// p4c's texlight fixture, a <c>_fifty_percent_distance</c> 96 /
+    /// the texlight fixture, a <c>_fifty_percent_distance</c> 96 /
     /// <c>_zero_percent_distance</c> 256 light's linear and quadratic terms are
     /// 0.00250157341 and 0.000185510085 in stock's LUMP_WORLDLIGHTS, the
     /// reciprocal form gives exactly those, and the three divides give
@@ -563,16 +562,16 @@ public enum StockQuirk
     InverseQuadraticReciprocal,
 
     /// <summary>
-    /// A light's direction takes the shipped binary's cosine of a right angle:
+    /// A light's direction takes the reference build's cosine of a right angle:
     /// <c>sin((double)M_PI)</c>, not <c>cos((double)M_PI / 2)</c>.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>SetupLightNormalFromProps</c> (<c>public/map_utils.cpp:34, 45</c>)
+    /// <c>SetupLightNormalFromProps</c>
     /// casts <c>cos(angle/180*M_PI)</c> to float. For a yaw of 90 or a pitch
     /// of -90 -- a spotlight pointing down, the commonest light_spot there is --
     /// the correctly rounded answer is 6.123234e-17 and stock's LUMP_WORLDLIGHTS
-    /// holds 1.2246469e-16 (p4c's texlight fixture, lights 4 and 5). That is the
+    /// holds 1.2246469e-16 (the texlight fixture, lights 4 and 5). That is the
     /// C runtime's cosine, not anything in the source.
     /// </para>
     /// <para>
@@ -590,10 +589,9 @@ public enum StockQuirk
     /// <remarks>
     /// <para>
     /// The same instruction sequence as <see cref="BaseWindingNormalise"/>
-    /// (<c>vector.h:2239</c>) at different stock sites: <c>PairEdges</c>'s
-    /// corner normals (<c>lightmap.cpp:322</c>), a light's target direction
-    /// (<c>:1153</c>), the phong normal (<c>:2192</c>, and its four-wide twin
-    /// at <c>:2302</c>) and the bump basis (<c>bumpvects.cpp:52-54</c>). Those
+    /// at different vrad sites: <c>PairEdges</c>'s
+    /// corner normals, a light's target direction,
+    /// the phong normal (and its four-wide twin) and the bump basis. Those
     /// normals decide which patches the edge rule re-chops, which way a spot
     /// points in LUMP_WORLDLIGHTS, and every dot product the lighting takes.
     /// </para>
@@ -612,12 +610,12 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>ReciprocalSIMD</c> and <c>ReciprocalSqrtSIMD</c> (<c>ssemath.h:2252,
-    /// 2278</c>) are what <c>GatherSampleStandardLightSSE</c>
-    /// (<c>lightmap.cpp:1856</c> onwards), <c>GatherSampleAmbientSkySSE</c>'s
-    /// normalisation (<c>:1826-1830</c>), the four-wide phong normal
-    /// (<c>:2267-2271</c>) and the skybox recursion's direction
-    /// (<c>trace.cpp:394</c>) divide with. The estimates are architecturally
+    /// <c>ReciprocalSIMD</c> and <c>ReciprocalSqrtSIMD</c>
+    /// are what <c>GatherSampleStandardLightSSE</c>,
+    /// <c>GatherSampleAmbientSkySSE</c>'s
+    /// normalisation, the four-wide phong normal
+    /// and the skybox recursion's direction
+    /// divide with. The estimates are architecturally
     /// allowed to differ between CPU models, so stock's lightmaps depend on the
     /// machine that compiled them.
     /// </para>
@@ -636,10 +634,10 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>PowSIMD</c> (<c>ssemath.h:3024</c>) is <c>Pow_FixedPoint_Exponent_SIMD(x,
-    /// (int)(4.0*exponent))</c> (<c>powsse.cpp:13</c>); stock's own comment says
+    /// <c>PowSIMD</c> is <c>Pow_FixedPoint_Exponent_SIMD(x,
+    /// (int)(4.0*exponent))</c>; stock's own comment says
     /// fractions other than quarters are dropped. The spot fringe of
-    /// <c>lightmap.cpp:1946</c> is its caller.
+    /// the gather pass is its caller.
     /// </para>
     /// <para>
     /// <see cref="CompliancePolicy.Correct"/> takes the real power.
@@ -657,7 +655,7 @@ public enum StockQuirk
     /// <remarks>
     /// <para>
     /// <c>TestLine_DoesHitSky</c> looks up the leaf of <c>start.Vec(0)</c>
-    /// (<c>trace.cpp:397</c>) and, if that area has no sky camera, recurses
+    /// and, if that area has no sky camera, recurses
     /// into every skybox for all four lanes. A group straddling a skybox
     /// area's boundary therefore treats its other three samples as being where
     /// the first is.
@@ -675,8 +673,8 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The directions go four at a time with each index clamped to 161
-    /// (<c>lightmap.cpp:1330-1331</c>), so the last group is 160, 161, 161,
+    /// The directions go four at a time with each index clamped to 161,
+    /// so the last group is 160, 161, 161,
     /// 161. The answer is "any ray reached sky", which the duplicates cannot
     /// change -- only the ray count moves, by two per probed leaf.
     /// </para>
@@ -694,8 +692,8 @@ public enum StockQuirk
     /// <remarks>
     /// <para>
     /// <c>ParseLightEnvironment</c> reads <c>SunSpreadAngle</c>
-    /// (<c>lightmap.cpp:1486</c>) before it checks whether a sun already exists
-    /// (<c>:1490</c>), so the LAST light_environment's spread applies to the
+    /// before it checks whether a sun already exists,
+    /// so the LAST light_environment's spread applies to the
     /// FIRST one's sun.
     /// </para>
     /// <para>
@@ -714,7 +712,7 @@ public enum StockQuirk
     /// <para>
     /// <c>SolveInverseQuadraticMonotonic</c>'s comment says it enforces "the
     /// sign of the derivative at the start point" and the code tests
-    /// <c>2.0*a+b</c> (<c>mathlib_base.cpp:1392</c>), the derivative at x = 1.
+    /// <c>2.0*a+b</c>, the derivative at x = 1.
     /// The only caller starts at x = 0, where the derivative is <c>b</c>, so
     /// the blend toward a straight line stops at a different step and a
     /// <c>_fifty_percent_distance</c> light's attenuation terms can move.
@@ -733,14 +731,14 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>utils/vbsp/cubemap.cpp:869-875</c>: <c>flDist =
+    /// The nearest-sample loop measures <c>flDist =
     /// vecDelta.NormalizeInPlace()</c> returns <c>sqrlen * invlen</c> with
     /// <c>invlen</c> the refined estimate, and the nearest sample in front of
     /// the face wins on that value. Two samples at nearly the same distance can
     /// therefore be ordered differently on two CPUs, which moves a side to a
     /// different <c>_x_y_z</c> patch — a different material name in
-    /// TEXDATA_STRING_DATA and a different VMT in the pak. The fallback loop at
-    /// <c>:881-895</c> uses <c>Length()</c> and is exact either way.
+    /// TEXDATA_STRING_DATA and a different VMT in the pak. The reference's fallback loop
+    /// uses <c>Length()</c> and is exact either way.
     /// </para>
     /// <para>
     /// <see cref="CompliancePolicy.Correct"/> uses the exact length and an
@@ -756,7 +754,7 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>utils/vbsp/detailobjects.cpp:582-592</c>: the surface normal, then
+    /// The surface normal, then
     /// the two cross products that make the tangent basis, are each normalised
     /// with the estimate refined once; <c>MatrixToAngles</c> turns that basis
     /// into the pitch, yaw and roll written to LUMP_GAME_LUMP's <c>dprp</c>.
@@ -778,8 +776,7 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>utils/vbsp/materialpatch.cpp:211</c> (and <c>:118-121</c>,
-    /// <c>:232</c>, <c>:253</c>): <c>LoadFromFile</c>, no
+    /// The envmap test's loader calls <c>LoadFromFile</c>, no
     /// <c>ExpandPatchFile</c>. The keys a patch inserts live under its
     /// <c>insert</c> section, and the root is <c>"patch"</c>, so
     /// <c>DoesMaterialOrDependentsUseEnvmap</c> answers false and the side keeps
@@ -801,10 +798,10 @@ public enum StockQuirk
     /// when it also has an <c>insert</c>.
     /// </summary>
     /// <remarks>
-    /// <c>utils/vbsp/materialpatch.cpp:352-355</c>: after the insert is
+    /// After the insert is
     /// applied the tree is reassigned to the INCLUDED material, and the
     /// replace lookup that follows searches that, not the patch. Consequence:
-    /// the water <c>$bottommaterial</c> read (<c>faces.cpp:1264</c>) and the
+    /// the water <c>$bottommaterial</c> read and the
     /// WorldVertexTransition fixup see a material the engine never draws.
     /// <see cref="CompliancePolicy.Correct"/> takes both sections from the patch.
     /// </remarks>
@@ -815,7 +812,7 @@ public enum StockQuirk
     /// <c>insert</c> nor <c>replace</c>.
     /// </summary>
     /// <remarks>
-    /// <c>utils/vbsp/materialpatch.cpp:330-371</c>: the tree is reassigned only
+    /// The tree is reassigned only
     /// inside the two branches, so an empty patch stays <c>"patch"</c>, the
     /// loop re-reads the include ten times and warns "Infinite recursion in
     /// patch file?". The engine's reader resolves it to its include.
@@ -828,9 +825,9 @@ public enum StockQuirk
     /// texture name with file names and never matches.
     /// </summary>
     /// <remarks>
-    /// <c>utils/vbsp/cubemap.cpp:980</c>: <c>maps/m/c1_2_3</c> against
+    /// The "already added" test compares <c>maps/m/c1_2_3</c> against
     /// <c>materials/maps/m/c1_2_3.vtf</c>. Every sample is appended again;
-    /// the pak writer's <c>FileExistsInPak</c> (<c>:461-464</c>) hides it, so
+    /// the pak writer's <c>FileExistsInPak</c> hides it, so
     /// the pak is IDENTICAL under both policies — measured on all 11 3g
     /// entries. <see cref="CompliancePolicy.Correct"/> compares file names.
     /// </remarks>
@@ -841,7 +838,7 @@ public enum StockQuirk
     /// overlay) is a fatal error.
     /// </summary>
     /// <remarks>
-    /// <c>utils/vbsp/overlay.cpp:275</c> and <c>:364</c> test
+    /// The reference tests
     /// <c>nFaceCount &gt;= OVERLAY_BSP_FACE_COUNT</c> against arrays of exactly
     /// that size, so a list that fits is refused. <see cref="CompliancePolicy.Correct"/>
     /// refuses only a list that does not fit.
@@ -853,9 +850,9 @@ public enum StockQuirk
     /// material.
     /// </summary>
     /// <remarks>
-    /// <c>utils/vbsp/overlay.cpp:72</c> reads the <c>material</c> key raw,
-    /// while brush sides (<c>map.cpp:2849</c>) and water overlays
-    /// (<c>map.cpp:1327-1330</c>) go through <c>ReplaceMaterialName</c>, so a
+    /// The reference reads the <c>material</c> key raw,
+    /// while brush sides and water overlays
+    /// go through <c>ReplaceMaterialName</c>, so a
     /// replacement table swaps a map's materials everywhere except on its
     /// decals-by-overlay. <see cref="CompliancePolicy.Correct"/> replaces it too.
     /// </remarks>
@@ -866,10 +863,10 @@ public enum StockQuirk
     /// 48 before it is checked.
     /// </summary>
     /// <remarks>
-    /// <c>utils/vbsp/staticprop.cpp:163</c> calls
+    /// The reference's model loader calls
     /// <c>Studio_ConvertStudioHdrToNewVersion</c>, which ends by slamming the
-    /// version to <c>STUDIO_VERSION</c> (<c>public/studio.h:3171-3172</c>),
-    /// so the <c>version != STUDIO_VERSION</c> refusal at <c>:165</c> is dead
+    /// version to <c>STUDIO_VERSION</c>,
+    /// so the <c>version != STUDIO_VERSION</c> refusal that follows is dead
     /// code. Versions 44-47 are compatible (the conversion's own comment, and
     /// HL2's props are 44); a model of any OTHER version has a different
     /// header and is read as garbage. <see cref="CompliancePolicy.Correct"/>
@@ -884,18 +881,17 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>vraddetailprops.cpp:662</c> constructs <c>CLightSurface surfEnum</c>
-    /// once, and <c>FindIntersection</c> (<c>:486</c>) resets only the
+    /// The reference constructs <c>CLightSurface surfEnum</c>
+    /// once, and <c>FindIntersection</c> resets only the
     /// displacement counter, never <c>m_HitFrac</c>. A leaf face or
     /// displacement further along the new ray than the LAST ray's hit fraction
-    /// is rejected (<c>:455</c>, <c>:475</c>), so a static prop vertex's indirect
+    /// is rejected, so a static prop vertex's indirect
     /// light depends on the order of the 40 sample directions and misses
     /// surfaces that the fresh enumerator would find. Node faces are unaffected.
     /// </para>
     /// <para>
     /// <see cref="CompliancePolicy.Correct"/> starts every ray from a fresh
-    /// enumerator, as <c>CalcRayAmbientLighting</c> (<c>:586</c>) already does.
-    /// Added by lane p4g for <c>Rad/Props</c>.
+    /// enumerator, as <c>CalcRayAmbientLighting</c> already does.
     /// </para>
     /// </remarks>
     IndirectSurfaceEnumeratorReused,
@@ -907,16 +903,16 @@ public enum StockQuirk
     /// <remarks>
     /// <para>
     /// <c>CVradStaticPropMgr::ComputeLighting</c> lights a good vertex with
-    /// <c>skip_prop</c> and <c>nFlags</c> (<c>vradstaticprops.cpp:1405-1407</c>) and its
-    /// indirect term with the prop's <c>STATIC_PROP_IGNORE_NORMALS</c>
-    /// (<c>:1422</c>). The bad-vertex relight at <c>:1488-1491</c> calls the same
+    /// <c>skip_prop</c> and <c>nFlags</c> and its
+    /// indirect term with the prop's <c>STATIC_PROP_IGNORE_NORMALS</c>.
+    /// The bad-vertex relight calls the same
     /// two functions with their defaults, so on an <c>IGNORE_NORMALS</c> prop the
     /// recovered vertices are lit by their normals and every other vertex is not,
     /// and a <c>NO_SELF_SHADOWING</c> prop shadows its own recovered vertices.
     /// </para>
     /// <para>
     /// <see cref="CompliancePolicy.Correct"/> relights a bad vertex with the
-    /// prop's flags. Added by lane p4g for <c>Rad/Props</c>.
+    /// prop's flags.
     /// </para>
     /// </remarks>
     StaticPropBadVertexDropsPropFlags,
@@ -930,12 +926,12 @@ public enum StockQuirk
     /// <c>FormFactorPolyToDiff</c> takes each edge's sine as the length of the
     /// cross product of two unit vectors and guards <c>asin</c> with
     /// <c>if (flSinAlpha &lt; -1.0f || flSinAlpha &gt; 1.0f) return 0.0f;</c>
-    /// (<c>vrad.cpp:1084</c>). Rounding -- and on stock's path the
+    /// The guard is as written in the reference. Rounding -- and on stock's path the
     /// <c>rsqrtss</c> estimate, whose returned "length" is
     /// <c>sqrlen * invlen</c> -- can put a right-angled edge's sine an ulp
     /// above 1. The return discards every other edge's contribution too, and
-    /// <c>MakeTransfer</c> drops a form factor at or below zero
-    /// (<c>vrad.cpp:1165</c>), so a near patch that should receive the most
+    /// <c>MakeTransfer</c> drops a form factor at or below zero,
+    /// so a near patch that should receive the most
     /// light from its neighbour receives none.
     /// </para>
     /// <para>
@@ -952,7 +948,7 @@ public enum StockQuirk
     /// <remarks>
     /// <para>
     /// <c>FlushStreamEntry</c> scales each ray of the transfer stream by
-    /// <c>ReciprocalSaturateSIMD(length)</c> (<c>trace2.cpp:311</c>) before
+    /// <c>ReciprocalSaturateSIMD(length)</c> before
     /// tracing it to its length. The estimate differs between CPU vendors, so
     /// which patch pairs graze an edge -- and so which transfers exist -- is
     /// machine-dependent. Measured on the corpus: an exact divide moves up to
@@ -974,8 +970,8 @@ public enum StockQuirk
     /// <para>
     /// <c>TestPatchToPatch</c> keeps a source only when
     /// <c>DotProduct( patch2-&gt;origin, patch-&gt;normal ) &gt; patch-&gt;planeDist + PLANE_TEST_EPSILON</c>
-    /// (<c>vismat.cpp:190</c>). <c>patch-&gt;normal</c> is the PHONG normal of
-    /// a child patch on a smoothed face (<c>vrad.cpp:799</c>) while
+    /// The test is as written in the reference. <c>patch-&gt;normal</c> is the PHONG normal of
+    /// a child patch on a smoothed face while
     /// <c>planeDist</c> is the flat plane's distance, so the "plane" tested is
     /// neither the face's nor one through the patch: it is tilted about the
     /// world origin, and whether a source passes depends on how far both lie
@@ -996,11 +992,11 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>BuildDispSamplesAndLuxels_DoFast</c> (<c>vraddisps.cpp:1747-1748</c>)
+    /// <c>BuildDispSamplesAndLuxels_DoFast</c>
     /// adds the full path's half-step to coordinates on the LUXEL grid
     /// (<c>step = 1 / (w - 1)</c>). The last column's coordinate is then
     /// <c>1 + step / 2</c>, <c>DispUVToSurfPoint</c>/<c>DispUVToSurfNormal</c>
-    /// return without writing (<c>vrad_dispcoll.cpp:181, 326</c>), the sample
+    /// return without writing, the sample
     /// keeps the <c>calloc</c>'d zero position and normal, and a zero normal
     /// receives no light. Measured on the 18 p3f-t displacement maps: every
     /// displacement's last row and column is exactly zero in stock <c>-fast</c>
@@ -1021,12 +1017,12 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>BuildDispSamplesAndLuxels_DoFast</c> (<c>vraddisps.cpp:1724</c>)
+    /// <c>BuildDispSamplesAndLuxels_DoFast</c>
     /// <c>calloc</c>s the samples and never sets <c>area</c>;
-    /// <c>AddSampleToPatch</c> (<c>lightmap.cpp:2109-2110</c>) accumulates
+    /// <c>AddSampleToPatch</c> accumulates
     /// <c>area</c> and <c>area * light</c>, so a displacement patch's sample
     /// area stays zero and its direct light is never averaged in. The flat
-    /// <c>-fast</c> path sets <c>worldAreaPerLuxel</c> (<c>lightmap.cpp:618</c>).
+    /// <c>-fast</c> path sets <c>worldAreaPerLuxel</c>.
     /// </para>
     /// <para>
     /// <see cref="CompliancePolicy.Correct"/> gives each sample the texinfo's
@@ -1042,7 +1038,7 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>radial.cpp:493</c> tests <c>u &gt; rad-&gt;w</c> and
+    /// The reference tests <c>u &gt; rad-&gt;w</c> and
     /// <c>v &gt; rad-&gt;h</c>, so <c>u == w</c> reads the first luxel of the
     /// next row and <c>v == h</c> reads the zeroed tail of a
     /// <c>SINGLEMAP</c>-sized array (black, or red under <c>-rederrors</c>).
@@ -1064,8 +1060,8 @@ public enum StockQuirk
     /// <remarks>
     /// <para>
     /// <c>BuildPatchRadial</c> computes <c>neighborNeedsBumpmap</c> from
-    /// <c>facenum</c> instead of the neighbour (<c>radial.cpp:364</c>) and then
-    /// passes <c>needsBumpmap</c> for both arguments anyway (<c>:375-381</c>).
+    /// <c>facenum</c> instead of the neighbour and then
+    /// passes <c>needsBumpmap</c> for both arguments anyway.
     /// A bumped face next to an unbumped one therefore takes the neighbour's
     /// patches' bump-direction light -- zero -- at full weight in its three
     /// bump maps, instead of the flat light times <c>1/sqrt(3)</c> that
@@ -1085,8 +1081,8 @@ public enum StockQuirk
     /// <remarks>
     /// <para>
     /// <c>FinalLightFace</c>'s <c>-fast</c> branch reads
-    /// <c>fl-&gt;light[0][iBump][j]</c> inside the loop over styles
-    /// (<c>radial.cpp:766</c>), so a switchable light's style comes out as a
+    /// <c>fl-&gt;light[0][iBump][j]</c> inside the loop over styles,
+    /// so a switchable light's style comes out as a
     /// copy of the base lighting and the switch does nothing in a fast compile.
     /// </para>
     /// <para>
@@ -1103,8 +1099,8 @@ public enum StockQuirk
     /// <remarks>
     /// <para>
     /// <c>RadWorld_Start</c> caps the texinfo lightmap axes and then calls
-    /// <c>UpdateAllFaceLightmapExtents</c>, which walks <c>dfaces</c>
-    /// (<c>bsplib.cpp:3387</c>). An HDR pass lights <c>dfaces_hdr</c>, copied
+    /// <c>UpdateAllFaceLightmapExtents</c>, which walks <c>dfaces</c>.
+    /// An HDR pass lights <c>dfaces_hdr</c>, copied
     /// from <c>dfaces</c> earlier in <c>VRAD_LoadBSP</c>, so under <c>-hdr</c>
     /// every face keeps the extents of the OLD axes while its samples are
     /// placed with the new ones. <c>-both</c> hides it: its HDR pass reloads
@@ -1123,9 +1119,8 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The source says <c>angle/180*M_PI</c> (<c>map_utils.cpp:34-46</c>,
-    /// <c>lightmap.cpp:1305-1306</c>); the shipped x64 binary, built
-    /// <c>/fp:fast</c>, evaluates <c>angle * (1.0f/180)</c> -- a float
+    /// The reference's source says <c>angle/180*M_PI</c>; its x64 build,
+    /// compiled <c>/fp:fast</c>, evaluates <c>angle * (1.0f/180)</c> -- a float
     /// reciprocal, one rounding off -- before the double multiply by pi.
     /// MEASURED on ss_sandbox's light_environment (yaw 300, pitch -40): stock
     /// wrote the sun normal (0.38302240, -0.66341382, ...), which the exact
@@ -1146,7 +1141,7 @@ public enum StockQuirk
     /// <remarks>
     /// <para>
     /// <c>BuildSupersampleFaceLights</c> <c>stackalloc</c>s
-    /// <c>pSampleIntensity</c> (<c>lightmap.cpp:2881</c>) and writes only the
+    /// <c>pSampleIntensity</c> and writes only the
     /// luxels that have a sample; <c>ComputeLightmapGradients</c> then compares
     /// every edge sample of a non-rectangular face with its missing neighbours'
     /// garbage, and supersamples on the result. Undefined, so not reproducible
@@ -1162,21 +1157,21 @@ public enum StockQuirk
     SupersampleGradientReadsUninitialised,
 
     /// <summary>
-    /// SDK 2013's <c>vphysics.so</c> cooks collision in single precision and
-    /// normalises with the <c>rsqrtss</c>/<c>rsqrtps</c> estimates, so the
-    /// physics lump depends on the CPU and is rounded twice where TF2's build of
-    /// the same source rounds once.
+    /// The earlier reference build's physics library cooks collision in single
+    /// precision and normalises with the <c>rsqrtss</c>/<c>rsqrtps</c>
+    /// estimates, so the physics lump depends on the CPU and is rounded twice
+    /// where the later reference build rounds once.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Measured by a Ghidra diff of the two linux64 builds
-    /// (<c>~/re/ghidra/re-vphys/re-vphys-findings.md</c>): the same IVP source,
-    /// the same GCC 10.3 and flags, and exactly one cook-path difference, the
-    /// precision typedef <c>IVP_DOUBLE</c> -- <c>float</c> in SDK 2013,
-    /// <c>double</c> in TF2. SDK's float build lets <c>-ffast-math</c> lower
-    /// <c>1/sqrtf</c> to the estimate instructions (<c>IVP_U_Point::normize</c>
-    /// at SDK 001ff790, the four-lane hesse normalise at 00200550), whose
-    /// results are implementation-defined and may differ between CPU vendors.
+    /// Observed by comparing the two linux64 builds of the reference physics
+    /// library: the same cook path, the same compiler and flags, and exactly
+    /// one difference, the library's floating-point typedef -- <c>float</c>
+    /// in the earlier build, <c>double</c> in the later one. The earlier
+    /// build lets <c>-ffast-math</c> lower <c>1/sqrtf</c> to the estimate
+    /// instructions (the point normalise and the four-lane hesse normalise),
+    /// whose results are implementation-defined and may differ between CPU
+    /// vendors.
     /// A cube's <c>mass_center</c> and <c>rotation_inertia</c> already differ
     /// between the builds (15 of 440 bytes), reproduced bit for bit from each
     /// build's arithmetic.
@@ -1185,15 +1180,16 @@ public enum StockQuirk
     /// <b>Why this is a defect.</b> The same map cooked on two machines can give
     /// two different physics lumps, for a quantity where exact IEEE arithmetic
     /// costs nothing; and the float build rounds intermediate sums that the
-    /// source evidently meant to carry at <c>IVP_DOUBLE</c> precision.
+    /// library's floating-point typedef would have carried in full.
     /// </para>
     /// <para>
     /// <see cref="CompliancePolicy.Stock"/> selects the managed cooker's
-    /// <c>StockPrecision</c> (SDK arithmetic, estimate included, for byte parity
-    /// with SDK 2013's library on the CPU the goldens were cut on).
+    /// <c>StockPrecision</c> (the earlier reference build's float arithmetic,
+    /// estimate included, for byte parity with that build on the CPU the
+    /// goldens were cut on).
     /// <see cref="CompliancePolicy.Correct"/> selects <c>CorrectPrecision</c>:
-    /// TF2's double arithmetic in compiled order, identical on every CPU. Plan
-    /// ruling Q18.
+    /// the later reference build's double arithmetic in compiled order,
+    /// identical on every CPU. Plan ruling Q18.
     /// </para>
     /// </remarks>
     CollisionCookerSinglePrecision,
@@ -1204,19 +1200,20 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>IVP_Compact_Ledge_Solver</c>'s per-triangle moment integrand (SDK
-    /// 001a3a00, TF2 001a84c0) skips an edge only when
+    /// The reference physics library's per-triangle moment integrand for a
+    /// compact ledge skips an edge only when
     /// <c>len * eps &gt; |d[axis]|</c>; a zero-length edge fails that test and
-    /// reaches <c>d[b] / d[a] = 0/0</c>. The per-axis loop (001a4110 /
-    /// 001a8d20) then takes the divide because <c>comisd</c> is unordered on
+    /// reaches <c>d[b] / d[a] = 0/0</c>. The per-axis loop then takes the
+    /// divide because its comparison is unordered on
     /// NaN, and every axis of <c>rotation_inertia</c> is NaN. Zero-length edges
-    /// exist whenever two hull points collapse to one float: TF2's double build
-    /// de-duplicates the point soup in double and rounds the survivors to float
-    /// only when it writes the ledge.
+    /// exist whenever two hull points collapse to one float: the later
+    /// reference build de-duplicates the point soup in double and rounds the
+    /// survivors to float only when it writes the ledge.
     /// </para>
     /// <para>
-    /// Observed: 6 of dm_lockdown's 2,239 brushes come out of TF2's
-    /// <c>vphysics.so</c> with <c>rotation_inertia = (NaN, NaN, NaN)</c>; the
+    /// Observed: 6 of dm_lockdown's 2,239 brushes come out of the later
+    /// reference build's physics library with
+    /// <c>rotation_inertia = (NaN, NaN, NaN)</c>; the
     /// managed cooker reproduces all six bit for bit under
     /// <see cref="CompliancePolicy.Stock"/> semantics and writes finite values
     /// under <see cref="CompliancePolicy.Correct"/>.
@@ -1238,18 +1235,18 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The loop "copy the materials to the duplicated 2-D triangles" (2018 drop,
-    /// <c>vphysics/physics_collide.cpp:1459-1482</c>, compiled into both builds) searches the
+    /// The reference's loop "copy the materials to the duplicated 2-D triangles",
+    /// compiled into both reference builds, searches the
     /// ledge's triangles for a non-zero material with the same pointer it then copies with; when
     /// the first triangle's material is 0 the search leaves the pointer one past the last
     /// triangle, and the copy loop clears bits 24-30 of the next <c>n</c> words. For a
     /// displacement's two-sided triangle ledge those are the x coordinates of its first two
-    /// points, whose exponents are wiped: the vertices collapse to x = 0 in IVP space.
+    /// points, whose exponents are wiped: the vertices collapse to x = 0 in the cooked space.
     /// </para>
     /// <para>
-    /// Reached by vbsp's <c>-novirtualmesh</c> displacement road (<c>disp_ivp.cpp:150, 185</c>,
-    /// also taken for power-4 displacements) whenever a displacement triangle's surface property
-    /// is the first in the world's material table (index 0). Measured: the session goldens'
+    /// Reached by vbsp's <c>-novirtualmesh</c> displacement road (also taken for
+    /// power-4 displacements) whenever a displacement triangle's surface property
+    /// is the first in the world's material table (index 0). Measured: the golden
     /// polysoups are byte-exact against both builds only with the overrun reproduced.
     /// </para>
     /// <para>
@@ -1267,10 +1264,10 @@ public enum StockQuirk
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>Trace4Rays</c> (<c>raytrace.cpp:357</c>) calls
+    /// <c>Trace4Rays</c> calls
     /// <c>MakeReciprocalSaturate</c>, whose <c>ReciprocalSaturateSIMD</c>
-    /// (<c>ssemath.h:2288-2291</c>) ORs <c>Four_Epsilons</c> =
-    /// <c>FLT_EPSILON</c> (<c>sseconst.cpp:27</c>) into a zero component. The
+    /// ORs <c>Four_Epsilons</c> =
+    /// <c>FLT_EPSILON</c> into a zero component. The
     /// reciprocal is then about 8.4e6, and a ray whose origin lies a distance
     /// <c>d</c> inside the scene box's face, or short of a KD split plane, on
     /// that axis gets a far limit of <c>d * 8.4e6</c> -- 64 units for one ulp
@@ -1281,8 +1278,8 @@ public enum StockQuirk
     /// </para>
     /// <para>
     /// Observed: a shadow ray along +Y from one ulp inside x = 100 misses a
-    /// wall at distance 1,000 in stock's own <c>Trace4Rays</c> (p5-trace's
-    /// oracle, stock source unchanged) and hits it with <c>-0</c>. On 2fort's
+    /// wall at distance 1,000 in stock's own <c>Trace4Rays</c> (the reference build,
+    /// unmodified) and hits it with <c>-0</c>. On 2fort's
     /// recorded transfer rays, 1 hit id and 2 hit distances in 4,193,652
     /// differ from the 1e-10 substitute this port used before, all past the
     /// segment's end.

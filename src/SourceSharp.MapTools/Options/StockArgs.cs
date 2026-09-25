@@ -24,7 +24,7 @@ namespace SourceSharp.MapTools.Options;
 /// <item><description>
 /// <b>Nothing exits and nothing throws for a bad line.</b> Stock's
 /// <c>Error()</c> calls <c>exit()</c> and an unknown option makes vbsp print
-/// its usage and quit (<c>vbsp.cpp:1175-1177</c>). Everything here is a
+/// its usage and quit. Everything here is a
 /// <see cref="CompileDiagnostic"/> and parsing continues to the end, so three
 /// mistakes produce three messages. The only exception is a null argument
 /// array, which is a bug in the caller rather than a bad command line.
@@ -45,13 +45,13 @@ namespace SourceSharp.MapTools.Options;
 /// </description></item>
 /// </list>
 /// <para>
-/// Flag matching is case-insensitive, as <c>Q_stricmp</c> makes it in the C++.
+/// Flag matching is case-insensitive, as it is in the reference.
 /// It is specifically ORDINAL case-insensitivity, not the current culture's:
 /// under a Turkish culture a culture-aware comparison does not fold <c>I</c>
 /// to <c>i</c>, and <c>-FINAL</c> would stop being <c>-final</c>. Stock has two
 /// flags that are accidentally case-SENSITIVE because they use plain
-/// <c>strcmp</c> -- vbsp's <c>-minluxelscale</c> (<c>vbsp.cpp:1096</c>) and
-/// vrad's <c>-dump</c> (<c>vrad.cpp:2415</c>) -- and both are treated
+/// <c>strcmp</c> -- vbsp's <c>-minluxelscale</c> and
+/// vrad's <c>-dump</c> -- and both are treated
 /// case-insensitively here, because a typo in one branch of a 45-branch
 /// <c>else if</c> chain is not a contract.
 /// </para>
@@ -198,7 +198,7 @@ public static class StockArgs
             {
                 if (cursor.TryFloat(arg, out float minScale))
                 {
-                    // Stock clamps as it parses, at vbsp.cpp:1099-1100.
+                    // Stock clamps as it parses.
                     options = options with { MinLuxelScale = Math.Max(minScale, 1.0f) };
                 }
             }
@@ -246,8 +246,8 @@ public static class StockArgs
             }
             else if (Is(arg, "-threads"))
             {
-                // RECORDED, as vvis and vrad do. Stock parses it (vbsp.cpp:935)
-                // and then overwrites it with numthreads = 1 (vbsp.cpp:1302),
+                // RECORDED, as vvis and vrad do. Stock parses <c>-threads</c>
+                // and then overwrites it with numthreads = 1,
                 // so stock vbsp is serial whatever it is told; this port's
                 // parallel stages (plan 3p) honour it, and write the same
                 // bytes at every degree. The host maps it onto
@@ -297,8 +297,8 @@ public static class StockArgs
             else if (arg.Length > 1 && arg[0] == '-'
                 && MapFormatPreset.TryByName(arg, out MapFormatPreset? preset))
             {
-                // ++ applies each preset the moment its token is seen, storing
-                // only its own fields, so two preset flags compose
+                // The preset flags apply the moment their token is seen, storing
+                // only their own fields, so two preset flags compose
                 // last-writer-wins per field and the NAME provenance is the
                 // last one named.
                 format = preset!.ToOverrides().ApplyOver(format);
@@ -353,8 +353,8 @@ public static class StockArgs
                     }
                     else
                     {
-                        // ++'s message: vbspplusplus.exe
-                        // "Unrecognized prop format %s".
+                        // "Unrecognized prop format %s", matching the flag
+                        // family this option mirrors.
                         cursor.Add(
                             FormatResolution.UnrecognizedPropFormatCode,
                             DiagnosticSeverity.Error,
@@ -387,9 +387,8 @@ public static class StockArgs
             }
             else if (Is(arg, "-maxdispinfo"))
             {
-                // The flag ++ registers ("Set maximum displacement limit",
-                // vbspplusplus.exe 0x14004cf80); the csgo preset's tail store
-                // writes the same global with 32768.
+                // "Set maximum displacement limit": the same state the csgo
+                // preset's tail store writes with 32768.
                 if (cursor.TryInt(arg, out int limit))
                 {
                     if (limit > 0)
@@ -441,8 +440,8 @@ public static class StockArgs
 
         if (options.EmbedDirectory is not null && (options.OnlyEnts || options.OnlyProps))
         {
-            // Stock prints the same advice and then calls CmdLib_Exit(1) at
-            // vbsp.cpp:1277. Here it is an error diagnostic on a result the
+            // Stock prints the same advice and then calls CmdLib_Exit(1).
+            // Here it is an error diagnostic on a result the
             // caller still holds.
             cursor.Add(
                 StockArgsCodes.ConflictingOptions,
@@ -510,7 +509,7 @@ public static class StockArgs
             }
             else if (Is(arg, "-radius_override"))
             {
-                // Stock squares it on the way in, at vvis.cpp:941, so that the
+                // Stock squares it on the way in, so that the
                 // per-cluster distance test can stay squared. The option holds
                 // the radius that was asked for.
                 if (cursor.TryFloat(arg, out float radius))
@@ -605,7 +604,7 @@ public static class StockArgs
             }
             else if (Is(arg, "-final"))
             {
-                // vrad.cpp:2514 -- -final sets g_flSkySampleScale and nothing
+                // -final sets g_flSkySampleScale and nothing
                 // else, so it is exactly -extrasky 16.
                 options = options with { SkySampleScale = 16.0f };
             }
@@ -644,7 +643,7 @@ public static class StockArgs
             }
             else if (Is(arg, "-smooth"))
             {
-                // Stock cosines it on the way in, at vrad.cpp:2538.
+                // Stock cosines it on the way in.
                 if (cursor.TryFloat(arg, out float degrees))
                 {
                     options = options with { SmoothingAngleDegrees = degrees };
@@ -660,7 +659,7 @@ public static class StockArgs
             }
             else if (Is(arg, "-luxeldensity"))
             {
-                // Stock reciprocates a value above 1 at vrad.cpp:2555-2556.
+                // Stock reciprocates a value above 1.
                 if (cursor.TryFloat(arg, out float density))
                 {
                     options = options with { LuxelDensity = density };
@@ -668,7 +667,7 @@ public static class StockArgs
             }
             else if (Is(arg, "-softsun"))
             {
-                // Stock stores sin(radians(n)) at vrad.cpp:2581.
+                // Stock stores sin(radians(n)) on the way in.
                 if (cursor.TryFloat(arg, out float extent))
                 {
                     options = options with { SunAngularExtentDegrees = extent };
@@ -720,15 +719,14 @@ public static class StockArgs
             }
             else if (Is(arg, "-ambientocclusion") || Is(arg, "-ao"))
             {
-                // ++ (vradplusplus.exe): both registrars write the same byte
-                // at 0x1417194f9 (all.c:43471/43482), so -ao is a true alias,
+                // Both spellings drive the same state, so -ao is a true alias,
                 // not a distinct knob. Parse-accepted; the AO gather itself is
-                // T5-findings.md debt (no ++ oracle exists for the mode).
+                // T5 debt (no published reference output exists for the mode).
                 options = options with { AmbientOcclusion = true };
             }
             else if (Is(arg, "-aoradius"))
             {
-                // ++ float registrar, all.c:43485 (.data 0x1401062d8 = 40.0).
+                // Default 40.0.
                 if (cursor.TryFloat(arg, out float aoRadius))
                 {
                     options = options with { AoRadius = aoRadius };
@@ -736,7 +734,7 @@ public static class StockArgs
             }
             else if (Is(arg, "-aoscale"))
             {
-                // ++ float registrar, all.c:43488 (.data 0x1401062d4 = 0.5).
+                // Default 0.5.
                 if (cursor.TryFloat(arg, out float aoScale))
                 {
                     options = options with { AoScale = aoScale };
@@ -744,9 +742,9 @@ public static class StockArgs
             }
             else if (Is(arg, "-aofacesamples"))
             {
-                // ++ int registrar, all.c:43491 (.data 0x1401062dc = 32).
-                // No range validation: the binary's int parser (FUN_140053a80)
-                // stores whatever strtol yields.
+                // Default 32.
+                // No range validation: the reference's int parser
+                // stores whatever the platform conversion yields.
                 if (cursor.TryInt(arg, out int faceSamples))
                 {
                     options = options with { AoFaceSamples = faceSamples };
@@ -754,7 +752,7 @@ public static class StockArgs
             }
             else if (Is(arg, "-aopropsamples"))
             {
-                // ++ int registrar, all.c:43495 (.data 0x1401062e0 = 16).
+                // Default 16.
                 if (cursor.TryInt(arg, out int propSamples))
                 {
                     options = options with { AoPropSamples = propSamples };
@@ -762,12 +760,10 @@ public static class StockArgs
             }
             else if (Is(arg, "-aodebug"))
             {
-                // ++ callback registrar, all.c:43498; callback disasm
-                // 0x14003b140 writes exactly three bytes: AO on
-                // (0x1417194f9=1), AO-debug (0x1417194fa=1), and zero at
-                // 0x1401062b8 -- the SAME global -noextra registers
-                // (all.c:43312), i.e. supersampling off, not the -scale
-                // lightscale (0x1401062a0, all.c:43384). See VradOptions.AoDebug.
+                // The flag's handler writes exactly three globals: AO on,
+                // AO-debug on, and zero into the SAME global -noextra controls
+                // -- i.e. supersampling off, not the separate -scale
+                // lightscale. See VradOptions.AoDebug.
                 options = options with
                 {
                     AmbientOcclusion = true,
@@ -777,13 +773,13 @@ public static class StockArgs
             }
             else if (Is(arg, "-StaticPropSampleScale"))
             {
-                // ++ float registrar, all.c:43409 (.data 0x1401062ac = 1.0).
-                // Parse-only: the scale multiplies the cb-gated branch of the
-                // three prop-gather sample-count sites, and cb (0x1417194cb)
-                // is written ONLY by the -fast preset callback (disasm
-                // 0x14003b030), whose fast-path plumbing this port does not
+                // Default 1.0.
+                // Parse-only: the scale multiplies the fast-path-gated branch
+                // of the three prop-gather sample-count sites, and that branch
+                // is armed ONLY by the -fast preset's side effect, whose
+                // fast-path plumbing this port does not
                 // rename -- so at every port call site the scale has no
-                // observable effect. T5-findings.md §2.
+                // observable effect. T5 §2.
                 if (cursor.TryFloat(arg, out float sampleScale))
                 {
                     options = options with { StaticPropSampleScale = sampleScale };
@@ -791,10 +787,10 @@ public static class StockArgs
             }
             else if (Is(arg, "-StaticPropIndirectMode"))
             {
-                // ++ int registrar, all.c:43405 (byte 0x1417194ec, default 0;
-                // usage "0 - default, 1 - TF2, 2 - Orangebox"). Any int is
+                // Default 0; usage "0 - default, 1 - distance-exact,
+                // 2 - unattenuated". Any int is
                 // accepted: a value outside 0..2 takes NONE of the weighting
-                // branches at all.c:46468/46478/46496 and falls through to
+                // branches and falls through to
                 // accumulate the raw lightmap. Reproduced in
                 // PropIndirectLighting.Compute.
                 if (cursor.TryInt(arg, out int mode))
@@ -804,38 +800,36 @@ public static class StockArgs
             }
             else if (Is(arg, "-worldtextureshadows") || Is(arg, "-translucentshadows"))
             {
-                // Both registrars take the SAME global pointer 0x1417194e5
-                // (disasm 0x14003a634..0x14003a668 loads it once into r13 and
-                // passes it to both; all.c:43417-43420 shows the same shared
-                // target), so either flag flips one gate. The model keeps both
+                // Both flags drive the SAME state, so either one flips one
+                // gate. The model keeps both
                 // names for record fidelity and lights both properties, which
-                // a consumer can only read as the one byte. The translucent
-                // SAMPLING parameter DAT_1417194e6 (all.c:39880/39927) has no
-                // registrar at all -- permanently false, unreachable. Parse-
+                // a consumer can only read as the one bit. The separate
+                // translucent SAMPLING parameter has no
+                // flag reaching it -- permanently false, unreachable. Parse-
                 // only: the port has no world-geometry alpha-sampling path
-                // (T5-findings.md debt).
+                // (T5 debt).
                 options = options with { WorldTextureShadows = true, TranslucentShadows = true };
             }
             else if (Is(arg, "-supportslightdirectional"))
             {
-                // No-op BY CONSTRUCTION: it disables ++'s light_directional ->
-                // light_spot classname rename (all.c:22694), and this port
+                // No-op BY CONSTRUCTION: it disables the light_directional ->
+                // light_spot classname rename, and this port
                 // never renames entity classnames (vrad writes no entity
                 // lump). Recorded, never silently dropped. See VradOptions.
                 options = options with { SupportsLightDirectional = true };
             }
             else if (Is(arg, "-supportslightprojected"))
             {
-                // Same rename-disable shape for light_projected
-                // (all.c:43462 registrar, all.c:22498 consumer); no-op by
+                // Same rename-disable shape for light_projected;
+                // no-op by
                 // construction for the same reason.
                 options = options with { SupportsLightProjected = true };
             }
             else if (Is(arg, "-sphericalharmonics"))
             {
                 // STAGED parse-only by design: the flag swaps the whole
-                // final-lighting stage to an SH9 kernel (nine consumer sites,
-                // all.c:13942..43508), which the plan (§T5) gates as its own
+                // final-lighting stage to an SH9 kernel, which the plan (T5)
+                // gates as its own
                 // sub-lane. Accepted and recorded; behavior absent is the
                 // documented gap, never a silent drop.
                 options = options with { SphericalHarmonics = true };
@@ -864,7 +858,7 @@ public static class StockArgs
                     }
                     else
                     {
-                        // vrad.cpp:2659 clamps against maxchop AS IT STANDS,
+                        // Stock clamps against maxchop AS IT STANDS,
                         // which makes -chop and -maxchop order-dependent. Kept.
                         options = options with { MinChop = Math.Min(minChop, options.MaxChop) };
                     }
@@ -938,9 +932,9 @@ public static class StockArgs
             }
             else if (Is(arg, "-scale"))
             {
-                // vrad.cpp:2703. This and the next three are debug-build
-                // flags (#if ALLOWDEBUGOPTIONS, vrad.cpp:2702, which is
-                // (0 || _DEBUG) at :23): a release stock vrad rejects them.
+                // This and the next three are debug-build
+                // flags (a guard a release build defines as false): a release
+                // stock vrad rejects them.
                 // They are accepted here because the options they set exist
                 // on VradOptions; -sky and -coring, which set variables
                 // nothing reads, stay unknown.
@@ -951,7 +945,6 @@ public static class StockArgs
             }
             else if (Is(arg, "-dlight"))
             {
-                // vrad.cpp:2729.
                 if (cursor.TryFloat(arg, out float threshold))
                 {
                     options = options with { DLightThreshold = threshold };
@@ -959,7 +952,7 @@ public static class StockArgs
             }
             else if (Is(arg, "-ambient"))
             {
-                // vrad.cpp:2715-2722: three values, each times 128.
+                // Three values, each times 128.
                 if (cursor.TryFloat(arg, out float r)
                     && cursor.TryFloat(arg, out float g)
                     && cursor.TryFloat(arg, out float b))
@@ -1312,8 +1305,8 @@ public static class StockArgs
         {
             // Consume the value so it is not mistaken for the map path, but do
             // not complain about its contents: nothing will read it.
-            // Stock vbsp and vvis consume the next token unconditionally
-            // (vbsp.cpp:937); vrad checks and errors (vrad.cpp:2467). Consuming
+            // Stock vbsp and vvis consume the next token unconditionally;
+            // vrad checks and errors. Consuming
             // only a NON-flag token differs from stock exactly on a line stock
             // itself mis-parses -- "-threads -v map" eats the -v there.
             if (index < args.Count && !At(index).StartsWith('-'))
