@@ -1,25 +1,22 @@
-using SourceSharp.MapGen;
 using System.Reflection;
 using System.Reflection.Emit;
 
 using SourceSharp.MapTools.Options;
-using SourceSharp.Tests.MapTools.Rad.Light;
 
 using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Options;
 
 /// <summary>
-/// <see cref="ComplianceCatalogue"/> is complete, cites real C++, and names
-/// exactly the managed methods that decide each quirk.
+/// <see cref="ComplianceCatalogue"/> is complete and names exactly the
+/// managed methods that decide each quirk.
 /// </summary>
 /// <remarks>
-/// Three different ways for the catalogue to go stale, and one fact for each.
-/// A new enum member without an entry. A stock citation that has drifted off
-/// the code it names. A switch site that was added, moved or deleted without
-/// the catalogue following it. The third fact reads the BUILT assembly's IL,
-/// so it sees what the compiler emitted and not what a grep of the source
-/// would guess.
+/// Two ways for the catalogue to go stale, and one fact for each. A new enum
+/// member without an entry. A switch site that was added, moved or deleted
+/// without the catalogue following it. The second fact reads the BUILT
+/// assembly's IL, so it sees what the compiler emitted and not what a grep
+/// of the source would guess.
 /// </remarks>
 public class ComplianceCatalogueTests
 {
@@ -33,7 +30,6 @@ public class ComplianceCatalogueTests
 
         Assert.Equal(quirk, info.Quirk);
         Assert.False(string.IsNullOrWhiteSpace(info.Summary));
-        Assert.False(string.IsNullOrWhiteSpace(info.StockToken));
         Assert.NotEqual(CompileTools.None, info.Tools);
         Assert.NotEmpty(info.ManagedSites);
     }
@@ -52,29 +48,6 @@ public class ComplianceCatalogueTests
         StockQuirk bogus = (StockQuirk)int.MaxValue;
 
         Assert.Throws<ArgumentOutOfRangeException>(() => ComplianceCatalogue.Describe(bogus));
-    }
-
-    [Theory]
-    [MemberData(nameof(Quirks))]
-    public void TheStockSiteCitesALineThatHoldsItsToken(StockQuirk quirk)
-    {
-        ComplianceQuirkInfo info = ComplianceCatalogue.Describe(quirk);
-
-        int colon = info.StockSite.LastIndexOf(':');
-        Assert.True(colon > 0, $"{quirk}: '{info.StockSite}' is not path:line");
-
-        string relative = info.StockSite[..colon];
-        int line = int.Parse(info.StockSite[(colon + 1)..], System.Globalization.CultureInfo.InvariantCulture);
-
-        string root = RepoTree.FindRoot(AppContext.BaseDirectory)
-            ?? throw new InvalidOperationException("no checkout root above the test binary");
-        string path = Path.Combine(root, relative);
-
-        Assert.True(File.Exists(path), $"{quirk}: {path} does not exist");
-
-        string[] lines = File.ReadAllLines(path);
-        Assert.InRange(line, 1, lines.Length);
-        Assert.Contains(info.StockToken, lines[line - 1], StringComparison.Ordinal);
     }
 
     [Theory]

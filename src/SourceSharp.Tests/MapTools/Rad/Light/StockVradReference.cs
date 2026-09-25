@@ -146,7 +146,7 @@ internal static class StockVradReference
         }
 
         string path = Path.Combine(
-            root, "src", "sourcesharp", "managed", "SourceSharp.Tests",
+            root, "src", "SourceSharp.Tests",
             "MapTools", "Rad", "Light", "Fixtures", FixtureName);
 
         return File.Exists(path)

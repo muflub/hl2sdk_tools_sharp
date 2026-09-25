@@ -22,7 +22,7 @@ namespace SourceSharp.Tests.MapTools.Phys.Managed.Qhull;
 public class CorpusTests
 {
     /// <summary>Where the goldens live in the SourceSharp checkout.</summary>
-    private const string FixtureDir = "src/sourcesharp/managed/SourceSharp.Tests/Fixtures/p8a-qhull";
+    private const string FixtureDir = "src/SourceSharp.Tests/Fixtures/p8a-qhull";
 
     /// <summary>The golden directory under the checkout this test binary was built from.</summary>
     private static string CorpusDir()

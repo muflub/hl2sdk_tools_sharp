@@ -28,7 +28,7 @@ public class BspZipParityTests
 {
     private const string MapPath = "game/mod_sharp/maps/dm_lockdown.bsp";
     private const string FixturePath =
-        "src/sourcesharp/managed/SourceSharp.Tests/MapFormats/Zip/bspzip-dir-dm_lockdown.txt";
+        "src/SourceSharp.Tests/MapFormats/Zip/bspzip-dir-dm_lockdown.txt";
 
     private const int LumpTableOffset = 8;
     private const int LumpEntrySize = 16;

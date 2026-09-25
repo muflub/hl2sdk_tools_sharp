@@ -47,7 +47,7 @@ internal static class StockBounceReference
         string? root = RepoTree.FindRoot(AppContext.BaseDirectory)
             ?? throw new InvalidOperationException($"no checkout root above {AppContext.BaseDirectory}");
         string path = Path.Combine(
-            root, "src", "sourcesharp", "managed", "SourceSharp.Tests",
+            root, "src", "SourceSharp.Tests",
             "MapTools", "Rad", "Bounce", "Fixtures", FixtureName);
         return Parse(File.ReadAllLines(path));
     }

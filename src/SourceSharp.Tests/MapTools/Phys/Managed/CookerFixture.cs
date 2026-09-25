@@ -51,7 +51,7 @@ internal static class CookerFixture
     {
         string root = RepoTree.FindRoot(AppContext.BaseDirectory)
             ?? throw new InvalidOperationException("no checkout root above the test binary");
-        return Path.Combine(root, "src", "sourcesharp", "managed", "SourceSharp.Tests", "Fixtures", "p8a-cooker");
+        return Path.Combine(root, "src", "SourceSharp.Tests", "Fixtures", "p8a-cooker");
     }
 
     /// <summary>Loads a group's jobs.</summary>

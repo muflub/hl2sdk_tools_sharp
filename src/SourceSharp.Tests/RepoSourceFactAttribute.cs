@@ -13,18 +13,15 @@ namespace SourceSharp.Tests;
 /// <b>WHY THIS EXISTS.</b> The shape it replaces is
 /// <c>Assert.True(true, "…(skipped, not found)")</c> followed by a
 /// <c>return</c>. That reports <b>PASSED</b>, not SKIPPED. A suite run from a
-/// directory with no source tree beside it then reports a row of green for
+/// directory with no data tree beside it then reports a row of green for
 /// checks that examined nothing, and the run is indistinguishable from one
-/// where every parity check really held. <c>tools/vacuous-assert-audit</c>
-/// exists to catch exactly that and caught five of them in one file.
+/// where every parity check really held.
 /// </para>
 ///
 /// <para>
-/// <see cref="SharedSourceFactAttribute"/> is the same idea for
-/// <c>src/game/shared</c> specifically. This one takes REPO-RELATIVE paths, so
-/// it reaches <c>src/public</c>, <c>src/sourcesharp/game/server</c> and
-/// anywhere else, and takes several because a fact that reads two files must
-/// skip if either is missing rather than half-run.
+/// This one takes REPO-RELATIVE paths, so it reaches the committed fixtures
+/// and corpus files anywhere in the tree, and takes several because a fact
+/// that reads two files must skip if either is missing rather than half-run.
 /// </para>
 ///
 /// <para>

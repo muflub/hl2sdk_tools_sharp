@@ -51,7 +51,7 @@ public sealed class AmbientFixture : IAsyncLifetime
         string root = RepoTree.FindRoot(AppContext.BaseDirectory)
             ?? throw new InvalidOperationException($"no checkout root above {AppContext.BaseDirectory}");
         string dir = Path.Combine(
-            root, "src", "sourcesharp", "managed", "SourceSharp.Tests", "MapTools", "Rad", "Ambient", "Fixtures");
+            root, "src", "SourceSharp.Tests", "MapTools", "Rad", "Ambient", "Fixtures");
         return System.IO.Directory.Exists(dir)
             ? dir
             : throw new InvalidOperationException($"{dir} is missing; these are COMMITTED files");

@@ -20,7 +20,7 @@ namespace SourceSharp.Tests.MapTools.Options;
 /// Placed together (not scattered into Rad/, Bsp/, Phys/) because these are the
 /// matrix's completeness gaps, cross-domain, and the lane is read-mostly: one new
 /// test file touching no sibling's territory. The pre-existing split for a quirk
-/// listed in the ledger lives in the citations of <see cref="ComplianceMatrix"/>.
+/// listed in the ledger lives in the compliance ledger.
 /// Each method names its quirk in the comment the evidence scan attributes by.
 /// </remarks>
 public class ComplianceMatrixEvidenceTests

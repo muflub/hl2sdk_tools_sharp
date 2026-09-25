@@ -135,7 +135,7 @@ internal sealed record StockRaySet(
         }
 
         string dir = Path.Combine(
-            root, "src", "sourcesharp", "managed", "SourceSharp.Tests",
+            root, "src", "SourceSharp.Tests",
             "MapTools", "Tracing", "Fixtures");
 
         if (!Directory.Exists(dir))
