@@ -13,6 +13,7 @@ namespace SourceSharp.MapFormats.Bsp;
 /// the reference layout's second enum and reproduced by
 /// <see cref="BspWriteOrder"/>.
 /// </param>
+/// <param name="UncompressedSize">
 /// Zero when the lump is stored uncompressed, which is what every reference
 /// tool writes. A non-zero value means LZMA, and is the size to decompress to. The
 /// compilers never emit this, so it is read-only state: a map that arrives
