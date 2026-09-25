@@ -3,8 +3,8 @@ using System.Text;
 namespace SourceSharp.MapFormats.Bsp.Structs;
 
 /// <summary>
-/// One key/value pair of an entity (<c>bspfile.h:1131</c>,
-/// <c>struct epair_t</c>).
+/// One key/value pair of an entity (<c>struct epair_t</c> in the reference
+/// layout).
 /// </summary>
 /// <param name="Key">The key, with trailing whitespace stripped.</param>
 /// <param name="Value">The value, with trailing whitespace stripped.</param>
@@ -55,16 +55,16 @@ public static class EntityLump
     /// <exception cref="InvalidBspException">The text ends inside an entity or a pair.</exception>
     /// <remarks>
     /// <para>
-    /// Pairs come back in FILE order. Stock <c>bsplib</c> does not do that:
-    /// <c>ParseEntity</c> builds the list by prepending
-    /// (<c>bsplib.cpp:3056</c>, <c>e-&gt;next = mapent-&gt;epairs</c>) and
-    /// <c>UnparseEntities</c> walks it forwards, so every vbsp/vrad round trip
-    /// REVERSES the keys inside each entity. That is an artefact of a singly
-    /// linked list, not a property of the format -- nothing reads the order --
-    /// so this port keeps the order and does not reproduce the shuffle.
+    /// Pairs come back in FILE order. The reference entity parser does not do
+    /// that: its <c>ParseEntity</c> builds the list by prepending
+    /// (<c>e-&gt;next = mapent-&gt;epairs</c>) and its <c>UnparseEntities</c>
+    /// walks it forwards, so every vbsp/vrad round trip REVERSES the keys
+    /// inside each entity. That is an artefact of a singly linked list, not a
+    /// property of the format -- nothing reads the order -- so this
+    /// implementation keeps the order and does not reproduce the shuffle.
     /// </para>
     /// <para>
-    /// The tokeniser follows <c>scriplib.cpp:604</c>'s <c>GetToken</c>:
+    /// The tokeniser follows the reference tokenizer's <c>GetToken</c>:
     /// whitespace is anything <c>&lt;= 32</c>, a line comment starts at
     /// <c>;</c>, <c>#</c> or <c>//</c>, <c>/* */</c> nests nothing, a quoted
     /// token has NO escape sequences, and a bare token runs until whitespace
@@ -104,7 +104,7 @@ public static class EntityLump
             {
                 throw new InvalidBspException(
                     $"the entity lump has \"{open}\" where an entity's opening brace should be; "
-                    + "bsplib.cpp:3041 calls this \"ParseEntity: { not found\"");
+                    + "the reference loader calls this \"ParseEntity: { not found\"");
             }
 
             BspEntity entity = new();
@@ -112,7 +112,7 @@ public static class EntityLump
             {
                 string? key = NextToken(text, ref position)
                     ?? throw new InvalidBspException(
-                        "the entity lump ends without a closing brace (bsplib.cpp:3052)");
+                        "the entity lump ends without a closing brace");
 
                 if (key == "}")
                 {
@@ -136,12 +136,12 @@ public static class EntityLump
     /// <param name="entities">The entities to write.</param>
     /// <returns>The lump, NUL-terminated.</returns>
     /// <remarks>
-    /// Reproduces <c>UnparseEntities</c> (<c>bsplib.cpp:3088</c>) exactly:
-    /// <c>{\n</c>, then <c>"key" "value"\n</c> per pair with both ends
-    /// stripped of trailing whitespace, then <c>}\n</c>, then a single
-    /// trailing NUL over the whole lump. An entity with NO pairs is SKIPPED --
-    /// <c>bsplib.cpp:3102</c> calls it "ent got removed" -- which is how vbsp
-    /// deletes an entity without renumbering anything.
+    /// Follows the reference <c>UnparseEntities</c> exactly: <c>{\n</c>, then
+    /// <c>"key" "value"\n</c> per pair with both ends stripped of trailing
+    /// whitespace, then <c>}\n</c>, then a single trailing NUL over the whole
+    /// lump. An entity with NO pairs is SKIPPED -- the reference calls it "ent
+    /// got removed" -- which is how vbsp deletes an entity without renumbering
+    /// anything.
     /// </remarks>
     public static BspLumpData Write(IReadOnlyList<BspEntity> entities)
     {
@@ -169,18 +169,19 @@ public static class EntityLump
         byte[] bytes = new byte[text.Length + 1];
         text.CopyTo(bytes, 0);
 
-        // bsplib.cpp:3122 -- the lump length INCLUDES the terminator.
+        // The lump length INCLUDES the terminator.
         bytes[^1] = 0;
         return new BspLumpData(bytes, 0, 0);
     }
 
     /// <summary>
-    /// Trailing whitespace removed, as <c>StripTrailing</c> does it.
+    /// Trailing whitespace removed, as the reference's <c>StripTrailing</c>
+    /// does it.
     /// </summary>
     /// <param name="value">The text to strip.</param>
     /// <returns>The text without trailing characters of code 32 or below.</returns>
     /// <remarks>
-    /// <c>bsplib.cpp:2986</c> walks back while <c>*s &lt;= 32</c>, so it strips
+    /// The reference walks back while <c>*s &lt;= 32</c>, so it strips
     /// every control character and not just spaces and tabs. Leading
     /// whitespace is NOT stripped, and a value that is entirely spaces becomes
     /// empty.
@@ -202,7 +203,7 @@ public static class EntityLump
     {
         while (true)
         {
-            // scriplib.cpp:605 -- "skip space, ctrl chars": anything <= 32.
+            // The reference's "skip space, ctrl chars": anything <= 32.
             while (position < text.Length && text[position] <= (char)32)
             {
                 position++;
@@ -215,7 +216,7 @@ public static class EntityLump
 
             char c = text[position];
 
-            // scriplib.cpp:627 -- ';' and '#' are comments too, not just '//'.
+            // The reference treats ';' and '#' as comments too, not just '//'.
             if (c == ';' || c == '#' ||
                 (c == '/' && position + 1 < text.Length && text[position + 1] == '/'))
             {
@@ -227,7 +228,7 @@ public static class EntityLump
                 continue;
             }
 
-            // scriplib.cpp:643 -- block comments.
+            // Block comments, as the reference reads them.
             if (c == '/' && position + 1 < text.Length && text[position + 1] == '*')
             {
                 position += 2;
@@ -243,7 +244,7 @@ public static class EntityLump
 
             if (c == '"')
             {
-                // scriplib.cpp:664 -- a quoted token runs to the next quote,
+                // In the reference a quoted token runs to the next quote,
                 // with no escape handling whatsoever. A backslash in a
                 // targetname is a literal backslash.
                 position++;

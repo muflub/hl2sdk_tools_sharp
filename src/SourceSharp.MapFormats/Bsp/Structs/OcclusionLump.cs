@@ -9,11 +9,11 @@ namespace SourceSharp.MapFormats.Bsp.Structs;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The only lump in the file that is three different arrays in one. It is laid
-/// out as <c>int occluderCount</c>, that many
+/// The only lump in the file that is three different arrays in one. The
+/// reference writer lays it out as <c>int occluderCount</c>, that many
 /// <see cref="DOccluderData"/>, <c>int polyCount</c>, that many
 /// <see cref="DOccluderPolyData"/>, <c>int indexCount</c>, that many
-/// <c>int</c> (<c>bsplib.cpp:1341</c>, <c>AddOcclusionLump</c>).
+/// <c>int</c>.
 /// </para>
 /// <para>
 /// So it cannot be a cast, and a length check against any one struct is
@@ -32,7 +32,7 @@ public sealed class OcclusionLump
     /// <summary>The vertex indices the polygons are built from.</summary>
     public List<int> VertexIndices { get; } = [];
 
-    /// <summary>The lump version this decoder writes (<c>bspfile.h:364</c>).</summary>
+    /// <summary>The lump version this decoder writes.</summary>
     public const int CurrentVersion = 2;
 
     /// <summary>Decodes a lump's bytes.</summary>
@@ -43,15 +43,15 @@ public sealed class OcclusionLump
     /// </exception>
     /// <remarks>
     /// <para>
-    /// Version 0 means an EMPTY lump and is not an error: <c>bsplib.cpp:1423</c>
-    /// has a <c>case 0: break;</c> that does nothing at all.
+    /// Version 0 means an EMPTY lump and is not an error: the reference
+    /// reader's <c>case 0: break;</c> does nothing at all.
     /// </para>
     /// <para>
     /// Version 1 is read here with <see cref="DOccluderDataV1"/>, which has no
-    /// <see cref="DOccluderData.Area"/> field (<c>bspfile.h:540</c>). Stock
-    /// <c>bsplib</c> does NOT do this -- it calls <c>Error()</c> on any version
-    /// but 0 and 2 -- but the struct is in the header for a reason and a map
-    /// tool that refuses to open an old map is worse than one that reads it.
+    /// <see cref="DOccluderData.Area"/> field. The reference reader does NOT do
+    /// this -- it calls <c>Error()</c> on any version but 0 and 2 -- but the
+    /// struct is in the reference layout for a reason and a map tool that
+    /// refuses to open an old map is worse than one that reads it.
     /// </para>
     /// </remarks>
     public static OcclusionLump Read(BspLumpData lump)
@@ -65,7 +65,7 @@ public sealed class OcclusionLump
         switch (lump.Version)
         {
             case 0:
-                // bsplib.cpp:1423 -- a version 0 occlusion lump is read as
+                // The reference reader treats a version 0 occlusion lump as
                 // nothing whatever its length says.
                 return result;
 
@@ -79,8 +79,8 @@ public sealed class OcclusionLump
 
             default:
                 throw new InvalidBspException(
-                    $"occlusion lump version {lump.Version} is not one bspfile.h defines; "
-                    + "bsplib.cpp:1428 errors out on it too");
+                    $"occlusion lump version {lump.Version} is not one the format defines; "
+                    + "the reference loader errors out on it too");
         }
     }
 
@@ -108,7 +108,8 @@ public sealed class OcclusionLump
 
                     // Version 1 had no area at all. Zero is the only honest
                     // value: area 0 is the outside-of-all-areas default the
-                    // engine already uses for geometry no areaportal encloses.
+                    // reference build already uses for geometry no areaportal
+                    // encloses.
                     Area = 0,
                 });
             }
