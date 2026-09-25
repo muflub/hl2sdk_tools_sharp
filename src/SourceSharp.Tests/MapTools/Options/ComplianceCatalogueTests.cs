@@ -116,7 +116,7 @@ public class ComplianceCatalogueTests
         // The last DISPUTED quirk (WeldHashZeroSentinel) was retired with the
         // vertex-0 reservation; the listing still prints every note.
         Assert.Contains(
-            "Note: Also disp_vbsp.cpp:346.",
+            "Note: The displacement surface loader reads the same table.",
             ComplianceCatalogue.Format(CompileTools.Vbsp),
             StringComparison.Ordinal);
     }

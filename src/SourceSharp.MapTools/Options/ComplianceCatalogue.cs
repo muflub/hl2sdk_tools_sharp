@@ -103,7 +103,8 @@ public static class ComplianceCatalogue
                 "SourceSharp.MapTools.Bsp.MapFile.get_StockEdgeBevels",
             ],
             "The same rule applies to the bevel of the candidate normal itself. The PLANES lump "
-            + "BaseWindingNormalise are both on the Stock side."),
+            + "matches the reference implementation only when this and BaseWindingNormalise are "
+            + "both on the Stock side."),
 
         StockQuirk.AreaportalLeakWalk => new(
             quirk,
