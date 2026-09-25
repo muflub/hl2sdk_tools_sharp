@@ -1,10 +1,9 @@
 # MapTools
 
 A fully managed compile chain for Source-format maps: a `vbsp` / `vvis` /
-`vrad` equivalent written from scratch in C# (.NET 10), plus the BSP/VMF/VPK
-readers and writers, the geometry kernel, and the collision cooker it is
-built on. No native tool binaries are invoked; the whole chain runs in
-process.
+`vrad` equivalent in C# (.NET 10), plus the BSP/VMF/VPK readers and writers,
+the geometry kernel, and the collision cooker it is built on. No native tool
+binaries are invoked; the whole chain runs in process.
 
 ## Layout
 

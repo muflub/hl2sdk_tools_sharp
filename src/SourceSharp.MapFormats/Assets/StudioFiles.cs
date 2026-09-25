@@ -186,15 +186,15 @@ public sealed class MdlFile
         if (header.Id != StudioIdents.Mdl && header.Id != StudioIdents.AnimationGroup)
         {
             throw new InvalidStudioException(
-                $"the ident is 0x{header.Id:X8}, neither IDST nor IDAG "
-                + "(staticprop.cpp:155 compares those two literals)");
+                $"the ident is 0x{header.Id:X8}, neither IDST nor IDAG; "
+                + "the reference loader compares exactly those two literals");
         }
 
         if (header.Version != StudioIdents.MdlVersion)
         {
             throw new InvalidStudioException(
                 $"MDL version {header.Version} is not {StudioIdents.MdlVersion}; "
-                + "staticprop.cpp:165 refuses anything else");
+                + "the reference loader refuses anything else");
         }
 
         return new MdlFile(bytes, header);
@@ -210,10 +210,10 @@ public sealed class MdlFile
     /// <returns>The name.</returns>
     /// <exception cref="ArgumentOutOfRangeException">The index is out of range.</exception>
     /// <remarks>
-    /// <c>sznameindex</c> is relative to the BONE, not to the file
-    /// (<c>studio.h:275</c>'s accessor is
-    /// <c>((char *)this) + sznameindex</c>), which is the easiest offset in
-    /// studio.h to get wrong.
+    /// <c>sznameindex</c> is relative to the BONE, not to the file: the
+    /// reference layout's accessor is
+    /// <c>((char *)this) + sznameindex</c>, which is the easiest offset in the
+    /// studio format to get wrong.
     /// </remarks>
     public string BoneName(int index)
     {
@@ -350,7 +350,7 @@ public sealed class VvdFile
 
         if (header.Id == StudioIdents.VvdThin)
         {
-            // studio.h:1941 -- IDCV. thinModelVertices_t is a separate,
+            // IDCV. thinModelVertices_t is a separate,
             // quantised representation and this port does not read it; saying
             // so is better than reading 48-byte vertices out of a file that
             // does not hold them.
@@ -361,14 +361,14 @@ public sealed class VvdFile
         if (header.Id != StudioIdents.Vvd)
         {
             throw new InvalidStudioException(
-                $"the ident is 0x{header.Id:X8}, not IDSV (studio.h:1938)");
+                $"the ident is 0x{header.Id:X8}, not IDSV");
         }
 
         if (header.Version != StudioIdents.VvdVersion)
         {
             throw new InvalidStudioException(
                 $"VVD version {header.Version} is not {StudioIdents.VvdVersion}; "
-                + "staticprop.cpp:748 refuses anything else");
+                + "the reference loader refuses anything else");
         }
 
         return new VvdFile(bytes, header);
@@ -407,8 +407,8 @@ public sealed class VvdFile
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="lod"/> is not a level of this file.</exception>
     /// <remarks>
     /// <para>
-    /// The algorithm is <c>Studio_LoadVertexes</c>'s: walk the fixup table in
-    /// order and copy each run whose <see cref="VertexFileFixup.Lod"/> is at
+    /// The reference vertex loader walks the fixup table in order and copies
+    /// each run whose <see cref="VertexFileFixup.Lod"/> is at
     /// least the wanted LOD. Runs for finer LODs than the one asked for are
     /// SKIPPED, which is how one file serves every level.
     /// </para>
@@ -501,13 +501,13 @@ public sealed class VtxFile
         VtxFileHeader header = StudioReader.At<VtxFileHeader>(bytes.Span, 0, "the VTX header");
 
         // A VTX has no ident at all -- the version IS the first four bytes
-        // (optimize.h:220), which is why a corrupt VTX is so much harder to
+        // of the file, which is why a corrupt VTX is so much harder to
         // detect than a corrupt MDL.
         if (header.Version != StudioIdents.VtxVersion)
         {
             throw new InvalidStudioException(
                 $"VTX version {header.Version} is not {StudioIdents.VtxVersion} "
-                + "(OPTIMIZED_MODEL_FILE_VERSION, optimize.h:22)");
+                + "(the format's OPTIMIZED_MODEL_FILE_VERSION)");
         }
 
         return new VtxFile(bytes, header);

@@ -79,8 +79,8 @@ public sealed class StaticProp
 /// <para>
 /// The lump is <c>int dictCount</c>, that many
 /// <see cref="StaticPropDictLump"/>, <c>int leafCount</c>, that many
-/// <see cref="StaticPropLeafLump"/>, <c>int propCount</c>, that many props
-/// (<c>staticprop.cpp:555</c>, <c>SetLumpData</c>). The leaf list comes
+/// <see cref="StaticPropLeafLump"/>, <c>int propCount</c>, that many props,
+/// which is the order the reference writer emits them in. The leaf list comes
 /// BEFORE the props, which is easy to get backwards from the order the three
 /// dictionaries are declared in.
 /// </para>
@@ -106,16 +106,16 @@ public sealed class StaticPropLump
     /// <summary>The <c>sprp</c> versions this reader accepts.</summary>
     /// <remarks>
     /// <para>
-    /// 4, 5 and 6 are what <c>bsplib.cpp:4360</c> allows, and 10 is what
-    /// <c>gamebspfile.h:37</c> says the branch writes. There is no 7, 8 or 9
+    /// 4, 5 and 6 are what the reference reader allows, and 10 is what
+    /// the reference layout declares for this branch. There is no 7, 8 or 9
     /// struct anywhere in this tree, and inventing one would be guessing at
     /// another game's format.
     /// </para>
     /// <para>
-    /// Note that stock <c>bsplib</c> is stale here: <c>SwapGameLump</c> reads
-    /// version 6 with <c>StaticPropLump_t</c> (<c>bsplib.cpp:1118</c>), which
-    /// is the 72-byte version 10 struct. That is a bug in bsplib's swapper,
-    /// not a format rule, and it is not reproduced.
+    /// Note that stock behaviour is stale here: the reference swapper reads
+    /// version 6 with <c>StaticPropLump_t</c>, which is the 72-byte version 10
+    /// struct. That is a bug in it, not a format rule, and it is not
+    /// reproduced.
     /// </para>
     /// </remarks>
     public static ReadOnlySpan<int> SupportedVersions => [4, 5, 6, 10];
@@ -194,7 +194,7 @@ public sealed class StaticPropLump
             default:
                 throw new InvalidBspException(
                     $"static prop lump version {entry.Version} has no struct in this tree; "
-                    + "gamebspfile.h defines 4, 5, 6 and 10");
+                    + "the format defines 4, 5, 6 and 10");
         }
 
         return lump;
@@ -203,8 +203,8 @@ public sealed class StaticPropLump
     /// <summary>Encodes this lump back to a game lump entry at version 10.</summary>
     /// <returns>The entry, ready to put in <see cref="BspData.GameLumps"/>.</returns>
     /// <remarks>
-    /// Always version 10, because that is what <c>gamebspfile.h:37</c> says
-    /// this branch's engine reads and what <c>staticprop.cpp:550</c> writes.
+    /// Always version 10, because that is the version the reference layout
+    /// declares for this branch and the one the reference writer emits.
     /// A map read at version 4 and written back therefore UPGRADES, which is
     /// what vbsp does to it too.
     /// </remarks>
@@ -267,7 +267,7 @@ public sealed class StaticPropLump
         FadeMaxDist = prop.FadeMaxDist,
         LightingOrigin = prop.LightingOrigin,
 
-        // gamebspfile.h:244 -- the version 4 upgrade path sets these five
+        // The version 4 upgrade path sets these five
         // explicitly rather than leaving them zero-initialised, and the fade
         // scale of 1.0f is the one that matters: a zero there makes the prop
         // never fade at all.
@@ -277,7 +277,7 @@ public sealed class StaticPropLump
         LightmapResolutionX = 0,
         LightmapResolutionY = 0,
 
-        // gamebspfile.h:251 -- "Older versions don't want this." vrad would
+        // "Older versions don't want this." vrad would
         // otherwise try to build a per-texel lightmap for a prop compiled
         // before per-texel lighting existed.
         Flags = (StaticPropFlags)prop.Flags | StaticPropFlags.NoPerTexelLighting,
@@ -286,9 +286,9 @@ public sealed class StaticPropLump
 
     private static StaticProp FromV5(in StaticPropLumpV5 prop)
     {
-        // gamebspfile.h:257 reinterpret_casts the V5 to a V4 and runs the V4
-        // path, then overwrites the fade scale. The two structs share a prefix,
-        // so the cast is valid; reproduced field by field here.
+        // The reference upgrade path reinterprets the V5 as a V4 and runs the
+        // V4 path, then overwrites the fade scale. The two structs share a
+        // prefix, so the cast is valid; reproduced field by field here.
         StaticProp result = FromV4(new StaticPropLumpV4
         {
             Origin = prop.Origin,

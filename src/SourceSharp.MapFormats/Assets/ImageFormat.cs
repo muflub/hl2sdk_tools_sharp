@@ -1,8 +1,8 @@
 namespace SourceSharp.MapFormats.Assets;
 
 /// <summary>
-/// The pixel formats a VTF can store (<c>src/public/bitmap/imageformat.h:33</c>,
-/// <c>enum ImageFormat</c>).
+/// The pixel formats a VTF can store (<c>enum ImageFormat</c> as the reference
+/// format defines it).
 /// </summary>
 /// <remarks>
 /// The numbering is the file format: a VTF stores this enum's value as an
@@ -110,9 +110,8 @@ public enum ImageFormat
 /// How much memory each <see cref="ImageFormat"/> takes.
 /// </summary>
 /// <remarks>
-/// The size table lives in the closed <c>materialsystem</c> library in this
-/// SDK -- <c>imageformat.h</c> declares <c>ImageLoader::GetMemRequired</c> and
-/// defines only the colour structs -- so it is reproduced here from those
+/// The reference format declares <c>ImageLoader::GetMemRequired</c> and defines
+/// only the colour structs, so the size table is reproduced here from those
 /// structs and from the DXT block sizes the formats are named after. It is
 /// checkable: the committed <c>new_tf2_logo.vtf</c>'s file length must equal
 /// its header plus the mip chain this table computes, and a fact says so.
@@ -189,8 +188,8 @@ public static class ImageFormatInfo
         if (bits == 0)
         {
             throw new NotSupportedException(
-                $"no size is known for image format {format}; imageformat.h names it but this "
-                + "port has no entry for it");
+                $"no size is known for image format {format}; the format is named "
+                + "in the format table but this tool has no entry for it");
         }
 
         return width * height * bits / 8;

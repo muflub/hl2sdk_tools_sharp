@@ -107,8 +107,8 @@ public static class ImageDecoder
         if (stride == 0 || !CanDecode(format))
         {
             throw new NotSupportedException(
-                $"image format {format} has no decoder in this port; it is named in "
-                + "imageformat.h but nothing in the map tools reads it");
+                $"image format {format} has no decoder here; the format is known "
+                + "but nothing in the map tools reads it");
         }
 
         for (int i = 0; i < pixels; i++)
@@ -137,8 +137,8 @@ public static class ImageDecoder
                     break;
 
                 case ImageFormat.Bgra8888:
-                    // imageformat.h:128 -- BGRA8888_t is b, g, r, a in that
-                    // declaration order, so the byte at offset 0 is BLUE.
+                    // The reference format declares BGRA8888_t as b, g, r, a in
+                    // that declaration order, so the byte at offset 0 is BLUE.
                     output[0] = pixel[2];
                     output[1] = pixel[1];
                     output[2] = pixel[0];

@@ -7,25 +7,23 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapFormats.Assets;
 
 /// <summary>
-/// A VTF file's header, in the on-disk layout
-/// (<c>src/public/vtf/vtf.h:458</c> onwards).
+/// A VTF file's header, in the on-disk layout the format defines.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>vtf.h:439</c> puts the whole block under <c>#pragma pack(1)</c>, and the
-/// C++ then builds the header as a chain of four inheriting structs with
-/// hand-written padding under POSIX. Flattened here, because a derived struct
-/// is not a thing a file format has.
+/// The reference layout puts the whole block under <c>#pragma pack(1)</c>, and
+/// declares the header as a chain of four inheriting structs with hand-written
+/// padding under POSIX. Flattened here, because a derived struct is not a thing
+/// a file format has.
 /// </para>
 /// <para>
-/// The header's own comment (<c>vtf.h:445</c>) warns at length that the
-/// structure sizes "ARE NOT what they appear, regardless of Pack(1)" because
-/// <c>VectorAligned reflectivity</c> makes the PC compiler pad where the 360's
-/// does not. The POSIX branch spells that padding out as
-/// <c>char pad1[4]</c> / <c>char pad2[4]</c> (<c>vtf.h:478</c>) and
-/// <c>char pad5[8]</c> (<c>vtf.h:550</c>), and those are the bytes that are
-/// actually in the file. So this struct is the POSIX branch, and it is 80
-/// bytes with the resource table starting at 0x50.
+/// The reference warns at length that the structure sizes "ARE NOT what they
+/// appear, regardless of Pack(1)" because <c>VectorAligned</c> reflectivity
+/// makes the PC compiler pad where the 360's does not. The POSIX branch spells
+/// that padding out as <c>char pad1[4]</c> / <c>char pad2[4]</c> and
+/// <c>char pad5[8]</c>, and those are the bytes that are actually in the file.
+/// So this struct is the POSIX branch, and it is 80 bytes with the resource
+/// table starting at 0x50.
 /// </para>
 /// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -61,7 +59,7 @@ public struct VtfHeader
     /// <summary>
     /// Four bytes of padding before the reflectivity. In the PC build these
     /// come from <c>VectorAligned</c>'s 16-byte alignment; the POSIX build
-    /// writes them by hand so the two agree on disk (<c>vtf.h:478</c>).
+    /// writes them by hand so the two agree on disk.
     /// </summary>
     public IntArray1 Pad1;
 
@@ -75,7 +73,7 @@ public struct VtfHeader
     /// </remarks>
     public Vec3 Reflectivity;
 
-    /// <summary>Four more bytes of <c>VectorAligned</c> padding (<c>vtf.h:481</c>).</summary>
+    /// <summary>Four more bytes of <c>VectorAligned</c> padding.</summary>
     public IntArray1 Pad2;
 
     /// <summary>The scale a normal map's bumpiness is multiplied by.</summary>
@@ -99,13 +97,13 @@ public struct VtfHeader
     /// <summary>The depth of a volume texture. One for an ordinary texture. Added at 7.2.</summary>
     public ushort Depth;
 
-    /// <summary>Three bytes of padding before the resource count (<c>vtf.h:544</c>).</summary>
+    /// <summary>Three bytes of padding before the resource count.</summary>
     public ByteArray3 Pad4;
 
     /// <summary>How many resource entries follow the header. Added at 7.3.</summary>
     public uint NumResources;
 
-    /// <summary>Eight more bytes of alignment padding (<c>vtf.h:550</c>).</summary>
+    /// <summary>Eight more bytes of alignment padding.</summary>
     public IntArray2 Pad5;
 }
 
@@ -117,8 +115,8 @@ public struct IntArray1
 }
 
 /// <summary>
-/// One entry of a 7.3+ VTF's resource table (<c>vtf.h:530</c>,
-/// <c>struct ResourceEntryInfo</c>).
+/// One entry of a 7.3+ VTF's resource table, the reference
+/// <c>struct ResourceEntryInfo</c>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VtfResourceEntry
@@ -131,18 +129,17 @@ public struct VtfResourceEntry
 
     /// <summary>
     /// A file offset, or the resource's DATA when
-    /// <see cref="VtfResourceFlags.HasNoDataChunk"/> is set
-    /// (<c>vtf.h:518</c>).
+    /// <see cref="VtfResourceFlags.HasNoDataChunk"/> is set.
     /// </summary>
     public uint ResData;
 }
 
 /// <summary>
-/// The stock resource types a VTF's table can name (<c>vtf.h:521</c>).
+/// The stock resource types a VTF's table can name.
 /// </summary>
 /// <remarks>
-/// The ids are packed by <c>MK_VTF_RSRC_ID</c> (<c>vtf.h:501</c>), which puts
-/// the first byte in the LOW byte -- the opposite of the game lump codes.
+/// The ids are packed by <c>MK_VTF_RSRC_ID</c>, which puts the first byte in
+/// the LOW byte -- the opposite of the game lump codes.
 /// </remarks>
 public static class VtfResourceType
 {
@@ -155,12 +152,12 @@ public static class VtfResourceType
     /// <summary>Sprite sheet data.</summary>
     public const uint Sheet = 0x10;
 
-    /// <summary>The mask that separates the type from its flags (<c>vtf.h:512</c>).</summary>
+    /// <summary>The mask that separates the type from its flags.</summary>
     public const uint TypeMask = 0x00FFFFFF;
 }
 
 /// <summary>
-/// The flag byte of a resource entry's type (<c>vtf.h:509</c>).
+/// The flag byte of a resource entry's type.
 /// </summary>
 [Flags]
 public enum VtfResourceFlags : uint
@@ -173,8 +170,8 @@ public enum VtfResourceFlags : uint
 }
 
 /// <summary>
-/// The texture flags of <see cref="VtfHeader.Flags"/>
-/// (<c>vtf.h:31</c>, <c>enum CompiledVtfFlags</c>).
+/// The texture flags of <see cref="VtfHeader.Flags"/>: the reference
+/// <c>enum CompiledVtfFlags</c>.
 /// </summary>
 [Flags]
 public enum VtfFlags : uint
@@ -284,10 +281,10 @@ public sealed class VtfFile
     /// <summary>The magic bytes every VTF starts with.</summary>
     public static ReadOnlySpan<byte> Signature => "VTF\0"u8;
 
-    /// <summary>The newest version this branch writes (<c>vtf.h:441</c>).</summary>
+    /// <summary>The newest version this branch writes.</summary>
     public const int MajorVersion = 7;
 
-    /// <summary>The newest minor version (<c>vtf.h:442</c>).</summary>
+    /// <summary>The newest minor version.</summary>
     public const int MinorVersion = 4;
 
     /// <summary>The header, as read.</summary>
@@ -379,7 +376,7 @@ public sealed class VtfFile
         if (major != MajorVersion)
         {
             throw new InvalidVtfException(
-                $"VTF major version {major} is not {MajorVersion}; vtf.h:441 knows only 7");
+                $"VTF major version {major} is not {MajorVersion}; the format knows only 7");
         }
 
         if (minor is < 0 or > 5)
@@ -412,7 +409,7 @@ public sealed class VtfFile
                 throw new InvalidVtfException(
                     $"the header declares {header.NumResources} resources, which do not fit "
                     + $"between offset {table} and the end of a {span.Length}-byte file "
-                    + "(vtf.h:527 caps a dictionary at 32 entries)");
+                    + "(the format caps a dictionary at 32 entries)");
             }
 
             resources.AddRange(MemoryMarshal.Cast<byte, VtfResourceEntry>(span.Slice(table, wanted)));
@@ -448,7 +445,7 @@ public sealed class VtfFile
         if (minor >= 3 && resources.Count > 0)
         {
             throw new InvalidVtfException(
-                "the resource table names no image resource (VTF_LEGACY_RSRC_IMAGE, vtf.h:524)");
+                "the resource table names no image resource (VTF_LEGACY_RSRC_IMAGE)");
         }
 
         // Before 7.3, and for a 7.3+ file with an empty table, the layout is

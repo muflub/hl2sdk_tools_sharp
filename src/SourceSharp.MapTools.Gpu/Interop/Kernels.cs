@@ -5,8 +5,8 @@ namespace SourceSharp.MapTools.Gpu.Interop;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Copied from the Phase 0f spike kernel (t-10-findings.md, "third bug class")
-/// with three production changes and NO restructuring: <c>tmin</c> and the
+/// Derived from the Phase 0f spike kernel with three production changes and
+/// NO restructuring: <c>tmin</c> and the
 /// any-hit tmax scale come from push constants instead of hard-coded
 /// <c>1e-3</c>/<c>tmax</c>, and out-of-range tail lanes run no query at all.
 /// The SHAPE is the finding: initialize -&gt; <c>while (proceed) {}</c> to
@@ -103,8 +103,8 @@ void main() {
     // Mode 5: per-ray (proceedIterations, candidateHits) telemetry, the
     // self-test's attribution probe. Iters == 0 means the driver never
     // traversed at all (the nvidia compute-only signature); candidates > 0
-    // with modes 0/1 committing nothing is the Mesa lavapipe
-    // candidate->committed bug (t-10-findings.md).
+    // with modes 0/1 committing nothing is the known Mesa lavapipe
+    // candidate->committed bug.
     if (PC.mode == 5u) {
         uint iters = 0u;
         uint cands = 0u;

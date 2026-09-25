@@ -88,7 +88,7 @@ public sealed record VulkanDeviceReport(
 /// <param name="Tracer">
 /// The ready tracer, or null when the device was rejected — in which case the
 /// caller keeps its CPU tracer. A GPU path that cannot prove itself is not a
-/// reason to crash; §10d's gate is "capable devices only".
+/// reason to crash; the gate here is "capable devices only".
 /// </param>
 /// <param name="Report">What the attempt saw, always present.</param>
 /// <param name="Success">Whether <paramref name="Tracer"/> is usable.</param>
@@ -104,7 +104,8 @@ public readonly record struct VulkanTracerAttempt(
 /// </summary>
 /// <remarks>
 /// <para>
-/// §10c's workload fits this backend exactly: vrad's rays are batch any-hit
+/// The lighting workload fits this backend exactly: the reference
+/// lightmapper's rays are batch any-hit
 /// visibility queries and the leaf-ambient closest-hit fan, and the seam
 /// returns only what a ray query returns natively — a bit, or an id and a
 /// fraction. Falloff, dot products and colour encoding stay on the CPU in
@@ -112,14 +113,14 @@ public readonly record struct VulkanTracerAttempt(
 /// means equal lightmap bytes.
 /// </para>
 /// <para>
-/// <b>DETERMINISM (I4's GPU arm).</b> Rays are cut into ordered slabs of at
+/// <b>DETERMINISM.</b> Rays are cut into ordered slabs of at
 /// most <see cref="MaxRaysPerSlab"/>, each slab is one kernel dispatch, and
 /// each dispatch's output is a pure function of its rays: the bit words are
 /// sample-major (workgroup <c>g</c> owns words <c>2g</c> and <c>2g+1</c>),
 /// folded with shared-memory atomics that cannot cross a workgroup. No
 /// global atomics, no inter-workgroup ordering, no retry paths. Threads 1 and
 /// 32 feeding the same scene the same rays therefore observe the same words
-/// byte for byte — the invariant t-10 carries for the GPU path.
+/// byte for byte — the invariant the CPU tracer carries for the GPU path.
 /// </para>
 /// <para>
 /// <b>THE GATE.</b> Construction traces a known-hit micro-scene (two
@@ -145,7 +146,7 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     /// <summary>The kernel's any-hit tmax shrink as float bits: <c>1 - 2^-23</c>.</summary>
     private const uint TmaxScaleBits = 0x3F7FFFFFu;
 
-    /// <summary><c>1e-3f</c> as float bits — the §10c epsilon the self-test ray traces with.</summary>
+    /// <summary><c>1e-3f</c> as float bits — the epsilon the self-test ray traces with.</summary>
     private const uint SelfTestTminBits = 0x3A83126Fu;
 
     private readonly VulkanDevice _device;
@@ -343,8 +344,8 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         if (o.Candidates > 0)
         {
             return $"{device.DeviceName}: traversal found candidates on {o.Candidates} of the "
-                + "known-hit rays yet modes 0/1 committed nothing — the Mesa lavapipe "
-                + "candidate->committed bug (t-10-findings.md); rejecting the device";
+                + "known-hit rays yet modes 0/1 committed nothing — a known Mesa lavapipe "
+                + "candidate->committed bug; rejecting the device";
         }
 
         return $"{device.DeviceName}: traversal ran ({o.Iters} iterations) but the BLAS offered no "

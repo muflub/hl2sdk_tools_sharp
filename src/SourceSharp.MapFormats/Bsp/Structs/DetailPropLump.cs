@@ -12,8 +12,8 @@ namespace SourceSharp.MapFormats.Bsp.Structs;
 /// Laid out as <c>int modelCount</c>, that many
 /// <see cref="DetailObjectDictLump"/>, <c>int spriteCount</c>, that many
 /// <see cref="DetailSpriteDictLump"/>, <c>int propCount</c>, that many
-/// <see cref="DetailObjectLump"/> (<c>detailobjects.cpp:814</c>).
-/// Only version 4 exists (<c>gamebspfile.h:35</c>); the engine bails out of
+/// <see cref="DetailObjectLump"/>.
+/// Only version 4 exists; the reference reader bails out of
 /// anything lower rather than guessing.
 /// </remarks>
 public sealed class DetailPropLump
@@ -44,8 +44,8 @@ public sealed class DetailPropLump
         if (entry.Version != GameLumpVersions.DetailProps)
         {
             throw new InvalidBspException(
-                $"detail prop lump version {entry.Version} is not 4; gamebspfile.h:35 defines "
-                + "only version 4 and the engine refuses anything else");
+                $"detail prop lump version {entry.Version} is not 4; the format defines "
+                + "only version 4 and a game refuses anything else");
         }
 
         DetailPropLump lump = new();
@@ -146,7 +146,7 @@ public sealed class DetailPropLump
 /// <remarks>
 /// Unlike <c>sprp</c> and <c>dprp</c>, these two really are plain arrays --
 /// the count is the lump length divided by five. Both are version 0
-/// (<c>gamebspfile.h:36</c> and <c>:39</c>) and differ only in which lighting
+/// in the reference layout and differ only in which lighting
 /// range they hold.
 /// </remarks>
 public static class DetailPropLightingLump
