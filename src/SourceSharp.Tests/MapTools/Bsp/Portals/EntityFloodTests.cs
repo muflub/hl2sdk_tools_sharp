@@ -7,8 +7,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Portals;
 
 /// <summary>
-/// The entity flood and the fill that follows it
-/// (<c>portals.cpp:638-1432</c>).
+/// The entity flood and the fill that follows it.
 /// </summary>
 public class EntityFloodTests
 {

@@ -1,4 +1,4 @@
-/* p8aq-ref.c - C oracle driver for the qhull 2.6 C# port (lane p8a).
+/* p8aq-ref.c - C oracle driver for the qhull 2.6 C# port.
  *
  * Reads point sets, runs exactly IVP's qhull call sequence on each
  * (first "qhull Qs Pp C-0 W1e-14 E1.0e-6", then the QJ retry loop), and
@@ -27,7 +27,7 @@ static FILE *nullerr;
 static int quiet;
 #define OUT if (!quiet) printf
 
-/* IVP's retry constants (float values widened to double; see p8a-sdk-ivp.c:3012) */
+/* IVP's retry constants (float values widened to double) */
 #define P8AQ_JOGGLE_START 9.999999960041972e-13
 #define P8AQ_JOGGLE_ADD   9.999999960041972e-13
 #define P8AQ_JOGGLE_MUL   1.2000000476837158

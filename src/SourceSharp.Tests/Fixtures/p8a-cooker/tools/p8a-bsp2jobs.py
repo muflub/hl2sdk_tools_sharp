@@ -1,5 +1,5 @@
 # p8a: every brush of a Source BSP (LUMP_BRUSHES/BRUSHSIDES/PLANES) as a ConvexFromPlanes job.
-# Bevel sides are skipped (ivp.cpp BuildConvexForBrush uses the brush's real planes).
+# Bevel sides are skipped (the reference cooker's BuildConvexForBrush uses the brush's real planes).
 # usage: p8a-bsp2jobs.py out.in map.bsp [max]
 import sys, struct
 out, path = sys.argv[1], sys.argv[2]

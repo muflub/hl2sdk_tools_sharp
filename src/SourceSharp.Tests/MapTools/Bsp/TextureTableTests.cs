@@ -38,7 +38,7 @@ public class TextureTableTests
     }
 
     /// <summary>
-    /// <c>bsplib.cpp:1272</c> compares with <c>stricmp</c> but stores the
+    /// compares with <c>stricmp</c> but stores the
     /// string verbatim, so a second spelling collapses onto the first and its
     /// casing never reaches the lump.
     /// </summary>
@@ -87,8 +87,8 @@ public class TextureTableTests
     }
 
     /// <summary>
-    /// <c>FindTexData</c> is <c>Q_stricmp</c> (<c>textures.cpp:458</c>) while
-    /// <c>FindMiptex</c> is <c>strcmp</c> (<c>textures.cpp:61</c>). The two
+    /// <c>FindTexData</c> is <c>Q_stricmp</c> while
+    /// <c>FindMiptex</c> is <c>strcmp</c>. The two
     /// disagreeing is stock, and it means two spellings of one material give
     /// two textureref entries and ONE texdata.
     /// </summary>
@@ -114,7 +114,7 @@ public class TextureTableTests
 
     /// <summary>
     /// <c>FindMiptex</c> returns 0 without advancing <c>nummiptex</c> when the
-    /// material does not resolve (<c>textures.cpp:74-77</c>), so the caller
+    /// material does not resolve, so the caller
     /// reads slot 0 — which is some OTHER material once the map has loaded
     /// one.
     /// </summary>
@@ -136,7 +136,7 @@ public class TextureTableTests
 
     /// <summary>
     /// <c>FindOrCreateTexData</c> returns a VALID index for a material that did
-    /// not resolve (<c>textures.cpp:497</c>), leaving the entry's dimensions
+    /// not resolve, leaving the entry's dimensions
     /// and reflectivity at zero. <c>FindAliasedTexData</c> returns -1 in the
     /// same situation — the two are not interchangeable.
     /// </summary>
@@ -198,7 +198,7 @@ public class TextureTableTests
         Assert.True(TexInfoTable.AreIdentical(a, a));
     }
 
-    // FindTexInfo (textures.cpp:536-551) is a memcmp scan from 0; the table
+    // FindTexInfo is a memcmp scan from 0; the table
     // answers it from a hash index (plan 3p), so these pin the scan's answer.
 
     [Fact]
@@ -267,8 +267,8 @@ public class TextureTableTests
 
     /// <summary>
     /// <c>CreateBrushVersionOfWorldVertexTransitionMaterial</c> appends
-    /// directly rather than going through <c>FindOrCreateTexInfo</c>
-    /// (<c>worldvertextransitionfixup.cpp:147</c>), so the table must offer an
+    /// directly rather than going through <c>FindOrCreateTexInfo</c>,
+    /// so the table must offer an
     /// append that does not dedup.
     /// </summary>
     [Fact]
@@ -286,7 +286,7 @@ public class TextureTableTests
 
     /// <summary>
     /// <c>AddCloneTexData</c> copies the struct and then overwrites only the
-    /// name (<c>textures.cpp:526-527</c>), so the copy keeps the original's
+    /// name, so the copy keeps the original's
     /// dimensions, reflectivity and surface property.
     /// </summary>
     [Fact]

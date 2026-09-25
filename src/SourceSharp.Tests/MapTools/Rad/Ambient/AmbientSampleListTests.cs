@@ -9,10 +9,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Ambient;
 
 /// <summary>
-/// <c>AddSampleToList</c> (<c>leaf_ambient_lighting.cpp:314</c>),
-/// <c>CompressAmbientSampleList</c> (<c>:432</c>),
-/// <c>Mod_LeafAmbientColorAtPos</c> (<c>:404</c>) and
-/// <c>CubeDeltaGammaSpace</c> (<c>:385</c>).
+/// <c>AddSampleToList</c>, <c>CompressAmbientSampleList</c>,
+/// <c>Mod_LeafAmbientColorAtPos</c> and <c>CubeDeltaGammaSpace</c>.
 /// </summary>
 public sealed class AmbientSampleListTests
 {
@@ -74,8 +72,8 @@ public sealed class AmbientSampleListTests
     [Fact]
     public void StockNeverUsesTheTieBreak()
     {
-        // :375 compares totalDC against nearestNeighborTotal, which is never
-        // assigned (:330): of two samples tied on distance, stock evicts the
+        //:375 compares totalDC against nearestNeighborTotal, which is never
+        // assigned:330): of two samples tied on distance, stock evicts the
         // EARLIER one whatever their colour variation.
         List<AmbientSample> list = TiedPair();
         AmbientSampleList.Add(list, new Vec3(10000, 0, 0), Uniform(0.0f), ComplianceOptions.Stock);

@@ -142,7 +142,7 @@ public class PhysicalFileSystemTests
     public async Task ReplaceLeavesThePreviousBspWhenTheWriterThrows()
     {
         // The reason ReplaceAsync exists: a compile killed part-way through
-        // WriteBSPFile must not leave a half-written .bsp that looks loadable.
+        // WriteBSPFile must not leave a half-written.bsp that looks loadable.
         using TempTree tree = new();
         tree.Write("a.bsp", [1, 1, 1, 1]);
 

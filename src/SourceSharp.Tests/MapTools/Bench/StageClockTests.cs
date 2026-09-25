@@ -27,7 +27,7 @@ namespace SourceSharp.Tests.MapTools.Bench;
 /// <see cref="Vvis"/> stage names — the text consumers parse.
 /// </para>
 /// <para>
-/// (2) Reading the ledger must be FREE: <c>Report()</c> is a snapshot, never a
+/// (2) Reading the ledger must be FREE: <c>Report</c> is a snapshot, never a
 /// mutation. The first implementation closed the open segment inside the
 /// snapshot, so a read mid-run re-opened the next segment from the read time
 /// and the interval between the read and the next transition was billed to
@@ -135,7 +135,7 @@ public class StageClockTests
         // The hot path: sixteen workers report the SAME stage reference after
         // every completed item. Every report must complete without touching
         // the lock the ledger reader uses, and a concurrent reader hammering
-        // Report() must not force workers through the transition path. The
+        // Report must not force workers through the transition path. The
         // bound is generous — the assertion is liveness, not timing.
         const int Workers = 16;
         const int Reports = 200_000;
@@ -210,7 +210,7 @@ public class StageClockTests
         // Workers straddling a boundary: threads hammer two settled stages
         // while transitions to the remaining vvis stages race beneath them.
         // The ledger must still show every stage that ran, in first-seen
-        // order, with non-negative rows whose sum never exceeds the total —
+        // order, with non-negative rows whose sum never exceeds the total.
         // no double billing that outruns the wall, no stage swallowed by a
         // lost CAS.
         string[] stages = [Vvis.BaseStage, Vvis.FlowStage, Vvis.ClusterMergeStage,

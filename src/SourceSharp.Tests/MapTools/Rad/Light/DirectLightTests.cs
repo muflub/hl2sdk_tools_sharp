@@ -69,7 +69,7 @@ public sealed class DirectLightBuilderTests
     [Fact]
     public void LightIntensityIsLinearisedAndScaledByTheFourthField()
     {
-        // lightmap.cpp:1088-1108: pow(255/255, 2.2) * 255 = 255, times 200/255.
+        //: pow(255/255, 2.2) * 255 = 255, times 200/255.
         LightTestMap map = LightBox.Map();
         map.Entities.Add(LightTestMap.Entity(("classname", "light"), ("origin", "128 128 128"), ("_light", "255 255 255 200")));
         DirectLight light = Assert.Single(LightBox.Build(map).Lights.Active);
@@ -97,7 +97,7 @@ public sealed class DirectLightBuilderTests
     [Fact]
     public void TheActiveListIsInReverseCreationOrder()
     {
-        // AllocDLight PREPENDS (lightmap.cpp:983-986), so the worldlights lump
+        // AllocDLight PREPENDS, so the worldlights lump
         // lists the last entity first.
         LightTestMap map = LightBox.Map();
         map.Entities.Add(LightTestMap.Entity(("classname", "light"), ("origin", "10 10 10"), ("_light", "255 255 255")));
@@ -133,7 +133,6 @@ public sealed class DirectLightBuilderTests
     [Fact]
     public void AFullyOpenSpotlightIsAPointLightWithZeroCones()
     {
-        // lightmap.cpp:1282-1287.
         LightTestMap map = LightBox.Map();
         map.Entities.Add(LightTestMap.Entity(
             ("classname", "light_spot"), ("origin", "1 1 1"), ("_light", "255 255 255"),
@@ -211,7 +210,7 @@ public sealed class DirectLightBuilderTests
     [Fact]
     public void ALightEnvironmentMakesASunAndAnAmbientAmbientFirst()
     {
-        // lightmap.cpp:1517-1518: sun prepended, then ambient -> ambient heads the list.
+        //: sun prepended, then ambient -> ambient heads the list.
         LightTestMap map = LightBox.Map();
         map.Entities.Add(LightTestMap.Entity(
             ("classname", "light_environment"), ("origin", "1 1 1"), ("_light", "255 255 255 200"), ("pitch", "-45")));
@@ -233,7 +232,7 @@ public sealed class DirectLightBuilderTests
     [Fact]
     public void ASecondLightEnvironmentIsCountedButDropped()
     {
-        // :1490-1491: allocated (numdlights counts it) but never listed.
+        //:1490-1491: allocated (numdlights counts it) but never listed.
         LightTestMap map = LightBox.Map();
         map.Entities.Add(LightTestMap.Entity(("classname", "light_environment"), ("origin", "1 1 1"), ("_light", "255 255 255")));
         map.Entities.Add(LightTestMap.Entity(("classname", "light_environment"), ("origin", "2 2 2"), ("_light", "255 0 0")));
@@ -265,7 +264,7 @@ public sealed class DirectLightBuilderTests
     [Fact]
     public async Task ASurfaceLightsIntensityCarriesAreaTextureScaleAndDirectScale()
     {
-        // lightmap.cpp:1577-1580: baselight * lightscale * area * s0 * s1 /
+        //: baselight * lightscale * area * s0 * s1 /
         // basearea, then * 100*100. No vis -> bounces 0 -> one patch per face.
         LightTestMap map = LightBox.Map(ceilingMaterial: "lights/white");
         RadWorld world = LightBox.Build(map, texLights: await LightBox.TexLightsAsync("lights/white 255 255 255 255"));
@@ -277,7 +276,7 @@ public sealed class DirectLightBuilderTests
     [Fact]
     public async Task AnEmissiveTextureSetsSurfLightOnItsTexinfo()
     {
-        // vrad.cpp:631-635 -- which is what later lets PreventSubdivision keep
+        // -- which is what later lets PreventSubdivision keep
         // a NOLIGHT emitter subdividable.
         LightTestMap map = LightBox.Map(ceilingMaterial: "lights/white");
         RadWorld world = LightBox.Build(map, texLights: await LightBox.TexLightsAsync("lights/white 255 255 255"));
@@ -328,7 +327,7 @@ public sealed class EntityKeyTests
     [Fact]
     public void TheLastDuplicateKeyWins()
     {
-        // ParseEntities prepends epairs (bsplib.cpp:3056), so ValueForKey's
+        // ParseEntities prepends epairs, so ValueForKey's
         // first match is the file's LAST.
         BspEntity e = LightTestMap.Entity(("style", "1"), ("style", "2"));
         Assert.Equal("2", EntityKeys.ValueForKey(e, "style"));
@@ -374,7 +373,7 @@ public sealed class TextureLightTableTests
     [Fact]
     public void ACubemapPatchedNameIsTracedBackToItsOriginal()
     {
-        // vrad.cpp:308-333: maps/<level>/<name>_x_y_z -> <name>.
+        //: maps/<level>/<name>_x_y_z -> <name>.
         TextureLightTable t = new(new RadLightFile(), "box");
         Assert.Equal("lights/white", t.Unpatch("maps/box/lights/white_1_2_3"));
     }

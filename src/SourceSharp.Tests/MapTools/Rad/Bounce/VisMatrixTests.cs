@@ -12,10 +12,10 @@ using SurfaceFlags = SourceSharp.MapTools.Materials.SurfaceFlags;
 
 namespace SourceSharp.Tests.MapTools.Rad.Bounce;
 
-/// <summary><c>MakeScales</c> (<c>vrad.cpp:1202</c>).</summary>
+/// <summary><c>MakeScales</c>.</summary>
 public sealed class MakeScalesTests
 {
-    /// <summary>A total at or under pi is divided by pi: <c>1.0f/M_PI</c>, a double narrowed (<c>:1239</c>).</summary>
+    /// <summary>A total at or under pi is divided by pi: <c>1.0f/M_PI</c>, a double narrowed.</summary>
     [Fact]
     public void ATotalUnderPiIsDividedByPi()
     {
@@ -26,7 +26,7 @@ public sealed class MakeScalesTests
         Assert.Equal(new Transfer(9, 2.0f * scale), t[1]);
     }
 
-    /// <summary>A total above pi is divided by itself, so the list sums to 1 (<c>:1236-1237</c>).</summary>
+    /// <summary>A total above pi is divided by itself, so the list sums to 1.</summary>
     [Fact]
     public void ATotalOverPiIsDividedByItself()
     {
@@ -50,7 +50,7 @@ public sealed class MakeScalesTests
     public void AnEmptyListIsANoOp() => VisMatrix.MakeScales([]);
 }
 
-/// <summary>The transfer stream's ray (<c>trace2.cpp:308-340</c>).</summary>
+/// <summary>The transfer stream's ray.</summary>
 public sealed class TransferRayTests
 {
     /// <summary>The reach is the segment's length, stock's <c>ray_length</c>.</summary>
@@ -101,7 +101,7 @@ public sealed class TransferRayTests
     }
 }
 
-/// <summary><c>MakeTransfer</c> (<c>vrad.cpp:1114</c>) on the box's patches.</summary>
+/// <summary><c>MakeTransfer</c> on the box's patches.</summary>
 public sealed class MakeTransferTests
 {
     private static (VisMatrix Matrix, RadWorld World) Box(SurfaceFlags ceiling = 0)
@@ -110,7 +110,7 @@ public sealed class MakeTransferTests
         return (new VisMatrix(world.BounceContext()), world);
     }
 
-    /// <summary>Light is never taken from a sky patch (<c>:1132</c>).</summary>
+    /// <summary>Light is never taken from a sky patch.</summary>
     [Fact]
     public void ASkySourceMakesNoTransfer()
     {
@@ -118,7 +118,7 @@ public sealed class MakeTransferTests
         Assert.False(m.MakeTransfer(BounceBox.Leaves(w, 0)[0], BounceBox.Leaves(w, 1)[0], out _));
     }
 
-    /// <summary>A source with no area makes none (<c>:1141</c>).</summary>
+    /// <summary>A source with no area makes none.</summary>
     [Fact]
     public void AZeroAreaSourceMakesNoTransfer()
     {
@@ -128,7 +128,7 @@ public sealed class MakeTransferTests
         Assert.False(m.MakeTransfer(BounceBox.Leaves(w, 0)[0], source, out _));
     }
 
-    /// <summary>Two patches in one plane have a zero form factor and make none (<c>:1151</c>).</summary>
+    /// <summary>Two patches in one plane have a zero form factor and make none.</summary>
     [Fact]
     public void CoplanarPatchesMakeNoTransfer()
     {
@@ -140,7 +140,7 @@ public sealed class MakeTransferTests
     /// <summary>
     /// A far source -- pi * 0.04 * d^2 at or above its area -- uses the
     /// differential form factor: trans = area * FormFactorDiffToDiff(source,
-    /// receiver) (<c>:1148, 1160-1169</c>).
+    /// receiver).
     /// </summary>
     [Fact]
     public void AFarSourceUsesTheDifferentialFormFactor()
@@ -157,7 +157,7 @@ public sealed class MakeTransferTests
         Assert.Equal(s.Area * FormFactors.DiffToDiff(s.Origin, s.Normal, r.Origin, r.Normal, false), trans);
     }
 
-    /// <summary>A near source uses the polygon form factor over its winding (<c>:1162-1166</c>).</summary>
+    /// <summary>A near source uses the polygon form factor over its winding.</summary>
     [Fact]
     public void ANearSourceUsesThePolygonFormFactor()
     {
@@ -172,7 +172,7 @@ public sealed class MakeTransferTests
         Assert.Equal(s.Area * poly, trans);
     }
 
-    /// <summary>A transfer at or below <c>TRANSFER_EPSILON</c> is dropped (<c>:1171</c>).</summary>
+    /// <summary>A transfer at or below <c>TRANSFER_EPSILON</c> is dropped.</summary>
     [Fact]
     public void ATransferUnderTheEpsilonIsDropped()
     {
@@ -214,7 +214,7 @@ public sealed class VisMatrixBuildTests
         return (matrix, set, world);
     }
 
-    /// <summary>"don't check patches on the same face" (<c>vismat.cpp:336</c>).</summary>
+    /// <summary>"don't check patches on the same face".</summary>
     [Fact]
     public async Task NoPatchTakesLightFromItsOwnFace()
     {
@@ -233,7 +233,7 @@ public sealed class VisMatrixBuildTests
     /// The same-face skip holds even for a receiver lifted off its face's
     /// plane -- the case of a displacement patch, whose origin is on the
     /// displaced surface -- where the plane tests alone would let the face's
-    /// own lifted patches through (<c>vismat.cpp:336-337</c>).
+    /// own lifted patches through.
     /// </summary>
     [Fact]
     public void ALiftedReceiverStillSkipsItsOwnFace()
@@ -267,7 +267,7 @@ public sealed class VisMatrixBuildTests
         Assert.Contains(t.For(floor).ToArray(), x => w.Patches.At(x.Patch).FaceNumber == 1);
     }
 
-    /// <summary>A cluster whose PVS row does not include itself tests nothing (<c>vismat.cpp:322</c>).</summary>
+    /// <summary>A cluster whose PVS row does not include itself tests nothing.</summary>
     [Fact]
     public async Task APvsThatExcludesTheClusterMakesNoTransfers()
     {
@@ -276,7 +276,7 @@ public sealed class VisMatrixBuildTests
         Assert.Equal(0, m.Statistics.Rays);
     }
 
-    /// <summary>A blocked ray makes no transfer (<c>vismat.cpp:86</c>).</summary>
+    /// <summary>A blocked ray makes no transfer.</summary>
     [Fact]
     public async Task AnOccluderRemovesTransfers()
     {
@@ -340,8 +340,7 @@ public sealed class VisMatrixBuildTests
 
     /// <summary>
     /// <see cref="StockQuirk.VisPlaneTestPhongNormal"/>, stock side: tilting
-    /// the floor's shading normals changes which candidates pass
-    /// <c>vismat.cpp:190</c>.
+    /// the floor's shading normals changes which candidates pass.
     /// </summary>
     [Fact]
     public async Task StockPlaneTestFollowsTheShadingNormal()
@@ -365,7 +364,7 @@ public sealed class VisMatrixBuildTests
         Assert.Equal(flat.Statistics.Rays, tilted.Statistics.Rays);
     }
 
-    /// <summary>The cluster table lists a cluster's leaves (<c>bsplib.cpp:3745</c>).</summary>
+    /// <summary>The cluster table lists a cluster's leaves.</summary>
     [Fact]
     public void TheClusterTableListsTheLeaf()
     {
@@ -383,8 +382,7 @@ public sealed class VisMatrixBuildTests
     }
 
     /// <summary>
-    /// Receivers go cluster by cluster in each cluster's child-list order
-    /// (<c>vismat.cpp:392-409</c>).
+    /// Receivers go cluster by cluster in each cluster's child-list order.
     /// </summary>
     [Fact]
     public void ReceiversFollowTheClusterChildList()

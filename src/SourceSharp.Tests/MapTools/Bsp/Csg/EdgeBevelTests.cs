@@ -9,7 +9,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Csg;
 
 /// <summary>
 /// <b>Edge bevels, gated at last.</b> The second half of
-/// <c>AddBrushBevels</c> (<c>map.cpp:533-610</c>) fires on no reference map
+/// <c>AddBrushBevels</c> fires on no reference map
 /// this project has; <see cref="EdgeBevelShapes.Octahedron"/> is the shape
 /// that makes it fire, and these are the facts over it.
 /// </summary>
@@ -30,7 +30,7 @@ public class EdgeBevelTests
         Assert.Equal(1, map.BrushCount);
 
         // Not exactly +/-128: MakeBrushWindings clips with BRUSH_CLIP_EPSILON
-        // (map.cpp:644), so a vertex where three slanted planes meet lands a
+        //, so a vertex where three slanted planes meet lands a
         // few thousandths outside the ideal corner.
         for (int i = 0; i < 3; i++)
         {
@@ -134,7 +134,7 @@ public class EdgeBevelTests
     }
 
     /// <summary>
-    /// A bevel is never a BSP splitter (<c>brushbsp.cpp:882</c>), so adding
+    /// A bevel is never a BSP splitter, so adding
     /// twelve of them to a brush must not change the tree it builds. This is
     /// the reason edge bevels matter to CSG and the reason they are invisible
     /// in every count the block gate compares.
@@ -157,8 +157,8 @@ public class EdgeBevelTests
 
     /// <summary>
     /// <c>CreateBrushWindings</c> skips bevels as CLIP planes
-    /// (<c>brushbsp.cpp:181</c>) where <c>SplitBrush</c> does not
-    /// (<c>brushbsp.cpp:1097</c>). On a shape with twelve edge bevels that
+    /// where <c>SplitBrush</c> does not
+    ///. On a shape with twelve edge bevels that
     /// difference is measurable: clipping with them produces a smaller brush
     /// than clipping without.
     /// </summary>

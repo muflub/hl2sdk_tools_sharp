@@ -96,7 +96,7 @@ public class MaterialVarValueTests
     [Fact]
     public void TheWordYesDoesNotSetACompileVar()
     {
-        // StringIsTrue tests exactly two spellings (textures.cpp:36-47), so a
+        // StringIsTrue tests exactly two spellings, so a
         // material written "%compileNoDraw" "yes" draws.
         Assert.False(MaterialCompileVars.IsTrue("yes"));
     }
@@ -116,7 +116,7 @@ public class MaterialVarValueTests
     [Fact]
     public void AllTwentyTwoCompileVariablesAreInTheTable()
     {
-        // Enumerated from textures.cpp:85-261. The count is the fact: a
+        // Enumerated from the reference implementation. The count is the fact: a
         // twenty-third variable added to vbsp, or one of these dropped, shows
         // up here rather than as a silently unflagged surface.
         Assert.Equal(22, MaterialCompileVars.All.Length);

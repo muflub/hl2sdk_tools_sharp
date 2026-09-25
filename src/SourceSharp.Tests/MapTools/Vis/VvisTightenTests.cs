@@ -234,7 +234,7 @@ public class VvisTightenTests
         // flow starts, so the walk is stock's own read for read and the
         // counters are a property of the map. At more threads they are not:
         // a flow may read a neighbour still being flowed and be re-walked
-        // (VisTightening), which changes the work and never the answer --
+        // (VisTightening), which changes the work and never the answer.
         // that is what the lump facts above and VisSpeculationTests pin.
         (_, VisResult first) = await RunAsync(Tight, degree: 1);
         (_, VisResult second) = await RunAsync(Tight, degree: 1);
@@ -380,7 +380,7 @@ public class VvisTightenTests
     public void TheDefaultRecordTightensAndTheLooseRecordDoesNot()
     {
         // The promotion as a library fact, not just a CLI one: the record a
-        // caller gets with `new()` is the tightened arm, and the untightened
+        // caller gets with `new` is the tightened arm, and the untightened
         // walk stays reachable by spelling Tighten = false.
         Assert.True(VvisOptions.Default.Tighten);
         Assert.False(new VvisOptions { Tighten = false }.Tighten);

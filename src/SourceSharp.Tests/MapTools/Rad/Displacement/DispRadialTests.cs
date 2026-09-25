@@ -8,8 +8,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Displacement;
 
 /// <summary>
-/// The displacement radial's arithmetic (<c>vraddisps.cpp:855-1087, 1108-1172</c>)
-/// and <c>PreGetBumpNormalsForDisp</c> (<c>vrad.cpp:1494</c>).
+/// The displacement radial's arithmetic(<c>, 1108-1172</c>)
+/// and <c>PreGetBumpNormalsForDisp</c>.
 /// </summary>
 public sealed class DispRadialTests
 {

@@ -18,7 +18,7 @@ public class ContentRuleTests
     [Corrupts(BspRuleCodes.Leaf0Solid)]
     public async Task Leaf0MustBeSolid()
     {
-        // engine/cmodel_bsp.cpp:457-459 and :520-522, "Map leaf 0 is not
+        // and:520-522, "Map leaf 0 is not
         // CONTENTS_SOLID". The collision code then sets solidleaf = 0 and uses
         // leaf 0 AS the solid leaf for every trace that leaves the world.
         BspData bsp = await Corrupted.GoldenAsync();
@@ -34,7 +34,7 @@ public class ContentRuleTests
     [Corrupts(BspRuleCodes.SurfaceExtents)]
     public async Task ALitFaceWhoseLightmapIsTooBigIsReported()
     {
-        // engine/modelloader.cpp:1617-1620, "Bad surface extents on texture
+        //, "Bad surface extents on texture
         // %s". A brush face's limit is MAX_BRUSH_LIGHTMAP_DIM_INCLUDING_BORDER
         // (35); face 0 of the golden map is a lit brush face with extents of
         // 1 by 1, so 200 is unambiguously over.
@@ -69,7 +69,7 @@ public class ContentRuleTests
     [Fact]
     public async Task ADisplacementFaceGetsTheLargerLimit()
     {
-        // engine/gl_model_private.h:649-653 picks 128 for a face with a
+        // picks 128 for a face with a
         // dispinfo and 35 for anything else, so an extent of 100 is legal on
         // one and not on the other. Using the brush limit everywhere would
         // reject every finely-lit displacement in the game.
@@ -86,7 +86,7 @@ public class ContentRuleTests
     [Corrupts(BspRuleCodes.NoCubemaps)]
     public async Task AMapWithNoCubemapSamplesIsReported()
     {
-        // engine/modelloader.cpp:2433-2441. Fatal under -requirecubemaps, and
+        //. Fatal under -requirecubemaps, and
         // otherwise a silent fallback to engine/defaultcubemap on every
         // reflective surface in the map.
         BspData bsp = await Corrupted.GoldenAsync();
@@ -101,9 +101,9 @@ public class ContentRuleTests
     [Corrupts(BspRuleCodes.PhysFraming)]
     public async Task APhysicsRecordWhoseSolidsDoNotAddUpIsReported()
     {
-        // engine/cmodel_bsp.cpp:1049-1070 walks the lump by these sizes and
+        // walks the lump by these sizes and
         // only notices it has gone past the end AFTER reading there. The solid
-        // framing inside dataSize is src/utils/common/bsplib.cpp:1602-1627.
+        // framing inside dataSize.
         BspData bsp = await Corrupted.GoldenAsync();
         byte[] phys = Corrupted.EditBytes(bsp, BspLump.PhysCollide);
         int dataSize = BinaryPrimitives.ReadInt32LittleEndian(phys.AsSpan(4));
@@ -121,7 +121,7 @@ public class ContentRuleTests
         // The other side of the same accounting, and it needed its own fact: a
         // mutation that removed the "the solids do not fill dataSize" test
         // survived every other phys fact, because each of those trips an
-        // earlier branch. src/utils/common/bsplib.cpp:1602-1627 walks exactly
+        // earlier branch. walks exactly
         // solidCount length-prefixed solids, so a count one short leaves the
         // last solid's bytes inside dataSize and unread.
         BspData bsp = await Corrupted.GoldenAsync();
@@ -139,7 +139,7 @@ public class ContentRuleTests
     public async Task APhysicsLumpWithNoTerminatorIsTheSameRule()
     {
         // "The last physmodel is a NULL pointer with modelIndex -1, dataSize
-        // -1" (engine/cmodel_bsp.cpp:1051-1052). Take the terminator away and
+        // -1". Take the terminator away and
         // the walk has nothing to stop it.
         BspData bsp = await Corrupted.GoldenAsync();
         ReadOnlySpan<byte> phys = bsp[BspLump.PhysCollide].Data.Span;
@@ -153,7 +153,7 @@ public class ContentRuleTests
     [Corrupts(BspRuleCodes.PhysModelIndex)]
     public async Task APhysicsRecordForAModelThatDoesNotExistIsReported()
     {
-        // engine/cmodel_bsp.cpp:1058-1061 -- map_cmodels[ physModel.modelIndex
+        // -- map_cmodels[ physModel.modelIndex
         // ] with nothing bounding it.
         BspData bsp = await Corrupted.GoldenAsync();
         byte[] phys = Corrupted.EditBytes(bsp, BspLump.PhysCollide);
@@ -168,9 +168,9 @@ public class ContentRuleTests
     [Corrupts(BspRuleCodes.DispPower)]
     public async Task ADisplacementPowerAboveFourIsReported()
     {
-        // engine/cmodel_bsp.cpp:1186-1194 reads NUM_DISP_POWER_VERTS(power)
+        // reads NUM_DISP_POWER_VERTS(power)
         // vertices into a stack buffer sized for MAX_MAP_DISP_POWER, which is
-        // 4 (public/bspfile.h:48).
+        // 4.
         BspData bsp = await Corrupted.GoldenAsync();
         Span<DispInfo> disps = Corrupted.Edit<DispInfo>(bsp, BspLump.DispInfo);
         disps[0].Power = 6;

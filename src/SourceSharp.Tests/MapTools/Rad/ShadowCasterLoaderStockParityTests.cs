@@ -105,7 +105,7 @@ public sealed class ShadowCasterLoaderFixture : IAsyncLifetime
 /// <para>
 /// The fourth, the default <c>.phy</c> prop path, cannot be: stock's triangles
 /// come back out of vphysics through <c>ICollisionQuery</c>
-/// (<c>vradstaticprops.cpp:1847-1857</c>) and there is no managed decoder for
+/// and there is no managed decoder for
 /// an IVP compact ledge tree in this tree, nor should there be. What IS gated
 /// there is everything around the hole: which props are skipped, which branch
 /// each takes, and the exact shape of stock's AABB fallback including its
@@ -118,7 +118,7 @@ public sealed class ShadowCasterLoaderStockParityTests
 {
     /// <summary>How far a bound may sit from stock's, in units.</summary>
     /// <remarks>
-    /// Stock's dumper prints <c>%5.2f</c> (<c>vrad.cpp:1345</c>), so a
+    /// Stock's dumper prints <c>%5.2f</c>, so a
     /// coordinate it recorded is within half of 0.01 of the one it held. The
     /// tolerance is that rounding and nothing else: the arithmetic itself is
     /// expected to agree.
@@ -147,12 +147,12 @@ public sealed class ShadowCasterLoaderStockParityTests
     /// <remarks>
     /// Four, of 23,549. Not a defect in the brush path: stock's
     /// <c>BaseWindingForPlane</c> normalises with <c>VectorNormalize</c>
-    /// (<c>polylib.cpp:290</c> into <c>vector.h:2225-2251</c>), which is
+    ///(into), which is
     /// <c>rsqrtss</c> plus one Newton-Raphson step and three multiplies, while
     /// <c>WindingArena.BaseWindingForPlane</c> uses an exact per-component
     /// divide. The two agree to within a few ULPs -- and
     /// <c>AddBrushToRaytraceEnvironment</c> clips with an epsilon of exactly
-    /// zero (<c>trace.cpp:516</c>), so a few ULPs is all it takes to flip a
+    /// zero, so a few ULPs is all it takes to flip a
     /// base-winding corner from on-plane to in-front and gain or lose one fan
     /// triangle. It happens four times in 15,653 brush sides.
     /// </remarks>
@@ -224,7 +224,7 @@ public sealed class ShadowCasterLoaderStockParityTests
             using StreamWriter writer = new(path + suffix);
             foreach (TracedTriangle triangle in report.Set.Triangles)
             {
-                // vrad.cpp:1341-1351, %5.2f per coordinate, so that a diff
+                //, %5.2f per coordinate, so that a diff
                 // against stock's file is a diff of the same text.
                 writer.WriteLine("3");
                 foreach (Vec3 v in new[] { triangle.V0, triangle.V1, triangle.V2 })
@@ -260,9 +260,9 @@ public sealed class ShadowCasterLoaderStockParityTests
     /// tolerance that was wrong by construction on the first attempt. Four is
     /// the NET; a hundred triangles move. They move because
     /// <c>AddBrushToRaytraceEnvironment</c> clips with an epsilon of exactly
-    /// zero (<c>trace.cpp:516</c>) and the base winding is scaled by
-    /// <c>MAX_COORD_INTEGER * 4</c> before it is clipped
-    /// (<c>polylib.cpp:296</c>), so the normalise fork's few ULPs arrive at the
+    /// zero and the base winding is scaled by
+    /// <c>MAX_COORD_INTEGER * 4</c> before it is clipped,
+    /// so the normalise fork's few ULPs arrive at the
     /// clipped corner as a hundredth of a unit and flip corners across the
     /// plane in both directions.
     /// </para>
@@ -353,7 +353,7 @@ public sealed class ShadowCasterLoaderStockParityTests
     /// <summary><c>-StaticPropPolys</c> prop triangles: stock's bounding box.</summary>
     /// <remarks>
     /// The bound is what proves the per-prop transform. A render-mesh path that
-    /// forgot <c>AngleMatrix( prop.m_Angles, prop.m_Origin )</c> would emit
+    /// forgot <c>AngleMatrix(prop.m_Angles, prop.m_Origin)</c> would emit
     /// exactly 92,582 triangles piled on the origin.
     /// </remarks>
     [InstalledGameFact]
@@ -460,7 +460,7 @@ public sealed class ShadowCasterLoaderStockParityTests
     /// <summary>The whole scene builds a KD tree, and it holds every triangle.</summary>
     /// <remarks>
     /// The load path's only consumer. Stock's own build of this scene is the
-    /// 0.41 s it prints at <c>vrad.cpp:2290</c>.
+    /// 0.41 s it prints.
     /// </remarks>
     [InstalledGameFact]
     public void TheSceneBuildsATracer()

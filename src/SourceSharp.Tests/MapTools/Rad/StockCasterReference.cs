@@ -95,15 +95,15 @@ internal sealed record StockCasterRun(
 /// <remarks>
 /// <para>
 /// NOT A GOLDEN OUTPUT OF THIS PORT. The numbers come from stock's
-/// <c>-dumptrace</c> (<c>vrad.cpp:2282</c>, <c>WriteRTEnv</c> at
-/// <c>vrad.cpp:1309</c>), which writes every triangle in
+/// <c>-dumptrace</c> (<c>WriteRTEnv</c> at
+///), which writes every triangle in
 /// <c>g_RtEnv.OptimizedTriangleList</c> before the KD build destroys the
 /// vertices. <c>Fixtures/README-casters.md</c> carries the commands.
 /// </para>
 /// <para>
 /// THE GATE THE PLAN ASKED FOR DOES NOT EXIST. §4b names stock's
 /// <c>Total triangle count:</c> as the number to match. That line is
-/// <c>bsplib.cpp:2962</c> -- <c>sum over dfaces of numedges - 2</c>, a BSP-lump
+/// -- <c>sum over dfaces of numedges - 2</c>, a BSP-lump
 /// statistic. Measured on this map it reads 19,216 both with and without
 /// <c>-StaticPropPolys</c>, while the acceleration structure it supposedly
 /// describes goes from 0.41 s to 1.27 s and the caster set from 42,933

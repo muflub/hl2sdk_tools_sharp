@@ -23,7 +23,7 @@ namespace SourceSharp.Tests.MapTools.Bsp;
 /// <para>
 /// <b>Edge bevels are still not covered, and saying so is the point.</b>
 /// Neither of these produces one, and nor does anything else measured here:
-/// the second half of <c>AddBrushBevels</c> (<c>map.cpp:533-610</c>) wants a
+/// the second half of <c>AddBrushBevels</c> wants a
 /// brush with an edge that is non-axial AND whose slanted-axial planes are
 /// outside the hull, which a wedge, a pyramid and a corner-cut box all fail to
 /// be. That half of the function is unexercised by any reference this lane

@@ -5,8 +5,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Faces;
 
 /// <summary>
-/// The Xbox tristripper (<c>Stripify</c>,
-/// <c>src/utils/common/mstristrip.cpp:796</c>).
+/// The Xbox tristripper (<c>Stripify</c>.
 /// </summary>
 /// <remarks>
 /// The facts here check the PROPERTY the output must have — that walking the

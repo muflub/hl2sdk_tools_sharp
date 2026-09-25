@@ -13,8 +13,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad;
 
 /// <summary>
-/// <c>CShadowTextureList</c> and its helpers
-/// (<c>src/utils/vrad/vradstaticprops.cpp:646-936</c>).
+/// <c>CShadowTextureList</c> and its helpers.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -72,7 +71,7 @@ public class ShadowTextureListTests
     [Fact]
     public void InitFromRgba8888KeepsOnlyTheFourthByteOfEachPixel()
     {
-        // alphatexture_t::InitFromRGB8888 (vradstaticprops.cpp:865-872): the
+        // alphatexture_t::InitFromRGB8888: the
         // colour is decoded and thrown away.
         byte[] rgba = [1, 2, 3, 200, 4, 5, 6, 100, 7, 8, 9, 0, 10, 11, 12, 255];
 
@@ -90,7 +89,7 @@ public class ShadowTextureListTests
     [Fact]
     public void SampleScalesByTheDimensionSoTheRightEdgeWrapsBackToColumnZero()
     {
-        // vradstaticprops.cpp:838-839 multiplies by tex.width, NOT width - 1.
+        // multiplies by tex.width, NOT width - 1.
         // That one character is why u == 1.0 is column 0 and not column 3.
         AlphaTexture texture = SampleTexture();
 
@@ -101,7 +100,7 @@ public class ShadowTextureListTests
     [Fact]
     public void SampleRoundsTiesToEvenAsSseDoes()
     {
-        // RoundFloatToInt is _mm_cvtss_si32 (mathlib.h:1175-1178), which is
+        // RoundFloatToInt is _mm_cvtss_si32, which is
         // round-half-to-EVEN. 0.125 * 4 is exactly 0.5, so stock lands on
         // column 0; a round-half-away-from-zero would land on column 1.
         Assert.Equal(10, SampleTexture().Sample(0.125f, 0f));
@@ -125,7 +124,7 @@ public class ShadowTextureListTests
     public void AClampedTextureStillWrapsBecauseStockIgnoresTheFlag()
     {
         // PINS A DELIBERATE DEFECT. The clamp branch is inside the #if 0 at
-        // vradstaticprops.cpp:844-849, so SampleMaterial takes the #else and
+        //, so SampleMaterial takes the #else and
         // masks. 1.25 * 4 is 5, and 5 & 3 is 1: a clamping implementation
         // would answer column 3 (40) instead.
         AlphaTexture clamped = new(4, 4, SampleAlpha, allowBackface: false, clampU: true, clampV: true);
@@ -137,7 +136,7 @@ public class ShadowTextureListTests
     [Fact]
     public void TheClampFlagsAreReadOutOfTheVtfHeader()
     {
-        // vradstaticprops.cpp:669-670. They are read, stored, and then never
+        //. They are read, stored, and then never
         // acted on; the fact above is the other half of that statement.
         byte[] bytes = SyntheticAlphaVtf(SampleAlpha, VtfFlags.ClampS | VtfFlags.ClampT);
 
@@ -150,7 +149,7 @@ public class ShadowTextureListTests
     [Fact]
     public void AVtfsTopMipIsWhatBecomesTheAlphaPlane()
     {
-        // ImageData(0, 0, 0, 0, 0, 0) at vradstaticprops.cpp:664 -- mip 0,
+        // ImageData(0, 0, 0, 0, 0, 0) -- mip 0,
         // whose dimensions are the ones every UV is scaled by.
         AlphaTexture texture = AlphaTexture.FromVtf(VtfFile.Parse(SyntheticAlphaVtf(SampleAlpha)));
 
@@ -175,7 +174,7 @@ public class ShadowTextureListTests
     public void CoverageAveragesTheBoundingBoxAndNotTheTriangle()
     {
         // PINS A DELIBERATE DEFECT, and stock labels it HACKHACK itself
-        // (vradstaticprops.cpp:782). A sliver hugging the UV diagonal covers
+        //. A sliver hugging the UV diagonal covers
         // four texels; the full triangle covers eight. They have the SAME
         // axis-aligned bounding box, so stock gives them the same answer.
         ShadowTextureList list = new();
@@ -210,7 +209,7 @@ public class ShadowTextureListTests
     public void CoverageClampsUvsOutsideTheUnitSquareOntoItsEdge()
     {
         // PINS A DELIBERATE DEFECT: "UNDONE: Do something about tiling"
-        // (vradstaticprops.cpp:794-798). A triangle whose UVs are entirely in
+        //. A triangle whose UVs are entirely in
         // the second tile collapses to the single texel at (1,1) -- 51 here,
         // not the average of the tile it actually covers.
         ShadowTextureList list = new();
@@ -225,7 +224,7 @@ public class ShadowTextureListTests
     [Fact]
     public void CoverageScalesTheBoxByWidthMinusOneAndTruncates()
     {
-        // vradstaticprops.cpp:803-806: umin * (tex.width - 1), C truncation.
+        //: umin * (tex.width - 1), C truncation.
         // v of 0.75 gives (int)(0.75 * 3) == 2, which is the all-255 row.
         // Scaling by width instead would give row 3, which is all 51.
         ShadowTextureList list = new();
@@ -240,8 +239,8 @@ public class ShadowTextureListTests
     [Fact]
     public void ACoverageOfOneYieldsNoMaterialEntry()
     {
-        // vradstaticprops.cpp:1973-1986: only coverage < 1 gets an entry, and
-        // only an entry gets FCACHETRI_TRANSPARENT at :1988-1991.
+        //: only coverage < 1 gets an entry, and
+        // only an entry gets FCACHETRI_TRANSPARENT at:1988-1991.
         ShadowTextureList list = new();
         int index = list.AddTexture("test/coverage", CoverageTexture());
 
@@ -257,7 +256,7 @@ public class ShadowTextureListTests
     public void AnOpaqueTrianglesColourStaysZeroRatherThanBecomingItsCoverage()
     {
         // The `color` vector is left at vec3_origin on the else branch
-        // (vradstaticprops.cpp:1973-1986), so the coverage of 1 is computed
+        //, so the coverage of 1 is computed
         // and discarded.
         ShadowTextureList list = new();
         int index = list.AddTexture("test/coverage", CoverageTexture());
@@ -285,7 +284,7 @@ public class ShadowTextureListTests
     [Fact]
     public void MaterialEntriesAreAppendedAndNeverDeduplicated()
     {
-        // vradstaticprops.cpp:772-780 is an AddToTail with no lookup: two
+        // is an AddToTail with no lookup: two
         // triangles with identical texture space get two entries.
         ShadowTextureList list = new();
         int index = list.AddTexture("test/coverage", CoverageTexture());
@@ -301,7 +300,7 @@ public class ShadowTextureListTests
     [Fact]
     public void SampleMaterialInterpolatesTheStoredUvsWithTheBarycentrics()
     {
-        // vradstaticprops.cpp:836. Barycentric (0,1,0) is vertex 1 exactly.
+        //. Barycentric (0,1,0) is vertex 1 exactly.
         ShadowTextureList list = new();
         int texture = list.AddTexture("test/sample", SampleTexture());
         int entry = list.AddMaterialEntry(
@@ -314,7 +313,6 @@ public class ShadowTextureListTests
     [Fact]
     public void ABackfaceHitOnACulledTextureBlocksEverything()
     {
-        // vradstaticprops.cpp:834-835.
         ShadowTextureList list = new();
         int texture = list.AddTexture("test/sample", SampleTexture());
         int entry = list.AddMaterialEntry(texture, Vector2.Zero, Vector2.Zero, Vector2.Zero);
@@ -336,8 +334,8 @@ public class ShadowTextureListTests
     public void TheTraceCallbackNeverReportsABackfaceHit()
     {
         // PINS A DELIBERATE DEFECT. ComputeCoverageFromTexture passes
-        // `false` literally (vradstaticprops.cpp:895) under a commented-out
-        // body that would have computed it (:892-893). The consequence: the
+        // `false` literally under a commented-out
+        // body that would have computed it:892-893). The consequence: the
         // texture below is CULLED, and the callback still samples it, so
         // $nocull and allowBackface change nothing about a compile.
         ShadowTextureList list = new();
@@ -350,7 +348,7 @@ public class ShadowTextureListTests
     [Fact]
     public void TheTraceCallbackScalesAnAlphaByteToAFraction()
     {
-        // vradstaticprops.cpp:890, alphaScale = 1/255.
+        //, alphaScale = 1/255.
         ShadowTextureList list = new();
         int texture = list.AddTexture("test/sample", SampleTexture());
         int entry = list.AddMaterialEntry(
@@ -362,7 +360,7 @@ public class ShadowTextureListTests
     [Fact]
     public async Task ATranslucentMaterialWithABaseTextureIsAccepted()
     {
-        // THE ACCEPTANCE RULE (vradstaticprops.cpp:702-712): an opacity key
+        // THE ACCEPTANCE RULE: an opacity key
         // AND a $basetexture that loads.
         ShadowTextureList list = new();
         await using ContentFileSystem content = await MountAsync(
@@ -409,7 +407,7 @@ public class ShadowTextureListTests
     [Fact]
     public async Task AnOpacityKeyWithoutABaseTextureGetsNoAlphaTexture()
     {
-        // vradstaticprops.cpp:704-706: $basetexture is required.
+        //: $basetexture is required.
         ShadowTextureList list = new();
         await using ContentFileSystem content = await MountAsync(
             ("materials/test/fog.vmt", "UnlitGeneric { $translucent 1 }"));
@@ -424,7 +422,7 @@ public class ShadowTextureListTests
     [Fact]
     public async Task ATranslucentValueOfZeroIsStillAcceptedBecauseStockTestsPresence()
     {
-        // PINS A STOCK QUIRK: vradstaticprops.cpp:702 is FindKey, not a value
+        // PINS A STOCK QUIRK: is FindKey, not a value
         // test, so "$translucent 0" casts alpha shadows. This is why the port
         // reads GetVar for null rather than asking MaterialFacts.Opacity,
         // which would answer Opaque here.
@@ -455,8 +453,8 @@ public class ShadowTextureListTests
     [Fact]
     public async Task AMaterialWhoseBaseTextureIsMissingGetsNoAlphaTexture()
     {
-        // LoadVTFRGB8888 returns NULL at vradstaticprops.cpp:656, and
-        // FindOrLoadIfValid's `if ( pImageBits )` at :716 then skips the
+        // LoadVTFRGB8888 returns NULL, and
+        // FindOrLoadIfValid's `if (pImageBits)` at:716 then skips the
         // insert -- so bFound is still true.
         ShadowTextureList list = new();
         await using ContentFileSystem content = await MountAsync(
@@ -489,7 +487,7 @@ public class ShadowTextureListTests
     [Fact]
     public async Task NocullSetsAllowBackfaceOnTheLoadedTexture()
     {
-        // vradstaticprops.cpp:722-726, again FindKey rather than a value test.
+        //, again FindKey rather than a value test.
         ShadowTextureList list = new();
         await using ContentFileSystem content = await MountAsync(
             ("materials/test/leaf.vmt",
@@ -519,7 +517,7 @@ public class ShadowTextureListTests
     [Fact]
     public async Task AskingTwiceLoadsOneTexture()
     {
-        // vradstaticprops.cpp:691-694: the dictionary hit short-circuits.
+        //: the dictionary hit short-circuits.
         ShadowTextureList list = new();
         await using ContentFileSystem content = await MountAsync(
             ("materials/test/fence.vmt", "UnlitGeneric { $basetexture test/fence $alphatest 1 }"),
@@ -539,7 +537,7 @@ public class ShadowTextureListTests
     {
         // THE ONE KNOWN DIVERGENCE FROM STOCK, pinned so it is visible rather
         // than discovered. Stock parses raw KeyValues at
-        // vradstaticprops.cpp:697 and asks the ROOT for $alphatest; a patch's
+        // and asks the ROOT for $alphatest; a patch's
         // root key is "patch", so stock answers -1 and the material casts no
         // texture shadow. This port resolves the patch through
         // MaterialFactsReader first and therefore accepts it.
@@ -560,7 +558,7 @@ public class ShadowTextureListTests
     [Fact]
     public async Task AModelsTextureIsFoundThroughItsMaterialSearchPaths()
     {
-        // vradstaticprops.cpp:746-769: materials/<cdtexture><texture>.vmt,
+        //: materials/<cdtexture><texture>.vmt,
         // and the search path here is spelled with backslashes, as a real MDL
         // spells it.
         ShadowTextureList list = new();
@@ -578,7 +576,7 @@ public class ShadowTextureListTests
     [Fact]
     public async Task TheSearchStopsAtTheFirstPathWhereTheMaterialExistsEvenIfItIsOpaque()
     {
-        // PINS A STOCK QUIRK. The loop at vradstaticprops.cpp:765-766 breaks
+        // PINS A STOCK QUIRK. The loop breaks
         // on FindOrLoadIfValid's bFound, which is true for a material that
         // merely PARSED. So the opaque material in the first search path ends
         // the search and the alpha-tested one in the second is never seen.
@@ -612,7 +610,6 @@ public class ShadowTextureListTests
     [Fact]
     public void CleanModelNameStripsALeadingModelsDirectory()
     {
-        // vradstaticprops.cpp:903-909.
         Assert.Equal(
             "props_c17/oildrum001",
             ForcedTextureShadowModels.CleanModelName("models/props_c17/oildrum001.mdl"));
@@ -621,7 +618,7 @@ public class ShadowTextureListTests
     [Fact]
     public void CleanModelNameStripsThePrefixWithoutRegardToCase()
     {
-        // Q_strnicmp at :905 -- the one case-insensitive comparison on the
+        // Q_strnicmp at:905 -- the one case-insensitive comparison on the
         // whole path.
         Assert.Equal("a/b", ForcedTextureShadowModels.CleanModelName("MODELS/a/b.mdl"));
     }
@@ -629,7 +626,7 @@ public class ShadowTextureListTests
     [Fact]
     public void CleanModelNameTruncatesAtTheFirstDotAnywhereNotTheExtension()
     {
-        // strchr, not strrchr (:914). A directory with a dot in its name loses
+        // strchr, not strrchr:914). A directory with a dot in its name loses
         // everything after it.
         Assert.Equal("props", ForcedTextureShadowModels.CleanModelName("models/props.v2/crate.mdl"));
     }
@@ -637,7 +634,7 @@ public class ShadowTextureListTests
     [Fact]
     public void CleanModelNameDoesNotChangeCase()
     {
-        // Q_strncpy at :911 copies verbatim; nothing lowercases.
+        // Q_strncpy at:911 copies verbatim; nothing lowercases.
         Assert.Equal("Props_C17/OilDrum001", ForcedTextureShadowModels.CleanModelName(
             "models/Props_C17/OilDrum001.mdl"));
     }
@@ -655,8 +652,8 @@ public class ShadowTextureListTests
     public void AForcedModelNameIsMatchedCaseSensitively()
     {
         // PINS A STOCK QUIRK. g_ForcedTextureShadowsModels is a plain
-        // CUtlSymbolTable (vradstaticprops.cpp:225) and its caseInsensitive
-        // argument defaults to FALSE (utlsymbol.h:94), so a capitalised
+        // CUtlSymbolTable and its caseInsensitive
+        // argument defaults to FALSE, so a capitalised
         // lights.rad line silently matches nothing.
         ForcedTextureShadowModels forced = new();
         forced.Add("Props_C17/OilDrum001");
@@ -667,7 +664,7 @@ public class ShadowTextureListTests
     [Fact]
     public void AddingTheSameModelTwiceRecordsItOnce()
     {
-        // The Find-then-AddString at vradstaticprops.cpp:925-928.
+        // The Find-then-AddString.
         ForcedTextureShadowModels forced = new();
 
         Assert.True(forced.Add("models/a/b.mdl"));
@@ -678,8 +675,8 @@ public class ShadowTextureListTests
     [Fact]
     public async Task ForcetextureshadowLinesFromALightsRadFeedTheForcedSet()
     {
-        // vrad.cpp:234-237 parses the line; ForceTextureShadowsOnModel cleans
-        // the name (vradstaticprops.cpp:921-929). RadLightFile hands back the
+        // parses the line; ForceTextureShadowsOnModel cleans
+        // the name. RadLightFile hands back the
         // RAW name, so this type does the cleaning -- as stock does.
         RadLightFile lights = await RadLightFile.ParseAsync(
             "forcetextureshadow models/props_foliage/tree01.mdl\n");
@@ -692,7 +689,7 @@ public class ShadowTextureListTests
     [Fact]
     public void TheGateIsShutWithoutTheTextureshadowsSwitch()
     {
-        // vradstaticprops.cpp:1000-1009: g_bTextureShadows is the outer test,
+        //: g_bTextureShadows is the outer test,
         // so a compile without the switch reads none of these VMTs.
         ForcedTextureShadowModels forced = new();
         forced.Add("props/crate");
@@ -736,7 +733,7 @@ public class ShadowTextureListTests
     [Fact]
     public void TheCastTextureShadowsFlagIsTheStudioHeaderBit()
     {
-        // studio.h:2088. A wrong constant here would silently opt every model
+        //. A wrong constant here would silently opt every model
         // in or out, and nothing else in the port would notice.
         Assert.Equal(0x00040000, ForcedTextureShadowModels.CastTextureShadowsFlag);
     }
@@ -772,9 +769,8 @@ public class ShadowTextureListTests
     /// </summary>
     /// <remarks>
     /// Enough for <c>LoadAllTexturesForModel</c>, which reads
-    /// <c>numtextures</c>, <c>pTexture(i)-&gt;pszName()</c> and
-    /// <c>pCdtexture(j)</c> and nothing else
-    /// (<c>vradstaticprops.cpp:746-769</c>).
+    /// <c>numtextures</c>, <c>pTexture(i)-&gt;pszName</c> and
+    /// <c>pCdtexture(j)</c> and nothing else.
     /// </remarks>
     private static byte[] BuildMdl(string textureName, string[] searchPaths)
     {
@@ -805,7 +801,7 @@ public class ShadowTextureListTests
             CdTextureIndex = cdTableAt,
         };
 
-        // studio.h's pszName() is ((char *)this) + sznameindex, so the offset
+        // the reference implementation's pszName is ((char *)this) + sznameindex, so the offset
         // is relative to the texture struct and not to the file.
         StudioTexture texture = new() { NameIndex = textureNameAt - textureAt };
 

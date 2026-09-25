@@ -6,7 +6,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Displacement;
 
 /// <summary>
-/// The sample-hash storage (<c>samplehash.cpp</c>): voxel keys, insertion
+/// The sample-hash storage: voxel keys, insertion
 /// order, and parallel determinism.
 /// </summary>
 public sealed class VoxelTableTests
@@ -38,7 +38,7 @@ public sealed class VoxelTableTests
     [Fact]
     public async Task VoxelsAreDistinctByAllThreeCoordinates()
     {
-        // Stock hashes x*100 + y*10 + z but compares the fields (samplehash.cpp:24).
+        // Stock hashes x*100 + y*10 + z but compares the fields.
         VoxelTable<int> t = await Build([new(0, 1, 0), new(0, 0, 10)], [1, 2], 1);
         Assert.Equal([1], t.Find(new VoxelKey(0, 1, 0)).ToArray());
         Assert.Equal([2], t.Find(new VoxelKey(0, 0, 10)).ToArray());

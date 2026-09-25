@@ -1,11 +1,11 @@
 #!/bin/bash
 # Build the qhull 2.6 C oracle driver.
-#   p8aq-ref        -O2 -ffp-contract=off -fno-fast-math  (the oracle; vertex-id hash)
-#   p8aq-ref-fast   -O2 -ffast-math                        (information only)
-#   p8aq-ref-ptr    oracle flags, ORIGINAL pointer hash in qh_gethash (for the pointer-hash study)
-#   p8aq-ref-bin    oracle flags on csrc-binorder: the binary-order oracle (vphysics.so grouping)
+# p8aq-ref -O2 -ffp-contract=off -fno-fast-math (the oracle; vertex-id hash)
+# p8aq-ref-fast -O2 -ffast-math (information only)
+# p8aq-ref-ptr oracle flags, ORIGINAL pointer hash in qh_gethash (for the pointer-hash study)
+# p8aq-ref-bin oracle flags on csrc-binorder: the binary-order oracle (the reference build's grouping)
 set -e
-L=$HOME/.cache/maptools/lanes/p8a
+L=${P8AQ_SCRATCH:-$HOME/p8aq}
 P=$L/qhullport
 Q=$P/csrc
 B=$P/build

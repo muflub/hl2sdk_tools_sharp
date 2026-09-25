@@ -13,17 +13,17 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// <remarks>
 /// <para>
 /// <c>Trace4Rays</c> takes the direction's reciprocal with
-/// <c>ReciprocalSaturateSIMD</c> (<c>ssemath.h:2288-2291</c>), which ORs
-/// <c>Four_Epsilons</c> = <c>FLT_EPSILON</c> (<c>sseconst.cpp:27</c>) into a
-/// zero component. The scene-box clip (<c>raytrace.cpp:360-368</c>) then puts
+/// <c>ReciprocalSaturateSIMD</c>, which ORs
+/// <c>Four_Epsilons</c> = <c>FLT_EPSILON</c> into a
+/// zero component. The scene-box clip then puts
 /// the max face of a +0 axis at <c>(max - origin) * 8.4e6</c>, so a ray one ulp
 /// inside x = 100 is limited to 64 units.
 /// </para>
 /// <para>
-/// The expected answers were produced by stock's own <c>raytrace.cpp</c>,
-/// compiled unchanged (p5a's oracle, <c>oracle_kd real</c>, on the scene and
-/// rays below): the +0 ray misses (id -1, distance 1e23), the -0 ray and the
-/// control hit triangle id 7 at distance 1,000. Before lane p5-trace the port
+/// The expected answers were produced by the reference KD tracer itself,
+/// compiled unchanged, on the scene and
+/// rays below: the +0 ray misses (id -1, distance 1e23), the -0 ray and the
+/// control hit triangle id 7 at distance 1,000. Before this fix the port
 /// substituted 1e-10, and the +0 ray hit.
 /// </para>
 /// </remarks>

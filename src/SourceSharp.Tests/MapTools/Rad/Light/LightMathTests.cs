@@ -11,7 +11,7 @@ public sealed class BumpBasisTests
     [Fact]
     public void TheLocalBasisIsTheHeadersLiterals()
     {
-        // bumpvects.h:19-27, spelled as the header spells them.
+        //, spelled as the header spells them.
         Assert.Equal(new Vec3(0.81649661064147949f, 0.0f, 0.57735025882720947f), BumpBasis.Local[0]);
         Assert.Equal(new Vec3(-0.40824821591377258f, 0.70710676908493042f, 0.57735025882720947f), BumpBasis.Local[1]);
         Assert.Equal(new Vec3(-0.40824821591377258f, -0.70710676908493042f, 0.57735025882720947f), BumpBasis.Local[2]);
@@ -20,9 +20,9 @@ public sealed class BumpBasisTests
     [Fact]
     public void ARightHandedMappingReproducesTheLocalBasis()
     {
-        // GetBumpNormals, bumpvects.cpp:28: row1 = normalise(n x s) = +y,
-        // row0 = normalise(row1 x n) = +x, row2 = n = +z, and (s x t) . n =
-        // (+x x +y) . +z = 1 is right-handed, so VectorIRotate hands the local
+        // GetBumpNormals: row1 = normalise(n x s) = +y,
+        // row0 = normalise(row1 x n) = +x, row2 = n = +z, and (s x t). n =
+        // (+x x +y). +z = 1 is right-handed, so VectorIRotate hands the local
         // basis back unchanged.
         Span<Vec3> b = stackalloc Vec3[3];
         BumpBasis.Build(new(1, 0, 0), new(0, 1, 0), new(0, 0, 1), new(0, 0, 1), b, stockNormalise: false);
@@ -34,7 +34,7 @@ public sealed class BumpBasisTests
     [Fact]
     public void ALeftHandedMappingNegatesTheSecondRow()
     {
-        // t = -y: (s x t) . n = -1 < 0 (bumpvects.cpp:37), row1 becomes -y, so
+        // t = -y: (s x t). n = -1 < 0, row1 becomes -y, so
         // every basis vector's y flips -- which swaps the second and third.
         Span<Vec3> b = stackalloc Vec3[3];
         BumpBasis.Build(new(1, 0, 0), new(0, -1, 0), new(0, 0, 1), new(0, 0, 1), b, stockNormalise: false);
@@ -56,7 +56,7 @@ public sealed class BumpBasisTests
     [Fact]
     public void TheThirdRowIsThePhongNormalUnnormalised()
     {
-        // :51 copies the phong normal through untouched: a z of 2 doubles the
+        //:51 copies the phong normal through untouched: a z of 2 doubles the
         // basis vectors' z.
         Span<Vec3> b = stackalloc Vec3[3];
         BumpBasis.Build(new(1, 0, 0), new(0, -1, 0), new(0, 0, 1), new(0, 0, 2), b, false);
@@ -93,8 +93,8 @@ public sealed class MathSolverTests
     [Fact]
     public void CoincidentXLeavesTheCoefficientsUntouched()
     {
-        // mathlib_base.cpp:1350 returns before any write; SetLightFalloffParams
-        // relies on its 0,1,0 seed surviving (lightmap.cpp:1185).
+        // returns before any write; SetLightFalloffParams
+        // relies on its 0,1,0 seed surviving.
         float a = 7, b = 8, c = 9;
         Assert.False(MathSolvers.SolveInverseQuadratic(1, 1, 1, 2, 3, 4, ref a, ref b, ref c));
         Assert.Equal((7f, 8f, 9f), (a, b, c));
@@ -153,7 +153,7 @@ public sealed class LightFalloffTests
     [Fact]
     public void TheSolvedCurveIsExactlyTwiceTheFullBrightnessAtTheFiftyPercentDistance()
     {
-        // lightmap.cpp:1190-1197 rescales so 1/(c + d50 b + d50^2 a) = 0.5.
+        // rescales so 1/(c + d50 b + d50^2 a) = 0.5.
         Solve(128, 400, false, out float a, out float b, out float c);
         float v50 = c + (128 * (b + (128 * a)));
         Assert.Equal(2.0f, v50, 5);
@@ -162,7 +162,7 @@ public sealed class LightFalloffTests
     [Fact]
     public void AZeroDistanceShorterThanTheFiftyPercentOneIsTwiceIt()
     {
-        // :1180-1184. Same curve as asking for 2*d50 outright.
+        //:1180-1184. Same curve as asking for 2*d50 outright.
         Solve(100, 50, false, out float a1, out float b1, out float c1);
         Solve(100, 200, false, out float a2, out float b2, out float c2);
         Assert.Equal((a2, b2, c2), (a1, b1, c1));
@@ -182,7 +182,7 @@ public sealed class LightFalloffTests
     [Fact]
     public void LiteralCoefficientsBelowEqualEpsilonAreDropped()
     {
-        // :1240-1247, then :1249-1250 restores constant 1 when all vanish.
+        //:1240-1247, then:1249-1250 restores constant 1 when all vanish.
         DirectLight light = new() { Intensity = new Vec3(1, 1, 1) };
         LightFalloff.Apply(LightTestMap.Entity(("_quadratic_attn", "0.0005")), light);
         Assert.Equal((1f, 0f, 0f), (light.ConstantAttn, light.LinearAttn, light.QuadraticAttn));
@@ -191,7 +191,7 @@ public sealed class LightFalloffTests
     [Fact]
     public void LiteralCoefficientsScaleIntensityToUnitAtOneHundredUnits()
     {
-        // :1252-1257: intensity *= c + 100 l + 100^2 q.
+        //:1252-1257: intensity *= c + 100 l + 100^2 q.
         DirectLight light = new() { Intensity = new Vec3(1, 1, 1) };
         LightFalloff.Apply(LightTestMap.Entity(("_linear_attn", "1")), light);
         Assert.Equal(new Vec3(100, 100, 100), light.Intensity);
@@ -211,7 +211,7 @@ public sealed class LightFalloffTests
         // d50 10 / d0 20 with stock's 2a + b test (MonotonicDerivativeAtOne):
         // the blend stops at 0.45 with a = 0.696 and b = -1.165 (before the
         // rescale, which scales both alike), so the quadratic turns at 0.837
-        // units, and :1219-1228 cap and fade there.
+        // units, and:1219-1228 cap and fade there.
         DirectLight light = new();
         LightFalloff.Apply(
             LightTestMap.Entity(("_fifty_percent_distance", "10"), ("_zero_percent_distance", "20")),
@@ -255,7 +255,7 @@ public sealed class LightNormalTests
     [Fact]
     public void AngleUpIsOverwrittenByThePitch()
     {
-        // map_utils.cpp:15-19 sets (0,0,1), then :44 ASSIGNS z from the pitch.
+        // sets (0,0,1), then:44 ASSIGNS z from the pitch.
         Vec3 n = LightNormals.FromProps(Vec3.Zero, LightNormals.AngleUp, 0);
         Assert.Equal(new Vec3(0, 0, 0), n);
     }
@@ -286,8 +286,8 @@ public sealed class HaltonAndSamplerTests
     [Fact]
     public void TheFirstValueIsElementTwoNotOne()
     {
-        // halton.h:36 `GetElement(seed++)` reads the member AFTER the
-        // increment (halton.cpp:23), so base 2 starts 0.25, not 0.5.
+        // `GetElement(seed++)` reads the member AFTER the
+        // increment, so base 2 starts 0.25, not 0.5.
         HaltonSequence h = new(2);
         Assert.Equal(0.25f, h.NextValue());
         Assert.Equal(0.75f, h.NextValue());
@@ -381,7 +381,7 @@ public sealed class SsePrimitiveTests
     public void MaxPsReturnsTheSecondOperandOnNaN()
     {
         // maxps: a NaN first operand yields the second (why a 0/0 sky-ambient
-        // dot is clamped to 0 by MaxSIMD(dot, Four_Zeros), lightmap.cpp:2051).
+        // dot is clamped to 0 by MaxSIMD(dot, Four_Zeros)).
         Assert.Equal(0f, DirectLightGatherer.MaxPs(float.NaN, 0f));
         Assert.True(float.IsNaN(DirectLightGatherer.MaxPs(0f, float.NaN)));
     }
@@ -399,7 +399,6 @@ public sealed class SsePrimitiveTests
     [Fact]
     public void RemapValOfAnEmptyRangeIsAStep()
     {
-        // mathlib.h:614-615.
         Assert.Equal(9f, MacroTextures.RemapVal(5, 5, 5, 1, 9));
         Assert.Equal(1f, MacroTextures.RemapVal(4, 5, 5, 1, 9));
     }

@@ -21,7 +21,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Tree;
 /// <para>
 /// <b>Only the first pass of model 0 is read, and that is the point.</b>
 /// <c>ProcessWorldModel</c> builds the world TWICE
-/// (<c>vbsp.cpp:259</c>): the second pass runs after
+///: the second pass runs after
 /// <c>MarkVisibleSides</c> has rewritten <c>visible</c> on every map brush
 /// side, so its numbers are a function of Phase 3c's work and cannot be
 /// reproduced here. The first pass is. The parse therefore stops at
@@ -123,7 +123,7 @@ internal static class StockBlockLog
     }
 
     /// <summary>
-    /// "    4 visible faces" — <c>%5i</c> then the label, on its own line.
+    /// " 4 visible faces" — <c>%5i</c> then the label, on its own line.
     /// </summary>
     /// <remarks>
     /// Anchored to the line so that "brushes" does not also match the

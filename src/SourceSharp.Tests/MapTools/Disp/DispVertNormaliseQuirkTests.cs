@@ -18,7 +18,7 @@ public sealed class DispVertNormaliseQuirkTests
     /// <summary>
     /// The frozen I2 threshold: the most a Correct direction component may
     /// differ from stock's, in units in the last place. First measurement
-    /// (18 maps, 2026-09-21, lane p3f-t): worst per map 0-2 ulps on 16 maps, 4
+    /// over the 18-map displacement catalogue: worst per map 0-2 ulps on 16 maps, 4
     /// on <c>p3f_half_edge_mixed</c>, 16 on <c>p3f_strip</c> — the large ones
     /// are snapped vertices, whose vector is <c>old * dist + offset</c> and so
     /// carries the estimate's error scaled by the distance into small
@@ -31,8 +31,7 @@ public sealed class DispVertNormaliseQuirkTests
 
     /// <summary>
     /// Under Correct, the distances are still stock's bit for bit — the quirk
-    /// is in <c>VectorNormalize</c> only, <c>VectorLength</c> is exact
-    /// (<c>disp_vbsp.cpp:345-346</c>).
+    /// is in <c>VectorNormalize</c> only, <c>VectorLength</c> is exact.
     /// </summary>
     [DispStockTheory]
     [MemberData(nameof(Entries))]

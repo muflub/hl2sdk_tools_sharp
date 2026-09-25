@@ -26,7 +26,7 @@ public class StaticPropHullCacheTests
     [Fact]
     public void TheCacheKeyIsLowerCaseWithForwardSlashes()
     {
-        // GetCollisionModel, staticprop.cpp:248-258.
+        // GetCollisionModel.
         Assert.Equal("models/props/crate.mdl", StaticPropCollision.NormalizeModelName("Models\\Props\\CRATE.mdl"));
     }
 
@@ -53,7 +53,7 @@ public class StaticPropHullCacheTests
     [Fact]
     public async Task AModelThatDoesNotLoadIsRememberedAsNoHull()
     {
-        // "This way we don't try to load it multiple times", staticprop.cpp:272.
+        // "This way we don't try to load it multiple times".
         StaticPropHullCache cache = new(new FakeCollisionCooker());
 
         StaticPropHull hull = await cache.GetOrCookAsync("models/missing.mdl", _ => Task.FromResult<IReadOnlyList<Vec3[]>?>(null));
@@ -65,7 +65,7 @@ public class StaticPropHullCacheTests
     [Fact]
     public async Task AModelWhoseMeshesGiveNoConvexHasNoHull()
     {
-        // "Bad geometry", staticprop.cpp:288: every mesh too small for a hull.
+        // "Bad geometry": every mesh too small for a hull.
         StaticPropHull hull = await StaticPropCollision.CookHullAsync(
             new FakeCollisionCooker(), "m.mdl", [[Vec3.Zero, new Vec3(1, 0, 0)]]);
 

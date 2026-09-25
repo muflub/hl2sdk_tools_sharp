@@ -38,7 +38,7 @@ public class PlaneTableTests
     }
 
     /// <summary>
-    /// <c>map.cpp:223</c> is <c>VectorSubtract(vec3_origin, normal, ...)</c>,
+    /// is <c>VectorSubtract(vec3_origin, normal,...)</c>,
     /// so a zero component of the opposite normal is <c>+0.0f</c>. Unary
     /// negation would make it <c>-0.0f</c>, which is a different bit pattern
     /// and therefore different bytes in LUMP_PLANES.
@@ -66,7 +66,7 @@ public class PlaneTableTests
     }
 
     /// <summary>
-    /// <c>map.cpp:228-242</c>: an axial plane facing negative is swapped with
+    ///: an axial plane facing negative is swapped with
     /// its opposite so the positive-facing one is first, and the index
     /// RETURNED is then the second slot, because that is where the plane the
     /// caller asked for ended up.
@@ -187,7 +187,7 @@ public class PlaneTableTests
     /// <remarks>
     /// <para>
     /// <c>FindFloatPlane</c> searches <c>bucket-1</c>, <c>bucket</c> and
-    /// <c>bucket+1</c> (<c>map.cpp:361-370</c>) because the bucket is
+    /// <c>bucket+1</c> because the bucket is
     /// <c>(int)|dist| / 8</c> and two distances a hair either side of a
     /// multiple of 8 hash apart while being within
     /// <c>RENDER_DIST_EPSILON</c> of each other.

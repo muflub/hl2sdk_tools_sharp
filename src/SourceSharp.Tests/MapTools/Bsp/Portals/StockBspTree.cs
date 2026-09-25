@@ -17,7 +17,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Portals;
 /// This is a genuinely good oracle and it is worth being precise about why.
 /// <c>WritePortalFile</c> is the LAST thing <c>ProcessWorldModel</c> does, after
 /// <c>WriteBSP</c>, and the first thing it does is throw every portal away and
-/// portalise again (<c>prtfile.cpp:336</c>). The tree it portalises is therefore
+/// portalise again. The tree it portalises is therefore
 /// the tree that was just written to the file — the same nodes, the same
 /// planes, the same leaf contents. Rebuilding that tree from the lumps and
 /// running the managed stage over it is not an approximation of what stock did;
@@ -151,7 +151,7 @@ internal sealed class StockBspTree
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>RemoveAreaPortalBrushes_R</c> (<c>brushbsp.cpp:785</c>) strips these
+    /// <c>RemoveAreaPortalBrushes_R</c> strips these
     /// from the leaf lists right after <c>FloodAreas</c> and before the BSP is
     /// written — "we don't want them in the engine at runtime but we do want
     /// their flags in the leaves". So a compiled map carries
@@ -225,7 +225,7 @@ internal sealed class StockBspTree
     /// <remarks>
     /// <para>
     /// <b>This is load-bearing and it is not obvious.</b> The world tree is two
-    /// things stapled together: <c>BlockTree</c> (<c>vbsp.cpp:101</c>) builds
+    /// things stapled together: <c>BlockTree</c> builds
     /// the 1024-unit grid, and <c>BrushBSP</c> builds one subtree per block.
     /// <c>BuildTree_r</c> sets <c>node-&gt;parent</c> inside a subtree;
     /// <c>BlockTree</c> never sets it at all, and <c>AllocNode</c> zeroes the
@@ -251,10 +251,10 @@ internal sealed class StockBspTree
     /// </remarks>
     private static void CutBlockParents(BspNode root, PlaneTable planes, Vec3 mins, Vec3 maxs)
     {
-        const int blocksSize = 1024;    // BLOCKS_SIZE, vbsp.cpp:73
+        const int blocksSize = 1024;    // BLOCKS_SIZE:73
 
         // ProcessWorldModel calls BlockTree(xl-1, yl-1, xh+1, yh+1), and
-        // tree->mins/maxs are xl*1024 .. (xh+1)*1024.
+        // tree->mins/maxs are xl*1024.. (xh+1)*1024.
         int xl = (int)(mins.X / blocksSize) - 1;
         int yl = (int)(mins.Y / blocksSize) - 1;
         int xh = ((int)(maxs.X / blocksSize) - 1) + 1;
@@ -267,7 +267,7 @@ internal sealed class StockBspTree
     {
         const int blocksSize = 1024;
 
-        // EVERY node BlockTree makes has a null parent, separators included --
+        // EVERY node BlockTree makes has a null parent, separators included.
         // it never writes the field and AllocNode zeroes it. Only the block
         // subtrees underneath, which BuildTree_r built, have parent chains, and
         // those chains stop at their own root.
@@ -320,7 +320,7 @@ internal sealed class StockBspTree
         }
 
         // The reconstruction is only sound if it came out identical. A plane
-        // table that is off by one pair produces a .prt that looks plausible
+        // table that is off by one pair produces a.prt that looks plausible
         // and is wrong everywhere, so this is checked and not trusted.
         Assert.Equal(dplanes.Length, planes.Count);
 

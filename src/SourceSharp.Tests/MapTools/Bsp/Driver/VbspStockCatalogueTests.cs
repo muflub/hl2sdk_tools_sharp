@@ -21,7 +21,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Driver;
 /// comparison runs under <see cref="ComplianceOptions.Stock"/>.
 /// </para>
 /// <para>
-/// Not compared, because other lanes own them: PHYSCOLLIDE/PHYSDISP (3h),
+/// Not compared, because other lanes own them: PHYSCOLLIDE/PHYSDISP (3h).
 /// PAKFILE and the game lumps (3g). TEXDATA is compared by name only here: a
 /// water material with no <c>$basetexture</c> reads 128x128 / reflectivity 0
 /// where stock reads 256x256 / 0.2 (the Materials gap 3a recorded), and that
@@ -123,7 +123,7 @@ public sealed class VbspStockCatalogueTests
 
         if (!File.Exists(prt))
         {
-            // stock writes none for a leaked map (vbsp.cpp:368), and neither do we
+            // stock writes none for a leaked map, and neither do we
             Assert.Null(result.Portals);
             return;
         }

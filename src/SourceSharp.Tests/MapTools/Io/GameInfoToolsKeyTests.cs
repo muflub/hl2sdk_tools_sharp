@@ -8,9 +8,9 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Io;
 
 /// <summary>
-/// The <c>Tools</c> key of a <c>gameinfo.txt</c>: the section form Tools++ reads
+/// The <c>Tools</c> key of a <c>gameinfo.txt</c>: the section form the reference tools read
 /// (<c>FindKey("Tools")</c> then <c>ReadString("vbsp", …)</c>), the flat form it
-/// silently ignores, and ++'s strtok-style tokenisation of the value.
+/// silently ignores, and its strtok-style tokenisation of the value.
 /// </summary>
 public class GameInfoToolsKeyTests
 {
@@ -37,7 +37,7 @@ public class GameInfoToolsKeyTests
     [Fact]
     public void TheChildKeyIsNotRestrictedToTheThreeTools()
     {
-        // ++ asks for one child by name; the port keeps every child so a host
+        // The reference tools ask for one child by name; the port keeps every child so a host
         // has the whole table (an unrecognised tool key is not a parse error).
         GameInfo info = GameInfo.Parse("\"GameInfo\"\n{\n"
             + "    Tools\n    {\n        vbsp\t\"-v\"\n        bspzip\t\"-repack\"\n    }\n}\n");
@@ -59,8 +59,8 @@ public class GameInfoToolsKeyTests
     public void AToolsBlockInsideFileSystemIsNeverRead()
     {
         // FindKey walks the folded root's OWN child list and never descends
-        // into a subsection (KeyValues.cpp:1014-1024; the ++ lookup at
-        // vbsp.all.c:21750 passes no "a/b" path), and the fold makes the
+        // into a subsection; the reference's lookup passes no "a/b" path,
+        // and the fold makes the
         // GameInfo section's children the root's children — so a Tools block
         // written inside FileSystem is two levels down and invisible to the
         // splice. This is the spelling mod authors reach for; the finding is
@@ -86,7 +86,7 @@ public class GameInfoToolsKeyTests
     public void ARepeatedChildKeyKeepsTheFirstValue()
     {
         // FindKey's peer walk breaks on the FIRST node whose key matches
-        // (KeyValues.cpp:1014-1024), so ReadString answers from the first
+        //, so ReadString answers from the first
         // duplicate; the second line is dead text.
         GameInfo info = GameInfo.Parse("\"GameInfo\"\n{\n"
             + "    Tools\n    {\n        vbsp\t\"-v\"\n        vbsp\t\"-cullall\"\n    }\n}\n");
@@ -100,7 +100,7 @@ public class GameInfoToolsKeyTests
         Assert.Empty(GameInfo.Parse("\"GameInfo\"\n{\n    game\t\"x\"\n}\n").ToolArguments);
     }
 
-    // ---- the flat form: a silent no-op, reported ----
+    // ---- the flat form: a silent no-op, reported ---.
 
     [Fact]
     public void TheFlatFormYieldsNoArgumentsAndIsFlagged()
@@ -120,7 +120,7 @@ public class GameInfoToolsKeyTests
     public void AToolsBlockNestedInAModBlockIsNeitherReadNorFlagged()
     {
         // Only the folded root's OWN child list is walked. A mod block called
-        // Tools nested deeper is not the ++ key and must not leak children.
+        // Tools nested deeper is not the reference tools' key and must not leak children.
         GameInfo info = GameInfo.Parse("\"GameInfo\"\n{\n"
             + "    SomeModBlock\n    {\n        Tools\n        {\n            vbsp\t\"-cullall\"\n        }\n    }\n}\n");
 
@@ -147,7 +147,7 @@ public class GameInfoToolsKeyTests
     [Fact]
     public void TheResolverWarnsAboutTheFlatFormInsteadOfStayingSilent()
     {
-        // ++ says NOTHING here — the flags are simply never read. Saying it is
+        // The reference tools say NOTHING here — the flags are simply never read. Saying it is
         // this port's deliberate deviation: the shape is a mod author's
         // mistake, and a silent no-op is the worst outcome for them.
         GameInfo flat = GameInfo.Parse("\"GameInfo\"\n{\n"
@@ -187,9 +187,9 @@ public class GameInfoToolsKeyTests
     [InlineData("  -a\t-b\r\n-c  ", new[] { "-a", "-b", "-c" })]
     [InlineData("", new string[0])]
     [InlineData("   ", new string[0])]
-    // ++ has NO quote handling here: the quote characters stay INSIDE the
-    // tokens, so a Tools line written with quotes hands the parser quoted
-    // tokens — which is exactly what ++ does with them.
+    // The reference tools have NO quote handling here: the quote characters
+    // stay INSIDE the tokens, so a Tools line written with quotes hands the
+    // parser quoted tokens — which is exactly what they do with them.
     [InlineData("-game \"my game\"", new[] { "-game", "\"my", "game\"" })]
     public void TheTokenizerIsStrtokNotAShell(string value, string[] expected)
     {
@@ -205,7 +205,7 @@ public class GameInfoToolsKeyTests
     [Fact]
     public void AQuotedValueInAToolsLineStopsAtTheFirstInnerQuote()
     {
-        // The reader of this file has NO escape handling (GetNoEscChar-
+        // The reader of this file has NO escape handling (GetNoEscChar.
         // Conversion: no character is the escape character, so a backslash is
         // an ordinary character and the NEXT quote closes the token). A
         // mod author who writes vbsp "-staticpropformat \"9\"" therefore does

@@ -18,7 +18,7 @@ public class MapManifestTests
     /// <summary>
     /// <c>LoadSubMaps</c> fabricates one worldspawn and one
     /// <c>func_instance</c> per sub-map, in manifest order, all at the origin
-    /// with <c>fixup_style 2</c> (<c>manifest.cpp:291-345</c>).
+    /// with <c>fixup_style 2</c>.
     /// </summary>
     [Fact]
     public async Task EachSubMapBecomesAFuncInstanceInManifestOrder()
@@ -53,8 +53,7 @@ public class MapManifestTests
     }
 
     /// <summary>
-    /// The sub-VMFs live in a directory named after the manifest, next to it
-    /// (<c>manifest.cpp:423-424</c>).
+    /// The sub-VMFs live in a directory named after the manifest, next to it.
     /// </summary>
     [Fact]
     public async Task TheInstanceDirectoryIsTheManifestsNameWithoutItsExtension()
@@ -82,8 +81,8 @@ public class MapManifestTests
     }
 
     /// <summary>
-    /// <c>ReadKeyValueBool</c> is <c>atoi(value) &gt; 0</c>
-    /// (<c>chunkfile.cpp:636</c>), so the literal <c>"true"</c> reads as FALSE.
+    /// <c>ReadKeyValueBool</c> is <c>atoi(value) &gt; 0</c>,
+    /// so the literal <c>"true"</c> reads as FALSE.
     /// Hammer writes <c>"1"</c>.
     /// </summary>
     [Fact]
@@ -126,7 +125,7 @@ public class MapManifestTests
     }
 
     /// <summary>
-    /// <c>BoundBox::IsIntersectingBox</c> (<c>boundbox.cpp:141</c>) is STRICT,
+    /// <c>BoundBox::IsIntersectingBox</c> is STRICT,
     /// so a world brush whose face merely touches the cordon's face does not
     /// intersect it and is culled.
     /// </summary>
@@ -155,7 +154,7 @@ public class MapManifestTests
     }
 
     /// <summary>
-    /// <c>BoundBox::ContainsPoint</c> (<c>boundbox.cpp:122</c>) is INCLUSIVE,
+    /// <c>BoundBox::ContainsPoint</c> is INCLUSIVE,
     /// the opposite of the box test, so an entity whose origin sits exactly on
     /// a cordon face survives.
     /// </summary>
@@ -185,7 +184,7 @@ public class MapManifestTests
 
     /// <summary>
     /// With cordoning on and no ACTIVE cordon the inner loops never clear the
-    /// remove flag, so everything goes (<c>manifest.cpp:487-520</c>). Stock
+    /// remove flag, so everything goes. Stock
     /// does not guard against it and neither does this.
     /// </summary>
     [Fact]

@@ -11,15 +11,14 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Final;
 
 /// <summary>
-/// The p4f stock corpus: the unified catalogue (<c>VVIS_STOCK_DIR</c>, normally
-/// <c>~/.cache/maptools/ref/catmaps-all</c>) as input, and stock vrad outputs
-/// under <c>P4F_STOCK_DIR</c> (normally <c>~/.cache/maptools/ref/p4f</c>).
+/// The p4f stock corpus: the unified catalogue (<c>VVIS_STOCK_DIR</c>) as
+/// input, and stock vrad outputs under <c>P4F_STOCK_DIR</c>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Recipe: <c>p4f-stockref.sh b0</c> (in the lane's scratch directory, and
-/// quoted in p4f-findings.md) runs stock x64 <c>vrad.exe -threads 1 -verbose
-/// -bounce 0</c> on a plain-named copy of each map's <c>.stockvis.bsp</c> (or
+/// Recipe: run stock x64 <c>vrad.exe -threads 1 -verbose
+/// -bounce 0</c>, in a scratch directory, on a plain-named copy of each map's
+/// <c>.stockvis.bsp</c> (or
 /// <c>.bsp</c> when vvis could not process it) into <c>b0/</c>, with
 /// <c>-game</c> the maptools worktree's <c>tools/mapgame</c>, whose search
 /// path has no <c>lights.rad</c>. <c>p4c_texlights</c> comes from

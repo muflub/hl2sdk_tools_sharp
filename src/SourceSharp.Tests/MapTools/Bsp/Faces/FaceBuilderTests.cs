@@ -13,7 +13,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Faces;
 
 /// <summary>
 /// Turning one portal into a face
-/// (<c>FaceFromPortal</c>, <c>src/utils/vbsp/faces.cpp:1307</c>).
+///(<c>FaceFromPortal</c>).
 /// </summary>
 public class FaceBuilderTests
 {

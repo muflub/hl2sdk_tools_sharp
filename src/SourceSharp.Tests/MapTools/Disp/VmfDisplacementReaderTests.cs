@@ -11,7 +11,7 @@ namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
 /// The VMF <c>dispinfo</c> chunk: <c>LoadDispInfoCallback</c> and its row
-/// callbacks, <c>utils/vbsp/map.cpp:823-1220</c>.
+/// callbacks.
 /// </summary>
 public sealed class VmfDisplacementReaderTests
 {
@@ -21,7 +21,7 @@ public sealed class VmfDisplacementReaderTests
         return VmfDisplacementReader.Read(doc.Chunks[0]);
     }
 
-    /// <summary>The scalar keys land on the displacement: <c>LoadDispInfoKeyCallback</c>, <c>map.cpp:910</c>.</summary>
+    /// <summary>The scalar keys land on the displacement: <c>LoadDispInfoKeyCallback</c>.</summary>
     [Fact]
     public async Task TheScalarKeysAreRead()
     {
@@ -35,7 +35,7 @@ public sealed class VmfDisplacementReaderTests
         Assert.Equal(45.0f, d.SmoothingAngle);
     }
 
-    /// <summary>A power outside 2..4 is refused: <c>MIN/MAX_MAP_DISP_POWER</c>, <c>bspfile.h:47</c>.</summary>
+    /// <summary>A power outside 2..4 is refused: <c>MIN/MAX_MAP_DISP_POWER</c>.</summary>
     [Fact]
     public async Task APowerOutsideTwoToFourIsRefused()
     {
@@ -44,7 +44,7 @@ public sealed class VmfDisplacementReaderTests
 
     /// <summary>
     /// A normals row fills <c>row * (2^power + 1)</c> onward, three numbers per
-    /// vertex: <c>LoadDispNormalsKeyCallback</c>, <c>map.cpp:1000</c>.
+    /// vertex: <c>LoadDispNormalsKeyCallback</c>.
     /// </summary>
     [Fact]
     public async Task ANormalsRowFillsItsRow()
@@ -58,7 +58,7 @@ public sealed class VmfDisplacementReaderTests
 
     /// <summary>
     /// A trailing incomplete triple is dropped, because stock's loop needs all
-    /// three <c>strtok</c> results (<c>map.cpp:1006</c>).
+    /// three <c>strtok</c> results.
     /// </summary>
     [Fact]
     public async Task AnIncompleteNormalTripleIsDropped()
@@ -70,7 +70,7 @@ public sealed class VmfDisplacementReaderTests
         Assert.Equal(Vec3.Zero, d.FieldVectors[1]);
     }
 
-    /// <summary>A distances row fills its row: <c>LoadDispDistancesKeyCallback</c>, <c>map.cpp:836</c>.</summary>
+    /// <summary>A distances row fills its row: <c>LoadDispDistancesKeyCallback</c>.</summary>
     [Fact]
     public async Task ADistancesRowFillsItsRow()
     {
@@ -99,7 +99,7 @@ public sealed class VmfDisplacementReaderTests
 
     /// <summary>
     /// A triangle-tag row is <c>2 * 2^power</c> triangles wide, not a vertex
-    /// row: <c>LoadDispTriangleTagsKeyCallback</c>, <c>map.cpp:1175-1179</c>.
+    /// row: <c>LoadDispTriangleTagsKeyCallback</c>.
     /// </summary>
     [Fact]
     public async Task ATriangleTagRowIsTwiceThePowerWide()
@@ -118,7 +118,7 @@ public sealed class VmfDisplacementReaderTests
             () => ReadAsync("\"power\" \"2\"\ndistances\n{\n\"row5\" \"1\"\n}"));
     }
 
-    /// <summary>The walkable bit collapses to DISPTRI_TAG_WALKABLE: <c>map.cpp:1190</c>.</summary>
+    /// <summary>The walkable bit collapses to DISPTRI_TAG_WALKABLE:.</summary>
     [Fact]
     public void TheWalkableBitCollapsesToWalkable()
     {
@@ -127,8 +127,7 @@ public sealed class VmfDisplacementReaderTests
 
     /// <summary>
     /// A forced value overrides the computed one: <c>FORCE_WALKABLE_BIT</c>
-    /// with a clear <c>FORCE_WALKABLE_VAL</c> makes it not walkable
-    /// (<c>map.cpp:1191-1194</c>).
+    /// with a clear <c>FORCE_WALKABLE_VAL</c> makes it not walkable.
     /// </summary>
     [Fact]
     public void AForcedFalseOverridesWalkable()
@@ -143,7 +142,7 @@ public sealed class VmfDisplacementReaderTests
         Assert.Equal((ushort)DispTriTags.Walkable, VmfDisplacementReader.CollapseTriangleTags(2 | 4));
     }
 
-    /// <summary>The buildable bits collapse the same way: <c>map.cpp:1197-1202</c>.</summary>
+    /// <summary>The buildable bits collapse the same way:.</summary>
     [Fact]
     public void TheBuildableBitCollapsesToBuildable()
     {

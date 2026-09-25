@@ -52,7 +52,7 @@ public class StaticPropStockTests
         // convex geometry. Measured: equal on every entry of the 3g catalogue
         // (whose props sit well inside their leaves or straddle a block-grid
         // plane by a wide margin), so this is held exact rather than to a
-        // threshold -- a divergence is a finding about IVP's hull.
+        // threshold -- a divergence is a finding about the reference hull cooker.
         (StaticPropLump ours, StaticPropLump stock) = await RunAsync(name);
 
         Assert.Equal(stock.LeafEntries, ours.LeafEntries);
@@ -64,7 +64,7 @@ public class StaticPropStockTests
     {
         // A prop whose lightingorigin names no info_lighting leaves
         // StaticPropLump_t::m_LightingOrigin as uninitialised stack
-        // (ComputeLightingOrigin, staticprop.cpp:454-470, returns without
+        // (ComputeLightingOrigin, returns without
         // writing it): measured as nonzero garbage on sdk_ctf_2fort. Those 12
         // bytes are zeroed on both sides only where the flag is unset.
         (StaticPropLump ours, _) = await RunAsync(name);

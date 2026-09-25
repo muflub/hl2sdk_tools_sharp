@@ -11,7 +11,7 @@ namespace SourceSharp.Tests.MapTools.Rad.Displacement;
 
 /// <summary>
 /// <c>BuildDispSamples</c>, <c>BuildDispLuxels</c> and
-/// <c>BuildDispSamplesAndLuxels_DoFast</c> (<c>vraddisps.cpp:1559-1757</c>),
+/// <c>BuildDispSamplesAndLuxels_DoFast</c>,
 /// and the two <c>-fast</c> stock quirks.
 /// </summary>
 public sealed class DispSampleBuilderTests

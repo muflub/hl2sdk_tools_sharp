@@ -5,8 +5,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Io;
 
 /// <summary>
-/// Portal 2's sibling content mount (<c>GameContentMounter</c>, from
-/// <c>MountPortal2ContentAsync</c> in <c>~/re/toolsplusplus/dumps/vbsp.all.c</c>):
+/// Portal 2's sibling content mount (<c>GameContentMounter</c>, as the
+/// reference's Portal 2 mount performs it):
 /// appid 620 mounts <c>&lt;gamedir&gt;/update</c> and every contiguous
 /// <c>&lt;gamedir&gt;/portal2_dlcN</c> ahead of the gameinfo's own search paths.
 /// </summary>
@@ -17,11 +17,11 @@ namespace SourceSharp.Tests.MapTools.Io;
 /// ruling: no Portal 2 install in the catalogue, so no stock dump exists to
 /// compare a real mount against here). What these facts pin is the observable
 /// mount list and priority — which directories and archives joined, in what
-/// order, gated on what — against the dump's loop structure. The bytes inside a
+/// order, gated on what — against the reference mount's loop structure. The bytes inside a
 /// real Portal 2 pak stay unpinned.
 /// </para>
 /// <para>
-/// The dump (<c>dumps/vbsp.all.c:68091-68100</c>): the caller fires once
+/// How the reference mount works: the caller fires once
 /// <c>SteamAppId == 620</c> — unconditionally on the appid, before and
 /// independently of the <c>SearchPaths</c> walk, and independently of any preset
 /// flag. The loops probe <c>dlc1</c>, <c>dlc2</c>, … while the directory exists,
@@ -48,7 +48,7 @@ public class Portal2MountTests
     /// <summary>
     /// Writes a DLC's <c>pak01_dir.vpk</c> holding one marked file. In
     /// <see cref="InMemoryFileSystem"/> a directory exists exactly when it
-    /// holds a file, so this is also what makes the DLC probeable at all —
+    /// holds a file, so this is also what makes the DLC probeable at all.
     /// which is why a fixture that wants a DLC ABSENT writes nothing there.
     /// </summary>
     private static void AddDlc(InMemoryFileSystem fs, int n, string file = "materials/marker.vmt") =>
@@ -72,7 +72,7 @@ public class Portal2MountTests
         return System.Text.Encoding.UTF8.GetString(bytes.Memory.Span);
     }
 
-    // ---- the gate is the appid, and only the appid ----
+    // ---- the gate is the appid, and only the appid ---.
 
     [Fact]
     public async Task SiblingContentIsInvisibleToAnotherAppid()
@@ -103,7 +103,7 @@ public class Portal2MountTests
         Assert.Equal(["base_dir.vpk"], Names(r));
     }
 
-    // ---- priority: the sibling content outranks the gameinfo's own paths ----
+    // ---- priority: the sibling content outranks the gameinfo's own paths ---.
 
     [Fact]
     public async Task DlcContentOutranksTheGamesOwnVpk()
@@ -217,7 +217,7 @@ public class Portal2MountTests
         Assert.NotNull(await r.Content.ResolveAsync(VPath.Create("loose.vmt")));
     }
 
-    // ---- contiguity, and the cap ----
+    // ---- contiguity, and the cap ---.
 
     [Fact]
     public async Task DlcNumberingIsContiguousAndStopsAtTheFirstMiss()

@@ -10,7 +10,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Collision;
 
 /// <summary>
-/// <c>EmitWaterVolumesForBSP</c> (<c>ivp.cpp:1106</c>) over hand-built trees.
+/// <c>EmitWaterVolumesForBSP</c> over hand-built trees.
 /// </summary>
 public class WaterVolumeBuilderTests
 {
@@ -74,7 +74,7 @@ public class WaterVolumeBuilderTests
     [Fact]
     public void AWaterLeafUnderAnAirPortalHasASurface()
     {
-        // BuildWaterLeaf, ivp.cpp:989-1011.
+        // BuildWaterLeaf.
         (WaterVolumeBuilder b, _) = Pool();
 
         WaterModel model = Assert.Single(b.WaterModels);
@@ -86,7 +86,7 @@ public class WaterVolumeBuilderTests
     [Fact]
     public void TheLeafWaterDataHoldsTheSurfaceAndTheLowestLeaf()
     {
-        // FindOrCreateLeafWaterData( surfaceDist, minZ, surfaceTexInfo ), ivp.cpp:1150.
+        // FindOrCreateLeafWaterData(surfaceDist, minZ, surfaceTexInfo).
         (WaterVolumeBuilder b, _) = Pool();
 
         var data = Assert.Single(b.LeafWaterData);
@@ -98,7 +98,6 @@ public class WaterVolumeBuilderTests
     [Fact]
     public void TheDepthTexInfoIsAskedForAtSurfaceMinusFloor()
     {
-        // ivp.cpp:1142-1149.
         (_, Tree t) = Pool();
 
         Assert.Equal([48], t.Depths);
@@ -107,7 +106,7 @@ public class WaterVolumeBuilderTests
     [Fact]
     public void AnInvisiblePortalGivesNoSurface()
     {
-        // "not visible, can't be the portals we're looking for...", ivp.cpp:986.
+        // "not visible, can't be the portals we're looking for...".
         Tree t = new();
         BspNode air = t.Leaf(0, 0, 64);
         BspNode water = t.Leaf(Water, -48, 0);
@@ -122,7 +121,7 @@ public class WaterVolumeBuilderTests
     [Fact]
     public void TwoSeparatePoolsWithTheSameSurfaceShareOneFogVolume()
     {
-        // FindOrCreateLeafWaterData matches exactly, ivp.cpp:930-935: two
+        // FindOrCreateLeafWaterData matches exactly: two
         // connected groups, two water models, one dleafwaterdata.
         Tree t = new();
         BspNode air = t.Leaf(0, 0, 64);
@@ -155,7 +154,7 @@ public class WaterVolumeBuilderTests
     public void StockVisitsEqualSurfaceLeavesInReverseTreeOrder()
     {
         // WaterLeafSortTie: IsLowerLeaf returns true for an equal leaf, so each
-        // one is inserted before those already listed (ivp.cpp:717-722).
+        // one is inserted before those already listed.
         Assert.Equal([[2], [1]], TwoEqualPools(ComplianceOptions.Stock).WaterModels.Select(m => m.Leaves.ToArray()));
     }
 
@@ -185,7 +184,7 @@ public class WaterVolumeBuilderTests
     [Fact]
     public void ALeafWithAPortalAboveTheSurfaceIsNotFlooded()
     {
-        // PortalCrossesWater, ivp.cpp:911-921: FRONT of the surface stops the flood.
+        // PortalCrossesWater: FRONT of the surface stops the flood.
         Tree t = new();
         BspNode air = t.Leaf(0, 0, 64);
         BspNode pool = t.Leaf(Water, -48, 0);
@@ -211,7 +210,7 @@ public class WaterVolumeBuilderTests
     [InlineData(false, 0f, 0f, false, 0f, 0f, false)]
     public void StockIsLowerLeafOrder(bool newSurface, float newZ, float newDist, bool curSurface, float curZ, float curDist, bool expected)
     {
-        // WaterLeafSortTie, ivp.cpp:709-728, reproduced.
+        // WaterLeafSortTie, reproduced.
         Assert.Equal(expected, WaterVolumeBuilder.IsLowerLeaf(newSurface, newZ, newDist, curSurface, curZ, curDist, ComplianceOptions.Stock));
     }
 
@@ -229,7 +228,7 @@ public class WaterVolumeBuilderTests
     [Fact]
     public void TheWaterTextureNameIsMangledAndLowerCased()
     {
-        // GetWaterTextureName, ivp.cpp:785-796.
+        // GetWaterTextureName.
         Assert.Equal("maps/l1_pool/liquids/water_depth_48", WaterVolumeBuilder.WaterTextureName("L1_Pool", "Liquids/Water", 48));
     }
 }

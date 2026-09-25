@@ -42,17 +42,17 @@ public sealed class L4FactAttribute : FactAttribute
 /// arm shipping bit-identical to stock t1 on the real map the report card
 /// quotes, and the untightened arm staying the conservative superset with a
 /// pinned work budget (rung4: untightened chains &lt;= stock-equivalent x 4;
-/// p5a measured the actual ratio at 3.92x, 569,567,630 against stock's
-/// 145,435,257, p5a-findings.md §1).
+/// the actual ratio was measured at 3.92x, 569,567,630 against stock's
+/// 145,435,257).
 /// </para>
 /// <para>
 /// The recipe, which is what a reader of a skipped test needs:
 /// </para>
 /// <code>
-/// VVIS_L4_DIR=~/.cache/maptools/ref/p2c/l4 \
+/// VVIS_L4_DIR=&lt;the reference l4 directory&gt; \
 ///   dotnet test --filter VvisL4Parity
-/// # the directory must also hold sdk_ctf_2fort.stock.dump, copied from
-/// # ~/.cache/maptools/lanes/p5-vis/l4/ (verify its sha256 above first).
+/// # the directory must also hold sdk_ctf_2fort.stock.dump, copied from the
+/// # reference recipe's l4 output (verify its sha256 above first).
 /// </code>
 /// </remarks>
 public class VvisL4ParityTests

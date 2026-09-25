@@ -19,7 +19,7 @@ namespace SourceSharp.Tests.MapTools.Io;
 /// <para>
 /// This is a stand-in for something native, which this project has been bitten
 /// by before, so <see cref="VpkArchiveTests"/> also runs the reader against a
-/// REAL Valve archive: if the fixture drifts from the format, the paired facts
+/// REAL shipped archive: if the fixture drifts from the format, the paired facts
 /// disagree.
 /// </para>
 /// </remarks>

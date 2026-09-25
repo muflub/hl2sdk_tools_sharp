@@ -8,9 +8,9 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Props;
 
 /// <summary>
-/// <c>GatherSampleLightSSE</c>'s one-point form (<c>lightmap.cpp:1673-2048</c>),
-/// <c>Pow_FixedPoint_Exponent_SIMD</c> (<c>powsse.cpp:13</c>),
-/// <c>DirectionalSampler_t</c> (<c>halton.h</c>) and the world-light export
+/// <c>GatherSampleLightSSE</c>'s one-point form.
+/// <c>Pow_FixedPoint_Exponent_SIMD</c>.
+/// <c>DirectionalSampler_t</c> and the world-light export
 /// inversion, in the fixture room (a sealed 768 x 768 x 384 box).
 /// </summary>
 public sealed class PropLightSamplerTests : IClassFixture<DetailPropFixture>
@@ -44,7 +44,7 @@ public sealed class PropLightSamplerTests : IClassFixture<DetailPropFixture>
     [Fact]
     public void AShortDistanceIsFlooredAtOneUnit()
     {
-        // dist = MaxSIMD( dist, Four_Ones ) (:1864).
+        // dist = MaxSIMD(dist, Four_Ones):1864).
         PropLightSample s = _exact.Gather(Point(new Vec3(0, 0, 100.5f)), new Vec3(0, 0, 100), new Vec3(0, 0, 1));
 
         Assert.Equal(1.0f, s.Falloff);
@@ -70,7 +70,7 @@ public sealed class PropLightSamplerTests : IClassFixture<DetailPropFixture>
     [Fact]
     public void ASpotLightOutsideItsConeIsDark()
     {
-        // :1911-1915: dot2 <= stopdot2 returns before any falloff.
+        //:1911-1915: dot2 <= stopdot2 returns before any falloff.
         PropLight spot = Point(new Vec3(0, 0, 200)) with
         {
             Type = EmitType.Spotlight,
@@ -118,7 +118,7 @@ public sealed class PropLightSamplerTests : IClassFixture<DetailPropFixture>
     [Fact]
     public void TheHaltonSamplerStartsAtElementTwo()
     {
-        // GetElement reads the post-incremented member seed (halton.cpp): the
+        // GetElement reads the post-incremented member seed: the
         // first z is halton_2(2) = 0.25, mapped to 2*0.25 - 1 = -0.5.
         DirectionalSampler s = new();
 

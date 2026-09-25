@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Segment vrad's -dumptrace output into its insertion-order runs.
 
-vrad adds in one fixed order (vrad.cpp:2240, 2277, 2278, 2279):
+vrad adds in one fixed order:
   ExtractBrushEntityShadowCasters  -> TRACE_ID_OPAQUE      (green)
   AddBrushesForRayTrace, brushes   -> TRACE_ID_OPAQUE      (green)
   AddBrushesForRayTrace, sky faces -> TRACE_ID_SKY         (blue)

@@ -276,7 +276,7 @@ public class VvisComputeTests
     [Fact]
     public async Task AFarzOfZeroMeansNoRadiusAtAll()
     {
-        // vvis.cpp:897-898 -- a farz of exactly zero is turned into -1 and then
+        // -- a farz of exactly zero is turned into -1 and then
         // rejected by `flRadius > 0`, so it is "no radius" rather than "a
         // radius of nothing".
         (BspData map, PortalSet portals) = Corridor();
@@ -307,7 +307,7 @@ public class VvisComputeTests
     [Fact]
     public async Task TheOverrideRadiusIsSquaredInDouble()
     {
-        // vvis.cpp:938-941 reads it with atof into a double and squares in
+        // reads it with atof into a double and squares in
         // double; the map's own farz arrives as a float and is squared in
         // float. The two paths are not interchangeable and this pins the one
         // the option record takes.
@@ -349,7 +349,7 @@ public class VvisComputeTests
     [Fact]
     public async Task ATraceRunWritesNoVisibilityLump()
     {
-        // vvis.cpp:1179 -- a trace skips the whole write path.
+        // -- a trace skips the whole write path.
         (BspData map, PortalSet portals) = Corridor();
 
         VisResult result = await RunAsync(
@@ -442,8 +442,8 @@ public class VvisComputeTests
         VisResult result = await RunAsync(map, portals, VvisOptions.FastDefault);
 
         // Flow skipped, base pass NOT: -fast copies portalflood into portalvis
-        // and PortalRunVis never runs (all.c:20004), but BasePortalVis is
-        // dispatched unconditionally (all.c:19955). The flow counters are
+        // and PortalRunVis never runs, but BasePortalVis is
+        // dispatched unconditionally. The flow counters are
         // zero; the base cast counter is not.
         Assert.Equal(0L, result.Work.Chains);
         Assert.Equal(0L, result.Work.Candidates);
@@ -455,10 +455,9 @@ public class VvisComputeTests
     /// The anomaly-3 gate. P12 measured "managed -fast still casts
     /// BasePortalVis rays that stock skips" and recommended gating the base
     /// pass under <c>Fast</c>. Stock does not skip it — its own -fast log
-    /// prints the BasePortalVis pacifier, and the decompiled binary dispatches
-    /// it before the fastvis test, outside both branches
-    /// (<c>all.c:19955</c>; the one fastvis read is <c>all.c:20004</c>, inside
-    /// <c>CalcPortalVis</c>). So the enforced invariant is that -fast casts
+    /// prints the BasePortalVis pacifier, and the reference binary dispatches
+    /// it before the fastvis test, outside both branches of
+    /// <c>CalcPortalVis</c>. So the enforced invariant is that -fast casts
     /// EXACTLY the default's rays, and the bug this fact kills is the naive
     /// "skip the base pass under -fast" that the anomaly report would have
     /// shipped: it zeroes this counter and diverges from stock's bytes.
@@ -481,8 +480,8 @@ public class VvisComputeTests
     /// Every remaining option either leaves the base-pass ray count at the
     /// full cross product or does not reach it at all — there is no managed
     /// flag combo under which any base test is skipped, which is the shape of
-    /// the one-flag-one-branch binary (fastvis read once, at
-    /// <c>all.c:20004</c>; <c>-trace</c> never reads it, <c>22123</c>/<c>22155</c>).
+    /// the one-flag-one-branch binary (fastvis is read at one place,
+    /// and <c>-trace</c> never reads it).
     /// </summary>
     [Theory]
     [InlineData(true, false, false, false)]
@@ -510,7 +509,7 @@ public class VvisComputeTests
     /// -fast does skip what stock skips: the flow's own work counters go to
     /// zero while the base pass stays whole, and -tighten never runs under
     /// -fast (stock has no such combo; the managed Fast branch wins exactly as
-    /// the flag table in T15-findings.md §1 records).
+    /// the flag table records).
     /// </summary>
     [Fact]
     public async Task FastSkipsFlowEvenTightenAndSortAreMoot()

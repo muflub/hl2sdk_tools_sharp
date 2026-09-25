@@ -13,7 +13,7 @@ namespace SourceSharp.Tests.MapTools.Bsp;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The unit tier the plan asks for. A fact that needs an installed game,
+/// The unit tier the plan asks for. A fact that needs an installed game.
 /// Wine and a Steam depot can only run on one machine; a fact built here runs
 /// everywhere and in milliseconds, so the ordering rules that decide the file
 /// format are checked on every <c>make test</c> and not only where the stock

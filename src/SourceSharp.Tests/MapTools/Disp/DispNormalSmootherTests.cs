@@ -8,7 +8,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
-/// vrad's normal sewing, <c>utils/vrad/disp_vrad.cpp</c>, on hand-built
+/// vrad's normal sewing, on hand-built
 /// neighbour layouts whose normals start out different.
 /// </summary>
 public sealed class DispNormalSmootherTests
@@ -19,14 +19,14 @@ public sealed class DispNormalSmootherTests
 
     private static readonly Vec3[] Diagonal = DispFixtures.FloorQuad(new Vec3(256, 256, 0), 256, 256);
 
-    /// <summary><c>RemapVal</c> maps linearly: <c>mathlib.h:616</c>.</summary>
+    /// <summary><c>RemapVal</c> maps linearly:.</summary>
     [Fact]
     public void RemapValIsLinear()
     {
         Assert.Equal(0.25f, DispNormalSmoother.RemapVal(3, 2, 6, 0, 1));
     }
 
-    /// <summary>With an empty input range it is a step at B: <c>mathlib.h:614</c>.</summary>
+    /// <summary>With an empty input range it is a step at B:.</summary>
     [Fact]
     public void RemapValIsAStepWhenTheRangeIsEmpty()
     {
@@ -35,8 +35,7 @@ public sealed class DispNormalSmootherTests
     }
 
     /// <summary>
-    /// The closest corner within 0.1 wins: <c>FindNeighborCornerVert</c>,
-    /// <c>disp_vrad.cpp:21-45</c>.
+    /// The closest corner within 0.1 wins: <c>FindNeighborCornerVert</c>.
     /// </summary>
     [Fact]
     public void TheClosestCornerWithinATenthIsFound()
@@ -58,7 +57,7 @@ public sealed class DispNormalSmootherTests
 
     /// <summary>
     /// Corner neighbours are listed before edge neighbours:
-    /// <c>GetAllNeighbors</c>, <c>disp_vrad.cpp:49-78</c>.
+    /// <c>GetAllNeighbors</c>.
     /// </summary>
     [Fact]
     public void CornerNeighboursComeBeforeEdgeNeighbours()
@@ -74,9 +73,9 @@ public sealed class DispNormalSmootherTests
     }
 
     /// <summary>
-    /// Nothing de-duplicates (<c>disp_vrad.cpp:49</c>): a hand-built table
+    /// Nothing de-duplicates: a hand-built table
     /// naming one displacement as edge and corner neighbour lists it twice.
-    /// Real tables cannot, <c>disp_common.cpp:981</c>.
+    /// Real tables cannot.
     /// </summary>
     [Fact]
     public void ADoubleNeighbourIsListedTwice()
@@ -93,7 +92,7 @@ public sealed class DispNormalSmootherTests
 
     /// <summary>
     /// After <c>BlendEdges</c> the shared interior edge vertices carry one
-    /// normal on both sides: <c>disp_vrad.cpp:207-240</c>.
+    /// normal on both sides:.
     /// </summary>
     [Fact]
     public void BlendEdgesGivesASharedEdgeOneNormal()
@@ -114,7 +113,7 @@ public sealed class DispNormalSmootherTests
     /// <summary>
     /// <c>BlendEdges</c> leaves the edge's end corners to <c>BlendCorners</c>:
     /// the walk consumes the first as <c>viPrevPos</c> and skips the last by
-    /// <c>IsLastVert</c> (<c>disp_vrad.cpp:230-238</c>).
+    /// <c>IsLastVert</c>.
     /// </summary>
     [Fact]
     public void BlendEdgesLeavesTheCornersAlone()
@@ -135,7 +134,6 @@ public sealed class DispNormalSmootherTests
 
     /// <summary>
     /// After <c>BlendCorners</c> a shared corner has one normal:
-    /// <c>disp_vrad.cpp:81-153</c>.
     /// </summary>
     [Fact]
     public void BlendCornersGivesASharedCornerOneNormal()
@@ -157,7 +155,7 @@ public sealed class DispNormalSmootherTests
 
     /// <summary>
     /// Where one edge meets two half-length neighbours, its midpoint and their
-    /// two corners get one normal: <c>BlendTJuncs</c>, <c>disp_vrad.cpp:156-204</c>.
+    /// two corners get one normal: <c>BlendTJuncs</c>.
     /// </summary>
     [Fact]
     public void BlendTJuncsGivesAJunctionOneNormal()
@@ -183,7 +181,7 @@ public sealed class DispNormalSmootherTests
     /// <summary>
     /// A displacement with no neighbours keeps every normal through all three
     /// passes, corner renormalisation aside (its corners are re-normalised
-    /// alone: <c>disp_vrad.cpp:124</c>).
+    /// alone:).
     /// </summary>
     [Fact]
     public void ALoneDisplacementsInteriorNormalsAreUntouched()
@@ -199,7 +197,7 @@ public sealed class DispNormalSmootherTests
 
     /// <summary>
     /// <c>BlendCorners</c> renormalises even an unshared corner, which undoes
-    /// stock's short mean there (<c>disp_vrad.cpp:124</c>).
+    /// stock's short mean there.
     /// </summary>
     [Fact]
     public void AnUnsharedCornerIsRenormalised()

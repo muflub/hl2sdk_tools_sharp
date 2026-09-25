@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generates p4g_ambient.vmf, the leaf-ambient unit-tier fixture map.
 
-Self-made (no Valve map source): one sealed room built from axis-aligned box
+Self-made (no shipped map source): one sealed room built from axis-aligned box
 brushes, exercising every branch leaf ambient has --
   * a power-3 displacement floor (ClipRayToDispInLeaf in the tracer and in the
     sample-rejection probe, barycentric luxel coordinates),
@@ -11,9 +11,9 @@ brushes, exercising every branch leaf ambient has --
   * a skybox section of ceiling and a light_environment (sky ambient, sky
     faces on nodes),
   * an ordinary point light.
-Material NAMES from the SDK's dev set are referenced; nothing is copied.
+Material NAMES from the reference dev set are referenced; nothing is copied.
 
-Recipe (lane p4g, 2026-09-21; scripts in ~/.cache/maptools/lanes/p4g/):
+Recipe:
     python3 gen_ambient_fixture.py > p4g_ambient.vmf
     stock vbsp, vvis -fast, vrad -both -threads 1 (x64, under wine)
     with p4g_ambient.rad as the level lights file, then the pak lump is dropped

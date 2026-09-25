@@ -7,7 +7,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
-/// The per-power tables: <c>disp_powerinfo.cpp</c>'s recursion, checked
+/// The per-power tables: the reference implementation's recursion, checked
 /// against the shapes it is supposed to produce.
 /// </summary>
 /// <remarks>

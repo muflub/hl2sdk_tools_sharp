@@ -99,7 +99,7 @@ public sealed class DispCorpusTests
     [StockDispFact]
     public async Task ADisplacementFaceIsNotSupersampled()
     {
-        // lightmap.cpp:3164: one round -- the direct gather -- and done.
+        //: one round -- the direct gather -- and done.
         RadWorld world = await StockDispVrad.LightAsync("p3f_p2_flat");
         FaceLightContext ctx = new(
             world.Geometry, world.Neighbours, world.Patches, world.Tree, world.Settings, world.Gatherer, world.Displacements);

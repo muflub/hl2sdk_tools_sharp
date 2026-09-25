@@ -10,16 +10,14 @@ namespace SourceSharp.Tests.MapTools.Rad.Props;
 
 /// <summary>
 /// The <c>-StaticPropIndirectMode</c> consumption: the three weightings the
-/// ++ binary picks between inside <c>ComputeIndirectLightingAtPoint</c>
-/// (<c>vraddetailprops.cpp:658</c> counterpart <c>FUN_14003ecb0</c>, gate byte
-/// <c>0x1417194ec</c>).
+/// reference binary picks between inside
+/// <c>ComputeIndirectLightingAtPoint</c>.
 /// </summary>
 /// <remarks>
-/// There is no ++ oracle: <c>PP_CATMAPS_DIR</c> holds no vrad++ outputs for
-/// these modes, so each fact is a decomp-behavior parity check against the
-/// disasm, cited per branch in
-/// <c>PropIndirectLighting.Compute</c> (branches at all.c:46468 / 46478 /
-/// 46496, fallthrough 46493-46495).
+/// There is no comparison-tool oracle: <c>PP_CATMAPS_DIR</c> holds no
+/// third-party outputs for these modes, so each fact is a behaviour parity
+/// check against the reference's three weightings, documented per branch in
+/// <c>PropIndirectLighting.Compute</c>.
 /// The fixture is the committed leaf-ambient map; the points are lit, so the
 /// gather returns non-zero on every path.
 /// </remarks>
@@ -42,8 +40,8 @@ public sealed class T5PropIndirectModeTests : IClassFixture<AmbientFixture>
     [Fact]
     public void TheDefaultIsModeZeroExactly()
     {
-        // 0x1417194ec's .data word is 0 (all.c:46468 takes the default
-        // branch at cold start), and an omitted argument must reproduce
+        // the reference's gate word is 0, so the default branch is taken
+        // at cold start, and an omitted argument must reproduce
         // today's bytes bit-for-bit -- the default-path freeze depends on it.
         Vec3 omitted = Gather(0, ComplianceOptions.Stock);
         Vec3 explicitZero = PropIndirectLighting.Compute(
@@ -61,8 +59,8 @@ public sealed class T5PropIndirectModeTests : IClassFixture<AmbientFixture>
     [Fact]
     public void ModeOneWeightsFromTheHitPointSoItNeverDarkensTheGather()
     {
-        // all.c:46478-46491: d is measured from the ACCUMULATED hit point
-        // (fVar21+fVar18 - position) scaled by local_164/128, where the
+        // mode 1's d is measured from the ACCUMULATED hit point
+        // (hit - position) scaled by the traced distance / 128, where the
         // traced ray vector would be (vEnd - position) scaled the same way.
         // Since hit = position + (vEnd - position) * fraction with
         // 0 < fraction <= 1, mode 1's |d| <= mode 0's, so every non-sky hit
@@ -95,9 +93,9 @@ public sealed class T5PropIndirectModeTests : IClassFixture<AmbientFixture>
     [Fact]
     public void ModeTwoDropsTheInverseSquareButKeepsReflectivity()
     {
-        // all.c:46496-46502: the lightmap enters as lightmap * reflectivity
-        // with weight 1 (fVar18 = the reflectivity scalar triple straight
-        // into LAB_14003eece). Dropping the falloff changes the result unless
+        // mode 2: the lightmap enters as lightmap * reflectivity with
+        // weight 1 -- the reflectivity scalar triple goes straight into the
+        // accumulate. Dropping the falloff changes the result unless
         // every hit already had weight 1 -- it does not: mode 0's d is
         // non-zero on the fixture (the mode-1 fact proves it), so mode 2
         // moves the bytes off mode 0.
@@ -111,9 +109,9 @@ public sealed class T5PropIndirectModeTests : IClassFixture<AmbientFixture>
     [Fact]
     public void AnOutOfRangeModeAccumulatesTheRawLightmap()
     {
-        // all.c:46493-46495 (fallthrough past the ==2 test): fVar18/fVar24/
-        // fVar19 = local_178/local_180/fStack_17c -- the UNWEIGHTED,
-        // UNTINTED lightmap triple -- no weight, no reflectivity. That is a
+        // the fallthrough past the mode-2 test takes the raw channel triple
+        // -- the UNWEIGHTED, UNTINTED lightmap -- no weight, no reflectivity.
+        // That is a
         // third distinct observable: it differs from mode 0 (weight was
         // dropped) and from mode 2 (reflectivity also dropped, since the
         // fixture's surfaces do not all have unit reflectivity).

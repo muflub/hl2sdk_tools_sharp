@@ -7,7 +7,7 @@ using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Bsp.Portals;
 
-/// <summary>Dividing the map into areas (<c>portals.cpp:819-1381</c>).</summary>
+/// <summary>Dividing the map into areas.</summary>
 public class AreaFloodTests
 {
     [Fact]

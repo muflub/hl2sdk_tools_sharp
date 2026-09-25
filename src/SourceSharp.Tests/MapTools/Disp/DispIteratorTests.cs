@@ -8,15 +8,14 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
-/// The grid walkers of <c>public/disp_common.cpp:471-600</c> and the
-/// <c>CVertIndex</c> arithmetic they run on (<c>disp_vertindex.h</c>).
+/// The grid walkers of the reference implementation and the
+/// <c>CVertIndex</c> arithmetic they run on.
 /// </summary>
 public sealed class DispIteratorTests
 {
     /// <summary>
     /// The circumference walk visits each boundary vertex once, starting at
-    /// (0, 0) and going up the left edge: <c>CDispCircumferenceIterator</c>,
-    /// <c>disp_common.cpp:554</c>.
+    /// (0, 0) and going up the left edge: <c>CDispCircumferenceIterator</c>.
     /// </summary>
     [Fact]
     public void TheCircumferenceVisitsEachBoundaryVertexOnce()
@@ -36,7 +35,7 @@ public sealed class DispIteratorTests
 
     /// <summary>
     /// An edge with no neighbour yields nothing: <c>CDispSubEdgeIterator::Start</c>'s
-    /// "setup so Next returns false", <c>disp_common.cpp:488-494</c>.
+    /// "setup so Next returns false".
     /// </summary>
     [Fact]
     public void AnEdgeWithoutANeighbourYieldsNothing()
@@ -53,7 +52,7 @@ public sealed class DispIteratorTests
 
     /// <summary>
     /// A whole-edge walk between equal neighbours visits the interior
-    /// vertices, paired with the neighbour's: <c>disp_common.cpp:478-508</c>.
+    /// vertices, paired with the neighbour's:.
     /// </summary>
     [Fact]
     public void AnEdgeWalkPairsEachVertexWithItsNeighbours()
@@ -75,7 +74,7 @@ public sealed class DispIteratorTests
         Assert.Equal((new VertIndex(4, 1), new VertIndex(0, 1)), pairs[0]);
     }
 
-    /// <summary>With <c>bTouchCorners</c> the walk includes both end corners: <c>disp_common.cpp:495-499</c>.</summary>
+    /// <summary>With <c>bTouchCorners</c> the walk includes both end corners:.</summary>
     [Fact]
     public void TouchingCornersAddsBothEnds()
     {
@@ -95,7 +94,7 @@ public sealed class DispIteratorTests
         Assert.Equal(5, count);
     }
 
-    /// <summary>The last vertex of a walk reports itself: <c>IsLastVert</c>, <c>disp_common.cpp:510</c>.</summary>
+    /// <summary>The last vertex of a walk reports itself: <c>IsLastVert</c>.</summary>
     [Fact]
     public void TheLastVertexOfAWalkReportsItself()
     {

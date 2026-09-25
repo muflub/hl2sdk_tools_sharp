@@ -40,7 +40,7 @@ internal readonly record struct StockFaceCounts(
 /// and <c>WriteBSP</c> has built the original-face table, so comparing against
 /// it would be comparing three stages at once and attributing any difference
 /// to the wrong one. The <c>-v</c> block between "--- MakeFaces ---" and
-/// "PruneNodes..." is stock stating, in its own words, what THIS stage did —
+/// "PruneNodes..." is stock stating, in its own words, what THIS stage did.
 /// and it is printed before anything downstream has touched the result.
 /// </para>
 /// <para>
@@ -96,12 +96,12 @@ internal static class StockFaceLog
     }
 
     /// <summary>
-    /// The log from the world model's banner on (<c>vbsp.cpp:862</c>).
+    /// The log from the world model's banner on.
     /// </summary>
     /// <remarks>
     /// A map with a <c>func_occluder</c> runs a whole face pass over the
-    /// occluder tree BEFORE model 0 (<c>EmitOccluderBrushes</c>,
-    /// <c>vbsp.cpp:853</c>), and its "makefaces" / "unique from" lines come
+    /// occluder tree BEFORE model 0 (<c>EmitOccluderBrushes</c>.
+    ///), and its "makefaces" / "unique from" lines come
     /// first. ss_sandbox has one: its first block read 6 makefaces against the
     /// world's 1934.
     /// </remarks>

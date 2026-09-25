@@ -10,7 +10,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Csg;
 
 /// <summary>
-/// <c>csg.cpp</c>: subtraction, the list splices, the bite rules and
+///: subtraction, the list splices, the bite rules and
 /// <c>ChopBrushes</c>.
 /// </summary>
 public class BrushCsgTests
@@ -275,8 +275,8 @@ public class BrushCsgTests
 
     /// <summary>
     /// <c>MakeBrushWindings</c> sets <c>visible</c> on every side that got a
-    /// winding (<c>map.cpp:649</c>), so a freshly loaded map has nothing
-    /// invisible. That is what makes <c>csg.cpp:246</c>'s "hints are always
+    /// winding, so a freshly loaded map has nothing
+    /// invisible. That is what makes the reference implementation's "hints are always
     /// visible" look like a no-op, and the fact below is why it is not.
     /// </summary>
     [Fact]
@@ -289,11 +289,11 @@ public class BrushCsgTests
     }
 
     /// <summary>
-    /// <b><c>csg.cpp:246</c> only ever matters on the SECOND world pass.</b>
+    /// <b> only ever matters on the SECOND world pass.</b>
     /// <c>MarkVisibleSides</c> (Phase 3c) clears <c>visible</c> on every map
     /// side that did not become a face, and <c>ProcessWorldModel</c> then
     /// rebuilds the whole world from those same map brushes
-    /// (<c>vbsp.cpp:259</c>). A hint side cleared by that pass is raised again
+    ///. A hint side cleared by that pass is raised again
     /// here, and a plain side is not — which is how a hint brush keeps shaping
     /// the tree after the optimiser has decided it renders nothing.
     /// </summary>

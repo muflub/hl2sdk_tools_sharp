@@ -3,7 +3,7 @@
 -DP8AQ_IDHASH, it hashes vertex ids instead of vertex pointers.  Without the
 define the code is the original.  This is the only change to the qhull sources."""
 import os, re, shutil
-L = os.path.expanduser('~/.cache/maptools/lanes/p8a')
+L = os.environ.get('P8AQ_SCRATCH', os.path.expanduser('~/p8aq'))
 src = os.path.join(L, 'qhull26')
 dst = os.path.join(L, 'qhullport', 'csrc')
 os.makedirs(dst, exist_ok=True)
@@ -24,7 +24,7 @@ pre = '''/* p8aq (SourceSharp port, 2026-09): with -DP8AQ_IDHASH, hash vertex id
    instead of vertex pointers so the oracle is deterministic and matches the
    C# port.  Without P8AQ_IDHASH this is the original qhull 2.6 code. */
 #ifdef P8AQ_IDHASH
-#define P8AQ_K(p) ((p) ? (ptr_intT)((vertexT *)(p))->id : (ptr_intT)0)
+#define P8AQ_K(p) ((p) ? (ptr_intT)((vertexT *)(p))->id: (ptr_intT)0)
 #else
 #define P8AQ_K(p) ((ptr_intT)(p))
 #endif

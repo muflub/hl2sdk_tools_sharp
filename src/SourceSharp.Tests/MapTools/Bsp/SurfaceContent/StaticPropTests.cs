@@ -10,7 +10,7 @@ using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Bsp.SurfaceContent;
 
-/// <summary><c>utils/vbsp/staticprop.cpp</c>, fact by fact.</summary>
+/// <summary>, fact by fact.</summary>
 public class StaticPropTests
 {
     private const string Model = "models/unit/prop.mdl";
@@ -18,7 +18,7 @@ public class StaticPropTests
     [Fact]
     public async Task APropStraddlingANodeListsTheBackLeafFirst()
     {
-        // staticprop.cpp:405-417: back child, then front.
+        //: back child, then front.
         List<ushort> leaves = await LeavesAsync(OneNode(), new Vec3(0f, 0f, 0f));
 
         Assert.Equal([1, 0], leaves);
@@ -27,7 +27,7 @@ public class StaticPropTests
     [Fact]
     public async Task APropWhollyInFrontRecordsTheFlippedPlane()
     {
-        // staticprop.cpp:393-401 then :322-330.
+        // then:322-330.
         BoxCollision collision = new(8f);
         List<ushort> leaves = await LeavesAsync(OneNode(), new Vec3(100f, 0f, 0f), collision);
 
@@ -38,7 +38,7 @@ public class StaticPropTests
     [Fact]
     public async Task ABoxEndingExactlyOnThePlaneIsBehindIt()
     {
-        // staticprop.cpp:385: <= dist.
+        //: <= dist.
         List<ushort> leaves = await LeavesAsync(OneNode(), new Vec3(-8f, 0f, 0f));
 
         Assert.Equal([1], leaves);
@@ -47,7 +47,6 @@ public class StaticPropTests
     [Fact]
     public async Task ASolidLeafIsNeverTested()
     {
-        // staticprop.cpp:424.
         BspTreeView tree = OneNode() with { LeafContents = [0, BspTreeView.ContentsSolid] };
         BoxCollision collision = new(8f);
 
@@ -60,7 +59,7 @@ public class StaticPropTests
     [Fact]
     public async Task TheLeafPlanesAreDeepestFirst()
     {
-        // staticprop.cpp:320: for (i = depth; --i >= 0; ).
+        //: for (i = depth; --i >= 0;).
         BspTreeView tree = new(
             [Node(0, -1, 1), Node(1, -2, -3)],
             [Plane(1, 0, 0, 0), Plane(0, 1, 0, 0)],
@@ -95,7 +94,6 @@ public class StaticPropTests
     [Fact]
     public void ANegativeFadeMinTakesTheMax()
     {
-        // staticprop.cpp:652-659.
         StaticPropBuild build = StaticPropEmitter.ReadBuild(Prop(("fademindist", "-1"), ("fademaxdist", "400")));
 
         Assert.Equal(400f, build.FadeMinDist);
@@ -114,7 +112,7 @@ public class StaticPropTests
     [Fact]
     public void EachBooleanKeySetsItsFlagOnlyWhenOne()
     {
-        // staticprop.cpp:607-627: == 1, so "2" sets nothing.
+        //: == 1, so "2" sets nothing.
         StaticPropBuild build = StaticPropEmitter.ReadBuild(Prop(
             ("ignorenormals", "1"), ("disableshadows", "1"), ("disablevertexlighting", "1"),
             ("disableselfshadowing", "1"), ("screenspacefade", "2"), ("generatelightmaps", "1")));
@@ -127,7 +125,6 @@ public class StaticPropTests
     [Fact]
     public void WithoutGenerateLightmapsThereIsNoPerTexelLightingAndNoResolution()
     {
-        // staticprop.cpp:629-639.
         StaticPropBuild build = StaticPropEmitter.ReadBuild(Prop(("lightmapresolutionx", "32")));
 
         Assert.Equal(StaticPropFlags.NoPerTexelLighting, build.Flags);
@@ -137,7 +134,7 @@ public class StaticPropTests
     [Fact]
     public void AnEmptyFadeScaleIsOne()
     {
-        // staticprop.cpp:641-649: an ABSENT or empty key is 1, "0" is 0.
+        //: an ABSENT or empty key is 1, "0" is 0.
         Assert.Equal(1f, StaticPropEmitter.ReadBuild(Prop()).ForcedFadeScale);
         Assert.Equal(0f, StaticPropEmitter.ReadBuild(Prop(("fadescale", "0"))).ForcedFadeScale);
     }
@@ -161,7 +158,7 @@ public class StaticPropTests
     [Fact]
     public async Task AMatchingInfoLightingSetsTheLightingOriginAndIsCleared()
     {
-        // staticprop.cpp:454-470,513-519,675-679.
+        //,513-519,675-679.
         (VbspContext context, _) = await ContextAsync(f => StudioFixture.AddModel(f, Model));
         MapEntity lighting = Entity(("classname", "info_lighting"), ("targetname", "l"), ("origin", "1 2 3"));
 
@@ -212,7 +209,7 @@ public class StaticPropTests
     [Fact]
     public async Task TwoSpellingsOfOneModelShareAHullButNotADictionaryEntry()
     {
-        // The hull cache lower-cases (:248-257); the dictionary memcmp's (:138).
+        // The hull cache lower-cases:248-257); the dictionary memcmp's:138).
         (VbspContext context, _) = await ContextAsync(f => StudioFixture.AddModel(f, Model));
         BoxCollision collision = new(8f);
 
@@ -226,7 +223,7 @@ public class StaticPropTests
     [Fact]
     public async Task AMissingModelIsWarnedOnceAndItsPropsDropped()
     {
-        // staticprop.cpp:268-276, the failure cached.
+        //, the failure cached.
         (VbspContext context, _) = await ContextAsync(_ => { });
 
         StaticPropLump lump = await Emitter(context).EmitAsync([Prop(), Prop()], OneNode());
@@ -272,7 +269,7 @@ public class StaticPropTests
     [Fact]
     public async Task AVersion44ModelLoads()
     {
-        // studio.h:3171-3172 slams the version before staticprop.cpp:165
+        // slams the version before
         // tests it. HL2's own props are version 44.
         (VbspContext context, _) = await ContextAsync(f => StudioFixture.AddModel(f, Model, version: 44));
 
@@ -285,7 +282,7 @@ public class StaticPropTests
     [Fact]
     public async Task UnderStockAVersion37ModelIsSlammedAndRead()
     {
-        // studio.h:3171-3172: any version becomes 48.
+        //: any version becomes 48.
         (VbspContext context, _) = await ContextAsync(f => StudioFixture.AddModel(f, Model, version: 37), ComplianceOptions.Stock);
 
         StaticPropLump lump = await Emitter(context).EmitAsync([Prop()], OneNode());
@@ -319,7 +316,7 @@ public class StaticPropTests
     [Fact]
     public async Task AVertexFileWithTheWrongChecksumIsFatal()
     {
-        // staticprop.cpp:752-755, Error().
+        //, Error.
         (VbspContext context, _) = await ContextAsync(f => StudioFixture.AddModel(f, Model, vvdChecksum: 99));
 
         await Assert.ThrowsAsync<MapCompileException>(() => Emitter(context).EmitAsync([Prop()], OneNode()));
@@ -328,7 +325,6 @@ public class StaticPropTests
     [Fact]
     public async Task APropInNoLeafIsWarnedAndDropped()
     {
-        // staticprop.cpp:487-491.
         (VbspContext context, _) = await ContextAsync(f => StudioFixture.AddModel(f, Model));
         BspTreeView tree = OneNode() with { LeafContents = [BspTreeView.ContentsSolid, BspTreeView.ContentsSolid] };
 

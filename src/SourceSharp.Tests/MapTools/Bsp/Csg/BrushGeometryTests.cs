@@ -10,7 +10,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Csg;
 
 /// <summary>
-/// The geometric primitives of <c>brushbsp.cpp</c>: bounds, volume, windings
+/// The geometric primitives of the reference implementation: bounds, volume, windings
 /// and the splitter.
 /// </summary>
 public class BrushGeometryTests
@@ -68,8 +68,7 @@ public class BrushGeometryTests
 
     /// <summary>
     /// Stock returns zero for a null brush rather than crashing, because
-    /// <c>SplitBrush</c> hands it halves that may not exist
-    /// (<c>brushbsp.cpp:241</c>).
+    /// <c>SplitBrush</c> hands it halves that may not exist.
     /// </summary>
     [Fact]
     public async Task BrushVolumeOfNothingIsZero()
@@ -278,7 +277,7 @@ public class BrushGeometryTests
 
     /// <summary>
     /// The midwinding side is a fresh slot of a zeroed allocation in stock, so
-    /// it carries no contents, no surface flags and no bevel — only the plane,
+    /// it carries no contents, no surface flags and no bevel — only the plane.
     /// <c>TEXINFO_NODE</c> and the winding.
     /// </summary>
     [Fact]

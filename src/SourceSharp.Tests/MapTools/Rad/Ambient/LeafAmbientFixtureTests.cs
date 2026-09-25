@@ -54,7 +54,7 @@ public sealed class LeafAmbientFixtureTests : IClassFixture<AmbientFixture>
     [Fact]
     public async Task TheFixtureBakesSurfaceLightsSoVisibilityIsExercised()
     {
-        // leaf_ambient_lighting.cpp:626-640: the fixture's .rad makes every
+        //: the fixture's.rad makes every
         // texlight dim enough to go in the cubes. A fixture that baked none
         // would leave AddEmitSurfaceLights and TestLine untested.
         LeafAmbientResult r = await _fixture.BuildAsync(_fixture.Ldr, LeafAmbientOptions.StockParity);
@@ -84,7 +84,7 @@ public sealed class LeafAmbientFixtureTests : IClassFixture<AmbientFixture>
     public async Task WithoutVisibilityTheBakedLightsLeakThroughWalls()
     {
         // The visibility seam is load-bearing: treating every baked light as
-        // visible (leaf_ambient_lighting.cpp:111 skipped) must change the lump.
+        // visible(skipped) must change the lump.
         LeafAmbientResult r = await LeafAmbientBuilder.BuildAsync(
             _fixture.Ldr,
             _fixture.Ldr.WorldLights.ToArray(),
@@ -111,7 +111,7 @@ public sealed class LeafAmbientFixtureTests : IClassFixture<AmbientFixture>
     [Fact]
     public async Task ThePassWritesTheAmbientCubeFlagIntoTheLights()
     {
-        // leaf_ambient_lighting.cpp:630-633 SETS and CLEARS the flag: start
+        // SETS and CLEARS the flag: start
         // from lights with it cleared and the pass must set it back.
         DWorldLight[] lights = _fixture.Ldr.WorldLights.ToArray();
         for (int i = 0; i < lights.Length; i++)
@@ -170,7 +170,7 @@ public sealed class LeafAmbientFixtureTests : IClassFixture<AmbientFixture>
     [Fact]
     public async Task EveryEmptyLeafPointsAtALitLeafOrItself()
     {
-        // leaf_ambient_lighting.cpp:693-707: a zero count makes firstAmbientSample a LEAF.
+        //: a zero count makes firstAmbientSample a LEAF.
         LeafAmbientResult r = await _fixture.BuildAsync(_fixture.Ldr, LeafAmbientOptions.StockParity);
 
         for (int leaf = 0; leaf < r.Index.Length; leaf++)

@@ -54,7 +54,7 @@ public class BitVectorTests
     public void BitOrderMatchesStocksByteAddressing()
     {
         // vvis writes bits[i>>3] |= 1<<(i&7) over a byte array and elsewhere
-        // casts the same bytes to long* (flow.cpp:531). On little-endian, bit
+        // casts the same bytes to long*. On little-endian, bit
         // 65 is byte 8 bit 1 -- so a vector built here can go straight into the
         // VISIBILITY lump with no reordering.
         ulong[] bits = BitVector.Allocate(128);
@@ -101,7 +101,7 @@ public class BitVectorTests
     [InlineData(20250920)]
     public void PopcountAgreesWithStocksPerBitLoop(int seed)
     {
-        // flow.cpp:32 counts a bit at a time. BitOperations.PopCount is one
+        // counts a bit at a time. BitOperations.PopCount is one
         // instruction, and this is the only thing that says the two agree.
         ulong[] bits = Random(seed, 64);
         Assert.Equal(
@@ -214,13 +214,13 @@ public class BitVectorTests
     }
 
     /// <summary>
-    /// And they must agree with the C++ expression read one bit at a time.
+    /// And they must agree with the reference expression read one bit at a time.
     /// </summary>
     /// <param name="seed">Which pseudo-random input to use.</param>
     /// <remarks>
     /// Three implementations agreeing with each other would still leave them
     /// free to be wrong together, so this one is written from
-    /// <c>flow.cpp:539-543</c> bit by bit with no word arithmetic in it at all.
+    /// bit by bit with no word arithmetic in it at all.
     /// </remarks>
     [Theory]
     [InlineData(1)]
@@ -321,7 +321,7 @@ public class BitVectorTests
     [InlineData(BitVectorPath.Vector512)]
     public void NothingNewIsReportedWhenEveryCandidateBitIsAlreadyVisible(BitVectorPath path)
     {
-        // The case that makes vvis skip a portal entirely (flow.cpp:546).
+        // The case that makes vvis skip a portal entirely.
         ulong[] prev = Random(11, 8);
         ulong[] test = Random(13, 8);
         ulong[] vis = new ulong[8];
@@ -372,7 +372,7 @@ public class BitVectorTests
     public void ResolveReturnsAConcreteRequestUnchanged()
     {
         // Including one the hardware has no unit for: Vector512<T> is defined
-        // everywhere .NET runs and the JIT emits a software sequence, which is
+        // everywhere.NET runs and the JIT emits a software sequence, which is
         // what lets the gate above be a plain [Theory].
         Assert.Equal(BitVectorPath.Scalar, BitVectorOps.Resolve(BitVectorPath.Scalar));
         Assert.Equal(BitVectorPath.Vector256, BitVectorOps.Resolve(BitVectorPath.Vector256));

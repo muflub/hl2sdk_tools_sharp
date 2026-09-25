@@ -36,7 +36,7 @@ public sealed class StockCasterFixtureTests
     /// <summary>Every run separates into vrad's four add calls, in order.</summary>
     /// <param name="tag">The run.</param>
     /// <remarks>
-    /// The order is <c>vrad.cpp:2277, 2278, 2279</c>. There is no
+    /// The order is <c>, 2278, 2279</c>. There is no
     /// <c>brush-entity</c> run because <c>dm_lockdown</c> has no entity
     /// carrying <c>vrad_brush_cast_shadows</c>; a map that had one would show
     /// five runs, with two adjacent green ones.

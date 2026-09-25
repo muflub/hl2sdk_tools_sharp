@@ -11,13 +11,13 @@ namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
 /// The driver-facing hooks: <c>DispGetFaceInfo</c>'s checks
-/// (<c>disp_vbsp.cpp:622-660</c>) and the lump write.
+/// and the lump write.
 /// </summary>
 public sealed class DispVbspHooksTests
 {
     private static readonly Vec3[] Floor = DispFixtures.UnitFloor();
 
-    /// <summary>A displacement on a brush entity is fatal: <c>disp_vbsp.cpp:628-632</c>.</summary>
+    /// <summary>A displacement on a brush entity is fatal:.</summary>
     [Fact]
     public void ADisplacementOnABrushEntityIsFatal()
     {
@@ -27,7 +27,7 @@ public sealed class DispVbspHooksTests
         Assert.Contains("func_detail", e.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>A non-quad displacement side is fatal: <c>disp_vbsp.cpp:639-640</c>.</summary>
+    /// <summary>A non-quad displacement side is fatal:.</summary>
     [Fact]
     public void ANonQuadDisplacementIsFatal()
     {
@@ -70,7 +70,7 @@ public sealed class DispVbspHooksTests
     }
 
     /// <summary>
-    /// The write sets each base face's lightmap size (<c>disp_vbsp.cpp:208-209</c>)
+    /// The write sets each base face's lightmap size
     /// and nothing else of it — the texinfo stays (the swap never reaches the BSP).
     /// </summary>
     [Fact]

@@ -21,12 +21,12 @@ public sealed class DispStockCoverageTests
 
     /// <summary>
     /// STOCK QUIRK, pinned: the swap is decided (<c>CalcLuxelCoords</c>
-    /// returns true, <c>builddisp.cpp:489-500</c>) but never reaches the BSP.
-    /// <c>DispMapToCoreDispInfo</c> repoints <c>mapdispinfo_t::face.texinfo</c>
-    /// (<c>disp_vbsp.cpp:230</c>), the MAP face — the <c>dface_t</c> was
-    /// already emitted by <c>WriteBSP</c> (<c>writebsp.cpp:933</c>) from the
+    /// returns true) but never reaches the BSP.
+    /// <c>DispMapToCoreDispInfo</c> repoints <c>mapdispinfo_t::face.texinfo</c>,
+    /// the MAP face — the <c>dface_t</c> was
+    /// already emitted by <c>WriteBSP</c> from the
     /// same struct before <c>EndBSPFile</c> ran this, so it keeps the original
-    /// texinfo, and <c>CompactTexinfos</c> (<c>writebsp.cpp:771</c>) then drops
+    /// texinfo, and <c>CompactTexinfos</c> then drops
     /// the unreferenced copy. The d2_prison_08 fix its comment describes is
     /// dead in every BSP. Measured on <c>p3f_swap</c>: our decision is swap,
     /// stock's face lightmap U is the side's <c>uaxis</c>.
@@ -44,7 +44,7 @@ public sealed class DispStockCoverageTests
     }
 
     /// <summary>
-    /// ...and the swapped copy is not in LUMP_TEXINFO either: no entry is
+    ///...and the swapped copy is not in LUMP_TEXINFO either: no entry is
     /// <see cref="DisplacementLumpBuilder.SwapLightmapAxes"/> of the face's.
     /// </summary>
     [DispStockFact]
@@ -92,7 +92,7 @@ public sealed class DispStockCoverageTests
 
     /// <summary>
     /// Some stock displacement's lightmap is clamped at
-    /// <c>MAX_DISP_LIGHTMAP_DIM_WITHOUT_BORDER</c> (<c>builddisp.cpp:476</c>).
+    /// <c>MAX_DISP_LIGHTMAP_DIM_WITHOUT_BORDER</c>.
     /// </summary>
     [DispStockFact]
     public void SomeCatalogueMapClampsALightmapAt125() =>
@@ -103,7 +103,7 @@ public sealed class DispStockCoverageTests
     public void EveryPowerIsPresent() =>
         Assert.Equal([2, 3, 4], Maps().SelectMany(m => m.StockInfos).Select(i => i.Power).Distinct().Order());
 
-    /// <summary>The collapsed tags reach all four walkable/buildable combinations (<c>map.cpp:1186-1210</c>).</summary>
+    /// <summary>The collapsed tags reach all four walkable/buildable combinations.</summary>
     [DispStockFact]
     public void SomeCatalogueMapHasEveryTagCombination() =>
         Assert.Equal(

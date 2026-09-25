@@ -11,13 +11,12 @@ using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Bsp.SurfaceContent;
 
-/// <summary><c>utils/vbsp/overlay.cpp</c> and its loader half in <c>map.cpp</c>.</summary>
+/// <summary> and its loader half in the reference implementation.</summary>
 public class OverlayTests
 {
     [Fact]
     public void ANamedOverlayBecomesAnAccessorCarryingItsId()
     {
-        // map.cpp:1659-1666.
         OverlaySet set = new();
         set.AddFromEntity(Entity("targetname", "a"));
         MapEntity second = Entity("targetname", "b");
@@ -32,7 +31,7 @@ public class OverlayTests
     [Fact]
     public void AnUnnamedOverlayEntityIsCleared()
     {
-        // map.cpp:1651-1655: iAccessorID < 0 -> epairs = NULL.
+        //: iAccessorID < 0 -> epairs = NULL.
         MapEntity entity = Entity();
 
         Assert.Equal(-1, new OverlaySet().AddFromEntity(entity));
@@ -42,7 +41,6 @@ public class OverlayTests
     [Fact]
     public void APositiveFadeIsSquaredAndANegativeOneIsNot()
     {
-        // overlay.cpp:43-53.
         OverlaySet set = new();
         set.AddFromEntity(Entity("fademindist", "3", "fademaxdist", "-1"));
 
@@ -55,14 +53,13 @@ public class OverlayTests
     [InlineData("4")]
     public void ARenderOrderOutsideZeroToThreeIsFatal(string order)
     {
-        // overlay.cpp:58-61.
         Assert.Throws<MapCompileException>(() => new OverlaySet().AddFromEntity(Entity("RenderOrder", order)));
     }
 
     [Fact]
     public void AMaterialNameOf256CharactersIsFatal()
     {
-        // overlay.cpp:74-78: strlen >= OVERLAY_MAP_STRLEN.
+        //: strlen >= OVERLAY_MAP_STRLEN.
         Assert.Throws<MapCompileException>(() => new OverlaySet().AddFromEntity(Entity("material", new string('m', 256))));
     }
 
@@ -78,7 +75,7 @@ public class OverlayTests
     [Fact]
     public void AWaterOverlayIdIsOffsetPastTheOverlayLimit()
     {
-        // map.cpp:1420: ( MAX_MAP_OVERLAYS + 1 ) + count - 1.
+        //: (MAX_MAP_OVERLAYS + 1) + count - 1.
         OverlaySet set = new();
         set.AddWaterOverlay(Data());
         MapOverlay second = set.AddWaterOverlay(Data());
@@ -89,7 +86,7 @@ public class OverlayTests
     [Fact]
     public void AWaterOverlayVectorNeedsBrackets()
     {
-        // chunkfile.cpp:753, sscanf("[%f %f %f]").
+        //, sscanf("[%f %f %f]").
         MapOverlay overlay = new OverlaySet().AddWaterOverlay(Data("BasisOrigin", "1 2 3", "BasisNormal", "[0 0 1]"));
 
         Assert.Equal(Vec3.Zero, overlay.Origin);
@@ -99,7 +96,7 @@ public class OverlayTests
     [Fact]
     public void AWaterOverlaysLastSidesKeyWins()
     {
-        // map.cpp:1397-1398 purge before refilling.
+        // purge before refilling.
         MapOverlay overlay = new OverlaySet().AddWaterOverlay(Data("sides", "1 2", "sides", "7"));
 
         Assert.Equal([7], overlay.SideList);
@@ -116,7 +113,6 @@ public class OverlayTests
     [Fact]
     public async Task AWaterOverlayMaterialGoesThroughTheReplacementTable()
     {
-        // map.cpp:1327-1330.
         KeyValuesDocument cfg = await KeyValuesDocument.ParseAsync("\"materialsub\"\n{\n\t\"AllMaps\"\n\t{\n\t\t\"a/b\" \"c/d\"\n\t}\n}\n");
         OverlaySet set = new() { Replacements = new MaterialReplacements(cfg, "m") };
 
@@ -126,7 +122,7 @@ public class OverlayTests
     [Fact]
     public async Task UpdatingSideListsAddsEachIdOnceToEveryNamedSide()
     {
-        // overlay.cpp:133-136, Find() == -1 guard.
+        //, Find == -1 guard.
         SurfaceUnit.Loaded loaded = await SurfaceUnit.LoadAsync(SurfaceUnit.Room(SurfaceUnit.Plain));
         int floor = TestMapCatalog.SideId(SurfaceUnit.Room(SurfaceUnit.Plain), 0, 0);
         OverlaySet set = new();
@@ -159,7 +155,6 @@ public class OverlayTests
     [Fact]
     public async Task BasisUIsPackedIntoTheFirstThreeUvZs()
     {
-        // overlay.cpp:243-246.
         DOverlay o = await EmitOneAsync(Entity("BasisU", "0.25 0.5 0.75", "uv0", "1 2 9"));
 
         Assert.Equal(new Vec3(1f, 2f, 0.25f), o.UvPoints[0]);
@@ -170,7 +165,7 @@ public class OverlayTests
     [Fact]
     public async Task AFlippedBasisSetsTheFourthUvZToOne()
     {
-        // overlay.cpp:248-253: (N x U) . V < 0.
+        //: (N x U). V < 0.
         DOverlay o = await EmitOneAsync(Entity("BasisU", "1 0 0", "BasisV", "0 -1 0", "BasisNormal", "0 0 1", "uv3", "4 5 0.25"));
 
         Assert.Equal(1f, o.UvPoints[3].Z);
@@ -195,7 +190,6 @@ public class OverlayTests
     [Fact]
     public async Task TheTexInfoHasNoFlagsAndTheSentinelOffsets()
     {
-        // overlay.cpp:256-270.
         SurfaceUnit.Loaded loaded = await SurfaceUnit.LoadAsync(SurfaceUnit.Room(SurfaceUnit.Plain));
         OverlaySet set = new();
         set.AddFromEntity(Entity("material", SurfaceUnit.Specular));
@@ -226,7 +220,7 @@ public class OverlayTests
     [Fact]
     public async Task UnderStockSixtyFourFacesIsTooManyForAnOverlay()
     {
-        // overlay.cpp:275: nFaceCount >= OVERLAY_BSP_FACE_COUNT.
+        //: nFaceCount >= OVERLAY_BSP_FACE_COUNT.
         SurfaceUnit.Loaded loaded = await SurfaceUnit.LoadAsync(SurfaceUnit.Room(SurfaceUnit.Plain), ComplianceOptions.Stock);
         OverlaySet set = new();
         set.AddFromEntity(Entity());
@@ -264,7 +258,7 @@ public class OverlayTests
     [Fact]
     public async Task UnderStockAnOverlayMaterialIsNotReplaced()
     {
-        // overlay.cpp:72 reads the key raw.
+        // reads the key raw.
         OverlaySet set = new() { Replacements = await ReplacementsAsync(), Compliance = ComplianceOptions.Stock };
 
         set.AddFromEntity(Entity("material", "a/b"));

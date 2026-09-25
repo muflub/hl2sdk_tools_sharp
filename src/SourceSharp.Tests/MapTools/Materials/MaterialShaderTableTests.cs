@@ -61,7 +61,7 @@ public class MaterialShaderTableTests
     [Fact]
     public async Task ABumpMappedLightmappedGenericNeedsBumpedLightmaps()
     {
-        // lightmappedgeneric_dx9_helper.cpp:161-164
+        //
         MaterialFacts facts = await Read("LightmappedGeneric { $bumpmap a/b_normal }");
 
         Assert.True(facts.NeedsBumpedLightmaps);
@@ -87,7 +87,7 @@ public class MaterialShaderTableTests
     [Fact]
     public async Task WorldVertexTransitionSharesLightmappedGenericsBumpRule()
     {
-        // worldvertextransition.cpp:13 routes the DX9 shader through the same
+        // routes the DX9 shader through the same
         // helper, so the two cannot disagree.
         MaterialFacts facts = await Read("WorldVertexTransition { $bumpmap a/b_normal }");
 
@@ -97,7 +97,7 @@ public class MaterialShaderTableTests
     [Fact]
     public async Task WaterTakesItsBumpFromNormalMapAndNotBumpMap()
     {
-        // water.cpp:124-127 tests $normalmap. A material system that looked
+        // tests $normalmap. A material system that looked
         // for $bumpmap would give every water surface flat lightmaps.
         MaterialFacts facts = await Read("Water { $normalmap a/water_normal }");
 
@@ -115,7 +115,7 @@ public class MaterialShaderTableTests
     [Fact]
     public async Task LightmappedReflectiveNeedsNoLightmapWithoutABaseTexture()
     {
-        // lightmappedreflective.cpp:50-53 -- the only conditional lightmap in
+        // -- the only conditional lightmap in
         // stdshaders.
         MaterialFacts facts = await Read("LightmappedReflective { $normalmap a/n }");
 
@@ -150,7 +150,7 @@ public class MaterialShaderTableTests
     public void TurningBumpmappingOffSilencesEveryBumpedLightmapRule()
     {
         // Every SET_FLAGS2(BUMPED_LIGHTMAP) site in stdshaders is guarded by
-        // g_pConfig->UseBumpmapping().
+        // g_pConfig->UseBumpmapping.
         KeyValuesNode material = new("LightmappedGeneric");
         material.SetString("$bumpmap", "a/n");
 

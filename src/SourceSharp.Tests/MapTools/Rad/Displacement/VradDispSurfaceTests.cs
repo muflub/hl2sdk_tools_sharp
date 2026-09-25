@@ -11,7 +11,7 @@ using static SourceSharp.Tests.MapTools.Rad.Displacement.DispTestSurfaces;
 namespace SourceSharp.Tests.MapTools.Rad.Displacement;
 
 /// <summary>
-/// <c>CVRADDispColl</c> (<c>vrad_dispcoll.cpp</c>): creation, the sample
+/// <c>CVRADDispColl</c>: creation, the sample
 /// radii, and the (u, v) to surface point and normal maps.
 /// </summary>
 public sealed class VradDispSurfaceTests
@@ -60,7 +60,7 @@ public sealed class VradDispSurfaceTests
     [Fact]
     public void TheSampleRadiusIsTwoPointTwoLuxelDiagonals()
     {
-        // vrad_dispcoll.cpp:104: sqrt(w^2 + h^2) * 2.2 with w = h = 16.
+        //: sqrt(w^2 + h^2) * 2.2 with w = h = 16.
         (float width, float r2, _, _) = VradDispSurface.SampleRadii(Tex(16), new DirectLightingSettings());
         float r = (float)Math.Sqrt(16f * 16f * 2f) * 2.2f;
         Assert.Equal(16.0f, width);
@@ -151,7 +151,7 @@ public sealed class VradDispSurfaceTests
     public void AnOddCellsUpperTriangleIgnoresItsFirstCorner()
     {
         // Cell (1, 0) has flattened index 1: odd, so TriTLToBR
-        // (vrad_dispcoll.cpp:214). Past the diagonal (fracU + fracV > 1) the
+        //. Past the diagonal (fracU + fracV > 1) the
         // point comes from corners (1,1), (2,1), (2,0) only: raising (1,0)
         // must not move it.
         VradDispSurface flat = Surface();
@@ -186,7 +186,7 @@ public sealed class VradDispSurfaceTests
     {
         // p3f2's hand-over: halfway along the edge from the flank vertex (1,0)
         // to the crease vertex (2,0), with unit vertex normals, the blend is
-        // normalise(n1 + n2) (vrad_dispcoll.cpp:361-378).
+        // normalise(n1 + n2).
         VradDispSurface s = Surface(Crease, stockNormalMean: false);
         Vec3 n1 = s.VertNormals[Index(s, 1, 0)];
         Vec3 n2 = s.VertNormals[Index(s, 2, 0)];

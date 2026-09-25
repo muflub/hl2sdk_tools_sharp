@@ -126,7 +126,7 @@ public class PortalCatalogueTests
     {
         // The gate above pins ComplianceOptions.Stock, which is its contract.
         // Measured here: the pin does not currently change anything on this
-        // catalogue. Correct also gives stock's .prt byte for byte on all 19
+        // catalogue. Correct also gives stock's.prt byte for byte on all 19
         // maps. None of them reaches a portal-stage quirk:
         // BaseWindingNormalise's slivers and WindingIsTinyEdgePromotion's
         // exactly-0.2 edge both need geometry the catalogue lacks. The companions that DO show
@@ -269,7 +269,7 @@ public class PortalCatalogueTests
     {
         PortalRun run = await PortalRun.ForAsync(name);
 
-        // Every entry with a .prt is one stock did not report as leaked --
+        // Every entry with a.prt is one stock did not report as leaked.
         // WritePortalFile is skipped on a leak -- so the flood over the same
         // tree must agree.
         Assert.True(run.Flood.Inside, $"{name}: no entity was placed inside");
@@ -319,8 +319,8 @@ public class PortalCatalogueTests
     /// </summary>
     /// <returns>A task.</returns>
     /// <remarks>
-    /// <c>leakfile.cpp:82</c> re-reads the <c>origin</c> key. The flood
-    /// started one unit higher (<c>portals.cpp:765</c>), so the corrected last
+    /// re-reads the <c>origin</c> key. The flood
+    /// started one unit higher, so the corrected last
     /// point differs from stock's in z alone.
     /// </remarks>
     [StockCatalogueFact]
@@ -376,7 +376,7 @@ public class PortalCatalogueTests
     [StockCatalogueFact]
     public async Task TheLeakedFixtureHasNoPortalFileToCompareAgainst()
     {
-        // Not decoration: this is the fact that says the .prt theories above
+        // Not decoration: this is the fact that says the.prt theories above
         // are not silently skipping the one entry that behaves differently.
         await Task.CompletedTask;
 

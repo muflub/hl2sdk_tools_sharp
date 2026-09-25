@@ -1,13 +1,13 @@
-# Stock vrad's shadow-caster set, and the gate the plan asked for instead
+# Stock vrad's shadow-caster set, and the gate that replaced it
 
 `stock-lockdown-casters.txt` is stock vrad's own `g_RtEnv`, reduced to what a
 gate can check, for four command lines on one map.
 
-## The gate §4b names does not measure the caster set
+## The printed triangle count does not measure the caster set
 
-§4b says stock prints `Total triangle count:` and that a real map gives an exact
-number to match — 19,216 for `dm_lockdown`. That line is
-**`src/utils/common/bsplib.cpp:2955-2962`**, the tail of `PrintBSPFileSizes`:
+The gate's claim was that stock prints `Total triangle count:` and that a
+real map gives an exact number to match — 19,216 for `dm_lockdown`. That line
+is the tail of the reference's `PrintBSPFileSizes`:
 
 ```c
 for ( int i = 0; i < numfaces; i++ )
@@ -27,26 +27,26 @@ ways on this map:
 
 `-StaticPropPolys` triples the acceleration-structure build and adds 75,278
 caster triangles, and that number does not move. **Stock prints its caster count
-nowhere.** `grep -rn "OptimizedTriangleList" src/utils/vrad` finds one dump and
-no count.
+nowhere.** Grepping `OptimizedTriangleList` through the reference's tool
+sources finds one dump and no count.
 
 ## What replaces it: `-dumptrace`
 
-`vrad.cpp:2431-2434` parses `-dumptrace` into `g_bDumpRtEnv`, and
-`vrad.cpp:2282` calls `WriteRTEnv("trace.txt")` — **after** all three add calls
+The reference parses `-dumptrace` into `g_bDumpRtEnv`, and then
+calls `WriteRTEnv("trace.txt")` — **after** all three add calls
 and **before** `SetupAccelerationStructure()`. That placement is forced:
-`ChangeIntoIntersectionFormat` (`raytrace.cpp:186-235`) overwrites the vertex
+`ChangeIntoIntersectionFormat` overwrites the vertex
 union with plane and edge equations, so after the KD build there are no
 vertices left to dump.
 
-`WriteRTEnv` (`vrad.cpp:1309-1334`) writes every triangle of
+`WriteRTEnv` writes every triangle of
 `OptimizedTriangleList` in order, each as a three-point winding coloured by its
 id bits: green `TRACE_ID_OPAQUE`, blue `TRACE_ID_SKY`, red
 `TRACE_ID_STATICPROP`.
 
 Colour alone does not separate brushes from displacements — both are
 `TRACE_ID_OPAQUE`. **Position does.** vrad adds in one fixed order
-(`vrad.cpp:2240, 2277, 2278, 2279`): brush entities, world brushes, sky faces,
+— brush entities, world brushes, sky faces,
 displacements, static props. So the colour *runs* are the sources, and this
 map's four runs are world brushes, sky, displacements, props. (It has no
 `vrad_brush_cast_shadows` entity, so the brush-entity run is absent rather than
@@ -69,17 +69,17 @@ working directory. Forty minutes went into finding that.
 
 **`-textureshadows` does not change the caster set at all.** `trace-base.txt`
 and `trace-ts.txt` have the same sha256, and so do `trace-spp.txt` and
-`trace-sppts.txt`. §4b asks for both switches to be gated as if they changed the
+`trace-sppts.txt`. The original gate asked for both switches to be gated as if they changed the
 caster set; one of them does not. What it changes is `FCACHETRI_TRANSPARENT` and
-a material index on render-path prop triangles
-(`vradstaticprops.cpp:1963-2001`), which `WriteRTEnv` does not print — so the
+a material index on render-path prop triangles,
+which `WriteRTEnv` does not print — so the
 fixture holds all four runs anyway, and the two pairs being identical is itself
 a fact.
 
 ## Getting stock to read this repo's golden map
 
 `dm_lockdown.bsp` is BSP v19 carrying a **version-5** `sprp` game lump;
-SDK-2013 vrad demands version 10 (`gamebspfile.h:37`) and refuses with
+stock vrad demands version 10 (the game-lump header's version constant) and refuses with
 `Cannot load the static props... Re-vbsp the map.` There is no `.vmf` in the
 tree.
 
@@ -88,7 +88,7 @@ well-formed v10 lump — 12 bytes — which is sound for a stage that does not r
 props. **This one does**, so the workaround would have gated the prop path
 against a map with no props and passed. This fixture is taken against an
 **upgraded** lump instead: all 261 props re-serialised into the v10 struct using
-the same field mapping `gamebspfile.h:244-262` uses for the v5 → v10 path
+the same field mapping the reference's upgrade path uses for the v5 → v10 path
 (`forcedFadeScale` from v5's own field, dx levels and lightmap resolution zero,
 `STATIC_PROP_NO_PER_TEXEL_LIGHTING` ORed in). Origin, angles, model index, solid
 type and `STATIC_PROP_NO_SHADOW` all carry across untouched, which is what the
@@ -116,11 +116,11 @@ The world brushes are four short, and four is the NET rather than the churn —
 53 triangles are in stock's run and not here, 49 are here and not in stock's,
 and 44 more are the same triangle printed differently in the last of stock's two
 decimals. The cause is not in the brush path: stock's `BaseWindingForPlane`
-normalises with `VectorNormalize` (`polylib.cpp:290` into `vector.h:2225-2251`,
-`rsqrtss` plus one Newton-Raphson step) where `WindingArena` uses an exact
+normalises with `VectorNormalize` (`rsqrtss` plus one Newton-Raphson step)
+where `WindingArena` uses an exact
 per-component divide, the base winding is scaled by `MAX_COORD_INTEGER * 4`
-before clipping (`polylib.cpp:296`), and the clip epsilon is exactly zero
-(`trace.cpp:516`) — so a few ULPs arrive at the clipped corner as a hundredth of
+before clipping, and the clip epsilon is exactly zero
+— so a few ULPs arrive at the clipped corner as a hundredth of
 a unit and flip corners across the plane in both directions. The differing
 triangles are slivers with median area zero and the two totals differ by 2.6
 parts per million. `Vec3.NormaliseLikeStock` exists and would close it, at the
@@ -154,8 +154,8 @@ verbatim.
 
 ## What `-StaticPropPolys` costs, measured
 
-Release build, cold, on this map. §4b says the switch costs serial time rather
-than ray time; this says where the serial time is.
+Release build, cold, on this map. The claim was that the switch costs serial
+time rather than ray time; this says where the serial time is.
 
 | | default | `-StaticPropPolys` |
 |---|---:|---:|
@@ -171,8 +171,8 @@ than ray time; this says where the serial time is.
 the totals are within run-to-run noise of each other because the three other
 sources are byte-identical between the two runs. **The whole cost is the
 acceleration structure**: 204 ms to 977 ms, a factor of 4.8, for 4.2× the
-triangles. That is precisely the plan's "the one option a faster tracer cannot
-help", localised.
+triangles. That is precisely the one option a faster tracer cannot
+help, localised.
 
 Against stock, this port's KD build is **2.0× faster** at 28,349 triangles and
 **1.3× faster** at 118,207 — so it is ahead on both and its scaling is worse
@@ -208,7 +208,7 @@ python3 <scratch>/upgrade_sprp.py game/mod_sharp/maps/dm_lockdown.bsp <scratch>/
 # 2. one stock run per option set; trace.txt lands in game/mod_sharp/
 make toolgame
 cp <scratch>/dm_lockdown_v10.bsp maps/p4b_lockdown.bsp
-WINEPREFIX=~/.local/share/source-sdk-wineprefix WINEDEBUG=-all SteamAppUser=sourcesharp \
+WINEPREFIX=~/.local/share/sourcesharp-wineprefix WINEDEBUG=-all SteamAppUser=sourcesharp \
   "$HOME/.steam/steam/steamapps/common/Proton - Experimental/files/bin/wine" \
   "$HOME/.steam/steam/steamapps/common/Source SDK Base 2013 Multiplayer/bin/vrad.exe" \
   -fast -dumptrace [-StaticPropPolys] [-textureshadows] \
@@ -221,14 +221,14 @@ python3 <scratch>/make_fixture.py game/mod_sharp/maps/dm_lockdown.bsp \
     > MapTools/Rad/Fixtures/stock-lockdown-casters.txt
 ```
 
-`upgrade_sprp.py`, `stockdump.sh`, `parse_trace.py` and `make_fixture.py` are
-listed in the lane's scratchpad, `p4b-shadow-findings.md`.
+`upgrade_sprp.py`, `stockdump.sh`, `parse_trace.py` and `make_fixture.py`
+live in `tools/` beside this README.
 
 ## What this fixture cannot say
 
 The **17,304** default-path prop triangles come out of vphysics: stock hands the
 `.phy` solids to `IPhysicsCollision::VCollideLoad` and reads triangles back
-through `ICollisionQuery` (`vradstaticprops.cpp:970, 1847-1857`). There is no
+through `ICollisionQuery`. There is no
 managed triangle count for a `.phy` in this tree and there cannot be one until
-the vphysics binding lands (§1e/7). The number is recorded here so that the day
+the vphysics binding lands. The number is recorded here so that the day
 it does land, it has something to be wrong against.

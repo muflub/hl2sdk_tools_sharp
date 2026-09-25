@@ -99,35 +99,31 @@ public sealed class VradOptionAdditionsTests
     [Fact]
     public void ScaleSetsLightScale()
     {
-        // vrad.cpp:2703.
         Assert.Equal(2.5f, StockArgs.ParseVrad(["-scale", "2.5", Map]).Options.LightScale);
     }
 
     [Fact]
     public void DlightSetsTheTexlightThreshold()
     {
-        // vrad.cpp:2729.
         Assert.Equal(0.5f, StockArgs.ParseVrad(["-dlight", "0.5", Map]).Options.DLightThreshold);
     }
 
     [Fact]
     public void AmbientIsTakenTimes128()
     {
-        // vrad.cpp:2719-2721.
         Assert.Equal(new Vec3(128, 64, 0), StockArgs.ParseVrad(["-ambient", "1", "0.5", "0", Map]).Options.Ambient);
     }
 
     [Fact]
     public void NoTexScaleClearsTexScale()
     {
-        // vrad.cpp:2753.
         Assert.False(StockArgs.ParseVrad(["-notexscale", Map]).Options.TexScale);
     }
 
     [Fact]
     public void TheDefaultsAreStocksGlobals()
     {
-        // vrad.cpp:68-71, 108.
+        //, 108.
         VradOptions o = VradOptions.Default;
         Assert.Equal((1.0f, 0.1f, Vec3.Zero, true), (o.LightScale, o.DLightThreshold, o.Ambient, o.TexScale));
     }
@@ -144,7 +140,7 @@ public sealed class VradOptionAdditionsTests
     [Fact]
     public void ALuxelDensityAboveOneIsRefusedByTheSettingsLikeOneBelow()
     {
-        // vrad.cpp:2555-2556: "-luxeldensity 2" is a density of 0.5.
+        //: "-luxeldensity 2" is a density of 0.5.
         Assert.Throws<NotSupportedException>(
             () => DirectLightingSettings.FromVrad(VradOptions.Default with { LuxelDensity = 2 }, hdr: false));
     }
@@ -170,7 +166,6 @@ public sealed class StockRayTests
     [Fact]
     public void AStockRaysDirectionIsTheSegmentTimesTheReciprocalEstimateOfItsLength()
     {
-        // trace.cpp:157-160.
         Ray ray = LightRayLog.MakeStockRay(new Vec3(0, 0, 0), new Vec3(30, 40, 0));
         Assert.Equal(30f * StockSimd.Reciprocal(50f, estimate: true), ray.DirectionX);
     }

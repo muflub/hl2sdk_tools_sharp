@@ -8,7 +8,7 @@ namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
 /// Point queries on the displaced surface: <c>GetPositionOnSurface</c> and
-/// <c>DispUVToSurf</c>, <c>builddisp.cpp:2219-2765</c>, plus the two helpers
+/// <c>DispUVToSurf</c>, plus the two helpers
 /// they rest on.
 /// </summary>
 public sealed class CoreDispInfoSurfaceTests
@@ -17,7 +17,7 @@ public sealed class CoreDispInfoSurfaceTests
 
     /// <summary>
     /// A (u, v) outside 0..1 writes nothing: <c>DispUVToSurf</c>'s early
-    /// return, <c>builddisp.cpp:2731</c>.
+    /// return.
     /// </summary>
     [Fact]
     public void AQueryOutsideTheQuadWritesNothing()
@@ -38,7 +38,7 @@ public sealed class CoreDispInfoSurfaceTests
     /// <summary>
     /// A query exactly on a grid vertex returns that displaced vertex: its
     /// barycentric weights are (1, 0, 0) exactly
-    /// (<c>CalcBarycentricCooefs</c>, <c>builddisp.cpp:134</c>).
+    ///(<c>CalcBarycentricCooefs</c>).
     /// </summary>
     [Fact]
     public void AQueryOnAGridVertexReturnsThatVertex()
@@ -55,8 +55,7 @@ public sealed class CoreDispInfoSurfaceTests
 
     /// <summary>
     /// u runs from point 0 towards point 3 and v towards point 1:
-    /// <c>PointInQuadFromBarycentric(p0, p3, p2, p1)</c>,
-    /// <c>builddisp.cpp:2736</c>.
+    /// <c>PointInQuadFromBarycentric(p0, p3, p2, p1)</c>.
     /// </summary>
     [Fact]
     public void UFollowsXAndVFollowsY()
@@ -73,7 +72,7 @@ public sealed class CoreDispInfoSurfaceTests
 
     /// <summary>
     /// Inside a square on a planar slope the height is the plane's: barycentric
-    /// interpolation over the flat triangle, <c>builddisp.cpp:2320-2323</c>.
+    /// interpolation over the flat triangle.
     /// </summary>
     [Fact]
     public void InsideASquareTheHeightIsInterpolated()
@@ -104,8 +103,7 @@ public sealed class CoreDispInfoSurfaceTests
 
     /// <summary>
     /// The normal is the hit triangle's FLAT normal, facing up out of the
-    /// displacement: e.g. <c>DispUVToSurf_TriBLToTR_2</c>,
-    /// <c>builddisp.cpp:2680-2685</c>.
+    /// displacement: e.g. <c>DispUVToSurf_TriBLToTR_2</c>.
     /// </summary>
     [Fact]
     public void TheNormalIsTheHitTrianglesFaceNormal()
@@ -125,7 +123,7 @@ public sealed class CoreDispInfoSurfaceTests
 
     /// <summary>
     /// u = v = 1 lands in the last square rather than past it — the
-    /// <c>1.000001f</c> at <c>builddisp.cpp:2743</c> — and returns the far
+    /// <c>1.000001f</c> — and returns the far
     /// corner.
     /// </summary>
     [Fact]
@@ -146,8 +144,7 @@ public sealed class CoreDispInfoSurfaceTests
 
     /// <summary>
     /// The four quad corners map to (0,0), (1,0), (1,1), (0,1) in the order
-    /// v1, v2, v3, v4: <c>PointInQuadFromBarycentric</c>,
-    /// <c>collisionutils.cpp:2046</c>.
+    /// v1, v2, v3, v4: <c>PointInQuadFromBarycentric</c>.
     /// </summary>
     [Fact]
     public void PointInQuadFromBarycentricHitsTheCorners()
@@ -176,7 +173,7 @@ public sealed class CoreDispInfoSurfaceTests
 
     /// <summary>
     /// The areas are unsigned, so an outside point is caught only by the sum
-    /// exceeding one: <c>builddisp.cpp:167-170</c>.
+    /// exceeding one:.
     /// </summary>
     [Fact]
     public void BarycentricCoefsOfAnOutsidePointFail()
@@ -191,7 +188,7 @@ public sealed class CoreDispInfoSurfaceTests
 
     /// <summary>
     /// A degenerate triangle has zero area, every weight zero, and fails:
-    /// <c>ooTotalArea = totalArea ? 1/totalArea : 0</c>, <c>builddisp.cpp:143</c>.
+    /// <c>ooTotalArea = totalArea ? 1/totalArea: 0</c>.
     /// </summary>
     [Fact]
     public void BarycentricCoefsOfADegenerateTriangleFail()

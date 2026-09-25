@@ -8,7 +8,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Parallel;
 
 /// <summary>
-/// The replacement for <c>utils/common/threads.cpp</c>: every index claimed
+/// The replacement for: every index claimed
 /// exactly once, a merge order that does not depend on completion order, no
 /// leaked threads, and a compile that can actually be stopped.
 /// </summary>
@@ -179,7 +179,7 @@ public class WorkQueueTests
     {
         // Degree 1, so the claim order IS the execution order and there is
         // nothing statistical about it. Stock hands items out in index order
-        // (threads.cpp:67), which leaves the expensive ones as a serial tail.
+        //, which leaves the expensive ones as a serial tail.
         var order = new List<int>();
 
         using var queue = new WorkQueue(CompileParallelism.Serial);
@@ -495,8 +495,8 @@ public class WorkQueueTests
     [Fact]
     public void DegreeIsFlooredAtOneAndHasNoCeiling()
     {
-        // Stock caps at MAX_TOOL_THREADS of 16 (threads.h:21) and drops to ONE
-        // above 32 processors (threads.cpp:139).
+        // Stock caps at MAX_TOOL_THREADS of 16 and drops to ONE
+        // above 32 processors.
         using var zero = new WorkQueue(new CompileParallelism { MaxDegree = 0 });
         using var huge = new WorkQueue(new CompileParallelism { MaxDegree = 200 });
 
@@ -610,7 +610,7 @@ public class WorkQueueTests
     public async Task ProgressIsReportedOutsideTheClaimPathSoABlockingHandlerCannotStallTheRun()
     {
         // Stock calls UpdatePacifier INSIDE the one global critical section it
-        // takes to hand out work (threads.cpp:65), so a slow pacifier -- a
+        // takes to hand out work, so a slow pacifier -- a
         // write to a pipe or a log file rather than a console -- blocks every
         // other worker from claiming anything.
         //

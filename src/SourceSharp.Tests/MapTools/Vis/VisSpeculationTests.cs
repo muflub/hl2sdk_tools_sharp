@@ -17,7 +17,7 @@ namespace SourceSharp.Tests.MapTools.Vis;
 /// end-to-end claims on the windowed grid of <see cref="VvisTightenTests"/>:
 /// a speculative run repaired after its neighbour finishes, and a split run,
 /// each end with exactly the vector the one-thread walk (stock's
-/// <c>flow.cpp:529-536</c> read order) produces.
+/// read order) produces.
 /// </summary>
 public class VisSpeculationTests
 {
@@ -45,7 +45,7 @@ public class VisSpeculationTests
     [Fact]
     public void ASpeculativeReadWritesPrevAndSeen()
     {
-        // flow.cpp:539: might = prevmight & test.
+        //: might = prevmight & test.
         VisSpeculativeReads reads = NewReads();
         ulong[] might = new ulong[Words];
 
@@ -60,7 +60,7 @@ public class VisSpeculationTests
     [InlineData(new[] { 2, 3 }, false)]
     public void ASpeculativeReadReportsNewBitsAsTheExactReadDoes(int[] visible, bool expected)
     {
-        // flow.cpp:541-547: `more` is set by a bit of might not yet in vis.
+        //: `more` is set by a bit of might not yet in vis.
         VisSpeculativeReads reads = NewReads();
         ulong[] prev = Vector(1, 2, 3);
         ulong[] seen = Vector(2, 3, 4);
@@ -729,7 +729,7 @@ public class VisSpeculationTests
     public void ASplitOffFrameCarriesExactlyWhatThatFrameWasEnteredWith(bool slanted)
     {
         // The ledger finds a frame's windings and mask again from where they
-        // live -- the portal set, the flood, or the parent frame's slab --
+        // live -- the portal set, the flood, or the parent frame's slab.
         // without copying them on entry. Checked against a copy taken on
         // entry, for every split an always-hungry worker would take.
         Grid grid = slanted ? new Grid(SlantedGrid()) : new Grid();

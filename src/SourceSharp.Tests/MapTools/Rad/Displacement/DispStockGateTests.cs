@@ -25,7 +25,7 @@ namespace SourceSharp.Tests.MapTools.Rad.Displacement;
 /// <remarks>
 /// <para>
 /// Counts are exact: "N Displacements", the displacement "Square Feet
-/// [Square Inches]" line (<c>vraddisps.cpp:515-516</c>, which carries stock's
+/// [Square Inches]" line (which carries stock's
 /// estimate-normalised patch areas to two decimals), and the patch counts
 /// before and after subdivision, which move with every chop and sliver test in
 /// <c>CreateChildPatches</c>. The layout (styles, lightofs, LIGHTING size) is
@@ -172,7 +172,7 @@ public sealed class DispStockGateTests(ITestOutputHelper output)
     public async Task FastDirectLightAgreesWithStockOnDisplacementLuxels(string name)
     {
         // -fast: FinalLightFace copies the sample straight into the luxel
-        // (radial.cpp:751-757), so this compares the gather itself, the black
+        //, so this compares the gather itself, the black
         // last row and column (StockQuirk.DispFastSamplesPastEdge) included.
         RadWorld world = await StockDispVrad.LightAsync(name, VradOptions.Default with { Bounces = 0, Fast = true });
         BspData stock = await StockRadWorld.LoadBspAsync(StockDispVrad.Output("fastb0", name));
@@ -252,7 +252,7 @@ public sealed class DispStockGateTests(ITestOutputHelper output)
                     lb[0] = default;
                 }
 
-                // radial.cpp:736: style k's bump b is at lightofs + (k * bumps + b) * luxels * 4.
+                //: style k's bump b is at lightofs + (k * bumps + b) * luxels * 4.
                 for (int b = 0; b < bumps; b++)
                 {
                     int at = faces[f].LightOfs + (b * fl.Luxels.Length * 4) + (j * 4);

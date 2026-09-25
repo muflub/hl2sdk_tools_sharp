@@ -8,7 +8,7 @@ using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Rad.Bounce;
 
-/// <summary><see cref="RadWorld.BounceAsync"/>: the bounce half of <c>RadWorld_Go</c> (<c>vrad.cpp:2062-2072</c>).</summary>
+/// <summary><see cref="RadWorld.BounceAsync"/>: the bounce half of <c>RadWorld_Go</c>.</summary>
 public sealed class RadWorldBounceTests
 {
     /// <summary>The bounce needs the patches' direct light, so it refuses to run before the faces are lit.</summary>
@@ -31,7 +31,7 @@ public sealed class RadWorldBounceTests
             () => world.BounceAsync(map.Tracer(), BounceBox.One, CancellationToken.None));
     }
 
-    /// <summary><c>-bounce 0</c> does nothing (<c>vrad.cpp:2062</c>).</summary>
+    /// <summary><c>-bounce 0</c> does nothing.</summary>
     [Fact]
     public async Task ZeroBouncesLeavesTheWorldUnbounced()
     {
@@ -41,7 +41,7 @@ public sealed class RadWorldBounceTests
         Assert.Null(world.Transfers);
     }
 
-    /// <summary>A map with no vis is direct-only (<c>vrad.cpp:2245-2251</c>): nothing to bounce.</summary>
+    /// <summary>A map with no vis is direct-only: nothing to bounce.</summary>
     [Fact]
     public async Task AMapWithNoVisIsNotBounced()
     {

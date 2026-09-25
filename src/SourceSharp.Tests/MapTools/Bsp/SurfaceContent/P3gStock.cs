@@ -21,9 +21,9 @@ namespace SourceSharp.Tests.MapTools.Bsp.SurfaceContent;
 /// stock x64 <c>vbsp -v -game Z:&lt;dir&gt;/game Z:&lt;dir&gt;/&lt;name&gt;.vmf</c> on each
 /// (memory-capped, 3G), and write <c>&lt;dir&gt;/game/gameinfo.txt</c>'s path into
 /// each map's <c>&lt;name&gt;.gameinfo</c> sidecar (<see cref="StockProvenance"/>;
-/// without it the facts fail). The lane's copy is <c>~/.cache/maptools/ref/p3g</c>:
+/// without it the facts fail). Mount the reference copy with:
 /// </para>
-/// <code>P3G_STOCK_DIR=~/.cache/maptools/ref/p3g dotnet test --filter SurfaceContent</code>
+/// <code>P3G_STOCK_DIR=&lt;the reference directory&gt; dotnet test --filter SurfaceContent</code>
 /// <para>
 /// Set but wrong is not a skip: a gate that passes because a path was
 /// mistyped has certified nothing, so a set variable naming a directory with

@@ -19,10 +19,10 @@ namespace SourceSharp.Tests.MapTools.Rad.Displacement;
 /// <summary>
 /// Lane 4e's stock references: the 18 p3f-t displacement maps through stock
 /// x64 vvis <c>-threads 1</c> and stock vrad <c>-threads 1 -verbose</c> in four
-/// modes, under <c>P4E_STOCK_DIR</c> (<c>~/.cache/maptools/ref/p4e</c>).
+/// modes, under <c>P4E_STOCK_DIR</c>.
 /// </summary>
 /// <remarks>
-/// Layout (made by <c>~/.cache/maptools/lanes/p4e/p4e-stockref.sh</c>):
+/// Layout (made by the stock-reference recipe):
 /// <c>vis/&lt;n&gt;.bsp</c> is the input (stock vbsp from ref/p3f-t, then vvis);
 /// <c>rad</c>, <c>b0</c> (<c>-bounce 0</c>), <c>fast</c> (<c>-fast</c>) and
 /// <c>fastb0</c> (<c>-fast -bounce 0</c>) each hold vrad's <c>&lt;n&gt;.bsp</c>
@@ -104,7 +104,7 @@ internal static partial class StockDispVrad
     }
 
     /// <summary>
-    /// <c>VectorToColorRGBExp32</c> (<c>color_conversion.cpp:566</c>), the
+    /// <c>VectorToColorRGBExp32</c>, the
     /// test's copy (4f owns the encoder).
     /// </summary>
     internal static uint Encode(Vec3 v)

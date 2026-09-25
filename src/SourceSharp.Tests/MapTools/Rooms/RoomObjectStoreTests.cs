@@ -103,7 +103,7 @@ public sealed class RoomObjectStoreTests
     {
         RoomObject room = await CompileHubAsync();
         // The hub room is small enough that its base pass casts nothing on
-        // some builds, so the fact cannot premise a non-zero stored value —
+        // some builds, so the fact cannot premise a non-zero stored value.
         // it works byte-wise: flipping the field's low bit must change what
         // the reader reports for THAT counter and only that one, whether the
         // stored value was 0 or not. A reader that ignored BaseRays would
@@ -192,7 +192,7 @@ public sealed class RoomObjectStoreTests
         RoomObject room = await CompileHubAsync();
         byte[] good = await SaveAsync(room);
 
-        // Wrong magic: an .bsp's id, which is what a user will feed it first.
+        // Wrong magic: an.bsp's id, which is what a user will feed it first.
         byte[] notRoom = (byte[])good.Clone();
         byte[] bspId = [0x56, 0x53, 0x42, 0x50, 0, 0, 0, 0]; // "VSPB" version 20
         Array.Copy(bspId, notRoom, 8);

@@ -44,10 +44,8 @@ public sealed class KdParityFixture
 /// make this fact a test of the tracer's epsilons.
 /// </para>
 /// <para>
-/// §4a names <c>unittests/rt_test</c> and
-/// <c>autotestscripts/reference_output/rt_test.txt</c> as a ready-made oracle.
-/// NEITHER IS IN THIS DROP -- SDK 2013 ships no <c>src/unittests</c> and no
-/// <c>autotestscripts</c>. Compiling <c>src/raytrace/raytrace.cpp</c> itself
+/// The reference drop ships no ready-made ray-tracer test or recorded
+/// reference output, so compiling the reference tracer itself
 /// and comparing against it is what this does instead, and it is a stronger
 /// check than a recorded text file: it compares the acceleration structure as
 /// well as the answers.
@@ -82,7 +80,7 @@ public sealed class KdRayTracerStockParityTests : IClassFixture<KdParityFixture>
     /// actually is.
     /// </summary>
     /// <remarks>
-    /// <c>raytrace.h</c>'s own comment says "this structure is 16longs=64
+    /// the reference implementation's own comment says "this structure is 16longs=64
     /// bytes for cache line packing" and §4a repeats it. A build of stock's
     /// header in this tree prints <c>sizeof(CacheOptimizedTriangle)=48</c>:
     /// four floats of plane, an int id, six floats of edge equation and four
@@ -300,7 +298,7 @@ public sealed class KdRayTracerStockParityTests : IClassFixture<KdParityFixture>
     /// <summary>
     /// Visibility bits agree with stock's hits SHORT OF THE SEGMENT'S END --
     /// the test stock's callers make on an unclipped trace
-    /// (<c>trace.cpp:171</c>, <c>vismat.cpp:86</c>). The scene's rays reach 1,
+    ///. The scene's rays reach 1,
     /// so a stock hit at a distance of 1 or more is not a block.
     /// </summary>
     [Fact]

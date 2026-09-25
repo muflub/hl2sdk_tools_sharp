@@ -21,9 +21,9 @@ namespace SourceSharp.Tests.MapTools.Disp;
 /// <c>stock.bsp</c>, <c>correct.bsp</c> and <c>extents.txt</c> there.
 /// </summary>
 /// <remarks>
-/// The extents are <c>CalcFaceExtents</c> (<c>bsplib.cpp:3319</c>) over each
+/// The extents are <c>CalcFaceExtents</c> over each
 /// displacement face with its texinfo: what vrad's texinfo-based
-/// world-to-luxel mapping (<c>lightmap.cpp:429</c>) implies, set against the
+/// world-to-luxel mapping implies, set against the
 /// size the face stores (the displacement's own luxel grid). Correct is right
 /// when the two agree.
 /// </remarks>
@@ -85,7 +85,7 @@ public sealed class DispSwapDownstreamTool
         Assert.NotEmpty(dispFaces);
     }
 
-    /// <summary><c>CalcFaceExtents</c>, <c>bsplib.cpp:3319-3364</c>, without the error.</summary>
+    /// <summary><c>CalcFaceExtents</c>, without the error.</summary>
     private static (int[] Mins, int[] Size) Extents(BspData bsp, DFace face, TexInfo tex)
     {
         ReadOnlySpan<Vec3> vertexes = BspStructView.As<Vec3>(bsp[BspLump.Vertexes]);

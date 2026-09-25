@@ -19,7 +19,7 @@ internal readonly record struct EmittedBrush(int Contents, int FirstSide, int Si
 internal readonly record struct EmittedBrushSide(int PlaneNumber, int TexInfo, bool Bevel);
 
 /// <summary>
-/// <c>EmitBrushes</c>, <c>utils/vbsp/writebsp.cpp:1048</c> — the minimum of it,
+/// <c>EmitBrushes</c>, — the minimum of it,
 /// here rather than in the library.
 /// </summary>
 /// <remarks>
@@ -35,11 +35,11 @@ internal readonly record struct EmittedBrushSide(int PlaneNumber, int TexInfo, b
 /// </para>
 /// <para>
 /// Faithful in the three ways the comparison depends on: the axial bevel pass
-/// appends up to six planes per brush in <c>x</c>-then-<c>s</c> order
-/// (<c>writebsp.cpp:1085-1110</c>), each added side inherits the texinfo of
-/// the side BEFORE it in the lump rather than the brush's own
-/// (<c>writebsp.cpp:1105</c>), and a texinfo of -1 becomes
-/// <c>g_ClipTexinfo</c> (<c>writebsp.cpp:1079</c>).
+/// appends up to six planes per brush in <c>x</c>-then-<c>s</c> order,
+/// each added side inherits the texinfo of
+/// the side BEFORE it in the lump rather than the brush's own,
+/// and a texinfo of -1 becomes
+/// <c>g_ClipTexinfo</c>.
 /// </para>
 /// <para>
 /// It appends to the plane table, through <c>FindFloatPlane</c>, exactly as

@@ -18,8 +18,8 @@ namespace SourceSharp.Tests.MapTools.Rad.Ambient;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>WHY THIS ORACLE.</b> Leaf ambient runs after <c>FinalLightFace</c>
-/// (<c>vrad.cpp:2309</c>), so a finished map holds both its inputs (lightmaps,
+/// <b>WHY THIS ORACLE.</b> Leaf ambient runs after <c>FinalLightFace</c>,
+/// so a finished map holds both its inputs (lightmaps,
 /// world lights, tree, brushes, displacements) and its outputs (lumps 51/52 and
 /// 55/56): the comparison is the output itself, bit for bit.
 /// <see cref="TheOracleRespondsToTheSampleCountQuirk"/> shows on the live maps
@@ -132,7 +132,7 @@ public sealed class LeafAmbientStockParityTests
     public async Task TheWorldLightAmbientCubeFlagsMatchStock()
     {
         // ComputePerLeafAmbientLighting's first act is to set or clear
-        // DWL_FLAGS_INAMBIENTCUBE on every world light (leaf_ambient_lighting.cpp:626),
+        // DWL_FLAGS_INAMBIENTCUBE on every world light,
         // and those flags are written back to the BSP.
         List<string> failures = [];
         int compared = await ForEachMap(LightingMode.Ldr, BspLump.WorldLights, (loaded, fail) =>
@@ -159,7 +159,7 @@ public sealed class LeafAmbientStockParityTests
     /// <summary>The gate's own mutation proof, on the live maps.</summary>
     /// <remarks>
     /// Flipping ONE compliance switch -- the sample-count axes quirk
-    /// (<c>leaf_ambient_lighting.cpp:536-538</c>) -- must break the byte
+    /// -- must break the byte
     /// comparison on every map with a leaf whose y or z extent dominates. If this
     /// goes green the parity facts above are measuring nothing.
     /// </remarks>

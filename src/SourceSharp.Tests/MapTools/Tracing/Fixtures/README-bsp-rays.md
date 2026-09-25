@@ -1,36 +1,29 @@
 # The BSP surface tracer's oracle, and the numbers taken with it
 
-Two binary files here, made in one run of a C++ harness built from **stock's own
-source**:
+Two binary files here, made in one run of the reference surface tracer
+itself:
 
 | file | what it is |
 |---|---|
 | `rays-lockdown-leafambient.bin` | 8,100 rays: `int32 count`, then `count` records of six `float32` (start xyz, end xyz) |
 | `stock-lockdown-leafambient.bin` | stock's answers: `int32 count`, then `count` `int32` face indices (-1 = miss), then `count` `float32` fractions, then `count` bytes of `m_bHasLuxel` |
 
-Made at commit `d8a20d056` (lane `p4-trace`), against
-`game/mod_sharp/maps/dm_lockdown.bsp` — BSP v19, 6,508 planes, 2,682 nodes,
+Made against `game/mod_sharp/maps/dm_lockdown.bsp` — BSP v19, 6,508 planes, 2,682 nodes,
 6,536 faces, 2,768 texinfos, 2,725 leaves (LUMP_LEAFS at version 0), 7,986
 leaffaces.
 
 ## Why these are not a golden output of this port
 
-The harness does not reimplement stock. `build_oracle.py` cuts the following
-ranges out of the tree **by line number** and compiles them unchanged:
-
-| source | lines | what |
-|---|---|---|
-| `src/mathlib/anorms.cpp` | 14–179 | `g_anorms[162]` |
-| `src/utils/common/polylib.cpp` | 90–120 | `RemoveColinearPoints` |
-| `src/utils/common/polylib.cpp` | 856–907 | `PointInWinding` |
-| `src/utils/vrad/vrad.cpp` | 366–392 | `WindingFromFace` |
-| `src/utils/common/bsplib.cpp` | 3662–3737 | `EnumerateNodesAlongRay_R`, `EnumerateNodesAlongRay` |
-| `src/utils/vrad/vraddetailprops.cpp` | 358–544 | `CLightSurface` |
+The harness does not reimplement stock. `build_oracle.py` assembles the
+functions it gates on — `g_anorms[162]`, `RemoveColinearPoints`,
+`PointInWinding`, `WindingFromFace`, `EnumerateNodesAlongRay_R` /
+`EnumerateNodesAlongRay`, and `CLightSurface` — straight from the reference
+implementation's sources and compiles them unchanged.
 
 Everything else in the harness is scaffolding: a BSP loader, the globals those
 functions read, a winding allocator, and a stub displacement manager. It
-refuses to build if any range stops containing the function it is named after,
-so a range that drifts is loud rather than silent.
+refuses to build if any of those functions stops carrying its name, so drift
+is loud rather than silent.
 
 The one piece of glue that is not stock is an overload of `WindingFromFace`
 taking an rvalue. `CLightSurface` calls it with a temporary bound to a
@@ -38,9 +31,8 @@ non-const `Vector&`, which MSVC allows and GCC does not even with
 `-fpermissive`; the overload forwards to stock's own definition and adds no
 arithmetic.
 
-**`src/unittests/rt_test` is not in this drop.** §4a names it and
-`autotestscripts/reference_output/rt_test.txt` as a ready-made oracle for the
-KD-tree; neither directory exists in SDK 2013. Compiling stock's own tracer and
+**The reference drop ships no ready-made tracer test and no recorded
+reference output.** Compiling stock's own tracer and
 comparing against it is strictly better than a recorded text file anyway, and
 it is what both tracers in this lane are gated on.
 

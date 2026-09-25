@@ -16,7 +16,7 @@ namespace SourceSharp.Tests.MapTools.Io;
 /// Every fact here skips VISIBLY when the game is not installed, with the
 /// reason in the runner's output. The in-memory facts elsewhere in this folder
 /// are the ones that must always run; these exist because a fixture is a
-/// stand-in and the thing it stands in for is 18000 files that Valve wrote,
+/// stand-in and the thing it stands in for is 18000 shipped files,
 /// half of them in archives, all of them lower-case on a disk that maps
 /// reference in mixed case.
 /// </para>

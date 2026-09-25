@@ -10,7 +10,7 @@ namespace SourceSharp.Tests.MapTools.Rad.Ambient;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Two tiers.</b> vstdlib's source is not in the SDK, so the port is of a
+/// <b>Two tiers.</b> vstdlib ships without sources, so the port is of a
 /// published algorithm. The unit tier compares against
 /// <see cref="StockRandomStreamVectors"/>, drawn from the shipped binary by
 /// <c>gen_stock_random_vectors.py</c> (committed beside this file) and so needing
@@ -34,7 +34,7 @@ public sealed class StockRandomStreamTests
     [Fact]
     public void DefaultConstructedStreamMatchesTheGoldenSequence()
     {
-        // CLeafSampler's stream (leaf_ambient_lighting.cpp:274): default-constructed.
+        // CLeafSampler's stream: default-constructed.
         StockRandomStream managed = new();
 
         Assert.Equal(0, CountGoldenDifferences(StockRandomStreamVectors.DefaultUnit, ref managed, 0f, 1f));
@@ -57,7 +57,7 @@ public sealed class StockRandomStreamTests
     [Fact]
     public void RangedDrawsMatchTheGoldenSequence()
     {
-        // The sampler's own shape (leaf_ambient_lighting.cpp:221): zero to a leaf extent.
+        // The sampler's own shape: zero to a leaf extent.
         StockRandomStream managed = new();
 
         Assert.Equal(
@@ -96,7 +96,7 @@ public sealed class StockRandomStreamTests
     [Fact]
     public void SeedSignIsFoldedSoPositiveAndNegativeSeedsAgree()
     {
-        // SetSeed stores `iSeed < 0 ? iSeed : -iSeed`, so 7 and -7 name the
+        // SetSeed stores `iSeed < 0 ? iSeed: -iSeed`, so 7 and -7 name the
         // same stream. Reproduced rather than corrected.
         StockRandomStream positive = new(7);
         StockRandomStream negative = new(-7);

@@ -6,7 +6,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
-/// The world-bounds boxes (<c>ComputeDispInfoBounds</c>, <c>disp_vbsp.cpp:29</c>)
+/// The world-bounds boxes(<c>ComputeDispInfoBounds</c>)
 /// taken from the lump build's own cores instead of a second, face-less build
 /// (plan 3p). They must be the second build's boxes under both compliances.
 /// </summary>

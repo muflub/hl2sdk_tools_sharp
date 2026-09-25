@@ -3,7 +3,7 @@
 # committed <group>.in.gz. Deterministic: seeded generators plus three real-map brush sources.
 #
 # usage: make-jobs.sh <scratch-dir> <catmaps-vmf-dir> <ss_sandbox.vmf> <dm_lockdown.bsp>
-#   catmaps-vmf-dir: the integrator's catalogue VMFs (~/.cache/maptools/ref/catmaps at cut time)
+# catmaps-vmf-dir: the catalogue VMFs, cut from the integrator's catalogue directory
 set -eu
 G=$(cd "$(dirname "$0")" && pwd)
 T=$(cd "$G/.." && pwd)

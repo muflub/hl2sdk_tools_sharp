@@ -1,6 +1,6 @@
 # p8a: generate cook jobs in the oracle line protocol.
 # usage: p8a-gen.py kind count seed > jobs.in
-#   kinds: tri (3 random points), box (axis boxes), rbox (random boxes, V), wedge, prism, brush (random plane sets)
+# kinds: tri (3 random points), box (axis boxes), rbox (random boxes, V), wedge, prism, brush (random plane sets)
 import sys, random, math
 kind, count, seed = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 rnd = random.Random(seed)

@@ -67,7 +67,7 @@ public class VvisCatalogueTests
         {
             // Not a skip: the catalogue directory IS there and this entry is
             // missing from it, which means the stock compile did not cover it.
-            // l1_leak is the one entry that legitimately has no .prt, and it
+            // l1_leak is the one entry that legitimately has no.prt, and it
             // declares no vvis expectations, so it never reaches here.
             Assert.Fail($"{name} has no compiled .bsp + .prt in {StockCatalogue.Directory}");
             return;
@@ -200,7 +200,7 @@ public class VvisCatalogueTests
     [MemberData(nameof(EntriesWithVisExpectations))]
     public async Task OneThreadAndThirtyTwoWriteTheSameLump(string name)
     {
-        // Instrument I4 on real geometry. Stock does NOT have this property --
+        // Instrument I4 on real geometry. Stock does NOT have this property.
         // spike 0c measured 2 PVS and 25 PAS clusters moving between -threads 1
         // and -threads 16 on 2fort -- and having it is the reason this port
         // does not make stock's opportunistic pruning read.

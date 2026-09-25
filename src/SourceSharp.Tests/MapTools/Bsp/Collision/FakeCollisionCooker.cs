@@ -236,7 +236,7 @@ internal sealed class FakeCollisionSession : ICollisionSession
         {
             if (c.IsNull)
             {
-                continue; // vphysics skips a null convex, physics_collide.cpp:1176
+                continue; // the collision library skips a null convex
             }
 
             list.Add(_convexes[c.Value]);
@@ -293,8 +293,8 @@ internal sealed class FakeCollisionSession : ICollisionSession
 
         /// <summary>
         /// Two triangles per face, in face order +X -X +Y -Y +Z -Z, wound so
-        /// that <c>TriangleNormal</c>'s <c>(p2-p0) x (p1-p0)</c> points OUT --
-        /// the "clockwise, normal points out" convention of <c>ivp.cpp:1236</c>.
+        /// that <c>TriangleNormal</c>'s <c>(p2-p0) x (p1-p0)</c> points OUT.
+        /// the "clockwise, normal points out" convention of the reference implementation.
         /// </summary>
         public (Vec3, Vec3, Vec3) Triangle(int t)
         {

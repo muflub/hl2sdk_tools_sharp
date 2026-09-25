@@ -1,6 +1,7 @@
-/* p8a oracle: drive a native vphysics.so (VPhysicsCollision007) from a line protocol on stdin.
- * Extended from ~/re/ghidra/re-vphys/cook/revphys-cook.c. Every float is printed as C99 hex (%a)
- * so answers round-trip exactly. Run it under LD_LIBRARY_PATH=<dir of the .so>.
+/* p8a oracle: drive the reference collision library (vphysics.so, VPhysicsCollision007)
+ * from a line protocol on stdin. Every float is printed as C99 hex (%a) so its
+ * answers round-trip exactly.
+ * Run it under LD_LIBRARY_PATH=<dir of the .so>.
  *
  *   usage: p8a-oracle <path/to/vphysics.so>   (commands on stdin, answers on stdout)
  *

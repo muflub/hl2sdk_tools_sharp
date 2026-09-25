@@ -145,7 +145,7 @@ public sealed class DisplacementShadowCasterTests : IClassFixture<DisplacementCa
     /// Every displacement tessellates into <c>2^p * 2^p * 2</c> triangles.
     /// </summary>
     /// <remarks>
-    /// <c>GetTriSize</c>, <c>dispcoll_common.h:311</c>. This is the relation
+    /// <c>GetTriSize</c>. This is the relation
     /// the aggregate count cannot see: 1,568 is also what 49 power-2
     /// displacements would give.
     /// </remarks>
@@ -163,7 +163,7 @@ public sealed class DisplacementShadowCasterTests : IClassFixture<DisplacementCa
     /// Every displacement has <c>(2^p + 1)^2</c> vertices.
     /// </summary>
     /// <remarks>
-    /// <c>GetSize</c>, <c>dispcoll_common.h:305</c>. The <c>+1</c> is the
+    /// <c>GetSize</c>. The <c>+1</c> is the
     /// difference between posts and cells, and getting it wrong is a whole
     /// missing row and column that the triangle count would still accept --
     /// the indices would simply run off the end.
@@ -305,7 +305,7 @@ public sealed class DisplacementShadowCasterTests : IClassFixture<DisplacementCa
 
     /// <summary>Every displacement caster carries the bare opaque id.</summary>
     /// <remarks>
-    /// <c>vrad_dispcoll.cpp:1078</c> passes <c>TRACE_ID_OPAQUE</c> and nothing
+    /// passes <c>TRACE_ID_OPAQUE</c> and nothing
     /// else -- no displacement index, unlike the static props. So a shadow ray
     /// cannot skip the displacement it started on, and displacement
     /// self-shadowing in stock is handled by the sample offset instead.
@@ -321,7 +321,7 @@ public sealed class DisplacementShadowCasterTests : IClassFixture<DisplacementCa
 
     /// <summary>Every displacement caster blocks light completely.</summary>
     /// <remarks>
-    /// <c>fullCoverage.x = 1.0f</c> (<c>vrad_dispcoll.cpp:1076</c>), and the
+    /// <c>fullCoverage.x = 1.0f</c>, and the
     /// other two components are left UNINITIALISED -- which is safe only
     /// because the tracer reads nothing but <c>x</c>.
     /// </remarks>
@@ -382,7 +382,7 @@ public sealed class DisplacementShadowCasterTests : IClassFixture<DisplacementCa
 
     /// <summary>A non-opaque displacement contributes nothing.</summary>
     /// <remarks>
-    /// The other half of <c>vrad_dispcoll.cpp:1066</c>, and the half no map in
+    /// The other half of the reference implementation, and the half no map in
     /// this tree can reach. Without it the early-out could be missing entirely
     /// and every fact above would still pass.
     /// </remarks>
@@ -464,7 +464,7 @@ public sealed class DisplacementShadowCasterTests : IClassFixture<DisplacementCa
         // Power 2, so five posts a side; index i * 5 + j, where i runs along
         // the corner 0 -> corner 1 edge and j along corner 0 -> corner 3. That
         // orientation is not arbitrary: it is which pair of opposite edges
-        // GenerateDispSurf interpolates between (builddisp.cpp:1937-1942),
+        // GenerateDispSurf interpolates between,
         // and transposing it mirrors the height field about its diagonal.
         Assert.Equal(new Vec3(0, 0, 0), surface.Vertices[0]);
         Assert.Equal(new Vec3(64, 0, 0), surface.Vertices[4]);

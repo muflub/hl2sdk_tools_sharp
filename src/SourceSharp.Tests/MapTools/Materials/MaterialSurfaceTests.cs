@@ -6,13 +6,13 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Materials;
 
 /// <summary>
-/// <c>FindMiptex</c> (<c>src/utils/vbsp/textures.cpp:49-286</c>): which
+/// <c>FindMiptex</c>: which
 /// <c>SURF_*</c> and <c>CONTENTS_*</c> bits a material produces.
 /// </summary>
 /// <remarks>
 /// These are the flags that reach the BSP unchanged —
-/// <c>map.cpp:2857</c> copies them to the brush side and
-/// <c>textures.cpp:680</c> copies the side's straight into
+/// copies them to the brush side and
+/// copies the side's straight into
 /// <c>texinfo_t::flags</c>, and vbsp sets a <c>SURF_</c> bit nowhere else.
 /// </remarks>
 public class MaterialSurfaceTests
@@ -38,7 +38,7 @@ public class MaterialSurfaceTests
     [Fact]
     public async Task TheCompileChainIsExclusiveSoASkyThatIsAlsoNodrawIsOnlyASky()
     {
-        // textures.cpp:83-156 is one if/else-if chain. A material setting both
+        // is one if/else-if chain. A material setting both
         // gets ONLY the first branch, and reordering the tests into something
         // tidier would change this answer.
         MaterialSurface surface = await Classify("UnlitGeneric { %compileSky 1 %compileNoDraw 1 }");
@@ -130,7 +130,7 @@ public class MaterialSurfaceTests
     [Fact]
     public async Task NoLightOnWaterIsIgnoredByTheExclusiveChain()
     {
-        // textures.cpp:151-152: %compileNoLight only takes that branch when
+        //: %compileNoLight only takes that branch when
         // %compileWater is absent, so water falls through to the rendered
         // block and gets its warp and decal flags.
         MaterialSurface surface = await Classify(
@@ -166,7 +166,7 @@ public class MaterialSurfaceTests
     [Fact]
     public async Task NonsolidAssignsContentsRatherThanOringThem()
     {
-        // textures.cpp:215 is `=`, not `|=`, so the ladder bit set above it is
+        // is `=`, not `|=`, so the ladder bit set above it is
         // discarded.
         MaterialSurface surface = await Classify(
             "LightmappedGeneric { %compileLadder 1 %compileNonsolid 1 }");
@@ -212,7 +212,7 @@ public class MaterialSurfaceTests
     [Fact]
     public async Task AnAlphaTestedMaterialIsAWindowButNotTranslucent()
     {
-        // textures.cpp:273-286: opacity != OPAQUE makes the window, but only
+        //: opacity != OPAQUE makes the window, but only
         // TRANSLUCENT sets SURF_TRANS.
         MaterialSurface surface = await Classify("LightmappedGeneric { $alphatest 1 }");
 
@@ -275,7 +275,7 @@ public class MaterialSurfaceTests
     [Fact]
     public async Task AnUnlitSurfaceLosesItsBumpLightAtTheEnd()
     {
-        // textures.cpp:288-291, the last thing FindMiptex does.
+        //, the last thing FindMiptex does.
         MaterialSurface surface = await Classify(
             "VertexLitGeneric { $bumpmap a/n }",
             new MaterialCompileOptions { BumpAll = true });
@@ -286,7 +286,7 @@ public class MaterialSurfaceTests
     [Fact]
     public async Task AWaterShaderIsForcedUnlitByItsName()
     {
-        // textures.cpp:253-254 compares the first five characters of the
+        // compares the first five characters of the
         // SHADER NAME, not a material variable.
         MaterialSurface surface = await Classify("Water { $normalmap a/n }");
 
@@ -304,7 +304,7 @@ public class MaterialSurfaceTests
     [Fact]
     public async Task KeepLightDoesNotProtectAnUnlitGenericMaterial()
     {
-        // The precedence at textures.cpp:253: && binds tighter than ||, so
+        // The precedence: && binds tighter than ||, so
         // bKeepLighting guards only the water half of the test. Reading it as
         // (!keep && (water || unlit)) is the natural misreading and would
         // light every %compileKeepLight UnlitGeneric surface in every map.

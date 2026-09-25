@@ -26,7 +26,7 @@ NAMES = {
     ('0.996', '0.000', '0.000'): 'staticprop',
 }
 
-# The colour runs in add order (vrad.cpp:2240, 2277, 2278, 2279).  dm_lockdown
+# The colour runs in add order. dm_lockdown
 # has no vrad_brush_cast_shadows entity, so its brush-entity run is absent and
 # the first green run is the world's own brushes.
 RUN_NAMES = ['world-brush', 'sky', 'displacement', 'static-prop']
@@ -95,7 +95,7 @@ def emit(path, tag, extra_args, out):
         print('  maxs %.2f %.2f %.2f' % tuple(maxs), file=out)
         print('  sums %.2f %.2f %.2f' % tuple(total), file=out)
         # The physically meaningful total: how much surface this source puts in
-        # front of a light.  A count can be right with the geometry wrong and a
+        # front of a light. A count can be right with the geometry wrong and a
         # bounding box can be right with the interior wrong; area is what a
         # shadow is actually made of, and it is the only aggregate here that
         # survives a few triangles moving between the two runs.

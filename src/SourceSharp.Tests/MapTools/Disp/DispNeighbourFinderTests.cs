@@ -8,7 +8,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
-/// Neighbour finding and allowed vertices, <c>public/disp_common.cpp</c>,
+/// Neighbour finding and allowed vertices,
 /// on hand-built layouts.
 /// </summary>
 public sealed class DispNeighbourFinderTests
@@ -19,7 +19,7 @@ public sealed class DispNeighbourFinderTests
 
     private static readonly Vec3[] Diagonal = DispFixtures.FloorQuad(new Vec3(256, 256, 0), 256, 256);
 
-    /// <summary>Boxes that share a face touch: <c>DoBBoxesTouch</c>, <c>disp_common.cpp:806</c>.</summary>
+    /// <summary>Boxes that share a face touch: <c>DoBBoxesTouch</c>.</summary>
     [Fact]
     public void AbuttingBoxesTouch()
     {
@@ -41,7 +41,7 @@ public sealed class DispNeighbourFinderTests
 
     /// <summary>
     /// The neighbour box is the base quad's, puffed by 0.1:
-    /// <c>GetDispBox</c>, <c>disp_common.cpp:770-786</c>.
+    /// <c>GetDispBox</c>.
     /// </summary>
     [Fact]
     public void TheNeighbourBoxIsTheBaseQuadPuffed()
@@ -56,7 +56,7 @@ public sealed class DispNeighbourFinderTests
 
     /// <summary>
     /// An edge is found only in its own winding direction:
-    /// <c>FindEdge</c>, <c>disp_common.cpp:822</c>.
+    /// <c>FindEdge</c>.
     /// </summary>
     [Fact]
     public void AnEdgeIsFoundInItsWindingDirection()
@@ -77,7 +77,7 @@ public sealed class DispNeighbourFinderTests
 
     /// <summary>
     /// Point equality is per component within the tolerance, inclusive:
-    /// <c>VectorsAreEqual</c>, <c>mathlib.h</c>.
+    /// <c>VectorsAreEqual</c>.
     /// </summary>
     [Fact]
     public void VectorsWithinTheToleranceAreEqual()
@@ -88,7 +88,7 @@ public sealed class DispNeighbourFinderTests
 
     /// <summary>
     /// Two equal quads side by side are each other's whole-edge neighbours:
-    /// <c>SetupEdgeNeighbors</c>, <c>disp_common.cpp:910</c>.
+    /// <c>SetupEdgeNeighbors</c>.
     /// </summary>
     [Fact]
     public void SideBySideQuadsAreEdgeNeighbours()
@@ -124,7 +124,7 @@ public sealed class DispNeighbourFinderTests
 
     /// <summary>
     /// Two flat quads touching at one point are corner neighbours:
-    /// <c>SetupCornerNeighbors</c>, <c>disp_common.cpp:979</c>.
+    /// <c>SetupCornerNeighbors</c>.
     /// </summary>
     [Fact]
     public void QuadsMeetingAtAPointAreCornerNeighbours()
@@ -140,7 +140,7 @@ public sealed class DispNeighbourFinderTests
 
     /// <summary>
     /// Corner matching reads DISPLACED corners, so a raised corner breaks it:
-    /// <c>disp_common.cpp:1003</c> with <c>GetCornerPoint</c>.
+    /// with <c>GetCornerPoint</c>.
     /// </summary>
     [Fact]
     public void ARaisedCornerIsNotACornerNeighbour()
@@ -156,7 +156,7 @@ public sealed class DispNeighbourFinderTests
 
     /// <summary>
     /// Equal powers side by side keep every vertex:
-    /// <c>SetupAllowedVerts</c>, <c>disp_common.cpp:1269</c>.
+    /// <c>SetupAllowedVerts</c>.
     /// </summary>
     [Fact]
     public void EqualPowersKeepEveryVertex()
@@ -170,8 +170,7 @@ public sealed class DispNeighbourFinderTests
 
     /// <summary>
     /// A finer displacement beside a coarser one loses the edge vertices the
-    /// coarse one cannot match: <c>DisableUnallowedVerts_R</c>,
-    /// <c>disp_common.cpp:1225</c>.
+    /// coarse one cannot match: <c>DisableUnallowedVerts_R</c>.
     /// </summary>
     [Fact]
     public void AFinerNeighbourLosesUnmatchedEdgeVertices()

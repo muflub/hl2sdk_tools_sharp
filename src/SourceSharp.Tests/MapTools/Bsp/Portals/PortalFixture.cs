@@ -141,8 +141,7 @@ internal sealed class PortalFixture
     /// <remarks>
     /// Leaves in tree order: +x, +y, +z, RIGHT, UPPER, SLAB, LOWER, -z, -y,
     /// -x. <c>SetAreaPortalAreas</c> finds area 1 on both sides of the
-    /// slab, and that is the path into <c>ReportAreaportalLeak</c>
-    /// (<c>portals.cpp:924</c>).
+    /// slab, and that is the path into <c>ReportAreaportalLeak</c>.
     /// </remarks>
     internal static PortalFixture LeakingAreaportal(ComplianceOptions? compliance = null)
     {

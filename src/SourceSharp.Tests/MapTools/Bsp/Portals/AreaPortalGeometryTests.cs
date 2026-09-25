@@ -7,7 +7,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Portals;
 
 /// <summary>
-/// The convex outline of an areaportal (<c>portals.cpp:1012-1269</c>).
+/// The convex outline of an areaportal.
 /// </summary>
 public class AreaPortalGeometryTests
 {
@@ -220,7 +220,7 @@ public class AreaPortalGeometryTests
     public void TheWalkFindsTheDividingPortalOncePerOccupiedLeafItBounds()
     {
         // The walk visits a portal from each of its two leaves, and both of
-        // this one's are occupied: stock adds it twice (portals.cpp:1172-1193).
+        // this one's are occupied: stock adds it twice.
         PortalFixture f = FloodedRoomWithAreaportal();
         Portal dividing = FindDividingPortal(f);
         List<Portal> indexed = [];

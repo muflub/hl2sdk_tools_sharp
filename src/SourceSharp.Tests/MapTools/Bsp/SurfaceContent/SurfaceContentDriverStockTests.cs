@@ -27,8 +27,8 @@ namespace SourceSharp.Tests.MapTools.Bsp.SurfaceContent;
 /// </para>
 /// <para>
 /// Masked, each for a measured reason: a static prop's lighting origin when
-/// its flag is unset (stock leaves the stack slot uninitialised,
-/// <c>staticprop.cpp:458-470</c>); the detail records' padding and the
+/// its flag is unset (stock leaves the stack slot uninitialised.
+///); the detail records' padding and the
 /// unused fields of model records (<see cref="DetailPropStockTests.Masked"/>),
 /// the detail angles to <see cref="DetailPropStockTests.AngleToleranceDegrees"/>;
 /// the HDR default cubemap's sphere-map face (uninitialised heap). The pak's
@@ -111,9 +111,9 @@ public sealed class SurfaceContentDriverStockTests(SurfaceContentDriverStockTest
         // The cubemap patches and overlay materials add texinfos and
         // texdata; CompactTexinfos must keep exactly stock's.
         // l2_cubemap_on_water_and_patch was PINNED here as an integration gap
-        // until lane p3j: stock's AssignBottomWaterMaterialToFace reads
+        // until the p3j round: stock's AssignBottomWaterMaterialToFace reads
         // $bottommaterial with GetValueFromPatchedMaterial from the
-        // CUBEMAP-PATCHED water (faces.cpp:1255-1287, "This happens *after*
+        // CUBEMAP-PATCHED water ("This happens *after*
         // cubemap fixup"); the driver read the facts before AfterLoad and from
         // disk only, dropped the bottom face and never made its texinfo (the
         // last, dev/dev_waterbeneath2). It now holds like every other map.

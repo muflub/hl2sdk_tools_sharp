@@ -87,7 +87,7 @@ internal static class VisFixture
     /// <remarks>
     /// The winding order is load-bearing and not arbitrary:
     /// <c>PlaneFromWinding</c> takes <c>cross(p0 - p1, p2 - p1)</c>, and the
-    /// forward portal then NEGATES that (<c>vvis.cpp:538</c>). Wound the other
+    /// forward portal then NEGATES that. Wound the other
     /// way round, every portal in the fixture would face backwards and the
     /// flood would see nothing -- which looks exactly like a broken vvis.
     /// </remarks>
@@ -130,7 +130,7 @@ internal static class VisFixture
     /// <returns>A leaf index.</returns>
     /// <remarks>
     /// <para>
-    /// <c>PointLeafnum_r</c> (<c>utils/vrad/trace.cpp:435</c>, and the same
+    /// <c>PointLeafnum_r</c> (and the same
     /// walk as the engine's <c>CM_PointLeafnum_r</c>). A negative child is a
     /// leaf, encoded as <c>-(leaf + 1)</c>.
     /// </para>
@@ -138,10 +138,10 @@ internal static class VisFixture
     /// <b>The tie-break is load-bearing and was got wrong first.</b> The test is
     /// <c>dist &lt; 0</c> goes BACK and everything else goes FRONT, so a point
     /// exactly ON a splitting plane lands in the front child. Written as
-    /// <c>dist &gt; 0 ? front : back</c> instead, every probe that sits on a
+    /// <c>dist &gt; 0 ? front: back</c> instead, every probe that sits on a
     /// cut lands in the other leaf -- and the catalogue's probes sit at
     /// <c>y = 0</c>, which is exactly where vbsp's 1024-unit block grid cuts
-    /// (<c>vbsp.cpp:73</c>). That reported a real must-see pair as unreachable
+    ///. That reported a real must-see pair as unreachable
     /// and looked like a vvis defect.
     /// </para>
     /// <para>
@@ -208,8 +208,8 @@ internal static class VisFixture
     /// <para>
     /// <b>Why a SET and not the single leaf the engine would pick.</b> The
     /// catalogue's probes stand in the middle of a room, at <c>y = 0</c> -- and
-    /// <c>y = 0</c> is exactly where vbsp's 1024-unit block grid cuts
-    /// (<c>vbsp.cpp:73</c>), so every one of them is sitting on a cluster
+    /// <c>y = 0</c> is exactly where vbsp's 1024-unit block grid cuts,
+    /// so every one of them is sitting on a cluster
     /// boundary. Which cluster the engine's walk hands back is then decided by
     /// a tie-break, and a room whose doorway is offset to one side has its two
     /// halves seeing genuinely different things.

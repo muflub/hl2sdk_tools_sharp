@@ -25,7 +25,7 @@ namespace SourceSharp.Tests.MapTools.Rad;
 /// The lump is version 5 on disk. Stock's reference numbers were measured on
 /// the same map with its <c>sprp</c> upgraded to version 10, which changes
 /// nothing this path reads: <c>StaticPropLump</c>'s v5 upgrade
-/// (<c>gamebspfile.h:257</c>) copies origin, angles and flags across
+/// copies origin, angles and flags across
 /// unchanged, and origin, angles and flags are the only three fields
 /// <c>AddPolysForRayTrace</c> looks at.
 /// </remarks>
@@ -69,7 +69,7 @@ public sealed class StaticPropCasterFixture
 
 /// <summary>
 /// <c>CVradStaticPropMgr::AddPolysForRayTrace</c>
-/// (<c>vradstaticprops.cpp:1819</c>) and the model loading behind it.
+/// and the model loading behind it.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -110,7 +110,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public void MeshVertexStrideIsFortyEightBytes()
     {
-        // studio.h:1204 -- "48 bytes". mstudiomodel_t::vertexindex is a BYTE
+        // -- "48 bytes". mstudiomodel_t::vertexindex is a BYTE
         // offset and the global index is that divided by this number, so a
         // struct that drifted to 52 would shift every model's vertices by a
         // fraction of a mesh and nothing would throw.
@@ -125,7 +125,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task VertexIndexCombinesTheModelByteOffsetAndTheMeshIndex()
     {
-        // studio.h:1456 and :1532, the two halves of
+        // and:1532, the two halves of
         // mstudio_meshvertexdata_t::Position. The fixture model puts five
         // decoy vertices before the model's run (vertexindex = 5 * 48) and
         // gives the second mesh a vertexoffset of 3, so getting either
@@ -184,7 +184,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public void NoShadowPropsAreSkipped()
     {
-        // vradstaticprops.cpp:1837, and it is the FIRST test in the loop --
+        //, and it is the FIRST test in the loop.
         // before the model dictionary is consulted at all, which is why a
         // NO_SHADOW prop with an unloadable model produces no warning.
         Assert.Equal(34, _fixture.NoContentReport.PropsSkippedNoShadow);
@@ -222,7 +222,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public void EachHullBoxPropContributesTwelveTriangles()
     {
-        // raytrace.cpp:117-157: six quads, two triangles each. Not eight, not
+        //: six quads, two triangles each. Not eight, not
         // six -- a box that came out as six triangles would be a caster set
         // that traced through half of every prop.
         int casting = _fixture.Props.Props.Count - 34;
@@ -255,7 +255,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     public void SolidNonePropsStillCast()
     {
         // A STOCK BEHAVIOUR pinned rather than fixed. vrad reads m_Solid out
-        // of the lump (gamebspfile.h:163) and AddPolysForRayTrace never looks
+        // of the lump and AddPolysForRayTrace never looks
         // at it, so a prop the player and every trace walk straight through
         // still blocks light. Thirty-two of dm_lockdown's props are
         // SOLID_NONE.
@@ -287,10 +287,10 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public void AFailedModelLoadLeavesADegenerateBoxAtThePropsOrigin()
     {
-        // vradstaticprops.cpp:951-955. The dictionary entry's hull corners are
+        //. The dictionary entry's hull corners are
         // set to vec3_origin, not left at the header's -- so mins == maxs ==
         // the prop's origin and the twelve triangles have zero area. This is
-        // the ONLY way stock reaches the AABB branch at :1861, which is why
+        // the ONLY way stock reaches the AABB branch at:1861, which is why
         // stock's fallback boxes are points and this port's (with a real model
         // and no collision source) are not.
         ShadowCasterStats stats = _fixture.NoContentSet.Stats(ShadowCasterSource.StaticProp);
@@ -309,7 +309,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public void HalfOfAHullBoxIsAttributedToTheNextProp()
     {
-        // ShadowCasterBuilder.AddQuad reproduces raytrace.cpp:110's id + 1,
+        // ShadowCasterBuilder.AddQuad reproduces the reference implementation's id + 1,
         // and the static prop AABB fallback is vrad's only caller. Pinned from
         // this side too, because it is THIS call site that turns a harmless
         // arithmetic quirk into a shadow ray skipping its neighbour's box:
@@ -366,7 +366,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task TheHullBoxIgnoresThePropAngles()
     {
-        // A STOCK DEFECT, reproduced and pinned. vradstaticprops.cpp:1861 is a
+        // A STOCK DEFECT, reproduced and pinned. is a
         // plain VectorAdd of the model's hull and the prop's origin: no
         // rotation anywhere. So a prop turned on its side casts the shadow of
         // its upright bounding box, and two props of one model at one origin
@@ -388,7 +388,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task HullBoxTrianglesCarryFullCoverage()
     {
-        // vradstaticprops.cpp:1827's fullCoverage, whose x is 1 and whose y
+        // the reference implementation's fullCoverage, whose x is 1 and whose y
         // and z were never written.
         SyntheticModel model = SyntheticModel.TwoMeshes();
         ShadowCasterSet set = await model.RunAsync(new StaticPropShadowCasterOptions());
@@ -410,7 +410,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     {
         // A STOCK ODDITY, reproduced and pinned. The default path passes
         // fullCoverage (x = 1); the -StaticPropPolys path declares
-        // `Vector color = vec3_origin` at vradstaticprops.cpp:1965 and only
+        // `Vector color = vec3_origin` and only
         // ever writes color.x inside the texture-shadow branch. So the same
         // prop casts coverage 1 by default and coverage 0 under the switch.
         // Harmless today -- coverage is read only for a triangle flagged
@@ -431,7 +431,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task ANoShadowMaterialSubstringSilencesTheWholeMesh()
     {
-        // vradstaticprops.cpp:1906-1917, Q_stristr: a SUBSTRING match, case
+        //, Q_stristr: a SUBSTRING match, case
         // insensitive. The fixture's second mesh uses "glasswindow070a", so
         // "GLASS" silences it and leaves the first mesh alone.
         SyntheticModel model = SyntheticModel.TwoMeshes();
@@ -463,7 +463,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task AMissingVtxAbandonsEveryLaterProp()
     {
-        // A STOCK DEFECT, reproduced and pinned. vradstaticprops.cpp:1873-1879
+        // A STOCK DEFECT, reproduced and pinned.
         // says "must have model and its verts for decoding triangles" -- a
         // reason to skip THIS prop -- and then returns from the whole
         // function. Every prop after it, including props whose models are
@@ -484,7 +484,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task ANonTriangleListStripAbandonsEveryLaterProp()
     {
-        // A STOCK DEFECT, reproduced and pinned. vradstaticprops.cpp:2003-2010
+        // A STOCK DEFECT, reproduced and pinned.
         // prints "unexpected strips found", asserts, and returns. The
         // triangles already added for that prop are kept -- so the fixture's
         // first mesh survives and the map stops there.
@@ -503,7 +503,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task TheTransparencyHookIsConsultedOncePerModel()
     {
-        // dict.m_triangleMaterialIndex, vradstaticprops.cpp:1876 and :1985:
+        // dict.m_triangleMaterialIndex:1876 and:1985:
         // the first prop of a model computes the material indices and every
         // later prop replays them.
         SyntheticModel model = SyntheticModel.TwoMeshes();
@@ -529,7 +529,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task ReplayedTransparencyKeepsTheMaterialIndexAndLosesTheCoverage()
     {
-        // A STOCK DEFECT, reproduced and pinned. vradstaticprops.cpp:1985's
+        // A STOCK DEFECT, reproduced and pinned. the reference implementation's
         // else-branch restores materialIndex from the cache and never touches
         // `color`, which is still vec3_origin. So the first prop to use a
         // model gets the real coverage and every later prop sharing that model
@@ -565,7 +565,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task AnOpaqueHookAnswerLeavesTheTriangleUntagged()
     {
-        // vradstaticprops.cpp:1980 -- a coverage of 1 means materialIndex = -1
+        // -- a coverage of 1 means materialIndex = -1
         // and no FCACHETRI_TRANSPARENT, which is what keeps a fully opaque
         // alpha-tested triangle out of the per-ray transparency test.
         SyntheticModel model = SyntheticModel.TwoMeshes();
@@ -587,7 +587,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task AModelThatDoesNotOptInNeverReachesTheTransparencyHook()
     {
-        // vradstaticprops.cpp:1006-1012: the texture-shadow table is built
+        //: the texture-shadow table is built
         // only for a model carrying STUDIOHDR_FLAGS_CAST_TEXTURE_SHADOWS or
         // named in a lights.rad forcetextureshadow line.
         SyntheticModel model = SyntheticModel.TwoMeshes();
@@ -609,14 +609,14 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     }
 
     // -----------------------------------------------------------------------
-    // The .phy seam.
+    // The.phy seam.
     // -----------------------------------------------------------------------
 
     /// <summary>A usable <c>.phy</c> is framed and counted.</summary>
     [Fact]
     public async Task AUsablePhysicsFileIsRecognised()
     {
-        // LoadStudioCollisionModel's whole test, vradstaticprops.cpp:519:
+        // LoadStudioCollisionModel's whole test:
         // header.size == sizeof(phyheader_t) and solidCount > 0. Nothing about
         // the checksum, and nothing about the solids' contents.
         SyntheticModel model = SyntheticModel.TwoMeshes();
@@ -632,10 +632,10 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task OnlyTheFirstSolidOfAPhysicsFileIsEverUsed()
     {
-        // A STOCK DEFECT, reproduced and pinned. vradstaticprops.cpp:971 is
+        // A STOCK DEFECT, reproduced and pinned. is
         // `m_pModel = m_loadedModel.solids[0]`: the dictionary keeps the whole
         // vcollide_t and the caster path queries only the first solid, so
-        // every solid after the first in a multi-solid .phy casts no shadow at
+        // every solid after the first in a multi-solid.phy casts no shadow at
         // all.
         SyntheticModel model = SyntheticModel.TwoMeshes();
         model.AddPhy(solidCount: 3);
@@ -674,7 +674,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task AModelWithNoPhysicsFileIsNotAnError()
     {
-        // vradstaticprops.cpp:515 -- "this is not an error, the model simply
+        // -- "this is not an error, the model simply
         // has no PHY file". Stock then goes to ComputeConvexHull, which is
         // also vphysics and is also behind IPropCollisionSource.
         SyntheticModel model = SyntheticModel.TwoMeshes();
@@ -728,7 +728,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task AModelWithoutStaticPropIsRefused()
     {
-        // IsStaticProp, vradstaticprops.cpp:378. Stock's warning says why:
+        // IsStaticProp. Stock's warning says why:
         // "as a static prop, it must be compiled with $staticprop!"
         SyntheticModel model = SyntheticModel.TwoMeshes(staticProp: false);
 
@@ -741,9 +741,9 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task AVtxWithAStaleChecksumIsDropped()
     {
-        // vradstaticprops.cpp:551. A stale VTX indexes vertices that moved, so
+        //. A stale VTX indexes vertices that moved, so
         // stock purges the buffer and the model's render mesh is disabled --
-        // which then trips the :1876 return.
+        // which then trips the:1876 return.
         SyntheticModel model = SyntheticModel.TwoMeshes();
         model.CorruptVtxChecksum();
 
@@ -757,7 +757,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task TheVtxReadIsTheDx80One()
     {
-        // vradstaticprops.cpp:534 -- strcat( filename, ".dx80.vtx" ). The
+        // -- strcat(filename, ".dx80.vtx"). The
         // three VTX flavours of one model differ in strip grouping, so reading
         // dx90 gives a triangle count that is close and not stock's.
         SyntheticModel model = SyntheticModel.TwoMeshes();
@@ -776,7 +776,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [InlineData("models/a.b/c.mdl", "a")]
     public void CleanModelNameStripsTheModelsPrefixAndTheExtension(string input, string expected)
     {
-        // vradstaticprops.cpp:899. The last case is stock's strchr, which cuts
+        //. The last case is stock's strchr, which cuts
         // at the FIRST dot -- so a model under a directory with a dot in its
         // name is truncated. Reproduced because the forcetextureshadow list is
         // matched against exactly these strings.
@@ -795,8 +795,8 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     {
         // THE PREMISE OF THE UPGRADE, measured rather than assumed. All 56 of
         // dm_lockdown's prop models are version 44 on disk and STUDIO_VERSION
-        // is 48 (studio.h:70), so LoadStudioModel's version test at
-        // vradstaticprops.cpp:487 passes only because
+        // is 48, so LoadStudioModel's version test at
+        // passes only because
         // Studio_ConvertStudioHdrToNewVersion ran four lines earlier and
         // slammed the number. A port that took the version check at face value
         // rejects every prop in the map and emits nothing -- which is exactly
@@ -820,7 +820,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task AModelOlderThanStudioVersionIsUpgradedInPlace()
     {
-        // studio.h:3172 -- "for now, just slam the version number since
+        // -- "for now, just slam the version number since
         // they're compatible". The synthetic model is written at version 44 so
         // that this holds without installed content.
         SyntheticModel model = SyntheticModel.TwoMeshes(mdlVersion: 44);
@@ -1007,7 +1007,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
 /// </summary>
 /// <remarks>
 /// <para>
-/// WHY SYNTHESISE ONE. The gate against stock's 92,582 needs Valve's content
+/// WHY SYNTHESISE ONE. The gate against stock's 92,582 needs the installed game's content
 /// and therefore skips on a machine without it, and the two things most worth
 /// pinning -- that the global vertex index combines a byte offset with an
 /// index, and that a non-trilist strip abandons the map -- are both invisible
@@ -1042,7 +1042,7 @@ internal sealed class SyntheticModel
     /// <param name="staticProp">Whether to set <c>STUDIOHDR_FLAGS_STATIC_PROP</c>.</param>
     /// <param name="secondMeshIsTriStrip">
     /// Whether the second mesh's strip claims to be a triangle STRIP, which is
-    /// what trips stock's <c>:2009</c> return.
+    /// what trips the reference implementation's return there.
     /// </param>
     /// <param name="mdlVersion">
     /// What the header claims; anything but 48 exercises

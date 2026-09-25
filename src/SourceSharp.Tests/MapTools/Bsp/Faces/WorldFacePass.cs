@@ -12,7 +12,7 @@ using StockLoad = SourceSharp.Tests.MapTools.Bsp.StockLoad;
 namespace SourceSharp.Tests.MapTools.Bsp.Faces;
 
 /// <summary>
-/// <c>ProcessWorldModel</c> (<c>src/utils/vbsp/vbsp.cpp:242</c>) as far as
+/// <c>ProcessWorldModel</c> as far as
 /// <c>FixTjuncs</c>, driven over a real <c>.vmf</c>.
 /// </summary>
 /// <remarks>

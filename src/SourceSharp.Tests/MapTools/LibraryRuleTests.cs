@@ -31,7 +31,7 @@ public class LibraryRuleTests
     {
         // THE rule that makes every later parallelisation legal, and that makes
         // two compiles in one process legal at all. Stock has 48 externs in
-        // vbsp.h, 117 file-scope statics in vbsp alone, and bsplib's ~110 MB of
+        //, 117 file-scope statics in vbsp alone, and bsplib's ~110 MB of
         // global d* arrays; that is exactly why the RPG plan needed one
         // process per compile.
         //
@@ -94,7 +94,7 @@ public class LibraryRuleTests
         // wants neither pulls in neither.
         //
         // Read from the assembly's own reference table rather than from the
-        // .csproj, so a package arriving INDIRECTLY through a project reference
+        //.csproj, so a package arriving INDIRECTLY through a project reference
         // cannot slip past by not being written in the project file.
         Assembly assembly = Load(assemblyName);
 

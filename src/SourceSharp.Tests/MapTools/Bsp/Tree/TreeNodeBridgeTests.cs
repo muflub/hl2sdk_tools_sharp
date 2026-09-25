@@ -11,7 +11,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Tree;
 
 /// <summary>
 /// The tree built by <c>BrushBSP</c> IS the tree the portal, face and write
-/// stages walk: stock has one <c>node_t</c> (<c>vbsp.h:199</c>), and so does
+/// stages walk: stock has one <c>node_t</c>, and so does
 /// the port now.
 /// </summary>
 public sealed class TreeNodeBridgeTests
@@ -77,7 +77,7 @@ public sealed class TreeNodeBridgeTests
     [Fact]
     public void LeafBrushesSeeAnUnlinkThatBypassesTheSetter()
     {
-        // RemoveAreaPortalBrushes_R unlinks through prev->next (tree.cpp), so
+        // RemoveAreaPortalBrushes_R unlinks through prev->next, so
         // the projection must not be a cache keyed on the list head.
         MapBrush a = new() { Id = 1 };
         MapBrush b = new() { Id = 2 };
@@ -112,7 +112,7 @@ public sealed class TreeNodeBridgeTests
     public void TheOutsideNodeIsALeaf()
     {
         // MakeHeadnodePortals: tree->outside_node.planenum = PLANENUM_LEAF
-        // (portals.cpp:297). Portal_EntityFlood errors on any portal whose far
+        //. Portal_EntityFlood errors on any portal whose far
         // side is not a leaf, which every leaked map's flood crosses.
         IBspTree tree = new TreeTree();
         Assert.True(tree.OutsideNode.IsLeaf());

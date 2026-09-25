@@ -15,14 +15,13 @@ namespace SourceSharp.Tests.MapTools.Rad.Bounce;
 
 /// <summary>
 /// The 4d gates: stock vrad's <c>transfers %d, max %d</c> and
-/// <c>Bounce #%i added RGB(...)</c> lines against the managed transfer build
+/// <c>Bounce #%i added RGB...)</c> lines against the managed transfer build
 /// and bounce, on stock vbsp + vvis input, under
 /// <see cref="ComplianceOptions.Stock"/>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Tolerances, frozen from the first measurement</b> (p4d-findings.md has
-/// the command and the numbers). Transfer TOTALS were exact on 11 of 20 maps
+/// <b>Tolerances, frozen from the first measurement</b>. Transfer TOTALS were exact on 11 of 20 maps
 /// and within 5 on the rest -- at most 2.6e-5 of the total, on
 /// <c>l1_func_detail</c>. Every map runs hundreds of polygon form factors
 /// whose edge sine lies within 3 ulp of 1, where

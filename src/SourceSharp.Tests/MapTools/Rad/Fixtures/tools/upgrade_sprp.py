@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rewrite a BSP's sprp game lump from version 5 to version 10, in a copy.
 
-gamebspfile.h:244-262 -- the V4 upgrade path sets forcedFadeScale 1.0, dx levels
+The reference's V4 upgrade path sets forcedFadeScale 1.0, dx levels
 0, lightmap res 0 and ORs in STATIC_PROP_NO_PER_TEXEL_LIGHTING (0x800); V5 then
 overwrites forcedFadeScale from its own field.  Nothing about the shadow-caster
 set changes: origin, angles, model index, solid type and the NO_SHADOW flag all

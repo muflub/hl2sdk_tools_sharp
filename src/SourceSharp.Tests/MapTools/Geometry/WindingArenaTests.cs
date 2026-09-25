@@ -7,14 +7,14 @@ namespace SourceSharp.Tests.MapTools.Geometry;
 
 /// <summary>
 /// The pool itself: the replacement for <c>winding_pool</c> and the
-/// lock-per-allocation at <c>utils/common/polylib.cpp:53</c>.
+/// lock-per-allocation.
 /// </summary>
 public class WindingArenaTests
 {
     [Fact]
     public void AnAllocatedWindingStartsWithNoPoints()
     {
-        // polylib.cpp:65 -- "None are occupied yet even though allocated".
+        // -- "None are occupied yet even though allocated".
         var arena = new WindingArena();
         Winding w = arena.Alloc(8);
         Assert.Equal(0, w.Count);
@@ -62,7 +62,7 @@ public class WindingArenaTests
     [Fact]
     public void RecyclingIsKeyedOnCapacitySoADifferentSizeTakesFreshStorage()
     {
-        // winding_pool is indexed by maxpoints (polylib.cpp:54), so a freed
+        // winding_pool is indexed by maxpoints, so a freed
         // 8-point winding is no use to a request for 9.
         var arena = new WindingArena();
         arena.Free(arena.Alloc(8));
@@ -74,7 +74,7 @@ public class WindingArenaTests
     [Fact]
     public void FreeingAWindingTwiceIsDetected()
     {
-        // polylib.cpp:73 stamps 0xdeaddead and errors with "freed a freed
+        // stamps 0xdeaddead and errors with "freed a freed
         // winding". A double free in the clipper otherwise surfaces much later
         // as a winding holding someone else's points.
         var arena = new WindingArena();
@@ -87,7 +87,7 @@ public class WindingArenaTests
     [Fact]
     public void FreeingTheNullWindingDoesNothing()
     {
-        // The `if (b) FreeWinding(b)` pattern at polylib.cpp:741 wants this.
+        // The `if (b) FreeWinding(b)` pattern wants this.
         var arena = new WindingArena();
         arena.Free(Winding.Null);
         Assert.Equal(0, arena.ActiveWindings);
@@ -110,7 +110,7 @@ public class WindingArenaTests
     {
         // Stock's c_peak_windings, which it can only maintain single-threaded
         // because the counters are, in its own words, "an awefull coherence
-        // problem" (polylib.cpp:20). Per-worker arenas remove the problem.
+        // problem". Per-worker arenas remove the problem.
         var arena = new WindingArena();
         Winding a = arena.Alloc(4);
         Winding b = arena.Alloc(4);
@@ -163,7 +163,7 @@ public class WindingArenaTests
     public void RecycledStorageIsHandedOutIntactAndTheArenaDoesNotZeroIt()
     {
         // Stock does not clear on free either -- AllocWinding only resets
-        // numpoints (polylib.cpp:65). A caller that reads Storage before
+        // numpoints. A caller that reads Storage before
         // filling it sees the previous winding's points, which is why Alloc
         // hands back a count of zero and nothing else.
         var arena = new WindingArena();

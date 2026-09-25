@@ -26,7 +26,7 @@ namespace SourceSharp.Tests.MapTools.Disp;
 /// python3 scratchpad/p3f-genmaps.py /tmp/dispmaps
 /// make toolgame
 /// for f in /tmp/dispmaps/*.vmf; do
-///     wine .../vbsp.exe -v -game "Z:$PWD/tools/mapgame" "Z:$f"
+/// wine.../vbsp.exe -v -game "Z:$PWD/tools/mapgame" "Z:$f"
 /// done
 /// DISP_STOCK_DIR=/tmp/dispmaps dotnet test --filter Disp
 /// </code>
@@ -164,7 +164,7 @@ public sealed class DispStockTheoryAttribute : TheoryAttribute
 /// the base face's four winding points. Stock builds these in
 /// <c>MakeBrushWindings</c>, which is the CSG lane's, and
 /// <c>EmitFaceVertexes</c> writes the SIDE's own winding through unchanged
-/// (<c>writebsp.cpp:932</c>) — so reading them back is reading this lane's
+/// — so reading them back is reading this lane's
 /// input, not its output. The catalogue's brushes are integer-aligned, so
 /// <c>GetVertexnum</c>'s snapping is the identity on them;
 /// </item>

@@ -25,7 +25,7 @@ public class SurfaceContentDriverTests
     public async Task EveryOverlayPointsAtItsOwnMaterialAfterTexInfoCompaction()
     {
         // The overlays' texinfos are made at OverlayFaces, before
-        // CompactTexinfos renumbers the table (writebsp.cpp:800-823).
+        // CompactTexinfos renumbers the table.
         BspData bsp = await CompileAsync(OverlayRoom());
 
         DOverlay[] overlays = BspStructView.As<DOverlay>(bsp[BspLump.Overlays]).ToArray();
@@ -55,7 +55,7 @@ public class SurfaceContentDriverTests
     [Fact]
     public async Task ASpecularRoomPaksTheCubemapPatchItsSidesNowUse()
     {
-        // Cubemap_AttachDefaultCubemapToSpecularSides (cubemap.cpp:861-896):
+        // Cubemap_AttachDefaultCubemapToSpecularSides:
         // every specular side is patched to the nearest env_cubemap, and the
         // patch is in the pak.
         VmfMap vmf = SurfaceUnit.Room(SurfaceUnit.Specular);
@@ -82,7 +82,7 @@ public class SurfaceContentDriverTests
     [Fact]
     public async Task OnlyEntsKeepsThePakAndRewritesTheStaticProps()
     {
-        // -onlyents: LoadBSPFile + WriteBSPFile keep the pak (vbsp.cpp:1349-1383).
+        // -onlyents: LoadBSPFile + WriteBSPFile keep the pak.
         VmfMap vmf = SurfaceUnit.Room(SurfaceUnit.Specular);
         RoomKit.PointEntity(vmf, "env_cubemap", new Point(0f, 0f, 128f));
         BspData full = await CompileAsync(vmf);
@@ -139,7 +139,7 @@ public class SurfaceContentDriverTests
     public async Task TheLoaderKeepsTheWaterOverlaysSoNoDocumentIsNeeded()
     {
         // p3g integration item 3: the overlaytransition chunks stay on the
-        // map (map.cpp:1427), in file order.
+        // map, in file order.
         VmfMap vmf = WaterOverlayRoom();
         SurfaceUnit.Loaded loaded = await SurfaceUnit.LoadAsync(vmf, ComplianceOptions.Correct, AddDecal);
 
@@ -159,9 +159,9 @@ public class SurfaceContentDriverTests
     [Fact]
     public async Task ACubemapPatchedWatersBottomFaceUsesThePatchedBottomMaterial()
     {
-        // faces.cpp:1255-1287: AssignBottomWaterMaterialToFace reads
+        //: AssignBottomWaterMaterialToFace reads
         // $bottommaterial from the CUBEMAP-PATCHED water, after the fixup; the
-        // patch names a patched bottom (cubemap.cpp:546-579) that exists only
+        // patch names a patched bottom that exists only
         // in the pak. p3g integration item 2: the driver read the facts before
         // the fixup and from disk, found none for the patched name, and dropped
         // the bottom face and its texinfo.
@@ -185,7 +185,7 @@ public class SurfaceContentDriverTests
     [Fact]
     public async Task ACubemapPatchedWatersDepthMaterialIsDescribedByTheOriginal()
     {
-        // FindAliasedTexData (textures.cpp:431) describes the per-depth water
+        // FindAliasedTexData describes the per-depth water
         // texdata with FindOriginalMaterial of the water's own texdata, which
         // follows the patch chain back to the VMT on disk. The water here is
         // cubemap-patched, so its texdata names a patch that exists only in

@@ -9,7 +9,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Faces;
 
 /// <summary>
 /// Cutting a face down until its lightmap fits
-/// (<c>SubdivideFace</c>, <c>src/utils/vbsp/faces.cpp:1167</c>).
+///(<c>SubdivideFace</c>).
 /// </summary>
 /// <remarks>
 /// The fixture's texinfo is one luxel per world unit on both lightmap axes, so
@@ -57,9 +57,9 @@ public class FaceSubdividerTests
         Face face = Rect(context, 48f, 16f);
         subdivider.SubdivideFace(face, face);
 
-        // faces.cpp:1218 dist = (mins + g_maxLightmapDimension - 1) /
+        // dist = (mins + g_maxLightmapDimension - 1) /
         // luxelsPerWorldUnit, which at one luxel per unit and mins 0 is 31.
-        // faces.cpp:1229-1230 hang the BACK winding on split[1], and the back
+        // hang the BACK winding on split[1], and the back
         // of a +x plane at 31 is the x <= 31 side.
         context.Windings.Bounds(face.Split[1]!.Winding, out Vec3 mins, out Vec3 maxs);
 
@@ -76,8 +76,8 @@ public class FaceSubdividerTests
         Face face = Rect(context, 48f, 16f);
         subdivider.SubdivideFace(face, face);
 
-        // faces.cpp:1220 clips against +x (the luxel axis) at 31, and
-        // :1224-1225 hang the FRONT winding -- the side the normal points
+        // clips against +x (the luxel axis) at 31, and
+        //:1224-1225 hang the FRONT winding -- the side the normal points
         // into, x >= 31 -- on split[0].
         context.Windings.Bounds(face.Split[0]!.Winding, out Vec3 mins, out Vec3 maxs);
 
@@ -94,9 +94,9 @@ public class FaceSubdividerTests
         Face face = Rect(context, 96f, 96f);
         subdivider.SubdivideFace(face, face);
 
-        // Axis 0 is x, and faces.cpp:1236 returns out of the axis loop as soon
+        // Axis 0 is x, and returns out of the axis loop as soon
         // as it splits, so the first cut is always the x one: the back piece
-        // (split[1], faces.cpp:1230) ends at x = 31 and still spans the whole
+        //(split[1]) ends at x = 31 and still spans the whole
         // of y.
         context.Windings.Bounds(face.Split[1]!.Winding, out Vec3 mins, out Vec3 maxs);
 

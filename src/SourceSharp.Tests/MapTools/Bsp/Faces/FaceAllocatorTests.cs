@@ -8,8 +8,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Faces;
 
 /// <summary>
-/// Face allocation and the <c>c_faces</c> balance
-/// (<c>src/utils/vbsp/faces.cpp:792-838</c>).
+/// Face allocation and the <c>c_faces</c> balance.
 /// </summary>
 public class FaceAllocatorTests
 {

@@ -20,7 +20,7 @@ namespace SourceSharp.Tests.MapTools.Vis;
 /// CATALOGUE_EMIT_DIR=/tmp/catmaps dotnet test --filter TheWholeCatalogueEmits
 /// make toolgame
 /// for f in /tmp/catmaps/*.vmf; do
-///     wine .../vbsp.exe -game "Z:$PWD/tools/mapgame" "Z:$f"
+/// wine.../vbsp.exe -game "Z:$PWD/tools/mapgame" "Z:$f"
 /// done
 /// VVIS_STOCK_DIR=/tmp/catmaps dotnet test --filter VvisCatalogue
 /// </code>
@@ -67,7 +67,7 @@ internal static class StockCatalogue
     /// </para>
     /// <code>
     /// cp map.bsp map.stockvis.bsp; cp map.prt map.stockvis.prt
-    /// wine .../vvis.exe -threads 1 -game "Z:$PWD/tools/mapgame" "Z:.../map.stockvis.bsp"
+    /// wine.../vvis.exe -threads 1 -game "Z:$PWD/tools/mapgame" "Z:.../map.stockvis.bsp"
     /// </code>
     /// </remarks>
     internal static string? StockVisBspFor(string name)
@@ -101,7 +101,7 @@ internal static class StockCatalogue
         string bsp = Path.Combine(directory, name + ".bsp");
         string prt = Path.Combine(directory, name + ".prt");
 
-        // Both, or neither: a map that leaks has a .bsp and no .prt, and vvis
+        // Both, or neither: a map that leaks has a.bsp and no.prt, and vvis
         // cannot run on one. That is the l1_leak entry, by design.
         return File.Exists(bsp) && File.Exists(prt) ? bsp : null;
     }

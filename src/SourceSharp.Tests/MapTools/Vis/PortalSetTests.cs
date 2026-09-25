@@ -7,7 +7,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Vis;
 
 /// <summary>
-/// <c>LoadPortals</c>'s in-memory result (<c>utils/vvis/vvis.cpp:407-563</c>).
+/// <c>LoadPortals</c>'s in-memory result.
 /// </summary>
 public class PortalSetTests
 {
@@ -124,7 +124,7 @@ public class PortalSetTests
     {
         // The portal READER reproduces stock's off-by-one bound check, which
         // lets leafnum == clusterCount through to index one past the end of the
-        // leaf array (vvis.cpp:507). Stock corrupts memory there; this refuses.
+        // leaf array. Stock corrupts memory there; this refuses.
         PortalFile file = VisFixture.Portals(2, VisFixture.WindowAtX(0, 2, 0f, 0f, 16f));
 
         Assert.Throws<InvalidPortalFileException>(() => PortalSet.FromPortalFile(file));

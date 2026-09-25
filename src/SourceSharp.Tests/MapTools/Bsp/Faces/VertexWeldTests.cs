@@ -8,11 +8,11 @@ namespace SourceSharp.Tests.MapTools.Bsp.Faces;
 
 /// <summary>
 /// The spatial hash that makes two faces share a vertex
-/// (<c>GetVertexnum</c>, <c>src/utils/vbsp/faces.cpp:112</c>).
+///(<c>GetVertexnum</c>).
 /// </summary>
 /// <remarks>
 /// Every table starts with the error vertex 0 that <c>BeginBSPFile</c>
-/// reserves (<c>writebsp.cpp:1138</c>), so the first welded vertex is 1 and a
+/// reserves, so the first welded vertex is 1 and a
 /// table holding N welded vertices has <c>Count</c> N + 1.
 /// </remarks>
 public class VertexWeldTests
@@ -173,8 +173,8 @@ public class VertexWeldTests
 
     // ---- slot 0 ---------------------------------------------------------
     //
-    // BeginBSPFile reserves vertex 0 (writebsp.cpp:1138), so GetVertexnum's
-    // zero chain terminator (faces.cpp:131) can never hide a real vertex. The
+    // BeginBSPFile reserves vertex 0, so GetVertexnum's
+    // zero chain terminator can never hide a real vertex. The
     // retired StockQuirk.WeldHashZeroSentinel described a table that started
     // at 0, which stock's never does.
 

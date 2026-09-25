@@ -22,8 +22,8 @@ namespace SourceSharp.Tests.MapTools.Rad.Light;
 /// The layout is exact: each face's four style bytes and its <c>lightofs</c>
 /// are in stock's FACES lump, and the LIGHTING lump's length is
 /// <c>PrecompLightmapOffsets</c>' total. A style slot is allocated only when a
-/// light of that style actually reaches a sample of the face
-/// (<c>lightmap.cpp:2529</c>), so the style bytes gate the PVS test, the cone
+/// light of that style actually reaches a sample of the face,
+/// so the style bytes gate the PVS test, the cone
 /// and falloff early-outs, and the visibility rays together.
 /// </para>
 /// <para>
@@ -136,7 +136,7 @@ public sealed class RadWorldLightingGateTests(ITestOutputHelper output)
             + $"median {median:P3}, p99 {p99:P3}, over 2%: {over2:P3}; "
             + $"byte-identical once encoded: {exact}");
 
-        // Measured on the whole corpus (p4c-findings.md). The error is taken
+        // Measured on the whole corpus. The error is taken
         // AFTER allowing for ColorRGBExp32's truncated mantissas, so what is
         // left is stock's reciprocal and rsqrt ESTIMATES against this port's
         // exact arithmetic.
@@ -178,7 +178,7 @@ public sealed class RadWorldLightingGateTests(ITestOutputHelper output)
                 s[j] = (lighting[at] + lighting[at + 1] + lighting[at + 2]) * scale;
 
                 // VectorToColorRGBExp32 TRUNCATES each channel's mantissa
-                // (color_conversion.cpp:524-526): up to one step low, per channel.
+                //: up to one step low, per channel.
                 quantum[j] = 3 * scale;
             }
 
@@ -237,7 +237,7 @@ public sealed class RadWorldLightingGateTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// <c>VectorToColorRGBExp32</c> (<c>color_conversion.cpp:566</c>), for
+    /// <c>VectorToColorRGBExp32</c>, for
     /// comparing bytes. 4f owns the real encoder; this is the test's copy.
     /// </summary>
     private static uint Encode(Vec3 v)

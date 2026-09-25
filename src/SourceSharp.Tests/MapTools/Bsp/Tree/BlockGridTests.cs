@@ -146,7 +146,7 @@ public class BlockGridTests
 
     /// <summary>
     /// The blocks are visited Y-outer, X-inner, which is the order stock's
-    /// <c>############### block  x, y ###############</c> lines come out in.
+    /// <c>############### block x, y ###############</c> lines come out in.
     /// </summary>
     [Fact]
     public async Task BlocksAreVisitedWithYOutsideAndXInside()

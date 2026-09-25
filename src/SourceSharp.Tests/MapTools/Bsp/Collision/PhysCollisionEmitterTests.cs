@@ -11,7 +11,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Collision;
 
 /// <summary>
-/// <c>EmitPhysCollision</c>'s own logic (<c>ivp.cpp</c>, <c>disp_ivp.cpp</c>)
+/// <c>EmitPhysCollision</c>'s own logic
 /// against the managed <see cref="FakeCollisionCooker"/>: the unit tier.
 /// </summary>
 public class PhysCollisionEmitterTests
@@ -32,7 +32,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task TheWorldsSolidBrushesAreOneStaticSolidOfMaskSolid()
     {
-        // ivp.cpp:1309 and :292-295.
+        // and:292-295.
         CollisionFixture f = new();
         f.Box(0, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
 
@@ -44,7 +44,6 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task VirtualTerrainIsDeclaredWhenTheLibrarySupportsIt()
     {
-        // ivp.cpp:1560.
         CollisionFixture f = new();
         f.Box(0, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
 
@@ -81,7 +80,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task EachTriangleTakesTheMaterialOfTheSideItFaces()
     {
-        // ivp.cpp:1286-1305: TriangleNormal then FindBrushSide, per triangle.
+        //: TriangleNormal then FindBrushSide, per triangle.
         CollisionFixture f = new();
         string[] props = ["metal", "wood", "wood", "shell", "shell", "water"];
         f.Box(0, Lo, Hi, CollisionContents.Solid, [.. props.Select(f.TexInfoFor)]);
@@ -109,7 +108,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task ASideWithNoSurfacePropIsDefaultInTheMaterialTable()
     {
-        // ivp.cpp:1570-1573: propIndex < 0 is written as "default".
+        //: propIndex < 0 is written as "default".
         CollisionFixture f = new();
         f.Box(0, Lo, Hi, CollisionContents.Solid, f.TexInfoFor(null));
 
@@ -121,7 +120,6 @@ public class PhysCollisionEmitterTests
     [Fact]
     public void PropIndexIsOneBasedAndStopsAt126()
     {
-        // ivp.cpp:375-389.
         List<int> table = [];
         for (int i = 0; i < 126; i++)
         {
@@ -135,7 +133,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task ClipBrushesAreTheirOwnStaticSolidsAfterTheSolidOne()
     {
-        // BuildWorldPhysModel, ivp.cpp:1316-1318: solid, player clip, monster clip.
+        // BuildWorldPhysModel: solid, player clip, monster clip.
         CollisionFixture f = new();
         int t = f.TexInfoFor("metal");
         f.Box(0, Lo, Hi, CollisionContents.Solid, t);
@@ -154,7 +152,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task TheWorldIsNotShrunk()
     {
-        // NO_SHRINK for model 0, ivp.cpp:1531.
+        // NO_SHRINK for model 0.
         CollisionFixture f = new();
         f.Box(0, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
 
@@ -166,7 +164,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task ABrushEntitysVisibleSidesShrinkByHalfAnInch()
     {
-        // VPHYSICS_SHRINK, ivp.cpp:37 and :529. Two calls per brush: the
+        // VPHYSICS_SHRINK:37 and:529. Two calls per brush: the
         // unshrunk test hull, then the shrunk one.
         CollisionFixture f = new();
         f.Box(1, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
@@ -180,7 +178,6 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task AnInvisibleSideIsNotShrunk()
     {
-        // ivp.cpp:505-513.
         CollisionFixture f = new() { SideVisible = [[], [true, false, true, true, true, true]] };
         f.Box(0, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
         f.Box(1, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
@@ -193,7 +190,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task AnAxisThinnerThanThreeShrinksIsNotShrunk()
     {
-        // ivp.cpp:515-527 with shrinkMinimum = m_shrink * 3 = 1.5 (:547).
+        // with shrinkMinimum = m_shrink * 3 = 1.5:547).
         CollisionFixture f = new();
         f.Box(1, new Vec3(-32, -32, 0), new Vec3(32, 32, 1), CollisionContents.Solid, f.TexInfoFor("metal"));
 
@@ -205,7 +202,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task ABrushEntityIsASolidBlockWithMassMaterialAndVolume()
     {
-        // CPhysCollisionEntrySolid::WriteToTextBuffer, ivp.cpp:248.
+        // CPhysCollisionEntrySolid::WriteToTextBuffer.
         CollisionFixture f = new();
         int wood = f.TexInfoFor("wood");
         f.Box(1, Lo, Hi, CollisionContents.Solid, wood);
@@ -225,7 +222,6 @@ public class PhysCollisionEmitterTests
     [Fact]
     public void TheMaterialCoveringTheMostAreaWins()
     {
-        // ivp.cpp:1423-1437.
         CollisionFixture f = new();
         (string material, _) = PhysCollisionEmitter.MassAndMaterial(
             [f.Props.GetSurfaceIndex("wood"), f.Props.GetSurfaceIndex("metal"), f.Props.GetSurfaceIndex("wood")],
@@ -237,7 +233,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public void StockShellMassCountsTheSentinelArea()
     {
-        // ShellMassSentinelArea, ivp.cpp:1436: totalArea includes proplist[0]'s implicit 1.
+        // ShellMassSentinelArea: totalArea includes proplist[0]'s implicit 1.
         CollisionFixture f = new();
         (_, float mass) = PhysCollisionEmitter.MassAndMaterial(
             [f.Props.GetSurfaceIndex("shell")], [100f], null, 1e9f, f.Props, ComplianceOptions.Stock);
@@ -258,7 +254,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public void StockFacelessShellWeighsThreeSquareInches()
     {
-        // The sentinel's 1 plus the faceless entry's 2 (ivp.cpp:1384-1396).
+        // The sentinel's 1 plus the faceless entry's 2.
         CollisionFixture f = new();
         (_, float mass) = PhysCollisionEmitter.MassAndMaterial(
             [], [], f.Props.GetSurfaceIndex("shell"), 1000f, f.Props, ComplianceOptions.Stock);
@@ -279,7 +275,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public void MassIsClampedToFiftyTonnes()
     {
-        // VPHYSICS_MAX_MASS, ivp.cpp:1467.
+        // VPHYSICS_MAX_MASS.
         CollisionFixture f = new();
         (_, float mass) = PhysCollisionEmitter.MassAndMaterial(
             [f.Props.GetSurfaceIndex("metal")], [1f], null, 1e12f, f.Props, ComplianceOptions.Correct);
@@ -290,7 +286,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public void AFacelessModelUsesItsFirstSidesPropertyWithAreaTwo()
     {
-        // ivp.cpp:1389-1397: area 2 beats the implicit entry's 1.
+        //: area 2 beats the implicit entry's 1.
         CollisionFixture f = new();
         (string material, _) = PhysCollisionEmitter.MassAndMaterial([], [], f.Props.GetSurfaceIndex("metal"), 1f, f.Props, ComplianceOptions.Correct);
 
@@ -300,7 +296,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public void ANegativePropertyFallsBackToIndexZero()
     {
-        // ivp.cpp:1446: "use default if this material has no prop".
+        //: "use default if this material has no prop".
         CollisionFixture f = new();
         (string material, _) = PhysCollisionEmitter.MassAndMaterial([-1], [50f], null, 1f, f.Props, ComplianceOptions.Correct);
 
@@ -310,7 +306,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task AOneConvexBrushEntityBuildsNoOuterHull()
     {
-        // ivp.cpp:1353: buildOuterConvexHull = count > 1.
+        //: buildOuterConvexHull = count > 1.
         CollisionFixture f = new();
         f.Box(1, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
 
@@ -357,7 +353,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task EveryLeafLosesTestFogVolumeAndItsWaterData()
     {
-        // ClearLeafWaterData, ivp.cpp:1475.
+        // ClearLeafWaterData.
         CollisionFixture f = new();
         f.Box(0, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
 
@@ -370,7 +366,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task AWaterVolumeIsAFluidBlockAfterTheSolids()
     {
-        // CPhysCollisionEntryFluid::WriteToTextBuffer, ivp.cpp:359-371.
+        // CPhysCollisionEntryFluid::WriteToTextBuffer.
         CollisionFixture f = new();
         f.Box(0, Lo, Hi, CollisionContents.Water, f.TexInfoFor("metal"));
         f.Water.Add(new WaterModel(0, CollisionContents.Water, true, new Vec3(0, 0, 1), 32f, 0, [0]));
@@ -388,7 +384,6 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task AWaterVolumesLeavesGetItsFogVolume()
     {
-        // ivp.cpp:1187.
         CollisionFixture f = new();
         f.Box(0, Lo, Hi, CollisionContents.Water, f.TexInfoFor("metal"));
         f.Water.Add(new WaterModel(0, CollisionContents.Water, true, new Vec3(0, 0, 1), 32f, 5, [0]));
@@ -401,7 +396,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task AWaterVolumeWithoutASurfaceTakesItsTopFromTheCollide()
     {
-        // ivp.cpp:1223-1228: CollideGetExtent along +Z.
+        //: CollideGetExtent along +Z.
         CollisionFixture f = new();
         f.Box(0, Lo, new Vec3(32, 32, 20), CollisionContents.Water, f.TexInfoFor("metal"));
         f.Water.Add(new WaterModel(0, CollisionContents.Water, false, new Vec3(1, 0, 0), 999f, 0, [0]));
@@ -414,7 +409,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task OnlyTheWorldsWaterVolumesAreEmitted()
     {
-        // ConvertWaterModelToPhysCollide is called for model 0 only (ivp.cpp:1335).
+        // ConvertWaterModelToPhysCollide is called for model 0 only.
         CollisionFixture f = new();
         f.Box(0, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
         f.Water.Add(new WaterModel(1, CollisionContents.Water, true, new Vec3(0, 0, 1), 32f, 0, [0]));
@@ -438,7 +433,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task StockFluidsAreAlwaysWater()
     {
-        // FluidSurfacePropIgnored, ivp.cpp:1211: the override reads a -1.
+        // FluidSurfacePropIgnored: the override reads a -1.
         (string key, _) = await WaterAsync(ComplianceOptions.Stock, 20f, surfaceTexInfo: 0);
 
         Assert.Contains("\"surfaceprop\" \"water\"", key, StringComparison.Ordinal);
@@ -463,7 +458,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task StockAddsAWaterBrushCrossingTheSurfaceWhole()
     {
-        // WaterBrushNotClippedAtSurface, ivp.cpp:1196: the brush reaches z=32, the surface is z=20.
+        // WaterBrushNotClippedAtSurface: the brush reaches z=32, the surface is z=20.
         (_, FakeCollisionCooker c) = await WaterAsync(ComplianceOptions.Stock, 32f, -1);
 
         Assert.Equal(6, c.Session.PlaneCalls[^1].Length);
@@ -532,7 +527,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task ADisplacementIsAVirtualMeshInPhysDisp()
     {
-        // Disp_BuildVirtualMesh, disp_ivp.cpp:274-336.
+        // Disp_BuildVirtualMesh.
         CollisionFixture f = new();
         f.Box(0, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
         f.Displacements.Add(new CollisionDisplacement(CollisionFixture.Displacement(), CollisionContents.Solid, 0, -1));
@@ -559,7 +554,6 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task APowerFourDisplacementForcesThePolysoupRoad()
     {
-        // ivp.cpp:1320-1324.
         CollisionFixture f = new();
         f.Box(0, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
         f.Displacements.Add(new CollisionDisplacement(CollisionFixture.Displacement(power: 4), CollisionContents.Solid, 0, -1));
@@ -574,7 +568,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task APolysoupTriangleUsesSurfaceProp2PastTheAlphaDelta()
     {
-        // disp_ivp.cpp:170-179: alpha sum > 382.5 switches to $surfaceprop2.
+        //: alpha sum > 382.5 switches to $surfaceprop2.
         CollisionFixture f = new() { NoVirtualMesh = true };
         int metal = f.TexInfoFor("metal");
         f.Box(0, Lo, Hi, CollisionContents.Solid, metal);
@@ -592,7 +586,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public void TheVirtualMeshServesTheIndicesReversed()
     {
-        // CDispMeshEvent's constructor swaps pIndices end for end, disp_ivp.cpp:223-226.
+        // CDispMeshEvent's constructor swaps pIndices end for end.
         var core = CollisionFixture.Displacement();
         List<ushort> forward = SourceSharp.MapTools.Disp.DispTesselator.Tesselate(core);
 
@@ -614,7 +608,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public void ADegenerateDisplacementTriangleStopsTheCompile()
     {
-        // disp_ivp.cpp:296-307: stock Error()s.
+        //: stock Errors.
         var core = CollisionFixture.Displacement();
         for (int i = 0; i < core.Size; i++)
         {
@@ -627,7 +621,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public void DisplacementsInOneGridCellHashTogether()
     {
-        // Disp_GridIndex, disp_ivp.cpp:50-69.
+        // Disp_GridIndex.
         var a = CollisionFixture.Displacement();
         var b = CollisionFixture.Displacement();
 
@@ -638,7 +632,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public void TriangleNormalIsTheSecondEdgeCrossTheFirst()
     {
-        // ivp.cpp:1237-1244: CrossProduct( e1, e0 ).
+        //: CrossProduct(e1, e0).
         Vec3 n = PhysCollisionEmitter.TriangleNormal(Vec3.Zero, new Vec3(0, 1, 0), new Vec3(1, 0, 0));
 
         Assert.Equal(new Vec3(0, 0, 1), n);

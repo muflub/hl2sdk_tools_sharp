@@ -8,7 +8,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
-/// <c>CCoreDispInfo</c>'s own passes (<c>public/builddisp.cpp</c>), one
+/// <c>CCoreDispInfo</c>'s own passes, one
 /// behaviour per fact, on hand-built quads.
 /// </summary>
 public sealed class CoreDispInfoTests
@@ -17,7 +17,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// The four grid corners are the quad's points, in the start-rotated order:
-    /// <c>GenerateDispSurf</c>, <c>builddisp.cpp:1947-1960</c>.
+    /// <c>GenerateDispSurf</c>.
     /// </summary>
     [Fact]
     public void TheGridCornersAreTheQuadPoints()
@@ -33,8 +33,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// A start position nearest point 2 rotates the grid so it begins there:
-    /// <c>FindSurfPointStartIndex</c> + <c>AdjustSurfPointData</c>,
-    /// <c>builddisp.cpp:340</c> and <c>:368</c>.
+    /// <c>FindSurfPointStartIndex</c> + <c>AdjustSurfPointData</c>.
     /// </summary>
     [Fact]
     public void TheStartPositionChoosesTheGridOrigin()
@@ -46,7 +45,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// A displaced vertex is its flat position plus field direction times
-    /// distance: <c>builddisp.cpp:1994</c>.
+    /// distance:.
     /// </summary>
     [Fact]
     public void ADisplacedVertexIsFlatPlusFieldTimesDistance()
@@ -58,7 +57,7 @@ public sealed class CoreDispInfoTests
         Assert.Equal(core.FlatVerts[i] + new Vec3(0, 0, 31), core.Vert(i));
     }
 
-    /// <summary>The flat vertices ignore the field: <c>m_FlatVert</c>, <c>builddisp.cpp:1981</c>.</summary>
+    /// <summary>The flat vertices ignore the field: <c>m_FlatVert</c>.</summary>
     [Fact]
     public void TheFlatVerticesIgnoreTheField()
     {
@@ -70,7 +69,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// The interior spacing is the edge divided by <c>2^power</c>:
-    /// <c>ooInt</c>, <c>builddisp.cpp:1930</c>.
+    /// <c>ooInt</c>.
     /// </summary>
     [Fact]
     public void TheGridSpacingIsTheEdgeOverTwoToThePower()
@@ -81,7 +80,7 @@ public sealed class CoreDispInfoTests
     }
 
     /// <summary>
-    /// Two triangles per grid square: <c>GetTriCount</c>, <c>builddisp.cpp:2946</c>.
+    /// Two triangles per grid square: <c>GetTriCount</c>.
     /// </summary>
     [Theory]
     [InlineData(2, 32)]
@@ -94,7 +93,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// An even flat index splits bottom-left to top-right:
-    /// <c>BuildTriBLtoTR</c>, <c>builddisp.cpp:915</c>, chosen at <c>:948</c>.
+    /// <c>BuildTriBLtoTR</c>.
     /// </summary>
     [Fact]
     public void AnEvenSquareSplitsBottomLeftToTopRight()
@@ -106,7 +105,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// An odd flat index splits top-left to bottom-right:
-    /// <c>BuildTriTLtoBR</c>, <c>builddisp.cpp:896</c>.
+    /// <c>BuildTriTLtoBR</c>.
     /// </summary>
     [Fact]
     public void AnOddSquareSplitsTopLeftToBottomRight()
@@ -118,7 +117,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// The parity is of the flat index, and the odd width makes the second row
-    /// start on the other diagonal: <c>builddisp.cpp:948</c>.
+    /// start on the other diagonal:.
     /// </summary>
     [Fact]
     public void TheSecondRowStartsOnTheOtherDiagonal()
@@ -132,7 +131,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// Texture coordinates interpolate bilinearly from the corners:
-    /// <c>CalcDispSurfCoords</c>, <c>builddisp.cpp:1549</c>.
+    /// <c>CalcDispSurfCoords</c>.
     /// </summary>
     [Fact]
     public void TextureCoordinatesInterpolateAcrossTheGrid()
@@ -147,7 +146,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// Luxel coordinates run from 0.5 to size + 0.5: <c>CalcLuxelCoords</c>,
-    /// <c>builddisp.cpp:506-512</c>, spread by <c>CalcDispSurfCoords</c>.
+    /// spread by <c>CalcDispSurfCoords</c>.
     /// </summary>
     [Fact]
     public void LuxelCoordinatesRunFromAHalfToTheSizePlusAHalf()
@@ -172,7 +171,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// A flat displacement's normals all equal the plane normal:
-    /// <c>GenerateDispSurfNormals</c>, <c>builddisp.cpp:1886</c>.
+    /// <c>GenerateDispSurfNormals</c>.
     /// </summary>
     [Fact]
     public void AFlatDisplacementsNormalsAreThePlaneNormal()
@@ -184,8 +183,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// On a planar slope every vertex's normal is the slope's normal: each fan
-    /// triangle is coplanar, <c>CalcNormalFromEdges</c>,
-    /// <c>builddisp.cpp:1732</c>.
+    /// triangle is coplanar, <c>CalcNormalFromEdges</c>.
     /// </summary>
     [Fact]
     public void APlanarSlopesNormalIsTheSlopeNormal()
@@ -203,7 +201,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// Under stock the averaged normal is NOT renormalised, so a crease vertex
-    /// carries a normal shorter than one: <c>builddisp.cpp:1835</c>.
+    /// carries a normal shorter than one:.
     /// </summary>
     [Fact]
     public void UnderStockACreaseVertexNormalIsShorterThanOne()
@@ -234,7 +232,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// A corner vertex has one quadrant, two triangles:
-    /// <c>DoesEdgeExist</c>, <c>builddisp.cpp:1854</c>.
+    /// <c>DoesEdgeExist</c>.
     /// </summary>
     [Theory]
     [InlineData(0, 0, 0, false)]
@@ -251,8 +249,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// With the texture axes unset — as they always are, nothing calls
-    /// <c>SetSAxis</c>/<c>SetTAxis</c> — every tangent is zero:
-    /// <c>builddisp.cpp:214</c> and <c>:1692</c>.
+    /// <c>SetSAxis</c>/<c>SetTAxis</c> — every tangent is zero.
     /// </summary>
     [Fact]
     public void TheTangentsAreZeroWhenTheAxesAreUnset()
@@ -266,7 +263,6 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// With the axes set, S is flipped when S x T agrees with the plane normal:
-    /// <c>builddisp.cpp:1718-1724</c>.
     /// </summary>
     [Fact]
     public void TheSTangentIsFlippedWhenTheAxesAgreeWithThePlane()
@@ -278,14 +274,14 @@ public sealed class CoreDispInfoTests
         core.Surface.TAxis = new Vec3(0, 1, 0);
         DisplacementLumpBuilder.DispMapToCoreDispInfo(disp, DispFixtures.Face(Floor), core, false);
 
-        // S = N x T = (-1, 0, 0), then negated because (S x T) . N > 0.
+        // S = N x T = (-1, 0, 0), then negated because (S x T). N > 0.
         Assert.Equal(new Vec3(1, 0, 0), core.TangentS[0]);
         Assert.Equal(new Vec3(0, 1, 0), core.TangentT[0]);
     }
 
     /// <summary>
     /// The quad-tree root's box is the box of every displaced vertex:
-    /// <c>CalcBoundingBoxAtNode</c>, <c>builddisp.cpp:1197</c>.
+    /// <c>CalcBoundingBoxAtNode</c>.
     /// </summary>
     [Fact]
     public void TheRootBoundsAreTheBoxOfTheDisplacedVertices()
@@ -300,7 +296,7 @@ public sealed class CoreDispInfoTests
     /// <summary>
     /// The root box is computed once in <c>Create</c> and does not follow a
     /// later <c>SetVert</c>, which is why <c>Disp_GridIndex</c> sees pre-snap
-    /// vertices (<c>disp_ivp.cpp:56</c>, <c>disp_vbsp.cpp:493</c>).
+    /// vertices.
     /// </summary>
     [Fact]
     public void TheRootBoundsDoNotFollowALaterSetVert()
@@ -315,7 +311,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// The top bit of <c>minTess</c> marks the rest as surface flags:
-    /// <c>InitDispInfo</c>, <c>builddisp.cpp:763-769</c>.
+    /// <c>InitDispInfo</c>.
     /// </summary>
     [Fact]
     public void AMinTessWithTheTopBitSetIsSurfaceFlags()
@@ -327,7 +323,7 @@ public sealed class CoreDispInfoTests
         Assert.Equal(6, core.Surface.Flags);
     }
 
-    /// <summary>A <c>minTess</c> without the top bit is dropped: <c>builddisp.cpp:763</c>.</summary>
+    /// <summary>A <c>minTess</c> without the top bit is dropped:.</summary>
     [Fact]
     public void AMinTessWithoutTheTopBitLeavesTheFlagsAlone()
     {
@@ -349,8 +345,8 @@ public sealed class CoreDispInfoTests
     }
 
     /// <summary>
-    /// Rebuilding from the lump's <c>CDispVert</c>s (vrad's path,
-    /// <c>builddisp.cpp:841</c>) reproduces vbsp's displaced vertices bit for
+    /// Rebuilding from the lump's <c>CDispVert</c>s (vrad's path.
+    ///) reproduces vbsp's displaced vertices bit for
     /// bit, because the lump stores exactly the direction and distance the
     /// VMF path used.
     /// </summary>
@@ -374,7 +370,7 @@ public sealed class CoreDispInfoTests
         }
     }
 
-    /// <summary>The lump path copies the triangle tags: <c>builddisp.cpp:857-861</c>.</summary>
+    /// <summary>The lump path copies the triangle tags:.</summary>
     [Fact]
     public void RebuildingFromTheLumpCopiesTheTriangleTags()
     {
@@ -389,8 +385,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// <c>SetAll</c> sets the spare bits past the vertex count too:
-    /// <c>CBitVec::SetAll</c>, as <c>SetupAllowedVerts</c> uses it
-    /// (<c>disp_common.cpp:1273</c>).
+    /// <c>CBitVec::SetAll</c>, as <c>SetupAllowedVerts</c> uses it.
     /// </summary>
     [Fact]
     public void SettingAllAllowedVertsSetsTheSpareBits()
@@ -417,7 +412,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// A neighbour lookup before the list is set is a bug, not a null:
-    /// <c>SetDispUtilsHelperInfo</c>, <c>builddisp.cpp:866</c>.
+    /// <c>SetDispUtilsHelperInfo</c>.
     /// </summary>
     [Fact]
     public void ANeighbourLookupWithoutAListThrows()
@@ -437,7 +432,7 @@ public sealed class CoreDispInfoTests
 
     /// <summary>
     /// A corner point is the DISPLACED corner, which is what corner-neighbour
-    /// matching compares (<c>disp_common.cpp:1003</c>).
+    /// matching compares.
     /// </summary>
     [Fact]
     public void ACornerPointIsTheDisplacedCorner()

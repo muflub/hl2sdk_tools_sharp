@@ -9,9 +9,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Collision;
 
 /// <summary>
-/// The keydata writer (<c>CTextBuffer</c>, <c>ivp.cpp:51-139</c>) and the two
-/// lumps' framing (<c>ivp.cpp:1591-1652</c>, <c>disp_ivp.cpp:316-336</c>,
-/// <c>bsplib.cpp:1556</c>).
+/// The keydata writer(<c>CTextBuffer</c>) and the two
+/// lumps' framing.
 /// </summary>
 public class PhysLumpFramingTests
 {
@@ -71,7 +70,7 @@ public class PhysLumpFramingTests
     [Fact]
     public void TheLumpEndsWithTheTerminatorAndIsNotPadded()
     {
-        // ivp.cpp:1646-1652: {-1, -1, 0, 0}; the 5-byte blob stays 5 bytes.
+        //: {-1, -1, 0, 0}; the 5-byte blob stays 5 bytes.
         byte[] lump = PhysCollideLump.Write([Model(0, [5], "k")]);
 
         Assert.Equal(16 + 4 + 5 + 2 + 16, lump.Length);
@@ -103,7 +102,6 @@ public class PhysLumpFramingTests
     [Fact]
     public void SwapAlignmentPadsEachSolidToFourAndRewritesItsSize()
     {
-        // bsplib.cpp:1611-1628.
         byte[] aligned = PhysCollideLump.AlignForSwap(PhysCollideLump.Write([Model(0, [5], "k")]));
 
         Assert.Equal(8, BinaryPrimitives.ReadInt32LittleEndian(aligned.AsSpan(16)));
@@ -113,7 +111,7 @@ public class PhysLumpFramingTests
     [Fact]
     public void SwapAlignmentPadsTheKeydataToAFourByteBoundary()
     {
-        // bsplib.cpp:1630-1644: dataSize 12 + keydata 2 -> 2 bytes of padding.
+        //: dataSize 12 + keydata 2 -> 2 bytes of padding.
         byte[] aligned = PhysCollideLump.AlignForSwap(PhysCollideLump.Write([Model(0, [5], "k")]));
 
         Assert.Equal(4, BinaryPrimitives.ReadInt32LittleEndian(aligned.AsSpan(8)));

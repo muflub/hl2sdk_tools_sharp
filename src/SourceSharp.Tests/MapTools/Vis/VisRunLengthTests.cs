@@ -7,8 +7,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Vis;
 
 /// <summary>
-/// The visibility lump's run-length coder
-/// (<c>utils/common/bsplib.cpp:1441</c> and <c>:1477</c>).
+/// The visibility lump's run-length coder.
 /// </summary>
 public class VisRunLengthTests
 {
@@ -51,7 +50,7 @@ public class VisRunLengthTests
     [Fact]
     public void ARunStopsAtTwoHundredAndFiftyFive()
     {
-        // bsplib.cpp:1458 breaks at rep == 255, so 300 zeroes is 255 then 45 --
+        // breaks at rep == 255, so 300 zeroes is 255 then 45.
         // NOT a truncated 300 and not a count that wrapped to 44.
         byte[] row = new byte[300];
         byte[] destination = new byte[VisRunLength.MaxCompressedLength(row.Length)];
@@ -131,7 +130,7 @@ public class VisRunLengthTests
     [Fact]
     public void AZeroRepeatCountIsRefused()
     {
-        // bsplib.cpp:1497 calls Error() here. A zero repeat can only come from
+        // calls Error here. A zero repeat can only come from
         // a corrupt lump, and silently treating it as "skip nothing" is how a
         // decoder walks off the end of a map.
         Assert.Throws<InvalidDataException>(() => VisRunLength.Decompress([0x00, 0x00], new byte[4]));
@@ -140,7 +139,7 @@ public class VisRunLengthTests
     [Fact]
     public void ARunThatOverrunsTheRowIsClamped()
     {
-        // bsplib.cpp:1500-1504 warns and clamps rather than erroring, so a map
+        // warns and clamps rather than erroring, so a map
         // whose last run is generous still loads.
         byte[] row = new byte[4];
         VisRunLength.Decompress([0x00, 0xFF], row);

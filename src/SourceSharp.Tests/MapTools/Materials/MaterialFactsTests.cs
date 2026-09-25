@@ -69,7 +69,7 @@ public class MaterialFactsTests
     [Fact]
     public async Task AMissingMaterialStillReportsTheFallbackDimensions()
     {
-        // utilmatlib.cpp:96-103 substitutes 128x128 rather than erroring, and
+        // substitutes 128x128 rather than erroring, and
         // that is what lands in TEXDATA.
         await using ContentFileSystem content = await new MaterialContent().MountAsync();
 
@@ -115,7 +115,7 @@ public class MaterialFactsTests
     [Fact]
     public async Task AnAbsentVariableIsNullAndNotEmpty()
     {
-        // Every caller in textures.cpp tests the pointer, so null is the
+        // Every caller in the reference implementation tests the pointer, so null is the
         // answer that keeps the C++'s control flow.
         await using ContentFileSystem content = await new MaterialContent()
             .AddMaterial("a/b", "LightmappedGeneric { }")
@@ -141,7 +141,7 @@ public class MaterialFactsTests
     [Fact]
     public async Task SubdivSizeIsAMaterialVariable()
     {
-        // faces.cpp:1745 reads it off the material. An earlier brief called it
+        // reads it off the material. An earlier brief called it
         // a vbsp command-line option; it is not one.
         await using ContentFileSystem content = await new MaterialContent()
             .AddMaterial("a/b", "LightmappedGeneric { $subdivsize 64 }")
@@ -192,7 +192,7 @@ public class MaterialFactsTests
     public async Task ChopIsRead()
     {
         // Read because the material carries it. vrad in this drop does not:
-        // vrad.cpp:644-663 is inside a comment block.
+        // is inside a comment block.
         await using ContentFileSystem content = await new MaterialContent()
             .AddMaterial("a/b", "LightmappedGeneric { %chop 32 }")
             .MountAsync();
@@ -218,7 +218,7 @@ public class MaterialFactsTests
     [Fact]
     public async Task AnExplicitReflectivityOverridesTheVtfHeader()
     {
-        // utilmatlib.cpp:112-127: $reflectivity is looked up FIRST and the
+        //: $reflectivity is looked up FIRST and the
         // texture's value is only the fallback.
         await using ContentFileSystem content = await new MaterialContent()
             .AddMaterial("a/b", "LightmappedGeneric { $basetexture a/b \"$reflectivity\" \"[1 0 0]\" }")
@@ -324,8 +324,7 @@ public class MaterialFactsTests
     public async Task APatchThatChangesSomethingReportsTheIncludedShader()
     {
         // The string "patch" does not survive resolution, so a patched water
-        // material answers "Water" to the shader-name test in
-        // textures.cpp:253.
+        // material answers "Water" to the shader-name test in.
         await using ContentFileSystem content = await new MaterialContent()
             .AddMaterial("base/water", "Water { $normalmap base/n }")
             .AddMaterial(
@@ -341,7 +340,7 @@ public class MaterialFactsTests
     [Fact]
     public async Task AnEmptyPatchStaysAPatchUnderTheCompilerDialect()
     {
-        // Not a defect in the port: materialpatch.cpp:347-359 reassigns
+        // Not a defect in the port: reassigns
         // keyValues only inside the insert and the replace branches, so a
         // patch carrying NEITHER never advances -- the loop spins to the depth
         // limit and the root is still "patch". A material of this shape
@@ -361,9 +360,9 @@ public class MaterialFactsTests
     public async Task AnEmptyPatchResolvesUnderTheEngineDialect()
     {
         // The other half of the same fact, and the reason the dialect is an
-        // option rather than a constant: cmaterial.cpp:3516 assigns the base
+        // option rather than a constant: assigns the base
         // wholesale whether or not the patch changed anything, and
-        // utilmatlib.cpp:71 goes through the ENGINE's FindMaterial.
+        // goes through the ENGINE's FindMaterial.
         await using ContentFileSystem content = await new MaterialContent()
             .AddMaterial("base/water", "Water { $normalmap base/n }")
             .AddMaterial("maps/x/water", "patch { include \"materials/base/water.vmt\" }")

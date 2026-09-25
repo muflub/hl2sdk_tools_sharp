@@ -7,8 +7,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Portals;
 
 /// <summary>
-/// The content tests that decide what a portal lets through
-/// (<c>portals.cpp:64-179</c>).
+/// The content tests that decide what a portal lets through.
 /// </summary>
 public class PortalContentsTests
 {

@@ -6,7 +6,7 @@ using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Bsp.Portals;
 
-/// <summary>The <c>.prt</c> file (<c>prtfile.cpp</c>).</summary>
+/// <summary>The <c>.prt</c> file.</summary>
 public class PortalFileBuilderTests
 {
     [Fact]
@@ -185,7 +185,7 @@ public class PortalFileBuilderTests
     [Fact]
     public void APortalWhoseWindingDISAGREESWithItsPlaneHasItsLeafOrderFLIPPED()
     {
-        // prtfile.cpp:66-74: "sometimes planes get turned around when they are
+        //: "sometimes planes get turned around when they are
         // very near the changeover point between different axis. Interpret the
         // plane the same way vis will, and flip the side orders if needed."
         //

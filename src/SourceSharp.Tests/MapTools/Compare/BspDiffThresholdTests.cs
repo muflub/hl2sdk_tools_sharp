@@ -201,7 +201,7 @@ public sealed class BspDiffThresholdTests : IClassFixture<LockdownDiffFixture>
     [Fact]
     public void TheLinearDecodeIsTheOneMathlibDocuments()
     {
-        // linear = c * 2^e / 255 (mathlib.h:975 with color_conversion.cpp:38's
+        // linear = c * 2^e / 255 (with the reference implementation's
         // power2_n = 2**(index-128)/255). Phase 0's headline maximum is the
         // green channel of 2fort sample #538369 moving from rgbe(_,182,_,0) to
         // rgbe(_,131,_,3), and reproducing that number here is what says the

@@ -17,7 +17,7 @@ namespace SourceSharp.Tests.MapTools.Validation;
 /// that fired on everything would still look proven.
 /// </para>
 /// <para>
-/// <c>dm_lockdown.bsp</c> is deliberately an AWKWARD specimen: BSP version 19,
+/// <c>dm_lockdown.bsp</c> is deliberately an AWKWARD specimen: BSP version 19.
 /// LEAFS at lump version 0 with 56-byte leaves and the ambient cube inline, no
 /// HDR lumps, no leaf-ambient lumps, and it carries lump 49 and lump 32, which
 /// the current bsplib abandoned. None of that is a defect and no rule here may

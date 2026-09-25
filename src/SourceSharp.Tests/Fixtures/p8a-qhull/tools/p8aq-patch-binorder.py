@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """p8aq-patch-binorder.py - make csrc-binorder/: the oracle sources (csrc/, qhull 2.6 +
 P8AQ_IDHASH) with every floating-point expression the IVP options reach rewritten to the
-grouping GCC 10.3 -ffast-math emitted in vphysics.so (SDK build; objdump addresses cited).
+grouping the reference collision build's -ffast-math codegen evaluates them.
 Compile it -ffp-contract=off -fno-fast-math: the explicit parentheses then fix the order.
 
 Each rewrite is asserted to apply exactly once."""
 import os
 import shutil
 
-P = os.path.expanduser('~/.cache/maptools/lanes/p8a/qhullport')
+P = os.environ.get('P8AQ_SCRATCH', os.path.expanduser('~/p8aq')) + '/qhullport'
 src = os.path.join(P, 'csrc')
 dst = os.path.join(P, 'csrc-binorder')
 if os.path.exists(dst):

@@ -12,7 +12,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.SurfaceContent;
 /// Overlays against stock, per catalogue entry. I3: the map is 3a's load of
 /// the stock VMF and the face order is STOCK's — each face's side comes from
 /// LUMP_FACEIDS, which <c>EmitFace</c> writes from <c>f-&gt;originalface-&gt;id</c>
-/// (<c>writebsp.cpp:456-457</c>) in exactly the order it calls
+/// in exactly the order it calls
 /// <c>Overlay_AddFaceToLists</c>.
 /// </summary>
 public class OverlayStockTests
@@ -64,7 +64,7 @@ public class OverlayStockTests
     [MemberData(nameof(P3gStock.Entries), MemberType = typeof(P3gStock))]
     public async Task EveryOverlayTexInfoIsStocksByValue(string name)
     {
-        // Stock's index is after CompactTexinfos (writebsp.cpp:800-830), which
+        // Stock's index is after CompactTexinfos, which
         // is 3e's; the entry it points at must be the same texinfo.
         (OverlayLumps lumps, BspData stock, VbspContext context) = await RunAsync(name);
 

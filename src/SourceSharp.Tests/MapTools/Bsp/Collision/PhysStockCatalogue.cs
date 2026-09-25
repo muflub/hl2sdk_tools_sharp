@@ -16,13 +16,12 @@ namespace SourceSharp.Tests.MapTools.Bsp.Collision;
 /// <remarks>
 /// <para>
 /// <c>PHYS_STOCK_DIR</c> names a directory of <c>&lt;n&gt;.bsp</c> written by
-/// stock x64 <c>vbsp.exe</c> (the integrator's
-/// <c>~/.cache/maptools/ref/catmaps</c>; <c>.stockvis</c>/<c>.stockrad</c>
-/// copies are ignored). Recipe: <c>~/.cache/maptools/bin/make-catmaps</c>.
+/// stock x64 <c>vbsp.exe</c>; <c>.stockvis</c>/<c>.stockrad</c> copies are
+/// ignored. Recipe: the catalogue build, <c>make-catmaps</c>.
 /// </para>
 /// <para>
-/// STAGE ISOLATION: the input is stock's OWN finished lumps -- BRUSHES,
-/// BRUSHSIDES, PLANES, NODES, LEAFS, LEAFBRUSHES, MODELS, FACES, TEXINFO --
+/// STAGE ISOLATION: the input is stock's OWN finished lumps -- BRUSHES.
+/// BRUSHSIDES, PLANES, NODES, LEAFS, LEAFBRUSHES, MODELS, FACES, TEXINFO.
 /// so the planes the cooker sees are bit-identical to the ones stock's cooker
 /// saw, and any byte difference is the cooker's, not the port's. Three inputs
 /// are not in any lump and are reconstructed, each named where it is used:
@@ -173,7 +172,7 @@ internal static class PhysStockCatalogue
             // taken as connected: the portals that decided it are not in the BSP.
             foreach (List<int> pool in Components(leafs, members))
             {
-                // A volume with no surface keeps BuildWaterLeaf's MAX_COORD_INTEGER (ivp.cpp:972);
+                // A volume with no surface keeps BuildWaterLeaf's MAX_COORD_INTEGER;
                 // its fluid plane then comes from CollideGetExtent, as in stock.
                 bool hasSurface = waterData[fog].SurfaceZ != CollisionContents.MaxCoordInteger;
                 models.Add((pool.Max(), new WaterModel(0, leafs[pool[0]].Contents, hasSurface, new(0, 0, 1), waterData[fog].SurfaceZ, fog, pool, waterData[fog].SurfaceTexInfoId)));
@@ -181,7 +180,7 @@ internal static class PhysStockCatalogue
         }
 
         // InsertSortWaterLeaf puts an equal leaf BEFORE the ones already in the
-        // list (IsLowerLeaf, ivp.cpp:709), so the last leaf in tree order leads.
+        // list(IsLowerLeaf), so the last leaf in tree order leads.
         return [.. models.OrderBy(m => m.Model.FogVolumeIndex).ThenByDescending(m => m.Last).Select(m => m.Model)];
     }
 

@@ -8,7 +8,7 @@ namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
 /// LUMP_DISP_LIGHTMAP_SAMPLE_POSITIONS: <c>CalculateLightmapSamplePositions</c>
-/// and its helpers, <c>utils/vbsp/disp_vbsp.cpp:47-137</c>.
+/// and its helpers.
 /// </summary>
 public sealed class LightmapSamplePositionsTests
 {
@@ -42,7 +42,7 @@ public sealed class LightmapSamplePositionsTests
 
     /// <summary>
     /// A sample outside every triangle is not found:
-    /// <c>FindTriIndexMapByUV</c>, <c>disp_vbsp.cpp:58-91</c>.
+    /// <c>FindTriIndexMapByUV</c>.
     /// </summary>
     [Fact]
     public void ASampleOutsideTheDisplacementIsNotFound()
@@ -56,7 +56,6 @@ public sealed class LightmapSamplePositionsTests
     /// <summary>
     /// The first luxel centre (0.5, 0.5) is the first vertex, and some
     /// triangle of <c>CPowerInfo</c>'s list contains it:
-    /// <c>disp_vbsp.cpp:66-88</c>.
     /// </summary>
     [Fact]
     public void TheFirstLuxelIsFound()
@@ -69,7 +68,7 @@ public sealed class LightmapSamplePositionsTests
 
     /// <summary>
     /// A found sample is one index byte and three weights, each
-    /// <c>(byte)(w * 255.9f)</c>: <c>disp_vbsp.cpp:112-125</c>.
+    /// <c>(byte)(w * 255.9f)</c>:.
     /// </summary>
     [Fact]
     public void AFoundSampleIsAnIndexAndThreeTruncatedWeights()
@@ -86,7 +85,7 @@ public sealed class LightmapSamplePositionsTests
     }
 
     /// <summary>
-    /// There are (U + 1) x (V + 1) samples: <c>disp_vbsp.cpp:95-96</c>.
+    /// There are (U + 1) x (V + 1) samples:.
     /// </summary>
     [Fact]
     public void ThereIsOneSamplePerLuxelCornerPlusOne()
@@ -101,7 +100,6 @@ public sealed class LightmapSamplePositionsTests
 
     /// <summary>
     /// A triangle index of 255 or more takes two bytes, 255 then the rest:
-    /// <c>disp_vbsp.cpp:114-122</c>.
     /// </summary>
     [Fact]
     public void AHighTriangleIndexTakesTwoBytes()

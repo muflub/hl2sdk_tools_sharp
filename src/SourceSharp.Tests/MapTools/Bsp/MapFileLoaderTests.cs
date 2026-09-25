@@ -29,8 +29,7 @@ public class MapFileLoaderTests
 
     /// <summary>
     /// A box's six sides are already the six axial planes, so
-    /// <c>AddBrushBevels</c> adds none and returns early at
-    /// <c>map.cpp:536</c>.
+    /// <c>AddBrushBevels</c> adds none and returns early at.
     /// </summary>
     [Fact]
     public async Task APureAxialBoxNeedsNoBevels()
@@ -62,7 +61,7 @@ public class MapFileLoaderTests
     }
 
     /// <summary>
-    /// <c>map.cpp:2745-2748</c>: a side with no visible contents and no clip
+    ///: a side with no visible contents and no clip
     /// contents is made solid.
     /// </summary>
     [Fact]
@@ -81,8 +80,8 @@ public class MapFileLoaderTests
     /// the flags that happen to have names.
     /// </summary>
     /// <remarks>
-    /// <c>bspflags.h:34-36</c> spells it
-    /// <c>LAST_VISIBLE_CONTENTS | (LAST_VISIBLE_CONTENTS-1)</c> —
+    /// spells it
+    /// <c>LAST_VISIBLE_CONTENTS | (LAST_VISIBLE_CONTENTS-1)</c>.
     /// <c>0x80 | 0x7F</c> — so every bit below <c>CONTENTS_OPAQUE</c> is in it
     /// whether or not it is named, and the mask stays right when a new bit is
     /// added under that ceiling. Writing it as an OR of names dropped
@@ -102,7 +101,7 @@ public class MapFileLoaderTests
 
     /// <summary>
     /// <c>CONTENTS_BLOCKLOS</c> is inside <c>ALL_VISIBLE_CONTENTS</c>, so the
-    /// solid default at <c>map.cpp:2745-2748</c> does NOT fire for it.
+    /// solid default does NOT fire for it.
     /// </summary>
     /// <remarks>
     /// The behavioural half of the mask. Observed on the catalogue as
@@ -121,7 +120,7 @@ public class MapFileLoaderTests
     }
 
     /// <summary>
-    /// <c>map.cpp:2751-2754</c>: a hint or skip side has its contents cleared
+    ///: a hint or skip side has its contents cleared
     /// to NOTHING, after the solid default has already been applied. The order
     /// of those two is the behaviour.
     /// </summary>
@@ -138,7 +137,7 @@ public class MapFileLoaderTests
     }
 
     /// <summary>
-    /// <c>map.cpp:2857-2861</c>: the <c>material</c> key ASSIGNS the side's
+    ///: the <c>material</c> key ASSIGNS the side's
     /// contents, so a <c>contents</c> key that came before it is overwritten
     /// and one that comes after is OR'd on top.
     /// </summary>
@@ -167,7 +166,7 @@ public class MapFileLoaderTests
     }
 
     /// <summary>
-    /// <c>map.cpp:2899-2900</c>: the <c>flags</c> key ORs into the placement's
+    ///: the <c>flags</c> key ORs into the placement's
     /// flags but ASSIGNS the side's surface from the result.
     /// </summary>
     [Fact]
@@ -189,7 +188,7 @@ public class MapFileLoaderTests
     }
 
     /// <summary>
-    /// <c>map.cpp:407-440</c>: the base is the FIRST side's contents and the
+    ///: the base is the FIRST side's contents and the
     /// other sides contribute only the four transparent bits.
     /// </summary>
     [Fact]
@@ -212,8 +211,8 @@ public class MapFileLoaderTests
     }
 
     /// <summary>
-    /// <c>IsAreaPortal</c> is a hand-written prefix compare
-    /// (<c>map.cpp:445</c>), so it is case-SENSITIVE and it also refuses a
+    /// <c>IsAreaPortal</c> is a hand-written prefix compare,
+    /// so it is case-SENSITIVE and it also refuses a
     /// classname shorter than the prefix.
     /// </summary>
     [Theory]
@@ -227,7 +226,7 @@ public class MapFileLoaderTests
 
     /// <summary>
     /// An origin brush sets the entity's origin from its centre and is then
-    /// discarded (<c>map.cpp:3070-3092</c>). The origin is formatted with
+    /// discarded. The origin is formatted with
     /// <c>%i</c> on a float, which truncates toward zero.
     /// </summary>
     [Fact]
@@ -252,7 +251,7 @@ public class MapFileLoaderTests
     }
 
     /// <summary>
-    /// <c>map.cpp:3047-3060</c>: a world clip brush has every side's texinfo
+    ///: a world clip brush has every side's texinfo
     /// replaced with <c>TEXINFO_NODE</c>, and the first one is remembered
     /// because it is about to be erased.
     /// </summary>
@@ -304,7 +303,7 @@ public class MapFileLoaderTests
 
     /// <summary>
     /// <c>classname func_detail</c> sets the base contents the SUBSEQUENT
-    /// solids are loaded with, so it only works when the key precedes them —
+    /// solids are loaded with, so it only works when the key precedes them.
     /// which is why the loader walks the chunk's children in file order.
     /// </summary>
     [Fact]
@@ -331,7 +330,7 @@ public class MapFileLoaderTests
     }
 
     /// <summary>
-    /// <c>map.cpp:1445-1478</c>: a <c>func_ladder</c> gains six bounds keys, is
+    ///: a <c>func_ladder</c> gains six bounds keys, is
     /// moved into the world, and becomes an <c>info_ladder</c>.
     /// </summary>
     [Fact]
@@ -365,7 +364,7 @@ public class MapFileLoaderTests
 
     /// <summary>
     /// The <c>id</c> key is stored under the name <c>hammerid</c>
-    /// (<c>map_shared.cpp:46</c>) and does NOT also land under <c>id</c>.
+    /// and does NOT also land under <c>id</c>.
     /// </summary>
     [Fact]
     public void TheEntityIdKeyIsRenamedToHammerid()

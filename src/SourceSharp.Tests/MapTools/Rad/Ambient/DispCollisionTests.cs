@@ -7,10 +7,9 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Ambient;
 
 /// <summary>
-/// The ray half of <c>CDispCollTree</c> (<c>dispcoll_common.cpp</c>),
-/// <c>ComputeIntersectionBarycentricCoordinates</c> (<c>collisionutils.cpp:140</c>),
-/// <c>IsBoxIntersectingRay</c> (<c>:642</c>) and <c>DispTested_t</c>
-/// (<c>vraddisps.cpp:539</c>).
+/// The ray half of <c>CDispCollTree</c>.
+/// <c>ComputeIntersectionBarycentricCoordinates</c>.
+/// <c>IsBoxIntersectingRay</c> and <c>DispTested_t</c>.
 /// </summary>
 public sealed class DispCollisionTests
 {
@@ -44,14 +43,14 @@ public sealed class DispCollisionTests
     [Fact]
     public void MortonIndexInterleavesXIntoTheEvenBits()
     {
-        // dispcoll_common.h:409: x = 3 (0b11), y = 1 (0b1) -> 0b0111.
+        //: x = 3 (0b11), y = 1 (0b1) -> 0b0111.
         Assert.Equal(7, DispCollisionTree.IndexFromComponents(3, 1));
     }
 
     [Fact]
     public void NodeCountIncludesTheLeaves()
     {
-        // dispcoll_common.h:363: power 2 is 1 + 4 + 16 = 21.
+        //: power 2 is 1 + 4 + 16 = 21.
         Assert.Equal(21, DispCollisionTree.NodesCalcCount(2));
     }
 
@@ -78,7 +77,7 @@ public sealed class DispCollisionTests
     public void TheLuxelCoordinateIsInterpolatedFromTheVertices()
     {
         // 16 units per luxel over a 64-unit edge: CalcLuxelCoords makes it
-        // int(64/16) + 1 = 5 luxels, corners at 0.5 and 5.5 (builddisp.cpp:475),
+        // int(64/16) + 1 = 5 luxels, corners at 0.5 and 5.5,
         // so (20, 30) sits at 0.5 + 5*20/64, 0.5 + 5*30/64.
         DispCollisionTree tree = Flat();
 
@@ -108,7 +107,7 @@ public sealed class DispCollisionTests
     [Fact]
     public void ANoRayCollisionDisplacementIsTransparent()
     {
-        // dispcoll_common.cpp:569, SURF_NORAY_COLL.
+        //, SURF_NORAY_COLL.
         DispCollisionTree tree = Flat(flags: DispCollisionTree.SurfNoRayColl);
 
         Assert.False(tree.Ray(new Vec3(20, 30, 10), new Vec3(0, 0, -20), out _));
@@ -117,7 +116,7 @@ public sealed class DispCollisionTests
     [Fact]
     public void ANonOpaqueDisplacementIsTransparent()
     {
-        // dispcoll_common.cpp:573, contents & MASK_OPAQUE.
+        //, contents & MASK_OPAQUE.
         DispCollisionTree tree = Flat(contents: 0x8);
 
         Assert.False(tree.Ray(new Vec3(20, 30, 10), new Vec3(0, 0, -20), out _));
@@ -126,7 +125,6 @@ public sealed class DispCollisionTests
     [Fact]
     public void TheBoundsAreBloatedByAUnit()
     {
-        // dispcoll_common.cpp:486-490.
         DispCollisionTree tree = Flat();
 
         Assert.Equal((new Vec3(-1, -1, -1), new Vec3(65, 65, 1)), (tree.Mins, tree.Maxs));

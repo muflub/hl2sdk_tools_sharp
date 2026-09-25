@@ -78,7 +78,7 @@ public class StockLoadCatalogueTests
     /// <remarks>
     /// <para>
     /// <b>This is the gate this lane exists for.</b> <c>EmitPlanes</c>
-    /// (<c>writebsp.cpp:46</c>) copies <c>g_MainMap-&gt;mapplanes</c> into
+    /// copies <c>g_MainMap-&gt;mapplanes</c> into
     /// LUMP_PLANES index for index and discards nothing — its own comment says
     /// "There is no oportunity to discard planes, because all of the original
     /// brushes will be saved in the map." So stock's lump IS its plane table,
@@ -86,7 +86,7 @@ public class StockLoadCatalogueTests
     /// plane <c>i</c> there.
     /// </para>
     /// <para>
-    /// A PREFIX, and measurably so. The later stages append to the same table —
+    /// A PREFIX, and measurably so. The later stages append to the same table.
     /// CSG, the BSP build and face merging all call <c>FindFloatPlane</c> — so
     /// stock's lump is longer than the load-time table by however many they
     /// added (24 of 40 on <c>l0_unit_cube</c>). The table is append-only, so
@@ -97,7 +97,7 @@ public class StockLoadCatalogueTests
     /// The comparison is on BIT PATTERNS and not on float equality, which is
     /// what makes the sign of zero part of it: an axial plane's opposite has
     /// two zero components, and <c>CreateNewFloatPlane</c> builds them with
-    /// <c>0 - x</c> rather than <c>-x</c> (<c>map.cpp:223</c>). Unary negation
+    /// <c>0 - x</c> rather than <c>-x</c>. Unary negation
     /// would put <c>-0.0f</c> in the lump, which is the same number and
     /// different bytes — and this fact is where that is caught.
     /// </para>
@@ -302,8 +302,8 @@ public class StockLoadCatalogueTests
     /// </para>
     /// <para>
     /// An axial plane's normal, by contrast, comes from <c>SnapVector</c>,
-    /// which clears the vector and sets one component
-    /// (<c>map.cpp:263-264</c>), so its zeros are <c>+0.0f</c>; and its
+    /// which clears the vector and sets one component,
+    /// so its zeros are <c>+0.0f</c>; and its
     /// opposite's zeros stay <c>+0.0f</c> ONLY because the pair is built with
     /// <c>0 - x</c>. That is the claim, and it is worth its own fact because
     /// the element-for-element comparison would also pass if both sides were
@@ -522,7 +522,7 @@ public class StockLoadCatalogueTests
     /// <returns>A task.</returns>
     /// <remarks>
     /// <para>
-    /// The values come from <c>MapTools/Materials</c>, not from this lane —
+    /// The values come from <c>MapTools/Materials</c>, not from this lane.
     /// what this lane decides is which names land in the table and in what
     /// order. The check is still here because a texdata whose dimensions are
     /// wrong is a wrong lump whoever caused it.
@@ -624,9 +624,9 @@ public class StockLoadCatalogueTests
     /// "Nothing was compacted away" makes stock's final table the load-time
     /// table only when no stage after the load created a texdata. Several do,
     /// and they APPEND: <c>Overlay_EmitOverlayFace</c> makes the overlay
-    /// material's texdata in <c>EndBSPFile</c> (<c>overlay.cpp:258</c>), and
+    /// material's texdata in <c>EndBSPFile</c>, and
     /// <c>AssignBottomWaterMaterialToFace</c> the water's underside in
-    /// <c>MakeFaces</c> (<c>faces.cpp:1287</c>). l1_overlay is the map that
+    /// <c>MakeFaces</c>. l1_overlay is the map that
     /// shows it once the reference is compiled against the right content:
     /// "Reduced 4 texdatas to 4" with three made by the load.
     /// </para>

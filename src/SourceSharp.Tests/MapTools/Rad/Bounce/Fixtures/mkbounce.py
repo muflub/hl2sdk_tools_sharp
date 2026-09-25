@@ -5,12 +5,12 @@ Inputs (stock x64 vrad.exe under wine, -threads 1 -verbose):
   CAT/<n>.vradv.log      the unified corpus (ref/catmaps-all)
   P4C/rad/<n>.log        p4c's texlight fixture (ref/p4c)
 
-The lines are printed by vrad.cpp:1933 (Msg, always):
+The reference prints the transfer line (always):
     transfers %d, max %d
-and vrad.cpp:1715 (qprintf, -verbose only):
+and, under -verbose only, the bounce line:
     \tBounce #%i added RGB(%.0f, %.0f, %.0f)
 
-A map stock did not bounce (no vis data: vrad.cpp:2245-2251) prints neither
+A map stock did not bounce (no vis data) prints neither
 and is left out.
 
 usage: mkbounce.py <catmaps-all dir> <p4c ref dir> > stock-vrad-bounce.txt

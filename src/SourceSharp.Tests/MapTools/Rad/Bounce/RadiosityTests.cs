@@ -11,7 +11,7 @@ using SurfaceFlags = SourceSharp.MapTools.Materials.SurfaceFlags;
 
 namespace SourceSharp.Tests.MapTools.Rad.Bounce;
 
-/// <summary><c>GatherLight</c>, <c>CollectLight</c> and <c>BounceLight</c> (<c>vrad.cpp:1413-1725</c>).</summary>
+/// <summary><c>GatherLight</c>, <c>CollectLight</c> and <c>BounceLight</c>.</summary>
 public sealed class RadiosityTests
 {
     private static async Task<(Radiosity Radiosity, RadWorld World, TransferSet Transfers)> PrepareAsync(
@@ -30,7 +30,7 @@ public sealed class RadiosityTests
 
     /// <summary>
     /// The first step moves each patch's direct light into its emission and
-    /// zeroes its total (<c>vrad.cpp:1661-1668</c>).
+    /// zeroes its total.
     /// </summary>
     [Fact]
     public async Task TheDirectLightMovesIntoTheEmission()
@@ -48,7 +48,7 @@ public sealed class RadiosityTests
 
     /// <summary>
     /// A flat patch receives <c>sum(emit * reflectivity * transfer)</c> over
-    /// its list, in list order (<c>vrad.cpp:1631-1640</c>).
+    /// its list, in list order.
     /// </summary>
     [Fact]
     public async Task AFlatPatchSumsEmitTimesReflectivityTimesTransfer()
@@ -82,7 +82,7 @@ public sealed class RadiosityTests
 
     /// <summary>
     /// A bumped patch divides out its own cosine and re-applies it per normal
-    /// (<c>:1604-1621</c>); for the flat slot, whose normal is the patch
+    ///; for the flat slot, whose normal is the patch
     /// normal, that is the flat sum again, give or take rounding.
     /// </summary>
     [Fact]
@@ -117,7 +117,7 @@ public sealed class RadiosityTests
 
     /// <summary>
     /// CollectLight adds a leaf's received light to its total and makes it the
-    /// next emission (<c>:1433-1440</c>).
+    /// next emission.
     /// </summary>
     [Fact]
     public async Task ALeafsReceivedLightBecomesItsEmission()
@@ -159,7 +159,7 @@ public sealed class RadiosityTests
         Assert.Equal(expected, r.CollectLight());
     }
 
-    /// <summary>A parent's light is its children's, weighted by area (<c>:1453-1466</c>).</summary>
+    /// <summary>A parent's light is its children's, weighted by area.</summary>
     [Fact]
     public async Task AParentIsItsChildrenAreaWeighted()
     {
@@ -183,7 +183,7 @@ public sealed class RadiosityTests
         Assert.Equal((c1.TotalLight.Flat * s1) + (c2.TotalLight.Flat * s2), p.TotalLight.Flat);
     }
 
-    /// <summary>A sky patch emits nothing: "sky's never collect light, it is just dropped" (<c>:1426-1429</c>).</summary>
+    /// <summary>A sky patch emits nothing: "sky's never collect light, it is just dropped".</summary>
     [Fact]
     public async Task ASkyPatchEmitsNothing()
     {
@@ -199,7 +199,7 @@ public sealed class RadiosityTests
         Assert.Equal(Vec3.Zero, r.EmitLight[sky]);
     }
 
-    /// <summary>CollectLight clears what was received (<c>:1468-1471</c>).</summary>
+    /// <summary>CollectLight clears what was received.</summary>
     [Fact]
     public async Task CollectLightClearsTheReceivedLight()
     {
@@ -211,7 +211,7 @@ public sealed class RadiosityTests
         Assert.Equal(default, r.AddLight[j]);
     }
 
-    /// <summary>The loop stops after <c>numbounce</c> bounces (<c>:1717</c>).</summary>
+    /// <summary>The loop stops after <c>numbounce</c> bounces.</summary>
     [Fact]
     public async Task TheBounceStopsAtTheBounceCount()
     {
@@ -222,7 +222,7 @@ public sealed class RadiosityTests
 
     /// <summary>
     /// The loop stops after the first bounce that adds under 1 in all three
-    /// channels, that bounce included (<c>:1717</c>).
+    /// channels, that bounce included.
     /// </summary>
     [Fact]
     public async Task TheBounceStopsWhenABounceAddsUnderOne()
@@ -238,7 +238,7 @@ public sealed class RadiosityTests
 
     /// <summary>
     /// After the bounce a patch's total holds BOUNCED light only: the direct
-    /// light was moved out first (<c>:1661-1668</c>).
+    /// light was moved out first.
     /// </summary>
     [Fact]
     public async Task TheTotalHoldsOnlyBouncedLight()
@@ -264,7 +264,7 @@ public sealed class RadiosityTests
 
     /// <summary>
     /// <c>PreGetBumpNormalsForDisp</c>: texture and lightmap axes that agree
-    /// are used as they are, normalised (<c>vrad.cpp:1506-1530</c>).
+    /// are used as they are, normalised.
     /// </summary>
     [Fact]
     public void AlignedDisplacementAxesAreUsedAsTheyAre()
@@ -277,8 +277,7 @@ public sealed class RadiosityTests
 
     /// <summary>
     /// Axes more than <c>acos(0.999)</c> apart are re-expressed through
-    /// <c>ConcatTransforms(light, tex)</c>: column 0 is light * texU
-    /// (<c>vrad.cpp:1517-1526</c>).
+    /// <c>ConcatTransforms(light, tex)</c>: column 0 is light * texU.
     /// </summary>
     [Fact]
     public void MisalignedDisplacementAxesAreConverted()

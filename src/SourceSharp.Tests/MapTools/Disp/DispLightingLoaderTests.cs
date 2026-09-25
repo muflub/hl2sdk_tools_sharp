@@ -11,8 +11,7 @@ namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
 /// vrad's rebuild of displacements from a compiled BSP:
-/// <c>CVRadDispMgr::DispBuilderInit</c> and <c>UnserializeDisps</c>,
-/// <c>utils/vrad/vraddisps.cpp:348-468</c>.
+/// <c>CVRadDispMgr::DispBuilderInit</c> and <c>UnserializeDisps</c>.
 /// </summary>
 public sealed class DispLightingLoaderTests
 {
@@ -20,7 +19,7 @@ public sealed class DispLightingLoaderTests
 
     private static readonly Vec3[] Right = DispFixtures.FloorQuad(new Vec3(256, 0, 0), 256, 256);
 
-    /// <summary>The surface handle is the face index: <c>vraddisps.cpp:359</c>.</summary>
+    /// <summary>The surface handle is the face index:.</summary>
     [Fact]
     public void TheSurfaceHandleIsTheFaceIndex()
     {
@@ -31,7 +30,6 @@ public sealed class DispLightingLoaderTests
 
     /// <summary>
     /// Every corner normal is the quad's plane normal before the rotation:
-    /// <c>vraddisps.cpp:381-386</c>.
     /// </summary>
     [Fact]
     public void TheCornerNormalsAreThePlaneNormal()
@@ -43,7 +41,7 @@ public sealed class DispLightingLoaderTests
 
     /// <summary>
     /// The neighbour tables are copied from the lump, not re-found:
-    /// <c>SetNeighborData</c>, <c>vraddisps.cpp:407</c>.
+    /// <c>SetNeighborData</c>.
     /// </summary>
     [Fact]
     public void TheNeighbourTablesAreCopiedFromTheLump()
@@ -67,8 +65,7 @@ public sealed class DispLightingLoaderTests
 
     /// <summary>
     /// Load rebuilds each displacement at its LUMP_DISPINFO index from an
-    /// in-memory BSP, with its neighbours' normals sewn
-    /// (<c>vraddisps.cpp:427-455</c>).
+    /// in-memory BSP, with its neighbours' normals sewn.
     /// </summary>
     [Fact]
     public void LoadRebuildsEveryDisplacementAndSewsTheSharedEdge()

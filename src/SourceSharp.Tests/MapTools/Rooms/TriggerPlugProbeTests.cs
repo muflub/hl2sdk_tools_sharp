@@ -23,7 +23,7 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// If either half of this is false the design changes: a plug that does not
 /// stop the flood means the linker must do BSP surgery; a plug that vis sees
 /// through means the room's PVS already includes its neighbours. Stock
-/// makes a trigger side solid at <c>map.cpp:2747</c> (a trigger material sets
+/// makes a trigger side solid (a trigger material sets
 /// surface flags, no contents, and the no-visible-contents rule then adds
 /// <c>CONTENTS_SOLID</c>); the facts here pin that the port does the same.
 /// </remarks>

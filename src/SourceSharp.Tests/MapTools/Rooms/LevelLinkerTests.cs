@@ -27,7 +27,7 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// </summary>
 public sealed class LevelLinkerTests
 {
-    // ---- the door graph, end to end --------------------------------------
+    // ---- the door graph, end to end -------------------------------------.
 
     /// <summary>
     /// Every linked PVS row equals the transitive closure of "own vvis row,
@@ -83,7 +83,7 @@ public sealed class LevelLinkerTests
     }
 
     /// <summary>
-    /// The superset gate (§10b's premise): compile the same ring as ONE map —
+    /// The superset gate (§10b's premise): compile the same ring as ONE map.
     /// <see cref="RoomModel.BuildMerged"/>, which drops the plugs at jointed
     /// sockets so the rooms merge — run the real vvis on it, and every pair
     /// the monolithic map's PVS can see must be visible in the linked map too.
@@ -155,12 +155,12 @@ public sealed class LevelLinkerTests
         }
     }
 
-    // ---- the cap mutation: doors are the only cross-room sight -----------
+    // ---- the cap mutation: doors are the only cross-room sight ----------.
 
     /// <summary>
     /// Three rooms in a line, one door each. Capping the A–B joint (both sides
     /// drop the joint and cap the socket; the plugs stay) must remove exactly
-    /// the pairs that travelled that bridge — A–B and A–C, both directions —
+    /// the pairs that travelled that bridge — A–B and A–C, both directions.
     /// and change nothing else: B still sees C, every room still sees itself.
     /// </summary>
     [Fact]
@@ -214,7 +214,7 @@ public sealed class LevelLinkerTests
         }
     }
 
-    // ---- refusals: one broken guarantee, named ----------------------------
+    // ---- refusals: one broken guarantee, named ---------------------------.
 
     /// <summary>
     /// Rule 2's layout half: a socket that is neither jointed nor capped is
@@ -243,7 +243,7 @@ public sealed class LevelLinkerTests
     }
 
     /// <summary>
-    /// Rule 3's compile half: a room whose compile has no open interior leaf —
+    /// Rule 3's compile half: a room whose compile has no open interior leaf.
     /// here a fully solid BSP — is refused. The hand-built compile is the
     /// linter's public input: a solid-only leaf lump is what such a room's
     /// vbsp output would be.
@@ -291,7 +291,7 @@ public sealed class LevelLinkerTests
             refused.Message);
     }
 
-    // ---- I4: the bytes cannot depend on the schedule -----------------------
+    // ---- I4: the bytes cannot depend on the schedule ----------------------.
 
     /// <summary>
     /// Invariant I4: the same layout linked on one worker and on thirty-two
@@ -337,7 +337,7 @@ public sealed class LevelLinkerTests
         }
     }
 
-    // ---- the heavy tier: gated, runs in the corpus measure window ----------
+    // ---- the heavy tier: gated, runs in the corpus measure window ---------.
 
     /// <summary>
     /// The corpus tier, scaled between the unit grids and L4: a 3×3 of two
@@ -737,7 +737,7 @@ public sealed class LevelLinkerTests
 /// mount marks the window in which the heavy compile/link rows are expected to
 /// run, so the default fleet suite stays at its baseline skip count without
 /// them. The recipe is the corpus mount itself:
-/// <code>PP_CATMAPS_DIR=$HOME/.cache/maptools/ref/catmaps-pp dotnet test --filter SixteenRoomGridLinks</code>
+/// <code>PP_CATMAPS_DIR=&lt;catalogue directory&gt; dotnet test --filter SixteenRoomGridLinks</code>
 /// </summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 public sealed class RoomLinkCorpusFactAttribute : FactAttribute

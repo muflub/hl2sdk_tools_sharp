@@ -8,7 +8,7 @@ using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Bsp.SurfaceContent;
 
-/// <summary><c>utils/vbsp/detailobjects.cpp</c> and the two CRT behaviours it rests on.</summary>
+/// <summary> and the two CRT behaviours it rests on.</summary>
 public class DetailPropTests
 {
     [Fact]
@@ -42,7 +42,7 @@ public class DetailPropTests
     [Fact]
     public void TheGaussianStreamReturnsItsSecondValueOnTheNextCall()
     {
-        // random.cpp: one pair per two calls; the second call draws nothing.
+        //: one pair per two calls; the second call draws nothing.
         GaussianRandomStream gaussian = new();
         StockRandomStream uniform = new(3);
         gaussian.RandomFloat(ref uniform, 0f, 1f);
@@ -78,7 +78,6 @@ public class DetailPropTests
     [Fact]
     public void AnEqualAlphaGroupGoesBeforeTheExistingOne()
     {
-        // detailobjects.cpp:111-119.
         DetailDictionary dictionary = Parse("\"t\" { \"g1\" { \"alpha\" \"1\" \"m\" { \"model\" \"a\" } } \"g2\" { \"alpha\" \"1\" \"m\" { \"model\" \"b\" } } }");
 
         Assert.Equal(["b", "a"], dictionary.Types[0].Groups.Select(g => g.Models[0].ModelName));
@@ -95,7 +94,6 @@ public class DetailPropTests
     [Fact]
     public void AMinAngleBelowTheMaxIsRaisedToIt()
     {
-        // detailobjects.cpp:231-235.
         DetailModel model = OneModel("\"model\" \"a\" \"minAngle\" \"60\" \"maxAngle\" \"30\"");
 
         Assert.Equal(model.MaxCosAngle, model.MinCosAngle);
@@ -104,7 +102,7 @@ public class DetailPropTests
     [Fact]
     public void AmountsAreARunningTotalRenormalisedPastOne()
     {
-        // detailobjects.cpp:215-216,241-247.
+        //,241-247.
         DetailDictionary dictionary = Parse("\"t\" { \"g\" { \"a\" { \"model\" \"a\" \"amount\" \"1\" } \"b\" { \"model\" \"b\" \"amount\" \"3\" } } }");
 
         Assert.Equal([0.25f, 1f], dictionary.Types[0].Groups[0].Models.Select(m => m.Amount));
@@ -121,7 +119,6 @@ public class DetailPropTests
     [Fact]
     public void ASpriteTakesItsTextureRectangleHalfATexelIn()
     {
-        // detailobjects.cpp:176-179.
         DetailModel model = OneModel("\"sprite\" \"0 0 64 64 512\"");
 
         Assert.Equal((0.5f / 512, 0.5f / 512), model.Tex[0]);
@@ -132,7 +129,6 @@ public class DetailPropTests
     [Fact]
     public void ASpriteWithoutSpriteSizeIsTheDefaultCard()
     {
-        // detailobjects.cpp:181-182.
         DetailModel model = OneModel("\"sprite\" \"0 0 64 64 512\"");
 
         Assert.Equal([(-10f, 20f), (10f, 0f)], model.Pos);
@@ -141,7 +137,7 @@ public class DetailPropTests
     [Fact]
     public void SpriteSizeCentresTheCardOnItsOrigin()
     {
-        // detailobjects.cpp:184-196: "0.5 0 32 32" -> (-16, 32), (16, -0).
+        //: "0.5 0 32 32" -> (-16, 32), (16, -0).
         DetailModel model = OneModel("\"sprite\" \"0 0 64 64 512\" \"spritesize\" \"0.5 0 32 32\"");
 
         Assert.Equal((-16f, 32f), model.Pos[0]);
@@ -158,7 +154,7 @@ public class DetailPropTests
     [Fact]
     public void SwayIsClampedAndQuantised()
     {
-        // detailobjects.cpp:201-202: clamp to 1, then (uchar)(255.0 * x).
+        //: clamp to 1, then (uchar)(255.0 * x).
         Assert.Equal(255, OneModel("\"sprite\" \"0 0 64 64 512\" \"sway\" \"4\"").SwayAmount);
         Assert.Equal(127, OneModel("\"sprite\" \"0 0 64 64 512\" \"sway\" \"0.5\"").SwayAmount);
     }
@@ -166,21 +162,20 @@ public class DetailPropTests
     [Fact]
     public void ShapeAngleWrapsAtAByte()
     {
-        // detailobjects.cpp:206, GetInt into an unsigned char.
+        //, GetInt into an unsigned char.
         Assert.Equal(104, OneModel("\"sprite\" \"0 0 64 64 512\" \"shape_angle\" \"360\"").ShapeAngle);
     }
 
     [Fact]
     public void AShortSpriteKeyIsFatal()
     {
-        // detailobjects.cpp:170-174.
         Assert.Throws<MapCompileException>(() => OneModel("\"sprite\" \"0 0 64 64\""));
     }
 
     [Fact]
     public void AModelBlockWithNoKeysIsNotAModel()
     {
-        // detailobjects.cpp:129, GetFirstSubKey.
+        //, GetFirstSubKey.
         DetailDictionary dictionary = Parse("\"t\" { \"g\" { \"empty\" { } \"m\" { \"model\" \"a\" } } }");
 
         Assert.Single(dictionary.Types[0].Groups[0].Models);
@@ -199,7 +194,7 @@ public class DetailPropTests
     [Fact]
     public void AFlatFaceWithTwoGroupsTakesTheLastWithoutADraw()
     {
-        // SelectGroup, :326-337: alpha 1 walks past every group.
+        // SelectGroup,:326-337: alpha 1 walks past every group.
         DetailDictionary dictionary = Parse("\"t\" { \"lo\" { \"alpha\" \"0\" \"m\" { \"model\" \"a\" } } \"hi\" { \"alpha\" \"1\" \"m\" { \"model\" \"b\" } } }");
         MsvcRandom random = new(1);
 
@@ -223,7 +218,7 @@ public class DetailPropTests
     [Fact]
     public void ADrawPastTheLastAmountSelectsNothing()
     {
-        // SelectDetail, :366-372.
+        // SelectDetail,:366-372.
         DetailGroup group = new();
         group.Models.Add(new DetailModel { Amount = 0f });
         MsvcRandom random = new(1);
@@ -251,7 +246,7 @@ public class DetailPropTests
     [Fact]
     public void AWallDetailIsRolledOntoTheWall()
     {
-        // A +X facing wall: x is along the normal, so :586-587 swaps in +Y;
+        // A +X facing wall: x is along the normal, so:586-587 swaps in +Y;
         // forward becomes +Y (yaw 90) and up +X, a roll of 90.
         Vec3 angles = DetailPropEmitter.ConformingAngles(new Vec3(1f, 0f, 0f), 0, ComplianceOptions.Correct);
 

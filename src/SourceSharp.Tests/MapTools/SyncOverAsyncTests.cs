@@ -25,7 +25,7 @@ namespace SourceSharp.Tests.MapTools;
 /// </para>
 /// <para>
 /// The scan reads IL because the source-level shapes are open-ended.
-/// <c>.Result</c>, <c>.Wait()</c>, <c>GetAwaiter().GetResult()</c>,
+/// <c>.Result</c>, <c>.Wait</c>, <c>GetAwaiter.GetResult</c>.
 /// <c>Task.WaitAll</c> and <c>ValueTask.Result</c> all compile down to calls
 /// this walker sees by name, including the ones hidden behind a helper or a
 /// generic.
@@ -61,7 +61,7 @@ public class SyncOverAsyncTests
     /// <remarks>
     /// This distinction is the whole difficulty of the scan, and getting it
     /// wrong in either direction is silent. Every `await` emits
-    /// <c>awaiter.GetResult()</c> inside a compiler-generated
+    /// <c>awaiter.GetResult</c> inside a compiler-generated
     /// <c>MoveNext</c> — the first version of this fact flagged all of them and
     /// reported the entire library as broken. Exempting <c>MoveNext</c>
     /// wholesale would be the opposite error, because `.Result` written inside
@@ -149,7 +149,7 @@ public class SyncOverAsyncTests
     /// The first is the async state machine: C# names it after the method that
     /// produced it, in angle brackets — <c>&lt;LoadAsync&gt;d__12</c> — and its
     /// <c>MoveNext</c> is where every <c>await</c> becomes
-    /// <c>awaiter.GetResult()</c>. Those brackets are not legal in a C#
+    /// <c>awaiter.GetResult</c>. Those brackets are not legal in a C#
     /// identifier, so a hand-written type cannot collide with the pattern.
     /// </para>
     /// <para>
@@ -180,7 +180,7 @@ public class SyncOverAsyncTests
         MemberReference member = metadata.GetMemberReference((MemberReferenceHandle)handle);
         string memberName = metadata.GetString(member.Name);
 
-        // A call on a GENERIC type -- TaskAwaiter<T>.GetResult(), which is
+        // A call on a GENERIC type -- TaskAwaiter<T>.GetResult, which is
         // most of what this rule is looking for -- has a TypeSpecification
         // parent, not a TypeReference: the parent is the INSTANTIATED type and
         // lives in a signature blob.

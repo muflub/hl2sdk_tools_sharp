@@ -11,13 +11,12 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// <remarks>
 /// <para>
 /// Stock's <c>Trace4Rays</c> does not clip a hit to <c>TMax</c>: the clip is
-/// commented out at <c>raytrace.cpp:496</c>, so a triangle sitting in the same
+/// commented out, so a triangle sitting in the same
 /// KD leaf as the segment's end is reported even when it lies beyond it. Every
 /// visibility caller in vrad therefore tests the distance itself --
 /// <c>TestLine</c> keeps a hit only when <c>HitDistance &lt; len</c>
-/// (<c>trace.cpp:171</c>) and <c>CTransferMaker::Finish</c> makes a transfer
-/// when <c>HitID == -1 || HitDistance &gt;= ray_length</c>
-/// (<c>vismat.cpp:86</c>).
+/// and <c>CTransferMaker::Finish</c> makes a transfer
+/// when <c>HitID == -1 || HitDistance &gt;= ray_length</c>.
 /// </para>
 /// <para>
 /// The seam's visibility operation answers "does anything block this
@@ -34,7 +33,7 @@ public sealed class KdRayTracerSegmentTests
     /// <remarks>
     /// The second quad is there so the scene's bounds contain the rays'
     /// starts: with the far quad alone, the entry clip against the scene box
-    /// (<c>raytrace.cpp:367-380</c>) already rejects a segment that stops short
+    /// already rejects a segment that stops short
     /// of it, and the defect never reaches the leaf test.
     /// </remarks>
     private static KdRayTracer QuadAt(float z) =>
@@ -55,7 +54,7 @@ public sealed class KdRayTracerSegmentTests
 
     /// <summary>
     /// A surface past the end of the segment does not block it
-    /// (<c>trace.cpp:171</c>, <c>vismat.cpp:86</c>). This was red before the
+    ///. This was red before the
     /// fix: the bit was set for any hit on the infinite line's first KD leaf.
     /// </summary>
     [Fact]
@@ -88,8 +87,8 @@ public sealed class KdRayTracerSegmentTests
 
     /// <summary>
     /// A hit exactly AT the segment's end does not block it: stock's test is
-    /// strict (<c>HitDistance &lt; len</c>, <c>trace.cpp:171</c>), and
-    /// <c>vismat.cpp:86</c> makes the transfer at <c>&gt;=</c>.
+    /// strict(<c>HitDistance &lt; len</c>), and
+    /// makes the transfer at <c>&gt;=</c>.
     /// </summary>
     [Fact]
     public void AHitExactlyAtTheEndDoesNotBlock()

@@ -12,7 +12,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Tree;
 
 /// <summary>
-/// <c>tree.cpp</c>: the tree walks, <c>PruneNodes</c> and the release path.
+///: the tree walks, <c>PruneNodes</c> and the release path.
 /// </summary>
 public class TreeOperationsTests
 {

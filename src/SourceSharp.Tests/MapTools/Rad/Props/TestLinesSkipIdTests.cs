@@ -6,7 +6,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Props;
 
 /// <summary>
-/// <c>KdRayTracer.TestLines</c>' <c>skip_id</c> (<c>raytrace.cpp:475</c>),
+/// <c>KdRayTracer.TestLines</c>' <c>skip_id</c>,
 /// which static-prop lighting uses so a <c>NO_SELF_SHADOWING</c> prop does not
 /// shadow itself.
 /// </summary>

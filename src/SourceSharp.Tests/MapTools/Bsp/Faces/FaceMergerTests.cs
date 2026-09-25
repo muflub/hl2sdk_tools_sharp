@@ -11,7 +11,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Faces;
 
 /// <summary>
 /// Joining two coplanar faces across a shared edge
-/// (<c>TryMergeWinding</c>, <c>src/utils/vbsp/faces.cpp:944</c>).
+///(<c>TryMergeWinding</c>).
 /// </summary>
 public class FaceMergerTests
 {
@@ -22,13 +22,13 @@ public class FaceMergerTests
     /// </summary>
     /// <remarks>
     /// Source windings are CLOCKWISE seen from the side their normal points
-    /// to: <c>BaseWindingForPlane</c> (<c>polylib.cpp:302-312</c>) emits
-    /// <c>org - vright + vup</c>, <c>org + vright + vup</c>, ... which for a
+    /// to: <c>BaseWindingForPlane</c> emits
+    /// <c>org - vright + vup</c>, <c>org + vright + vup</c>,... which for a
     /// +Z plane is (1,1), (1,-1), (-1,-1), (-1,1). The fixtures here wind
     /// counter-clockwise about +Z, so their plane faces DOWN. Only a fact whose
     /// answer depends on the sign of <c>TryMergeWinding</c>'s convexity test
-    /// (<c>faces.cpp:991</c> and <c>:1003</c>, where <c>CrossProduct(planenormal, delta)</c>
-    /// must point OUT of the polygon) can tell the two apart.
+    /// (where <c>CrossProduct(planenormal, delta)</c> must point OUT of the
+    /// polygon) can tell the two apart.
     /// </remarks>
     private static readonly Vec3 Down = new(0f, 0f, -1f);
 

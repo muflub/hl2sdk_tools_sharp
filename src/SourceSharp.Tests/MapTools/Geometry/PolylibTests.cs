@@ -6,9 +6,9 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Geometry;
 
 /// <summary>
-/// The port of <c>utils/common/polylib.cpp</c>, one behaviour per fact, with
-/// expected values worked out by hand from the C++ rather than recorded from a
-/// run of this code.
+/// The port of the reference implementation, one behaviour per fact, with
+/// expected values worked out by hand from the reference implementation rather
+/// than recorded from a run of this code.
 /// </summary>
 public class PolylibTests
 {
@@ -41,7 +41,7 @@ public class PolylibTests
     [Fact]
     public void BaseWindingForPlaneUsesXAsUpForAZMajorPlane()
     {
-        // polylib.cpp:283 -- a Z-major plane takes vup = (1,0,0). With
+        // -- a Z-major plane takes vup = (1,0,0). With
         // normal = +Z: vright = vup x normal = (0,-1,0), both scaled to 65536,
         // so p0 = org - vright + vup = (65536, 65536, 0).
         var arena = new WindingArena();
@@ -52,7 +52,7 @@ public class PolylibTests
     [Fact]
     public void BaseWindingForPlaneUsesZAsUpForAnXMajorPlane()
     {
-        // polylib.cpp:279-281 -- an X-major or Y-major plane takes vup =
+        // -- an X-major or Y-major plane takes vup =
         // (0,0,1). With normal = +X: vright = (0,0,1) x (1,0,0) = (0,1,0), so
         // p0 = org - vright + vup = (0, -65536, 65536). This is what makes the
         // starting quad's vertex ORDER depend on the plane's orientation.
@@ -64,7 +64,7 @@ public class PolylibTests
     [Fact]
     public void BaseWindingForPlaneReachesFourTimesTheCoordinateLimit()
     {
-        // polylib.cpp:296 scales by MAX_COORD_INTEGER*4. A legal map only
+        // scales by MAX_COORD_INTEGER*4. A legal map only
         // reaches 16384, so the starting quad is four times larger than
         // anything it can be clipped against.
         Assert.Equal(4f * GeometryEpsilons.MaxCoordInteger, GeometryEpsilons.BaseWindingExtent);
@@ -88,8 +88,7 @@ public class PolylibTests
     [Fact]
     public void BaseWindingForPlaneWindsTheQuadInStocksOrder()
     {
-        // p0 = -right +up, p1 = +right +up, p2 = +right -up, p3 = -right -up
-        // (polylib.cpp:302-312).
+        // p0 = -right +up, p1 = +right +up, p2 = +right -up, p3 = -right -up.
         var arena = new WindingArena();
         Winding w = arena.BaseWindingForPlane(new Vec3(0f, 0f, 1f), 0f);
         Span<Vec3> p = arena.Points(w);
@@ -105,7 +104,7 @@ public class PolylibTests
     [Fact]
     public void CopyTakesItsCapacityFromThePointCountNotTheSourceCapacity()
     {
-        // polylib.cpp:329 -- AllocWinding(w->numpoints), not maxpoints. So
+        // -- AllocWinding(w->numpoints), not maxpoints. So
         // copying a 68-point reservation holding 3 points gives a 3-point
         // winding, and copying is also how stock compacts.
         var arena = new WindingArena();
@@ -130,7 +129,7 @@ public class PolylibTests
     [Fact]
     public void ReverseMovesTheFirstPointToTheEnd()
     {
-        // polylib.cpp:349 -- c->p[i] = w->p[numpoints-1-i]. A reversal that
+        // -- c->p[i] = w->p[numpoints-1-i]. A reversal that
         // pinned point 0 and reversed the rest would describe the same polygon
         // and pass every geometric check, while putting every index-paired
         // consumer off by one.
@@ -143,7 +142,7 @@ public class PolylibTests
         Assert.Equal(new Vec3(0f, 0f, 0f), p[3]);
     }
 
-    // ---- Area, centre, bounds ----------------------------------------------
+    // ---- Area, centre, bounds ---------------------------------------------.
 
     [Fact]
     public void AreaOfAUnitSquareIsOne()
@@ -166,7 +165,7 @@ public class PolylibTests
     [Fact]
     public void CentreIsTheVertexAverageAndNotTheAreaCentroid()
     {
-        // polylib.cpp:197 averages the VERTICES. A 4x4 square with one extra
+        // averages the VERTICES. A 4x4 square with one extra
         // vertex halfway along its bottom edge still has its area centroid at
         // (2,2), but the vertex average is pulled to (2, 1.6).
         var arena = new WindingArena();
@@ -205,7 +204,7 @@ public class PolylibTests
     [Fact]
     public void BalancePointOfAZeroAreaWindingStaysAtTheOrigin()
     {
-        // polylib.cpp:241's `if (total)` guard.
+        // the reference implementation's `if (total)` guard.
         var arena = new WindingArena();
         Winding w = arena.Create([
             new Vec3(1f, 1f, 0f), new Vec3(2f, 1f, 0f), new Vec3(3f, 1f, 0f)
@@ -227,7 +226,7 @@ public class PolylibTests
     [Fact]
     public void BoundsOfAnEmptyWindingComeBackInsideOutAtNinetyNineThousand()
     {
-        // polylib.cpp:176 seeds with +/-99999 and not with infinities or with
+        // seeds with +/-99999 and not with infinities or with
         // MAX_COORD_INTEGER. The inside-out result is what a union loop uses as
         // its identity element, so it is load-bearing rather than sloppy.
         var arena = new WindingArena();
@@ -241,7 +240,7 @@ public class PolylibTests
     [Fact]
     public void WindingPlaneCrossesTheSecondEdgeWithTheFirstAndNotTheOtherWayRound()
     {
-        // polylib.cpp:142 is CrossProduct(v2, v1, normal). For this triangle
+        // is CrossProduct(v2, v1, normal). For this triangle
         // v1 x v2 would give +Z; the stock order gives -Z, and since portals
         // are matched to their opposites by plane sign, the other order would
         // invert visibility.
@@ -256,7 +255,7 @@ public class PolylibTests
     [Fact]
     public void WindingPlaneIgnoresPointTwoWhenThereAreMoreThanThreePoints()
     {
-        // polylib.cpp:134's "HACKHACK: Avoid potentially collinear verts" takes
+        // the reference implementation's "HACKHACK: Avoid potentially collinear verts" takes
         // the second edge to point 3. So moving point 2 anywhere at all does
         // not change the plane of a four-point winding.
         var arena = new WindingArena();
@@ -352,7 +351,7 @@ public class PolylibTests
     [Fact]
     public void ClipSendsACoplanarWindingToTheBackAndNotTheFront()
     {
-        // polylib.cpp:399 -- `if (!counts[0])`, and counts[0] is the FRONT
+        // -- `if (!counts[0])`, and counts[0] is the FRONT
         // count. A winding entirely inside the epsilon slab has no front points
         // and no back points, takes that branch, and comes out as BACK with the
         // front left null. Any caller reading only the front silently drops
@@ -371,7 +370,7 @@ public class PolylibTests
     [Fact]
     public void ClassifySendsACoplanarWindingToOnRatherThanToBack()
     {
-        // The extra early-out at polylib.cpp:547 is the ONLY difference between
+        // The extra early-out is the ONLY difference between
         // the two functions, and it means they genuinely disagree about a
         // coplanar winding.
         var arena = new WindingArena();
@@ -442,7 +441,7 @@ public class PolylibTests
     [Fact]
     public void ClipSnapsTheSplitPointOntoAnAxialPlaneInsteadOfInterpolating()
     {
-        // polylib.cpp:449 -- when normal[j] is exactly 1 the new vertex takes
+        // -- when normal[j] is exactly 1 the new vertex takes
         // `dist` outright. Here the interpolation would give
         // -1 + 0.55f*2 == 0.10000002384, which is NOT 0.1f. This is why a
         // grid-aligned map comes out with exactly-integral vertices.
@@ -474,7 +473,7 @@ public class PolylibTests
     [Fact]
     public void ClipDoesNotFreeItsInput()
     {
-        // polylib.cpp:364's ClipWindingEpsilon leaves `in` alone; only
+        // the reference implementation's ClipWindingEpsilon leaves `in` alone; only
         // ChopWinding frees it. Three windings are live afterwards.
         var arena = new WindingArena();
         Winding w = arena.Create(CentredSquare());
@@ -488,7 +487,7 @@ public class PolylibTests
     [Fact]
     public void ClipReservesFourMoreThanTheInputPointCount()
     {
-        // polylib.cpp:410 -- "cant use counts[0]+2 because of fp grouping
+        // -- "cant use counts[0]+2 because of fp grouping
         // errors". Stock does not trust its own side classification to agree
         // with the interpolation that follows it.
         var arena = new WindingArena();
@@ -504,7 +503,7 @@ public class PolylibTests
     public void ClipRejectsAWindingTooLongForTheSideBuffer()
     {
         // Stock writes dists[numpoints] into an array of MAX_POINTS_ON_WINDING
-        // + 4 entries (polylib.cpp:367 and :395), so a 68-point winding runs
+        // + 4 entries(and:395), so a 68-point winding runs
         // one past the end. The port refuses the input instead.
         var arena = new WindingArena();
         Winding w = arena.SetCount(arena.Alloc(100), 100);
@@ -529,7 +528,7 @@ public class PolylibTests
     [Fact]
     public void ChopFreesBothTheInputAndTheDiscardedBack()
     {
-        // polylib.cpp:740-742. One winding live afterwards, not three.
+        //. One winding live afterwards, not three.
         var arena = new WindingArena();
         Winding w = arena.Create(CentredSquare());
         arena.Chop(w, new Vec3(1f, 0f, 0f), 0f);
@@ -540,7 +539,7 @@ public class PolylibTests
     [Fact]
     public void ChopInPlaceReturnsTheVERYSAMEHandleWhenNothingIsBehindThePlane()
     {
-        // polylib.cpp:671 -- "inout stays the same". No copy is made and the
+        // -- "inout stays the same". No copy is made and the
         // original is not freed, which is the one behaviour ClipWindingEpsilon
         // does NOT share: it would have copied.
         var arena = new WindingArena();
@@ -596,7 +595,7 @@ public class PolylibTests
     [Fact]
     public void CheckRejectsAnAreaBelowOneSquareUnit()
     {
-        // polylib.cpp:765's threshold is ABSOLUTE, so a legitimately tiny face
+        // the reference implementation's threshold is ABSOLUTE, so a legitimately tiny face
         // is rejected exactly as readily as a degenerate one.
         var arena = new WindingArena();
         Winding w = arena.Create([
@@ -714,7 +713,7 @@ public class PolylibTests
     [Fact]
     public void PointInWindingAcceptsAPointExactlyOnAnEdge()
     {
-        // polylib.cpp:901's test is `< 0.0f` with no epsilon at all, so an
+        // the reference implementation's test is `< 0.0f` with no epsilon at all, so an
         // on-edge point is inside and a point one float outside it is not.
         var arena = new WindingArena();
         Assert.True(arena.PointInWinding(
@@ -742,7 +741,7 @@ public class PolylibTests
     [Fact]
     public void ClipWithAnOffsetLeavesTheInputWhereItStarted()
     {
-        // polylib.cpp:474-476 translates in, clips, and translates back.
+        // translates in, clips, and translates back.
         var arena = new WindingArena();
         Winding w = arena.Create(CentredSquare());
 
@@ -769,7 +768,7 @@ public class PolylibTests
     [Fact]
     public void ClassifyWithAnOffsetTranslatesTheOnResultBackToo()
     {
-        // polylib.cpp:500 -- the `on` output gets the same correction as the
+        // -- the `on` output gets the same correction as the
         // other two, which the two-way offset clipper has no equivalent for.
         var arena = new WindingArena();
         Winding w = arena.Create(CentredSquare());

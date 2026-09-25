@@ -14,8 +14,8 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// <para>
 /// These files are not a golden output of THIS port. They were produced by
 /// stock's own <c>CLightSurface</c> and <c>EnumerateNodesAlongRay_R</c>, cut
-/// out of <c>vraddetailprops.cpp</c> and <c>bsplib.cpp</c> by line range and
-/// compiled -- so the comparison below is against Valve's arithmetic rather
+/// out of the reference implementation and by line range and
+/// compiled -- so the comparison below is against the reference implementation's arithmetic rather
 /// than against a previous run of ours. <c>Fixtures/README-bsp-rays.md</c>
 /// carries the exact commands and the extraction hashes.
 /// </para>

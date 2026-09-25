@@ -6,8 +6,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Vis;
 
 /// <summary>
-/// <c>ChopWinding</c> and <c>ClipToSeperators</c>
-/// (<c>utils/vvis/flow.cpp:118</c> and <c>:239</c>).
+/// <c>ChopWinding</c> and <c>ClipToSeperators</c>.
 /// </summary>
 public class VisClipTests
 {
@@ -103,7 +102,7 @@ public class VisClipTests
     [Fact]
     public void AnAxisAlignedPlaneGivesASplitPointExactlyOnIt()
     {
-        // flow.cpp:199-207. The interpolation for this case lands at
+        //. The interpolation for this case lands at
         // 3.1000004; the special case assigns the plane distance itself.
         Vec3[] winding =
         [
@@ -170,7 +169,7 @@ public class VisClipTests
     [Fact]
     public void AChopThatWouldNeedThirteenPointsKeepsTheOriginal()
     {
-        // flow.cpp:167-171. A 24-gon cut in half needs 14 points, which does
+        //. A 24-gon cut in half needs 14 points, which does
         // not fit a MAX_POINTS_ON_FIXED_WINDING winding, so stock hands back
         // the UNCUT polygon -- a more conservative answer, never a smaller one.
         Vec3[] circle = new Vec3[24];
@@ -211,8 +210,8 @@ public class VisClipTests
     [Fact]
     public void TheEpsilonIsTheDoubleTheHeaderSpells()
     {
-        // mathlib.h:311 spells it 0.01 with no `f`. That is not a typographic
-        // detail: the two values bracket a float, and flow.cpp:272 compares a
+        // spells it 0.01 with no `f`. That is not a typographic
+        // detail: the two values bracket a float, and compares a
         // float against it with `<`.
         Assert.Equal(0.01d, VisClip.OnVisEpsilon);
         Assert.NotEqual((double)0.01f, VisClip.OnVisEpsilon);
@@ -331,7 +330,7 @@ public class VisClipTests
     /// <summary>
     /// The corridor of <see cref="ATargetBehindEveryCandidatePlaneIsClippedAway"/>,
     /// shrunk until every separating plane's cross product is degenerate by the
-    /// rule at <c>flow.cpp:272</c>.
+    /// rule.
     /// </summary>
     /// <param name="scale">How much to shrink by.</param>
     /// <returns>The three windings.</returns>
@@ -370,7 +369,7 @@ public class VisClipTests
     [Fact]
     public void ADegenerateSeparatorIsSkippedAndTheTargetSurvives()
     {
-        // flow.cpp:272, the squared-length-versus-linear-epsilon quirk, as
+        //, the squared-length-versus-linear-epsilon quirk, as
         // behaviour rather than as a constant. At this scale every candidate
         // separating plane has a squared cross length below ON_VIS_EPSILON, so
         // stock skips all of them and the target is not clipped -- even though

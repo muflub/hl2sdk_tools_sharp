@@ -2,18 +2,18 @@
 # p4c: extra stock vrad references over the shared catalogue (and p4c's own fixtures).
 # Stock vrad strips everything after the first dot of its argument, so each mode
 # runs on a plain-named copy in its own directory:
-#   ref/p4c/b0/<n>.bsp   + <n>.log   stock vrad -threads 1 -verbose -bounce 0  (direct-only lightmaps)
-#   ref/p4c/both/<n>.bsp + <n>.log   stock vrad -threads 1 -verbose -both       (LDR + HDR worldlights)
+# ref/p4c/b0/<n>.bsp + <n>.log stock vrad -threads 1 -verbose -bounce 0 (direct-only lightmaps)
+# ref/p4c/both/<n>.bsp + <n>.log stock vrad -threads 1 -verbose -both (LDR + HDR worldlights)
 # Input: catmaps/<n>.stockvis.bsp, else ref/p4c/in/<n>.bsp (+ <n>.rad if present).
-# usage: p4c-stockref.sh [map names...]   (default: every catalogue map)
+# usage: stockref.sh [map names...] (default: every catalogue map)
 set -u
-W=/home/lodle/git/source-sdk-2013/.claude/worktrees/agent-a3a01371543c92a1b
-CAT=$HOME/.cache/maptools/ref/catmaps
-OUT=$HOME/.cache/maptools/ref/p4c
-CAP=$HOME/.cache/maptools/bin/run-capped
-TOOLS=/home/lodle/sdk2013-win-tools/bin/x64
+W=${P4C_GAME_ROOT:?the toolgame tree holding tools/mapgame}
+CAT=${CATMAPS_DIR:?the unified stock catalogue directory}
+OUT=${P4C_STOCK_DIR:?the p4c reference output directory}
+CAP=${RUN_CAPPED:?path to the capped-run wrapper}
+TOOLS=${STOCK_WIN_TOOLS_BIN:?directory holding the stock win-x64 tools}
 WINE="$HOME/.steam/steam/steamapps/common/Proton - Experimental/files/bin/wine"
-export WINEPREFIX=$HOME/.local/share/source-sdk-wineprefix WINEDEBUG=-all SteamAppUser=sourcesharp
+export WINEPREFIX=$HOME/.local/share/sourcesharp-wineprefix WINEDEBUG=-all SteamAppUser=sourcesharp
 G="Z:$W/tools/mapgame"
 mkdir -p "$OUT/b0" "$OUT/both"
 names=("$@")

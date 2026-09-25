@@ -21,9 +21,9 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// <param name="StockHitId">Stock's hit TRIANGLE INDEX per ray, or -1.</param>
 /// <param name="StockDistance">Stock's hit distance per ray.</param>
 /// <remarks>
-/// Produced by compiling <c>src/raytrace/raytrace.cpp</c> UNCHANGED and
+/// Produced by compiling UNCHANGED and
 /// linking it against a small driver -- the whole tracer, not an extract, so
-/// the tree below is Valve's SAH and not a reading of it.
+/// the tree below is the reference build's SAH and not a reading of it.
 /// <c>Fixtures/README-kd-scene.md</c> carries the command.
 /// </remarks>
 internal sealed record StockKdScene(
@@ -64,7 +64,7 @@ internal sealed record StockKdScene(
     /// TWO SCENES, because one cannot reach all of stock's rules. Random
     /// triangles in general position never make
     /// <c>ClassifyAgainstAxisSplit</c>'s <c>minc == maxc</c> true, never leave
-    /// one side of a split wholly empty, and never reach the depth cap --
+    /// one side of a split wholly empty, and never reach the depth cap.
     /// mutation-testing the build against that scene alone left four of
     /// stock's rules unverified, each mutation staying green because it never
     /// reached its subject. A room full of axis-aligned boxes, which is what a

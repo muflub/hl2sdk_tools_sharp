@@ -11,7 +11,7 @@ namespace SourceSharp.Tests.MapTools.Rad.Light;
 
 /// <summary>
 /// The four-wide point-light gather must give the scalar lane's bits
-/// (<c>GatherSampleStandardLightSSE</c>, <c>lightmap.cpp:1836</c>).
+///(<c>GatherSampleStandardLightSSE</c>).
 /// </summary>
 public sealed class PointLightFourTests
 {
@@ -91,8 +91,8 @@ public sealed class PointLightFourTests
 
 /// <summary>
 /// The per-cluster light lists: a group tests only the lights some lane's
-/// cluster can see, which is every light it would not skip on the PVS test
-/// (<c>lightmap.cpp:2499-2510</c>), in list order.
+/// cluster can see, which is every light it would not skip on the PVS test,
+/// in list order.
 /// </summary>
 public sealed class LightsReachingTests
 {

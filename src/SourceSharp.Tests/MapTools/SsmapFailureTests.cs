@@ -96,7 +96,7 @@ public class SsmapFailureTests
     [Fact]
     public void ExitSoftwareIsSysexitsExSoftware()
     {
-        // sysexits.h: #define EX_SOFTWARE 70 /* internal software error */
+        //: #define EX_SOFTWARE 70 /* internal software error */
         Assert.Equal(70, Program.ExitSoftware);
     }
 

@@ -17,7 +17,7 @@ public class ContainerRuleTests
     [Corrupts(BspRuleCodes.Ident)]
     public async Task AWrongIdentIsRejectedBeforeAnythingIsParsed()
     {
-        // engine/modelloader.cpp:454-459. The ident gate happens before there
+        //. The ident gate happens before there
         // is a container at all, which is why it lives on CheckFileAsync.
         byte[] bytes = Corrupted.GoldenBytes();
         bytes[0] = (byte)'X';
@@ -41,7 +41,7 @@ public class ContainerRuleTests
     [Corrupts(BspRuleCodes.FileVersion)]
     public async Task AFileVersionBelow19IsRejected()
     {
-        // engine/modelloader.cpp:462-468, MINBSPVERSION..BSPVERSION.
+        //, MINBSPVERSION..BSPVERSION.
         BspData bsp = await Corrupted.GoldenAsync();
         bsp.FileVersion = 18;
 
@@ -74,7 +74,7 @@ public class ContainerRuleTests
         // 21 a preset-written map carries. The golden's own lumps are all
         // version-clean, so the whole rule set — header gate included — must
         // call it clean. The oracle-clean facts over ref/catmaps-pp pin the
-        // same thing against real ++ output; this pins it without the corpus.
+        // same thing against real reference-tool output; this pins it without the corpus.
         byte[] bytes = Corrupted.GoldenBytes();
         BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(4), 21);
 
@@ -93,7 +93,7 @@ public class ContainerRuleTests
         // one dword right (version leads). Detection is the reader's parity
         // heuristic on dword@8 — the planes entry's version, 0 — so the
         // re-layout must be applied to the bytes, not just requested. The
-        // ++ oracle (l4d2/flag-l4d2, read clean through SaveAsync-shaped
+        // The reference-tool oracle (l4d2/flag-l4d2, read clean through SaveAsync-shaped
         // bytes) pins the same claim against real output; this pins the
         // rule set's acceptance of the shape without the corpus.
         byte[] bytes = Corrupted.GoldenBytes();
@@ -128,7 +128,7 @@ public class ContainerRuleTests
     public async Task AL4d2OnlyLumpDirectoryBelowVersion21IsStillRejected()
     {
         // The negative half of the cap raise: the re-layout belongs to 21
-        // alone (T0's matrix — every sub-21 ++ output is a standard
+        // alone (T0's matrix — every sub-21 reference-tool output is a standard
         // directory), and detection keys on the version as hard as on the
         // parity check. Stamping the same rotated directory at 20 leaves it
         // undetectable, the reader reads nonsense offsets straight, and the
@@ -168,7 +168,7 @@ public class ContainerRuleTests
     [Corrupts(BspRuleCodes.LumpElementSize)]
     public async Task ALumpThatIsNotAWholeNumberOfItsElementIsReported()
     {
-        // The "funny lump size" gate, engine/modelloader.cpp:1780-1782.
+        // The "funny lump size" gate.
         // VertNormals is picked because nothing else in the rule set reads it,
         // so the finding cannot be anything but this rule.
         BspData bsp = await Corrupted.GoldenAsync();
@@ -184,7 +184,7 @@ public class ContainerRuleTests
     [Corrupts(BspRuleCodes.LumpCap)]
     public async Task ALumpAboveItsMaxMapCapIsReported()
     {
-        // engine/cmodel_bsp.cpp:917-920, "Map has too many areas",
+        //, "Map has too many areas".
         // MAX_MAP_AREAS is 256.
         BspData bsp = await Corrupted.GoldenAsync();
         Corrupted.Replace(bsp, BspLump.Areas, new byte[257 * 8], 0);
@@ -199,7 +199,7 @@ public class ContainerRuleTests
     public async Task AVisibilityLumpAboveItsByteCapIsTheSameRule()
     {
         // The visibility lump is capped on BYTES, not elements
-        // (engine/cmodel_bsp.cpp:985-987), so it needs its own path through
+        //, so it needs its own path through
         // the same rule.
         BspData bsp = await Corrupted.GoldenAsync();
         byte[] huge = new byte[0x1000004];
@@ -214,7 +214,7 @@ public class ContainerRuleTests
     [Corrupts(BspRuleCodes.RequiredLumpEmpty)]
     public async Task ALumpTheCollisionLoaderRequiresMayNotBeEmpty()
     {
-        // engine/cmodel_bsp.cpp:321-324, "Map with no textures".
+        //, "Map with no textures".
         BspData bsp = await Corrupted.GoldenAsync();
         Corrupted.Replace(bsp, BspLump.TexData, [], 0);
 
@@ -227,7 +227,7 @@ public class ContainerRuleTests
     [Corrupts(BspRuleCodes.PakFileLast)]
     public async Task ThePakFileMustBeTheLastLumpInTheFile()
     {
-        // engine/modelloader.cpp:639-645 and :3108-3112. Moving the pak's
+        // and:3108-3112. Moving the pak's
         // directory entry to the front of the file leaves every other lump
         // starting after it.
         byte[] bytes = Corrupted.GoldenBytes();
@@ -264,7 +264,7 @@ public class ContainerRuleTests
     [Corrupts(BspRuleCodes.SurfEdgeCount)]
     public async Task AMapWithNoSurfedgesIsRejected()
     {
-        // engine/modelloader.cpp:2603-2605, "bad surfedges count": the one
+        //, "bad surfedges count": the one
         // lump with a LOWER bound as well as a MAX_MAP_* one.
         BspData bsp = await Corrupted.GoldenAsync();
         Corrupted.Replace(bsp, BspLump.SurfEdges, [], 0);
@@ -278,7 +278,7 @@ public class ContainerRuleTests
     [Corrupts(BspRuleCodes.TexDataStringNul)]
     public async Task TheTexdataStringDataMustEndInANul()
     {
-        // src/utils/common/bsplib.cpp:2279-2280. Every material name is read
+        //. Every material name is read
         // out of this lump as a C string, so without the final NUL the last
         // one's strlen walks off the end of the lump.
         BspData bsp = await Corrupted.GoldenAsync();

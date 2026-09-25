@@ -12,7 +12,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.SurfaceContent;
 
 /// <summary>
-/// <c>EmitStaticProps</c> (<c>staticprop.cpp:570-683</c>) run as parallel
+/// <c>EmitStaticProps</c> run as parallel
 /// passes (plan 3p): hulls cooked and leaves traced into slots, committed in
 /// entity order. Stock does one prop at a time, so every fact here is "the
 /// same as one at a time".
@@ -45,8 +45,7 @@ public class StaticPropParallelTests
     public async Task EachPropsLeavesAreItsOwnAtEveryDegree()
     {
         // x < -8 is wholly behind the plane (leaf 1), x > 8 wholly in front
-        // (leaf 0), and between them the box straddles it: back leaf first
-        // (staticprop.cpp:405-417).
+        // (leaf 0), and between them the box straddles it: back leaf first.
         StaticPropLump lump = await EmitManyAsync(8);
 
         List<ushort[]> perProp = [.. lump.Props.Select(p => lump.LeafEntries.Skip(p.FirstLeaf).Take(p.LeafCount).ToArray())];
@@ -59,7 +58,7 @@ public class StaticPropParallelTests
     {
         // Stock: prop 0 (a good model, in solid) warns "outside the map"
         // before prop 1's GetCollisionModel warns "Error loading studio model"
-        // (staticprop.cpp:487 then :269). The loads run first here, so their
+        //(then:269). The loads run first here, so their
         // warnings must wait for their first prop's turn.
         (VbspContext context, _) = await ContextAsync(8, f => StudioFixture.AddModel(f, "models/a.mdl"));
         BspTreeView solid = OneNode() with { LeafContents = [BspTreeView.ContentsSolid, BspTreeView.ContentsSolid] };
@@ -76,8 +75,8 @@ public class StaticPropParallelTests
     public async Task AModelFirstNamedLaterWarnsAtItsFirstPropNotAtItsLoad()
     {
         // Three props: missing model, good model in solid, the missing model
-        // again. One load warning (the cache remembers the failure,
-        // staticprop.cpp:271-274), then the good prop's own warning.
+        // again. One load warning (the cache remembers the failure.
+        //), then the good prop's own warning.
         (VbspContext context, _) = await ContextAsync(8, f => StudioFixture.AddModel(f, "models/a.mdl"));
         BspTreeView solid = OneNode() with { LeafContents = [BspTreeView.ContentsSolid, BspTreeView.ContentsSolid] };
 
@@ -133,8 +132,8 @@ public class StaticPropParallelTests
     [Fact]
     public async Task APrefetchThatHitsAFatalModelFailsTheEmitNotThePrefetch()
     {
-        // A vertex file with the wrong checksum is Error() in stock
-        // (staticprop.cpp:752-755), at the prop's turn.
+        // A vertex file with the wrong checksum is Error in stock
+        //, at the prop's turn.
         (VbspContext context, _) = await ContextAsync(8, f => StudioFixture.AddModel(f, "models/a.mdl", vvdChecksum: 99));
         StaticPropEmitter emitter = new(context, new BoxCollision(8f));
         List<MapEntity> entities = [Prop("models/a.mdl", 0f)];

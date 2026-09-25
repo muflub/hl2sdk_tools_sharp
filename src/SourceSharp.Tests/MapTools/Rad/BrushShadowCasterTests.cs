@@ -11,9 +11,9 @@ using SourceSharp.Tests.MapFormats;
 using Xunit;
 
 // MapTools has TWO SurfaceFlags: the Materials one is the SURF_* bits a
-// compiler writes into a texinfo, which is what trace.cpp tests; the Tracing
+// compiler writes into a texinfo, which is what tests; the Tracing
 // one is that tracer's own per-face summary. Importing SourceSharp.MapTools
-// .Tracing for TracedTriangle brings the second into scope, so the one under
+//.Tracing for TracedTriangle brings the second into scope, so the one under
 // test is named explicitly rather than left to resolution order.
 using SurfaceFlags = SourceSharp.MapTools.Materials.SurfaceFlags;
 
@@ -32,7 +32,7 @@ namespace SourceSharp.Tests.MapTools.Rad;
 /// <para>
 /// The plane lump is built in <c>planenum ^ 1</c> PAIRS, because that is how
 /// <c>AddBrushToRaytraceEnvironment</c> finds the plane to clip against
-/// (<c>trace.cpp:515</c>). A builder that emitted six planes rather than twelve
+///. A builder that emitted six planes rather than twelve
 /// would clip every side against its own front and produce an empty brush,
 /// which is the sort of thing a fixture gets wrong quietly.
 /// </para>
@@ -370,7 +370,7 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
     /// <remarks>
     /// <para>
     /// The gap is <c>BaseWindingForPlane</c>'s normalise, and it was measured
-    /// rather than reasoned about. An independent model of the whole walk --
+    /// rather than reasoned about. An independent model of the whole walk.
     /// stock's <c>BaseWindingForPlane</c> and <c>ChopWindingInPlace</c>
     /// rewritten outside this tree, every operation rounded to 32 bits -- run
     /// over this map produces 23,545 when it normalises with a divide per
@@ -384,7 +384,7 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
     /// <see cref="Vec3.Normalise"/> divides, and says in its own remarks that
     /// this "gives different last bits". Normally that is invisible. Here it is
     /// not, because <c>AddBrushToRaytraceEnvironment</c> clips with an epsilon
-    /// of exactly ZERO (<c>trace.cpp:516</c>): a base-winding corner a few ULPs
+    /// of exactly ZERO: a base-winding corner a few ULPs
     /// to one side turns a <c>SIDE_ON</c> point into a <c>SIDE_FRONT</c> one,
     /// the clipped winding gains or loses a point, and the fan around it gains
     /// or loses a triangle. Four times, in 15,653 brush sides.
@@ -418,7 +418,7 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
     /// <param name="fixture">The fixture.</param>
     public BrushShadowCasterTests(BrushShadowCasterFixture fixture) => _fixture = fixture;
 
-    // ---- the golden map, against stock's recorded answers ----
+    // ---- the golden map, against stock's recorded answers ---.
 
     /// <summary>The world-brush run produces the count this port produces.</summary>
     /// <remarks>
@@ -512,7 +512,7 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
     /// <summary>Every triangle carries a coverage of one.</summary>
     /// <remarks>
     /// Stock fills only <c>fullCoverage.x</c> and leaves y and z uninitialised
-    /// (<c>trace.cpp:527</c>); the builder keeps the one component anything
+    ///; the builder keeps the one component anything
     /// reads.
     /// </remarks>
     [Fact]
@@ -531,7 +531,7 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
     /// <remarks>
     /// <c>dm_lockdown.bsp</c>'s LUMP_FACES_HDR is zero bytes long, which is
     /// stock's "copy the LDR faces in and point at the copy" case
-    /// (<c>vrad.cpp:2227</c>). Reading the LDR lump directly must give the same
+    ///. Reading the LDR lump directly must give the same
     /// answer, and this is the fact that says so rather than the comment.
     /// </remarks>
     [Fact]
@@ -546,7 +546,7 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
             StockSkyTriangles, builder.Build().Stats(ShadowCasterSource.Sky).Triangles);
     }
 
-    // ---- the filters, on one cube at a time ----
+    // ---- the filters, on one cube at a time ---.
 
     /// <summary>A six-sided opaque cube is twelve triangles.</summary>
     [Fact]
@@ -624,7 +624,7 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
     /// <summary>A side with a dispinfo contributes nothing.</summary>
     /// <remarks>
     /// Displacements reach the ray tracer through
-    /// <c>StaticDispMgr()-&gt;AddPolysForRayTrace</c> instead, as tessellated
+    /// <c>StaticDispMgr-&gt;AddPolysForRayTrace</c> instead, as tessellated
     /// geometry; adding the flat brush side as well would double the blocker.
     /// </remarks>
     [Fact]
@@ -681,7 +681,7 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
     /// <summary>But the bevel side is still a side, and contributes its own face.</summary>
     /// <remarks>
     /// Stock's <c>bevel</c> test is inside the CLIP loop only
-    /// (<c>trace.cpp:512</c>); the outer loop over sides does not look at it. So
+    ///; the outer loop over sides does not look at it. So
     /// a bevel plane cutting through the middle of a brush emits a triangle pair
     /// buried inside the solid, and this port emits it too.
     /// </remarks>
@@ -812,8 +812,8 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
 
     /// <summary><c>SURF_SKY2D</c> alone is not <c>SURF_SKY</c>.</summary>
     /// <remarks>
-    /// The two are separate bits and stock tests only <c>SURF_SKY</c>
-    /// (<c>trace.cpp:617</c>), so a 2D-sky-only surface is not a caster. vbsp
+    /// The two are separate bits and stock tests only <c>SURF_SKY</c>,
+    /// so a 2D-sky-only surface is not a caster. vbsp
     /// usually sets both, which is what makes the distinction easy to lose.
     /// </remarks>
     [Fact]
@@ -830,7 +830,7 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
 
     /// <summary>A negative surfedge takes the edge's SECOND vertex.</summary>
     /// <remarks>
-    /// <c>trace.cpp:634</c>. The sign says the face walks the edge backwards, so
+    ///. The sign says the face walks the edge backwards, so
     /// the winding is the same either way -- a port that took <c>v[0]</c>
     /// regardless would reverse every face with negative surfedges and still
     /// produce the right COUNT.
@@ -881,7 +881,7 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
 
     /// <summary>Model 0 -- the world -- is rejected.</summary>
     /// <remarks>
-    /// <c>modelIndex &gt; 0</c> at <c>trace.cpp:484</c>. An entity pointing at
+    /// <c>modelIndex &gt; 0</c>. An entity pointing at
     /// the world would otherwise add every world brush a second time, at the
     /// entity's origin.
     /// </remarks>

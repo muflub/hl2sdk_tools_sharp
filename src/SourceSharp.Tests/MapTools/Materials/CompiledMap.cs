@@ -13,8 +13,7 @@ namespace SourceSharp.Tests.MapTools.Materials;
 /// </summary>
 /// <param name="Name">The material name, out of TEXDATA_STRING_DATA.</param>
 /// <param name="Reflectivity">
-/// What <c>GetMaterialReflectivity</c> gave the real compiler
-/// (<c>vbsp/textures.cpp:442</c>).
+/// What <c>GetMaterialReflectivity</c> gave the real compiler.
 /// </param>
 /// <param name="Width">What <c>GetMaterialDimensions</c> gave it.</param>
 /// <param name="Height">The same, for the height.</param>
@@ -29,7 +28,7 @@ internal readonly record struct StockTexData(
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>game/mod_sharp/maps/dm_lockdown.bsp</c> was compiled by Valve's own
+/// <c>game/mod_sharp/maps/dm_lockdown.bsp</c> was compiled by stock
 /// vbsp. Its TEXDATA lump holds, per material, the reflectivity and the
 /// dimensions THAT COMPILER computed out of the material system — so reading
 /// it back turns the whole of <c>utilmatlib</c>'s numeric surface into a

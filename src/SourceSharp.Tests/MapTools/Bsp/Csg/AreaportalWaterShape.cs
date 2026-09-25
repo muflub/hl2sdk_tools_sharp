@@ -15,8 +15,8 @@ namespace SourceSharp.Tests.MapTools.Bsp.Csg;
 /// <remarks>
 /// <para>
 /// <b>Why it is needed.</b> The CSG stage's ONLY path into the BRUSHES and
-/// BRUSHSIDES lumps is <c>FixupAreaportalWaterBrushes</c>
-/// (<c>csg.cpp:345</c>), and
+/// BRUSHSIDES lumps is <c>FixupAreaportalWaterBrushes</c>,
+/// and
 /// <see cref="StockBrushLumpTests.RunningTheWholeWorldPassChangesNeitherLumpOnAnyCorpusMap"/>
 /// measures that it fires on none of the 29 reference maps —
 /// <c>l2_areaportal_between_pools</c> has areaportals and pools, and the

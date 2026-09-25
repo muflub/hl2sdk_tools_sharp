@@ -21,7 +21,7 @@ public sealed class DispComplianceEffectTests
 
     /// <summary>
     /// Stock: the swapped face keeps its texinfo and the table is untouched
-    /// (<c>disp_vbsp.cpp:242</c> repoints only the map face).
+    ///(repoints only the map face).
     /// </summary>
     [Fact]
     public void UnderStockTheSwappedFaceKeepsItsTexInfo()

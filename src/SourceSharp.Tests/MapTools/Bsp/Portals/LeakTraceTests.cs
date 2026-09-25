@@ -11,7 +11,7 @@ using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Bsp.Portals;
 
-/// <summary>The leak line (<c>leakfile.cpp</c>).</summary>
+/// <summary>The leak line.</summary>
 public class LeakTraceTests
 {
     [Fact]
@@ -52,8 +52,8 @@ public class LeakTraceTests
     /// </summary>
     /// <remarks>
     /// <c>FloodEntities</c> raises every origin by a unit before finding the
-    /// leaf (<c>portals.cpp:765</c>), but <c>LeakFile</c> re-reads the
-    /// <c>origin</c> key (<c>leakfile.cpp:82</c>), so the <c>.lin</c> ends at
+    /// leaf, but <c>LeakFile</c> re-reads the
+    /// <c>origin</c> key, so the <c>.lin</c> ends at
     /// the point the mapper typed and not at the point the flood stood on.
     /// </remarks>
     [Fact]

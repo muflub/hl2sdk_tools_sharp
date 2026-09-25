@@ -1,7 +1,7 @@
 # p8a: every brush (solid) in the given VMFs as a ConvexFromPlanes job, one collide per solid.
 # Plane from the side's three points the way vbsp's PlaneFromPoints does it:
-#   n = normalize((p0 - p1) x (p2 - p1)), d = p0 . n   (computed in double, rounded to float)
-# usage: p8a-vmf2jobs.py out.in a.vmf [b.vmf ...]   (also writes out.in.index: map solid-id per job)
+# n = normalize((p0 - p1) x (p2 - p1)), d = p0. n (computed in double, rounded to float)
+# usage: p8a-vmf2jobs.py out.in a.vmf [b.vmf...] (also writes out.in.index: map solid-id per job)
 import sys, re, struct, math
 def fl(v):
     return struct.unpack('<f', struct.pack('<f', v))[0]

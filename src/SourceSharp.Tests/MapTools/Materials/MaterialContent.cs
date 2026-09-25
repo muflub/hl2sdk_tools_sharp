@@ -57,7 +57,7 @@ internal sealed class MaterialContent
         byte[] bytes = MapFormats.Assets.VtfTests.Synthetic(
             ImageFormat.Dxt1, width, height, mips: 1, envMap: false);
 
-        // vtf.h's reflectivity is at byte 32, which VtfTests pins with its own
+        // the reference implementation's reflectivity is at byte 32, which VtfTests pins with its own
         // fact; writing it here rather than through a builder keeps the two
         // tests reading the same layout.
         Span<byte> span = bytes;

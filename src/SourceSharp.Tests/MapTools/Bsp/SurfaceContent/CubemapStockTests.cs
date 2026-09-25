@@ -32,7 +32,7 @@ public class CubemapStockTests
         MapPakFile pak = await RunAsync(name);
         ZipArchiveReader stock = await P3gStock.StockPakAsync(await P3gStock.StockBspAsync(name));
 
-        // The water depth patches are the collision emitter's (ivp.cpp:815,
+        // The water depth patches are the collision emitter's (
         // lane 3h), and come from a stage this does not run. The
         // WorldVertexTransition patches themselves are 3a's output (written
         // here only so the cubemap pass sees them): on sdk_ctf_2fort 3a
@@ -90,7 +90,7 @@ public class CubemapStockTests
     public async Task EveryHdrCubemapIsStocksBytesOutsideTheSphereMap(string name)
     {
         // The sphere map face of the HDR file is uninitialised heap in stock
-        // (vtf.cpp:2379-2402); everything else must match exactly.
+        //; everything else must match exactly.
         MapPakFile pak = await RunAsync(name);
         ZipArchiveReader stock = await P3gStock.StockPakAsync(await P3gStock.StockBspAsync(name));
 
@@ -143,7 +143,7 @@ public class CubemapStockTests
 
     private static async Task<CubemapFixups> RunFixupsAsync(VbspContext context, MapFile map, MaterialPatcher patcher)
     {
-        // vbsp.cpp:1417-1420: WorldVertexTransitionFixup (3a's) runs first,
+        //: WorldVertexTransitionFixup (3a's) runs first,
         // and its patches are then candidates for cubemap patches too.
         foreach (WorldVertexTransitionPatch patch in await WorldVertexTransitionFixup.RunAsync(context, map))
         {
@@ -175,7 +175,7 @@ public class CubemapStockTests
     }
 
     // Zero the face-6 bytes of every mip of a 32x32 7-face RGBA16161616F file,
-    // written smallest mip first, frame, then face (vtf.cpp WriteImageData).
+    // written smallest mip first, frame, then face(WriteImageData).
     internal static byte[] WithoutSphereMap(byte[] vtf)
     {
         byte[] copy = (byte[])vtf.Clone();

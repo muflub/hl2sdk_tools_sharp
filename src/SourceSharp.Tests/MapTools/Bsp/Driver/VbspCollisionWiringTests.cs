@@ -17,8 +17,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Driver;
 
 /// <summary>
-/// The collision stage inside the vbsp driver: <c>EmitPhysCollision</c> at
-/// <c>writebsp.cpp:1264</c>, fed by the write stage's own lumps, water
+/// The collision stage inside the vbsp driver: <c>EmitPhysCollision</c> at,
+/// fed by the write stage's own lumps, water
 /// volumes and side visibility, and writing LUMP_PHYSCOLLIDE / LUMP_PHYSDISP.
 /// </summary>
 /// <remarks>
@@ -121,7 +121,7 @@ public sealed class VbspCollisionWiringTests
     [Fact]
     public async Task WithoutACookerTheMapHasNoPhysCollideLump()
     {
-        // physcollision == NULL: "Can't build collision data!", ivp.cpp:1510.
+        // physcollision == NULL: "Can't build collision data!".
         (VbspResult result, _) = await CompileAsync(Room(), cooker: null);
 
         Assert.Equal(0, result.Bsp![BspLump.PhysCollide].Data.Length);
@@ -140,7 +140,7 @@ public sealed class VbspCollisionWiringTests
     public async Task EachWorldBrushIsAConvexOfTheWorldSolid()
     {
         // The six slabs: one convex per brush, cooked from the LUMP_BRUSHES
-        // the write stage emitted (ivp.cpp:1335's BuildWorldPhysModel).
+        // the write stage emitted (the reference implementation's BuildWorldPhysModel).
         FakeCollisionCooker cooker = new();
         await CompileAsync(Room(), cooker);
 
@@ -159,9 +159,9 @@ public sealed class VbspCollisionWiringTests
     [Fact]
     public async Task ThePoolReachesTheEmitterAsAFluid()
     {
-        // EmitWaterVolumesForBSP (writebsp.cpp:937) recorded the volume while
+        // EmitWaterVolumesForBSP recorded the volume while
         // the tree existed; ConvertWaterModelToPhysCollide turns it into a
-        // "fluid" section of the world's keydata (ivp.cpp:1165).
+        // "fluid" section of the world's keydata.
         (VbspResult result, _) = await CompileAsync(Room(water: true), new FakeCollisionCooker());
 
         IReadOnlyList<PhysCollideModel> models = PhysCollideLump.Read(result.Bsp![BspLump.PhysCollide].Data.Span);
@@ -190,7 +190,7 @@ public sealed class VbspCollisionWiringTests
     [Fact]
     public async Task UnderCorrectTheWaterSurfaceFaceGetsItsFogVolume()
     {
-        // WriteFogVolumeIDs (ivp.cpp:875) loops to firstface + numfaces, and
+        // WriteFogVolumeIDs loops to firstface + numfaces, and
         // numfaces is still 0 when it runs: StockQuirk.FogVolumeLoopOverNoFaces.
         // Correct runs the loop over the model's real faces.
         (VbspResult result, _) = await CompileAsync(Room(water: true), new FakeCollisionCooker());
@@ -209,8 +209,8 @@ public sealed class VbspCollisionWiringTests
     [Fact]
     public async Task AMaterialsSurfacePropResolvesAgainstTheLoadedTable()
     {
-        // GetSurfaceProperties (textures.cpp:344) against the table
-        // LoadSurfaceProperties read before the map (vbsp.cpp:1310).
+        // GetSurfaceProperties against the table
+        // LoadSurfaceProperties read before the map.
         VbspContext context = await ContextWithSurfacePropsAsync();
         await CompileAsync(Room(floor: Metal), cooker: null, context: context);
 
@@ -232,7 +232,7 @@ public sealed class VbspCollisionWiringTests
     public async Task TheSurfacePropReachesTheWorldsMaterialTable()
     {
         // s_WorldPropList: the world's per-triangle materials by name
-        // (ivp.cpp:1571), which only a resolved $surfaceprop can put there.
+        //, which only a resolved $surfaceprop can put there.
         VbspContext context = await ContextWithSurfacePropsAsync();
         (VbspResult result, _) = await CompileAsync(Room(floor: Metal), new FakeCollisionCooker(), context: context);
 
@@ -243,7 +243,7 @@ public sealed class VbspCollisionWiringTests
     [Fact]
     public async Task ABrushEntitysHiddenSideIsNotShrunk()
     {
-        // "don't shrink brush sides with no visible components" (ivp.cpp:505):
+        // "don't shrink brush sides with no visible components":
         // two boxes of one func_brush meet at x = 128, so each one's side
         // there is not visible after MarkVisibleSides and keeps its distance.
         VmfDocument document = Room();
@@ -268,7 +268,7 @@ public sealed class VbspCollisionWiringTests
         await CompileAsync(document, cooker);
 
         // The last cook of the left box is the shrunk one (the first is the
-        // unshrunk test collide, ivp.cpp:545).
+        // unshrunk test collide).
         CollisionPlane[] left = cooker.Session.PlaneCalls.Last(p => p.Any(q => q.Normal.X == 1 && q.Dist == 128f));
         Assert.Contains(left, q => q.Normal.Z == 1 && q.Dist == 160f - PhysCollisionEmitter.VPhysicsShrink);
     }
@@ -284,9 +284,9 @@ public sealed class VbspCollisionWiringTests
     [Fact]
     public async Task ABlendedDisplacementsSecondSurfacePropReachesTheWorld()
     {
-        // disp_ivp.cpp:170-178: on the polysoup road a triangle whose alpha
+        //: on the polysoup road a triangle whose alpha
         // sum passes 382.5 takes the material's $surfaceprop2
-        // (GetSurfaceProperties2, textures.cpp:367).
+        //(GetSurfaceProperties2).
         VbspResult result = await BlendAsync(noVirtualMesh: true);
 
         IReadOnlyList<PhysCollideModel> models = PhysCollideLump.Read(result.Bsp![BspLump.PhysCollide].Data.Span);
@@ -296,7 +296,7 @@ public sealed class VbspCollisionWiringTests
     [Fact]
     public async Task OnThePolysoupRoadThereIsNoPhysDispLump()
     {
-        // g_pPhysDisp stays NULL (ivp.cpp:1644).
+        // g_pPhysDisp stays NULL.
         VbspResult result = await BlendAsync(noVirtualMesh: true);
 
         Assert.Equal(0, result.Bsp![BspLump.PhysDisp].Data.Length);

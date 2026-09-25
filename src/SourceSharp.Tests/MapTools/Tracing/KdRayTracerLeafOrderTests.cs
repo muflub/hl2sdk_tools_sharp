@@ -12,7 +12,7 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// <para>
 /// Stock tests a leaf's triangles one at a time in index order and keeps a hit
 /// only when it is STRICTLY nearer than the best so far
-/// (<c>raytrace.cpp:496</c>: <c>CmpLtSIMD(isect_t, rslt_out-&gt;HitDistance)</c>),
+///: <c>CmpLtSIMD(isect_t, rslt_out-&gt;HitDistance)</c>),
 /// so of two triangles at the same distance the first one listed wins. The
 /// tracer tests two triangles in one eight-lane pass on AVX; these facts pin
 /// that the pass still answers exactly what testing them one after the other
@@ -20,7 +20,7 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// </para>
 /// <para>
 /// Two triangles make one leaf: <c>RefineNode</c> never splits fewer than
-/// three (<c>raytrace.cpp:726</c>), so the leaf's order is the build order.
+/// three, so the leaf's order is the build order.
 /// </para>
 /// </remarks>
 public sealed class KdRayTracerLeafOrderTests

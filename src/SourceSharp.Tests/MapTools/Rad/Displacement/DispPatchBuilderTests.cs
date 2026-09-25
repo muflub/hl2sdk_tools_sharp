@@ -12,7 +12,7 @@ namespace SourceSharp.Tests.MapTools.Rad.Displacement;
 
 /// <summary>
 /// <c>CreateParentPatches</c>, <c>CreateChildPatches</c> and friends
-/// (<c>vrad_dispcoll.cpp:385-1062</c>) on a flat 256-unit power-2 floor at 16
+/// on a flat 256-unit power-2 floor at 16
 /// units per luxel (so <c>dispchop</c> 8 makes the minimum edge 128).
 /// </summary>
 public sealed class DispPatchBuilderTests
@@ -71,7 +71,7 @@ public sealed class DispPatchBuilderTests
     [Fact]
     public void ThePatchMaxIsSeededWithFltMin()
     {
-        // vrad_dispcoll.cpp:868: a floor at z = 0 gets a max z of FLT_MIN, not 0.
+        //: a floor at z = 0 gets a max z of FLT_MIN, not 0.
         (_, PatchSet p, int root) = Root();
         Assert.Equal(DispPatchBuilder.FltMin, p.At(root).Maxs.Z);
     }

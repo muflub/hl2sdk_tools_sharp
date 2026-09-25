@@ -58,7 +58,7 @@ public sealed class PatchBuilderTests
     [Fact]
     public void TheTextureScaleAndTheChopScaleComeFromDifferentAxes()
     {
-        // vrad.cpp:552-579: scale from textureVecs (0.25), luxscale from the
+        //: scale from textureVecs (0.25), luxscale from the
         // lightmap vecs (1/16).
         PatchSet patches = Geometry.Patches(Geometry.Floor(), out _);
         ref Patch p = ref patches.At(0);
@@ -81,7 +81,6 @@ public sealed class PatchBuilderTests
     [Fact]
     public void ReflectivityIsClampedBelowOne()
     {
-        // vrad.cpp:418-421.
         LightTestMap map = new();
         int tex = map.AddTexture("white", reflectivity: new Vec3(1, 0.5f, 2));
         map.AddFloor(tex, 0, 0, 64, 64, 0);
@@ -127,7 +126,7 @@ public sealed class PatchSubdividerTests
     public void ASixteenLuxelFaceSplitsIntoSixtyFourTwoLuxelLeaves()
     {
         // total 16 luxels on both axes against chop 4. The test is
-        // `total >= chop` (vrad.cpp:868), so a 4-luxel patch splits AGAIN:
+        // `total >= chop`, so a 4-luxel patch splits AGAIN:
         // 16 -> 8 -> 4 -> 2 on each axis, 64 leaves under 63 parents -- the
         // 127 per face stock prints for l1_sealed_room's 16 faces (2032).
         (PatchSet patches, SubdivisionReport r) = Run(Geometry.Floor());
@@ -174,7 +173,7 @@ public sealed class PatchSubdividerTests
     [Fact]
     public void ChildrenComeFirstInTheFacesList()
     {
-        // vrad.cpp:971-977 prepends in index order, so the list head is the
+        // prepends in index order, so the list head is the
         // LAST patch made and a parent comes after its children.
         (PatchSet patches, _) = Run(Geometry.Floor());
         Assert.Equal(patches.Count - 1, patches.FacePatches[0]);
@@ -200,8 +199,8 @@ public sealed class PatchSubdividerTests
     {
         // 48 x 8 units = 3 x 0.5 luxels: nothing reaches chop 4, but 3 is more
         // than twice both other extents, so with -chop 1 the patch is split
-        // anyway and its chop halved (vrad.cpp:874-885). Its children then
-        // meet the edge rule (:811-826) once more: 1 + 2 + 4 patches.
+        // anyway and its chop halved. Its children then
+        // meet the edge rule:811-826) once more: 1 + 2 + 4 patches.
         LightTestMap map = new();
         int tex = map.AddTexture("x");
         map.AddFloor(tex, 0, 0, 48, 8, 0);
@@ -260,7 +259,7 @@ public sealed class FaceNeighbourTests
     [Fact]
     public void ASharedCornerNormalIsTheNormalisedSumOfBothFaces()
     {
-        // lightmap.cpp:246-266 adds the neighbour once, :318-323 adds the
+        // adds the neighbour once,:318-323 adds the
         // face's own normal once, then normalises.
         LightGeometry g = Geometry.Load(Bent(20));
         FaceNeighbours n = FaceNeighbours.Build(g, LightConstants.DefaultSmoothingThreshold);
@@ -400,7 +399,7 @@ public sealed class FaceLightInfoTests
     [Fact]
     public void AnAxisParallelToTheNormalIsDegenerate()
     {
-        // lightmap.cpp:451-455: |det| < 1e-20 leaves the origin at zero.
+        //: |det| < 1e-20 leaves the origin at zero.
         LightTestMap map = new();
         int tex = map.AddTexture("x", sAxis: new Vec3(0, 0, 1), tAxis: new Vec3(0, 1, 0));
         map.AddFloor(tex, 0, 0, 64, 64, 0);
@@ -452,7 +451,7 @@ public sealed class FaceSampleBuilderTests
     public void AnAlignedFaceHasOneFullSamplePerCell()
     {
         // The last row and column of the 17x17 grid are the far edge and get
-        // no cell of their own (lightmap.cpp:686-797).
+        // no cell of their own.
         FaceLight fl = Samples();
         Assert.Equal(256, fl.Samples.Length);
         Assert.All(fl.Samples, s => Assert.Equal(256f, s.Area));
@@ -486,7 +485,7 @@ public sealed class FaceSampleBuilderTests
     public void AnOffsetFaceHasPartialSamplesWithWindings()
     {
         // Half a luxel off the grid: the first row and column are half cells,
-        // kept with world windings for supersampling (lightmap.cpp:743).
+        // kept with world windings for supersampling.
         FaceLight fl = Samples(offset: 8);
         Assert.Contains(fl.Samples, s => s.Area < 256f && s.WindingCount > 0);
         Assert.DoesNotContain(fl.Samples, s => s.Area == 256f && s.WindingCount > 0);
@@ -590,7 +589,7 @@ public sealed class LightmapOffsetTests
     [Fact]
     public void EachFaceReservesItsAveragesFirst()
     {
-        // lightmap.cpp:3396-3398: lightofs points past styles*4 bytes of
+        //: lightofs points past styles*4 bytes of
         // average colour. 64x64 at 1/16 is 4x4 -> 5x5 = 25 luxels.
         (LightGeometry g, FaceLight?[] lights) = Two();
         LightmapLayout layout = LightmapOffsets.Compute(g, lights, false);
@@ -698,7 +697,6 @@ public sealed class PatchLightingTests
     [Fact]
     public void ALightAveragingBelowOneIsNotSentToPatches()
     {
-        // lightmap.cpp:2069.
         (PatchSet patches, FaceLightContext context) = Setup();
         PatchLighting.BuildPatchLights(context, 0, UniformLight(0.5f));
         Assert.All(patches.AsSpan().ToArray(), p => Assert.Equal(0f, p.SampleArea));

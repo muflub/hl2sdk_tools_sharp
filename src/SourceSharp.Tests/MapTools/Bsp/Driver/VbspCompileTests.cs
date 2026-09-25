@@ -20,8 +20,8 @@ namespace SourceSharp.Tests.MapTools.Bsp.Driver;
 /// code with in-memory content: no game content, no wine, no disk.
 /// </summary>
 /// <remarks>
-/// Each fact names the stock line it pins. The catalogue gate against stock's
-/// own output is <c>~/.cache/maptools/lanes/p3e/gate.sh</c>; these are the
+/// Each fact pins one stock behaviour exactly. The catalogue gate against
+/// stock's own output covers the same ground in bulk; these are the
 /// behaviours behind it, one at a time.
 /// </remarks>
 public sealed class VbspCompileTests
@@ -144,7 +144,7 @@ public sealed class VbspCompileTests
     [Fact]
     public async Task ALeakedRoomStillYieldsABspButNoPortalFile()
     {
-        // vbsp.cpp:368: WritePortalFile only if !leaked.
+        //: WritePortalFile only if !leaked.
         VbspResult result = await CompileAsync(Room(sealedRoom: false));
 
         Assert.NotNull(result.Bsp);
@@ -162,7 +162,7 @@ public sealed class VbspCompileTests
     [Fact]
     public async Task LeakTestStopsAtALeakWithNothingWritten()
     {
-        // vbsp.cpp:302-306: "--- MAP LEAKED ---", exit(0).
+        //: "--- MAP LEAKED ---", exit(0).
         VbspResult result = await CompileAsync(
             Room(sealedRoom: false), VbspOptions.Default with { LeakTest = true });
 
@@ -173,7 +173,7 @@ public sealed class VbspCompileTests
     public async Task LeakTestStillReportsTheLeakItStoppedAt()
     {
         // T4 contract: a preset that forces -leaktest must keep the leak
-        // CHECK itself running and reported — the stop is vbsp.cpp:302-306's
+        // CHECK itself running and reported — the stop is the reference implementation's
         // exit(0) after the finding prints, not a silent abort. Pre-T4 the
         // stop (nothing written) and the un-flagged report were each pinned,
         // but no fact held flag + check + report together, which is the
@@ -217,7 +217,7 @@ public sealed class VbspCompileTests
         Assert.Equal(first, second);
     }
 
-    // ---- BeginBSPFile's reserved entries (writebsp.cpp:1134-1142) -----------
+    // ---- BeginBSPFile's reserved entries -----------
 
     [Fact]
     public async Task LeafZeroIsTheSolidErrorLeaf()
@@ -279,7 +279,7 @@ public sealed class VbspCompileTests
         Assert.Equal(2, Lump<DArea>(result, BspLump.Areas).Length);
     }
 
-    // ---- models (writebsp.cpp:1307-1363, vbsp.cpp:841-881) -----------------
+    // ---- models -----------------
 
     [Fact]
     public async Task ABrushEntityIsASecondModel()
@@ -292,7 +292,7 @@ public sealed class VbspCompileTests
     [Fact]
     public async Task ABrushEntityIsNumberedStarOne()
     {
-        // SetModelNumbers, writebsp.cpp:953
+        // SetModelNumbers:953
         VbspResult result = await CompileAsync(Room(brushEntity: true));
 
         Assert.Equal("*1", Entities(result).Single(e => e.ClassName == "func_brush").Get("model"));
@@ -312,7 +312,7 @@ public sealed class VbspCompileTests
     [Fact]
     public async Task ASubmodelsLeavesHaveNoCluster()
     {
-        // writebsp.cpp:134-139
+        //
         VbspResult result = await CompileAsync(Room(brushEntity: true));
         ReadOnlySpan<DLeaf> leafs = Lump<DLeaf>(result, BspLump.Leafs);
         int worldLeaves = Lump<DModel>(result, BspLump.Models)[1].HeadNode;
@@ -331,7 +331,7 @@ public sealed class VbspCompileTests
     [Fact]
     public async Task ASubmodelsVerticesAreNumberedAfterTheWorlds()
     {
-        // FixTjuncs clears the weld hash, not the vertex table (faces.cpp:744).
+        // FixTjuncs clears the weld hash, not the vertex table.
         VbspResult result = await CompileAsync(Room(brushEntity: true));
         ReadOnlySpan<DModel> models = Lump<DModel>(result, BspLump.Models);
 
@@ -341,7 +341,7 @@ public sealed class VbspCompileTests
         Assert.True(subMin > worldMax, $"submodel vertex {subMin} <= world vertex {worldMax}");
     }
 
-    // ---- entities (writebsp.cpp:985, 1535; bsplib.cpp:3088) ----------------
+    // ---- entities(1535;) ---------------.
 
     [Fact]
     public async Task WorldspawnCarriesItsDrawnBounds()
@@ -372,7 +372,7 @@ public sealed class VbspCompileTests
     [Fact]
     public async Task WaterWithNoLodControlGetsADefaultOne()
     {
-        // EnsurePresenceOfWaterLODControlEntity, writebsp.cpp:1201
+        // EnsurePresenceOfWaterLODControlEntity:1201
         VbspResult result = await CompileAsync(Room(water: true));
 
         Assert.Equal(
@@ -389,7 +389,7 @@ public sealed class VbspCompileTests
         Assert.Equal((0, (byte)'\n'), (text[^1], text[^2]));
     }
 
-    // ---- brushes and planes (writebsp.cpp:46, 1048) ------------------------
+    // ---- brushes and planes(1048) -----------------------.
 
     [Fact]
     public async Task EveryMapBrushIsEmitted()
@@ -411,8 +411,8 @@ public sealed class VbspCompileTests
     [Fact]
     public async Task VertNormalIndicesAreOneShortPerDrawFaceEdge()
     {
-        // g_vertnormalindices is unsigned short (bsplib.cpp:596), one per edge
-        // of every LUMP_FACES face (normals.cpp:12) -- not per surfedge, which
+        // g_vertnormalindices is unsigned short, one per edge
+        // of every LUMP_FACES face -- not per surfedge, which
         // also counts the original faces'.
         VbspResult result = await CompileAsync(Room());
         int edges = 0;
@@ -434,7 +434,7 @@ public sealed class VbspCompileTests
             result.Bsp![BspLump.LeafMinDistToWater].Length);
     }
 
-    // ---- occluders (vbsp.cpp:585) -------------------------------------------
+    // ---- occluders -------------------------------------------
 
     [Fact]
     public async Task AnOccluderIsOneOccluderAndNoModel()
@@ -469,7 +469,7 @@ public sealed class VbspCompileTests
     [Fact]
     public async Task UnderStockEveryNodeAreaIsZero()
     {
-        // StockQuirk.NodeAreaWrittenBeforeSet, writebsp.cpp:602
+        // StockQuirk.NodeAreaWrittenBeforeSet:602
         VbspResult result = await CompileAsync(
             Room(), VbspOptions.Default with { Compliance = ComplianceOptions.Stock });
 
@@ -487,7 +487,7 @@ public sealed class VbspCompileTests
         Assert.NotEqual(0, root.Area);
     }
 
-    // ---- -onlyents (vbsp.cpp:1349) ------------------------------------------
+    // ---- -onlyents ------------------------------------------
 
     [Fact]
     public async Task OnlyEntsReplacesTheEntityLump()

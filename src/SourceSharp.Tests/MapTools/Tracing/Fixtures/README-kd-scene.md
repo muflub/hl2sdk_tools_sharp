@@ -1,4 +1,4 @@
-# The KD-tree's oracle: stock `raytrace.cpp`, compiled
+# The KD-tree's oracle: the stock tracer, compiled
 
 **Two scenes**, four files each, every set from one run:
 
@@ -16,18 +16,18 @@
 
 ## The oracle is the whole tracer, not an extract
 
-`src/raytrace/raytrace.cpp` is compiled **unchanged** and linked against a
+The reference's KD tracer is compiled **unchanged** and linked against a
 driver that supplies the six symbols it needs from tier0 and mathlib
 (`g_pMemAlloc`, `Error`, `Four_Zeros`, `Four_Ones`, `Four_Epsilons`,
 `LightDesc_t::RecalculateDerivedValues`). So the tree in `kd-scene.tree.bin` is
-Valve's surface-area heuristic and Valve's partition order, not a reading of
-them.
+the reference's surface-area heuristic and the reference's partition order, not
+a reading of them.
 
-**`src/unittests/rt_test` is not in this drop.** §4a names it and
-`autotestscripts/reference_output/rt_test.txt` as a ready-made regression
-oracle; SDK 2013 ships neither directory. This is a stronger check than that
-file would have been: it compares the acceleration structure node for node,
-where a recorded output would only have compared answers.
+**The reference drop ships no ray-tracer unit tests and no recorded
+regression output.** Compiling the reference tracer itself is a stronger check
+than a recorded output file would have been: it compares the acceleration
+structure node for node, where a recorded output would only have compared
+answers.
 
 ## Why there are two scenes, and how that was found out
 
@@ -122,8 +122,9 @@ Two sizes, checked against a compiled `sizeof` of stock's own header:
 | `CacheOptimizedKDNode` | 8 | 8 |
 | `CacheOptimizedTriangle` | **48** | 48 |
 
-`raytrace.h` says "this structure is 16longs=64 bytes for cache line packing"
-over the triangle, and §4a repeats the 64. The compiler says 48 — four floats
+The reference's header comment says "this structure is 16longs=64 bytes for
+cache line packing" over the triangle, and the original plan repeated the 64.
+The compiler says 48 — four floats
 of plane, an int id, six floats of edge equation, four bytes — so the comment
 is stale and the plan inherited it.
 

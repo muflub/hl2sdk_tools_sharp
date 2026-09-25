@@ -13,14 +13,14 @@ namespace SourceSharp.Tests.MapTools.Rad.Light;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Every number here is one stock PRINTS (<c>vrad.cpp:709, 730, 933, 1045</c>,
-/// <c>lightmap.cpp:1621</c>) or WRITES (the worldlight lumps). Each was checked
+/// Every number here is one stock PRINTS (<c>, 730, 933, 1045</c>.
+///) or WRITES (the worldlight lumps). Each was checked
 /// to move with the thing it is meant to gate: the patch count with
 /// <c>SubdividePatch</c>'s chop test, the light count with the entity and
 /// texlight parse, the worldlight bytes with every field of the export.
 /// </para>
 /// <para>
-/// All run under <c>ComplianceOptions.Stock</c>, because two quantities --
+/// All run under <c>ComplianceOptions.Stock</c>, because two quantities.
 /// a light's target direction and the phong normals subdivision uses -- pass
 /// through a normalise, and stock's is an estimate.
 /// </para>
@@ -54,7 +54,7 @@ public sealed class RadWorldStockGateTests
         StockVradMap stock = StockVradReference.Load()[name];
         RadWorld world = await StockRadWorld.StartAsync(name, hdr: false);
 
-        // A map with no vis prints no patch lines (vrad.cpp:930 returns
+        // A map with no vis prints no patch lines (returns
         // first); the count is still the patch count before any split.
         int expected = stock.PatchesBefore >= 0 ? stock.PatchesBefore : world.Patches.Count;
         Assert.Equal(expected, world.Statistics.Subdivision.PatchesBefore);
@@ -86,7 +86,7 @@ public sealed class RadWorldStockGateTests
         StockVradMap stock = StockVradReference.Load()[name];
         RadWorld world = await StockRadWorld.StartAsync(name, hdr: false);
 
-        // vrad.cpp:730 `%.2f` of the float total.
+        // `%.2f` of the float total.
         Assert.Equal(
             stock.AreaSquareInches,
             ((double)world.Patches.TotalArea).ToString("F2", CultureInfo.InvariantCulture));

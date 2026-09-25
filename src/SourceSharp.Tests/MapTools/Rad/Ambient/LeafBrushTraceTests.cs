@@ -7,7 +7,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Ambient;
 
 /// <summary>
-/// <c>TraceLeafBrushes</c> (<c>trace.cpp:54</c>) on the committed fixture,
+/// <c>TraceLeafBrushes</c> on the committed fixture,
 /// against the first leaf that holds an opaque axis-aligned box brush.
 /// </summary>
 public sealed class LeafBrushTraceTests : IClassFixture<AmbientFixture>

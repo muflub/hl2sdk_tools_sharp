@@ -13,7 +13,7 @@ using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Bsp.SurfaceContent;
 
-/// <summary><c>utils/vbsp/cubemap.cpp</c>, fact by fact.</summary>
+/// <summary>, fact by fact.</summary>
 public class CubemapTests
 {
     // The first 88 bytes of stock's cubemapdefault.vtf for sky_day01_01
@@ -26,14 +26,13 @@ public class CubemapTests
     [Fact]
     public void ASampleOriginIsTruncatedTowardZero()
     {
-        // cubemap.cpp:91-93, (int)origin.
+        //, (int)origin.
         Assert.Equal((-128, 0, 128), CubemapFixups.SampleOrigin(new Vec3(-128.75f, 0.5f, 128.25f)));
     }
 
     [Fact]
     public void APatchedMaterialNameSeparatesTheOriginWithAnUnderscore()
     {
-        // cubemap.cpp:510-512.
         Assert.Equal("maps/m/metal/wall_1_-2_3", CubemapFixups.PatchedName("Metal\\Wall", "m", (1, -2, 3), true));
     }
 
@@ -46,7 +45,7 @@ public class CubemapTests
     [Fact]
     public void ATooLongPatchedMaterialNameIsFatal()
     {
-        // cubemap.cpp:514-521: nLen >= TEXTURE_NAME_LENGTH - 1.
+        //: nLen >= TEXTURE_NAME_LENGTH - 1.
         string material = new('a', 127 - "maps/m/_1_2_3".Length);
 
         Assert.Throws<MapCompileException>(() => CubemapFixups.PatchedName(material, "m", (1, 2, 3), true));
@@ -63,14 +62,13 @@ public class CubemapTests
     [Fact]
     public void ASideListTakesEachTokensLeadingInteger()
     {
-        // strtok(" ") then sscanf("%d"), cubemap.cpp:489-501.
+        // strtok(" ") then sscanf("%d").
         Assert.Equal([12, 7, -3], CubemapFixups.ParseSideList("12  x 7abc -3"));
     }
 
     [Fact]
     public void AnHdrNameReplacesFromTheFirstVtf()
     {
-        // cubemap.cpp:272-277.
         Assert.Equal("materials/maps/m/c1_2_3.hdr.vtf", DefaultCubemapBuilder.HdrName("materials/maps/m/c1_2_3.vtf", true));
         Assert.Equal("a.VTF", DefaultCubemapBuilder.HdrName("a.VTF", false));
     }
@@ -90,7 +88,7 @@ public class CubemapTests
     [Fact]
     public void AnLdrRoundTripThroughRgbaClearsBothAlphaFlagsOfAnOpaqueFormat()
     {
-        // vtf.cpp:1958-1974: RGBA8888 sets EIGHTBITALPHA, BGR888 clears both.
+        //: RGBA8888 sets EIGHTBITALPHA, BGR888 clears both.
         uint flags = DefaultCubemapBuilder.AfterConversion(0x3000u, ImageFormat.Rgba8888);
         flags = DefaultCubemapBuilder.AfterConversion(flags, ImageFormat.Bgr888);
 
@@ -100,7 +98,7 @@ public class CubemapTests
     [Fact]
     public void ConvertingToDxt5KeepsEightBitAlpha()
     {
-        // vtf.cpp:1976-1981: only DXT1 (and ATI) clear the alpha flags.
+        //: only DXT1 (and ATI) clear the alpha flags.
         Assert.Equal(0x2000u, DefaultCubemapBuilder.AfterConversion(0x2000u, ImageFormat.Dxt5));
     }
 
@@ -142,7 +140,7 @@ public class CubemapTests
     [Fact]
     public void TheImageIsBlack()
     {
-        // cubemap.cpp:343-344, memset then continue.
+        //, memset then continue.
         byte[] vtf = DefaultCubemapBuilder.Serialize(ImageFormat.Bgr888, 0x434c, 1);
 
         Assert.All(vtf[88..], b => Assert.Equal(0, b));
@@ -160,7 +158,7 @@ public class CubemapTests
     [Fact]
     public void WriteAddsTheDefaultAndEachNamedCubemapOnce()
     {
-        // cubemap.cpp:453-466: FileExistsInPak skips a name already written.
+        //: FileExistsInPak skips a name already written.
         MapPakFile pak = new();
         DefaultCubemapBuilder.Write([1], false, "M", ["materials/maps/m/c1_2_3.vtf", "materials/maps/m/c1_2_3.vtf"], pak);
 
@@ -195,7 +193,7 @@ public class CubemapTests
     [Fact]
     public async Task TheHdrFileIsHalfFloatAndKeepsTheSourceAlphaFlags()
     {
-        // No ConvertImageFormat on the HDR destination (cubemap.cpp:414-430).
+        // No ConvertImageFormat on the HDR destination.
         SurfaceUnit.Loaded loaded = await SurfaceUnit.LoadAsync(
             SurfaceUnit.Room(SurfaceUnit.Plain),
             extra: f => SurfaceUnit.AddSky(f, SurfaceUnit.SkyName, (int)ImageFormat.Bgr888, 0x2000));
@@ -222,7 +220,7 @@ public class CubemapTests
     [Fact]
     public async Task SkyboxFacesWithDifferentFlagsWriteNothing()
     {
-        // cubemap.cpp:246-252; alpha flags excepted, anything else must agree.
+        //; alpha flags excepted, anything else must agree.
         SurfaceUnit.Loaded loaded = await SurfaceUnit.LoadAsync(
             SurfaceUnit.Room(SurfaceUnit.Plain),
             extra: f => SurfaceUnit.AddSky(f, SurfaceUnit.SkyName, (int)ImageFormat.Bgr888, 0,
@@ -285,7 +283,7 @@ public class CubemapTests
     [Fact]
     public async Task ASecondReferenceToTheSamePatchIsAWarningAndLeavesTheSide()
     {
-        // cubemap.cpp:609-613, g_IsCubemapTexData.
+        //, g_IsCubemapTexData.
         VmfMap vmf = SurfaceUnit.Room(SurfaceUnit.Specular);
         int wall = TestMapCatalog.SideId(vmf, 2, 2);
         RoomKit.PointEntity(vmf, "env_cubemap", new Point(-128f, 0f, 128f), "sides", $"{wall}");
@@ -313,7 +311,7 @@ public class CubemapTests
     [Fact]
     public async Task ANonSpecularSideIsNotPatched()
     {
-        // PatchEnvmapForMaterialAndDependents returns false, :553-554.
+        // PatchEnvmapForMaterialAndDependents returns false,:553-554.
         VmfMap vmf = SurfaceUnit.Room(SurfaceUnit.Plain);
         int wall = TestMapCatalog.SideId(vmf, 2, 2);
         RoomKit.PointEntity(vmf, "env_cubemap", new Point(0f, 0f, 128f), "sides", $"{wall}");
@@ -328,7 +326,7 @@ public class CubemapTests
     [Fact]
     public async Task EverySpecularSideIsAttachedToTheNearestCubemapInFrontOfIt()
     {
-        // cubemap.cpp:861-876: the +X wall's inner face (normal -X) is behind
+        //: the +X wall's inner face (normal -X) is behind
         // nothing; the sample at x = 200 is nearer and in front of it.
         VmfMap vmf = SurfaceUnit.Room(SurfaceUnit.Specular);
         int plusXWall = TestMapCatalog.SideId(vmf, 3, 3);
@@ -344,7 +342,7 @@ public class CubemapTests
     [Fact]
     public async Task WithNoCubemapInFrontTheNearestWins()
     {
-        // cubemap.cpp:879-896. Both samples are behind the floor's top face.
+        //. Both samples are behind the floor's top face.
         VmfMap vmf = SurfaceUnit.Room(SurfaceUnit.Specular);
         int floor = TestMapCatalog.SideId(vmf, 0, 0);
         RoomKit.PointEntity(vmf, "env_cubemap", new Point(0f, 0f, -300f));
@@ -369,7 +367,7 @@ public class CubemapTests
     [Fact]
     public async Task AManuallyReferencedSideIsLeftToItsOwnCubemap()
     {
-        // cubemap.cpp:84, bManuallyPickedByAnEnvCubemap.
+        //, bManuallyPickedByAnEnvCubemap.
         (SurfaceUnit.Loaded loaded, int wall) = await SpecularRoomWithManualCubemapAsync(
             extraSample: new Point(-240f, 0f, 128f));
         CubemapFixups fixups = new(loaded.Context, loaded.Map, loaded.Patcher);
@@ -382,7 +380,7 @@ public class CubemapTests
     [Fact]
     public async Task UnderStockAPatchMaterialIsNeverTreatedAsSpecular()
     {
-        // materialpatch.cpp:211: the raw patch has no $envmap. Measured in
+        //: the raw patch has no $envmap. Measured in
         // stock on l2_cubemap_on_water_and_patch.
         VmfMap vmf = SurfaceUnit.Room(SurfaceUnit.PatchOfSpecular);
         RoomKit.PointEntity(vmf, "env_cubemap", new Point(0f, 0f, 128f));
@@ -437,7 +435,7 @@ public class CubemapTests
     [Fact]
     public async Task ADependentMaterialIsPatchedAndTheParentPointsAtThePatch()
     {
-        // cubemap.cpp:546-579: the water's $bottommaterial is itself specular,
+        //: the water's $bottommaterial is itself specular,
         // so it gets a patch and the water's patch names it.
         VmfMap vmf = SurfaceUnit.Room(SurfaceUnit.Plain);
         vmf.WorldSolids[0].Sides[0].Material = SurfaceUnit.Water;
@@ -467,7 +465,7 @@ public class CubemapTests
     [Fact]
     public async Task AnUnreferencedSampleIsAddedUnderEitherPolicy()
     {
-        // cubemap.cpp:986-993: a sample no side used still gets its VTF.
+        //: a sample no side used still gets its VTF.
         VmfMap vmf = SurfaceUnit.Room(SurfaceUnit.Plain);
         RoomKit.PointEntity(vmf, "env_cubemap", new Point(1f, 2f, 3f));
         SurfaceUnit.Loaded loaded = await SurfaceUnit.LoadAsync(vmf);
@@ -481,7 +479,7 @@ public class CubemapTests
     [Fact]
     public async Task ASecondSideOfAPatchedMaterialReusesTheTexData()
     {
-        // cubemap.cpp:633-678: the texdata already exists, so the texinfo is
+        //: the texdata already exists, so the texinfo is
         // found rather than added when it matches.
         (SurfaceUnit.Loaded loaded, _) = await SpecularRoomWithManualCubemapAsync();
         CubemapFixups fixups = new(loaded.Context, loaded.Map, loaded.Patcher);

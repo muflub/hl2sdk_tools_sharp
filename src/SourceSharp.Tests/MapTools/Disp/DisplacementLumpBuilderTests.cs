@@ -10,7 +10,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Disp;
 
 /// <summary>
-/// vbsp's displacement emitter, <c>utils/vbsp/disp_vbsp.cpp</c>: the lump
+/// vbsp's displacement emitter: the lump
 /// layout, the fields it copies, and the helpers the driver needs.
 /// </summary>
 public sealed class DisplacementLumpBuilderTests
@@ -21,7 +21,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// Vertex and triangle runs are laid out back to back in displacement
-    /// order: <c>EmitInitialDispInfos</c>, <c>disp_vbsp.cpp:309-313</c>.
+    /// order: <c>EmitInitialDispInfos</c>.
     /// </summary>
     [Fact]
     public void TheRunsAreLaidOutBackToBack()
@@ -38,7 +38,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// <c>minTess</c> is the VMF flags with the top bit set, never the VMF's
-    /// mintess: <c>disp_vbsp.cpp:326-328</c>.
+    /// mintess:.
     /// </summary>
     [Fact]
     public void MinTessIsTheFlagsWithTheTopBitSet()
@@ -53,7 +53,7 @@ public sealed class DisplacementLumpBuilderTests
     }
 
     /// <summary>
-    /// The lump's contents is the brush's, unforced: <c>disp_vbsp.cpp:333</c>.
+    /// The lump's contents is the brush's, unforced:.
     /// </summary>
     [Fact]
     public void TheLumpContentsIsTheBrushsUnforced()
@@ -69,7 +69,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// The core's own contents is forced solid when nothing visible or
-    /// clipping is set: <c>disp_vbsp.cpp:161-165</c>.
+    /// clipping is set:.
     /// </summary>
     [Fact]
     public void TheCoresContentsIsForcedSolidWhenInvisible()
@@ -83,7 +83,7 @@ public sealed class DisplacementLumpBuilderTests
         Assert.Equal((int)BrushContents.Solid, core.Surface.Contents);
     }
 
-    /// <summary>Player clip alone is enough to escape the forcing: <c>disp_vbsp.cpp:163</c>.</summary>
+    /// <summary>Player clip alone is enough to escape the forcing:.</summary>
     [Fact]
     public void PlayerClipContentsIsNotForcedSolid()
     {
@@ -99,7 +99,6 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// <c>ALL_VISIBLE_CONTENTS</c> is every bit up to <c>CONTENTS_OPAQUE</c>:
-    /// <c>bspflags.h:36</c>.
     /// </summary>
     [Fact]
     public void AllVisibleContentsIsTheLowBitsUpToOpaque()
@@ -107,7 +106,7 @@ public sealed class DisplacementLumpBuilderTests
         Assert.Equal(0xFF, DisplacementLumpBuilder.AllVisibleContents);
     }
 
-    /// <summary><c>m_iMapFace</c> is the base face's index: <c>disp_vbsp.cpp:554</c>.</summary>
+    /// <summary><c>m_iMapFace</c> is the base face's index:.</summary>
     [Fact]
     public void MapFaceIsTheBaseFacesIndex()
     {
@@ -122,7 +121,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// A vertex's lump direction is the normalised combined field and its
-    /// distance the combined length: <c>disp_vbsp.cpp:342-349</c>.
+    /// distance the combined length:.
     /// </summary>
     [Fact]
     public void AVertexStoresTheCombinedFieldAsDirectionAndLength()
@@ -136,7 +135,7 @@ public sealed class DisplacementLumpBuilderTests
         Assert.Equal(new Vec3(0.8f, 0, 0.6f), lumps.Verts[4].Vector);
     }
 
-    /// <summary>The alphas go straight into the lump: <c>disp_vbsp.cpp:351</c>.</summary>
+    /// <summary>The alphas go straight into the lump:.</summary>
     [Fact]
     public void TheAlphasAreCopied()
     {
@@ -147,7 +146,7 @@ public sealed class DisplacementLumpBuilderTests
         Assert.Equal(21.0f, lumps.Verts[(1 * 5) + 2].Alpha);
     }
 
-    /// <summary>The triangle tags go straight into the lump: <c>disp_vbsp.cpp:357</c>.</summary>
+    /// <summary>The triangle tags go straight into the lump:.</summary>
     [Fact]
     public void TheTriangleTagsAreCopied()
     {
@@ -180,7 +179,6 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// Each sample position run starts where the previous ended:
-    /// <c>disp_vbsp.cpp:584</c>.
     /// </summary>
     [Fact]
     public void EachSampleRunStartsWhereThePreviousEnded()
@@ -197,7 +195,6 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// The reported lightmap size is the core's luxel count:
-    /// <c>disp_vbsp.cpp:208-209</c>.
     /// </summary>
     [Fact]
     public void TheLightmapSizeIsTheLuxelCount()
@@ -211,7 +208,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// The texture coordinate is the dot product then the offset:
-    /// <c>CalcTextureCoordsAtPoints</c>, <c>bsplib.cpp:3288</c>.
+    /// <c>CalcTextureCoordsAtPoints</c>.
     /// </summary>
     [Fact]
     public void ATextureCoordinateIsTheDotProductPlusTheOffset()
@@ -232,7 +229,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// Without a face, the corner texture coordinates are stock's unit-square
-    /// defaults: <c>disp_vbsp.cpp:171</c>.
+    /// defaults:.
     /// </summary>
     [Fact]
     public void WithoutAFaceTheTextureCoordinatesAreTheUnitSquare()
@@ -249,7 +246,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// A rectangle whose long side runs along the lightmap V axis needs its
-    /// axes swapped: <c>CalcLuxelCoords</c>, <c>builddisp.cpp:489-500</c>.
+    /// axes swapped: <c>CalcLuxelCoords</c>.
     /// </summary>
     [Fact]
     public void ALongSideAlongLightmapVNeedsASwap()
@@ -281,7 +278,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// The swapped texinfo's lightmap row 0 is the old row 1, and row 1 is the
-    /// old row 0 negated, offset included: <c>disp_vbsp.cpp:222-228</c>.
+    /// old row 0 negated, offset included:.
     /// </summary>
     [Fact]
     public void SwappingMovesRowOneUpAndNegatesRowZero()
@@ -313,7 +310,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// One swapped copy per ORIGINAL texinfo, shared by every swapped face that
-    /// used it: <c>pSwappedTexInfos</c>, <c>disp_vbsp.cpp:214</c>.
+    /// used it: <c>pSwappedTexInfos</c>.
     /// </summary>
     [Fact]
     public void TwoSwappedFacesOnOneTexInfoShareOneCopy()
@@ -342,7 +339,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// Copies are numbered in FACE order, not displacement order — stock's
-    /// loop runs over <c>dfaces</c> (<c>disp_vbsp.cpp:547</c>).
+    /// loop runs over <c>dfaces</c>.
     /// </summary>
     [Fact]
     public void CopiesAreNumberedInFaceOrder()
@@ -359,7 +356,7 @@ public sealed class DisplacementLumpBuilderTests
     /// <summary>
     /// Under stock the world-bounds box is the FLAT base quad puffed by 0.1,
     /// whatever the displacement's height: <c>ComputeDispInfoBounds</c> via
-    /// <c>GetDispBox</c>, <c>disp_vbsp.cpp:39</c>, <c>disp_common.cpp:770</c>.
+    /// <c>GetDispBox</c>.
     /// </summary>
     [Fact]
     public void UnderStockTheWorldBoundsBoxIgnoresTheDisplacement()
@@ -386,8 +383,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// The neighbour tables and allowed-vertex words are copied into the lump
-    /// entry: <c>ExportCoreDispNeighborData</c> / <c>ExportCoreDispAllowedVertList</c>,
-    /// <c>disp_vbsp.cpp:368</c> and <c>:389</c>.
+    /// entry: <c>ExportCoreDispNeighborData</c> / <c>ExportCoreDispAllowedVertList</c>.
     /// </summary>
     [Fact]
     public void ExportCopiesTheAllowedVerts()
@@ -405,8 +401,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// A vertex the tessellation drops is folded onto the kept surface with a
-    /// distance of exactly one: <c>SnapRemainingVertsToSurface</c>,
-    /// <c>disp_vbsp.cpp:483-490</c>.
+    /// distance of exactly one: <c>SnapRemainingVertsToSurface</c>.
     /// </summary>
     [Fact]
     public void ADroppedVertexIsSnappedWithADistanceOfOne()
@@ -452,7 +447,7 @@ public sealed class DisplacementLumpBuilderTests
 
     /// <summary>
     /// The stock normalise quirk moves only the direction, never the distance:
-    /// <see cref="StockQuirk.DispVertNormalise"/>, <c>disp_vbsp.cpp:345-346</c>.
+    /// <see cref="StockQuirk.DispVertNormalise"/>.
     /// </summary>
     [Fact]
     public void TheStockNormaliseLeavesTheDistanceAlone()

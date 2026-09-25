@@ -11,7 +11,7 @@ namespace SourceSharp.Tests.MapTools.Disp;
 /// base face the lump builder needs, with no map and no content.
 /// </summary>
 /// <remarks>
-/// Grid convention, from <c>GenerateDispSurf</c> (<c>builddisp.cpp:1918</c>):
+/// Grid convention, from <c>GenerateDispSurf</c>:
 /// vertex <c>(x, y)</c> is index <c>y * side + x</c>, <c>x</c> runs from
 /// point 0 towards point 3 and <c>y</c> from point 0 towards point 1. The
 /// quads here are wound so that point 0 is the minimum corner, x is +X and y

@@ -12,7 +12,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Props;
 
 /// <summary>
-/// <c>ComputeDetailPropLighting</c> (<c>vraddetailprops.cpp:1009</c>) against
+/// <c>ComputeDetailPropLighting</c> against
 /// stock's own bytes on the committed fixture.
 /// </summary>
 public sealed class DetailPropLightingTests : IClassFixture<DetailPropFixture>
@@ -67,7 +67,7 @@ public sealed class DetailPropLightingTests : IClassFixture<DetailPropFixture>
     [Fact]
     public async Task WritingThePassBackReproducesStocksGameLumps()
     {
-        // WriteDetailLightingLumps (:929) plus the in-place dprp update: after
+        // WriteDetailLightingLumps:929) plus the in-place dprp update: after
         // writing the HDR pass into a copy, dprp and dplh are stock's bytes.
         DetailPropLightingResult r = await _fixture.RunAsync(LightingMode.Hdr);
         BspData copy = new();
@@ -111,7 +111,7 @@ public sealed class DetailPropLightingTests : IClassFixture<DetailPropFixture>
     [Fact]
     public void ASpritesCentreIsTheMidpointOfItsCorners()
     {
-        // UnserializeSpriteDict (:858): (0, (LR.x + UL.x)/2, (LR.y + UL.y)/2).
+        // UnserializeSpriteDict:858): (0, (LR.x + UL.x)/2, (LR.y + UL.y)/2).
         DetailSpriteDictLump d = _fixture.Stock.Sprites[0];
         Vec3 c = DetailPropLighting.SpriteCentres(_fixture.Stock)[0];
 

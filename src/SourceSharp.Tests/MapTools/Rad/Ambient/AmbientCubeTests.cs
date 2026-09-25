@@ -8,10 +8,9 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Ambient;
 
 /// <summary>
-/// <c>ComputeAmbientFromSphericalSamples</c>' projection
-/// (<c>leaf_ambient_lighting.cpp:157-175</c>), <c>AddEmitSurfaceLights</c>
-/// (<c>:92</c>), <c>Engine_WorldLightAngle</c> (<c>:58</c>) and
-/// <c>IsLeafAmbientSurfaceLight</c> (<c>:183</c>).
+/// <c>ComputeAmbientFromSphericalSamples</c>' projection,
+/// <c>AddEmitSurfaceLights</c>, <c>Engine_WorldLightAngle</c> and
+/// <c>IsLeafAmbientSurfaceLight</c>.
 /// </summary>
 public sealed class AmbientCubeTests
 {
@@ -67,7 +66,7 @@ public sealed class AmbientCubeTests
     [Fact]
     public void AnInvisibleBakedLightAddsNothing()
     {
-        // :111-113: TestLine found the segment blocked.
+        //:111-113: TestLine found the segment blocked.
         Vec3[] cube = AddOne(SurfaceLight(new Vec3(0, 0, 100), new Vec3(0, 0, -1), 10), Vec3.Zero, 0.0f);
 
         Assert.All(cube, c => Assert.Equal(Vec3.Zero, c));
@@ -94,7 +93,7 @@ public sealed class AmbientCubeTests
     [Fact]
     public void ALightBeyondItsRadiusAddsNothing()
     {
-        // Engine_WorldLightDistanceFalloff, :82-86.
+        // Engine_WorldLightDistanceFalloff,:82-86.
         Vec3[] cube = AddOne(SurfaceLight(new Vec3(0, 0, 10), new Vec3(0, 0, -1), 10, radius: 5), Vec3.Zero, 1.0f);
 
         Assert.All(cube, c => Assert.Equal(Vec3.Zero, c));
@@ -112,7 +111,7 @@ public sealed class AmbientCubeTests
     [Fact]
     public void ADimSurfaceLightGoesInTheCubes()
     {
-        // :197: intensity * InvRSquared(0,0,512) < 0.005 -> 1000 * 1/262144 < 0.005.
+        //:197: intensity * InvRSquared(0,0,512) < 0.005 -> 1000 * 1/262144 < 0.005.
         DWorldLight wl = SurfaceLight(Vec3.Zero, new Vec3(0, 0, 1), 1000);
 
         Assert.True(LeafAmbientSurfaceLights.IsAmbientCubeLight(in wl, stockEstimate: false));
@@ -129,7 +128,7 @@ public sealed class AmbientCubeTests
     [Fact]
     public void AStyledSurfaceLightNeverGoesInTheCubes()
     {
-        // :191, wl->style != 0.
+        //:191, wl->style != 0.
         DWorldLight wl = SurfaceLight(Vec3.Zero, new Vec3(0, 0, 1), 1);
         wl.Style = 1;
 

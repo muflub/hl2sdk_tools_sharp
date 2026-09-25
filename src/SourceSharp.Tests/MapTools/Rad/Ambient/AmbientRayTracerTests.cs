@@ -8,10 +8,9 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Ambient;
 
 /// <summary>
-/// <c>CLightSurface::FindIntersection</c> with the displacement clip
-/// (<c>vraddetailprops.cpp:358-490</c>), <c>CastRayInLeaf</c> (<c>:546</c>),
-/// <c>TestLine</c> (<c>trace.cpp:151</c>) and <c>CLeafSampler</c>
-/// (<c>leaf_ambient_lighting.cpp:201</c>), on the committed fixture room:
+/// <c>CLightSurface::FindIntersection</c> with the displacement clip,
+/// <c>CastRayInLeaf</c>.
+/// <c>TestLine</c> and <c>CLeafSampler</c>, on the committed fixture room:
 /// 768 x 768 x 384, displacement floor 8..~32 up, lit ceiling over x &lt; 0,
 /// sky ceiling over x &gt; 0, texlight panel at x -256..-128, z 376..384.
 /// </summary>
@@ -45,7 +44,7 @@ public sealed class AmbientRayTracerTests : IClassFixture<AmbientFixture>
     [Fact]
     public void ARayUpThroughTheSkyHalfFindsASkyFaceWithNoLuxel()
     {
-        // vraddetailprops.cpp:388-409: a sky face is taken on a node, m_HitFrac
+        //: a sky face is taken on a node, m_HitFrac
         // stays at 1 and m_bHasLuxel stays false.
         AmbientHit hit = Trace(new Vec3(300, 300, 200), new Vec3(0, 0, 400));
 
@@ -132,7 +131,7 @@ public sealed class AmbientRayTracerTests : IClassFixture<AmbientFixture>
     [Fact]
     public void TheSamplerIsAPureFunctionOfTheLeaf()
     {
-        // CLeafSampler is a local seeded zero per leaf (:528): two samplers
+        // CLeafSampler is a local seeded zero per leaf:528): two samplers
         // draw the same positions.
         AmbientScene scene = _fixture.Ldr;
         int leaf = Enumerable.Range(0, scene.Leaves.Length).First(l => (scene.Leaves[l].Contents & 1) == 0);

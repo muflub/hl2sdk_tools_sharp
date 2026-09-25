@@ -34,7 +34,7 @@ namespace SourceSharp.Tests;
 public sealed class RepoSourceFactAttribute : FactAttribute
 {
     /// <param name="relativePaths">
-    /// Repo-relative paths, e.g. <c>src/public/const.h</c>. Forward slashes;
+    /// Repo-relative paths, e.g.. Forward slashes;
     /// they are split so the attribute reads the same on any platform.
     /// </param>
     public RepoSourceFactAttribute(params string[] relativePaths)

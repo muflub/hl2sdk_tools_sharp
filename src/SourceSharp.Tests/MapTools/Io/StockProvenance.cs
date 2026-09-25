@@ -23,7 +23,7 @@ namespace SourceSharp.Tests.MapTools.Io;
 /// <para>
 /// The sidecar is one line: the path of the <c>gameinfo.txt</c> stock was
 /// given as <c>-game</c>, absolute, or relative to the sidecar's directory.
-/// <c>~/.cache/maptools/bin/make-catmaps</c> writes it next to every map it
+/// The catalogue recipe's <c>make-catmaps</c> writes it next to every map it
 /// compiles.
 /// </para>
 /// <para>

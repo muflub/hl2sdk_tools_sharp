@@ -18,7 +18,7 @@ namespace SourceSharp.Tests.MapTools.Io;
 /// <remarks>
 /// Most of these run against <see cref="VpkFixture"/>, which needs no installed
 /// game. A fixture is a stand-in for something native and this project has been
-/// caught by one drifting before, so the reader is also driven over a REAL Valve
+/// caught by one drifting before, so the reader is also driven over a REAL shipped
 /// archive by the <see cref="InstalledGameFactAttribute"/> facts at the bottom.
 /// </remarks>
 public class VpkArchiveTests
@@ -368,7 +368,7 @@ public class VpkArchiveTests
     }
 
     [InstalledGameFact]
-    public async Task ARealValveArchiveOpens()
+    public async Task ARealInstalledArchiveOpens()
     {
         await using VpkArchive archive = await OpenInstalledArchive();
 
@@ -376,7 +376,7 @@ public class VpkArchiveTests
     }
 
     [InstalledGameFact]
-    public async Task ARealValveArchiveIsVersionTwo()
+    public async Task ARealInstalledArchiveIsVersionTwo()
     {
         await using VpkArchive archive = await OpenInstalledArchive();
 
@@ -384,7 +384,7 @@ public class VpkArchiveTests
     }
 
     [InstalledGameFact]
-    public async Task ARealValveArchiveHoldsTheParticlesManifest()
+    public async Task ARealInstalledArchiveHoldsTheParticlesManifest()
     {
         // A named file rather than "some file", so a reader that produced 18000
         // entries with mangled paths fails this.
@@ -394,9 +394,9 @@ public class VpkArchiveTests
     }
 
     [InstalledGameFact]
-    public async Task ARealValveArchiveEntryMatchesItsRecordedCrc()
+    public async Task ARealInstalledArchiveEntryMatchesItsRecordedCrc()
     {
-        // The strongest check available without a second implementation: Valve
+        // The strongest check available without a second implementation: the writer
         // wrote the CRC, this reader assembled the bytes from the directory's
         // offsets and preload, and the two have to agree. Every part of the
         // parse -- header size, part offsets, preload length, the base offset
@@ -410,7 +410,7 @@ public class VpkArchiveTests
     }
 
     [InstalledGameFact]
-    public async Task EveryEntryInARealValveArchiveHasAPathWithAnExtension()
+    public async Task EveryEntryInARealInstalledArchiveHasAPathWithAnExtension()
     {
         // A three-loop parse that slipped by one byte produces entries whose
         // names are fragments of the next name. Checking the whole directory
@@ -422,7 +422,7 @@ public class VpkArchiveTests
     }
 
     [InstalledGameFact]
-    public async Task ARealValveArchiveSpansMoreThanOneFile()
+    public async Task ARealInstalledArchiveSpansMoreThanOneFile()
     {
         // hl2_misc is multi-part, which is the case an in-memory fixture with
         // one archive cannot exercise; if this ever reports one file the probe

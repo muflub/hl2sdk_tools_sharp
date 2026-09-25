@@ -187,7 +187,7 @@ public sealed class MapCompilerTests
     public async Task TheChainEqualsTheStagesRunThroughFiles(bool slanted)
     {
         // The chain claims the BSP needs no file round trip between stages
-        // and hands vvis the .prt's text. Run the stages the way three
+        // and hands vvis the.prt's text. Run the stages the way three
         // processes would -- save, load, parse -- and require the same bytes;
         // the slanted map's portal text is not its floats (next fact).
         (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(slanted ? SlantedRoom() : Room());
@@ -224,7 +224,7 @@ public sealed class MapCompilerTests
     }
 
     // The sealed room with a slanted wedge on the floor: its sloped face
-    // meets the axial split planes at fractional coordinates, so the .prt's
+    // meets the axial split planes at fractional coordinates, so the.prt's
     // six-decimal text is not the floats vbsp held.
     private static VmfDocument SlantedRoom()
     {
@@ -246,7 +246,7 @@ public sealed class MapCompilerTests
     public async Task TheSlantedFixturesPortalTextIsNotItsFloats()
     {
         // The premise of the slanted case above: this fixture reaches portal
-        // coordinates the .prt's %f text rounds (prtfile.cpp:76-83). NOTE:
+        // coordinates.prt's %f text rounds. NOTE:
         // measured by mutation (p7 m0), handing vvis the floats instead
         // changes no output byte here -- the text round trip is kept because
         // it is stock's contract between the tools, not because it is observed.
@@ -279,7 +279,7 @@ public sealed class MapCompilerTests
     [Fact]
     public async Task ALeakedMapWritesALinAndNoPortalFile()
     {
-        // vbsp.cpp:368: a .prt only for a sealed world; LeakFile writes the .lin.
+        //: a.prt only for a sealed world; LeakFile writes.lin.
         (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room(sealedRoom: false));
         _ = await MapCompiler.CompileAsync(Request(files, content), null);
 
@@ -301,7 +301,7 @@ public sealed class MapCompilerTests
     [Fact]
     public async Task ALeakedMapIsStillLit()
     {
-        // A Hammer chain runs vrad after vvis fails to open the .prt.
+        // A Hammer chain runs vrad after vvis fails to open the.prt.
         (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room(sealedRoom: false));
         CompileResult result = await MapCompiler.CompileAsync(Request(files, content), null);
 
@@ -321,7 +321,7 @@ public sealed class MapCompilerTests
     [Fact]
     public async Task LeakTestStopsTheChainAtALeak()
     {
-        // vbsp.cpp:302-306: -leaktest exits at the leak, writing no .bsp.
+        //: -leaktest exits at the leak, writing no.bsp.
         (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room(sealedRoom: false));
         CompileRequest request = Request(files, content) with { Vbsp = VbspOptions.Default with { LeakTest = true } };
         CompileResult result = await MapCompiler.CompileAsync(request, null);
@@ -334,7 +334,7 @@ public sealed class MapCompilerTests
     [Fact]
     public async Task AStalePortalFileIsDeletedWhenTheMapNowLeaks()
     {
-        // vbsp.cpp:1321-1326 removes <map>.prt and <map>.lin before compiling.
+        // removes <map>.prt and <map>.lin before compiling.
         (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room(sealedRoom: false));
         files.AddText("maps/room.prt", "PRT1\n0\n0\n");
         _ = await MapCompiler.CompileAsync(Request(files, content), null);
@@ -355,7 +355,7 @@ public sealed class MapCompilerTests
     [Fact]
     public async Task TheLogIsAppendedToNotReplaced()
     {
-        // cmdlib.cpp:369 opens the log with "a".
+        // opens the log with "a".
         (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room());
         files.AddText("maps/room.log", "an earlier compile\n");
         _ = await MapCompiler.CompileAsync(Request(files, content), null);

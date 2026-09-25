@@ -8,7 +8,7 @@ namespace SourceSharp.Tests.MapTools.Rad.Ambient;
 /// <remarks>
 /// <para>
 /// <b>WHY A FINISHED MAP IS THE WHOLE ORACLE.</b> Leaf ambient is the LAST
-/// lighting stage: <c>VRAD_ComputeOtherLighting</c> (<c>vrad.cpp:2309</c>) runs
+/// lighting stage: <c>VRAD_ComputeOtherLighting</c> runs
 /// after <c>RadWorld_Go</c> has finished <c>FinalLightFace</c>, so the lightmap
 /// the stage reads is the lightmap that ends up in the file. Everything leaf
 /// ambient consumes -- <c>LUMP_LIGHTING</c>, <c>LUMP_WORLDLIGHTS</c>, the tree,
@@ -28,7 +28,7 @@ namespace SourceSharp.Tests.MapTools.Rad.Ambient;
 /// <code>
 /// # a vbsp + vvis output, frozen so no vrad time contains vbsp time
 /// cp ss_sandbox_base.bsp $DIR/ss_sandbox.bsp
-/// wine .../vrad.exe -both -threads 1 -game "Z:$GAMEINFO" "Z:$DIR/ss_sandbox.bsp"
+/// wine.../vrad.exe -both -threads 1 -game "Z:$GAMEINFO" "Z:$DIR/ss_sandbox.bsp"
 /// VRAD_STOCK_DIR=$DIR dotnet test --filter LeafAmbientStockParity
 /// </code>
 /// <para>

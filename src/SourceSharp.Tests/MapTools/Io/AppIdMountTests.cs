@@ -8,7 +8,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Io;
 
 /// <summary>
-/// <c>|appid_N|</c> search paths (<c>public/filesystem_init.cpp:694-735</c>)
+/// <c>|appid_N|</c> search paths
 /// and the Steam library they resolve through, on an in-memory copy of a
 /// Steam install's <c>libraryfolders.vdf</c> and app manifests.
 /// </summary>
@@ -104,7 +104,7 @@ public class AppIdMountTests
     [Fact]
     public void TheAppIdPrefixIsMatchedWhateverItsCasing()
     {
-        // Q_stristr, filesystem_init.cpp:694.
+        // Q_stristr.
         Assert.True(Line("|AppID_440|tf").TryGetAppId(out int id, out _));
         Assert.Equal(440, id);
     }
@@ -112,7 +112,7 @@ public class AppIdMountTests
     [Fact]
     public void AnAppIdTokenNotAtTheStartIsNotAnAppIdLocation()
     {
-        // Q_stristr( pLocation, APPID_PREFIX_TOKEN ) == pLocation: only a prefix counts.
+        // Q_stristr(pLocation, APPID_PREFIX_TOKEN) == pLocation: only a prefix counts.
         Assert.False(Line("tf/|appid_440|x").TryGetAppId(out int id, out _));
         Assert.Equal(0, id);
     }
@@ -120,14 +120,14 @@ public class AppIdMountTests
     [Fact]
     public void AnAppIdWithNoClosingBarIsMalformed()
     {
-        // "Malformed gameinfo.txt", filesystem_init.cpp:700-703.
+        // "Malformed gameinfo.txt".
         Assert.Throws<InvalidDataException>(() => Line("|appid_440tf").TryGetAppId(out _, out _));
     }
 
     [Fact]
     public void AZeroAppIdIsRefused()
     {
-        // "Can't mount content from invalid appid.", filesystem_init.cpp:705-708.
+        // "Can't mount content from invalid appid.".
         Assert.Throws<InvalidDataException>(() => Line("|appid_0|tf").TryGetAppId(out _, out _));
     }
 
@@ -239,7 +239,7 @@ public class AppIdMountTests
     [Fact]
     public async Task AnAppThatIsNotInstalledIsRefusedNotSkipped()
     {
-        // "This mod requires %s (%d) to be installed", filesystem_init.cpp:711-719.
+        // "This mod requires %s (%d) to be installed".
         InMemoryFileSystem disk = Steam().AddText(
             "mod/gameinfo.txt",
             AppIdGameInfo.Replace("|appid_440|", "|appid_220|", StringComparison.Ordinal));

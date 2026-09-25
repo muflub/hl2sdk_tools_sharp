@@ -11,8 +11,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Portals;
 
 /// <summary>
-/// Portalisation on a tree small enough to know the right answer for
-/// (<c>portals.cpp:26-621</c>).
+/// Portalisation on a tree small enough to know the right answer for.
 /// </summary>
 public class TreePortalsTests
 {

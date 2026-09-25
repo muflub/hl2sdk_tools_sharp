@@ -12,7 +12,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Tree;
 
 /// <summary>
-/// The tree-building half of <c>brushbsp.cpp</c>.
+/// The tree-building half of the reference implementation.
 /// </summary>
 public class BrushBspTreeTests
 {
@@ -31,7 +31,7 @@ public class BrushBspTreeTests
     /// <b>The axial and non-axial paths disagree for a flat box.</b> The axial
     /// test is symmetric around the plane, so a box with zero thickness there
     /// is on NEITHER side and the answer is 0. The general test is
-    /// <c>dist1 &gt;= +eps</c> for front and <c>dist2 &lt; +eps</c> for back —
+    /// <c>dist1 &gt;= +eps</c> for front and <c>dist2 &lt; +eps</c> for back.
     /// both against <c>+eps</c>, one inclusive and one exclusive — so the same
     /// box comes back BACK. That asymmetry is stock's, and it is why the
     /// plane's STORED type has to be used rather than one recomputed from the
@@ -192,7 +192,7 @@ public class BrushBspTreeTests
 
     /// <summary>
     /// <b>A solid brush whose every side is on a node eats everything.</b> The
-    /// leaf becomes exactly <c>CONTENTS_SOLID</c> — an assignment, not an OR —
+    /// leaf becomes exactly <c>CONTENTS_SOLID</c> — an assignment, not an OR.
     /// and the loop breaks, so the water brush behind it in the list never
     /// contributes.
     /// </summary>

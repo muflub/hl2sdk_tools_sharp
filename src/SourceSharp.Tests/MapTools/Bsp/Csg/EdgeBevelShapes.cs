@@ -14,7 +14,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Csg;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The problem.</b> <c>map.cpp:533-610</c> adds an EDGE bevel for every
+/// <b>The problem.</b> adds an EDGE bevel for every
 /// non-axial edge whose slanted-axial supporting plane is outside the hull.
 /// Across all 27 reference maps it never fires once: the catalogue's only
 /// non-axial brush is <c>l0_nonaxial_wedge</c> (2 box bevels, 0 edge bevels),
@@ -40,7 +40,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Csg;
 /// axes at ±128; faces the eight planes <c>±x ±y ±z = 128</c>. Every one of
 /// its twelve edges lies between two slanted faces, has a non-axial direction
 /// such as <c>(-1, 1, 0)/√2</c>, and has exactly one supporting plane of the
-/// form <c>cross(edge, axis)</c> — for that edge,
+/// form <c>cross(edge, axis)</c> — for that edge.
 /// <c>cross(e, Z) = (1, 1, 0)/√2</c> at distance <c>128/√2</c>, which touches
 /// the hull along the edge and is none of the eight faces nor any of the six
 /// box bevels. Twelve edges, twelve such planes:
@@ -83,8 +83,8 @@ public class EdgeBevelShapes
     /// </para>
     /// <para>
     /// The cause is not a decision either compiler makes. Because
-    /// <c>MakeBrushWindings</c> clips with <c>BRUSH_CLIP_EPSILON</c>
-    /// (<c>map.cpp:644</c>), the vertices are not at 0 but within about 0.004
+    /// <c>MakeBrushWindings</c> clips with <c>BRUSH_CLIP_EPSILON</c>,
+    /// the vertices are not at 0 but within about 0.004
     /// of it — the loaded brush bounds are
     /// <c>(-128.00195, -128.0039, -128.00293)</c> — and which side of the
     /// block plane a sliver's vertex falls on is then decided by the last bits
@@ -167,7 +167,7 @@ public class EdgeBevelShapes
             (int X, int Y, int Z) vy = (cx, cy + (octant.SY * Radius), cz);
             (int X, int Y, int Z) vz = (cx, cy, cz + (octant.SZ * Radius));
 
-            // PlaneFromPoints is (p0-p1) x (p2-p1) (map.cpp:384), which for
+            // PlaneFromPoints is (p0-p1) x (p2-p1), which for
             // (vx, vz, vy) gives a normal proportional to
             // sx*sy*sz * (sx, sy, sz). So the order flips with the octant's
             // parity, or half the faces point inwards and the brush is

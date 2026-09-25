@@ -93,7 +93,7 @@ public class StockFaceCatalogueTests
 
         Assert.Equal(stock.UniqueVerts, run.Counters.UniqueVerts);
 
-        // + the error vertex 0 BeginBSPFile reserves (writebsp.cpp:1138),
+        // + the error vertex 0 BeginBSPFile reserves,
         // which c_uniqueverts does not count.
         Assert.Equal(stock.UniqueVerts + 1, run.Faces.Vertices.Count);
     }

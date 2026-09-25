@@ -13,7 +13,7 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// </summary>
 public sealed class BspTraceGeometryTests : IClassFixture<BspParityFixture>
 {
-    /// <summary><c>PLANE_Z</c> from <c>bspfile.h</c>: the last axial type.</summary>
+    /// <summary><c>PLANE_Z</c> from the reference implementation: the last axial type.</summary>
     private const int PlaneZ = 2;
 
     private readonly BspParityFixture _fixture;

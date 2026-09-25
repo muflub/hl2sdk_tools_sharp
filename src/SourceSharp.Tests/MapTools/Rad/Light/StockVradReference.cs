@@ -163,7 +163,7 @@ internal static class StockVradReference
     /// <returns>A path, or null.</returns>
     /// <remarks>
     /// <para>
-    /// The fixture was made from the catalogue's <c>*.stockvis.bsp</c> files --
+    /// The fixture was made from the catalogue's <c>*.stockvis.bsp</c> files.
     /// vbsp output that stock vvis has already processed -- because vrad needs
     /// vis data and the plain <c>.bsp</c> has none.
     /// </para>
@@ -198,7 +198,7 @@ internal static class StockVradReference
 
     /// <summary>
     /// p4c's private stock corpus: <c>in/</c> (vbsp + vvis inputs and their
-    /// .rad), <c>rad/</c>, <c>both/</c> and <c>b0/</c> (stock vrad, default,
+    ///.rad), <c>rad/</c>, <c>both/</c> and <c>b0/</c> (stock vrad, default.
     /// <c>-both</c> and <c>-bounce 0</c>). Built by the scripts beside the
     /// fixture; see <c>Fixtures/README</c> in the findings.
     /// </summary>

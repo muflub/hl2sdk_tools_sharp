@@ -36,7 +36,7 @@ public class VersionRuleTests
     [Corrupts(BspRuleCodes.OcclusionVersion)]
     public async Task AnOcclusionLumpVersionOutsideZeroToTwoIsRejected()
     {
-        // engine/modelloader.cpp:1331-1399, "Invalid occlusion lump version!".
+        //, "Invalid occlusion lump version!".
         BspData bsp = await Corrupted.GoldenAsync();
         BspLumpData occlusion = bsp[BspLump.Occlusion];
         Corrupted.Replace(bsp, BspLump.Occlusion, occlusion.Data.ToArray(), 3);
@@ -50,7 +50,7 @@ public class VersionRuleTests
     [Fact]
     public async Task AnEmptyOcclusionLumpIsNeverAskedWhatVersionItIs()
     {
-        // engine/modelloader.cpp:1599-1602 returns on a zero-length lump
+        // returns on a zero-length lump
         // BEFORE the version switch, so an absent occlusion lump carrying junk
         // in its version field is not a defect.
         BspData bsp = await Corrupted.GoldenAsync();
@@ -64,7 +64,7 @@ public class VersionRuleTests
     [Corrupts(BspRuleCodes.LeafsVersion)]
     public async Task ALeafsLumpVersionOutsideZeroToOneIsRejected()
     {
-        // engine/modelloader.cpp:2306-2308 and engine/cmodel_bsp.cpp:542-544.
+        //.
         //
         // This corruption necessarily produces BSP0003 as well, and that is
         // correct rather than sloppy: the version IS the element size, so a
@@ -84,7 +84,7 @@ public class VersionRuleTests
     [Corrupts(BspRuleCodes.LeafAmbientLegacyPath)]
     public async Task AnAmbientLumpWithoutItsIndexFallsBackToTheLegacyPath()
     {
-        // engine/modelloader.cpp:2203-2205. dm_lockdown.bsp has no ambient
+        //. dm_lockdown.bsp has no ambient
         // lumps at all, so the field that decides this does not exist to
         // corrupt: the corruption is to GIVE it one, at the wrong version and
         // with no index, which is exactly the state the engine's else-branch
@@ -106,7 +106,7 @@ public class VersionRuleTests
     [Corrupts(BspRuleCodes.LeafAmbientLegacyCount)]
     public async Task TheLegacyAmbientPathNeedsOneLightCubePerLeaf()
     {
-        // engine/modelloader.cpp:2210-2212 asserts it and :2226 memcpy's
+        // asserts it and:2226 memcpy's
         // inLightCubes[i] for every leaf regardless, so a short lump is read
         // past its end. The legacy-path warning necessarily rides along,
         // because taking that path is the precondition for this rule.
@@ -126,7 +126,7 @@ public class VersionRuleTests
     [Corrupts(BspRuleCodes.StaticPropVersion)]
     public async Task AStaticPropLumpBelowVersion4LosesEveryProp()
     {
-        // engine/staticpropmgr.cpp:1320-1325: a Warning and a return. The map
+        //: a Warning and a return. The map
         // loads, and every static prop in it is simply gone -- which is why
         // "it loaded" is not the bar this instrument sets.
         BspData bsp = await Corrupted.GoldenAsync();
@@ -142,7 +142,7 @@ public class VersionRuleTests
     [Corrupts(BspRuleCodes.DetailPropVersion)]
     public async Task ADetailPropLumpBelowVersion4LosesEveryProp()
     {
-        // game/client/detailobjectsystem.cpp:1447-1451, the same shape.
+        //, the same shape.
         BspData bsp = await Corrupted.GoldenAsync();
         int index = IndexOfGameLump(bsp, GameLumpId.DetailProps);
         bsp.GameLumps[index] = bsp.GameLumps[index] with { Version = 3 };
@@ -156,7 +156,7 @@ public class VersionRuleTests
     [Corrupts(BspRuleCodes.HdrLumpPair)]
     public async Task HdrLightingWithoutHdrWorldlightsIsUnusable()
     {
-        // engine/modelloader.cpp:1029-1031. Half a set of HDR lumps is
+        //. Half a set of HDR lumps is
         // megabytes the engine will never look at, and nothing says so.
         BspData bsp = await Corrupted.GoldenAsync();
         Corrupted.Replace(bsp, BspLump.LightingHdr, new byte[16], 1);
@@ -170,7 +170,7 @@ public class VersionRuleTests
     [Fact]
     public async Task AVersion20MapWithHdrButNoHdrLeafAmbientTurnsHdrBackOff()
     {
-        // engine/modelloader.cpp:1034-1037, the second half of the same rule.
+        //, the second half of the same rule.
         BspData bsp = await Corrupted.GoldenAsync();
         bsp.FileVersion = 20;
         Corrupted.Replace(bsp, BspLump.LightingHdr, new byte[16], 1);

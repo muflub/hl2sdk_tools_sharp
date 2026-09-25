@@ -50,7 +50,7 @@ public sealed class StockTexDataFixture : IAsyncLifetime
     private const string GameInfo = "hl2mp/gameinfo.txt";
 
     /// <summary>
-    /// The value <c>overlay.cpp:266-268</c> writes into both axis offsets of
+    /// The value writes into both axis offsets of
     /// an overlay's texinfo.
     /// </summary>
     private const float OverlaySentinel = -99999.0f;
@@ -233,8 +233,8 @@ public sealed class StockTexDataFixture : IAsyncLifetime
         ImmutableArray<StockTexData> stock,
         FrozenDictionary<string, MaterialFacts> facts)
     {
-        // texinfo_t::flags is assigned from the brush side's, which map.cpp
-        // :2857 copied straight out of textureref[].flags -- and vbsp sets a
+        // texinfo_t::flags is assigned from the brush side's, which
+        //:2857 copied straight out of textureref[].flags -- and vbsp sets a
         // SURF_ bit nowhere else in the program. So FindMiptex's output IS
         // this lump's flags field, for every side that came from a brush.
         Dictionary<string, TexDataMismatch> disagreements = [];
@@ -252,7 +252,7 @@ public sealed class StockTexDataFixture : IAsyncLifetime
             if (IsOverlay(entry))
             {
                 // An overlay's texinfo does not come from FindMiptex at all:
-                // overlay.cpp:256-270 and :344-359 build one with
+                // and:344-359 build one with
                 // `texInfo.flags = 0` and the -99999 sentinel in both axis
                 // offsets. Comparing it against a material classification
                 // would be comparing against a constant.

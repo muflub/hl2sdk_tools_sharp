@@ -19,7 +19,7 @@ public sealed class RadWriterTests
     [Fact]
     public void ABoxHasSixUniqueCornerNormals()
     {
-        // lightmap.cpp:85-112: 90-degree corners are not smoothed, so every
+        // -degree corners are not smoothed, so every
         // corner of a face carries that face's normal.
         RadWorld world = LightBox.Build(LightBox.Map());
         (Vec3[] normals, _) = VradVertexNormals.Save(world.Geometry, world.Neighbours);
@@ -30,7 +30,7 @@ public sealed class RadWriterTests
     [Fact]
     public void EveryFaceCornerGetsOneIndex()
     {
-        // :336-362: one entry per edge of every face, in face order.
+        //:336-362: one entry per edge of every face, in face order.
         RadWorld world = LightBox.Build(LightBox.Map());
         (_, ushort[] indices) = VradVertexNormals.Save(world.Geometry, world.Neighbours);
 
@@ -56,7 +56,7 @@ public sealed class RadWriterTests
     [Fact]
     public void AnHdrPassWritesFacesHdrFromTheLdrFaces()
     {
-        // vrad.cpp:2221-2229: dfaces_hdr starts as a copy of dfaces.
+        //: dfaces_hdr starts as a copy of dfaces.
         BspData bsp = LightBox.Map().Build();
         LightmapLayout layout = new([0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255, 255,
             0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255, 255], [4, 100, 200, 300, 400, 500], 600);
@@ -82,7 +82,6 @@ public sealed class RadWriterTests
     [Fact]
     public void StaticPropLightingSetsThisPassesLevelFlag()
     {
-        // vrad.cpp:2214-2215.
         BspData bsp = new();
         RadLumpWriter.WriteLevelFlags(bsp, hdr: true, staticPropLighting: true);
         Assert.Equal(RadLumpWriter.BakedStaticPropLightingHdr, BinaryPrimitives.ReadUInt32LittleEndian(bsp[BspLump.MapFlags].Data.Span));
@@ -91,7 +90,7 @@ public sealed class RadWriterTests
     [Fact]
     public void WithoutStaticPropLightingBothLevelFlagsAreCleared()
     {
-        // vrad.cpp:2216-2219: an LDR rerun forgets an HDR bake.
+        //: an LDR rerun forgets an HDR bake.
         BspData bsp = new();
         byte[] both = new byte[4];
         BinaryPrimitives.WriteUInt32LittleEndian(both, 3u | 0x10u);
@@ -120,13 +119,12 @@ public sealed class RadWriterTests
     }
 }
 
-/// <summary><c>-luxeldensity</c> (<c>vrad.cpp:1758-1804</c>).</summary>
+/// <summary><c>-luxeldensity</c>.</summary>
 public sealed class LuxelDensityTests
 {
     [Fact]
     public void ADensityAboveOneIsItsReciprocal()
     {
-        // vrad.cpp:2555-2556.
         Assert.Equal(0.5f, LuxelDensity.Effective(2f));
     }
 
@@ -139,7 +137,7 @@ public sealed class LuxelDensityTests
     [Fact]
     public void TheCapShortensALightmapAxisToTheDensity()
     {
-        // :1782-1796. The box is 1/16 luxel a unit; capped at 1/32.
+        //:1782-1796. The box is 1/16 luxel a unit; capped at 1/32.
         BspData bsp = LightBox.Map().Build();
         LuxelDensity.Apply(bsp, 1f / 32, hdr: false, ComplianceOptions.Correct);
 
@@ -160,7 +158,7 @@ public sealed class LuxelDensityTests
     [Fact]
     public void TheFacesExtentsFollowTheNewAxes()
     {
-        // :1803, CalcFaceExtents: 256 units at 1/32 is 8 luxels.
+        //:1803, CalcFaceExtents: 256 units at 1/32 is 8 luxels.
         BspData bsp = LightBox.Map().Build();
         LuxelDensity.Apply(bsp, 1f / 32, hdr: false, ComplianceOptions.Correct);
 

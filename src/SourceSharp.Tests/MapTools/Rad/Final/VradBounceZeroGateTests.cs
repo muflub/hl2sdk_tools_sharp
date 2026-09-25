@@ -19,7 +19,7 @@ namespace SourceSharp.Tests.MapTools.Rad.Final;
 /// Every lump the driver writes is compared. The lumps with no float freedom
 /// -- faces, worldlights, vertex normals, leaves, map flags -- must be
 /// byte-identical. LIGHTING is compared record by record; its tolerance was
-/// set from the first measurement (p4f-findings.md) and is frozen here.
+/// set from the first measurement and is frozen here.
 /// </remarks>
 public sealed class VradBounceZeroGateTests(ITestOutputHelper output)
 {
@@ -106,8 +106,8 @@ public sealed class VradBounceZeroGateTests(ITestOutputHelper output)
     /// <summary>
     /// The same gate without supersampling (<c>-noextra</c> on both sides),
     /// which takes stock's two uninitialised-memory reads out of the picture:
-    /// <c>pSampleIntensity</c> (<c>lightmap.cpp:2881</c>) and
-    /// <c>PointsInWinding</c>'s <c>invalidMask</c> (<c>:2644</c>).
+    /// <c>pSampleIntensity</c> and
+    /// <c>PointsInWinding</c>'s <c>invalidMask</c>.
     /// </summary>
     /// <param name="name">The map.</param>
     /// <returns>A task.</returns>

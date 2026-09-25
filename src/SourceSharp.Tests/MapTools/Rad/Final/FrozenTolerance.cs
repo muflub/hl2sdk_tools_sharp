@@ -12,11 +12,11 @@ namespace SourceSharp.Tests.MapTools.Rad.Final;
 /// should be followed by lowering the number here.
 /// </para>
 /// <para>
-/// The causes, measured (p4f-findings.md): with supersampling, stock reads two
+/// The causes, measured: with supersampling, stock reads two
 /// uninitialised stack buffers -- <c>pSampleIntensity</c> for luxels with no
-/// sample (<c>lightmap.cpp:2881</c>, modelled by
+/// sample (modelled by
 /// <c>StockQuirk.SupersampleGradientReadsUninitialised</c>) and
-/// <c>PointsInWinding</c>'s <c>invalidMask</c> (<c>lightmap.cpp:2644</c>;
+/// <c>PointsInWinding</c>'s <c>invalidMask</c>;
 /// <c>movaps xmm11,[rsp]</c> at vrad_dll.dll+0x17c51, never written) -- so
 /// which edge samples are supersampled, and which partial-sample subsamples
 /// count, depend on stack garbage. Without supersampling (b0nx) the only

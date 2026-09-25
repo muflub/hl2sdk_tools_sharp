@@ -52,9 +52,9 @@ internal readonly record struct StockLoadCounts(
 /// The recipe, which is what a reader of a skipped test needs:
 /// </para>
 /// <code>
-/// ~/.cache/maptools/bin/make-catmaps -game ~/.cache/maptools/ref/corpus-game &lt;worktree&gt; $DIR
+/// make-catmaps -game &lt;corpus-game&gt; &lt;worktree&gt; $DIR
 /// # or, for VMFs already in $DIR (ss_sandbox, the bevel shapes):
-/// ~/.cache/maptools/bin/make-catmaps -game ~/.cache/maptools/ref/corpus-game -noemit &lt;worktree&gt; $DIR
+/// make-catmaps -game &lt;corpus-game&gt; -noemit &lt;worktree&gt; $DIR
 /// VVIS_STOCK_DIR=$DIR dotnet test --filter StockLoad
 /// </code>
 /// <para>
@@ -292,7 +292,7 @@ internal static class StockLoad
     /// <remarks>
     /// <para>
     /// <b>This lump IS the plane table.</b> <c>EmitPlanes</c>
-    /// (<c>utils/vbsp/writebsp.cpp:46</c>) copies
+    /// copies
     /// <c>g_MainMap-&gt;mapplanes[0..nummapplanes)</c> into <c>dplanes</c> index
     /// for index — normal, dist and the stored type — and its own comment says
     /// why: "There is no oportunity to discard planes, because all of the

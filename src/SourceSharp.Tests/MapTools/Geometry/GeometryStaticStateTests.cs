@@ -14,12 +14,12 @@ namespace SourceSharp.Tests.MapTools.Geometry;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Stock is built on it and cannot escape it: <c>polylib.cpp</c> alone has
-/// <c>winding_pool</c>, <c>c_active_windings</c>, <c>c_peak_windings</c>,
+/// Stock is built on it and cannot escape it: alone has
+/// <c>winding_pool</c>, <c>c_active_windings</c>, <c>c_peak_windings</c>.
 /// <c>c_winding_allocs</c>, <c>c_winding_points</c> and <c>c_removed</c>
 /// (lines 22-25, 34, 88), and its own comment on line 20 admits the counters
 /// are "an awefull coherence problem" and so are only maintained when running
-/// single threaded. <c>threads.cpp</c> adds <c>dispatch</c>, <c>workcount</c>,
+/// single threaded. adds <c>dispatch</c>, <c>workcount</c>.
 /// <c>numthreads</c>, <c>crit</c>, <c>workfunction</c> and
 /// <c>g_RunThreadsData</c>.
 /// </para>

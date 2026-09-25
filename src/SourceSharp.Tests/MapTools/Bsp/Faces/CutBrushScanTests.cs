@@ -8,7 +8,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Faces;
 
 /// <summary>
 /// <c>ComputeVisibleBrushSides</c>' per-brush <c>GetListOfCutBrushes</c>
-/// (<c>detail.cpp:503-529</c>) answered from one laid-out copy of the list
+/// answered from one laid-out copy of the list
 /// (plan 3p). It must name the same brushes in the same order.
 /// </summary>
 public class CutBrushScanTests
@@ -36,7 +36,7 @@ public class CutBrushScanTests
     [Fact]
     public void BoxesThatOnlyTouchStillCut()
     {
-        // BrushBoxOverlap's tests are strict (detail.cpp:329-330): a shared
+        // BrushBoxOverlap's tests are strict: a shared
         // face is an overlap.
         List<BspBrush> brushes = [Box(0, 0, 0, 16, 16, 16, 1), Box(16, 0, 0, 32, 16, 16, 1)];
         BspBrush head = Link(brushes);

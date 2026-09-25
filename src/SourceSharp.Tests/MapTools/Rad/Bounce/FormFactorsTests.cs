@@ -6,12 +6,12 @@ using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Rad.Bounce;
 
-/// <summary><c>FormFactorDiffToDiff</c> and <c>FormFactorPolyToDiff</c> (<c>vrad.cpp:1067-1111</c>).</summary>
+/// <summary><c>FormFactorDiffToDiff</c> and <c>FormFactorPolyToDiff</c>.</summary>
 public sealed class FormFactorsTests
 {
     /// <summary>
     /// Two patches facing each other straight on, 10 apart: both cosines are 1,
-    /// so the result is 1/r^2 (<c>vrad.cpp:1109</c>).
+    /// so the result is 1/r^2.
     /// </summary>
     [Fact]
     public void FacingPatchesGiveTheInverseSquare()
@@ -41,7 +41,7 @@ public sealed class FormFactorsTests
 
     /// <summary>
     /// Under stock's normalise the length in the denominator is
-    /// <c>VectorNormalize</c>'s return value (<c>vrad.cpp:1107</c>), which is
+    /// <c>VectorNormalize</c>'s return value, which is
     /// close to, but not exactly, the length.
     /// </summary>
     [Fact]
@@ -58,7 +58,7 @@ public sealed class FormFactorsTests
     /// <summary>
     /// A 2x2 square 1 above a differential patch facing it, centred: the
     /// analytic point-to-rectangle form factor is 4 x 0.13853 = 0.55412, and
-    /// the function returns it times pi / area (<c>vrad.cpp:1090</c>).
+    /// the function returns it times pi / area.
     /// </summary>
     [Fact]
     public void ASquareOverheadMatchesTheAnalyticFormFactor()
@@ -80,8 +80,7 @@ public sealed class FormFactorsTests
 
     /// <summary>
     /// <see cref="StockQuirk.FormFactorSineAboveOne"/>, stock side: an edge
-    /// whose sine rounds above 1 makes the WHOLE form factor 0
-    /// (<c>vrad.cpp:1084</c>).
+    /// whose sine rounds above 1 makes the WHOLE form factor 0.
     /// </summary>
     [Fact]
     public void StockReturnsZeroWhenAnEdgeSineRoundsAboveOne()

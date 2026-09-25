@@ -9,7 +9,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Faces;
 
 /// <summary>
 /// The primitive tables a face can point into
-/// (<c>g_primitives</c> and friends, <c>src/utils/vbsp/faces.cpp</c>).
+///(<c>g_primitives</c> and friends).
 /// </summary>
 public class PrimitiveTableTests
 {

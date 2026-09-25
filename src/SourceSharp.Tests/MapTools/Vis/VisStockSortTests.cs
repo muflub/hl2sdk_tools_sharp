@@ -6,8 +6,8 @@ namespace SourceSharp.Tests.MapTools.Vis;
 
 /// <summary>
 /// <see cref="VisStockSort"/>: the C runtime's <c>qsort</c> that stock's
-/// <c>SortPortals</c> (<c>vvis.cpp:156</c>) runs with <c>PComp</c>
-/// (<c>vvis.cpp:127</c>), which compares counts only.
+/// <c>SortPortals</c> runs with <c>PComp</c>,
+/// which compares counts only.
 /// </summary>
 public class VisStockSortTests
 {
@@ -75,7 +75,7 @@ public class VisStockSortTests
     {
         // At the cutoff the whole range goes through shortsort: each pass
         // moves the first remaining element to the end of what is left, so
-        // the last element comes first ... traced: [1 2 3 4 5 6 7 0].
+        // the last element comes first... traced: [1 2 3 4 5 6 7 0].
         Assert.Equal([1, 2, 3, 4, 5, 6, 7, 0], SortByKey([.. Enumerable.Repeat(4, 8)]));
     }
 

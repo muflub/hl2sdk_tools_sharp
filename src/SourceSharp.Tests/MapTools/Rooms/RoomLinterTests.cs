@@ -17,11 +17,11 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// <para>
 /// Geometry alone was the first draft's rule, and it passed the shell for a
 /// plug the compile had thrown away (the plug leaves of a sealed compile are
-/// solid and cluster -1 — <c>BuildVisLeafList</c>, <c>prtfile.cpp:175</c>,
+/// solid and cluster -1 — <c>BuildVisLeafList</c>,
 /// never numbers a solid leaf, so no cluster number can witness a plug). The
 /// trigger surface flag is the witness: <c>%compileTrigger</c> sets
-/// <c>SURF_TRIGGER</c> (<c>textures.cpp:141</c>), and the plug's
-/// <c>CONTENTS_SOLID</c> is the settled plug semantics (map.cpp:2747-2750).
+/// <c>SURF_TRIGGER</c>, and the plug's
+/// <c>CONTENTS_SOLID</c> is the settled plug semantics.
 /// </para>
 /// <para>
 /// Guarantee 1 (brushes inside own cells) is a MODEL check: vbsp's own void
@@ -55,7 +55,7 @@ public class RoomLinterTests
     [Fact]
     public async Task APlugThatIsNotATriggerIsRefusedAsUnsealed()
     {
-        // Same geometry, plain material: the compile seals (the shell-with-
+        // Same geometry, plain material: the compile seals (the shell-with.
         // plain-plug probe proves the flood never escapes) and every seal box
         // holds a solid leaf — but no side carries SURF_TRIGGER, so the census
         // finds no plug and refuses the room before any link.

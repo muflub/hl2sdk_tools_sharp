@@ -7,9 +7,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Ambient;
 
 /// <summary>
-/// <c>MakeParents</c> (<c>vrad.cpp:146</c>, called as <c>MakeParents(0, -1)</c>
-/// at <c>:1806</c>) and <c>GetLeafBoundaryPlanes</c>
-/// (<c>leaf_ambient_lighting.cpp:278</c>).
+/// <c>MakeParents</c> (called as <c>MakeParents(0, -1)</c>) and <c>GetLeafBoundaryPlanes</c>.
 /// </summary>
 public sealed class BspParentsTests
 {
@@ -74,7 +72,7 @@ public sealed class BspParentsTests
     [Fact]
     public void ANodeTheWorldTreeNeverReachesKeepsParentZero()
     {
-        // vrad.cpp's arrays are zero-initialised globals and MakeParents only
+        // the reference implementation's arrays are zero-initialised globals and MakeParents only
         // walks from node 0, so a submodel's nodes and leaves keep parent 0.
         BspParents parents = new(Tree(), 5);
 
@@ -93,7 +91,7 @@ public sealed class BspParentsTests
     [Fact]
     public void ABackChildGetsTheFlippedPlane()
     {
-        // leaf 2 is node 1's BACK child: -normal, -dist (leaf_ambient_lighting.cpp:294-298).
+        // leaf 2 is node 1's BACK child: -normal, -dist.
         List<LeafPlane> planes = [];
         LeafBoundaryPlanes.Gather(2, Tree(), Planes(), new BspParents(Tree(), 5), planes);
 
@@ -135,7 +133,7 @@ public sealed class BspParentsTests
     [Fact]
     public void ABoxQueryWalksTheFrontChildFirstAndCompletely()
     {
-        // bsplib.cpp:3496-3502: a straddling box recurses children[0] before
+        //: a straddling box recurses children[0] before
         // children[1]. Node 0's front is node 1 (front leaf 1, back leaf 2),
         // its back is leaf 0.
         List<int> leaves = [];

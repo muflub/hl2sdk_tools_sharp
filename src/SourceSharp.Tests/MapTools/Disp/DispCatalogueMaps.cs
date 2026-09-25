@@ -30,7 +30,7 @@ namespace SourceSharp.Tests.MapTools.Disp;
 /// </para>
 /// <para>
 /// Recipe (the stock side runs capped, one wine at a time):
-/// <c>DISP_CATALOGUE_EMIT_DIR=~/.cache/maptools/ref/p3f-t dotnet test --filter
+/// <c>DISP_CATALOGUE_EMIT_DIR=&lt;the emission directory&gt; dotnet test --filter
 /// TheDisplacementCatalogueEmits</c>, then stock x64 <c>vbsp -v</c> over each
 /// VMF, then <c>DISP_STOCK_DIR=</c> the same directory for the gate.
 /// </para>

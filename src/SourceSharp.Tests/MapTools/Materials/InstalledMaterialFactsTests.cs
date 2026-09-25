@@ -16,7 +16,7 @@ namespace SourceSharp.Tests.MapTools.Materials;
 /// <remarks>
 /// <para>
 /// <c>game/mod_sharp/maps/dm_lockdown.bsp</c> is committed and was compiled by
-/// Valve's own vbsp. Its TEXDATA lump records, per material, the reflectivity
+/// stock vbsp. Its TEXDATA lump records, per material, the reflectivity
 /// and the dimensions the real material system gave that compiler, and its
 /// TEXINFO lump records the <c>SURF_*</c> flags <c>FindMiptex</c> produced.
 /// Both are read back here and required to equal what this port computes from
@@ -25,7 +25,7 @@ namespace SourceSharp.Tests.MapTools.Materials;
 /// <para>
 /// THREE materials are excluded, by name, and each exclusion is a finding
 /// about the map rather than a tolerance:
-/// <see cref="TheFenceMaterialsBaseTextureWasRepointedAfterTheMapWasCompiled"/>,
+/// <see cref="TheFenceMaterialsBaseTextureWasRepointedAfterTheMapWasCompiled"/>.
 /// <see cref="TheCompilerThatBuiltThisMapPredatesSurfTrigger"/> and
 /// <see cref="TheMapReferencesOneMaterialThisInstallDoesNotHave"/> each pin
 /// their own case, so the exclusion cannot quietly widen. Everything else has
@@ -72,7 +72,7 @@ public class InstalledMaterialFactsTests : IClassFixture<StockTexDataFixture>
     public void EveryReflectivityEqualsWhatStockWrote()
     {
         // THE gate. vbsp copied GetMaterialReflectivity straight into
-        // dtexdata_t::reflectivity (textures.cpp:442), so this compares the
+        // dtexdata_t::reflectivity, so this compares the
         // VTF header read, the $reflectivity override and the patch
         // resolution all at once, over every material in a real map.
         ImmutableArray<TexDataMismatch> unexplained = Remaining(_stock.ReflectivityMismatches);
@@ -108,8 +108,8 @@ public class InstalledMaterialFactsTests : IClassFixture<StockTexDataFixture>
     public void EveryTexInfoFlagsFieldEqualsWhatFindMiptexProduced()
     {
         // The other half of the gate, and a stronger claim than it looks:
-        // texinfo_t::flags is assigned from the brush side's (textures.cpp
-        // :680), which map.cpp:2857 copied out of textureref[].flags, and
+        // texinfo_t::flags is assigned from the brush side's (
+        //:680), which copied out of textureref[].flags, and
         // nothing else in vbsp sets a SURF_ bit. So this lump IS FindMiptex's
         // output, 2765 times over.
         ImmutableArray<TexDataMismatch> unexplained = Remaining(_stock.TexInfoMismatches);
@@ -124,7 +124,7 @@ public class InstalledMaterialFactsTests : IClassFixture<StockTexDataFixture>
     [InstalledGameFact]
     public void OverlayTexInfosAreExcludedBecauseTheyAreNotClassifiedAtAll()
     {
-        // overlay.cpp:256-270 and :344-359 build a texinfo with flags = 0 and
+        // and:344-359 build a texinfo with flags = 0 and
         // -99999 in both axis offsets; FindMiptex never sees it. Pinned as a
         // count so the exclusion cannot silently grow to cover a real
         // disagreement.
@@ -156,7 +156,7 @@ public class InstalledMaterialFactsTests : IClassFixture<StockTexDataFixture>
         // toolstrigger.vmt sets %compiletrigger, so FindMiptex as it stands
         // produces SURF_TRIGGER | SURF_NOLIGHT. Stock's 29 texinfo entries for
         // it carry SURF_NOLIGHT alone -- and not one texinfo in the whole map
-        // has the bit. bspflags.h calls SURF_TRIGGER "an xbox hack"; this map
+        // has the bit. calls SURF_TRIGGER "an xbox hack"; this map
         // is BSP version 19, from before it existed. The port matches the
         // 2013 source it was ported from, which is the right answer.
         Assert.False(_stock.AnyTexInfoHasTheTriggerBit);
@@ -166,7 +166,7 @@ public class InstalledMaterialFactsTests : IClassFixture<StockTexDataFixture>
     public void TheMapReferencesOneMaterialThisInstallDoesNotHave()
     {
         // ATI_2004/DETAIL/DETAILSPRITES: neither the VMT nor the VTF is in
-        // SDK Base 2013 Multiplayer's content -- it came with the ATI 2004
+        // the installed game's content -- it came with the ATI 2004
         // bundle. Nothing about the reader; there is no file to read.
         Assert.Equal(MissingDetailSprites, Assert.Single(_stock.NotFound));
     }

@@ -14,7 +14,7 @@ namespace SourceSharp.Tests.MapTools.Bench;
 /// <remarks>
 /// Everything here is a pure function over fabricated samples — no compile,
 /// no clock, no disk beyond a temp ledger. What the harness MEASURES is
-/// proven by the numbers themselves (P12-findings.md); what it must get right
+/// proven by the numbers themselves; what it must get right
 /// without measuring is proven here.
 /// </remarks>
 public sealed class BenchHarnessTests
@@ -258,7 +258,7 @@ public sealed class BenchHarnessTests
     {
         BenchCellResult row = BenchCellResult.Refused(
             "sdk_cp_dustbowl", "stock_x64", "vrad", "-both", 32, "off",
-            "stock vrad caps -threads at 16 (vrad.cpp:1290)");
+            "stock vrad caps -threads at 16");
         Assert.Equal("refused", row.Rc);
         Assert.Equal(0, row.N);
         Assert.Equal(0.0, row.WallMed);
@@ -367,7 +367,7 @@ public sealed class BenchHarnessTests
         }
     }
 
-    // ---- the pristine-input snapshot (the same-bytes-every-run rule) ----
+    // ---- the pristine-input snapshot (the same-bytes-every-run rule) ---.
 
     private sealed class TempDir : IDisposable
     {

@@ -24,7 +24,7 @@ public class MapInstanceMergerTests
 
     /// <summary>
     /// Only worldspawn and ladder brushes are physically moved
-    /// (<c>map.cpp:2146</c>); the instance's own worldspawn brush is one, so it
+    ///; the instance's own worldspawn brush is one, so it
     /// arrives at the instance entity's origin.
     /// </summary>
     [Fact]
@@ -39,8 +39,8 @@ public class MapInstanceMergerTests
     }
 
     /// <summary>
-    /// The <c>func_instance</c> entity itself is blanked once merged
-    /// (<c>map.cpp:2058-2059</c>), but its SLOT survives.
+    /// The <c>func_instance</c> entity itself is blanked once merged,
+    /// but its SLOT survives.
     /// </summary>
     [Fact]
     public async Task TheFuncInstanceEntityIsBlankedButItsSlotSurvives()
@@ -54,8 +54,7 @@ public class MapInstanceMergerTests
 
     /// <summary>
     /// <c>MergePlanes</c> adds the instance's planes UNTRANSFORMED and the
-    /// side merge then adds the transformed ones separately
-    /// (<c>map.cpp:2109-2112</c> and <c>:2243</c>), so an offset instance
+    /// side merge then adds the transformed ones separately, so an offset instance
     /// contributes two sets of planes and the untransformed ones stay in the
     /// table whether anything references them or not.
     /// </summary>
@@ -72,7 +71,7 @@ public class MapInstanceMergerTests
 
     /// <summary>
     /// A <c>func_instance</c> whose file cannot be found is a diagnostic and a
-    /// blanked entity, not a failed compile (<c>map.cpp:2050-2059</c>).
+    /// blanked entity, not a failed compile.
     /// </summary>
     [Fact]
     public async Task AMissingInstanceFileIsReportedAndTheEntityIsBlanked()
@@ -104,8 +103,7 @@ public class MapInstanceMergerTests
 
     /// <summary>
     /// <c>replace</c> keys substitute into the instance's entity values, and
-    /// the variable and its replacement are separated by a SPACE
-    /// (<c>map.cpp:2300-2320</c>).
+    /// the variable and its replacement are separated by a SPACE.
     /// </summary>
     [Fact]
     public void ReplaceKeysSubstituteIntoAValue()

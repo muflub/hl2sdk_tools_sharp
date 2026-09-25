@@ -67,7 +67,6 @@ public sealed class RadWorldTests
     [Fact]
     public async Task AMapWithNoVisIsDirectOnlyWithATenthAmbient()
     {
-        // vrad.cpp:2245-2251.
         RadWorld world = await LightAsync(LightBox.Map());
         Assert.Equal(0, world.Settings.Bounces);
         Assert.Equal(new Vec3(0.1f, 0.1f, 0.1f), world.Settings.Ambient);
@@ -158,7 +157,7 @@ public sealed class RadWorldTests
         LightTestMap map = LitBox();
         map.AddOccluder(new(96, 96, 64), new(160, 96, 64), new(160, 160, 64), new(96, 160, 64));
         RadWorld world = await LightAsync(map, LightBox.Settings() with { DebugExtra = true });
-        // Pass 1 paints (255, 0, 0) (lightmap.cpp:2915-2918); the no-vis 0.1
+        // Pass 1 paints (255, 0, 0); the no-vis 0.1
         // ambient is added after, in BuildPatchLights, as in stock.
         Assert.Contains(world.FaceLights[0]!.LightFor(0, 0)!, v => v.Lighting == new Vec3(255.1f, 0.1f, 0.1f));
     }
@@ -309,7 +308,7 @@ public sealed class LightVisibilityTests
     [Fact]
     public void ALightsRowIsOneByteLongerThanTheLumpsWhenTheCountIsAMultipleOfEight()
     {
-        // lightmap.cpp:1016 (numclusters/8)+1 against GetVisCache's (n+7)/8.
+        // (numclusters/8)+1 against GetVisCache's (n+7)/8.
         LightVisibility v = Load([.. Enumerable.Range(0, 8).Select(_ => new bool[8])]);
         Assert.Equal(2, v.RowBytes);
     }
@@ -317,7 +316,7 @@ public sealed class LightVisibilityTests
     [Fact]
     public void WithoutVisTheClustersAreCountedFromTheLeaves()
     {
-        // vrad.cpp:2250: CountClusters() is the largest leaf cluster plus one.
+        //: CountClusters is the largest leaf cluster plus one.
         LightInfoLeaves leaves = new();
         Assert.Equal(4, LightVisibility.CountClusters(leaves.WithClusters(0, 3, 1)));
         Assert.Equal(1, LightVisibility.CountClusters(leaves.WithClusters(-1)));
@@ -365,7 +364,7 @@ public sealed class CompiledBspTreeTests
     [Fact]
     public void APointOnThePlanePrefersAFrontLeafWithACluster()
     {
-        // vismat.cpp:112-118: within TEST_EPSILON, front first unless it is -1.
+        //: within TEST_EPSILON, front first unless it is -1.
         CompiledBspTree tree = Split(out _);
         Assert.Equal(1, tree.ClusterFromPoint(new Vec3(100.05f, 0, 0)));
     }
@@ -373,7 +372,7 @@ public sealed class CompiledBspTreeTests
     [Fact]
     public void PointLeafnumSplitsOnTheSignWithNoEpsilon()
     {
-        // trace.cpp:450: dist < 0 goes back, anything else front.
+        //: dist < 0 goes back, anything else front.
         CompiledBspTree tree = Split(out _);
         Assert.Equal(1, tree.LeafFromPoint(new Vec3(100, 0, 0)));
         Assert.Equal(0, tree.LeafFromPoint(new Vec3(99.99f, 0, 0)));
@@ -503,7 +502,7 @@ public sealed class MacroTextureTests
     [Fact]
     public async Task YIsFlippedAcrossTheTexture()
     {
-        // macro_texture.cpp:146: iy = height - 1 - clamp(iy).
+        //: iy = height - 1 - clamp(iy).
         LightTestMap map = LightBox.Map();
         map.Entities[0].Pairs.Add(new BspKeyValue("world_mins", "0 0 0"));
         map.Entities[0].Pairs.Add(new BspKeyValue("world_maxs", "100 100 0"));

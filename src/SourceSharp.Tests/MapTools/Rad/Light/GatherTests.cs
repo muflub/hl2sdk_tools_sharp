@@ -101,7 +101,7 @@ public sealed class GatherTests
     [Fact]
     public void AnInverseSquareFalloffIsOneOverDistanceSquared()
     {
-        // lightmap.cpp:1885-1890: 1 / (d*d*q + l*d + c).
+        // / (d*d*q + l*d + c).
         (GatherOutput o, _, _, _) = Run(Gatherer(Point(new Vec3(0, 0, 10), 0, 0, 1)), Floor(Vec3.Zero));
         Assert.Equal(0.01f, o.Falloff[0]);
     }
@@ -109,7 +109,7 @@ public sealed class GatherTests
     [Fact]
     public void TheFalloffDistanceIsClampedToOneUnit()
     {
-        // :1875 dist = max(dist, 1).
+        //:1875 dist = max(dist, 1).
         (GatherOutput o, _, _, _) = Run(Gatherer(Point(new Vec3(0, 0, 0.5f), 0, 0, 1)), Floor(Vec3.Zero));
         Assert.Equal(1f, o.Falloff[0]);
     }
@@ -164,7 +164,7 @@ public sealed class GatherTests
     [Fact]
     public void ASpotsFringeInterpolatesBetweenTheCones()
     {
-        // :1924-1943: mult = (dot2 - stopdot2) / (stopdot - stopdot2).
+        //:1924-1943: mult = (dot2 - stopdot2) / (stopdot - stopdot2).
         DirectLight spot = Point(new Vec3(0, 0, 100));
         spot.Type = EmitType.Spotlight;
         spot.Normal = new Vec3(0.3f, 0, -1).Normalise().Normalised;
@@ -197,7 +197,7 @@ public sealed class GatherTests
         (GatherOutput o, LightRayLog rays, _, _) = Run(Gatherer(surface), Floor(Vec3.Zero));
         Assert.Equal(1f / 100f, o.Falloff[0]);
 
-        // The ray ends DIST_EPSILON off the emitter (:1904-1906).
+        // The ray ends DIST_EPSILON off the emitter:1904-1906).
         Ray r = rays.VisibilityRays()[0];
         Assert.Equal(10f - LightConstants.DistEpsilon, r.OriginZ + r.DirectionZ, 5);
     }
@@ -262,7 +262,7 @@ public sealed class GatherTests
     [Fact]
     public void AnOpenSkyGivesTheAmbientUnitDot()
     {
-        // :1823-1832: sum(frac * dot) / sum(dot) over the valid hemisphere,
+        //:1823-1832: sum(frac * dot) / sum(dot) over the valid hemisphere,
         // with every ray reaching sky, is exactly 1.
         DirectLight ambient = new() { Type = EmitType.SkyAmbient };
         (GatherOutput o, _, _, int sky) = Run(Gatherer(ambient), Floor(Vec3.Zero));
@@ -290,7 +290,7 @@ public sealed class GatherTests
     [Fact]
     public void ABumpDotIsZeroedWhenTheFlatDotIs()
     {
-        // :2051-2057.
+        //:2051-2057.
         SampleGroup group = Floor(Vec3.Zero);
         group.NormalCount = 4;
         for (int n = 1; n < 4; n++)
@@ -413,7 +413,7 @@ public sealed class SkyRecursionTests
     public void AStockGroupRecursesByLaneZerosArea()
     {
         // Lane 0 is in the skybox's own area, so stock recurses for none of
-        // the four (trace.cpp:397); correct recurses for the three in the world.
+        // the four; correct recurses for the three in the world.
         Vec3[] start = [new(1500, 0, 0), new(1, 0, 0), new(2, 0, 0), new(3, 0, 0)];
         Vec3[] stop = [.. start.Select(s => s + new Vec3(0, 0, 1000))];
         float[] frac = new float[4];
@@ -452,7 +452,7 @@ public sealed class SkyRecursionTests
     [Fact]
     public void AFullyOccludedDeferredTestTracesNoSkyboxRays()
     {
-        // trace.cpp:387: stock recurses only when not every lane is occluded.
+        //: stock recurses only when not every lane is occluded.
         DirectLightGatherer g = WithCamera(stock: false);
         (LightRayLog rays, _, _) = DeferredTest(g);
         rays.FirstStageAnswers().Hits.Span.Fill(new HitId(TraceId.Opaque, 0.5f));
@@ -565,8 +565,8 @@ public sealed class LightRayLogTests
     [Fact]
     public void AHitPastTheSegmentsEndDoesNotBlock()
     {
-        // trace.cpp:171-172: HitDistance < len. The tracer reports the
-        // nearest hit on the whole line (raytrace.cpp:496 is commented out).
+        //: HitDistance < len. The tracer reports the
+        // nearest hit on the whole line(is commented out).
         Assert.False(LightRayLog.IsBlocking(new HitId(5, 2.03f)));
         Assert.True(LightRayLog.IsBlocking(new HitId(5, 0.99f)));
         Assert.False(LightRayLog.IsBlocking(HitId.Missed));

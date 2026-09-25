@@ -12,7 +12,7 @@ using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Rad.Final;
 
-/// <summary><c>FinalLightFace</c> (<c>radial.cpp:642</c>) on the light box.</summary>
+/// <summary><c>FinalLightFace</c> on the light box.</summary>
 public sealed class FinalLightFaceTests
 {
     private static readonly CompileParallelism One = new() { MaxDegree = 1 };
@@ -59,7 +59,7 @@ public sealed class FinalLightFaceTests
     [Fact]
     public async Task TheAverageColourSitsJustBeforeLightofs()
     {
-        // radial.cpp:857, bsplib.h:398: lightofs - (style + 1) * 4. A dark
+        //: lightofs - (style + 1) * 4. A dark
         // face held at _minlight 1 is 128 everywhere, so its median is 128.
         LightTestMap map = LightBox.Map();
         map.Entities[0] = LightTestMap.Entity(("classname", "worldspawn"), ("_minlight", "1"));
@@ -72,7 +72,7 @@ public sealed class FinalLightFaceTests
     [Fact]
     public void TheMedianIsElementCountOverTwoOfTheSortedValues()
     {
-        // radial.cpp:865-878: FirstInorder, then avgCount >>= 1 steps.
+        //: FirstInorder, then avgCount >>= 1 steps.
         Assert.Equal(3f, FinalLightFace.Median([4f, 1f, 3f, 2f]));
     }
 
@@ -85,7 +85,7 @@ public sealed class FinalLightFaceTests
     [Fact]
     public async Task MinlightRaisesADarkFaceToTheEntitysValueTimes128()
     {
-        // radial.cpp:676, :811-814: _minlight 1 -> 128 per channel, which
+        //,:811-814: _minlight 1 -> 128 per channel, which
         // ColorRGBExp32 stores as mantissa 128, exponent 0.
         LightTestMap map = LightBox.Map();
         map.Entities[0] = LightTestMap.Entity(("classname", "worldspawn"), ("_minlight", "1"));
@@ -98,7 +98,7 @@ public sealed class FinalLightFaceTests
     [Fact]
     public async Task ASkyFaceIsNotFinished()
     {
-        // radial.cpp:658: TEX_SPECIAL.
+        //: TEX_SPECIAL.
         RadWorld world = await LitBoxAsync(LightBox.Map(ceiling: SurfaceFlags.Sky), bounces: 0);
         FinalLightContext context = new(world, MacroTextures.None);
 
@@ -121,7 +121,6 @@ public sealed class FinalLightFaceTests
     [Fact]
     public async Task StocksFastBranchReadsStyleSlotZeroForEveryStyle()
     {
-        // radial.cpp:766.
         RadWorld world = await LitBoxAsync(stock: true, bounces: 0);
         FinalLightContext context = new(world, MacroTextures.None);
         FaceLight fl = TwoStyles(world);
@@ -146,7 +145,7 @@ public sealed class FinalLightFaceTests
     [Fact]
     public async Task StocksBounceFilterTakesANeighboursBumpinessFromTheFaceItself()
     {
-        // radial.cpp:364, 375-381: a bumped ceiling next to unbumped walls.
+        //, 375-381: a bumped ceiling next to unbumped walls.
         RadWorld world = await LitBoxAsync(LightBox.Map(ceiling: SurfaceFlags.BumpLight), stock: true, bounces: 0);
         FinalLightContext context = new(world, MacroTextures.None);
 

@@ -32,7 +32,7 @@ internal static class CsgFixture
         VbspContext context = await UnitMap.ContextAsync(options);
         MapFile map = await MapFileLoader.LoadAsync(context, document);
 
-        // The last thing LoadMapFile does (map.cpp:2649-2660), and what
+        // The last thing LoadMapFile does, and what
         // ProcessWorldModel's block clamping reads. Without it map_mins and
         // map_maxs are zero and the grid collapses to one block.
         MapFileReader.TakeBounds(map);
@@ -71,8 +71,7 @@ internal static class CsgFixture
     }
 
     /// <summary>
-    /// The whole legal world, as a submodel compile clips to
-    /// (<c>vbsp.cpp:396</c>).
+    /// The whole legal world, as a submodel compile clips to.
     /// </summary>
     public static Vec3 WorldMins => new(
         GeometryEpsilons.MinCoordInteger,

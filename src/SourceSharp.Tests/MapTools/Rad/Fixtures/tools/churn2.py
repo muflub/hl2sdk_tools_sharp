@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """How much of the world-brush difference is geometry and how much is printing.
 
-The base winding is scaled by MAX_COORD_INTEGER*4 = 131072 before it is clipped
-(polylib.cpp:296), so a one-ULP difference in the normalised `vup` reaches the
+The base winding is scaled by MAX_COORD_INTEGER*4 = 131072 before it is
+clipped, so a one-ULP difference in the normalised `vup` reaches the
 clipped corner as something of order 0.01 -- which is exactly the last digit
 stock's %5.2f prints.  A set difference taken at two decimals therefore counts
 "the same triangle, printed differently" alongside "a triangle that is not

@@ -137,7 +137,7 @@ public class MaterialReplacementsTests
     }
 
     /// <summary>
-    /// <c>materialsub.cpp:61</c> chains the map-specific section as the
+    /// chains the map-specific section as the
     /// FALLBACK of <c>AllMaps</c>, so AllMaps is searched first and wins — the
     /// opposite of "more specific wins".
     /// </summary>

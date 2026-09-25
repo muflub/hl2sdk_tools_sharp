@@ -9,7 +9,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Faces;
 
 /// <summary>
 /// Welding a face's points and splitting its edges at t-junctions
-/// (<c>FixFaceEdges</c>, <c>src/utils/vbsp/faces.cpp:587</c>).
+///(<c>FixFaceEdges</c>).
 /// </summary>
 public class TJunctionFixerTests
 {
@@ -341,7 +341,7 @@ public class TJunctionFixerTests
     [Fact]
     public void FixTjuncsKeepsThePreviousModelsVertices()
     {
-        // faces.cpp:744-745 clears hashverts/vertexchain only; numvertexes
+        // clears hashverts/vertexchain only; numvertexes
         // runs on across models, so the world's vertices survive a submodel's
         // FixTjuncs and the submodel numbers after them.
         FaceBuildContext context = FaceStageFixture.Create();
@@ -372,8 +372,7 @@ public class TJunctionFixerTests
     [Fact]
     public void AReservedErrorVertexMakesTheFirstWeldedVertexOne()
     {
-        // BeginBSPFile: numvertexes = 1, "leave vertex 0 as an error"
-        // (writebsp.cpp:1137).
+        // BeginBSPFile: numvertexes = 1, "leave vertex 0 as an error".
         FaceBuildContext context = FaceStageFixture.Create();
 
         Assert.Equal(1, context.Vertices.GetVertexNumber(new Vec3(7f, 7f, 7f)));

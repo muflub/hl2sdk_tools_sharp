@@ -3,7 +3,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Io;
 
 /// <summary>
-/// Where an installed Source SDK Base 2013 Multiplayer is, if there is one.
+/// Where an installed copy of the reference game's content is, if there is one.
 /// </summary>
 /// <remarks>
 /// The default matches the Makefile's <c>SDKBASE</c>, and the same
@@ -15,7 +15,7 @@ internal static class InstalledGameContent
     /// <summary>The archive the real-VPK facts read.</summary>
     /// <remarks>
     /// <c>hl2_misc_dir.vpk</c> rather than a textures archive: it is the one
-    /// every SDK Base install has, it holds <c>scripts/</c> and
+    /// every install of that game has, it holds <c>scripts/</c> and
     /// <c>materials/</c> both, and it is multi-part, which is the case a
     /// single-file fixture cannot exercise.
     /// </remarks>
@@ -47,8 +47,8 @@ internal static class InstalledGameContent
 
 /// <summary>
 /// A <see cref="FactAttribute"/> that skips — visibly, with the reason in the
-/// runner's own output — when this machine has no installed Source SDK Base
-/// 2013 Multiplayer to read.
+/// runner's own output — when this machine has no installed game content
+/// to read.
 /// </summary>
 /// <remarks>
 /// The same shape, and for the same reason, as

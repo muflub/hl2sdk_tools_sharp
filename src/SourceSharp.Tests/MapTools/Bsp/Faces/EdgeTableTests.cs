@@ -6,7 +6,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Faces;
 
 /// <summary>
 /// Sharing an edge between the two faces that meet along it
-/// (<c>GetEdge2</c>, <c>src/utils/vbsp/faces.cpp:895</c>).
+///(<c>GetEdge2</c>).
 /// </summary>
 public class EdgeTableTests
 {
@@ -118,7 +118,7 @@ public class EdgeTableTests
         Assert.Equal(5, edges.Edges[index].V[1]);
     }
 
-    // FindReverseEdge is CreateOrigFace's back-edge scan (writebsp.cpp:297-318):
+    // FindReverseEdge is CreateOrigFace's back-edge scan:
     // for j from firstmodeledge, the first edge stored (v1, v0) whose first
     // face has the asking contents and whose second slot is free.
 
@@ -256,7 +256,7 @@ public class EdgeTableTests
         Assert.Equal(0, mismatches);
     }
 
-    // writebsp.cpp:297-318, verbatim
+    //, verbatim
     private static int LinearScan(EdgeTable edges, int e0, int e1, int contents, int firstEdge)
     {
         for (int j = firstEdge; j < edges.Count; j++)

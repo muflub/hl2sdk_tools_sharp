@@ -15,7 +15,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Csg;
 /// <remarks>
 /// <para>
 /// <b>Naming who owns each column is most of this gate.</b> <c>EmitBrushes</c>
-/// (<c>writebsp.cpp:1048</c>) copies <c>g_MainMap-&gt;mapbrushes</c> into
+/// copies <c>g_MainMap-&gt;mapbrushes</c> into
 /// BRUSHES and their <c>original_sides</c> into BRUSHSIDES — the MAP brushes,
 /// not the carved ones. So:
 /// </para>
@@ -40,7 +40,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.Csg;
 /// <b>What PHASE 3B writes into these lumps</b> is one function:
 /// <c>FixupAreaportalWaterBrushes</c> ORs a water brush's contents into an
 /// overlapping areaportal MAP brush and copies its texinfos onto that brush's
-/// MAP sides (<c>csg.cpp:368-374</c>). No corpus map has an areaportal inside
+/// MAP sides. No corpus map has an areaportal inside
 /// water, so on this corpus the stage writes nothing — which is stated as a
 /// fact rather than left as an absence.
 /// </description></item>
@@ -139,11 +139,11 @@ public class StockBrushLumpTests
     /// <b>This used to be a waiver and is now an equality.</b> Stock's
     /// <c>ALL_VISIBLE_CONTENTS</c> is
     /// <c>LAST_VISIBLE_CONTENTS | (LAST_VISIBLE_CONTENTS-1)</c> =
-    /// <c>0x80 | 0x7F</c> = <c>0xFF</c> (<c>bspflags.h:34-36</c>) — a
+    /// <c>0x80 | 0x7F</c> = <c>0xFF</c> — a
     /// contiguous mask of the low eight bits, whatever those bits are called.
     /// Phase 3a spelled the same mask as an OR of the NAMED flags, came to
     /// <c>0xBF</c> because <c>CONTENTS_BLOCKLOS</c> (<c>0x40</c>) has no entry
-    /// in that list, and so fired the solid default at <c>map.cpp:2745</c> for
+    /// in that list, and so fired the solid default for
     /// every <c>%compileBlockLOS</c> brush.
     /// <see cref="MapFileLoader.AllVisibleContents"/> is now derived from
     /// <see cref="MapFileLoader.LastVisibleContents"/> the way stock derives

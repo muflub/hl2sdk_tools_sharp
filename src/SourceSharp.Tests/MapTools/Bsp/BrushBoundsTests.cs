@@ -7,8 +7,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp;
 
 /// <summary>
-/// <c>AddPointToBounds</c> (<c>mathlib_base.cpp:1293</c>) as
-/// <c>MakeBrushWindings</c> uses it (<c>map.cpp:652</c>).
+/// <c>AddPointToBounds</c> as
+/// <c>MakeBrushWindings</c> uses it.
 /// </summary>
 public sealed class BrushBoundsTests
 {

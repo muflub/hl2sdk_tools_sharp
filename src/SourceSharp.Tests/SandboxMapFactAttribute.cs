@@ -23,7 +23,7 @@ namespace SourceSharp.Tests;
 /// <para>
 /// xUnit 2.9.3 has no runtime <c>Assert.Skip</c> — that arrived in v3 — so the
 /// decision is made at discovery, which is what a Skip-setting attribute is
-/// for. It costs one stat() per test.
+/// for. It costs one stat per test.
 /// </para>
 ///
 /// <para>

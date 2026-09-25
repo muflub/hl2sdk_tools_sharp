@@ -26,7 +26,7 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// condition of the slnx grant and hold on GPU-less CI too.
 /// </para>
 /// <para>
-/// <b>The contract</b> (t-10-findings.md): any-hit hit-bit disagreement
+/// <b>The contract</b>: any-hit hit-bit disagreement
 /// between the GPU and the CPU KD tracer is 0 for rays aimed off-plane (the
 /// spike proved 0/1,048,576 on radv with the spec-correct kernel); closest-hit
 /// hit/miss agreement is exact, and where both hit, the surface ids and the
@@ -211,7 +211,7 @@ public sealed class VulkanRayTracerFacts
     /// <summary>
     /// §10d's gate, Mesa side: the llvmpipe pin MUST be rejected by the
     /// shipped self-test on a box that exposes it, with the root-caused
-    /// candidate→committed signature (t-10-findings.md) named in the reason.
+    /// candidate→committed signature named in the reason.
     /// Skips only where no such device exists; this box has one, so this is
     /// the shipped-code proof the gate closes.
     /// </summary>
@@ -240,7 +240,7 @@ public sealed class VulkanRayTracerFacts
     /// <summary>
     /// §10d's gate, nvidia side: a device whose compute queue never traverses
     /// (the in-box RTX 2070's signature: zero proceed iterations) must be
-    /// rejected, not hang. Skips where the inventory names no nvidia device —
+    /// rejected, not hang. Skips where the inventory names no nvidia device.
     /// this box's loader exposes AMD ICDs only, so it skips here with the
     /// inventory quoted, and the Mesa fact is the arm that runs.
     /// </summary>
@@ -295,7 +295,7 @@ public sealed class VulkanRayTracerFacts
     /// <summary>
     /// The core map-tools assemblies reference neither Silk.NET nor
     /// SourceSharp.MapTools.Gpu: the GPU path is opt-in and lives only in the
-    /// Gpu assembly, so the core builds — and this suite's core half runs —
+    /// Gpu assembly, so the core builds — and this suite's core half runs.
     /// with the package absent (the SQLite store's posture, mirrored).
     /// </summary>
     [Fact]

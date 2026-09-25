@@ -10,7 +10,7 @@ using static SourceSharp.Tests.MapTools.Rad.Displacement.DispTestSurfaces;
 namespace SourceSharp.Tests.MapTools.Rad.Displacement;
 
 /// <summary>
-/// <c>CDispCollTree</c>'s AABB tree and ray test (<c>dispcoll_common.cpp</c>)
+/// <c>CDispCollTree</c>'s AABB tree and ray test
 /// and the per-leaf state of <c>ClipRayToDispInLeaf</c>.
 /// </summary>
 public sealed class DispCollisionTests
@@ -90,7 +90,7 @@ public sealed class DispCollisionTests
     public void AHitJustBehindTheStartIsNotTaken()
     {
         // The barycentric test accepts t down to -1e-3 (ComputeBoxOffset); the
-        // caller's t > 0 (dispcoll_common.cpp:620) rejects it.
+        // caller's t > 0 rejects it.
         VradDispSurface s = Surface((_, _) => 20.0f);
         DispRayHit hit = new(float.MaxValue, 0, 0, -1, -1, -1);
         Assert.False(DispCollision.Ray(s, new Vec3(100, 70, 19.99f), new Vec3(0, 0, -100), ref hit));
@@ -117,7 +117,7 @@ public sealed class DispCollisionTests
     [Fact]
     public void TheHitsBarycentricsRebuildTheHitPoint()
     {
-        // ndxVerts are the triangle's 0, 2, 1 (dispcoll_common.cpp:585-587),
+        // ndxVerts are the triangle's 0, 2, 1,
         // and u, v run along verts[1]-verts[0] and verts[2]-verts[0] in that order.
         VradDispSurface s = Surface((x, y) => (x * 7.0f) + (y * 3.0f));
         Vec3 start = new(100, 70, 200);

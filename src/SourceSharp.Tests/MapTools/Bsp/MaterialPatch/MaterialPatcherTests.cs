@@ -8,8 +8,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.MaterialPatch;
 
 /// <summary>
-/// <c>utils/vbsp/materialpatch.cpp</c> and the pak and KeyValues behaviours
-/// it rests on, each fact derived from the C++ at the cited line.
+/// and the pak and KeyValues behaviours
+/// it rests on, each fact derived from the reference implementation's behaviour.
 /// </summary>
 public class MaterialPatcherTests
 {
@@ -31,7 +31,7 @@ public class MaterialPatcherTests
     [Fact]
     public void PakNamesAreLowerCased()
     {
-        // zip_utils.cpp:1000-1002, AddBufferToZip: "Lower case only".
+        //, AddBufferToZip: "Lower case only".
         MapPakFile pak = new();
         pak.Add("Materials/Maps/X/Cubemapdefault.VTF", [1], textMode: false);
 
@@ -41,7 +41,7 @@ public class MaterialPatcherTests
     [Fact]
     public void PakLookupIgnoresCase()
     {
-        // zip_utils.cpp:1227-1230, FileExistsInZip lowers the query too.
+        //, FileExistsInZip lowers the query too.
         MapPakFile pak = new();
         pak.Add("materials/a.vtf", [1], textMode: false);
 
@@ -51,7 +51,7 @@ public class MaterialPatcherTests
     [Fact]
     public void PakTextModeStoresCrLf()
     {
-        // zip_utils.cpp:958-985, CopyTextData.
+        //, CopyTextData.
         MapPakFile pak = new();
         pak.Add("a.vmt", "x\ny\n"u8, textMode: true);
 
@@ -61,7 +61,7 @@ public class MaterialPatcherTests
     [Fact]
     public void PakTextReadDropsTheCrBeforeEachLf()
     {
-        // zip_utils.cpp:931-952, ReadTextData.
+        //, ReadTextData.
         MapPakFile pak = new();
         pak.Add("a.vmt", "x\ny\n"u8, textMode: true);
 
@@ -71,7 +71,7 @@ public class MaterialPatcherTests
     [Fact]
     public void PakAddOfAnExistingNameReplacesItInPlace()
     {
-        // zip_utils.cpp:988, "Adds a new lump, or overwrites existing one".
+        //, "Adds a new lump, or overwrites existing one".
         MapPakFile pak = new();
         pak.Add("a", [1], textMode: false);
         pak.Add("b", [2], textMode: false);
@@ -84,7 +84,7 @@ public class MaterialPatcherTests
     [Fact]
     public void SaveDropsAnEmptySectionBelowTheRoot()
     {
-        // KeyValues.cpp:856-862: SaveKeyToFile recurses only on m_pSub; an
+        //: SaveKeyToFile recurses only on m_pSub; an
         // empty TYPE_NONE key matches no case of the switch.
         KeyValuesNode root = new("patch");
         root.Children.Add(new KeyValuesNode("empty"));
@@ -105,7 +105,7 @@ public class MaterialPatcherTests
     [Fact]
     public void SaveDropsAnEmptyString()
     {
-        // KeyValues.cpp:871, bAllowEmptyString defaults to false.
+        //, bAllowEmptyString defaults to false.
         KeyValuesNode root = new("r");
         StockKeyValues.SetString(root, "k", string.Empty);
 
@@ -115,7 +115,6 @@ public class MaterialPatcherTests
     [Fact]
     public void SaveEscapesQuotesButNotBackslashes()
     {
-        // KeyValues.cpp:785-794.
         KeyValuesNode root = new("r");
         StockKeyValues.SetString(root, "k", "a\"b\\c");
 
@@ -135,7 +134,7 @@ public class MaterialPatcherTests
     [Fact]
     public void GetStringOfASectionIsNull()
     {
-        // KeyValues.cpp:1453-1454, TYPE_NONE returns the default.
+        //, TYPE_NONE returns the default.
         KeyValuesNode root = new("r");
         StockKeyValues.FindOrCreate(root, "s");
 
@@ -164,7 +163,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task AReplacePatchMirrorsEverySectionAndTheWriterDropsTheEmptyOnes()
     {
-        // materialpatch.cpp:82-85 creates a same-named key for EVERY true sub
+        // creates a same-named key for EVERY true sub
         // key. Stock's water patch in l2_cubemap_on_water_and_patch is exactly
         // this: Proxies survives as { } because it has (empty) children, and
         // Water_DX60 vanishes.
@@ -185,7 +184,6 @@ public class MaterialPatcherTests
     [Fact]
     public async Task AReplaceSkipsAKeyWhoseValueIsNotTheRequiredOne()
     {
-        // materialpatch.cpp:77.
         MaterialPatcher patcher = await PatcherAsync(
             ("m/a", "\"LightmappedGeneric\"\n{\n\t\"$envmap\" \"some/texture\"\n}\n"));
 
@@ -198,7 +196,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task AnInsertPatchWritesEveryKey()
     {
-        // materialpatch.cpp:131-137: the depth patch shape of ivp.cpp:815.
+        //: the depth patch shape of the reference implementation.
         MaterialPatcher patcher = await PatcherAsync();
 
         await patcher.CreatePatchAsync(
@@ -224,7 +222,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task CreatingAPatchRegistersItsOriginal()
     {
-        // materialpatch.cpp:97, AddNewTranslation.
+        //, AddNewTranslation.
         MaterialPatcher patcher = await PatcherAsync();
 
         await patcher.CreatePatchAsync("a", "b", [new MaterialPatchInfo("k", "v")], MaterialPatchType.Insert);
@@ -235,7 +233,7 @@ public class MaterialPatcherTests
     [Fact]
     public void TheOriginalOfAPatchOfAPatchIsTheFirstMaterial()
     {
-        // materialpatch.cpp:50-59 loops until the name is not a patch.
+        // loops until the name is not a patch.
         MaterialPatcher patcher = new(EmptyContent(), new MapPakFile());
         patcher.AddTranslation("a", "b");
         patcher.AddTranslation("b", "c");
@@ -246,7 +244,7 @@ public class MaterialPatcherTests
     [Fact]
     public void TheOriginalLookupIgnoresCase()
     {
-        // materialpatch.cpp:18, the symbol table is case-insensitive.
+        //, the symbol table is case-insensitive.
         MaterialPatcher patcher = new(EmptyContent(), new MapPakFile());
         patcher.AddTranslation("a", "Maps/B");
 
@@ -275,7 +273,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task AReplaceOfAMissingOriginalWritesNothingButKeepsTheTranslation()
     {
-        // materialpatch.cpp:97 registers first; :121-126 then return early.
+        // registers first;:121-126 then return early.
         MaterialPatcher patcher = await PatcherAsync();
 
         bool written = await patcher.CreatePatchAsync(
@@ -289,7 +287,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task HasKeyFindsAKeyInANestedSection()
     {
-        // materialpatch.cpp:174-178 recurses through true sub keys.
+        // recurses through true sub keys.
         MaterialPatcher patcher = await PatcherAsync(("nature/w", WaterLike));
 
         Assert.True(await patcher.HasKeyAsync("nature/w", "$fallbackmaterial"));
@@ -298,7 +296,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task UnderStockHasKeyReadsAPatchRawSoItsIncludesKeysAreInvisible()
     {
-        // materialpatch.cpp:211: LoadFromFile, no ExpandPatchFile. The insert
+        //: LoadFromFile, no ExpandPatchFile. The insert
         // section is a true sub key, so a key inside IT is found -- but the
         // root-level $envmap the include carries is not.
         MaterialPatcher patcher = await StockPatcherAsync(("metal/specular", Specular), ("p/patched", Patch));
@@ -327,7 +325,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task HasKeyReadsTheOriginalOfAPatchedName()
     {
-        // materialpatch.cpp:208 maps the name back first.
+        // maps the name back first.
         MaterialPatcher patcher = await PatcherAsync(("metal/specular", Specular));
         patcher.AddTranslation("metal/specular", "maps/m/metal/specular_1_2_3");
 
@@ -337,7 +335,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task GetValueReadsTheTopLevelOnly()
     {
-        // materialpatch.cpp:260: kv->GetString, no recursion.
+        //: kv->GetString, no recursion.
         MaterialPatcher patcher = await PatcherAsync(("nature/w", WaterLike));
 
         Assert.Null(await patcher.GetValueAsync("nature/w", "$fallbackmaterial"));
@@ -358,7 +356,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task ExpandingAReplacePatchSetsOnlyKeysTheIncludeHas()
     {
-        // materialpatch.cpp:305, bCheckForExistence.
+        //, bCheckForExistence.
         MaterialPatcher patcher = await PatcherAsync(
             ("metal/specular", Specular),
             ("p/r", "\"patch\"\n{\n\t\"include\" \"materials/metal/specular.vmt\"\n\t\"replace\"\n\t{\n" +
@@ -373,8 +371,8 @@ public class MaterialPatcherTests
     [Fact]
     public async Task UnderStockAPatchWithInsertAndReplaceLosesItsReplace()
     {
-        // materialpatch.cpp:352 reassigns keyValues to the include BEFORE the
-        // replace lookup at :355, which then searches the include.
+        // reassigns keyValues to the include BEFORE the
+        // replace lookup at:355, which then searches the include.
         MaterialPatcher patcher = await StockPatcherAsync(
             ("metal/specular", Specular),
             ("p/both", "\"patch\"\n{\n\t\"include\" \"materials/metal/specular.vmt\"\n\t\"insert\"\n\t{\n\t\t\"$a\" \"1\"\n\t}\n" +
@@ -388,7 +386,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task UnderStockAPatchWithNeitherSectionStaysAPatch()
     {
-        // materialpatch.cpp:347-359 reassigns only inside the branches.
+        // reassigns only inside the branches.
         MaterialPatcher patcher = await StockPatcherAsync(
             ("metal/specular", Specular),
             ("p/empty", "\"patch\"\n{\n\t\"include\" \"materials/metal/specular.vmt\"\n}\n"));
@@ -401,7 +399,6 @@ public class MaterialPatcherTests
     [Fact]
     public async Task APatchWhoseIncludeIsMissingStaysAPatch()
     {
-        // materialpatch.cpp:341-346.
         MaterialPatcher patcher = await PatcherAsync(
             ("p/orphan", "\"patch\"\n{\n\t\"include\" \"materials/nothing.vmt\"\n\t\"insert\"\n\t{\n\t\t\"$a\" \"1\"\n\t}\n}\n"));
 
@@ -413,7 +410,6 @@ public class MaterialPatcherTests
     [Fact]
     public async Task ThePakIsReadBeforeTheFileSystem()
     {
-        // materialpatch.cpp:288-293.
         MaterialPatcher patcher = await PatcherAsync(("m/a", "\"FromDisk\"\n{\n}\n"));
         patcher.Pak.Add("materials/m/a.vmt", "\"FromPak\"\n{\n}\n"u8, textMode: true);
 
@@ -425,7 +421,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task GetValueFromPatchedMaterialReadsThroughAPatchInThePak()
     {
-        // materialpatch.cpp:416-440, as faces.cpp:1264 uses it for water.
+        //, as uses it for water.
         MaterialPatcher patcher = await PatcherAsync(("nature/w", WaterLike));
         await patcher.CreatePatchAsync(
             "nature/w", "maps/m/nature/w_1_2_3",
@@ -439,7 +435,6 @@ public class MaterialPatcherTests
     [Fact]
     public async Task WritingMaterialKeyValuesUsesTheMaterialsPathInTextMode()
     {
-        // materialpatch.cpp:396-410.
         MaterialPatcher patcher = await PatcherAsync();
         KeyValuesNode material = new("LightmappedGeneric");
         StockKeyValues.SetString(material, "$a", "1");

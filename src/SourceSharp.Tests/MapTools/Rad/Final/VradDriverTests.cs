@@ -21,7 +21,7 @@ public sealed class VradDriverTests
     private static LightTestMap LitBox()
     {
         // One cluster that sees itself: a map WITH vis, so bounces are not
-        // forced to zero (vrad.cpp:2245).
+        // forced to zero.
         LightTestMap map = LightBox.Map();
         map.Visibility = LightTestMap.VisLump([[true]]);
         map.Entities.Add(LightTestMap.Entity(
@@ -62,7 +62,7 @@ public sealed class VradDriverTests
     [Fact]
     public void BothIsLdrThenHdr()
     {
-        // vrad_launcher.cpp:101-139: mode 0 is -ldr, mode 1 -hdr.
+        //: mode 0 is -ldr, mode 1 -hdr.
         Assert.Equal([false, true], Vrad.Passes(VradLightingRange.Both));
     }
 
@@ -136,7 +136,7 @@ public sealed class VradDriverTests
     [Fact]
     public async Task OtherLightingRunsAfterTheLightingLumpExists()
     {
-        // vrad.cpp:2310: VRAD_ComputeOtherLighting follows RadWorld_Go.
+        //: VRAD_ComputeOtherLighting follows RadWorld_Go.
         CountingOther leaf = new();
         _ = await LightAsync(LitBox(), BounceZero, new VradStages { LeafAmbientLighting = leaf });
 
@@ -146,7 +146,7 @@ public sealed class VradDriverTests
     [Fact]
     public async Task AMissingLightsRadIsAWarningAsInStock()
     {
-        // vrad.cpp:196-200: "Couldn't open texlight file" and carry on.
+        //: "Couldn't open texlight file" and carry on.
         (_, RadResult result) = await LightAsync(LitBox(), BounceZero);
         Assert.Contains(result.Diagnostics, d => d.Code == VradCodes.TexlightFileMissing);
     }
@@ -154,7 +154,7 @@ public sealed class VradDriverTests
     [Fact]
     public async Task TheLevelRadFileIsReadThroughTheContent()
     {
-        // vrad.cpp:2175-2186: <map>.rad, optional and implied. A texlight on
+        //: <map>.rad, optional and implied. A texlight on
         // the floor material makes the floor a light.
         IContentFileSystem content = await ContentAsync(("box.rad", "concrete/floor 255 255 255 200\n"));
         (_, RadResult with) = await LightAsync(LitBox(), BounceZero, content: content);
@@ -197,7 +197,7 @@ public sealed class VradDriverTests
     [Fact]
     public async Task OnlyDetailLeavesTheLightingLumpAlone()
     {
-        // vrad.cpp:2932: RadWorld_Go is skipped.
+        //: RadWorld_Go is skipped.
         (BspData map, _) = await LightAsync(LitBox(), BounceZero with { OnlyDetail = true });
         Assert.True(map[BspLump.Lighting].IsEmpty);
     }
@@ -212,7 +212,7 @@ public sealed class VradDriverTests
     [Fact]
     public async Task AMapWithNoDetailPropsGetsNoDetailLightingLumps()
     {
-        // vraddetailprops.cpp:1013-1015: no props, return before writing
+        //: no props, return before writing
         // dplt/dplh. ss_sandbox's game lump grew 60 -> 100 bytes without this.
         BspData bsp = LitBox().Build();
         bsp.GameLumps.Add(new DetailPropLump().Write());

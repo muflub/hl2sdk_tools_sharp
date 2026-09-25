@@ -16,7 +16,7 @@ namespace SourceSharp.Tests.MapTools.Bsp.SurfaceContent;
 /// <remarks>
 /// Stock leaves some bytes of each record UNINITIALISED — the six padding
 /// bytes always, and for a MODEL record the sway, shape and scale fields,
-/// which only the sprite path sets (<c>detailobjects.cpp:475-489</c>). They
+/// which only the sprite path sets. They
 /// hold heap garbage in stock's output (measured: ASCII fragments in the
 /// padding of <c>l1_detail_props</c>). This writes zeros and the comparison
 /// masks exactly those bytes.
@@ -45,7 +45,7 @@ public class DetailPropStockTests
     /// scale, sway, shape -- matches bit for bit, and so does the ORDER. The
     /// angles come out of <c>SetupMatrixAxisRot</c>'s <c>sin</c>/<c>cos</c>
     /// and <c>MatrixToAngles</c>' <c>atan2f</c>; the MSVC CRT's float
-    /// versions are not the correctly rounded ones .NET calls, and no reading
+    /// versions are not the correctly rounded ones.NET calls, and no reading
     /// of the source's float/double conversions closes the gap (see
     /// <c>DetailPropEmitter.Atan2F</c>). Frozen here; tightening it needs the
     /// CRT's algorithms, not this port's arithmetic.

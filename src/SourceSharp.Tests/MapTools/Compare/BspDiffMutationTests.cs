@@ -53,7 +53,7 @@ public sealed class BspDiffMutationTests : IClassFixture<LockdownDiffFixture>
         }
     }
 
-    // ---- EXACT: one entity keyvalue -------------------------------------
+    // ---- EXACT: one entity keyvalue ------------------------------------.
 
     [Fact]
     public async Task ChangingOneEntityKeyvalueIsReportedByTheExactKind()
@@ -102,7 +102,7 @@ public sealed class BspDiffMutationTests : IClassFixture<LockdownDiffFixture>
         bsp[BspLump.Entities] = EntityLump.Write(entities);
     }
 
-    // ---- CANONICAL SET: one plane ---------------------------------------
+    // ---- CANONICAL SET: one plane --------------------------------------.
 
     [Fact]
     public async Task MovingOnePlaneIsReportedByTheCanonicalKindAsOneInAndOneInB()
@@ -168,7 +168,7 @@ public sealed class BspDiffMutationTests : IClassFixture<LockdownDiffFixture>
         return -1;
     }
 
-    // ---- DISTRIBUTIONAL: one PVS bit ------------------------------------
+    // ---- DISTRIBUTIONAL: one PVS bit -----------------------------------.
 
     [Fact]
     public async Task SettingOnePvsBitIsReportedAsExactlyOneBit()
@@ -332,7 +332,7 @@ public sealed class BspDiffMutationTests : IClassFixture<LockdownDiffFixture>
         return -1;
     }
 
-    // ---- DISTRIBUTIONAL: one lightmap sample ----------------------------
+    // ---- DISTRIBUTIONAL: one lightmap sample ---------------------------.
 
     [Fact]
     public async Task ChangingOneLightmapSampleIsReportedAsOneDifferingSample()
@@ -409,7 +409,7 @@ public sealed class BspDiffMutationTests : IClassFixture<LockdownDiffFixture>
         return (sample, expected);
     }
 
-    // ---- EXACT: one pak entry -------------------------------------------
+    // ---- EXACT: one pak entry ------------------------------------------.
 
     [Fact]
     public async Task ARemovedPakEntryIsReportedByName()

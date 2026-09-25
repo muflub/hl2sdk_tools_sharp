@@ -9,7 +9,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rad.Final;
 
 /// <summary>
-/// <c>radial.cpp</c>'s accumulation and sampling, on the light box's floor:
+/// the reference implementation's accumulation and sampling, on the light box's floor:
 /// 256 units square, 16 units a luxel, so a 17 x 17 grid whose luxel (s, t)
 /// sits at world (16 s, -16 (t - 16)) -- t runs along -y from mins -16.
 /// </summary>
@@ -39,7 +39,7 @@ public sealed class LuxelRadialTests
     [Fact]
     public void AWholeSampleCentredHalfALuxelAwayWeighsTwoOnEachLuxelItCovers()
     {
-        // radial.cpp:106-121: overlap area 1 over Chebyshev distance 0.5.
+        //: overlap area 1 over Chebyshev distance 0.5.
         LuxelRadial r = FloorRadial();
         r.AddDirect(Luxel(r, 4.5f, 4.5f), 4, 4, 5, 5, One(10), false, false);
 
@@ -50,7 +50,7 @@ public sealed class LuxelRadialTests
     [Fact]
     public void ASampleOnALuxelCentreIsWeightedByAreaOverATenthInDouble()
     {
-        // :115-118: r < 0.1 gives area / 0.1, a double division narrowed.
+        //:115-118: r < 0.1 gives area / 0.1, a double division narrowed.
         LuxelRadial r = FloorRadial();
         r.AddDirect(Luxel(r, 4f, 4f), 3.5f, 3.5f, 4.5f, 4.5f, One(1), false, false);
 
@@ -60,7 +60,7 @@ public sealed class LuxelRadialTests
     [Fact]
     public void ALuxelTheSampleOverlapsByLessThanEqualEpsilonGetsNothing()
     {
-        // :108: `area > EQUAL_EPSILON`, the double 0.001. A sliver 0.0005 of a
+        //:108: `area > EQUAL_EPSILON`, the double 0.001. A sliver 0.0005 of a
         // luxel wide overlaps each luxel it touches by 0.0005.
         LuxelRadial r = FloorRadial();
         r.AddDirect(Luxel(r, 4f, 4.5f), 4, 4, 4.0005f, 5, One(10), false, false);
@@ -72,7 +72,7 @@ public sealed class LuxelRadialTests
     [Fact]
     public void ASampleHangingOffTheGridOnlyTouchesLuxelsOnIt()
     {
-        // :92-95: clamped to [0, w) and [0, h).
+        //:92-95: clamped to [0, w) and [0, h).
         LuxelRadial r = FloorRadial();
         r.AddDirect(Luxel(r, 16.5f, 16.5f), 16, 16, 17, 17, One(10), false, false);
 
@@ -82,7 +82,7 @@ public sealed class LuxelRadialTests
     [Fact]
     public void AnUnbumpedSampleOnABumpedFaceFeedsEachBumpDirectionAtOneOverRootThree()
     {
-        // :135-141.
+        //:135-141.
         LuxelRadial r = FloorRadial();
         r.AddDirect(Luxel(r, 4.5f, 4.5f), 4, 4, 5, 5, One(3), hasBumpmap: true, neighbourHasBumpmap: false);
 
@@ -94,7 +94,7 @@ public sealed class LuxelRadialTests
     [Fact]
     public void ABouncedPatchWeighsTwoMinusItsSquaredDistanceInPatchUnits()
     {
-        // :199-202, patch extent 1 luxel: a luxel 0.5 away in s and t is
+        //:199-202, patch extent 1 luxel: a luxel 0.5 away in s and t is
         // 2 - (0.25 + 0.25) = 1.5.
         LuxelRadial r = FloorRadial();
         r.AddBounced(Luxel(r, 4.5f, 4.5f), 4, 4, 5, 5, [new Vec3(1, 1, 1)], false, false);
@@ -105,7 +105,7 @@ public sealed class LuxelRadialTests
     [Fact]
     public void ABouncedPatchSmallerThanALuxelIsFilteredAsIfItWereOne()
     {
-        // :178-180: extents clamped to at least 1.
+        //:178-180: extents clamped to at least 1.
         LuxelRadial small = FloorRadial();
         small.AddBounced(Luxel(small, 4.5f, 4.5f), 4.4f, 4.4f, 4.6f, 4.6f, [new Vec3(1, 1, 1)], false, false);
         LuxelRadial whole = FloorRadial();
@@ -117,7 +117,7 @@ public sealed class LuxelRadialTests
     [Fact]
     public void BouncedLightLeavesTheSunAmountAlone()
     {
-        // :214 et seq. call AddWeighted( Vector, float ), which has no sun term.
+        //:214 et seq. call AddWeighted(Vector, float), which has no sun term.
         LuxelRadial r = FloorRadial();
         r.AddBounced(Luxel(r, 4.5f, 4.5f), 4, 4, 5, 5, [new Vec3(1, 1, 1)], false, false);
 
@@ -127,7 +127,7 @@ public sealed class LuxelRadialTests
     [Fact]
     public void SampleDividesByTheWeightAsADoubleReciprocal()
     {
-        // radial.cpp:518: Scale( 1.0 / weight ).
+        //: Scale(1.0 / weight).
         LuxelRadial r = FloorRadial();
         r.AddDirect(Luxel(r, 4.5f, 4.5f), 4, 4, 5, 5, One(7), false, false);
         r.AddDirect(Luxel(r, 3.5f, 3.5f), 3, 3, 4, 4, One(3), false, false);
@@ -143,7 +143,7 @@ public sealed class LuxelRadialTests
     [Fact]
     public void ALuxelNothingReachedIsBlackAndNotABaseSample()
     {
-        // :520-535: bRed2Black defaults true.
+        //:520-535: bRed2Black defaults true.
         LuxelRadial r = FloorRadial();
         LightingValue[] light = new LightingValue[1];
 
@@ -164,7 +164,7 @@ public sealed class LuxelRadialTests
     [Fact]
     public void APointOffTheGridIsRedWhateverRedErrorsSays()
     {
-        // :493-507.
+        //:493-507.
         LuxelRadial r = FloorRadial();
         LightingValue[] light = new LightingValue[1];
 

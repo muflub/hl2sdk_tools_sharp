@@ -7,7 +7,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Bsp.Collision;
 
 /// <summary>
-/// <c>EmitPhysCollision</c>'s model loop (<c>ivp.cpp:1525-1537</c>) with the
+/// <c>EmitPhysCollision</c>'s model loop with the
 /// cooks started together above one thread (plan 3p): the lump must be the
 /// one-at-a-time loop's, byte for byte.
 /// </summary>
