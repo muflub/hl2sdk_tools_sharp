@@ -18,9 +18,7 @@ namespace SourceSharp.MapFormats.Text;
 public static class VmtPatchResolver
 {
     /// <summary>
-    /// The nesting limit, shared by both implementations
-    /// (<c>src/utils/vbsp/materialpatch.cpp:330</c>,
-    /// <c>materialsystem/cmaterial.cpp:3435</c>).
+    /// The nesting limit, shared by both reference implementations.
     /// </summary>
     /// <remarks>
     /// On exhaustion both WARN and carry on with whatever they have -- neither
@@ -30,13 +28,13 @@ public static class VmtPatchResolver
     public const int MaxPatchDepth = 10;
 
     /// <summary>
-    /// The key the engine's recursive insert leaves in a block that would
-    /// otherwise be empty (<c>materialsystem/cmaterial.cpp:3306</c>).
+    /// The key the engine dialect's recursive insert leaves in a block that
+    /// would otherwise be empty.
     /// </summary>
     /// <remarks>
     /// Its purpose there is to stop an empty subkey being pruned. It is
-    /// produced only by <see cref="VmtPatchDialect.Engine"/>; vbsp's copy has
-    /// no equivalent, so a compiled map never contains one.
+    /// produced only by <see cref="VmtPatchDialect.Engine"/>; the compiler
+    /// dialect has no equivalent, so a compiled map never contains one.
     /// </remarks>
     public const string PatchDummyKey = "__vmtpatchdummy";
 
@@ -55,7 +53,7 @@ public static class VmtPatchResolver
     /// The resolved material. When <paramref name="material"/> was not a patch
     /// it comes back unchanged; otherwise the root is the INCLUDED material's
     /// shader name, because the string <c>patch</c> never survives resolution
-    /// (<c>cmaterial.cpp:3516</c> assigns the base wholesale, name included).
+    /// (the reference implementation assigns the base wholesale, name included).
     /// </returns>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="material"/> or <paramref name="load"/> is null.
@@ -78,8 +76,8 @@ public static class VmtPatchResolver
     }
 
     /// <summary>
-    /// <c>src/utils/vbsp/materialpatch.cpp:330-372</c>: apply each level's
-    /// patch to that level's include as the chain is walked.
+    /// Apply each level's patch to that level's include as the chain is
+    /// walked. This is the compiler dialect's order.
     /// </summary>
     private static async Task<VmtDocument> ResolveCompilerAsync(
         VmtDocument material,
@@ -97,8 +95,8 @@ public static class VmtPatchResolver
             string? includePath = current.GetString(VmtDocument.IncludeKey);
             if (string.IsNullOrEmpty(includePath))
             {
-                // materialpatch.cpp:335-337 -- no include means nothing to load
-                // and the loop spins. Refusing is the honest answer for a
+                // No include means nothing to load and the reference loop
+                // spins. Refusing is the honest answer for a
                 // library.
                 throw new VmtPatchException("a patch material has no 'include' key");
             }
@@ -112,11 +110,11 @@ public static class VmtPatchResolver
 
             KeyValuesNode includeRoot = included.Root.Clone();
 
-            // materialpatch.cpp:348-359, in its exact order. Both branches
+            // The reference order, kept exactly. Both branches
             // apply to includeKeyValues and then reassign `keyValues` FROM it,
             // and that is where the bug lives: after the insert branch runs,
             // `keyValues` IS the included material, so the FindKey("replace")
-            // at :355 searches the BASE rather than the patch. A patch carrying
+            // searches the BASE rather than the patch. A patch carrying
             // both sections therefore loses its replace block entirely.
             KeyValuesNode? insert = current.Find(VmtDocument.InsertKey);
 
@@ -127,7 +125,7 @@ public static class VmtPatchResolver
             }
 
             // Deliberately looked up on `current`, which the branch above may
-            // just have replaced. That is the C++'s own sequencing.
+            // just have replaced. That is the reference's own sequencing.
             KeyValuesNode? replace = current.Find(VmtDocument.ReplaceKey);
 
             if (replace is not null)
@@ -137,7 +135,7 @@ public static class VmtPatchResolver
             }
 
             // NOT unconditional. When the patch has NEITHER section,
-            // `keyValues` is never reassigned (materialpatch.cpp:347-359 has no
+            // `keyValues` is never reassigned (the reference has no
             // else), so the loop spins on the same patch until the counter runs
             // out and then warns. Assigning here would quietly "fix" a patch
             // that stock rejects.
@@ -148,8 +146,8 @@ public static class VmtPatchResolver
     }
 
     /// <summary>
-    /// <c>materialsystem/cmaterial.cpp:3411-3519</c>: accumulate every level's
-    /// sections first, then apply them once to the base.
+    /// Accumulate every level's sections first, then apply them once to the
+    /// base. This is the engine dialect's order.
     /// </summary>
     private static async Task<VmtDocument> ResolveEngineAsync(
         VmtDocument material,
@@ -158,12 +156,12 @@ public static class VmtPatchResolver
     {
         if (!material.IsPatch)
         {
-            // cmaterial.cpp:3420-3430 -- an early-out that reports success.
+            // The reference early-out that reports success.
             return material;
         }
 
         // The accumulator always ends up holding both sections, created empty
-        // if absent (cmaterial.cpp:3382-3394).
+        // if absent.
         KeyValuesNode accumulator = new("patch");
         KeyValuesNode accumulatedInsert = accumulator.FindOrCreate(VmtDocument.InsertKey);
         KeyValuesNode accumulatedReplace = accumulator.FindOrCreate(VmtDocument.ReplaceKey);
@@ -176,10 +174,10 @@ public static class VmtPatchResolver
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // cmaterial.cpp:3438 -- accumulate BEFORE loading the include, so
+            // Accumulate BEFORE loading the include, so
             // the outermost patch is merged first and each deeper level
-            // OVERWRITES it (MergeKeyValues at :3351-3376, documented at
-            // :3347-3349 as "overwriting any keys that are already there").
+            // OVERWRITES it -- the reference merge is documented as
+            // "overwriting any keys that are already there".
             // The deeper level therefore wins.
             if (current.Find(VmtDocument.InsertKey) is { } insert)
             {
@@ -208,7 +206,7 @@ public static class VmtPatchResolver
             count++;
         }
 
-        // cmaterial.cpp:3329-3344 -- INSERT first, then REPLACE, and both
+        // INSERT first, then REPLACE, and both
         // recurse into subkeys.
         if (accumulatedInsert.Children.Count > 0)
         {
@@ -224,7 +222,7 @@ public static class VmtPatchResolver
     }
 
     /// <summary>
-    /// <c>InsertKeyValues</c> -- the one worker behind both <c>insert</c> and
+    /// The one worker behind both <c>insert</c> and
     /// <c>replace</c>.
     /// </summary>
     /// <param name="destination">The material being patched.</param>
@@ -234,26 +232,26 @@ public static class VmtPatchResolver
     /// <c>replace</c>.
     /// </param>
     /// <param name="recursive">
-    /// <c>bRecursive</c>, which is true only on the nested calls the engine
-    /// makes (<c>cmaterial.cpp:3295</c>) and is what arms the
-    /// <see cref="PatchDummyKey"/> at <c>:3302-3307</c>.
+    /// <c>bRecursive</c>, which is true only on the nested calls the reference
+    /// merge makes and is what arms the
+    /// <see cref="PatchDummyKey"/>.
     /// </param>
     /// <param name="allowSections">
     /// Whether a nested block in the section is applied at all. FALSE for the
-    /// compiler dialect, whose switch at <c>materialpatch.cpp:300-325</c> has
+    /// compiler dialect, whose type switch has
     /// no subkey case, so such a block is silently dropped.
     /// </param>
     /// <remarks>
     /// <para>
-    /// The gate is <c>!bCheckForExistence || dst.FindKey(name)</c>
-    /// (<c>cmaterial.cpp:3273</c>). So <c>insert</c> is NOT "add if absent": it
+    /// The gate is <c>!bCheckForExistence || dst.FindKey(name)</c>.
+    /// So <c>insert</c> is NOT "add if absent": it
     /// SETS, adding missing keys and overwriting present ones. <c>replace</c>
     /// writes only where the key already exists and silently skips the rest.
     /// </para>
     /// <para>
-    /// The subkey case (<c>cmaterial.cpp:3288-3297</c>) is the engine's and NOT
-    /// vbsp's: <c>materialpatch.cpp:300-325</c> has no such case, so a nested
-    /// block is dropped. That is what
+    /// The subkey case belongs to the engine dialect and NOT the
+    /// compiler's, which has no such case, so a nested
+    /// block is dropped there. That is what
     /// <paramref name="allowSections"/> selects.
     /// </para>
     /// </remarks>
@@ -268,7 +266,7 @@ public static class VmtPatchResolver
         {
             if (sourceChild.IsSection && !allowSections)
             {
-                // materialpatch.cpp:300-325 -- the switch covers string, int,
+                // The reference switch covers string, int,
                 // float and pointer, and TYPE_NONE falls out of it with
                 // nothing done.
                 continue;
@@ -283,7 +281,7 @@ public static class VmtPatchResolver
 
             if (sourceChild.IsSection)
             {
-                // cmaterial.cpp:3292 -- FindKey(name, true), which CREATES. So
+                // FindKey(name, true), which CREATES. So
                 // a recursive replace against a destination that held a scalar
                 // of that name turns it into a section.
                 KeyValuesNode target = destination.FindOrCreate(sourceChild.Name);
@@ -302,7 +300,7 @@ public static class VmtPatchResolver
             }
         }
 
-        // cmaterial.cpp:3302-3307 -- a recursive call that left the block with
+        // A recursive call that left the block with
         // no children stamps a dummy so it is not pruned.
         if (recursive && destination.Children.Count == 0)
         {
@@ -311,8 +309,7 @@ public static class VmtPatchResolver
     }
 
     /// <summary>
-    /// <c>MergeKeyValues</c> (<c>materialsystem/cmaterial.cpp:3351-3376</c>):
-    /// add the source's keys to the destination, OVERWRITING what is there.
+    /// Add the source's keys to the destination, OVERWRITING what is there.
     /// </summary>
     private static void MergeOverwriting(KeyValuesNode destination, KeyValuesNode source)
     {

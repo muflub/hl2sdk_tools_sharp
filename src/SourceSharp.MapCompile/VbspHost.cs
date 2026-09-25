@@ -11,10 +11,10 @@ namespace SourceSharp.MapCompile;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Stock loads <c>vphysics.dll</c> for every compile (<c>vbsp.cpp:1309</c>),
+/// Stock loads a <c>vphysics</c> library for every compile,
 /// and a compile whose library does not load prints
 /// <c>"!!! WARNING: Can't build collision data!"</c> and writes a map with no
-/// collision lumps (<c>ivp.cpp:1510</c>). This host does the same with the
+/// collision lumps. This host does the same with the
 /// 64-bit Linux <c>vphysics.so</c> (plan §7). The choice is
 /// <see cref="VbspOptions.Cooker"/>, parsed with every other vbsp option by
 /// <see cref="StockArgs.ParseVbsp"/> (<c>-cooker native|vphysics|managed|none</c>,
@@ -23,14 +23,14 @@ namespace SourceSharp.MapCompile;
 /// relaunches, and <c>none</c> is the no-collision road on purpose.
 /// </para>
 /// <para>
-/// With no <c>-vphysics</c> the compile uses SDK Base 2013 Multiplayer's
-/// library when it is installed: that is the engine this repo's maps are
-/// loaded by, and two builds cook the same shape to different bytes, so the
-/// default is the one whose bytes the engine was built with.
+/// With no <c>-vphysics</c> the compile uses the default library
+/// named by <see cref="DefaultLibrary"/> when it is installed: two builds cook
+/// the same shape to different bytes, so the default is the one whose bytes
+/// this project's golden maps were cooked with.
 /// </para>
 /// <para>
 /// The native library loads only in a process STARTED with
-/// <c>LD_LIBRARY_PATH</c> naming its directory (spike 0b), so the host
+/// <c>LD_LIBRARY_PATH</c> naming its directory, so the host
 /// relaunches itself once, exactly as <c>ssmap phys cook</c> does
 /// (<see cref="PhysCommand.RelaunchLibraryPath"/>). There is one
 /// <see cref="VPhysicsCollisionCooker"/> per process; this host makes it and
@@ -150,7 +150,7 @@ public static class VbspHost
     /// relaunch are about 0.45 s of a small map's compile); <c>native</c>
     /// finds <c>vphysics.so</c> and, when this process was not started with
     /// <c>LD_LIBRARY_PATH</c> naming its directory, relaunches with
-    /// <paramref name="relaunchArgs"/> (spike 0b).
+    /// <paramref name="relaunchArgs"/>.
     /// </remarks>
     public static async Task<CookerSetup> OpenCookerAsync(
         IFileSystem disk,
@@ -192,7 +192,7 @@ public static class VbspHost
 
             if (!TrySelectLibrary(found, options.VPhysicsLibrary, out chosen, out string? problem))
             {
-                // Stock's road when vphysics does not load (ivp.cpp:1510).
+                // Stock's road when vphysics does not load.
                 await output.WriteLineAsync($"!!! WARNING: Can't build collision data! ({problem})").ConfigureAwait(false);
                 return new CookerSetup(null, null);
             }

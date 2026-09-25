@@ -93,7 +93,7 @@ public static class BspEntities
     /// one that matters: <c>point_worldtext</c>'s <c>message</c> holds real
     /// newlines, because that is how the entity draws more than one line.
     /// The VMF tokenizer turns the <c>\n</c> escape into a literal LF
-    /// (<c>TokenReader::GetString</c>) and <c>CPointWorldText::KeyValue</c>
+    /// and the entity's keyvalue handler
     /// copies the value verbatim, so vbsp writes a quoted string with an LF
     /// inside it and the .bsp is correct.
     /// </para>
@@ -112,8 +112,8 @@ public static class BspEntities
     /// </para>
     /// <para>
     /// There is no escape syntax to honour: the entity lump is what vbsp wrote,
-    /// and a quote runs to the next quote. That is the same rule the engine's
-    /// own entity parser uses.
+    /// and a quote runs to the next quote. That is the same rule a game's own
+    /// entity parser uses.
     /// </para>
     /// </remarks>
     public static List<DeclaredEntity> Parse(string lump)

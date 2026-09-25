@@ -12,8 +12,9 @@ namespace SourceSharp.Tests.MapTools.Options;
 /// on a machine whose culture writes numbers differently.
 /// </summary>
 /// <remarks>
-/// Stock's answer to every one of these is <c>Error()</c> into <c>exit()</c>,
-/// which is why the RPG plan needed one process per compile. None of these
+/// The reference tool answers every one of these with an error message and a
+/// hard process exit, which is why the plan needed one process per compile.
+/// None of these
 /// facts may ever be allowed to pass by throwing.
 /// </remarks>
 public class StockArgsDiagnosticTests
@@ -139,8 +140,8 @@ public class StockArgsDiagnosticTests
     [Fact]
     public void ParsingContinuesPastAnUnknownFlag()
     {
-        // Stock sets i = 100000 and breaks out of the loop (vbsp.cpp:1178), so
-        // the rest of the line is never read.
+        // Stock abandons the rest of the line the moment it hits an unknown
+        // flag, so the rest is never read.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-nosuchflag", "-onlyents", Map]);
 
         Assert.True(result.Options.OnlyEnts);
@@ -167,7 +168,8 @@ public class StockArgsDiagnosticTests
     [Fact]
     public void AMalformedNumericArgumentQuotesWhatItWasGiven()
     {
-        // Stock's atof would silently return 0 here, which is a quiet request
+        // The reference tool's numeric conversion would silently return 0 here,
+        // which is a quiet request
         // for a microvolume of zero.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-micro", "banana", Map]);
 
@@ -203,8 +205,8 @@ public class StockArgsDiagnosticTests
     [Fact]
     public void AValueFlagAtTheEndOfTheLineIsAMissingValueError()
     {
-        // Stock vbsp reads argv[i+1] past the end of the array here
-        // (vbsp.cpp:1021) rather than checking.
+        // Stock reads past the end of the argument array here
+        // rather than checking.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp([Map, "-micro"]);
 
         Assert.Contains(result.Diagnostics, d => d.Code == StockArgsCodes.MissingValue);

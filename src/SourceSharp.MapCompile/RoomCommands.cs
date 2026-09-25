@@ -184,7 +184,7 @@ public static class RoomCommands
 
         VbspContext context = new(options, mounted.Content)
         {
-            // mapbase: the file's base name, lowercased (vbsp.cpp:920-921)
+            // mapbase: the file's base name, lowercased
 #pragma warning disable CA1308 // strlwr
             MapBase = Path.GetFileNameWithoutExtension(source).ToLowerInvariant(),
 #pragma warning restore CA1308

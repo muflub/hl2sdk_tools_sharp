@@ -10,11 +10,10 @@ namespace SourceSharp.MapGen;
 /// be". Those are different questions and the second one shipped wrong for a
 /// whole phase: <c>ss_sandbox</c>'s two dust volumes were textured with
 /// <c>TOOLS/TOOLSINVISIBLE</c>, whose <c>%compileInvisible</c> clears
-/// <c>CONTENTS_SOLID</c> and sets <c>CONTENTS_GRATE</c>
-/// (<c>src/utils/vbsp/textures.cpp:202-209</c>), so
-/// <c>C_Func_Dust::AttemptSpawnNewParticle</c>'s
-/// <c>enginetrace->GetPointContents_Collideable(...) &amp; CONTENTS_SOLID</c>
-/// was false for every point inside the brush. 4,050 spawn calls, 40,500 point
+/// <c>CONTENTS_SOLID</c> and sets <c>CONTENTS_GRATE</c>, so the
+/// dust volume's particle spawner tested
+/// <c>GetPointContents_Collideable(...) &amp; CONTENTS_SOLID</c>
+/// and was false for every point inside the brush. 4,050 spawn calls, 40,500 point
 /// tests, zero motes — and every layer above the map was working. Only the
 /// compiled brush's own contents word could tell that apart from a broken
 /// query, which is what this reads.
@@ -31,8 +30,8 @@ namespace SourceSharp.MapGen;
 ///
 /// <para>
 /// The one version-dependent field is the leaf. Before BSP v20 a
-/// <c>dleaf_t</c> carried an inline ambient-lighting cube and was 56 bytes;
-/// from v20 it is 32. The engine decides by the LEAF LUMP'S OWN version field
+/// leaf record carried an inline ambient-lighting cube and was 56 bytes;
+/// from v20 it is 32. A game loading the map decides by the LEAF LUMP'S OWN version field
 /// rather than the file's (<c>version == 0</c> is the old shape), and so does
 /// this — then checks the lump divides exactly by the size it chose, because a
 /// stride that is wrong by 24 bytes still parses and answers confident
@@ -64,10 +63,9 @@ public static class BspBrushContents
     private const int LeafBrushRangeOffset = 24;
 
     /// <summary>
-    /// <c>CONTENTS_SOLID</c>. Kept here rather than shared with the native
-    /// header because the point of the test that reads it is to pin the number
-    /// the ENGINE uses, and a symbol imported from the same place the engine
-    /// would move would move with it.
+    /// <c>CONTENTS_SOLID</c>. Kept here as a literal because the point of the
+    /// test that reads it is to pin the number the game relies on, and a symbol
+    /// imported from whatever header declares it would move with that header.
     /// </summary>
     public const int ContentsSolid = 0x1;
 

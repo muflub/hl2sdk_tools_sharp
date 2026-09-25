@@ -6,8 +6,8 @@ using System.Text;
 namespace SourceSharp.MapFormats.Assets;
 
 /// <summary>
-/// A <c>.phy</c> file's header (<c>src/public/phyfile.h:14</c>,
-/// <c>struct phyheader_t</c>). 16 bytes.
+/// A <c>.phy</c> file's header (<c>struct phyheader_t</c> in the reference
+/// layout). 16 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct PhyHeader

@@ -10,36 +10,33 @@ namespace SourceSharp.MapFormats.Geometry;
 /// <remarks>
 /// <para>
 /// A point <c>p</c> is on the plane when <c>Dot(p, Normal) == Dist</c>. That is
-/// stock's convention (<c>plane_t</c> in <c>utils/vbsp/vbsp.h</c>) and the
-/// engine's, and it is the reason <see cref="DistanceTo"/> subtracts rather
-/// than adds.
+/// stock's convention for its <c>plane_t</c> and the loader's, and it is the
+/// reason <see cref="DistanceTo"/> subtracts rather than adds.
 /// </para>
 /// <para>
 /// <b>There is deliberately no plane list here, and no dedup.</b> In vbsp a
 /// plane's INDEX is output: brush sides, nodes and the PLANES lump all store
-/// it, and <c>CreateNewFloatPlane</c> (<c>utils/vbsp/map.cpp:208</c>) appends
-/// planes in PAIRS — the plane and its opposite — in the order the map file
-/// first mentions them, flipping the pair so an axial plane faces positive.
-/// Anything that sorted, deduplicated or reordered planes behind the caller's
-/// back would silently renumber the map. So this type carries the
-/// <i>predicates</i> that table is built from — <see cref="Type"/>,
-/// <see cref="Snapped"/>, <see cref="Equal"/>, <see cref="HashBucket"/> — and
-/// the table itself belongs to whoever is doing the appending.
+/// it, and the reference's <c>CreateNewFloatPlane</c> appends planes in PAIRS —
+/// the plane and its opposite — in the order the map file first mentions them,
+/// flipping the pair so an axial plane faces positive. Anything that sorted,
+/// deduplicated or reordered planes behind the caller's back would silently
+/// renumber the map. So this type carries the <i>predicates</i> that table is
+/// built from — <see cref="Type"/>, <see cref="Snapped"/>, <see cref="Equal"/>,
+/// <see cref="HashBucket"/> — and the table itself belongs to whoever is doing
+/// the appending.
 /// </para>
 /// <para>
 /// <b>On normalisation.</b> Anything here that needs a unit normal uses
 /// <see cref="Vec3.Normalise"/>, which is an exact square root and a divide.
-/// Stock's <c>VectorNormalize</c> is neither: on the x86 build path
-/// (<c>public/mathlib/vector.h:2239</c>, under <c>PLATFORM_INTEL</c>) it adds
+/// Stock's <c>VectorNormalize</c> is neither: on the x86 build path it adds
 /// <c>1.0e-10f</c> to the squared length and calls <c>_mm_rsqrt_ss</c> with one
 /// Newton-Raphson step, and <c>_mm_rsqrt_ss</c> is an approximation whose
-/// result is permitted to differ between CPU vendors. Off that path
-/// (<c>mathlib/mathlib_base.cpp:66</c>) it is
+/// result is permitted to differ between CPU vendors. Off that path it is
 /// <c>1.f / (sqrtf(len) + FLT_EPSILON)</c> and three multiplies. Neither is
 /// <c>x / len</c>, and the first is not reproducible at all. Matching stock bit
-/// for bit here is therefore impossible in principle, and this port takes the
-/// exact divide instead: a documented, deterministic divergence rather than an
-/// undocumented, machine-dependent one.
+/// for bit here is therefore impossible in principle, and this implementation
+/// takes the exact divide instead: a documented, deterministic divergence
+/// rather than an undocumented, machine-dependent one.
 /// </para>
 /// </remarks>
 public readonly struct Plane : IEquatable<Plane>
@@ -48,7 +45,7 @@ public readonly struct Plane : IEquatable<Plane>
     /// How many buckets <c>vbsp</c>'s plane hash has.
     /// </summary>
     /// <remarks>
-    /// <c>utils/vbsp/vbsp.h:299</c>: <c>#define PLANE_HASHES 1024</c>.
+    /// The reference layout declares <c>#define PLANE_HASHES 1024</c>.
     /// </remarks>
     public const int PlaneHashes = 1024;
 
@@ -68,17 +65,16 @@ public readonly struct Plane : IEquatable<Plane>
     }
 
     /// <summary>
-    /// How this plane's normal is oriented, as <c>PlaneTypeForNormal</c>
-    /// classifies it.
+    /// How this plane's normal is oriented, as the reference's
+    /// <c>PlaneTypeForNormal</c> classifies it.
     /// </summary>
     /// <remarks>
-    /// <c>utils/vbsp/map.cpp:140</c>. The exact-equality tests come first and
-    /// are exact on purpose — stock's own comment on line 143 asks "should these
-    /// have an epsilon around 1.0?" and the answer it shipped with is no,
-    /// because <see cref="Snapped"/> has already forced a near-axial normal to
-    /// exactly axial before anything classifies it. The tie-breaks that follow
-    /// are <c>&gt;=</c>, so a normal at 45 degrees between two axes classifies
-    /// as the earlier axis.
+    /// The exact-equality tests come first and are exact on purpose — stock
+    /// asks "should these have an epsilon around 1.0?" and the answer it
+    /// shipped with is no, because <see cref="Snapped"/> has already forced a
+    /// near-axial normal to exactly axial before anything classifies it. The
+    /// tie-breaks that follow are <c>&gt;=</c>, so a normal at 45 degrees
+    /// between two axes classifies as the earlier axis.
     /// </remarks>
     public PlaneType Type
     {
@@ -121,8 +117,8 @@ public readonly struct Plane : IEquatable<Plane>
     /// True when <see cref="Type"/> is one of the three exactly axial values.
     /// </summary>
     /// <remarks>
-    /// <c>CreateNewFloatPlane</c> spells this <c>if (p-&gt;type &lt; 3)</c>
-    /// (<c>utils/vbsp/map.cpp:226</c>), which is why the enum's numbering is
+    /// The reference's <c>CreateNewFloatPlane</c> spells this
+    /// <c>if (p-&gt;type &lt; 3)</c>, which is why the enum's numbering is
     /// fixed rather than incidental.
     /// </remarks>
     public bool IsAxial => Type < PlaneType.AnyX;
@@ -137,9 +133,9 @@ public readonly struct Plane : IEquatable<Plane>
     /// </returns>
     /// <remarks>
     /// <c>DotProduct (w-&gt;p[i], normal) - dist</c>, the expression that opens
-    /// every side test in <c>polylib.cpp</c> — for example line 381 and line
-    /// 827. The dot is <see cref="Vec3.Dot"/>, which sums left to right for the
-    /// reason that type documents.
+    /// every side test in the reference's polygon library. The dot is
+    /// <see cref="Vec3.Dot"/>, which sums left to right for the reason that
+    /// type documents.
     /// </remarks>
     public float DistanceTo(Vec3 point) => Vec3.Dot(point, Normal) - Dist;
 
@@ -147,13 +143,13 @@ public readonly struct Plane : IEquatable<Plane>
     /// This plane facing the other way: the opposite of a plane pair.
     /// </summary>
     /// <remarks>
-    /// Written as <c>0 - x</c> per component, not as <c>-x</c>, because
-    /// <c>CreateNewFloatPlane</c> is
-    /// <c>VectorSubtract (vec3_origin, normal, (p+1)-&gt;normal)</c>
-    /// (<c>utils/vbsp/map.cpp:216</c>). For a component that is <c>+0.0f</c>
-    /// the two differ: <c>0 - 0</c> is <c>+0.0f</c> and <c>-0.0f</c> is not, and
-    /// an axial plane's normal has two zero components that go straight into the
-    /// PLANES lump. Same number, different bytes on disk.
+    /// Written as <c>0 - x</c> per component, not as <c>-x</c>, because the
+    /// reference's <c>CreateNewFloatPlane</c> is
+    /// <c>VectorSubtract (vec3_origin, normal, (p+1)-&gt;normal)</c>. For a
+    /// component that is <c>+0.0f</c> the two differ: <c>0 - 0</c> is
+    /// <c>+0.0f</c> and <c>-0.0f</c> is not, and an axial plane's normal has
+    /// two zero components that go straight into the PLANES lump. Same number,
+    /// different bytes on disk.
     /// </remarks>
     public Plane Flipped => new(
         new Vec3(0f - Normal.X, 0f - Normal.Y, 0f - Normal.Z),
@@ -163,11 +159,11 @@ public readonly struct Plane : IEquatable<Plane>
     /// Whether the normal is long enough for <c>vbsp</c> to accept the plane.
     /// </summary>
     /// <remarks>
-    /// <c>CreateNewFloatPlane</c> rejects a plane with
-    /// <c>VectorLength(normal) &lt; 0.5</c> as a "bad normal"
-    /// (<c>utils/vbsp/map.cpp:211</c>). The threshold is nowhere near 1, so what
-    /// it really catches is a normal that came out of a cross product of two
-    /// nearly parallel edges and normalised to roughly nothing.
+    /// The reference's <c>CreateNewFloatPlane</c> rejects a plane with
+    /// <c>VectorLength(normal) &lt; 0.5</c> as a "bad normal". The threshold is
+    /// nowhere near 1, so what it really catches is a normal that came out of a
+    /// cross product of two nearly parallel edges and normalised to roughly
+    /// nothing.
     /// </remarks>
     public bool HasUsableNormal => Normal.Length() >= 0.5f;
 
@@ -177,12 +173,11 @@ public readonly struct Plane : IEquatable<Plane>
     /// <param name="value">The value to round.</param>
     /// <returns>The rounded value.</returns>
     /// <remarks>
-    /// <c>public/mathlib/mathlib.h:432</c>:
-    /// <c>inline vec_t RoundInt (vec_t in) { return floor(in + 0.5f); }</c>.
-    /// Floor of a half-offset, which is NOT
-    /// <see cref="MathF.Round(float)"/>: this rounds -0.5 to -0.0 and 0.5 to 1,
-    /// where <c>MathF.Round</c> rounds both to 0 (banker's rounding). It also
-    /// rounds 2.5 to 3 where <c>MathF.Round</c> gives 2.
+    /// The reference's <c>RoundInt</c> is <c>floor(in + 0.5f)</c>: floor of a
+    /// half-offset, which is NOT <see cref="MathF.Round(float)"/>: this rounds
+    /// -0.5 to -0.0 and 0.5 to 1, where <c>MathF.Round</c> rounds both to 0
+    /// (banker's rounding). It also rounds 2.5 to 3 where <c>MathF.Round</c>
+    /// gives 2.
     /// </remarks>
     public static float RoundInt(float value) => MathF.Floor(value + 0.5f);
 
@@ -196,19 +191,19 @@ public readonly struct Plane : IEquatable<Plane>
     /// </param>
     /// <returns>True when the normal was snapped.</returns>
     /// <remarks>
-    /// <c>SnapVector</c>, <c>utils/vbsp/map.cpp:255</c>. Note what it does on a
-    /// hit: it CLEARS the whole vector and sets one component, so the other two
-    /// become exactly zero rather than being left as the small values they
-    /// were. It also returns on the FIRST axis that matches, so a normal within
-    /// the epsilon of two axes at once — which cannot happen for a unit normal,
-    /// but can for one that is not — takes the lowest-numbered one.
+    /// The reference's <c>SnapVector</c>. Note what it does on a hit: it CLEARS
+    /// the whole vector and sets one component, so the other two become exactly
+    /// zero rather than being left as the small values they were. It also
+    /// returns on the FIRST axis that matches, so a normal within the epsilon
+    /// of two axes at once — which cannot happen for a unit normal, but can for
+    /// one that is not — takes the lowest-numbered one.
     /// </remarks>
     public static bool TrySnapNormal(Vec3 normal, out Vec3 snapped)
     {
         for (int i = 0; i < 3; i++)
         {
-            // fabs() in the C++, so both comparisons happen in double: the
-            // float difference is promoted and RENDER_NORMAL_EPSILON is a
+            // fabs() in the reference, so both comparisons happen in double:
+            // the float difference is promoted and RENDER_NORMAL_EPSILON is a
             // double literal.
             if (Math.Abs((double)(normal[i] - 1f)) < GeometryEpsilons.RenderNormalEpsilon)
             {
@@ -233,10 +228,10 @@ public readonly struct Plane : IEquatable<Plane>
     /// </summary>
     /// <returns>The snapped plane.</returns>
     /// <remarks>
-    /// The two-argument <c>SnapPlane</c>, <c>utils/vbsp/map.cpp:285</c>. The
-    /// distance is NOT recomputed when the normal moves — that is what the
-    /// five-argument overload is for — so this one can leave a plane whose
-    /// distance belongs to the pre-snap normal. Stock uses this form from
+    /// The reference's two-argument <c>SnapPlane</c>. The distance is NOT
+    /// recomputed when the normal moves — that is what the five-argument
+    /// overload is for — so this one can leave a plane whose distance belongs
+    /// to the pre-snap normal. Stock uses this form from
     /// <c>FindFloatPlane</c> when the caller had no points to hand.
     /// </remarks>
     public Plane Snapped()
@@ -260,11 +255,11 @@ public readonly struct Plane : IEquatable<Plane>
     /// </param>
     /// <returns>The snapped plane.</returns>
     /// <remarks>
-    /// The five-argument <c>SnapPlane</c>, <c>utils/vbsp/map.cpp:307</c>.
-    /// Rotating the plane about the centroid rather than about one of the three
-    /// points is what keeps the error even across the face; the comment on line
-    /// 314 says as much. The centroid is <c>(p0 + p1 + p2) / 3.0f</c> — a float
-    /// divide by 3, in that grouping.
+    /// The reference's five-argument <c>SnapPlane</c>. Rotating the plane about
+    /// the centroid rather than about one of the three points is what keeps the
+    /// error even across the face; the reference comment there says as much.
+    /// The centroid is <c>(p0 + p1 + p2) / 3.0f</c> — a float divide by 3, in
+    /// that grouping.
     /// </remarks>
     public Plane SnappedThroughPoints(Vec3 p0, Vec3 p1, Vec3 p2, bool snapAxialPlanes)
     {
@@ -273,10 +268,11 @@ public readonly struct Plane : IEquatable<Plane>
         if (TrySnapNormal(Normal, out Vec3 normal))
         {
             Vec3 p3 = (p0 + p1 + p2) * (1f / 3f);
-            // The C++ is `(p0 + p1 + p2) / 3.0f`, which Vector::operator/ turns
-            // into a multiply by the reciprocal of 3.0f -- see vector.h's
-            // VectorDivide. 1f/3f is computed once at compile time either way,
-            // so this spelling is the same arithmetic and not a shortcut.
+            // The reference is `(p0 + p1 + p2) / 3.0f`, which its
+            // Vector::operator/ turns into a multiply by the reciprocal of
+            // 3.0f -- see the reference's VectorDivide. 1f/3f is computed once
+            // at compile time either way, so this spelling is the same
+            // arithmetic and not a shortcut.
             dist = Vec3.Dot(normal, p3);
 
             if (snapAxialPlanes)
@@ -297,12 +293,11 @@ public readonly struct Plane : IEquatable<Plane>
     /// <returns>The plane through the three points.</returns>
     /// <remarks>
     /// <para>
-    /// The first half of <c>CMapFile::PlaneFromPoints</c>,
-    /// <c>utils/vbsp/map.cpp:384</c>. The operand order is load-bearing and is
-    /// not the obvious one: the edges are <c>p0 - p1</c> and <c>p2 - p1</c>,
-    /// both FROM the middle point, and the cross is taken in that order. Writing
-    /// it as <c>(p1-p0) x (p2-p0)</c> gives a normal of the opposite sign, which
-    /// turns every brush inside out.
+    /// The first half of the reference's <c>PlaneFromPoints</c>. The operand
+    /// order is load-bearing and is not the obvious one: the edges are
+    /// <c>p0 - p1</c> and <c>p2 - p1</c>, both FROM the middle point, and the
+    /// cross is taken in that order. Writing it as <c>(p1-p0) x (p2-p0)</c>
+    /// gives a normal of the opposite sign, which turns every brush inside out.
     /// </para>
     /// <para>
     /// The second half of the stock function is <c>SnapPlane</c> followed by
@@ -333,9 +328,9 @@ public readonly struct Plane : IEquatable<Plane>
     /// <returns>True when the planes match.</returns>
     /// <remarks>
     /// <para>
-    /// <c>PlaneEqual</c>, <c>utils/vbsp/map.cpp:168</c>. Componentwise on the
-    /// normal, with a strict <c>&lt;</c> and not <c>&lt;=</c>, and the
-    /// comparisons happen in <c>double</c> because <c>fabs</c> returns one.
+    /// The reference's <c>PlaneEqual</c>. Componentwise on the normal, with a
+    /// strict <c>&lt;</c> and not <c>&lt;=</c>, and the comparisons happen in
+    /// <c>double</c> because <c>fabs</c> returns one.
     /// </para>
     /// <para>
     /// This is not an equivalence relation: it is not transitive, so which
@@ -345,7 +340,8 @@ public readonly struct Plane : IEquatable<Plane>
     /// </para>
     /// <para>
     /// It also does not treat a plane and its opposite as equal, which is why
-    /// <c>CreateNewFloatPlane</c> has to store both halves of every pair.
+    /// the reference's <c>CreateNewFloatPlane</c> has to store both halves of
+    /// every pair.
     /// </para>
     /// </remarks>
     public static bool Equal(Plane a, Plane b, float normalEpsilon, float distEpsilon) =>
@@ -361,22 +357,23 @@ public readonly struct Plane : IEquatable<Plane>
     /// <returns>A bucket index in 0..<see cref="PlaneHashes"/>-1.</returns>
     /// <remarks>
     /// <para>
-    /// <c>AddPlaneToHash</c>, <c>utils/vbsp/map.cpp:196</c>:
+    /// The reference's <c>AddPlaneToHash</c>:
     /// <c>hash = (int)fabs(p-&gt;dist) / 8; hash &amp;= (PLANE_HASHES-1);</c>.
     /// Truncation to <c>int</c> first, THEN integer division by 8, so the bucket
     /// is one per 8 world units of |distance| and wraps every 8192 units.
     /// </para>
     /// <para>
     /// It keys on the ABSOLUTE distance, so a plane and its opposite land in the
-    /// same bucket — deliberate, since they are inserted together.
-    /// <c>FindFloatPlane</c> (<c>map.cpp:359</c>) then searches this bucket and
-    /// the two either side of it, because a plane a hair under a multiple of 8
-    /// and one a hair over are within <c>RENDER_DIST_EPSILON</c> of each other
-    /// but hash apart.
+    /// same bucket — deliberate, since they are inserted together. The
+    /// reference's <c>FindFloatPlane</c> then searches this bucket and the two
+    /// either side of it, because a plane a hair under a multiple of 8 and one
+    /// a hair over are within <c>RENDER_DIST_EPSILON</c> of each other but hash
+    /// apart.
     /// </para>
     /// <para>
     /// A distance whose magnitude exceeds <see cref="int"/> range would be
-    /// undefined in C++; it is saturated here rather than left to the JIT.
+    /// undefined in the reference; it is saturated here rather than left to the
+    /// JIT.
     /// </para>
     /// </remarks>
     public static int HashBucket(float dist)

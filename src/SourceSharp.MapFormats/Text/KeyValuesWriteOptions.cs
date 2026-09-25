@@ -5,18 +5,18 @@ namespace SourceSharp.MapFormats.Text;
 /// </summary>
 /// <param name="EscapeSequences">
 /// <c>m_bHasEscapeSequences</c>, which decides whether a backslash is doubled
-/// on the way out (<c>src/tier1/KeyValues.cpp:790-794</c>). A double quote is
-/// escaped either way (<c>:785-789</c>). False by default, matching
-/// <c>Init</c> at <c>:462</c>.
+/// on the way out. A double quote is
+/// escaped either way. False by default, matching
+/// the reference's <c>Init</c>.
 /// </param>
 /// <param name="AllowEmptyString">
-/// <c>bAllowEmptyString</c>. FALSE by default (<c>KeyValues.cpp:511,740,820</c>),
+/// <c>bAllowEmptyString</c>. FALSE by default in the reference,
 /// and the consequence is data loss: a key whose value is the empty string is
-/// not written at all (<c>:871</c>).
+/// not written at all.
 /// </param>
 /// <param name="SortKeys">
 /// <c>sortKeys</c>. False by default; when true, children are sorted by name
-/// before writing (<c>KeyValues.cpp:831-845</c>). vbsp's patch writer takes the
+/// before writing. The reference's patch writer takes the
 /// default, so a patch VMT's keys are in INSERTION order.
 /// </param>
 public sealed record KeyValuesWriteOptions(
@@ -25,9 +25,8 @@ public sealed record KeyValuesWriteOptions(
     bool SortKeys = false)
 {
     /// <summary>
-    /// The arguments <c>CreateMaterialPatch</c> passes
-    /// (<c>src/utils/vbsp/materialpatch.cpp:141</c>, taking every default at
-    /// <c>src/public/tier1/KeyValues.h:214</c>).
+    /// The arguments the reference's <c>CreateMaterialPatch</c> passes,
+    /// taking every default.
     /// </summary>
     public static KeyValuesWriteOptions Default { get; } = new();
 }

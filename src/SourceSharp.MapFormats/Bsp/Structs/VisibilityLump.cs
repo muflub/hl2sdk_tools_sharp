@@ -3,14 +3,14 @@ using System.Buffers.Binary;
 namespace SourceSharp.MapFormats.Bsp.Structs;
 
 /// <summary>
-/// LUMP_VISIBILITY's header, decoded (<c>bspfile.h:904</c>,
-/// <c>struct dvis_t</c>).
+/// LUMP_VISIBILITY's header, decoded
+/// (the reference layout's <c>struct dvis_t</c>).
 /// </summary>
 /// <remarks>
 /// <para>
 /// <c>dvis_t</c> cannot be a blittable struct: it declares
-/// <c>int bitofs[8][2]</c> with a comment saying the real shape is
-/// <c>bitofs[numclusters][2]</c> (<c>bspfile.h:907</c>), so the C struct is a
+/// <c>int bitofs[8][2]</c> while the real shape is
+/// <c>bitofs[numclusters][2]</c>, so the declared struct is a
 /// deliberately undersized stand-in that is always indexed past its end. The
 /// eight is not a limit, it is a placeholder.
 /// </para>
@@ -30,10 +30,10 @@ public sealed class VisibilityLump
         NumClusters = numClusters;
     }
 
-    /// <summary>The index of the PVS column in the offset table (<c>bspfile.h:902</c>).</summary>
+    /// <summary>The index of the PVS column in the offset table.</summary>
     public const int Pvs = 0;
 
-    /// <summary>The index of the PAS column (<c>bspfile.h:903</c>).</summary>
+    /// <summary>The index of the PAS column.</summary>
     public const int Pas = 1;
 
     /// <summary>How many vis clusters the map has.</summary>
@@ -94,7 +94,7 @@ public sealed class VisibilityLump
     /// </summary>
     /// <returns><c>(numClusters + 7) / 8</c>.</returns>
     /// <remarks>
-    /// <c>bsplib.cpp</c>'s <c>CompressVis</c> computes it as
+    /// The reference compressor computes it as
     /// <c>(dvis-&gt;numclusters + 7) &gt;&gt; 3</c>; the same number bounds the
     /// decompressed row.
     /// </remarks>
@@ -108,10 +108,10 @@ public sealed class VisibilityLump
     /// <returns>How many bytes of <paramref name="destination"/> were filled.</returns>
     /// <exception cref="ArgumentException"><paramref name="destination"/> is too small.</exception>
     /// <remarks>
-    /// <c>DecompressVis</c>: a zero byte is followed by a repeat count, and
-    /// anything else is a literal. The loop stops at the row length rather than
-    /// at the end of the input, so a row that runs long is truncated exactly as
-    /// the engine truncates it.
+    /// The reference decompressor's rule: a zero byte is followed by a repeat
+    /// count, and anything else is a literal. The loop stops at the row length
+    /// rather than at the end of the input, so a row that runs long is
+    /// truncated exactly as the reference implementation truncates it.
     /// </remarks>
     public int DecompressRow(ReadOnlySpan<byte> compressed, Span<byte> destination)
     {

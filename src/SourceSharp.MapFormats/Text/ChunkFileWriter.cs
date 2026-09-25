@@ -3,8 +3,8 @@ using System.Text;
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// The writing half of <c>CChunkFile</c>
-/// (<c>src/public/chunkfile.cpp:188-258, 782-984</c>), byte for byte.
+/// The writing half of the chunk-file format, the mirror of
+/// <c>CChunkFile</c>, byte for byte.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -13,24 +13,24 @@ namespace SourceSharp.MapFormats.Text;
 /// <list type="number">
 /// <item><description>
 /// <c>WriteLine</c> emits the current indent, then the text, then
-/// <c>"\r\n"</c> -- a literal CRLF written through <c>fwrite</c>
-/// (<c>chunkfile.cpp:977</c>), NOT a <c>'\n'</c> through a text-mode handle, so
-/// it is CRLF on Linux too.
+/// <c>"\r\n"</c> -- a literal CRLF written as raw bytes, NOT a <c>'\n'</c>
+/// through a text-mode handle, so
+/// it is CRLF everywhere.
 /// </description></item>
 /// <item><description>
-/// The indent is <c>m_nCurrentDepth</c> TAB characters
-/// (<c>BuildIndentString</c>, <c>chunkfile.cpp:213-224</c>).
+/// The indent is the current depth in TAB characters
+/// (<c>BuildIndentString</c>).
 /// </description></item>
 /// <item><description>
 /// <c>BeginChunk</c> writes the name and the brace as ONE line containing an
-/// embedded CRLF -- <c>"%s\r\n%s{"</c>, <c>chunkfile.cpp:194</c> -- and
+/// embedded CRLF -- <c>"%s\r\n%s{"</c> -- and
 /// increments the depth AFTERWARDS, so the name and its opening brace sit at
-/// the OUTER indent. <c>EndChunk</c> decrements FIRST
-/// (<c>chunkfile.cpp:249-255</c>), so the closing brace matches.
+/// the OUTER indent. <c>EndChunk</c> decrements FIRST, so the closing brace
+/// matches.
 /// </description></item>
 /// </list>
 /// <para>
-/// In-memory, not a stream, because the C++ writes through a <c>FILE *</c> and
+/// In-memory, not a stream, because the reference writer emits raw bytes and
 /// every byte is decided by the depth counter rather than by anything
 /// asynchronous. <see cref="VmfDocument.WriteAsync"/> is the seam that puts the
 /// finished bytes on a stream.
@@ -48,8 +48,8 @@ public sealed class ChunkFileWriter
 
     /// <summary>
     /// Opens a chunk: the name on its own line, then <c>{</c>, both at the
-    /// current indent. A port of <c>BeginChunk</c>
-    /// (<c>chunkfile.cpp:188-207</c>).
+    /// current indent. Mirrors <c>BeginChunk</c>
+    /// in the reference writer.
     /// </summary>
     /// <param name="name">The chunk name, written unquoted as Hammer writes it.</param>
     /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
@@ -57,19 +57,20 @@ public sealed class ChunkFileWriter
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        // The C++ builds "%s\r\n%s{" and hands it to WriteLine, which prepends
-        // the indent once more -- hence the indent appearing twice here.
+        // The reference format builds "%s\r\n%s{" and hands it to WriteLine,
+        // which prepends the indent once more -- hence the indent appearing
+        // twice here.
         WriteLine(name + "\r\n" + Indent() + "{");
         CurrentDepth++;
     }
 
     /// <summary>
-    /// Closes a chunk. A port of <c>EndChunk</c>
-    /// (<c>chunkfile.cpp:247-258</c>).
+    /// Closes a chunk. Mirrors <c>EndChunk</c>
+    /// in the reference writer.
     /// </summary>
     /// <remarks>
-    /// The depth is clamped at zero exactly as the C++ clamps it
-    /// (<c>if (m_nCurrentDepth &gt; 0)</c>, <c>chunkfile.cpp:249</c>), so an
+    /// The depth is clamped at zero exactly as the reference writer clamps it
+    /// (<c>if (m_nCurrentDepth &gt; 0)</c>), so an
     /// unbalanced <c>EndChunk</c> writes a brace at column zero rather than
     /// throwing.
     /// </remarks>
@@ -84,15 +85,15 @@ public sealed class ChunkFileWriter
     }
 
     /// <summary>
-    /// Writes a <c>"key" "value"</c> line. A port of <c>WriteKeyValue</c>
-    /// (<c>chunkfile.cpp:782-792</c>).
+    /// Writes a <c>"key" "value"</c> line. Mirrors <c>WriteKeyValue</c>
+    /// in the reference writer.
     /// </summary>
     /// <param name="key">The key name.</param>
     /// <param name="value">The value.</param>
     /// <remarks>
     /// Both halves are quoted unconditionally, and NOTHING is escaped: the
-    /// format string is a plain <c>"\"%s\" \"%s\""</c>
-    /// (<c>chunkfile.cpp:787</c>). A value containing a double quote therefore
+    /// format string is a plain <c>"\"%s\" \"%s\""</c>.
+    /// A value containing a double quote therefore
     /// produces a file the reader cannot parse back, in stock and here alike.
     /// Escaping it would be the friendlier choice and the wrong one -- stock
     /// vbsp would then read the backslash as data.
@@ -101,8 +102,8 @@ public sealed class ChunkFileWriter
     {
         if (key is null || value is null)
         {
-            // chunkfile.cpp:784 -- a null key or value writes nothing and
-            // reports success.
+            // A null key or value writes nothing and
+            // reports success, as in the reference writer.
             return;
         }
 
@@ -111,7 +112,7 @@ public sealed class ChunkFileWriter
 
     /// <summary>
     /// Writes an integer key, <c>"%d"</c>
-    /// (<c>chunkfile.cpp:820-830</c>).
+    /// as the reference writer formats it.
     /// </summary>
     /// <param name="key">The key name.</param>
     /// <param name="value">The value.</param>
@@ -120,7 +121,7 @@ public sealed class ChunkFileWriter
 
     /// <summary>
     /// Writes a boolean key as <c>"0"</c> or <c>"1"</c>
-    /// (<c>chunkfile.cpp:801-811</c>).
+    /// as the reference writer formats it.
     /// </summary>
     /// <param name="key">The key name.</param>
     /// <param name="value">The value.</param>
@@ -129,7 +130,7 @@ public sealed class ChunkFileWriter
 
     /// <summary>
     /// Writes a float key with <c>"%g"</c>
-    /// (<c>chunkfile.cpp:839-849</c>).
+    /// as the reference writer formats it.
     /// </summary>
     /// <param name="key">The key name.</param>
     /// <param name="value">The value.</param>
@@ -137,8 +138,8 @@ public sealed class ChunkFileWriter
         WriteKeyValue(key, VmfValue.FormatFloat(value));
 
     /// <summary>
-    /// Writes one line: the indent, the text, and CRLF. A port of
-    /// <c>WriteLine</c> (<c>chunkfile.cpp:948-984</c>).
+    /// Writes one line: the indent, the text, and CRLF. Mirrors
+    /// <c>WriteLine</c> in the reference writer.
     /// </summary>
     /// <param name="line">The text, which may itself contain CRLFs.</param>
     public void WriteLine(string? line)

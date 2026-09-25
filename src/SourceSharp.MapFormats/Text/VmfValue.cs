@@ -5,8 +5,8 @@ namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
 /// The conversions a VMF value goes through: the <c>ReadKeyValueXxx</c> and
-/// <c>WriteKeyValueXxx</c> static helpers of <c>CChunkFile</c>
-/// (<c>src/public/chunkfile.cpp:636-940</c>).
+/// <c>WriteKeyValueXxx</c> static helpers of the reference chunk-file
+/// serialiser.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -16,20 +16,18 @@ namespace SourceSharp.MapFormats.Text;
 /// handler happened to call.
 /// </para>
 /// <para>
-/// The two bracketings are NOT interchangeable and the C++ is the only place
-/// that says which is which: a POINT is parenthesised, <c>(%f %f %f)</c>
-/// (<c>chunkfile.cpp:719</c>, written at <c>:884</c>); a VECTOR is bracketed,
-/// <c>[%f %f %f]</c> (<c>chunkfile.cpp:753</c>, written at <c>:916</c>). The
-/// cordon bounds in a <c>.vmm</c> use the POINT form
-/// (<c>src/utils/vbsp/manifest.cpp:128-132</c>) while a displacement's start
-/// position uses it too and a texture axis uses the vector form.
+/// The two bracketings are NOT interchangeable and only the reference
+/// serialiser says which is which: a POINT is parenthesised,
+/// <c>(%f %f %f)</c> -- both read and written that way; a VECTOR is
+/// bracketed, <c>[%f %f %f]</c>. The
+/// cordon bounds in a <c>.vmm</c> use the POINT form while a displacement's
+/// start position uses it too and a texture axis uses the vector form.
 /// </para>
 /// </remarks>
 public static class VmfValue
 {
     /// <summary>
-    /// <c>ReadKeyValueBool</c>: <c>atoi(value) &gt; 0</c>
-    /// (<c>chunkfile.cpp:636-650</c>).
+    /// <c>ReadKeyValueBool</c>: <c>atoi(value) &gt; 0</c>.
     /// </summary>
     /// <param name="value">The value text.</param>
     /// <returns>True when the value parses to a positive integer.</returns>
@@ -41,20 +39,18 @@ public static class VmfValue
     public static bool ParseBool(string? value) => CFormat.Atoi(value ?? string.Empty) > 0;
 
     /// <summary>
-    /// <c>ReadKeyValueInt</c>: <c>atoi</c>
-    /// (<c>chunkfile.cpp:672-676</c>).
+    /// <c>ReadKeyValueInt</c>: <c>atoi</c>.
     /// </summary>
     /// <param name="value">The value text.</param>
     /// <returns>The value, or zero when it does not parse.</returns>
     /// <remarks>
-    /// Cannot fail: <c>atoi</c> reports nothing and the C++ returns
-    /// <c>true</c> unconditionally, so <c>"banana"</c> is zero.
+    /// Cannot fail: <c>atoi</c> reports nothing and the reference reader
+    /// returns <c>true</c> unconditionally, so <c>"banana"</c> is zero.
     /// </remarks>
     public static int ParseInt(string? value) => CFormat.Atoi(value ?? string.Empty);
 
     /// <summary>
-    /// <c>ReadKeyValueFloat</c>: <c>(float)atof</c>
-    /// (<c>chunkfile.cpp:659-663</c>).
+    /// <c>ReadKeyValueFloat</c>: <c>(float)atof</c>.
     /// </summary>
     /// <param name="value">The value text.</param>
     /// <returns>The value, or zero when it does not parse.</returns>
@@ -66,16 +62,14 @@ public static class VmfValue
     public static float ParseFloat(string? value) => (float)CFormat.Atof(value ?? string.Empty);
 
     /// <summary>
-    /// <c>ReadKeyValueColor</c>: three integers separated by whitespace
-    /// (<c>chunkfile.cpp:687-706</c>).
+    /// <c>ReadKeyValueColor</c>: three integers separated by whitespace.
     /// </summary>
     /// <param name="value">The value text.</param>
     /// <param name="colour">Receives the red, green and blue bytes.</param>
     /// <returns>True when all three parsed.</returns>
     /// <remarks>
-    /// The C++ scans into <c>int</c> and assigns to <c>unsigned char</c>, so a
-    /// component outside 0..255 WRAPS rather than clamping
-    /// (<c>chunkfile.cpp:697-699</c>). Reproduced.
+    /// The reference scans into <c>int</c> and assigns to <c>unsigned char</c>,
+    /// so a component outside 0..255 WRAPS rather than clamping. Reproduced.
     /// </remarks>
     public static bool TryParseColour(string? value, out (byte Red, byte Green, byte Blue) colour)
     {
@@ -91,8 +85,7 @@ public static class VmfValue
     }
 
     /// <summary>
-    /// <c>ReadKeyValuePoint</c>: <c>(%f %f %f)</c>, PARENTHESISED
-    /// (<c>chunkfile.cpp:715-723</c>).
+    /// <c>ReadKeyValuePoint</c>: <c>(%f %f %f)</c>, PARENTHESISED.
     /// </summary>
     /// <param name="value">The value text.</param>
     /// <param name="point">Receives the point.</param>
@@ -111,8 +104,7 @@ public static class VmfValue
     }
 
     /// <summary>
-    /// <c>ReadKeyValueVector3</c>: <c>[%f %f %f]</c>, BRACKETED
-    /// (<c>chunkfile.cpp:749-757</c>).
+    /// <c>ReadKeyValueVector3</c>: <c>[%f %f %f]</c>, BRACKETED.
     /// </summary>
     /// <param name="value">The value text.</param>
     /// <param name="vector">Receives the vector.</param>
@@ -131,8 +123,7 @@ public static class VmfValue
     }
 
     /// <summary>
-    /// <c>ReadKeyValueVector2</c>: <c>[%f %f]</c>
-    /// (<c>chunkfile.cpp:732-740</c>).
+    /// <c>ReadKeyValueVector2</c>: <c>[%f %f]</c>.
     /// </summary>
     /// <param name="value">The value text.</param>
     /// <param name="vector">Receives the two components.</param>
@@ -151,8 +142,7 @@ public static class VmfValue
     }
 
     /// <summary>
-    /// <c>ReadKeyValueVector4</c>: <c>[%f %f %f %f]</c>
-    /// (<c>chunkfile.cpp:766-774</c>).
+    /// <c>ReadKeyValueVector4</c>: <c>[%f %f %f %f]</c>.
     /// </summary>
     /// <param name="value">The value text.</param>
     /// <param name="vector">Receives the four components.</param>
@@ -173,30 +163,27 @@ public static class VmfValue
     }
 
     /// <summary>
-    /// <c>WriteKeyValueInt</c>'s <c>"%d"</c>
-    /// (<c>chunkfile.cpp:825</c>).
+    /// <c>WriteKeyValueInt</c>'s <c>"%d"</c>.
     /// </summary>
     /// <param name="value">The value.</param>
     /// <returns>The formatted text.</returns>
     public static string FormatInt(int value) => value.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// <c>WriteKeyValueFloat</c>'s <c>"%g"</c>
-    /// (<c>chunkfile.cpp:844</c>).
+    /// <c>WriteKeyValueFloat</c>'s <c>"%g"</c>.
     /// </summary>
     /// <param name="value">The value.</param>
     /// <returns>The formatted text.</returns>
     /// <remarks>
-    /// SIX significant digits, and the value is widened to <c>double</c> before
-    /// the conversion, exactly as the cast at <c>chunkfile.cpp:844</c> does. A
+    /// SIX significant digits, and the reference widens the value to
+    /// <c>double</c> before the conversion. A
     /// float that needs nine digits to round-trip does NOT survive a Hammer
     /// save, which is a property of the format and not a defect of this port.
     /// </remarks>
     public static string FormatFloat(float value) => CFormat.FormatG(value);
 
     /// <summary>
-    /// <c>WriteKeyValuePoint</c>'s <c>"(%g %g %g)"</c>
-    /// (<c>chunkfile.cpp:884</c>).
+    /// <c>WriteKeyValuePoint</c>'s <c>"(%g %g %g)"</c>.
     /// </summary>
     /// <param name="point">The point.</param>
     /// <returns>The formatted text.</returns>
@@ -204,8 +191,7 @@ public static class VmfValue
         $"({CFormat.FormatG(point.X)} {CFormat.FormatG(point.Y)} {CFormat.FormatG(point.Z)})";
 
     /// <summary>
-    /// <c>WriteKeyValueVector3</c>'s <c>"[%g %g %g]"</c>
-    /// (<c>chunkfile.cpp:916</c>).
+    /// <c>WriteKeyValueVector3</c>'s <c>"[%g %g %g]"</c>.
     /// </summary>
     /// <param name="vector">The vector.</param>
     /// <returns>The formatted text.</returns>
@@ -213,8 +199,7 @@ public static class VmfValue
         $"[{CFormat.FormatG(vector.X)} {CFormat.FormatG(vector.Y)} {CFormat.FormatG(vector.Z)}]";
 
     /// <summary>
-    /// <c>WriteKeyValueColor</c>'s <c>"%d %d %d"</c>
-    /// (<c>chunkfile.cpp:865</c>).
+    /// <c>WriteKeyValueColor</c>'s <c>"%d %d %d"</c>.
     /// </summary>
     /// <param name="red">The red component.</param>
     /// <param name="green">The green component.</param>

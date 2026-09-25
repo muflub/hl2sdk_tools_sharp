@@ -4,13 +4,13 @@ namespace SourceSharp.MapFormats.Geometry;
 /// Which side of a plane something is on.
 /// </summary>
 /// <remarks>
-/// <c>public/mathlib/mathlib.h:306-309</c>. The numbers are kept because stock
-/// uses them as array indices, not only as labels: <c>ClipWindingEpsilon</c>
-/// counts vertices with <c>counts[sides[i]]++</c>
-/// (<c>utils/common/polylib.cpp:392</c>), so <see cref="Front"/> must be 0,
-/// <see cref="Back"/> 1 and <see cref="On"/> 2 for the ported code to read like
-/// its original. <see cref="Cross"/> is negative and is deliberately not an
-/// index; mathlib.h:309 even says it exists "necessary for polylib.c".
+/// The numbers are kept because the reference uses them as array indices, not
+/// only as labels: <c>ClipWindingEpsilon</c> counts vertices with
+/// <c>counts[sides[i]]++</c>, so <see cref="Front"/> must be 0,
+/// <see cref="Back"/> 1 and <see cref="On"/> 2 for the ported code to read
+/// like its original. <see cref="Cross"/> is negative and is deliberately not
+/// an index; the reference layout even notes it exists because the polygon
+/// library needs a spanning side.
 /// </remarks>
 public enum PlaneSide
 {

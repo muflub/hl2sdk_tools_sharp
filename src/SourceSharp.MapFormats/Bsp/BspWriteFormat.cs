@@ -7,17 +7,17 @@ namespace SourceSharp.MapFormats.Bsp;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The members carry the numbering of the tools++ prop-format global
-/// (<c>DAT_14010c0e0</c> in the recovered <c>-staticpropformat</c> parser:
-/// report §1.1, <c>dumps/vbsp.all.c:46397</c>), which is a token index rather
+/// The members carry the numbering of the <c>-staticpropformat</c> token
+/// table, which is a token index rather
 /// than the wire version: <see cref="BspStaticPropsFormatInfo.GameLumpVersion"/>
 /// maps it to the number the game-lump directory actually stores. The tokens
-/// and their groupings ("7 8 (L4D)", "11 12 (CSGO)") are the tool's own help
-/// text; the engine's <c>sprp</c> versioning is what makes 6..14 the domain.
+/// and their groupings ("7 8 (L4D)", "11 12 (CSGO)") are this tool's CLI
+/// vocabulary; the format's <c>sprp</c> versioning is what makes 6..14 the
+/// domain.
 /// </para>
 /// <para>
-/// Stock SDK 2013 writes one constant, <c>GAMELUMP_STATIC_PROPS_VERSION = 10</c>
-/// (<c>gamebspfile.h:37</c>); everything here is the feature that lets other
+/// The reference build writes one constant, <c>GAMELUMP_STATIC_PROPS_VERSION =
+/// 10</c>; everything here is the feature that lets other
 /// branches' maps be produced, not a stock behaviour.
 /// </para>
 /// </remarks>
@@ -35,7 +35,7 @@ public enum BspStaticPropsFormat
     /// <summary>Token <c>9</c>: left 4 Dead 2.</summary>
     V9,
 
-    /// <summary>Token <c>10_TF2</c>: Team Fortress 2, the ++ default token.</summary>
+    /// <summary>Token <c>10_TF2</c>: Team Fortress 2, the default token.</summary>
     V10Tf2,
 
     /// <summary>Token <c>10</c>: Insurgency. Same wire version as <see cref="V10Tf2"/>.</summary>
@@ -50,7 +50,7 @@ public enum BspStaticPropsFormat
     /// <summary>Token <c>13</c>: Dota (Strata).</summary>
     V13,
 
-    /// <summary>Token <c>14</c>: the newest format the ++ table names.</summary>
+    /// <summary>Token <c>14</c>: the newest format this table names.</summary>
     V14,
 }
 
@@ -59,21 +59,21 @@ public enum BspStaticPropsFormat
 /// </summary>
 /// <remarks>
 /// A companion class rather than enum members because an enum cannot carry
-/// methods, and the tool's parser compares the tokens with <c>strcmp</c>: the
-/// match here is <see cref="StringComparison.Ordinal"/> for the same reason
+/// methods, and the reference tokenizer compares the tokens with <c>strcmp</c>:
+/// the match here is <see cref="StringComparison.Ordinal"/> for the same reason
 /// <c>"10"</c> and <c>"10_TF2"</c> are distinct formats with distinct meanings
 /// despite the numeric prefix they share.
 /// </remarks>
 public static class BspStaticPropsFormatInfo
 {
-    /// <summary>The token the ++ tool defaults to when none is given.</summary>
+    /// <summary>The token used when none is given.</summary>
     public const string DefaultToken = "10_TF2";
 
     /// <summary>
     /// The CLI token that selects <paramref name="format"/>.
     /// </summary>
     /// <param name="format">The format to name.</param>
-    /// <returns>One of the ten tokens in the ++ help string.</returns>
+    /// <returns>One of the ten CLI tokens this table defines.</returns>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="format"/> is not one of the defined members.
     /// </exception>
@@ -106,12 +106,11 @@ public static class BspStaticPropsFormatInfo
     /// The tokens are named by the wire version they select, which is what
     /// makes <c>"10_TF2"</c> and <c>"10"</c> two tokens with the SAME version
     /// (10 -- stock's <c>GAMELUMP_STATIC_PROPS_VERSION</c>) while differing in
-    /// the payload fields the tool's serializer emits for them
-    /// (<c>dumps/vbsp.all.c:38504</c> switches on the token index for the
-    /// field layout, not for the stamped number). Reading the numbering
-    /// <i>as</i> the version (+6 on the token index) is the trap: it puts
-    /// <c>"10"</c> at 11 and <c>"14"</c> at 15, outside the 6..14 domain the
-    /// report itself names.
+    /// the payload fields the reference serializer emits for them: the field
+    /// layout switches on the token index, not on the stamped number. Reading
+    /// the numbering <i>as</i> the version (+6 on the token index) is the trap:
+    /// it puts <c>"10"</c> at 11 and <c>"14"</c> at 15, outside the 6..14
+    /// domain the format's <c>sprp</c> versioning defines.
     /// </remarks>
     public static int GameLumpVersion(BspStaticPropsFormat format) => format switch
     {
@@ -132,13 +131,14 @@ public static class BspStaticPropsFormatInfo
     /// <summary>
     /// Resolves a <c>-staticpropformat</c> token.
     /// </summary>
-    /// <param name="token">The token, matched exactly as ++'s <c>strcmp</c> would.</param>
+    /// <param name="token">The token, matched with the ordinal equality the
+    /// reference tokenizer's <c>strcmp</c> gives.</param>
     /// <returns>The format the token names.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="token"/> is null.</exception>
     /// <exception cref="FormatException">
-    /// The token is not one of the ten. The message repeats ++'s
-    /// <c>"Unrecognized prop format %s"</c> so a user who knows the tool
-    /// recognises the complaint.
+    /// The token is not one of the ten. The message is this tool's own
+    /// <c>"Unrecognized prop format %s"</c> phrasing, so a user who knows the
+    /// flag recognises the complaint.
     /// </exception>
     public static BspStaticPropsFormat Parse(string token)
     {
@@ -185,10 +185,11 @@ public static class BspStaticPropsFormatInfo
 /// </summary>
 /// <remarks>
 /// <para>
-/// Everything the ++ presets set that decides the SHAPE of the written file,
-/// as one immutable value (report §1.1: <c>-bspformat</c>, <c>-lightformat</c>,
+/// Everything the format presets set that decides the SHAPE of the written
+/// file,
+/// as one immutable value (<c>-bspformat</c>, <c>-lightformat</c>,
 /// <c>-staticpropformat</c>, and the L4D2 lump layout the <c>-l4d2</c> preset
-/// tail-arms). The choices each field can take are the engine's contract, not
+/// tail-arms). The choices each field can take are the format's contract, not
 /// preferences, so the constructor rejects anything outside them rather than
 /// letting a bad value reach a file.
 /// </para>
@@ -201,14 +202,15 @@ public static class BspStaticPropsFormatInfo
 /// </para>
 /// <para>
 /// <see cref="Version"/> is the header version to stamp: 19 (HL2), 20 (the
-/// stock default, which is what ++ writes when <c>-bspformat</c> is absent),
+/// stock default, what this tool writes when <c>-bspformat</c> is absent),
 /// or 21 (ASW / L4D2 / Portal 2 / CS:GO).
 /// </para>
 /// <para>
 /// <see cref="WorldLightVersion"/> is the version stamped on both the
 /// world-light lumps (slot 15 and slot 54): 0 for HL2/TF2, 1 for
-/// ASW/L4D2/Portal 2/CS:GO. Stock bsplib passes no version for these two lumps
-/// and so stamps 0; this field is the ++ <c>-lightformat</c> global.
+/// ASW/L4D2/Portal 2/CS:GO. The reference build passes no version for these
+/// two lumps and so stamps 0; this field drives the <c>-lightformat</c>
+/// choice.
 /// </para>
 /// <para>
 /// <see cref="StaticPropsFormat"/> is the version to stamp on the <c>sprp</c>
@@ -222,7 +224,7 @@ public static class BspStaticPropsFormatInfo
 /// go out in the L4D2 re-layout: the same sixteen bytes per entry with the
 /// fields shifted one dword right, so <c>(version, fileofs, filelen,
 /// uncompressedSize)</c> instead of <c>(fileofs, filelen, version,
-/// uncompressedSize)</c>. The ++ reader detects the layout by <c>version ==
+/// uncompressedSize)</c>. The layout is detected by <c>version ==
 /// 21</c> and the first lump's first dword being zero, so the flag is only
 /// constructible with version 21 -- at any other version the file would read
 /// back as offsets nobody can find.
@@ -294,7 +296,7 @@ public sealed record BspWriteFormat
 
     /// <summary>
     /// The format that reproduces today's output: version 20 as stock and the
-    /// ++ default, world-light lumps at 0 as stock's versionless
+    /// default, world-light lumps at 0 as the reference build's versionless
     /// <c>AddLump</c> stamps them, game-lump versions left alone, and the
     /// standard lump directory.
     /// </summary>

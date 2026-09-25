@@ -13,15 +13,15 @@ namespace SourceSharp.MapTools.Gpu.Interop;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Productized from the Phase 0f spike's <c>VulkanRayContext</c>
-/// (<c>tools/gpu-ray-spike/</c>) with the fixes that findings file records:
+/// Grown from an early ray-query feasibility spike, keeping its hard-won
+/// fixes:
 /// the vertex buffer carries <c>ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY
 /// _BIT_KHR</c> (lavapipe silently builds an empty BLAS without it) and the
 /// AS buffer carries <c>ACCELERATION_STRUCTURE_STORAGE_BIT_KHR</c>; compute
 /// and transfer commands that touch the same buffer are separated by an
 /// explicit <c>vkCmdPipelineBarrier</c> inside the command buffer rather than
-/// by same-queue luck; and the probe-only environment hooks (<c>SPIKE_*</c>)
-/// are gone — the modes they selected are reached by explicit
+/// by same-queue luck; and the probe-only environment hooks are gone — the
+/// modes they selected are reached by explicit
 /// <c>TraceMode</c> calls from the capability self-test.
 /// </para>
 /// <para>
@@ -968,7 +968,7 @@ internal sealed unsafe class VulkanDevice : IDisposable
     /// The capability gate: traces a two-triangle known-hit micro-scene
     /// through every kernel mode and decides whether THIS device answers
     /// ray queries at all. Two known failure classes are named by their
-    /// telemetry, not guessed at (t-10-findings.md):
+    /// telemetry, not guessed at:
     /// <list type="bullet">
     /// <item><description>
     /// Mesa lavapipe: candidates found, committed never — proceed returns

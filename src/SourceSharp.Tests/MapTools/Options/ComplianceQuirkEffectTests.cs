@@ -59,10 +59,11 @@ public class ComplianceQuirkEffectTests
     [Fact]
     public void BaseWindingForPlaneMovesWhenOnlyItsNormaliseIsCorrected()
     {
-        // polylib.cpp:290. Over a spread of non-axial normals, the estimate
+        // The reference normalise is the rsqrt estimate. Over a spread of
+        // non-axial normals, the estimate
         // and the exact divide must disagree on at least one winding point;
-        // an axial normal would not do, because vup is then already a unit
-        // vector and both normalisations return it unchanged.
+        // an axial normal would not do, because the up vector is then already
+        // a unit vector and both normalisations return it unchanged.
         ComplianceOptions stock = ComplianceOptions.Stock;
         ComplianceOptions corrected = stock.Flipping(StockQuirk.BaseWindingNormalise);
 
@@ -96,7 +97,7 @@ public class ComplianceQuirkEffectTests
     [Fact]
     public async Task TheOctahedronsBevelPlanesMoveWhenOnlyTheEdgeBevelNormaliseIsCorrected()
     {
-        // map.cpp:550 and :568, at unit tier: the octahedron is loaded from
+        // At unit tier: the octahedron is loaded from
         // an in-memory VMF with in-memory materials. It is the shape whose
         // bevel normal has |x| == |z|, which is what the estimate breaks.
         IReadOnlyList<(uint, uint, uint, uint, PlaneType)> stock =
@@ -110,7 +111,8 @@ public class ComplianceQuirkEffectTests
     [Fact]
     public async Task BrushGeometrysWindingIsTinyCountsAnEdgeOfExactlyTheThresholdAsLongUnderStock()
     {
-        // brushbsp.cpp:646 + :660, the CSG copy of the function. Four edges of
+        // The CSG copy of the tiny-winding test, under stock's float compare.
+        // Four edges of
         // exactly 0.2f: as a double compare each is LONG, so three long edges
         // make it not tiny.
         (BspBuildContext context, Winding square) = await ThresholdSquareAsync(ComplianceOptions.Stock);
@@ -128,7 +130,7 @@ public class ComplianceQuirkEffectTests
     }
 
     /// <summary>
-    /// Why FindPortalSide's half-masked plane compare (portals.cpp:1540) was
+    /// Why FindPortalSide's half-masked plane compare was
     /// retired as a quirk rather than switched: stock never puts a node on an
     /// odd plane, so masking only the side cannot misfire on a tree stock
     /// built, and VisibleSides masks both unconditionally.
@@ -136,9 +138,9 @@ public class ComplianceQuirkEffectTests
     /// <param name="name">The catalogue entry.</param>
     /// <returns>A task.</returns>
     /// <remarks>
-    /// <c>brushbsp.cpp:1358</c> stores <c>bestside-&gt;planenum &amp; ~1</c>
-    /// ("always use front facing"). <c>BlockTree</c>'s axial nodes
-    /// (<c>vbsp.cpp:131</c>, <c>:142</c>) come from <c>FindFloatPlane</c> with a
+    /// The reference node builder stores the even half of the best side's
+    /// plane pair ("always use front facing"). The block tree's axial nodes
+    /// come from the float-plane search with a
     /// positive axial normal, and that one is always the even half of its pair.
     /// Read off every node of every stock-compiled catalogue map.
     /// </remarks>
@@ -172,9 +174,9 @@ public class ComplianceQuirkEffectTests
     /// the +x WALL, a place no leak path can go.
     /// </summary>
     /// <remarks>
-    /// <c>portals.cpp:954</c>. The <c>continue</c> past <c>pStart</c> skips
-    /// <c>s = (p-&gt;nodes[1] == node)</c>, so the step follows
-    /// <c>next[s]</c> with the <c>s</c> from above the loop and leaves the
+    /// The leak walk's <c>continue</c> past the start portal skips the step
+    /// that re-derives which side of the next node it is on, so the walk
+    /// follows the wrong side's link and leaves the
     /// slab's own portal list. The "best" portal found that way is on another
     /// node, so the line starts at x = 32 and 52: the solid +x wall and the
     /// void beyond it. The fixture's room spans x from -32 to 32.

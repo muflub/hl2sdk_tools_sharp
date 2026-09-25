@@ -9,14 +9,14 @@ namespace SourceSharp.MapGen.Catalog;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Mounted AHEAD of the SDK content — as the first <c>game</c> search path of a
+/// Mounted AHEAD of the game's own content — as the first <c>game</c> search path of a
 /// derived gameinfo for the stock compile, and through an in-memory file system
 /// for the unit tier. Nothing else in the catalogue needs it; an entry compiled
 /// without it still compiles, but its detail materials are missing (a stock
 /// "Material not found") and it places no detail props.
 /// </para>
 /// <para>
-/// The textures the VMTs name are the SDK's own, so no VTF is added.
+/// The textures the VMTs name are the game's own, so no VTF is added.
 /// </para>
 /// </remarks>
 public static class SurfaceContentFixture
@@ -62,14 +62,14 @@ public static class SurfaceContentFixture
         }
     }
 
-    // Two types. p3g_grass exercises every branch of ParseDetailGroup
-    // (utils/vbsp/detailobjects.cpp:106-248): a card sprite with spritesize and a
+    // Two types. p3g_grass exercises every branch of stock's detail-group
+    // parser: a card sprite with spritesize and a
     // random scale, the cross and tri shapes with their clamps, an upright model,
     // a conforming model, minAngle/maxAngle on the ramp, and amounts that sum to
-    // less than one so SelectDetail sometimes returns -1. Two groups of EQUAL
-    // alpha test the insertion order (:111-119 inserts a new group BEFORE
-    // equals), and an alpha-0 group gives SelectGroup two groups to choose from.
-    // p3g_sparse sums to more than one, so the amounts are renormalised (:241-247).
+    // less than one so a draw sometimes picks no detail. Two groups of EQUAL
+    // alpha test the insertion order (stock inserts a new group BEFORE
+    // equals), and an alpha-0 group gives the group pick two groups to choose from.
+    // p3g_sparse sums to more than one, so the amounts are renormalised.
     private const string DetailVbsp =
         "\"p3g_detail\"\n{\n" +
         "\t\"p3g_grass\"\n\t{\n\t\t\"density\" \"4000\"\n" +

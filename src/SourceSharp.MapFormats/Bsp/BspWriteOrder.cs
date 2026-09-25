@@ -3,13 +3,13 @@ using System.Collections.Immutable;
 namespace SourceSharp.MapFormats.Bsp;
 
 /// <summary>
-/// The order <c>WriteBSPFile</c> emits lumps in, and the lump versions it
+/// The order the reference writer emits lumps in, and the lump versions it
 /// stamps on them.
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is a transcription of <c>src/utils/common/bsplib.cpp</c>'s
-/// <c>WriteBSPFile</c> (roughly lines 2631-2746), and it is load-bearing rather
+/// This sequence matches the reference writer's emission order, and it is
+/// load-bearing rather
 /// than cosmetic: the gate on this phase is that loading a stock-compiled BSP
 /// and writing it back out produces the same bytes. That can only hold if the
 /// lumps come out in the same sequence, because each lump's recorded file
@@ -17,9 +17,9 @@ namespace SourceSharp.MapFormats.Bsp;
 /// </para>
 /// <para>
 /// The sequence is NOT lump-index order, and it is not sorted by anything. It
-/// is the order the calls happen to appear in the C++ function, which is why it
-/// is written out longhand here instead of being derived from a rule -- there
-/// is no rule to derive it from.
+/// is the order the reference writer happens to perform its writes in, which
+/// is why it is written out longhand here instead of being derived from a rule
+/// -- there is no rule to derive it from.
 /// </para>
 /// <para>
 /// Three lumps are written only when they carry data, and stock decides that
@@ -46,8 +46,8 @@ public static class BspWriteOrder
     /// </param>
     public readonly record struct Step(BspLump Lump, int Version, bool SkipWhenEmpty);
 
-    // The lump versions bsplib stamps. From bspfile.h's second enum: every
-    // other lump is written at version 0.
+    // The lump versions the reference format stamps. From the reference
+    // layout's second enum: every other lump is written at version 0.
     private const int LightingVersion = 1;
     private const int FacesVersion = 1;
     private const int OcclusionVersion = 2;
@@ -55,7 +55,7 @@ public static class BspWriteOrder
     private const int LeafAmbientVersion = 1;
 
     /// <summary>
-    /// The lumps <c>WriteBSPFile</c> emits by hand, in order.
+    /// The lumps the reference writer emits by hand, in order.
     /// </summary>
     /// <remarks>
     /// <see cref="BspLump.GameLump"/> and <see cref="BspLump.PakFile"/> are
@@ -93,8 +93,9 @@ public static class BspWriteOrder
         new(BspLump.PrimIndices, 0, false),
         new(BspLump.Faces, FacesVersion, false),
 
-        // `if (numfaces_hdr)` -- bsplib.cpp:2672. A map whose HDR faces match
-        // its LDR faces has none of these, and the slot stays zeroed.
+        // Written only when the HDR face count is non-zero. A map whose HDR
+        // faces match its LDR faces has none of these, and the slot stays
+        // zeroed.
         new(BspLump.FacesHdr, FacesVersion, true),
 
         new(BspLump.FaceIds, 0, false),
@@ -116,7 +117,7 @@ public static class BspWriteOrder
         new(BspLump.WorldLightsHdr, 0, false),
         new(BspLump.LeafWaterData, 0, false),
 
-        // AddOcclusionLump(). Written unconditionally, at version 2, and it is
+        // Written unconditionally, at version 2, and it is
         // the one lump whose payload stock assembles from three separate arrays
         // with their counts interleaved -- which is why this port keeps the
         // lump's bytes whole rather than modelling the three arrays here.
@@ -125,9 +126,9 @@ public static class BspWriteOrder
         new(BspLump.MapFlags, 0, false),
 
         // LUMP_PORTALS, LUMP_CLUSTERS, LUMP_PORTALVERTS and LUMP_CLUSTERPORTALS
-        // sit between MapFlags and ClipPortalVerts in the C++ inside an `#if 0`
-        // -- vis debugging visualisation, never in a released map. Named here
-        // so the next reader of bsplib.cpp does not think they were missed.
+        // sit between MapFlags and ClipPortalVerts in the reference writer's
+        // sequence, disabled -- vis debugging visualisation, never in a released
+        // map. Named here so the next reader does not think they were missed.
 
         new(BspLump.ClipPortalVerts, 0, false),
         new(BspLump.Cubemaps, 0, false),
@@ -137,7 +138,8 @@ public static class BspWriteOrder
         new(BspLump.WaterOverlays, 0, false),
         new(BspLump.OverlayFades, 0, false),
 
-        // `if (g_pPhysCollide)` / `if (g_pPhysDisp)` -- bsplib.cpp:2719,2724.
+        // Written only when the physics collide / displaced-collision data is
+        // present.
         new(BspLump.PhysCollide, 0, true),
         new(BspLump.PhysDisp, 0, true),
 
@@ -145,9 +147,9 @@ public static class BspWriteOrder
         new(BspLump.VertNormalIndices, 0, false),
         new(BspLump.LeafMinDistToWater, 0, false),
 
-        // AddGameLumps() and WritePakFileLump() follow, then Lumps_Write()
-        // flushes anything loaded that nothing above claimed. The writer does
-        // those three; they are not steps because none of them is a plain
+        // The game lumps and the pakfile lump follow, then the generic lump
+        // pass flushes anything loaded that nothing above claimed. The writer
+        // does those three; they are not steps because none of them is a plain
         // "write these bytes and pad to four".
     ];
 
@@ -179,7 +181,7 @@ public static class BspWriteOrder
     /// </summary>
     /// <remarks>
     /// Every other lump is followed by <c>AlignFilePosition(hFile, 4)</c>.
-    /// <c>AddOcclusionLump</c> (bsplib.cpp:1342-1369) writes its three counts
+    /// The reference occlusion pass writes its three counts
     /// and three arrays and then simply returns. It gets away with it because
     /// everything it writes is a multiple of four bytes wide, so the position
     /// is already aligned -- but "already aligned" and "aligned by the writer"

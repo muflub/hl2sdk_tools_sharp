@@ -6,7 +6,7 @@ namespace SourceSharp.MapFormats.Text;
 /// <remarks>
 /// The value is always a string. The chunk format has no types: every numeric
 /// VMF value is text that a handler runs <c>atof</c> or <c>sscanf</c> over
-/// (<c>src/public/chunkfile.cpp:636-774</c>), which is why a float survives a
+/// in the reference reader, which is why a float survives a
 /// round trip only to <c>%g</c>'s six significant digits. See
 /// <see cref="VmfValue"/> for those conversions.
 /// </remarks>

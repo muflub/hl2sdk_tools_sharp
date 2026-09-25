@@ -4,10 +4,10 @@ namespace SourceSharp.MapFormats.Text;
 /// One group inside a detail type: a set of models sharing a blend alpha.
 /// </summary>
 /// <remarks>
-/// The group's KEY NAME is never read. <c>ParseDetailObjectFile</c> only checks
-/// that it has subkeys (<c>src/utils/vbsp/detailobjects.cpp:271</c>) and then
-/// reads its <c>alpha</c>; groups are identified thereafter by position in the
-/// alpha-sorted list (<c>SelectGroup</c>, <c>:322-354</c>).
+/// The group's KEY NAME is never read. The reference detail loader only checks
+/// that it has subkeys and then reads its <c>alpha</c>; groups are identified
+/// thereafter by position in the alpha-sorted list, the order
+/// <c>SelectGroup</c> walks.
 /// </remarks>
 public sealed class DetailObjectGroup
 {
@@ -19,8 +19,7 @@ public sealed class DetailObjectGroup
     }
 
     /// <summary>
-    /// <c>alpha</c>, defaulting to 1
-    /// (<c>src/utils/vbsp/detailobjects.cpp:109</c>).
+    /// <c>alpha</c>, defaulting to 1 when the key is absent.
     /// </summary>
     public float Alpha { get; }
 

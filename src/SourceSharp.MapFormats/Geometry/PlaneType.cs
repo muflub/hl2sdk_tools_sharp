@@ -5,10 +5,10 @@ namespace SourceSharp.MapFormats.Geometry;
 /// <c>dplane_t.type</c> field stores.
 /// </summary>
 /// <remarks>
-/// <c>public/mathlib/mathlib.h:175-181</c>. Values 0..2 are exactly axial and
+/// Values 0..2 are exactly axial and
 /// 3..5 name the axis the normal leans closest to. The numbers are written into
 /// the PLANES lump, so they are wire format, not an internal convenience:
-/// <c>vbsp</c>'s <c>CreateNewFloatPlane</c> (<c>utils/vbsp/map.cpp:221</c>)
+/// <c>vbsp</c>'s <c>CreateNewFloatPlane</c>
 /// stores the result of the classification and the engine reads it back.
 /// </remarks>
 public enum PlaneType

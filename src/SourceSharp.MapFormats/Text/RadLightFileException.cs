@@ -4,9 +4,10 @@ namespace SourceSharp.MapFormats.Text;
 /// A <c>lights.rad</c> file cannot be used.
 /// </summary>
 /// <remarks>
-/// There is exactly one condition that aborts stock vrad while reading one:
-/// more than <see cref="RadLightFile.MaxTexLights"/> texlights
-/// (<c>src/utils/vrad/vrad.cpp:243-244</c>). Everything else -- a missing
+/// There is exactly one condition that aborts the reference lightmapper while
+/// reading one:
+/// more than <see cref="RadLightFile.MaxTexLights"/> texlights. Everything
+/// else -- a missing
 /// file, a malformed value, a duplicate -- is a <c>Warning</c> or a <c>Msg</c>
 /// and the compile carries on.
 /// </remarks>

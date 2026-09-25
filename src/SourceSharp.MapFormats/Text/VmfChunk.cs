@@ -6,13 +6,11 @@ namespace SourceSharp.MapFormats.Text;
 /// </summary>
 /// <remarks>
 /// Deliberately untyped. vbsp gives each chunk name a handler that builds a
-/// specific object (<c>src/utils/vbsp/map.cpp:2615-2618</c> and the handler
-/// maps below it), but that is vbsp's model of a map, not the FILE's: the
+/// specific object, but that is vbsp's model of a map, not the FILE's: the
 /// format itself is name, keys, sub-chunks, and an unrecognised chunk is
-/// skipped whole rather than rejected
-/// (<c>src/public/chunkfile.cpp:344-399</c>). Keeping the tree untyped is what
-/// lets this reader round-trip a VMF from a newer Hammer, or one carrying a
-/// mod's own chunks, without losing them.
+/// skipped whole rather than rejected.
+/// Keeping the tree untyped is what lets this reader round-trip a VMF from a
+/// newer Hammer, or one carrying a mod's own chunks, without losing them.
 /// </remarks>
 public sealed class VmfChunk : VmfNode
 {
@@ -41,9 +39,8 @@ public sealed class VmfChunk : VmfNode
     /// <param name="name">The key name.</param>
     /// <returns>The value, or null.</returns>
     /// <remarks>
-    /// Case-insensitive, because every key handler in the tree compares with
-    /// <c>stricmp</c> -- <c>src/utils/common/map_shared.cpp:24-59</c> and
-    /// <c>src/utils/vbsp/manifest.cpp:38-57</c> among many.
+    /// Case-insensitive, because every key handler in the reference
+    /// implementation compares with <c>stricmp</c>.
     /// FIRST and not last: a duplicate key is a malformed VMF, and vbsp's
     /// handlers act on each occurrence as it arrives, so the first is the one
     /// that decided the outcome for the keys that are read once.

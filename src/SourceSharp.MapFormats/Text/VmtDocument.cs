@@ -6,8 +6,7 @@ namespace SourceSharp.MapFormats.Text;
 /// <remarks>
 /// <para>
 /// Nothing validates the root against a shader list at parse time -- the
-/// material system simply calls <c>GetName()</c> on it later
-/// (<c>materialsystem/cmaterial.cpp:1450</c> in the 2018 drop) -- so a VMT is
+/// material system simply calls <c>GetName()</c> on it later -- so a VMT is
 /// exactly a KeyValues file, with <c>//</c> comments, optional quoting, and
 /// escape sequences OFF (so a backslash in a texture path is literal).
 /// </para>
@@ -20,7 +19,7 @@ public sealed class VmtDocument
 {
     /// <summary>
     /// The root keyword that marks a patch material, matched without regard to
-    /// case (<c>materialpatch.cpp:330</c>, <c>cmaterial.cpp:3420</c>).
+    /// case.
     /// </summary>
     public const string PatchKeyword = "patch";
 
@@ -58,8 +57,8 @@ public sealed class VmtDocument
     /// The path a patch's <c>include</c> names, or null.
     /// </summary>
     /// <remarks>
-    /// Used VERBATIM as a VFS path -- <c>LoadFromFile</c> gets it unmodified at
-    /// <c>cmaterial.cpp:3453</c> and <c>materialpatch.cpp:333</c>. Nothing
+    /// Used VERBATIM as a VFS path -- the reference loader gets
+    /// <c>LoadFromFile</c> with it unmodified. Nothing
     /// prepends <c>materials/</c> and nothing appends <c>.vmt</c>, which is why
     /// a real patch file reads
     /// <c>"include" "materials/nature/blendrocks.vmt"</c> in full.
@@ -116,15 +115,14 @@ public sealed class VmtDocument
     }
 
     /// <summary>
-    /// The material's text, in the framing vbsp writes a patched VMT into the
-    /// pak with.
+    /// The material's text, in the framing the reference writer uses when it
+    /// packs a patched VMT into the pak.
     /// </summary>
     /// <returns>The serialised material.</returns>
     /// <remarks>
     /// <c>CreateMaterialPatch</c> builds a KeyValues tree and serialises it
-    /// with <c>RecursiveSaveToFile</c> at indent level 0
-    /// (<c>src/utils/vbsp/materialpatch.cpp:139-144</c>) -- there is not an
-    /// <c>fprintf</c> anywhere in that file. So the output is tab-indented,
+    /// with <c>RecursiveSaveToFile</c> at indent level 0 -- there is not an
+    /// <c>fprintf</c> anywhere in that path. So the output is tab-indented,
     /// LF-terminated, with the four-byte <c>"\t\t"</c> separator between a key
     /// and its value.
     /// </remarks>

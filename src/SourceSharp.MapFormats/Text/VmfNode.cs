@@ -6,8 +6,7 @@ namespace SourceSharp.MapFormats.Text;
 /// <remarks>
 /// Keys and chunks live in ONE ordered list rather than two, because the round
 /// trip is gated on bytes. Hammer writes every key before every sub-chunk, but
-/// the reader does not require it (<c>CChunkFile::ReadChunk</c> dispatches each
-/// term as it arrives, <c>src/public/chunkfile.cpp:583-608</c>), a hand-edited
+/// the reference reader dispatches each term as it arrives, a hand-edited
 /// VMF may interleave them, and separating the two lists would silently reorder
 /// such a file on write.
 /// </remarks>

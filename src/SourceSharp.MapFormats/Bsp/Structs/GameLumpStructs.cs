@@ -4,16 +4,16 @@ using SourceSharp.MapFormats.Geometry;
 
 namespace SourceSharp.MapFormats.Bsp.Structs;
 
-// The nested game lumps of src/public/gamebspfile.h. Four codes exist in this
-// branch and they are listed at gamebspfile.h:24.
+// The nested game lumps of the BSP format: the layout the reference build
+// declares. Four codes exist in this branch and the format lists them in the
+// game lump directory.
 //
 // Angles are Vec3 here. QAngle is three floats in the same layout; it is a
-// distinct C++ type so that Vector maths cannot be applied to it by accident,
-// which is a compile-time concern the file format does not share.
+// distinct type in the reference so that vector maths cannot be applied to it
+// by accident, which is a compile-time concern the file format does not share.
 
 /// <summary>
-/// The four-character codes of the game lumps this branch writes
-/// (<c>gamebspfile.h:24</c>).
+/// The four-character codes of the game lumps this branch writes.
 /// </summary>
 public static class GameLumpId
 {
@@ -40,15 +40,15 @@ public static class GameLumpId
     /// </exception>
     /// <remarks>
     /// <para>
-    /// <c>gamebspfile.h:28</c> spells the id as the C multi-character constant
+    /// The format spells the id as the multi-character constant
     /// <c>'sprp'</c>. Both GCC and MSVC evaluate that as
     /// <c>('s'&lt;&lt;24) | ('p'&lt;&lt;16) | ('r'&lt;&lt;8) | 'p'</c> -- the
     /// FIRST character in the HIGH byte -- and the directory stores that int
     /// little-endian, so the bytes on disk read <c>p r p s</c>.
     /// </para>
     /// <para>
-    /// That is the opposite of <c>IDBSPHEADER</c> at <c>bspfile.h:21</c>, which
-    /// is written out by hand as <c>('P'&lt;&lt;24)+('S'&lt;&lt;16)+('B'&lt;&lt;8)+'V'</c>
+    /// That is the opposite of <c>IDBSPHEADER</c>, which is written out by
+    /// hand as <c>('P'&lt;&lt;24)+('S'&lt;&lt;16)+('B'&lt;&lt;8)+'V'</c>
     /// precisely so that "VBSP" lands in file order. The two conventions are
     /// genuinely different and a helper written for one is wrong for the other;
     /// <c>dm_lockdown.bsp</c>'s directory is the arbiter, and a fact reads it.
@@ -80,7 +80,7 @@ public static class GameLumpId
 }
 
 /// <summary>
-/// The versions <c>gamebspfile.h:33</c> gives each game lump.
+/// The versions the reference layout declares for each game lump.
 /// </summary>
 public static class GameLumpVersions
 {
@@ -98,7 +98,7 @@ public static class GameLumpVersions
 }
 
 /// <summary>
-/// The flags of a static prop (<c>gamebspfile.h:120</c>).
+/// The flags of a static prop.
 /// </summary>
 [Flags]
 public enum StaticPropFlags
@@ -133,13 +133,13 @@ public enum StaticPropFlags
     /// <summary>vrad does not compute per-texel lightmaps for this prop.</summary>
     NoPerTexelLighting = 0x100,
 
-    /// <summary>The subset Hammer can set (<c>gamebspfile.h:142</c>).</summary>
+    /// <summary>The subset Hammer can set.</summary>
     WcMask = 0x1D8,
 }
 
 /// <summary>
 /// One entry of the static prop model dictionary
-/// (<c>gamebspfile.h:145</c>, <c>struct StaticPropDictLump_t</c>).
+/// (the reference layout's <c>struct StaticPropDictLump_t</c>).
 /// </summary>
 /// <remarks>
 /// A fixed 128-byte field (<c>STATIC_PROP_NAME_LENGTH</c>), NOT a length-
@@ -154,8 +154,8 @@ public struct StaticPropDictLump
 }
 
 /// <summary>
-/// One entry of the static prop leaf list (<c>gamebspfile.h:276</c>,
-/// <c>struct StaticPropLeafLump_t</c>).
+/// One entry of the static prop leaf list
+/// (the reference layout's <c>struct StaticPropLeafLump_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StaticPropLeafLump
@@ -166,7 +166,7 @@ public struct StaticPropLeafLump
 
 /// <summary>
 /// A static prop as <c>sprp</c> version 4 stores it: 56 bytes
-/// (<c>gamebspfile.h:151</c>, <c>struct StaticPropLumpV4_t</c>).
+/// (the reference layout's <c>struct StaticPropLumpV4_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StaticPropLumpV4
@@ -211,7 +211,7 @@ public struct StaticPropLumpV4
 
 /// <summary>
 /// A static prop as <c>sprp</c> version 5 stores it: 60 bytes
-/// (<c>gamebspfile.h:168</c>, <c>struct StaticPropLumpV5_t</c>).
+/// (the reference layout's <c>struct StaticPropLumpV5_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StaticPropLumpV5
@@ -255,7 +255,7 @@ public struct StaticPropLumpV5
 
 /// <summary>
 /// A static prop as <c>sprp</c> version 6 stores it: 64 bytes
-/// (<c>gamebspfile.h:186</c>, <c>struct StaticPropLumpV6_t</c>).
+/// (the reference layout's <c>struct StaticPropLumpV6_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StaticPropLumpV6
@@ -305,7 +305,7 @@ public struct StaticPropLumpV6
 
 /// <summary>
 /// A static prop as <c>sprp</c> version 10 stores it: 72 bytes
-/// (<c>gamebspfile.h:206</c>, <c>struct StaticPropLump_t</c>).
+/// (the reference layout's <c>struct StaticPropLump_t</c>).
 /// </summary>
 /// <remarks>
 /// NOT a superset of <see cref="StaticPropLumpV6"/>. The <c>unsigned char
@@ -375,8 +375,8 @@ public struct StaticPropLumpV10
 }
 
 /// <summary>
-/// One static prop lightstyle sample (<c>gamebspfile.h:285</c>,
-/// <c>struct StaticPropLightstylesLump_t</c>).
+/// One static prop lightstyle sample
+/// (the reference layout's <c>struct StaticPropLightstylesLump_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StaticPropLightstylesLump
@@ -386,7 +386,7 @@ public struct StaticPropLightstylesLump
 }
 
 /// <summary>
-/// How a detail prop faces the viewer (<c>gamebspfile.h:48</c>).
+/// How a detail prop faces the viewer.
 /// </summary>
 public enum DetailPropOrientation
 {
@@ -401,7 +401,7 @@ public enum DetailPropOrientation
 }
 
 /// <summary>
-/// What a detail prop is drawn as (<c>gamebspfile.h:57</c>).
+/// What a detail prop is drawn as.
 /// </summary>
 public enum DetailPropType
 {
@@ -420,7 +420,7 @@ public enum DetailPropType
 
 /// <summary>
 /// One entry of the detail prop model dictionary
-/// (<c>gamebspfile.h:68</c>, <c>struct DetailObjectDictLump_t</c>).
+/// (the reference layout's <c>struct DetailObjectDictLump_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DetailObjectDictLump
@@ -431,7 +431,7 @@ public struct DetailObjectDictLump
 
 /// <summary>
 /// One entry of the detail prop sprite dictionary
-/// (<c>gamebspfile.h:77</c>, <c>struct DetailSpriteDictLump_t</c>).
+/// (the reference layout's <c>struct DetailSpriteDictLump_t</c>).
 /// </summary>
 /// <remarks>
 /// Every detail sprite must live in the <c>detail/detailsprites</c> material,
@@ -454,8 +454,8 @@ public struct DetailSpriteDictLump
 }
 
 /// <summary>
-/// One detail prop (<c>gamebspfile.h:87</c>,
-/// <c>struct DetailObjectLump_t</c>). 52 bytes.
+/// One detail prop (the reference layout's <c>struct DetailObjectLump_t</c>).
+/// 52 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DetailObjectLump
@@ -497,16 +497,16 @@ public struct DetailObjectLump
     public byte Orientation;
 
     /// <summary>
-    /// Three unused bytes the header itself marks for removal
-    /// (<c>gamebspfile.h:101</c>, "FIXME: Remove when we rev the detail lump
-    /// again"). They are real bytes in every shipped map, so they stay.
+    /// Three unused bytes that the reference layout itself marks for removal
+    /// the next time the detail lump is revised. They are real bytes in every
+    /// shipped map, so they stay.
     /// </summary>
     public ByteArray3 Padding2;
 
     /// <summary><see cref="DetailPropType"/>.</summary>
     public byte Type;
 
-    /// <summary>Three more unused bytes (<c>gamebspfile.h:103</c>).</summary>
+    /// <summary>Three more unused bytes.</summary>
     public ByteArray3 Padding3;
 
     /// <summary>The sprite's scale. Only sprites use it.</summary>
@@ -514,9 +514,10 @@ public struct DetailObjectLump
 }
 
 /// <summary>
-/// One detail prop lightstyle sample (<c>gamebspfile.h:110</c>,
-/// <c>struct DetailPropLightstylesLump_t</c>). Five bytes, with NO padding:
-/// every member is a byte, so the struct's alignment is one.
+/// One detail prop lightstyle sample
+/// (the reference layout's <c>struct DetailPropLightstylesLump_t</c>). Five
+/// bytes, with NO padding: every member is a byte, so the struct's alignment
+/// is one.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DetailPropLightstylesLump

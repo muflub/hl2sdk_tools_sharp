@@ -5,40 +5,38 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// The <c>.prt</c> portal file: vbsp's <c>WritePortalFile</c>
-/// (<c>src/utils/vbsp/prtfile.cpp</c>) and vvis's <c>LoadPortals</c>
-/// (<c>src/utils/vvis/vvis.cpp:407-563</c>).
+/// The <c>.prt</c> portal file: the text contract between the reference
+/// writer's <c>WritePortalFile</c> and the reference loader's
+/// <c>LoadPortals</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// This is the whole interface between the two compilers, and it is a text
 /// file, which is why it is in this namespace rather than with the BSP lumps.
 /// One file portal describes a two-sided opening between two clusters;
-/// <see cref="ToMemoryPortals"/> performs the doubling vvis does at load.
+/// <see cref="ToMemoryPortals"/> performs the doubling the reference loader does.
 /// </para>
 /// <para>
 /// Only <c>PRT1</c> exists. <c>PRT2</c> and the <c>PRT1-AM</c> of other
-/// branches are not handled anywhere in this tree -- the only two occurrences
-/// of the magic are <c>src/utils/vvis/vis.h:17</c> and
-/// <c>src/utils/vbsp/prtfile.cpp:21</c>, both <c>"PRT1"</c>.
+/// branches are not handled anywhere in this tree -- the reference format
+/// spells the magic <c>"PRT1"</c> everywhere it appears.
 /// </para>
 /// </remarks>
 public sealed class PortalFile
 {
     /// <summary>
-    /// The magic, <c>PORTALFILE</c> (<c>src/utils/vvis/vis.h:17</c>).
+    /// The magic, <c>PORTALFILE</c>.
     /// </summary>
     public const string Magic = "PRT1";
 
     /// <summary>
-    /// <c>MAX_PORTALS</c> (<c>src/utils/vvis/vis.h:15</c>).
+    /// <c>MAX_PORTALS</c>.
     /// </summary>
     /// <remarks>
     /// This is the limit on MEMORY portals, and the check is
-    /// <c>g_numportals * 2 &gt;= MAX_PORTALS</c>
-    /// (<c>src/utils/vvis/vvis.cpp:472</c>) -- so the largest FILE portal count
-    /// that loads is 32767, one less than the half you would expect, because
-    /// the comparison is <c>&gt;=</c> rather than <c>&gt;</c>.
+    /// <c>g_numportals * 2 &gt;= MAX_PORTALS</c> -- so the largest FILE portal
+    /// count that loads is 32767, one less than the half you would expect,
+    /// because the comparison is <c>&gt;=</c> rather than <c>&gt;</c>.
     /// </remarks>
     public const int MaxMemoryPortals = 65536;
 
@@ -48,8 +46,8 @@ public sealed class PortalFile
     public const int MaxFilePortals = (MaxMemoryPortals / 2) - 1;
 
     /// <summary>
-    /// <c>MAX_POINTS_ON_WINDING</c> (<c>src/utils/vvis/vis.h:28</c>). The check
-    /// is <c>&gt;</c> (<c>vvis.cpp:505</c>), so exactly 64 points is legal.
+    /// <c>MAX_POINTS_ON_WINDING</c>. The check is <c>&gt;</c>, so exactly 64
+    /// points is legal.
     /// </summary>
     public const int MaxPointsOnWinding = 64;
 
@@ -109,7 +107,7 @@ public sealed class PortalFile
         }
     }
 
-    /// <summary>Writes the file in vbsp's exact framing.</summary>
+    /// <summary>Writes the file in the reference writer's exact framing.</summary>
     /// <param name="stream">Where to write.</param>
     /// <param name="lineEnding">Which line ending to emit.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
@@ -133,16 +131,13 @@ public sealed class PortalFile
     /// <returns>The encoded file.</returns>
     /// <remarks>
     /// <para>
-    /// The header is three separate <c>fprintf</c>s, one value to a line
-    /// (<c>prtfile.cpp:356-358</c>).
+    /// The header is three separate <c>fprintf</c>s, one value to a line.
     /// </para>
     /// <para>
-    /// Each portal is <c>"%i %i %i "</c> -- note the trailing space
-    /// (<c>prtfile.cpp:69</c>) -- then one <c>(x y z ) </c> per point
-    /// (<c>prtfile.cpp:76-83</c>: an open paren, three numbers EACH with a
-    /// trailing space, then a close paren and another space), then a newline
-    /// (<c>prtfile.cpp:84</c>). So a line ends with <c>") \n"</c>: space, then
-    /// the terminator.
+    /// Each portal is <c>"%i %i %i "</c> -- note the trailing space -- then one
+    /// <c>(x y z ) </c> per point: an open paren, three numbers EACH with a
+    /// trailing space, then a close paren and another space, then a newline. So
+    /// a line ends with <c>") \n"</c>: space, then the terminator.
     /// </para>
     /// </remarks>
     public byte[] ToBytes(PortalLineEnding lineEnding = PortalLineEnding.Lf)
@@ -176,7 +171,8 @@ public sealed class PortalFile
     }
 
     /// <summary>
-    /// Performs vvis's doubling: each file portal becomes two memory portals.
+    /// Performs the reference loader's doubling: each file portal becomes two
+    /// memory portals.
     /// </summary>
     /// <returns>
     /// Two entries per file portal, in file order: the forward portal first,
@@ -184,24 +180,24 @@ public sealed class PortalFile
     /// </returns>
     /// <remarks>
     /// <para>
-    /// This is the rule the rest of vis is written against
-    /// (<c>src/utils/vvis/vvis.cpp:484-486</c>, "each file portal is split into
-    /// two memory portals"), and neither half is what the file literally says.
+    /// This is the rule the rest of the visibility pass is written against --
+    /// each file portal is split into two memory portals -- and neither half is
+    /// what the file literally says.
     /// </para>
     /// <list type="bullet">
     /// <item><description>
     /// The plane is COMPUTED from the winding, never read: <c>v1 = p[2]-p[1]</c>,
     /// <c>v2 = p[0]-p[1]</c>, <c>normal = cross(v2, v1)</c>, normalised, and
-    /// <c>dist = dot(p[0], normal)</c> (<c>vvis.cpp:61-71,531</c>).
+    /// <c>dist = dot(p[0], normal)</c>.
     /// </description></item>
     /// <item><description>
-    /// FORWARD (<c>vvis.cpp:533-542</c>): filed under <c>leafnums[0]</c>,
+    /// FORWARD: filed under <c>leafnums[0]</c>,
     /// winding in the order read, plane FULLY NEGATED -- both the normal and
     /// the distance -- and <c>leaf</c> set to <c>leafnums[1]</c>, the
     /// NEIGHBOUR.
     /// </description></item>
     /// <item><description>
-    /// BACKWARD (<c>vvis.cpp:544-557</c>): filed under <c>leafnums[1]</c>,
+    /// BACKWARD: filed under <c>leafnums[1]</c>,
     /// winding REVERSED (<c>points[numpoints-1-j]</c>), plane NOT negated, and
     /// <c>leaf</c> set to <c>leafnums[0]</c>.
     /// </description></item>
@@ -242,15 +238,15 @@ public sealed class PortalFile
     }
 
     /// <summary>
-    /// <c>PlaneFromWinding</c> (<c>src/utils/vvis/vvis.cpp:61-71</c>).
+    /// Plane from a winding.
     /// </summary>
     /// <param name="points">The winding, which must have at least three points.</param>
     /// <returns>The plane's normal and distance.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="points"/> is null.</exception>
     /// <exception cref="InvalidPortalFileException">
-    /// There are fewer than three points. The C++ reads <c>points[0..2]</c>
-    /// unconditionally and has no such check -- a winding of two points is
-    /// undefined behaviour there.
+    /// There are fewer than three points. The reference loader reads
+    /// <c>points[0..2]</c> unconditionally and has no such check -- a winding
+    /// of two points is undefined behaviour there.
     /// </exception>
     public static (Vec3 Normal, float Distance) PlaneFromWinding(IReadOnlyList<Vec3> points)
     {
@@ -262,8 +258,8 @@ public sealed class PortalFile
                 $"a portal winding needs at least 3 points to define a plane, got {points.Count}");
         }
 
-        // vvis.cpp:66-67 -- v1 = p[2] - p[1] and v2 = p[0] - p[1], then
-        // CrossProduct(v2, v1). The operand order is the answer's sign.
+        // v1 = p[2] - p[1] and v2 = p[0] - p[1], then CrossProduct(v2, v1).
+        // The operand order is the answer's sign.
         Vec3 v1 = points[2] - points[1];
         Vec3 v2 = points[0] - points[1];
         (Vec3 normal, _) = Vec3.Cross(v2, v1).Normalise();
@@ -274,9 +270,9 @@ public sealed class PortalFile
 
     private static void AppendFloat(StringBuilder output, float value)
     {
-        // WriteFloat, prtfile.cpp:33-39. RoundInt is floor(v + 0.5f)
-        // (src/public/mathlib/mathlib.h:432-435), which is round-half-UP and
-        // not .NET's round-half-to-even -- so -0.5 becomes 0, not -0 or -1.
+        // The reference writer's WriteFloat. RoundInt is floor(v + 0.5f), which
+        // is round-half-UP and not .NET's round-half-to-even -- so -0.5 becomes
+        // 0, not -0 or -1.
         double rounded = Math.Floor(value + 0.5f);
 
         if (Math.Abs(value - rounded) < 0.001)
@@ -293,10 +289,10 @@ public sealed class PortalFile
     {
         PortalScanner scanner = new(text);
 
-        // vvis.cpp:464 -- ONE fscanf of "%79s\n%i\n%i\n". The newlines in a
-        // scanf format are ordinary whitespace directives, so the three fields
-        // may be separated by any whitespace at all; the conventional layout is
-        // not enforced.
+        // The reference loader uses ONE fscanf of "%79s\n%i\n%i\n". The
+        // newlines in a scanf format are ordinary whitespace directives, so the
+        // three fields may be separated by any whitespace at all; the
+        // conventional layout is not enforced.
         if (!scanner.TryReadWord(79, out string magic) ||
             !scanner.TryReadInt(out int clusterCount) ||
             !scanner.TryReadInt(out int portalCount))
@@ -304,14 +300,14 @@ public sealed class PortalFile
             throw new InvalidPortalFileException("failed to read header");
         }
 
-        // vvis.cpp:466 -- stricmp, so "prt1" loads. The writer only ever emits
-        // upper case (prtfile.cpp:21,356).
+        // The reference loader compares the magic case-insensitively, so
+        // "prt1" loads. The writer only ever emits upper case.
         if (!string.Equals(magic, Magic, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidPortalFileException("not a portal file");
         }
 
-        // vvis.cpp:472 -- the check is on the DOUBLED count and is >=.
+        // The check is on the DOUBLED count and is >=.
         if (portalCount * 2 >= MaxMemoryPortals)
         {
             throw new InvalidPortalFileException(
@@ -327,7 +323,7 @@ public sealed class PortalFile
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
-            // vvis.cpp:502 -- "%i %i %i ", in the order count, leaf, leaf.
+            // "%i %i %i ", in the order count, leaf, leaf.
             if (!scanner.TryReadInt(out int pointCount) ||
                 !scanner.TryReadInt(out int leaf0) ||
                 !scanner.TryReadInt(out int leaf1))
@@ -340,12 +336,12 @@ public sealed class PortalFile
                 throw new InvalidPortalFileException($"portal {i} has too many points");
             }
 
-            // vvis.cpp:507-508 -- the bound is (unsigned)leaf > portalclusters,
+            // The reference loader's bound is (unsigned)leaf > portalclusters,
             // NOT >=, so leafnum == clusterCount passes here and then indexes
-            // one past the end of the leaf array at vvis.cpp:534. Negative
-            // values become huge unsigned values and ARE rejected. Reproduced
-            // exactly, including the off-by-one, because a map that stock loads
-            // must load here.
+            // one past the end of the leaf array later on. Negative values
+            // become huge unsigned values and ARE rejected. Reproduced exactly,
+            // including the off-by-one, because a map that stock loads must load
+            // here.
             if ((uint)leaf0 > (uint)clusterCount || (uint)leaf1 > (uint)clusterCount)
             {
                 throw new InvalidPortalFileException($"reading portal {i}");
@@ -354,10 +350,9 @@ public sealed class PortalFile
             List<Vec3> points = new(Math.Max(0, pointCount));
             for (int j = 0; j < pointCount; j++)
             {
-                // vvis.cpp:522 -- "(%lf %lf %lf ) ". Read as DOUBLE and then
-                // narrowed per component at vvis.cpp:525-526, which is the
-                // whole reason an integer-spelled and a float-spelled
-                // coordinate give bit-identical floats.
+                // "(%lf %lf %lf ) ". Read as DOUBLE and then narrowed per
+                // component, which is the whole reason an integer-spelled and a
+                // float-spelled coordinate give bit-identical floats.
                 if (!scanner.TryReadPoint(out double x, out double y, out double z))
                 {
                     throw new InvalidPortalFileException($"reading portal {i}");
@@ -369,8 +364,8 @@ public sealed class PortalFile
             file.Portals.Add(new FilePortal(leaf0, leaf1, points));
         }
 
-        // vvis.cpp:562 closes the file without checking it was consumed, so
-        // trailing text is silently ignored. So is it here.
+        // The reference loader closes the file without checking it was consumed,
+        // so trailing text is silently ignored. So is it here.
         return file;
     }
 

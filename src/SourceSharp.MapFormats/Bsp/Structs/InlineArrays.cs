@@ -4,11 +4,12 @@ using SourceSharp.MapFormats.Geometry;
 
 namespace SourceSharp.MapFormats.Bsp.Structs;
 
-// C's `T name[N]` inside a struct is N elements laid out end to end, with no
-// length and no indirection. C# has exactly one way to say that in a blittable
-// struct without `unsafe`: [InlineArray]. Each shape the BSP structs need gets
-// a named type here, once, so the lump structs read like the header does and
-// every one of them stays castable from raw lump bytes.
+// The reference layout declares `T name[N]` inside a struct as N elements laid
+// out end to end, with no length and no indirection. C# has exactly one way to
+// say that in a blittable struct without `unsafe`: [InlineArray]. Each shape
+// the BSP structs need gets a named type here, once, so the lump structs read
+// like the reference layout does and every one of them stays castable from raw
+// lump bytes.
 //
 // They are deliberately NOT generic: [InlineArray] fixes the length in the type
 // and a generic length parameter does not exist in C#.
@@ -87,7 +88,7 @@ public struct IntArray256
 /// Ten unsigned 32-bit values: <c>ddispinfo_t::m_AllowedVerts</c>'s bit vector.
 /// </summary>
 /// <remarks>
-/// The length is not arbitrary. <c>bspfile.h:665</c> derives it as
+/// The length is not arbitrary. The reference layout declares it as
 /// <c>PAD_NUMBER( MAX_DISPVERTS, 32 ) / 32</c>, and
 /// <c>MAX_DISPVERTS = NUM_DISP_POWER_VERTS(4) = 17 * 17 = 289</c>, which rounds
 /// up to 320 bits and so to ten 32-bit words.
@@ -112,8 +113,8 @@ public struct FloatArray2
 /// <remarks>
 /// C row-major <c>[2][4]</c> is eight floats end to end, so index it as
 /// <c>[(row * 4) + column]</c>. Row 0 is the s axis and row 1 the t axis;
-/// columns 0..2 are the xyz of the axis and column 3 is its offset
-/// (<c>bspfile.h:502</c>).
+/// columns 0..2 are the xyz of the axis and column 3 is its offset in the
+/// reference layout.
 /// </remarks>
 [InlineArray(8)]
 public struct FloatArray8

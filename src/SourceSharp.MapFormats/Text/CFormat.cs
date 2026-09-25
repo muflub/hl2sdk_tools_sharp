@@ -3,8 +3,8 @@ using System.Globalization;
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// C <c>printf</c> conversions, reproduced exactly, because several Source text
-/// formats are byte-defined by them.
+/// C <c>printf</c> conversions, reproduced exactly, because several of the
+/// map text formats are byte-defined by them.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -24,13 +24,12 @@ internal static class CFormat
 {
     /// <summary>
     /// C's <c>%g</c> with the default precision of 6, as
-    /// <c>CChunkFile::WriteKeyValueFloat</c> uses
-    /// (<c>src/public/chunkfile.cpp:844</c>).
+    /// <c>CChunkFile::WriteKeyValueFloat</c> uses.
     /// </summary>
     /// <param name="value">The value to format.</param>
     /// <param name="precision">
     /// The <c>%g</c> precision. Six is <c>printf</c>'s default and the only
-    /// value any call site in the tree uses.
+    /// value any call site uses.
     /// </param>
     /// <returns>The formatted text.</returns>
     /// <remarks>
@@ -93,7 +92,7 @@ internal static class CFormat
 
     /// <summary>
     /// C's <c>%f</c> with the default precision of 6, as the portal writer's
-    /// <c>WriteFloat</c> uses (<c>src/utils/vbsp/prtfile.cpp:38</c>).
+    /// <c>WriteFloat</c> uses.
     /// </summary>
     /// <param name="value">The value to format.</param>
     /// <returns>The formatted text, always with six decimal places.</returns>
@@ -120,8 +119,8 @@ internal static class CFormat
     /// <returns>The value, or zero.</returns>
     /// <remarks>
     /// Never throws, and never reports failure, because <c>atof</c> does
-    /// neither -- <c>CChunkFile::ReadKeyValueFloat</c>
-    /// (<c>chunkfile.cpp:659-663</c>) returns <c>true</c> unconditionally, so a
+    /// neither -- the reference <c>CChunkFile::ReadKeyValueFloat</c> returns
+    /// <c>true</c> unconditionally, so a
     /// VMF key whose value is not a number silently becomes 0.
     /// </remarks>
     public static double Atof(string text)

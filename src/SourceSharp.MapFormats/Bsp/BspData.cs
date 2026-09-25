@@ -10,11 +10,11 @@ namespace SourceSharp.MapFormats.Bsp;
 /// </param>
 /// <param name="Version">
 /// The lump's version. Most lumps are 0; the ones that are not are listed in
-/// <c>bspfile.h</c>'s second enum and reproduced by <see cref="BspWriteOrder"/>.
+/// the reference layout's second enum and reproduced by
+/// <see cref="BspWriteOrder"/>.
 /// </param>
-/// <param name="UncompressedSize">
-/// Zero when the lump is stored uncompressed, which is what every Source tool
-/// writes. A non-zero value means LZMA, and is the size to decompress to. The
+/// Zero when the lump is stored uncompressed, which is what every reference
+/// tool writes. A non-zero value means LZMA, and is the size to decompress to. The
 /// compilers never emit this, so it is read-only state: a map that arrives
 /// compressed is decompressed on load and written back out uncompressed.
 /// </param>
@@ -47,8 +47,9 @@ public readonly record struct BspLumpData(
 /// never set it.
 /// </param>
 /// <param name="Version">
-/// The nested lump's own version, independent of the outer lump's. The engine
-/// silently skips <c>sprp</c> below 4 and bails out of <c>dprp</c> below 4, so
+/// The nested lump's own version, independent of the outer lump's. The
+/// reference build silently skips <c>sprp</c> below 4 and bails out of
+/// <c>dprp</c> below 4, so
 /// this field decides whether a map's props appear at all.
 /// </param>
 /// <param name="Data">The nested lump's payload.</param>
@@ -60,7 +61,7 @@ public readonly record struct GameLumpEntry(
 {
     /// <summary>
     /// The <paramref name="code"/> four-character code as the <see cref="int"/>
-    /// the file stores, in the byte order Source writes it.
+    /// the file stores, in the byte order the format defines.
     /// </summary>
     /// <param name="code">Exactly four ASCII characters, for example <c>sprp</c>.</param>
     /// <returns>The packed identifier.</returns>
@@ -77,13 +78,13 @@ public readonly record struct GameLumpEntry(
                 nameof(code));
         }
 
-        // gamebspfile.h:26,28 spell these as C MULTI-CHARACTER CONSTANTS --
+        // The reference format spells these as C MULTI-CHARACTER CONSTANTS --
         // `GAMELUMP_STATIC_PROPS = 'sprp'` -- and both GCC and MSVC put the
         // leftmost character in the HIGHEST byte. So 'sprp' is 0x73707270, and
         // dm_lockdown.bsp's directory holds exactly that.
         //
         // This was written the other way round first, from a misreading of the
-        // header, and the fact that was supposed to catch it asserted the same
+        // format, and the fact that was supposed to catch it asserted the same
         // misreading -- so it passed by comparing the code against itself. The
         // fact now reads the golden map's directory instead, because the FILE
         // is the authority and arithmetic restated in a test is not.
@@ -120,7 +121,7 @@ public readonly record struct BspLumpPlacement(int Offset, int Length, int Versi
 public enum BspWriteMode
 {
     /// <summary>
-    /// The order <c>WriteBSPFile</c> uses today: what the compilers emit, and
+    /// The order the reference writer uses: what the compilers emit, and
     /// what a freshly compiled map must be written in.
     /// </summary>
     Canonical,
@@ -130,11 +131,11 @@ public enum BspWriteMode
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Needed because the canonical order is the order of the bsplib in THIS
-    /// tree, and maps outlive their compilers. A stock version 19 map writes no
-    /// leaf-ambient lumps at all and does write lump 49, which the current
-    /// bsplib abandoned -- so re-emitting it canonically produces a valid file
-    /// that is not the same file.
+    /// Needed because the canonical order is the order of the current reference
+    /// writer, and maps outlive their compilers. A stock version 19 map writes
+    /// no leaf-ambient lumps at all and does write lump 49, which the current
+    /// reference writer abandoned -- so re-emitting it canonically produces a
+    /// valid file that is not the same file.
     /// </para>
     /// <para>
     /// The distinction is not only about old maps: it is what lets an operation
@@ -151,10 +152,11 @@ public enum BspWriteMode
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the type that replaces bsplib's roughly 110 MB of file-scope
-/// <c>d*</c> arrays and their bare counters. Every stage of every tool takes one
+/// This is the type that replaces the reference compiler's roughly 110 MB of
+/// file-scope <c>d*</c> arrays and their bare counters. Every stage of every
+/// tool takes one
 /// of these explicitly, which is what makes two compiles in one process legal
-/// (plan_maptools.md 1: no statics).
+/// (design rule 1: no statics).
 /// </para>
 /// <para>
 /// Lumps are held as raw bytes here. Typed views over them are a separate
@@ -165,10 +167,10 @@ public enum BspWriteMode
 /// </remarks>
 public sealed class BspData
 {
-    /// <summary><c>VBSP</c>, the only ident the engine accepts.</summary>
+    /// <summary><c>VBSP</c>, the only ident the format accepts.</summary>
     public const int Ident = ('P' << 24) | ('S' << 16) | ('B' << 8) | 'V';
 
-    /// <summary>The oldest version the engine will load.</summary>
+    /// <summary>The oldest version the reference build will load.</summary>
     public const int MinVersion = 19;
 
     /// <summary>The version this branch writes.</summary>
@@ -200,8 +202,9 @@ public sealed class BspData
     public int FileVersion { get; set; } = Version;
 
     /// <summary>
-    /// The map's revision number, which Hammer increments on every save. vbsp
-    /// copies it from the VMF's <c>mapversion</c>; nothing else reads it.
+    /// The map's revision number, which Hammer increments on every save. The
+    /// reference compiler copies it from the VMF's <c>mapversion</c>; nothing
+    /// else reads it.
     /// </summary>
     public int MapRevision { get; set; }
 
@@ -240,11 +243,10 @@ public sealed class BspData
     /// <remarks>
     /// <para>
     /// Set by <see cref="BspFile.LoadAsync"/> when the header said version 21
-    /// and the first lump's first dword was zero -- the parity check the ++
-    /// reader uses (<c>dumps/vbsp/_gameflag/140054040_writebsp.c:21</c>): a
-    /// standard-layout file's dword there is the planes lump's offset, 1036,
-    /// and never zero. It is the only detection that exists; the layout has no
-    /// flag of its own.
+    /// and the first lump's first dword was zero -- the detection this tool
+    /// uses: a standard-layout file's dword there is the planes lump's offset,
+    /// 1036, and never zero. It is the only detection that exists; the layout
+    /// has no flag of its own.
     /// </para>
     /// <para>
     /// A preserve-mode write honours it, which is what lets a v21 L4D2 map

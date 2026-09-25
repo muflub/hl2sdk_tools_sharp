@@ -12,8 +12,8 @@ namespace SourceSharp.MapCompile;
 /// </summary>
 /// <remarks>
 /// This is a user-facing command rather than an internal detail because the
-/// choice changes the output. Spike 0b cooked one cube through two installed
-/// builds of <c>vphysics.so</c> and got different bytes, so "which library did
+/// choice changes the output. Two installed builds of <c>vphysics.so</c> cooked
+/// one test cube to different bytes, so "which library did
 /// this map's collision come from" is a question a user has to be able to ask
 /// and answer.
 /// </remarks>
@@ -106,7 +106,7 @@ public static class PhysCommand
     /// <returns>The value to relaunch with, or null.</returns>
     /// <remarks>
     /// glibc reads the variable once at start-up, so setting it in-process
-    /// does nothing (spike 0b); <c>libtier0.so</c> has no <c>DT_SONAME</c>, so
+    /// does nothing; <c>libtier0.so</c> has no <c>DT_SONAME</c>, so
     /// nothing else satisfies <c>vphysics.so</c>'s <c>DT_NEEDED</c>. The
     /// directory is PREPENDED so it wins over anything already on the path.
     /// </remarks>

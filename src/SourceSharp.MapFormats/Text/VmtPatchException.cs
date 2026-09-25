@@ -4,9 +4,8 @@ namespace SourceSharp.MapFormats.Text;
 /// A <c>patch</c> material could not be resolved.
 /// </summary>
 /// <remarks>
-/// Both C++ implementations only WARN and carry on with whatever they have --
-/// <c>src/utils/vbsp/materialpatch.cpp:370</c> and
-/// <c>materialsystem/cmaterial.cpp:3468,3489</c>. The compile then continues
+/// The reference implementations only WARN and carry on with whatever they
+/// have. The compile then continues
 /// with a material that is missing its base's parameters, which shows up much
 /// later as a surface with the wrong compile flags. A library reports it
 /// instead of leaving the caller to notice.

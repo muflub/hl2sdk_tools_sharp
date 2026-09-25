@@ -10,27 +10,25 @@ namespace SourceSharp.Tests.MapTools.Options;
 /// <summary>
 /// The format-resolution pipeline: defaults, then the mounted appid's preset,
 /// then the gameinfo <c>Tools</c> key parsed as if typed, then the real command
-/// line — ++'s order, so the Tools line WINS over the auto-detected preset and
-/// the typed flags win over both.
+/// line — so the Tools line WINS over the auto-detected preset and the typed
+/// flags win over both.
 /// </summary>
 /// <remarks>
-/// The order is not this port's preference; it is what the dump shows. The
-/// appid auto-apply stores its preset during flag registration, ahead of the
-/// real argv walk (<c>~/re/toolsplusplus/dumps/vbsp.all.c</c>, the
-/// <c>jmp 0x140041c9a</c> region); ++ then prepends the <c>Tools</c> tokens and
-/// walks them, and finally walks the typed argv. Each step is an overlay, so
+/// The appid auto-apply stores its preset during flag registration, ahead of
+/// the real argv walk; the <c>Tools</c> tokens are then prepended and walked,
+/// and finally the typed argv is walked. Each step is an overlay, so
 /// the test for "later wins" is that the later step's fields are present and
 /// the earlier step's unmentioned fields survive.
 /// </remarks>
 public class FormatResolutionTests
 {
-    private const int UnlistedAppId = 243750; // Source SDK Base 2013 Multiplayer.
+    private const int UnlistedAppId = 243750; // An app id the preset table does not list.
 
     private static GameInfo Game(int appid, string? toolsLine = null)
     {
         // The Tools block sits beside FileSystem, not inside it: GameInfo's
         // parser reads it at the block path GameInfo/Tools (or top-level
-        // Tools), which is the shape ++'s FindKey("Tools")+ReadString sees.
+        // Tools).
         string tools = toolsLine is null
             ? string.Empty
             : "    Tools\n    {\n        vbsp\t\"" + toolsLine + "\"\n    }\n";
@@ -170,12 +168,12 @@ public class FormatResolutionTests
         Assert.Contains(r.Diagnostics, d => d.Code == FormatResolution.ToolsSpliceCode);
     }
 
-    // ---- ++'s message strings, verbatim ----
+    // ---- the message strings ----
 
     [Fact]
-    public void TheAutoDetectMessageIsTheDumpString()
+    public void TheAutoDetectMessageNamesTheDetectedFormat()
     {
-        // ++: Msg("Auto-detected that this game requires %s BSP format").
+        // "Auto-detected that this game requires %s BSP format".
         FormatResolution.Result r = FormatResolution.Resolve(null, null, false, false, Game(550));
 
         CompileDiagnostic d = Assert.Single(
@@ -187,7 +185,7 @@ public class FormatResolutionTests
     [Fact]
     public void TheSpliceMessageQuotesTheToolsLine()
     {
-        // ++: Msg("Adding arguments from gameinfo: %s").
+        // "Adding arguments from gameinfo: %s".
         FormatResolution.Result r = FormatResolution.Resolve(
             null, null, false, false, Game(0, "-cullall -staticpropformat 8"));
 
@@ -213,8 +211,8 @@ public class FormatResolutionTests
     [Fact]
     public void ABrokenToolsLineWarnsNamesTheKeyAndKeepsTheValidFlags()
     {
-        // The file system authored this line. ++ would have spliced it and let
-        // the unknown flag reach the real parser (which exits); this port
+        // The file system authored this line. Splicing it would let the
+        // unknown flag reach the real parser (which exits); this tool
         // reports and carries on, because a broken Tools line must not fail a
         // compile the rest of which is fine.
         FormatResolution.Result r = FormatResolution.Resolve(
@@ -249,7 +247,7 @@ public class FormatResolutionTests
     [Fact]
     public void ABlankToolsLineSplicesNothing()
     {
-        // Whitespace-only is "not there": ++'s strtok produces no tokens, and
+        // Whitespace-only is "not there": tokenising produces no tokens, and
         // the splice message would be a lie.
         FormatResolution.Result r = FormatResolution.Resolve(null, null, false, false, Game(0, "   "));
 
@@ -262,10 +260,10 @@ public class FormatResolutionTests
     [Fact]
     public void AnUnlistedAppidWithNoToolsLineIsTheDefaultPath()
     {
-        // Every corpus map mounts an SDK-2013 gameinfo; this is its shape, and
-        // it must land exactly on the default WRITABLE state so the writer
-        // gets the legacy null. The comparison is field-by-field on the
-        // writable fields plus IsDefault, not Assert.Equal against
+        // The plain default gameinfo shape must land exactly on the default
+        // WRITABLE state so the writer gets the legacy null. The comparison
+        // is field-by-field on the writable fields plus IsDefault, not
+        // Assert.Equal against
         // FormatOptions.Default: the provenance fields (DetectedSteamAppId
         // above all) legitimately differ from a hand-built Default, and that
         // difference is reporting, not format.

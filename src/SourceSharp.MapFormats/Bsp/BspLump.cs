@@ -1,8 +1,8 @@
 namespace SourceSharp.MapFormats.Bsp;
 
 /// <summary>
-/// The 64 lump slots of a Source BSP file, numbered as in
-/// <c>src/public/bspfile.h</c>.
+/// The 64 lump slots of a Source BSP file, numbered as the format
+/// specification defines them.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -14,9 +14,9 @@ namespace SourceSharp.MapFormats.Bsp;
 /// a hole that is not in the enum reads as a corrupt file.
 /// </para>
 /// <para>
-/// Slots 61-63 have no assignment in <c>bspfile.h</c> at all. There is no name
+/// Slots 61-63 have no assignment in the format at all. There is no name
 /// to give them, so they have none here; <see cref="BspData"/> still carries
-/// their bytes, because a lump this port does not understand is data to preserve
+/// their bytes, because a lump this library does not understand is data to preserve
 /// and not licence to drop.
 /// </para>
 /// </remarks>
@@ -146,8 +146,7 @@ public enum BspLump
     PrimIndices = 39,
 
     /// <summary>
-    /// The embedded zip. The engine expects it LAST in the file
-    /// (<c>modelloader.cpp:643</c>).
+    /// The embedded zip. The engine expects it LAST in the file.
     /// </summary>
     PakFile = 40,
 

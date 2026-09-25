@@ -6,8 +6,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Options;
 
 /// <summary>
-/// <see cref="StockArgs.ParseVbsp"/> against the spellings
-/// <c>src/utils/vbsp/vbsp.cpp</c> accepts.
+/// <see cref="StockArgs.ParseVbsp"/> against the spellings the reference
+/// vbsp accepts.
 /// </summary>
 public class StockArgsVbspTests
 {
@@ -66,8 +66,8 @@ public class StockArgsVbspTests
     [Fact]
     public void TheMapPathIsRecordedExactlyAsWritten()
     {
-        // Stock strips the extension and lowercases the basename inside
-        // RunVBSP (vbsp.cpp:919-921). That is the path resolver's business,
+        // The reference vbsp strips the extension and lowercases the basename
+        // in its run phase. That is the path resolver's business,
         // not the parser's.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["maps/MixedCase.VMF"]);
 
@@ -77,8 +77,8 @@ public class StockArgsVbspTests
     [Fact]
     public void AFlagParsesInMixedCase()
     {
-        // Q_stricmp at vbsp.cpp:1009 makes every stock spelling
-        // case-insensitive.
+        // The reference parser compares flags case-insensitively, so every
+        // stock spelling is.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-OnLyEnTs", Map]);
 
         Assert.True(result.Options.OnlyEnts);
@@ -88,8 +88,8 @@ public class StockArgsVbspTests
     [Fact]
     public void MinLuxelScaleParsesInMixedCaseEvenThoughStockCannot()
     {
-        // vbsp.cpp:1096 is the one branch that uses strcmp instead of
-        // Q_stricmp, so stock rejects this spelling. That is a typo in stock.
+        // The reference build's one min-luxel-scale branch compares the flag
+        // case-sensitively, so stock rejects this spelling. That is a typo in stock.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-minLuxelScale", "2.5", Map]);
 
         Assert.Equal(2.5f, result.Options.MinLuxelScale);
@@ -115,7 +115,7 @@ public class StockArgsVbspTests
     [Fact]
     public void MinLuxelScaleBelowOneIsClampedUpToOne()
     {
-        // vbsp.cpp:1099-1100 clamps as it parses.
+        // The reference parser clamps as it parses.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-minluxelscale", "0.25", Map]);
 
         Assert.Equal(1.0f, result.Options.MinLuxelScale);
@@ -141,7 +141,8 @@ public class StockArgsVbspTests
     [Fact]
     public void DxLevelSeventyDoesNotRaiseLuxelScaleAtParseTime()
     {
-        // vbsp.cpp:1292 does that AFTER parsing, in RunVBSP. The parser says
+        // The reference tool raises the luxel scale for dxlevel 70 AFTER
+        // parsing, in its run phase. The parser says
         // what was asked for; the stage applies stock's post-parse rules.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-dxlevel", "70", Map]);
 
@@ -151,7 +152,7 @@ public class StockArgsVbspTests
     [Fact]
     public void BlockSelectsASingleBlock()
     {
-        // vbsp.cpp:1048 -- block_xl = block_xh = argv[i+1], likewise y.
+        // -block sets the low and high x from one value, likewise y.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-block", "2", "-3", Map]);
 
         Assert.Equal(BspBlockGrid.Single(2, -3), result.Options.Blocks);
@@ -160,7 +161,7 @@ public class StockArgsVbspTests
     [Fact]
     public void BlocksSelectsTheWholeRectangleInStocksArgumentOrder()
     {
-        // vbsp.cpp:1055 reads xl, yl, xh, yh -- not xl, xh, yl, yh.
+        // -blocks reads xl, yl, xh, yh -- not xl, xh, yl, yh.
         StockArgsResult<VbspOptions> result =
             StockArgs.ParseVbsp(["-blocks", "-1", "-2", "3", "4", Map]);
 
@@ -179,7 +180,7 @@ public class StockArgsVbspTests
     [Fact]
     public void EmbedWithOnlyEntsIsAnErrorRatherThanAnExit()
     {
-        // vbsp.cpp:1270-1277 warns and then calls CmdLib_Exit(1).
+        // The reference tool warns and then exits the process.
         StockArgsResult<VbspOptions> result =
             StockArgs.ParseVbsp(["-embed", "content/extra", "-onlyents", Map]);
 
@@ -210,7 +211,7 @@ public class StockArgsVbspTests
     [Fact]
     public void ThreadsIsRecordedWithItsValueConsumed()
     {
-        // vbsp.cpp:935 parses it (and :1302 then serialises stock anyway);
+        // The reference vbsp parses it (and then serialises stock anyway);
         // this port's parallel stages honour it. The "8" must not be mistaken
         // for the map.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-threads", "8", Map]);
@@ -254,7 +255,7 @@ public class StockArgsVbspTests
     [Fact]
     public void LauncherNoOpsAreAcceptedAndIgnored()
     {
-        // vbsp.cpp:1121-1127 already does nothing with these three.
+        // The reference tool already does nothing with these three.
         StockArgsResult<VbspOptions> result =
             StockArgs.ParseVbsp(["-novconfig", "-allowdebug", "-steam", Map]);
 
@@ -265,8 +266,8 @@ public class StockArgsVbspTests
     [Fact]
     public void GameIsRecordedAndNotActedOn()
     {
-        // vbsp.cpp:1128 skips the value; CmdLib_InitFileSystem had already
-        // mounted it off the global command line. There is no such side
+        // The reference parser skips the value; its filesystem layer had
+        // already mounted it off the global command line. There is no such side
         // effect here.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-game", "/hl2/hl2", Map]);
 
@@ -294,8 +295,8 @@ public class StockArgsVbspTests
     [Fact]
     public void DumpStaticPropsPluralIsUnknownBecauseStockOnlyParsesTheSingular()
     {
-        // vbsp.cpp:1246 advertises -dumpstaticprops; vbsp.cpp:1070 matches
-        // -dumpstaticprop. Stock rejects the spelling in its own usage text.
+        // The reference usage text advertises -dumpstaticprops while its parser
+        // matches -dumpstaticprop. Stock rejects the spelling in its own usage text.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-dumpstaticprops", Map]);
 
         Assert.Equal(StockArgsCodes.UnknownOption, Assert.Single(result.Diagnostics).Code);
@@ -304,16 +305,16 @@ public class StockArgsVbspTests
     [Fact]
     public void VirtualDispPhysicsIsUnknownBecauseNoBuildParsesIt()
     {
-        // vbsp.cpp:1255 advertises it and no branch matches it.
+        // The reference usage text advertises it and no branch matches it.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-virtualdispphysics", Map]);
 
         Assert.Equal(StockArgsCodes.UnknownOption, Assert.Single(result.Diagnostics).Code);
     }
 
     [Fact]
-    public void MaxLightmapDimIsUnknownBecauseItsBranchIsInsideIfZero()
+    public void MaxLightmapDimIsUnknownBecauseNoReferenceBuildParsesIt()
     {
-        // vbsp.cpp:1039-1047 is `#if 0`.
+        // Advertised but never matched in any reference build.
         StockArgsResult<VbspOptions> result = StockArgs.ParseVbsp(["-maxlightmapdim", "256", Map]);
 
         Assert.Contains(result.Diagnostics, d => d.Code == StockArgsCodes.UnknownOption);

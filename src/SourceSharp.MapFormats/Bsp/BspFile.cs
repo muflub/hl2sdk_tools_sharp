@@ -10,8 +10,8 @@ namespace SourceSharp.MapFormats.Bsp;
 /// <para>
 /// Both directions work on a <see cref="Stream"/> and never on a path, because
 /// every file this project opens goes through the <c>IFileSystem</c> seam one
-/// level up (plan_maptools.md 1a, ruling Q14). That is also what lets the whole
-/// of this type be exercised by facts over a <see cref="MemoryStream"/>, with
+/// level up. That is also what lets the whole of this type be exercised by
+/// facts over a <see cref="MemoryStream"/>, with
 /// no disk involved.
 /// </para>
 /// <para>
@@ -34,7 +34,7 @@ public static class BspFile
     /// <returns>The parsed container.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="stream"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="stream"/> cannot seek.</exception>
-    /// <exception cref="InvalidBspException">The file is not a BSP this engine loads.</exception>
+    /// <exception cref="InvalidBspException">The file is not a BSP the reference build loads.</exception>
     public static async Task<BspData> LoadAsync(Stream stream, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
@@ -64,13 +64,11 @@ public static class BspFile
                 "range the engine loads");
         }
 
-        // The L4D2 lump-directory re-layout has no flag of its own; the ++
-        // reader's only detection is this parity check
-        // (dumps/vbsp/_gameflag/140054040_writebsp.c:21): at version 21 the
-        // first lump entry's first dword is the planes lump's fileofs, 1036,
-        // in a standard file and the planes version, 0, in a re-laid-out one.
-        // A malformed v21 standard file with a zero planes offset is misread
-        // exactly as the ++ tool misreads it.
+        // The L4D2 lump-directory re-layout has no flag of its own; the only
+        // detection is this parity check: at version 21 the first lump entry's
+        // first dword is the planes lump's fileofs, 1036, in a standard file
+        // and the planes version, 0, in a re-laid-out one. A malformed v21
+        // standard file with a zero planes offset is misread the same way.
         bool l4d2Layout = version == BspData.MaxVersion
             && BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(8)) == 0;
 
@@ -91,9 +89,9 @@ public static class BspFile
             ReadOnlySpan<byte> entry = header.AsSpan(8 + (i * 16), 16);
 
             // The re-layout is the same sixteen bytes shifted one dword
-            // right: version leads, and fileofs/filelen slide behind it
-            // (140054040_writebsp.c:28-38). The uncompressed size is last in
-            // both layouts and untouched by the shift.
+            // right: version leads, and fileofs/filelen slide behind it. The
+            // uncompressed size is last in both layouts and untouched by the
+            // shift.
             int fileofs = BinaryPrimitives.ReadInt32LittleEndian(entry[l4d2Layout ? 4..8 : 0..4]);
             int filelen = BinaryPrimitives.ReadInt32LittleEndian(entry[l4d2Layout ? 8..12 : 4..8]);
             int lumpVersion = BinaryPrimitives.ReadInt32LittleEndian(entry[l4d2Layout ? 0..4 : 8..12]);
@@ -138,7 +136,8 @@ public static class BspFile
     }
 
     /// <summary>
-    /// Writes a BSP in the order and with the padding <c>WriteBSPFile</c> uses.
+    /// Writes a BSP in the order and with the padding the reference writer's
+    /// <c>WriteBSPFile</c> uses.
     /// </summary>
     /// <param name="bsp">The container to write.</param>
     /// <param name="stream">A writable, seekable stream; writing starts at zero.</param>
@@ -283,10 +282,11 @@ public static class BspFile
 
             if (step.Lump == BspLump.PakFile)
             {
-                // The pak lump is aligned before it is written, and the engine
-                // expects it last. Alignment is 0 (that is, none) on PC; the
-                // parameter exists for the console builds this port does not
-                // target, and AlignValue treats anything below 2 as none.
+                // The pak lump is aligned before it is written, and the
+                // reference build expects it last. Alignment is 0 (that is,
+                // none) on PC; the parameter exists for the console builds this
+                // port does not target, and AlignValue treats anything below 2
+                // as none.
                 position = await PadToAsync(stream, position, PakFileAlignment, cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -449,7 +449,8 @@ public static class BspFile
         foreach (int i in order)
         {
             // The version comes from the source header, not from the canonical
-            // table: an older bsplib stamped versions this one no longer uses.
+            // table: an older reference writer stamped versions this one no
+            // longer uses.
             plan.Add(new BspWriteOrder.Step((BspLump)i, layout[i].Version, false));
         }
 
@@ -569,9 +570,9 @@ public static class BspFile
             GameLumpEntry entry = bsp.GameLumps[i];
 
             // The -staticpropformat stamp applies to the static-props lump
-            // alone: the ++ preset's prop version is a statement about the
-            // prop wire format, and dprp/dplt/dplh carry versions of their
-            // own the flag says nothing about.
+            // alone: the preset's prop version is a statement about the prop
+            // wire format, and dprp/dplt/dplh carry versions of their own the
+            // flag says nothing about.
             ushort version = entry.Id == StaticPropsId && staticPropsVersion is { } stamped
                 ? stamped
                 : entry.Version;

@@ -47,10 +47,10 @@ public class ComplianceMatrixEvidenceTests
     [Fact]
     public void TheAmbientBakeOfASurfaceLightDiffersUnderTheReciprocalEstimate()
     {
-        // StockQuirk.AmbientCubeReciprocalEstimate (leaf_ambient_lighting.cpp:120):
-        // stock's rcpss distance term is a 12-bit estimate, so the same bake lands on
-        // different cube sides bit-for-bit. 65000 keeps the estimate's error well
-        // above a float's last bits.
+        // StockQuirk.AmbientCubeReciprocalEstimate: stock's reciprocal
+        // distance term is a 12-bit estimate, so the same bake lands on
+        // different cube sides bit-for-bit. 65000 keeps the estimate's error
+        // well above a float's last bits.
         Vec3 origin = new(200f, 90f, 130f);
         float len = MathF.Sqrt(200f * 200f + 90f * 90f + 130f * 130f);
         Vec3 towardSample = new(-origin.X / len, -origin.Y / len, -origin.Z / len);
@@ -67,8 +67,9 @@ public class ComplianceMatrixEvidenceTests
     [Fact]
     public void StockPolicyNormalisesVectorsTheStockWay()
     {
-        // StockQuirk.VradVectorNormalise: vrad's own VectorNormalize is the rsqrtss
-        // estimate plus one Newton step, versus a divide. DirectLightingSettings.
+        // StockQuirk.VradVectorNormalise: the reference build's vector normalise
+        // is the reciprocal-square-root estimate plus one Newton step, versus a divide.
+        // DirectLightingSettings.
         // StockNormalise is the switch, and the obliquest of a fixed spread of
         // directions must show the difference.
         Assert.True(new DirectLightingSettings { Compliance = ComplianceOptions.Stock }.StockNormalise);
@@ -89,9 +90,10 @@ public class ComplianceMatrixEvidenceTests
     [Fact]
     public void AConformingDetailOrientationDiffersUnderTheStockNormalise()
     {
-        // StockQuirk.DetailOrientationNormalise (detailobjects.cpp:580-601) builds its
-        // basis from a normalised normal; the estimate and the divide propagate into
-        // pitch/yaw/roll. One oblique normal in the fixed spread must show it.
+        // StockQuirk.DetailOrientationNormalise builds its
+        // basis from a normalised normal; the estimate and the divide propagate
+        // into pitch/yaw/roll. One oblique normal in the fixed spread must show
+        // it.
         Vec3[] spread =
         [
             new(0.6f, 0.7f, 0.33f), new(0.2f, 0.9f, 0.4f), new(0.75f, 0.15f, 0.6f),
@@ -108,8 +110,8 @@ public class ComplianceMatrixEvidenceTests
     [Fact]
     public void StockLeavesTheHdrFaceExtentsStaleAndCorrectUpdatesThem()
     {
-        // StockQuirk.LuxelDensityLeavesHdrFacesStale (bsplib.cpp:3317): the update
-        // walks dfaces while an HDR pass lights dfaces_hdr.
+        // StockQuirk.LuxelDensityLeavesHdrFacesStale: the update
+        // walks the LDR faces while an HDR pass lights the HDR faces.
         Assert.True(LuxelDensity.StaleHdrFaces(ComplianceOptions.Stock));
         Assert.False(LuxelDensity.StaleHdrFaces(ComplianceOptions.Correct));
     }
@@ -117,7 +119,7 @@ public class ComplianceMatrixEvidenceTests
     [Fact]
     public void StockSupersamplesAgainstUninitialisedGradientMemoryAndCorrectDoesNot()
     {
-        // StockQuirk.SupersampleGradientReadsUninitialised (lightmap.cpp:2881): the
+        // StockQuirk.SupersampleGradientReadsUninitialised: the
         // stackalloc'd sample buffer an edge sample's gradient reads.
         Assert.True(FaceLightJob.SupersampleReadsUninitialised(ComplianceOptions.Stock));
         Assert.False(FaceLightJob.SupersampleReadsUninitialised(ComplianceOptions.Correct));

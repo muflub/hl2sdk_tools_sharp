@@ -3,8 +3,8 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// One of the two <c>portal_t</c>s vvis builds from a single file portal
-/// (<c>src/utils/vvis/vvis.cpp:533-557</c>).
+/// One of the two <c>portal_t</c>s the reference visibility pass builds from a
+/// single file portal.
 /// </summary>
 /// <param name="OwningCluster">
 /// The cluster whose portal list this portal is filed under: <c>leafnums[0]</c>
@@ -22,9 +22,8 @@ namespace SourceSharp.MapFormats.Text;
 /// </param>
 /// <param name="IsOriginalWinding">
 /// <c>winding_t::original</c>. True only on the forward portal, which SHARES
-/// the winding object the loader built (<c>vvis.cpp:512,536</c>); the backward
-/// portal gets a fresh copy whose flag is left false by the <c>memset</c> in
-/// <c>NewWinding</c> (<c>vvis.cpp:89</c>).
+/// the winding object the loader built; the backward portal gets a fresh copy
+/// whose flag is left false by the zeroing in <c>NewWinding</c>.
 /// </param>
 public sealed record MemoryPortal(
     int OwningCluster,

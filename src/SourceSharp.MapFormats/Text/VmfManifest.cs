@@ -3,32 +3,33 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// A <c>.vmm</c> manifest: the list of VMFs a manifest map is assembled from
-/// (<c>src/utils/vbsp/manifest.cpp:421-466</c>).
+/// A <c>.vmm</c> manifest: the list of VMFs a manifest map is assembled from.
 /// </summary>
 /// <remarks>
 /// <para>
-/// A chunk file, not a KeyValues file -- it is read through
-/// <c>CChunkFile</c>, so it has the VMF's tokenizer, its CRLF framing and its
-/// comment rules. Only the file-level shape is modelled here; what vbsp does
-/// with the VMFs afterwards (merging planes, brushes, sides, entities and
-/// overlays through a transform) is compile work, not format work.
+/// A chunk file, not a KeyValues file -- the reference reader handles it
+/// through <c>CChunkFile</c>, so it has the VMF's tokenizer, its CRLF framing
+/// and its comment rules. Only the file-level shape is modelled here; what the
+/// reference compiler does with the VMFs afterwards (merging planes, brushes,
+/// sides, entities and overlays through a transform) is compile work, not
+/// format work.
 /// </para>
 /// <para>
-/// vbsp reads a sibling <c>&lt;username&gt;.vmm_prefs</c> alongside it
-/// (<c>manifest.cpp:355-410</c>) for the cordoning preferences, which is why
-/// two people compiling the same manifest can get different maps.
+/// The reference compiler also reads a sibling
+/// <c>&lt;username&gt;.vmm_prefs</c> alongside it for the cordoning
+/// preferences, which is why two people compiling the same manifest can get
+/// different maps.
 /// </para>
 /// </remarks>
 public sealed class VmfManifest
 {
     /// <summary>
-    /// The root chunk name (<c>src/utils/vbsp/manifest.cpp:435</c>).
+    /// The root chunk name.
     /// </summary>
     public const string MapsChunkName = "Maps";
 
     /// <summary>
-    /// The per-map chunk name inside it (<c>manifest.cpp:90</c>).
+    /// The per-map chunk name inside it.
     /// </summary>
     public const string VmfChunkName = "VMF";
 
@@ -79,8 +80,8 @@ public sealed class VmfManifest
         {
             foreach (VmfChunk vmf in maps.GetChunks(VmfChunkName))
             {
-                // manifest.cpp:36-57. Five keys are recognised; only two are
-                // acted on -- File at :44 and TopLevel at :56 -- and the other
+                // The reference reader recognises five keys here; only two
+                // are acted on -- File and TopLevel -- and the other
                 // three (Name, IsPrimary, IsProtected) have their handling
                 // COMMENTED OUT. Parsed here because the file carries them and
                 // a caller may want to show them.
@@ -88,7 +89,7 @@ public sealed class VmfManifest
                     Name: vmf.GetValue("Name") ?? string.Empty,
                     File: vmf.GetValue("File") ?? string.Empty,
 
-                    // manifest.cpp:48,56 -- both are `atoi(value) == 1`, so
+                    // Both flags are `atoi(value) == 1`, so
                     // "2" and "-1" are both FALSE.
                     IsPrimary: VmfValue.ParseInt(vmf.GetValue("IsPrimary")) == 1,
                     IsProtected: VmfValue.ParseInt(vmf.GetValue("IsProtected")) == 1,
@@ -106,11 +107,11 @@ public sealed class VmfManifest
     /// <returns>The cordons, in file order.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="document"/> is null.</exception>
     /// <remarks>
-    /// <c>manifest.cpp:108-227</c>: <c>cordoning</c> holds <c>cordons</c>
+    /// The reference layout is <c>cordoning</c> holds <c>cordons</c>
     /// holds repeated <c>cordon</c> chunks, each with an <c>active</c> key and
     /// repeated <c>box</c> chunks whose <c>mins</c> and <c>maxs</c> are POINTS
-    /// -- parenthesised, read with <c>ReadKeyValuePoint</c> at
-    /// <c>:128,132</c>, not the bracketed vector form.
+    /// -- parenthesised, read with <c>ReadKeyValuePoint</c>, not the bracketed
+    /// vector form.
     /// </remarks>
     public static IReadOnlyList<VmfCordon> ReadCordons(VmfDocument document)
     {

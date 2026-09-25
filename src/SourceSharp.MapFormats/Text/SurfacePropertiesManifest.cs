@@ -1,48 +1,45 @@
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// The surfaceproperties manifest: the list of surfaceproperties files vbsp
-/// loads (<c>src/utils/vbsp/textures.cpp:711-735</c>).
+/// The surfaceproperties manifest: the list of surfaceproperties files the
+/// compile-time loader reads.
 /// </summary>
 /// <remarks>
 /// <para>
 /// A KeyValues file with one root section holding repeated <c>file</c> keys.
-/// The ROOT'S NAME IS NEVER VALIDATED by either consumer -- vbsp constructs
-/// its <c>KeyValues</c> with the manifest path as the name and
-/// <c>LoadFromFile</c> overwrites it with whatever the file's first token is
-/// (<c>textures.cpp:720-721</c>), and nothing ever compares it.
+/// The ROOT'S NAME IS NEVER VALIDATED by either consumer -- the compile-time
+/// one constructs its <c>KeyValues</c> with the manifest path as the name and
+/// <c>LoadFromFile</c> overwrites it with whatever the file's first token is,
+/// and nothing ever compares it.
 /// </para>
 /// <para>
-/// vbsp's reader is permissive and the game's is strict, which is worth knowing
-/// because a mod that compiles fine can still fail to run: vbsp ignores a
-/// non-<c>file</c> key, a missing manifest and a missing listed file, all in
-/// silence (<c>textures.cpp:721-731</c>, <c>:691-696</c>), while the game warns
-/// on the first and calls <c>Error</c> on the other two
-/// (<c>src/game/shared/physics_shared.cpp:970,988-989,994</c>).
+/// The reference compile-time reader is permissive and the game's is strict,
+/// which is worth knowing because a mod that compiles fine can still fail to
+/// run: the compile-time reader ignores a non-<c>file</c> key, a missing
+/// manifest and a missing listed file, all in silence, while the game's reader
+/// warns on the first and calls <c>Error</c> on the other two.
 /// </para>
 /// </remarks>
 public sealed class SurfacePropertiesManifest
 {
     /// <summary>
-    /// The manifest's path, a hardcoded literal in both consumers
-    /// (<c>src/utils/vbsp/textures.cpp:719</c>,
-    /// <c>src/game/shared/physics_shared.cpp:61</c>).
+    /// The manifest's path, the same hardcoded literal for both readers.
     /// </summary>
     public const string ManifestPath = "scripts/surfaceproperties_manifest.txt";
 
     /// <summary>
-    /// The key naming each surfaceproperties file, matched without regard to
-    /// case (<c>textures.cpp:726</c> uses <c>Q_stricmp</c>).
+    /// The key naming each surfaceproperties file; the reference reader
+    /// matches it without regard to case.
     /// </summary>
     public const string FileKey = "file";
 
     /// <summary>
     /// The surface a material falls back to when its <c>$surfaceprop</c> does
-    /// not resolve (<c>src/utils/vbsp/textures.cpp:359,381</c>).
+    /// not resolve.
     /// </summary>
     /// <remarks>
     /// Also written literally into the BSP's physics material table for a prop
-    /// with no surface index (<c>src/utils/vbsp/ivp.cpp:1573</c>).
+    /// with no surface index.
     /// </remarks>
     public const string DefaultSurfaceName = "default";
 
@@ -58,14 +55,14 @@ public sealed class SurfacePropertiesManifest
     public IList<string> Files { get; } = [];
 
     /// <summary>
-    /// The keys that were not <c>file</c>, which vbsp ignores and the game
-    /// warns about.
+    /// The keys that were not <c>file</c>, which the reference compile-time
+    /// reader ignores and the game warns about.
     /// </summary>
     /// <remarks>
     /// Recorded rather than dropped so a caller can produce the game's
     /// diagnostic -- "Manifest '%s' with bogus file type '%s', expecting
-    /// 'file'" (<c>src/game/shared/physics_shared.cpp:988-989</c>) -- at
-    /// compile time, where it is cheap to fix, rather than at map load.
+    /// 'file'" -- at compile time, where it is cheap to fix, rather than at
+    /// map load.
     /// </remarks>
     public IList<string> UnexpectedKeys { get; } = [];
 

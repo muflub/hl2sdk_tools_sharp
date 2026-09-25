@@ -66,8 +66,7 @@ public sealed class VmfEntity
     /// <summary>
     /// Other child chunks, written after the solids — Hammer's
     /// <c>overlaytransition</c> block, whose <c>overlaydata</c> children vbsp
-    /// turns into water overlays (<c>utils/vbsp/map.cpp:1413-1431</c>, a handler
-    /// registered for every entity at <c>:1521</c>).
+    /// turns into water overlays (a handler vbsp registers for every entity).
     /// </summary>
     public List<VmfChunkNode> Chunks { get; } = [];
 

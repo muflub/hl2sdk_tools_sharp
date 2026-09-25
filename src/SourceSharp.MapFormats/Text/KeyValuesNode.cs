@@ -3,22 +3,22 @@ using System.Globalization;
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// One node of a KeyValues tree: a port of the parts of <c>KeyValues</c>
-/// (<c>src/tier1/KeyValues.cpp</c>) that the text format needs.
+/// One node of a KeyValues tree: the parts of the reference KeyValues
+/// loader that the text format needs.
 /// </summary>
 /// <remarks>
 /// <para>
 /// A node is either a SECTION -- it has children and no value -- or a SCALAR,
-/// which has a value and no children. The C++ represents both with one class
-/// and distinguishes them by <c>m_pSub</c> being non-null; the serialiser tests
-/// exactly that (<c>KeyValues.cpp:859</c>), and the consequence is worth
+/// which has a value and no children. The reference representation keeps both
+/// in one class and distinguishes them by <c>m_pSub</c> being non-null; the
+/// serialiser tests exactly that, and the consequence is worth
 /// stating because it is a data-loss case: a node that somehow has BOTH loses
 /// its value on save.
 /// </para>
 /// <para>
-/// Duplicate names are kept, never merged. <c>RecursiveLoadFromBuffer</c> says
-/// so at <c>KeyValues.cpp:2467-2469</c>: "this could potentially cause some
-/// duplication, but that's what we want sometimes". A surfaceproperties
+/// Duplicate names are kept, never merged. The reference
+/// <c>RecursiveLoadFromBuffer</c> keeps duplicates deliberately -- repeated
+/// keys are sometimes exactly what a file wants. A surfaceproperties
 /// manifest is a list of repeated <c>file</c> keys and would collapse to one
 /// entry under any merging model.
 /// </para>
@@ -26,15 +26,14 @@ namespace SourceSharp.MapFormats.Text;
 public sealed class KeyValuesNode
 {
     /// <summary>
-    /// <c>KEYVALUES_TOKEN_SIZE</c> (<c>src/tier1/KeyValues.cpp:44</c>): the
+    /// The format's <c>KEYVALUES_TOKEN_SIZE</c>: the
     /// shared token buffer, so a token keeps 4095 characters.
     /// </summary>
     /// <remarks>
-    /// Overflow is asymmetric in the C++ and both halves are reproduced where
-    /// they are observable: a quoted token is truncated SILENTLY
-    /// (<c>src/tier1/utlbuffer.cpp:783-794</c>) while an unquoted one reports
-    /// <c>" ReadToken overflow"</c> once and then truncates
-    /// (<c>KeyValues.cpp:606-614</c>).
+    /// Overflow is asymmetric in the reference and both halves are reproduced
+    /// where they are observable: a quoted token is truncated SILENTLY
+    /// while an unquoted one reports
+    /// <c>" ReadToken overflow"</c> once and then truncates.
     /// </remarks>
     public const int MaxTokenLength = 4096;
 
@@ -50,7 +49,7 @@ public sealed class KeyValuesNode
     /// <summary>
     /// The key name, with its original casing. Lookups ignore case -- names are
     /// interned through a case-insensitive symbol table
-    /// (<c>vstdlib/KeyValuesSystem.cpp:233,238</c>) -- but the spelling is kept
+    /// in the reference implementation -- but the spelling is kept
     /// for output.
     /// </summary>
     public string Name { get; set; }
@@ -70,19 +69,19 @@ public sealed class KeyValuesNode
     /// <remarks>
     /// <para>
     /// Tracked explicitly rather than inferred from
-    /// <see cref="Children"/> being non-empty, because the C++ distinguishes
-    /// the two and the difference is observable. An EMPTY block has
-    /// <c>m_iDataType == TYPE_NONE</c> and <c>m_pSub == NULL</c>: the patch
+    /// <see cref="Children"/> being non-empty, because the reference
+    /// distinguishes the two and the difference is observable. An EMPTY block
+    /// has <c>m_iDataType == TYPE_NONE</c> and <c>m_pSub == NULL</c>: the patch
     /// machinery's subkey case tests the DATA TYPE
-    /// (<c>materialsystem/cmaterial.cpp:3286-3297</c>) and so still recurses
+    /// and so still recurses
     /// into it, which is the only way the
-    /// <c>__vmtpatchdummy</c> at <c>:3302-3307</c> can ever be reached. A
+    /// <c>__vmtpatchdummy</c> case can ever be reached. A
     /// model that called an empty block a scalar would never produce one.
     /// </para>
     /// <para>
-    /// The serialiser goes the other way and tests <c>m_pSub</c>
-    /// (<c>KeyValues.cpp:859</c>), so an empty section writes NOTHING at all --
-    /// it falls to the <c>default: break;</c> at <c>:959-960</c>. Two different
+    /// The serialiser goes the other way and tests <c>m_pSub</c>, so an empty
+    /// section writes NOTHING at all --
+    /// it falls to the <c>default: break;</c> of the save switch. Two different
     /// tests over the same node, and this port needs both.
     /// </para>
     /// </remarks>
@@ -93,8 +92,8 @@ public sealed class KeyValuesNode
     /// has children.
     /// </summary>
     /// <remarks>
-    /// <c>SaveKeyToFile</c> tests <c>m_pSub</c> first
-    /// (<c>KeyValues.cpp:859-862</c>), so a node with both children and a value
+    /// The reference save path tests <c>m_pSub</c>
+    /// first, so a node with both children and a value
     /// writes as a section and the value is LOST.
     /// </remarks>
     public bool IsSection => IsBlock || Children.Count > 0;
@@ -126,10 +125,10 @@ public sealed class KeyValuesNode
     /// <param name="fallback">What to return when the key is absent.</param>
     /// <returns>The value, or <paramref name="fallback"/>.</returns>
     /// <remarks>
-    /// The C++ returns the EMPTY STRING rather than null for an absent key,
-    /// which makes a null check against it dead code -- the
-    /// <c>pIncludeFileName == NULL</c> guard at
-    /// <c>materialsystem/cmaterial.cpp:3443</c> in the 2018 drop never fires.
+    /// The reference returns the EMPTY STRING rather than null for an absent
+    /// key, which makes a null check against it dead code -- the
+    /// <c>pIncludeFileName == NULL</c> guard its material system puts after the
+    /// call never fires.
     /// That behaviour is a property of the call, so the fallback is explicit
     /// here instead.
     /// </remarks>
@@ -196,8 +195,8 @@ public sealed class KeyValuesNode
     /// <param name="name">The key name.</param>
     /// <returns>The child.</returns>
     /// <remarks>
-    /// The creating overload, used by the patch machinery at
-    /// <c>materialsystem/cmaterial.cpp:3292</c>. It is the reason a recursive
+    /// The creating overload, the one the reference patch machinery calls. It
+    /// is the reason a recursive
     /// <c>replace</c> can turn a scalar into a section.
     /// </remarks>
     public KeyValuesNode FindOrCreate(string name)

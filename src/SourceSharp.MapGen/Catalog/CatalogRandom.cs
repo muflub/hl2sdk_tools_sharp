@@ -13,8 +13,8 @@ namespace SourceSharp.MapGen.Catalog;
 ///
 /// <para>
 /// NOT `System.Random`. Its algorithm is explicitly not part of .NET's contract
-/// and has already changed once between framework versions — which would turn an
-/// SDK upgrade into a silent change of every generated map, and a byte-stability
+/// and has already changed once between framework versions — which would turn a
+/// runtime upgrade into a silent change of every generated map, and a byte-stability
 /// fact that compares a map against itself would never notice. xorshift32 is
 /// four lines, and those four lines are the contract.
 /// </para>

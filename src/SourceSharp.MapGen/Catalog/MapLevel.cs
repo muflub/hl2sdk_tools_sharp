@@ -45,7 +45,7 @@ public enum MapLevel
     L3,
 
     /// <summary>
-    /// Real maps: the corpus (`ss_sandbox.vmf`, the SDK content maps).
+    /// Real maps: the corpus (`ss_sandbox.vmf`, the shipped content maps).
     ///
     /// <para>
     /// Declared for completeness and deliberately EMPTY in this catalogue: an

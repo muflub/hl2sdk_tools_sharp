@@ -3,35 +3,31 @@ using System.Text;
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// The VMF tokenizer: a port of <c>TokenReader</c>
-/// (<c>src/tier1/tokenreader.cpp</c>, <c>src/public/tier1/tokenreader.h</c>),
-/// reading from memory rather than from a file.
+/// The VMF tokenizer: reads chunked keyvalue text the way the reference
+/// tokenizer's <c>TokenReader</c> does, from memory rather than from a file.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The C++ class derives privately from <c>std::ifstream</c> and its behaviour
-/// is written in terms of <c>get</c>, <c>peek</c>, <c>putback</c>, <c>ignore</c>
-/// and the stream's <c>eofbit</c>. Every one of those is reproduced here over a
-/// character buffer, because several of this format's quirks ARE the stream
-/// semantics: the 1024-character cap on skipping a comment
-/// (<c>tokenreader.cpp:466</c>), the 1024-character chunking of a quoted string
-/// (<c>tokenreader.cpp:92</c>), and end-of-file being noticed only after the
-/// character tests (<c>tokenreader.cpp:454</c>).
+/// The reference class derives privately from a file input stream and its
+/// behaviour is written in terms of <c>get</c>, <c>peek</c>, <c>putback</c>,
+/// <c>ignore</c> and the stream's <c>eofbit</c>. Every one of those is
+/// reproduced here over a character buffer, because several of this format's
+/// quirks ARE the stream semantics: the 1024-character cap on skipping a
+/// comment, the 1024-character chunking of a quoted string, and end-of-file
+/// being noticed only after the character tests.
 /// </para>
 /// <para>
 /// Memory, never a path or a stream: the reader needs <c>putback</c> and a
 /// one-character <c>peek</c>, and a file is read once in whole by every caller
-/// in the tree anyway (<c>CChunkFile::Open</c>,
-/// <c>chunkfile.cpp:401-433</c>). <see cref="VmfDocument"/> is the seam that
+/// anyway (<c>CChunkFile::Open</c>). <see cref="VmfDocument"/> is the seam that
 /// turns a <see cref="System.IO.Stream"/> into this.
 /// </para>
 /// <para>
 /// Decoding is Latin-1 at the <see cref="System.IO.Stream"/> seam, so every
 /// input byte becomes exactly one character and every character becomes exactly
-/// that byte again on the way out. The C++ opens the file
-/// <c>std::ios::binary</c> (<c>tokenreader.cpp:35</c>) and does byte
-/// arithmetic; a UTF-8 decode would silently merge byte pairs and break the
-/// byte-exact round trip that Phase 1c is gated on.
+/// that byte again on the way out. The reference opens its file in binary mode
+/// and does byte arithmetic; a UTF-8 decode would silently merge byte pairs and
+/// break the byte-exact round trip that Phase 1c is gated on.
 /// </para>
 /// <para>
 /// No mutable statics: line number, position and the stuffed token are all
@@ -41,10 +37,9 @@ namespace SourceSharp.MapFormats.Text;
 public sealed class ChunkTokenReader
 {
     /// <summary>
-    /// The size of the C++ tokenizer's intermediate string buffer, and so the
-    /// number of characters it consumes from a quoted string at a time
-    /// (<c>tokenreader.cpp:81,92</c>) and the cap on skipping a
-    /// <c>//</c> comment (<c>tokenreader.cpp:466</c>).
+    /// The size of the reference tokenizer's intermediate string buffer, and so
+    /// the number of characters it consumes from a quoted string at a time and
+    /// the cap on skipping a <c>//</c> comment.
     /// </summary>
     /// <remarks>
     /// <c>std::istream::get(s, n, delim)</c> extracts at most <c>n - 1</c>
@@ -55,15 +50,15 @@ public sealed class ChunkTokenReader
     public const int StreamBufferSize = 1024;
 
     /// <summary>
-    /// The single characters the C++ returns as
-    /// <see cref="ChunkTokenType.Operator"/>, in the order they are listed at
-    /// <c>src/tier1/tokenreader.cpp:252-268</c>.
+    /// The single characters the reference tokenizer returns as
+    /// <see cref="ChunkTokenType.Operator"/>, in the order the reference lists
+    /// them.
     /// </summary>
     /// <remarks>
-    /// <c>'+'</c> is in the C++ list but is unreachable: <c>SkipWhiteSpace</c>
-    /// consumes it as the string-combining character before <c>NextToken</c>
-    /// ever looks at it (<c>tokenreader.cpp:442-446</c>). It is kept here so
-    /// the list matches its original, and a fact pins the unreachability.
+    /// <c>'+'</c> is in the reference list but is unreachable:
+    /// <c>SkipWhiteSpace</c> consumes it as the string-combining character
+    /// before <c>NextToken</c> ever looks at it. It is kept here so the list
+    /// matches the reference list, and a fact pins the unreachability.
     /// </remarks>
     public const string OperatorCharacters = "@,!+&*$.=:[](){}\\";
 
@@ -96,8 +91,8 @@ public sealed class ChunkTokenReader
         new(Encoding.Latin1.GetString(bytes));
 
     /// <summary>
-    /// The current line, counting from 1 as <c>m_nLine</c> does
-    /// (<c>tokenreader.cpp:22</c>).
+    /// The current line, counting from 1 as the reference's <c>m_nLine</c>
+    /// does.
     /// </summary>
     public int Line { get; private set; } = 1;
 
@@ -107,21 +102,20 @@ public sealed class ChunkTokenReader
     /// </summary>
     /// <remarks>
     /// Sticky, like the stream bit: it is set by a read that runs off the end
-    /// and is never cleared, which is what makes
-    /// <c>SkipWhiteSpace</c>'s late test at <c>tokenreader.cpp:454</c>
-    /// terminate.
+    /// and is never cleared, which is what makes <c>SkipWhiteSpace</c>'s late
+    /// EOF test terminate.
     /// </remarks>
     public bool EndOfFile => _eof;
 
     /// <summary>
     /// Pushes a token back so the next <see cref="NextToken"/> returns it, as
-    /// <c>Stuff</c> does (<c>tokenreader.cpp:376-381</c>).
+    /// the reference's <c>Stuff</c> does.
     /// </summary>
     /// <param name="type">The token's type.</param>
     /// <param name="token">The token's text.</param>
     /// <exception cref="ArgumentNullException"><paramref name="token"/> is null.</exception>
     /// <remarks>
-    /// Exactly one token deep, as in the C++: a second call overwrites the
+    /// Exactly one token deep, as in the reference: a second call overwrites the
     /// first rather than making a stack.
     /// </remarks>
     public void Stuff(ChunkTokenType type, string token)
@@ -133,15 +127,15 @@ public sealed class ChunkTokenReader
     }
 
     /// <summary>
-    /// Returns the type and text of the next token without consuming it, as
-    /// <c>PeekTokenType</c> does (<c>tokenreader.cpp:406-420</c>).
+    /// Returns the type and text of the next token without consuming it, as the
+    /// reference's <c>PeekTokenType</c> does.
     /// </summary>
     /// <param name="token">Receives the token's text.</param>
     /// <returns>The token's type.</returns>
     /// <remarks>
-    /// The C++ implements this by reading a token and stuffing it, so a peek
-    /// advances the line counter past any whitespace and comments before the
-    /// token. That is observable and is reproduced.
+    /// The reference implements this by reading a token and stuffing it, so a
+    /// peek advances the line counter past any whitespace and comments before
+    /// the token. That is observable and is reproduced.
     /// </remarks>
     public ChunkTokenType PeekTokenType(out string token)
     {
@@ -156,8 +150,7 @@ public sealed class ChunkTokenReader
     }
 
     /// <summary>
-    /// Reads the next token, a port of <c>NextToken</c>
-    /// (<c>tokenreader.cpp:214-341</c>).
+    /// Reads the next token, following the reference <c>NextToken</c>.
     /// </summary>
     /// <param name="token">
     /// Receives the token's text: the operator character, the digits, the
@@ -172,20 +165,19 @@ public sealed class ChunkTokenReader
     /// <see cref="VmfDocument.ReadAsync"/>, which is async and takes a token.
     /// </para>
     /// <para>
-    /// Unbounded, where the C++ takes a destination size. Truncation is a
-    /// property of the caller's buffer in the C++ and the two places it is
-    /// observable are reproduced where they are observable --
+    /// Unbounded, where the reference takes a destination size. Truncation is a
+    /// property of the caller's buffer in the reference and the two places it
+    /// is observable are reproduced where they are observable --
     /// <see cref="ChunkFileReader"/> applies
     /// <see cref="ChunkFileReader.MaxKeyValueLength"/> -- rather than here,
     /// because the tokenizer's own limits differ per call site (8192 in
-    /// <c>NextTokenDynamic</c>, <c>tokenreader.cpp:197</c>; 1024 in
-    /// <c>IgnoreTill</c>, <c>:352</c>).
+    /// <c>NextTokenDynamic</c>, 1024 in <c>IgnoreTill</c>).
     /// </para>
     /// </remarks>
     public ChunkTokenType NextToken(out string token)
     {
-        // tokenreader.cpp:226-231 -- a stuffed token short-circuits everything,
-        // whitespace skipping included.
+        // A stuffed token short-circuits everything, whitespace skipping
+        // included.
         if (_stuffed)
         {
             _stuffed = false;
@@ -208,23 +200,20 @@ public sealed class ChunkTokenReader
             return ChunkTokenType.EndOfFile;
         }
 
-        // tokenreader.cpp:250-274.
         if (OperatorCharacters.Contains((char)ch, StringComparison.Ordinal))
         {
             token = ((char)ch).ToString();
             return ChunkTokenType.Operator;
         }
 
-        // tokenreader.cpp:279-282.
         if (ch == '"')
         {
             return GetString(out token);
         }
 
-        // tokenreader.cpp:287-318. Note what is NOT here: no '.', no exponent,
-        // no leading '+'. "1.5" lexes as INTEGER "1", OPERATOR ".",
-        // INTEGER "5" -- which is why every float in a VMF lives inside a
-        // quoted string.
+        // Note what is NOT here: no '.', no exponent, no leading '+'. "1.5"
+        // lexes as INTEGER "1", OPERATOR ".", INTEGER "5" -- which is why every
+        // float in a VMF lives inside a quoted string.
         if (char.IsAsciiDigit((char)ch) || ch == '-')
         {
             StringBuilder number = new();
@@ -234,7 +223,7 @@ public sealed class ChunkTokenReader
                 ch = Get();
 
                 // A second minus sign anywhere in the number is an error, not a
-                // terminator (tokenreader.cpp:298-301).
+                // terminator.
                 if (ch == '-')
                 {
                     token = string.Empty;
@@ -243,8 +232,7 @@ public sealed class ChunkTokenReader
             }
             while (ch >= 0 && char.IsAsciiDigit((char)ch));
 
-            // tokenreader.cpp:307-310 -- "12abc" is an error rather than two
-            // tokens.
+            // "12abc" is an error rather than two tokens.
             if (ch >= 0 && (char.IsAsciiLetter((char)ch) || ch == '_'))
             {
                 token = string.Empty;
@@ -256,10 +244,10 @@ public sealed class ChunkTokenReader
             return ChunkTokenType.Integer;
         }
 
-        // tokenreader.cpp:324-340. An unrecognised character -- ';' or '#',
-        // say -- matches neither this loop nor anything above, so it comes back
-        // as an EMPTY identifier having been consumed. That is not an error in
-        // the C++ and is not one here.
+        // An unrecognised character -- ';' or '#', say -- matches neither this
+        // loop nor anything above, so it comes back as an EMPTY identifier
+        // having been consumed. The reference does not treat that as an error,
+        // and neither does this.
         StringBuilder ident = new();
         while (ch >= 0 && (char.IsAsciiLetterOrDigit((char)ch) || ch == '_'))
         {
@@ -273,8 +261,8 @@ public sealed class ChunkTokenReader
     }
 
     /// <summary>
-    /// Skips whitespace and comments, a port of <c>SkipWhiteSpace</c>
-    /// (<c>tokenreader.cpp:429-479</c>).
+    /// Skips whitespace and comments, following the reference tokenizer's skip
+    /// pass.
     /// </summary>
     /// <returns>
     /// True when a <c>'+'</c> was passed over: the string-combining character,
@@ -282,24 +270,23 @@ public sealed class ChunkTokenReader
     /// </returns>
     /// <remarks>
     /// <para>
-    /// Three quirks live in this function and all three are ported:
+    /// Three quirks live in this function and all three are reproduced:
     /// </para>
     /// <list type="bullet">
     /// <item><description>
-    /// A NUL byte is whitespace (<c>tokenreader.cpp:437</c>), so a VMF with
-    /// embedded NULs parses.
+    /// A NUL byte is whitespace, so a VMF with embedded NULs parses.
     /// </description></item>
     /// <item><description>
     /// A lone <c>'/'</c> not followed by another is SILENTLY EATEN: the
-    /// <c>if (ch == '/')</c> branch at <c>:462</c> neither starts a comment nor
+    /// reference's <c>if (ch == '/')</c> branch neither starts a comment nor
     /// falls into the <c>else</c> that would put the character back, so the
     /// loop simply continues having consumed it.
     /// </description></item>
     /// <item><description>
-    /// A comment is skipped with <c>ignore(1024, '\n')</c> at <c>:466</c>, so a
-    /// comment longer than 1024 characters is not fully skipped -- the
-    /// remainder is tokenized as code -- and the line counter is incremented at
-    /// <c>:467</c> either way, so a long comment MISCOUNTS the line.
+    /// A comment is skipped with <c>ignore(1024, '\n')</c>, so a comment longer
+    /// than 1024 characters is not fully skipped -- the remainder is tokenized
+    /// as code -- and the line counter is incremented either way, so a long
+    /// comment MISCOUNTS the line.
     /// </description></item>
     /// </list>
     /// </remarks>
@@ -328,8 +315,8 @@ public sealed class ChunkTokenReader
                 continue;
             }
 
-            // tokenreader.cpp:454 -- tested AFTER the character cases, which is
-            // why the EOF sentinel has to fail all of them first.
+            // Tested AFTER the character cases, which is why the EOF sentinel
+            // has to fail all of them first.
             if (_eof)
             {
                 return combineStrings;
@@ -354,8 +341,8 @@ public sealed class ChunkTokenReader
     }
 
     /// <summary>
-    /// Reads the body of a quoted string, a port of <c>GetString</c>
-    /// (<c>tokenreader.cpp:74-186</c>). The opening quote has been consumed.
+    /// Reads the body of a quoted string, following the reference tokenizer's
+    /// string pass. The opening quote has been consumed.
     /// </summary>
     private ChunkTokenType GetString(out string token)
     {
@@ -363,13 +350,13 @@ public sealed class ChunkTokenReader
 
         while (true)
         {
-            // tokenreader.cpp:92 -- get(szBuf, 1024, '"') takes at most 1023
+            // The reference's get(szBuf, 1024, '"') takes at most 1023
             // characters and stops BEFORE the quote without consuming it.
             string chunk = GetUntil(StreamBufferSize - 1, '"');
 
             if (_eof)
             {
-                // :93-96. An unterminated string that runs into end of file is
+                // An unterminated string that runs into end of file is
                 // reported as EOF, NOT as StringTooLong -- the two malformed
                 // cases have different codes and callers act on the difference.
                 token = string.Empty;
@@ -383,7 +370,7 @@ public sealed class ChunkTokenReader
 
                 if (c == '\r')
                 {
-                    // :110-117. CARRIAGE RETURN, not newline. A string broken
+                    // CARRIAGE RETURN, not newline. A string broken
                     // across a line in a CRLF file is caught here; the same
                     // string in an LF-only file is NOT caught and the newline
                     // becomes part of the value.
@@ -398,15 +385,15 @@ public sealed class ChunkTokenReader
                     continue;
                 }
 
-                // :123-136. The escape handling, and the one place this port
-                // deliberately DEFINES what the C++ leaves indeterminate.
+                // The escape handling, and the one place this reader
+                // deliberately DEFINES what the reference leaves indeterminate.
                 //
-                // The C++ advances past the backslash, assigns the destination
-                // byte only when the next character is 'n', and advances the
-                // destination pointer regardless. So "\t" writes whatever
-                // happened to be in the caller's uninitialised buffer, and a
-                // backslash as the last character of a 1023-character chunk
-                // reads past the buffer's terminator entirely.
+                // The reference advances past the backslash, assigns the
+                // destination byte only when the next character is 'n', and
+                // advances the destination pointer regardless. So "\t" writes
+                // whatever happened to be in the caller's uninitialised buffer,
+                // and a backslash as the last character of a 1023-character
+                // chunk reads past the buffer's terminator entirely.
                 //
                 // Reproducing undefined behaviour is not possible and would not
                 // be worth it: Hammer writes forward slashes in the material
@@ -424,14 +411,14 @@ public sealed class ChunkTokenReader
                 }
             }
 
-            // :156-184. Closing quote?
+            // Closing quote?
             if (Peek() == '"')
             {
                 Get();
 
                 bool combineStrings = SkipWhiteSpace();
 
-                // :169-175 -- "abc" + "def" is one token, "abcdef".
+                // "abc" + "def" is one token, "abcdef".
                 if (combineStrings && Peek() == '"')
                 {
                     Get();
@@ -443,11 +430,11 @@ public sealed class ChunkTokenReader
             }
 
             // Not at the quote, so the chunk filled up: go round for the next
-            // 1023 characters. The C++ reaches the same place from
-            // :142-151 when the DESTINATION ran out instead, which is where its
-            // StringTooLong for an over-long string comes from; this port has no
-            // destination limit at the tokenizer, so a long string simply keeps
-            // going and the limit is applied by ChunkFileReader instead.
+            // 1023 characters. The reference reaches the same place when its
+            // DESTINATION ran out instead, which is where its StringTooLong for
+            // an over-long string comes from; this reader has no destination
+            // limit at the tokenizer, so a long string simply keeps going and
+            // the limit is applied by ChunkFileReader instead.
         }
     }
 
@@ -488,8 +475,8 @@ public sealed class ChunkTokenReader
             int next = Peek();
             if (next < 0)
             {
-                // Reaching the end sets eofbit, which is exactly what
-                // tokenreader.cpp:93 tests.
+                // Reaching the end sets eofbit, which is exactly what the
+                // reference relies on to report an unterminated string.
                 _eof = true;
                 break;
             }

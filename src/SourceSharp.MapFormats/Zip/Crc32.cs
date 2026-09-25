@@ -3,23 +3,22 @@ using System.Collections.Immutable;
 namespace SourceSharp.MapFormats.Zip;
 
 /// <summary>
-/// The CRC-32 a pakfile entry stores: a port of
-/// <c>src/tier1/checksum_crc.cpp</c>.
+/// The CRC-32 a pakfile entry stores: the checksum the reference
+/// implementation computes.
 /// </summary>
 /// <remarks>
 /// <para>
 /// The bog-standard one, and the point of saying so is that it is worth
 /// checking rather than assuming. <c>CRC32_INIT_VALUE</c> and
-/// <c>CRC32_XOR_VALUE</c> are both <c>0xFFFFFFFF</c>
-/// (<c>checksum_crc.cpp:14-15</c>) and the table at <c>:18-84</c> is the
-/// canonical reflected table for polynomial <c>0xEDB88320</c> -- its ninth
+/// <c>CRC32_XOR_VALUE</c> are both <c>0xFFFFFFFF</c> and the reference table is
+/// the canonical reflected table for polynomial <c>0xEDB88320</c> -- its ninth
 /// entry is <c>0x0EDB8832</c>. So this agrees with zlib, with
 /// <c>System.IO.Hashing.Crc32</c>, and with every other zip tool.
 /// </para>
 /// <para>
 /// Written out rather than taken from <c>System.IO.Hashing</c> because this
-/// assembly takes no package reference (plan ruling Q3), and the table is 256
-/// entries generated once per call site from the polynomial.
+/// assembly takes no package reference, and the table is 256 entries generated
+/// once per call site from the polynomial.
 /// </para>
 /// <para>
 /// The table is a <c>static readonly</c> array of a primitive, which is not a
@@ -40,18 +39,18 @@ public static class Crc32
     private static readonly ImmutableArray<uint> Table = [.. BuildTable()];
 
     /// <summary>
-    /// The polynomial, in its reflected form
-    /// (<c>src/tier1/checksum_crc.cpp:18-84</c> is its expansion).
+    /// The polynomial, in its reflected form; the reference table is its
+    /// expansion.
     /// </summary>
     public const uint Polynomial = 0xEDB88320u;
 
     /// <summary>
-    /// <c>CRC32_INIT_VALUE</c> (<c>src/tier1/checksum_crc.cpp:14</c>).
+    /// <c>CRC32_INIT_VALUE</c>.
     /// </summary>
     public const uint InitialValue = 0xFFFFFFFFu;
 
     /// <summary>
-    /// <c>CRC32_XOR_VALUE</c> (<c>src/tier1/checksum_crc.cpp:15</c>).
+    /// <c>CRC32_XOR_VALUE</c>.
     /// </summary>
     public const uint FinalXorValue = 0xFFFFFFFFu;
 

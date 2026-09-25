@@ -609,8 +609,8 @@ public static class AllCommand
             + $"appid={resolution.Resolved.DetectedSteamAppId}")
             .ConfigureAwait(false);
 
-        // vrad's <map>.rad beside the map and its -lights file, over the game
-        // (vrad.cpp:2168-2186), as `ssmap vrad` layers them.
+        // vrad's <map>.rad beside the map and its -lights file, over the game,
+        // as `ssmap vrad` layers them.
         string mapName = Path.GetFileName(paths.Source);
         VradCommand.LooseFileContent content = new(disk, mounted.Content);
         content.Add(mapName + ".rad", paths.Source + ".rad");

@@ -7,9 +7,9 @@ namespace SourceSharp.Tests.MapTools.Options;
 
 /// <summary>
 /// The twelve format-family flags <see cref="StockArgs.ParseVbsp"/> gained for
-/// the Tools++ preset surface, and the two kill switches. Each flag lands in
+/// the format preset surface, and the two kill switches. Each flag lands in
 /// the <see cref="StockArgsResult{VbspOptions}.Format"/> overlay (never on
-/// <c>VbspOptions</c> itself) with ++'s validation table.
+/// <c>VbspOptions</c> itself) with the documented validation table.
 /// </summary>
 public class FormatFlagTests
 {
@@ -117,8 +117,8 @@ public class FormatFlagTests
     }
 
     [Theory]
-    // ++'s token table verbatim: the digit range and the TF2 flavour, with
-    // "10_TF2" compared first (dump 0x1400e696c, FUN_140042b20).
+    // The accepted token table: the digit range and the TF2 flavour, with
+    // "10_TF2" compared first.
     [InlineData("6")]
     [InlineData("7")]
     [InlineData("8")]
@@ -140,10 +140,10 @@ public class FormatFlagTests
     [Theory]
     [InlineData("5")]
     [InlineData("15")]
-    [InlineData("10_tf2")] // ++'s first compare is a case-exact strcmp
-    public void StaticPropFormatRefusesWithDumpText(string token)
+    [InlineData("10_tf2")] // the first compare is a case-exact match
+    public void StaticPropFormatRefusesWithTheDocumentedMessage(string token)
     {
-        // ++: "Unrecognized prop format %s" — the port says ++'s words with
+        // "Unrecognized prop format %s" — the error says those words with
         // the typed token substituted, verbatim, under ARGS0011.
         StockArgsResult<VbspOptions> r = Parse("-staticpropformat", token);
 
@@ -157,9 +157,9 @@ public class FormatFlagTests
     [Fact]
     public void AnEmptyStaticPropFormatValueIsAMissingValueNotARefusedFormat()
     {
-        // An empty token never reaches ++'s token table: the cursor's
+        // An empty token never reaches the token table: the cursor's
         // TryValue rejects "" as "no value" (ARGS0002) before the flag
-        // handler sees it, so the dump's "Unrecognized prop format" text is
+        // handler sees it, so the "Unrecognized prop format" text is
         // the wrong complaint here.
         StockArgsResult<VbspOptions> r = Parse("-staticpropformat", string.Empty);
 
@@ -216,8 +216,8 @@ public class FormatFlagTests
     [Fact]
     public void TypedFlagsBeatAnEarlierPresetFlagInTheSameLine()
     {
-        // One accumulator in token order, like ++ storing globals as the
-        // argv walk reaches each token: -csgo then -bspformat 19 writes 19.
+        // One accumulator in token order: each token stores as the argv walk
+        // reaches it, so -csgo then -bspformat 19 writes 19.
         StockArgsResult<VbspOptions> r = Parse("-csgo", "-bspformat", "19");
 
         Assert.Equal(19, r.Format!.BspVersion);

@@ -6,9 +6,9 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Options;
 
 /// <summary>
-/// <see cref="StockArgs.ParseVrad"/> against the spellings
-/// <c>src/utils/vrad/vrad.cpp</c> accepts, plus <c>-both</c> from
-/// <c>vrad_launcher</c>.
+/// <see cref="StockArgs.ParseVrad"/> against the spellings the reference
+/// vrad accepts, plus <c>-both</c> from
+/// the reference launcher.
 /// </summary>
 public class StockArgsVradTests
 {
@@ -50,7 +50,7 @@ public class StockArgsVradTests
     [Fact]
     public void HdrAsksForHdrOnly()
     {
-        // vrad.cpp:2624
+        // -hdr selects the HDR range only.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-hdr", Map]);
 
         Assert.Equal(VradLightingRange.Hdr, result.Options.Range);
@@ -59,7 +59,7 @@ public class StockArgsVradTests
     [Fact]
     public void LdrAsksForLdrOnly()
     {
-        // vrad.cpp:2628
+        // -ldr selects the LDR range only.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-ldr", Map]);
 
         Assert.Equal(VradLightingRange.Ldr, result.Options.Range);
@@ -68,7 +68,8 @@ public class StockArgsVradTests
     [Fact]
     public void BothAsksForOneCompileProducingBothRanges()
     {
-        // vrad_launcher.cpp:68 runs the whole DLL twice for this. Plan 4p
+        // The reference launcher runs the whole lighting pass twice for this.
+        // Plan 4p
         // shares the geometry, KD-tree, patches and transfers instead, so it
         // is one compile here.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-both", Map]);
@@ -80,8 +81,7 @@ public class StockArgsVradTests
     [Fact]
     public void TheLastRangeFlagOnTheLineWins()
     {
-        // Each of stock's branches calls SetHDRMode outright, so the last one
-        // parsed is the mode.
+        // Each range flag sets the mode outright, so the last one parsed is the mode.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-hdr", "-ldr", Map]);
 
         Assert.Equal(VradLightingRange.Ldr, result.Options.Range);
@@ -90,7 +90,7 @@ public class StockArgsVradTests
     [Fact]
     public void FinalIsExactlyExtraSkySixteen()
     {
-        // vrad.cpp:2514 sets g_flSkySampleScale = 16.0 and nothing else, which
+        // -final sets the sky sample scale to 16.0 and nothing else, which
         // is why there is no separate Final option.
         StockArgsResult<VradOptions> fromFinal = StockArgs.ParseVrad(["-final", Map]);
         StockArgsResult<VradOptions> fromExtraSky = StockArgs.ParseVrad(["-extrasky", "16", Map]);
@@ -117,7 +117,7 @@ public class StockArgsVradTests
     [Fact]
     public void ZeroBouncesIsLegalAndMeansDirectLightOnly()
     {
-        // vrad.cpp:2448 refuses only a NEGATIVE value.
+        // -bounce refuses only a NEGATIVE value.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-bounce", "0", Map]);
 
         Assert.Equal(0, result.Options.Bounces);
@@ -127,7 +127,7 @@ public class StockArgsVradTests
     [Fact]
     public void ANegativeBounceCountIsAnError()
     {
-        // vrad.cpp:2448-2452
+        // A negative bounce count is out of range.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-bounce", "-1", Map]);
 
         Assert.Equal(StockArgsCodes.ValueOutOfRange, Assert.Single(result.Diagnostics).Code);
@@ -137,8 +137,8 @@ public class StockArgsVradTests
     [Fact]
     public void SmoothKeepsTheAngleInDegrees()
     {
-        // vrad.cpp:2538 stores cos(radians(n)). The option holds what was
-        // typed.
+        // -smooth stores the cosine of the typed angle. The option holds what
+        // was typed.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-smooth", "60", Map]);
 
         Assert.Equal(60.0f, result.Options.SmoothingAngleDegrees);
@@ -147,8 +147,8 @@ public class StockArgsVradTests
     [Fact]
     public void LuxelDensityKeepsWhatWasTypedRatherThanStocksReciprocal()
     {
-        // vrad.cpp:2555-2556 turns 2.0 into 0.5 while the usage text at
-        // vrad.cpp:2857-2858 claims a value above 1.0 "will be ignored".
+        // The reference build turns 2.0 into 0.5 while its usage text claims a
+        // value above 1.0 "will be ignored".
         // Neither is what the other says, so the option records the request
         // and the stage applies the reciprocal.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-luxeldensity", "2", Map]);
@@ -159,7 +159,7 @@ public class StockArgsVradTests
     [Fact]
     public void SoftSunKeepsTheExtentInDegrees()
     {
-        // vrad.cpp:2581 stores sin(radians(n)).
+        // -softsun stores the sine of the typed extent.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-softsun", "5", Map]);
 
         Assert.Equal(5.0f, result.Options.SunAngularExtentDegrees);
@@ -176,8 +176,8 @@ public class StockArgsVradTests
     [Fact]
     public void ChopBeforeMaxChopIsClampedByTheDEFAULTMaxChop()
     {
-        // vrad.cpp:2659 clamps minchop against maxchop AS IT STANDS, so the
-        // two flags are order-dependent. Here maxchop is still 4.
+        // The reference parser clamps minchop against maxchop AS IT STANDS, so
+        // the two flags are order-dependent. Here maxchop is still 4.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-chop", "8", "-maxchop", "16", Map]);
 
         Assert.Equal(4.0f, result.Options.MinChop);
@@ -196,7 +196,7 @@ public class StockArgsVradTests
     [Fact]
     public void ChopBelowOneIsAnError()
     {
-        // vrad.cpp:2653-2657
+        // Chop below one is out of range.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-chop", "0.5", Map]);
 
         Assert.Equal(StockArgsCodes.ValueOutOfRange, Assert.Single(result.Diagnostics).Code);
@@ -205,7 +205,7 @@ public class StockArgsVradTests
     [Fact]
     public void MaxChopBelowOneIsAnError()
     {
-        // vrad.cpp:2636-2640
+        // Maxchop below one is out of range.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-maxchop", "0", Map]);
 
         Assert.Equal(StockArgsCodes.ValueOutOfRange, Assert.Single(result.Diagnostics).Code);
@@ -222,7 +222,7 @@ public class StockArgsVradTests
     [Fact]
     public void DispChopBelowOneIsAnError()
     {
-        // vrad.cpp:2670-2675 -- the branch whose own error message misspells
+        // The chop-range branch's own error message misspells
         // the flag as "-dipschop".
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-dispchop", "0.5", Map]);
 
@@ -232,7 +232,7 @@ public class StockArgsVradTests
     [Fact]
     public void DispPatchRadiusBelowTenIsAnError()
     {
-        // vrad.cpp:2687-2692
+        // The patch-radius branch rejects values below ten.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-disppatchradius", "9", Map]);
 
         Assert.Equal(StockArgsCodes.ValueOutOfRange, Assert.Single(result.Diagnostics).Code);
@@ -258,7 +258,7 @@ public class StockArgsVradTests
     [Fact]
     public void LightsRecordsItsPath()
     {
-        // vrad.cpp:2482
+        // -lights stores its path verbatim.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-lights", "extra.rad", Map]);
 
         Assert.Equal("extra.rad", result.Options.LightsFile);
@@ -276,7 +276,7 @@ public class StockArgsVradTests
     [Fact]
     public void DumpIsAcceptedAndIgnoredInAnyCaseEvenThoughStockIsCaseSensitiveAboutIt()
     {
-        // vrad.cpp:2415 uses strcmp, so stock accepts -dump and rejects -DUMP.
+        // The reference build compares -dump case-sensitively, so it accepts -dump and rejects -DUMP.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-DUMP", Map]);
 
         CompileDiagnostic diagnostic = Assert.Single(result.Diagnostics);
@@ -287,7 +287,7 @@ public class StockArgsVradTests
     [Fact]
     public void StopOnExitIsAcceptedAndIgnored()
     {
-        // vrad.cpp:2602 waits for a keypress, which a library cannot do.
+        // The reference -StopOnExit waits for a keypress, which a library cannot do.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-StopOnExit", Map]);
 
         Assert.Equal(StockArgsCodes.DroppedOption, Assert.Single(result.Diagnostics).Code);
@@ -333,7 +333,7 @@ public class StockArgsVradTests
     [Fact]
     public void StaticPropLightingFinalIsUnknownBecauseItIsNotInThisTree()
     {
-        // The spelling appears nowhere under src/utils.
+        // The spelling appears nowhere in the reference tool.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-staticproplightingfinal", Map]);
 
         Assert.Equal(StockArgsCodes.UnknownOption, Assert.Single(result.Diagnostics).Code);
@@ -342,8 +342,8 @@ public class StockArgsVradTests
     [Fact]
     public void CoringIsUnknownBecauseItsBranchIsDebugOnly()
     {
-        // vrad.cpp:2702 is `#if ALLOWDEBUGOPTIONS`, defined as (0 || _DEBUG)
-        // at vrad.cpp:23, so a release vrad rejects it too.
+        // The reference -coring branch sits behind a debug-only guard that is
+        // compiled out everywhere, so a release vrad rejects it too.
         StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-coring", "0.5", Map]);
 
         Assert.Contains(result.Diagnostics, d => d.Code == StockArgsCodes.UnknownOption);

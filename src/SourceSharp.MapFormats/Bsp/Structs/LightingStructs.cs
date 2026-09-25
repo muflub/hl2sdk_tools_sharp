@@ -6,7 +6,7 @@ namespace SourceSharp.MapFormats.Bsp.Structs;
 
 /// <summary>
 /// One lightmap sample: three 8-bit mantissas and a shared signed exponent
-/// (<c>mathlib.h:990</c>, <c>struct ColorRGBExp32</c>).
+/// (the reference layout's <c>struct ColorRGBExp32</c>).
 /// </summary>
 /// <remarks>
 /// This is the storage format of LUMP_LIGHTING and LUMP_LIGHTING_HDR, and of
@@ -27,7 +27,7 @@ public struct ColorRgbExp32
     public byte B;
 
     /// <summary>
-    /// The shared exponent. SIGNED: <c>mathlib.h:993</c> declares it
+    /// The shared exponent. SIGNED: the reference layout declares it
     /// <c>signed char</c>, and an unsigned read turns every sample dimmer than
     /// 1.0 into an astronomically bright one.
     /// </summary>
@@ -39,7 +39,7 @@ public struct ColorRgbExp32
     /// </summary>
     /// <returns>The decoded colour.</returns>
     /// <remarks>
-    /// <c>mathlib_base.cpp</c>'s implementation is
+    /// The reference implementation converts
     /// <c>TexLightToLinear( c, exponent )</c> per channel, which is
     /// <c>mantissa * 2^exponent</c>. Written here as
     /// <see cref="MathF.Pow(float, float)"/> of two, rather than as a table
@@ -54,7 +54,7 @@ public struct ColorRgbExp32
 
 /// <summary>
 /// Six <see cref="ColorRgbExp32"/>, one per axis direction
-/// (<c>compressed_light_cube.h:17</c>, <c>struct CompressedLightCube</c>).
+/// (the reference layout's <c>struct CompressedLightCube</c>).
 /// </summary>
 /// <remarks>
 /// The axis order is the order <c>g_pBoxDirections</c> uses: +x, -x, +y, -y,

@@ -4,12 +4,12 @@ namespace SourceSharp.MapFormats.Text;
 /// A chunk file (a <c>.vmf</c>, a <c>.vmm</c>) is malformed.
 /// </summary>
 /// <remarks>
-/// Carries the C++ result code and the line, because those are what a user sees
-/// from stock: <c>CChunkFile::GetErrorText</c> renders
-/// <c>"File %s, line %d: "</c> and then the code's message
-/// (<c>src/public/chunkfile.cpp:264-301</c>,
-/// <c>src/tier1/tokenreader.cpp:58-65</c>). A port that reported only "parse
-/// error" would make a mapper's existing debugging routine stop working.
+/// Carries the reader's result code and the line, because those are what a
+/// user sees from stock: the reference reader's error rendering,
+/// <c>CChunkFile::GetErrorText</c>, prints
+/// <c>"File %s, line %d: "</c> and then the code's message. Reporting only
+/// "parse error" would make a mapper's existing debugging routine stop
+/// working.
 /// </remarks>
 public sealed class ChunkFileException : Exception
 {
@@ -59,7 +59,7 @@ public sealed class ChunkFileException : Exception
 
     private static string Describe(ChunkFileResult result, int line, string? errorToken)
     {
-        // The three messages of chunkfile.cpp:264-301, verbatim.
+        // The three reader messages, verbatim.
         string detail = result switch
         {
             ChunkFileResult.UnexpectedEndOfFile => "unexpected end of file",

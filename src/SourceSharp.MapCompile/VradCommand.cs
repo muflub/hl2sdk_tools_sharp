@@ -23,7 +23,7 @@ namespace SourceSharp.MapCompile;
 /// </para>
 /// <para>
 /// Stock reads <c>lights.rad</c> from the game's search path and
-/// <c>&lt;map&gt;.rad</c> from beside the <c>.bsp</c> (<c>vrad.cpp:2168-2186</c>);
+/// <c>&lt;map&gt;.rad</c> from beside the <c>.bsp</c>;
 /// the library reads both through one <see cref="IContentFileSystem"/>, so this
 /// command layers the map's own <c>.rad</c> and the <c>-lights</c> file over
 /// the mounted game. Stock's last resort -- <c>lights.rad</c> beside
@@ -74,7 +74,7 @@ public static class VradCommand
             return Program.ExitUsage;
         }
 
-        // vrad.cpp:2927-2929 and :2180-2182: the extension is stripped, the
+        // Stock: the extension is stripped, the
         // base name is the level's name, and ".bsp" is put back.
         string full = Path.GetFullPath(parsed.MapPath);
         string source = Path.Combine(Path.GetDirectoryName(full)!, Path.GetFileNameWithoutExtension(full));

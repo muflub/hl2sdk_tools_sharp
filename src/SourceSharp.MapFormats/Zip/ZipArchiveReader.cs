@@ -4,8 +4,8 @@ using System.Text;
 namespace SourceSharp.MapFormats.Zip;
 
 /// <summary>
-/// Reads a pakfile: a port of <c>CZipFile::ParseFromBuffer</c>
-/// (<c>src/public/zip_utils.cpp:622-764</c>).
+/// Reads a pakfile: the managed counterpart of the reference
+/// implementation's <c>CZipFile::ParseFromBuffer</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -13,25 +13,23 @@ namespace SourceSharp.MapFormats.Zip;
 /// is worth stating because it is how the format is really defined here. The
 /// data offset for each entry is computed arithmetically from its central
 /// header -- <c>relativeOffsetOfLocalHeader + 30 + fileNameLength +
-/// extraFieldLength</c> (<c>zip_utils.cpp:716-719</c>) -- and the LOCAL HEADER
-/// IS NEVER READ. Its signature is not checked and its extra-field length is
-/// ASSUMED to equal the central one. A pak whose two headers disagree reads as
-/// garbage in the engine, so this reader does the same arithmetic and then
-/// validates the local header separately, reporting a mismatch rather than
-/// silently returning the wrong bytes.
+/// extraFieldLength</c> -- and the LOCAL HEADER IS NEVER READ. Its signature is
+/// not checked and its extra-field length is ASSUMED to equal the central one.
+/// A pak whose two headers disagree reads as garbage in the reference build,
+/// so this reader does the same arithmetic and then validates the local header
+/// separately, reporting a mismatch rather than silently returning the wrong
+/// bytes.
 /// </para>
 /// <para>
 /// The directory is found by scanning BACKWARDS one byte at a time for the end
-/// record's signature, starting 22 bytes from the end
-/// (<c>zip_utils.cpp:646-676</c>). There is no 64 KB cap on how far back it
-/// looks and no offset is trusted to find it.
+/// record's signature, starting 22 bytes from the end. There is no 64 KB cap
+/// on how far back it looks and no offset is trusted to find it.
 /// </para>
 /// <para>
 /// ORDER IS PRESERVED. Stock loses it -- entries are parsed in directory order
-/// and inserted into a red-black tree that re-sorts them
-/// (<c>zip_utils.cpp:735-760</c>), so a load-then-save through
-/// <c>CZipFile</c> generally REORDERS a pak. This reader keeps a list, which is
-/// what makes a byte-exact round trip possible at all.
+/// and inserted into a red-black tree that re-sorts them, so a load-then-save
+/// through <c>CZipFile</c> generally REORDERS a pak. This reader keeps a list,
+/// which is what makes a byte-exact round trip possible at all.
 /// </para>
 /// </remarks>
 public sealed class ZipArchiveReader
@@ -54,8 +52,7 @@ public sealed class ZipArchiveReader
     /// such as <c>dm_lockdown.bsp</c> has no comment at all. Carrying it is
     /// what makes a byte-exact round trip of shipped content possible. Stock
     /// reads it only to recover an alignment value
-    /// (<c>src/public/zip_utils.cpp:661-668</c>,
-    /// <c>ParseXZipCommentString</c> at <c>:1321-1342</c>).
+    /// (<c>ParseXZipCommentString</c>).
     /// </remarks>
     public byte[] Comment { get; }
 
@@ -97,15 +94,15 @@ public sealed class ZipArchiveReader
     }
 
     /// <summary>
-    /// Finds an entry by name, case-insensitively as the engine looks it up.
+    /// Finds an entry by name, case-insensitively as the reference build looks
+    /// it up.
     /// </summary>
     /// <param name="name">The path inside the pak.</param>
     /// <returns>The entry, or null.</returns>
     /// <remarks>
-    /// <c>ReadFileFromZip</c> lower-cases the name before looking it up
-    /// (<c>zip_utils.cpp:1144-1147</c>) and so does <c>FileExistsInZip</c>
-    /// (<c>:1227-1230</c>), against names that were themselves lower-cased on
-    /// the way in (<c>:709</c>).
+    /// <c>ReadFileFromZip</c> lower-cases the name before looking it up, and so
+    /// does <c>FileExistsInZip</c>, against names that were themselves
+    /// lower-cased on the way in.
     /// </remarks>
     public ZipEntry? Find(string name)
     {
@@ -136,7 +133,7 @@ public sealed class ZipArchiveReader
 
     private static ZipArchiveReader Parse(ReadOnlySpan<byte> bytes, CancellationToken cancellationToken)
     {
-        // zip_utils.cpp:789-798 -- the one size sanity check either parser has.
+        // The one size sanity check either reference parser has.
         if (bytes.Length < ZipFormat.EndOfCentralDirectorySize)
         {
             throw new InvalidZipException(
@@ -146,8 +143,8 @@ public sealed class ZipArchiveReader
         int recordOffset = FindEndOfCentralDirectory(bytes);
         if (recordOffset < 0)
         {
-            // zip_utils.cpp:677 asserts in debug and, in release, falls through
-            // with a zeroed record and returns silently. A library that
+            // The reference build asserts here in debug and, in release, falls
+            // through with a zeroed record and returns silently. A library that
             // returned an empty pak for a corrupt one would hide the corruption
             // from every caller, so this reports it.
             throw new InvalidZipException("no end-of-central-directory record found");
@@ -164,8 +161,8 @@ public sealed class ZipArchiveReader
             ? bytes.Slice(commentStart, commentBytes).ToArray()
             : [];
 
-        // zip_utils.cpp:680-685 -- zero entries is not an error, just an empty
-        // pak. Every BSP without embedded content has one.
+        // Zero entries is not an error, just an empty pak. Every BSP without
+        // embedded content has one.
         if (entryCount == 0)
         {
             return new ZipArchiveReader([], comment);
@@ -198,9 +195,9 @@ public sealed class ZipArchiveReader
             uint signature = BinaryPrimitives.ReadUInt32LittleEndian(header);
             if (signature != ZipFormat.CentralDirectoryHeaderSignature)
             {
-                // zip_utils.cpp:699 asserts here in debug only, but :860-871 --
-                // the from-disk parser -- rejects the whole file. The stricter
-                // of the two is the right behaviour for a library.
+                // The reference build asserts here in debug only, but its
+                // from-disk parser rejects the whole file. The stricter of the
+                // two is the right behaviour for a library.
                 throw new InvalidZipException(
                     $"central directory entry {i} has signature 0x{signature:X8}, expected 0x{ZipFormat.CentralDirectoryHeaderSignature:X8}");
             }
@@ -217,10 +214,10 @@ public sealed class ZipArchiveReader
             if (method != (ushort)ZipCompressionMethod.Store &&
                 method != (ushort)ZipCompressionMethod.Lzma)
             {
-                // zip_utils.cpp:860-871 -- the whole file is rejected.
-                // zip_utils.cpp:700-705 only warns, but then hands the bogus
-                // method to a read that calls Error() and aborts (:1200-1204),
-                // so continuing buys nothing.
+                // The reference build's from-disk parser rejects the whole file.
+                // Its buffer parser only warns, but then hands the bogus method
+                // to a read that calls Error() and aborts, so continuing buys
+                // nothing.
                 throw new InvalidZipException(
                     $"entry {i} uses unsupported compression method {method}; a Source pak may only use 0 (store) or 14 (LZMA)");
             }
@@ -234,7 +231,7 @@ public sealed class ZipArchiveReader
             string name = Encoding.Latin1.GetString(bytes.Slice(cursor, nameLength));
             cursor += nameLength + extraLength + commentLength;
 
-            // zip_utils.cpp:716-719, verbatim. The local header's own
+            // The reference arithmetic, verbatim. The local header's own
             // extraFieldLength is not consulted.
             long dataOffset = localOffset + ZipFormat.LocalFileHeaderSize + nameLength + extraLength;
 
@@ -273,7 +270,7 @@ public sealed class ZipArchiveReader
     }
 
     /// <summary>
-    /// The backward scan of <c>zip_utils.cpp:646-676</c>.
+    /// The backward scan the reference build uses to find the end record.
     /// </summary>
     private static int FindEndOfCentralDirectory(ReadOnlySpan<byte> bytes)
     {

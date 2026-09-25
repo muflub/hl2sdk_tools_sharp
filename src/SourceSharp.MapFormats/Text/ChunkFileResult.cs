@@ -1,13 +1,13 @@
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// The outcome of one chunk-file read step: a port of
-/// <c>ChunkFileResult_t</c> (<c>src/public/chunkfile.h:42-54</c>).
+/// The outcome of one chunk-file read step, mirroring the reference
+/// reader's <c>ChunkFileResult_t</c>.
 /// </summary>
 /// <remarks>
-/// The values are the C++ enumerators' own, in their declared order, because
-/// vbsp compares against them by name everywhere and a fact asserts the
-/// correspondence.
+/// The values are the reference enumerators' own, in their declared order,
+/// because the reference reader compares against them by name everywhere and
+/// the parity facts assert the correspondence.
 /// </remarks>
 public enum ChunkFileResult
 {
@@ -40,7 +40,7 @@ public enum ChunkFileResult
     /// </summary>
     UnexpectedSymbol,
 
-    /// <summary><c>ChunkFile_OutOfMemory</c>: never produced by this port.</summary>
+    /// <summary><c>ChunkFile_OutOfMemory</c>: never produced by this writer or reader.</summary>
     OutOfMemory,
 
     /// <summary>

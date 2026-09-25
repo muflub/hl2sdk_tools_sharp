@@ -4,19 +4,18 @@ using SourceSharp.MapFormats.Geometry;
 
 namespace SourceSharp.MapFormats.Bsp.Structs;
 
-// The lump structs of src/public/bspfile.h, one C# struct per C struct, all
-// blittable so a lump's bytes can be REINTERPRETED rather than copied field by
-// field (see BspStructView).
+// The lump structs of the BSP format, one C# struct per struct in the
+// reference layout, all blittable so a lump's bytes can be REINTERPRETED
+// rather than copied field by field (see BspStructView).
 //
 // Every struct here is [StructLayout(Sequential, Pack = 1)] with any padding
-// the C++ compiler would insert written out as an explicit field. Pack = 1
-// alone would be WRONG -- C pads dleaf_t from 30 bytes to 32 and dnode_t from
-// 30 to 32 -- so the pads are named, documented, and pinned by facts rather
-// than left to the runtime's own packing rules.
+// the reference layout carries written out as an explicit field. Pack = 1
+// alone would be WRONG -- the reference layout pads dleaf_t from 30 bytes to
+// 32 and dnode_t from 30 to 32 -- so the pads are named, documented, and
+// pinned by facts rather than left to the runtime's own packing rules.
 
 /// <summary>
-/// One entry of the 64-slot lump directory (<c>bspfile.h:374</c>,
-/// <c>struct lump_t</c>).
+/// One entry of the 64-slot lump directory (<c>struct lump_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct LumpHeader
@@ -27,7 +26,7 @@ public struct LumpHeader
     /// <summary>The payload's length in bytes.</summary>
     public int FileLen;
 
-    /// <summary>The lump's version. Zero unless listed in <c>bspfile.h:360</c>.</summary>
+    /// <summary>The lump's version. Zero unless the format gives it one.</summary>
     public int Version;
 
     /// <summary>
@@ -35,15 +34,15 @@ public struct LumpHeader
     /// the decompressed size.
     /// </summary>
     /// <remarks>
-    /// This field used to be <c>char fourCC[4]</c> and was repurposed
-    /// (<c>bspfile.h:379</c>), so a very old map can carry junk here.
+    /// This field used to be <c>char fourCC[4]</c> and was repurposed, so a
+    /// very old map can carry junk here.
     /// </remarks>
     public int UncompressedSize;
 }
 
 /// <summary>
-/// The header of a standalone lump file, <c>.lmp</c> (<c>bspfile.h:404</c>,
-/// <c>struct lumpfileheader_t</c>).
+/// The header of a standalone lump file, <c>.lmp</c>
+/// (<c>struct lumpfileheader_t</c>).
 /// </summary>
 /// <remarks>
 /// Note this is NOT <see cref="LumpHeader"/> plus a field: the order differs
@@ -70,8 +69,7 @@ public struct LumpFileHeader
 }
 
 /// <summary>
-/// The whole-level feature flags of LUMP_MAP_FLAGS (<c>bspfile.h:398</c>,
-/// <c>struct dflagslump_t</c>).
+/// The whole-level feature flags of LUMP_MAP_FLAGS (<c>struct dflagslump_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DFlagsLump
@@ -81,8 +79,7 @@ public struct DFlagsLump
 }
 
 /// <summary>
-/// The values <see cref="DFlagsLump.LevelFlags"/> takes
-/// (<c>bspfile.h:395</c>).
+/// The values <see cref="DFlagsLump.LevelFlags"/> takes.
 /// </summary>
 [Flags]
 public enum LevelFlags
@@ -102,15 +99,14 @@ public enum LevelFlags
 }
 
 /// <summary>
-/// One entry of the game lump's nested directory (<c>bspfile.h:429</c>,
-/// <c>struct dgamelump_t</c>).
+/// One entry of the game lump's nested directory (<c>struct dgamelump_t</c>).
 /// </summary>
 /// <remarks>
 /// <see cref="FileOfs"/> is an offset from the start of the FILE, not from the
 /// start of the game lump, which is why the game lump cannot be relocated
 /// without rewriting this table. <see cref="GameLumpEntry"/> is the decoded
-/// form the rest of the port uses; this struct exists so the on-disk table can
-/// be read and written as bytes.
+/// form the rest of the library uses; this struct exists so the on-disk table
+/// can be read and written as bytes.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DGameLump
@@ -133,7 +129,7 @@ public struct DGameLump
 
 /// <summary>
 /// One brush model: the world (index 0) or a brush entity
-/// (<c>bspfile.h:441</c>, <c>struct dmodel_t</c>).
+/// (<c>struct dmodel_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DModel
@@ -155,14 +151,14 @@ public struct DModel
 
     /// <summary>
     /// How many faces the run holds. Submodels draw these directly rather than
-    /// walking the tree (<c>bspfile.h:447</c>).
+    /// walking the tree.
     /// </summary>
     public int NumFaces;
 }
 
 /// <summary>
 /// One entry of LUMP_PHYSCOLLIDE: the framing around one model's cooked
-/// collision blob (<c>bspfile.h:450</c>, <c>struct dphysmodel_t</c>).
+/// collision blob (<c>struct dphysmodel_t</c>).
 /// </summary>
 /// <remarks>
 /// The blob that follows is vphysics' own format and is not decoded here, for
@@ -186,14 +182,12 @@ public struct DPhysModel
 }
 
 /// <summary>
-/// The header of LUMP_PHYSDISP (<c>bspfile.h:460</c>,
-/// <c>struct dphysdisp_t</c>).
+/// The header of LUMP_PHYSDISP (<c>struct dphysdisp_t</c>).
 /// </summary>
 /// <remarks>
 /// Followed immediately by <c>unsigned short dataSize[numDisplacements]</c>
-/// and then the blobs themselves, which is why the C++ declares the array as a
-/// comment: the lump is a header plus two variable-length runs, not an array of
-/// this struct.
+/// and then the blobs themselves: the lump is a header plus two
+/// variable-length runs, not an array of this struct.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DPhysDisp
@@ -203,12 +197,11 @@ public struct DPhysDisp
 }
 
 /// <summary>
-/// One world plane (<c>bspfile.h:475</c>, <c>struct dplane_t</c>).
+/// One world plane (<c>struct dplane_t</c>).
 /// </summary>
 /// <remarks>
 /// Planes come in opposite pairs: <c>(x&amp;~1)</c> and <c>(x&amp;~1)+1</c> are
-/// always each other's flip (<c>bspfile.h:473</c>), so the lump always holds an
-/// even count.
+/// always each other's flip, so the lump always holds an even count.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DPlane
@@ -221,14 +214,13 @@ public struct DPlane
 
     /// <summary>
     /// The axial classification, <c>PLANE_X</c> through <c>PLANE_ANYZ</c>.
-    /// Trivially regenerable, and the header says so.
+    /// Trivially regenerable from the normal.
     /// </summary>
     public int Type;
 }
 
 /// <summary>
-/// One interior node of the BSP tree (<c>bspfile.h:486</c>,
-/// <c>struct dnode_t</c>).
+/// One interior node of the BSP tree (<c>struct dnode_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DNode
@@ -238,7 +230,7 @@ public struct DNode
 
     /// <summary>
     /// The two children. A NEGATIVE value is a leaf, encoded as
-    /// <c>-(leafIndex + 1)</c> (<c>bspfile.h:490</c>) -- so -1 is leaf 0 and
+    /// <c>-(leafIndex + 1)</c> -- so -1 is leaf 0 and
     /// there is no way to spell "no child".
     /// </summary>
     public IntArray2 Children;
@@ -257,13 +249,13 @@ public struct DNode
 
     /// <summary>
     /// The area index when every leaf below this node shares one area, and -1
-    /// when they do not (<c>bspfile.h:495</c>).
+    /// when they do not.
     /// </summary>
     public short Area;
 
     /// <summary>
     /// Trailing padding. The fields above total 30 bytes; <c>int planenum</c>
-    /// gives the C struct 4-byte alignment, so the compiler rounds it to 32.
+    /// gives the reference layout 4-byte alignment, so it rounds to 32.
     /// Written out because <c>Pack = 1</c> would otherwise produce a 30-byte
     /// struct and misalign every node after the first.
     /// </summary>
@@ -271,7 +263,7 @@ public struct DNode
 }
 
 /// <summary>
-/// One face's texture mapping (<c>bspfile.h:499</c>, <c>struct texinfo_t</c>).
+/// One face's texture mapping (<c>struct texinfo_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct TexInfo
@@ -286,7 +278,7 @@ public struct TexInfo
     /// <summary>The lightmap-space axes, in the same flattened shape.</summary>
     public FloatArray8 LightmapVecsLuxelsPerWorldUnits;
 
-    /// <summary>Surface flags: <c>SURF_*</c> from <c>bspflags.h</c>.</summary>
+    /// <summary>Surface flags: the <c>SURF_*</c> values.</summary>
     public int Flags;
 
     /// <summary>The index into LUMP_TEXDATA naming the material.</summary>
@@ -294,8 +286,7 @@ public struct TexInfo
 }
 
 /// <summary>
-/// One material as the map uses it (<c>bspfile.h:510</c>,
-/// <c>struct dtexdata_t</c>).
+/// One material as the map uses it (<c>struct dtexdata_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DTexData
@@ -327,7 +318,7 @@ public struct DTexData
 }
 
 /// <summary>
-/// One occluder (<c>bspfile.h:529</c>, <c>struct doccluderdata_t</c>), as
+/// One occluder (<c>struct doccluderdata_t</c>), as
 /// LUMP_OCCLUSION version 2 stores it.
 /// </summary>
 /// <remarks>
@@ -355,14 +346,14 @@ public struct DOccluderData
     /// <summary>
     /// The visibility area the occluder sits in. Present only at lump version
     /// 2; version 1 stops after <see cref="Maxs"/>
-    /// (<c>bspfile.h:540</c>, <c>doccluderdataV1_t</c>).
+    /// (<c>doccluderdataV1_t</c>).
     /// </summary>
     public int Area;
 }
 
 /// <summary>
 /// One occluder as LUMP_OCCLUSION version 1 stored it
-/// (<c>bspfile.h:540</c>, <c>struct doccluderdataV1_t</c>): the same fields
+/// (<c>struct doccluderdataV1_t</c>): the same fields
 /// without <see cref="DOccluderData.Area"/>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -384,7 +375,7 @@ public struct DOccluderDataV1
     public Vec3 Maxs;
 }
 
-/// <summary>The values <see cref="DOccluderData.Flags"/> takes (<c>bspfile.h:524</c>).</summary>
+/// <summary>The values <see cref="DOccluderData.Flags"/> takes.</summary>
 [Flags]
 public enum OccluderFlags
 {
@@ -396,8 +387,7 @@ public enum OccluderFlags
 }
 
 /// <summary>
-/// One occluder polygon (<c>bspfile.h:549</c>,
-/// <c>struct doccluderpolydata_t</c>).
+/// One occluder polygon (<c>struct doccluderpolydata_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DOccluderPolyData
@@ -413,12 +403,11 @@ public struct DOccluderPolyData
 }
 
 /// <summary>
-/// One edge: two vertex indices (<c>bspfile.h:673</c>,
-/// <c>struct dedge_t</c>).
+/// One edge: two vertex indices (<c>struct dedge_t</c>).
 /// </summary>
 /// <remarks>
 /// Edge 0 is never used, because LUMP_SURFEDGES encodes an edge's direction in
-/// the SIGN of its index and zero has no sign (<c>bspfile.h:671</c>).
+/// the SIGN of its index and zero has no sign.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DEdge
@@ -429,7 +418,7 @@ public struct DEdge
 
 /// <summary>
 /// One non-polygon primitive: a triangle list or strip
-/// (<c>bspfile.h:687</c>, <c>struct dprimitive_t</c>).
+/// (<c>struct dprimitive_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DPrimitive
@@ -439,8 +428,8 @@ public struct DPrimitive
 
     /// <summary>
     /// Padding. <c>unsigned short firstIndex</c> follows a single byte, so the
-    /// C compiler inserts one byte here and the struct is 10 bytes rather than
-    /// the 9 its fields total.
+    /// reference layout inserts one byte here and the struct is 10 bytes rather
+    /// than the 9 its fields total.
     /// </summary>
     public byte Padding;
 
@@ -457,7 +446,7 @@ public struct DPrimitive
     public ushort VertCount;
 }
 
-/// <summary>The values <see cref="DPrimitive.Type"/> takes (<c>bspfile.h:681</c>).</summary>
+/// <summary>The values <see cref="DPrimitive.Type"/> takes.</summary>
 public enum PrimitiveType
 {
     /// <summary>An independent triangle list.</summary>
@@ -468,7 +457,7 @@ public enum PrimitiveType
 }
 
 /// <summary>
-/// One face (<c>bspfile.h:703</c>, <c>struct dface_t</c>). The same struct
+/// One face (<c>struct dface_t</c>). The same struct
 /// backs LUMP_FACES, LUMP_ORIGINALFACES and LUMP_FACES_HDR.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -485,7 +474,7 @@ public struct DFace
 
     /// <summary>
     /// The first surfedge of this face's run. An <c>int</c> because a map can
-    /// hold more than 64k edges (<c>bspfile.h:710</c>).
+    /// hold more than 64k edges.
     /// </summary>
     public int FirstEdge;
 
@@ -497,9 +486,9 @@ public struct DFace
 
     /// <summary>
     /// The face's displacement, or -1. Shares its meaning with
-    /// <see cref="SurfaceFogVolumeId"/> only by convention: the C++ has these
-    /// as two fields with a comment saying they SHOULD be a union
-    /// (<c>bspfile.h:713</c>), so both are separate fields here too.
+    /// <see cref="SurfaceFogVolumeId"/> only by convention: the reference
+    /// layout has these as two fields with a comment saying they SHOULD be a
+    /// union, so both are separate fields here too.
     /// </summary>
     public short DispInfo;
 
@@ -528,8 +517,7 @@ public struct DFace
     /// The primitive count in the low 15 bits and "dynamic shadows disabled"
     /// in the top bit. Use <see cref="GetNumPrims"/> and
     /// <see cref="AreDynamicShadowsEnabled"/> rather than reading it raw --
-    /// that top bit is exactly why <c>dface_t</c> has accessors
-    /// (<c>bspfile.h:748</c>).
+    /// that top bit is exactly why <c>dface_t</c> has accessors.
     /// </summary>
     public ushort NumPrimsAndFlags;
 
@@ -541,29 +529,30 @@ public struct DFace
 
     /// <summary>The primitive count, without the shadow bit.</summary>
     /// <returns>The low 15 bits of <see cref="NumPrimsAndFlags"/>.</returns>
-    /// <remarks><c>bspfile.h:757</c>, <c>dface_t::GetNumPrims</c>.</remarks>
+    /// <remarks><c>dface_t::GetNumPrims</c>.</remarks>
     public readonly ushort GetNumPrims() => (ushort)(NumPrimsAndFlags & 0x7FFF);
 
     /// <summary>Sets the primitive count, leaving the shadow bit alone.</summary>
     /// <param name="count">A count below 0x8000.</param>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// <paramref name="count"/> would collide with the shadow bit. The C++
-    /// asserts the same thing (<c>bspfile.h:764</c>); an assert compiled out of
-    /// a release build is how a silent corruption gets shipped, so this throws.
+    /// <paramref name="count"/> would collide with the shadow bit. The
+    /// reference implementation asserts the same thing; an assert compiled out
+    /// of a release build is how a silent corruption gets shipped, so this
+    /// throws.
     /// </exception>
     public void SetNumPrims(ushort count)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(count, (ushort)0x7FFF);
 
-        // bspfile.h:765 clears with ~0x7FFF, which leaves the top bit set in
-        // the mask and so PRESERVES it. Reproduced rather than "cleaned up".
+        // The reference mask-clear uses ~0x7FFF, which leaves the top bit set
+        // in the mask and so PRESERVES it. Reproduced rather than "cleaned up".
         NumPrimsAndFlags &= unchecked((ushort)~0x7FFF);
         NumPrimsAndFlags |= (ushort)(count & 0x7FFF);
     }
 
     /// <summary>Whether the engine casts dynamic shadows onto this face.</summary>
     /// <returns>True when the top bit of <see cref="NumPrimsAndFlags"/> is clear.</returns>
-    /// <remarks><c>bspfile.h:769</c>, and note the sense is INVERTED: the bit means "disabled".</remarks>
+    /// <remarks>Note the sense is INVERTED: the bit means "disabled".</remarks>
     public readonly bool AreDynamicShadowsEnabled() => (NumPrimsAndFlags & 0x8000) == 0;
 
     /// <summary>Enables or disables dynamic shadows on this face.</summary>
@@ -582,7 +571,7 @@ public struct DFace
 }
 
 /// <summary>
-/// One Hammer face id (<c>bspfile.h:782</c>, <c>struct dfaceid_t</c>),
+/// One Hammer face id (<c>struct dfaceid_t</c>),
 /// parallel to LUMP_FACES.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -594,17 +583,17 @@ public struct DFaceId
 
 /// <summary>
 /// One leaf as LUMP_LEAFS version 1 stores it: 32 bytes
-/// (<c>bspfile.h:826</c>, <c>struct dleaf_t</c>).
+/// (<c>struct dleaf_t</c>).
 /// </summary>
 /// <remarks>
 /// <para>
 /// The ambient cube that <see cref="DLeafVersion0"/> carries inline was moved
-/// out to LUMP_LEAF_AMBIENT_LIGHTING at version 1 (<c>bspfile.h:848</c>), which
-/// is the whole difference and the reason there are two structs.
+/// out to LUMP_LEAF_AMBIENT_LIGHTING at version 1, which is the whole
+/// difference and the reason there are two structs.
 /// </para>
 /// <para>
 /// Which one a file uses is decided by the LUMP's version field, not by the
-/// file version -- <c>dm_lockdown.bsp</c> in this tree is BSP version 19 with
+/// file version -- <c>dm_lockdown.bsp</c> is BSP version 19 with
 /// LEAFS at version 0, so it uses <see cref="DLeafVersion0"/>.
 /// </para>
 /// </remarks>
@@ -618,8 +607,8 @@ public struct DLeaf
     public short Cluster;
 
     /// <summary>
-    /// The C++ bitfield <c>short area:9; short flags:7;</c>
-    /// (<c>bspfile.h:833</c>), stored whole. Read it with
+    /// The bitfield <c>short area:9; short flags:7;</c>
+    /// from the reference layout, stored whole. Read it with
     /// <see cref="GetArea"/> and <see cref="GetFlags"/>.
     /// </summary>
     public ushort AreaFlags;
@@ -647,8 +636,8 @@ public struct DLeaf
 
     /// <summary>
     /// Trailing padding. The fields total 30 bytes and <c>int contents</c>
-    /// gives the C struct 4-byte alignment, so it is 32 -- the size the plan
-    /// calls out and the one a real map's lump length divides by.
+    /// gives the reference layout 4-byte alignment, so it is 32 -- the size a
+    /// real map's lump length divides by.
     /// </summary>
     public short Padding;
 
@@ -659,10 +648,10 @@ public struct DLeaf
     /// <summary>The leaf's per-leaf flags.</summary>
     /// <returns>The top 7 bits of <see cref="AreaFlags"/>, as <see cref="LeafFlags"/>.</returns>
     /// <remarks>
-    /// The C++ declares them <c>area:9</c> then <c>flags:7</c>, and both GCC
-    /// and MSVC allocate little-endian bitfields from the LOW bit up, so area
-    /// is bits 0..8 and flags bits 9..15. The header underlines that only 7
-    /// bits are stored (<c>bspfile.h:790</c>).
+    /// The reference layout declares them <c>area:9</c> then <c>flags:7</c>,
+    /// and both GCC and MSVC allocate little-endian bitfields from the LOW bit
+    /// up, so area is bits 0..8 and flags bits 9..15. The format underlines
+    /// that only 7 bits are stored.
     /// </remarks>
     public readonly LeafFlags GetFlags() => (LeafFlags)((AreaFlags >> 9) & 0x7F);
 
@@ -681,8 +670,8 @@ public struct DLeaf
 }
 
 /// <summary>
-/// The per-leaf flags of <see cref="DLeaf.GetFlags"/>
-/// (<c>bspfile.h:791</c>). Only seven bits are stored.
+/// The per-leaf flags of <see cref="DLeaf.GetFlags"/>.
+/// Only seven bits are stored.
 /// </summary>
 [Flags]
 public enum LeafFlags
@@ -702,7 +691,7 @@ public enum LeafFlags
 
 /// <summary>
 /// One leaf as LUMP_LEAFS version 0 stored it: 56 bytes, with the ambient
-/// cube inline (<c>bspfile.h:799</c>, <c>struct dleaf_version_0_t</c>).
+/// cube inline (<c>struct dleaf_version_0_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DLeafVersion0
@@ -759,8 +748,8 @@ public struct DLeafVersion0
 }
 
 /// <summary>
-/// One ambient sample inside a leaf (<c>bspfile.h:860</c>,
-/// <c>struct dleafambientlighting_t</c>).
+/// One ambient sample inside a leaf
+/// (<c>struct dleafambientlighting_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DLeafAmbientLighting
@@ -777,13 +766,13 @@ public struct DLeafAmbientLighting
     /// <summary>The sample's z position as a 0.8 fraction of the leaf's bounds.</summary>
     public byte Z;
 
-    /// <summary>Unused, and named <c>pad</c> in the header too.</summary>
+    /// <summary>Unused, and named <c>pad</c> in the reference layout too.</summary>
     public byte Pad;
 }
 
 /// <summary>
-/// One leaf's slice of the ambient sample array (<c>bspfile.h:870</c>,
-/// <c>struct dleafambientindex_t</c>).
+/// One leaf's slice of the ambient sample array
+/// (<c>struct dleafambientindex_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DLeafAmbientIndex
@@ -796,7 +785,7 @@ public struct DLeafAmbientIndex
 }
 
 /// <summary>
-/// One brush side (<c>bspfile.h:878</c>, <c>struct dbrushside_t</c>).
+/// One brush side (<c>struct dbrushside_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DBrushSide
@@ -815,7 +804,7 @@ public struct DBrushSide
 }
 
 /// <summary>
-/// One collision brush (<c>bspfile.h:887</c>, <c>struct dbrush_t</c>).
+/// One collision brush (<c>struct dbrush_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DBrush
@@ -826,20 +815,20 @@ public struct DBrush
     /// <summary>How many sides the run holds.</summary>
     public int NumSides;
 
-    /// <summary>The brush's contents flags, <c>CONTENTS_*</c> from <c>bspflags.h</c>.</summary>
+    /// <summary>The brush's contents flags, the <c>CONTENTS_*</c> values.</summary>
     public int Contents;
 }
 
 /// <summary>
 /// One areaportal: the door between two visibility areas
-/// (<c>bspfile.h:913</c>, <c>struct dareaportal_t</c>).
+/// (<c>struct dareaportal_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DAreaPortal
 {
     /// <summary>
     /// The value an areaportal entity's <c>portalnumber</c> key must match for
-    /// the engine to bind the entity to this portal (<c>bspfile.h:916</c>).
+    /// the engine to bind the entity to this portal.
     /// </summary>
     public ushort PortalKey;
 
@@ -857,7 +846,7 @@ public struct DAreaPortal
 }
 
 /// <summary>
-/// One visibility area (<c>bspfile.h:929</c>, <c>struct darea_t</c>).
+/// One visibility area (<c>struct darea_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DArea
@@ -870,7 +859,7 @@ public struct DArea
 }
 
 /// <summary>
-/// One water volume (<c>bspfile.h:936</c>, <c>struct dleafwaterdata_t</c>).
+/// One water volume (<c>struct dleafwaterdata_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DLeafWaterData
@@ -892,8 +881,8 @@ public struct DLeafWaterData
 }
 
 /// <summary>
-/// One face's macro texture reference (<c>bspfile.h:944</c>,
-/// <c>class CFaceMacroTextureInfo</c>), parallel to LUMP_FACES.
+/// One face's macro texture reference (<c>class CFaceMacroTextureInfo</c>),
+/// parallel to LUMP_FACES.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct FaceMacroTextureInfo
@@ -906,8 +895,7 @@ public struct FaceMacroTextureInfo
 }
 
 /// <summary>
-/// The kinds of light source vrad resolves (<c>bspfile.h:954</c>,
-/// <c>enum emittype_t</c>).
+/// The kinds of light source vrad resolves (<c>enum emittype_t</c>).
 /// </summary>
 public enum EmitType
 {
@@ -931,8 +919,7 @@ public enum EmitType
 }
 
 /// <summary>
-/// One light source as vrad resolved it (<c>bspfile.h:969</c>,
-/// <c>struct dworldlight_t</c>).
+/// One light source as vrad resolved it (<c>struct dworldlight_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DWorldLight
@@ -986,7 +973,7 @@ public struct DWorldLight
     public int Owner;
 }
 
-/// <summary>The values <see cref="DWorldLight.Flags"/> takes (<c>bspfile.h:966</c>).</summary>
+/// <summary>The values <see cref="DWorldLight.Flags"/> takes.</summary>
 [Flags]
 public enum WorldLightFlags
 {
@@ -998,15 +985,14 @@ public enum WorldLightFlags
 }
 
 /// <summary>
-/// One cubemap sample position (<c>bspfile.h:992</c>,
-/// <c>struct dcubemapsample_t</c>).
+/// One cubemap sample position (<c>struct dcubemapsample_t</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DCubemapSample
 {
     /// <summary>
     /// The sample's position, snapped to integers. The VTF's filename is
-    /// derived from these three numbers (<c>bspfile.h:996</c>), so rounding
+    /// derived from these three numbers, so rounding
     /// them differently renames every cubemap in the map.
     /// </summary>
     public IntArray3 Origin;
@@ -1031,8 +1017,8 @@ public struct ByteArray3
 }
 
 /// <summary>
-/// One overlay's fade distances (<c>bspfile.h:1056</c>,
-/// <c>struct doverlayfade_t</c>), parallel to LUMP_OVERLAYS.
+/// One overlay's fade distances (<c>struct doverlayfade_t</c>), parallel to
+/// LUMP_OVERLAYS.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DOverlayFade

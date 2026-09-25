@@ -22,7 +22,7 @@ namespace SourceSharp.MapCompile;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The file handling is stock's (<c>vbsp.cpp:917-1436</c>): the map argument
+/// The file handling is stock's: the map argument
 /// has its extension stripped to form the output base, a name with no
 /// extension is tried as <c>.vmm</c> then <c>.vmf</c>, the stale
 /// <c>.prt</c> and <c>.lin</c> are deleted before compiling, and the compile
@@ -176,7 +176,7 @@ public static class VbspCommand
 
         VbspContext context = new(options, mounted.Content)
         {
-            // mapbase: the file's base name, lowercased (vbsp.cpp:920-921)
+            // mapbase: the file's base name, lowercased
 #pragma warning disable CA1308 // strlwr
             MapBase = Path.GetFileName(paths.Source).ToLowerInvariant(),
 #pragma warning restore CA1308
@@ -260,7 +260,7 @@ public static class VbspCommand
     public sealed record MapPaths(string Name, string Source, string Bsp, string Prt, string Lin)
     {
         /// <summary>
-        /// Stock's derivation (<c>vbsp.cpp:919-927</c>): regardless of the
+        /// Stock's derivation: regardless of the
         /// extension passed, it is stripped to get the source name, and the
         /// outputs append theirs.
         /// </summary>
@@ -303,7 +303,7 @@ public static class VbspCommand
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    // A name with no extension tries .vmm, then .vmf (vbsp.cpp:1330-1338).
+    // A name with no extension tries .vmm, then .vmf.
     internal static async Task<string?> ResolveMapFileAsync(
         IFileSystem fileSystem, MapPaths paths, CancellationToken cancellationToken)
     {

@@ -4,13 +4,13 @@ namespace SourceSharp.MapFormats.Text;
 /// A <c>.prt</c> file is malformed.
 /// </summary>
 /// <remarks>
-/// One of these per <c>Error()</c> in <c>LoadPortals</c>
-/// (<c>src/utils/vvis/vvis.cpp:462,465,467,474,504,506,509,524</c>). Stock
-/// calls <c>Error</c>, which aborts the process; a library cannot, so the
-/// message text is preserved and thrown instead. Note three of those sites
-/// share the text <c>"LoadPortals: reading portal %i"</c> for three different
-/// causes -- a bad header line, an out-of-range leaf number, and a bad point --
-/// so the message alone does not identify what went wrong, in stock or here.
+/// One of these per <c>Error()</c> in the reference's <c>LoadPortals</c>.
+/// Stock calls <c>Error</c>, which aborts the process; a library cannot, so
+/// the message text is preserved and thrown instead. Note three of those
+/// sites share the text <c>"LoadPortals: reading portal %i"</c> for three
+/// different causes -- a bad header line, an out-of-range leaf number, and a
+/// bad point -- so the message alone does not identify what went wrong, in
+/// stock or here.
 /// </remarks>
 public sealed class InvalidPortalFileException : Exception
 {

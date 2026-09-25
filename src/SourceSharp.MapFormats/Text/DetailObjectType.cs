@@ -1,8 +1,8 @@
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// One detail type from a <c>detail.vbsp</c>: a port of
-/// <c>DetailObject_t</c> (<c>src/utils/vbsp/detailobjects.cpp</c>).
+/// One detail type from a <c>detail.vbsp</c>, as the reference detail-object
+/// loader reads them.
 /// </summary>
 public sealed class DetailObjectType
 {
@@ -19,27 +19,24 @@ public sealed class DetailObjectType
 
     /// <summary>
     /// The type name -- the key it was declared under, which is what a
-    /// material's <c>%detailtype</c> variable names
-    /// (<c>detailobjects.cpp:264,858</c>).
+    /// material's <c>%detailtype</c> variable names.
     /// </summary>
     public string Name { get; }
 
     /// <summary>
-    /// <c>density</c>, read at the TYPE level and defaulting to zero
-    /// (<c>detailobjects.cpp:265</c>).
+    /// <c>density</c>, read at the TYPE level and defaulting to zero.
     /// </summary>
     /// <remarks>
     /// Per type, not per group, which is easy to get wrong because
     /// <c>alpha</c> right beside it in the file IS per group. It turns into a
     /// sample count as
     /// <c>(int)(area * density * </c><see cref="DetailObjectFile.DensityToSamples"/><c>)</c>
-    /// -- truncated, not rounded (<c>detailobjects.cpp:663,749</c>).
+    /// -- truncated, not rounded.
     /// </remarks>
     public float Density { get; }
 
     /// <summary>
-    /// The groups, sorted by ascending <c>alpha</c>
-    /// (<c>detailobjects.cpp:111-122</c>).
+    /// The groups, sorted by ascending <c>alpha</c>.
     /// </summary>
     public IList<DetailObjectGroup> Groups { get; } = [];
 
@@ -49,7 +46,7 @@ public sealed class DetailObjectType
     /// <param name="area">The surface area, in square map units.</param>
     /// <returns>The sample count.</returns>
     /// <remarks>
-    /// <c>detailobjects.cpp:663</c>. A truncating conversion to <c>int</c>, so
+    /// A truncating conversion to <c>int</c>, so
     /// a face whose area times density falls short of one million places
     /// NOTHING -- which is why a low-density type looks absent on small faces.
     /// </remarks>

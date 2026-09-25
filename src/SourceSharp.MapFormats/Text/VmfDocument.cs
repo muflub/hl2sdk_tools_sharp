@@ -10,9 +10,8 @@ namespace SourceSharp.MapFormats.Text;
 /// <para>
 /// A VMF has no single root: <c>versioninfo</c>, <c>visgroups</c>,
 /// <c>viewsettings</c>, <c>world</c> and every <c>entity</c> are siblings at
-/// depth zero, which is why vbsp's load loop calls <c>ReadChunk</c> in a
-/// <c>while</c> until it returns EOF
-/// (<c>src/utils/common/map_shared.cpp:121-124</c>).
+/// depth zero, which is why the reference load loop calls <c>ReadChunk</c> in
+/// a <c>while</c> until it returns EOF.
 /// </para>
 /// <para>
 /// Reading and writing both go through a <see cref="Stream"/> and are async and
@@ -209,8 +208,8 @@ public sealed class VmfDocument
                 {
                     if (open.Count == 0)
                     {
-                        // A key at depth zero. Stock's loop passes no key
-                        // handler at the top level (map_shared.cpp:116-124), so
+                        // A key at depth zero. The reference loop passes no key
+                        // handler at the top level, so
                         // the pair is read and dropped; this port refuses it,
                         // because silently discarding data from a file it was
                         // asked to round-trip is worse than a diagnostic.
@@ -227,7 +226,7 @@ public sealed class VmfDocument
                     if (open.Count == 0)
                     {
                         // A '}' with nothing open. ReadNext has already taken
-                        // the depth negative (chunkfile.cpp:541), which is how
+                        // the depth negative, which is how
                         // stock then turns a clean EOF into UnexpectedEOF.
                         throw new ChunkFileException(
                             ChunkFileResult.UnexpectedSymbol, tokens.Line, "}");

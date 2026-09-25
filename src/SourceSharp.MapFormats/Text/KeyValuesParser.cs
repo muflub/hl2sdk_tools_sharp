@@ -5,13 +5,13 @@ namespace SourceSharp.MapFormats.Text;
 /// <summary>
 /// The KeyValues text parser: <c>ReadToken</c>,
 /// <c>LoadFromBuffer</c> and <c>RecursiveLoadFromBuffer</c>
-/// (<c>src/tier1/KeyValues.cpp:538-620, 2259-2618</c>).
+/// as the reference tokenizer defines them.
 /// </summary>
 /// <remarks>
 /// Internal because <see cref="KeyValuesDocument"/> is the surface; the parser
-/// has no state worth exposing and the C++ has none either -- it is three free
-/// functions over a buffer plus a process-wide mutex it needs only because its
-/// token buffer is a file-scope static (<c>KeyValues.cpp:45,2255,2261</c>).
+/// has no state worth exposing and the reference tokenizer has none either --
+/// it is three free functions over a buffer plus a process-wide mutex it needs
+/// only because its token buffer is a file-scope static.
 /// This one carries the buffer as a field, so two documents parse concurrently
 /// with no lock at all.
 /// </remarks>
@@ -37,14 +37,14 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
             string? name = ReadToken(out bool wasQuoted, out _);
 
-            // KeyValues.cpp:2274-2276 -- a null or empty token ends the loop.
+            // A null or empty token ends the loop.
             if (string.IsNullOrEmpty(name))
             {
                 break;
             }
 
-            // KeyValues.cpp:2278-2309 -- #include and #base, case-insensitive,
-            // AT THE TOP LEVEL ONLY. RecursiveLoadFromBuffer has no such check,
+            // #include and #base, case-insensitive,
+            // AT THE TOP LEVEL ONLY. The section parser has no such check,
             // so a #base inside a block is an ordinary key name.
             if (!wasQuoted && string.Equals(name, "#include", StringComparison.OrdinalIgnoreCase))
             {
@@ -70,7 +70,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
             KeyValuesNode root = new(name) { IsBlock = true };
 
-            // KeyValues.cpp:2330-2338 -- a conditional may sit between the
+            // A conditional may sit between the
             // root's name and its brace.
             string? next = ReadToken(out bool nextQuoted, out bool wasConditional);
             bool accepted = true;
@@ -81,11 +81,12 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
                 next = ReadToken(out nextQuoted, out _);
             }
 
-            // KeyValues.cpp:2340 -- a QUOTED "{" is not an opening brace.
+            // A QUOTED "{" is not an opening brace.
             if (next is null || next.Length == 0 || next[0] != '{' || nextQuoted)
             {
-                // :2345-2347 reports "missing {" and carries on from wherever
-                // the buffer now is rather than breaking. Reproduced: a file
+                // The reference tokenizer reports "missing {" and carries on
+                // from wherever the buffer now is rather than breaking.
+                // Reproduced: a file
                 // with a stray token at the top level still yields the
                 // sections that follow it.
                 continue;
@@ -98,15 +99,15 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
                 document.Roots.Add(root);
             }
 
-            // :2350-2357 -- a rejected section is simply dropped.
+            // A rejected section is simply dropped.
         }
 
         return document;
     }
 
     /// <summary>
-    /// <c>RecursiveLoadFromBuffer</c>
-    /// (<c>src/tier1/KeyValues.cpp:2425-2618</c>). The opening brace has been
+    /// The section parser, mirroring <c>RecursiveLoadFromBuffer</c>.
+    /// The opening brace has been
     /// consumed.
     /// </summary>
     private void ParseSection(KeyValuesNode section, CancellationToken cancellationToken)
@@ -117,14 +118,14 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
             string? name = ReadToken(out bool nameQuoted, out _);
 
-            // KeyValues.cpp:2452-2462 -- EOF, or an EMPTY key name, ends the
+            // EOF, or an EMPTY key name, ends the
             // block. A quoted "" therefore terminates it, which is not obvious.
             if (string.IsNullOrEmpty(name))
             {
                 return;
             }
 
-            // :2464-2465 -- an unquoted '}' closes it.
+            // An unquoted '}' closes it.
             if (!nameQuoted && name[0] == '}')
             {
                 return;
@@ -132,7 +133,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
             string? value = ReadToken(out bool valueQuoted, out bool wasConditional);
 
-            // :2476-2482 -- a conditional between the key and its value.
+            // A conditional between the key and its value.
             bool accepted = true;
             if (wasConditional && value is not null)
             {
@@ -142,13 +143,13 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
             if (value is null)
             {
-                // :2484-2488 -- "got NULL key".
+                // The reference tokenizer reports "got NULL key" here.
                 return;
             }
 
             if (value.Length > 0 && value[0] == '}' && !valueQuoted)
             {
-                // :2490-2494 -- A KEY WITH NO VALUE IS A HARD ERROR that ends
+                // A KEY WITH NO VALUE IS A HARD ERROR that ends
                 // the enclosing block. There is no such thing as a valueless
                 // key in this format, unlike a VMF chunk name.
                 return;
@@ -156,8 +157,8 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
             if (value.Length > 0 && value[0] == '{' && !valueQuoted)
             {
-                // :2496-2502 -- the key is a section. Note what does NOT happen
-                // afterwards: the trailing-conditional look-ahead at :2581-2591
+                // The key is a section. Note what does NOT happen
+                // afterwards: the trailing-conditional look-ahead below
                 // is skipped for sections, so a conditional after a block's
                 // closing brace is never consulted.
                 KeyValuesNode child = new(name) { IsBlock = true };
@@ -171,7 +172,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
                 continue;
             }
 
-            // :2581-2591 -- one token of look-ahead for a trailing conditional,
+            // One token of look-ahead for a trailing conditional,
             // rewound when it turns out not to be one.
             int mark = _position;
             string? trailing = ReadToken(out _, out bool trailingConditional);
@@ -188,15 +189,14 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
             if (accepted)
             {
-                // :2467-2469 -- duplicates are ALWAYS created, never merged.
+                // Duplicates are ALWAYS created, never merged.
                 section.Children.Add(new KeyValuesNode(name) { Value = value });
             }
         }
     }
 
     /// <summary>
-    /// <c>EvaluateConditional</c>
-    /// (<c>src/tier1/KeyValues.cpp:2218-2252</c>).
+    /// The conditional evaluator, mirroring <c>EvaluateConditional</c>.
     /// </summary>
     private bool EvaluateConditional(string condition)
     {
@@ -226,7 +226,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
         if (Contains(condition, "$WIN32"))
         {
-            // :2237 -- "hack hack - for now WIN32 really means IsPC".
+            // WIN32 really means IsPC.
             return pc ^ negate;
         }
 
@@ -250,7 +250,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
             return pc ^ negate;
         }
 
-        // :2251 -- anything unrecognised is false, negation included.
+        // Anything unrecognised is false, negation included.
         return false;
     }
 
@@ -258,15 +258,15 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
         haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// <c>ReadToken</c> (<c>src/tier1/KeyValues.cpp:538-620</c>).
+    /// The tokenizer, mirroring <c>ReadToken</c>.
     /// </summary>
     private string? ReadToken(out bool wasQuoted, out bool wasConditional)
     {
         wasQuoted = false;
         wasConditional = false;
 
-        // :547-556 -- whitespace, then a C++ comment, repeatedly. The ONLY
-        // comment form is '//' to end of line (utlbuffer.cpp:421-441); there is
+        // Whitespace, then a C++ comment, repeatedly. The ONLY
+        // comment form is '//' to end of line; there is
         // no /* */ anywhere in this grammar.
         while (true)
         {
@@ -284,7 +284,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
         char c = _text[_position];
 
-        // :563-569 -- a quoted token.
+        // A quoted token.
         if (c == '"')
         {
             _position++;
@@ -292,14 +292,14 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
             return ReadQuoted();
         }
 
-        // :571-578 -- braces are single-character tokens.
+        // Braces are single-character tokens.
         if (c == '{' || c == '}')
         {
             _position++;
             return c.ToString();
         }
 
-        // :584-618 -- a bare token, stopping at whitespace or any of " { }.
+        // A bare token, stopping at whitespace or any of " { }.
         StringBuilder token = new();
         bool sawOpenBracket = false;
 
@@ -312,7 +312,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
                 break;
             }
 
-            // :594-600 -- the conditional sniff, and it is this sloppy: ANY
+            // The conditional sniff, and it is this sloppy: ANY
             // bare token with a '[' followed later by a ']' is flagged,
             // "foo[1]" included, and the brackets stay in the text.
             if (c == '[')
@@ -330,7 +330,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
                 break;
             }
 
-            // :606-614 -- the token buffer is 4096, so 4095 characters survive.
+            // The token buffer is 4096, so 4095 characters survive.
             if (token.Length < KeyValuesNode.MaxTokenLength - 1)
             {
                 token.Append(c);
@@ -343,8 +343,9 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
     }
 
     /// <summary>
+    /// The quoted-string reader, mirroring
     /// <c>CUtlBuffer::GetDelimitedString</c> for the two conversions KeyValues
-    /// uses (<c>src/tier1/utlbuffer.cpp:715-800</c>).
+    /// uses.
     /// </summary>
     private string ReadQuoted()
     {
@@ -354,9 +355,9 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
         {
             char c = _text[_position];
 
-            // utlbuffer.cpp:775 -- only the delimiter ends the string, so an
+            // Only the delimiter ends the string, so an
             // embedded NEWLINE is legal and is kept. An unterminated quote at
-            // end of file is not an error either (:773).
+            // end of file is not an error either.
             if (c == '"')
             {
                 _position++;
@@ -371,7 +372,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
                     break;
                 }
 
-                // The C escape table at utlbuffer.cpp:57-69, exactly.
+                // The standard C escape table, exactly.
                 char escaped = _text[_position];
                 char? decoded = escaped switch
                 {
@@ -391,7 +392,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
                 if (decoded is null)
                 {
-                    // utlbuffer.cpp:100-105 -- an unrecognised escape yields
+                    // An unrecognised escape yields
                     // the conversion table's zero with a length of ZERO, so a
                     // NUL is emitted and the offending character is NOT
                     // consumed. Faithfully reproduced, because it is the
@@ -408,7 +409,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
             if (c == '' && !_options.EscapeSequences)
             {
-                // utlbuffer.cpp:50,76-83 -- the no-escape conversion's escape
+                // In the no-escape mode the escape
                 // character is 0x7F, whose conversion is always zero, so a
                 // literal 0x7F inside a quoted string becomes a NUL.
                 token.Append('\0');
@@ -429,9 +430,10 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
 
     private void SkipWhitespace()
     {
-        // utlbuffer.cpp:404-415 -- isspace on an UNSIGNED char, so a high byte
-        // is an ordinary token character here. scriplib's '<= 32' on a signed
-        // char treats it as whitespace; the two grammars disagree.
+        // Whitespace is isspace on an UNSIGNED char, so a high byte
+        // is an ordinary token character here. The other reference
+        // tokenizer's '<= 32' on a signed char treats it as whitespace;
+        // the two grammars disagree.
         while (_position < _text.Length && char.IsWhiteSpace(_text[_position]))
         {
             _position++;
@@ -446,7 +448,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
             return false;
         }
 
-        // utlbuffer.cpp:434-438 -- to the next newline or to the end. No
+        // To the next newline or to the end. No
         // character cap, unlike the VMF tokenizer's ignore(1024, '\n').
         while (_position < _text.Length && _text[_position] != '\n')
         {

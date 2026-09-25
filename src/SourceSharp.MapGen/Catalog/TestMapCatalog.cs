@@ -35,10 +35,10 @@ namespace SourceSharp.MapGen.Catalog;
 /// </para>
 ///
 /// <para>
-/// Toolset: `Source SDK Base 2013 Multiplayer/bin` (the 32-bit set, which is
-/// the one with `filesystem_stdio.dll` beside it — see `tools/maptools` for why
-/// that decides whether a compiled map has lighting in it), driven through
-/// Proton Experimental's wine with `tools/mapgame`'s gameinfo. Stock reported
+/// Toolset: the stock 32-bit tool set (the one with `filesystem_stdio.dll`
+/// beside it — whether the compile-time filesystem layer resolves from beside
+/// the tools decides whether a compiled map has lighting in it), driven through
+/// Proton Experimental's wine with the harness gameinfo. Stock reported
 /// zero "Material not found" for every entry, which is the other thing the run
 /// established: the palette these maps are built from resolves.
 /// </para>
@@ -448,7 +448,7 @@ public static partial class TestMapCatalog
                 // one of which must not. Eight clusters against the empty
                 // room's four — and the detail pillar contributed none of the
                 // four that were added, which is the claim this entry exists
-                // to hold a port to.
+                // to pin down.
                 Clusters = CountRange.Exactly(8),
                 Portals = CountRange.Exactly(11),
                 Probes =

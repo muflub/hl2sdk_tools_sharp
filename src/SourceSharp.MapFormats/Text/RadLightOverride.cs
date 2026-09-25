@@ -11,14 +11,13 @@ namespace SourceSharp.MapFormats.Text;
 /// <param name="SameFile">
 /// True when both definitions came from the SAME file, which vrad reports as an
 /// outright error -- <c>"ERROR\a: Duplication of '%s' in file '%s'!"</c>,
-/// <c>src/utils/vrad/vrad.cpp:264-265</c>, complete with an embedded BEL. It is
+/// complete with an embedded BEL. It is
 /// a <c>Msg</c>, not an <c>Error</c>, so the compile continues.
 /// </param>
 /// <param name="Redundant">
 /// True when the two definitions agree, which vrad reports as
 /// <c>"Warning: Redundant '%s' def in '%s' AND '%s'!"</c>
-/// (<c>vrad.cpp:276-277</c>) rather than as an override
-/// (<c>:271-272</c>).
+/// rather than as an override.
 /// </param>
 public sealed record RadLightOverride(
     string Name,

@@ -6,10 +6,11 @@ namespace SourceSharp.MapGen.Catalog;
 /// <para>
 /// Almost none of this can be checked today, and that is deliberate rather than
 /// a shortcoming. §2a's rule is map first: a feature's catalogue entry, with its
-/// expected observables, lands BEFORE the feature is ported, so the port is
-/// written against a failing test rather than graded afterwards by whatever it
-/// happened to produce. A declaration that only appears once there is something
-/// to compare it with is a declaration copied from the output.
+/// expected observables, lands BEFORE the feature is implemented, so the
+/// implementation is written against a failing test rather than graded
+/// afterwards by whatever it happened to produce. A declaration that only
+/// appears once there is something to compare it with is a declaration copied
+/// from the output.
 /// </para>
 ///
 /// <para>

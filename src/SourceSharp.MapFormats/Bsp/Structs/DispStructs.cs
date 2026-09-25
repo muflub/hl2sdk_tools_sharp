@@ -5,8 +5,7 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapFormats.Bsp.Structs;
 
 /// <summary>
-/// Which corner of a displacement an index refers to
-/// (<c>bspfile.h:237</c>).
+/// Which corner of a displacement an index refers to.
 /// </summary>
 public enum DispCorner
 {
@@ -24,11 +23,11 @@ public enum DispCorner
 }
 
 /// <summary>
-/// Which edge of a displacement an index refers to (<c>bspfile.h:247</c>).
+/// Which edge of a displacement an index refers to.
 /// </summary>
 /// <remarks>
 /// These values must match <c>CCoreDispSurface</c>'s own edge indices, which is
-/// why the header says so rather than leaving the order to taste.
+/// why the reference layout pins them rather than leaving the order to taste.
 /// </remarks>
 public enum DispEdge
 {
@@ -47,11 +46,11 @@ public enum DispEdge
 
 /// <summary>
 /// How much of an edge a neighbouring displacement covers
-/// (<c>bspfile.h:259</c>, <c>enum NeighborSpan</c>).
+/// (the reference <c>enum NeighborSpan</c>).
 /// </summary>
 /// <remarks>
-/// The header warns that lookup tables are generated from these indices
-/// (<c>bspfile.h:257</c>), so the numbering is load bearing.
+/// The reference layout warns that lookup tables are generated from these
+/// indices, so the numbering is load bearing.
 /// </remarks>
 public enum NeighborSpan
 {
@@ -67,7 +66,7 @@ public enum NeighborSpan
 
 /// <summary>
 /// A neighbour's rotation relative to this displacement
-/// (<c>bspfile.h:268</c>, <c>enum NeighborOrientation</c>).
+/// (the reference <c>enum NeighborOrientation</c>).
 /// </summary>
 public enum NeighborOrientation
 {
@@ -86,7 +85,7 @@ public enum NeighborOrientation
 
 /// <summary>
 /// One of the up-to-two neighbours along one displacement edge
-/// (<c>bspfile.h:559</c>, <c>struct CDispSubNeighbor</c>).
+/// (the reference <c>struct CDispSubNeighbor</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DispSubNeighbor
@@ -113,7 +112,7 @@ public struct DispSubNeighbor
     /// </summary>
     public byte Padding;
 
-    /// <summary>The <see cref="Neighbor"/> value meaning "nothing here" (<c>bspfile.h:568</c>).</summary>
+    /// <summary>The <see cref="Neighbor"/> value meaning "nothing here".</summary>
     public const ushort NoNeighbor = 0xFFFF;
 
     /// <summary>Whether this slot names a neighbour at all.</summary>
@@ -122,29 +121,27 @@ public struct DispSubNeighbor
 }
 
 /// <summary>
-/// One displacement edge's neighbours (<c>bspfile.h:585</c>,
-/// <c>class CDispNeighbor</c>).
+/// One displacement edge's neighbours (the reference <c>class CDispNeighbor</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DispNeighbor
 {
     /// <summary>
     /// The two sub-neighbours. When a single neighbour fills the whole edge it
-    /// is ALWAYS in slot 0 (<c>bspfile.h:596</c>).
+    /// is ALWAYS in slot 0.
     /// </summary>
     public DispSubNeighborArray2 SubNeighbors;
 }
 
 /// <summary>
-/// The displacements touching one corner (<c>bspfile.h:602</c>,
-/// <c>class CDispCornerNeighbors</c>).
+/// The displacements touching one corner
+/// (the reference <c>class CDispCornerNeighbors</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DispCornerNeighbors
 {
     /// <summary>
-    /// Up to <c>MAX_DISP_CORNER_NEIGHBORS</c> (4, <c>bspfile.h:51</c>)
-    /// displacement indices.
+    /// Up to <c>MAX_DISP_CORNER_NEIGHBORS</c> (4) displacement indices.
     /// </summary>
     public UShortArray4 Neighbors;
 
@@ -160,7 +157,7 @@ public struct DispCornerNeighbors
 
 /// <summary>
 /// One displacement vertex's offset from its flat position
-/// (<c>bspfile.h:615</c>, <c>class CDispVert</c>).
+/// (the reference <c>class CDispVert</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DispVert
@@ -176,8 +173,7 @@ public struct DispVert
 }
 
 /// <summary>
-/// One displacement triangle's tags (<c>bspfile.h:631</c>,
-/// <c>class CDispTri</c>).
+/// One displacement triangle's tags (the reference <c>class CDispTri</c>).
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DispTri
@@ -187,7 +183,7 @@ public struct DispTri
 }
 
 /// <summary>
-/// The values <see cref="DispTri.Tags"/> takes (<c>bspfile.h:624</c>).
+/// The values <see cref="DispTri.Tags"/> takes.
 /// </summary>
 [Flags]
 public enum DispTriTags
@@ -215,8 +211,8 @@ public enum DispTriTags
 }
 
 /// <summary>
-/// One displacement's header (<c>bspfile.h:638</c>,
-/// <c>class ddispinfo_t</c>). 176 bytes.
+/// One displacement's header (the reference <c>class ddispinfo_t</c>).
+/// 176 bytes.
 /// </summary>
 /// <remarks>
 /// The size is worth stating because it is arrived at by three separate
@@ -240,7 +236,7 @@ public struct DispInfo
 
     /// <summary>
     /// The power: the displacement is <c>(2^power + 1)</c> vertices on a side,
-    /// and the power is 2..4 (<c>bspfile.h:47</c>).
+    /// and the power is 2..4.
     /// </summary>
     public int Power;
 
@@ -281,7 +277,7 @@ public struct DispInfo
 
     /// <summary>
     /// A 320-bit vector saying which of this displacement's vertices may be
-    /// active, derived from the neighbours' powers (<c>bspfile.h:666</c>).
+    /// active, derived from the neighbours' powers.
     /// </summary>
     /// <remarks>
     /// The declared element type is <c>uint32</c> and NOT <c>unsigned long</c>,
@@ -293,17 +289,17 @@ public struct DispInfo
 
     /// <summary>The number of vertices a displacement of this power has.</summary>
     /// <returns><c>(2^power + 1)^2</c>.</returns>
-    /// <remarks><c>NUM_DISP_POWER_VERTS</c>, <c>bspfile.h:53</c>.</remarks>
+    /// <remarks><c>NUM_DISP_POWER_VERTS</c> in the reference layout.</remarks>
     public readonly int NumVerts() => ((1 << Power) + 1) * ((1 << Power) + 1);
 
     /// <summary>The number of triangles a displacement of this power has.</summary>
     /// <returns><c>2 * (2^power)^2</c>.</returns>
-    /// <remarks><c>NUM_DISP_POWER_TRIS</c>, <c>bspfile.h:54</c>.</remarks>
+    /// <remarks><c>NUM_DISP_POWER_TRIS</c> in the reference layout.</remarks>
     public readonly int NumTris() => (1 << Power) * (1 << Power) * 2;
 }
 
 /// <summary>
-/// One overlay projected onto world faces (<c>bspfile.h:1007</c>,
+/// One overlay projected onto world faces (the reference
 /// <c>struct doverlay_t</c>). 352 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -323,7 +319,7 @@ public struct DOverlay
 
     /// <summary>
     /// The faces the overlay is projected onto, at most
-    /// <c>OVERLAY_BSP_FACE_COUNT</c> (64, <c>bspfile.h:1001</c>).
+    /// <c>OVERLAY_BSP_FACE_COUNT</c> (64).
     /// </summary>
     public IntArray64 Faces;
 
@@ -342,17 +338,17 @@ public struct DOverlay
     /// <summary>The overlay's basis normal.</summary>
     public Vec3 BasisNormal;
 
-    /// <summary>The mask that separates render order from face count (<c>bspfile.h:1005</c>).</summary>
+    /// <summary>The mask that separates render order from face count.</summary>
     public const ushort RenderOrderMask = 0xC000;
 
     /// <summary>The number of faces this overlay touches.</summary>
     /// <returns><see cref="FaceCountAndRenderOrder"/> without the top two bits.</returns>
-    /// <remarks><c>bspfile.h:1039</c>.</remarks>
+    /// <remarks>Defined alongside <c>doverlay_t</c> in the reference layout.</remarks>
     public readonly ushort GetFaceCount() => (ushort)(FaceCountAndRenderOrder & ~RenderOrderMask);
 
     /// <summary>The overlay's render order, 0..3.</summary>
     /// <returns>The top two bits of <see cref="FaceCountAndRenderOrder"/>.</returns>
-    /// <remarks><c>bspfile.h:1050</c>.</remarks>
+    /// <remarks>Defined alongside <c>doverlay_t</c> in the reference layout.</remarks>
     public readonly ushort GetRenderOrder() => (ushort)(FaceCountAndRenderOrder >> 14);
 
     /// <summary>Sets the face count, leaving the render order alone.</summary>
@@ -377,12 +373,12 @@ public struct DOverlay
 }
 
 /// <summary>
-/// One overlay projected onto a water surface (<c>bspfile.h:1069</c>,
+/// One overlay projected onto a water surface (the reference
 /// <c>struct dwateroverlay_t</c>). 1120 bytes.
 /// </summary>
 /// <remarks>
 /// Identical to <see cref="DOverlay"/> except that the face array is
-/// <c>WATEROVERLAY_BSP_FACE_COUNT</c> (256, <c>bspfile.h:1065</c>) entries
+/// <c>WATEROVERLAY_BSP_FACE_COUNT</c> (256) entries
 /// rather than 64. The render-order mask is the same 0xC000, so a water
 /// overlay's face count has 14 bits for 256 faces.
 /// </remarks>
@@ -418,12 +414,12 @@ public struct DWaterOverlay
 
     /// <summary>The number of faces this overlay touches.</summary>
     /// <returns><see cref="FaceCountAndRenderOrder"/> without the top two bits.</returns>
-    /// <remarks><c>bspfile.h:1101</c>.</remarks>
+    /// <remarks>Defined alongside <c>dwateroverlay_t</c> in the reference layout.</remarks>
     public readonly ushort GetFaceCount() =>
         (ushort)(FaceCountAndRenderOrder & ~DOverlay.RenderOrderMask);
 
     /// <summary>The overlay's render order, 0..3.</summary>
     /// <returns>The top two bits of <see cref="FaceCountAndRenderOrder"/>.</returns>
-    /// <remarks><c>bspfile.h:1112</c>.</remarks>
+    /// <remarks>Defined alongside <c>dwateroverlay_t</c> in the reference layout.</remarks>
     public readonly ushort GetRenderOrder() => (ushort)(FaceCountAndRenderOrder >> 14);
 }

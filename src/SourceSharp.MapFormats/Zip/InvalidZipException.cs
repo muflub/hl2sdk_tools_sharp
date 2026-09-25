@@ -4,12 +4,11 @@ namespace SourceSharp.MapFormats.Zip;
 /// A pakfile is malformed, or uses something this port cannot read.
 /// </summary>
 /// <remarks>
-/// Stock's equivalents are an <c>Assert</c> that vanishes in release
-/// (<c>src/public/zip_utils.cpp:677,699</c>), a <c>Warning</c> that carries on
-/// with bad data (<c>:703-704</c>), a bare <c>return NULL</c>
-/// (<c>:789-798,835-844,860-871</c>) and a fatal <c>Error</c> that aborts the
-/// process (<c>:1194,1202</c>). None of those is available to a library, so
-/// every one of them becomes this, carrying the reason.
+/// The reference implementation's equivalents are an <c>Assert</c> that
+/// vanishes in release, a <c>Warning</c> that carries on with bad data, a bare
+/// <c>return NULL</c>, and a fatal <c>Error</c> that aborts the process. None
+/// of those is available to a library, so every one of them becomes this,
+/// carrying the reason.
 /// </remarks>
 public sealed class InvalidZipException : Exception
 {

@@ -6,58 +6,58 @@ using SourceSharp.MapFormats.Geometry;
 
 namespace SourceSharp.MapFormats.Assets;
 
-// The parts of src/public/studio.h a MAP COMPILER needs, and no more. What is
-// deliberately absent, and why, is listed on StudioHeader.
+// The parts of the studio model format a MAP COMPILER needs, and no more. What
+// is deliberately absent, and why, is listed on StudioHeader.
 //
 // Two layout rules run through every struct here.
 //
-// 1. studio.h never packs (its only #pragma pack(push, 4) at line 112 covers a
-//    single template, and the one at 1330 is inside #ifdef PLATFORM_64BITS).
-//    Nothing in the 32-bit view needs more than 4-byte alignment, so natural
-//    alignment and Pack = 1 with explicit pads agree; the pads are written out
-//    anyway, for the same reason as in the BSP structs.
+// 1. The reference layout never packs (its only #pragma pack(push, 4) covers a
+//    single template, and the other sits inside a #ifdef PLATFORM_64BITS
+//    branch). Nothing in the 32-bit view needs more than 4-byte alignment, so
+//    natural alignment and Pack = 1 with explicit pads agree; the pads are
+//    written out anyway, for the same reason as in the BSP structs.
 //
-// 2. This SDK tree has been 64-bit ported, so several structs carry
-//    #ifdef PLATFORM_64BITS branches. The FILE is always the 32-bit branch:
-//    every native pointer is four bytes on disk and the reserved arrays are
-//    the longer, 32-bit ones. Each pointer below is an int placeholder named
-//    for what the C++ calls it.
+// 2. The reference layout declares 64-bit-port branches, so several structs
+//    carry #ifdef PLATFORM_64BITS variants. The FILE is always the 32-bit
+//    branch: every native pointer is four bytes on disk and the reserved
+//    arrays are the longer, 32-bit ones. Each pointer below is an int
+//    placeholder named for the field the reference layout calls it.
 
 /// <summary>
 /// The four-byte idents and versions of the studio model files.
 /// </summary>
 public static class StudioIdents
 {
-    /// <summary><c>IDST</c>, the MDL ident (<c>staticprop.cpp:155</c> compares the literal).</summary>
+    /// <summary><c>IDST</c>, the MDL ident (the reference writer compares the literal).</summary>
     public const int Mdl = ('T' << 24) | ('S' << 16) | ('D' << 8) | 'I';
 
     /// <summary><c>IDAG</c>, an included-animation MDL's ident.</summary>
     public const int AnimationGroup = ('G' << 24) | ('A' << 16) | ('D' << 8) | 'I';
 
-    /// <summary><c>IDSV</c>, the VVD ident (<c>studio.h:1938</c>).</summary>
+    /// <summary><c>IDSV</c>, the VVD ident.</summary>
     public const int Vvd = ('V' << 24) | ('S' << 16) | ('D' << 8) | 'I';
 
-    /// <summary><c>IDCV</c>, a thin/compressed VVD's ident (<c>studio.h:1941</c>).</summary>
+    /// <summary><c>IDCV</c>, a thin/compressed VVD's ident.</summary>
     public const int VvdThin = ('V' << 24) | ('C' << 16) | ('D' << 8) | 'I';
 
-    /// <summary>The MDL version this branch reads (<c>studio.h:70</c>).</summary>
+    /// <summary>The MDL version this branch reads.</summary>
     public const int MdlVersion = 48;
 
-    /// <summary>The VVD version (<c>studio.h:1939</c>).</summary>
+    /// <summary>The VVD version.</summary>
     public const int VvdVersion = 4;
 
-    /// <summary>The VTX version (<c>optimize.h:22</c>).</summary>
+    /// <summary>The VTX version.</summary>
     public const int VtxVersion = 7;
 
-    /// <summary>The most LOD levels a model can have (<c>studio.h:431</c>).</summary>
+    /// <summary>The most LOD levels a model can have.</summary>
     public const int MaxLods = 8;
 
     /// <summary>
-    /// How many bones can influence one vertex (<c>studio.h:92</c>).
+    /// How many bones can influence one vertex.
     /// </summary>
     /// <remarks>
-    /// The header's own comment: "Changing this number also changes the vtx
-    /// file format!!!!!" -- it sizes both <c>mstudioboneweight_t</c> and
+    /// The reference layout warns that changing this number also changes the
+    /// vtx file format -- it sizes both <c>mstudioboneweight_t</c> and
     /// <c>OptimizedModel::Vertex_t</c>, which is why the two files must agree.
     /// </remarks>
     public const int MaxBonesPerVert = 3;
@@ -120,7 +120,7 @@ public struct FloatArray4
 }
 
 /// <summary>
-/// The MDL file header (<c>studio.h:2134</c>, <c>struct studiohdr_t</c>).
+/// The MDL file header (<c>struct studiohdr_t</c>).
 /// 408 bytes in the 32-bit, on-disk layout.
 /// </summary>
 /// <remarks>
@@ -139,10 +139,9 @@ public struct FloatArray4
 /// </para>
 /// <para>
 /// The four pointer members are <c>int</c> placeholders. In the shipped 32-bit
-/// format they are four bytes of garbage the loader overwrites; this tree's
-/// 64-bit port replaces them with <c>unused_</c> ints in exactly the same
-/// slots (<c>studio.h:2334</c>, <c>:2348</c>, <c>:2361</c>), so the on-disk
-/// layout is unchanged either way.
+/// format they are four bytes of garbage the loader overwrites; the reference
+/// layout's 64-bit port replaces them with <c>unused_</c> ints in exactly the
+/// same slots, so the on-disk layout is unchanged either way.
 /// </para>
 /// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -156,8 +155,7 @@ public struct StudioHeader
 
     /// <summary>
     /// A checksum that must match the VVD's and the PHY's, which is how the
-    /// three files of one model are proved to belong together
-    /// (<c>studio.h:2140</c>).
+    /// three files of one model are proved to belong together.
     /// </summary>
     public int Checksum;
 
@@ -365,10 +363,10 @@ public struct StudioHeader
     /// <summary>How many root LODs the model allows.</summary>
     public byte NumAllowedRootLods;
 
-    /// <summary>One unused byte, named <c>unused[1]</c> in the header.</summary>
+    /// <summary>One unused byte, named <c>unused[1]</c> in the reference layout.</summary>
     public byte Unused;
 
-    /// <summary>Unused; the header says to zero it below version 47.</summary>
+    /// <summary>Unused; the reference layout says to zero it below version 47.</summary>
     public int Unused4;
 
     /// <summary>How many flex controller UI entries. Not ported.</summary>
@@ -394,8 +392,8 @@ public struct StudioHeader
 }
 
 /// <summary>
-/// The MDL's extension header (<c>studio.h:2096</c>,
-/// <c>struct studiohdr2_t</c>). 256 bytes in the 32-bit layout.
+/// The MDL's extension header (<c>struct studiohdr2_t</c>). 256 bytes in the
+/// 32-bit layout.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StudioHeader2
@@ -410,8 +408,8 @@ public struct StudioHeader2
     public int IllumPositionAttachmentIndex;
 
     /// <summary>
-    /// The maximum eye deflection cosine. Zero means unset, and the accessor
-    /// in the header substitutes <c>cos(30)</c> (<c>studio.h:2109</c>).
+    /// The maximum eye deflection cosine. Zero means unset, and the reference
+    /// implementation substitutes <c>cos(30)</c>.
     /// </summary>
     public float MaxEyeDeflection;
 
@@ -428,15 +426,15 @@ public struct StudioHeader2
     public int BoneFlexDriverIndex;
 
     /// <summary>
-    /// <c>int reserved[56]</c>. The 64-bit port carves four pointers out of
-    /// the front of this array (<c>studio.h:2121</c>) but the FILE holds 56
-    /// ints, so that is what is here.
+    /// <c>int reserved[56]</c>. The reference layout's 64-bit port carves four
+    /// pointers out of the front of this array but the FILE holds 56 ints, so
+    /// that is what is here.
     /// </summary>
     public IntArray56 Reserved;
 }
 
 /// <summary>
-/// One bone (<c>studio.h:271</c>, <c>struct mstudiobone_t</c>). 216 bytes.
+/// One bone (<c>struct mstudiobone_t</c>). 216 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StudioBone
@@ -489,12 +487,12 @@ public struct StudioBone
     /// <summary>The bone's contents flags.</summary>
     public int Contents;
 
-    /// <summary>Eight unused ints the header marks "remove as appropriate".</summary>
+    /// <summary>Eight unused ints the reference layout marks "remove as appropriate".</summary>
     public IntArray8 Unused;
 }
 
 /// <summary>
-/// One hitbox (<c>studio.h:453</c>, <c>struct mstudiobbox_t</c>). 68 bytes.
+/// One hitbox (<c>struct mstudiobbox_t</c>). 68 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StudioBbox
@@ -519,8 +517,7 @@ public struct StudioBbox
 }
 
 /// <summary>
-/// One hitbox set (<c>studio.h:1686</c>,
-/// <c>struct mstudiohitboxset_t</c>). 12 bytes.
+/// One hitbox set (<c>struct mstudiohitboxset_t</c>). 12 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StudioHitboxSet
@@ -536,8 +533,7 @@ public struct StudioHitboxSet
 }
 
 /// <summary>
-/// One body part (<c>studio.h:1661</c>,
-/// <c>struct mstudiobodyparts_t</c>). 16 bytes.
+/// One body part (<c>struct mstudiobodyparts_t</c>). 16 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StudioBodyParts
@@ -556,8 +552,8 @@ public struct StudioBodyParts
 }
 
 /// <summary>
-/// One model within a body part (<c>studio.h:1405</c>,
-/// <c>struct mstudiomodel_t</c>). 148 bytes in the 32-bit layout.
+/// One model within a body part (<c>struct mstudiomodel_t</c>). 148 bytes in
+/// the 32-bit layout.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StudioModel
@@ -608,21 +604,21 @@ public struct StudioModel
     public int EyeballIndex;
 
     /// <summary>
-    /// <c>mstudio_modelvertexdata_t</c>: two run-time pointers
-    /// (<c>studio.h:1325</c>). Eight bytes of nothing on disk.
+    /// <c>mstudio_modelvertexdata_t</c>: two run-time pointers. Eight bytes of
+    /// nothing on disk.
     /// </summary>
     public IntArray2 VertexDataPointers;
 
     /// <summary>
-    /// <c>int unused[8]</c>. The 64-bit port shortens this to six to pay for
-    /// the wider pointers above (<c>studio.h:1440</c>); the FILE has eight.
+    /// <c>int unused[8]</c>. The reference layout's 64-bit port shortens this
+    /// to six to pay for the wider pointers above; the FILE has eight.
     /// </summary>
     public IntArray8 Unused;
 }
 
 /// <summary>
-/// One mesh within a model (<c>studio.h:1362</c>,
-/// <c>struct mstudiomesh_t</c>). 116 bytes in the 32-bit layout.
+/// One mesh within a model (<c>struct mstudiomesh_t</c>). 116 bytes in the
+/// 32-bit layout.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StudioMesh
@@ -642,9 +638,9 @@ public struct StudioMesh
     /// </summary>
     /// <remarks>
     /// An index here, unlike <see cref="StudioModel.VertexIndex"/>, which is a
-    /// byte offset. The two fields mean different things and the C++ names
-    /// them differently (<c>vertexoffset</c> against <c>vertexindex</c>) for
-    /// exactly that reason.
+    /// byte offset. The two fields mean different things and the reference
+    /// layout names them differently (<c>vertexoffset</c> against
+    /// <c>vertexindex</c>) for exactly that reason.
     /// </remarks>
     public int VertexOffset;
 
@@ -667,15 +663,14 @@ public struct StudioMesh
     public Vec3 Center;
 
     /// <summary>
-    /// A run-time pointer slot from <c>mstudio_meshvertexdata_t</c>
-    /// (<c>studio.h:1348</c>).
+    /// A run-time pointer slot from <c>mstudio_meshvertexdata_t</c>.
     /// </summary>
     public int ModelVertexDataPointer;
 
     /// <summary>
-    /// How many vertices this mesh has at each of the eight LOD levels
-    /// (<c>studio.h:1355</c>). REAL on-disk data, unlike the pointer above it:
-    /// studiomdl writes it and the LOD culling reads it.
+    /// How many vertices this mesh has at each of the eight LOD levels. REAL
+    /// on-disk data, unlike the pointer above it: studiomdl writes it and the
+    /// LOD culling reads it.
     /// </summary>
     public IntArray8 NumLodVertexes;
 
@@ -684,8 +679,8 @@ public struct StudioMesh
 }
 
 /// <summary>
-/// One texture reference (<c>studio.h:1220</c>,
-/// <c>struct mstudiotexture_t</c>). 64 bytes in the 32-bit layout.
+/// One texture reference (<c>struct mstudiotexture_t</c>). 64 bytes in the
+/// 32-bit layout.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StudioTexture
@@ -713,9 +708,8 @@ public struct StudioTexture
 }
 
 /// <summary>
-/// One vertex's bone weighting (<c>studio.h:1191</c>,
-/// <c>struct mstudioboneweight_t</c>). Exactly 16 bytes, as the header's own
-/// comment says.
+/// One vertex's bone weighting (<c>struct mstudioboneweight_t</c>). Exactly
+/// 16 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StudioBoneWeight
@@ -725,8 +719,8 @@ public struct StudioBoneWeight
 
     /// <summary>
     /// Up to three bone indices. Declared <c>char bone[3]</c>, and read here
-    /// as unsigned bytes because <c>MAXSTUDIOBONES</c> is 128
-    /// (<c>studio.h:82</c>), so no valid index ever sets the sign bit.
+    /// as unsigned bytes because <c>MAXSTUDIOBONES</c> is 128, so no valid
+    /// index ever sets the sign bit.
     /// </summary>
     public ByteArray3 Bone;
 
@@ -735,13 +729,12 @@ public struct StudioBoneWeight
 }
 
 /// <summary>
-/// One vertex (<c>studio.h:1204</c>, <c>struct mstudiovertex_t</c>).
-/// Exactly 48 bytes, as the header's own comment says.
+/// One vertex (<c>struct mstudiovertex_t</c>). Exactly 48 bytes.
 /// </summary>
 /// <remarks>
 /// The tangent is NOT here. It lives in a parallel <c>Vector4D</c> array in
-/// the VVD (<c>studio.h:1487</c>), which is why
-/// <see cref="VertexFileHeader.TangentDataStart"/> exists.
+/// the VVD, which is why <see cref="VertexFileHeader.TangentDataStart"/>
+/// exists.
 /// </remarks>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct StudioVertex
@@ -760,8 +753,8 @@ public struct StudioVertex
 }
 
 /// <summary>
-/// The VVD file header (<c>studio.h:1943</c>,
-/// <c>struct vertexFileHeader_t</c>). 64 bytes, all on disk.
+/// The VVD file header (<c>struct vertexFileHeader_t</c>). 64 bytes, all on
+/// disk.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VertexFileHeader
@@ -795,8 +788,7 @@ public struct VertexFileHeader
 }
 
 /// <summary>
-/// One VVD fixup (<c>studio.h:2015</c>,
-/// <c>struct vertexFileFixup_t</c>). 12 bytes.
+/// One VVD fixup (<c>struct vertexFileFixup_t</c>). 12 bytes.
 /// </summary>
 /// <remarks>
 /// The fixup table is how a VVD stores vertices grouped by LOD while the MDL
@@ -817,23 +809,22 @@ public struct VertexFileFixup
 }
 
 // ---------------------------------------------------------------------------
-// src/public/optimize.h -- the VTX file. EVERY struct in that header is here.
+// The VTX file. EVERY struct the format defines is here.
 //
-// optimize.h:31 puts the whole block under #pragma pack(1) and optimize.h:251
-// closes it, so these sizes are NOT the naturally aligned ones: Vertex_t is 9
-// bytes, StripHeader_t 27, StripGroupHeader_t 25, MeshHeader_t 9 and
+// The reference layout declares the whole block under #pragma pack(1), so
+// these sizes are NOT the naturally aligned ones: Vertex_t is 9 bytes,
+// StripHeader_t 27, StripGroupHeader_t 25, MeshHeader_t 9 and
 // MaterialReplacementHeader_t 6. Every one of those would be larger without
 // the pragma, and every array index past element 0 would be wrong.
 // ---------------------------------------------------------------------------
 
 /// <summary>
-/// The VTX file header (<c>optimize.h:216</c>,
-/// <c>struct FileHeader_t</c>). 36 bytes.
+/// The VTX file header (<c>struct FileHeader_t</c>). 36 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VtxFileHeader
 {
-    /// <summary>The version; 7 in this branch (<c>optimize.h:22</c>).</summary>
+    /// <summary>The version; 7 in this branch.</summary>
     public int Version;
 
     /// <summary>The vertex cache size the model was optimised for.</summary>
@@ -865,8 +856,7 @@ public struct VtxFileHeader
 }
 
 /// <summary>
-/// One VTX body part (<c>optimize.h:180</c>,
-/// <c>struct BodyPartHeader_t</c>). 8 bytes.
+/// One VTX body part (<c>struct BodyPartHeader_t</c>). 8 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VtxBodyPartHeader
@@ -879,8 +869,7 @@ public struct VtxBodyPartHeader
 }
 
 /// <summary>
-/// One VTX model (<c>optimize.h:168</c>,
-/// <c>struct ModelHeader_t</c>). 8 bytes.
+/// One VTX model (<c>struct ModelHeader_t</c>). 8 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VtxModelHeader
@@ -893,8 +882,7 @@ public struct VtxModelHeader
 }
 
 /// <summary>
-/// One VTX LOD (<c>optimize.h:153</c>,
-/// <c>struct ModelLODHeader_t</c>). 12 bytes.
+/// One VTX LOD (<c>struct ModelLODHeader_t</c>). 12 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VtxModelLodHeader
@@ -910,8 +898,7 @@ public struct VtxModelLodHeader
 }
 
 /// <summary>
-/// One VTX mesh (<c>optimize.h:140</c>,
-/// <c>struct MeshHeader_t</c>). 9 bytes under <c>pack(1)</c>.
+/// One VTX mesh (<c>struct MeshHeader_t</c>). 9 bytes under <c>pack(1)</c>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VtxMeshHeader
@@ -927,8 +914,8 @@ public struct VtxMeshHeader
 }
 
 /// <summary>
-/// One VTX strip group (<c>optimize.h:98</c>,
-/// <c>struct StripGroupHeader_t</c>). 25 bytes under <c>pack(1)</c>.
+/// One VTX strip group (<c>struct StripGroupHeader_t</c>). 25 bytes under
+/// <c>pack(1)</c>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VtxStripGroupHeader
@@ -956,8 +943,8 @@ public struct VtxStripGroupHeader
 }
 
 /// <summary>
-/// One VTX strip (<c>optimize.h:61</c>,
-/// <c>struct StripHeader_t</c>). 27 bytes under <c>pack(1)</c>.
+/// One VTX strip (<c>struct StripHeader_t</c>). 27 bytes under
+/// <c>pack(1)</c>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VtxStripHeader
@@ -988,7 +975,7 @@ public struct VtxStripHeader
 }
 
 /// <summary>
-/// One VTX vertex (<c>optimize.h:40</c>, <c>struct Vertex_t</c>).
+/// One VTX vertex (<c>struct Vertex_t</c>).
 /// 9 bytes under <c>pack(1)</c>, and 10 without it.
 /// </summary>
 /// <remarks>
@@ -1013,14 +1000,14 @@ public struct VtxVertex
 
     /// <summary>
     /// Up to three bone ids: global bone indices for software skinning,
-    /// hardware bone slots for hardware skinning (<c>optimize.h:49</c>).
+    /// hardware bone slots for hardware skinning.
     /// </summary>
     public ByteArray3 BoneId;
 }
 
 /// <summary>
-/// One hardware bone state change (<c>optimize.h:33</c>,
-/// <c>struct BoneStateChangeHeader_t</c>). 8 bytes.
+/// One hardware bone state change (<c>struct BoneStateChangeHeader_t</c>).
+/// 8 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VtxBoneStateChangeHeader
@@ -1033,9 +1020,8 @@ public struct VtxBoneStateChangeHeader
 }
 
 /// <summary>
-/// One material replacement (<c>optimize.h:192</c>,
-/// <c>struct MaterialReplacementHeader_t</c>). 6 bytes under
-/// <c>pack(1)</c>, and 8 without.
+/// One material replacement (<c>struct MaterialReplacementHeader_t</c>). 6
+/// bytes under <c>pack(1)</c>, and 8 without.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VtxMaterialReplacementHeader
@@ -1048,8 +1034,8 @@ public struct VtxMaterialReplacementHeader
 }
 
 /// <summary>
-/// One LOD's material replacement list (<c>optimize.h:204</c>,
-/// <c>struct MaterialReplacementListHeader_t</c>). 8 bytes.
+/// One LOD's material replacement list
+/// (<c>struct MaterialReplacementListHeader_t</c>). 8 bytes.
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct VtxMaterialReplacementListHeader
@@ -1063,7 +1049,7 @@ public struct VtxMaterialReplacementListHeader
 
 /// <summary>
 /// The flags of <see cref="VtxStripHeader.Flags"/>
-/// (<c>optimize.h:54</c>, <c>enum StripHeaderFlags_t</c>).
+/// (<c>enum StripHeaderFlags_t</c>).
 /// </summary>
 [Flags]
 public enum VtxStripFlags : byte
@@ -1080,7 +1066,7 @@ public enum VtxStripFlags : byte
 
 /// <summary>
 /// The flags of <see cref="VtxStripGroupHeader.Flags"/>
-/// (<c>optimize.h:87</c>, <c>enum StripGroupFlags_t</c>).
+/// (<c>enum StripGroupFlags_t</c>).
 /// </summary>
 [Flags]
 public enum VtxStripGroupFlags : byte
@@ -1097,13 +1083,13 @@ public enum VtxStripGroupFlags : byte
     /// <summary>The group is delta flexed.</summary>
     IsDeltaFlexed = 0x04,
 
-    /// <summary>A run-time flag; the header says so (<c>optimize.h:92</c>).</summary>
+    /// <summary>A run-time flag.</summary>
     SuppressHwMorph = 0x08,
 }
 
 /// <summary>
 /// The flags of <see cref="VtxMeshHeader.Flags"/>
-/// (<c>optimize.h:126</c>, <c>enum MeshFlags_t</c>).
+/// (<c>enum MeshFlags_t</c>).
 /// </summary>
 [Flags]
 public enum VtxMeshFlags : byte

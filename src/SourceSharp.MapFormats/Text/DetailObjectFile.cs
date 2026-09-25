@@ -1,9 +1,8 @@
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// A <c>detail.vbsp</c> detail-prop definition file: the KeyValues schema
-/// <c>ParseDetailObjectFile</c> reads
-/// (<c>src/utils/vbsp/detailobjects.cpp:254-278</c>).
+/// A <c>detail.vbsp</c> detail-prop definition file: the KeyValues schema the
+/// reference detail loader reads.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -13,20 +12,20 @@ namespace SourceSharp.MapFormats.Text;
 /// MODELS inside those.
 /// </para>
 /// <para>
-/// Missing or malformed files are handled in SILENCE by vbsp
-/// (<c>detailobjects.cpp:306-316</c> has no <c>else</c>), so a typo in the
-/// filename produces a map with no detail props and no message at all.
+/// Missing or malformed files are handled in SILENCE -- the reference
+/// loader's load branch has no <c>else</c> -- so a typo in the filename
+/// produces a map with no detail props and no message at all.
 /// </para>
 /// </remarks>
 public sealed class DetailObjectFile
 {
     /// <summary>
-    /// The default filename (<c>src/utils/vbsp/detailobjects.cpp:293,299</c>).
+    /// The default filename the reference loader falls back to.
     /// </summary>
     /// <remarks>
-    /// Overridable per map through <c>worldspawn</c>'s <c>detailvbsp</c> key
-    /// (<c>detailobjects.cpp:284-300</c>), which falls back to this both when
-    /// the key is empty and when there is no worldspawn.
+    /// Overridable per map through <c>worldspawn</c>'s <c>detailvbsp</c> key,
+    /// which falls back to this both when the key is empty and when there is
+    /// no worldspawn.
     /// </remarks>
     public const string DefaultFileName = "detail.vbsp";
 
@@ -36,11 +35,10 @@ public sealed class DetailObjectFile
     public const string WorldspawnOverrideKey = "detailvbsp";
 
     /// <summary>
-    /// The constant that turns a density into a sample count
-    /// (<c>detailobjects.cpp:663,749</c>).
+    /// The constant that turns a density into a sample count.
     /// </summary>
     /// <remarks>
-    /// <c>int numSamples = area * detail.m_Density * 0.000001;</c> -- a
+    /// The reference sample count is <c>area * density * 0.000001</c> -- a
     /// TRUNCATION to int, not a rounding, and the same literal at both the
     /// flat-face and displacement sites.
     /// </remarks>
@@ -97,7 +95,7 @@ public sealed class DetailObjectFile
     /// <exception cref="ArgumentNullException"><paramref name="document"/> is null.</exception>
     /// <exception cref="DetailObjectFileException">
     /// A <c>sprite</c> value does not carry five numbers, or its texture size
-    /// is zero (<c>detailobjects.cpp:169-174</c>).
+    /// is zero.
     /// </exception>
     public static DetailObjectFile FromKeyValues(KeyValuesDocument document)
     {
@@ -113,20 +111,20 @@ public sealed class DetailObjectFile
 
         foreach (KeyValuesNode typeNode in root.Children)
         {
-            // detailobjects.cpp:260-261 -- a top-level LEAF key is silently
-            // ignored. Only sections become detail types.
+            // A top-level LEAF key is silently ignored. Only sections become
+            // detail types.
             if (!typeNode.IsSection)
             {
                 continue;
             }
 
-            // :264-265 -- the type's NAME is the key, and density is read HERE,
+            // The type's NAME is the key, and density is read HERE,
             // at the type level, not per group.
             DetailObjectType type = new(typeNode.Name, typeNode.GetFloat("density", 0.0f));
 
             foreach (KeyValuesNode groupNode in typeNode.Children)
             {
-                // :271 -- again, only sections.
+                // Again, only sections.
                 if (!groupNode.IsSection)
                 {
                     continue;
@@ -135,7 +133,7 @@ public sealed class DetailObjectFile
                 type.Groups.Add(ParseGroup(groupNode));
             }
 
-            // :111-122 -- groups are kept sorted by ASCENDING alpha, inserted
+            // Groups are kept sorted by ASCENDING alpha, inserted
             // after the first group more transparent than this one. A stable
             // insertion sort, so groups of equal alpha keep file order.
             SortGroupsByAlpha(type.Groups);
@@ -148,14 +146,14 @@ public sealed class DetailObjectFile
 
     private static DetailObjectGroup ParseGroup(KeyValuesNode groupNode)
     {
-        // detailobjects.cpp:109 -- alpha defaults to 1.
+        // alpha defaults to 1 when the key is absent.
         DetailObjectGroup group = new(groupNode.GetFloat("alpha", 1.0f));
 
         float totalAmount = 0f;
 
         foreach (KeyValuesNode modelNode in groupNode.Children)
         {
-            // :129 -- only sections are models.
+            // Only sections are models.
             if (!modelNode.IsSection)
             {
                 continue;
@@ -165,9 +163,9 @@ public sealed class DetailObjectFile
             group.Models.Add(model);
         }
 
-        // :240-247 -- renormalised ONLY if the running total exceeds 1. When
-        // it is under 1 the remainder is empty space: SelectDetail
-        // (:360-373) rolls a random number and returns -1 -- emit nothing --
+        // The amounts are renormalised ONLY if the running total exceeds 1.
+        // When it is under 1 the remainder is empty space: SelectDetail
+        // rolls a random number and returns -1 -- emit nothing --
         // when it falls past the last model's cumulative amount.
         if (totalAmount > 1.0f)
         {
@@ -185,16 +183,16 @@ public sealed class DetailObjectFile
 
     private static DetailObjectModel ParseModel(KeyValuesNode node, ref float totalAmount)
     {
-        // :215-216 -- "amount" is a RUNNING SUM, so the stored value is a
+        // "amount" is a RUNNING SUM, so the stored value is a
         // cumulative distribution point and not the per-model weight.
         float amount = node.GetFloat("amount", 1.0f) + totalAmount;
         totalAmount = amount;
 
         string? modelName = node.GetString("model");
 
-        // :135-139 -- "model" WINS. When it is present the whole sprite branch
-        // at :140-213 is never entered, so sprite, spritesize, sway and the
-        // shape keys in the same block are not read at all.
+        // "model" WINS. When it is present the whole sprite branch is never
+        // entered, so sprite, spritesize, sway and the shape keys in the same
+        // block are not read at all.
         if (modelName is not null)
         {
             return new DetailObjectModel(
@@ -211,7 +209,7 @@ public sealed class DetailObjectFile
                 RandomScaleStdDev: 0f);
         }
 
-        // :145-164 -- sprite_shape selects the procedural type, case
+        // sprite_shape selects the procedural type, case
         // insensitively; ANY other non-empty string, and an absent key, mean a
         // plain card sprite.
         string? shape = node.GetString("sprite_shape");
@@ -224,9 +222,9 @@ public sealed class DetailObjectFile
             _ => DetailPropType.Sprite,
         };
 
-        // :169-174 -- ALL FIVE sprite fields are mandatory despite the
-        // initialisers above the sscanf, and a texture size of zero is fatal
-        // too. Only checked when a "sprite" key is present at all.
+        // ALL FIVE sprite fields are mandatory despite the defaults below, and
+        // a texture size of zero is fatal too. Only checked when a "sprite"
+        // key is present at all.
         string? sprite = node.GetString("sprite");
         if (sprite is not null)
         {
@@ -238,7 +236,7 @@ public sealed class DetailObjectFile
             }
         }
 
-        // :200-202 and :208-211 -- both clamped to 0..1 and quantised by
+        // Both sway and shape_size are clamped to 0..1 and quantised by
         // multiplying by 255 and truncating.
         float sway = Math.Clamp(node.GetFloat("sway", 0.0f), 0.0f, 1.0f);
         float shapeSize = Math.Clamp(node.GetFloat("shape_size", 0.0f), 0.0f, 1.0f);
@@ -253,21 +251,21 @@ public sealed class DetailObjectFile
             Orientation: node.GetInt("detailOrientation", 0),
             SwayAmount: (byte)(255.0 * sway),
 
-            // :206 -- read as an INT with NO CLAMP and stored in an unsigned
-            // char, so 360 wraps to 104.
+            // shape_angle is read as an INT with NO CLAMP and stored in an
+            // unsigned char, so 360 wraps to 104.
             ShapeAngle: (byte)node.GetInt("shape_angle", 0),
             ShapeSize: (byte)(255.0 * shapeSize),
             RandomScaleStdDev: node.GetFloat("spriterandomscale", 0.0f));
     }
 
     private static float CosineOfDegrees(float degrees) =>
-        // detailobjects.cpp:227-228 -- cos(angle * M_PI / 180). The default of
+        // cos(angle * pi / 180). The default of
         // 180 degrees gives -1, which restricts nothing.
         (float)Math.Cos(degrees * Math.PI / 180.0);
 
     private static void SortGroupsByAlpha(IList<DetailObjectGroup> groups)
     {
-        // detailobjects.cpp:111-122, which scans BACKWARDS for the first group
+        // The reference placement scan goes BACKWARDS for the first group
         // strictly less transparent and inserts after it. That is a stable
         // insertion sort on ascending alpha.
         List<DetailObjectGroup> sorted = [];

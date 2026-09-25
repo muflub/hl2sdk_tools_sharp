@@ -6,9 +6,8 @@ namespace SourceSharp.MapFormats.Text;
 /// <remarks>
 /// There is exactly one condition that aborts stock vbsp while parsing one: a
 /// <c>sprite</c> value that does not carry five numbers, or whose texture size
-/// is zero (<c>src/utils/vbsp/detailobjects.cpp:169-174</c>). Everything else
-/// is silent -- a missing file, a malformed KeyValues tree and an unknown key
-/// all produce no diagnostic at all.
+/// is zero. Everything else is silent -- a missing file, a malformed KeyValues
+/// tree and an unknown key all produce no diagnostic at all.
 /// </remarks>
 public sealed class DetailObjectFileException : Exception
 {

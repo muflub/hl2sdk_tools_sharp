@@ -5,8 +5,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Options;
 
 /// <summary>
-/// <see cref="StockArgs.ParseVvis"/> against the spellings
-/// <c>src/utils/vvis/vvis.cpp</c> accepts.
+/// <see cref="StockArgs.ParseVvis"/> against the spellings the reference
+/// vvis accepts.
 /// </summary>
 public class StockArgsVvisTests
 {
@@ -15,7 +15,7 @@ public class StockArgsVvisTests
     [Fact]
     public void FastSetsExactlyFast()
     {
-        // vvis.cpp:925
+        // -fast sets exactly one flag.
         StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-fast", Map]);
 
         OptionAssert.OnlyChanged(result.Options, VvisOptions.Default, nameof(VvisOptions.Fast), true);
@@ -24,7 +24,7 @@ public class StockArgsVvisTests
     [Fact]
     public void NoSortSetsExactlyNoSort()
     {
-        // vvis.cpp:951
+        // -nosort sets exactly one flag.
         StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-nosort", Map]);
 
         OptionAssert.OnlyChanged(result.Options, VvisOptions.Default, nameof(VvisOptions.NoSort), true);
@@ -33,7 +33,7 @@ public class StockArgsVvisTests
     [Fact]
     public void VerboseSetsExactlyVerbose()
     {
-        // vvis.cpp:930 -- both spellings.
+        // -verbose sets exactly one flag -- both spellings.
         StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-verbose", Map]);
 
         OptionAssert.OnlyChanged(result.Options, VvisOptions.Default, nameof(VvisOptions.Verbose), true);
@@ -50,7 +50,8 @@ public class StockArgsVvisTests
     [Fact]
     public void RadiusOverrideKeepsTheRadiusUnsquared()
     {
-        // vvis.cpp:938-941 squares it on the way in "so distance check can be
+        // The reference parser squares the radius on the way in "so distance
+        // check can be
         // squared". The option holds the radius that was asked for; squaring
         // is the stage's.
         StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-radius_override", "2048", Map]);
@@ -61,7 +62,7 @@ public class StockArgsVvisTests
     [Fact]
     public void RadiusOverrideIsAbsentWhenNotGiven()
     {
-        // Stock carries a separate g_bUseRadius flag (vvis.cpp:937); null says
+        // Stock carries a separate use-radius flag; null says
         // the same thing without a second field that can disagree.
         Assert.Null(StockArgs.ParseVvis([Map]).Options.RadiusOverride);
     }
@@ -69,7 +70,7 @@ public class StockArgsVvisTests
     [Fact]
     public void TraceParsesBothClusterNumbers()
     {
-        // vvis.cpp:943-949
+        // -trace takes both cluster numbers.
         StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-trace", "12", "34", Map]);
 
         Assert.Equal((12, 34), result.Options.Trace);
@@ -123,7 +124,7 @@ public class StockArgsVvisTests
     [Fact]
     public void TmpinIsAcceptedAndIgnored()
     {
-        // vvis.cpp:956 hardcodes /tmp as the input base.
+        // The reference tool hardcodes /tmp as the input base.
         StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-tmpin", Map]);
 
         Assert.Equal(StockArgsCodes.DroppedOption, Assert.Single(result.Diagnostics).Code);
@@ -133,7 +134,7 @@ public class StockArgsVvisTests
     [Fact]
     public void MpiFlagsAreAcceptedAndIgnored()
     {
-        // vvis.cpp:981 -- the prefix branch, inside #ifdef MPI.
+        // The -mpi prefix branch, compiled in only for the parallel build.
         StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-mpi", Map]);
 
         Assert.Equal(StockArgsCodes.DroppedOption, Assert.Single(result.Diagnostics).Code);

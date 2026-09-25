@@ -32,8 +32,7 @@ public static class BspLumpLayout
     /// The LUMP's version from the file header, not the file's version. Only
     /// <see cref="BspLump.Leafs"/> reads it, and that is the entire reason this
     /// parameter exists: <c>dleaf_t</c> is 56 bytes at version 0 and 32 at
-    /// version 1 (<c>bspfile.h:799</c> and <c>:826</c>), and nothing else in
-    /// the file says which.
+    /// version 1, and nothing else in the file says which.
     /// </param>
     /// <returns>
     /// The element size, or null when the lump is not an array of a fixed
@@ -46,7 +45,7 @@ public static class BspLumpLayout
         BspLump.Planes => Unsafe.SizeOf<DPlane>(),
         BspLump.TexData => Unsafe.SizeOf<DTexData>(),
 
-        // bspfile.h:467 -- a dvertex_t is a bare Vector, so Vec3 IS the struct.
+        // A dvertex_t is a bare Vector, so Vec3 IS the struct.
         BspLump.Vertexes => Unsafe.SizeOf<Vec3>(),
 
         // dvis_t is a header plus a ragged bit-vector region.
@@ -75,7 +74,7 @@ public static class BspLumpLayout
         BspLump.Areas => Unsafe.SizeOf<DArea>(),
         BspLump.AreaPortals => Unsafe.SizeOf<DAreaPortal>(),
 
-        // bspfile.h:303 -- never assigned, so nothing is known about them.
+        // The reference layout never assigns them, so nothing is known about them.
         BspLump.Unused0 or BspLump.Unused1 or BspLump.Unused2 or BspLump.Unused3 => null,
         BspLump.DispInfo => Unsafe.SizeOf<DispInfo>(),
         BspLump.OriginalFaces => Unsafe.SizeOf<DFace>(),
@@ -90,7 +89,7 @@ public static class BspLumpLayout
         BspLump.DispLightmapAlphas => 1,
         BspLump.DispVerts => Unsafe.SizeOf<DispVert>(),
 
-        // Run-length coded bytes, per bspfile.h:315.
+        // Run-length coded bytes, per the format.
         BspLump.DispLightmapSamplePositions => 1,
 
         // A nested directory with absolute offsets.
@@ -111,10 +110,10 @@ public static class BspLumpLayout
         BspLump.FaceMacroTextureInfo => Unsafe.SizeOf<FaceMacroTextureInfo>(),
         BspLump.DispTris => Unsafe.SizeOf<DispTri>(),
 
-        // bspfile.h:341 -- deprecated win32 Havok terrain compression. Nothing
-        // in this tree writes it and no struct for it survives, but maps older
-        // than its removal (dm_lockdown.bsp among them) still carry it, so it
-        // is opaque bytes to preserve rather than an array to read.
+        // Deprecated win32 Havok terrain compression. Nothing in this tree
+        // writes it and no struct for it survives, but maps older than its
+        // removal (dm_lockdown.bsp among them) still carry it, so it is opaque
+        // bytes to preserve rather than an array to read.
         BspLump.PhysCollideSurface => null,
         BspLump.WaterOverlays => Unsafe.SizeOf<DWaterOverlay>(),
         BspLump.LeafAmbientIndexHdr => Unsafe.SizeOf<DLeafAmbientIndex>(),
@@ -122,14 +121,14 @@ public static class BspLumpLayout
         BspLump.LightingHdr => Unsafe.SizeOf<ColorRgbExp32>(),
         BspLump.WorldLightsHdr => Unsafe.SizeOf<DWorldLight>(),
         // Version-dependent, exactly like Leafs above, and for a sharper
-        // reason: at any version but 1 the engine casts the SAME LUMP to
-        // CompressedLightCube (24 bytes) rather than dleafambientlighting_t
-        // (28), and asserts the length divides by THAT
-        // (modelloader.cpp:2203-2211). Answering 28 unconditionally makes a
-        // legacy map's lump look misaligned when it is correct.
+        // reason: at any version but 1 the reference loader casts the SAME LUMP
+        // to CompressedLightCube (24 bytes) rather than dleafambientlighting_t
+        // (28), and asserts the length divides by THAT. Answering 28
+        // unconditionally makes a legacy map's lump look misaligned when it is
+        // correct.
         //
-        // One caveat this signature cannot express: the engine takes that
-        // legacy branch when the version is not 1 *OR* when the matching
+        // One caveat this signature cannot express: the reference loader takes
+        // that legacy branch when the version is not 1 *OR* when the matching
         // ambient INDEX lump is empty. A caller that knows whether the index
         // is empty should decide from that as well; the version alone is the
         // best this function can see.
@@ -140,7 +139,7 @@ public static class BspLumpLayout
             ? Unsafe.SizeOf<DLeafAmbientLighting>()
             : Unsafe.SizeOf<CompressedLightCube>(),
 
-        // bspfile.h:352 -- deprecated Xbox 1 xzip pak.
+        // Deprecated Xbox 1 xzip pak.
         BspLump.XZipPakFile => null,
         BspLump.FacesHdr => Unsafe.SizeOf<DFace>(),
         BspLump.MapFlags => Unsafe.SizeOf<DFlagsLump>(),
@@ -149,8 +148,8 @@ public static class BspLumpLayout
     };
 
     /// <summary>
-    /// The version <c>bspfile.h:360</c> says a freshly compiled map records for
-    /// this lump.
+    /// The version the reference writer records for this lump in a freshly
+    /// compiled map.
     /// </summary>
     /// <param name="lump">Which lump.</param>
     /// <returns>The version, which is zero for every lump not in that enum.</returns>
@@ -162,7 +161,7 @@ public static class BspLumpLayout
     /// </para>
     /// <para>
     /// LUMP_ORIGINALFACES is deliberately NOT here even though it holds
-    /// <see cref="DFace"/>. <c>bsplib.cpp:2671</c> passes
+    /// <see cref="DFace"/>. The reference writer passes
     /// <c>LUMP_FACES_VERSION</c> for LUMP_FACES and LUMP_FACES_HDR and lets
     /// LUMP_ORIGINALFACES default to zero, and <c>dm_lockdown.bsp</c> records
     /// exactly that. Versioning it "consistently" would be inventing a format.

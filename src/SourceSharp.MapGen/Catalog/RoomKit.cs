@@ -21,9 +21,9 @@ public static class RoomKit
     // ------------------------------------------------------------------
     // Tool textures.
     //
-    // Spelled as `Sandbox.cs` spells them (:168-213) — upper case, forward
-    // slash — because that map compiles with stock vbsp today and a second
-    // spelling in the same tree is a thing to get wrong rather than a choice.
+    // Spelled the way the corpus map's own tool textures are spelled — upper
+    // case, forward slash — because that map compiles with stock vbsp today and
+    // a second spelling in the same tree is a thing to get wrong rather than a choice.
     // vbsp itself matches on the material's %compile* flags, not on the name,
     // so the name only has to resolve to the right .vmt.
     // ------------------------------------------------------------------
@@ -71,7 +71,7 @@ public static class RoomKit
     /// Water, cheap.
     ///
     /// <para>
-    /// The same material `Sandbox.cs:138` settled on, and for the same reason:
+    /// The same material the corpus map settled on, and for the same reason:
     /// it carries %compilewater and $forcecheap 1, so it needs no reflection
     /// pass and no cubemap to be a legitimate water surface.
     /// </para>

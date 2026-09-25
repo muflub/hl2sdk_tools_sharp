@@ -1,8 +1,8 @@
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
-/// What one successful read step produced: a port of <c>ChunkType_t</c>
-/// (<c>src/public/chunkfile.h:57-61</c>).
+/// What one successful read step produced: the result shape the reference
+/// chunk-file reader reports, mirroring its <c>ChunkType_t</c>.
 /// </summary>
 public enum ChunkTermType
 {

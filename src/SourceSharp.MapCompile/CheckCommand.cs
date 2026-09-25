@@ -69,7 +69,7 @@ public static class CheckCommand
             }
 
             // CheckFileAsync rather than CheckAsync: the ident and version gate
-            // is the FIRST thing the engine does (modelloader.cpp:454-459), and
+            // is the FIRST thing the loader does, and
             // a BspData cannot represent a file that failed it -- the loader
             // throws instead. Checking from the stream is the only way that
             // rule is reachable at all.

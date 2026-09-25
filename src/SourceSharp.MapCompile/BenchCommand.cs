@@ -352,10 +352,10 @@ public sealed record BenchCellResult(
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>What it measures and what it does not.</b> The wine arms (stock x64,
-/// tools++) are not this command's business — no managed process starts wine
-/// honestly; the lane's series drivers time them with the <c>/usr/bin/time</c>
-/// pattern <c>make-catmaps++</c> uses and emit rows in exactly
+/// <b>What it measures and what it does not.</b> The wine arms (the stock
+/// x64 binaries) are not this command's business — no managed process starts
+/// wine honestly; the lane's series drivers time them with
+/// <c>/usr/bin/time</c> and emit rows in exactly
 /// <see cref="CsvHeader"/>'s shape so the matrix stays one table. This command
 /// owns the managed arms, in-process through the product's own seams
 /// (<see cref="AllCommand.WithBackendsAsync"/> and

@@ -109,7 +109,7 @@ public static class VvisCommand
 
     /// <summary>
     /// Turns <see cref="VvisOptions.Tighten"/> off: the conservative walk that
-    /// prunes with <c>portalflood</c> only, as this port shipped before the
+    /// prunes with <c>portalflood</c> only, as this command shipped before the
     /// Phase-5 promotion.
     /// </summary>
     /// <remarks>
@@ -330,7 +330,7 @@ public static class VvisCommand
                     + $"{parsed.Options.Trace!.Value.From} to {parsed.Options.Trace!.Value.To}")
                     .ConfigureAwait(false);
 
-                // Stock writes no .bsp for a trace (vvis.cpp:1179).
+                // Stock writes no .bsp for a trace.
                 return Program.ExitSuccess;
             }
 

@@ -6,16 +6,14 @@ namespace SourceSharp.MapFormats.Zip;
 /// What can be said about an LZMA pak entry without decoding it.
 /// </summary>
 /// <param name="SdkVersionMajor">
-/// The LZMA SDK major version the compressor wrote
-/// (<c>src/public/zip_utils.cpp:1046</c>).
+/// The LZMA SDK major version the compressor wrote.
 /// </param>
 /// <param name="SdkVersionMinor">
-/// The minor version (<c>zip_utils.cpp:1047</c>).
+/// The minor version.
 /// </param>
 /// <param name="PropertiesSize">
-/// The declared properties size. Always 5 when the entry is well-formed; the
-/// engine's own decoder rejects anything else
-/// (<c>src/tier1/lzmaDecoder.cpp:376-382</c>).
+/// The declared properties size. Always 5 when the entry is well-formed;
+/// the reference decoder rejects anything else.
 /// </param>
 /// <param name="UncompressedSize">
 /// The uncompressed length, taken from the ZIP header rather than from the LZMA
@@ -24,12 +22,12 @@ namespace SourceSharp.MapFormats.Zip;
 /// <remarks>
 /// <para>
 /// The single most useful fact about this framing: a pak's LZMA entry is NOT
-/// Valve's own <c>lzma_header_t</c>. That structure -- the <c>'LZMA'</c> magic,
-/// an <c>actualSize</c> and an <c>lzmaSize</c>, then five properties bytes,
-/// <c>src/public/tier1/lzmaDecoder.h:21-34</c> -- is what Valve uses
+/// the reference implementation's own <c>lzma_header_t</c>. That structure --
+/// the <c>'LZMA'</c> magic,
+/// an <c>actualSize</c> and an <c>lzmaSize</c>, then five properties bytes --
+/// is what the reference build uses
 /// everywhere ELSE. The zip writer strips it off and substitutes the ZIP
-/// specification's own 5.8.8 framing
-/// (<c>src/public/zip_utils.cpp:1034-1061</c>):
+/// specification's own 5.8.8 framing:
 /// </para>
 /// <code>
 /// byte 0    LZMA SDK major version
@@ -51,13 +49,13 @@ public sealed record LzmaEntryInfo(
 {
     /// <summary>
     /// The size of the ZIP-5.8.8 preamble: two version bytes, a two-byte size,
-    /// and five properties bytes (<c>src/public/zip_utils.cpp:1039</c>).
+    /// and five properties bytes.
     /// </summary>
     public const int HeaderSize = 2 + 2 + 5;
 
     /// <summary>
-    /// <c>LZMA_PROPS_SIZE</c>: the only properties size the engine's decoder
-    /// accepts (<c>src/tier1/lzmaDecoder.cpp:376-382</c>).
+    /// <c>LZMA_PROPS_SIZE</c>: the only properties size the reference decoder
+    /// accepts.
     /// </summary>
     public const int ExpectedPropertiesSize = 5;
 
@@ -95,7 +93,7 @@ public sealed record LzmaEntryInfo(
     }
 
     /// <summary>
-    /// Whether the properties size is the one the engine's decoder requires.
+    /// Whether the properties size is the one the reference decoder requires.
     /// </summary>
     public bool IsWellFormed => PropertiesSize == ExpectedPropertiesSize;
 
@@ -108,9 +106,8 @@ public sealed record LzmaEntryInfo(
     /// Deliberately a message and not a decode. A hand-written LZMA decoder is
     /// a large, fiddly, correctness-critical piece of code that this port does
     /// not need: the map compilers never WRITE a compressed entry -- without
-    /// <c>ZIP_SUPPORT_LZMA_ENCODE</c>, <c>AddBufferToZip</c> calls
-    /// <c>Error()</c> for anything but method 0
-    /// (<c>src/public/zip_utils.cpp:1066-1070</c>) -- so reading one is needed
+    /// <c>ZIP_SUPPORT_LZMA_ENCODE</c>, the zip writer's buffer adder
+    /// <c>Error()</c>s for anything but method 0 -- so reading one is needed
     /// only for a pak some other tool produced.
     /// </remarks>
     public string Describe(string name) =>

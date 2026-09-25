@@ -7,16 +7,15 @@ namespace SourceSharp.MapFormats.Zip;
 /// <para>
 /// Names are lower case, forward-slashed, relative, and carry no leading slash.
 /// The writer lower-cases unconditionally
-/// (<c>src/public/zip_utils.cpp:995-998</c>) and so do both readers
-/// (<c>:709</c>, <c>:875</c>) and every lookup (<c>:1144-1147</c>,
-/// <c>:1227-1230</c>) -- so a pak is a case-insensitive namespace stored in
+/// and so do both readers and every lookup -- so a pak is a
+/// case-insensitive namespace stored in
 /// lower case. The forward slashes come from the callers rather than from the
-/// zip code: <c>AddDirToPak</c> composes <c>"%s/%s"</c>
-/// (<c>src/utils/common/bsplib.cpp:870-880</c>).
+/// zip code: the directory adder composes
+/// <c>"%s/%s"</c>.
 /// </para>
 /// <para>
 /// One asymmetry NOT reproduced: <c>RemoveFileFromZip</c>
-/// (<c>zip_utils.cpp:1270-1274</c>) does not lower-case its argument, so
+/// does not lower-case its argument, so
 /// removing an entry by a mixed-case name silently fails in stock. That is a
 /// bug in an operation this port does not need to have, and reproducing it
 /// would only propagate it.
@@ -87,13 +86,13 @@ public sealed class ZipEntry
     public ZipCompressionMethod CompressionMethod { get; }
 
     /// <summary>
-    /// The CRC-32 of the UNCOMPRESSED bytes. Computed before compression
-    /// (<c>src/public/zip_utils.cpp:1017-1021</c>), so it is a checksum of the
+    /// The CRC-32 of the UNCOMPRESSED bytes. Computed before compression,
+    /// so it is a checksum of the
     /// file rather than of the payload.
     /// </summary>
     /// <remarks>
-    /// Nothing in Source ever verifies it. It is stored at
-    /// <c>zip_utils.cpp:740</c> and <c>:882</c> and re-emitted on save, and
+    /// Nothing in the reference implementation ever verifies it. It is stored
+    /// on read and re-emitted on save, and
     /// there is no comparison against the data anywhere.
     /// </remarks>
     public uint Crc { get; }

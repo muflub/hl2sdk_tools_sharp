@@ -6,7 +6,7 @@ namespace SourceSharp.MapGen.Catalog;
 // TestMapCatalog.cs; the only edit there is the two spreads in `All`.
 //
 // Every entry is compiled with stock vbsp against SurfaceContentFixture's
-// content (a detail.vbsp and a handful of VMTs) mounted ahead of the SDK's, and
+// content (a detail.vbsp and a handful of VMTs) mounted ahead of the game's own, and
 // its expectations were read off stock's output — see SurfaceContentFixture.
 public static partial class TestMapCatalog
 {
@@ -14,10 +14,10 @@ public static partial class TestMapCatalog
     public const string PlainPropModel = "models/props_c17/concrete_barrier001a.mdl";
 
     /// <summary>A model compiled with <c>$staticprop</c> but carrying <c>prop_data</c>
-    /// and no <c>allowstatic</c>: vbsp deletes it (<c>staticprop.cpp:111-118,178-181</c>).</summary>
+    /// and no <c>allowstatic</c>: vbsp deletes it.</summary>
     public const string DynamicOnlyPropModel = "models/props_c17/oildrum001.mdl";
 
-    /// <summary>A model that is not there at all (<c>staticprop.cpp:151,270</c>).</summary>
+    /// <summary>A model that is not there at all.</summary>
     public const string MissingPropModel = "models/p3g/this_model_does_not_exist.mdl";
 
     /// <summary>A specular world material: <c>$envmap env_cubemap</c>, no dependents.</summary>
@@ -78,7 +78,7 @@ public static partial class TestMapCatalog
                 VmfMap map = SealedRoom();
 
                 // solid 0, and the fade pair with a NEGATIVE min, which vbsp
-                // replaces with the max (staticprop.cpp:652-659).
+                // replaces with the max.
                 StaticProp(map, PlainPropModel, new Point(-128f, -128f, 0f), "0 0 0",
                            "solid", "0", "fademindist", "-1", "fademaxdist", "400");
 
@@ -97,8 +97,8 @@ public static partial class TestMapCatalog
                 RoomKit.PointEntity(map, "info_lighting", new Point(-96f, 96f, 64f),
                                     "targetname", "p3g_lighting");
 
-                // A lighting origin that names nothing: the flag stays clear
-                // (staticprop.cpp:513-519). Tilted, so pitch and roll reach the lump.
+                // A lighting origin that names nothing: the flag stays clear.
+                // Tilted, so pitch and roll reach the lump.
                 StaticProp(map, "models/props_c17/lamppost03a_off.mdl", new Point(128f, 128f, 0f), "5 200 3",
                            "solid", "6", "lightingorigin", "p3g_nobody");
 
@@ -455,9 +455,9 @@ public static partial class TestMapCatalog
         return overlay;
     }
 
-    // overlaydata's vectors are read with ReadKeyValueVector3, which wants
-    // BRACKETS ("[%f %f %f]", chunkfile.cpp:753) -- unlike info_overlay's keys,
-    // which go through GetVectorForKey. An unbracketed value fails the sscanf
+    // Stock reads overlaydata's vectors with a chunk-key reader that wants
+    // BRACKETS ("[%f %f %f]") -- unlike info_overlay's keys,
+    // which go through the entity-key reader. An unbracketed value fails the parse
     // and leaves the vector as constructed.
     private static VmfChunkNode OverlayData(string material, Point at, string sides, bool flipV)
     {
