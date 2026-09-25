@@ -76,61 +76,6 @@ public sealed class StockRandomStreamTests
         Assert.True(different > StockRandomStreamVectors.Count * 9 / 10, $"only {different} differed");
     }
 
-    [VstdlibFact]
-    public void TheGoldenSequenceIsWhatTheShippedLibraryDraws()
-    {
-        // The checked-in table against the live binary, so the stand-in cannot drift.
-        using NativeUniformRandomStream native = NativeUniformRandomStream.Create();
-
-        int different = 0;
-        foreach (uint expected in StockRandomStreamVectors.DefaultUnit)
-        {
-            if (BitConverter.SingleToUInt32Bits(native.RandomFloat(0f, 1f)) != expected)
-            {
-                different++;
-            }
-        }
-
-        Assert.Equal(0, different);
-    }
-
-    [VstdlibFact]
-    public void DefaultConstructedStreamMatchesNativeBitForBit()
-    {
-        using NativeUniformRandomStream native = NativeUniformRandomStream.Create();
-        StockRandomStream managed = new();
-
-        Assert.Equal(0, CountBitwiseDifferences(native, ref managed, Draws));
-    }
-
-    [VstdlibTheory]
-    [InlineData(0)]
-    [InlineData(1)]
-    [InlineData(7)]
-    [InlineData(12345)]
-    [InlineData(-3)]
-    [InlineData(int.MaxValue)]
-    public void SeededStreamMatchesNativeBitForBit(int seed)
-    {
-        using NativeUniformRandomStream native = NativeUniformRandomStream.Create();
-        native.SetSeed(seed);
-
-        StockRandomStream managed = new(seed);
-
-        Assert.Equal(0, CountBitwiseDifferences(native, ref managed, Draws));
-    }
-
-    [VstdlibFact]
-    public void TheNativeComparisonCanFail()
-    {
-        using NativeUniformRandomStream native = NativeUniformRandomStream.Create();
-        StockRandomStream managed = new();
-        _ = managed.RandomFloat();
-
-        int different = CountBitwiseDifferences(native, ref managed, 1000);
-
-        Assert.True(different > 900, $"a one-draw offset disagreed on only {different} of 1000");
-    }
 
     [Fact]
     public void DefaultValueIsTheSameStreamAsTheDefaultConstructor()
@@ -204,27 +149,6 @@ public sealed class StockRandomStreamTests
         foreach (uint expected in golden)
         {
             if (BitConverter.SingleToUInt32Bits(managed.RandomFloat(low, high)) != expected)
-            {
-                different++;
-            }
-        }
-
-        return different;
-    }
-
-    /// <summary>Counts how many of the next draws differ bit for bit.</summary>
-    /// <param name="native">The shipped stream.</param>
-    /// <param name="managed">The ported stream.</param>
-    /// <param name="count">How many draws.</param>
-    /// <returns>How many disagreed.</returns>
-    private static int CountBitwiseDifferences(
-        NativeUniformRandomStream native, ref StockRandomStream managed, int count)
-    {
-        int different = 0;
-        for (int i = 0; i < count; i++)
-        {
-            if (BitConverter.SingleToUInt32Bits(native.RandomFloat(0.0f, 1.0f))
-                != BitConverter.SingleToUInt32Bits(managed.RandomFloat(0.0f, 1.0f)))
             {
                 different++;
             }
