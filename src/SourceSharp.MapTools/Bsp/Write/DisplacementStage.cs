@@ -70,7 +70,7 @@ internal sealed class DisplacementStage
             }
 
             // DispGetFaceInfo's copy of the side, with EmitInitialDispInfos'
-            // dispinfo index(:642-648).
+            // dispinfo index.
             Face face = faces.Faces.Alloc();
             face.OriginalFace = side;
             face.TexInfo = side.TexInfo;

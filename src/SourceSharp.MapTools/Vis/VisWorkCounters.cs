@@ -18,19 +18,19 @@ namespace SourceSharp.MapTools.Vis;
 /// </param>
 /// <param name="BaseRays">
 /// How many portal-pair <c>portalfront</c> tests <see cref="VisBaseFlow"/>
-/// performed — stock's <c>BasePortalVis</c> inner loop
-/// Counted per (source portal, candidate portal)
+/// performed — the <c>BasePortalVis</c> inner loop in the reference
+/// dispatch. Counted per (source portal, candidate portal)
 /// pair and summed over the whole run. This is the pass the P12 anomaly-3
 /// report misremembered <c>-fast</c> as skipping: it skips NOTHING, in stock
-/// or here (<c>all.c</c> dispatches the base pass unconditionally; the
-/// one fastvis branch is <c>all.c</c>, and it lives in
-/// <c>CalcPortalVis</c>), so this counter is the gate that keeps a future
+/// or here (the reference dispatch runs the base pass unconditionally; the
+/// one fastvis branch lives in <c>CalcPortalVis</c>), so this counter is the gate
+/// that keeps a future
 /// well-meaning "skip the base pass under -fast" from ever merging.
 /// </param>
 /// <remarks>
 /// <para>
-/// <b>Why a compiler reports its own operation counts.</b> plan_maptools.md 5
-/// requires a per-operation comparison against stock and forbids inferring one
+/// <b>Why a compiler reports its own operation counts.</b> The performance
+/// gate requires a per-operation comparison against stock and forbids inferring one
 /// from a scaled wall time. A wall time divided by the portal count cannot
 /// serve: this port prunes with <c>portalflood</c> where stock may prune with a
 /// neighbour's finished <c>portalvis</c>, so the two do a DIFFERENT AMOUNT of

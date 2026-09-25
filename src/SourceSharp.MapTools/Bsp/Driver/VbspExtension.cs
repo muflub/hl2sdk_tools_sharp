@@ -12,8 +12,7 @@ namespace SourceSharp.MapTools.Bsp.Driver;
 /// <remarks>
 /// <para>
 /// The order is stock's and is load-bearing: each point sees exactly the state
-/// stock's function saw. Listed with the call site; the lane that owns each is
-/// in brackets.
+/// stock's function saw. Listed with the call site; the owning porting phase is in brackets.
 /// </para>
 /// <list type="number">
 /// <item><see cref="AfterLoad"/> — after <c>WorldVertexTransitionFixup</c>,

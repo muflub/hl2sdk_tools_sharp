@@ -33,9 +33,8 @@ public sealed class NodeFaceLists
     private readonly Dictionary<Portal, Face?[]> _portalFaces = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>
-    /// The face a portal produced on one side (<c>portal_t::face[2]</c>,
-    ///), as <c>MakeFaces_r</c> assigned it
-    ///.
+    /// The face a portal produced on one side (<c>portal_t::face[2]</c>), as
+    /// <c>MakeFaces_r</c> assigned it.
     /// </summary>
     /// <param name="portal">The portal.</param>
     /// <param name="side">0 for the front node's side, 1 for the back's.</param>

@@ -458,7 +458,7 @@ public static class PatchSubdivider
         // In REVERSE index order, so that after the prepends each
         // cluster's list comes out in forward index order. Only leaf patches
         // are listed. The heads are NOT cleared first: stock initialises them
-        // once in VRAD_LoadBSP (:2262-2273) and AddDispsToClusterTable appends
+        // once in VRAD_LoadBSP and AddDispsToClusterTable appends
         // to the same lists afterwards, so clearing here would be a change.
         for (int num = 0; num < patches.Count; num++)
         {

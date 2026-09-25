@@ -17,7 +17,7 @@ public class ContainerRuleTests
     [Corrupts(BspRuleCodes.Ident)]
     public async Task AWrongIdentIsRejectedBeforeAnythingIsParsed()
     {
-        //. The ident gate happens before there
+        // The ident gate happens before there
         // is a container at all, which is why it lives on CheckFileAsync.
         byte[] bytes = Corrupted.GoldenBytes();
         bytes[0] = (byte)'X';
@@ -227,7 +227,7 @@ public class ContainerRuleTests
     [Corrupts(BspRuleCodes.PakFileLast)]
     public async Task ThePakFileMustBeTheLastLumpInTheFile()
     {
-        // and:3108-3112. Moving the pak's
+        // Moving the pak's
         // directory entry to the front of the file leaves every other lump
         // starting after it.
         byte[] bytes = Corrupted.GoldenBytes();
@@ -278,7 +278,7 @@ public class ContainerRuleTests
     [Corrupts(BspRuleCodes.TexDataStringNul)]
     public async Task TheTexdataStringDataMustEndInANul()
     {
-        //. Every material name is read
+        // Every material name is read
         // out of this lump as a C string, so without the final NUL the last
         // one's strlen walks off the end of the lump.
         BspData bsp = await Corrupted.GoldenAsync();

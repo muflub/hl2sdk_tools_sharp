@@ -189,7 +189,7 @@ public sealed record StockArgsResult<TOptions>(
     public bool NoToolsArgs { get; init; }
 
     /// <summary>
-    /// Whether the line carried <c>-incremental</c> (plan_maptools.md 10a):
+    /// Whether the line carried <c>-incremental</c>:
     /// reuse the map's cooked-collision cache instead of re-cooking unchanged
     /// models. Opt-in, like every speed-up that changes what is trusted: a
     /// line without it compiles exactly as before.
@@ -218,7 +218,7 @@ public sealed record StockArgsResult<TOptions>(
 
     /// <summary>
     /// The substring <c>-gpu</c> pinned the ray-tracing device to, or null
-    /// when the line asked for no GPU (plan_maptools.md 10c: <c>-gpu</c> is
+    /// when the line asked for no GPU (<c>-gpu</c> is
     /// opt-in; absence of a device is a clean CPU fallback, never an error).
     /// </summary>
     /// <remarks>

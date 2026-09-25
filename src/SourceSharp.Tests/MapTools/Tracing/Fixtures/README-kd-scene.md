@@ -144,7 +144,7 @@ the ratio is taken inside a round (the box ran two other lanes throughout):
 | stock `Trace4Rays` | 0.43 | 1.00x |
 | `KdRayTracer`, Release | 0.39 | **0.91x** |
 
-**This does not meet the lane's gate**, which asks for faster than stock per
+**This does not meet the perf gate**, which asks for faster than stock per
 ray, and the honest reading is below.
 
 What moved it, measured in the same interleaved way:

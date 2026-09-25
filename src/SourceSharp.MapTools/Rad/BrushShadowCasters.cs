@@ -526,7 +526,7 @@ public static class BrushShadowCasters
 
     /// <summary>
     /// <c>GetVectorForKey</c> / <c>GetAnglesForKey</c>,
- /// The two are the same function.
+    /// The two are the same function.
     /// </summary>
     /// <remarks>
     /// <para>

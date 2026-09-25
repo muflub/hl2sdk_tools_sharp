@@ -107,20 +107,20 @@ public static class GameContentMounter
 
         try
         {
-            // Portal 2's sibling content, the way ++ mounts it during
- // FileSystem setup (dumps/vbsp.all.c): the caller of
-            // MountPortal2ContentAsync fires once appid==620 — UNCONDITIONALLY
-            // on the appid, before and independently of the gameinfo
-            // SearchPaths walk at 68100+, and independently of any preset
-            // flag (the report's "preset-active" phrasing observed that the
-            // 620 preset always happens to apply, not that the mount checks
-            // it). Being added first, the update/dlc content OUTRANKS the
-            // gameinfo's own paths where both carry a file — ++'s order too.
-            // <gamedir>/update and every contiguous <gamedir>/portal2_dlcN
-            // join the search; DLC numbering is contiguous-from-1 and capped:
-            // the dump probes dlc1 upward while the directory exists, stops
-            // at the first miss, never past 99, and mounts each found DLC's
-            // pak01_dir.vpk BEFORE its directory, highest-numbered DLC first.
+            // Portal 2's sibling content, mounted the way the reference
+            // mounter does it during file-system setup: this fires once
+            // appid==620 — UNCONDITIONALLY on the appid, before and
+            // independently of the gameinfo SearchPaths walk, and
+            // independently of any preset flag (the 620 preset always
+            // happens to apply; the mount does not check it). Being added
+            // first, the update/dlc content OUTRANKS the gameinfo's own
+            // paths where both carry a file — the reference mounter's
+            // order too. <gamedir>/update and every contiguous
+            // <gamedir>/portal2_dlcN join the search; DLC numbering is
+            // contiguous-from-1 and capped: probe dlc1 upward while the
+            // directory exists, stop at the first miss, never past 99, and
+            // mount each found DLC's pak01_dir.vpk BEFORE its directory,
+            // highest-numbered DLC first.
             if (gameInfo.SteamAppId == 620)
             {
                 await MountPortal2ExtraAsync(
@@ -271,12 +271,12 @@ public static class GameContentMounter
         string gameDir = roots.GameInfoDirectory.Value;
 
         // The update dir gates its own pair: no directory, no update mounts.
-        // The probe is an enumerate, not ExistsAsync: this file system surface
- // answers ExistsAsync only for FILES (PhysicalFileSystem.cs is
-        // File.Exists), so asking it about a directory answers false and the
-        // whole block would be unreachable. ++ probes with FindFirstFile on
-        // the directory name (dumps/vbsp.all.c, MountPortal2ContentAsync),
-        // which is what DirectoryExistsAsync below reproduces.
+        // The probe is an enumerate, not ExistsAsync: this file system
+        // surface answers ExistsAsync only for FILES (PhysicalFileSystem
+        // implements it as File.Exists), so asking it about a directory
+        // answers false and the whole block would be unreachable. The
+        // reference mounter probes with a directory enumeration on the
+        // directory name, which is what DirectoryExistsAsync below reproduces.
         if (await DirectoryExistsAsync(fileSystem, Root(roots, gameDir + "/update", true), cancellationToken)
             .ConfigureAwait(false))
         {
@@ -290,7 +290,7 @@ public static class GameContentMounter
                 .ConfigureAwait(false);
         }
 
-        // Contiguous from dlc1, capped at 99 like the dump's loop counter.
+        // Contiguous from dlc1, capped at 99 like the reference loop counter.
         int highest = 0;
         for (int n = 1; n <= 99; n++)
         {
@@ -324,13 +324,13 @@ public static class GameContentMounter
     /// <remarks>
     /// There is no directory-exists on <see cref="IFileSystem"/>, and
     /// <see cref="IFileSystem.ExistsAsync"/> is file-only in both implementations
- /// (<c>PhysicalFileSystem.cs</c> is <c>File.Exists</c>;
+    /// (<c>PhysicalFileSystem.cs</c> is <c>File.Exists</c>;
     /// <see cref="InMemoryFileSystem"/> has no directories at all — one exists
     /// exactly when a file is under it). Enumerating is the question that means
     /// "the directory is there" on both, and it is what
     /// <see cref="MountWildcardAsync"/> already relies on for the same reason.
     /// Recursive, so a directory holding only subdirectories still counts as
-    /// present, the way the dump's directory probe answers for it.
+    /// present, the way the reference directory probe answers for it.
     /// </remarks>
     private static async ValueTask<bool> DirectoryExistsAsync(
         IFileSystem fileSystem,
@@ -554,7 +554,7 @@ public static class GameContentMounter
             // over one unreadable sibling (or one corrupt custom/* pak) would
             // be louder than the tool the port models. A corrupt base pak
             // skips too, and the compile that follows fails loudly on its
-            // missing materials — which is what ++'s silence also ends in.
+            // missing materials — which is what the reference build's silence also ends in.
             return default;
         }
     }

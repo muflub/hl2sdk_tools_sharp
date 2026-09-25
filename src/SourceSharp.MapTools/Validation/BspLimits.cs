@@ -69,38 +69,27 @@ public static class BspLimits
     /// </summary>
     public static ImmutableArray<(BspLump Lump, int Max, string Constant)> Caps { get; } =
     [
-        //.
         (BspLump.TexData, 2048, "MAX_MAP_TEXDATA"),
 
-        //.
         (BspLump.TexInfo, 12288, "MAX_MAP_TEXINFO"),
 
- // And. Compared against
-        // MAX_MAP_PLANES, not MAX_MAP_LEAFS; both are 65536.
+        // Compared against MAX_MAP_PLANES, not MAX_MAP_LEAFS; both are 65536.
         (BspLump.Leafs, 65536, "MAX_MAP_PLANES"),
 
-        //.
         (BspLump.LeafBrushes, 65536, "MAX_MAP_LEAFBRUSHES"),
 
-        //.
         (BspLump.Planes, 65536, "MAX_MAP_PLANES"),
 
-        //.
         (BspLump.Brushes, 8192, "MAX_MAP_BRUSHES"),
 
-        //.
         (BspLump.BrushSides, 65536, "MAX_MAP_BRUSHSIDES"),
 
-        //.
         (BspLump.Models, 1024, "MAX_MAP_MODELS"),
 
-        //.
         (BspLump.Nodes, 65536, "MAX_MAP_NODES"),
 
-        //.
         (BspLump.Areas, 256, "MAX_MAP_AREAS"),
 
-        //.
         (BspLump.AreaPortals, 1024, "MAX_MAP_AREAPORTALS"),
     ];
 

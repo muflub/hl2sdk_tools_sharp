@@ -44,7 +44,7 @@ public sealed class PropLightSamplerTests : IClassFixture<DetailPropFixture>
     [Fact]
     public void AShortDistanceIsFlooredAtOneUnit()
     {
-        // dist = MaxSIMD(dist, Four_Ones):1864).
+        // The distance floors at one unit.
         PropLightSample s = _exact.Gather(Point(new Vec3(0, 0, 100.5f)), new Vec3(0, 0, 100), new Vec3(0, 0, 1));
 
         Assert.Equal(1.0f, s.Falloff);
@@ -70,7 +70,7 @@ public sealed class PropLightSamplerTests : IClassFixture<DetailPropFixture>
     [Fact]
     public void ASpotLightOutsideItsConeIsDark()
     {
-        //:1911-1915: dot2 <= stopdot2 returns before any falloff.
+        // dot2 <= stopdot2 returns before any falloff.
         PropLight spot = Point(new Vec3(0, 0, 200)) with
         {
             Type = EmitType.Spotlight,

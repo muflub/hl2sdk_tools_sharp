@@ -162,7 +162,7 @@ public sealed class MapCompilerTests
     [Fact]
     public async Task InMemoryWritesNothing()
     {
-        // plan_maptools.md 1a: a compile can run with zero disk writes.
+        // A compile can run with zero disk writes.
         (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room());
         CompileResult result = await MapCompiler.CompileAsync(Request(files, content, CompileOutput.InMemory), null);
 

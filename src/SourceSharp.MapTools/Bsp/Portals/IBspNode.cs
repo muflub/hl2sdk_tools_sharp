@@ -96,7 +96,7 @@ public interface IBspNode
     /// <remarks>
     /// Order is load-bearing twice over. <c>AreaportalBrushForNode</c>
     /// Takes the FIRST areaportal brush it finds, and
- /// <c>FindPortalSide</c> breaks distance ties by taking the
+    /// <c>FindPortalSide</c> breaks distance ties by taking the
     /// first candidate at the best distance.
     /// </remarks>
     IReadOnlyList<MapBrush> LeafBrushes { get; }

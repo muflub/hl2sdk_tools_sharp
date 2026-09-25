@@ -140,8 +140,8 @@ internal static class VisFixture
     /// exactly ON a splitting plane lands in the front child. Written as
     /// <c>dist &gt; 0 ? front: back</c> instead, every probe that sits on a
     /// cut lands in the other leaf -- and the catalogue's probes sit at
-    /// <c>y = 0</c>, which is exactly where vbsp's 1024-unit block grid cuts
-    ///. That reported a real must-see pair as unreachable
+    /// <c>y = 0</c>, which is exactly where vbsp's 1024-unit block grid cuts.
+    /// That reported a real must-see pair as unreachable
     /// and looked like a vvis defect.
     /// </para>
     /// <para>

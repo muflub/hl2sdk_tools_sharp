@@ -30,7 +30,7 @@ public sealed class RadWriterTests
     [Fact]
     public void EveryFaceCornerGetsOneIndex()
     {
-        //:336-362: one entry per edge of every face, in face order.
+        // One entry per edge of every face, in face order.
         RadWorld world = LightBox.Build(LightBox.Map());
         (_, ushort[] indices) = VradVertexNormals.Save(world.Geometry, world.Neighbours);
 
@@ -137,7 +137,7 @@ public sealed class LuxelDensityTests
     [Fact]
     public void TheCapShortensALightmapAxisToTheDensity()
     {
-        //:1782-1796. The box is 1/16 luxel a unit; capped at 1/32.
+        // The box is 1/16 luxel a unit; capped at 1/32.
         BspData bsp = LightBox.Map().Build();
         LuxelDensity.Apply(bsp, 1f / 32, hdr: false, ComplianceOptions.Correct);
 
@@ -158,7 +158,7 @@ public sealed class LuxelDensityTests
     [Fact]
     public void TheFacesExtentsFollowTheNewAxes()
     {
-        //:1803, CalcFaceExtents: 256 units at 1/32 is 8 luxels.
+        // CalcFaceExtents: 256 units at 1/32 is 8 luxels.
         BspData bsp = LightBox.Map().Build();
         LuxelDensity.Apply(bsp, 1f / 32, hdr: false, ComplianceOptions.Correct);
 

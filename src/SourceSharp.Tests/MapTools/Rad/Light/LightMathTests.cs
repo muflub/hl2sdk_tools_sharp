@@ -56,7 +56,7 @@ public sealed class BumpBasisTests
     [Fact]
     public void TheThirdRowIsThePhongNormalUnnormalised()
     {
-        //:51 copies the phong normal through untouched: a z of 2 doubles the
+        // The third row copies the phong normal through untouched: a z of 2 doubles the
         // basis vectors' z.
         Span<Vec3> b = stackalloc Vec3[3];
         BumpBasis.Build(new(1, 0, 0), new(0, -1, 0), new(0, 0, 1), new(0, 0, 2), b, false);
@@ -162,7 +162,7 @@ public sealed class LightFalloffTests
     [Fact]
     public void AZeroDistanceShorterThanTheFiftyPercentOneIsTwiceIt()
     {
-        //:1180-1184. Same curve as asking for 2*d50 outright.
+        // Same curve as asking for 2*d50 outright.
         Solve(100, 50, false, out float a1, out float b1, out float c1);
         Solve(100, 200, false, out float a2, out float b2, out float c2);
         Assert.Equal((a2, b2, c2), (a1, b1, c1));
@@ -182,7 +182,7 @@ public sealed class LightFalloffTests
     [Fact]
     public void LiteralCoefficientsBelowEqualEpsilonAreDropped()
     {
-        //:1240-1247, then:1249-1250 restores constant 1 when all vanish.
+        // Small coefficients vanish; constant 1 returns when all do.
         DirectLight light = new() { Intensity = new Vec3(1, 1, 1) };
         LightFalloff.Apply(LightTestMap.Entity(("_quadratic_attn", "0.0005")), light);
         Assert.Equal((1f, 0f, 0f), (light.ConstantAttn, light.LinearAttn, light.QuadraticAttn));
@@ -191,7 +191,7 @@ public sealed class LightFalloffTests
     [Fact]
     public void LiteralCoefficientsScaleIntensityToUnitAtOneHundredUnits()
     {
-        //:1252-1257: intensity *= c + 100 l + 100^2 q.
+        // intensity *= c + 100 l + 100^2 q.
         DirectLight light = new() { Intensity = new Vec3(1, 1, 1) };
         LightFalloff.Apply(LightTestMap.Entity(("_linear_attn", "1")), light);
         Assert.Equal(new Vec3(100, 100, 100), light.Intensity);
@@ -211,7 +211,7 @@ public sealed class LightFalloffTests
         // d50 10 / d0 20 with stock's 2a + b test (MonotonicDerivativeAtOne):
         // the blend stops at 0.45 with a = 0.696 and b = -1.165 (before the
         // rescale, which scales both alike), so the quadratic turns at 0.837
-        // units, and:1219-1228 cap and fade there.
+        // units, and the far cap fades there.
         DirectLight light = new();
         LightFalloff.Apply(
             LightTestMap.Entity(("_fifty_percent_distance", "10"), ("_zero_percent_distance", "20")),
@@ -255,7 +255,7 @@ public sealed class LightNormalTests
     [Fact]
     public void AngleUpIsOverwrittenByThePitch()
     {
-        // sets (0,0,1), then:44 ASSIGNS z from the pitch.
+        // The base vector starts at (0,0,1); the pitch then overwrites z.
         Vec3 n = LightNormals.FromProps(Vec3.Zero, LightNormals.AngleUp, 0);
         Assert.Equal(new Vec3(0, 0, 0), n);
     }

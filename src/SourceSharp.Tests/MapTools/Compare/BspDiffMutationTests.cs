@@ -16,7 +16,7 @@ namespace SourceSharp.Tests.MapTools.Compare;
 /// </summary>
 /// <remarks>
 /// <para>
-/// plan_maptools.md 2 requires a mutation proof per instrument, and this
+/// The comparison rules require a mutation proof per instrument, and this
 /// project's standing lesson is "the check that cannot fail". A diff is a check
 /// whose failure mode is silence: it reports nothing, and nothing is exactly
 /// what it reports when it is working. So each kind is handed a map perturbed

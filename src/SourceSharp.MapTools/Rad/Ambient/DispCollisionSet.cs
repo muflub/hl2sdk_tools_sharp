@@ -226,7 +226,7 @@ public sealed class DispCollisionSet
         _leafDisps.AsSpan(_leafStart[leaf], _leafStart[leaf + 1] - _leafStart[leaf]);
 
     /// <summary>
- /// <c>ClipRayToDispInLeaf</c>(/) with
+    /// <c>ClipRayToDispInLeaf</c>(/) with
     /// <c>CBSPDispRayDistanceEnumerator</c>: the nearest displacement hit in a
     /// leaf, skipping any this ray already tested.
     /// </summary>

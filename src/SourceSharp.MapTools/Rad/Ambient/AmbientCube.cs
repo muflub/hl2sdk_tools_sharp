@@ -123,7 +123,7 @@ public static class AmbientCube
     /// that the engine's <c>r_worldlightmin</c> would discard them, so the dim
     /// ones are baked into the ambient cube instead of being shipped as lights;
     /// <see cref="LeafAmbientSurfaceLights.IsAmbientCubeLight"/> decides which.
- /// A light the sample cannot see is skipped, and the rest
+    /// A light the sample cannot see is skipped, and the rest
     /// are scaled by the fraction that got through.
     /// </remarks>
     public static void AddEmitSurfaceLights(

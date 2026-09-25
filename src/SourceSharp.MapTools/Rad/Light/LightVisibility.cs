@@ -45,7 +45,7 @@ public sealed class LightVisibility
         ClusterCount = clusterCount;
 
         // Sizes a light's PVS as (numclusters / 8) + 1,
- // which is ONE MORE BYTE than GetVisCache fills 's
+        // which is ONE MORE BYTE than GetVisCache fills 's
         // (numclusters + 7) / 8 whenever the count is a multiple of eight. The
         // larger of the two is used here so neither write runs off the end.
         _rowBytes = clusterCount > 0 ? (clusterCount / 8) + 1 : 0;
@@ -155,7 +155,7 @@ public sealed class LightVisibility
                 $"A PVS row needs {_rowBytes} bytes.", nameof(row));
         }
 
- // Both the no-vis case and the negative
+        // Both the no-vis case and the negative
         // cluster fill (numclusters + 7) / 8 bytes with 0xFF -- note that is
         // the SHORTER of the two lengths, so the last byte of a row whose
         // cluster count is a multiple of 8 keeps whatever it held.
@@ -204,7 +204,7 @@ public sealed class LightVisibility
     /// <param name="cluster">The cluster to add.</param>
     /// <exception cref="ArgumentNullException"><paramref name="light"/> is null.</exception>
     /// <remarks>
- /// A light with no PVS yet is SET rather than merged,
+    /// A light with no PVS yet is SET rather than merged,
     /// which is not the same as merging into zeros when the map has no vis
     /// data -- in that case set fills with 0xFF and merge would too, so they
     /// agree; the difference is only that set allocates.

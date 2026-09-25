@@ -24,7 +24,7 @@ public readonly record struct FaceLightError(
 /// <remarks>
 /// <para>
 /// The five numbers and the differing fraction are exactly the ones
-/// plan_maptools_lane_notes.md spike 0d quotes for stock-against-stock
+/// the noise-floor spike measured for stock-against-stock
 /// (2.90 % of samples move, p99 0.000245, p99.9 0.003922, p99.99 0.041176,
 /// max 3.396078), so a run of this instrument can be read straight against that
 /// measurement. Changing the set would make the comparison impossible.

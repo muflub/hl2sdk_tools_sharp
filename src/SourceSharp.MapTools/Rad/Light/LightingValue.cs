@@ -15,7 +15,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// read it) does not have to re-derive the four-lane rule that decides it.
 /// </para>
 /// <para>
-/// All arithmetic is in the C++ operand order. <c>AddLight(amount, color)</c>
+/// All arithmetic is in the reference operand order. <c>AddLight(amount, color)</c>
 /// is <c>VectorMA(m_vecLighting, amount, color, m_vecLighting)</c>, which is
 /// <c>lighting + amount * color</c> per component.
 /// </para>

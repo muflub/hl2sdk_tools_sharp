@@ -13,7 +13,7 @@ namespace SourceSharp.MapTools.Compile.Cache;
 
 /// <summary>
 /// The canonical digest of the PARSED map model — what and its
-/// fixups actually consume, not the VMF text (plan_maptools.md 10a: Hammer's
+/// fixups actually consume, not the VMF text (Hammer's
 /// save-time churn — <c>editor</c>{f} blocks, camera positions, view settings,
 /// renumbered face ids — must not invalidate the key, while anything that
 /// changes a computed byte must).

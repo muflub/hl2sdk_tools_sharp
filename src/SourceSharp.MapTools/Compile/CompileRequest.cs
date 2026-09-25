@@ -57,7 +57,7 @@ public sealed record CompileRequest
     public IRayTracer? Tracer { get; init; }
 
     /// <summary>
-    /// The host's GPU-tracer factory (plan_maptools.md 10c, the <c>-gpu</c>
+    /// The host's GPU-tracer factory (the <c>-gpu</c>
     /// seam), or null for the CPU KD tracer. Mutually informative with
     /// <see cref="Tracer"/>: a host that supplies a tracer outright needs no
     /// factory; a host with <c>-gpu</c> supplies the factory and no tracer,

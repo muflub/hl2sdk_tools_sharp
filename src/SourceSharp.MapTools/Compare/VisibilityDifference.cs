@@ -22,8 +22,8 @@ public readonly record struct ClusterBitDifference(int Cluster, int OnlyInA, int
 /// The direction is reported and not judged. A row of B that is a strict
 /// SUPERSET of A's is a legitimate vvis result: a cluster that believes it sees
 /// more than it does renders too much and is never wrong, which is exactly what
-/// <c>-fast</c> produces and what plan_maptools_lane_notes.md records as the
-/// acceptance shape for vvis (containment, never equality). A row that has LOST
+/// <c>-fast</c> produces: the acceptance shape for vvis is containment, never
+/// equality. A row that has LOST
 /// bits is the dangerous direction, because geometry disappears at runtime.
 /// </para>
 /// </remarks>

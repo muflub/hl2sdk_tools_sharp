@@ -331,7 +331,7 @@ public static class BspDiff
                 "no comparison of its own: pure indices into lumps the canonical kinds cover",
             BspLump.PhysCollide or BspLump.PhysDisp or BspLump.PhysCollideSurface =>
                 "cooked vphysics blobs; no managed reader exists and the engine validates none "
-                + "of it (plan_maptools.md 0.2 fact 5)",
+                + "of it",
             BspLump.Unused0 or BspLump.Unused1 or BspLump.Unused2 or BspLump.Unused3 =>
                 "never assigned by bspfile.h; nothing is known about its contents",
             BspLump.XZipPakFile => "deprecated Xbox 1 xzip pak; never written",

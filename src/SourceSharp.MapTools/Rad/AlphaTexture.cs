@@ -108,8 +108,8 @@ public sealed class AlphaTexture
     /// <remarks>
     /// A DELIBERATE REPRODUCTION OF A STOCK DEFECT.
     /// <c>LoadVTFRGB8888</c> reads the flag
- /// and <c>FindOrLoadIfValid</c> stores it, but the only code
- /// that would act on it is inside the <c>#if 0</c>:
+    /// and <c>FindOrLoadIfValid</c> stores it, but the only code
+    /// that would act on it is inside the <c>#if 0</c>:
     /// <c>SampleMaterial</c> takes the <c>#else</c> branch and wraps
     /// unconditionally. So a clamped alpha texture whose UVs run outside
     /// [0,1] tiles in stock's shadows and does not tile on screen. Kept
@@ -226,7 +226,7 @@ public sealed class AlphaTexture
     /// <remarks>
     /// The raw read <c>ComputeCoverageForTriangle</c> does inside its box loop
     /// Where the coordinates have already
- /// been brought into range by the clamp.
+    /// been brought into range by the clamp.
     /// </remarks>
     public byte Texel(int u, int v)
     {
@@ -259,7 +259,7 @@ public sealed class AlphaTexture
     /// spelled without an explicit mode here and pinned by a fact.
     /// </para>
     /// <para>
- /// The mask is the whole wrap: stock's comment says "asume
+    /// The mask is the whole wrap: stock's comment says "asume
     /// power of 2", and for a non-power-of-two texture <c>x &amp; (w - 1)</c>
     /// is not a modulo — it is some other in-range index. It cannot leave the
     /// array, because ANDing only clears bits, so the result is never above

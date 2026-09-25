@@ -139,7 +139,7 @@ public sealed class DispLeafIndex
 
     /// <summary>
     /// <c>ClipRayToDispInLeaf</c> with a face and luxel coordinate
-    /// (<c>DispRayDistance_EnumerateElement</c>:702):
+    /// (<c>DispRayDistance_EnumerateElement</c>):
     /// the nearest displacement hit in a leaf, as a fraction of the ray.
     /// </summary>
     /// <param name="state">The work item's tested marks; call <see cref="DispRayTestState.StartRayTest"/> first.</param>

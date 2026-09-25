@@ -157,8 +157,8 @@ public class EdgeBevelTests
 
     /// <summary>
     /// <c>CreateBrushWindings</c> skips bevels as CLIP planes
-    /// where <c>SplitBrush</c> does not
-    ///. On a shape with twelve edge bevels that
+    /// where <c>SplitBrush</c> does not.
+    /// On a shape with twelve edge bevels that
     /// difference is measurable: clipping with them produces a smaller brush
     /// than clipping without.
     /// </summary>

@@ -76,12 +76,12 @@ public static class DispRadial
     /// <summary>The luxel radial's normal cut-off.</summary>
     public const float MinSampleAngle = 0.15f;
 
- /// <summary>A non-bumped neighbour's weight into a bumped luxel,.</summary>
+    /// <summary>A non-bumped neighbour's weight into a bumped luxel,.</summary>
     public const float UnbumpedNeighbourScale = 0.05f;
 
     /// <summary>
     /// <c>BuildLuxelRadial</c> +
- /// <c>RadialLuxelBuild</c>: the direct-light radial of one
+    /// <c>RadialLuxelBuild</c>: the direct-light radial of one
     /// light style.
     /// </summary>
     /// <param name="context">The lit world.</param>
@@ -271,7 +271,7 @@ public static class DispRadial
 
     /// <summary>
     /// <c>BuildPatchRadial</c> +
- /// <c>RadialPatchBuild</c>: the bounced-light radial,
+    /// <c>RadialPatchBuild</c>: the bounced-light radial,
     /// the leaf patches of the face and its neighbours near its luxels.
     /// </summary>
     /// <param name="context">The lit world.</param>
@@ -450,7 +450,7 @@ public static class DispRadial
     /// On a bumped face the luxel normal first goes through
     /// <c>PreGetBumpNormalsForDisp</c>, which may rotate it into the lightmap
     /// frame; the three bump normals <c>GetBumpNormals</c> then computes are
- /// never read, so they are not computed here.
+    /// never read, so they are not computed here.
     /// </remarks>
     public static void AddPatchLightToRadial(
         Vec3 patchOrigin,

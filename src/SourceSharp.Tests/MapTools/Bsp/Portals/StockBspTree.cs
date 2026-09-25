@@ -251,10 +251,9 @@ internal sealed class StockBspTree
     /// </remarks>
     private static void CutBlockParents(BspNode root, PlaneTable planes, Vec3 mins, Vec3 maxs)
     {
-        const int blocksSize = 1024;    // BLOCKS_SIZE:73
-
+        const int blocksSize = 1024;
         // ProcessWorldModel calls BlockTree(xl-1, yl-1, xh+1, yh+1), and
-        // tree->mins/maxs are xl*1024.. (xh+1)*1024.
+        // the tree's own bounds are xl*1024.. (xh+1)*1024.
         int xl = (int)(mins.X / blocksSize) - 1;
         int yl = (int)(mins.Y / blocksSize) - 1;
         int xh = ((int)(maxs.X / blocksSize) - 1) + 1;

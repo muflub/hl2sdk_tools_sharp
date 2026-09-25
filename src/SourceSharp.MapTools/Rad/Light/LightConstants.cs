@@ -5,8 +5,8 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </summary>
 /// <remarks>
 /// Gathered rather than scattered because several of them are spelled in more
-/// than one place in the C++ and one of those spellings is always the odd one
-/// out. Each carries its C++ site; none is a value this port chose.
+/// than one place in the reference build and one of those spellings is always the odd one
+/// out. Each carries its reference site; none is a value this port chose.
 /// </remarks>
 public static class LightConstants
 {
@@ -16,14 +16,13 @@ public static class LightConstants
     /// <remarks>
     /// Used against DOT PRODUCTS as often as against distances -- the flatness
     /// test and the ambient-sky validity test at
- /// Both do -- so it is not a length tolerance despite reading
+    /// Both do -- so it is not a length tolerance despite reading
     /// like one.
     /// </remarks>
     public const float EqualEpsilon = 0.001f;
 
     /// <summary>
     /// <c>EQUAL_EPSILON</c> as the macro really is: the DOUBLE literal 0.001
-    ///.
     /// </summary>
     /// <remarks>
     /// Wherever the macro meets a float in a comparison the float is promoted,
@@ -42,7 +41,7 @@ public static class LightConstants
 
     /// <summary>
     /// The epsilon <c>BuildFacesamples</c> clips the LIGHTMAP-space winding
- /// With: <c>ON_EPSILON / 16</c>.
+    /// With: <c>ON_EPSILON / 16</c>.
     /// </summary>
     /// <remarks>
     /// Stock's own comment says why: "need a separate epsilon for lightmap
@@ -135,7 +134,7 @@ public static class LightConstants
     /// <remarks>
     /// Stock allocates <c>SINGLE_BRUSH_MAP * 2</c> = 2450 samples and then
     /// writes as many as the clip produces, with NO bound check
- ///Vbsp caps a brush lightmap at 32
+    ///Vbsp caps a brush lightmap at 32
     /// luxels without its border, and the sample grid is
     /// one wider in each axis, so at most 33 * 33 = 1089 samples can be
     /// produced. The missing check therefore never fires, which is why the

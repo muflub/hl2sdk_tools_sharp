@@ -264,7 +264,7 @@ public sealed class PortalSet
     /// <remarks>
     /// Not a bounding sphere in the tight sense: it is the mean, which is what
     /// the two early-out tests in <c>RecursiveLeafFlow</c> (
- /// ) are calibrated against, so fitting a smaller one would
+    /// ) are calibrated against, so fitting a smaller one would
     /// change the answer.
     /// </remarks>
     public static (Vec3 Origin, float Radius) PortalSphere(ReadOnlySpan<Vec3> winding)

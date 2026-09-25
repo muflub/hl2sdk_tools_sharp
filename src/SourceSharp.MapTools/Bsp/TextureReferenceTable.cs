@@ -65,8 +65,8 @@ public sealed class TextureReferenceTable
     /// </summary>
     /// <remarks>
     /// Set by <c>%compileWater</c> AND by
- /// <c>%compileSlime</c> — slime sets the water flag, which is
-    /// not a typo in the C++ and is not one here.
+    /// <c>%compileSlime</c> — slime sets the water flag, which is
+    /// not a typo in the reference build and is not one here.
     /// </remarks>
     public bool HasWater { get; private set; }
 
@@ -155,7 +155,7 @@ public sealed class TextureReferenceTable
         _slots.Add(default);
 
         // g_bHasWater is set inside the "rendered normally" branch only
- //So a material that is BOTH %compileWater
+        //So a material that is BOTH %compileWater
         // and, say, %compileSky never reaches it -- the sky branch wins and the
         // flag stays clear. Testing the resulting CONTENTS rather than the
         // compile vars is what reproduces that: CONTENTS_WATER and

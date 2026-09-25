@@ -177,15 +177,15 @@ public static class DispSampleBuilder
     /// </para>
     /// <para>
     /// <see cref="StockQuirk.DispFastSamplesPastEdge"/>: stock places sample
- /// <c>s</c> at <c>u = s / (w - 1) + 1 / (2 (w - 1))</c> -- the
+    /// <c>s</c> at <c>u = s / (w - 1) + 1 / (2 (w - 1))</c> -- the
     /// full path's half-step offset on the LUXEL grid. Every sample is half a
     /// luxel off its luxel, and the last column and row land at
     /// <c>u = 1 + half-step</c>, off the surface: <c>DispUVToSurfPoint</c> and
     /// <c>DispUVToSurfNormal</c> return without writing (<c>,
     /// 326</c>), the position and normal stay the <c>calloc</c> zeros, a zero
     /// normal takes no light, and every displacement's last row and column of
-    /// luxels is black in a <c>-fast</c> compile -- the "black seams" VRAD++'s
-    /// changelog mentions. Measured on all 18 p3f-t maps (stock <c>-fast</c> and
+    /// luxels is black in a <c>-fast</c> compile -- the "black seams" defect the
+    /// reference build's changelog mentions. Measured on all 18 p3f-t maps (stock <c>-fast</c> and
     /// <c>-fast -bounce 0</c>): the last row and column of every displacement
     /// lightmap is exactly zero, and the full-path compile of the same map has
     /// none. Correct samples each luxel at its own position, <c>u = s / (w - 1)</c>,
@@ -199,7 +199,7 @@ public static class DispSampleBuilder
     /// (add <c>area * light</c> and <c>area</c>)
     /// and displacements reflect no light in a <c>-fast</c> compile with
     /// bounces. The flat fast path sets <c>worldAreaPerLuxel</c>
- ///Correct does the same here.
+    ///Correct does the same here.
     /// </para>
     /// </remarks>
     public static void BuildSamplesAndLuxelsFast(

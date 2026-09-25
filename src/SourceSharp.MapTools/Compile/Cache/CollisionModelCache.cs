@@ -387,7 +387,7 @@ public sealed class CollisionModelCache : ICollisionModelCache
 }
 
 /// <summary>
-/// One run's cache counters (plan_maptools.md 10a ruling Q12: what was reused
+/// One run's cache counters (the cache report's data: what was reused
 /// and why the rest was not, bytes, estimated time saved net of cache
 /// overhead). The run report renders these; the chain's own rows add stage
 /// hits when the stage cache lands.

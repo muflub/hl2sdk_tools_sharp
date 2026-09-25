@@ -15,7 +15,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Vis;
 
 /// <summary>
-/// <see cref="VvisOptions.Tighten"/> (plan_maptools.md 5, 2c) on hand-built maps.
+/// <see cref="VvisOptions.Tighten"/> on hand-built maps.
 /// </summary>
 /// <remarks>
 /// <para>

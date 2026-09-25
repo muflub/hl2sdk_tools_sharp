@@ -150,8 +150,8 @@ public sealed class VradDispSurfaceTests
     [Fact]
     public void AnOddCellsUpperTriangleIgnoresItsFirstCorner()
     {
-        // Cell (1, 0) has flattened index 1: odd, so TriTLToBR
-        //. Past the diagonal (fracU + fracV > 1) the
+        // Cell (1, 0) has flattened index 1: odd, so TriTLToBR.
+        // Past the diagonal (fracU + fracV > 1) the
         // point comes from corners (1,1), (2,1), (2,0) only: raising (1,0)
         // must not move it.
         VradDispSurface flat = Surface();

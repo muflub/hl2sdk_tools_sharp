@@ -122,7 +122,7 @@ internal sealed class WaterVolumes
 
     /// <summary>
     /// <c>ClearLeafWaterData</c> then the id assignment of
- /// <c>ConvertWaterModelToPhysCollide</c>:
+    /// <c>ConvertWaterModelToPhysCollide</c>:
     /// every leaf -1 and <c>CONTENTS_TESTFOGVOLUME</c> cleared, then each water
     /// model's leaves get its fog volume.
     /// </summary>

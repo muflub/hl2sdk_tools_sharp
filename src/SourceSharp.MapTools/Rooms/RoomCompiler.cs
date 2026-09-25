@@ -21,7 +21,7 @@ namespace SourceSharp.MapTools.Rooms;
 /// </summary>
 /// <remarks>
 /// <para>
-/// plan_maptools.md §10b: "the room object = vbsp half + vvis half". The room
+/// The room object is the vbsp half plus the vvis half. The room
 /// compiles exactly like a map — nothing room-specific happens inside the
 /// compilers — so the only room-specific code is the linter and the two cluster
 /// lists the linker will need. That is also what makes the superset gate

@@ -112,7 +112,7 @@ public sealed class PropLightSampler
     /// <summary><c>GatherSampleStandardLightSSE</c>.</summary>
     private PropLightSample Standard(PropLight dl, Vec3 pos, Vec3 normal, PropGatherFlags flags, int skipId)
     {
- // facenum is always -1 (AllocDLight), so src is the origin.
+        // facenum is always -1 (AllocDLight), so src is the origin.
         Vec3 src = dl.Origin;
 
         Vec3 delta = src - pos;

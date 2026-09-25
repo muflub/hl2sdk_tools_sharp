@@ -137,8 +137,7 @@ public static class Vbsp
 
     /// <summary>
     /// <c>-onlyents</c> / <c>-onlyprops</c>: re-reads the entities (and the
-    /// static props) from the map into an already compiled BSP
-    ///.
+    /// static props) from the map into an already compiled BSP.
     /// </summary>
     /// <param name="existing">The previously compiled BSP. It is modified and returned.</param>
     /// <param name="map">The freshly loaded map.</param>

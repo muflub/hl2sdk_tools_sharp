@@ -17,7 +17,7 @@ using SourceSharp.MapTools.Vis;
 namespace SourceSharp.MapCompile;
 
 /// <summary>
-/// <c>ssmap room</c> and <c>ssmap link</c> (plan_maptools.md §10b): the two
+/// <c>ssmap room</c> and <c>ssmap link</c>: the two
 /// verbs of the room pipeline. The room half is vbsp's host half — mount the
 /// game, parse the stock line, compile, write one file — with the write being
 /// a <see cref="RoomObjectStore"/> container instead of a .bsp. The link half

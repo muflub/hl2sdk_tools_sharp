@@ -273,7 +273,7 @@ public class MaterialPatcherTests
     [Fact]
     public async Task AReplaceOfAMissingOriginalWritesNothingButKeepsTheTranslation()
     {
-        // registers first;:121-126 then return early.
+        // The new key registers first; the walk then returns early.
         MaterialPatcher patcher = await PatcherAsync();
 
         bool written = await patcher.CreatePatchAsync(
@@ -372,7 +372,7 @@ public class MaterialPatcherTests
     public async Task UnderStockAPatchWithInsertAndReplaceLosesItsReplace()
     {
         // reassigns keyValues to the include BEFORE the
-        // replace lookup at:355, which then searches the include.
+        // replace lookup, which then searches the include.
         MaterialPatcher patcher = await StockPatcherAsync(
             ("metal/specular", Specular),
             ("p/both", "\"patch\"\n{\n\t\"include\" \"materials/metal/specular.vmt\"\n\t\"insert\"\n\t{\n\t\t\"$a\" \"1\"\n\t}\n" +

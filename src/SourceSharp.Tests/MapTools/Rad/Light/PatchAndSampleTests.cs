@@ -200,7 +200,7 @@ public sealed class PatchSubdividerTests
         // 48 x 8 units = 3 x 0.5 luxels: nothing reaches chop 4, but 3 is more
         // than twice both other extents, so with -chop 1 the patch is split
         // anyway and its chop halved. Its children then
-        // meet the edge rule:811-826) once more: 1 + 2 + 4 patches.
+        // meet the edge rule once more: 1 + 2 + 4 patches.
         LightTestMap map = new();
         int tex = map.AddTexture("x");
         map.AddFloor(tex, 0, 0, 48, 8, 0);
@@ -259,7 +259,7 @@ public sealed class FaceNeighbourTests
     [Fact]
     public void ASharedCornerNormalIsTheNormalisedSumOfBothFaces()
     {
-        // adds the neighbour once,:318-323 adds the
+        // The corner normal adds the neighbour once and the
         // face's own normal once, then normalises.
         LightGeometry g = Geometry.Load(Bent(20));
         FaceNeighbours n = FaceNeighbours.Build(g, LightConstants.DefaultSmoothingThreshold);

@@ -78,7 +78,7 @@ public sealed class MacroTextures
     /// <returns>The textures.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidVtfException">
- /// A file exists and is not a VTF; stock's <c>Error</c>.
+    /// A file exists and is not a VTF; stock's <c>Error</c>.
     /// </exception>
     public static async Task<MacroTextures> LoadAsync(
         BspData bsp,

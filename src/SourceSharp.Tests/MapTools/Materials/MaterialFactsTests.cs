@@ -116,7 +116,7 @@ public class MaterialFactsTests
     public async Task AnAbsentVariableIsNullAndNotEmpty()
     {
         // Every caller in the reference implementation tests the pointer, so null is the
-        // answer that keeps the C++'s control flow.
+        // answer that keeps the reference control flow.
         await using ContentFileSystem content = await new MaterialContent()
             .AddMaterial("a/b", "LightmappedGeneric { }")
             .MountAsync();

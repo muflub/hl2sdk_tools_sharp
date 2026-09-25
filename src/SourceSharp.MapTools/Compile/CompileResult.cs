@@ -46,7 +46,7 @@ public sealed class CompileResult
     public string MapName { get; }
 
     /// <summary>
-    /// The run's cache counters (plan_maptools.md ruling Q12: the same data
+    /// The run's cache counters (the same data
     /// the printed report carries); null when the run had no cache.
     /// </summary>
     public Compile.Cache.CacheRunCounters? Cache { get; internal set; }

@@ -324,7 +324,7 @@ public sealed class VisMatrix
     /// <summary>
     /// The ray stock's transfer stream traces from <paramref name="start"/> to
     /// <paramref name="end"/>: <c>AddToRayStream</c> and
- /// <c>FlushStreamEntry</c>.
+    /// <c>FlushStreamEntry</c>.
     /// </summary>
     /// <param name="start">The receiver's pushed-out origin.</param>
     /// <param name="end">The source's pushed-out origin.</param>
@@ -531,7 +531,7 @@ public sealed class VisMatrix
 
     /// <summary>
     /// <c>BuildVisRow</c>, <c>TestPatchToFace</c> and <c>TestPatchToPatch</c>
- /// For one worker: which patches one
+    /// For one worker: which patches one
     /// receiver tests, in stock's order.
     /// </summary>
     /// <remarks>

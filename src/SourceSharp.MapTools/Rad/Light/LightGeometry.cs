@@ -125,7 +125,7 @@ public sealed class LightGeometry
     /// </para>
     /// <para>
     /// Bound to <see cref="StockQuirk.VradVectorNormalise"/>: vrad's own
- /// <c>VectorNormalize</c> sites.
+    /// <c>VectorNormalize</c> sites.
     ///), all reaching the reference implementation's
     /// <c>rsqrtss</c> plus one Newton-Raphson step on <c>PLATFORM_INTEL</c>.
     /// </para>

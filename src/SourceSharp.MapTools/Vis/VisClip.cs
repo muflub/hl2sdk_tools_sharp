@@ -19,7 +19,7 @@ public enum VisChopResult
     /// The winding is unchanged: either it was entirely in front of the plane
     /// Or the result would have needed more than
     /// <see cref="VisClip.MaxPointsOnFixedWinding"/> points and stock fell back
- /// To the original.
+    /// To the original.
     /// </summary>
     /// <remarks>
     /// The two are one outcome on purpose. The fallback is not an error path in
@@ -42,7 +42,6 @@ public enum VisChopResult
 /// <summary>
 /// The two geometric predicates the portal flow is built out of:
 /// <c>ChopWinding</c> and <c>ClipToSeperators</c>
-///.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -102,7 +101,7 @@ public static class VisClip
     /// <remarks>
     /// <para>
     /// <b>A <see cref="double"/>, and that is not a transcription choice.</b>
-    /// The C++ spells it <c>0.01</c> with no <c>f</c>, so every
+    /// The reference build spells it <c>0.01</c> with no <c>f</c>, so every
     /// <c>float &lt; ON_VIS_EPSILON</c> in the reference implementation promotes its left
     /// side to double and compares against 0.010000000000000000208, not against
     /// <c>0.01f</c> = 0.0099999997764825821.
@@ -683,7 +682,7 @@ public static class VisClip
 
     /// <summary>
     /// <c>VectorSubtract(vec3_origin, v, v)</c>, which is how
- /// Spells a negation.
+    /// Spells a negation.
     /// </summary>
     /// <param name="v">The vector to negate.</param>
     /// <returns>Zero minus it.</returns>

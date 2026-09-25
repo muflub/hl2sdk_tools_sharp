@@ -44,7 +44,7 @@ public sealed class DispStockCoverageTests
     }
 
     /// <summary>
-    ///...and the swapped copy is not in LUMP_TEXINFO either: no entry is
+    /// The swapped copy is not in LUMP_TEXINFO either: no entry is
     /// <see cref="DisplacementLumpBuilder.SwapLightmapAxes"/> of the face's.
     /// </summary>
     [DispStockFact]

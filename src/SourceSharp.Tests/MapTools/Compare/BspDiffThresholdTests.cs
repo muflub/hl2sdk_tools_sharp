@@ -11,7 +11,7 @@ namespace SourceSharp.Tests.MapTools.Compare;
 /// </summary>
 /// <remarks>
 /// <para>
-/// plan_maptools.md 2: a threshold is frozen from the first measurement in the
+/// A threshold is frozen from the first measurement in the
 /// phase that owns the lump, and this instrument is built before those phases.
 /// Phase 0 made it sharper still: in the threaded regime there is no per-sample
 /// lightmap maximum that can be set at all, because stock vrad's own worst case

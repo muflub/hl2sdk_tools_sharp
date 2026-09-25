@@ -25,7 +25,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// order to push sample light up to parents in one pass.
 /// </para>
 /// <para>
-/// <c>normalMajorAxis</c> from the C++ is absent. It is declared
+/// <c>normalMajorAxis</c> from the reference build is absent. It is declared
 /// And never written or read anywhere in
 /// <c>src/utils/vrad</c>; carrying a field no code touches would only invite
 /// somebody to start touching it.
@@ -66,7 +66,7 @@ public struct Patch
     /// <remarks>
     /// <c>WindingCenter</c> for a root patch but
     /// <c>WindingAreaAndBalancePoint</c>'s balance point for a child
- /// Those are different points on a non-convex or
+    /// Those are different points on a non-convex or
     /// irregular winding: the first is the mean of the VERTICES, the second the
     /// area-weighted centroid. Reproduced as stock has it.
     /// </remarks>
@@ -121,7 +121,7 @@ public struct Patch
     /// Starts at <c>-maxchop</c> and is HALVED, down to <c>-chop</c>, by two
     /// separate rules: a child that touches the face's edge
     /// And a patch that is more than twice as long as
- /// it is wide. So it is per-patch state and not a setting.
+    /// it is wide. So it is per-patch state and not a setting.
     /// </remarks>
     public float Chop;
 
@@ -234,7 +234,7 @@ public struct Patch
 /// <remarks>
 /// Four named fields rather than an inline array so that the struct copies by
 /// value without an unsafe fixed buffer; <see cref="this[int]"/> gives the
-/// indexed access the C++ uses.
+/// indexed access the reference build uses.
 /// </remarks>
 public struct BumpLights
 {

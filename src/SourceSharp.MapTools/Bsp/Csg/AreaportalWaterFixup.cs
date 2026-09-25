@@ -134,8 +134,7 @@ public static class AreaportalWaterFixup
 
     /// <summary>
     /// The same, over a map brush's own sides:
-    /// <c>CopyMatchingTexinfos(pAreaportal-&gt;original-&gt;original_sides, ...)</c>,
-    ///.
+    /// <c>CopyMatchingTexinfos(pAreaportal-&gt;original-&gt;original_sides, ...)</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="destination">The map brush whose sides are retextured.</param>

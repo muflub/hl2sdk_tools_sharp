@@ -108,8 +108,8 @@ public class InstalledMaterialFactsTests : IClassFixture<StockTexDataFixture>
     public void EveryTexInfoFlagsFieldEqualsWhatFindMiptexProduced()
     {
         // The other half of the gate, and a stronger claim than it looks:
-        // texinfo_t::flags is assigned from the brush side's (
-        //:680), which copied out of textureref[].flags, and
+        // texinfo_t::flags is assigned from the brush side's,
+        // copied out of textureref[].flags, and
         // nothing else in vbsp sets a SURF_ bit. So this lump IS FindMiptex's
         // output, 2765 times over.
         ImmutableArray<TexDataMismatch> unexplained = Remaining(_stock.TexInfoMismatches);
@@ -124,7 +124,7 @@ public class InstalledMaterialFactsTests : IClassFixture<StockTexDataFixture>
     [InstalledGameFact]
     public void OverlayTexInfosAreExcludedBecauseTheyAreNotClassifiedAtAll()
     {
-        // and:344-359 build a texinfo with flags = 0 and
+        // The overlay pass builds a texinfo with flags = 0 and
         // -99999 in both axis offsets; FindMiptex never sees it. Pinned as a
         // count so the exclusion cannot silently grow to cover a real
         // disagreement.

@@ -4,7 +4,7 @@ namespace SourceSharp.MapGen.Catalog;
 
 /// <summary>
 /// The small original content set Phase 3g's catalogue entries compile
-/// against (plan_maptools.md §2a, "self-contained content"): a detail.vbsp and
+/// against as self-contained content: a detail.vbsp and
 /// a handful of VMTs, all text, all written here rather than copied from a game.
 /// </summary>
 /// <remarks>

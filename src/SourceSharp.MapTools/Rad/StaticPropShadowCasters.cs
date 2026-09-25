@@ -289,7 +289,7 @@ public static class StaticPropShadowCasters
 
         // This port's own: the mesh walk of one model is identical for every
         // prop that uses it, so it is done once. The plan records where a
-        // non-trilist strip stopped it, so that stock's :2009 return still
+        // non-trilist strip stopped it, so that stock's early return still
         // fires at the prop it would have fired at.
         private readonly Dictionary<int, RenderPlan> _plans = [];
 
@@ -369,7 +369,7 @@ public static class StaticPropShadowCasters
 
                 if (!AddRenderMesh(nProp, id, prop, model, modelIndex))
                 {
- // And -- RETURN, not
+                    // And -- RETURN, not
                     // continue. Every prop after this one is dropped.
                     return;
                 }
@@ -424,7 +424,7 @@ public static class StaticPropShadowCasters
             //
             // Note also that in stock this branch is reachable ONLY when the
             // model failed to load, in which case both hull corners were
- // zeroed and the "box" is a degenerate point at the
+            // zeroed and the "box" is a degenerate point at the
             // prop's origin. This port also lands here when the collision
             // source has nothing for a model that loaded fine, where the hull
             // is real -- see NullPropCollisionSource.

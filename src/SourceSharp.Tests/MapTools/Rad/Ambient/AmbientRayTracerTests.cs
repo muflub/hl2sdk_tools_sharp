@@ -131,7 +131,7 @@ public sealed class AmbientRayTracerTests : IClassFixture<AmbientFixture>
     [Fact]
     public void TheSamplerIsAPureFunctionOfTheLeaf()
     {
-        // CLeafSampler is a local seeded zero per leaf:528): two samplers
+        // CLeafSampler is a local seeded zero per leaf: two samplers
         // draw the same positions.
         AmbientScene scene = _fixture.Ldr;
         int leaf = Enumerable.Range(0, scene.Leaves.Length).First(l => (scene.Leaves[l].Contents & 1) == 0);

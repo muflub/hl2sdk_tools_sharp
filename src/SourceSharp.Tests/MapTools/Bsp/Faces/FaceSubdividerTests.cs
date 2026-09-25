@@ -76,8 +76,8 @@ public class FaceSubdividerTests
         Face face = Rect(context, 48f, 16f);
         subdivider.SubdivideFace(face, face);
 
-        // clips against +x (the luxel axis) at 31, and
-        //:1224-1225 hang the FRONT winding -- the side the normal points
+        // The subdivider clips against +x (the luxel axis) at 31 and
+        // hangs the FRONT winding -- the side the normal points
         // into, x >= 31 -- on split[0].
         context.Windings.Bounds(face.Split[0]!.Winding, out Vec3 mins, out Vec3 maxs);
 

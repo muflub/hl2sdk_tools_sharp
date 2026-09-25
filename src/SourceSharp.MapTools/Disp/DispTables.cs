@@ -47,8 +47,7 @@ public readonly record struct ShiftInfo(int MidPointScale, int PowerShiftAdd, bo
 public static class DispTables
 {
     /// <summary>
-    /// Which dimension each edge locks: <c>g_EdgeDims</c>,
-    ///.
+    /// Which dimension each edge locks: <c>g_EdgeDims</c>.
     /// </summary>
     /// <remarks>
     /// Indexed by <see cref="DispEdge"/>. Left and right lock x (0), top and
@@ -68,8 +67,7 @@ public static class DispTables
     public static ReadOnlySpan<int> EdgeSideLenMul => [0, 1, 1, 0];
 
     /// <summary>
-    /// The two edges meeting at each corner: <c>g_CornerEdges</c>,
-    ///.
+    /// The two edges meeting at each corner: <c>g_CornerEdges</c>.
     /// </summary>
     /// <param name="corner">A <see cref="DispCorner"/>.</param>
     /// <returns>Two <see cref="DispEdge"/> values.</returns>
@@ -266,8 +264,7 @@ public static class DispTables
         };
 
     /// <summary>
-    /// Which edge an index lies on: <c>GetEdgeIndexFromPoint</c>,
-    ///.
+    /// Which edge an index lies on: <c>GetEdgeIndexFromPoint</c>.
     /// </summary>
     /// <param name="index">The vertex index.</param>
     /// <param name="power">The displacement's power.</param>
@@ -307,8 +304,7 @@ public static class DispTables
     }
 
     /// <summary>
-    /// Which corner an index is, if any: <c>GetCornerIndexFromPoint</c>,
-    ///.
+    /// Which corner an index is, if any: <c>GetCornerIndexFromPoint</c>.
     /// </summary>
     /// <param name="index">The vertex index.</param>
     /// <param name="power">The displacement's power.</param>
@@ -346,8 +342,7 @@ public static class DispTables
     }
 
     /// <summary>
-    /// Whether an index is one of the four corners: <c>IsCorner</c>,
-    ///.
+    /// Whether an index is one of the four corners: <c>IsCorner</c>.
     /// </summary>
     /// <param name="index">The vertex index.</param>
     /// <param name="sideLength">The grid's side length.</param>

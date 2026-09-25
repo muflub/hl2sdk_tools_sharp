@@ -144,7 +144,7 @@ public sealed class MapDisplacement : IMapDisplacement
 
     /// <summary>
     /// The combined field vector and distance one vertex contributes:
- /// And,.
+    /// And,.
     /// </summary>
     /// <param name="index">The vertex's flattened grid index.</param>
     /// <param name="stockNormalise">

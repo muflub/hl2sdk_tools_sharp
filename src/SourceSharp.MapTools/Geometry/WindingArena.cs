@@ -27,7 +27,7 @@ namespace SourceSharp.MapTools.Geometry;
 /// </para>
 /// <para>
 /// The arithmetic is a faithful port. The operand order, the epsilons and the
-/// float-versus-double width of every comparison are the ones the C++ has;
+/// float-versus-double width of every comparison match the reference build;
 /// where they are surprising, the method's remarks cite the line. The one
 /// deliberate divergence is normalisation, and
 /// <see cref="Plane"/> documents it.
@@ -242,7 +242,7 @@ public sealed class WindingArena
     /// <remarks>
     /// Stock writes <c>w-&gt;numpoints = n</c> through the pointer it is
     /// holding. A value handle cannot be mutated in place, so the count comes
-    /// back out instead. This is the one ergonomic difference from the C++ and
+    /// back out instead. This is the one ergonomic difference from the reference form and
     /// it is deliberate: it makes "which handle is current" impossible to get
     /// wrong by aliasing.
     /// </remarks>
@@ -471,7 +471,7 @@ public sealed class WindingArena
     /// The scale is computed as <c>1.0 / numpoints</c> in DOUBLE and then
     /// narrowed to <c>float</c>, because stock declares <c>float scale</c> and
     /// assigns a double expression to it (and
- ///). <c>1f / n</c> is not always the same number.
+    ///). <c>1f / n</c> is not always the same number.
     /// </remarks>
     public Vec3 Center(Winding winding)
     {

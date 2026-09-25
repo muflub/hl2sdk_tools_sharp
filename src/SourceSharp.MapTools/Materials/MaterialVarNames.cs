@@ -35,13 +35,11 @@ public static class MaterialVarNames
 
     /// <summary>
     /// <c>$translucent</c> — <c>MATERIAL_VAR_TRANSLUCENT</c>
-    ///.
     /// </summary>
     public const string Translucent = "$translucent";
 
     /// <summary>
     /// <c>$alphatest</c> — <c>MATERIAL_VAR_ALPHATEST</c>
-    ///.
     /// </summary>
     public const string AlphaTest = "$alphatest";
 

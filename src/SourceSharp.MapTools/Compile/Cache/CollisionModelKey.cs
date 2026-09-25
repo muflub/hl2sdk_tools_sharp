@@ -6,7 +6,7 @@ namespace SourceSharp.MapTools.Compile.Cache;
 
 /// <summary>
 /// The canonical digest of everything one model's collision cook reads
-/// (plan_maptools.md 10a: keys hash content; a stale entry is caught at
+/// (the cache rules: keys hash content; a stale entry is caught at
 /// insertion AND at every hit).
 /// </summary>
 /// <remarks>

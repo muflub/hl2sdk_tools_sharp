@@ -79,7 +79,7 @@ public static class AmbientSampleList
     /// </para>
     /// <para>
     /// <b>The tie-break is dead code</b> in stock: <c>nearestNeighborTotal</c>
- /// is never assigned, so on an exact tie the EARLIER index
+    /// is never assigned, so on an exact tie the EARLIER index
     /// always wins. See <see cref="StockQuirk.AmbientSampleTieBreakNeverFires"/>.
     /// Eviction is <c>FastRemove</c>: the last element moves into the hole, and
     /// the resulting order reaches the lump.
@@ -132,7 +132,6 @@ public static class AmbientSampleList
                 ref readonly AmbientSample b = ref samples[j];
                 float dist = (a.Position - b.Position).Length();
 
-                //.
                 float maxDc = 0;
                 for (int k = 0; k < AmbientCube.Sides; k++)
                 {

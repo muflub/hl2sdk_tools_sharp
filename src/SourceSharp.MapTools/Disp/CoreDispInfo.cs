@@ -500,7 +500,7 @@ public sealed partial class CoreDispInfo : IDispUtils
     /// vertex: <c>CalcNormalFromEdges</c>.
     /// </summary>
     /// <remarks>
- /// Stock does NOT renormalise the mean (scales
+    /// Stock does NOT renormalise the mean (scales
     /// <c>1/normalCount</c> and stops), so a vertex on a crease carries a
     /// normal shorter than one; <see cref="StockVertexNormalMean"/> chooses. Each quadrant contributes its two triangles
     /// whatever the tessellation's diagonal actually is there: this is a

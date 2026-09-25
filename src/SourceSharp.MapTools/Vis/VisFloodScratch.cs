@@ -19,7 +19,7 @@ namespace SourceSharp.MapTools.Vis;
 /// </para>
 /// <para>
 /// On 2fort that is 51 KB in place of 20 MB, and on a map at
-/// <c>MAX_PORTALS</c> it is 262 KB in place of 536 MB. plan_maptools.md 5's 2b
+/// <c>MAX_PORTALS</c> it is 262 KB in place of 536 MB. The vvis scaling list
 /// list asks for "drop portalfront after SimpleFlood"; never allocating it
 /// per portal is the same saving taken at the other end, and it also means the
 /// vector a worker reuses stays in its cache instead of being a fresh 1,600

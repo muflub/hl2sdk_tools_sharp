@@ -232,7 +232,7 @@ public sealed class DirectLightBuilderTests
     [Fact]
     public void ASecondLightEnvironmentIsCountedButDropped()
     {
-        //:1490-1491: allocated (numdlights counts it) but never listed.
+        // Allocated (numdlights counts it) but never listed.
         LightTestMap map = LightBox.Map();
         map.Entities.Add(LightTestMap.Entity(("classname", "light_environment"), ("origin", "1 1 1"), ("_light", "255 255 255")));
         map.Entities.Add(LightTestMap.Entity(("classname", "light_environment"), ("origin", "2 2 2"), ("_light", "255 0 0")));

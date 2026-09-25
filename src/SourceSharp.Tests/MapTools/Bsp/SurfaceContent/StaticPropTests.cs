@@ -27,7 +27,6 @@ public class StaticPropTests
     [Fact]
     public async Task APropWhollyInFrontRecordsTheFlippedPlane()
     {
-        // then:322-330.
         BoxCollision collision = new(8f);
         List<ushort> leaves = await LeavesAsync(OneNode(), new Vec3(100f, 0f, 0f), collision);
 
@@ -209,7 +208,7 @@ public class StaticPropTests
     [Fact]
     public async Task TwoSpellingsOfOneModelShareAHullButNotADictionaryEntry()
     {
-        // The hull cache lower-cases:248-257); the dictionary memcmp's:138).
+        // The hull cache lower-cases its keys; the dictionary compares them byte-wise.
         (VbspContext context, _) = await ContextAsync(f => StudioFixture.AddModel(f, Model));
         BoxCollision collision = new(8f);
 

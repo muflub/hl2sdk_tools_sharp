@@ -122,7 +122,7 @@ public sealed class VisibleSides
         // is always on the even half of its plane pair -- BuildTree_r stores
         // `bestside->planenum & ~1` and BlockTree's axial
         // splits take FindFloatPlane's positive-normal half, which is stored
-        // first(/:142, CreateNewFloatPlane) -- so masking
+        // first -- so masking
         // the node too is identical on every tree stock builds, and it stays
         // right if a tree ever does carry an odd node.
         // ComplianceQuirkEffectTests.StockNeverPutsANodeOnAnOddPlane reads

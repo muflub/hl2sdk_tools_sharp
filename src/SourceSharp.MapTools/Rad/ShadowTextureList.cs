@@ -221,7 +221,7 @@ public sealed class ShadowTextureList
     /// </para>
     /// <para>
     /// The two opacity keys are tested with <c>KeyValues::FindKey</c>
- /// — PRESENCE, not truth. So <c>$translucent 0</c> is
+    /// — PRESENCE, not truth. So <c>$translucent 0</c> is
     /// accepted and casts alpha shadows, which is why this reads
     /// <see cref="MaterialFacts.GetVar"/> for null rather than asking
     /// <see cref="MaterialFacts.Opacity"/>: that property is the material
@@ -242,7 +242,7 @@ public sealed class ShadowTextureList
     /// so the difference is visible if it ever matters.
     /// </para>
     /// <para>
- /// The cache holds only ACCEPTED materials (inserts inside the
+    /// The cache holds only ACCEPTED materials (inserts inside the
     /// innermost <c>if</c>), so a rejected material is re-read from disk every
     /// time it is asked about. Reproduced, because the read is observable
     /// through <c>RecordingContentFileSystem</c> and a compile's recorded input
@@ -293,7 +293,7 @@ public sealed class ShadowTextureList
         if (texture is null)
         {
             // LoadVTFRGB8888 returned NULL: no file, not a VTF, or a format
- // ConvertImageFormat would not take (656).
+            // ConvertImageFormat would not take (656).
             return new ShadowTextureLookup(Found: true, -1);
         }
 
@@ -429,7 +429,7 @@ public sealed class ShadowTextureList
     /// <remarks>
     /// <para>
     /// And stock labels it HACKHACK in its
- /// own comment. TWO DELIBERATE DEFECTS ARE REPRODUCED HERE.
+    /// own comment. TWO DELIBERATE DEFECTS ARE REPRODUCED HERE.
     /// </para>
     /// <para>
     /// FIRST: it averages over the AXIS-ALIGNED BOUNDING BOX of the triangle in
@@ -444,7 +444,7 @@ public sealed class ShadowTextureList
     /// answer.
     /// </para>
     /// <para>
- /// SECOND: the UV box is CLAMPED to [0,1], under a
+    /// SECOND: the UV box is CLAMPED to [0,1], under a
     /// comment reading "UNDONE: Do something about tiling". A triangle whose
     /// UVs run 0..4 across a tiling texture therefore has its footprint
     /// collapsed to the texture's first tile, and one whose UVs are entirely
@@ -455,7 +455,7 @@ public sealed class ShadowTextureList
     /// </para>
     /// <para>
     /// The box is walked in TEXEL coordinates scaled by <c>width - 1</c>
- /// Inclusive at both ends, and truncated rather than
+    /// Inclusive at both ends, and truncated rather than
     /// rounded — which is a third disagreement with <see cref="AlphaTexture.Sample"/>,
     /// which scales by <c>width</c> and rounds.
     /// </para>
@@ -526,7 +526,7 @@ public sealed class ShadowTextureList
     /// </para>
     /// <para>
     /// A backfacing hit on a texture without <c>$nocull</c> returns 0, meaning
- /// the triangle blocks everything. See
+    /// the triangle blocks everything. See
     /// <see cref="ComputeCoverageFromTexture"/> for why that branch is
     /// unreachable in stock.
     /// </para>
@@ -568,8 +568,8 @@ public sealed class ShadowTextureList
     /// </para>
     /// <para>
     /// A DELIBERATE REPRODUCTION OF A STOCK DEFECT: <c>bBackface</c> is
- /// HARDCODED FALSE, under a commented-out two-line body
- /// That would have computed it from the ray direction and
+    /// HARDCODED FALSE, under a commented-out two-line body
+    /// That would have computed it from the ray direction and
     /// the triangle normal ("UNDONE: Pass ray down to determine backfacing?").
     /// The consequence is that <c>$nocull</c> and
     /// <see cref="AlphaTexture.AllowBackface"/> have NO EFFECT on a compile:
@@ -690,7 +690,7 @@ public sealed class ForcedTextureShadowModels
     /// </para>
     /// <para>
     /// IT TRUNCATES AT THE FIRST DOT ANYWHERE, not at the extension —
- /// <c>strchr(pOutput, '.')</c>. So a model under a directory
+    /// <c>strchr(pOutput, '.')</c>. So a model under a directory
     /// with a dot in its name loses everything from that dot onwards. Also
     /// reproduced.
     /// </para>

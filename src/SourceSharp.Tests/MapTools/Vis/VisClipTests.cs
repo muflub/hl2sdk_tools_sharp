@@ -102,7 +102,7 @@ public class VisClipTests
     [Fact]
     public void AnAxisAlignedPlaneGivesASplitPointExactlyOnIt()
     {
-        //. The interpolation for this case lands at
+        // The interpolation for this case lands at
         // 3.1000004; the special case assigns the plane distance itself.
         Vec3[] winding =
         [
@@ -169,7 +169,7 @@ public class VisClipTests
     [Fact]
     public void AChopThatWouldNeedThirteenPointsKeepsTheOriginal()
     {
-        //. A 24-gon cut in half needs 14 points, which does
+        // A 24-gon cut in half needs 14 points, which does
         // not fit a MAX_POINTS_ON_FIXED_WINDING winding, so stock hands back
         // the UNCUT polygon -- a more conservative answer, never a smaller one.
         Vec3[] circle = new Vec3[24];

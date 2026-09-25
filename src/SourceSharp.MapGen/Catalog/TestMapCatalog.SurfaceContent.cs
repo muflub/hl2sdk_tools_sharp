@@ -1,8 +1,8 @@
 namespace SourceSharp.MapGen.Catalog;
 
-// Phase 3g's entries: static props, detail props, overlays, water overlays,
-// env_cubemap and the default cubemaps (plan_maptools.md §6, lane 3g). Kept in
-// their own file so the other Phase 3 lanes adding entries do not collide in
+// The content-catalogue entries: static props, detail props, overlays, water
+// overlays, env_cubemap and the default cubemaps. Kept in
+// their own file so other content-catalogue additions do not collide in
 // TestMapCatalog.cs; the only edit there is the two spreads in `All`.
 //
 // Every entry is compiled with stock vbsp against SurfaceContentFixture's

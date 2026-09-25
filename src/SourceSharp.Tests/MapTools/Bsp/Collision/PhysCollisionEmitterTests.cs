@@ -32,7 +32,6 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task TheWorldsSolidBrushesAreOneStaticSolidOfMaskSolid()
     {
-        // and:292-295.
         CollisionFixture f = new();
         f.Box(0, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
 
@@ -164,7 +163,7 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task ABrushEntitysVisibleSidesShrinkByHalfAnInch()
     {
-        // VPHYSICS_SHRINK:37 and:529. Two calls per brush: the
+        // Two calls per brush: the
         // unshrunk test hull, then the shrunk one.
         CollisionFixture f = new();
         f.Box(1, Lo, Hi, CollisionContents.Solid, f.TexInfoFor("metal"));
@@ -190,7 +189,6 @@ public class PhysCollisionEmitterTests
     [Fact]
     public async Task AnAxisThinnerThanThreeShrinksIsNotShrunk()
     {
-        // with shrinkMinimum = m_shrink * 3 = 1.5:547).
         CollisionFixture f = new();
         f.Box(1, new Vec3(-32, -32, 0), new Vec3(32, 32, 1), CollisionContents.Solid, f.TexInfoFor("metal"));
 

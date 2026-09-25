@@ -234,7 +234,7 @@ public sealed class StockTexDataFixture : IAsyncLifetime
         FrozenDictionary<string, MaterialFacts> facts)
     {
         // texinfo_t::flags is assigned from the brush side's, which
-        //:2857 copied straight out of textureref[].flags -- and vbsp sets a
+        // copied straight out of textureref[].flags -- and vbsp sets a
         // SURF_ bit nowhere else in the program. So FindMiptex's output IS
         // this lump's flags field, for every side that came from a brush.
         Dictionary<string, TexDataMismatch> disagreements = [];
@@ -252,7 +252,7 @@ public sealed class StockTexDataFixture : IAsyncLifetime
             if (IsOverlay(entry))
             {
                 // An overlay's texinfo does not come from FindMiptex at all:
-                // and:344-359 build one with
+                // the overlay path builds one with
                 // `texInfo.flags = 0` and the -99999 sentinel in both axis
                 // offsets. Comparing it against a material classification
                 // would be comparing against a constant.

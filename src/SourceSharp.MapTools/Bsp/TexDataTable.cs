@@ -61,7 +61,7 @@ public sealed class TexDataTable
     /// <remarks>
     /// -1 is stock's "the material has no <c>$surfaceprop</c>, or there is no
     /// physics surface-prop table loaded" (and
- ///). An entry created for a material that did not resolve is
+    ///). An entry created for a material that did not resolve is
     /// never written at all by stock (returns
     /// early), leaving whatever was in the array — zero on a fresh array. That
     /// zero is reproduced rather than -1.
@@ -197,12 +197,12 @@ public sealed class TexDataTable
     /// <para>
     /// Three quirks are stock's and are kept. The name is lowercased in place
     /// (<c>strlwr</c>) BEFORE the dedup scan, and that
- /// scan is a case-SENSITIVE <c>strcmp</c> — so it can only
+    /// scan is a case-SENSITIVE <c>strcmp</c> — so it can only
     /// ever match an entry that was already stored lowercase.
     /// </para>
     /// <para>
     /// And the -1 return happens AFTER the entry has been appended and the name
- /// added to the string table, so a failure still grows
+    /// added to the string table, so a failure still grows
     /// both lumps by one. Returning -1 without the append would produce a
     /// different TEXDATA lump than stock's.
     /// </para>

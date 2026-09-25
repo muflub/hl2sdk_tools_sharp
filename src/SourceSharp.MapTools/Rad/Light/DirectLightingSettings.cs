@@ -133,7 +133,7 @@ public sealed record DirectLightingSettings
                 + "on the map first (Vrad.LightAsync does) and pass a density of 1 here");
         }
 
- // Vs: the DEFAULT is a literal, -smooth is a cosine
+        // Vs: the DEFAULT is a literal, -smooth is a cosine
         // of the argument. 45 is taken to mean "not given".
         float smoothing = options.SmoothingAngleDegrees == 45.0f
             ? LightConstants.DefaultSmoothingThreshold

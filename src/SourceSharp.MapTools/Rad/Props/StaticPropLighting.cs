@@ -53,7 +53,7 @@ public sealed record StaticPropLightingOptions
     /// <summary>
     /// <c>-StaticPropIndirectMode</c> (<c></c>): which falloff the
     /// indirect gather weights samples by. 0 (default) keeps stock; 1 and 2
-    /// are ++'s TF2/Orangebox weightings; anything else skips weighting and
+    /// are the TF2/Orangebox-era weightings; anything else skips weighting and
     /// reflectivity. See <see cref="PropIndirectLighting.Compute"/>.
     /// </summary>
     public int StaticPropIndirectMode { get; init; }
@@ -225,8 +225,8 @@ public static class StaticPropLighting
     }
 
     /// <summary>
- /// <c>PositionInSolid</c> over the reference implementation's <c>PointLeafnum</c>
- /// A plain descent, <c>dist &lt; 0</c> going back, axial
+    /// <c>PositionInSolid</c> over the reference implementation's <c>PointLeafnum</c>
+    /// A plain descent, <c>dist &lt; 0</c> going back, axial
     /// planes read by component.
     /// </summary>
     /// <param name="scene">The map.</param>
@@ -257,7 +257,7 @@ public static class StaticPropLighting
 
     /// <summary>
     /// Encodes one prop's strip-group colours as a <c>.vhv</c>
- /// (<c>SerializeLighting</c>).
+    /// (<c>SerializeLighting</c>).
     /// </summary>
     /// <param name="checksum">The studio header's checksum.</param>
     /// <param name="meshes">Each strip group's LOD and colours, in <c>ApplyLightingToStaticProp</c>'s order.</param>
@@ -322,7 +322,7 @@ public static class StaticPropLighting
         StaticPropLightingOptions options,
         DispTestedScratch scratch)
     {
- // SerializeLighting: no file, and ComputeLighting's work is thrown away.
+        // SerializeLighting: no file, and ComputeLighting's work is thrown away.
         if ((prop.Flags & StaticPropFlags.NoPerVertexLighting) != 0)
         {
             return new PropOutcome(null, 0, false, false);
@@ -335,7 +335,7 @@ public static class StaticPropLighting
                 $"static prop {index}: model {model.Path} has no studio header, which stock dereferences");
         }
 
- // skip_prop: the prop's own triangles, as the trace ids them.
+        // skip_prop: the prop's own triangles, as the trace ids them.
         bool selfShadowSkip = options.DisableSelfShadowing || (prop.Flags & StaticPropFlags.NoSelfShadowing) != 0;
         int skipId = selfShadowSkip ? TraceId.StaticProp | index : -1;
         bool texel = (prop.Flags & StaticPropFlags.NoPerTexelLighting) == 0;
@@ -348,7 +348,7 @@ public static class StaticPropLighting
         {
             if (model.Vvd is null)
             {
-                // The vertex-data callback's Error(), :2190.
+                // The vertex-data callback's Error().
                 throw new InvalidOperationException($"static prop {index}: model {model.Path} has no .vvd");
             }
 
@@ -371,7 +371,7 @@ public static class StaticPropLighting
         return new PropOutcome(new StaticPropVhvFile(index, FileName(index, options.Hdr), data), bad, selfShadowSkip, texel);
     }
 
- /// <summary>One studio model's colours, indexed like its vertices.</summary>
+    /// <summary>One studio model's colours, indexed like its vertices.</summary>
     private static Vec3[] LightModel(
         AmbientScene scene,
         StaticProp prop,
@@ -512,7 +512,7 @@ public static class StaticPropLighting
         return colors;
     }
 
- /// <summary><c>ComputeDirectLightingAtPoint</c>.</summary>
+    /// <summary><c>ComputeDirectLightingAtPoint</c>.</summary>
     private static Vec3 Direct(
         AmbientScene scene,
         Vec3 position,
@@ -575,7 +575,7 @@ public static class StaticPropLighting
     }
 
     /// <summary>
- /// <c>ApplyLightingToStaticProp</c>: every LOD's strip groups,
+    /// <c>ApplyLightingToStaticProp</c>: every LOD's strip groups,
     /// each vertex taking the LOD-0 colour its <c>origMeshVertID</c> names.
     /// </summary>
     private static void Apply(StaticPropModel model, List<Vec3[]> modelColors, List<(int Lod, Vec3[] Colors)> meshes)

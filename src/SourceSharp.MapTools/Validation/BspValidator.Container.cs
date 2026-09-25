@@ -41,7 +41,7 @@ public static partial class BspValidator
     /// <para>
     /// Walks every lump looking for one
     /// that starts after the lighting lump and is not <c>LUMP_PAKFILE</c>; the
- /// 360 loader then reads the file up TO the pak lump's
+    /// console loader then reads the file up TO the pak lump's
     /// offset and calls that "guranateed last". So the format's rule is that
     /// nothing may start after the pak.
     /// </para>
@@ -133,12 +133,10 @@ public static partial class BspValidator
     /// <see cref="BspRuleCodes.LumpElementSize"/>: the "funny lump size" gate.
     /// </summary>
     /// <remarks>
-    /// Is the generic form --
+    /// The gate is the generic form --
     /// <c>if ( lh.LumpSize() % elementSize ) Host_Error( "Mod_LoadLump: funny
-    /// lump size in %s" )</c> -- and the same idiom is written out by hand at
- /// Modelloader.
- /// 1868 and
- /// Cmodel_bsp,:318,
+    /// lump size in %s" )</c> -- and the game's model loaders spell the same
+    /// check out by hand for the model and brush-model lumps they read.
     /// </remarks>
     private static void CheckElementSizes(BspData bsp, Findings findings)
     {
@@ -243,7 +241,7 @@ public static partial class BspValidator
     {
         // -- a switch on the lump version with
         // cases 2, 1 and 0, and Host_Error("Invalid occlusion lump version!")
- // in the default. The size test comes FIRST, so an empty
+        // in the default. The size test comes FIRST, so an empty
         // occlusion lump is never asked what version it is.
         BspLumpData occlusion = bsp[BspLump.Occlusion];
         if (!occlusion.IsEmpty && occlusion.Version is not (0 or 1 or 2))
@@ -326,7 +324,7 @@ public static partial class BspValidator
             + "positions");
 
         // 2210-2212 asserts the lump is a whole number of CompressedLightCube
- // and that there is exactly one per leaf, memcpy's
+        // and that there is exactly one per leaf, memcpy's
         // inLightCubes[i] for every leaf. Short, and it reads past the lump.
         int cubeSize = System.Runtime.CompilerServices.Unsafe.SizeOf<CompressedLightCube>();
         int cubes = ambient.Length / cubeSize;
@@ -345,7 +343,7 @@ public static partial class BspValidator
     /// <remarks>
     /// <c>bHasHDR = LumpSize(
     /// LUMP_LIGHTING_HDR ) &gt; 0 &amp;&amp; LumpSize( LUMP_WORLDLIGHTS_HDR )
- /// &gt; 0;</c>, and then clears it again if the file is
+    /// &gt; 0;</c>, and then clears it again if the file is
     /// version 20 or newer and has no HDR leaf ambient lump. Half a set of HDR
     /// lumps is megabytes of data the engine will never look at.
     /// </remarks>

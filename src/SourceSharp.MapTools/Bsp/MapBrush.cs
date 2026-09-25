@@ -60,7 +60,7 @@ public sealed class MapBrush
     /// <remarks>
     /// Set to zero to discard a brush. Stock does that for origin brushes, for
     /// displacement brushes and for detail or water brushes removed by a switch
- /// — and
+    /// — and
     /// because it does not advance <c>nummapbrushes</c> in those cases, the
     /// slot is reused by the next brush. So a zero count is not a brush with no
     /// sides; it is a brush that was never kept.

@@ -16,7 +16,7 @@ namespace SourceSharp.MapTools.Options;
 /// identical work done twice.
 /// </para>
 /// <para>
-/// plan_maptools.md 4p shares all of that between the two passes, so
+/// The lighting-range design shares all of that between the two passes, so
 /// <see cref="VradLightingRange.Both"/> is a mode of one compile and not two runs. That is why
 /// this is an option on <see cref="VradOptions"/> and not a loop in a CLI.
 /// </para>
@@ -69,7 +69,7 @@ public enum VradLightingRange
 /// </para>
 /// <para>
 /// Options stock parses but this port drops, with reasons from
-/// plan_maptools.md 9. The parser ACCEPTS each of these and reports a
+/// the option audit. The parser ACCEPTS each of these and reports a
 /// diagnostic rather than failing:
 /// <list type="bullet">
 /// <item><description>
@@ -104,7 +104,7 @@ public enum VradLightingRange
 /// not contain an <c>-incremental</c> branch at all, so the path is already
 /// unreachable from the command line. The IDEA -- reuse the previous compile's
 /// light contributions when only some lights moved -- is kept and generalised
-/// in plan_maptools.md 10a; the file format is not.
+/// in the collision cache; the file format is not.
 /// </description></item>
 /// <item><description>
 /// Hammer's in-editor <c>IVRadDLL</c> interface and

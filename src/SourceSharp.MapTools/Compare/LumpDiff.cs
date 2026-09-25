@@ -96,7 +96,7 @@ public sealed class LumpDiff
     /// </summary>
     /// <remarks>
     /// Set for the leaf-ambient lumps when the two record counts disagree.
-    /// plan_maptools_lane_notes.md spike 0d measured stock vrad producing
+    /// The noise-floor spike measured stock vrad producing
     /// 9788 / 9788 / 9790 / 9790 / 9789 leaf-ambient records for the SAME map,
     /// so where the counts differ an element-wise comparison is misaligned
     /// garbage. This flag is how the report says it declined rather than

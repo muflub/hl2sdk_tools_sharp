@@ -4,7 +4,7 @@ namespace SourceSharp.MapTools.Materials;
 /// <c>UTILMATLIB_OPACITY</c>'s three answers
 /// </summary>
 /// <remarks>
-/// The order matters and is the C++'s: translucent is tested FIRST, so a
+/// The order matters and is the reference build's: translucent is tested FIRST, so a
 /// material that is both translucent and alpha-tested reports translucent.
 /// </remarks>
 public enum MaterialOpacity

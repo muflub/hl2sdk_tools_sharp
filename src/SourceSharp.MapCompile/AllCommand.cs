@@ -419,8 +419,8 @@ public static class AllCommand
     }
 
     /// <summary>
-    /// The end-of-run report's cache block (plan_maptools.md 10a). The per-
-    /// model hit/miss accounting is <c>CacheRunReport</c>'s own line (Q12),
+    /// The end-of-run report's cache block. The per-
+    /// model hit/miss accounting is <c>CacheRunReport</c>'s own line,
     /// which <see cref="MapCompiler"/> writes to the .log; this is the
     /// chain-level posture line.
     /// </summary>
@@ -666,7 +666,7 @@ public static class AllCommand
         string report = CacheReport(parsed.NoCache, TimeProvider.System.GetElapsedTime(start), parsed.Incremental);
         await output.WriteLineAsync(report).ConfigureAwait(false);
 
-        // The block is appended to the .log too (plan_maptools.md 10a).
+        // The block is appended to the .log too.
         if (!parsed.NoWrite && result.Written.Count > 0)
         {
             VPath log = VPath.Create(paths.Source + ".log");

@@ -28,7 +28,7 @@ public enum RoomFacing : byte
 /// <param name="Depth">How deep the socket's hardware reaches into the room.</param>
 /// <remarks>
 /// <para>
-/// Plan_maptools.md §10b: rooms join "only at standard door sockets", so the
+/// Rooms join only at standard door sockets, so the
 /// opening in a room's shell is not free-form — it is this rectangle, at the
 /// centre of one of the cell's four vertical faces. The linter refuses a room
 /// whose opening is any other size or anywhere else, and the linker matches

@@ -18,7 +18,7 @@ public class ContentRuleTests
     [Corrupts(BspRuleCodes.Leaf0Solid)]
     public async Task Leaf0MustBeSolid()
     {
-        // and:520-522, "Map leaf 0 is not
+        // The rule's own words: "Map leaf 0 is not
         // CONTENTS_SOLID". The collision code then sets solidleaf = 0 and uses
         // leaf 0 AS the solid leaf for every trace that leaves the world.
         BspData bsp = await Corrupted.GoldenAsync();
@@ -86,7 +86,7 @@ public class ContentRuleTests
     [Corrupts(BspRuleCodes.NoCubemaps)]
     public async Task AMapWithNoCubemapSamplesIsReported()
     {
-        //. Fatal under -requirecubemaps, and
+        // Fatal under -requirecubemaps, and
         // otherwise a silent fallback to engine/defaultcubemap on every
         // reflective surface in the map.
         BspData bsp = await Corrupted.GoldenAsync();

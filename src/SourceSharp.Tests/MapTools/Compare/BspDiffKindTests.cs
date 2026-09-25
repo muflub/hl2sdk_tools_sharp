@@ -6,7 +6,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Compare;
 
 /// <summary>
-/// The kind table, held to the list plan_maptools.md 2 writes down.
+/// The kind table, held to the list the comparison rules write down.
 /// </summary>
 /// <remarks>
 /// The plan names each lump and the kind it is compared by. A table in code
@@ -16,7 +16,7 @@ namespace SourceSharp.Tests.MapTools.Compare;
 public sealed class BspDiffKindTests
 {
     /// <summary>
-    /// The lumps plan_maptools.md 2 lists as having no float freedom.
+    /// The lumps the comparison rules list as having no float freedom.
     /// </summary>
     public static TheoryData<BspLump> ExactLumps =>
     [

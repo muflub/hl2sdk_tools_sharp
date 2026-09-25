@@ -38,7 +38,7 @@ public static class PropIndirectLighting
     /// <param name="ignoreNormals">Use a constant dot instead of the normal's.</param>
     /// <param name="scratch">The work item's displacement scratch.</param>
     /// <param name="compliance">Which defects to reproduce.</param>
-    /// <param name="staticPropIndirectMode">The ++ <c>-StaticPropIndirectMode</c>: 0 stock, 1 inverse-square from the accumulated hit, 2 keep-reflection, other raw.</param>
+    /// <param name="staticPropIndirectMode">The <c>-StaticPropIndirectMode</c> switch: 0 stock, 1 inverse-square from the accumulated hit, 2 keep-reflection, other raw.</param>
     /// <returns>The colour, in vrad's 0..255 lightmap scale.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static Vec3 Compute(
@@ -122,11 +122,10 @@ public static class PropIndirectLighting
                 lightmapColor = ToVector(scene.LightSamples(shade.LightOfs + (((dt * shade.Smax) + ds) * 4), 1)[0]);
             }
 
-            // The weighting is the ++ -StaticPropIndirectMode switch, one
-            // consumer: ComputeIndirectLightingAtPoint
-            // counterpart), branches at
- // all.c (== 0), 46478 (== 1), 46496 (== 2), fallthrough
-            // The gate global is.
+            // The weighting is the -StaticPropIndirectMode switch, one
+            // consumer: the ComputeIndirectLightingAtPoint counterpart. It
+            // branches on the mode value — == 0, == 1, == 2, fallthrough —
+            // gated on the mode global.
             //
             // ((vEnd - position) * m_HitFrac / 128.0).LengthSqr(): a Vector
             // times a float, then divided by 128 (VectorDivide: times 1/128).
@@ -157,8 +156,8 @@ public static class PropIndirectLighting
 
             if (staticPropIndirectMode is < 0 or > 2)
             {
-                // Out of range takes NONE of the weighting branches
- // (all.c): the raw lightmap triple accumulates.
+                // Out of range takes NONE of the weighting branches:
+                // the raw lightmap triple accumulates,
                 // no weight, no reflectivity.
                 outColor += lightmapColor;
                 continue;

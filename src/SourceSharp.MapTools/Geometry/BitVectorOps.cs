@@ -191,7 +191,7 @@ public static class BitVectorOps
     /// The spans differ in length or are not block-aligned.
     /// </exception>
     /// <remarks>
-    /// The reference implementation, and a transcription of the C++ loop. The
+    /// The reference implementation: the plain scalar loop. The
     /// two vector paths are checked against this one.
     /// </remarks>
     public static bool AndWithNewBitsScalar(

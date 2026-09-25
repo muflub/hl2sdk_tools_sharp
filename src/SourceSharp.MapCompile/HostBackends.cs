@@ -20,7 +20,7 @@ namespace SourceSharp.MapCompile;
 /// P12 anomaly 5: with the package found-by-name only, the shipped JIT tree
 /// carried no <c>Cache.Sqlite.dll</c>, the probe below silently found
 /// neither, and <c>-incremental</c> cooked everything on every corpus map).
-/// The GPU package stays reflection-only: plan_maptools.md 10c wants a
+/// The GPU package stays reflection-only: the port's rule wants a
 /// machine without Vulkan to run the flag-free path untouched, and a
 /// <c>-gpu</c> without the package is one <c>VRAD0707</c> warning and the CPU
 /// tracer, never a load failure of the whole CLI. A missing (or stripped, or

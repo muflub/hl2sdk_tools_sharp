@@ -150,7 +150,7 @@ internal static class CanonicalLumpDiff
         Dictionary<int, List<string>> clusters = [];
 
         // dleaf_t is 56 bytes at LUMP version 0 and 32 at version 1
- //And nothing else in the file says which.
+        //And nothing else in the file says which.
         if (lump.Version == 0)
         {
             if (!BspStructView.Fits<DLeafVersion0>(lump))

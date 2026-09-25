@@ -495,7 +495,7 @@ public sealed class LightRayLog
 
     /// <summary>
     /// Whether a closest hit lies within the segment: stock's
- /// <c>HitIds != -1 &amp;&amp; HitDistance &lt; len</c>.
+    /// <c>HitIds != -1 &amp;&amp; HitDistance &lt; len</c>.
     /// </summary>
     /// <param name="hit">The tracer's answer for a ray made by <see cref="MakeRay"/>.</param>
     /// <returns>True when something blocks the segment.</returns>
@@ -530,7 +530,7 @@ public sealed class LightRayLog
 
     /// <summary>
     /// A segment as stock's <c>TestLine</c> and <c>TestLine_DoesHitSky</c>
- /// Build it: the direction divided by
+    /// Build it: the direction divided by
     /// its length with <c>ReciprocalSIMD</c> (<c>rcpps</c> plus one Newton
     /// step), and the length itself as the far limit.
     /// </summary>

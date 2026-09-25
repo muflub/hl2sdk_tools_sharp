@@ -198,8 +198,8 @@ public sealed class MaterialPatcher
     /// <returns>
     /// True when the patch was written. False only on the REPLACE path when the
     /// original cannot be loaded — stock's <c>Assert(0); return;</c> at
- ///Which in a release build writes NOTHING but has already
- /// registered the translation.
+    ///Which in a release build writes NOTHING but has already
+    /// registered the translation.
     /// </returns>
     public async ValueTask<bool> CreatePatchAsync(
         string originalMaterialName,
@@ -373,20 +373,20 @@ public sealed class MaterialPatcher
     /// <list type="bullet">
     /// <item><description>
     /// After an <c>insert</c> is applied the tree IS the include
- /// (<c>keyValues = *includeKeyValues</c>), so the
- /// <c>replace</c> lookup searches the INCLUDED material,
+    /// (<c>keyValues = *includeKeyValues</c>), so the
+    /// <c>replace</c> lookup searches the INCLUDED material,
     /// not the patch: a patch with both sections loses its replace. A defect:
     /// <see cref="StockQuirk.PatchExpandInsertDropsReplace"/>.
     /// </description></item>
     /// <item><description>
     /// A patch with neither section never stops being a patch, so the loop
     /// re-reads the same include ten times and stock warns "Infinite recursion
- /// in patch file?". The result is still the patch. A
+    /// in patch file?". The result is still the patch. A
     /// defect: <see cref="StockQuirk.PatchExpandEmptyPatchNeverResolves"/>.
     /// </description></item>
     /// <item><description>
     /// Only scalar keys are copied (<c>InsertKeyValues</c> has no
- /// <c>TYPE_NONE</c> case,); a section in insert or replace
+    /// <c>TYPE_NONE</c> case,); a section in insert or replace
     /// is ignored, and replace checks existence at the top level only.
     /// </description></item>
     /// </list>
@@ -421,7 +421,7 @@ public sealed class MaterialPatcher
             }
 
             // Stock looks the replace section up AFTER the tree became the
-            // include (:352-355), so a patch with both loses its replace.
+            // include, so a patch with both loses its replace.
             KeyValuesNode? replace = Compliance.Emulates(StockQuirk.PatchExpandInsertDropsReplace)
                 ? current.Find("replace")
                 : patch.Find("replace");
@@ -432,7 +432,7 @@ public sealed class MaterialPatcher
             }
 
             // A patch with neither section never stops being one in stock
-            // (:330, the loop re-reads the include ten times); it IS its
+            // (the loop re-reads the include ten times); it IS its
             // include, which is what the engine's reader makes of it.
             if (insert is null && replace is null && !Compliance.Emulates(StockQuirk.PatchExpandEmptyPatchNeverResolves))
             {
@@ -445,7 +445,7 @@ public sealed class MaterialPatcher
 
     // The original of a (possibly patched) material, as the "does it have key
     // X" family and the REPLACE walk read it:,
- // 208-211 -- LoadFromFile, raw. Under Correct a
+    // 208-211 -- LoadFromFile, raw. Under Correct a
     // patch is expanded first (StockQuirk.CubemapIgnoresPatchMaterials).
     private async ValueTask<KeyValuesNode?> LoadOriginalAsync(string materialName, CancellationToken cancellationToken)
     {

@@ -1,7 +1,7 @@
 namespace SourceSharp.MapGen.Catalog;
 
 /// <summary>
-/// How complex an entry is, from plan_maptools.md §2a's level table.
+/// How complex an entry is, from the catalogue's level table.
 ///
 /// <para>
 /// The grade is the whole point of the catalogue. A real map exercises every

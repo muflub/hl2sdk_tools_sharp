@@ -126,7 +126,7 @@ public sealed class StaticPropModelLoader
 
         // Studio_ConvertStudioHdrToNewVersion, called from
         // LoadStudioModel -- BEFORE the version
- // test, which is the only reason that test ever passes.
+        // test, which is the only reason that test ever passes.
         //
         // NOT OPTIONAL, and skipping it is not a small divergence: EVERY prop
         // model dm_lockdown references is studiohdr version 44, and without
@@ -139,7 +139,7 @@ public sealed class StaticPropModelLoader
         {
             // MdlFile.Parse enforces both of LoadStudioModel's format tests:
             // the IDST/IDAG ident and
-            // version == STUDIO_VERSION (:487).
+            // version == STUDIO_VERSION.
             mdl = MdlFile.Parse(mdlBytes);
         }
         catch (InvalidStudioException)
@@ -150,7 +150,7 @@ public sealed class StaticPropModelLoader
         // IsStaticProp. A model without $staticprop
         // has no usable vertex data here at all: its vertices are in bone
         // space and stock's loader does not set up bones, which is what the
- // warning is really saying.
+        // warning is really saying.
         if ((mdl.Header.Flags & StaticPropModel.StudioFlagStaticProp) == 0)
         {
             return Rejected(path, StaticPropModelRejection.NotAStaticProp, forced);
@@ -303,7 +303,7 @@ public sealed class StaticPropModelLoader
     /// Stock puts NO FLOOR under this, and neither does this: a file claiming
     /// version 1 is slammed to 48 and read with the 48 layout. That is stock's
     /// exposure and is reproduced rather than tightened, but it is bounded
-    /// here in a way it is not in C++ -- every offset a studio reader follows
+    /// here in a way it is not in the reference build -- every offset a studio reader follows
     /// in this port is range checked against the file's length, so a header
     /// that is not really a version 44 one fails as
     /// <see cref="StaticPropModelRejection.NotAStudioModel"/> instead of

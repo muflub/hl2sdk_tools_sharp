@@ -64,12 +64,12 @@ public sealed record MaterialCompileOptions
 /// </summary>
 /// <remarks>
 /// <para>
-/// The C++ is one long if/else-if chain over the compile variables followed by
+/// The reference surface chain is one long if/else-if chain over the compile variables followed by
 /// a block of independent tests, and the SHAPE is the behaviour: the first
 /// eleven tests are mutually exclusive, so a material that is both
 /// <c>%compileSky</c> and <c>%compileNoDraw</c> is only a sky. Reordering them
 /// into something tidier would change which flags a real material gets, so
-/// they are in the C++'s order, with its branches.
+/// they are in the reference order, with its branches.
 /// </para>
 /// <para>
 /// Pure: it reads no file. Everything it needs is already in the
@@ -260,7 +260,7 @@ public static class MaterialSurfaceClassifier
             }
         }
 
-        // Precedence and all. The C++ reads
+        // Precedence and all. The reference expression is
         //   !bKeepLighting && water5 || unlit12
         // and && binds tighter than ||, so %compileKeepLight does NOT protect
         // an UnlitGeneric material -- only a water one. Written out here so

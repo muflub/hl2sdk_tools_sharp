@@ -143,7 +143,7 @@ public static class MapFileLoader
             {
                 if (string.Equals(key.Name, "mapversion", StringComparison.OrdinalIgnoreCase))
                 {
- // G_MapRevision -- stamped into the BSP
+                    // G_MapRevision -- stamped into the BSP
                     // header later. The key is still stored under its own name.
                     context.MapRevision = VmfValue.ParseInt(key.Value);
                 }

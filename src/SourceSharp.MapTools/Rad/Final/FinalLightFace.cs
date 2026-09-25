@@ -157,7 +157,7 @@ public static class FinalLightFace
             Displacement.DispRadialMap? dprad = null;
 
             // A displacement's radials come from the sample and
-            // patch hashes(:1047) instead.
+            // patch hashes instead.
             if (!context.Fast)
             {
                 if (!disp)
@@ -286,7 +286,7 @@ public static class FinalLightFace
     /// <param name="scratch">Buffers; counts a missing style slot.</param>
     /// <remarks>
     /// A neighbour's style is matched by the light style NUMBER, not the slot
- /// And a neighbour without it contributes nothing. A
+    /// And a neighbour without it contributes nothing. A
     /// neighbour's sample bounds are carried corner by corner: its luxel space
     /// to world, world to this face's luxel space.
     /// </remarks>
@@ -390,7 +390,7 @@ public static class FinalLightFace
     /// <param name="rad">The grid, already reset to the face.</param>
     /// <remarks>
     /// A displacement patch's origin was moved onto the displaced surface, so
- /// stock uses the centre of its (flat) winding instead.
+    /// stock uses the centre of its (flat) winding instead.
     /// </remarks>
     public static void BuildPatchRadial(FinalLightContext context, int faceNum, LuxelRadial rad)
     {
@@ -419,7 +419,7 @@ public static class FinalLightFace
     /// <remarks>
     /// Stock computes <c>neighborNeedsBumpmap</c> from <c>facenum</c> rather
     /// than the neighbour and then passes
- /// <c>needsBumpmap</c> twice anyway. So a bumped face
+    /// <c>needsBumpmap</c> twice anyway. So a bumped face
     /// takes an unbumped neighbour's zero bump-direction light at full weight,
     /// darkening its bump maps near the seam.
     /// <see cref="StockQuirk.PatchRadialNeighbourBumpFromSelf"/> keeps that;
@@ -464,7 +464,7 @@ public static class FinalLightFace
     }
 
     /// <summary>
- /// The median of the values, as the RB-tree walk takes
+    /// The median of the values, as the RB-tree walk takes
     /// it: element <c>count / 2</c> of the ascending order.
     /// </summary>
     /// <param name="values">The values; sorted in place.</param>

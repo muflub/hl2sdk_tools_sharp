@@ -8,7 +8,7 @@ using System.Diagnostics.CodeAnalysis;
 namespace SourceSharp.MapTools.Compile.Cache;
 
 /// <summary>
-/// The tool identity a cache row is pinned to (plan_maptools.md 10a: assembly
+/// The tool identity a cache row is pinned to (assembly
 /// version + commit, per row so a prior worktree's rows stay reachable for
 /// their own build only).
 /// </summary>
@@ -51,7 +51,7 @@ public static class ToolIdentity
 
 /// <summary>
 /// Canonical digests over the option records and the parsed map model
-/// (plan_maptools.md 10a: the vbsp key hashes the PARSED map model, the option
+/// (the vbsp key hashes the PARSED map model, the option
 /// subset the stage reads, never the VMF text — Hammer's save-time churn must
 /// not invalidate, and an option the stage never looks at must not either).
 /// </summary>

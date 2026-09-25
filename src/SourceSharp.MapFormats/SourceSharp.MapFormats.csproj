@@ -18,7 +18,7 @@
     <OutputPath>bin\</OutputPath>
 
     <!--
-      A deliberate, documented public surface (plan_maptools.md 1a).
+      A deliberate, documented public surface.
 
       This assembly is a LIBRARY first and a dependency of the CLI second, so
       an undocumented public member is a defect rather than a style lapse. The
@@ -31,7 +31,7 @@
 
     <!--
       CA1068 (CancellationToken is the last parameter) and CA2016 (forward the
-      token you were given) are errors because plan_maptools.md 1a makes the
+      token you were given) are errors because the async-shape rule makes the
       async shape a GATE rather than a convention: a reflection fact asserts
       every long-running public method takes a token last, and CA2016 catches
       the case that fact cannot see: a token accepted at the boundary and

@@ -58,7 +58,7 @@ public class StaticPropParallelTests
     {
         // Stock: prop 0 (a good model, in solid) warns "outside the map"
         // before prop 1's GetCollisionModel warns "Error loading studio model"
-        //(then:269). The loads run first here, so their
+        // The loads run first here, so their
         // warnings must wait for their first prop's turn.
         (VbspContext context, _) = await ContextAsync(8, f => StudioFixture.AddModel(f, "models/a.mdl"));
         BspTreeView solid = OneNode() with { LeafContents = [BspTreeView.ContentsSolid, BspTreeView.ContentsSolid] };

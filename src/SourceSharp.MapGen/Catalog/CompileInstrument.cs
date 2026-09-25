@@ -1,7 +1,7 @@
 namespace SourceSharp.MapGen.Catalog;
 
 /// <summary>
-/// Which of plan_maptools.md §2's acceptance instruments apply to an entry.
+/// Which of the acceptance instruments apply to an entry.
 ///
 /// <para>
 /// Not every instrument applies to every map, and saying which is part of the

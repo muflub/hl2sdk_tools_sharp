@@ -17,7 +17,7 @@ namespace SourceSharp.Tests.MapTools;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Plan_maptools.md 1a makes this a gate because blocking on a task is how an
+/// This is a gate because blocking on a task is how an
 /// async library kills a host. Inside a compile it is worse than a stall: the
 /// scheduler runs on its own dedicated threads, and a worker that blocks on
 /// another worker's task takes one of those threads out of circulation for the

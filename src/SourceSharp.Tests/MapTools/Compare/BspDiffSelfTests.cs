@@ -105,8 +105,8 @@ public sealed class BspDiffSelfTests : IClassFixture<LockdownDiffFixture>
     [Fact]
     public async Task EveryLightmapSampleBelongsToExactlyOneFace()
     {
-        // The strongest single check on the lightofs arithmetic of
-        //. If the average-colour block before lightofs,
+        // The strongest single check on the lightofs arithmetic.
+        // If the average-colour block before lightofs,
         // the (w+1)(h+1) luxels, the style multiplier or the bump multiplier
         // were wrong, the faces would not tile the lump exactly.
         DiffReport report = await SelfAsync();

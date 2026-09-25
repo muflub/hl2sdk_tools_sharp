@@ -100,7 +100,7 @@ public static class MathSolvers
     /// <remarks>
     /// <para>
     /// The three points are sorted by x with a three-comparison bubble
- /// Then the MIDDLE point's y is blended toward the
+    /// Then the MIDDLE point's y is blended toward the
     /// straight line between the outer two in twenty-one steps of 0.05, until
     /// the fitted curve's derivative at the start has the same sign as the
     /// data's overall trend. Stock's own comment concedes "this code is not
@@ -118,7 +118,7 @@ public static class MathSolvers
     /// </para>
     /// <para>
     /// The loop counter is a <c>float</c> accumulated by <c>+= 0.05</c>
- /// And 0.05 is not representable: it runs <b>20</b> times,
+    /// And 0.05 is not representable: it runs <b>20</b> times,
     /// the last blend is 0.95000017 and the next value is 1.0000001, which
     /// fails <c>&lt;= 1.0</c>. So the fully-linear blend is never evaluated.
     /// Reproduced with a float accumulator, because the blend factor feeds the

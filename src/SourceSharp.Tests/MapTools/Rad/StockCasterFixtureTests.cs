@@ -190,7 +190,7 @@ public sealed class StockCasterFixtureTests
         }
     }
 
-    /// <summary>The sum tolerance is derived from the dump's precision.</summary>
+    /// <summary>The sum tolerance is derived from the reference output's precision.</summary>
     /// <remarks>
     /// `%5.2f` rounds each coordinate by at most 0.005, and a run holds
     /// `3 * Count` of them. Pinned so that widening it later is a decision

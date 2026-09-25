@@ -54,7 +54,7 @@ public interface IDetailDisplacementSurfaces
 /// </remarks>
 public sealed class DetailPropEmitter
 {
- /// <summary><c>65535</c>: the most detail props the lump can index.</summary>
+    /// <summary><c>65535</c>: the most detail props the lump can index.</summary>
     public const int MaxDetailProps = 65535;
 
     private readonly VbspContext _context;
@@ -80,7 +80,7 @@ public sealed class DetailPropEmitter
     }
 
     /// <summary>
- /// <c>LoadEmitDetailObjectDictionary</c>: worldspawn's
+    /// <c>LoadEmitDetailObjectDictionary</c>: worldspawn's
     /// <c>detailvbsp</c>, else <c>detail.vbsp</c>; a missing or unparseable
     /// file is an EMPTY dictionary, silently.
     /// </summary>
@@ -215,7 +215,7 @@ public sealed class DetailPropEmitter
 
         await EmitEntitiesAsync(entities, props, lump, tree, cancellationToken).ConfigureAwait(false);
 
- // SetLumpData: sorted by leaf with the CRT's qsort.
+        // SetLumpData: sorted by leaf with the CRT's qsort.
         DetailObjectLump[] sorted = [.. props];
         MsvcQsort.Sort<DetailObjectLump>(sorted, static (a, b) => Math.Sign(a.Leaf - b.Leaf));
         lump.Props.AddRange(sorted);
@@ -231,7 +231,7 @@ public sealed class DetailPropEmitter
         return lump;
     }
 
- // EmitDetailObjectsOnFace.
+    // EmitDetailObjectsOnFace.
     private async Task OnFaceAsync(
         DFace face, FaceGeometry geometry, DetailType detail, FaceRandom random,
         List<DetailObjectLump> props, DetailPropLump lump, BspTreeView tree, CancellationToken cancellationToken)
@@ -283,8 +283,8 @@ public sealed class DetailPropEmitter
         }
     }
 
- // EmitDetailObjectsOnDisplacementFace, with the base face's
- // area from its first two triangles (ComputeDisplacementFaceArea).
+    // EmitDetailObjectsOnDisplacementFace, with the base face's
+    // area from its first two triangles (ComputeDisplacementFaceArea).
     private async Task OnDisplacementAsync(
         DFace face, FaceGeometry geometry, DetailType detail, FaceRandom random, IDetailDisplacementSurfaces displacements,
         List<DetailObjectLump> props, DetailPropLump lump, BspTreeView tree, CancellationToken cancellationToken)
@@ -318,7 +318,7 @@ public sealed class DetailPropEmitter
         }
     }
 
- /// <summary><c>SelectGroup</c>.</summary>
+    /// <summary><c>SelectGroup</c>.</summary>
     /// <param name="detail">The type.</param>
     /// <param name="alpha">The surface alpha, 0 to 1.</param>
     /// <param name="random">The face's CRT stream; one draw only when two groups bracket the alpha.</param>
@@ -358,7 +358,7 @@ public sealed class DetailPropEmitter
         return r > dist ? start : end;
     }
 
- /// <summary><c>SelectDetail</c>: -1 when the draw falls past the last cumulative amount.</summary>
+    /// <summary><c>SelectDetail</c>: -1 when the draw falls past the last cumulative amount.</summary>
     /// <param name="group">The group.</param>
     /// <param name="random">The face's CRT stream; one draw.</param>
     /// <returns>The model index, or -1.</returns>
@@ -378,7 +378,7 @@ public sealed class DetailPropEmitter
         return -1;
     }
 
- // PlaceDetail.
+    // PlaceDetail.
     private async Task PlaceAsync(
         DetailModel model, Vec3 pt, Vec3 normal, FaceRandom random,
         List<DetailObjectLump> props, DetailPropLump lump, BspTreeView tree, CancellationToken cancellationToken)
@@ -515,12 +515,12 @@ public sealed class DetailPropEmitter
     private static float Rad2Deg(float x) => x * (180.0f / (float)Math.PI);
 
     // atan2f. Stock's CRT float trig (sinf, cosf, atan2f) is not the
-    // correctly rounded one .NET reaches, and no reading of the C++ -- double
+    // correctly rounded one .NET reaches, and no reading of the reference source -- double
     // or float evaluation, reciprocal or divide -- closes the last-bit gap: the
     // detail gate holds angles to a MEASURED 2^-15 degrees for that reason.
     private static float Atan2F(float y, float x) => MathF.Atan2(y, x);
 
- // AddDetailToLump.
+    // AddDetailToLump.
     private async Task AddModelAsync(
         string modelName, Vec3 pt, Vec3 angles, int orientation,
         List<DetailObjectLump> props, DetailPropLump lump, BspTreeView tree, CancellationToken cancellationToken)
@@ -542,7 +542,7 @@ public sealed class DetailPropEmitter
         props.Add(record);
     }
 
- // AddDetailSpriteToLump.
+    // AddDetailSpriteToLump.
     private static void AddSprite(
         Vec3 pt, Vec3 angles, int orientation, (float X, float Y)[] pos, (float X, float Y)[] tex, float scale,
         DetailModelType type, byte shapeAngle, byte shapeSize, byte sway,
@@ -576,7 +576,7 @@ public sealed class DetailPropEmitter
         return record;
     }
 
- // AddDetailDictLump: strncpy then a memcmp from the end.
+    // AddDetailDictLump: strncpy then a memcmp from the end.
     private static int AddModelName(DetailPropLump lump, string modelName)
     {
         for (int i = lump.ModelNames.Count - 1; i >= 0; i--)
@@ -591,7 +591,7 @@ public sealed class DetailPropEmitter
         return lump.ModelNames.Count - 1;
     }
 
- // AddDetailSpriteDictLump: memcmp, so bitwise.
+    // AddDetailSpriteDictLump: memcmp, so bitwise.
     private static int AddSpriteDict(DetailPropLump lump, (float X, float Y)[] pos, (float X, float Y)[] tex)
     {
         DetailSpriteDictLump entry = default;
@@ -623,7 +623,7 @@ public sealed class DetailPropEmitter
         return x.SequenceEqual(y);
     }
 
- // IsModelValid: one LoadStudioModel per exact name.
+    // IsModelValid: one LoadStudioModel per exact name.
     private async ValueTask<bool> IsModelValidAsync(string modelName, CancellationToken cancellationToken)
     {
         if (_validModels.TryGetValue(modelName, out bool known))
@@ -646,7 +646,7 @@ public sealed class DetailPropEmitter
         return load.IsValid;
     }
 
- // The entity half of EmitDetailModels.
+    // The entity half of EmitDetailModels.
     private async Task EmitEntitiesAsync(
         IReadOnlyList<MapEntity> entities, List<DetailObjectLump> props, DetailPropLump lump, BspTreeView tree,
         CancellationToken cancellationToken)

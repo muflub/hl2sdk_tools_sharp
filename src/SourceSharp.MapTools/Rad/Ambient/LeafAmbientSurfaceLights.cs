@@ -42,7 +42,7 @@ public static class LeafAmbientSurfaceLights
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A function-local <c>static const float</c> in the C++, so it is computed
+    /// A function-local <c>static const float</c> in the reference build, so it is computed
     /// once at first call and then fixed. 512 units is roughly a large room.
     /// </para>
     /// <para>

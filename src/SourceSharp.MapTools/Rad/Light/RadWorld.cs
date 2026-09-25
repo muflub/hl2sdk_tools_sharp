@@ -259,7 +259,7 @@ public sealed partial class RadWorld
         DirectLightingSettings s = Settings;
         Statistics.Faces = Geometry.Faces.Length;
 
-        // In stock's order. MakeParents (:1806) is
+        // In stock's order. MakeParents is
         // Rad.Ambient.BspParents, lane 4g's, the only reader of its output.
         Patches = PatchBuilder.Build(Geometry, Entities, texLights, s.MaxChop, s.TexScale);
 
@@ -408,14 +408,14 @@ public sealed partial class RadWorld
     /// <returns>True when a ray saw sky; false while collecting.</returns>
     /// <remarks>
     /// <para>
- /// <b>The tail double-count.</b> The directions go four
+    /// <b>The tail double-count.</b> The directions go four
     /// at a time with each index clamped to 161, so the last group is
     /// <c>anorms[160], [161], [161], [161]</c>: direction 161 is cast three
     /// times. It cannot change an "any hit" answer; it is reproduced because the
     /// ray set is an observable of the tracer's work.
     /// </para>
     /// <para>
- /// <b>A stock bug that is not reproduced.</b> The box
+    /// <b>A stock bug that is not reproduced.</b> The box
     /// centre is computed into <c>center</c> and then never used: the rays are
     /// cast from <c>center4</c>, a <c>FourVectors</c> that is declared and never
     /// initialised, so stock traces from whatever the stack held. That has no

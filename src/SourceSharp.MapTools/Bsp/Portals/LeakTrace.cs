@@ -104,7 +104,6 @@ public static class LeakTrace
 
     /// <summary>
     /// The diagnostic stock spews in red beside the <c>.lin</c>
-    ///.
     /// </summary>
     /// <param name="report">The traced leak.</param>
     /// <returns>A warning naming the entity and where it was.</returns>

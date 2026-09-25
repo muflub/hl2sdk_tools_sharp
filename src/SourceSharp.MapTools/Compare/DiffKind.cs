@@ -5,7 +5,7 @@ namespace SourceSharp.MapTools.Compare;
 /// </summary>
 /// <remarks>
 /// <para>
-/// plan_maptools.md 2 (I2) names three kinds, and the reason there are three is
+/// The BSP comparison instrument names three kinds, and the reason there are three is
 /// that "the same map" means a different thing per lump. A lump with no
 /// floating-point freedom must match byte for byte; a lump whose INDEX ORDER is
 /// an artefact of the compiler's insertion sequence must match as a set; and a

@@ -143,7 +143,7 @@ public sealed class OverlaySet
     /// <param name="entity">An <c>info_overlay</c>.</param>
     /// <returns>The accessor id: the overlay's id when it is named, else -1.</returns>
     /// <exception cref="MapCompileException">
- /// An invalid render order or a material name too long.
+    /// An invalid render order or a material name too long.
     /// </exception>
     public int AddFromEntity(MapEntity entity)
     {

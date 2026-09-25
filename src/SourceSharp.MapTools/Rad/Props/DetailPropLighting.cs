@@ -55,7 +55,7 @@ public static class DetailPropLighting
     private const int HullMinOffset = 104;
 
     /// <summary>
- /// The model centre offsets (<c>UnserializeModelDict</c>):
+    /// The model centre offsets (<c>UnserializeModelDict</c>):
     /// half the sum of each dictionary model's hull extents, or zero when the
     /// model cannot be loaded.
     /// </summary>
@@ -94,7 +94,7 @@ public static class DetailPropLighting
     }
 
     /// <summary>
- /// The sprite centre offsets (<c>UnserializeSpriteDict</c>):
+    /// The sprite centre offsets (<c>UnserializeSpriteDict</c>):
     /// x 0, y and z the mid-points of the sprite's corners.
     /// </summary>
     /// <param name="lump">The detail prop lump.</param>
@@ -163,7 +163,7 @@ public static class DetailPropLighting
                 .ConfigureAwait(false);
         }
 
-        // ComputeLighting's commit (:798-826), in prop order.
+        // ComputeLighting's commit, in prop order.
         List<DetailPropLightstylesLump> styles = [];
         int bogus = 0;
         for (int i = 0; i < props.Length; i++)
@@ -201,7 +201,7 @@ public static class DetailPropLighting
     /// <summary>
     /// Writes a pass's result into a map: the props back into <c>dprp</c> and
     /// the styles into this pass's lump (<c>WriteDetailLightingLumps</c>,
- ///), leaving the other pass's style lump as it was.
+    ///), leaving the other pass's style lump as it was.
     /// </summary>
     /// <param name="bsp">The map.</param>
     /// <param name="lump">The detail prop lump the pass read.</param>
@@ -210,7 +210,7 @@ public static class DetailPropLighting
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// Stock rewrites BOTH style lumps every pass, having first read the other
- /// Pass's back; an absent one is written empty. The
+    /// Pass's back; an absent one is written empty. The
     /// same holds here: a missing other-pass lump becomes an empty one.
     /// </remarks>
     public static void WriteInto(BspData bsp, DetailPropLump lump, DetailPropLightingResult result, bool hdr)
@@ -253,7 +253,7 @@ public static class DetailPropLighting
 
     /// <summary>
     /// A style lump as its game lump: <c>int count</c> then the records
- /// (<c>WriteDetailLightingLump</c>), version 0.
+    /// (<c>WriteDetailLightingLump</c>), version 0.
     /// </summary>
     /// <param name="styles">The records.</param>
     /// <param name="hdr">Whether this is <c>dplh</c>.</param>
@@ -272,7 +272,7 @@ public static class DetailPropLighting
     }
 
     /// <summary>
- /// A style game lump's records (<c>UnserializeDetailPropLighting</c>).
+    /// A style game lump's records (<c>UnserializeDetailPropLighting</c>).
     /// </summary>
     /// <param name="entry">The <c>dplt</c> or <c>dplh</c> lump.</param>
     /// <returns>The records.</returns>
@@ -289,7 +289,7 @@ public static class DetailPropLighting
             bytes.Slice(4, count * System.Runtime.CompilerServices.Unsafe.SizeOf<DetailPropLightstylesLump>())).ToArray();
     }
 
- /// <summary><c>ComputeWorldCenter</c>: the prop's centre and up vector.</summary>
+    /// <summary><c>ComputeWorldCenter</c>: the prop's centre and up vector.</summary>
     /// <param name="prop">The prop.</param>
     /// <param name="modelCentres">Model centre offsets.</param>
     /// <param name="spriteCentres">Sprite centre offsets.</param>
@@ -387,7 +387,7 @@ public static class DetailPropLighting
 
         if (!IsValid(origin) || !IsValid(normal))
         {
- // 168-183: fill with the debug colour.
+            // 168-183: fill with the debug colour.
             for (int s = 0; s < RayAmbientLighting.MaxLightStyles; s++)
             {
                 c.Direct[s] = new Vec3(1, 0, 0);
@@ -398,7 +398,7 @@ public static class DetailPropLighting
             return c;
         }
 
- // ComputeMaxDirectLighting.
+        // ComputeMaxDirectLighting.
         int cluster = ClusterFromPoint(scene, origin);
         for (int i = 0; i < lights.Count; i++)
         {
@@ -415,7 +415,7 @@ public static class DetailPropLighting
             c.Direct[dl.Style] = Ma(c.Direct[dl.Style], scale, dl.Intensity);
         }
 
- // ComputeAmbientLightingAtPoint.
+        // ComputeAmbientLightingAtPoint.
         ambient.Compute(origin, c.Ambient);
         return c;
     }
@@ -428,7 +428,7 @@ public static class DetailPropLighting
 
     /// <summary>
     /// <c>ClusterFromPoint</c> over <c>PointInLeaf</c>
- /// Straddling the plane within <c>TEST_EPSILON</c> (0.1, a
+    /// Straddling the plane within <c>TEST_EPSILON</c> (0.1, a
     /// double) tries the front child first and keeps it unless its cluster is -1.
     /// </summary>
     /// <param name="scene">The map.</param>

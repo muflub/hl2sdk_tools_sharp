@@ -311,7 +311,7 @@ public class CubemapTests
     [Fact]
     public async Task ANonSpecularSideIsNotPatched()
     {
-        // PatchEnvmapForMaterialAndDependents returns false,:553-554.
+        // PatchEnvmapForMaterialAndDependents returns false,
         VmfMap vmf = SurfaceUnit.Room(SurfaceUnit.Plain);
         int wall = TestMapCatalog.SideId(vmf, 2, 2);
         RoomKit.PointEntity(vmf, "env_cubemap", new Point(0f, 0f, 128f), "sides", $"{wall}");
@@ -342,7 +342,7 @@ public class CubemapTests
     [Fact]
     public async Task WithNoCubemapInFrontTheNearestWins()
     {
-        //. Both samples are behind the floor's top face.
+        // Both samples are behind the floor's top face.
         VmfMap vmf = SurfaceUnit.Room(SurfaceUnit.Specular);
         int floor = TestMapCatalog.SideId(vmf, 0, 0);
         RoomKit.PointEntity(vmf, "env_cubemap", new Point(0f, 0f, -300f));

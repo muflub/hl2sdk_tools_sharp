@@ -20,8 +20,7 @@ public sealed partial class CoreDispInfo
 
     /// <summary>
     /// The displaced position, normal and alpha at a point of the base quad
-    /// given in its own (u, v): <c>GetPositionOnSurface</c>,
-    ///.
+    /// given in its own (u, v): <c>GetPositionOnSurface</c>.
     /// </summary>
     /// <param name="u">0..1 across the quad from point 0 towards point 3.</param>
     /// <param name="v">0..1 from point 0 towards point 1.</param>
@@ -140,7 +139,7 @@ public sealed partial class CoreDispInfo
     /// Areas are unsigned, so the weights are never negative: a point OUTSIDE
     /// the triangle is detected only because its three areas then sum to more
     /// than the whole. The 1e-3 is a <c>double</c> literal in stock, so the
- /// comparison is made in double. A degenerate triangle has
+    /// comparison is made in double. A degenerate triangle has
     /// area zero and every weight zero, which fails.
     /// </remarks>
     public static bool CalcBarycentricCoefs(
@@ -182,7 +181,7 @@ public sealed partial class CoreDispInfo
     /// </para>
     /// <para>
     /// A quirk kept as found: <c>TriBLToTR_1</c>'s degenerate-in-u branch
- /// crosses <c>(edgeU, edgeV)</c> where its other two
+    /// crosses <c>(edgeU, edgeV)</c> where its other two
     /// branches cross <c>(edgeV, edgeU)</c> — so on the displacement's last
     /// column that triangle's normal points the other way.
     /// </para>

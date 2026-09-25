@@ -457,7 +457,7 @@ public static class DispPatchBuilder
 
     private static Patch NewPatch(float dispChop)
     {
- // Memset(0), /:925-953.
+ // Everything starts zeroed.
         Patch patch = default;
         patch.Child1 = Patch.Invalid;
         patch.Child2 = Patch.Invalid;

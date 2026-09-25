@@ -235,7 +235,7 @@ public sealed class FaceLightJob
 
         if (_disp is not null)
         {
- // A displacement's point normal is the
+            // A displacement's point normal is the
             // sample's own blended normal, and its bump basis is always rebuilt
             // from it (computeNormals is true for a displacement).
             (Vec3 texS, Vec3 texT) = TextureAxes(_context.Geometry.TexInfos[_context.Geometry.Faces[FaceNum].TexInfo]);
@@ -639,7 +639,7 @@ public sealed class FaceLightJob
 
         if (_round == 1)
         {
-            // End of the direct gather. :3162-3174: supersample every style
+            // End of the direct gather: supersample every style
             // that exists, unless -noextra -- and never a displacement
             // ("get rid of the -extra functionality on displacement surfaces").
             if (!_context.Settings.Supersample || _disp is not null)
@@ -664,7 +664,7 @@ public sealed class FaceLightJob
         }
         else
         {
- // A supersampling pass finished::2963 pass++.
+            // A supersampling pass finished: advance the pass counter.
             foreach (StyleSupersample? state in _supersample)
             {
                 if (state is not null && state.Selected.Count > 0)
@@ -700,7 +700,7 @@ public sealed class FaceLightJob
         }
     }
 
-    // One supersampled sample of one style (:2922-2936): ambient, then direct.
+    // One supersampled sample of one style: ambient, then direct.
     private void EmitSupersampleItem(StyleSupersample state, int i, LightRayLog rays)
     {
         EmitSupersamplePoint(i, state.StyleIndex, ambientOnly: true, rays);
@@ -858,8 +858,7 @@ public sealed class FaceLightJob
 
     private void ComputeSupersampleIllumination(ReadOnlySpan<Vec3> positions, Vec3 sampleNormal)
     {
-        // The supersample normal matters only to displacements (:2703,
-        // 2455), which never reach here.
+        // The supersample normal matters only to displacements, which never reach here.
         _ = sampleNormal;
         ComputeIlluminationPointAndNormals(positions, SampleGroup.Lanes);
     }
@@ -965,7 +964,7 @@ public sealed class FaceLightJob
     /// <para>
     /// <c>pSampleIntensity</c> is <c>stackalloc</c>'d and never cleared
     /// Only luxels that HAVE a sample are written
- /// So on any face whose outline does not fill its
+    /// So on any face whose outline does not fill its
     /// lightmap rectangle the gradient of an edge sample is taken against
     /// whatever the stack held. That is undefined and cannot be reproduced
     /// bit for bit.

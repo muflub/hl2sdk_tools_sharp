@@ -292,7 +292,6 @@ public sealed class VbspCompileTests
     [Fact]
     public async Task ABrushEntityIsNumberedStarOne()
     {
-        // SetModelNumbers:953
         VbspResult result = await CompileAsync(Room(brushEntity: true));
 
         Assert.Equal("*1", Entities(result).Single(e => e.ClassName == "func_brush").Get("model"));
@@ -372,7 +371,6 @@ public sealed class VbspCompileTests
     [Fact]
     public async Task WaterWithNoLodControlGetsADefaultOne()
     {
-        // EnsurePresenceOfWaterLODControlEntity:1201
         VbspResult result = await CompileAsync(Room(water: true));
 
         Assert.Equal(
@@ -469,7 +467,6 @@ public sealed class VbspCompileTests
     [Fact]
     public async Task UnderStockEveryNodeAreaIsZero()
     {
-        // StockQuirk.NodeAreaWrittenBeforeSet:602
         VbspResult result = await CompileAsync(
             Room(), VbspOptions.Default with { Compliance = ComplianceOptions.Stock });
 

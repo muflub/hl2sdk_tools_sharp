@@ -22,8 +22,7 @@ public static class BspBuildCodes
 {
     /// <summary>
     /// A split plane's winding still reached past ±16384 after being clipped by
-    /// every side of the brush: <c>"WARNING: huge winding"</c>,
-    ///.
+    /// every side of the brush: <c>"WARNING: huge winding"</c>.
     /// </summary>
     public const string HugeWinding = "VBSP0401";
 
@@ -34,8 +33,7 @@ public static class BspBuildCodes
     public const string BogusBrushAfterClip = "VBSP0402";
 
     /// <summary>
-    /// A split produced neither half: <c>"split removed brush"</c>,
-    ///.
+    /// A split produced neither half: <c>"split removed brush"</c>.
     /// </summary>
     public const string SplitRemovedBrush = "VBSP0403";
 
@@ -60,8 +58,7 @@ public static class BspBuildCodes
 
     /// <summary>
     /// A brush side in an areaportal-in-water fixup matched no plane on the
-    /// water brush: <c>"Found no matching plane for %s"</c>,
-    ///.
+    /// water brush: <c>"Found no matching plane for %s"</c>.
     /// </summary>
     /// <remarks>
     /// Unreachable in practice — the loop it ends only fails to pick a side

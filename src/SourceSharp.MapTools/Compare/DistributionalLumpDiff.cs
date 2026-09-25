@@ -461,7 +461,7 @@ internal static class DistributionalLumpDiff
     /// <param name="options">The caller's thresholds.</param>
     /// <remarks>
     /// <para>
-    /// This is the rule plan_maptools_lane_notes.md spike 0d forced. Five stock
+    /// This is the rule the noise-floor spike forced. Five stock
     /// vrad runs of the SAME map produced 9788 / 9788 / 9790 / 9790 / 9789
     /// leaf-ambient records, and 2fort's lump was 936712 / 936740 / 936684
     /// bytes over three runs. Where the counts differ, record n of one lump is
@@ -500,8 +500,8 @@ internal static class DistributionalLumpDiff
             into.Note =
                 "the record COUNTS differ, so record n of one lump is not record n of the other; "
                 + "compared as a property, NOT element-wise. Stock vrad itself produces "
-                + "9788/9788/9790/9790/9789 records for one map (plan_maptools_lane_notes.md, "
-                + "spike 0d), so this is a measured property of the reference tool";
+                + "9788/9788/9790/9790/9789 records for one map, "
+                + "so this is a measured property of the reference tool";
             into.Add(
                 "leaf ambient record count",
                 ca.ToString(CultureInfo.InvariantCulture),

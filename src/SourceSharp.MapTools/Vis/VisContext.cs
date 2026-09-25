@@ -12,7 +12,7 @@ namespace SourceSharp.MapTools.Vis;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the <c>ctx</c> of plan_maptools.md 1a's
+/// This is the <c>ctx</c> of the core seam's
 /// <c>Vvis.ComputeAsync(bsp, portals, ctx, ct)</c>, narrowed to what vvis
 /// actually has: no content filesystem, because vvis reads no materials and no
 /// models, and its only inputs are a <c>.bsp</c> and a <c>.prt</c> the caller

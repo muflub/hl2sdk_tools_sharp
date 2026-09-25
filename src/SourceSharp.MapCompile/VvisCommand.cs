@@ -40,7 +40,7 @@ public static class VvisCommand
     /// Writes the decompressed visibility of the finished map to a file.
     /// </summary>
     /// <remarks>
-    /// The comparison instrument of plan_maptools.md I2 needs the BITS, and the
+    /// The BSP comparison instrument needs the BITS, and the
     /// lump holds them run-length coded against a cluster count, so "diff the
     /// two lumps" answers a question about the coder as much as about the
     /// visibility. This writes what the engine would decompress: a small header
@@ -64,7 +64,7 @@ public static class VvisCommand
     /// </summary>
     /// <remarks>
     /// <para>
-    /// plan_maptools.md 2b is judged on a serial-tail FRACTION, and a fraction
+    /// The vvis scaling gate is judged on a serial-tail FRACTION, and a fraction
     /// cannot be measured from a total. Fitting <c>T(n) = S + P/n</c> to two
     /// wall times infers the tail from an assumption that the parallel half
     /// scales perfectly; this reads it off the clock instead, which is what
@@ -89,7 +89,7 @@ public static class VvisCommand
     /// <remarks>
     /// <para>
     /// ONE dash, unlike the instrument switches above, because it is a vvis
-    /// option rather than an instrument: plan_maptools.md 5 (2c) names it
+    /// option rather than an instrument: the tightening pass names it
     /// <c>-tighten</c>. Stock has no such switch, which is why
     /// <see cref="StockArgs.ParseVvis"/> deliberately does not know it (a fact
     /// pins that); it is taken off the command line here, before the stock

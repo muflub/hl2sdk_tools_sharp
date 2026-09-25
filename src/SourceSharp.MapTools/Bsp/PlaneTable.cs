@@ -262,7 +262,7 @@ public sealed class PlaneTable
 
             // The plane that was asked for now lives in the second slot. Stock
             // returns nummapplanes - 1 here and nummapplanes - 2 otherwise
- //The pair itself does not move.
+            //The pair itself does not move.
             result = first + 1;
         }
 

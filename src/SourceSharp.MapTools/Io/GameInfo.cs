@@ -68,7 +68,7 @@ public readonly record struct GameInfoSearchPath(IReadOnlyList<string> Kinds, st
     /// </exception>
     /// <remarks>
     /// <para>
- /// <c>FileSystem_LoadSearchPaths</c>:
+    /// <c>FileSystem_LoadSearchPaths</c>:
     /// the prefix is matched case-insensitively and only at the START of the
     /// location; the id is <c>V_atoi</c> of what follows (leading digits); the
     /// rest starts after the next <c>|</c> and is made absolute against the
@@ -76,11 +76,10 @@ public readonly record struct GameInfoSearchPath(IReadOnlyList<string> Kinds, st
     /// <c>SteamApps()-&gt;GetAppInstallDir</c>.
     /// </para>
     /// <para>
-    /// Stock builds this only into the engine (<c>#ifdef ENGINE_DLL</c>); in the
-    /// tools, vbsp/vvis/vrad included, it is
-    /// <c>Error("Appid based mounting is not supported on non-engine DLL projects.")</c>.
-    /// So a gameinfo that uses it cannot be given to the stock tools. The
-    /// managed tools support it (plan_vbsppp.md D3).
+    /// The reference build supports this only inside its engine, not in
+    /// its compilers: a stock compile tool refuses an appid-based mount
+    /// outright. So a gameinfo that uses it cannot be given to the stock
+    /// tools. The managed tools support it.
     /// </para>
     /// </remarks>
     public bool TryGetAppId(out int appId, out string relativeLocation)
@@ -192,7 +191,7 @@ public sealed class GameInfo
     /// <b>silent no-op</b> there: the lookup finds the flat node first, and
     /// ReadString asks it for a child named after the tool, which a value
     /// node does not have, so nothing is spliced and nothing is printed
-    /// (confirmed byte-identical against the binary by the ++ oracle lane).
+    /// (byte-identical behaviour confirmed against the reference build).
     /// A flat line even SHADOWS a real <c>Tools { … }</c> section written
     /// after it — FindKey's peer walk stops at the first match. It is
     /// reported by <see cref="HasFlatToolsValue"/> so a host can warn
@@ -210,7 +209,7 @@ public sealed class GameInfo
 
     /// <summary>
     /// Whether the file carries the flat <c>Tools "…"</c> form, which the
-    /// stock and ++ tools ignore (see <see cref="ToolArguments"/>).
+    /// stock policy and the reference tools ignore (see <see cref="ToolArguments"/>).
     /// </summary>
     public bool HasFlatToolsValue { get; }
 
@@ -241,21 +240,20 @@ public sealed class GameInfo
     {
         ArgumentNullException.ThrowIfNull(text);
 
-        // KeyValues::LoadFromBuffer folds the file's FIRST top-level section
- // into the root node (: on the first iteration
-        // pCurrentKey is the node being loaded, so it is only renamed to that
+        // The reference KeyValues loader folds the file's FIRST top-level
+        // section into the root node (on the first iteration the current key
+        // is the node being loaded, so it is only renamed to that
         // section's key and the section's entries become the root's own
-        // children), while every LATER top-level section becomes a plain child
-        // of that root. Every key the engine and the tools read is then looked
-        // up with KeyValues::FindKey, a walk of one node's CHILD list, first
- // match wins, never a descent into a subsection (:
- // 1014-1024; the recursion only serves "a/b" path syntax.
- // and the ++ dump's lookup chain — vbsp.all.c FindKey(mainFile.
-        // "Tools") — passes no such path). Parse therefore hoists the first
+        // children), while every LATER top-level section becomes a plain
+        // child of that root. Every key the engine and the tools read is
+        // then looked up as a walk of one node's CHILD list — first match
+        // wins, never a descent into a subsection; the recursion there only
+        // serves "a/b" path syntax, and the reference lookup chain for the
+        // "Tools" key passes no such path. Parse therefore hoists the first
         // section's children into the root, and every lookup below is a
         // direct-child lookup on it. A Tools block written deeper — inside
         // FileSystem, say — is NOT what the tools read: that is the pitfall
-        // the findings file names, pinned as a fact.
+        // pinned as a fact.
         Node root = Node.Parse(text);
         Node body = root;
 
@@ -270,10 +268,10 @@ public sealed class GameInfo
             {
                 // Tools "…" where the reader expects a section: ReadString
                 // asks that node for a child named after the tool, and it has
-                // none — nothing is spliced and nothing is printed (the ++
-                // oracle lane confirmed the binary byte-identical here). A
-                // leftover flat line ahead of a real section therefore
-                // SHADOWS that section, exactly as ++'s peer walk does.
+                // none — nothing is spliced and nothing is printed (verified
+                // byte-identical against the reference build). A leftover
+                // flat line ahead of a real section therefore SHADOWS that
+                // section, exactly as the reference peer walk does.
                 // Reported, never spliced.
                 flatTools = true;
             }
@@ -283,7 +281,7 @@ public sealed class GameInfo
                 {
                     // First child with the tool's name wins even when the file
                     // duplicates it — FindKey's peer walk breaks on the first
- // Match — and a child whose value
+                    // Match — and a child whose value
                     // is a nested block carries no string to splice.
                     if (child.Value is { Length: > 0 } value
                         && !toolArguments.ContainsKey(child.Name))
@@ -297,7 +295,7 @@ public sealed class GameInfo
         // The engine's own pass reads the game name, SteamAppId and the
         // SearchPaths list through the same direct-child FindKey: the FIRST
         // FileSystem child of the body, and inside it the FIRST SearchPaths
- // Child. A second one at
+        // Child. A second one at
         // either level is dead text.
         List<GameInfoSearchPath> searchPaths = [];
         string game = body.FirstValueOf("game") ?? string.Empty;
@@ -309,7 +307,7 @@ public sealed class GameInfo
             string? appIdText = fileSystem.FirstValueOf("steamappid");
             if (appIdText is not null)
             {
-                // Non-numeric is not an error; the ++ reader of this key ends
+                // Non-numeric is not an error; the reference reader of this key ends
                 // at zero just like a missing one.
                 steamAppId = int.TryParse(appIdText, out int parsed) ? parsed : 0;
             }
@@ -318,7 +316,7 @@ public sealed class GameInfo
             {
                 // GetFirstValue/GetNextValue walks EVERY child line, duplicate
                 // keys included, in file order — the file's order IS the
- // Resolution order.
+                // Resolution order.
                 foreach (Node line in searchPathsBlock.Entries)
                 {
                     if (line.Value is { Length: > 0 } location)
@@ -395,7 +393,7 @@ public sealed class GameInfo
                     // The file's FIRST top-level block is the fold: stock's
                     // RecursiveLoadFromBuffer renames the node being loaded to
                     // that key and loads the block's entries AS the root's own
- // Children, so pushing the root
+                    // Children, so pushing the root
                     // again is all it takes and no child node is made.
                     if (!topLevelSeen && stack.Count == 1 && pendingKey is not null)
                     {

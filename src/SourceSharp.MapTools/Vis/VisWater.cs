@@ -14,7 +14,7 @@ namespace SourceSharp.MapTools.Vis;
 /// <para>
 /// Both are O(leaves x clusters x leaves-in-cluster) and both are strictly
 /// serial in stock. They are kept serial here: parallelising them is on
-/// plan_maptools.md 5's 2b list, and 2b comes after these gates are green.
+/// the vvis scaling list, and that work comes after these gates are green.
 /// </para>
 /// <para>
 /// They are in vvis rather than vrad because they are consumers of the PVS and

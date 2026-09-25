@@ -14,7 +14,7 @@ namespace SourceSharp.MapTools.Options;
 /// <para>
 /// The options stock advertises in its usage text but does not implement
 /// (<c>-tmpout</c>, <c>-x360</c>) are absent, as are the ones this port drops
-/// with reasons in plan_maptools.md 9: everything <c>-mpi*</c> (Windows-only
+/// with reasons in the option audit: everything <c>-mpi*</c> (Windows-only
 /// cluster mode), <c>-FullMinidumps</c>, <c>-allowdebug</c>/<c>-steam</c>.
 /// <c>-low</c> is a process priority, which belongs to whoever owns the
 /// process and not to a library.
@@ -101,12 +101,12 @@ public sealed record VvisOptions
     /// through can be pruned first. So it shipped behind <c>-tighten</c>,
     /// "reported with its per-cluster PVS delta on every corpus map, and
     /// [to be] promoted to default in Phase 5 only if that delta never ADDS
-    /// a bit anywhere" (plan_maptools.md 5, 2c; Q4 repeats the promotion
-    /// condition). The promotion condition held: on the 31-map catalogue and
+    /// a bit anywhere" (the tightening gate; the promotion ruling repeats
+    /// that condition). The promotion condition held: on the 31-map catalogue and
     /// the L4 corpus the tightened walk is BIT-IDENTICAL to stock at
     /// <c>-threads 1</c>, sorted — the delta never adds a bit, it removes
     /// exactly what stock's own finished-neighbour read removes — so it is
-    /// ON by default from the vis-repair lane (rung2, post-Phase-12). The
+    /// ON by default since the vis-repair work (post-Phase-12). The
     /// untightened walk stays reachable: <c>-loose</c> on the command line,
     /// <see cref="Untightened"/> in the library, for the comparisons that
     /// want the conservative superset arm.

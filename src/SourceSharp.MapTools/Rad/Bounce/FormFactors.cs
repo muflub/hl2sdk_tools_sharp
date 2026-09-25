@@ -73,7 +73,7 @@ public static class FormFactors
     /// </returns>
     /// <remarks>
     /// <para>
- /// <b>The sine guard.</b> The edge's sine is the
+    /// <b>The sine guard.</b> The edge's sine is the
     /// normalise's RETURN value on the cross product of two unit vectors, and
     /// rounding can take it past 1, where <c>asin</c> would be NaN. Stock
     /// answers by returning 0 for the WHOLE polygon, discarding every other
@@ -84,7 +84,7 @@ public static class FormFactors
     /// from.
     /// </para>
     /// <para>
-    /// <c>asin</c> is the <c>float</c> overload (MSVC's C++ maps
+    /// <c>asin</c> is the <c>float</c> overload (the reference build maps
     /// <c>asin(float)</c> to <c>asinf</c>), so <see cref="MathF.Asin"/>.
     /// </para>
     /// </remarks>

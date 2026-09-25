@@ -265,7 +265,7 @@ internal sealed class KeyValuesParser(string text, KeyValuesParseOptions options
         wasQuoted = false;
         wasConditional = false;
 
-        // Whitespace, then a C++ comment, repeatedly. The ONLY
+        // Whitespace, then a line comment, repeatedly. The ONLY
         // comment form is '//' to end of line; there is
         // no /* */ anywhere in this grammar.
         while (true)

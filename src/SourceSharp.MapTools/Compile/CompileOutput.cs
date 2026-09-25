@@ -9,8 +9,8 @@ namespace SourceSharp.MapTools.Compile;
 /// <remarks>
 /// <para>
 /// The result is in memory either way (<see cref="CompileResult.Bsp"/>).
-/// Writing is a separate, optional rendering of it (plan_maptools.md 1a:
-/// "in-memory first"), so <see cref="InMemory"/> is a compile with zero disk
+/// Writing is a separate, optional rendering of it — in-memory first,
+/// so <see cref="InMemory"/> is a compile with zero disk
 /// writes and the normal way a fact or a service runs one.
 /// </para>
 /// <para>

@@ -102,7 +102,7 @@ public static class CollisionCookerExtensions
     /// <summary>
     /// Cooks one convex solid described by the planes that bound it:
     /// <c>ConvexFromPlanes</c> then <c>ConvertConvexToCollide</c> then
- /// <c>CollideWrite</c>.
+    /// <c>CollideWrite</c>.
     /// </summary>
     /// <param name="cooker">The cooker.</param>
     /// <param name="planes">Outward-facing bounding planes.</param>

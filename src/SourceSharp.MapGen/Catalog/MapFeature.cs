@@ -2,7 +2,7 @@ namespace SourceSharp.MapGen.Catalog;
 
 /// <summary>
 /// The feature vocabulary: every compiler behaviour the catalogue is supposed to
-/// cover, transcribed from plan_maptools.md §2a's feature table.
+/// cover, transcribed from the port plan's feature table.
 ///
 /// <para>
 /// THE WHOLE LIST IS HERE, not just the part this lane built entries for. That

@@ -14,7 +14,7 @@ namespace SourceSharp.Tests.MapTools.Compare;
 /// </summary>
 /// <remarks>
 /// <para>
-/// plan_maptools_lane_notes.md spike 0d measured stock vrad producing
+/// The noise-floor spike measured stock vrad producing
 /// 9788 / 9788 / 9790 / 9790 / 9789 leaf-ambient records for one map, and
 /// 936712 / 936740 / 936684 bytes for another. Where the counts differ, record
 /// n of one lump is not record n of the other and an element-wise diff is

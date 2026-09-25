@@ -314,12 +314,12 @@ public static class DisplacementLumpBuilder
     /// (<c>ComputeDispInfoBounds</c>, and detail-prop
     /// placement): the corner texture
     /// coordinates stay at stock's unit-square defaults
- /// <c>{(0,0),(0,1),(1,0),(1,1)}</c> instead of being
+    /// <c>{(0,0),(0,1),(1,0),(1,1)}</c> instead of being
     /// projected. Everything else, the luxel layout included, is the same.
     /// </param>
     /// <returns>
     /// Whether the face's texinfo needs its lightmap axes swapped. Stock acts
- /// on it only when a face was given.
+    /// on it only when a face was given.
     /// </returns>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="disp"/> or <paramref name="core"/> is null.

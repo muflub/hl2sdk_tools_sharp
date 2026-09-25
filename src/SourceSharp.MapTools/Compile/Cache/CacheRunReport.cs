@@ -3,7 +3,7 @@ using System.Globalization;
 namespace SourceSharp.MapTools.Compile.Cache;
 
 /// <summary>
-/// The end-of-run cache report (plan_maptools.md 10a, ruling Q12: printed at
+/// The end-of-run cache report (the cache rules: printed at
 /// the end of every run — what was reused and why the rest was not, bytes,
 /// estimated time saved net of cache overhead, GC summary).
 /// </summary>

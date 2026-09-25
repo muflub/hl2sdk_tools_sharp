@@ -299,7 +299,7 @@ public sealed class StaticPropEmitter
             LightmapResolutionY = unchecked((ushort)build.LightmapResolutionY),
         };
 
- // ComputeLightingOrigin: the LAST info_lighting whose
+        // ComputeLightingOrigin: the LAST info_lighting whose
         // targetname matches, case-sensitively.
         if (build.LightingOrigin.Length > 0)
         {
@@ -319,7 +319,7 @@ public sealed class StaticPropEmitter
         lump.LeafEntries.AddRange(leaves);
     }
 
- // AddStaticPropDictLump: strncpy into 128 bytes, then a memcmp
+    // AddStaticPropDictLump: strncpy into 128 bytes, then a memcmp
     // search from the END, so the match is by exact bytes.
     private static int AddDictionary(StaticPropLump lump, string modelName)
     {
@@ -375,7 +375,7 @@ public sealed class StaticPropEmitter
         }
     }
 
- // GetCollisionModel's cook half, for many models at once,
+    // GetCollisionModel's cook half, for many models at once,
     // biggest first so that the longest cook starts first.
     private Task CookAsync(ModelEntry[] models, CancellationToken cancellationToken)
     {
@@ -408,7 +408,7 @@ public sealed class StaticPropEmitter
         }, cancellationToken);
     }
 
- // GetCollisionModel's load half: the warnings go to the model's
+    // GetCollisionModel's load half: the warnings go to the model's
     // own list and reach the compile's when its first prop is committed.
     private async ValueTask LoadAsync(ModelEntry model, CancellationToken cancellationToken)
     {
@@ -480,7 +480,7 @@ public sealed class StaticPropEmitter
         public IReadOnlyList<ushort>? Leaves { get; set; }
     }
 
- // mstudiomodel_t::CacheVertexData: "models/" + the header's own
+    // mstudiomodel_t::CacheVertexData: "models/" + the header's own
     // name, extension swapped for .vvd. Every failure there is Error().
     private async ValueTask<VvdFile> LoadVertexFileAsync(MdlFile mdl, CancellationToken cancellationToken)
     {

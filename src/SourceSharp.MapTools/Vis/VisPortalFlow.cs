@@ -20,7 +20,6 @@ internal delegate void VisFrameObserver(
 
 /// <summary>
 /// The real answer: <c>PortalFlow</c> and <c>RecursiveLeafFlow</c>
-///.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -44,7 +43,7 @@ internal delegate void VisFrameObserver(
 /// cref="SourceSharp.MapTools.Options.VvisOptions.Untightened"/>) always uses <c>portalflood</c>. Every
 /// portal's flow then depends only on immutable data plus its own
 /// <c>portalvis</c>, so the result is identical at any degree of parallelism
-/// and in any order -- which is what plan_maptools.md I4 asks for and what
+/// and in any order -- which is what the determinism gate asks for and what
 /// stock cannot offer. The cost is a more conservative answer:
 /// <c>portalvis</c> is always a subset of <c>portalflood</c>, so pruning with
 /// the flood prunes no more than stock and this arm's PVS is a SUPERSET of
@@ -147,7 +146,7 @@ internal sealed class VisPortalFlow
     /// </summary>
     /// <remarks>
     /// <para>
-    /// plan_maptools.md 5's per-operation floor is a rate, and a rate needs a
+    /// The per-operation floor is a rate, and a rate needs a
     /// numerator this port can state about ITSELF: a wall time divided by a
     /// portal count says nothing, because the pruning choice at
     /// <see cref="VisPortalFlow"/> changes how many candidates a portal has.
@@ -323,7 +322,7 @@ internal sealed class VisPortalFlow
         _state.SetStatus(portalIndex, VisPortalStatus.Working);
 
         // The head frame's `source` is the portal's own
- // winding, its `pass` is null (the memset ), its plane is the
+        // winding, its `pass` is null (the memset ), its plane is the
         // portal's, and its `mightsee` is a copy of portalflood. The copy is
         // skipped here: nothing writes the head frame's mightsee, so handing the
         // flood vector itself down is the same values.
@@ -444,7 +443,7 @@ internal sealed class VisPortalFlow
                 }
             }
 
-            // plan_maptools.md 1a: the token is polled INSIDE the item, not only
+            // The token is polled INSIDE the item, not only
             // between items. One portal's flow is minutes of work on a dense
             // map, and this loop is where those minutes are spent.
             context.ThrowIfShouldStop();
@@ -460,8 +459,8 @@ internal sealed class VisPortalFlow
 
             // THE TWO SPHERE REJECTIONS, HOISTED ABOVE THE BIT-VECTOR PASS.
             //
-            // Does the bit-vector pass first (:539) and these two
- // tests afterwards (:561 ). Neither test reads `might` or
+            // The reference ran the bit-vector pass first and these two
+            // tests afterwards. Neither test reads `might` or
             // `more`, neither has a side effect, and either one rejecting the
             // candidate skips the same `continue` the pass would have led to --
             // so doing the cheap halves first cannot change which portals are
@@ -471,14 +470,14 @@ internal sealed class VisPortalFlow
             //
             // The CHOPS stay below: they are the expensive half of each test
             // and they are only needed once the candidate has survived the
- // pruning as well. Hence the distances are computed here
+            // pruning as well. Hence the distances are computed here
             // and carried down rather than recomputed.
             Vec3 portalOrigin = _portals.Origin(pnum);
             float portalRadius = _portals.Radius(pnum);
 
             // The candidate portal's sphere against the BASE
             // portal's plane -- `thread->pstack_head.portalplane`, not this
- // Frame's. (stack.portalplane is assigned and never read;
+            // Frame's. (stack.portalplane is assigned and never read;
             // it is dead in stock and absent here.)
             float passSide = Vec3.Dot(portalOrigin, basePlaneNormal);
             passSide -= basePlaneDistance;

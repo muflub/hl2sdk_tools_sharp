@@ -195,7 +195,7 @@ public sealed class StaticPropModel
     /// <c>VectorCopy( vec3_origin, m_Mins )</c>
     /// And matters more than it looks: a
     /// failed load is the ONLY way stock reaches the AABB fallback at
- ///So the box stock actually adds there is a DEGENERATE
+    ///So the box stock actually adds there is a DEGENERATE
     /// point box at the prop's origin -- twelve zero-area triangles, not a
     /// bounding box. This port reaches the same branch for a model with no
     /// collision source as well (see <see cref="NullPropCollisionSource"/>),
@@ -303,7 +303,7 @@ public sealed class StaticPropModel
     /// <see cref="VertexStride"/>, because that one is a byte offset.
     /// </para>
     /// <para>
-    /// The two fields are spelled differently in C++ for exactly this reason
+    /// The two fields are spelled differently in the reference build for exactly this reason
     /// (<c>vertexoffset</c> against <c>vertexindex</c>) and treating either as
     /// the other kind is the classic way to read a studio model 48 times too
     /// far into the file, or a mesh's worth of vertices short.

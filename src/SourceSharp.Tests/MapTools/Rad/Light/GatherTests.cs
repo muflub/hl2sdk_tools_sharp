@@ -109,7 +109,7 @@ public sealed class GatherTests
     [Fact]
     public void TheFalloffDistanceIsClampedToOneUnit()
     {
-        //:1875 dist = max(dist, 1).
+        // The distance clamp: dist = max(dist, 1).
         (GatherOutput o, _, _, _) = Run(Gatherer(Point(new Vec3(0, 0, 0.5f), 0, 0, 1)), Floor(Vec3.Zero));
         Assert.Equal(1f, o.Falloff[0]);
     }
@@ -164,7 +164,7 @@ public sealed class GatherTests
     [Fact]
     public void ASpotsFringeInterpolatesBetweenTheCones()
     {
-        //:1924-1943: mult = (dot2 - stopdot2) / (stopdot - stopdot2).
+        // The fringe: mult = (dot2 - stopdot2) / (stopdot - stopdot2).
         DirectLight spot = Point(new Vec3(0, 0, 100));
         spot.Type = EmitType.Spotlight;
         spot.Normal = new Vec3(0.3f, 0, -1).Normalise().Normalised;
@@ -197,7 +197,7 @@ public sealed class GatherTests
         (GatherOutput o, LightRayLog rays, _, _) = Run(Gatherer(surface), Floor(Vec3.Zero));
         Assert.Equal(1f / 100f, o.Falloff[0]);
 
-        // The ray ends DIST_EPSILON off the emitter:1904-1906).
+        // The ray ends DIST_EPSILON off the emitter.
         Ray r = rays.VisibilityRays()[0];
         Assert.Equal(10f - LightConstants.DistEpsilon, r.OriginZ + r.DirectionZ, 5);
     }
@@ -262,7 +262,7 @@ public sealed class GatherTests
     [Fact]
     public void AnOpenSkyGivesTheAmbientUnitDot()
     {
-        //:1823-1832: sum(frac * dot) / sum(dot) over the valid hemisphere,
+        // sum(frac * dot) / sum(dot) over the valid hemisphere,
         // with every ray reaching sky, is exactly 1.
         DirectLight ambient = new() { Type = EmitType.SkyAmbient };
         (GatherOutput o, _, _, int sky) = Run(Gatherer(ambient), Floor(Vec3.Zero));
@@ -290,7 +290,6 @@ public sealed class GatherTests
     [Fact]
     public void ABumpDotIsZeroedWhenTheFlatDotIs()
     {
-        //:2051-2057.
         SampleGroup group = Floor(Vec3.Zero);
         group.NormalCount = 4;
         for (int n = 1; n < 4; n++)

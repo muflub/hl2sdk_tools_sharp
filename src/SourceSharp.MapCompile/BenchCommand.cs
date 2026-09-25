@@ -16,8 +16,8 @@ using SourceSharp.MapTools.Phys;
 namespace SourceSharp.MapCompile;
 
 /// <summary>
-/// One timed compile, as the bench harness measured it (plan_maptools.md
-/// Phase 12). A run the warm-up excluded carries <see cref="Timed"/> false:
+/// One timed compile, as the bench harness measured it (the Phase 12
+/// instrument). A run the warm-up excluded carries <see cref="Timed"/> false:
 /// the aggregate never counts it, and the reason it exists — the JIT warming
 /// the code before the first number is taken — is Phase 5's rule, not an
 /// outlier to throw away.
@@ -177,7 +177,7 @@ public sealed record BenchSample(
 /// <c>r:</c>-prefixed note instead of them rather than a fake zero.
 /// </summary>
 /// <param name="Map">The map's base name.</param>
-/// <param name="Arm">stock_x64, toolspp, managed_jit or managed_aot.</param>
+/// <param name="Arm">stock_x64, managed_jit or managed_aot.</param>
 /// <param name="Stage">chain, vbsp, vvis or vrad.</param>
 /// <param name="Options">The option-set label (default, -fast, -onlyents, ...).</param>
 /// <param name="Threads">The <c>-threads</c> the cell ran at, or 0 when the refusal precedes a thread count.</param>
@@ -343,8 +343,8 @@ public sealed record BenchCellResult(
 }
 
 /// <summary>
-/// <c>ssmap bench</c>: the Phase 12 measuring instrument (plan_maptools.md
-/// Phase 12). It runs one map at one option set and thread count, N timed runs
+/// <c>ssmap bench</c>: the Phase 12 measuring instrument. It runs one map at
+/// one option set and thread count, N timed runs
 /// after a warm-up run the timings exclude, and writes a raw JSON ledger;
 /// <c>bench summarize</c> reduces ledgers — from any arm, since the native
 /// drivers emit the same rows — to median CSV with a <c>#</c>-comment
@@ -354,7 +354,7 @@ public sealed record BenchCellResult(
 /// <para>
 /// <b>What it measures and what it does not.</b> The wine arms (the stock
 /// x64 binaries) are not this command's business — no managed process starts
-/// wine honestly; the lane's series drivers time them with
+/// wine honestly; the series drivers time them with
 /// <c>/usr/bin/time</c> and emit rows in exactly
 /// <see cref="CsvHeader"/>'s shape so the matrix stays one table. This command
 /// owns the managed arms, in-process through the product's own seams

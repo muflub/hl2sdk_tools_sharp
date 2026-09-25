@@ -19,7 +19,6 @@ public readonly record struct LeafBrushHit(float Fraction, Vec3 Normal, bool Sta
 
 /// <summary>
 /// <c>TraceLeafBrushes</c> and the point branch of <c>DM_ClipBoxToBrush</c>
-///.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -210,7 +209,7 @@ public static class LeafBrushTrace
                 continue;
             }
 
- // And. DIST_EPSILON is a double, so the numerator
+            // And. DIST_EPSILON is a double, so the numerator
             // is a double subtraction and the division happens in double; only
             // the assignment to `f` narrows. The DENOMINATOR is a float
             // subtraction first, because both its operands are floats -- so it

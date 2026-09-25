@@ -656,7 +656,7 @@ public sealed class DirectLightGatherer
 
                     for (int lane = 0; lane < SampleGroup.Lanes; lane++)
                     {
- // The inner test's fractionVisible.
+                        // The inner test's fractionVisible.
                         float fraction = 1.0f - MinPs(MaxPs(inner[lane], 0.0f), 1.0f);
                         if ((mask & (1 << lane)) != 0)
                         {
@@ -910,8 +910,8 @@ public sealed class DirectLightGatherer
                     dots[k] = valid2 ? d : 0.0f;
                     possibleHits[k] = (valid[lane] && valid2 ? 1.0f : 0.0f) + possibleHits[k];
 
-                    // 1797-1800 mask a bump dot by ITS OWN validity only, and
-                    // 1817 accumulates it with the lane's real visibility --
+                    // The gather masks a bump dot by ITS OWN validity only, and
+                    // accumulates it with the lane's real visibility --
                     // so a direction behind the flat normal but in front of a
                     // bump normal still needs its ray.
                     traceLane[lane] |= valid2;

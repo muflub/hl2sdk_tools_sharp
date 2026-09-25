@@ -365,7 +365,6 @@ public sealed class FaceMerger
 
     /// <summary>
     /// <c>VectorNormalize</c> as the merge test calls it
-    ///.
     /// </summary>
     /// <remarks>
     /// <para>

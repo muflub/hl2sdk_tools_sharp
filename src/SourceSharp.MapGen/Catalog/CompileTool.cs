@@ -5,7 +5,7 @@ namespace SourceSharp.MapGen.Catalog;
 ///
 /// <para>
 /// The catalogue is graded by the tool a failure would land in, because that is
-/// what decides which phase of plan_maptools.md has to have arrived before an
+/// what decides which porting phase has to have arrived before an
 /// entry can be asserted at all. A vvis feature is assertable in Phase 2; a vrad
 /// one is not, and saying so is the difference between a listed gap and silence.
 /// </para>

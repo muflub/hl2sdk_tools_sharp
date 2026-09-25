@@ -160,7 +160,7 @@ public class ChunkTokenReaderTests
     [Fact]
     public void AdjacentQuotedStringsCombineWhenSeparatedByPlus()
     {
-        // The reference implementation, with the '+' flag set at:442-446.
+        // Adjacent quoted strings combine when the '+' flag is set.
         Assert.Equal((ChunkTokenType.String, "abcdef"), Next("\"abc\" + \"def\""));
     }
 
@@ -227,7 +227,7 @@ public class ChunkTokenReaderTests
     [Fact]
     public void StuffedTokenComesBackFromTheNextRead()
     {
-        // And the early-out at:226-231.
+        // And the early-out.
         ChunkTokenReader reader = new("world");
         reader.Stuff(ChunkTokenType.String, "injected");
 

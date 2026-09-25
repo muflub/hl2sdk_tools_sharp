@@ -214,8 +214,8 @@ public class VmfValueTests
             // injected code from ours.
             //
             // Stated rather than skipped: this is a genuinely weaker check, and
-            // it runs only while coverage is being measured. plan_maptools.md
-            // asks for both this gate (1a) and a coverage run (11a) at every
+            // it runs only while coverage is being measured. The design rules
+            // ask for both this gate and a coverage run at every
             // phase exit, and they collide -- which nobody discovers until they
             // are run together.
             IReadOnlyList<string> calls = SourceSharp.Tests.MapTools.Io.FileSystemSeamTests.ScanCalls(

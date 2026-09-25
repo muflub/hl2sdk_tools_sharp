@@ -57,7 +57,7 @@ public enum MaterialCompileFlags : uint
     /// <summary><c>%compileNoLight</c>.</summary>
     NoLight = 1u << 10,
 
- /// <summary><c>%compileWater</c>.</summary>
+    /// <summary><c>%compileWater</c>.</summary>
     Water = 1u << 11,
 
     /// <summary><c>%compileLadder</c>.</summary>

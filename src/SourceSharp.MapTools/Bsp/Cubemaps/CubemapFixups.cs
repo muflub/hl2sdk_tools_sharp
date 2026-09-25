@@ -102,7 +102,7 @@ public sealed class CubemapFixups
     /// <param name="isMaterialName">True to separate the coordinates with an underscore.</param>
     /// <returns>The name.</returns>
     /// <exception cref="MapCompileException">
- /// A material name of <see cref="TextureNameLength"/> - 1 characters or more.
+    /// A material name of <see cref="TextureNameLength"/> - 1 characters or more.
     /// </exception>
     public static string PatchedName(string materialName, string mapBase, (int X, int Y, int Z) origin, bool isMaterialName)
     {
@@ -215,7 +215,7 @@ public sealed class CubemapFixups
     /// (<c>maps/m/c1_2_3</c>) with the stored FILE names
     /// (<c>materials/maps/m/c1_2_3.vtf</c>) and so never matches: every sample
     /// is appended again. Harmless in stock's output, because the writer
- /// skips a name already in the pak: the pak is the same
+    /// skips a name already in the pak: the pak is the same
     /// either way. Reproduced under
     /// <see cref="StockQuirk.CubemapUnreferencedNeverMatches"/>; fixed otherwise.
     /// </remarks>
@@ -246,7 +246,7 @@ public sealed class CubemapFixups
     /// <returns>
     /// The nearest sample in front of the side's plane, else the nearest
     /// sample, else -1 when there are none; 0 for a side with no winding
- /// ("a valid (if random) cubemap",).
+    /// ("a valid (if random) cubemap",).
     /// </returns>
     public int FindClosestCubemap(Vec3 entityOrigin, MapBrushSide side)
     {

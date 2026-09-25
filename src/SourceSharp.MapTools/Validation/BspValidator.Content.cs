@@ -48,7 +48,7 @@ public static partial class BspValidator
     /// <see cref="BspRuleCodes.Leaf0Solid"/>.
     /// </summary>
     /// <remarks>
- /// -- the same
+    /// -- the same
     /// <c>Sys_Error( "Map leaf 0 is not CONTENTS_SOLID")</c> at the end of both
     /// leaf loaders, because the collision code uses leaf 0 AS the solid leaf
     /// (<c>pBSPData-&gt;solidleaf = 0</c> on the next line). <c>contents</c> is
@@ -84,12 +84,12 @@ public static partial class BspValidator
     /// MSurf_MaxLightmapSizeWithBorder( surfID ) ) Sys_Error ("Bad surface
     /// extents on texture %s")</c>. The limit is picked per face by
     /// 128 for a displacement,
- /// 35 for anything else.
+    /// 35 for anything else.
     /// </para>
     /// <para>
     /// The engine compares the extents it RECOMPUTES from the face's vertices
     /// against that limit, not the ones the file stores -- but it stores what it
- /// computed, so for a map written by a working compiler
+    /// computed, so for a map written by a working compiler
     /// the two are the same number and the stored one is checkable without a
     /// vertex walk. A face whose stored extents and real extents disagree is a
     /// separate defect, and one the diff instrument is the right tool for.
@@ -163,7 +163,7 @@ public static partial class BspValidator
     /// Walks LUMP_PHYSCOLLIDE as a flat
     /// run of <c>dphysmodel_t</c> headers, each followed by <c>dataSize</c>
     /// bytes of solids and <c>keydataSize</c> bytes of text, ending at a record
- /// whose <c>dataSize</c> is not positive -- the comment
+    /// whose <c>dataSize</c> is not positive -- the comment
     /// says that terminator is <c>modelIndex -1, dataSize -1</c>. Its only
     /// defence against a corrupt lump is <c>if ( (int)(ptr - basePtr) &gt;
     /// lh.LumpSize() ) break;</c>, which stops the walk after it has already
@@ -178,7 +178,7 @@ public static partial class BspValidator
     /// <c>dataSize</c> exactly and allows no slack.
     /// </para>
     /// <para>
- /// Then subscripts <c>map_cmodels[ physModel.modelIndex ]</c>
+    /// Then subscripts <c>map_cmodels[ physModel.modelIndex ]</c>
     /// with nothing bounding it.
     /// </para>
     /// </remarks>
@@ -315,7 +315,7 @@ public static partial class BspValidator
     /// <c>NUM_DISP_POWER_VERTS( dispInfo.power )</c> vertices into a
     /// <c>CDispVert tempVerts[MAX_DISPVERTS]</c> declared on the stack, where
     /// <c>MAX_DISPVERTS</c> is fixed at <c>MAX_MAP_DISP_POWER</c> of 4
- /// A power above 4 overruns that
+    /// A power above 4 overruns that
     /// buffer, and the running <c>iCurVert</c> / <c>iCurTri</c> offsets read
     /// past the vertex and triangle lumps.
     /// </remarks>
@@ -466,7 +466,7 @@ public static partial class BspValidator
     /// <remarks>
     /// Subscripts
     /// <c>m_StaticPropDict[ lump.m_PropType ]</c> straight from the file, and
- /// Walks <c>m_StaticPropLeaves</c>
+    /// Walks <c>m_StaticPropLeaves</c>
     /// <c>prop.FirstLeaf()</c> for <c>prop.LeafCount()</c> entries. Neither is
     /// bounded anywhere in that file.
     /// </remarks>

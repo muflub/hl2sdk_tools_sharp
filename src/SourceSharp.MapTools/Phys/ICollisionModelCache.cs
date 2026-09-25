@@ -4,7 +4,7 @@ namespace SourceSharp.MapTools.Phys;
 
 /// <summary>
 /// What the per-model cooked-collision cache replays for one brush model
-/// (plan_maptools.md 10a: the common edit loop is "move a light / tweak an
+/// (the common edit loop is "move a light / tweak an
 /// entity / nudge a prop, recompile" — every model whose cooking inputs are
 /// unchanged is reused, byte for byte).
 /// </summary>

@@ -22,7 +22,7 @@ namespace SourceSharp.MapTools.Bsp;
 ///) is a linear <c>stricmp</c> scan — case-INSENSITIVE
 /// matching, but the string is STORED verbatim. So the first spelling of a name
 /// wins and every later spelling collapses onto it, casing and all. The comment
-/// on the C++ ("garymcthack: Make this use an RBTree!") notwithstanding, a
+/// on the reference table ("Make this use an RBTree!") notwithstanding, a
 /// faster lookup here would have to return the same index for the same input
 /// sequence, which is why the index this returns is computed from a structure
 /// that preserves order rather than from a hash of the name.
@@ -114,8 +114,7 @@ public sealed class TexDataStringTable
     }
 
     /// <summary>
-    /// The name at a table index: <c>TexDataStringTable_GetString</c>,
-    ///.
+    /// The name at a table index: <c>TexDataStringTable_GetString</c>.
     /// </summary>
     /// <param name="stringId">The TABLE lump index.</param>
     /// <returns>The name, without its terminator.</returns>

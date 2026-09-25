@@ -60,7 +60,6 @@ public sealed class MapPakFile
     /// <param name="data">The bytes.</param>
     /// <param name="textMode">
     /// True to store it as text: each LF becomes CR LF
-    ///.
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
     public void Add(string name, ReadOnlySpan<byte> data, bool textMode)
@@ -85,7 +84,7 @@ public sealed class MapPakFile
     /// <param name="textMode">True to turn CR LF back into LF.</param>
     /// <returns>The bytes, or null when there is no such entry.</returns>
     /// <remarks>
- /// Stock's text read also appends a NUL; that terminator is
+    /// Stock's text read also appends a NUL; that terminator is
     /// a C-string convenience and is not returned here.
     /// </remarks>
     public byte[]? Read(string name, bool textMode)

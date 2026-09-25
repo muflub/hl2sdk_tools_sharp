@@ -31,7 +31,7 @@ public interface IStaticPropCollision
     /// </summary>
     /// <param name="meshes">Each mesh's vertex positions, model space.</param>
     /// <param name="cancellationToken">Cancels before the build.</param>
- /// <returns>The hull, or null for "Bad geometry".</returns>
+    /// <returns>The hull, or null for "Bad geometry".</returns>
     ValueTask<IStaticPropHull?> BuildHullAsync(
         IReadOnlyList<Vec3[]> meshes,
         CancellationToken cancellationToken = default);

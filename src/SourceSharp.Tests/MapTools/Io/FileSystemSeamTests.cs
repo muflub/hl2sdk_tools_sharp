@@ -361,8 +361,8 @@ public class FileSystemSeamTests
     /// all fail, and they fail ONLY when coverage is being measured.
     /// </para>
     /// <para>
-    /// That matters because plan_maptools.md needs both: section 11a makes a
-    /// coverage run part of every phase exit, and section 1a makes these gates
+    /// That matters because the design rules need both: they make a
+    /// coverage run part of every phase exit, and make these gates
     /// part of the same exit. They collided the first time both were run
     /// together, which is a thing nobody discovers until they do it.
     /// </para>

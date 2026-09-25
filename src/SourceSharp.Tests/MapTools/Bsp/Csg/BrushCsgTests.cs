@@ -292,8 +292,8 @@ public class BrushCsgTests
     /// <b> only ever matters on the SECOND world pass.</b>
     /// <c>MarkVisibleSides</c> (Phase 3c) clears <c>visible</c> on every map
     /// side that did not become a face, and <c>ProcessWorldModel</c> then
-    /// rebuilds the whole world from those same map brushes
-    ///. A hint side cleared by that pass is raised again
+    /// rebuilds the whole world from those same map brushes.
+    /// A hint side cleared by that pass is raised again
     /// here, and a plain side is not — which is how a hint brush keeps shaping
     /// the tree after the optimiser has decided it renders nothing.
     /// </summary>

@@ -33,7 +33,7 @@ namespace SourceSharp.MapTools.Compile;
 /// </para>
 /// <para>
 /// The L4D2 layout flag is inert unless the header version is 21 (T1's ctor
-/// refuses that combination; ++'s write path only re-layouts when writing 21),
+/// refuses that combination; the reference write path only re-layouts when writing 21),
 /// so the adapter asks for the layout only with version 21.
 /// </para>
 /// </remarks>

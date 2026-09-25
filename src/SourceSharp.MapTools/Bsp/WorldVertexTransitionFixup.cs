@@ -144,7 +144,7 @@ public static class WorldVertexTransitionFixup
     /// <c>$envmap</c> is removed only when <c>$basetexturenoenvmap</c> is a
     /// non-zero integer. Stock reads that variable through a <c>FindKey</c>
     /// that can return null and calls <c>GetInt</c> on it unguarded
- /// An absent variable reads as zero, so the key is KEPT,
+    /// An absent variable reads as zero, so the key is KEPT,
     /// and that is the behaviour here.
     /// </remarks>
     public static KeyValuesNode PatchMaterial(KeyValuesNode original)
@@ -235,13 +235,13 @@ public static class WorldVertexTransitionFixup
     /// <remarks>
     /// <para>
     /// Idempotent by name: a texinfo whose material already contains
- /// <c>_wvt_patch</c> is returned unchanged, and so is
+    /// <c>_wvt_patch</c> is returned unchanged, and so is
     /// <see cref="TexInfoTable.TexInfoNode"/>.
     /// </para>
     /// <para>
     /// The texinfo lookup is SKIPPED when the texdata had to be created,
     /// because no existing texinfo can reference a brand-new texdata
- /// — and the new texinfo is appended directly rather than
+    /// — and the new texinfo is appended directly rather than
     /// through <c>FindOrCreateTexInfo</c>, which is how this pass adds texinfos
     /// under <c>-onlyents</c> where that function would have errored.
     /// </para>

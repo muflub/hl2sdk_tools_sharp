@@ -235,12 +235,12 @@ public static class RayAmbientLighting
     /// <para>
     /// The style slots are strided: slot <c>n</c>'s samples begin
     /// <c>n * smax * tmax</c> after slot 0's, times four again on a bumped
- /// Surface.
+    /// Surface.
     /// </para>
     /// <para>
- /// A face with <c>lightofs == -1</c> returns immediately.
+    /// A face with <c>lightofs == -1</c> returns immediately.
     /// Otherwise each slot goes through <c>ComputeAmbientFromSurface</c>
- /// Whose SKY branch REPLACES the colour with the sky ambient
+    /// Whose SKY branch REPLACES the colour with the sky ambient
     /// (or leaves it untinted when there is none) -- reachable only for a lit
     /// sky face in a leaf, and reproduced so it is not a trap.
     /// </para>

@@ -503,7 +503,7 @@ public class PolylibTests
     public void ClipRejectsAWindingTooLongForTheSideBuffer()
     {
         // Stock writes dists[numpoints] into an array of MAX_POINTS_ON_WINDING
-        // + 4 entries(and:395), so a 68-point winding runs
+        // + 4 entries, so a 68-point winding runs
         // one past the end. The port refuses the input instead.
         var arena = new WindingArena();
         Winding w = arena.SetCount(arena.Alloc(100), 100);
@@ -528,7 +528,7 @@ public class PolylibTests
     [Fact]
     public void ChopFreesBothTheInputAndTheDiscardedBack()
     {
-        //. One winding live afterwards, not three.
+        // One winding live afterwards, not three.
         var arena = new WindingArena();
         Winding w = arena.Create(CentredSquare());
         arena.Chop(w, new Vec3(1f, 0f, 0f), 0f);

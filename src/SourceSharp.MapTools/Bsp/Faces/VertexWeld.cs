@@ -4,7 +4,6 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
 /// The welded vertex table and the 2D spatial hash over it
-///.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -222,7 +221,7 @@ public sealed class VertexWeld
     /// <para>
     /// The bucket rectangle is the bounding box of the two ENDPOINTS, not of
     /// the edge plus a margin: the <c>x1--; x2++;</c> expansion stock wrote is
- /// inside an <c>#if 0</c>. A cell is 128 units and
+    /// inside an <c>#if 0</c>. A cell is 128 units and
     /// <c>OFF_EPSILON</c> is 0.25, so a t-junction vertex can only be missed if
     /// it sits outside the endpoints' own cell span, which for a straight edge
     /// it cannot.

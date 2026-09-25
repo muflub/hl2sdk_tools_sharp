@@ -149,8 +149,7 @@ public sealed class BspBuildContext
     public int BrushEnd { get; set; }
 
     /// <summary>
-    /// Allocates a brush and gives it the next id: <c>AllocBrush</c>,
-    ///.
+    /// Allocates a brush and gives it the next id: <c>AllocBrush</c>.
     /// </summary>
     /// <param name="sideCapacity">How many sides to reserve.</param>
     /// <returns>The brush.</returns>
@@ -202,8 +201,7 @@ public sealed class BspBuildContext
     }
 
     /// <summary>
-    /// Allocates a node and gives it the next id: <c>AllocNode</c>,
-    ///.
+    /// Allocates a node and gives it the next id: <c>AllocNode</c>.
     /// </summary>
     /// <returns>The node, with <c>diskId</c> -1 as stock sets it.</returns>
     public Tree.BspNode AllocNode()

@@ -26,7 +26,7 @@ namespace SourceSharp.MapTools.Rad.Final;
 /// <para>
 /// Every float operation is in stock's order and precision; the double
 /// promotions (<c>EQUAL_EPSILON</c>, <c>0.1</c>, <c>RADIALDIST</c>,
-/// <c>1.0 / weight</c>) are the C++ literal types and are kept.
+/// <c>1.0 / weight</c>) are the reference operand types and are kept.
 /// </para>
 /// </remarks>
 public sealed class LuxelRadial
@@ -123,7 +123,7 @@ public sealed class LuxelRadial
     /// a two-luxel window round each luxel centre, divided by the Chebyshev
     /// distance from the sample to that centre, floored at 0.1. The overlap
     /// test is against the DOUBLE <c>EQUAL_EPSILON</c>, and <c>area / 0.1</c>
-    /// is a double division narrowed back -- both as the C++ types make them.
+    /// is a double division narrowed back -- both as the reference types make them.
     /// </para>
     /// <para>
     /// A flat sample feeding a bumped face lands in all four maps: whole in the
@@ -222,7 +222,7 @@ public sealed class LuxelRadial
     /// <param name="neighbourHasBumpmap">Whether the patch's face is.</param>
     /// <remarks>
     /// The patch extent is clamped to at least one luxel (the comment at
- ///), the window is <c>RADIALDIST</c> patch-extents either side
+    ///), the window is <c>RADIALDIST</c> patch-extents either side
     /// -- computed in double because <c>RADIALDIST</c> is a double literal --
     /// and the weight is <c>2 - (ds² + dt²)</c> in patch units, kept where
     /// positive. Only the colour accumulates: the sun amount is untouched,

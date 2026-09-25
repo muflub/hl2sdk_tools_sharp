@@ -23,7 +23,7 @@ public readonly record struct VoxelKey(int X, int Y, int Z)
 
     /// <summary>
     /// The voxel of a point, as <c>SampleData_InsertIntoHashTable</c>
- /// And <c>GetPatchSampleHashXYZ</c>
+    /// And <c>GetPatchSampleHashXYZ</c>
     /// compute it: a float divide by 64, truncated.
     /// </summary>
     /// <param name="x">X.</param>

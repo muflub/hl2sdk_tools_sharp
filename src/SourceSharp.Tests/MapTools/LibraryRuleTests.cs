@@ -8,7 +8,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools;
 
 /// <summary>
-/// The design rules of plan_maptools.md 1, measured on the BUILT ASSEMBLIES
+/// The design rules, measured on the BUILT ASSEMBLIES
 /// rather than asserted in prose.
 /// </summary>
 /// <remarks>
@@ -94,7 +94,7 @@ public class LibraryRuleTests
         // wants neither pulls in neither.
         //
         // Read from the assembly's own reference table rather than from the
-        //.csproj, so a package arriving INDIRECTLY through a project reference
+        // project file, so a package arriving INDIRECTLY through a project reference
         // cannot slip past by not being written in the project file.
         Assembly assembly = Load(assemblyName);
 

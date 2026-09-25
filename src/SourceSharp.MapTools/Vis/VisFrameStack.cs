@@ -130,7 +130,7 @@ internal sealed class VisFrameStack
     /// <param name="depth">The recursion depth, from one.</param>
     /// <param name="ordering">
     /// Zero for the source-then-pass derivation, one for the reverse -- the two
- /// Calls stock makes.
+    /// Calls stock makes.
     /// </param>
     /// <param name="minimum">
     /// How many planes this frame could possibly derive, which is

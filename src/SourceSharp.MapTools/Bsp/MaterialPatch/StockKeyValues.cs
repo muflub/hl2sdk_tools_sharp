@@ -111,7 +111,7 @@ public static class StockKeyValues
     /// </para>
     /// <para>
     /// Scalars are indent, quoted name, the four bytes <c>"\t\t"</c>, quoted
- /// value. A double quote in either is escaped; a
+    /// value. A double quote in either is escaped; a
     /// backslash is not (<c>m_bHasEscapeSequences</c> is false for a tree the
     /// patcher built).
     /// </para>

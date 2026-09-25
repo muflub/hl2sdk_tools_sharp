@@ -53,8 +53,8 @@ public sealed class KdRayTracerSegmentTests
     }
 
     /// <summary>
-    /// A surface past the end of the segment does not block it
-    ///. This was red before the
+    /// A surface past the end of the segment does not block it.
+    /// This was red before the
     /// fix: the bit was set for any hit on the infinite line's first KD leaf.
     /// </summary>
     [Fact]

@@ -15,7 +15,7 @@ namespace SourceSharp.MapTools.Compare;
 /// <see cref="DiffKind.Exact"/>.
 /// </summary>
 /// <remarks>
-/// plan_maptools.md 2 names them: the entity text, TEXDATA and its two string
+/// The comparison rules name them: the entity text, TEXDATA and its two string
 /// lumps, TEXINFO, BRUSHES and BRUSHSIDES, the MODELS count, the game-lump
 /// dictionaries and the pak file list. Nothing in any of these is produced by a
 /// float reduction whose order a thread count can change, so a difference here
@@ -183,7 +183,7 @@ internal static class ExactLumpDiff
     /// <param name="b">Map B.</param>
     /// <param name="into">The verdict being built.</param>
     /// <remarks>
-    /// plan_maptools.md 2 asks for "MODELS counts", not the models themselves,
+    /// The comparison rules ask for "MODELS counts", not the models themselves,
     /// and the reason is in the struct: a <c>dmodel_t</c> is mostly INDICES --
     /// headnode, firstface -- which the canonical kinds exist because they move.
     /// The count is the part that is a property of the map. The bytes are still
@@ -195,7 +195,7 @@ internal static class ExactLumpDiff
         int ca = BspStructView.Count<DModel>(a[BspLump.Models]);
         int cb = BspStructView.Count<DModel>(b[BspLump.Models]);
         into.Note =
-            "compared on the model COUNT only, per plan_maptools.md 2: a dmodel_t's "
+            "compared on the model COUNT only: a dmodel_t's "
             + "headnode and firstface are indices the canonical kinds exist to absorb";
 
         if (ca != cb)

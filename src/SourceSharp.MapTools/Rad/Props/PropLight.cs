@@ -126,9 +126,9 @@ public static class PropLights
     /// SOUND BECAUSE THE LUMP IS THE LIST: <c>ExportDirectLightsToWorldLights</c>
     /// Walks <c>activelights</c> head to tail and
     /// writes one record per light. The PVS is rebuilt as <c>AllocDLight</c>
- /// does -- <c>SetDLightVis(dl, dl-&gt;light.cluster)</c> --
+    /// does -- <c>SetDLightVis(dl, dl-&gt;light.cluster)</c> --
     /// plus, for the sky light, every leaf holding a sky face
- /// (<c>BuildVisForLightEnvironment</c>). Fade and cap
+    /// (<c>BuildVisForLightEnvironment</c>). Fade and cap
     /// distances are not in the lump; entity keys set them, and the defaults
     /// (no fade, no cap) are taken here.
     /// </para>

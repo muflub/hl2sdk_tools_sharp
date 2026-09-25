@@ -194,7 +194,7 @@ public class DetailPropTests
     [Fact]
     public void AFlatFaceWithTwoGroupsTakesTheLastWithoutADraw()
     {
-        // SelectGroup,:326-337: alpha 1 walks past every group.
+        // SelectGroup: alpha 1 walks past every group.
         DetailDictionary dictionary = Parse("\"t\" { \"lo\" { \"alpha\" \"0\" \"m\" { \"model\" \"a\" } } \"hi\" { \"alpha\" \"1\" \"m\" { \"model\" \"b\" } } }");
         MsvcRandom random = new(1);
 
@@ -218,7 +218,7 @@ public class DetailPropTests
     [Fact]
     public void ADrawPastTheLastAmountSelectsNothing()
     {
-        // SelectDetail,:366-372.
+        // SelectDetail.
         DetailGroup group = new();
         group.Models.Add(new DetailModel { Amount = 0f });
         MsvcRandom random = new(1);
@@ -246,7 +246,7 @@ public class DetailPropTests
     [Fact]
     public void AWallDetailIsRolledOntoTheWall()
     {
-        // A +X facing wall: x is along the normal, so:586-587 swaps in +Y;
+        // A +X facing wall: x is along the normal, so the roll swaps in +Y;
         // forward becomes +Y (yaw 90) and up +X, a roll of 90.
         Vec3 angles = DetailPropEmitter.ConformingAngles(new Vec3(1f, 0f, 0f), 0, ComplianceOptions.Correct);
 

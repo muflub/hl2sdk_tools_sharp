@@ -65,7 +65,7 @@ public static class MapFeatures
     public const int FirstCompilerPhase = 2;
 
     /// <summary>Every feature the named phase owns.</summary>
-    /// <param name="phase">A plan_maptools.md phase number.</param>
+    /// <param name="phase">A porting-phase number.</param>
     public static IReadOnlyList<MapFeature> OfPhase(int phase)
         => [.. All.Where(f => PhaseOf(f) == phase)];
 

@@ -136,7 +136,7 @@ public class ShadowTextureListTests
     [Fact]
     public void TheClampFlagsAreReadOutOfTheVtfHeader()
     {
-        //. They are read, stored, and then never
+        // They are read, stored, and then never
         // acted on; the fact above is the other half of that statement.
         byte[] bytes = SyntheticAlphaVtf(SampleAlpha, VtfFlags.ClampS | VtfFlags.ClampT);
 
@@ -173,8 +173,8 @@ public class ShadowTextureListTests
     [Fact]
     public void CoverageAveragesTheBoundingBoxAndNotTheTriangle()
     {
-        // PINS A DELIBERATE DEFECT, and stock labels it HACKHACK itself
-        //. A sliver hugging the UV diagonal covers
+        // PINS A DELIBERATE DEFECT, and stock labels it HACKHACK itself.
+        // A sliver hugging the UV diagonal covers
         // four texels; the full triangle covers eight. They have the SAME
         // axis-aligned bounding box, so stock gives them the same answer.
         ShadowTextureList list = new();
@@ -208,8 +208,8 @@ public class ShadowTextureListTests
     [Fact]
     public void CoverageClampsUvsOutsideTheUnitSquareOntoItsEdge()
     {
-        // PINS A DELIBERATE DEFECT: "UNDONE: Do something about tiling"
-        //. A triangle whose UVs are entirely in
+        // PINS A DELIBERATE DEFECT: the shipped comment reads "UNDONE: Do
+        // something about tiling". A triangle whose UVs are entirely in
         // the second tile collapses to the single texel at (1,1) -- 51 here,
         // not the average of the tile it actually covers.
         ShadowTextureList list = new();
@@ -239,8 +239,8 @@ public class ShadowTextureListTests
     [Fact]
     public void ACoverageOfOneYieldsNoMaterialEntry()
     {
-        //: only coverage < 1 gets an entry, and
-        // only an entry gets FCACHETRI_TRANSPARENT at:1988-1991.
+        // Coverage < 1 gets an entry, and
+        // only an entry gets FCACHETRI_TRANSPARENT.
         ShadowTextureList list = new();
         int index = list.AddTexture("test/coverage", CoverageTexture());
 
@@ -300,7 +300,7 @@ public class ShadowTextureListTests
     [Fact]
     public void SampleMaterialInterpolatesTheStoredUvsWithTheBarycentrics()
     {
-        //. Barycentric (0,1,0) is vertex 1 exactly.
+        // Barycentric (0,1,0) is vertex 1 exactly.
         ShadowTextureList list = new();
         int texture = list.AddTexture("test/sample", SampleTexture());
         int entry = list.AddMaterialEntry(
@@ -335,7 +335,7 @@ public class ShadowTextureListTests
     {
         // PINS A DELIBERATE DEFECT. ComputeCoverageFromTexture passes
         // `false` literally under a commented-out
-        // body that would have computed it:892-893). The consequence: the
+        // body that would have computed it. The consequence: the
         // texture below is CULLED, and the callback still samples it, so
         // $nocull and allowBackface change nothing about a compile.
         ShadowTextureList list = new();
@@ -454,7 +454,7 @@ public class ShadowTextureListTests
     public async Task AMaterialWhoseBaseTextureIsMissingGetsNoAlphaTexture()
     {
         // LoadVTFRGB8888 returns NULL, and
-        // FindOrLoadIfValid's `if (pImageBits)` at:716 then skips the
+        // FindOrLoadIfValid's `if (pImageBits)` then skips the
         // insert -- so bFound is still true.
         ShadowTextureList list = new();
         await using ContentFileSystem content = await MountAsync(
@@ -618,7 +618,7 @@ public class ShadowTextureListTests
     [Fact]
     public void CleanModelNameStripsThePrefixWithoutRegardToCase()
     {
-        // Q_strnicmp at:905 -- the one case-insensitive comparison on the
+        // Q_strnicmp -- the one case-insensitive comparison on the
         // whole path.
         Assert.Equal("a/b", ForcedTextureShadowModels.CleanModelName("MODELS/a/b.mdl"));
     }
@@ -626,7 +626,7 @@ public class ShadowTextureListTests
     [Fact]
     public void CleanModelNameTruncatesAtTheFirstDotAnywhereNotTheExtension()
     {
-        // strchr, not strrchr:914). A directory with a dot in its name loses
+        // strchr, not strrchr. A directory with a dot in its name loses
         // everything after it.
         Assert.Equal("props", ForcedTextureShadowModels.CleanModelName("models/props.v2/crate.mdl"));
     }
@@ -634,7 +634,7 @@ public class ShadowTextureListTests
     [Fact]
     public void CleanModelNameDoesNotChangeCase()
     {
-        // Q_strncpy at:911 copies verbatim; nothing lowercases.
+        // Q_strncpy copies verbatim; nothing lowercases.
         Assert.Equal("Props_C17/OilDrum001", ForcedTextureShadowModels.CleanModelName(
             "models/Props_C17/OilDrum001.mdl"));
     }
@@ -733,7 +733,7 @@ public class ShadowTextureListTests
     [Fact]
     public void TheCastTextureShadowsFlagIsTheStudioHeaderBit()
     {
-        //. A wrong constant here would silently opt every model
+        // A wrong constant here would silently opt every model
         // in or out, and nothing else in the port would notice.
         Assert.Equal(0x00040000, ForcedTextureShadowModels.CastTextureShadowsFlag);
     }

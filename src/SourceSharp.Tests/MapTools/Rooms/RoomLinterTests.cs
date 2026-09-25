@@ -37,7 +37,7 @@ public class RoomLinterTests
     public async Task AGoodRoomPassesTheSealCensus()
     {
         // The good path, which the pre-census code refused: a sealed two-socket
-        // room always has vbsp's void leaves solid outside the cell — the dump
+        // room always has vbsp's void leaves solid outside the cell — the reference
         // shows them at (-8,...) and past 1032 — and the old compiled-leaf rule
         // 1 threw on exactly those. The census must pass it, and name both
         // sockets, in socket order, as sealed.

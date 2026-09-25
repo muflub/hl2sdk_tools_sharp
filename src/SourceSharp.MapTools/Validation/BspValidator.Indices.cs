@@ -17,7 +17,7 @@ public static partial class BspValidator
     /// </summary>
     /// <remarks>
     /// <c>dleaf_t</c> is 32 bytes at lump version 1 and <c>dleaf_version_0_t</c>
- /// Is 56, and nothing but that
+    /// Is 56, and nothing but that
     /// version field says which. Reading the wrong one shifts every leaf after
     /// the first, so the choice is made once, here.
     /// </remarks>
@@ -325,7 +325,7 @@ public static partial class BspValidator
     /// Tests only the SIGN of a child:
     /// non-negative is a node index, negative is the leaf <c>-1 - p</c>
     /// Neither branch is bounded, and the plane
- /// Is <c>planes + p</c> with no test at all.
+    /// Is <c>planes + p</c> with no test at all.
     /// </remarks>
     private static void CheckNodeIndices(BspData bsp, Counts counts, Findings findings)
     {
@@ -529,7 +529,7 @@ public static partial class BspValidator
 
             // -- "Bad brushside texinfo" on
             // t >= map_texinfo.Size(). A NEGATIVE texinfo is legal and becomes
- // SURFACE_INDEX_INVALID; the comment there says vbsp writes
+            // SURFACE_INDEX_INVALID; the comment there says vbsp writes
             // -1 and wonders why, so -1 is not a defect.
             if (side.TexInfo >= counts.TexInfo)
             {
@@ -662,16 +662,16 @@ public static partial class BspValidator
     /// for every one of them. <c>aFaces</c> is a fixed
     /// <c>int[OVERLAY_BSP_FACE_COUNT]</c> inside the on-disk struct
     /// (and 256 for a water overlay at
- ///), so a count above it reads the NEXT overlay's bytes as
+    ///), so a count above it reads the NEXT overlay's bytes as
     /// face indices. The face indices themselves go to
     /// <c>SurfaceHandleFromIndex</c> unbounded.
     /// </para>
     /// <para>
- /// The render-order check is
+    /// The render-order check is
     /// deliberately NOT transcribed. <c>GetRenderOrder()</c> is
     /// <c>m_nFaceCountAndRenderOrder &gt;&gt; 14</c> and
     /// <c>OVERLAY_NUM_RENDER_ORDERS</c> is <c>1 &lt;&lt; 2</c>
- /// So the value is
+    /// So the value is
     /// always 0..3 and the test can never fail whatever the file says. A rule
     /// that cannot fire is not a rule.
     /// </para>

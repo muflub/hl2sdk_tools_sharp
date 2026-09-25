@@ -85,7 +85,7 @@ public sealed class FinalLightFaceTests
     [Fact]
     public async Task MinlightRaisesADarkFaceToTheEntitysValueTimes128()
     {
-        //,:811-814: _minlight 1 -> 128 per channel, which
+        // _minlight 1 -> 128 per channel, which
         // ColorRGBExp32 stores as mantissa 128, exponent 0.
         LightTestMap map = LightBox.Map();
         map.Entities[0] = LightTestMap.Entity(("classname", "worldspawn"), ("_minlight", "1"));

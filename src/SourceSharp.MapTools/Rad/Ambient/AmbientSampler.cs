@@ -115,7 +115,7 @@ public sealed class AmbientSampler
     /// <param name="cube">Receives the six colours.</param>
     /// <remarks>
     /// ONLY LIGHTSTYLE 0: stock clears element 0 of a 64-wide per-ray array,
- /// fires the ray into it, and reads element 0. The other
+    /// fires the ray into it, and reads element 0. The other
     /// styles are written by faces with switchable styles and never read.
     /// </remarks>
     public void ComputeCube(Vec3 start, Span<Vec3> cube)

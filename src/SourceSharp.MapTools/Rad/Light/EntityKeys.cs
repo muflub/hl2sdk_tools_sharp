@@ -51,7 +51,7 @@ public static class EntityKeys
     /// <exception cref="ArgumentNullException">Either argument is null.</exception>
     /// <remarks>
     /// The distinction is load-bearing exactly once: <c>SunSpreadAngle</c> on
- /// a <c>light_environment</c>. A present-but-empty key sets
+    /// a <c>light_environment</c>. A present-but-empty key sets
     /// <c>g_SunAngularExtent</c> to <c>atof("")</c> = 0 and PRINTS, where an
     /// absent one leaves the previous value; the two are otherwise the same
     /// number.

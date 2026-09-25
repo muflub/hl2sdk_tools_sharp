@@ -394,7 +394,7 @@ public static class PhysCollisionEmitter
             if (physics.Thickness != 0)
             {
                 // "shell" material: area x thickness. Stock's totalArea
- // includes the placeholder areas seeded.
+                // includes the placeholder areas seeded.
                 float area = totalArea;
                 bool shell = true;
                 if (!compliance.Emulates(StockQuirk.ShellMassSentinelArea))

@@ -63,7 +63,7 @@ public sealed class FaceNeighbours
     /// </summary>
     /// <remarks>
     /// Stock's bound check runs AFTER the write that
- /// overflows -- <c>tmpneighbor[m] =...</c> with
+    /// overflows -- <c>tmpneighbor[m] =...</c> with
     /// <c>m == 64</c> is already out of bounds -- so its <c>Error</c> is raised
     /// from a corrupted stack. There is no output difference to reproduce
     /// either way, because both tools stop; this one simply checks first.
@@ -263,14 +263,14 @@ public sealed class FaceNeighbours
 
                     if (hasDisp[i])
                     {
-                        // Rule 1 (:247-251): always smooth.
+                        // Rule 1: always smooth.
                         normals[j] += neighbourNormal;
                     }
                     else if (faces[i].SmoothingGroups == 0
                         && faces[other].SmoothingGroups == 0)
                     {
-                        // Rule 2 (:255-266). `cos_normals_angle` is declared
-                        // double (:231) but is ASSIGNED a float: DotProduct on two
+                        // Rule 2. `cos_normals_angle` is declared
+                        // double but is ASSIGNED a float: DotProduct on two
                         // Vectors is vec_t arithmetic, so the
                         // product is rounded to float first and only then widened.
                         // The comparison against the float threshold therefore
@@ -285,7 +285,7 @@ public sealed class FaceNeighbours
                     }
                     else
                     {
-                        // Rule 3 (:269-283).
+                        // Rule 3.
                         uint shared = faces[i].SmoothingGroups & faces[other].SmoothingGroups;
                         if ((shared & HardEdgeGroups) != 0 || shared == 0)
                         {

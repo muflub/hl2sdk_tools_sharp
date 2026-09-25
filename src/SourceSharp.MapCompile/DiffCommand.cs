@@ -5,8 +5,8 @@ using SourceSharp.MapTools.Io;
 namespace SourceSharp.MapCompile;
 
 /// <summary>
-/// <c>ssmap diff [-v] &lt;a.bsp&gt; &lt;b.bsp&gt;</c>: instrument I2 of
-/// plan_maptools.md 2, <see cref="BspDiff"/> on two files.
+/// <c>ssmap diff [-v] &lt;a.bsp&gt; &lt;b.bsp&gt;</c>: the BSP comparison instrument,
+/// <see cref="BspDiff"/> on two files.
 /// </summary>
 /// <remarks>
 /// Measures and reports; judges nothing (<see cref="DiffOptions.ReportOnly"/>),

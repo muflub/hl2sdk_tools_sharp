@@ -111,8 +111,8 @@ public sealed class TreeNodeBridgeTests
     [Fact]
     public void TheOutsideNodeIsALeaf()
     {
-        // MakeHeadnodePortals: tree->outside_node.planenum = PLANENUM_LEAF
-        //. Portal_EntityFlood errors on any portal whose far
+        // The bridge marks the tree's outside node as a leaf (PLANENUM_LEAF),
+        // so Portal_EntityFlood errors on any portal whose far
         // side is not a leaf, which every leaked map's flood crosses.
         IBspTree tree = new TreeTree();
         Assert.True(tree.OutsideNode.IsLeaf());

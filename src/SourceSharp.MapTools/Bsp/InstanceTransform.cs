@@ -85,8 +85,7 @@ public readonly struct InstanceTransform : IEquatable<InstanceTransform>
     }
 
     /// <summary>
-    /// Rotates and translates a point: <c>VectorTransform</c>,
-    ///.
+    /// Rotates and translates a point: <c>VectorTransform</c>.
     /// </summary>
     /// <param name="point">The point.</param>
     /// <returns>The transformed point.</returns>
@@ -108,8 +107,7 @@ public readonly struct InstanceTransform : IEquatable<InstanceTransform>
 
     /// <summary>
     /// Transforms an axis-aligned box into the smallest axis-aligned box that
-    /// contains it: <c>TransformAABB</c>,
-    ///.
+    /// contains it: <c>TransformAABB</c>.
     /// </summary>
     /// <param name="mins">The box minimum.</param>
     /// <param name="maxs">The box maximum.</param>
@@ -135,8 +133,7 @@ public readonly struct InstanceTransform : IEquatable<InstanceTransform>
     }
 
     /// <summary>
-    /// Transforms a plane: <c>MatrixTransformPlane</c>,
-    ///.
+    /// Transforms a plane: <c>MatrixTransformPlane</c>.
     /// </summary>
     /// <param name="plane">The plane.</param>
     /// <returns>The transformed plane.</returns>

@@ -136,7 +136,7 @@ public sealed class DetailDictionary
     /// </summary>
     /// <param name="root">The file's first root.</param>
     /// <returns>The dictionary.</returns>
- /// <exception cref="MapCompileException">A malformed <c>sprite</c> key: fatal in stock.</exception>
+    /// <exception cref="MapCompileException">A malformed <c>sprite</c> key: fatal in stock.</exception>
     public static DetailDictionary Parse(KeyValuesNode root)
     {
         ArgumentNullException.ThrowIfNull(root);
@@ -242,7 +242,7 @@ public sealed class DetailDictionary
         }
     }
 
-    //.
+    /// <summary>Fills a model's sprite fields from its key block.</summary>
     private static void ParseSprite(DetailModel model, KeyValuesNode node, string sprite)
     {
         string? shape = StockKeyValues.GetString(node, "sprite_shape");

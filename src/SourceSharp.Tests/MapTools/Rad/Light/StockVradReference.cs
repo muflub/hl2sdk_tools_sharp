@@ -198,7 +198,7 @@ internal static class StockVradReference
 
     /// <summary>
     /// p4c's private stock corpus: <c>in/</c> (vbsp + vvis inputs and their
-    ///.rad), <c>rad/</c>, <c>both/</c> and <c>b0/</c> (stock vrad, default.
+    /// .rad), <c>rad/</c>, <c>both/</c> and <c>b0/</c> (stock vrad, default.
     /// <c>-both</c> and <c>-bounce 0</c>). Built by the scripts beside the
     /// fixture; see <c>Fixtures/README</c> in the findings.
     /// </summary>

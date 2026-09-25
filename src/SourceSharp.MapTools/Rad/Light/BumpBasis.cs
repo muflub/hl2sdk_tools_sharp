@@ -33,7 +33,7 @@ public static class BumpBasis
     /// </summary>
     public const int LightmapCount = Count + 1;
 
-    // Spelled as the C++ spells them, to the digit: these
+    // Spelled as the reference build spells them, to the digit: these
     // are float literals in the header and not computed from sqrt at runtime,
     // so recomputing them here would give different last bits.
     private const float OneOverSqrt2 = 0.70710676908493042f;
@@ -86,7 +86,7 @@ public static class BumpBasis
     /// </para>
     /// <para>
     /// <b>The s and t vectors are the TEXTURE axes, not the lightmap axes.</b>
- /// Both pass
+    /// Both pass
     /// <c>textureVecsTexelsPerWorldUnits</c>, while everything else in the
     /// sample path uses <c>lightmapVecsLuxelsPerWorldUnits</c>. They are
     /// usually parallel and are not required to be, so a face with rotated or

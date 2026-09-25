@@ -70,7 +70,7 @@ public struct HaltonSequence
 /// from the base-3 one, which is an area-uniform sphere sampling. Mixed
 /// precision exactly as written: <c>2*z - 1.0</c> and <c>2.0*M_PI*v</c> are
 /// double expressions narrowed into float locals, and <c>acos</c>, <c>sin</c>
-/// and <c>cos</c> of a float argument resolve to the FLOAT overloads in C++.
+/// and <c>cos</c> of a float argument resolve to the FLOAT overloads in the reference build.
 /// </para>
 /// <para>
 /// The float transcendental functions are the one place this cannot promise

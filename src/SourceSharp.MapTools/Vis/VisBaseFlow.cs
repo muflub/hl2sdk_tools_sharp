@@ -7,7 +7,6 @@ namespace SourceSharp.MapTools.Vis;
 
 /// <summary>
 /// The first-order approximation: <c>BasePortalVis</c> and <c>SimpleFlood</c>
-///.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -35,7 +34,7 @@ internal sealed class VisBaseFlow
     /// portal it was handed. One <see cref="Interlocked"/> add per portal, so
     /// it costs the stage nothing; it exists because this is the pass P12
     /// anomaly 3 claimed <c>-fast</c> skips and stock proves it does NOT
- /// (<c>all.c</c>), and a measured zero where stock casts is the
+    /// skip, and a measured zero where stock casts is the
     /// defect the tests guard.
     /// </summary>
     internal long BaseRays => Volatile.Read(ref _rays);
@@ -212,7 +211,7 @@ internal sealed class VisBaseFlow
     /// <returns>True when the other portal is close enough to matter.</returns>
     /// <remarks>
     /// The squared distance is accumulated in FLOAT and only then widened to the
-    /// double it is compared against, because that is what the C++ expression
+    /// double it is compared against, because that is what the reference expression
     /// does: every operand is a <c>vec_t</c>, so the sum is a float, and the
     /// assignment to <c>double dist2</c> happens afterwards.
     /// </remarks>

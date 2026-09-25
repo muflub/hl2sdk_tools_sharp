@@ -6,7 +6,7 @@ namespace SourceSharp.MapTools.Compare;
 /// <remarks>
 /// <para>
 /// <b>Every threshold here is null by default, and null means "report the
-/// number, judge nothing".</b> plan_maptools.md 2 is explicit that a tolerance
+/// number, judge nothing".</b> The comparison rules are explicit that a tolerance
 /// is frozen from the first measurement in the phase that owns the lump, and
 /// this instrument is built before those phases -- so it must not ship a
 /// tolerance of its own. A threshold that has not been set comes back as
@@ -30,7 +30,7 @@ public sealed class DiffOptions
     /// </summary>
     /// <remarks>
     /// A computed property rather than a cached instance: a static field
-    /// holding a reference type is the mutable static state plan_maptools.md 1
+    /// holding a reference type is the mutable static state the design rules
     /// bans, and <c>LibraryRuleTests</c> measures that on the built assembly.
     /// </remarks>
     public static DiffOptions ReportOnly => new();

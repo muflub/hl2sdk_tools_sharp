@@ -682,7 +682,7 @@ public static class Vvis
 
     /// <summary>
     /// Assembles LUMP_VISIBILITY: the header, then every PVS row, then every
- /// PAS row.
+    /// PAS row.
     /// </summary>
     private static byte[] BuildVisibilityLump(int clusters, int rowBytes, byte[] pvs, byte[] pas)
     {

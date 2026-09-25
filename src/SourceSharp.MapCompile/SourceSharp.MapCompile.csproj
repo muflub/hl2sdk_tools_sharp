@@ -14,7 +14,7 @@
     <WarningsAsErrors>$(WarningsAsErrors);CA1068;CA2016</WarningsAsErrors>
 
     <!--
-      The runtime settings a LIBRARY must not own (plan_maptools.md 1).
+      The runtime settings a LIBRARY must not own.
 
       A library that switches the host process to Server GC has made a decision
       for an ASP.NET service that never asked for it. The exe is the only place
@@ -100,8 +100,8 @@
     package, and its CLI proof ran from a manually staged tree with the dll
     copied by hand; neither posture ever exercised the shipped build output.
 
-    Plan ruling: plan_maptools.md 129 lists the package as OPTIONAL — for the
-    LIBRARIES ("the core assemblies reference neither"), and 10a's own wording
+    Design ruling: the package is OPTIONAL — for the
+    LIBRARIES ("the core assemblies reference neither"), and the cache design's own wording
     lets the HOST reference the Sqlite assembly. ssmap is the host: a shipped
     `-incremental` that silently cooks everything contradicts the plan's
     mechanism (the SQLite database beside the map, opened by the flag) more

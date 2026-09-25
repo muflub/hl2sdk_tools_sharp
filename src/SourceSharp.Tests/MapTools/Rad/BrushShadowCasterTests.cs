@@ -12,8 +12,8 @@ using Xunit;
 
 // MapTools has TWO SurfaceFlags: the Materials one is the SURF_* bits a
 // compiler writes into a texinfo, which is what tests; the Tracing
-// one is that tracer's own per-face summary. Importing SourceSharp.MapTools
-//.Tracing for TracedTriangle brings the second into scope, so the one under
+// one is that tracer's own per-face summary. Importing
+// SourceSharp.MapTools.Tracing for TracedTriangle brings the second into scope, so the one under
 // test is named explicitly rather than left to resolution order.
 using SurfaceFlags = SourceSharp.MapTools.Materials.SurfaceFlags;
 
@@ -31,8 +31,8 @@ namespace SourceSharp.Tests.MapTools.Rad;
 /// </para>
 /// <para>
 /// The plane lump is built in <c>planenum ^ 1</c> PAIRS, because that is how
-/// <c>AddBrushToRaytraceEnvironment</c> finds the plane to clip against
-///. A builder that emitted six planes rather than twelve
+/// <c>AddBrushToRaytraceEnvironment</c> finds the plane to clip against.
+/// A builder that emitted six planes rather than twelve
 /// would clip every side against its own front and produce an empty brush,
 /// which is the sort of thing a fixture gets wrong quietly.
 /// </para>
@@ -530,8 +530,8 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
     /// </summary>
     /// <remarks>
     /// <c>dm_lockdown.bsp</c>'s LUMP_FACES_HDR is zero bytes long, which is
-    /// stock's "copy the LDR faces in and point at the copy" case
-    ///. Reading the LDR lump directly must give the same
+    /// stock's "copy the LDR faces in and point at the copy" case.
+    /// Reading the LDR lump directly must give the same
     /// answer, and this is the fact that says so rather than the comment.
     /// </remarks>
     [Fact]
@@ -830,7 +830,7 @@ public sealed class BrushShadowCasterTests : IClassFixture<BrushShadowCasterFixt
 
     /// <summary>A negative surfedge takes the edge's SECOND vertex.</summary>
     /// <remarks>
-    ///. The sign says the face walks the edge backwards, so
+    /// The sign says the face walks the edge backwards, so
     /// the winding is the same either way -- a port that took <c>v[0]</c>
     /// regardless would reverse every face with negative surfedges and still
     /// produce the right COUNT.

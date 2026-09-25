@@ -212,7 +212,6 @@ public sealed class MapFileReader
 
     /// <summary>
     /// Takes the map's bounds from its worldspawn brushes:
-    ///.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <exception cref="ArgumentNullException"><paramref name="map"/> is null.</exception>

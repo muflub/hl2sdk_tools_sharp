@@ -120,7 +120,7 @@ public static class PhongNormals
             float ab = Vec3.Dot(v1, v2);
 
             // Solved in FLOAT -- a1 and a2 are float locals in the
-            // C++ and every operand is a vec_t -- so the division's rounding is
+            // reference build and every operand is a vec_t -- so the division's rounding is
             // part of the answer.
             float a1 = ((bb * Vec3.Dot(v1, vspot)) - (ab * Vec3.Dot(vspot, v2)))
                 / ((aa * bb) - (ab * ab));
@@ -163,7 +163,7 @@ public static class PhongNormals
     /// <para>
     /// Written as four scalar lanes rather than as SIMD, and that is a
     /// behavioural decision rather than a shortcut: stock's version uses
- /// <c>ReciprocalSIMD</c> for both divisions, which is
+    /// <c>ReciprocalSIMD</c> for both divisions, which is
     /// <c>rcpps</c> plus a Newton-Raphson step and NOT an exact divide, so its
     /// barycentric weights differ from the scalar function's in the last bits
     /// even on the same point. Four exact divides here means the two overloads
@@ -173,7 +173,7 @@ public static class PhongNormals
     /// </para>
     /// <para>
     /// The final <c>VectorNormalize</c> is unconditional in stock
- /// So a lane that matched no wedge has its face normal
+    /// So a lane that matched no wedge has its face normal
     /// renormalised. That is reproduced: on an unnormalised plane normal the
     /// two overloads would otherwise differ by more than rounding.
     /// </para>

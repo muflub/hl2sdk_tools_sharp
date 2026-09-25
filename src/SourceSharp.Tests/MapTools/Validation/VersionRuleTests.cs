@@ -82,7 +82,7 @@ public class VersionRuleTests
     [Corrupts(BspRuleCodes.LeafAmbientLegacyPath)]
     public async Task AnAmbientLumpWithoutItsIndexFallsBackToTheLegacyPath()
     {
-        //. dm_lockdown.bsp has no ambient
+        // dm_lockdown.bsp has no ambient
         // lumps at all, so the field that decides this does not exist to
         // corrupt: the corruption is to GIVE it one, at the wrong version and
         // with no index, which is exactly the state the engine's else-branch
@@ -104,7 +104,7 @@ public class VersionRuleTests
     [Corrupts(BspRuleCodes.LeafAmbientLegacyCount)]
     public async Task TheLegacyAmbientPathNeedsOneLightCubePerLeaf()
     {
-        // asserts it and:2226 memcpy's
+        // Nothing checks the length: the load memcpy's
         // inLightCubes[i] for every leaf regardless, so a short lump is read
         // past its end. The legacy-path warning necessarily rides along,
         // because taking that path is the precondition for this rule.
@@ -154,7 +154,7 @@ public class VersionRuleTests
     [Corrupts(BspRuleCodes.HdrLumpPair)]
     public async Task HdrLightingWithoutHdrWorldlightsIsUnusable()
     {
-        //. Half a set of HDR lumps is
+        // Half a set of HDR lumps is
         // megabytes the engine will never look at, and nothing says so.
         BspData bsp = await Corrupted.GoldenAsync();
         Corrupted.Replace(bsp, BspLump.LightingHdr, new byte[16], 1);

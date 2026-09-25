@@ -89,7 +89,7 @@ public sealed class Radiosity
     /// </returns>
     /// <remarks>
     /// The loop stops after <c>numbounce</c> bounces or after the first bounce
- /// that adds less than 1 in all three channels (double
+    /// that adds less than 1 in all three channels (double
     /// compares) -- so it always runs at least once when it runs at all.
     /// </remarks>
     public async Task<IReadOnlyList<Vec3>> BounceAsync(WorkQueue queue, CancellationToken cancellationToken)
@@ -159,12 +159,12 @@ public sealed class Radiosity
     /// <para>
     /// A BUMPED one first divides out the receiver's cosine, which the
     /// transfer's form factor already contains ("remove normal already
- /// factored into transfer steradian",), then re-applies the
+    /// factored into transfer steradian",), then re-applies the
     /// cosine against each of its four normals -- the flat normal and the three
     /// bump basis vectors -- skipping any the source is behind. The flat slot
     /// uses <c>patch-&gt;normal</c>, not the phong normal the basis was built
     /// from (stock's own "FIXME: why does the patch not use the phong
- /// Normal?",).
+    /// Normal?",).
     /// </para>
     /// </remarks>
     public void GatherLight(int j)
@@ -228,7 +228,7 @@ public sealed class Radiosity
     /// parents -- are done first. A sky patch emits nothing. A parent's light
     /// is its children's, weighted by area; stock's
     /// <c>(int)patch-&gt;area != (int)(child1-&gt;area + child2-&gt;area)</c>
- /// test assigns a variable that is overwritten on the next
+    /// test assigns a variable that is overwritten on the next
     /// line, so it has no effect and is not ported.
     /// </remarks>
     public Vec3 CollectLight()

@@ -57,8 +57,7 @@ public static class BrushGeometry
     public const float PlaneSideEpsilon = 0.001f;
 
     /// <summary>
-    /// Sets a brush's bounds from its side windings: <c>BoundBrush</c>,
-    ///.
+    /// Sets a brush's bounds from its side windings: <c>BoundBrush</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush to bound.</param>
@@ -101,8 +100,7 @@ public static class BrushGeometry
     }
 
     /// <summary>
-    /// A point somewhere inside the brush: <c>PointInsideBrush</c>,
-    ///.
+    /// A point somewhere inside the brush: <c>PointInsideBrush</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush.</param>
@@ -220,8 +218,7 @@ public static class BrushGeometry
     }
 
     /// <summary>
-    /// An axial brush filling a box: <c>BrushFromBounds</c>,
-    ///.
+    /// An axial brush filling a box: <c>BrushFromBounds</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="mins">The box's minimum.</param>
@@ -334,8 +331,7 @@ public static class BrushGeometry
     }
 
     /// <summary>
-    /// Whether vertex snapping would erase the winding: <c>WindingIsTiny</c>,
-    ///.
+    /// Whether vertex snapping would erase the winding: <c>WindingIsTiny</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="winding">The winding.</param>
@@ -466,8 +462,7 @@ public static class BrushGeometry
     }
 
     /// <summary>
-    /// Duplicates a brush, its sides and its windings: <c>CopyBrush</c>,
-    ///.
+    /// Duplicates a brush, its sides and its windings: <c>CopyBrush</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush to copy.</param>
@@ -479,7 +474,7 @@ public static class BrushGeometry
     /// <c>memcpy</c> over the id
     /// <c>AllocBrush</c> had just assigned. Most callers overwrite
     /// <c>next</c> on the following line; <c>SplitBrush</c>'s two early returns
- /// Do not, so a brush that was
+    /// Do not, so a brush that was
     /// "only on one side" leaves the splitter still linked to whatever the
     /// input was linked to. Nothing reads it before it is overwritten, and
     /// reproducing it costs one line.
@@ -533,7 +528,7 @@ public static class BrushGeometry
     /// <list type="number">
     /// <item><description>
     /// The 0.1 in <c>d_front &lt; 0.1</c> and <c>d_back &gt; -0.1</c>
- /// — not
+    /// — not
     /// <see cref="PlaneSideEpsilon"/>, which the commented-out text beside it
     /// says it once was. A brush within a tenth of a unit of the plane is
     /// "only on one side" and is copied whole.

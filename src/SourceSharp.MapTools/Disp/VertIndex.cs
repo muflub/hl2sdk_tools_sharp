@@ -37,9 +37,9 @@ public readonly record struct VertIndex(short X, short Y)
     /// <param name="x">The column.</param>
     /// <param name="y">The row.</param>
     /// <remarks>
-    /// Unchecked, like the C++ narrowing it replaces: <c>CVertIndex(int, int)</c>
+    /// Unchecked, like the narrowing it replaces: <c>CVertIndex(int, int)</c>
     /// does not exist in stock, but every construction site passes an int
-    /// expression that C++ narrows silently.
+    /// expression the reference build narrows silently.
     /// </remarks>
     public VertIndex(int x, int y)
         : this(unchecked((short)x), unchecked((short)y))

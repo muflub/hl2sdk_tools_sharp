@@ -58,9 +58,9 @@ public static class SurfaceContentDiagnostics
     /// <summary>"Overlay Material Name (%s) too long!" — fatal in stock.</summary>
     public const string OverlayMaterialNameTooLong = "VBSP0731";
 
- /// <summary>"Overlay touching too many faces" — fatal in stock.</summary>
+    /// <summary>"Overlay touching too many faces" — fatal in stock.</summary>
     public const string OverlayTooManyFaces = "VBSP0732";
 
- /// <summary>"Too Many Overlays!" / "Too many water overlays!" — fatal in stock.</summary>
+    /// <summary>"Too Many Overlays!" / "Too many water overlays!" — fatal in stock.</summary>
     public const string TooManyOverlays = "VBSP0733";
 }

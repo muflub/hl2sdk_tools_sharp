@@ -318,7 +318,7 @@ public static class PatchBuilder
 
     private static float AxisLength(FloatArray8 axes, int row)
     {
-        // The C++ sums the squares of components 0..2 of row `row` and takes
+        // The reference sums the squares of components 0..2 of row `row` and takes
         // the square root:.
         int b = row * 4;
         float sum = (axes[b] * axes[b])

@@ -77,7 +77,7 @@ public class Portal2MountTests
     [Fact]
     public async Task SiblingContentIsInvisibleToAnotherAppid()
     {
-        // Same bytes on disk, appid 630 instead of 620: the dump's caller
+        // Same bytes on disk, appid 630 instead of 620: the reference caller
         // checks the appid and nothing else, so Alien Swarm mounts none of it.
         InMemoryFileSystem fs = new();
         new VpkFixture().AddText("materials/base.vmt", "base").Write(fs, GameDir + "/base");
@@ -108,7 +108,7 @@ public class Portal2MountTests
     [Fact]
     public async Task DlcContentOutranksTheGamesOwnVpk()
     {
-        // The dump mounts the sibling content BEFORE walking SearchPaths, so
+        // The reference mounter mounts the sibling content BEFORE walking SearchPaths, so
         // first-match-wins answers from dlc1 for a file the base game has too.
         // Proven by CONTENT, not by mount name: every pak01_dir.vpk reports
         // the same bare archive name, so only the bytes say who answered.
@@ -123,7 +123,7 @@ public class Portal2MountTests
     [Fact]
     public async Task TheDlcMountsComeHighestFirstWithVpkBeforeDirectory()
     {
-        // The dump walks back DOWN from the highest found DLC, and within each
+        // The reference mounter walks back DOWN from the highest found DLC, and within each
         // DLC mounts pak01_dir.vpk before the directory itself.
         //
         // The ordering is proven by CONTENT bytes, not by mount Name: every
@@ -131,7 +131,7 @@ public class Portal2MountTests
         // tell dlc3's archive from dlc1's. Directories do carry distinct names
         // ("<gamedir>/portal2_dlcN"), so those are checked by name; every
         // archive-to-archive and archive-to-directory edge is a read whose
-        // winner can only be the mount the dump says is first.
+        // winner can only be the mount the reference order says is first.
         InMemoryFileSystem fs = new();
         new VpkFixture().AddText("materials/base.vmt", "base").Write(fs, GameDir + "/base");
         for (int n = 1; n <= 3; n++)
@@ -223,7 +223,7 @@ public class Portal2MountTests
     public async Task DlcNumberingIsContiguousAndStopsAtTheFirstMiss()
     {
         // dlc1 and dlc2 mount; dlc3 is missing; dlc4 exists but is never
-        // reached — the dump's loop breaks on the first miss.
+        // reached — the reference loop breaks on the first miss.
         InMemoryFileSystem fs = new();
         new VpkFixture().AddText("materials/base.vmt", "base").Write(fs, GameDir + "/base");
         AddDlc(fs, 1);
@@ -253,7 +253,7 @@ public class Portal2MountTests
     [Fact]
     public async Task TheProbeIsCappedAtDlc99()
     {
-        // Every directory through dlc100 exists; the dump's counter never
+        // Every directory through dlc100 exists; the reference counter never
         // reaches 100, so dlc99 is the floor and dlc100 stays unmounted.
         InMemoryFileSystem fs = new();
         new VpkFixture().AddText("materials/base.vmt", "base").Write(fs, GameDir + "/base");

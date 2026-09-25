@@ -122,7 +122,7 @@ public sealed class FaceLightInfo
     /// luxel CELLS; samples sit at the cell corners, so there is one more of
     /// them in each axis. Every buffer in the lighting path is sized from this,
     /// which is why it is stored rather than recomputed at each of the eleven
-    /// C++ sites that spell <c>...InLuxels[0]+1</c>.
+    /// reference sites that spell <c>...InLuxels[0]+1</c>.
     /// </remarks>
     public int Width { get; }
 
@@ -170,7 +170,7 @@ public sealed class FaceLightInfo
 
         // The s and t rows are the LIGHTMAP axes'
         // xyz, with column 3 -- the offset -- deliberately left out; it is
- // folded into luxelOrigin instead.
+        // folded into luxelOrigin instead.
         Vec3 worldToLuxelS = new(
             tex.LightmapVecsLuxelsPerWorldUnits[0],
             tex.LightmapVecsLuxelsPerWorldUnits[1],
@@ -184,7 +184,7 @@ public sealed class FaceLightInfo
 
         // NOT Cross(t, s) and not Cross(s, t): each component pairs
         // a t term with an s term in an order that is neither, because the
- // expression is the 2x2 minor of the 3x3 solve rather than
+        // expression is the 2x2 minor of the 3x3 solve rather than
         // a cross product that happens to be written out. Transcribed
         // component by component for that reason.
         Vec3 luxelSpaceCross = new(
@@ -202,7 +202,7 @@ public sealed class FaceLightInfo
         if (degenerate)
         {
             // 452-455. vec3_origin, and the two luxelToWorldSpace rows stay
- // as the memset left them: zero.
+            // as the memset left them: zero.
             luxelOrigin = Vec3.Zero;
         }
         else

@@ -13,7 +13,7 @@ namespace SourceSharp.MapTools.Bsp;
 /// <para>
 /// This is the function the TEXINFO and TEXDATA lumps are made of. Every number
 /// it writes is compared against stock byte for byte, so the arithmetic below
-/// is the C++'s and not an equivalent rearrangement: the divisions are per
+/// is the reference build's and not an equivalent rearrangement: the divisions are per
 /// component in the order written, the offset column is a dot product over the
 /// first THREE components of a four-component row, and the two shift scales are
 /// separate values because the legacy path leaves them at their initial value
@@ -79,7 +79,7 @@ public static class TextureBuilder
     /// The fixed-up placement comes back because stock writes it through the
     /// pointer it was given and the caller then
     /// stores that same struct into <c>side_brushtextures</c>
- ///So the replaced zero is what an
+    ///So the replaced zero is what an
     /// origin brush later rebuilds the texinfo from. An <c>async</c> method
     /// cannot take a <c>ref</c>, hence a return value; a caller that discards
     /// it is choosing stock's <c>MergeBrushSides</c> behaviour, where the

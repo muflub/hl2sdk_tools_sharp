@@ -168,7 +168,7 @@ public static class StudioModelCheck
     /// <remarks>
     /// The positions come from the VVD's RAW vertex block
     /// (<c>vertexFileHeader_t::GetVertexData</c>, reached
- /// through <c>mstudiomodel_t::GetVertexData</c>), not
+    /// through <c>mstudiomodel_t::GetVertexData</c>), not
     /// from a fixed-up LOD 0 list: vbsp's <c>CacheVertexData</c> hands the file
     /// over as read.
     /// </remarks>

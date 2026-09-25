@@ -72,8 +72,8 @@ public sealed class AmbientSampleListTests
     [Fact]
     public void StockNeverUsesTheTieBreak()
     {
-        //:375 compares totalDC against nearestNeighborTotal, which is never
-        // assigned:330): of two samples tied on distance, stock evicts the
+        // The eviction test compares totalDC against nearestNeighborTotal, which is
+        // never assigned: of two samples tied on distance, stock evicts the
         // EARLIER one whatever their colour variation.
         List<AmbientSample> list = TiedPair();
         AmbientSampleList.Add(list, new Vec3(10000, 0, 0), Uniform(0.0f), ComplianceOptions.Stock);

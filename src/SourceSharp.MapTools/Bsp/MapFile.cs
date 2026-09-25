@@ -178,7 +178,7 @@ public sealed class MapFile
     /// <remarks>
     /// Stock builds a singly-linked stack, so walking it visits the pairs in
     /// reverse of the order they were parsed. Instance merging walks it twice
- /// And the second walk rewrites the
+    /// And the second walk rewrites the
     /// values, so the order is observable and this list is in stock's order,
     /// newest first.
     /// </remarks>
@@ -213,7 +213,7 @@ public sealed class MapFile
     /// Stock reads each into <c>g_aMapWaterOverlays</c> while the entity is
     /// loaded (<c>LoadOverlayTransitionCallback</c>,
     /// registered for every <c>world</c> and <c>entity</c> chunk at
- ///). The chunks are kept whole because the overlay stage, not
+    ///). The chunks are kept whole because the overlay stage, not
     /// the loader, parses them; before this list the stage needed the VMF
     /// document passed in beside the map.
     /// </remarks>
@@ -311,7 +311,7 @@ public sealed class MapFile
     /// The chop takes <see cref="BrushClipEpsilon"/> rather than zero, and
     /// stock's comment says why: "adding an epsilon here, due to precision
     /// issues creating complex displacement surfaces". The commented-out
-    /// zero-epsilon line is still in the C++ above it.
+    /// zero-epsilon line is still present in the reference chain.
     /// </para>
     /// <para>
     /// A side that chops away to nothing keeps <see cref="Winding.Null"/> and

@@ -99,7 +99,7 @@ public sealed class DispCollisionTree
         int numLeaves = cells * cells;
         int numNodes = CalcCount(surface.Power) - numLeaves;
 
-        // AABBTree_CreateLeafs (:406).
+        // AABBTree_CreateLeafs.
         short[] leafTris = new short[numLeaves * 2];
         for (int h = 0; h < cells; h++)
         {
@@ -115,7 +115,7 @@ public sealed class DispCollisionTree
         Vec3[] childMins = new Vec3[numNodes * 4];
         Vec3[] childMaxs = new Vec3[numNodes * 4];
 
-        // AABBTree_CalcBounds (:468): nothing to do without vertices or nodes.
+        // AABBTree_CalcBounds: nothing to do without vertices or nodes.
         if (surface.Size == 0 || numNodes == 0)
         {
             return new DispCollisionTree(
@@ -142,7 +142,7 @@ public sealed class DispCollisionTree
         out Vec3 mins,
         out Vec3 maxs)
     {
-        // AABBTree_GenerateBoxes_r (:432). ClearBounds is +-99999.
+        // AABBTree_GenerateBoxes_r. ClearBounds is +-99999.
         Bounds b = Bounds.Cleared;
         if (node >= numNodes)
         {

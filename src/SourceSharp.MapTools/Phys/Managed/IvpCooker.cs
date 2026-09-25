@@ -170,7 +170,7 @@ internal static class IvpCooker<T, TP>
 }
 
 /// <summary>
-/// <c>compactsurfaceheader_t</c> + the surface(:508).
+/// <c>compactsurfaceheader_t</c> + the surface.
 /// </summary>
 internal static class VphyWriter
 {

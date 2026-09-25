@@ -48,7 +48,7 @@ public class GameInfoToolsKeyTests
     [Fact]
     public void TheSectionAndItsChildKeysAreCaseInsensitive()
     {
-        // ++'s KeyValues lookups fold case; so does the port's.
+        // The reference KeyValues lookups fold case; so does the port's.
         GameInfo info = GameInfo.Parse("\"GameInfo\"\n{\n"
             + "    TOOLS\n    {\n        VBSP\t\"-cullall\"\n    }\n}\n");
 
@@ -105,7 +105,7 @@ public class GameInfoToolsKeyTests
     [Fact]
     public void TheFlatFormYieldsNoArgumentsAndIsFlagged()
     {
-        // The shape a mod author writes when they mean the section form. ++
+        // The shape a mod author writes when they mean the section form. The
         // walks INTO Tools as a section, so a value on the same line is never
         // read as a tool argument — the flags silently do nothing. The port
         // matches (no arguments land anywhere) and reports the shape.
@@ -180,7 +180,7 @@ public class GameInfoToolsKeyTests
         Assert.DoesNotContain(r.Diagnostics, x => x.Code == FormatResolution.FlatToolsCode);
     }
 
-    // ---- ++'s tokenisation of the value ----
+    // ---- The reference tokenisation of the value ----
 
     [Theory]
     // strtok collapses runs of separators; empty runs drop.

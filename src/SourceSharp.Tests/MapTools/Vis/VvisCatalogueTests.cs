@@ -17,7 +17,7 @@ namespace SourceSharp.Tests.MapTools.Vis;
 
 /// <summary>
 /// The catalogue's vvis expectations, against managed vvis running on STOCK
-/// vbsp's output (plan_maptools.md I3).
+/// vbsp's output.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -299,7 +299,7 @@ public class VvisCatalogueTests
     [MemberData(nameof(EntriesWithVisExpectations))]
     public async Task TightenedVisibilityIsASubsetOfTheUntightened(string name)
     {
-        // plan_maptools.md 5, 2c: a -tighten delta that ADDS a bit anywhere is
+        // A -tighten delta that ADDS a bit anywhere is
         // a bug in the tightening, not a tolerance to widen. PVS and PAS both,
         // every row.
         (_, VisResult loose) = await ViseAsync(name, degree: 8, options: VvisOptions.Untightened);

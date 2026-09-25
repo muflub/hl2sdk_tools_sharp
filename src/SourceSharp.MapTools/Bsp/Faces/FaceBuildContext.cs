@@ -91,7 +91,7 @@ public sealed class FaceBuildContext
     /// <c>FaceFromPortal</c> writes the raw plane number rather than the
     /// side-tagged one for brush models, and
     /// <c>FixFaceEdges</c> builds a re-triangulation primitive only for the
- /// World.
+    /// World.
     /// </remarks>
     public int EntityNumber { get; set; }
 

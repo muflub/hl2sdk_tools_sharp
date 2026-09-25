@@ -66,7 +66,7 @@ public readonly record struct BspBlockGrid(int MinX, int MinY, int MaxX, int Max
 /// </para>
 /// <para>
 /// Options stock parses but this port drops, with reasons from
-/// plan_maptools.md 9. The stock-spelling parser still ACCEPTS each of these
+/// the option audit. The stock-spelling parser still ACCEPTS each of these
 /// and reports it as a diagnostic rather than failing, so a pasted Hammer
 /// command line keeps working:
 /// <list type="bullet">

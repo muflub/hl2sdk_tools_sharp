@@ -47,7 +47,6 @@ public static class StockLightColor
 
     /// <summary>
     /// <c>power2_n</c>: <c>2^(i-128) / 255</c>, as floats
-    ///.
     /// </summary>
     private static readonly ImmutableArray<float> Power2N =
         ImmutableCollectionsMarshal.AsImmutableArray(BuildPower2N());
@@ -72,7 +71,6 @@ public static class StockLightColor
 
     /// <summary>
     /// A linear 0..1 value in gamma-corrected 0..255
-    ///.
     /// </summary>
     /// <param name="f">The linear value.</param>
     /// <returns>The screen value, 0..255.</returns>
@@ -119,7 +117,7 @@ public static class StockLightColor
     /// The rescale is by a float SYNTHESISED from bits --
     /// <c>(127 - exponent) &lt;&lt; 23</c> reinterpreted -- rather than by
     /// <c>pow</c>. That is exact for every exponent in range and is why this
-    /// branch and the <c>#if 0</c> one above it in the C++ do not always agree.
+    /// branch and the <c>#if 0</c> one above it in the reference build do not always agree.
     /// </para>
     /// <para>
     /// The three channel conversions are float-to-int truncations. .NET
@@ -246,7 +244,7 @@ public static class StockLightColor
     /// <summary>The <c>power2_n</c> table.</summary>
     /// <returns>256 floats, <c>2^(i-128) / 255</c>.</returns>
     /// <remarks>
-    /// The C++ writes these out as decimal literals to 19 digits, which is a
+    /// The reference build writes these out as decimal literals to 19 digits, which is a
     /// round-tripping double; computing <c>2^(i-128)</c> exactly in double and
     /// dividing by 255 lands on the same double, and the narrowing to float is
     /// then the same narrowing. Entries whose true value underflows float
@@ -267,7 +265,6 @@ public static class StockLightColor
     /// <summary>
     /// <c>lineartovertex</c>: linear 0..4 (times 1024) to vertex-light 0..1, as
     /// <c>BuildGammaTable(2.2f, 2.2f, 0.0f, 2)</c> leaves it
-    ///.
     /// </summary>
     private static readonly ImmutableArray<float> LinearToVertex =
         ImmutableCollectionsMarshal.AsImmutableArray(BuildLinearToVertex());

@@ -3,7 +3,6 @@ namespace SourceSharp.MapTools.Vis;
 /// <summary>
 /// The run-length coder LUMP_VISIBILITY stores its rows in:
 /// <c>CompressVis</c> and <c>DecompressVis</c>
-///.
 /// </summary>
 /// <remarks>
 /// <para>

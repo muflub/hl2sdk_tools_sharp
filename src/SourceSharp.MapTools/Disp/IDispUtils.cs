@@ -66,14 +66,13 @@ public interface IDispUtils
 }
 
 /// <summary>
-/// The <c>SetInvalid</c> helpers the BSP neighbour structs carry in C++ but
+/// The <c>SetInvalid</c> helpers the BSP neighbour structs carry in the reference build but
 /// that the managed lump structs, which are pure layout, do not.
 /// </summary>
 public static class DispNeighborExtensions
 {
     /// <summary>
-    /// Clears both sub-neighbours: <c>CDispNeighbor::SetInvalid</c>,
-    ///.
+    /// Clears both sub-neighbours: <c>CDispNeighbor::SetInvalid</c>.
     /// </summary>
     /// <param name="neighbor">The edge record to clear.</param>
     public static void SetInvalid(this ref DispNeighbor neighbor)

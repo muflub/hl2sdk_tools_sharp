@@ -9,7 +9,7 @@ using SourceSharp.MapTools.Compile.Cache;
 namespace SourceSharp.MapTools.Cache.Sqlite;
 
 /// <summary>
-/// The on-disk store of plan_maptools.md 10a ruling Q7: one
+/// The on-disk store the cache design rules commit to: one
 /// <c>&lt;map&gt;.sscache.db</c> SQLite database beside the map, WAL journal,
 /// blobs keyed by content hash.
 /// </summary>

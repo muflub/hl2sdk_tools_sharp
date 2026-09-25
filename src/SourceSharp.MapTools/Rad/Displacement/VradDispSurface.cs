@@ -177,7 +177,7 @@ public sealed class VradDispSurface
         Vec3[] points = [.. surf.Points];
 
         // Triangles from the core's index list,
- // each with its plane (CalcPlane).
+        // each with its plane (CalcPlane).
         ReadOnlySpan<ushort> indices = core.TriIndices;
         int triCount = (1 << core.Power) * (1 << core.Power) * 2;
         DispCollTri[] tris = new DispCollTri[triCount];
@@ -407,7 +407,7 @@ public sealed class VradDispSurface
     /// <remarks>
     /// <para>
     /// Two lerps along u, each normalised, then one along v, normalised
- /// A vertex normal that is not unit length therefore
+    /// A vertex normal that is not unit length therefore
     /// weighs less in the first lerp than its share of u -- which is what stock's
     /// short crease normals do
     /// (<see cref="Options.StockQuirk.DispVertexNormalMeanUnnormalised"/>,

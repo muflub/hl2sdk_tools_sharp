@@ -95,7 +95,7 @@ public static class Program
     /// <remarks>
     /// Separate from <see cref="Main"/>, and taking its writer as a parameter,
     /// so the CLI's own logic is reachable from a fact without a process or a
-    /// console (plan_maptools.md 11a: the CLI has little logic by construction,
+    /// console (the CLI has little logic by construction,
     /// and what it has is tested).
     /// </remarks>
     public static async Task<int> RunAsync(
@@ -342,8 +342,8 @@ public static class Program
 
     /// <summary>
     /// <c>ssmap presets</c>: the format-preset table and the appid
-    /// auto-detect table, as ++ presents them (the++ tools print nothing
-    /// like this; the surface parity list the findings file owes asked for
+    /// auto-detect table, presented as the product's own discoverable
+    /// surface (the surface-parity audit asked for
     /// a discoverable one).
     /// </summary>
     private static int PrintPresets(TextWriter output)

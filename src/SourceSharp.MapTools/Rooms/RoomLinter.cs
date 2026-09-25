@@ -75,7 +75,7 @@ public readonly record struct Box(Vec3 Mins, Vec3 Maxs)
 }
 
 /// <summary>
-/// The room linter: the five guarantees of plan_maptools.md §10b's first table,
+/// The room linter: the five room guarantees,
 /// as refusals.
 /// </summary>
 /// <remarks>

@@ -1,7 +1,7 @@
 namespace SourceSharp.MapGen.Catalog;
 
 /// <summary>
-/// What a <see cref="MapFeature"/> is, and which phase of plan_maptools.md can
+/// What a <see cref="MapFeature"/> is, and which porting phase can
 /// first assert anything about it.
 ///
 /// <para>
@@ -17,7 +17,7 @@ public sealed class MapFeatureAttribute : Attribute
     /// <summary>Records what the feature is and who owns it.</summary>
     /// <param name="tool">The stock compiler a failure in this feature lands in.</param>
     /// <param name="phase">
-    /// The plan_maptools.md phase that ports that stage: 2 = vvis, 3 = vbsp,
+    /// The porting phase that ports that stage: 2 = vvis, 3 = vbsp,
     /// 4 = vrad. Below this phase there is no managed compiler to assert
     /// against, so an entry can be declared but not checked.
     /// </param>

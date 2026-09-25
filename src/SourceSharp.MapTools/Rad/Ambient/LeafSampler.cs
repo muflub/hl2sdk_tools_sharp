@@ -195,7 +195,7 @@ public sealed class LeafSampler
     /// <returns>The fraction and, when it is not 1, the surface normal.</returns>
     /// <remarks>
     /// The brush trace, then <c>StartRayTest</c> and
- /// <c>ClipRayToDispInLeaf</c>: the nearer of the two wins,
+    /// <c>ClipRayToDispInLeaf</c>: the nearer of the two wins,
     /// strictly. The displacement scratch is this sampler's own -- stock's
     /// <c>s_DispTested[iThread]</c> as per-work-item state.
     /// </remarks>

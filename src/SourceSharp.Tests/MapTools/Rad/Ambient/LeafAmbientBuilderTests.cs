@@ -28,7 +28,7 @@ public sealed class LeafAmbientBuilderTests
     [Fact]
     public void StockCubesTheXSizeWhateverTheLeafsShape()
     {
-        //:536-538: ySize = max(xSize,1); zSize = max(xSize,1). A 96 x 32 x 64
+        // ySize = max(xSize,1); zSize = max(xSize,1). A 96 x 32 x 64
         // leaf has xSize 3, so stock draws 3*3*3 = 27.
         DLeaf leaf = Leaf(96, 32, 64);
 
@@ -64,7 +64,7 @@ public sealed class LeafAmbientBuilderTests
     [Fact]
     public void TheCountIsClampedAt128()
     {
-        //:546, clamp(volumeCount, 1, 128).
+        // clamp(volumeCount, 1, 128).
         DLeaf leaf = Leaf(1024, 1024, 1024);
 
         Assert.Equal(128, LeafAmbientBuilder.CandidateSampleCount(in leaf, Stock));
@@ -73,7 +73,7 @@ public sealed class LeafAmbientBuilderTests
     [Fact]
     public void FastAmbientDrawsOne()
     {
-        //:541-545, g_bFastAmbient.
+        // The fast-ambient path draws one.
         DLeaf leaf = Leaf(512, 512, 512);
 
         Assert.Equal(1, LeafAmbientBuilder.CandidateSampleCount(in leaf, Stock with { FastAmbient = true }));
@@ -96,7 +96,7 @@ public sealed class LeafAmbientBuilderTests
     [Fact]
     public void Fixed8FractionOfAnEmptyRangeIsZero()
     {
-        //:516, tMax <= tMin.
+        // The fraction is zero when tMax <= tMin.
         Assert.Equal(0, LeafAmbientBuilder.Fixed8Fraction(5f, 5f, 5f));
     }
 

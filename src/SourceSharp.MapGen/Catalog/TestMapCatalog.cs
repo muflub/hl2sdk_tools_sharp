@@ -5,7 +5,7 @@ namespace SourceSharp.MapGen.Catalog;
 /// and what it is expected to produce.
 ///
 /// <para>
-/// WHAT IS HERE AND WHAT IS NOT. plan_maptools.md §2a's feature table spans four
+/// WHAT IS HERE AND WHAT IS NOT. The feature table spans four
 /// phases; this is the part Phase 1 and Phase 2 need first — the vvis features in
 /// full, and the handful of vbsp geometry and structure features that a vvis
 /// entry has to be built out of anyway (a leak, func_detail, hint/skip, the tool

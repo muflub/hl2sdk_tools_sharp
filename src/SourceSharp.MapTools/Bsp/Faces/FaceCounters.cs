@@ -67,7 +67,7 @@ public sealed class FaceCounters
 
     /// <summary>
     /// What <c>FixTjuncs</c> zeroes: three before the weld and four before the
- /// T-junction pass.
+    /// T-junction pass.
     /// </summary>
     /// <remarks>
     /// <see cref="BadStartVerts"/> is deliberately absent. Stock does not reset

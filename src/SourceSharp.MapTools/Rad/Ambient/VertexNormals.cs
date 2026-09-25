@@ -16,7 +16,7 @@ namespace SourceSharp.MapTools.Rad.Ambient;
 /// pattern is arbitrary, not wrong, and this is reproduced unconditionally.
 /// </para>
 /// <para>
-/// The values are transcribed from the C++ at six decimals, which is how they
+/// The values are transcribed from the reference build at six decimals, which is how they
 /// are written there: they are not unit length and were never meant to be.
 /// <c>ComputeAmbientFromSphericalSamples</c> normalises nothing and divides the
 /// accumulated cube by the summed dot products, so the table's small departures

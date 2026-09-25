@@ -166,7 +166,7 @@ public static class VbspCommand
         await WriteDiagnosticsAsync(resolution.Diagnostics, output).ConfigureAwait(false);
 
         // Content provenance: every run names the format it wrote with and
-        // the appid the detection saw (plan_toolspp_support 3 gate 4).
+        // the appid the detection saw.
         await output.WriteLineAsync(
             $"ssmap vbsp: format preset={resolution.Resolved.PresetName ?? "(default)"} "
             + $"bsp={resolution.Resolved.BspVersion} light={resolution.Resolved.WorldLightVersion} "

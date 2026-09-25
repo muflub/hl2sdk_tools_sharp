@@ -140,7 +140,7 @@ public static class LeafAmbientBuilder
     /// <paramref name="sampler"/>, the leaf and the options. The leaf's
     /// <see cref="LeafSampler"/> is constructed here, which is what gives every
     /// leaf a stream seeded zero -- stock's <c>CLeafSampler sampler( iThread );</c>
- /// is a local of this same function. Hoisting it would change
+    /// is a local of this same function. Hoisting it would change
     /// every sample position in the map after the first leaf.
     /// </para>
     /// <para>
@@ -190,7 +190,6 @@ public static class LeafAmbientBuilder
 
     /// <summary>
     /// How many candidate samples a leaf draws
-    ///.
     /// </summary>
     /// <param name="scene">The map.</param>
     /// <param name="leafIndex">The leaf.</param>
@@ -416,7 +415,7 @@ public static class LeafAmbientBuilder
     /// and the result is then the length of that vector, so the sign is
     /// discarded. The intermediate negatives are stock's and are kept rather
     /// than replaced by absolute values, because the length is the same either
-    /// way and the comparison against the C++ should not need an argument.
+    /// way and the comparison against the reference should not need an argument.
     /// </remarks>
     public static float AabbDistance(Vec3 mins0, Vec3 maxs0, Vec3 mins1, Vec3 maxs1)
     {

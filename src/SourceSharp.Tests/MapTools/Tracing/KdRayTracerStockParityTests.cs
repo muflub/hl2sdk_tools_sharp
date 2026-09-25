@@ -297,8 +297,8 @@ public sealed class KdRayTracerStockParityTests : IClassFixture<KdParityFixture>
 
     /// <summary>
     /// Visibility bits agree with stock's hits SHORT OF THE SEGMENT'S END --
-    /// the test stock's callers make on an unclipped trace
-    ///. The scene's rays reach 1,
+    /// the test stock's callers make on an unclipped trace.
+    /// The scene's rays reach 1,
     /// so a stock hit at a distance of 1 or more is not a block.
     /// </summary>
     [Fact]

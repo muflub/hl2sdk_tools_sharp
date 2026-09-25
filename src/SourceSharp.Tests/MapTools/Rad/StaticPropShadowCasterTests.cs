@@ -125,7 +125,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task VertexIndexCombinesTheModelByteOffsetAndTheMeshIndex()
     {
-        // and:1532, the two halves of
+        // The vertex index joins the two halves of
         // mstudio_meshvertexdata_t::Position. The fixture model puts five
         // decoy vertices before the model's run (vertexindex = 5 * 48) and
         // gives the second mesh a vertexoffset of 3, so getting either
@@ -287,10 +287,10 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public void AFailedModelLoadLeavesADegenerateBoxAtThePropsOrigin()
     {
-        //. The dictionary entry's hull corners are
+        // The dictionary entry's hull corners are
         // set to vec3_origin, not left at the header's -- so mins == maxs ==
         // the prop's origin and the twelve triangles have zero area. This is
-        // the ONLY way stock reaches the AABB branch at:1861, which is why
+        // the ONLY way stock reaches the AABB branch, which is why
         // stock's fallback boxes are points and this port's (with a real model
         // and no collision source) are not.
         ShadowCasterStats stats = _fixture.NoContentSet.Stats(ShadowCasterSource.StaticProp);
@@ -503,7 +503,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task TheTransparencyHookIsConsultedOncePerModel()
     {
-        // dict.m_triangleMaterialIndex:1876 and:1985:
+        // The cached dict.m_triangleMaterialIndex drives the replay:
         // the first prop of a model computes the material indices and every
         // later prop replays them.
         SyntheticModel model = SyntheticModel.TwoMeshes();
@@ -741,9 +741,9 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [Fact]
     public async Task AVtxWithAStaleChecksumIsDropped()
     {
-        //. A stale VTX indexes vertices that moved, so
+        // A stale VTX indexes vertices that moved, so
         // stock purges the buffer and the model's render mesh is disabled --
-        // which then trips the:1876 return.
+        // which then trips the material-index return.
         SyntheticModel model = SyntheticModel.TwoMeshes();
         model.CorruptVtxChecksum();
 
@@ -776,7 +776,7 @@ public sealed class StaticPropShadowCasterTests : IClassFixture<StaticPropCaster
     [InlineData("models/a.b/c.mdl", "a")]
     public void CleanModelNameStripsTheModelsPrefixAndTheExtension(string input, string expected)
     {
-        //. The last case is stock's strchr, which cuts
+        // The last case is stock's strchr, which cuts
         // at the FIRST dot -- so a model under a directory with a dot in its
         // name is truncated. Reproduced because the forcetextureshadow list is
         // matched against exactly these strings.

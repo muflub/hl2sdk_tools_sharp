@@ -9,7 +9,7 @@ namespace SourceSharp.MapTools.Compare;
 /// <remarks>
 /// <para>
 /// <see cref="Unset"/> is the default, and it is a VISIBLE state rather than a
-/// quiet pass. plan_maptools.md 2 freezes each threshold from the first
+/// quiet pass. The comparison rules freeze each threshold from the first
 /// measurement in the phase that owns the lump, so at this point in the port
 /// almost every threshold is unset by construction; a report that rendered an
 /// unset threshold as "within limits" would claim an agreement nobody has
