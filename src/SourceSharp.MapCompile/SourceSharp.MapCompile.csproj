@@ -67,8 +67,6 @@
       abort roughly one compile in seven, and no project property here can
       prevent that, because the .csproj does not choose which installed runtime
       build hosts the process.
-
-      Reduced repro and full measurements: /home/lodle/dotnet-osr-repro.
     -->
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>

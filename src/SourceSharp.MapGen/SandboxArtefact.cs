@@ -141,14 +141,13 @@ public static class SandboxArtefact
                 SandboxMapState.NoMapInTree,
                 root,
                 null,
-                $"NO COMPILED MAP IN THIS TREE: {candidate} does not exist, so there is "
-                + "nothing here to compare against Sandbox.cs. This is not a stale map and "
-                + "not a failure — the .bsp is build output and gitignored, so a checkout "
-                + "that has never run `make map MAP=ss_sandbox` legitimately has none (about "
-                + "a minute, and it needs no Steam login). SandboxStalenessTests covers the "
-                + "same judgement on literal inputs, so the logic stays checked here either "
-                + "way. Deliberately NOT searched for outside this tree: a map belonging to "
-                + "some enclosing checkout is not this one's build output.");
+                $"NO COMPILED MAP IN THIS TREE: {candidate} does not exist. This is not a "
+                + "stale map and not a failure — the .bsp is build output compiled from "
+                + "maps/ss_sandbox.vmf and is gitignored, so a checkout that has never run "
+                + "that compile legitimately has none. The states returned here drive the "
+                + "skip logic in SandboxMapFactAttribute and GoldenBsp. Deliberately NOT "
+                + "searched for outside this tree: a map belonging to some enclosing "
+                + "checkout is not this one's build output.");
         }
 
         return new SandboxMapLookup(

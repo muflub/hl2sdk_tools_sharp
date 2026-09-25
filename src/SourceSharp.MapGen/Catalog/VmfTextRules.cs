@@ -8,15 +8,15 @@ namespace SourceSharp.MapGen.Catalog;
 /// THE TRAP THIS EXISTS FOR. The only VMF in this tree, `maps/ss_sandbox.vmf`,
 /// has a raw newline inside a quoted value — a `point_worldtext` whose `message`
 /// runs to two lines. It parses, and it parses in STOCK too, but only by
-/// accident: `CTokenReader::GetString` checks for 0x0d, a carriage return,
-/// inside a quoted string and returns TOKENSTRINGTOOLONG
-/// (`tier1/tokenreader.cpp:110-117`). A bare 0x0a is not checked.
+/// accident: stock's tokenizer checks for 0x0d, a carriage return,
+/// inside a quoted string and rejects the value as too long.
+/// A bare 0x0a is not checked.
 /// </para>
 ///
 /// <para>
-/// `CChunkFile::WriteLine` emits a literal "\r\n" unconditionally
-/// (`public/chunkfile.cpp:977`) and `WriteKeyValue` is a plain
-/// `"\"%s\" \"%s\""` with no escaping (:787). So the moment such a file is
+/// Stock's VMF writer emits a literal "\r\n" unconditionally
+/// at the end of every line, and its keyvalue writer is a plain
+/// `"\"%s\" \"%s\""` with no escaping. So the moment such a file is
 /// written by a faithful writer — or simply converted to CRLF — that newline
 /// becomes CR+LF INSIDE the quotes and stock's own tokenizer rejects the file
 /// stock's own writer produced. `CorpusVmfTests` pins both halves of that.
@@ -67,17 +67,18 @@ public static class VmfTextRules
 
         throw new InvalidOperationException(
             $"catalogue entry '{name}' emitted a raw newline inside a quoted value at line {line}. "
-            + "Stock's tokenizer rejects that shape once the file is CRLF "
-            + "(tier1/tokenreader.cpp:110-117), so the value must not contain one.");
+            + "The reference tokenizer rejects that shape once the file is CRLF, "
+            + "so the value must not contain one.");
     }
 
     /// <summary>
     /// The offset of the first CR or LF that sits inside quotes, or -1.
     ///
     /// <para>
-    /// A VMF has no escape character in its quoting — `WriteKeyValue` writes the
-    /// value raw — so quotes simply alternate and there is no backslash case to
-    /// handle. Following stock rather than being clever about it is the point.
+    /// A VMF has no escape character in its quoting — stock's keyvalue writer
+    /// writes the value raw — so quotes simply alternate and there is no
+    /// backslash case to handle. Following stock rather than being clever about
+    /// it is the point.
     /// </para>
     /// </summary>
     /// <param name="vmf">Text to scan.</param>

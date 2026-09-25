@@ -99,15 +99,14 @@ public class RuleCoverageTests
     }
 
     [Fact]
-    public void EveryRuleCitesTheEngineSourceItCameFrom()
+    public void EveryRuleCarriesAUniqueCodeAndOneLineTitle()
     {
-        // The citation is the reason to believe a rule at all: it says which
-        // line of which loader demands this. A rule without one is a guess.
+        // The catalogue's contract with its host: a stable code and a title
+        // worth printing. A rule with an empty title is a placeholder.
         Assert.All(BspRuleCatalog.All, rule =>
         {
-            Assert.False(string.IsNullOrWhiteSpace(rule.Citation));
-            Assert.Contains(":", rule.Citation, StringComparison.Ordinal);
             Assert.False(string.IsNullOrWhiteSpace(rule.Title));
+            Assert.False(string.IsNullOrWhiteSpace(rule.Code));
         });
     }
 

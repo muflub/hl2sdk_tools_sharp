@@ -371,7 +371,7 @@ public static class Program
             output.WriteLine($"  appid {appid,-8} -> {preset.Name}");
         }
 
-        output.WriteLine("  (anything else: no preset, the SDK-2013 default bucket)");
+        output.WriteLine("  (anything else: no preset, the default behaviour)");
         return ExitSuccess;
     }
 
