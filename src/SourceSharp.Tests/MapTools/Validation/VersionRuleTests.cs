@@ -64,8 +64,6 @@ public class VersionRuleTests
     [Corrupts(BspRuleCodes.LeafsVersion)]
     public async Task ALeafsLumpVersionOutsideZeroToOneIsRejected()
     {
-        //.
-        //
         // This corruption necessarily produces BSP0003 as well, and that is
         // correct rather than sloppy: the version IS the element size, so a
         // version of 2 means the 152,600-byte lump is being measured against a
