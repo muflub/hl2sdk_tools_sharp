@@ -1,0 +1,350 @@
+using System.Globalization;
+using SourceSharp.MapFormats.Geometry;
+
+namespace SourceSharp.MapFormats.Text;
+
+/// <summary>
+/// The conversions a VMF value goes through: the <c>ReadKeyValueXxx</c> and
+/// <c>WriteKeyValueXxx</c> static helpers of <c>CChunkFile</c>
+/// (<c>src/public/chunkfile.cpp:636-940</c>).
+/// </summary>
+/// <remarks>
+/// <para>
+/// These are the whole type system of the format. A VMF stores only strings;
+/// what makes <c>"origin" "0 0 64"</c> a point and
+/// <c>"uaxis" "[1 0 0 0] 0.25"</c> a texture axis is which of these the
+/// handler happened to call.
+/// </para>
+/// <para>
+/// The two bracketings are NOT interchangeable and the C++ is the only place
+/// that says which is which: a POINT is parenthesised, <c>(%f %f %f)</c>
+/// (<c>chunkfile.cpp:719</c>, written at <c>:884</c>); a VECTOR is bracketed,
+/// <c>[%f %f %f]</c> (<c>chunkfile.cpp:753</c>, written at <c>:916</c>). The
+/// cordon bounds in a <c>.vmm</c> use the POINT form
+/// (<c>src/utils/vbsp/manifest.cpp:128-132</c>) while a displacement's start
+/// position uses it too and a texture axis uses the vector form.
+/// </para>
+/// </remarks>
+public static class VmfValue
+{
+    /// <summary>
+    /// <c>ReadKeyValueBool</c>: <c>atoi(value) &gt; 0</c>
+    /// (<c>chunkfile.cpp:636-650</c>).
+    /// </summary>
+    /// <param name="value">The value text.</param>
+    /// <returns>True when the value parses to a positive integer.</returns>
+    /// <remarks>
+    /// STRICTLY greater than zero, so <c>"-1"</c> is FALSE -- which is not what
+    /// a C programmer expects from a flag, and is why a VMF that stores
+    /// <c>-1</c> for "on" reads as off.
+    /// </remarks>
+    public static bool ParseBool(string? value) => CFormat.Atoi(value ?? string.Empty) > 0;
+
+    /// <summary>
+    /// <c>ReadKeyValueInt</c>: <c>atoi</c>
+    /// (<c>chunkfile.cpp:672-676</c>).
+    /// </summary>
+    /// <param name="value">The value text.</param>
+    /// <returns>The value, or zero when it does not parse.</returns>
+    /// <remarks>
+    /// Cannot fail: <c>atoi</c> reports nothing and the C++ returns
+    /// <c>true</c> unconditionally, so <c>"banana"</c> is zero.
+    /// </remarks>
+    public static int ParseInt(string? value) => CFormat.Atoi(value ?? string.Empty);
+
+    /// <summary>
+    /// <c>ReadKeyValueFloat</c>: <c>(float)atof</c>
+    /// (<c>chunkfile.cpp:659-663</c>).
+    /// </summary>
+    /// <param name="value">The value text.</param>
+    /// <returns>The value, or zero when it does not parse.</returns>
+    /// <remarks>
+    /// Parsed at DOUBLE precision and then narrowed, exactly as written. It
+    /// matters: <c>0.1</c> narrowed from the correctly rounded double is not
+    /// always the same float as <c>0.1</c> parsed directly at single precision.
+    /// </remarks>
+    public static float ParseFloat(string? value) => (float)CFormat.Atof(value ?? string.Empty);
+
+    /// <summary>
+    /// <c>ReadKeyValueColor</c>: three integers separated by whitespace
+    /// (<c>chunkfile.cpp:687-706</c>).
+    /// </summary>
+    /// <param name="value">The value text.</param>
+    /// <param name="colour">Receives the red, green and blue bytes.</param>
+    /// <returns>True when all three parsed.</returns>
+    /// <remarks>
+    /// The C++ scans into <c>int</c> and assigns to <c>unsigned char</c>, so a
+    /// component outside 0..255 WRAPS rather than clamping
+    /// (<c>chunkfile.cpp:697-699</c>). Reproduced.
+    /// </remarks>
+    public static bool TryParseColour(string? value, out (byte Red, byte Green, byte Blue) colour)
+    {
+        colour = default;
+
+        if (value is null || !TryScanNumbers(value, '\0', '\0', 3, out double[] parts))
+        {
+            return false;
+        }
+
+        colour = ((byte)(int)parts[0], (byte)(int)parts[1], (byte)(int)parts[2]);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>ReadKeyValuePoint</c>: <c>(%f %f %f)</c>, PARENTHESISED
+    /// (<c>chunkfile.cpp:715-723</c>).
+    /// </summary>
+    /// <param name="value">The value text.</param>
+    /// <param name="point">Receives the point.</param>
+    /// <returns>True when all three parsed.</returns>
+    public static bool TryParsePoint(string? value, out Vec3 point)
+    {
+        point = default;
+
+        if (value is null || !TryScanNumbers(value, '(', ')', 3, out double[] parts))
+        {
+            return false;
+        }
+
+        point = new Vec3((float)parts[0], (float)parts[1], (float)parts[2]);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>ReadKeyValueVector3</c>: <c>[%f %f %f]</c>, BRACKETED
+    /// (<c>chunkfile.cpp:749-757</c>).
+    /// </summary>
+    /// <param name="value">The value text.</param>
+    /// <param name="vector">Receives the vector.</param>
+    /// <returns>True when all three parsed.</returns>
+    public static bool TryParseVector3(string? value, out Vec3 vector)
+    {
+        vector = default;
+
+        if (value is null || !TryScanNumbers(value, '[', ']', 3, out double[] parts))
+        {
+            return false;
+        }
+
+        vector = new Vec3((float)parts[0], (float)parts[1], (float)parts[2]);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>ReadKeyValueVector2</c>: <c>[%f %f]</c>
+    /// (<c>chunkfile.cpp:732-740</c>).
+    /// </summary>
+    /// <param name="value">The value text.</param>
+    /// <param name="vector">Receives the two components.</param>
+    /// <returns>True when both parsed.</returns>
+    public static bool TryParseVector2(string? value, out (float X, float Y) vector)
+    {
+        vector = default;
+
+        if (value is null || !TryScanNumbers(value, '[', ']', 2, out double[] parts))
+        {
+            return false;
+        }
+
+        vector = ((float)parts[0], (float)parts[1]);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>ReadKeyValueVector4</c>: <c>[%f %f %f %f]</c>
+    /// (<c>chunkfile.cpp:766-774</c>).
+    /// </summary>
+    /// <param name="value">The value text.</param>
+    /// <param name="vector">Receives the four components.</param>
+    /// <returns>True when all four parsed.</returns>
+    public static bool TryParseVector4(
+        string? value,
+        out (float X, float Y, float Z, float W) vector)
+    {
+        vector = default;
+
+        if (value is null || !TryScanNumbers(value, '[', ']', 4, out double[] parts))
+        {
+            return false;
+        }
+
+        vector = ((float)parts[0], (float)parts[1], (float)parts[2], (float)parts[3]);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>WriteKeyValueInt</c>'s <c>"%d"</c>
+    /// (<c>chunkfile.cpp:825</c>).
+    /// </summary>
+    /// <param name="value">The value.</param>
+    /// <returns>The formatted text.</returns>
+    public static string FormatInt(int value) => value.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// <c>WriteKeyValueFloat</c>'s <c>"%g"</c>
+    /// (<c>chunkfile.cpp:844</c>).
+    /// </summary>
+    /// <param name="value">The value.</param>
+    /// <returns>The formatted text.</returns>
+    /// <remarks>
+    /// SIX significant digits, and the value is widened to <c>double</c> before
+    /// the conversion, exactly as the cast at <c>chunkfile.cpp:844</c> does. A
+    /// float that needs nine digits to round-trip does NOT survive a Hammer
+    /// save, which is a property of the format and not a defect of this port.
+    /// </remarks>
+    public static string FormatFloat(float value) => CFormat.FormatG(value);
+
+    /// <summary>
+    /// <c>WriteKeyValuePoint</c>'s <c>"(%g %g %g)"</c>
+    /// (<c>chunkfile.cpp:884</c>).
+    /// </summary>
+    /// <param name="point">The point.</param>
+    /// <returns>The formatted text.</returns>
+    public static string FormatPoint(Vec3 point) =>
+        $"({CFormat.FormatG(point.X)} {CFormat.FormatG(point.Y)} {CFormat.FormatG(point.Z)})";
+
+    /// <summary>
+    /// <c>WriteKeyValueVector3</c>'s <c>"[%g %g %g]"</c>
+    /// (<c>chunkfile.cpp:916</c>).
+    /// </summary>
+    /// <param name="vector">The vector.</param>
+    /// <returns>The formatted text.</returns>
+    public static string FormatVector3(Vec3 vector) =>
+        $"[{CFormat.FormatG(vector.X)} {CFormat.FormatG(vector.Y)} {CFormat.FormatG(vector.Z)}]";
+
+    /// <summary>
+    /// <c>WriteKeyValueColor</c>'s <c>"%d %d %d"</c>
+    /// (<c>chunkfile.cpp:865</c>).
+    /// </summary>
+    /// <param name="red">The red component.</param>
+    /// <param name="green">The green component.</param>
+    /// <param name="blue">The blue component.</param>
+    /// <returns>The formatted text.</returns>
+    public static string FormatColour(byte red, byte green, byte blue) =>
+        string.Create(CultureInfo.InvariantCulture, $"{red} {green} {blue}");
+
+    /// <summary>
+    /// The scanning half of <c>sscanf(value, "&lt;open&gt;%f %f ...&lt;close&gt;")</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>sscanf</c> rules that matter and are reproduced: whitespace in the
+    /// format matches any run of whitespace INCLUDING NONE; a literal in the
+    /// format must match exactly; and the return value counts assignments, so
+    /// trailing literals that fail to match do NOT reduce it. That last one is
+    /// why <c>"[1 2 3"</c> with no closing bracket still parses as a vector:
+    /// three assignments happened before the <c>]</c> failed to match.
+    /// </remarks>
+    private static bool TryScanNumbers(
+        string text,
+        char open,
+        char close,
+        int count,
+        out double[] values)
+    {
+        values = new double[count];
+        int index = 0;
+
+        if (open != '\0')
+        {
+            index = SkipWhitespace(text, index);
+            if (index >= text.Length || text[index] != open)
+            {
+                return false;
+            }
+
+            index++;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            index = SkipWhitespace(text, index);
+
+            int start = index;
+            int end = ScanFloat(text, index);
+            if (end == start)
+            {
+                return false;
+            }
+
+            values[i] = double.Parse(
+                text[start..end], NumberStyles.Float, CultureInfo.InvariantCulture);
+            index = end;
+        }
+
+        // The closing literal is deliberately NOT required: see the remarks.
+        _ = close;
+        return true;
+    }
+
+    private static int SkipWhitespace(string text, int index)
+    {
+        while (index < text.Length && char.IsWhiteSpace(text[index]))
+        {
+            index++;
+        }
+
+        return index;
+    }
+
+    private static int ScanFloat(string text, int index)
+    {
+        int start = index;
+
+        if (index < text.Length && (text[index] == '+' || text[index] == '-'))
+        {
+            index++;
+        }
+
+        int digits = 0;
+        while (index < text.Length && char.IsAsciiDigit(text[index]))
+        {
+            index++;
+            digits++;
+        }
+
+        if (index < text.Length && text[index] == '.')
+        {
+            int afterDot = index + 1;
+            int fractionDigits = 0;
+            while (afterDot < text.Length && char.IsAsciiDigit(text[afterDot]))
+            {
+                afterDot++;
+                fractionDigits++;
+            }
+
+            if (digits > 0 || fractionDigits > 0)
+            {
+                index = afterDot;
+                digits += fractionDigits;
+            }
+        }
+
+        if (digits == 0)
+        {
+            return start;
+        }
+
+        if (index < text.Length && (text[index] == 'e' || text[index] == 'E'))
+        {
+            int afterExponent = index + 1;
+            if (afterExponent < text.Length &&
+                (text[afterExponent] == '+' || text[afterExponent] == '-'))
+            {
+                afterExponent++;
+            }
+
+            int exponentStart = afterExponent;
+            while (afterExponent < text.Length && char.IsAsciiDigit(text[afterExponent]))
+            {
+                afterExponent++;
+            }
+
+            if (afterExponent > exponentStart)
+            {
+                index = afterExponent;
+            }
+        }
+
+        return index;
+    }
+}

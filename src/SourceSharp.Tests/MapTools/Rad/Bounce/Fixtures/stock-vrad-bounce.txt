@@ -1,0 +1,300 @@
+# p4d stock bounce reference. Regenerate with Fixtures/mkbounce.py.
+# Stock x64 vrad.exe (Valve Software - vrad.exe SSE, Feb 17 2025) under wine,
+#   vrad.exe -threads 1 -verbose -game <tools/mapgame> <map>
+# on stock vbsp + vvis -threads 1 output (ref/catmaps-all; p4c_texlights from ref/p4c/rad).
+#
+# map <name>
+# transfers <total_transfer> <max_transfer>       vrad.cpp:1933
+# bounce <n> <r> <g> <b>                          vrad.cpp:1715, %.0f each
+
+map l1_areaportal
+transfers 253954 224
+bounce 1 44999 40016 35576
+bounce 2 15476 12368 10378
+bounce 3 4683 3306 2505
+bounce 4 1518 969 685
+bounce 5 473 269 173
+bounce 6 151 77 46
+bounce 7 48 22 12
+bounce 8 15 6 3
+bounce 9 5 2 1
+bounce 10 2 0 0
+bounce 11 0 0 0
+
+map l1_corridor_farz
+transfers 939230 212
+bounce 1 159748 130685 116189
+bounce 2 52478 36286 30546
+bounce 3 15132 8549 6488
+bounce 4 4690 2268 1615
+bounce 5 1395 562 363
+bounce 6 426 147 89
+bounce 7 128 38 21
+bounce 8 39 10 5
+bounce 9 12 3 1
+bounce 10 4 1 0
+bounce 11 1 0 0
+bounce 12 0 0 0
+
+map l1_corridor_radius_override
+transfers 939230 212
+bounce 1 159748 130685 116189
+bounce 2 52478 36286 30546
+bounce 3 15132 8549 6488
+bounce 4 4690 2268 1615
+bounce 5 1395 562 363
+bounce 6 426 147 89
+bounce 7 128 38 21
+bounce 8 39 10 5
+bounce 9 12 3 1
+bounce 10 4 1 0
+bounce 11 1 0 0
+bounce 12 0 0 0
+
+map l1_func_detail
+transfers 195455 227
+bounce 1 19952 18924 16848
+bounce 2 6634 5799 4784
+bounce 3 2035 1628 1205
+bounce 4 653 484 329
+bounce 5 205 140 86
+bounce 6 65 41 23
+bounce 7 21 12 6
+bounce 8 6 3 2
+bounce 9 2 1 0
+bounce 10 1 0 0
+
+map l1_hint_skip
+transfers 200807 225
+bounce 1 39346 37794 33352
+bounce 2 14022 13131 10851
+bounce 3 4566 4138 3092
+bounce 4 1561 1375 950
+bounce 5 520 444 279
+bounce 6 176 146 84
+bounce 7 59 47 25
+bounce 8 20 15 8
+bounce 9 7 5 2
+bounce 10 2 2 1
+bounce 11 1 1 0
+
+map l1_long_corridor
+transfers 1896420 217
+bounce 1 318303 256444 228126
+bounce 2 103806 69730 58796
+bounce 3 29638 15919 12099
+bounce 4 9109 4116 2942
+bounce 5 2683 984 637
+bounce 6 811 250 152
+bounce 7 241 62 34
+bounce 8 73 16 8
+bounce 9 22 4 2
+bounce 10 7 1 0
+bounce 11 2 0 0
+bounce 12 1 0 0
+
+map l1_open_arena
+transfers 1867898 297
+bounce 1 45237 35428 31174
+bounce 2 13369 8278 6971
+bounce 3 3640 1738 1295
+bounce 4 1063 430 304
+bounce 5 300 100 64
+bounce 6 88 26 15
+bounce 7 25 6 3
+bounce 8 7 2 1
+bounce 9 2 0 0
+bounce 10 1 0 0
+
+map l1_sealed_room
+transfers 200809 225
+bounce 1 39361 37809 33364
+bounce 2 14030 13138 10856
+bounce 3 4570 4141 3094
+bounce 4 1562 1376 951
+bounce 5 520 444 280
+bounce 6 176 146 84
+bounce 7 59 47 25
+bounce 8 20 15 8
+bounce 9 7 5 2
+bounce 10 2 2 1
+bounce 11 1 1 0
+
+map l1_three_doors_almost_in_a_line
+transfers 496568 238
+bounce 1 85690 72491 64536
+bounce 2 28766 21046 17742
+bounce 3 8402 5171 3928
+bounce 4 2654 1433 1021
+bounce 5 802 371 240
+bounce 6 249 102 61
+bounce 7 76 27 15
+bounce 8 24 7 4
+bounce 9 7 2 1
+bounce 10 2 1 0
+bounce 11 1 0 0
+
+map l1_three_doors_in_a_line
+transfers 510052 241
+bounce 1 88060 74799 66660
+bounce 2 29700 21832 18438
+bounce 3 8669 5359 4075
+bounce 4 2747 1492 1064
+bounce 5 831 387 250
+bounce 6 259 106 64
+bounce 7 79 28 16
+bounce 8 25 8 4
+bounce 9 8 2 1
+bounce 10 2 1 0
+bounce 11 1 0 0
+
+map l1_tool_textures
+transfers 199343 230
+bounce 1 39536 37988 33509
+bounce 2 13745 12870 10625
+bounce 3 4479 4061 3038
+bounce 4 1510 1330 920
+bounce 5 500 427 270
+bounce 6 167 139 81
+bounce 7 56 45 24
+bounce 8 19 14 7
+bounce 9 6 5 2
+bounce 10 2 2 1
+bounce 11 1 0 0
+
+map l1_two_rooms_and_a_door
+transfers 248402 231
+bounce 1 44281 39381 34992
+bounce 2 15202 12139 10184
+bounce 3 4578 3228 2444
+bounce 4 1480 942 667
+bounce 5 460 260 167
+bounce 6 146 74 44
+bounce 7 46 21 11
+bounce 8 14 6 3
+bounce 9 5 2 1
+bounce 10 1 0 0
+bounce 11 0 0 0
+
+map l1_vvis_fast
+transfers 350672 209
+bounce 1 61401 52485 46596
+bounce 2 20614 15484 12981
+bounce 3 6106 3944 2985
+bounce 4 1935 1110 786
+bounce 5 591 296 190
+bounce 6 185 82 49
+bounce 7 57 22 12
+bounce 8 18 6 3
+bounce 9 5 2 1
+bounce 10 2 0 0
+bounce 11 1 0 0
+
+map l1_water_and_fog_leaves
+transfers 228260 233
+bounce 1 36725 32705 29061
+bounce 2 12066 9711 8186
+bounce 3 3567 2572 1986
+bounce 4 1127 742 540
+bounce 5 343 203 136
+bounce 6 107 58 36
+bounce 7 33 16 9
+bounce 8 10 4 2
+bounce 9 3 1 1
+bounce 10 1 0 0
+
+map l1_water_volume
+transfers 173407 229
+bounce 1 25006 24031 21203
+bounce 2 8155 7690 6458
+bounce 3 2413 2218 1733
+bounce 4 755 679 502
+bounce 5 229 201 139
+bounce 6 71 61 40
+bounce 7 22 18 11
+bounce 8 7 5 3
+bounce 9 2 2 1
+bounce 10 1 0 0
+
+map l2_areaportal_between_pools
+transfers 190376 215
+bounce 1 26654 23731 21077
+bounce 2 8275 6756 5750
+bounce 3 2355 1763 1404
+bounce 4 713 496 378
+bounce 5 208 133 95
+bounce 6 62 37 25
+bounce 7 18 10 6
+bounce 8 5 3 2
+bounce 9 2 1 0
+bounce 10 0 0 0
+
+map l2_detail_and_hint_in_a_corridor
+transfers 474074 209
+bounce 1 79710 66393 58891
+bounce 2 26115 18395 15333
+bounce 3 7508 4384 3283
+bounce 4 2319 1165 812
+bounce 5 688 292 184
+bounce 6 209 77 45
+bounce 7 63 20 11
+bounce 8 19 5 3
+bounce 9 6 1 1
+bounce 10 2 0 0
+bounce 11 1 0 0
+
+map l3_arena_144_pillars
+transfers 6662894 375
+bounce 1 51147 37643 33177
+bounce 2 14993 8343 7046
+bounce 3 3944 1559 1156
+bounce 4 1121 359 254
+bounce 5 305 75 47
+bounce 6 86 18 11
+bounce 7 24 4 2
+bounce 8 7 1 0
+bounce 9 2 0 0
+bounce 10 1 0 0
+
+map l3_corridor_64_rooms
+transfers 7751637 222
+bounce 1 1290569 1029192 915876
+bounce 2 419199 275978 232953
+bounce 3 118992 61614 46866
+bounce 4 36391 15631 11195
+bounce 5 10653 3633 2357
+bounce 6 3202 902 548
+bounce 7 947 214 118
+bounce 8 283 53 27
+bounce 9 84 13 6
+bounce 10 25 3 1
+bounce 11 7 1 0
+bounce 12 2 0 0
+bounce 13 1 0 0
+
+map ss_sandbox
+transfers 31813382 1692
+bounce 1 339632 300294 252407
+bounce 2 95756 79374 58533
+bounce 3 36816 29825 21491
+bounce 4 11047 8477 5452
+bounce 5 4123 3085 1923
+bounce 6 1282 915 516
+bounce 7 469 326 177
+bounce 8 150 100 49
+bounce 9 54 35 17
+bounce 10 18 11 5
+bounce 11 6 4 2
+bounce 12 2 1 0
+bounce 13 1 0 0
+
+map p4c_texlights
+transfers 146199 217
+bounce 1 108672 79357 64413
+bounce 2 16670 9620 6649
+bounce 3 2813 1411 847
+bounce 4 455 188 96
+bounce 5 76 27 12
+bounce 6 13 4 2
+bounce 7 2 1 0
+bounce 8 0 0 0

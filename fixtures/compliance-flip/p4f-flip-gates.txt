@@ -1,0 +1,1967 @@
+LAUNCH-A 2026-09-24T23:28:01-07:00 load=13.81 11.49 7.97 3/3775 2548186
+Test run for /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/bin/SourceSharp.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:02.17]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_tags_flags") [FAIL]
+[xUnit.net 00:00:02.30]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_water_overlay") [FAIL]
+[xUnit.net 00:00:02.58]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_three_doors_almost_in_a_line") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_tags_flags") [1 s]
+  Error Message:
+   25 records differ; frozen at 22
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_tags_flags: records 226487/226512 exact (99.989%), averages 161/161, faces 139/161 exact, p99 0.000%, max 0.775%
+   face 13: 2/4224 records differ, max 0.775%
+   face 131: 1/4096 records differ, max 0.714%
+   face 153: 1/256 records differ, max 0.704%
+   face 5: 1/396 records differ, max 0.694%
+   face 36: 1/4096 records differ, max 0.694%
+   face 34: 1/4096 records differ, max 0.633%
+   face 37: 1/384 records differ, max 0.621%
+   face 33: 2/4096 records differ, max 0.613%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_water_overlay") [133 ms]
+  Error Message:
+   550 records differ; frozen at 0
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_water_overlay: records 7678/8228 exact (93.316%), averages 18/24, faces 1/24 exact, p99 1.449%, max 18.750%
+   face 5: 102/1156 records differ, max 18.750%
+   face 13: 109/1156 records differ, max 16.111%
+   face 2: 28/289 records differ, max 3.030%
+   face 10: 23/289 records differ, max 3.030%
+   face 18: 29/289 records differ, max 3.030%
+   face 26: 25/289 records differ, max 3.030%
+   face 31: 23/85 records differ, max 1.163%
+   face 28: 15/221 records differ, max 1.143%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 164, managed 164)
+   LeafAmbientLighting: differs (stock 2744, managed 2772)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_three_doors_almost_in_a_line") [279 ms]
+  Error Message:
+   23391 records differ; frozen at 33
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_three_doors_almost_in_a_line: records 12504/35895 exact (34.835%), averages 37/76, faces 0/76 exact, p99 31.757%, max 61.207%
+   face 46: 2243/2500 records differ, max 61.207%
+   face 4: 2176/2500 records differ, max 60.593%
+   face 45: 1689/2500 records differ, max 56.985%
+   face 61: 1465/2500 records differ, max 56.985%
+   face 60: 1490/2500 records differ, max 42.708%
+   face 0: 569/625 records differ, max 23.077%
+   face 43: 599/625 records differ, max 23.077%
+   face 42: 463/625 records differ, max 21.519%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 6020, managed 6020)
+   Leafs: identical
+
+
+[xUnit.net 00:00:03.15]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_smooth_mintess") [FAIL]
+[xUnit.net 00:00:03.95]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_rotated") [FAIL]
+[xUnit.net 00:00:04.17]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_detail_type_material") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_smooth_mintess") [566 ms]
+  Error Message:
+   19 records differ; frozen at 16
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_smooth_mintess: records 226493/226512 exact (99.992%), averages 161/161, faces 143/161 exact, p99 0.000%, max 0.855%
+   face 88: 1/256 records differ, max 0.855%
+   face 111: 1/4224 records differ, max 0.855%
+   face 16: 1/256 records differ, max 0.806%
+   face 28: 1/384 records differ, max 0.794%
+   face 131: 1/4096 records differ, max 0.709%
+   face 60: 1/4096 records differ, max 0.694%
+   face 77: 1/256 records differ, max 0.685%
+   face 33: 2/4096 records differ, max 0.658%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_rotated") [799 ms]
+  Error Message:
+   24 records differ; frozen at 23
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_rotated: records 230376/230400 exact (99.990%), averages 164/164, faces 144/164 exact, p99 0.000%, max 0.752%
+   face 144: 1/256 records differ, max 0.752%
+   face 58: 1/4096 records differ, max 0.719%
+   face 71: 1/4224 records differ, max 0.719%
+   face 74: 1/256 records differ, max 0.719%
+   face 77: 1/256 records differ, max 0.667%
+   face 131: 3/4096 records differ, max 0.629%
+   face 109: 1/16 records differ, max 0.625%
+   face 114: 1/256 records differ, max 0.571%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_detail_type_material") [225 ms]
+  Error Message:
+   1273 records differ; frozen at 0
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_detail_type_material: records 3351/4624 exact (72.470%), averages 10/16, faces 0/16 exact, p99 3.352%, max 8.523%
+   face 5: 77/289 records differ, max 8.523%
+   face 13: 99/289 records differ, max 8.523%
+   face 1: 82/289 records differ, max 8.284%
+   face 9: 90/289 records differ, max 8.284%
+   face 3: 87/289 records differ, max 3.279%
+   face 10: 94/289 records differ, max 3.279%
+   face 12: 89/289 records differ, max 3.191%
+   face 15: 90/289 records differ, max 2.871%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 116, managed 116)
+   LeafAmbientLighting: differs (stock 1540, managed 1512)
+   Leafs: identical
+
+
+[xUnit.net 00:00:05.61]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l3_arena_144_pillars") [FAIL]
+[xUnit.net 00:00:05.65]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_overlay") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l3_arena_144_pillars") [1 s]
+  Error Message:
+   79372 records differ; frozen at 19788
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l3_arena_144_pillars: records 314353/393725 exact (79.841%), averages 1077/1444, faces 48/1444 exact, p99 1.953%, max 98.122%
+   face 430: 20/225 records differ, max 98.122%
+   face 936: 139/175 records differ, max 90.192%
+   face 825: 334/360 records differ, max 52.273%
+   face 574: 91/175 records differ, max 38.571%
+   face 806: 97/175 records differ, max 35.648%
+   face 1233: 92/175 records differ, max 35.145%
+   face 1178: 37/70 records differ, max 34.711%
+   face 366: 88/175 records differ, max 33.684%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 2236, managed 2236)
+   LeafAmbientLighting: differs (stock 92232, managed 92204)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_overlay") [39 ms]
+  Error Message:
+   2468 records differ; frozen at 3
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_overlay: records 5624/8092 exact (69.501%), averages 10/16, faces 0/16 exact, p99 2.994%, max 14.286%
+   face 12: 417/1156 records differ, max 14.286%
+   face 5: 73/289 records differ, max 8.523%
+   face 13: 98/289 records differ, max 8.523%
+   face 1: 88/289 records differ, max 8.284%
+   face 9: 91/289 records differ, max 8.284%
+   face 3: 86/289 records differ, max 3.279%
+   face 10: 92/289 records differ, max 3.279%
+   face 15: 93/289 records differ, max 2.871%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 116, managed 116)
+   LeafAmbientLighting: differs (stock 1540, managed 1512)
+   Leafs: identical
+
+
+[xUnit.net 00:00:06.06]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_lm8_clamp") [FAIL]
+[xUnit.net 00:00:06.22]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_wall") [FAIL]
+[xUnit.net 00:00:06.29]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l2_detail_and_hint_in_a_corridor") [FAIL]
+[xUnit.net 00:00:06.40]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_three_doors_in_a_line") [FAIL]
+[xUnit.net 00:00:06.52]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_corridor_farz") [FAIL]
+[xUnit.net 00:00:06.58]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_default_cubemap") [FAIL]
+[xUnit.net 00:00:06.62]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_tool_textures") [FAIL]
+[xUnit.net 00:00:06.65]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_func_detail") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_lm8_clamp") [352 ms]
+  Error Message:
+   965 records differ; frozen at 963
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_lm8_clamp: records 241387/242352 exact (99.602%), averages 158/161, faces 115/161 exact, p99 0.000%, max 22.028%
+   face 91: 108/4096 records differ, max 22.028%
+   face 22: 107/4096 records differ, max 21.986%
+   face 125: 135/4096 records differ, max 19.792%
+   face 52: 134/4096 records differ, max 19.718%
+   face 23: 178/384 records differ, max 19.424%
+   face 53: 214/384 records differ, max 18.504%
+   face 62: 11/384 records differ, max 0.847%
+   face 160: 11/17136 records differ, max 0.820%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_wall") [160 ms]
+  Error Message:
+   20 records differ; frozen at 14
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_wall: records 226492/226512 exact (99.991%), averages 161/161, faces 146/161 exact, p99 0.000%, max 0.820%
+   face 98: 1/4096 records differ, max 0.820%
+   face 49: 2/4096 records differ, max 0.769%
+   face 119: 1/256 records differ, max 0.735%
+   face 63: 2/4096 records differ, max 0.719%
+   face 31: 1/4096 records differ, max 0.709%
+   face 79: 2/256 records differ, max 0.709%
+   face 34: 1/4096 records differ, max 0.694%
+   face 77: 2/256 records differ, max 0.690%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l2_detail_and_hint_in_a_corridor") [70 ms]
+  Error Message:
+   31093 records differ; frozen at 118
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l2_detail_and_hint_in_a_corridor: records 5481/36574 exact (14.986%), averages 20/88, faces 0/88 exact, p99 36.972%, max 61.731%
+   face 38: 2289/2500 records differ, max 61.731%
+   face 72: 2253/2500 records differ, max 61.731%
+   face 24: 2300/2500 records differ, max 61.304%
+   face 40: 2061/2500 records differ, max 61.283%
+   face 54: 2058/2500 records differ, max 61.283%
+   face 23: 2048/2500 records differ, max 60.823%
+   face 74: 2026/2500 records differ, max 60.606%
+   face 56: 2228/2500 records differ, max 60.470%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 4592, managed 4592)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_three_doors_in_a_line") [111 ms]
+  Error Message:
+   19607 records differ; frozen at 48
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_three_doors_in_a_line: records 16409/36016 exact (45.560%), averages 55/80, faces 1/80 exact, p99 20.940%, max 56.985%
+   face 44: 1450/2500 records differ, max 56.985%
+   face 65: 1484/2500 records differ, max 56.985%
+   face 45: 1498/2500 records differ, max 56.475%
+   face 64: 1485/2500 records differ, max 42.708%
+   face 61: 389/625 records differ, max 17.188%
+   face 40: 380/625 records differ, max 17.098%
+   face 21: 271/625 records differ, max 16.754%
+   face 0: 268/625 records differ, max 16.751%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 7392, managed 7392)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_corridor_farz") [113 ms]
+  Error Message:
+   43640 records differ; frozen at 3
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_corridor_farz: records 28190/71830 exact (39.245%), averages 70/152, faces 8/152 exact, p99 34.146%, max 61.641%
+   face 104: 2256/2500 records differ, max 61.641%
+   face 137: 2174/2500 records differ, max 61.641%
+   face 1: 2229/2500 records differ, max 61.207%
+   face 14: 1899/2500 records differ, max 61.184%
+   face 57: 1931/2500 records differ, max 61.184%
+   face 82: 1911/2500 records differ, max 61.184%
+   face 117: 1943/2500 records differ, max 61.184%
+   face 13: 1853/2500 records differ, max 60.730%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 10976, managed 10976)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_default_cubemap") [37 ms]
+  Error Message:
+   2334 records differ; frozen at 1
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_default_cubemap: records 5758/8092 exact (71.157%), averages 9/16, faces 0/16 exact, p99 2.841%, max 14.286%
+   face 12: 386/1156 records differ, max 14.286%
+   face 1: 92/289 records differ, max 8.284%
+   face 9: 102/289 records differ, max 8.284%
+   face 5: 58/289 records differ, max 7.927%
+   face 13: 86/289 records differ, max 7.927%
+   face 10: 84/289 records differ, max 2.927%
+   face 3: 92/289 records differ, max 2.793%
+   face 15: 95/289 records differ, max 2.793%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 116, managed 116)
+   LeafAmbientLighting: differs (stock 1512, managed 1568)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_tool_textures") [39 ms]
+  Error Message:
+   2223 records differ; frozen at 2
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_tool_textures: records 6691/8914 exact (75.062%), averages 27/34, faces 0/34 exact, p99 2.415%, max 14.881%
+   face 24: 351/1156 records differ, max 14.881%
+   face 22: 48/289 records differ, max 11.719%
+   face 25: 88/289 records differ, max 8.571%
+   face 4: 72/289 records differ, max 8.523%
+   face 12: 59/289 records differ, max 3.382%
+   face 27: 89/289 records differ, max 2.913%
+   face 6: 87/289 records differ, max 2.809%
+   face 23: 68/289 records differ, max 2.066%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 240, managed 240)
+   LeafAmbientLighting: differs (stock 4564, managed 4508)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_func_detail") [29 ms]
+  Error Message:
+   2963 records differ; frozen at 174
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_func_detail: records 5923/8886 exact (66.655%), averages 19/34, faces 0/34 exact, p99 6.015%, max 28.846%
+   face 30: 36/85 records differ, max 28.846%
+   face 15: 33/85 records differ, max 28.667%
+   face 0: 40/85 records differ, max 26.250%
+   face 1: 38/85 records differ, max 23.333%
+   face 19: 474/1156 records differ, max 22.041%
+   face 14: 122/289 records differ, max 12.593%
+   face 21: 130/289 records differ, max 12.403%
+   face 5: 96/289 records differ, max 8.955%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 2744, managed 2744)
+   Leafs: identical
+
+
+[xUnit.net 00:00:06.86]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_detail_props") [FAIL]
+[xUnit.net 00:00:07.01]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_corridor_radius_override") [FAIL]
+[xUnit.net 00:00:07.15]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_slope") [FAIL]
+[xUnit.net 00:00:07.33]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_strip") [FAIL]
+[xUnit.net 00:00:07.61]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p2_flat") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_detail_props") [46 ms]
+  Error Message:
+   1421 records differ; frozen at 222
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_detail_props: records 3498/4919 exact (71.112%), averages 15/23, faces 0/23 exact, p99 3.636%, max 58.537%
+   face 8: 40/85 records differ, max 58.537%
+   face 13: 75/289 records differ, max 10.945%
+   face 20: 117/289 records differ, max 8.621%
+   face 1: 89/289 records differ, max 8.571%
+   face 5: 75/289 records differ, max 8.000%
+   face 10: 16/65 records differ, max 4.348%
+   face 0: 77/289 records differ, max 3.243%
+   face 19: 103/289 records differ, max 3.158%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 2772, managed 2772)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_corridor_radius_override") [112 ms]
+  Error Message:
+   43640 records differ; frozen at 3
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_corridor_radius_override: records 28190/71830 exact (39.245%), averages 70/152, faces 8/152 exact, p99 34.146%, max 61.641%
+   face 104: 2256/2500 records differ, max 61.641%
+   face 137: 2174/2500 records differ, max 61.641%
+   face 1: 2229/2500 records differ, max 61.207%
+   face 14: 1899/2500 records differ, max 61.184%
+   face 57: 1931/2500 records differ, max 61.184%
+   face 82: 1911/2500 records differ, max 61.184%
+   face 117: 1943/2500 records differ, max 61.184%
+   face 13: 1853/2500 records differ, max 60.730%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 10976, managed 10976)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_slope") [131 ms]
+  Error Message:
+   123 records differ; frozen at 120
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_slope: records 228117/228240 exact (99.946%), averages 161/161, faces 124/161 exact, p99 0.000%, max 0.826%
+   face 31: 1/4096 records differ, max 0.826%
+   face 120: 1/4096 records differ, max 0.813%
+   face 121: 1/384 records differ, max 0.813%
+   face 62: 41/384 records differ, max 0.806%
+   face 129: 3/4096 records differ, max 0.806%
+   face 134: 22/4096 records differ, max 0.806%
+   face 141: 3/256 records differ, max 0.806%
+   face 61: 18/4096 records differ, max 0.794%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_strip") [152 ms]
+  Error Message:
+   643 records differ; frozen at 639
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_strip: records 229757/230400 exact (99.721%), averages 163/164, faces 99/164 exact, p99 0.000%, max 78.962%
+   face 91: 104/4096 records differ, max 78.962%
+   face 22: 88/4096 records differ, max 6.250%
+   face 23: 138/384 records differ, max 5.078%
+   face 129: 15/4096 records differ, max 0.826%
+   face 100: 16/4096 records differ, max 0.806%
+   face 101: 21/4096 records differ, max 0.806%
+   face 122: 3/4096 records differ, max 0.806%
+   face 132: 37/4096 records differ, max 0.781%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p2_flat") [136 ms]
+  Error Message:
+   121 records differ; frozen at 115
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_p2_flat: records 226391/226512 exact (99.947%), averages 161/161, faces 130/161 exact, p99 0.000%, max 2.538%
+   face 125: 22/4096 records differ, max 2.538%
+   face 53: 33/384 records differ, max 1.914%
+   face 52: 18/4096 records differ, max 1.724%
+   face 128: 8/384 records differ, max 1.290%
+   face 15: 1/4224 records differ, max 0.787%
+   face 129: 1/4096 records differ, max 0.763%
+   face 60: 2/4096 records differ, max 0.758%
+   face 56: 9/36 records differ, max 0.746%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+[xUnit.net 00:00:07.77]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_long_corridor") [FAIL]
+[xUnit.net 00:00:07.93]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_open_arena") [FAIL]
+[xUnit.net 00:00:08.50]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l3_corridor_64_rooms") [FAIL]
+[xUnit.net 00:00:08.53]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_hint_skip") [FAIL]
+[xUnit.net 00:00:08.57]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_env_cubemap") [FAIL]
+[xUnit.net 00:00:08.60]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_static_prop") [FAIL]
+[xUnit.net 00:00:08.65]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_water_and_fog_leaves") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_long_corridor") [153 ms]
+  Error Message:
+   69089 records differ; frozen at 17
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_long_corridor: records 75213/144302 exact (52.122%), averages 177/320, faces 34/320 exact, p99 32.645%, max 61.354%
+   face 90: 1904/2500 records differ, max 61.354%
+   face 13: 1920/2500 records differ, max 61.184%
+   face 38: 1894/2500 records differ, max 61.184%
+   face 60: 1900/2500 records differ, max 61.184%
+   face 141: 1931/2500 records differ, max 61.184%
+   face 166: 1912/2500 records differ, max 61.184%
+   face 213: 1934/2500 records differ, max 61.184%
+   face 235: 1926/2500 records differ, max 61.184%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 18452, managed 18452)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_open_arena") [163 ms]
+  Error Message:
+   23365 records differ; frozen at 777
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_open_arena: records 103175/126540 exact (81.535%), averages 291/374, faces 12/374 exact, p99 3.670%, max 44.882%
+   face 256: 94/175 records differ, max 44.882%
+   face 161: 122/175 records differ, max 31.579%
+   face 76: 113/175 records differ, max 28.095%
+   face 369: 101/175 records differ, max 27.439%
+   face 89: 104/175 records differ, max 24.390%
+   face 353: 88/175 records differ, max 17.857%
+   face 64: 130/175 records differ, max 16.547%
+   face 88: 87/175 records differ, max 13.571%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 35756, managed 35756)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l3_corridor_64_rooms") [573 ms]
+  Error Message:
+   289402 records differ; frozen at 116
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l3_corridor_64_rooms: records 288028/577430 exact (49.881%), averages 694/1292, faces 111/1292 exact, p99 33.019%, max 61.641%
+   face 1196: 2264/2500 records differ, max 61.641%
+   face 1273: 2197/2500 records differ, max 61.641%
+   face 26: 1932/2500 records differ, max 61.354%
+   face 5: 2235/2500 records differ, max 61.207%
+   face 70: 1906/2500 records differ, max 61.184%
+   face 95: 1890/2500 records differ, max 61.184%
+   face 119: 1898/2500 records differ, max 61.184%
+   face 150: 1914/2500 records differ, max 61.184%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 73864, managed 73864)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_hint_skip") [29 ms]
+  Error Message:
+   2721 records differ; frozen at 1
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_hint_skip: records 5371/8092 exact (66.374%), averages 10/16, faces 0/16 exact, p99 4.046%, max 22.697%
+   face 0: 436/1156 records differ, max 22.697%
+   face 8: 442/1156 records differ, max 20.064%
+   face 12: 426/1156 records differ, max 14.286%
+   face 5: 86/289 records differ, max 8.523%
+   face 13: 110/289 records differ, max 8.523%
+   face 1: 100/289 records differ, max 8.284%
+   face 9: 123/289 records differ, max 8.284%
+   face 3: 89/289 records differ, max 3.279%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 124, managed 124)
+   LeafAmbientLighting: differs (stock 1596, managed 1568)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_env_cubemap") [33 ms]
+  Error Message:
+   2334 records differ; frozen at 1
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_env_cubemap: records 5758/8092 exact (71.157%), averages 9/16, faces 0/16 exact, p99 2.841%, max 14.286%
+   face 12: 386/1156 records differ, max 14.286%
+   face 1: 92/289 records differ, max 8.284%
+   face 9: 102/289 records differ, max 8.284%
+   face 5: 58/289 records differ, max 7.927%
+   face 13: 86/289 records differ, max 7.927%
+   face 10: 84/289 records differ, max 2.927%
+   face 3: 92/289 records differ, max 2.793%
+   face 15: 95/289 records differ, max 2.793%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 116, managed 116)
+   LeafAmbientLighting: differs (stock 1512, managed 1568)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_static_prop") [33 ms]
+  Error Message:
+   4258 records differ; frozen at 4148
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_static_prop: records 3834/8092 exact (47.380%), averages 5/16, faces 0/16 exact, p99 33.624%, max 64.247%
+   face 0: 545/1156 records differ, max 64.247%
+   face 4: 733/1156 records differ, max 64.247%
+   face 8: 607/1156 records differ, max 62.332%
+   face 12: 579/1156 records differ, max 62.332%
+   face 1: 189/289 records differ, max 8.571%
+   face 9: 147/289 records differ, max 8.571%
+   face 5: 210/289 records differ, max 8.046%
+   face 13: 108/289 records differ, max 8.046%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 116, managed 116)
+   LeafAmbientLighting: differs (stock 1568, managed 1596)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_water_and_fog_leaves") [45 ms]
+  Error Message:
+   12348 records differ; frozen at 15
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_water_and_fog_leaves: records 5654/18002 exact (31.408%), averages 22/44, faces 0/44 exact, p99 29.907%, max 61.555%
+   face 41: 2060/2500 records differ, max 61.555%
+   face 10: 1510/2500 records differ, max 52.105%
+   face 34: 1493/2500 records differ, max 52.105%
+   face 39: 524/625 records differ, max 23.282%
+   face 15: 449/625 records differ, max 22.901%
+   face 2: 411/625 records differ, max 14.925%
+   face 26: 401/625 records differ, max 14.428%
+   face 3: 212/325 records differ, max 8.871%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 220, managed 220)
+   LeafAmbientLighting: differs (stock 4620, managed 4648)
+   Leafs: identical
+
+
+[xUnit.net 00:00:08.72]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_areaportal") [FAIL]
+[xUnit.net 00:00:08.91]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_swap") [FAIL]
+[xUnit.net 00:00:09.08]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_half_edge_mixed") [FAIL]
+[xUnit.net 00:00:09.23]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_grid_same") [FAIL]
+[xUnit.net 00:00:09.38]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p2_blend") [FAIL]
+[xUnit.net 00:00:09.50]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p4c_texlights") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_areaportal") [45 ms]
+  Error Message:
+   10996 records differ; frozen at 11
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_areaportal: records 6836/17832 exact (38.336%), averages 26/40, faces 0/40 exact, p99 31.849%, max 56.475%
+   face 1: 1525/2500 records differ, max 56.475%
+   face 21: 1529/2500 records differ, max 56.475%
+   face 11: 1557/2500 records differ, max 42.857%
+   face 31: 1544/2500 records differ, max 42.708%
+   face 32: 407/625 records differ, max 16.346%
+   face 2: 401/625 records differ, max 16.337%
+   face 12: 388/625 records differ, max 16.337%
+   face 22: 407/625 records differ, max 16.337%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 3696, managed 3696)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_swap") [166 ms]
+  Error Message:
+   34 records differ; frozen at 32
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_swap: records 226542/226576 exact (99.985%), averages 161/161, faces 131/161 exact, p99 0.000%, max 0.820%
+   face 19: 1/256 records differ, max 0.820%
+   face 23: 1/384 records differ, max 0.787%
+   face 49: 1/4096 records differ, max 0.763%
+   face 98: 1/4096 records differ, max 0.763%
+   face 140: 2/4224 records differ, max 0.730%
+   face 106: 1/384 records differ, max 0.714%
+   face 131: 1/4096 records differ, max 0.709%
+   face 143: 1/256 records differ, max 0.709%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_half_edge_mixed") [169 ms]
+  Error Message:
+   510 records differ; frozen at 506
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_half_edge_mixed: records 231922/232432 exact (99.781%), averages 163/163, faces 117/163 exact, p99 0.000%, max 70.703%
+   face 91: 364/4096 records differ, max 70.703%
+   face 100: 47/4096 records differ, max 0.870%
+   face 16: 1/256 records differ, max 0.820%
+   face 27: 1/4096 records differ, max 0.769%
+   face 15: 1/4224 records differ, max 0.763%
+   face 161: 31/1296 records differ, max 0.763%
+   face 28: 1/384 records differ, max 0.752%
+   face 94: 3/4096 records differ, max 0.746%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_grid_same") [131 ms]
+  Error Message:
+   28 records differ; frozen at 24
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_grid_same: records 230372/230400 exact (99.988%), averages 164/164, faces 140/164 exact, p99 0.000%, max 0.794%
+   face 120: 1/4096 records differ, max 0.794%
+   face 163: 1/1296 records differ, max 0.752%
+   face 123: 1/4096 records differ, max 0.735%
+   face 58: 4/4096 records differ, max 0.730%
+   face 33: 1/4096 records differ, max 0.725%
+   face 92: 1/4096 records differ, max 0.704%
+   face 93: 1/384 records differ, max 0.704%
+   face 101: 1/4096 records differ, max 0.690%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p2_blend") [145 ms]
+  Error Message:
+   43 records differ; frozen at 37
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_p2_blend: records 225497/225540 exact (99.981%), averages 161/161, faces 133/161 exact, p99 0.000%, max 0.813%
+   face 129: 1/4096 records differ, max 0.813%
+   face 141: 2/256 records differ, max 0.813%
+   face 120: 2/4096 records differ, max 0.794%
+   face 79: 1/256 records differ, max 0.787%
+   face 60: 1/4096 records differ, max 0.763%
+   face 4: 1/4224 records differ, max 0.735%
+   face 54: 1/4096 records differ, max 0.735%
+   face 159: 1/16 records differ, max 0.699%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p4c_texlights") [102 ms]
+  Error Message:
+   534 records differ; frozen at 0
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p4c_texlights: records 19516/20050 exact (97.337%), averages 68/68, faces 7/40 exact, p99 0.855%, max 6.202%
+   face 12: 36/578 records differ, max 6.202%
+   face 33: 96/2312 records differ, max 5.909%
+   face 43: 40/578 records differ, max 3.333%
+   face 5: 40/578 records differ, max 2.985%
+   face 1: 50/2040 records differ, max 2.632%
+   face 23: 4/360 records differ, max 2.174%
+   face 42: 3/180 records differ, max 2.000%
+   face 30: 60/1768 records differ, max 1.724%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 5152, managed 5152)
+   Leafs: identical
+
+
+[xUnit.net 00:00:09.53]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_water_volume") [FAIL]
+[xUnit.net 00:00:09.57]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_two_rooms_and_a_door") [FAIL]
+[xUnit.net 00:00:09.75]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_offsets") [FAIL]
+[xUnit.net 00:00:09.78]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_sealed_room") [FAIL]
+[xUnit.net 00:00:09.82]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l2_cubemap_on_water_and_patch") [FAIL]
+[xUnit.net 00:00:10.05]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p4_random") [FAIL]
+[xUnit.net 00:00:10.21]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p3_bump") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_water_volume") [31 ms]
+  Error Message:
+   550 records differ; frozen at 0
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_water_volume: records 7678/8228 exact (93.316%), averages 18/24, faces 1/24 exact, p99 1.449%, max 18.750%
+   face 5: 102/1156 records differ, max 18.750%
+   face 13: 109/1156 records differ, max 16.111%
+   face 2: 28/289 records differ, max 3.030%
+   face 10: 23/289 records differ, max 3.030%
+   face 18: 29/289 records differ, max 3.030%
+   face 26: 25/289 records differ, max 3.030%
+   face 31: 23/85 records differ, max 1.163%
+   face 28: 15/221 records differ, max 1.143%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 164, managed 164)
+   LeafAmbientLighting: differs (stock 2744, managed 2772)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_two_rooms_and_a_door") [42 ms]
+  Error Message:
+   13995 records differ; frozen at 21
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_two_rooms_and_a_door: records 3945/17940 exact (21.990%), averages 8/36, faces 0/36 exact, p99 26.866%, max 61.555%
+   face 29: 2056/2500 records differ, max 61.555%
+   face 20: 2020/2500 records differ, max 56.475%
+   face 18: 531/625 records differ, max 23.282%
+   face 27: 523/625 records differ, max 23.282%
+   face 0: 446/625 records differ, max 22.901%
+   face 9: 445/625 records differ, max 22.901%
+   face 2: 187/312 records differ, max 17.550%
+   face 11: 190/312 records differ, max 5.844%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 3696, managed 3696)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_offsets") [153 ms]
+  Error Message:
+   19 records differ; frozen at 12
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_offsets: records 226493/226512 exact (99.992%), averages 161/161, faces 146/161 exact, p99 0.000%, max 0.833%
+   face 101: 3/4096 records differ, max 0.833%
+   face 54: 1/4096 records differ, max 0.752%
+   face 58: 1/4096 records differ, max 0.719%
+   face 24: 1/4096 records differ, max 0.714%
+   face 60: 1/4096 records differ, max 0.704%
+   face 120: 1/4096 records differ, max 0.704%
+   face 131: 2/4096 records differ, max 0.645%
+   face 143: 1/256 records differ, max 0.617%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_sealed_room") [30 ms]
+  Error Message:
+   2468 records differ; frozen at 3
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_sealed_room: records 5624/8092 exact (69.501%), averages 10/16, faces 0/16 exact, p99 2.994%, max 14.286%
+   face 12: 417/1156 records differ, max 14.286%
+   face 5: 73/289 records differ, max 8.523%
+   face 13: 98/289 records differ, max 8.523%
+   face 1: 88/289 records differ, max 8.284%
+   face 9: 91/289 records differ, max 8.284%
+   face 3: 86/289 records differ, max 3.279%
+   face 10: 92/289 records differ, max 3.279%
+   face 15: 93/289 records differ, max 2.871%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 116, managed 116)
+   LeafAmbientLighting: differs (stock 1540, managed 1512)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l2_cubemap_on_water_and_patch") [39 ms]
+  Error Message:
+   562 records differ; frozen at 0
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l2_cubemap_on_water_and_patch: records 7666/8228 exact (93.170%), averages 20/24, faces 0/24 exact, p99 1.562%, max 18.902%
+   face 5: 101/1156 records differ, max 18.902%
+   face 13: 115/1156 records differ, max 15.723%
+   face 2: 26/289 records differ, max 3.226%
+   face 10: 28/289 records differ, max 3.226%
+   face 18: 28/289 records differ, max 3.226%
+   face 26: 25/289 records differ, max 3.226%
+   face 31: 21/85 records differ, max 1.190%
+   face 28: 16/221 records differ, max 1.170%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 164, managed 164)
+   LeafAmbientLighting: differs (stock 2492, managed 2464)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p4_random") [227 ms]
+  Error Message:
+   764 records differ; frozen at 754
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_p4_random: records 229076/229840 exact (99.668%), averages 161/161, faces 85/161 exact, p99 0.000%, max 43.169%
+   face 22: 20/4096 records differ, max 43.169%
+   face 52: 365/4096 records differ, max 39.899%
+   face 91: 22/4096 records differ, max 28.571%
+   face 122: 14/4096 records differ, max 0.855%
+   face 27: 1/4096 records differ, max 0.840%
+   face 134: 6/4096 records differ, max 0.826%
+   face 64: 1/384 records differ, max 0.806%
+   face 58: 40/4096 records differ, max 0.800%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p3_bump") [166 ms]
+  Error Message:
+   27 records differ; frozen at 23
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_p3_bump: records 226485/226512 exact (99.988%), averages 161/161, faces 138/161 exact, p99 0.000%, max 0.794%
+   face 120: 1/4096 records differ, max 0.794%
+   face 119: 1/256 records differ, max 0.787%
+   face 101: 3/4096 records differ, max 0.775%
+   face 111: 1/4224 records differ, max 0.775%
+   face 104: 1/384 records differ, max 0.758%
+   face 36: 2/4096 records differ, max 0.746%
+   face 129: 1/4096 records differ, max 0.746%
+   face 27: 1/4096 records differ, max 0.735%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+[xUnit.net 00:00:10.32]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_vvis_fast") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_vvis_fast") [59 ms]
+  Error Message:
+   22981 records differ; frozen at 1
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_vvis_fast: records 3937/26918 exact (14.626%), averages 8/52, faces 0/52 exact, p99 37.162%, max 61.641%
+   face 17: 2263/2500 records differ, max 61.641%
+   face 37: 2208/2500 records differ, max 61.641%
+   face 27: 2243/2500 records differ, max 61.207%
+   face 18: 1051/1300 records differ, max 61.184%
+   face 39: 967/1300 records differ, max 60.730%
+   face 3: 2175/2500 records differ, max 60.593%
+   face 4: 959/1300 records differ, max 49.438%
+   face 26: 1020/1300 records differ, max 49.162%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 5404, managed 5404)
+   Leafs: identical
+
+
+[xUnit.net 00:00:13.17]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "ss_sandbox") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "ss_sandbox") [2 s]
+  Error Message:
+   18930 records differ; frozen at 5236
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:ss_sandbox: records 736320/755250 exact (97.494%), averages 2633/2800, faces 1650/2762 exact, p99 0.763%, max 51.875%
+   face 501: 110/208 records differ, max 51.875%
+   face 751: 39/42 records differ, max 45.213%
+   face 500: 60/208 records differ, max 39.759%
+   face 394: 13/176 records differ, max 38.506%
+   face 633: 803/4096 records differ, max 30.846%
+   face 320: 31/42 records differ, max 30.342%
+   face 1709: 24/42 records differ, max 23.457%
+   face 1231: 20/42 records differ, max 22.727%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 9144, managed 9144)
+   LeafAmbientLighting: differs (stock 274092, managed 274120)
+   Leafs: identical
+
+
+[xUnit.net 00:00:13.33]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_corner_only") [FAIL]
+[xUnit.net 00:00:13.37]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l2_areaportal_between_pools") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_corner_only") [147 ms]
+  Error Message:
+   36 records differ; frozen at 31
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_corner_only: records 230364/230400 exact (99.984%), averages 164/164, faces 138/164 exact, p99 0.000%, max 0.752%
+   face 129: 1/4096 records differ, max 0.752%
+   face 131: 1/4096 records differ, max 0.752%
+   face 141: 1/256 records differ, max 0.752%
+   face 143: 2/256 records differ, max 0.752%
+   face 63: 2/4096 records differ, max 0.741%
+   face 147: 1/4224 records differ, max 0.735%
+   face 128: 2/384 records differ, max 0.699%
+   face 108: 1/264 records differ, max 0.694%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l2_areaportal_between_pools") [39 ms]
+  Error Message:
+   8491 records differ; frozen at 11
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l2_areaportal_between_pools: records 9633/18124 exact (53.151%), averages 39/56, faces 3/56 exact, p99 30.142%, max 53.297%
+   face 11: 1317/2500 records differ, max 53.297%
+   face 43: 1329/2500 records differ, max 53.297%
+   face 26: 1362/2500 records differ, max 53.254%
+   face 58: 1364/2500 records differ, max 53.254%
+   face 2: 294/625 records differ, max 12.069%
+   face 18: 294/625 records differ, max 11.494%
+   face 34: 291/625 records differ, max 11.494%
+   face 50: 313/625 records differ, max 11.494%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 276, managed 276)
+   LeafAmbientLighting: differs (stock 5544, managed 5516)
+   Leafs: identical
+
+
+[xUnit.net 00:00:13.42]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "x0_octahedron") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "x0_octahedron") [< 1 ms]
+  Error Message:
+   VertNormals differs (stock 96, managed 96)
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.AssertLumpAsync(String name, BspLump lump) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 107
+   at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 31
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ x0_octahedron VertNormals: stock 96 bytes, managed 96
+
+
+[xUnit.net 00:00:13.43]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "x0_corner_cut") [FAIL]
+[xUnit.net 00:00:13.43]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "x0_octahedron_seam") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "x0_corner_cut") [< 1 ms]
+  Error Message:
+   VertNormals differs (stock 84, managed 84)
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.AssertLumpAsync(String name, BspLump lump) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 107
+   at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 31
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ x0_corner_cut VertNormals: stock 84 bytes, managed 84
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "x0_octahedron_seam") [< 1 ms]
+  Error Message:
+   VertNormals differs (stock 96, managed 96)
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.AssertLumpAsync(String name, BspLump lump) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 107
+   at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 31
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ x0_octahedron_seam VertNormals: stock 96 bytes, managed 96
+
+
+[xUnit.net 00:00:13.43]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "l0_nonaxial_wedge") [FAIL]
+[xUnit.net 00:00:13.44]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "x0_pyramid") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "l0_nonaxial_wedge") [< 1 ms]
+  Error Message:
+   VertNormals differs (stock 60, managed 60)
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.AssertLumpAsync(String name, BspLump lump) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 107
+   at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 31
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ l0_nonaxial_wedge VertNormals: stock 60 bytes, managed 60
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "x0_pyramid") [< 1 ms]
+  Error Message:
+   VertNormals differs (stock 60, managed 60)
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.AssertLumpAsync(String name, BspLump lump) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 107
+   at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 31
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ x0_pyramid VertNormals: stock 60 bytes, managed 60
+
+
+[xUnit.net 00:00:13.44]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "l1_detail_props") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(name: "l1_detail_props") [< 1 ms]
+  Error Message:
+   VertNormals differs (stock 96, managed 96)
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.AssertLumpAsync(String name, BspLump lump) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 107
+   at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.VertexNormalsLumpMatchesStock(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 31
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ l1_detail_props VertNormals: stock 96 bytes, managed 96
+
+
+
+Failed!  - Failed:    51, Passed:   189, Skipped:     0, Total:   240, Duration: 12 s - SourceSharp.Tests.dll (net10.0)
+LAUNCH-B 2026-09-24T23:51:32-07:00 load=14.14 14.22 12.91 17/3761 2635071
+Test run for /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/bin/SourceSharp.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:02.67]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_tags_flags") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_tags_flags") [1 s]
+  Error Message:
+   26 records differ; frozen at 22
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_tags_flags: records 226486/226512 exact (99.989%), averages 161/161, faces 138/161 exact, p99 0.000%, max 0.775%
+   face 13: 2/4224 records differ, max 0.775%
+   face 131: 1/4096 records differ, max 0.714%
+   face 153: 1/256 records differ, max 0.704%
+   face 5: 1/396 records differ, max 0.694%
+   face 42: 1/4224 records differ, max 0.662%
+   face 34: 1/4096 records differ, max 0.633%
+   face 31: 1/4096 records differ, max 0.629%
+   face 37: 1/384 records differ, max 0.621%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+[xUnit.net 00:00:03.19]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_three_doors_almost_in_a_line") [FAIL]
+[xUnit.net 00:00:03.76]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_smooth_mintess") [FAIL]
+[xUnit.net 00:00:04.51]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_rotated") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_three_doors_almost_in_a_line") [339 ms]
+  Error Message:
+   381 records differ; frozen at 33
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_three_doors_almost_in_a_line: records 35514/35895 exact (98.939%), averages 73/76, faces 36/76 exact, p99 0.427%, max 8.730%
+   face 25: 24/252 records differ, max 8.730%
+   face 27: 39/2300 records differ, max 8.730%
+   face 61: 60/2500 records differ, max 8.730%
+   face 5: 21/312 records differ, max 6.633%
+   face 45: 37/2500 records differ, max 4.878%
+   face 2: 28/2300 records differ, max 3.158%
+   face 60: 9/2500 records differ, max 1.575%
+   face 42: 15/625 records differ, max 1.020%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 6020, managed 6020)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_smooth_mintess") [578 ms]
+  Error Message:
+   27 records differ; frozen at 16
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_smooth_mintess: records 226485/226512 exact (99.988%), averages 161/161, faces 139/161 exact, p99 0.000%, max 0.855%
+   face 111: 1/4224 records differ, max 0.855%
+   face 16: 1/256 records differ, max 0.806%
+   face 28: 1/384 records differ, max 0.794%
+   face 42: 1/4224 records differ, max 0.719%
+   face 131: 1/4096 records differ, max 0.709%
+   face 60: 1/4096 records differ, max 0.694%
+   face 132: 2/4096 records differ, max 0.671%
+   face 33: 2/4096 records differ, max 0.658%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_rotated") [748 ms]
+  Error Message:
+   213 records differ; frozen at 23
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_rotated: records 230187/230400 exact (99.908%), averages 164/164, faces 124/164 exact, p99 0.000%, max 16.216%
+   face 91: 49/4096 records differ, max 16.216%
+   face 52: 25/4096 records differ, max 8.145%
+   face 125: 15/4096 records differ, max 7.519%
+   face 92: 4/4096 records differ, max 0.847%
+   face 100: 28/4096 records differ, max 0.847%
+   face 134: 5/4096 records differ, max 0.820%
+   face 101: 5/4096 records differ, max 0.800%
+   face 98: 12/4096 records differ, max 0.781%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+[xUnit.net 00:00:04.70]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_detail_type_material") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_detail_type_material") [188 ms]
+  Error Message:
+   1 records differ; frozen at 0
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_detail_type_material: records 4623/4624 exact (99.978%), averages 16/16, faces 15/16 exact, p99 0.000%, max 0.474%
+   face 4: 1/289 records differ, max 0.474%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+[xUnit.net 00:00:06.17]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l3_arena_144_pillars") [FAIL]
+[xUnit.net 00:00:06.64]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_lm8_clamp") [FAIL]
+[xUnit.net 00:00:06.83]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_wall") [FAIL]
+[xUnit.net 00:00:06.91]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l2_detail_and_hint_in_a_corridor") [FAIL]
+[xUnit.net 00:00:06.99]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_three_doors_in_a_line") [FAIL]
+[xUnit.net 00:00:07.12]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_corridor_farz") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l3_arena_144_pillars") [1 s]
+  Error Message:
+   165389 records differ; frozen at 19788
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l3_arena_144_pillars: records 228336/393725 exact (57.994%), averages 813/1444, faces 115/1444 exact, p99 3.125%, max 98.788%
+   face 957: 1493/1584 records differ, max 98.788%
+   face 430: 9/225 records differ, max 98.122%
+   face 936: 153/175 records differ, max 90.192%
+   face 222: 961/1152 records differ, max 73.404%
+   face 842: 811/832 records differ, max 72.917%
+   face 1100: 659/1152 records differ, max 56.643%
+   face 474: 39/308 records differ, max 52.941%
+   face 493: 236/1536 records differ, max 52.941%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 2236, managed 2236)
+   LeafAmbientLighting: differs (stock 92232, managed 92148)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_lm8_clamp") [384 ms]
+  Error Message:
+   964 records differ; frozen at 963
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_lm8_clamp: records 241388/242352 exact (99.602%), averages 158/161, faces 118/161 exact, p99 0.000%, max 22.028%
+   face 91: 108/4096 records differ, max 22.028%
+   face 22: 107/4096 records differ, max 21.986%
+   face 125: 135/4096 records differ, max 19.792%
+   face 52: 134/4096 records differ, max 19.718%
+   face 23: 178/384 records differ, max 19.424%
+   face 53: 214/384 records differ, max 18.504%
+   face 62: 11/384 records differ, max 0.847%
+   face 160: 12/17136 records differ, max 0.820%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_wall") [191 ms]
+  Error Message:
+   20 records differ; frozen at 14
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_wall: records 226492/226512 exact (99.991%), averages 161/161, faces 144/161 exact, p99 0.000%, max 0.820%
+   face 98: 1/4096 records differ, max 0.820%
+   face 100: 1/4096 records differ, max 0.820%
+   face 49: 2/4096 records differ, max 0.769%
+   face 125: 1/4096 records differ, max 0.763%
+   face 140: 1/4224 records differ, max 0.763%
+   face 156: 1/264 records differ, max 0.763%
+   face 119: 1/256 records differ, max 0.735%
+   face 31: 1/4096 records differ, max 0.709%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l2_detail_and_hint_in_a_corridor") [76 ms]
+  Error Message:
+   169 records differ; frozen at 118
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l2_detail_and_hint_in_a_corridor: records 36405/36574 exact (99.538%), averages 87/88, faces 60/88 exact, p99 0.000%, max 12.575%
+   face 38: 18/2500 records differ, max 12.575%
+   face 40: 17/2500 records differ, max 5.455%
+   face 54: 56/2500 records differ, max 2.222%
+   face 23: 25/2500 records differ, max 1.829%
+   face 4: 2/49 records differ, max 1.136%
+   face 20: 2/625 records differ, max 0.909%
+   face 36: 3/625 records differ, max 0.826%
+   face 50: 2/425 records differ, max 0.787%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 4592, managed 4592)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_three_doors_in_a_line") [76 ms]
+  Error Message:
+   399 records differ; frozen at 48
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_three_doors_in_a_line: records 35617/36016 exact (98.892%), averages 75/80, faces 34/80 exact, p99 0.424%, max 8.730%
+   face 23: 25/252 records differ, max 8.730%
+   face 25: 38/2300 records differ, max 8.730%
+   face 65: 55/2500 records differ, max 8.333%
+   face 2: 12/384 records differ, max 4.878%
+   face 44: 40/2500 records differ, max 4.878%
+   face 4: 23/2300 records differ, max 2.344%
+   face 64: 8/2500 records differ, max 1.942%
+   face 45: 14/2500 records differ, max 1.351%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 7392, managed 7392)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_corridor_farz") [133 ms]
+  Error Message:
+   22 records differ; frozen at 3
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_corridor_farz: records 71808/71830 exact (99.969%), averages 152/152, faces 144/152 exact, p99 0.000%, max 5.422%
+   face 82: 14/2500 records differ, max 5.422%
+   face 83: 1/40 records differ, max 0.813%
+   face 78: 1/625 records differ, max 0.800%
+   face 88: 2/119 records differ, max 0.794%
+   face 115: 1/625 records differ, max 0.585%
+   face 61: 1/425 records differ, max 0.526%
+   face 59: 1/2500 records differ, max 0.483%
+   face 42: 1/255 records differ, max 0.426%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+[xUnit.net 00:00:07.18]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_default_cubemap") [FAIL]
+[xUnit.net 00:00:07.26]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_func_detail") [FAIL]
+[xUnit.net 00:00:07.41]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_half_edge") [FAIL]
+[xUnit.net 00:00:07.45]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_detail_props") [FAIL]
+[xUnit.net 00:00:07.59]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_corridor_radius_override") [FAIL]
+[xUnit.net 00:00:07.72]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_slope") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_default_cubemap") [32 ms]
+  Error Message:
+   2 records differ; frozen at 1
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_default_cubemap: records 8090/8092 exact (99.975%), averages 16/16, faces 14/16 exact, p99 0.000%, max 0.581%
+   face 0: 1/1156 records differ, max 0.581%
+   face 14: 1/289 records differ, max 0.463%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_func_detail") [29 ms]
+  Error Message:
+   5236 records differ; frozen at 174
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_func_detail: records 3650/8886 exact (41.076%), averages 10/34, faces 0/34 exact, p99 5.769%, max 25.000%
+   face 4: 678/1156 records differ, max 25.000%
+   face 19: 712/1156 records differ, max 20.670%
+   face 10: 508/1020 records differ, max 18.894%
+   face 23: 446/1020 records differ, max 12.442%
+   face 5: 220/289 records differ, max 10.280%
+   face 20: 209/289 records differ, max 10.280%
+   face 13: 182/255 records differ, max 3.774%
+   face 26: 140/255 records differ, max 3.743%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 2744, managed 2744)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_half_edge") [155 ms]
+  Error Message:
+   180 records differ; frozen at 30
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_half_edge: records 232252/232432 exact (99.923%), averages 163/163, faces 109/163 exact, p99 0.000%, max 43.072%
+   face 91: 23/4096 records differ, max 43.072%
+   face 100: 46/4096 records differ, max 0.826%
+   face 92: 1/4096 records differ, max 0.806%
+   face 51: 1/4096 records differ, max 0.794%
+   face 111: 1/4224 records differ, max 0.781%
+   face 125: 2/4096 records differ, max 0.775%
+   face 160: 7/4624 records differ, max 0.775%
+   face 140: 1/4224 records differ, max 0.763%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_detail_props") [43 ms]
+  Error Message:
+   223 records differ; frozen at 222
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_detail_props: records 4696/4919 exact (95.467%), averages 21/23, faces 1/23 exact, p99 0.617%, max 58.537%
+   face 8: 14/85 records differ, max 58.537%
+   face 10: 8/65 records differ, max 4.348%
+   face 9: 9/45 records differ, max 0.976%
+   face 12: 47/289 records differ, max 0.794%
+   face 13: 8/289 records differ, max 0.769%
+   face 20: 19/289 records differ, max 0.725%
+   face 1: 13/289 records differ, max 0.637%
+   face 5: 8/289 records differ, max 0.606%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 2772, managed 2772)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_corridor_radius_override") [96 ms]
+  Error Message:
+   22 records differ; frozen at 3
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_corridor_radius_override: records 71808/71830 exact (99.969%), averages 152/152, faces 144/152 exact, p99 0.000%, max 5.422%
+   face 82: 14/2500 records differ, max 5.422%
+   face 83: 1/40 records differ, max 0.813%
+   face 78: 1/625 records differ, max 0.800%
+   face 88: 2/119 records differ, max 0.794%
+   face 115: 1/625 records differ, max 0.585%
+   face 61: 1/425 records differ, max 0.526%
+   face 59: 1/2500 records differ, max 0.483%
+   face 42: 1/255 records differ, max 0.426%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_slope") [133 ms]
+  Error Message:
+   127 records differ; frozen at 120
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_slope: records 228113/228240 exact (99.944%), averages 161/161, faces 124/161 exact, p99 0.000%, max 0.826%
+   face 31: 2/4096 records differ, max 0.826%
+   face 120: 1/4096 records differ, max 0.813%
+   face 121: 1/384 records differ, max 0.813%
+   face 62: 41/384 records differ, max 0.806%
+   face 129: 4/4096 records differ, max 0.806%
+   face 134: 22/4096 records differ, max 0.806%
+   face 141: 3/256 records differ, max 0.806%
+   face 61: 18/4096 records differ, max 0.794%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+[xUnit.net 00:00:07.87]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_strip") [FAIL]
+[xUnit.net 00:00:08.02]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_grid_mixed") [FAIL]
+[xUnit.net 00:00:08.14]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p2_flat") [FAIL]
+[xUnit.net 00:00:08.28]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_long_corridor") [FAIL]
+[xUnit.net 00:00:08.46]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_open_arena") [FAIL]
+[xUnit.net 00:00:08.99]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l3_corridor_64_rooms") [FAIL]
+[xUnit.net 00:00:09.05]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_env_cubemap") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_strip") [126 ms]
+  Error Message:
+   1038 records differ; frozen at 639
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_strip: records 229362/230400 exact (99.549%), averages 162/164, faces 66/164 exact, p99 0.000%, max 40.984%
+   face 56: 4/36 records differ, max 40.984%
+   face 128: 9/384 records differ, max 40.984%
+   face 91: 108/4096 records differ, max 40.486%
+   face 23: 155/384 records differ, max 40.323%
+   face 22: 112/4096 records differ, max 32.394%
+   face 61: 18/4096 records differ, max 0.855%
+   face 31: 11/4096 records differ, max 0.826%
+   face 33: 38/4096 records differ, max 0.826%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 3528, managed 3528)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_grid_mixed") [141 ms]
+  Error Message:
+   2480 records differ; frozen at 1701
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_grid_mixed: records 227920/230400 exact (98.924%), averages 163/164, faces 64/164 exact, p99 0.420%, max 94.522%
+   face 55: 127/384 records differ, max 94.522%
+   face 22: 143/4096 records differ, max 94.483%
+   face 91: 92/4096 records differ, max 78.333%
+   face 52: 378/4096 records differ, max 73.551%
+   face 23: 23/384 records differ, max 9.375%
+   face 56: 34/36 records differ, max 7.812%
+   face 53: 18/384 records differ, max 4.297%
+   face 100: 287/4096 records differ, max 0.870%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p2_flat") [127 ms]
+  Error Message:
+   121 records differ; frozen at 115
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_p2_flat: records 226391/226512 exact (99.947%), averages 161/161, faces 131/161 exact, p99 0.000%, max 2.538%
+   face 125: 23/4096 records differ, max 2.538%
+   face 53: 33/384 records differ, max 1.914%
+   face 52: 18/4096 records differ, max 1.724%
+   face 128: 8/384 records differ, max 1.290%
+   face 15: 1/4224 records differ, max 0.787%
+   face 71: 1/4224 records differ, max 0.787%
+   face 129: 1/4096 records differ, max 0.763%
+   face 60: 2/4096 records differ, max 0.758%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_long_corridor") [139 ms]
+  Error Message:
+   44 records differ; frozen at 17
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_long_corridor: records 144258/144302 exact (99.970%), averages 320/320, faces 295/320 exact, p99 0.000%, max 5.422%
+   face 166: 13/2500 records differ, max 5.422%
+   face 191: 1/2400 records differ, max 1.053%
+   face 162: 4/625 records differ, max 0.909%
+   face 291: 1/200 records differ, max 0.800%
+   face 189: 2/625 records differ, max 0.730%
+   face 122: 1/2500 records differ, max 0.714%
+   face 316: 2/1600 records differ, max 0.709%
+   face 317: 1/400 records differ, max 0.704%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_open_arena") [176 ms]
+  Error Message:
+   61192 records differ; frozen at 777
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_open_arena: records 65348/126540 exact (51.642%), averages 203/374, faces 6/374 exact, p99 10.156%, max 80.605%
+   face 195: 2659/2688 records differ, max 80.605%
+   face 203: 153/324 records differ, max 77.519%
+   face 194: 655/1152 records differ, max 73.881%
+   face 10: 2603/2688 records differ, max 69.543%
+   face 304: 287/360 records differ, max 68.878%
+   face 104: 2620/2688 records differ, max 66.821%
+   face 211: 78/1008 records differ, max 52.419%
+   face 212: 53/280 records differ, max 49.457%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 588, managed 588)
+   LeafAmbientLighting: differs (stock 35756, managed 35728)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l3_corridor_64_rooms") [532 ms]
+  Error Message:
+   138 records differ; frozen at 116
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l3_corridor_64_rooms: records 577292/577430 exact (99.976%), averages 1291/1292, faces 1192/1292 exact, p99 0.000%, max 5.422%
+   face 630: 12/2500 records differ, max 5.422%
+   face 26: 2/2500 records differ, max 1.639%
+   face 1026: 1/1600 records differ, max 1.538%
+   face 1197: 1/2500 records differ, max 1.370%
+   face 1104: 3/2500 records differ, max 1.282%
+   face 1273: 2/2500 records differ, max 1.220%
+   face 718: 1/625 records differ, max 1.099%
+   face 298: 1/1800 records differ, max 0.990%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 73864, managed 73864)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_env_cubemap") [29 ms]
+  Error Message:
+   2 records differ; frozen at 1
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_env_cubemap: records 8090/8092 exact (99.975%), averages 16/16, faces 14/16 exact, p99 0.000%, max 0.581%
+   face 0: 1/1156 records differ, max 0.581%
+   face 14: 1/289 records differ, max 0.463%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+[xUnit.net 00:00:09.13]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_water_and_fog_leaves") [FAIL]
+[xUnit.net 00:00:09.21]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_areaportal") [FAIL]
+[xUnit.net 00:00:09.37]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_swap") [FAIL]
+[xUnit.net 00:00:09.57]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_half_edge_mixed") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_water_and_fog_leaves") [48 ms]
+  Error Message:
+   272 records differ; frozen at 15
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_water_and_fog_leaves: records 17730/18002 exact (98.489%), averages 44/44, faces 18/44 exact, p99 0.535%, max 8.661%
+   face 41: 40/2500 records differ, max 8.661%
+   face 17: 18/312 records differ, max 8.148%
+   face 16: 30/2300 records differ, max 3.937%
+   face 34: 30/2500 records differ, max 3.150%
+   face 10: 27/2500 records differ, max 2.878%
+   face 15: 20/625 records differ, max 1.053%
+   face 39: 29/625 records differ, max 0.952%
+   face 2: 12/625 records differ, max 0.901%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 4620, managed 4620)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_areaportal") [41 ms]
+  Error Message:
+   320 records differ; frozen at 11
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_areaportal: records 17512/17832 exact (98.205%), averages 39/40, faces 12/40 exact, p99 0.578%, max 8.661%
+   face 11: 52/2500 records differ, max 8.661%
+   face 31: 44/2500 records differ, max 8.661%
+   face 1: 27/2500 records differ, max 2.759%
+   face 21: 32/2500 records differ, max 2.759%
+   face 32: 32/625 records differ, max 0.952%
+   face 12: 33/625 records differ, max 0.855%
+   face 2: 9/625 records differ, max 0.813%
+   face 37: 10/391 records differ, max 0.806%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 3696, managed 3696)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_swap") [151 ms]
+  Error Message:
+   37 records differ; frozen at 32
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_swap: records 226539/226576 exact (99.984%), averages 161/161, faces 128/161 exact, p99 0.000%, max 0.820%
+   face 19: 1/256 records differ, max 0.820%
+   face 23: 1/384 records differ, max 0.787%
+   face 49: 1/4096 records differ, max 0.763%
+   face 98: 1/4096 records differ, max 0.763%
+   face 140: 2/4224 records differ, max 0.730%
+   face 131: 1/4096 records differ, max 0.709%
+   face 143: 1/256 records differ, max 0.709%
+   face 35: 1/384 records differ, max 0.704%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_half_edge_mixed") [198 ms]
+  Error Message:
+   557 records differ; frozen at 506
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_half_edge_mixed: records 231875/232432 exact (99.760%), averages 163/163, faces 109/163 exact, p99 0.000%, max 70.703%
+   face 91: 376/4096 records differ, max 70.703%
+   face 100: 52/4096 records differ, max 0.870%
+   face 98: 6/4096 records differ, max 0.826%
+   face 16: 1/256 records differ, max 0.820%
+   face 137: 4/384 records differ, max 0.820%
+   face 27: 2/4096 records differ, max 0.769%
+   face 101: 7/4096 records differ, max 0.769%
+   face 15: 1/4224 records differ, max 0.763%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+[xUnit.net 00:00:09.69]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_grid_same") [FAIL]
+[xUnit.net 00:00:09.76]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p2_blend") [FAIL]
+[xUnit.net 00:00:09.83]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p4c_texlights") [FAIL]
+[xUnit.net 00:00:09.88]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_two_rooms_and_a_door") [FAIL]
+[xUnit.net 00:00:10.04]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_offsets") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_grid_same") [103 ms]
+  Error Message:
+   1811 records differ; frozen at 24
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_grid_same: records 228589/230400 exact (99.214%), averages 163/164, faces 61/164 exact, p99 0.000%, max 78.333%
+   face 91: 104/4096 records differ, max 78.333%
+   face 22: 90/4096 records differ, max 16.981%
+   face 100: 290/4096 records differ, max 0.862%
+   face 92: 23/4096 records differ, max 0.855%
+   face 134: 77/4096 records differ, max 0.855%
+   face 27: 6/4096 records differ, max 0.840%
+   face 101: 91/4096 records differ, max 0.840%
+   face 123: 15/4096 records differ, max 0.840%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 3528, managed 3528)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p2_blend") [72 ms]
+  Error Message:
+   332 records differ; frozen at 37
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_p2_blend: records 225208/225540 exact (99.853%), averages 161/161, faces 85/161 exact, p99 0.000%, max 35.507%
+   face 91: 20/4096 records differ, max 35.507%
+   face 27: 2/4096 records differ, max 0.862%
+   face 92: 5/4096 records differ, max 0.833%
+   face 129: 7/4096 records differ, max 0.813%
+   face 141: 3/256 records differ, max 0.813%
+   face 38: 1/36 records differ, max 0.806%
+   face 16: 1/256 records differ, max 0.800%
+   face 103: 22/4096 records differ, max 0.800%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 3416, managed 3416)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p4c_texlights") [52 ms]
+  Error Message:
+   123 records differ; frozen at 0
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p4c_texlights: records 19927/20050 exact (99.387%), averages 67/68, faces 28/40 exact, p99 0.000%, max 2.632%
+   face 23: 15/360 records differ, max 2.632%
+   face 0: 17/360 records differ, max 2.326%
+   face 1: 19/2040 records differ, max 1.282%
+   face 11: 2/2312 records differ, max 1.250%
+   face 33: 3/2312 records differ, max 1.000%
+   face 22: 34/2040 records differ, max 0.990%
+   face 26: 1/54 records differ, max 0.926%
+   face 31: 17/72 records differ, max 0.787%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 5152, managed 5152)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_two_rooms_and_a_door") [32 ms]
+  Error Message:
+   340 records differ; frozen at 21
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_two_rooms_and_a_door: records 17600/17940 exact (98.105%), averages 33/36, faces 11/36 exact, p99 0.637%, max 8.268%
+   face 29: 41/2500 records differ, max 8.268%
+   face 11: 13/312 records differ, max 8.148%
+   face 2: 21/312 records differ, max 6.965%
+   face 20: 39/2500 records differ, max 4.762%
+   face 10: 25/2300 records differ, max 3.937%
+   face 1: 30/2300 records differ, max 3.333%
+   face 27: 21/625 records differ, max 1.053%
+   face 18: 20/625 records differ, max 1.031%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 3696, managed 3696)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_offsets") [134 ms]
+  Error Message:
+   27 records differ; frozen at 12
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_offsets: records 226485/226512 exact (99.988%), averages 161/161, faces 140/161 exact, p99 0.000%, max 0.833%
+   face 101: 3/4096 records differ, max 0.833%
+   face 54: 2/4096 records differ, max 0.752%
+   face 123: 1/4096 records differ, max 0.725%
+   face 58: 1/4096 records differ, max 0.719%
+   face 24: 1/4096 records differ, max 0.714%
+   face 60: 1/4096 records differ, max 0.704%
+   face 120: 1/4096 records differ, max 0.704%
+   face 131: 1/4096 records differ, max 0.645%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+[xUnit.net 00:00:10.34]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p3_bump") [FAIL]
+[xUnit.net 00:00:10.43]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_vvis_fast") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_p3_bump") [118 ms]
+  Error Message:
+   32 records differ; frozen at 23
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_p3_bump: records 226480/226512 exact (99.986%), averages 161/161, faces 133/161 exact, p99 0.000%, max 0.787%
+   face 119: 1/256 records differ, max 0.787%
+   face 101: 2/4096 records differ, max 0.775%
+   face 111: 1/4224 records differ, max 0.775%
+   face 100: 1/4096 records differ, max 0.769%
+   face 104: 1/384 records differ, max 0.758%
+   face 36: 3/4096 records differ, max 0.746%
+   face 129: 1/4096 records differ, max 0.746%
+   face 27: 1/4096 records differ, max 0.735%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l1_vvis_fast") [47 ms]
+  Error Message:
+   10 records differ; frozen at 1
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l1_vvis_fast: records 26908/26918 exact (99.963%), averages 52/52, faces 50/52 exact, p99 0.000%, max 2.905%
+   face 39: 9/1300 records differ, max 2.905%
+   face 40: 1/255 records differ, max 0.515%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: differs (stock 5404, managed 5404)
+   Leafs: identical
+
+
+[xUnit.net 00:00:12.89]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "ss_sandbox") [FAIL]
+[xUnit.net 00:00:13.03]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_corner_only") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "ss_sandbox") [2 s]
+  Error Message:
+   5240 records differ; frozen at 5236
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:ss_sandbox: records 750010/755250 exact (99.306%), averages 2657/2800, faces 1759/2762 exact, p99 0.000%, max 51.875%
+   face 501: 110/208 records differ, max 51.875%
+   face 751: 39/42 records differ, max 45.213%
+   face 500: 61/208 records differ, max 39.759%
+   face 394: 13/176 records differ, max 38.506%
+   face 320: 31/42 records differ, max 30.342%
+   face 1709: 24/42 records differ, max 23.457%
+   face 1231: 21/42 records differ, max 22.727%
+   face 1230: 19/42 records differ, max 22.689%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 9144, managed 9144)
+   LeafAmbientLighting: differs (stock 274092, managed 274064)
+   Leafs: identical
+
+
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "p3f_corner_only") [127 ms]
+  Error Message:
+   39 records differ; frozen at 31
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:p3f_corner_only: records 230361/230400 exact (99.983%), averages 164/164, faces 135/164 exact, p99 0.000%, max 0.752%
+   face 129: 1/4096 records differ, max 0.752%
+   face 131: 2/4096 records differ, max 0.752%
+   face 141: 1/256 records differ, max 0.752%
+   face 143: 2/256 records differ, max 0.752%
+   face 63: 2/4096 records differ, max 0.741%
+   face 128: 2/384 records differ, max 0.699%
+   face 108: 1/264 records differ, max 0.694%
+   face 58: 1/4096 records differ, max 0.690%
+   WorldLights: identical
+   LeafAmbientIndex: identical
+   LeafAmbientLighting: identical
+   Leafs: identical
+
+
+[xUnit.net 00:00:13.07]     SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l2_areaportal_between_pools") [FAIL]
+  Failed SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(name: "l2_areaportal_between_pools") [40 ms]
+  Error Message:
+   194 records differ; frozen at 11
+  Stack Trace:
+     at SourceSharp.Tests.MapTools.Rad.Final.VradFullGateTests.LightingLumpIsWithinItsFrozenTolerance(String name) in /home/lodle/git/source-sdk-2013/.claude/worktrees/p11a/src/sourcesharp/managed/SourceSharp.Tests/MapTools/Rad/Final/VradFullGateTests.cs:line 78
+--- End of stack trace from previous location ---
+  Standard Output Messages:
+ full:l2_areaportal_between_pools: records 17930/18124 exact (98.930%), averages 56/56, faces 29/56 exact, p99 0.424%, max 8.627%
+   face 58: 21/2500 records differ, max 8.627%
+   face 11: 26/2500 records differ, max 3.101%
+   face 43: 27/2500 records differ, max 2.649%
+   face 34: 13/625 records differ, max 0.980%
+   face 50: 28/625 records differ, max 0.870%
+   face 2: 12/625 records differ, max 0.840%
+   face 18: 15/625 records differ, max 0.794%
+   face 22: 2/345 records differ, max 0.775%
+   WorldLights: identical
+   LeafAmbientIndex: differs (stock 276, managed 276)
+   LeafAmbientLighting: differs (stock 5544, managed 5600)
+   Leafs: identical
+
+
+
+Failed!  - Failed:    38, Passed:   202, Skipped:     0, Total:   240, Duration: 11 s - SourceSharp.Tests.dll (net10.0)
+EXIT-B rc=1 2026-09-24T23:51:46-07:00

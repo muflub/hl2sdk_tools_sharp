@@ -1,0 +1,23 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Deterministic layout generation depends on stable metadata ordering. -->
+    <Deterministic>true</Deterministic>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!--
+      Two warnings promoted to errors, and only two.
+
+      CS0108 and CS0114 are the member-hiding pair: a member that shadows one it
+      inherits, silently. The compiler says so on every build; here the build is
+      made to stop. Not TreatWarningsAsErrors — that promotes whatever the
+      CURRENT SDK's analysers happen to warn about, so a .NET update would stop
+      this build for reasons that have nothing to do with the code. These two
+      are language rules rather than analyser opinions: they do not drift.
+    -->
+    <WarningsAsErrors>$(WarningsAsErrors);CS0108;CS0114</WarningsAsErrors>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Windings, portals, patches, transfers and KD nodes are structs in
+         pooled or NativeMemory slabs addressed by (offset,count) handles. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+
+    <!-- Build-time tool, not loaded by the game. See MapFormats for why this
+         does not go to the mod's bin directory. -->
+    <OutputPath>bin\</OutputPath>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
+
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <WarningsAsErrors>$(WarningsAsErrors);CA1068;CA2016</WarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The only reference. MapTools stays package-free (plan ruling Q3); the
+         two permitted runtime packages live in the optional Cache.Sqlite and
+         Gpu assemblies, which reference THIS one and not the reverse, so a
+         host that wants neither a cache nor a GPU pulls in neither. -->
+    <ProjectReference Include="..\SourceSharp.MapFormats\SourceSharp.MapFormats.csproj" />
+  </ItemGroup>
+</Project>

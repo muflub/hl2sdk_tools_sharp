@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+
+    <!-- Build-time tool library, not loaded by the game: same reasoning as
+         SourceSharp.MapTools. See that project for why the output is not the
+         mod's bin directory. -->
+    <OutputPath>bin\</OutputPath>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
+
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <WarningsAsErrors>$(WarningsAsErrors);CA1068;CA2016</WarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Plan ruling Q3 / 10a: SQLite is one of the two permitted runtime
+         packages, and it is permitted HERE and nowhere else. MapTools itself
+         stays package-free and owns only the ICacheStore abstraction, so a
+         host that wants no disk cache never loads this assembly (the
+         package-absent fact in Tests/Compile/SqliteCacheStoreTests.cs
+         enforces that direction of dependency). Version pinned explicitly;
+         10.0.12 carries SQLitePCLRaw 2.1.12, the first with the libe_sqlite3
+         advisory GHSA-2m69-gcr7-jv3q closed. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <ProjectReference Include="..\SourceSharp.MapTools\SourceSharp.MapTools.csproj" />
+  </ItemGroup>
+</Project>

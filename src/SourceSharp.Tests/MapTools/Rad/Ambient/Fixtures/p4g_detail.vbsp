@@ -1,0 +1,27 @@
+detail.vbsp
+{
+	"p4g_detail"
+	{
+		"density"	"1600.0"
+		"Group1"
+		{
+			"alpha"		"1.0"
+			"tuft"
+			{
+				"sprite"		"0 0 64 64 512"
+				"spritesize"	"0.5 0 24 24"
+				"spriterandomscale" "0.1"
+				"amount"		"0.5"
+				"detailOrientation" "2"
+			}
+			"cross"
+			{
+				"sprite"		"64 0 64 64 512"
+				"sprite_shape"	"cross"
+				"spritesize"	"0.5 0 16 32"
+				"amount"		"0.3"
+				"detailOrientation" "0"
+			}
+		}
+	}
+}

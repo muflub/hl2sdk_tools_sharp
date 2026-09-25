@@ -1,0 +1,167 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- `ssmap`, the name the Makefile and every compile script will use. -->
+    <AssemblyName>ssmap</AssemblyName>
+    <RootNamespace>SourceSharp.MapCompile</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <OutputPath>bin\</OutputPath>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
+
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <WarningsAsErrors>$(WarningsAsErrors);CA1068;CA2016</WarningsAsErrors>
+
+    <!--
+      The runtime settings a LIBRARY must not own (plan_maptools.md 1).
+
+      A library that switches the host process to Server GC has made a decision
+      for an ASP.NET service that never asked for it. The exe is the only place
+      that legitimately knows it owns the process, so the knobs live here.
+
+      Concurrent GC is OFF deliberately: the background collector exists to keep
+      pause times down in an interactive process, and it costs a core doing it.
+      A batch compile that is already saturating 32 threads would rather have
+      that core and take the pauses, and Phase 5 measures GC pause total, so
+      if this is the wrong call it will show up as a number rather than an
+      opinion.
+    -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+
+    <!--
+      THERE IS NO TIERING WORKAROUND HERE ANY MORE, AND THE REASON MATTERS.
+
+      `ssmap vvis` used to abort with `Internal CLR error (0x80131506)` in about
+      1 run in 13: a fatal ExecutionEngineException with no managed exception
+      behind it. A crash report plus a perf map put every frame of the faulting
+      stack at `[QuickJitted]`, with the loop method `VisBaseFlow::SimpleFlood`
+      on top: 32 workers reaching one OSR patchpoint together. Setting
+      `TieredCompilationQuickJitForLoops` false stopped it, and that property
+      lived here as a workaround.
+
+      It was NOT a .NET 10.0.12 regression, which is what the earlier note in
+      this file claimed. That claim compared Ubuntu's packaged 10.0.12 against
+      Microsoft's 10.0.11 and 11.0.0-rc.1, so it varied build origin as well as
+      version. Holding the version fixed at 10.0.12 and varying only the build,
+      on one machine with one application binary:
+
+          Ubuntu dotnet-runtime-10.0 10.0.12-0ubuntu1~26.04.1   28 / 200
+          Microsoft official 10.0.12                             0 / 200
+
+      Narrowed to one file, by dropping a single Ubuntu library into an
+      otherwise untouched Microsoft runtime:
+
+          Microsoft 10.0.12, unmodified                          0 / 200
+          Microsoft 10.0.12 + Ubuntu libclrjit.so                0 / 200
+          Microsoft 10.0.12 + Ubuntu libcoreclr.so              33 / 200
+
+      Same source commit (95017c711e6afc1085133d440e42b4bd78155701) either way,
+      so Canonical's build of libcoreclr.so is what breaks, not the JIT and not
+      the runtime's source.
+
+      THE REQUIREMENT THIS REPLACES: build and run with Microsoft's runtime,
+      which on this machine is ~/.dotnet/dotnet. Ubuntu's /usr/bin/dotnet will
+      abort roughly one compile in seven, and no project property here can
+      prevent that, because the .csproj does not choose which installed runtime
+      build hosts the process.
+
+      Reduced repro and full measurements: /home/lodle/dotnet-osr-repro.
+    -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      The CLI references the libraries as an ordinary consumer and gets NO
+      InternalsVisibleTo. That is what turns "everything the CLI can do, a host
+      can do" from an aspiration into a compile error: if a command here needs
+      something internal, the fix is to make it public and document it, not to
+      open a back door that a third-party host would not have.
+    -->
+    <ProjectReference Include="..\SourceSharp.MapFormats\SourceSharp.MapFormats.csproj" />
+    <ProjectReference Include="..\SourceSharp.MapTools\SourceSharp.MapTools.csproj" />
+  </ItemGroup>
+
+  <!--
+    THE SQLITE PACKAGE IS A HOST REFERENCE; THE GPU PACKAGE ARRIVES BY NAME.
+
+    P12 anomaly 5, root-caused by P15. `ssmap -incremental` never engaged the
+    cache on ANY corpus map: the JIT build shipped ssmap.dll with no
+    SourceSharp.MapTools.Cache.Sqlite.dll beside it and no deps.json entry for
+    it, so HostBackends.Loaded found neither, OpenCacheAsync returned null in
+    silence, and `-incremental` was a no-op flag out of the box — on every
+    map, cold AND warm: nothing was ever WRITTEN (the cold run itself reported
+    `0 cooked, stored 0.0 KB`, and `cache stats` on the same path answered
+    "no SQLite backend"; with the package staged beside the binary the same
+    corpus warms to 189/189 and 1/1 reuse, so the keys never varied run-to-run
+    — the store was simply never opened). t-13's warm-reuse fixture opened the
+    store in-process from the test assembly, which project-references the
+    package, and its CLI proof ran from a manually staged tree with the dll
+    copied by hand; neither posture ever exercised the shipped build output.
+
+    Plan ruling: plan_maptools.md 129 lists the package as OPTIONAL — for the
+    LIBRARIES ("the core assemblies reference neither"), and 10a's own wording
+    lets the HOST reference the Sqlite assembly. ssmap is the host: a shipped
+    `-incremental` that silently cooks everything contradicts the plan's
+    mechanism (the SQLite database beside the map, opened by the flag) more
+    than a CLI host that names the store it is told to open. MapTools and
+    MapFormats stay package-free (LibraryRuleTests,
+    CoreMapToolsAssemblyCarriesNoSqliteReference — untouched); MapCompile is
+    the CLI, not a core library. The package-absent DEGRADATION stays intact
+    for a host that strips or cannot load the package: HostBackends prints
+    HostBackends.MissingReason and WithBackendsAsync now says the same on the
+    compile path, so a requested store that cannot open is never silent again.
+
+    GPU stays reflection-only (plan 10c): linking it would make Vulkan
+    availability a load-time concern of the whole CLI; the honest decline path
+    (VRAD0707 + the CPU KD tracer) is tested and stays. Under PublishAot the
+    Gpu package is linked statically — NativeAOT has no JIT to bring IL in
+    with — and rooted by the rd.xml files named below; HostBackends resolves
+    it by name through the default load-context scan. Cache.Sqlite is now a
+    plain reference in both postures; the sqlite rd.xml stays as the linker
+    root the Activator seam on its store type relies on under trimming.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\SourceSharp.MapTools.Cache.Sqlite\SourceSharp.MapTools.Cache.Sqlite.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <DefineConstants>$(DefineConstants);AOT_LINKED_PACKAGES</DefineConstants>
+    <!--
+      THE SIX WARNINGS THAT BELONG TO SILK.NET, NOT TO THIS PROJECT.
+
+      All of them are raised inside the statically linked GPU package's own
+      dependency chain — Silk.NET.Core.Loader.DefaultPathResolver and
+      Microsoft.Extensions.DependencyModel — and every one is the
+      single-file-hostile shape those two libraries always had:
+
+        IL3000  DefaultPathResolver cctor + TryLocateNativeAssetFromDeps read
+                Assembly.Location to locate native assets. Both sit at the end
+                of a fallback chain that returns "not found" when they get
+                nothing useful back, which is what happens in a single-file
+                app; NativeLibrary then falls through to the app-local probe
+                that does find the extracted libvulkan, proven by the aot-smoke
+                run (aot-smoke-findings.md quotes the identity/decline lines
+                the AOT binary prints through this loader).
+        IL3002  the same resolvers read Assembly.CodeBase /
+                DependencyContext.Default, both documented to return null
+                under single-file and both null-checked by the calling code.
+
+      These cannot be annotated away from here (the source is not ours to
+      edit) and there is no per-assembly suppression in the trimmer, so the
+      itemised list is the narrowest mechanism the toolchain offers. It is
+      gated to PublishAot, i.e. to exactly the posture that links Silk.NET —
+      a plain Release build keeps every one of these diagnostics armed, and
+      our own assemblies produce none.
+    -->
+    <NoWarn>$(NoWarn);IL3000;IL3002</NoWarn>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(PublishAot)' == 'true'">
+    <ProjectReference Include="..\SourceSharp.MapTools.Gpu\SourceSharp.MapTools.Gpu.csproj" />
+    <RdXmlFile Include="aot-packages-sqlite.rd.xml" />
+    <RdXmlFile Include="aot-packages-gpu.rd.xml" />
+  </ItemGroup>
+</Project>

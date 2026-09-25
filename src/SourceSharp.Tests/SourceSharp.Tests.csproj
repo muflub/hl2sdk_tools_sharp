@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <!-- Tests run from the repo, not a shipped bin directory. -->
+    <OutputPath>bin\</OutputPath>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The map compilers. MapCompile is referenced as well as the libraries
+         because the CLI's own logic — stock argument parsing, report rendering,
+         exit codes — is under the same testing rule as everything else. -->
+    <ProjectReference Include="..\SourceSharp.MapFormats\SourceSharp.MapFormats.csproj" />
+    <ProjectReference Include="..\SourceSharp.MapTools\SourceSharp.MapTools.csproj" />
+    <ProjectReference Include="..\SourceSharp.MapCompile\SourceSharp.MapCompile.csproj" />
+    <ProjectReference Include="..\SourceSharp.MapGen\SourceSharp.MapGen.csproj" />
+
+    <!-- The optional SQLite cache store. Referenced ONLY by the tests: the
+         SqliteCacheStoreTests run the same store contract the in-memory store
+         runs, and the direction-of-dependency facts pin that MapTools itself
+         still carries no SQLite reference. -->
+    <ProjectReference Include="..\SourceSharp.MapTools.Cache.Sqlite\SourceSharp.MapTools.Cache.Sqlite.csproj" />
+
+    <!-- The optional GPU ray tracer. Referenced ONLY by the tests, exactly
+         like the SQLite store above: the GPU facts run the tracer over the
+         same scenes the CPU KD tracer answers, and the package-absent fact
+         pins that MapTools itself carries no Silk.NET / Gpu reference. -->
+    <ProjectReference Include="..\SourceSharp.MapTools.Gpu\SourceSharp.MapTools.Gpu.csproj" />
+  </ItemGroup>
+</Project>

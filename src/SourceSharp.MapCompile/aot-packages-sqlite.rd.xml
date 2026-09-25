@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Roots the optional SQLite cache package for the AOT arm (t-14).
+
+  The JIT posture never links this assembly: HostBackends finds
+  SourceSharp.MapTools.Cache.Sqlite.dll beside ssmap.dll with LoadFrom, and the
+  linker has nothing to say about types it cannot see. NativeAOT has no JIT, so
+  under PublishAot the csproj references the project and this file keeps the
+  metadata the one reflection seam (`Activator.CreateInstance(storeType,
+  [false])`, HostBackends.Instantiate) needs: the public constructor of the
+  store type. `Dynamic = Required All` is used rather than a member list
+  because the store is opened through the MapTools-owned ICacheStore interface
+  and its own public surface, and the file is the package's contract, not a
+  per-call-site pin: a store method added later must not need an rd.xml edit to
+  be callable from the host.
+
+  Microsoft.Data.Sqlite and SQLitePCLRaw are left to their own annotations:
+  they reach the native library through NativeLibrary, which the linker models
+  natively, and the e_sqlite3 binary is copied to the publish output by the
+  package's own targets.
+-->
+<Directives xmlns="http://schemas.microsoft.com/netfx/2013/01/metadata">
+  <Library>
+    <Assembly Name="SourceSharp.MapTools.Cache.Sqlite" Dynamic="Required All" />
+  </Library>
+</Directives>

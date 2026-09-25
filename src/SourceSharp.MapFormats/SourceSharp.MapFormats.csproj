@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Windings, lump arrays and the pak writer all want spans over pooled
+         memory rather than managed arrays copied twice. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+
+    <!--
+      Built from the repo, NOT deployed into the mod's bin directory.
+
+      Directory.Build.props points OutputPath at game/mod_sharp/bin/managed
+      because everything that existed before this was loaded by the game. The
+      map compilers are not: they are a build-time tool, the game never sees
+      them, and putting them in the mod's bin would ship a compiler with the
+      mod and make `mapdrift`-style staleness checks answer about files that
+      have nothing to do with what the game loads.
+    -->
+    <OutputPath>bin\</OutputPath>
+
+    <!--
+      A deliberate, documented public surface (plan_maptools.md 1a).
+
+      This assembly is a LIBRARY first and a dependency of the CLI second, so
+      an undocumented public member is a defect rather than a style lapse. The
+      rest of the managed tree sets GenerateDocumentationFile false and has no
+      such rule; these projects opt in, which is why it is set here and not in
+      Directory.Build.props.
+    -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
+
+    <!--
+      CA1068 (CancellationToken is the last parameter) and CA2016 (forward the
+      token you were given) are errors because plan_maptools.md 1a makes the
+      async shape a GATE rather than a convention: a reflection fact asserts
+      every long-running public method takes a token last, and CA2016 catches
+      the case that fact cannot see: a token accepted at the boundary and
+      then dropped on the way in, which turns a cancellable compile into an
+      uncancellable one with a correct-looking signature.
+
+      Named individually rather than via TreatWarningsAsErrors, for the reason
+      Directory.Build.props already gives at length: promoting whatever the
+      current SDK's analysers happen to warn about makes a .NET update break
+      this build for reasons unrelated to the code.
+    -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <WarningsAsErrors>$(WarningsAsErrors);CA1068;CA2016</WarningsAsErrors>
+  </PropertyGroup>
+
+  <!--
+    No ItemGroup, and that is the point: MapFormats takes no PackageReference
+    and no ProjectReference. Plan ruling Q3 is that the format parsers are our
+    own, and a fact in SourceSharp.Tests asserts package-freedom from the BUILT
+    assembly's references rather than from this file, so an indirect package
+    arriving through a project reference cannot slip past by not being written
+    here.
+  -->
+</Project>

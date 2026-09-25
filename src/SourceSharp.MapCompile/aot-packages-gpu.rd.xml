@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Roots the optional Vulkan ray-tracer package for the AOT arm (t-14).
+
+  Same posture as aot-packages-sqlite.rd.xml: the JIT build never links this
+  assembly (HostBackends LoadFroms it by name and the linker cannot see it at
+  all), while PublishAot links it and needs its reflection metadata kept.
+  `Dynamic = Required All` over the package assembly covers every member the
+  two GPU seams touch — `TryCreateAsync` (Invoke through CallStatic), the
+  VulkanRayTracerOptions ctor (Activator.CreateInstance in MakeGpuOptions), and
+  the read-out properties of VulkanTracerAttempt / VulkanDeviceReport /
+  SelfTestRecord that DeclineReason walks to name the decline — without pinning
+  the file to today's member list. The package is small enough that keeping it
+  whole is cheaper than a member list that rots.
+
+  The closed generics AwaitResultAsync instantiates at runtime
+  (Task<VulkanTracerAttempt> and HostBackends.UnboxAsync<VulkanTracerAttempt>)
+  are NOT rooted here: this ILC build rejects the Instantiation runtime
+  directive outright, and the documented rooting that works is a compile-time
+  mention — the AOT_PACKAGES rooting field in HostBackends converts
+  UnboxAsync<VulkanTracerAttempt> to a delegate, which materialises both
+  instantiations at link time.
+-->
+<Directives xmlns="http://schemas.microsoft.com/netfx/2013/01/metadata">
+  <Library>
+    <Assembly Name="SourceSharp.MapTools.Gpu" Dynamic="Required All" />
+  </Library>
+</Directives>

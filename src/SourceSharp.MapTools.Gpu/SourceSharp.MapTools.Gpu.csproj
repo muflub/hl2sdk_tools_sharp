@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- The Vulkan bindings, the BLAS build and the ray-query kernel are all
+         pointer arithmetic over a C API; see the spike this was productized
+         from (tools/gpu-ray-spike). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+
+    <!-- Optional backend: builds next to the managed mod binaries like every
+         other MapTools assembly, but nothing references THIS one from core. -->
+    <OutputPath>bin\</OutputPath>
+
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
+
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <WarningsAsErrors>$(WarningsAsErrors);CA1068;CA2016</WarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- One-way reference: this assembly sees MapTools; MapTools never sees
+         it (plan ruling Q3 + §10d's package-absent gate). The versions are
+         the ones the Phase 0f spike proved the kernel with (t-10-findings.md);
+         they are pinned so a Silk.NET update cannot silently move the Vulkan
+         bindings under a passing suite. -->
+    <PackageReference Include="Silk.NET.Vulkan" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Core" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Shaderc" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.Shaderc.Native" Version="2.23.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SourceSharp.MapTools\SourceSharp.MapTools.csproj" />
+  </ItemGroup>
+</Project>
