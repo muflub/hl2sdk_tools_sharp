@@ -26,21 +26,20 @@ namespace SourceSharp.MapGen;
 public static class RepoTree
 {
     /// <summary>
-    /// A directory is a checkout root when it carries BOTH the top-level
-    /// Makefile and src/sourcesharp.
+    /// A directory is a checkout root when it carries a <c>.git</c> entry,
+    /// file or directory.
     ///
     /// <para>
-    /// Two markers rather than one because the Makefile alone is the weaker
-    /// claim — any directory may hold a file of that name, and the moment one
-    /// appears under src/ a one-marker walk would anchor there and report every
-    /// artefact missing. Both markers together exist only at a checkout root.
-    /// Neither is build output, so this answers the same in a tree that has
-    /// never been built.
+    /// A plain checkout's root holds a <c>.git</c> DIRECTORY; a linked
+    /// worktree's root holds a <c>.git</c> FILE, so the walk stops at the
+    /// worktree and never escapes upward into the checkout that encloses it.
+    /// The marker is not build output, so this answers the same in a tree
+    /// that has never been built.
     /// </para>
     /// </summary>
     public static bool IsRoot(string directory) =>
-        File.Exists(Path.Combine(directory, "Makefile"))
-        && Directory.Exists(Path.Combine(directory, "src", "sourcesharp"));
+        File.Exists(Path.Combine(directory, ".git"))
+        || Directory.Exists(Path.Combine(directory, ".git"));
 
     /// <summary>
     /// The NEAREST enclosing checkout root at or above <paramref name="start"/>,
@@ -130,7 +129,7 @@ public static class SandboxArtefact
                 null,
                 null,
                 $"no checkout root at or above \"{start}\" — looked for a directory holding "
-                + "both a top-level Makefile and src/sourcesharp. Nothing can be said about "
+                + "a .git entry. Nothing can be said about "
                 + $"{RelativePath} without knowing which tree it should belong to.");
         }
 

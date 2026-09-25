@@ -1,3 +1,4 @@
+using SourceSharp.MapGen;
 using System.Globalization;
 
 using SourceSharp.MapFormats.Bsp;

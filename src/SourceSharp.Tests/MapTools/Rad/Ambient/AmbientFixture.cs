@@ -1,3 +1,4 @@
+using SourceSharp.MapGen;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapTools.Io;

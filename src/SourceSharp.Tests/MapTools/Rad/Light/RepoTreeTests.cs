@@ -1,3 +1,4 @@
+using SourceSharp.MapGen;
 using Xunit;
 
 namespace SourceSharp.Tests.MapTools.Rad.Light;

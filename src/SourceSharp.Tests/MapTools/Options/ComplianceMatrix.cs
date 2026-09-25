@@ -1,3 +1,4 @@
+using SourceSharp.MapGen;
 using System.Collections.Immutable;
 using System.Text;
 using System.Text.RegularExpressions;

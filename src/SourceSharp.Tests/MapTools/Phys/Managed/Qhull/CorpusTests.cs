@@ -3,6 +3,7 @@
 // to C# for a managed collision cooker; original source: http://www.qhull.org
 // (2.6 archived at http://www.geom.uiuc.edu/software/qhull/). See COPYING.txt.
 
+using SourceSharp.MapGen;
 using System.IO.Compression;
 using System.Text;
 using SourceSharp.MapTools.Phys.Managed.Qhull;
