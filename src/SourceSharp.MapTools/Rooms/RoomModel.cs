@@ -21,7 +21,7 @@ namespace SourceSharp.MapTools.Rooms;
 /// non-blocking in the engine, so the joined level is walkable at the doorway
 /// and the door entity the game hangs there replaces a volume that was never
 /// collision-solid to the player anyway. The linker's visibility is composed
-/// from the door graph, never from a flood through these plugs (§10b).
+/// from the door graph, never from a flood through these plugs.
 /// </para>
 /// <para>
 /// The wall thickness equals the kit's depth, so the plugs of two jointed

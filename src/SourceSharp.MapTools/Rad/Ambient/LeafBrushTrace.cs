@@ -19,7 +19,7 @@ public readonly record struct LeafBrushHit(float Fraction, Vec3 Normal, bool Sta
 
 /// <summary>
 /// <c>TraceLeafBrushes</c> and the point branch of <c>DM_ClipBoxToBrush</c>
-/// (<c>trace.cpp:54</c> and <c>:189</c>).
+///.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -43,7 +43,7 @@ public static class LeafBrushTrace
 {
     /// <summary>
     /// The 1/32 unit epsilon every plane crossing is nudged by
-    /// (<c>trace.cpp:37</c>, <c>DIST_EPSILON</c>).
+    /// (<c>DIST_EPSILON</c>).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -76,7 +76,7 @@ public static class LeafBrushTrace
     public const float DistEpsilonSingle = 0.03125f;
 
     /// <summary>
-    /// The sentinel <c>enterfrac</c> starts at (<c>trace.cpp:43</c>,
+    /// The sentinel <c>enterfrac</c> starts at (
     /// <c>NEVER_UPDATED</c>).
     /// </summary>
     /// <remarks>
@@ -89,7 +89,7 @@ public static class LeafBrushTrace
 
     /// <summary>
     /// <c>CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_OPAQUE</c>
-    /// (<c>bspflags.h:114</c>, <c>MASK_OPAQUE</c>).
+    /// (<c>MASK_OPAQUE</c>).
     /// </summary>
     public const int MaskOpaque = 0x1 | 0x4000 | 0x80;
 
@@ -177,7 +177,7 @@ public static class LeafBrushTrace
         {
             ref readonly DBrushSide side = ref scene.BrushSides[brush.FirstSide + i];
 
-            // trace.cpp:283. Bevel planes are padding added for box traces and
+            // Bevel planes are padding added for box traces and
             // are not real surfaces, so a point ray must not see them.
             if (side.Bevel == 1)
             {
@@ -210,7 +210,7 @@ public static class LeafBrushTrace
                 continue;
             }
 
-            // trace.cpp:305 and :316. DIST_EPSILON is a double, so the numerator
+ // And. DIST_EPSILON is a double, so the numerator
             // is a double subtraction and the division happens in double; only
             // the assignment to `f` narrows. The DENOMINATOR is a float
             // subtraction first, because both its operands are floats -- so it
@@ -236,7 +236,7 @@ public static class LeafBrushTrace
 
         if (!startOut)
         {
-            // trace.cpp:324. The whole ray began inside this brush.
+            // The whole ray began inside this brush.
             // `allsolid` is set too when it also ends inside; nothing in this
             // lane's callers reads it, so it is not carried.
             _ = getOut;

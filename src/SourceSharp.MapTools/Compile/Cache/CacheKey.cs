@@ -7,7 +7,7 @@ namespace SourceSharp.MapTools.Compile.Cache;
 /// <summary>
 /// The identity of one memoised stage product: a digest over the stage name,
 /// the tool that made it, the semantic inputs, the option subset, the recorded
-/// file dependencies and the host's context tags (plan_maptools.md 10a).
+/// file dependencies and the host's context tags.
 /// </summary>
 /// <remarks>
 /// <para>

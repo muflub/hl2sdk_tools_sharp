@@ -8,18 +8,17 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// </summary>
 /// <remarks>
 /// <para>
-/// One algorithm with precision as the knob (plan ruling Q18). Under
+/// One algorithm with precision as the knob. Under
 /// <see cref="CompliancePolicy.Correct"/> it computes what TF2's <c>vphysics.so</c> computes: IVP
 /// with <c>IVP_DOUBLE = double</c>, in the evaluation order GCC emitted, plain IEEE and therefore
-/// identical on every CPU. Under <see cref="CompliancePolicy.Stock"/> it computes what SDK 2013's
+/// identical on every CPU. Under <see cref="CompliancePolicy.Stock"/> it computes what the stock
 /// <c>vphysics.so</c> computes: <c>IVP_DOUBLE = float</c> with the <c>rsqrtss</c>/<c>rsqrtps</c>
 /// estimate, which is CPU-dependent (<see cref="StockQuirk.CollisionCookerSinglePrecision"/>).
 /// </para>
 /// <para>
-/// Provenance: the <c>CPhysicsCollision</c> wrapper is ported from the 2018 engine drop's
-/// <c>vphysics/</c> (ruling Q16); qhull is a port of qhull 2.6 (Qhull licence); IVP's surface,
-/// ledge-tree and ledge-solver code has no source and was decompiled from both builds with Ghidra,
-/// every floating-point expression re-grouped from the disassembly.
+/// Qhull is a port of qhull 2.6 (Qhull licence); the IVP surface, ledge-tree and
+/// Ledge-solver behaviour is reproduced expression by expression from the reference
+/// Builds, every floating-point expression grouped as each build evaluates it.
 /// </para>
 /// <para>
 /// Thread-safe and deterministic by construction: no static state, a private scratch context per
@@ -42,8 +41,8 @@ public sealed class ManagedCollisionCooker : ICollisionCooker
             () => new IvpCookContext(new Qhull.QhullRunner()) { SkipZeroLengthInertiaEdges = skipZeroLengthEdges },
             trackAllValues: false);
         CookerIdentity = useDouble
-            ? "managed-ivp " + CorrectPrecision.Name + " (TF2 vphysics.so arithmetic)"
-            : "managed-ivp " + StockPrecision.Name + " (SDK 2013 vphysics.so arithmetic)";
+            ? "managed-ivp " + CorrectPrecision.Name + " (double-precision reference arithmetic)"
+            : "managed-ivp " + StockPrecision.Name + " (float-precision reference arithmetic)";
     }
 
     /// <summary>
@@ -136,7 +135,7 @@ public sealed class ManagedCollisionCooker : ICollisionCooker
 
 /// <summary>
 /// <see cref="ISurfacePropertySession"/> over a managed <see cref="SurfacePropertyTable"/>, locked
-/// because concurrent sessions share it (as they share the native library's one table).
+/// because concurrent sessions share it (as they share the native binding's one table).
 /// </summary>
 internal sealed class LockedSurfaceProps(SurfacePropertyTable table) : ISurfacePropertySession
 {

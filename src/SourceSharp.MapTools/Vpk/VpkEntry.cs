@@ -31,8 +31,8 @@ public readonly record struct VpkFilePart(int ArchiveIndex, long Offset, long Le
 /// </param>
 /// <param name="Parts">Where the rest of the bytes live.</param>
 /// <remarks>
-/// The format allows a file to be split across several parts, and every VPK
-/// Valve ships uses exactly one. Both are handled, because handling the general
+/// The format allows a file to be split across several parts, and every
+/// shipped VPK uses exactly one. Both are handled, because handling the general
 /// case is a loop and handling only the common case is a reader that dies on
 /// somebody's mod.
 /// </remarks>

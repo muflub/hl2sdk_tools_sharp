@@ -29,7 +29,6 @@ public readonly record struct FloodResult(
 
 /// <summary>
 /// The entity flood and the fill that follows it
-/// (<c>src/utils/vbsp/portals.cpp:638-1432</c>).
 /// </summary>
 /// <remarks>
 /// The flood is the definition of "sealed": start in the leaf under every point
@@ -42,7 +41,7 @@ public static class EntityFlood
 {
     /// <summary>
     /// Floods outward from a leaf, numbering each leaf with its hop count
-    /// (<c>FloodPortals_r</c>, <c>portals.cpp:638</c>).
+    /// (<c>FloodPortals_r</c>).
     /// </summary>
     /// <param name="start">The leaf to start in.</param>
     /// <param name="dist">The number to give <paramref name="start"/>.</param>
@@ -100,7 +99,7 @@ public static class EntityFlood
 
     /// <summary>
     /// The same flood, but stopped by areaportals as well as by solid
-    /// (<c>FloodAreaLeak_r</c>, <c>portals.cpp:661</c>).
+    /// (<c>FloodAreaLeak_r</c>).
     /// </summary>
     /// <param name="start">The leaf to start in.</param>
     /// <param name="dist">The number to give <paramref name="start"/>.</param>
@@ -145,7 +144,7 @@ public static class EntityFlood
     }
 
     /// <summary>
-    /// Clears every leaf's hop count (<c>ClearOccupied_r</c>, <c>portals.cpp:682</c>).
+    /// Clears every leaf's hop count(<c>ClearOccupied_r</c>).
     /// </summary>
     /// <param name="node">The root of the subtree to clear.</param>
     public static void ClearOccupied(IBspNode? node)
@@ -162,7 +161,7 @@ public static class EntityFlood
 
     /// <summary>
     /// The full areaportal-leak flood: clear the tree, then flood from one leaf
-    /// starting at 2 (<c>FloodAreaLeak</c>, <c>portals.cpp:692</c>).
+    /// starting at 2(<c>FloodAreaLeak</c>).
     /// </summary>
     /// <param name="headNode">The tree root, to clear.</param>
     /// <param name="firstSide">The leaf to flood from.</param>
@@ -173,7 +172,7 @@ public static class EntityFlood
     }
 
     /// <summary>
-    /// The leaf a point falls in (<c>PlaceOccupant</c>'s descent, <c>portals.cpp:715</c>).
+    /// The leaf a point falls in(<c>PlaceOccupant</c>'s descent).
     /// </summary>
     /// <param name="headNode">The tree root.</param>
     /// <param name="planes">The map's plane table.</param>
@@ -203,7 +202,7 @@ public static class EntityFlood
 
     /// <summary>
     /// Puts an entity in the leaf under its origin and floods out from there
-    /// (<c>PlaceOccupant</c>, <c>portals.cpp:708</c>).
+    /// (<c>PlaceOccupant</c>).
     /// </summary>
     /// <param name="headNode">The tree root.</param>
     /// <param name="planes">The map's plane table.</param>
@@ -240,7 +239,7 @@ public static class EntityFlood
 
     /// <summary>
     /// Floods from every entity in the map
-    /// (<c>FloodEntities</c>, <c>portals.cpp:744</c>).
+    /// (<c>FloodEntities</c>).
     /// </summary>
     /// <param name="tree">The portalised tree.</param>
     /// <param name="planes">The map's plane table.</param>
@@ -314,7 +313,7 @@ public static class EntityFlood
 
     /// <summary>
     /// Turns every leaf no entity reached into solid
-    /// (<c>FillOutside</c>, <c>portals.cpp:1422</c>).
+    /// (<c>FillOutside</c>).
     /// </summary>
     /// <param name="headNode">The tree root.</param>
     /// <returns>The three leaf counts, with <c>Inside</c> and <c>ReachedOutside</c> left false.</returns>

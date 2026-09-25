@@ -7,7 +7,6 @@ namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
 /// An axis-aligned box round a displacement's base quad: <c>CDispBox</c>,
-/// <c>disp_common.h:142</c>.
 /// </summary>
 /// <param name="Min">The low corner, already puffed out.</param>
 /// <param name="Max">The high corner.</param>
@@ -16,7 +15,6 @@ public readonly record struct DispBox(Vec3 Min, Vec3 Max);
 /// <summary>
 /// Works out which displacements touch which:
 /// <c>FindNeighboringDispSurfs</c> and <c>SetupAllowedVerts</c>,
-/// <c>disp_common.cpp:1091</c> and <c>:1269</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,7 +28,7 @@ public readonly record struct DispBox(Vec3 Min, Vec3 Max);
 /// </para>
 /// <para>
 /// The two halves must run in this order and stock's comment says why
-/// (<c>disp_common.cpp:1120</c>): corner neighbours are only recorded between
+/// Corner neighbours are only recorded between
 /// displacements that are NOT already edge neighbours, so the edge pass has to
 /// have finished for the pair.
 /// </para>
@@ -59,19 +57,19 @@ public static class DispNeighbourFinder
 
     /// <summary>
     /// How far a displacement's bounding box is grown before the touch test:
-    /// <c>flPuff</c>, <c>disp_common.cpp:784</c>.
+    /// <c>flPuff</c>.
     /// </summary>
     public const float BoxPuff = 0.1f;
 
     /// <summary>
     /// How close two base-quad edge points must be to count as the same:
-    /// <c>FindEdge</c>, <c>disp_common.cpp:828</c>.
+    /// <c>FindEdge</c>.
     /// </summary>
     public const float EdgeTolerance = 0.01f;
 
     /// <summary>
     /// How close two DISPLACED corners must be to count as the same:
-    /// <c>SetupCornerNeighbors</c>, <c>disp_common.cpp:997</c>.
+    /// <c>SetupCornerNeighbors</c>.
     /// </summary>
     /// <remarks>
     /// A tenth of <see cref="EdgeTolerance"/>, and applied to a different
@@ -143,7 +141,6 @@ public static class DispNeighbourFinder
 
     /// <summary>
     /// A displacement's puffed base-quad box: <c>GetDispBox</c>,
-    /// <c>disp_common.cpp:770</c>.
     /// </summary>
     /// <param name="disp">The displacement.</param>
     /// <returns>Its box.</returns>
@@ -180,7 +177,7 @@ public static class DispNeighbourFinder
         return new DispBox(min - puff, max + puff);
     }
 
-    /// <summary><c>DoBBoxesTouch</c>, <c>disp_common.cpp:806</c>.</summary>
+    /// <summary><c>DoBBoxesTouch</c>.</summary>
     /// <param name="a">One box.</param>
     /// <param name="b">The other.</param>
     /// <returns>True when they overlap or abut.</returns>
@@ -191,7 +188,7 @@ public static class DispNeighbourFinder
 
     /// <summary>
     /// Finds the edge of a displacement running from one point to another:
-    /// <c>FindEdge</c>, <c>disp_common.cpp:822</c>.
+    /// <c>FindEdge</c>.
     /// </summary>
     /// <param name="disp">The displacement to search.</param>
     /// <param name="point1">The edge's first point.</param>
@@ -224,7 +221,7 @@ public static class DispNeighbourFinder
     }
 
     /// <summary>
-    /// <c>VectorsAreEqual</c>, <c>vector.h:1303</c>: every component within a
+    /// <c>VectorsAreEqual</c>: every component within a
     /// tolerance, inclusive.
     /// </summary>
     /// <param name="a">One vector.</param>
@@ -238,7 +235,7 @@ public static class DispNeighbourFinder
 
     /// <summary>
     /// Records the relationship between two displacements' edges, both ways
-    /// round: <c>SetupEdgeNeighbors</c>, <c>disp_common.cpp:910</c>.
+    /// round: <c>SetupEdgeNeighbors</c>.
     /// </summary>
     /// <param name="main">One displacement.</param>
     /// <param name="other">The other.</param>
@@ -325,7 +322,6 @@ public static class DispNeighbourFinder
 
     /// <summary>
     /// Writes one connection into both displacements: <c>AddNeighbor</c>,
-    /// <c>disp_common.cpp:850</c>.
     /// </summary>
     /// <param name="main">The displacement whose edge this is.</param>
     /// <param name="edge">Which of its edges.</param>
@@ -341,7 +337,6 @@ public static class DispNeighbourFinder
     /// neighbour whose second half we fill goes in its slot 1, everything else
     /// in slot 0. That is what makes stock's invariant hold — a
     /// <c>CORNER_TO_CORNER</c> neighbour is always in slot 0
-    /// (<c>bspfile.h:596</c>).
     /// </remarks>
     public static void AddNeighbor(
         CoreDispInfo main,
@@ -390,7 +385,7 @@ public static class DispNeighbourFinder
 
     /// <summary>
     /// Whether one displacement already names another anywhere:
-    /// <c>HasEdgeNeighbor</c>, <c>disp_common.cpp:958</c>.
+    /// <c>HasEdgeNeighbor</c>.
     /// </summary>
     /// <param name="main">The displacement to search.</param>
     /// <param name="neighbor">The index to look for.</param>
@@ -427,7 +422,7 @@ public static class DispNeighbourFinder
 
     /// <summary>
     /// Records two displacements that meet at exactly one point:
-    /// <c>SetupCornerNeighbors</c>, <c>disp_common.cpp:979</c>.
+    /// <c>SetupCornerNeighbors</c>.
     /// </summary>
     /// <param name="main">One displacement.</param>
     /// <param name="other">The other.</param>
@@ -498,13 +493,13 @@ public static class DispNeighbourFinder
 
     /// <summary>
     /// How many displacements may be recorded at one corner:
-    /// <c>MAX_DISP_CORNER_NEIGHBORS</c>, <c>bspfile.h:51</c>.
+    /// <c>MAX_DISP_CORNER_NEIGHBORS</c>.
     /// </summary>
     public const int MaxDispCornerNeighbors = 4;
 
     /// <summary>
     /// Throws away any edge whose vertices do not map back to themselves:
-    /// <c>VerifyNeighborConnections</c>, <c>disp_common.cpp:1057</c>.
+    /// <c>VerifyNeighborConnections</c>.
     /// </summary>
     /// <param name="displacements">Every displacement in the map.</param>
     /// <param name="diagnostics">Where warnings go, or null.</param>
@@ -569,7 +564,7 @@ public static class DispNeighbourFinder
     }
 
     /// <summary>
-    /// <c>VerifyNeighborVertConnection</c>, <c>disp_common.cpp:1026</c>.
+    /// <c>VerifyNeighborVertConnection</c>.
     /// </summary>
     private static bool VerifyVertConnection(
         IDispUtils disp,
@@ -607,7 +602,7 @@ public static class DispNeighbourFinder
 
     /// <summary>
     /// Switches off the vertices a lower-powered neighbour cannot match:
-    /// <c>SetupAllowedVerts</c>, <c>disp_common.cpp:1269</c>.
+    /// <c>SetupAllowedVerts</c>.
     /// </summary>
     /// <param name="displacements">Every displacement in the map.</param>
     /// <exception cref="ArgumentNullException">
@@ -627,7 +622,7 @@ public static class DispNeighbourFinder
     /// The outer loop repeats until a whole pass clears nothing, because a
     /// displacement that loses vertices becomes, in effect, lower-powered along
     /// that edge, and its OWN neighbours must then lose vertices in turn.
-    /// Stock's comment says so at <c>disp_common.cpp:1280</c>.
+    /// Stock's comment says so.
     /// </para>
     /// </remarks>
     public static void SetupAllowedVerts(IReadOnlyList<CoreDispInfo> displacements)
@@ -659,7 +654,7 @@ public static class DispNeighbourFinder
         while (again);
     }
 
-    /// <summary><c>DisableUnallowedVerts_R</c>, <c>disp_common.cpp:1225</c>.</summary>
+    /// <summary><c>DisableUnallowedVerts_R</c>.</summary>
     private static void DisableUnallowedVerts(
         CoreDispInfo disp, VertIndex nodeIndex, int level, ref int unallowed)
     {
@@ -688,7 +683,7 @@ public static class DispNeighbourFinder
         }
     }
 
-    /// <summary><c>UnallowVerts_R</c>, <c>disp_common.cpp:1201</c>.</summary>
+    /// <summary><c>UnallowVerts_R</c>.</summary>
     private static void UnallowVerts(CoreDispInfo disp, VertIndex nodeIndex, ref int unallowed)
     {
         int iNode = disp.PowerInfo.VertIndexToInt(nodeIndex);
@@ -714,7 +709,7 @@ public static class DispNeighbourFinder
         }
     }
 
-    /// <summary><c>IsVertAllowed</c>, <c>disp_common.cpp:1165</c>.</summary>
+    /// <summary><c>IsVertAllowed</c>.</summary>
     /// <remarks>
     /// The four early-outs all mean "nothing can object": a corner is never
     /// removed, an interior vertex has no neighbour to disagree with it, and an

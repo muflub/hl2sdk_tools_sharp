@@ -4,13 +4,12 @@ namespace SourceSharp.MapTools.Vis;
 
 /// <summary>
 /// Where a <c>-trace</c> run's line strip is collected
-/// (<c>flow.cpp:378-470</c>).
 /// </summary>
 /// <remarks>
 /// <para>
 /// Stock keeps one global <c>CUtlVector&lt;Vector&gt;</c> behind a mutex and
 /// takes the FIRST trace any thread finds, discarding every later one
-/// (<c>flow.cpp:418-419</c>). That makes the answer depend on which worker won,
+/// That makes the answer depend on which worker won,
 /// which is fine for a debugging aid whose job is to draw ONE route and is
 /// preserved here rather than improved -- a trace that concatenated every route
 /// would not be the feature stock has.
@@ -20,7 +19,7 @@ namespace SourceSharp.MapTools.Vis;
 /// starts at the head frame and follows <c>next</c> pointers into
 /// <c>RecursiveLeafFlow</c>'s stack locals; the chain happens to be correct
 /// because <c>stack.next = NULL</c> is re-set on every loop iteration
-/// (<c>flow.cpp:558</c>) before the recursion, and nothing here depends on that
+/// Before the recursion, and nothing here depends on that
 /// accident -- the chain is passed down explicitly instead.
 /// </para>
 /// </remarks>
@@ -75,7 +74,7 @@ internal sealed class VisTraceSink
 
             foreach (Vec3[] winding in chain)
             {
-                // flow.cpp:428-440 -- a fan from the winding's centre to each
+                // -- a fan from the winding's centre to each
                 // point, then the ring, then back to the centre. Drawn as a
                 // polyline, that is a portal you can see in the editor.
                 Vec3 mid = WindingCenter(winding);
@@ -101,7 +100,7 @@ internal sealed class VisTraceSink
         }
     }
 
-    /// <summary><c>WindingCenter</c> (<c>flow.cpp:385</c>).</summary>
+    /// <summary><c>WindingCenter</c>.</summary>
     /// <param name="winding">The winding.</param>
     /// <returns>The mean of its points.</returns>
     /// <remarks>
@@ -121,7 +120,7 @@ internal sealed class VisTraceSink
         return sum * scale;
     }
 
-    /// <summary><c>ClusterCenter</c> (<c>flow.cpp:398</c>).</summary>
+    /// <summary><c>ClusterCenter</c>.</summary>
     /// <param name="portals">The map's portals.</param>
     /// <param name="cluster">A cluster index.</param>
     /// <returns>The midpoint of the bounds of every portal winding in it.</returns>

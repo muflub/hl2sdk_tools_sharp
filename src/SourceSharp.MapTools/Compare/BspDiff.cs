@@ -6,7 +6,7 @@ using SourceSharp.MapFormats.Bsp;
 namespace SourceSharp.MapTools.Compare;
 
 /// <summary>
-/// I2 of plan_maptools.md 2: <c>ssmap diff A.bsp B.bsp</c>, a per-lump semantic
+/// I2 of the port's plan §2: <c>ssmap diff A.bsp B.bsp</c>, a per-lump semantic
 /// comparison of two maps.
 /// </summary>
 /// <remarks>
@@ -288,7 +288,7 @@ public static class BspDiff
 
             case BspLump.LightingHdr:
                 // FACES_HDR is written only when the HDR faces differ from the
-                // LDR ones (bsplib.cpp), so an absent HDR face lump means the
+                // LDR ones, so an absent HDR face lump means the
                 // HDR samples are addressed by the LDR faces' lightofs.
                 DistributionalLumpDiff.Lighting(
                     a,

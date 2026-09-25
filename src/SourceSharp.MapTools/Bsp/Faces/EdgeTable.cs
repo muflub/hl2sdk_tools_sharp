@@ -5,7 +5,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// <summary>
 /// The shared edge table and the per-vertex index that makes finding a
 /// reusable edge cheap
-/// (<c>AddEdge</c>/<c>GetEdge2</c>, <c>src/utils/vbsp/faces.cpp:842-921</c>).
+/// (<c>AddEdge</c>/<c>GetEdge2</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -17,19 +17,19 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// <para>
 /// <b>An edge is shared by at most two faces, and only between faces of the
 /// same contents.</b> Both conditions are in one <c>if</c>
-/// (<c>faces.cpp:909</c>): the candidate must be the exact reverse of the edge
+/// The candidate must be the exact reverse of the edge
 /// being asked for, its first face's contents must match, and its second slot
 /// must still be free. A third face along the same line gets its own edge.
 /// </para>
 /// <para>
 /// Called by <c>WriteBSP</c>, not by this stage — but it lives in
-/// <c>faces.cpp</c> and it is the other half of what the vertex weld exists
+/// And it is the other half of what the vertex weld exists
 /// for, so it is here.
 /// </para>
 /// </remarks>
 public sealed class EdgeTable
 {
-    /// <summary><c>MAX_MAP_EDGES</c> (<c>bspfile.h:88</c>).</summary>
+    /// <summary><c>MAX_MAP_EDGES</c>.</summary>
     public const int MaxMapEdges = 256000;
 
     private readonly List<DEdge> _edges = [];
@@ -70,7 +70,6 @@ public sealed class EdgeTable
     /// <summary>
     /// Records a second face on an existing edge: <c>edgefaces[j][1] = f</c>,
     /// as <c>CreateOrigFace</c> does after its own linear search
-    /// (<c>writebsp.cpp:308</c>).
     /// </summary>
     /// <param name="edge">The edge index.</param>
     /// <param name="face">The face walking it backwards.</param>
@@ -89,7 +88,7 @@ public sealed class EdgeTable
 
     /// <summary>
     /// Clears the per-vertex index
-    /// (<c>GetEdge2_InitOptimizedList</c>, <c>faces.cpp:842</c>).
+    /// (<c>GetEdge2_InitOptimizedList</c>).
     /// </summary>
     /// <remarks>
     /// Stock clears only this, not <c>dedges</c> — it is called once per model
@@ -101,7 +100,7 @@ public sealed class EdgeTable
     public void ResetLookup() => _vertexEdges.Clear();
 
     /// <summary>
-    /// Emits a new edge (<c>AddEdge</c>, <c>faces.cpp:867</c>).
+    /// Emits a new edge(<c>AddEdge</c>).
     /// </summary>
     /// <param name="v1">The first vertex.</param>
     /// <param name="v2">The second.</param>
@@ -123,7 +122,7 @@ public sealed class EdgeTable
         ListFor(v2).Add(index);
 
         // Stock re-sorts both lists with an insertion sort after every single
-        // append (IntSort, faces.cpp:849). Appending an index that is larger
+        // append(IntSort). Appending an index that is larger
         // than every index already there leaves a sorted list sorted, so the
         // sort is a no-op on every call -- it is reproduced by simply not
         // needing to happen, and the order the lists end up in is identical.
@@ -139,7 +138,7 @@ public sealed class EdgeTable
     /// <paramref name="contents"/> walking <paramref name="v0"/> to
     /// <paramref name="v1"/> can share: stored as <c>(v1, v0)</c>, first face
     /// of the same contents, second slot free. This is <c>CreateOrigFace</c>'s
-    /// linear back-edge search (<c>writebsp.cpp:297-318</c>, <c>for( j =
+    /// linear back-edge search (<c>for(j =
     /// firstmodeledge; j &lt; numedges; j++ )</c>) answered from an index.
     /// </summary>
     /// <param name="v0">The edge's first vertex, in the asking face's winding order.</param>
@@ -186,7 +185,7 @@ public sealed class EdgeTable
 
     /// <summary>
     /// The signed surfedge for a face's edge, reusing an existing one where the
-    /// rules allow (<c>GetEdge2</c>, <c>faces.cpp:895</c>).
+    /// rules allow(<c>GetEdge2</c>).
     /// </summary>
     /// <param name="v1">The edge's first vertex, in this face's winding order.</param>
     /// <param name="v2">Its second.</param>
@@ -199,7 +198,7 @@ public sealed class EdgeTable
     /// forward edge 0" — so a face that matched edge 0 would silently claim to
     /// own it. Stock avoids this by never letting anything use edge 0: the
     /// first edge emitted is index 0 and the file format reserves it
-    /// (<c>bspfile.h:671</c>). Nothing here needs to special-case it because
+    /// Nothing here needs to special-case it because
     /// <c>WriteBSP</c> emits a dummy edge first, exactly as stock does.
     /// </remarks>
     public int GetEdge(int v1, int v2, Face face, bool noShare)

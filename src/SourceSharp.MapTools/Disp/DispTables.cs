@@ -5,8 +5,7 @@ using SourceSharp.MapFormats.Bsp.Structs;
 namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
-/// How a span maps onto a neighbour's span: <c>CShiftInfo</c>,
-/// <c>disp_common.h:134</c>.
+/// How a span maps onto a neighbour's span: <c>CShiftInfo</c>.
 /// </summary>
 /// <param name="MidPointScale">
 /// <c>m_MidPointScale</c>. Stock declares and fills it and then never reads it
@@ -49,7 +48,7 @@ public static class DispTables
 {
     /// <summary>
     /// Which dimension each edge locks: <c>g_EdgeDims</c>,
-    /// <c>disp_common.cpp:57</c>.
+    ///.
     /// </summary>
     /// <remarks>
     /// Indexed by <see cref="DispEdge"/>. Left and right lock x (0), top and
@@ -60,7 +59,7 @@ public static class DispTables
 
     /// <summary>
     /// Which end of the locked dimension each edge sits at:
-    /// <c>g_EdgeSideLenMul</c>, <c>disp_common.cpp:86</c>.
+    /// <c>g_EdgeSideLenMul</c>.
     /// </summary>
     /// <remarks>
     /// Multiplied by <c>sideLength - 1</c>. Left and bottom are at 0; top and
@@ -70,7 +69,7 @@ public static class DispTables
 
     /// <summary>
     /// The two edges meeting at each corner: <c>g_CornerEdges</c>,
-    /// <c>disp_common.cpp:49</c>.
+    ///.
     /// </summary>
     /// <param name="corner">A <see cref="DispCorner"/>.</param>
     /// <returns>Two <see cref="DispEdge"/> values.</returns>
@@ -89,7 +88,7 @@ public static class DispTables
 
     /// <summary>
     /// Whether an edge's sense of corner-to-midpoint is reversed:
-    /// <c>g_bEdgeNeighborFlip</c>, <c>disp_common.cpp:745</c>.
+    /// <c>g_bEdgeNeighborFlip</c>.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -101,7 +100,7 @@ public static class DispTables
     /// </para>
     /// <para>
     /// It is also used AS AN INTEGER for a sub-neighbour slot
-    /// (<c>disp_common.cpp:943</c>: <c>AddNeighbor( ..., g_bEdgeNeighborFlip[iEdge], ... )</c>),
+    /// (: <c>AddNeighbor(..., g_bEdgeNeighborFlip[iEdge],...)</c>),
     /// so the false/true here means slot 0/slot 1 there. That double duty is
     /// deliberate in stock and is reproduced by
     /// <see cref="EdgeNeighborFlipSlot"/>.
@@ -125,7 +124,7 @@ public static class DispTables
     }
 
     /// <summary>
-    /// <c>g_SpanFlip</c>, <c>disp_common.cpp:744</c>: swaps the two half-spans
+    /// <c>g_SpanFlip</c>: swaps the two half-spans
     /// and leaves the whole one alone.
     /// </summary>
     /// <param name="span">The span to flip.</param>
@@ -143,7 +142,7 @@ public static class DispTables
     };
 
     /// <summary>
-    /// <c>NeighborSpanFlip</c>, <c>disp_common.cpp:840</c>: flip the span only
+    /// <c>NeighborSpanFlip</c>: flip the span only
     /// on the edges whose winding order runs backwards.
     /// </summary>
     /// <param name="edge">The edge the span is on.</param>
@@ -161,7 +160,7 @@ public static class DispTables
 
     /// <summary>
     /// How a span on one side maps onto the span it meets:
-    /// <c>g_ShiftInfos</c>, <c>disp_common.cpp:65</c>.
+    /// <c>g_ShiftInfos</c>.
     /// </summary>
     /// <param name="span">Our span on our edge.</param>
     /// <param name="neighborSpan">Our span on the NEIGHBOUR's edge.</param>
@@ -199,7 +198,7 @@ public static class DispTables
 
     /// <summary>
     /// A neighbour's orientation from the two edge indices that meet:
-    /// <c>g_CoreDispNeighborOrientationMap</c>, <c>disp_common.cpp:749</c>.
+    /// <c>g_CoreDispNeighborOrientationMap</c>.
     /// </summary>
     /// <param name="edge">Our edge.</param>
     /// <param name="neighborEdge">Theirs.</param>
@@ -223,7 +222,7 @@ public static class DispTables
     }
 
     /// <summary>
-    /// <c>RotateVertIndex</c>, <c>disp_common.cpp:107</c>: rotate a POSITION
+    /// <c>RotateVertIndex</c>: rotate a POSITION
     /// about the grid's centre.
     /// </summary>
     /// <param name="orientation">The rotation.</param>
@@ -250,7 +249,7 @@ public static class DispTables
         };
 
     /// <summary>
-    /// <c>RotateVertIncrement</c>, <c>disp_common.cpp:134</c>: rotate a
+    /// <c>RotateVertIncrement</c>: rotate a
     /// DIRECTION about the origin.
     /// </summary>
     /// <param name="orientation">The rotation.</param>
@@ -268,7 +267,7 @@ public static class DispTables
 
     /// <summary>
     /// Which edge an index lies on: <c>GetEdgeIndexFromPoint</c>,
-    /// <c>disp_common.cpp:165</c>.
+    ///.
     /// </summary>
     /// <param name="index">The vertex index.</param>
     /// <param name="power">The displacement's power.</param>
@@ -309,7 +308,7 @@ public static class DispTables
 
     /// <summary>
     /// Which corner an index is, if any: <c>GetCornerIndexFromPoint</c>,
-    /// <c>disp_common.cpp:182</c>.
+    ///.
     /// </summary>
     /// <param name="index">The vertex index.</param>
     /// <param name="power">The displacement's power.</param>
@@ -348,7 +347,7 @@ public static class DispTables
 
     /// <summary>
     /// Whether an index is one of the four corners: <c>IsCorner</c>,
-    /// <c>disp_common.cpp:1143</c>.
+    ///.
     /// </summary>
     /// <param name="index">The vertex index.</param>
     /// <param name="sideLength">The grid's side length.</param>

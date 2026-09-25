@@ -28,21 +28,21 @@ namespace SourceSharp.MapTools.Bsp.MaterialPatch;
 /// <list type="number">
 /// <item>AfterLoad: the <c>WorldVertexTransitionFixup</c> patches (3a's, run
 /// by the driver) go into the pak — <c>WriteMaterialKeyValuesToPak</c> at
-/// <c>worldvertextransitionfixup.cpp:94</c> — then
+/// — then
 /// <c>Cubemap_FixupBrushSidesMaterials</c>,
 /// <c>Cubemap_AttachDefaultCubemapToSpecularSides</c>,
-/// <c>Cubemap_AddUnreferencedCubemaps</c> (<c>vbsp.cpp:1419-1424</c>). The
-/// overlays stock parsed during the load (<c>map.cpp:1649</c>,
-/// <c>:1060</c>) are collected here; nothing between the load and this point
+/// <c>Cubemap_AddUnreferencedCubemaps</c>. The
+/// overlays stock parsed during the load (
+///) are collected here; nothing between the load and this point
 /// reads them.</item>
 /// <item>BeforeProcessModels: <c>LoadEmitDetailObjectDictionary</c>.</item>
 /// <item>DefaultCubemaps: the water depth patches the model loop asked for
-/// (<c>ivp.cpp:815</c>, created there in stock; only the pak and the
+/// (created there in stock; only the pak and the
 /// translation table see them, and nothing reads either before this point),
-/// then <c>Cubemap_CreateDefaultCubemaps</c> (<c>vbsp.cpp:884</c>).</item>
+/// then <c>Cubemap_CreateDefaultCubemaps</c>.</item>
 /// <item>OverlayFaces: <c>Overlay_EmitOverlayFaces</c> and
 /// <c>OverlayTransition_EmitOverlayFaces</c>; their texinfos are renumbered by
-/// <c>CompactTexinfos</c> (<c>writebsp.cpp:800-823</c>).</item>
+/// <c>CompactTexinfos</c>.</item>
 /// <item>StaticProps, DetailObjects: <c>EmitStaticProps</c>,
 /// <c>EmitDetailObjects</c>, over the written but not yet compacted
 /// arrays.</item>
@@ -184,7 +184,7 @@ internal sealed class SurfaceContentExtension : IVbspExtension
         VbspContext compile = stage.Compile;
 
         // CreateMaterialPatch(material, "maps/<map>/<material>_depth_<n>",
-        // "$waterdepth", "%i", PATCH_INSERT), ivp.cpp:812-815.
+        // "$waterdepth", "%i", PATCH_INSERT).
         foreach (WaterMaterialPatch water in stage.Water.Patches)
         {
             await _patcher.CreatePatchAsync(
@@ -287,7 +287,7 @@ internal sealed class SurfaceContentExtension : IVbspExtension
             Leafs = [.. state.Leafs],
         };
 
-    // EmitFace's two list calls (writebsp.cpp:519-534).
+    // EmitFace's two list calls.
     private sealed class OverlayFaceSink(OverlaySet overlays) : IOverlayFaceSink
     {
         public void AddFace(int faceIndex, MapBrushSide side) => overlays.AddOverlayFace(faceIndex, side);
@@ -295,7 +295,7 @@ internal sealed class SurfaceContentExtension : IVbspExtension
         public void AddWaterFace(int faceIndex, MapBrushSide side) => overlays.AddWaterOverlayFace(faceIndex, side);
     }
 
-    // CompactTexinfos' overlay and water overlay loops (writebsp.cpp:800-823):
+    // CompactTexinfos' overlay and water overlay loops:
     // every overlay counts; a water overlay only with a texinfo.
     private sealed class OverlayTexInfos : ITexInfoReferences
     {

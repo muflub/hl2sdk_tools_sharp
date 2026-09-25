@@ -25,7 +25,7 @@ internal static class VradBuiltInStages
         }
     }
 
-    /// <summary><c>ComputeDetailPropLighting</c> (<c>vraddetailprops.cpp:1032</c>), 4g's.</summary>
+    /// <summary><c>ComputeDetailPropLighting</c>, 4g's.</summary>
     internal sealed class DetailProps : IVradOtherLightingStage
     {
         public async Task ComputeAsync(RadPass pass, BspData bsp, CancellationToken cancellationToken)
@@ -39,7 +39,7 @@ internal static class VradBuiltInStages
                 return;
             }
 
-            // vraddetailprops.cpp:1013-1015: no props, no lighting lumps at all.
+            // No props, no lighting lumps at all.
             DetailPropLump lump = DetailPropLump.Read(entry.Value);
             if (lump.Props.Count == 0)
             {
@@ -65,7 +65,7 @@ internal static class VradBuiltInStages
         }
     }
 
-    /// <summary><c>ComputePerLeafAmbientLighting</c> (<c>leaf_ambient_lighting.cpp</c>), 4g's.</summary>
+    /// <summary><c>ComputePerLeafAmbientLighting</c>, 4g's.</summary>
     internal sealed class LeafAmbient : IVradOtherLightingStage
     {
         public async Task ComputeAsync(RadPass pass, BspData bsp, CancellationToken cancellationToken)
@@ -103,7 +103,7 @@ internal static class VradBuiltInStages
         }
     }
 
-    /// <summary><c>StaticPropMgr()-&gt;ComputeLighting</c> (<c>vradstaticprops.cpp</c>), 4g's.</summary>
+    /// <summary><c>StaticPropMgr-&gt;ComputeLighting</c>, 4g's.</summary>
     internal sealed class StaticProps : IVradOtherLightingStage
     {
         public async Task ComputeAsync(RadPass pass, BspData bsp, CancellationToken cancellationToken)

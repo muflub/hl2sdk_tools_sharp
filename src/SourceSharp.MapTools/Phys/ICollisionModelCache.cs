@@ -44,7 +44,7 @@ public sealed record CachedCollisionModel(
 
 /// <summary>
 /// The per-model cooked-collision cache seam, hung on
-/// <c>PhysCollisionEmitter.EmitAsync</c> (plan_maptools.md 10a).
+/// <c>PhysCollisionEmitter.EmitAsync</c>.
 /// </summary>
 /// <remarks>
 /// <para>

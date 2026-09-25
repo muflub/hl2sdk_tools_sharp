@@ -7,16 +7,16 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 
 /// <summary>
 /// One displacement as vrad lights it: stock's <c>CVRADDispColl</c>
-/// (<c>utils/vrad/vrad_dispcoll.cpp</c>) over its base
-/// <c>CDispCollTree</c> (<c>public/dispcoll_common.cpp</c>).
+/// Over its base
+/// <c>CDispCollTree</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Built from the <see cref="CoreDispInfo"/> that
 /// <see cref="DispLightingLoader.Load"/> returns: the created, neighbour-sewn
 /// core, whose vertices, vertex normals and luxel coordinates are copied here
-/// exactly as <c>CVRADDispColl::Create</c> (<c>vrad_dispcoll.cpp:48</c>) and
-/// <c>AABBTree_CopyDispData</c> (<c>dispcoll_common.cpp:316</c>) copy them.
+/// exactly as <c>CVRADDispColl::Create</c> and
+/// <c>AABBTree_CopyDispData</c> copy them.
 /// Everything vrad reads of a displacement afterwards -- the samples and luxels
 /// (<see cref="DispSampleBuilder"/>), the patch tree
 /// (<see cref="DispPatchBuilder"/>), the radial filter
@@ -30,7 +30,7 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 /// </remarks>
 public sealed class VradDispSurface
 {
-    /// <summary><c>TRIEDGE_EPSILON</c>, <c>vrad_dispcoll.cpp:16</c>.</summary>
+    /// <summary><c>TRIEDGE_EPSILON</c>.</summary>
     public const float TriEdgeEpsilon = 0.001f;
 
     private readonly Vec3[] _verts;
@@ -73,7 +73,6 @@ public sealed class VradDispSurface
 
     /// <summary>
     /// <c>m_iParent</c>: the base face, from the core surface's handle
-    /// (<c>vrad_dispcoll.cpp:60</c>).
     /// </summary>
     public int ParentFace { get; }
 
@@ -149,7 +148,7 @@ public sealed class VradDispSurface
     public bool PatchRadiusClamped { get; private init; }
 
     /// <summary>
-    /// <c>CVRADDispColl::Create</c> (<c>vrad_dispcoll.cpp:48</c>).
+    /// <c>CVRADDispColl::Create</c>.
     /// </summary>
     /// <param name="core">The created, sewn core.</param>
     /// <param name="tex">The base face's texinfo.</param>
@@ -177,8 +176,8 @@ public sealed class VradDispSurface
         CoreDispSurface surf = core.Surface;
         Vec3[] points = [.. surf.Points];
 
-        // dispcoll_common.cpp:370-399: triangles from the core's index list,
-        // each with its plane (CalcPlane, :81).
+        // Triangles from the core's index list,
+ // each with its plane (CalcPlane).
         ReadOnlySpan<ushort> indices = core.TriIndices;
         int triCount = (1 << core.Power) * (1 << core.Power) * 2;
         DispCollTri[] tris = new DispCollTri[triCount];
@@ -218,7 +217,7 @@ public sealed class VradDispSurface
     }
 
     /// <summary>
-    /// <c>CalcSampleRadius2AndBox</c> (<c>vrad_dispcoll.cpp:84</c>): the luxel
+    /// <c>CalcSampleRadius2AndBox</c>: the luxel
     /// size, the luxel radial radius squared and the patch radial radius
     /// squared.
     /// </summary>
@@ -264,7 +263,7 @@ public sealed class VradDispSurface
     }
 
     /// <summary>
-    /// <c>DispUVToSurfPoint</c> (<c>vrad_dispcoll.cpp:178</c>): the point on
+    /// <c>DispUVToSurfPoint</c>: the point on
     /// the displaced surface at a parametric (u, v), optionally pushed off the
     /// surface along the triangle's normal.
     /// </summary>
@@ -302,7 +301,6 @@ public sealed class VradDispSurface
 
     private Vec3 TriTLToBR(float pushEps, float fu, float fv, int snapU, int snapV, int width, int height)
     {
-        // vrad_dispcoll.cpp:214.
         int nextU = snapU + 1;
         int nextV = snapV + 1;
         if (nextU == width)
@@ -351,7 +349,6 @@ public sealed class VradDispSurface
 
     private Vec3 TriBLToTR(float pushEps, float fu, float fv, int snapU, int snapV, int width, int height)
     {
-        // vrad_dispcoll.cpp:269.
         int nextU = snapU + 1;
         int nextV = snapV + 1;
         if (nextU == width)
@@ -400,7 +397,7 @@ public sealed class VradDispSurface
     }
 
     /// <summary>
-    /// <c>DispUVToSurfNormal</c> (<c>vrad_dispcoll.cpp:323</c>): the vertex
+    /// <c>DispUVToSurfNormal</c>: the vertex
     /// normals of the cell around (u, v), blended bilinearly.
     /// </summary>
     /// <param name="u">U in [0, 1].</param>
@@ -410,7 +407,7 @@ public sealed class VradDispSurface
     /// <remarks>
     /// <para>
     /// Two lerps along u, each normalised, then one along v, normalised
-    /// (<c>:361-378</c>). A vertex normal that is not unit length therefore
+ /// A vertex normal that is not unit length therefore
     /// weighs less in the first lerp than its share of u -- which is what stock's
     /// short crease normals do
     /// (<see cref="Options.StockQuirk.DispVertexNormalMeanUnnormalised"/>,
@@ -471,7 +468,7 @@ public sealed class VradDispSurface
 }
 
 /// <summary>
-/// <c>CDispCollTri</c> (<c>dispcoll_common.h</c>): one triangle's vertex
+/// <c>CDispCollTri</c>: one triangle's vertex
 /// indices and plane.
 /// </summary>
 /// <param name="V0">Vertex 0.</param>

@@ -8,8 +8,8 @@ using SourceSharp.MapTools.Phys;
 namespace SourceSharp.MapTools.Bsp.Collision;
 
 /// <summary>
-/// <c>EmitPhysCollision</c> (<c>ivp.cpp:1498</c>) with the displacement
-/// collision of <c>disp_ivp.cpp</c>: LUMP_PHYSCOLLIDE and LUMP_PHYSDISP.
+/// <c>EmitPhysCollision</c> with the displacement
+/// collision of the reference implementation: LUMP_PHYSCOLLIDE and LUMP_PHYSDISP.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -27,25 +27,25 @@ namespace SourceSharp.MapTools.Bsp.Collision;
 /// </remarks>
 public static class PhysCollisionEmitter
 {
-    /// <summary><c>NO_SHRINK</c>, <c>ivp.cpp:31</c>.</summary>
+    /// <summary><c>NO_SHRINK</c>.</summary>
     public const float NoShrink = 0f;
 
-    /// <summary><c>VPHYSICS_SHRINK</c>, <c>ivp.cpp:37</c>: brush entities shrink by half an inch.</summary>
+    /// <summary><c>VPHYSICS_SHRINK</c>: brush entities shrink by half an inch.</summary>
     public const float VPhysicsShrink = 0.5f;
 
-    /// <summary><c>VPHYSICS_MERGE</c>, <c>ivp.cpp:38</c>.</summary>
+    /// <summary><c>VPHYSICS_MERGE</c>.</summary>
     public const float VPhysicsMerge = 0.01f;
 
-    /// <summary><c>VPHYSICS_MAX_MASS</c>, <c>vphysics_interface.h:51</c>.</summary>
+    /// <summary><c>VPHYSICS_MAX_MASS</c>.</summary>
     public const float MaxMass = 5e4f;
 
     /// <summary>
-    /// <c>CUBIC_METERS_PER_CUBIC_INCH</c>, <c>vphysics_interface.h:41</c>:
+    /// <c>CUBIC_METERS_PER_CUBIC_INCH</c>:
     /// <c>METERS_PER_INCH</c> cubed, in float, left to right.
     /// </summary>
     public const float CubicMetersPerCubicInch = 0.0254f * 0.0254f * 0.0254f;
 
-    /// <summary>A brush-entity's mask: <c>MASK_SOLID|CONTENTS_PLAYERCLIP|CONTENTS_MONSTERCLIP|MASK_WATER</c> (<c>ivp.cpp:1535</c>).</summary>
+    /// <summary>A brush-entity's mask: <c>MASK_SOLID|CONTENTS_PLAYERCLIP|CONTENTS_MONSTERCLIP|MASK_WATER</c>.</summary>
     public const int BrushModelMask = CollisionContents.MaskSolid | CollisionContents.PlayerClip
         | CollisionContents.MonsterClip | CollisionContents.MaskWater;
 
@@ -53,13 +53,13 @@ public static class PhysCollisionEmitter
     /// <param name="input">The finished BSP tables and the compile's side data.</param>
     /// <param name="cooker">The collision cooker.</param>
     /// <param name="cache">
-    /// The per-model cooked-collision cache, or null (plan_maptools.md 10a):
+    /// The per-model cooked-collision cache, or null:
     /// a model whose keyed inputs are unchanged is replayed instead of
     /// cooked, byte-identically to a fresh cook.
     /// </param>
     /// <param name="cancellationToken">Cancels between models.</param>
     /// <returns>The lumps and the leaf fix-ups.</returns>
-    /// <exception cref="MapCompileException">A displacement has degenerate triangles (<c>disp_ivp.cpp:303</c>).</exception>
+    /// <exception cref="MapCompileException">A displacement has degenerate triangles.</exception>
     public static async Task<PhysCollisionResult> EmitAsync(
         PhysCollisionInput input,
         ICollisionCooker cooker,
@@ -78,7 +78,7 @@ public static class PhysCollisionEmitter
         // The cache seam is ONE ask per model, around the cook. A hit
         // replaces the entries, the finished text and (world) the three
         // write-backs with the stored bytes; a miss cooks and offers
-        // (plan_maptools.md 10a). The asks happen up front, in model order,
+        // them. The asks happen up front, in model order,
         // so a hit never starts the cook it would throw away.
         CachedCollisionModel?[] cached = new CachedCollisionModel?[input.Models.Count];
         if (cache is not null)
@@ -93,7 +93,7 @@ public static class PhysCollisionEmitter
         // a brush model reads only the finished BSP, and only the world writes
         // the context (its material table and the leaf water ids), so the cooks
         // are independent. The results are still taken, and the records built,
-        // in model order below; one at a time is stock's loop (ivp.cpp:1525-1537).
+        // in model order below; one at a time is stock's loop.
         Task<(List<PhysCollisionEntry>, bool, byte[]?)>?[] started =
             new Task<(List<PhysCollisionEntry>, bool, byte[]?)>?[input.Models.Count];
         if (input.MaxDegree > 1)
@@ -164,7 +164,7 @@ public static class PhysCollisionEmitter
                 entries[j].WriteText(text, j);
             }
 
-            // These sections only appear in the world's collision text (ivp.cpp:1558).
+            // These sections only appear in the world's collision text.
             if (modelIndex == 0)
             {
                 if (virtualTerrain)
@@ -212,7 +212,7 @@ public static class PhysCollisionEmitter
     }
 
     // One model's cook: BuildWorldPhysModel for model 0, ConvertModelToPhysCollide
-    // for a brush model (ivp.cpp:1529-1536).
+    // for a brush model.
     private static (List<PhysCollisionEntry>, bool, byte[]?) Cook(Context context, ICollisionSession session, int modelIndex) =>
         modelIndex == 0
             ? context.BuildWorld(session)
@@ -260,7 +260,7 @@ public static class PhysCollisionEmitter
         new(modelIndex, solids, text, water, props, physDisp);
 
     /// <summary>
-    /// <c>PropIndex</c>, <c>ivp.cpp:375</c>: a surface property's 1-based slot
+    /// <c>PropIndex</c>: a surface property's 1-based slot
     /// in the world's material table, added if new, 0 once the table holds 126.
     /// </summary>
     /// <param name="propList">The table.</param>
@@ -288,7 +288,7 @@ public static class PhysCollisionEmitter
 
     /// <summary>
     /// The drag-area epsilon for a brush model: 1% of its smallest bounding
-    /// face, clamped to [1, 1024] (<c>ivp.cpp:1355-1371</c>).
+    /// face, clamped to [1, 1024].
     /// </summary>
     /// <param name="mins">The model's minimum.</param>
     /// <param name="maxs">The model's maximum.</param>
@@ -313,7 +313,7 @@ public static class PhysCollisionEmitter
 
     /// <summary>
     /// A brush model's mass and material from its faces
-    /// (<c>ivp.cpp:1377-1470</c>): the surface property covering the most
+    /// The surface property covering the most
     /// area wins, and the mass is either shell (area x thickness x density)
     /// or solid (volume x density), clamped to <see cref="MaxMass"/>.
     /// </summary>
@@ -394,7 +394,7 @@ public static class PhysCollisionEmitter
             if (physics.Thickness != 0)
             {
                 // "shell" material: area x thickness. Stock's totalArea
-                // includes the placeholder areas seeded at :1384-1396.
+ // includes the placeholder areas seeded.
                 float area = totalArea;
                 bool shell = true;
                 if (!compliance.Emulates(StockQuirk.ShellMassSentinelArea))
@@ -428,7 +428,7 @@ public static class PhysCollisionEmitter
     }
 
     /// <summary>
-    /// A fluid's surface property (<c>ivp.cpp:1211-1221</c>): stock always
+    /// A fluid's surface property: stock always
     /// writes <c>water</c> (<see cref="StockQuirk.FluidSurfacePropIgnored"/>);
     /// corrected, the water surface material's own property, <c>water</c>
     /// when it has none.
@@ -453,7 +453,7 @@ public static class PhysCollisionEmitter
     }
 
     /// <summary>
-    /// <c>TriangleNormal</c>, <c>ivp.cpp:1237</c>: <c>(p2-p0) x (p1-p0)</c>, normalised.
+    /// <c>TriangleNormal</c>: <c>(p2-p0) x (p1-p0)</c>, normalised.
     /// </summary>
     /// <param name="p0">First corner.</param>
     /// <param name="p1">Second corner.</param>
@@ -485,7 +485,7 @@ public static class PhysCollisionEmitter
 
         public int[] LeafContents { get; }
 
-        /// <summary><c>ClearLeafWaterData</c>, <c>ivp.cpp:1475</c>.</summary>
+        /// <summary><c>ClearLeafWaterData</c>.</summary>
         public void ClearLeafWaterData()
         {
             for (int i = 0; i < _in.Leafs.Count; i++)
@@ -495,7 +495,7 @@ public static class PhysCollisionEmitter
             }
         }
 
-        /// <summary><c>BuildWorldPhysModel</c>, <c>ivp.cpp:1314</c>.</summary>
+        /// <summary><c>BuildWorldPhysModel</c>.</summary>
         public (List<PhysCollisionEntry> Entries, bool VirtualTerrain, byte[]? PhysDisp) BuildWorld(ICollisionSession s)
         {
             List<PhysCollisionEntry> list = [];
@@ -506,7 +506,7 @@ public static class PhysCollisionEmitter
             bool noVirtualMesh = _in.NoVirtualMesh;
             if (!noVirtualMesh && _in.Displacements.Any(d => d.Core.Power > 3))
             {
-                // "Map using power 4 displacements, terrain physics cannot be compressed" (ivp.cpp:1322).
+                // "Map using power 4 displacements, terrain physics cannot be compressed".
                 noVirtualMesh = true;
             }
 
@@ -525,7 +525,7 @@ public static class PhysCollisionEmitter
             return (list, virtualTerrain, physDisp);
         }
 
-        /// <summary><c>ConvertModelToPhysCollide</c>, <c>ivp.cpp:1340</c>.</summary>
+        /// <summary><c>ConvertModelToPhysCollide</c>.</summary>
         public List<PhysCollisionEntry> BuildBrushModel(ICollisionSession s, int modelIndex)
         {
             List<PhysCollisionEntry> list = [];
@@ -552,7 +552,7 @@ public static class PhysCollisionEmitter
             List<float> areas = [];
             int? noFacesProp = null;
 
-            // "NODRAW brushes no longer have any faces" (ivp.cpp:1388).
+            // "NODRAW brushes no longer have any faces".
             if (model.NumFaces == 0)
             {
                 int sideIndex = planes.GetFirstBrushSide();
@@ -595,7 +595,7 @@ public static class PhysCollisionEmitter
             return bytes;
         }
 
-        /// <summary><c>ConvertWorldBrushesToPhysCollide</c>, <c>ivp.cpp:1272</c>.</summary>
+        /// <summary><c>ConvertWorldBrushesToPhysCollide</c>.</summary>
         private void ConvertWorldBrushesToPhysCollide(
             ICollisionSession s, List<PhysCollisionEntry> list, float shrink, float merge, int contentsMask)
         {
@@ -610,7 +610,7 @@ public static class PhysCollisionEmitter
 
             CollideHandle collide = s.ConvertConvexToCollide([.. planes.Convexes]);
 
-            // Per-triangle materials: the brush side facing the triangle's way (ivp.cpp:1286-1305).
+            // Per-triangle materials: the brush side facing the triangle's way.
             s.WithQueryModel(collide, query =>
             {
                 int convexCount = query.ConvexCount;
@@ -635,7 +635,7 @@ public static class PhysCollisionEmitter
             list.Add(new PhysStaticSolidEntry(TakeBytes(s, collide), contentsMask));
         }
 
-        /// <summary><c>FindBrushSide</c>, <c>ivp.cpp:1249</c>: every side, bevels included, first best dot.</summary>
+        /// <summary><c>FindBrushSide</c>: every side, bevels included, first best dot.</summary>
         private int FindBrushSide(int brushIndex, Vec3 normal)
         {
             DBrush brush = _in.Brushes[brushIndex];
@@ -655,7 +655,7 @@ public static class PhysCollisionEmitter
             return best;
         }
 
-        /// <summary><c>ConvertWaterModelToPhysCollide</c>, <c>ivp.cpp:1165</c>.</summary>
+        /// <summary><c>ConvertWaterModelToPhysCollide</c>.</summary>
         private void ConvertWaterModelToPhysCollide(
             ICollisionSession s, List<PhysCollisionEntry> list, int modelIndex, float shrink, float merge)
         {
@@ -681,7 +681,7 @@ public static class PhysCollisionEmitter
 
                 VisitLeaves(planes, model.HeadNode);
 
-                // BUGBUG (stock, ivp.cpp:1196): a brush crossing the surface lands in two
+                // BUGBUG(stock): a brush crossing the surface lands in two
                 // volumes whole; corrected, AddBrushes cuts it at this one's surface.
                 planes.AddBrushes();
 
@@ -704,12 +704,12 @@ public static class PhysCollisionEmitter
                     dist = s.CollideGetExtent(collide, Vec3.Zero, Vec3.Zero, normal).Z;
                 }
 
-                // The material override (ivp.cpp:1215) is dead: waterSurfaceTexInfoID is -1.
+                // The material override is dead: waterSurfaceTexInfoID is -1.
                 list.Add(new PhysFluidEntry(TakeBytes(s, collide), FluidSurfaceProp(_in, water), 0.01f, normal, dist, water.Contents));
             }
         }
 
-        /// <summary><c>VisitLeaves_r</c>, <c>ivp.cpp:664</c>.</summary>
+        /// <summary><c>VisitLeaves_r</c>.</summary>
         private void VisitLeaves(PlaneList planes, int node)
         {
             if (node < 0)
@@ -732,7 +732,7 @@ public static class PhysCollisionEmitter
             VisitLeaves(planes, n.Children[1]);
         }
 
-        /// <summary><c>Disp_AddCollisionModels</c>, <c>disp_ivp.cpp:98</c>: the <c>-novirtualmesh</c> road.</summary>
+        /// <summary><c>Disp_AddCollisionModels</c>: the <c>-novirtualmesh</c> road.</summary>
         private void DispAddCollisionModels(ICollisionSession s, List<PhysCollisionEntry> list, int contentsMask)
         {
             List<(int Grid, List<int> Disps)> grids = [];
@@ -746,7 +746,7 @@ public static class PhysCollisionEmitter
 
                 int grid = DispGridIndex(disp.Core);
 
-                // FindOrInsertGrid searches from the end, disp_ivp.cpp:28.
+                // FindOrInsertGrid searches from the end.
                 int found = -1;
                 for (int g = grids.Count - 1; g >= 0; g--)
                 {
@@ -821,7 +821,7 @@ public static class PhysCollisionEmitter
             }
         }
 
-        /// <summary><c>Disp_BuildVirtualMesh</c>, <c>disp_ivp.cpp:274</c>: LUMP_PHYSDISP.</summary>
+        /// <summary><c>Disp_BuildVirtualMesh</c>: LUMP_PHYSDISP.</summary>
         private byte[] DispBuildVirtualMesh(ICollisionSession s, int contentsMask)
         {
             byte[]?[] blobs = new byte[]?[_in.Displacements.Count];
@@ -842,18 +842,18 @@ public static class PhysCollisionEmitter
         }
     }
 
-    /// <summary><c>DISP_ALPHA_PROP_DELTA</c>, <c>builddisp.h:25</c>.</summary>
+    /// <summary><c>DISP_ALPHA_PROP_DELTA</c>.</summary>
     public const float DispAlphaPropDelta = 382.5f;
 
     /// <summary>
-    /// What <c>CDispMeshEvent</c> serves (<c>disp_ivp.cpp:212-233</c>): the
+    /// What <c>CDispMeshEvent</c> serves: the
     /// tessellated indices REVERSED end for end, and the vertices up to the
     /// highest index used.
     /// </summary>
     /// <param name="core">The displacement.</param>
     /// <param name="dispIndex">Its index, for the diagnostic.</param>
     /// <returns>The mesh.</returns>
-    /// <exception cref="MapCompileException">A triangle has two equal corners (<c>disp_ivp.cpp:296-307</c>).</exception>
+    /// <exception cref="MapCompileException">A triangle has two equal corners.</exception>
     public static VirtualMeshSource DispMeshEvent(CoreDispInfo core, int dispIndex)
     {
         ArgumentNullException.ThrowIfNull(core);
@@ -898,7 +898,7 @@ public static class PhysCollisionEmitter
     }
 
     /// <summary>
-    /// <c>Disp_GridIndex</c>, <c>disp_ivp.cpp:50</c>: the displacement's
+    /// <c>Disp_GridIndex</c>: the displacement's
     /// bounding-box centre hashed into a 4096 x 4096 x 8192 grid.
     /// </summary>
     /// <param name="core">The displacement.</param>
@@ -920,7 +920,7 @@ public static class PhysCollisionEmitter
         return gridX | (gridY << 8) | (gridZ << 16);
     }
 
-    /// <summary><c>CPlaneList</c>, <c>ivp.cpp:413</c>.</summary>
+    /// <summary><c>CPlaneList</c>.</summary>
     private sealed class PlaneList
     {
         private readonly Context _context;
@@ -969,7 +969,7 @@ public static class PhysCollisionEmitter
 
         public bool IsLeafReferenced(int leaf) => _leafList.Count == 0 || _leafList.Contains(leaf);
 
-        /// <summary><c>AddBrushes</c>, <c>ivp.cpp:534</c>.</summary>
+        /// <summary><c>AddBrushes</c>.</summary>
         public int AddBrushes()
         {
             int count = 0;
@@ -994,7 +994,7 @@ public static class PhysCollisionEmitter
                     convex = BuildConvexForBrush(brush, Shrink, default, 1.0f);
 
                     // A water brush reaching above its volume's surface is cut
-                    // there -- stock's UNDONE (ivp.cpp:1197-1199) -- unless the
+                    // there -- stock's UNDONE -- unless the
                     // stock defect is being reproduced.
                     if (ClipPlane is CollisionPlane clip && !convex.IsNull
                         && !Compliance.Emulates(StockQuirk.WaterBrushNotClippedAtSurface))
@@ -1019,7 +1019,7 @@ public static class PhysCollisionEmitter
             return count;
         }
 
-        /// <summary><c>GetFirstBrushSide</c>, <c>ivp.cpp:567</c>.</summary>
+        /// <summary><c>GetFirstBrushSide</c>.</summary>
         public int GetFirstBrushSide()
         {
             for (int brush = 0; brush < _brushAdded.Length; brush++)
@@ -1043,7 +1043,7 @@ public static class PhysCollisionEmitter
             return 0;
         }
 
-        /// <summary><c>BuildConvexForBrush</c>, <c>ivp.cpp:492</c>.</summary>
+        /// <summary><c>BuildConvexForBrush</c>.</summary>
         private ConvexHandle BuildConvexForBrush(int brush, float shrink, CollideHandle collideTest, float shrinkMinimum, CollisionPlane? extraPlane = null)
         {
             DBrush b = In.Brushes[brush];
@@ -1061,7 +1061,7 @@ public static class PhysCollisionEmitter
                 DPlane plane = In.Planes[side.PlaneNum];
                 float shrinkThisPlane = shrink;
 
-                // "don't shrink brush sides with no visible components" (ivp.cpp:505).
+                // "don't shrink brush sides with no visible components".
                 if (In.SideVisible is not null && visible is not null && i < visible.Count && !visible[i])
                 {
                     shrinkThisPlane = 0;
@@ -1092,7 +1092,7 @@ public static class PhysCollisionEmitter
     }
 }
 
-/// <summary>The contents bits and constants the collision code reads (<c>bspflags.h</c>, <c>worldsize.h</c>).</summary>
+/// <summary>The contents bits and constants the collision code reads.</summary>
 public static class CollisionContents
 {
     /// <summary><c>CONTENTS_SOLID</c>.</summary>
@@ -1131,6 +1131,6 @@ public static class CollisionContents
     /// <summary><c>MASK_WATER</c>.</summary>
     public const int MaskWater = Water | Moveable | Slime;
 
-    /// <summary><c>MAX_COORD_INTEGER</c>, <c>worldsize.h:19</c>.</summary>
+    /// <summary><c>MAX_COORD_INTEGER</c>.</summary>
     public const int MaxCoordInteger = 16384;
 }

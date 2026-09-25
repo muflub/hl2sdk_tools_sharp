@@ -9,7 +9,6 @@ namespace SourceSharp.MapTools.Vis;
 /// <summary>
 /// The two passes vvis runs over the finished PVS: which leaves have to test
 /// for a fog volume at render time, and how far each leaf is from water
-/// (<c>vvis.cpp:692-880</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -29,13 +28,13 @@ internal static class VisWater
 {
     /// <summary>
     /// The distance stock uses to mean "no water anywhere in sight"
-    /// (<c>vvis.cpp:700</c>, where the comment asks for a define and there is
+    /// (where the comment asks for a define and there is
     /// none).
     /// </summary>
     internal const float NoWater = 65535f;
 
     /// <summary>
-    /// <c>BuildClusterTable</c> (<c>utils/common/bsplib.cpp:3745</c>): which
+    /// <c>BuildClusterTable</c>: which
     /// leaves belong to each cluster.
     /// </summary>
     /// <param name="leaves">The map's leaves.</param>
@@ -73,7 +72,7 @@ internal static class VisWater
     }
 
     /// <summary>
-    /// <c>CalcVisibleFogVolumes</c> (<c>vvis.cpp:807</c>): mark every leaf that
+    /// <c>CalcVisibleFogVolumes</c>: mark every leaf that
     /// a water leaf can see, so the renderer knows it has to work out which fog
     /// volume the viewer is in.
     /// </summary>
@@ -83,7 +82,7 @@ internal static class VisWater
     /// <param name="clusterLeaves">The cluster-to-leaf table.</param>
     /// <param name="minDistanceToWater">
     /// The LEAFMINDISTTOWATER array, reset to
-    /// <see cref="NoWater"/> here as stock does at <c>vvis.cpp:817</c>.
+    /// <see cref="NoWater"/> here as stock does.
     /// </param>
     internal static void CalcVisibleFogVolumes(
         VisLeaves leaves,
@@ -106,7 +105,7 @@ internal static class VisWater
         {
             int contents = leaves.Contents(i);
 
-            // vvis.cpp:824 -- a leaf discovered by an earlier looker is skipped
+            // -- a leaf discovered by an earlier looker is skipped
             // as a LOOKER. Reproduced; it is a real asymmetry and not a
             // shortcut, because such a leaf is by definition not a water leaf.
             if ((contents & contentsTestFogVolume) != 0)
@@ -169,7 +168,7 @@ internal static class VisWater
     }
 
     /// <summary>
-    /// <c>CalcDistanceFromLeavesToWater</c> (<c>vvis.cpp:795</c>): for each
+    /// <c>CalcDistanceFromLeavesToWater</c>: for each
     /// leaf, the closest visible water surface.
     /// </summary>
     /// <param name="bsp">The map, for its faces, edges and vertices.</param>
@@ -203,7 +202,7 @@ internal static class VisWater
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // vvis.cpp:699 -- a leaf that neither sees a water boundary nor is
+            // -- a leaf that neither sees a water boundary nor is
             // in water is left at the sentinel without any work.
             if ((leaves.Contents(leaf) & contentsTestFogVolume) == 0 &&
                 leaves.LeafWaterDataId(leaf) == -1)
@@ -273,14 +272,14 @@ internal static class VisWater
                 }
             }
 
-            // vvis.cpp:800 -- a C cast from float to unsigned short, which
+            // -- a C cast from float to unsigned short, which
             // truncates towards zero.
             minDistanceToWater[leaf] = (ushort)minDistance;
         }
     }
 
     /// <summary>
-    /// <c>GetBoundsForFace</c> (<c>vvis.cpp:639</c>).
+    /// <c>GetBoundsForFace</c>.
     /// </summary>
     /// <param name="face">The face.</param>
     /// <param name="edges">LUMP_EDGES.</param>
@@ -300,7 +299,7 @@ internal static class VisWater
         out Vec3 min,
         out Vec3 max)
     {
-        // ClearBounds, mathlib_base.cpp:1286. Not float.MaxValue: 99999, which
+        // ClearBounds. Not float.MaxValue: 99999, which
         // is smaller than a Source map's own coordinate limits allow in theory
         // and is what every bounds computation in the tools starts from.
         float minX = 99999f;
@@ -361,7 +360,7 @@ internal static class VisWater
     }
 
     /// <summary>
-    /// <c>GetMinDistanceBetweenBoundingBoxes</c> (<c>vvis.cpp:660</c>).
+    /// <c>GetMinDistanceBetweenBoundingBoxes</c>.
     /// </summary>
     /// <param name="min1">The first box's minimum.</param>
     /// <param name="max1">The first box's maximum.</param>
@@ -384,7 +383,7 @@ internal static class VisWater
 
     private static bool BoxesIntersect(Vec3 min1, Vec3 max1, Vec3 min2, Vec3 max2)
     {
-        // IsBoxIntersectingBox, collisionutils.cpp:588-594.
+        // IsBoxIntersectingBox.
         if (min1.X > max2.X || max1.X < min2.X)
         {
             return false;

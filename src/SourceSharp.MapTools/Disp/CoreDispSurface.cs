@@ -5,12 +5,12 @@ namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
 /// The flat quad a displacement is built on, plus the neighbour records that
-/// live on it: <c>CCoreDispSurface</c>, <c>public/builddisp.h:39</c>.
+/// live on it: <c>CCoreDispSurface</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// A displacement is always four points — <c>SetPointCount</c> silently
-/// ignores any other value (<c>builddisp.h:186</c>) and <c>Create</c> returns
+/// ignores any other value and <c>Create</c> returns
 /// false if the count is not four — so the arrays here are fixed at four and
 /// there is no count.
 /// </para>
@@ -33,14 +33,14 @@ public sealed class CoreDispSurface
     private DispCornerNeighbors[] _cornerNeighbors = new DispCornerNeighbors[4];
 
     /// <summary>The number of bump-mapped lightmap sets past the base one.</summary>
-    /// <remarks><c>NUM_BUMP_VECTS</c>, <c>mathlib/bumpvects.h:25</c>.</remarks>
+    /// <remarks><c>NUM_BUMP_VECTS</c>.</remarks>
     public const int NumBumpVects = 3;
 
     /// <summary>
     /// The widest a displacement's lightmap may be, borders excluded.
     /// </summary>
     /// <remarks>
-    /// <c>MAX_DISP_LIGHTMAP_DIM_WITHOUT_BORDER</c>, <c>bspfile.h:35</c>.
+    /// <c>MAX_DISP_LIGHTMAP_DIM_WITHOUT_BORDER</c>.
     /// </remarks>
     public const int MaxLightmapDimWithoutBorder = 125;
 
@@ -82,18 +82,17 @@ public sealed class CoreDispSurface
 
     /// <summary>
     /// The owner's handle: <c>m_Index</c>, set through <c>SetHandle</c>
-    /// (<c>builddisp.h:170</c>). vrad stores the base face's LUMP_FACES index
-    /// here (<c>vraddisps.cpp:359</c>); vbsp never sets it, so it stays -1
-    /// (<c>CCoreDispSurface::Init</c>, <c>builddisp.cpp:193</c>).
+    /// Vrad stores the base face's LUMP_FACES index
+    /// here; vbsp never sets it, so it stays -1
+    /// (<c>CCoreDispSurface::Init</c>).
     /// </summary>
     public int Handle { get; set; } = -1;
 
     /// <summary>
     /// The texture S axis: <c>sAxis</c>, <c>SetSAxis</c>/<c>GetSAxis</c>
-    /// (<c>builddisp.h:373</c>).
     /// </summary>
     /// <remarks>
-    /// Cleared by <c>Init</c> (<c>builddisp.cpp:213</c>) and set by nothing
+    /// Cleared by <c>Init</c> and set by nothing
     /// under <c>src/utils</c>, so zero in every stock run; which is why the
     /// tangents <see cref="CoreDispInfo.Create"/> derives from it are zero.
     /// </remarks>
@@ -103,7 +102,7 @@ public sealed class CoreDispSurface
     public Vec3 TAxis { get; set; }
 
     /// <summary>
-    /// Sets one corner's normal: <c>SetPointNormal</c>, <c>builddisp.h:235</c>.
+    /// Sets one corner's normal: <c>SetPointNormal</c>.
     /// </summary>
     /// <param name="index">0..3.</param>
     /// <param name="normal">The normal.</param>
@@ -112,7 +111,7 @@ public sealed class CoreDispSurface
     /// Rotated with the points by <see cref="AdjustSurfPointData"/>, and read
     /// by nothing in <see cref="CoreDispInfo.Create"/>: the vertex normals are
     /// regenerated from the displaced grid. vrad sets all four to the quad's
-    /// plane normal before the rotation (<c>vraddisps.cpp:385</c>).
+    /// plane normal before the rotation.
     /// </remarks>
     public void SetPointNormal(int index, Vec3 normal)
     {
@@ -192,7 +191,7 @@ public sealed class CoreDispSurface
 
     /// <summary>
     /// Copies neighbour data in wholesale:
-    /// <c>CCoreDispSurface::SetNeighborData</c>, <c>builddisp.cpp:227</c>.
+    /// <c>CCoreDispSurface::SetNeighborData</c>.
     /// </summary>
     /// <param name="edges">Four edge records.</param>
     /// <param name="corners">Four corner records.</param>
@@ -213,7 +212,6 @@ public sealed class CoreDispSurface
 
     /// <summary>
     /// The quad's plane normal: <c>CCoreDispSurface::GetNormal</c>,
-    /// <c>builddisp.h:439</c>.
     /// </summary>
     /// <returns>The unit normal.</returns>
     /// <remarks>
@@ -232,7 +230,7 @@ public sealed class CoreDispSurface
 
     /// <summary>
     /// Picks the quad point nearest <see cref="PointStart"/>:
-    /// <c>FindSurfPointStartIndex</c>, <c>builddisp.cpp:340</c>.
+    /// <c>FindSurfPointStartIndex</c>.
     /// </summary>
     /// <returns>The index, which is also stored in <see cref="PointStartIndex"/>.</returns>
     /// <remarks>
@@ -275,14 +273,14 @@ public sealed class CoreDispSurface
 
     /// <summary>
     /// Rotates the quad so that the start point is point 0:
-    /// <c>AdjustSurfPointData</c>, <c>builddisp.cpp:368</c>.
+    /// <c>AdjustSurfPointData</c>.
     /// </summary>
     /// <remarks>
     /// <para>
     /// Points, normals and texture coordinates rotate.
     /// <b>The alphas do not.</b> Stock's loop reads
     /// <c>tmpAlphas[i]</c> where every other line of the same loop reads
-    /// <c>tmp...[(i + m_PointStartIndex) % 4]</c> (<c>builddisp.cpp:391</c>),
+    /// <c>tmp...[(i + m_PointStartIndex) % 4]</c>,
     /// so the corner alphas are copied back unrotated.
     /// </para>
     /// <para>
@@ -290,7 +288,7 @@ public sealed class CoreDispSurface
     /// no consequence to name: <c>m_Alphas</c> is written only by
     /// <c>SetAlpha</c>, which vbsp never calls, and read only by
     /// <c>CalcDispSurfAlphas</c>, which is inside an <c>#if 0</c>
-    /// (<c>builddisp.cpp:1636</c>). The four values are 1.0 throughout a vbsp
+    /// The four values are 1.0 throughout a vbsp
     /// run, and rotating four equal numbers is the identity. A future lane that
     /// starts feeding real corner alphas in would be the first to make this
     /// visible, and this comment is for them.
@@ -318,7 +316,7 @@ public sealed class CoreDispSurface
 
     /// <summary>
     /// Whether the quad is longer along the lightmap's u axis than its v:
-    /// <c>LongestInU</c>, <c>builddisp.cpp:398</c>.
+    /// <c>LongestInU</c>.
     /// </summary>
     /// <param name="u">The lightmap u axis, unnormalised.</param>
     /// <param name="v">The lightmap v axis.</param>
@@ -366,7 +364,7 @@ public sealed class CoreDispSurface
 
     /// <summary>
     /// Sizes the lightmap and lays the corner luxel coordinates out on it:
-    /// <c>CalcLuxelCoords</c>, <c>builddisp.cpp:442</c>.
+    /// <c>CalcLuxelCoords</c>.
     /// </summary>
     /// <param name="luxels">
     /// World units per luxel, which is <c>1 / |lightmapVecs[0]|</c> TRUNCATED
@@ -394,13 +392,13 @@ public sealed class CoreDispSurface
     /// The returned swap flag compares the computed sizes against the
     /// GEOMETRIC answer from <see cref="LongestInU"/>, so it fires when the
     /// texinfo's axes disagree with the quad's own long direction. The fix at
-    /// <c>disp_vbsp.cpp:225</c> makes a NEW texinfo rather than editing the
+    /// Makes a NEW texinfo rather than editing the
     /// existing one, and its comment names d2_prison_08, where editing in place
     /// turned unrelated non-displacement surfaces black.
     /// </para>
     /// <para>
     /// The <c>0.5</c> constants in the corner coordinates are DOUBLES in stock
-    /// (<c>flVValue + 0.5</c> with no <c>f</c>, <c>builddisp.cpp:511</c>), and
+    /// (<c>flVValue + 0.5</c> with no <c>f</c>), and
     /// the first component of each pair is a float <c>0.5f</c>. Both round to
     /// the same float for every value these can take, since
     /// <c>flUValue</c> and <c>flVValue</c> are small integers; the promotion is

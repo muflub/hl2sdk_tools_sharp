@@ -16,7 +16,7 @@ public struct AmbientCubeColors
 
 /// <summary>
 /// One candidate ambient sample: where it was taken and what it saw
-/// (<c>ambientsample_t</c>, <c>leaf_ambient_lighting.cpp:306</c>).
+/// (<c>ambientsample_t</c>).
 /// </summary>
 /// <remarks>
 /// A struct with its cube inline: a leaf keeps at most seventeen of these, and
@@ -51,12 +51,12 @@ public struct AmbientSample
 /// </remarks>
 public static class AmbientSampleList
 {
-    /// <summary>The cap (<c>MAX_SAMPLES</c>, <c>leaf_ambient_lighting.cpp:316</c>).</summary>
+    /// <summary>The cap(<c>MAX_SAMPLES</c>).</summary>
     public const int MaxSamples = 16;
 
     /// <summary>
     /// Adds a sample, evicting the least valuable one when the list is over
-    /// the cap (<c>AddSampleToList</c>, <c>leaf_ambient_lighting.cpp:314</c>).
+    /// The cap(<c>AddSampleToList</c>).
     /// </summary>
     /// <param name="list">The list, added to in place.</param>
     /// <param name="position">Where the sample was taken.</param>
@@ -79,7 +79,7 @@ public static class AmbientSampleList
     /// </para>
     /// <para>
     /// <b>The tie-break is dead code</b> in stock: <c>nearestNeighborTotal</c>
-    /// is never assigned (<c>:330</c>), so on an exact tie the EARLIER index
+ /// is never assigned, so on an exact tie the EARLIER index
     /// always wins. See <see cref="StockQuirk.AmbientSampleTieBreakNeverFires"/>.
     /// Eviction is <c>FastRemove</c>: the last element moves into the hole, and
     /// the resulting order reaches the lump.
@@ -132,7 +132,7 @@ public static class AmbientSampleList
                 ref readonly AmbientSample b = ref samples[j];
                 float dist = (a.Position - b.Position).Length();
 
-                // leaf_ambient_lighting.cpp:341-351.
+                //.
                 float maxDc = 0;
                 for (int k = 0; k < AmbientCube.Sides; k++)
                 {
@@ -183,7 +183,7 @@ public static class AmbientSampleList
 
     /// <summary>
     /// Drops every sample the rest can already reconstruct
-    /// (<c>CompressAmbientSampleList</c>, <c>leaf_ambient_lighting.cpp:432</c>).
+    /// (<c>CompressAmbientSampleList</c>).
     /// </summary>
     /// <param name="list">The list, shortened in place.</param>
     /// <exception cref="ArgumentNullException"><paramref name="list"/> is null.</exception>
@@ -217,7 +217,7 @@ public static class AmbientSampleList
 
     /// <summary>
     /// Reconstructs the ambient colour at a point from the samples
-    /// (<c>Mod_LeafAmbientColorAtPos</c>, <c>leaf_ambient_lighting.cpp:404</c>).
+    /// (<c>Mod_LeafAmbientColorAtPos</c>).
     /// </summary>
     /// <param name="into">Receives the six colours.</param>
     /// <param name="position">Where to reconstruct.</param>
@@ -266,7 +266,7 @@ public static class AmbientSampleList
 
     /// <summary>
     /// The largest per-channel, per-side difference between two cubes, in
-    /// gamma space (<c>CubeDeltaGammaSpace</c>, <c>leaf_ambient_lighting.cpp:385</c>).
+    /// gamma space(<c>CubeDeltaGammaSpace</c>).
     /// </summary>
     /// <param name="a">One cube.</param>
     /// <param name="b">The other.</param>

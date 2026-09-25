@@ -8,8 +8,8 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 /// <summary>
 /// A displacement face's light samples and luxels: <c>BuildDispSamples</c>,
 /// <c>BuildDispLuxels</c> and <c>BuildDispSamplesAndLuxels_DoFast</c>
-/// (<c>vraddisps.cpp:1559-1757</c>), which <c>CalcPoints</c>
-/// (<c>lightmap.cpp:898</c>) calls in place of the flat-face builders.
+/// Which <c>CalcPoints</c>
+/// Calls in place of the flat-face builders.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -59,7 +59,7 @@ public static class DispSampleBuilder
     }
 
     /// <summary>
-    /// <c>BuildDispSamples</c> (<c>vraddisps.cpp:1559</c>).
+    /// <c>BuildDispSamples</c>.
     /// </summary>
     /// <param name="surface">The displacement.</param>
     /// <param name="width">Luxels across (<c>m_LightmapTextureSizeInLuxels[0] + 1</c>).</param>
@@ -76,7 +76,7 @@ public static class DispSampleBuilder
     /// </para>
     /// <para>
     /// The winding is kept only for stock's <c>-dumppatches</c> output and for
-    /// supersampling, which displacements never get (<c>lightmap.cpp:3164</c>),
+    /// supersampling, which displacements never get,
     /// so it is not stored.
     /// </para>
     /// </remarks>
@@ -126,7 +126,7 @@ public static class DispSampleBuilder
     }
 
     /// <summary>
-    /// <c>BuildDispLuxels</c> (<c>vraddisps.cpp:1670</c>): one luxel per
+    /// <c>BuildDispLuxels</c>: one luxel per
     /// lightmap texel, at <c>u = s / (w - 1)</c>, pushed one unit off the
     /// surface, with its blended normal.
     /// </summary>
@@ -161,7 +161,7 @@ public static class DispSampleBuilder
     }
 
     /// <summary>
-    /// <c>BuildDispSamplesAndLuxels_DoFast</c> (<c>vraddisps.cpp:1710</c>):
+    /// <c>BuildDispSamplesAndLuxels_DoFast</c>:
     /// one sample per luxel, and the luxel IS the sample.
     /// </summary>
     /// <param name="surface">The displacement.</param>
@@ -177,11 +177,11 @@ public static class DispSampleBuilder
     /// </para>
     /// <para>
     /// <see cref="StockQuirk.DispFastSamplesPastEdge"/>: stock places sample
-    /// <c>s</c> at <c>u = s / (w - 1) + 1 / (2 (w - 1))</c> (<c>:1747</c>) -- the
+ /// <c>s</c> at <c>u = s / (w - 1) + 1 / (2 (w - 1))</c> -- the
     /// full path's half-step offset on the LUXEL grid. Every sample is half a
     /// luxel off its luxel, and the last column and row land at
     /// <c>u = 1 + half-step</c>, off the surface: <c>DispUVToSurfPoint</c> and
-    /// <c>DispUVToSurfNormal</c> return without writing (<c>vrad_dispcoll.cpp:181,
+    /// <c>DispUVToSurfNormal</c> return without writing (<c>,
     /// 326</c>), the position and normal stay the <c>calloc</c> zeros, a zero
     /// normal takes no light, and every displacement's last row and column of
     /// luxels is black in a <c>-fast</c> compile -- the "black seams" VRAD++'s
@@ -190,16 +190,16 @@ public static class DispSampleBuilder
     /// lightmap is exactly zero, and the full-path compile of the same map has
     /// none. Correct samples each luxel at its own position, <c>u = s / (w - 1)</c>,
     /// which is where <see cref="BuildLuxels"/> puts it and where the flat
-    /// <c>-fast</c> path samples (<c>lightmap.cpp:611-617</c>).
+    /// <c>-fast</c> path samples.
     /// </para>
     /// <para>
     /// <see cref="StockQuirk.DispFastSampleAreaZero"/>: the samples come from
     /// <c>calloc</c> and the fast path never sets their area, so
     /// <c>AddSampleToPatch</c> credits nothing to a displacement's patches
-    /// (<c>lightmap.cpp:2109-2110</c> add <c>area * light</c> and <c>area</c>)
+    /// (add <c>area * light</c> and <c>area</c>)
     /// and displacements reflect no light in a <c>-fast</c> compile with
     /// bounces. The flat fast path sets <c>worldAreaPerLuxel</c>
-    /// (<c>lightmap.cpp:584, 618</c>); Correct does the same here.
+ ///Correct does the same here.
     /// </para>
     /// </remarks>
     public static void BuildSamplesAndLuxelsFast(
@@ -248,7 +248,7 @@ public static class DispSampleBuilder
     }
 
     /// <summary>
-    /// <c>WindingArea</c> (<c>polylib.cpp:154</c>) of a four-point winding: the
+    /// <c>WindingArea</c> of a four-point winding: the
     /// fan from point 0, cross lengths summed, halved once.
     /// </summary>
     /// <param name="p0">Point 0.</param>

@@ -5,7 +5,7 @@ using SourceSharp.MapTools.Rad.Light;
 namespace SourceSharp.MapTools.Rad.Final;
 
 /// <summary>
-/// <c>radial_t</c> (<c>radial.h:38</c>): irregular light samples accumulated
+/// <c>radial_t</c>: irregular light samples accumulated
 /// onto one face's regular luxel grid, with a weight per luxel.
 /// </summary>
 /// <remarks>
@@ -31,16 +31,16 @@ namespace SourceSharp.MapTools.Rad.Final;
 /// </remarks>
 public sealed class LuxelRadial
 {
-    /// <summary><c>RADIALDIST2</c> (<c>radial.h:22</c>), an int.</summary>
+    /// <summary><c>RADIALDIST2</c>, an int.</summary>
     public const int RadialDist2 = 2;
 
-    /// <summary><c>RADIALDIST</c> (<c>radial.h:23</c>), a double.</summary>
+    /// <summary><c>RADIALDIST</c>, a double.</summary>
     public const double RadialDist = 1.42;
 
-    /// <summary><c>WEIGHT_EPS</c> (<c>radial.h:25</c>), a float.</summary>
+    /// <summary><c>WEIGHT_EPS</c>, a float.</summary>
     public const float WeightEpsilon = 0.00001f;
 
-    /// <summary><c>OO_SQRT_3</c> (<c>bumpvects.h:20</c>).</summary>
+    /// <summary><c>OO_SQRT_3</c>.</summary>
     public const float OneOverSqrt3 = 0.57735025882720947f;
 
     /// <summary>The value stock writes into a luxel it has no answer for: 2550 red.</summary>
@@ -62,7 +62,7 @@ public sealed class LuxelRadial
     public int Count => Width * Height;
 
     /// <summary>
-    /// <c>AllocateRadial</c> (<c>radial.cpp:259</c>): an empty grid over one
+    /// <c>AllocateRadial</c>: an empty grid over one
     /// face, reusing this buffer.
     /// </summary>
     /// <param name="info">The face's frame (<c>InitLightinfo</c>).</param>
@@ -106,7 +106,7 @@ public sealed class LuxelRadial
     public LightingValue Light(int bump, int index) => _light[bump][index];
 
     /// <summary>
-    /// <c>AddDirectToRadial</c> (<c>radial.cpp:70</c>): splats one light sample
+    /// <c>AddDirectToRadial</c>: splats one light sample
     /// over the luxels its bounds overlap.
     /// </summary>
     /// <param name="point">The sample's world position.</param>
@@ -142,7 +142,7 @@ public sealed class LuxelRadial
     {
         (float coordS, float coordT) = Info.WorldToLuxel(point);
 
-        // :87-95. (int) truncates toward zero; the +0.9999f then +1 is stock's
+        // 87-95. (int) truncates toward zero; the +0.9999f then +1 is stock's
         // own "????".
         int sMin = (int)minS;
         int tMin = (int)minT;
@@ -158,7 +158,7 @@ public sealed class LuxelRadial
         {
             for (int t = tMin; t < tMax; t++)
             {
-                // :101-104. max/min against DOUBLE -1.0 and 1.0: the float
+                // 101-104. max/min against DOUBLE -1.0 and 1.0: the float
                 // difference is widened, compared, and narrowed back.
                 float s0 = (float)StockMax(minS - s, -1.0);
                 float t0 = (float)StockMax(minT - t, -1.0);
@@ -209,7 +209,7 @@ public sealed class LuxelRadial
     }
 
     /// <summary>
-    /// <c>AddBouncedToRadial</c> (<c>radial.cpp:157</c>): splats one patch's
+    /// <c>AddBouncedToRadial</c>: splats one patch's
     /// bounced light with a radial falloff sized to the patch.
     /// </summary>
     /// <param name="point">The patch's origin.</param>
@@ -222,7 +222,7 @@ public sealed class LuxelRadial
     /// <param name="neighbourHasBumpmap">Whether the patch's face is.</param>
     /// <remarks>
     /// The patch extent is clamped to at least one luxel (the comment at
-    /// <c>:178</c>), the window is <c>RADIALDIST</c> patch-extents either side
+ ///), the window is <c>RADIALDIST</c> patch-extents either side
     /// -- computed in double because <c>RADIALDIST</c> is a double literal --
     /// and the weight is <c>2 - (ds² + dt²)</c> in patch units, kept where
     /// positive. Only the colour accumulates: the sun amount is untouched,
@@ -300,7 +300,7 @@ public sealed class LuxelRadial
     }
 
     /// <summary>
-    /// <c>SampleRadial</c> (<c>radial.cpp:483</c>): the normalised light at the
+    /// <c>SampleRadial</c>: the normalised light at the
     /// luxel nearest a world point.
     /// </summary>
     /// <param name="point">The point, normally a luxel's own world position.</param>
@@ -378,7 +378,7 @@ public sealed class LuxelRadial
     public int OffGrid { get; set; }
 
     /// <summary>
-    /// The edge test of <c>SampleRadial</c> (<c>radial.cpp:493</c>).
+    /// The edge test of <c>SampleRadial</c>.
     /// </summary>
     /// <param name="u">The luxel column.</param>
     /// <param name="v">The luxel row.</param>

@@ -13,7 +13,6 @@ namespace SourceSharp.MapTools.Rad;
 /// </summary>
 /// <param name="Found">
 /// True when a VMT was there and parsed — <c>bFound</c>
-/// (<c>src/utils/vrad/vradstaticprops.cpp:688-741</c>).
 /// </param>
 /// <param name="Index">
 /// The <see cref="AlphaTexture"/>'s index, or -1 when the material casts no
@@ -22,7 +21,7 @@ namespace SourceSharp.MapTools.Rad;
 /// <remarks>
 /// The two are INDEPENDENT, and that is the point of returning both.
 /// <c>LoadAllTexturesForModel</c> breaks its search-path loop on
-/// <see cref="Found"/> (<c>:765-766</c>), not on <see cref="Index"/>: a texture
+/// <see cref="Found"/>, not on <see cref="Index"/>: a texture
 /// whose VMT is found in the first material search path but is opaque stops the
 /// search there and never looks in the second path, even if the second holds an
 /// alpha-tested material of the same name.
@@ -41,7 +40,7 @@ public readonly record struct ShadowTextureLookup(bool Found, int Index);
 /// or -1 when the triangle is fully opaque.
 /// </param>
 /// <remarks>
-/// <c>vradstaticprops.cpp:1970-1991</c>. A coverage of exactly 1 produces -1
+/// A coverage of exactly 1 produces -1
 /// and therefore no <c>FCACHETRI_TRANSPARENT</c> flag, so the ray tracer treats
 /// the triangle as a solid blocker and never calls back into the texture at
 /// all — which is the only reason it is affordable to run this over every
@@ -51,13 +50,11 @@ public readonly record struct TriangleShadowMaterial(float Coverage, int Materia
 {
     /// <summary>
     /// True when the triangle gets <c>FCACHETRI_TRANSPARENT</c>
-    /// (<c>vradstaticprops.cpp:1988-1991</c>).
     /// </summary>
     public bool IsTransparent => MaterialIndex >= 0;
 
     /// <summary>
     /// The value stock writes into the triangle's colour x component
-    /// (<c>vradstaticprops.cpp:1977</c>).
     /// </summary>
     /// <remarks>
     /// Zero for an opaque triangle, because <c>color</c> is left at
@@ -74,9 +71,9 @@ public readonly record struct TriangleShadowMaterial(float Coverage, int Materia
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>CShadowTextureList</c> (<c>src/utils/vrad/vradstaticprops.cpp:646-880</c>),
+/// <c>CShadowTextureList</c>,
 /// which in stock is the single global <c>g_ShadowTextureList</c> at
-/// <c>:878</c>. An instance here, with no mutable statics: the tables it holds
+///An instance here, with no mutable statics: the tables it holds
 /// are written during the prop load and read from inside the ray tracer's
 /// transparency callback, so making them global makes a concurrent compile
 /// impossible to reason about.
@@ -85,8 +82,8 @@ public readonly record struct TriangleShadowMaterial(float Coverage, int Materia
 /// It serves two callers, and the second is what makes the first worth having.
 /// The LOAD path asks <see cref="AddTriangle"/> what a triangle's average
 /// coverage is and which material entry it gets
-/// (<c>vradstaticprops.cpp:1970-1991</c>). The TRACE path — stock's
-/// <c>ComputeCoverageFromTexture</c> at <c>:888-896</c>, installed as the ray
+/// The TRACE path — stock's
+/// <c>ComputeCoverageFromTexture</c>, installed as the ray
 /// tracer's transparency callback — asks
 /// <see cref="ComputeCoverageFromTexture"/> what fraction of light gets through
 /// a given material entry at given barycentrics, which is a per-ray question
@@ -104,7 +101,7 @@ public readonly record struct TriangleShadowMaterial(float Coverage, int Materia
 public sealed class ShadowTextureList
 {
     // CUtlDict's default compare type is k_eDictCompareTypeCaseInsensitive
-    // (utldict.h:51), and vradstaticprops.cpp:874 default-constructs it -- so
+    // And default-constructs it -- so
     // two search paths spelling the same material differently share one entry.
     private readonly Dictionary<string, int> _indexByMaterial =
         new(StringComparer.OrdinalIgnoreCase);
@@ -113,7 +110,7 @@ public sealed class ShadowTextureList
     private readonly List<MaterialEntry> _materialEntries = [];
 
     /// <summary>The scale from an alpha byte to a coverage fraction.</summary>
-    /// <remarks><c>vradstaticprops.cpp:890</c>.</remarks>
+    /// <remarks>.</remarks>
     public const float AlphaScale = 1f / 255f;
 
     /// <summary>How many distinct alpha textures have been loaded.</summary>
@@ -177,7 +174,7 @@ public sealed class ShadowTextureList
     /// <exception cref="ArgumentException">The material is already loaded.</exception>
     /// <remarks>
     /// Not a stock entry point: stock only ever inserts from
-    /// <c>FindOrLoadIfValid</c> (<c>vradstaticprops.cpp:718</c>). It exists so
+    /// <c>FindOrLoadIfValid</c>. It exists so
     /// the coverage and sampling maths can be pinned against a hand-built alpha
     /// plane without a VTF fixture standing between the fact and the arithmetic
     /// it is checking.
@@ -218,13 +215,13 @@ public sealed class ShadowTextureList
     /// </exception>
     /// <remarks>
     /// <para>
-    /// <c>vradstaticprops.cpp:688-741</c>. THE ACCEPTANCE RULE: a material is
+    /// THE ACCEPTANCE RULE: a material is
     /// accepted only if it has <c>$translucent</c> OR <c>$alphatest</c>, AND a
     /// <c>$basetexture</c> whose VTF loads. Everything else answers -1.
     /// </para>
     /// <para>
     /// The two opacity keys are tested with <c>KeyValues::FindKey</c>
-    /// (<c>:702</c>) — PRESENCE, not truth. So <c>$translucent 0</c> is
+ /// — PRESENCE, not truth. So <c>$translucent 0</c> is
     /// accepted and casts alpha shadows, which is why this reads
     /// <see cref="MaterialFacts.GetVar"/> for null rather than asking
     /// <see cref="MaterialFacts.Opacity"/>: that property is the material
@@ -245,7 +242,7 @@ public sealed class ShadowTextureList
     /// so the difference is visible if it ever matters.
     /// </para>
     /// <para>
-    /// The cache holds only ACCEPTED materials (<c>:718</c> inserts inside the
+ /// The cache holds only ACCEPTED materials (inserts inside the
     /// innermost <c>if</c>), so a rejected material is re-read from disk every
     /// time it is asked about. Reproduced, because the read is observable
     /// through <c>RecordingContentFileSystem</c> and a compile's recorded input
@@ -273,12 +270,12 @@ public sealed class ShadowTextureList
 
         if (!facts.Found)
         {
-            // :695-700 -- LoadFromBuffer failed, so bFound stays false and the
+            // 695-700 -- LoadFromBuffer failed, so bFound stays false and the
             // caller keeps walking the model's material search paths.
             return new ShadowTextureLookup(Found: false, -1);
         }
 
-        // :702 -- FindKey, so presence. See the remarks.
+        // 702 -- FindKey, so presence. See the remarks.
         bool opacityKey = facts.GetVar(MaterialVarNames.Translucent) is not null
             || facts.GetVar(MaterialVarNames.AlphaTest) is not null;
 
@@ -287,7 +284,7 @@ public sealed class ShadowTextureList
             return new ShadowTextureLookup(Found: true, -1);
         }
 
-        // :723 -- $nocull is FindKey too, so "$nocull 0" allows backfaces.
+        // 723 -- $nocull is FindKey too, so "$nocull 0" allows backfaces.
         bool allowBackface = facts.GetVar(NoCull) is not null;
 
         AlphaTexture? texture = await LoadAlphaTextureAsync(
@@ -296,7 +293,7 @@ public sealed class ShadowTextureList
         if (texture is null)
         {
             // LoadVTFRGB8888 returned NULL: no file, not a VTF, or a format
-            // ConvertImageFormat would not take (:656, :661, :677).
+ // ConvertImageFormat would not take (656).
             return new ShadowTextureLookup(Found: true, -1);
         }
 
@@ -321,7 +318,7 @@ public sealed class ShadowTextureList
     /// <paramref name="model"/> or <paramref name="content"/> is null.
     /// </exception>
     /// <remarks>
-    /// <c>vradstaticprops.cpp:746-769</c>: <c>numtextures</c> outer,
+    /// <c>numtextures</c> outer,
     /// <c>numcdtextures</c> inner, building
     /// <c>materials/&lt;cdtexture&gt;&lt;texturename&gt;.vmt</c> and stopping
     /// at the first search path where the material EXISTS — see
@@ -378,7 +375,7 @@ public sealed class ShadowTextureList
     /// <exception cref="ArgumentOutOfRangeException">The texture index names no texture.</exception>
     /// <remarks>
     /// The load path's whole interaction with this class
-    /// (<c>vradstaticprops.cpp:1970-1991</c>), as one call so that the rule
+    /// As one call so that the rule
     /// "coverage of 1 means no material entry" cannot be got wrong by a caller
     /// and cannot drift between the two callers stock has.
     /// </remarks>
@@ -406,7 +403,7 @@ public sealed class ShadowTextureList
     /// <returns>The new material entry's index.</returns>
     /// <exception cref="ArgumentOutOfRangeException">The texture index names no texture.</exception>
     /// <remarks>
-    /// <c>vradstaticprops.cpp:772-780</c>. Append-only and never de-duplicated:
+    /// Append-only and never de-duplicated:
     /// two triangles with identical UVs get two entries, because the index is
     /// the ray tracer's per-triangle payload and stock has nowhere to put a
     /// shared one.
@@ -431,8 +428,8 @@ public sealed class ShadowTextureList
     /// <exception cref="ArgumentOutOfRangeException">The texture index names no texture.</exception>
     /// <remarks>
     /// <para>
-    /// <c>vradstaticprops.cpp:782-824</c>, and stock labels it HACKHACK in its
-    /// own comment at <c>:782</c>. TWO DELIBERATE DEFECTS ARE REPRODUCED HERE.
+    /// And stock labels it HACKHACK in its
+ /// own comment. TWO DELIBERATE DEFECTS ARE REPRODUCED HERE.
     /// </para>
     /// <para>
     /// FIRST: it averages over the AXIS-ALIGNED BOUNDING BOX of the triangle in
@@ -447,7 +444,7 @@ public sealed class ShadowTextureList
     /// answer.
     /// </para>
     /// <para>
-    /// SECOND: the UV box is CLAMPED to [0,1] (<c>:795-798</c>), under a
+ /// SECOND: the UV box is CLAMPED to [0,1], under a
     /// comment reading "UNDONE: Do something about tiling". A triangle whose
     /// UVs run 0..4 across a tiling texture therefore has its footprint
     /// collapsed to the texture's first tile, and one whose UVs are entirely
@@ -458,7 +455,7 @@ public sealed class ShadowTextureList
     /// </para>
     /// <para>
     /// The box is walked in TEXEL coordinates scaled by <c>width - 1</c>
-    /// (<c>:803-806</c>), inclusive at both ends, and truncated rather than
+ /// Inclusive at both ends, and truncated rather than
     /// rounded — which is a third disagreement with <see cref="AlphaTexture.Sample"/>,
     /// which scales by <c>width</c> and rounds.
     /// </para>
@@ -472,13 +469,13 @@ public sealed class ShadowTextureList
         ArgumentOutOfRangeException.ThrowIfNegative(shadowTextureIndex);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(shadowTextureIndex, _textures.Count);
 
-        // :784-793 -- the AABB, min then max on each axis.
+        // 784-793 -- the AABB, min then max on each axis.
         float uMin = MathF.Min(MathF.Min(t0.X, t1.X), t2.X);
         float uMax = MathF.Max(MathF.Max(t0.X, t1.X), t2.X);
         float vMin = MathF.Min(MathF.Min(t0.Y, t1.Y), t2.Y);
         float vMax = MathF.Max(MathF.Max(t0.Y, t1.Y), t2.Y);
 
-        // :795-798 -- "UNDONE: Do something about tiling".
+        // 795-798 -- "UNDONE: Do something about tiling".
         uMin = Math.Clamp(uMin, 0f, 1f);
         uMax = Math.Clamp(uMax, 0f, 1f);
         vMin = Math.Clamp(vMin, 0f, 1f);
@@ -486,7 +483,7 @@ public sealed class ShadowTextureList
 
         AlphaTexture texture = _textures[shadowTextureIndex];
 
-        // :803-806 -- float to int is a C truncation, and the scale is
+        // 803-806 -- float to int is a C truncation, and the scale is
         // width - 1, so uMax of 1.0 lands on the LAST column rather than one
         // past it.
         int u0 = (int)(uMin * (texture.Width - 1));
@@ -505,7 +502,7 @@ public sealed class ShadowTextureList
             }
         }
 
-        // :818-823. The clamp above makes u1 >= u0 and v1 >= v0 for every
+        // The clamp above makes u1 >= u0 and v1 >= v0 for every
         // finite input, so count is at least one; the branch is stock's and is
         // kept because a NaN texture coordinate reaches it.
         return count > 0 ? total / (count * 255f) : 1f;
@@ -523,13 +520,13 @@ public sealed class ShadowTextureList
     /// <exception cref="ArgumentOutOfRangeException">The index names no material entry.</exception>
     /// <remarks>
     /// <para>
-    /// <c>vradstaticprops.cpp:826-855</c>. The barycentrics interpolate the
+    /// The barycentrics interpolate the
     /// three stored UVs, and <see cref="AlphaTexture.Sample"/> does the rest —
     /// including the wrap that makes <see cref="AlphaTexture.ClampU"/> dead.
     /// </para>
     /// <para>
     /// A backfacing hit on a texture without <c>$nocull</c> returns 0, meaning
-    /// the triangle blocks everything (<c>:834-835</c>). See
+ /// the triangle blocks everything. See
     /// <see cref="ComputeCoverageFromTexture"/> for why that branch is
     /// unreachable in stock.
     /// </para>
@@ -565,14 +562,14 @@ public sealed class ShadowTextureList
     /// <exception cref="ArgumentOutOfRangeException">The index names no material entry.</exception>
     /// <remarks>
     /// <para>
-    /// <c>ComputeCoverageFromTexture</c> (<c>vradstaticprops.cpp:888-896</c>),
+    /// <c>ComputeCoverageFromTexture</c>,
     /// the ray tracer's transparency callback. The argument order is stock's,
     /// barycentrics before the id.
     /// </para>
     /// <para>
     /// A DELIBERATE REPRODUCTION OF A STOCK DEFECT: <c>bBackface</c> is
-    /// HARDCODED FALSE at <c>:895</c>, under a commented-out two-line body at
-    /// <c>:892-893</c> that would have computed it from the ray direction and
+ /// HARDCODED FALSE, under a commented-out two-line body
+ /// That would have computed it from the ray direction and
     /// the triangle normal ("UNDONE: Pass ray down to determine backfacing?").
     /// The consequence is that <c>$nocull</c> and
     /// <see cref="AlphaTexture.AllowBackface"/> have NO EFFECT on a compile:
@@ -590,7 +587,6 @@ public sealed class ShadowTextureList
     /// Spelled here rather than added to <see cref="MaterialVarNames"/> because
     /// that type is the set of variables the two COMPILERS name, and this one
     /// is named by exactly one function in vrad
-    /// (<c>vradstaticprops.cpp:723</c>).
     /// </remarks>
     private const string NoCull = "$nocull";
 
@@ -614,13 +610,13 @@ public sealed class ShadowTextureList
         }
         catch (InvalidVtfException)
         {
-            // :661 -- Unserialize returned false, so LoadVTFRGB8888 returns
+            // 661 -- Unserialize returned false, so LoadVTFRGB8888 returns
             // NULL and the material is silently given no alpha shadow.
             return null;
         }
         catch (NotSupportedException)
         {
-            // :677-681 -- ConvertImageFormat returned false. Same answer.
+            // 677-681 -- ConvertImageFormat returned false. Same answer.
             return null;
         }
     }
@@ -634,15 +630,15 @@ public sealed class ShadowTextureList
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>g_ForcedTextureShadowsModels</c> (<c>vradstaticprops.cpp:225</c>) and the
-/// three functions around it at <c>:899-936</c>, as an instance rather than a
+/// <c>g_ForcedTextureShadowsModels</c> and the
+/// three functions around it, as an instance rather than a
 /// global.
 /// </para>
 /// <para>
 /// The lines themselves are parsed by
 /// <see cref="MapFormats.Text.RadLightFile"/>, which already ports
 /// <c>ReadLightFile</c>'s <c>noshadow</c> and <c>forcetextureshadow</c>
-/// branches (<c>src/utils/vrad/vrad.cpp:226-237</c>) and hands back the raw
+/// Branches and hands back the raw
 /// names. It is THIS type that cleans them, matching stock, where
 /// <c>ForceTextureShadowsOnModel</c> — not the parser — calls
 /// <c>CleanModelName</c>.
@@ -651,12 +647,12 @@ public sealed class ShadowTextureList
 public sealed class ForcedTextureShadowModels
 {
     // CUtlSymbolTable's caseInsensitive argument defaults to FALSE
-    // (utlsymbol.h:94) and vradstaticprops.cpp:225 default-constructs it, so
+    // And default-constructs it, so
     // this really is an ordinal match. See CleanModelName.
     private readonly HashSet<string> _models = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// <c>STUDIOHDR_FLAGS_CAST_TEXTURE_SHADOWS</c> (<c>src/public/studio.h:2088</c>).
+    /// <c>STUDIOHDR_FLAGS_CAST_TEXTURE_SHADOWS</c>.
     /// </summary>
     /// <remarks>
     /// The bit a modeller sets with <c>$casttextureshadows</c> in a QC. It is
@@ -679,7 +675,7 @@ public sealed class ForcedTextureShadowModels
     /// <exception cref="ArgumentNullException"><paramref name="modelName"/> is null.</exception>
     /// <remarks>
     /// <para>
-    /// <c>CleanModelName</c> (<c>vradstaticprops.cpp:899-919</c>). Two things
+    /// <c>CleanModelName</c>. Two things
     /// about it are easy to assume and wrong.
     /// </para>
     /// <para>
@@ -694,7 +690,7 @@ public sealed class ForcedTextureShadowModels
     /// </para>
     /// <para>
     /// IT TRUNCATES AT THE FIRST DOT ANYWHERE, not at the extension —
-    /// <c>strchr(pOutput, '.')</c> at <c>:914</c>. So a model under a directory
+ /// <c>strchr(pOutput, '.')</c>. So a model under a directory
     /// with a dot in its name loses everything from that dot onwards. Also
     /// reproduced.
     /// </para>
@@ -710,14 +706,14 @@ public sealed class ForcedTextureShadowModels
 
         string name = modelName;
 
-        // :905-909 -- Q_strnicmp, so the PREFIX test ignores case even though
+        // 905-909 -- Q_strnicmp, so the PREFIX test ignores case even though
         // nothing else here does.
         if (name.StartsWith(ModelDirectory, StringComparison.OrdinalIgnoreCase))
         {
             name = name[ModelDirectory.Length..];
         }
 
-        // :912-917 -- strchr finds the FIRST dot, not the last.
+        // 912-917 -- strchr finds the FIRST dot, not the last.
         int dot = name.IndexOf('.', StringComparison.Ordinal);
         return dot >= 0 ? name[..dot] : name;
     }
@@ -728,7 +724,7 @@ public sealed class ForcedTextureShadowModels
     /// <param name="modelName">The name from the line.</param>
     /// <returns>True when this added it, false when it was already there.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="modelName"/> is null.</exception>
-    /// <remarks><c>ForceTextureShadowsOnModel</c> (<c>vradstaticprops.cpp:921-929</c>).</remarks>
+    /// <remarks><c>ForceTextureShadowsOnModel</c>.</remarks>
     public bool Add(string modelName) => _models.Add(CleanModelName(modelName));
 
     /// <summary>
@@ -753,7 +749,7 @@ public sealed class ForcedTextureShadowModels
     /// <param name="modelName">The model, as the BSP's static prop dictionary spells it.</param>
     /// <returns>True when it was.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="modelName"/> is null.</exception>
-    /// <remarks><c>IsModelTextureShadowsForced</c> (<c>vradstaticprops.cpp:931-936</c>).</remarks>
+    /// <remarks><c>IsModelTextureShadowsForced</c>.</remarks>
     public bool Contains(string modelName) => _models.Contains(CleanModelName(modelName));
 
     /// <summary>
@@ -765,7 +761,7 @@ public sealed class ForcedTextureShadowModels
     /// <returns>True when <c>LoadAllTexturesForModel</c> should run for it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="modelName"/> is null.</exception>
     /// <remarks>
-    /// <c>vradstaticprops.cpp:1000-1009</c>: the switch AND either the model's
+    /// The switch AND either the model's
     /// own flag or a <c>forcetextureshadow</c> line. Without
     /// <c>-textureshadows</c> not one VMT of this path is read, which is why a
     /// compile that has never heard of it costs nothing.

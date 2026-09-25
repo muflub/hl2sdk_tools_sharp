@@ -5,11 +5,11 @@ namespace SourceSharp.MapTools.Rad;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>vrad.h:300-302</c>. The identity is not an index into anything: it is a
+/// The identity is not an index into anything: it is a
 /// set of flags with, for a static prop, the prop's own index in the low bits.
 /// That packing is what lets a shadow ray skip the prop it started on --
 /// <c>Trace4Rays</c> is called with <c>TRACE_ID_STATICPROP | propIndex</c>
-/// (<c>trace.cpp:164</c>) and the traversal drops any triangle whose id matches.
+/// And the traversal drops any triangle whose id matches.
 /// </para>
 /// <para>
 /// So the low 24 bits are meaningful ONLY when
@@ -20,13 +20,13 @@ namespace SourceSharp.MapTools.Rad;
 /// </remarks>
 public static class TraceId
 {
-    /// <summary>A sky face: blocks nothing, but reports the sky. <c>vrad.h:300</c>.</summary>
+    /// <summary>A sky face: blocks nothing, but reports the sky..</summary>
     public const int Sky = 0x01000000;
 
-    /// <summary>An ordinary light blocker: world brush or displacement. <c>vrad.h:301</c>.</summary>
+    /// <summary>An ordinary light blocker: world brush or displacement..</summary>
     public const int Opaque = 0x02000000;
 
-    /// <summary>A static prop; the prop index is in the low bits. <c>vrad.h:302</c>.</summary>
+    /// <summary>A static prop; the prop index is in the low bits..</summary>
     public const int StaticProp = 0x04000000;
 
     /// <summary>The bits a static prop's index occupies.</summary>

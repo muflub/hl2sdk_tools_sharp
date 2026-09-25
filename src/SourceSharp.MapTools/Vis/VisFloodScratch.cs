@@ -10,7 +10,7 @@ namespace SourceSharp.MapTools.Vis;
 /// <para>
 /// <b><c>portalfront</c> is scratch, not state, and stock's layout hides
 /// that.</b> Stock hangs it off <c>portal_t</c> beside <c>portalflood</c> and
-/// <c>portalvis</c> (<c>src/utils/vvis/vis.h:54-58</c>), which reads as three
+/// <c>portalvis</c>, which reads as three
 /// equally durable per-portal facts. It is not: a portal's <c>portalfront</c>
 /// is written at the head of its own <c>BasePortalVis</c>, read by the
 /// <c>SimpleFlood</c> two lines later, and never looked at again by anything --

@@ -6,14 +6,14 @@ namespace SourceSharp.MapTools.Bsp.Collision;
 
 /// <summary>
 /// A static prop model's cooked hull: what <c>GetCollisionModel</c>
-/// (<c>staticprop.cpp:245</c>) caches per model.
+/// Caches per model.
 /// </summary>
 /// <param name="ModelName">The name, normalised as the cache keys it.</param>
-/// <param name="Blob">The cooked collide, or null: "Bad geometry" or a model that did not load, and the prop is dropped (<c>staticprop.cpp:480</c>).</param>
+/// <param name="Blob">The cooked collide, or null: "Bad geometry" or a model that did not load, and the prop is dropped.</param>
 public sealed record StaticPropHull(string ModelName, byte[]? Blob);
 
 /// <summary>
-/// The collision half of vbsp's static props (<c>staticprop.cpp:196-450</c>):
+/// The collision half of vbsp's static props:
 /// cook a model's hull, and find the leaves a placed prop touches, for the
 /// sprp leaf lists. The prop lane emits the lump; this is the part that needs
 /// the cooker.
@@ -26,7 +26,7 @@ public sealed record StaticPropHull(string ModelName, byte[]? Blob);
 /// <c>ComputeConvexHull( studiohdr_t* )</c> walks them); per prop, call
 /// <see cref="ComputeStaticPropLeavesAsync"/> with the BSP's nodes, planes and
 /// leaves. A prop whose hull is null, or that touches no leaf, is not
-/// emitted ("Static prop %s outside the map", <c>staticprop.cpp:487</c>).
+/// emitted("Static prop %s outside the map").
 /// </para>
 /// <para>
 /// The hull is kept as BYTES, not a live collide: a native handle must not
@@ -37,7 +37,7 @@ public sealed record StaticPropHull(string ModelName, byte[]? Blob);
 public static class StaticPropCollision
 {
     /// <summary>
-    /// The cache key: lower case, back slashes forward (<c>staticprop.cpp:248-258</c>).
+    /// The cache key: lower case, back slashes forward.
     /// </summary>
     /// <param name="modelName">The model name as the entity spells it.</param>
     /// <returns>The normalised name.</returns>
@@ -55,7 +55,7 @@ public static class StaticPropCollision
     }
 
     /// <summary>
-    /// <c>ComputeConvexHull( studiohdr_t* )</c>, <c>staticprop.cpp:215</c>: one
+    /// <c>ComputeConvexHull(studiohdr_t*)</c>: one
     /// <c>ConvexFromVerts</c> per mesh, then one collide of them all.
     /// </summary>
     /// <param name="cooker">The cooker.</param>
@@ -78,7 +78,7 @@ public static class StaticPropCollision
             s =>
             {
                 // A null convex stays in the list, as stock's does; vphysics
-                // skips it (physics_collide.cpp:1176).
+                // Skips it.
                 ConvexHandle[] hulls = [.. meshes.Select(m => s.ConvexFromVerts(m))];
                 CollideHandle collide = s.ConvertConvexToCollide(hulls);
                 if (collide.IsNull)
@@ -94,7 +94,7 @@ public static class StaticPropCollision
     }
 
     /// <summary>
-    /// <c>ComputeStaticPropLeaves</c>, <c>staticprop.cpp:437</c>: the non-solid
+    /// <c>ComputeStaticPropLeaves</c>: the non-solid
     /// leaves the placed hull really overlaps, in tree order.
     /// </summary>
     /// <param name="cooker">The cooker.</param>
@@ -158,7 +158,7 @@ public static class StaticPropCollision
         int[] NodeList,
         List<ushort> Leaves);
 
-    /// <summary><c>ComputeConvexHullLeaves_R</c>, <c>staticprop.cpp:357</c>.</summary>
+    /// <summary><c>ComputeConvexHullLeaves_R</c>.</summary>
     private static void Walk(Walker w, int node, int depth, Vec3 mins, Vec3 maxs)
     {
         while (node >= 0)
@@ -214,7 +214,7 @@ public static class StaticPropCollision
         }
     }
 
-    /// <summary><c>TestLeafAgainstCollide</c>, <c>staticprop.cpp:314</c>.</summary>
+    /// <summary><c>TestLeafAgainstCollide</c>.</summary>
     private static bool TestLeafAgainstCollide(Walker w, int depth)
     {
         // The node list, deepest first, as outward planes.
@@ -248,7 +248,7 @@ public static class StaticPropCollision
 }
 
 /// <summary>
-/// <c>s_ModelCollisionCache</c> (<c>staticprop.cpp:76</c>): one hull per
+/// <c>s_ModelCollisionCache</c>: one hull per
 /// model per compile, a failed load remembered as a null hull so it is not
 /// retried. One instance per compile; not shared between compiles, because
 /// the content that answers a model name belongs to the compile.
@@ -273,7 +273,7 @@ public sealed class StaticPropHullCache
     /// <param name="modelName">The model, any spelling.</param>
     /// <param name="loadMeshes">
     /// Reads the model's mesh vertices; null when the model does not load
-    /// (stock: "Error loading studio model", <c>staticprop.cpp:269</c>).
+    /// (stock: "Error loading studio model").
     /// </param>
     /// <param name="cancellationToken">Cancels the load and the cook.</param>
     /// <returns>The hull.</returns>

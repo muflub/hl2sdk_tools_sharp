@@ -40,7 +40,7 @@ public enum RoomRule
 /// leaf of the compile fills the kit's plug box and carries a trigger-brushed
 /// side, so the plug is really there, really sealed the flood fill, and really
 /// is door hardware rather than a piece of shell. The plug leaf itself is
-/// solid and thus cluster -1 — <c>BuildVisLeafList</c> (<c>prtfile.cpp:175</c>)
+/// solid and thus cluster -1 — <c>BuildVisLeafList</c>
 /// never numbers a solid leaf — so the verdict is geometry plus the trigger
 /// surface flag, never a cluster number.
 /// </remarks>
@@ -197,9 +197,9 @@ public static class RoomLinter
         // compile must overlap the kit's plug box AND carry a trigger-brushed
         // side. Geometry alone would pass for a piece of shell that happened to
         // sit there; the trigger flag is what says the leaf is the plug —
-        // %compileTrigger sets SURF_TRIGGER (textures.cpp:141 →
+        // %compileTrigger sets SURF_TRIGGER (→
         // MaterialSurface), and the CONTENTS_SOLID that made the leaf solid is
-        // the settled plug semantics (map.cpp:2747-2750). The per-box existence
+        // the settled plug semantics. The per-box existence
         // form cannot over-count: several solid leaves in one seal's box still
         // satisfy that one box once, and a box nobody filled stays false.
         LeafSurfaceTables tables = LeafSurfaceTables.From(bsp, seals.Count > 0);
@@ -213,7 +213,7 @@ public static class RoomLinter
             if ((leaf.Contents & (int)BrushContents.Solid) != 0)
             {
                 // Solid leaves are cluster -1 by construction —
-                // BuildVisLeafList (prtfile.cpp:175) never numbers a leaf whose
+                // BuildVisLeafList never numbers a leaf whose
                 // contents are solid — so the seal verdict is the solid leaf's
                 // geometry and surface flags, never its cluster. Solid leaves
                 // legally hang outside the cell too: they are the void vbsp

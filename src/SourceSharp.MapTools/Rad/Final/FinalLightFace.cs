@@ -12,7 +12,7 @@ public enum FinalFaceOutcome
 {
     /// <summary>
     /// Nothing to write: a <c>TEX_SPECIAL</c> face, or one with no styles
-    /// (the two early returns at <c>radial.cpp:658, 670</c>).
+    /// (the two early returns at <c>, 670</c>).
     /// </summary>
     NotLit,
 
@@ -55,7 +55,7 @@ public sealed class FinalLightScratch
 }
 
 /// <summary>
-/// <c>FinalLightFace</c> (<c>radial.cpp:642</c>): filters one face's samples
+/// <c>FinalLightFace</c>: filters one face's samples
 /// onto its luxel grid, adds the bounced light, clamps to the entity's
 /// <c>_minlight</c>, applies macro textures, and writes the face's luxels and
 /// per-style median colours as <c>ColorRGBExp32</c> into the lighting lump.
@@ -97,7 +97,7 @@ public static class FinalLightFace
         ref readonly DFace face = ref geometry.Faces[faceNum];
         int flags = geometry.TexInfos[face.TexInfo].Flags;
 
-        // :658. TEX_SPECIAL.
+        // TEX_SPECIAL.
         const int texSpecial = (int)(SurfaceFlags.Sky | SurfaceFlags.NoLight);
         if ((flags & texSpecial) != 0)
         {
@@ -106,7 +106,6 @@ public static class FinalLightFace
 
         ReadOnlySpan<byte> styles = FaceStyles(context, faceNum);
 
-        // :664-670.
         int lightstyles;
         for (lightstyles = 0; lightstyles < LightConstants.MaxLightmaps; lightstyles++)
         {
@@ -131,7 +130,7 @@ public static class FinalLightFace
         FaceLight fl = world.FaceLights[faceNum]
             ?? throw new InvalidOperationException($"face {faceNum} has styles but no facelight");
 
-        // :676. FloatForKey(face_entity) * 128, a float.
+        // FloatForKey(face_entity) * 128, a float.
         int entity = world.Patches.FaceEntities[faceNum];
         float minlight = entity >= 0 && entity < world.Entities.Count
             ? EntityKeys.FloatForKey(world.Entities[entity], "_minlight") * 128
@@ -157,8 +156,8 @@ public static class FinalLightFace
             Displacement.DispRadialMap? drad = null;
             Displacement.DispRadialMap? dprad = null;
 
-            // :706-716. A displacement's radials come from the sample and
-            // patch hashes (vraddisps.cpp:1033, :1047) instead.
+            // A displacement's radials come from the sample and
+            // patch hashes(:1047) instead.
             if (!context.Fast)
             {
                 if (!disp)
@@ -173,7 +172,7 @@ public static class FinalLightFace
                 }
             }
 
-            // :718-729. Bounced light goes into style 0 only.
+            // Bounced light goes into style 0 only.
             if (context.Bounces > 0 && k == 0)
             {
                 if (!disp)
@@ -188,7 +187,6 @@ public static class FinalLightFace
                 }
             }
 
-            // :737-740.
             int avgCount = 0;
 
             for (int j = 0; j < numLuxels; j++)
@@ -211,7 +209,7 @@ public static class FinalLightFace
 
                 if (prad is not null || dprad is not null)
                 {
-                    // :776. The return value is ignored.
+                    // The return value is ignored.
                     if (prad is not null)
                     {
                         _ = prad.Sample(luxel, v, context.RedErrors, context.Compliance);
@@ -227,7 +225,7 @@ public static class FinalLightFace
                     }
                 }
 
-                // :797-804. A face with no samples is deliberately red.
+                // A face with no samples is deliberately red.
                 if (fl.Samples.Length == 0)
                 {
                     for (int b = 0; b < bumpSampleCount; b++)
@@ -240,14 +238,14 @@ public static class FinalLightFace
 
                 for (int b = 0; b < bumpSampleCount; b++)
                 {
-                    // :811-814. max(value, minlight): the value when greater, else minlight.
+                    // 811-814. max(value, minlight): the value when greater, else minlight.
                     Vec3 c = lb[b].Lighting;
                     lb[b].Lighting = new Vec3(
                         c.X > minlight ? c.X : minlight,
                         c.Y > minlight ? c.Y : minlight,
                         c.Z > minlight ? c.Z : minlight);
 
-                    // :822-832. The macro texture and the median take the flat
+                    // The macro texture and the median take the flat
                     // map of a luxel that had a sample, after minlight.
                     if (b == 0 && baseSampleOk)
                     {
@@ -261,13 +259,12 @@ public static class FinalLightFace
                         scratch.Blue.Add(flat.Z);
                     }
 
-                    // :739, :841.
                     int offset = lightOfs + ((((k * bumpSampleCount) + b) * numLuxels) + j) * 4;
                     Write(lightData, offset, StockLightColor.Encode(lb[b].Lighting));
                 }
             }
 
-            // :855-880. Stored BEFORE lightofs, in reverse style order.
+            // Stored BEFORE lightofs, in reverse style order.
             Vec3 median = avgCount == 0
                 ? Vec3.Zero
                 : new Vec3(Median(scratch.Red), Median(scratch.Green), Median(scratch.Blue));
@@ -278,7 +275,7 @@ public static class FinalLightFace
     }
 
     /// <summary>
-    /// <c>BuildLuxelRadial</c> (<c>radial.cpp:391</c>): the face's own samples
+    /// <c>BuildLuxelRadial</c>: the face's own samples
     /// of one style, then each neighbour's samples of the SAME light style
     /// re-projected into this face's luxel space.
     /// </summary>
@@ -289,7 +286,7 @@ public static class FinalLightFace
     /// <param name="scratch">Buffers; counts a missing style slot.</param>
     /// <remarks>
     /// A neighbour's style is matched by the light style NUMBER, not the slot
-    /// (<c>:433-441</c>), and a neighbour without it contributes nothing. A
+ /// And a neighbour without it contributes nothing. A
     /// neighbour's sample bounds are carried corner by corner: its luxel space
     /// to world, world to this face's luxel space.
     /// </remarks>
@@ -338,7 +335,6 @@ public static class FinalLightFace
             FaceLight? nfl = world.FaceLights[neighbour];
             bool neighbourHasBumpmap = IsBumped(geometry, neighbour);
 
-            // :430-442.
             ReadOnlySpan<byte> nstyles = FaceStyles(context, neighbour);
             int nstyle = 0;
             if (nstyles[nstyle] != wanted)
@@ -386,7 +382,7 @@ public static class FinalLightFace
     }
 
     /// <summary>
-    /// <c>BuildPatchRadial</c> (<c>radial.cpp:281</c>): every leaf patch of the
+    /// <c>BuildPatchRadial</c>: every leaf patch of the
     /// face and of its neighbours, splatted with its total (bounced) light.
     /// </summary>
     /// <param name="context">The pass.</param>
@@ -394,7 +390,7 @@ public static class FinalLightFace
     /// <param name="rad">The grid, already reset to the face.</param>
     /// <remarks>
     /// A displacement patch's origin was moved onto the displaced surface, so
-    /// stock uses the centre of its (flat) winding instead (<c>:324-339</c>).
+ /// stock uses the centre of its (flat) winding instead.
     /// </remarks>
     public static void BuildPatchRadial(FinalLightContext context, int faceNum, LuxelRadial rad)
     {
@@ -422,8 +418,8 @@ public static class FinalLightFace
     /// <returns>The <c>neighborHasBumpmap</c> argument.</returns>
     /// <remarks>
     /// Stock computes <c>neighborNeedsBumpmap</c> from <c>facenum</c> rather
-    /// than the neighbour (<c>radial.cpp:364</c>) and then passes
-    /// <c>needsBumpmap</c> twice anyway (<c>:375-381</c>). So a bumped face
+    /// than the neighbour and then passes
+ /// <c>needsBumpmap</c> twice anyway. So a bumped face
     /// takes an unbumped neighbour's zero bump-direction light at full weight,
     /// darkening its bump maps near the seam.
     /// <see cref="StockQuirk.PatchRadialNeighbourBumpFromSelf"/> keeps that;
@@ -439,7 +435,7 @@ public static class FinalLightFace
     }
 
     /// <summary>
-    /// The <c>-fast</c> branch (<c>radial.cpp:762-768</c>): each luxel takes
+    /// The <c>-fast</c> branch: each luxel takes
     /// the sample of the same index, unfiltered.
     /// </summary>
     /// <param name="context">The pass.</param>
@@ -468,7 +464,7 @@ public static class FinalLightFace
     }
 
     /// <summary>
-    /// The median of the values, as the RB-tree walk at <c>:865-878</c> takes
+ /// The median of the values, as the RB-tree walk takes
     /// it: element <c>count / 2</c> of the ascending order.
     /// </summary>
     /// <param name="values">The values; sorted in place.</param>
@@ -493,7 +489,7 @@ public static class FinalLightFace
         {
             ref Patch patch = ref patches.At(p);
 
-            // :310. Only leaf patches.
+            // Only leaf patches.
             if (patch.Child1 != Patch.Invalid)
             {
                 continue;
@@ -511,7 +507,7 @@ public static class FinalLightFace
         }
     }
 
-    /// <summary><c>PatchLightmapCoordRange</c> (<c>radial.cpp:237</c>).</summary>
+    /// <summary><c>PatchLightmapCoordRange</c>.</summary>
     private static (float MinS, float MinT, float MaxS, float MaxT) PatchLightmapCoordRange(
         LuxelRadial rad, PatchSet patches, in Patch patch)
     {

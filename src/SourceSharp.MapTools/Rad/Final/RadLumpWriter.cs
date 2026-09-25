@@ -9,7 +9,7 @@ namespace SourceSharp.MapTools.Rad.Final;
 
 /// <summary>
 /// The lumps one vrad pass changes, written back into the map: what stock's
-/// <c>WriteBSPFile</c> (<c>vrad.cpp:2342</c>) takes from the globals the pass
+/// <c>WriteBSPFile</c> takes from the globals the pass
 /// filled.
 /// </summary>
 /// <remarks>
@@ -25,13 +25,13 @@ namespace SourceSharp.MapTools.Rad.Final;
 /// </para>
 /// <para>
 /// The HDR face lump starts as a copy of the LDR one when the map has none
-/// (<c>vrad.cpp:2221-2229</c>). Every face's styles and <c>lightofs</c> are
+/// Every face's styles and <c>lightofs</c> are
 /// replaced from the layout, so the copy's LDR values never survive.
 /// </para>
 /// </remarks>
 public static class RadLumpWriter
 {
-    /// <summary><c>LUMP_LIGHTING_VERSION</c> (<c>bspfile.h</c>).</summary>
+    /// <summary><c>LUMP_LIGHTING_VERSION</c>.</summary>
     public const int LightingVersion = 1;
 
     /// <summary><c>LUMP_FACES_VERSION</c>.</summary>
@@ -106,15 +106,14 @@ public static class RadLumpWriter
         bsp.SetLump(hdr ? BspLump.FacesHdr : BspLump.Faces, bytes, source.Version == 0 ? FacesVersion : source.Version);
     }
 
-    /// <summary><c>LVLFLAGS_BAKED_STATIC_PROP_LIGHTING_NONHDR</c> (<c>bspfile.h:395</c>).</summary>
+    /// <summary><c>LVLFLAGS_BAKED_STATIC_PROP_LIGHTING_NONHDR</c>.</summary>
     public const uint BakedStaticPropLightingLdr = 0x1;
 
-    /// <summary><c>LVLFLAGS_BAKED_STATIC_PROP_LIGHTING_HDR</c> (<c>bspfile.h:396</c>).</summary>
+    /// <summary><c>LVLFLAGS_BAKED_STATIC_PROP_LIGHTING_HDR</c>.</summary>
     public const uint BakedStaticPropLightingHdr = 0x2;
 
     /// <summary>
     /// <c>LUMP_MAP_FLAGS</c> as <c>VRAD_LoadBSP</c> leaves <c>g_LevelFlags</c>
-    /// (<c>vrad.cpp:2214-2219</c>).
     /// </summary>
     /// <param name="bsp">The map.</param>
     /// <param name="hdr">Whether this is the HDR pass.</param>
@@ -123,7 +122,7 @@ public static class RadLumpWriter
     /// With the switch, this pass's bit is set and the other survives;
     /// without it, BOTH bits are cleared -- so an LDR-only rerun without the
     /// switch forgets an earlier HDR bake. The lump is always written, four
-    /// bytes (<c>bsplib.cpp:2699-2700</c>).
+    /// Bytes.
     /// </remarks>
     public static void WriteLevelFlags(BspData bsp, bool hdr, bool staticPropLighting)
     {

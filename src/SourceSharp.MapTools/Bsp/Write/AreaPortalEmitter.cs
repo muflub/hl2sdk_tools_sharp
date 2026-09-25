@@ -8,7 +8,7 @@ using SourceSharp.MapTools.Geometry;
 namespace SourceSharp.MapTools.Bsp.Write;
 
 /// <summary>
-/// <c>EmitAreaPortals</c> (<c>src/utils/vbsp/portals.cpp:1298</c>): LUMP_AREAS,
+/// <c>EmitAreaPortals</c>: LUMP_AREAS,
 /// LUMP_AREAPORTALS and LUMP_CLIPPORTALVERTS, for the world model only.
 /// </summary>
 /// <remarks>

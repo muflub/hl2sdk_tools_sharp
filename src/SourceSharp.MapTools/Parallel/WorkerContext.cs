@@ -26,7 +26,7 @@ public sealed class WorkerContext
     /// </summary>
     /// <remarks>
     /// Stock passes the same number as <c>iThread</c>
-    /// (<c>utils/common/threads.cpp:87</c>) and the tools use it to index
+    /// And the tools use it to index
     /// per-thread arrays. It is a WORKER index, not a thread identity: with a
     /// host-supplied <see cref="TaskScheduler"/> the same OS thread may run
     /// several of them over a process's life, so nothing may key thread-local

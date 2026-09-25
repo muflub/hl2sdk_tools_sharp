@@ -14,7 +14,7 @@ namespace SourceSharp.MapTools.Compile;
 /// There is no <c>FromModel(MapFile)</c>. A loaded <see cref="MapFile"/> is not
 /// self-contained: loading it fills the texinfo, texdata, material and
 /// instance tables of the <see cref="VbspContext"/> it was loaded into
-/// (<c>map.cpp</c>'s globals, now explicit), and the compile must run in that
+/// (the reference implementation's globals, now explicit), and the compile must run in that
 /// same context. So the unit a host hands over is the document, and the
 /// compile loads it into a context it owns. A generated map still needs no
 /// VMF TEXT in between: build a <see cref="VmfDocument"/> in code and use
@@ -31,7 +31,7 @@ public abstract class MapSource
 
     /// <summary>
     /// The map's name: the file name with its extension stripped
-    /// (<c>vbsp.cpp:919-927</c>). It names the outputs (<c>name.bsp</c>,
+    /// It names the outputs (<c>name.bsp</c>,
     /// <c>name.prt</c>, ...), lower-cased it is vbsp's <c>mapbase</c>, and it
     /// is the level name vrad reads <c>name.rad</c> by.
     /// </summary>

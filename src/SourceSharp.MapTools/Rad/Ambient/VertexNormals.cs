@@ -5,7 +5,6 @@ namespace SourceSharp.MapTools.Rad.Ambient;
 
 /// <summary>
 /// <c>g_anorms</c>: the 162 directions every ambient sample is taken along
-/// (<c>mathlib/anorms.cpp</c>, <c>mathlib/anorms.h</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,7 +29,7 @@ public static class VertexNormals
     /// <remarks>
     /// 162, which is not a multiple of four, and that matters to any caller
     /// that wants to trace these in SIMD packets: stock's own sky-visibility
-    /// loop (<c>lightmap.cpp:1327</c>) steps by four and clamps, so its last
+    /// loop steps by four and clamps, so its last
     /// group is (160, 161, 161, 161) and direction 161 is traced three times.
     /// Leaf ambient's own loop is scalar and has no such quirk.
     /// </remarks>

@@ -8,7 +8,7 @@ using SourceSharp.MapTools.Bsp.Write;
 namespace SourceSharp.MapTools.Bsp.Driver;
 
 /// <summary>
-/// <c>-onlyents</c> and <c>-onlyprops</c> (<c>vbsp.cpp:1349-1402</c>): the
+/// <c>-onlyents</c> and <c>-onlyprops</c>: the
 /// entities (or the props) of a freshly loaded map written into a BSP that was
 /// compiled earlier, with every other lump kept.
 /// </summary>
@@ -76,7 +76,7 @@ internal static class OnlyEntsUpdate
     }
 
     /// <summary>
-    /// <c>FixupOnlyEntsOccluderEntities</c> (<c>vbsp.cpp:767</c>): the same
+    /// <c>FixupOnlyEntsOccluderEntities</c>: the same
     /// numbering <c>EmitOccluderBrushes</c> gives, without the geometry.
     /// </summary>
     /// <param name="map">The map.</param>

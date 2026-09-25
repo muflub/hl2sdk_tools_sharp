@@ -2,16 +2,16 @@ namespace SourceSharp.MapTools.Materials;
 
 /// <summary>
 /// What a material contributes to a brush side: <c>textureref_t</c>'s
-/// <c>flags</c> and <c>contents</c> (<c>src/utils/vbsp/vbsp.h</c>).
+/// <c>flags</c> and <c>contents</c>.
 /// </summary>
 /// <param name="Flags">
-/// The <c>SURF_*</c> bits. <c>vbsp/map.cpp:2857</c> copies these to the side
-/// and <c>textures.cpp:680</c> copies the side's straight into
+/// The <c>SURF_*</c> bits. copies these to the side
+/// and copies the side's straight into
 /// <c>texinfo_t::flags</c>, with nothing else in vbsp touching a
 /// <c>SURF_</c> bit — so this value IS what lands in the BSP's TEXINFO lump.
 /// </param>
 /// <param name="Contents">
-/// The <c>CONTENTS_*</c> bits. <c>vbsp/map.cpp:2860</c> assigns these to the
+/// The <c>CONTENTS_*</c> bits. assigns these to the
 /// side, where the brush's own contents are then folded in — so unlike the
 /// flags these are a contribution rather than the final value.
 /// </param>
@@ -22,7 +22,7 @@ public readonly record struct MaterialSurface(SurfaceFlags Flags, BrushContents 
 /// </summary>
 /// <remarks>
 /// Four of them, and every default is <c>false</c>
-/// (<c>src/utils/vbsp/vbsp.cpp:52-63</c>) — which is what a map compiled
+/// — which is what a map compiled
 /// without options was built with.
 /// </remarks>
 public sealed record MaterialCompileOptions
@@ -32,10 +32,9 @@ public sealed record MaterialCompileOptions
 
     /// <summary>
     /// <c>-bumpall</c>: every material gets <c>SURF_BUMPLIGHT</c>
-    /// (<c>textures.cpp:181</c>).
     /// </summary>
     /// <remarks>
-    /// vbsp.cpp:1290 clears it again for a low-end compile, so "the switch was
+    /// Clears it again for a low-end compile, so "the switch was
     /// given" and "the flag was on" are not the same thing.
     /// </remarks>
     public bool BumpAll { get; init; }
@@ -43,26 +42,24 @@ public sealed record MaterialCompileOptions
     /// <summary>
     /// <c>-lightifmissing</c>: a material whose shader wants no lightmap keeps
     /// its lighting instead of gaining <c>SURF_NOLIGHT</c>
-    /// (<c>textures.cpp:186-192</c>).
     /// </summary>
     public bool LightIfMissing { get; init; }
 
     /// <summary>
     /// <c>-nodrawtriggers</c>: a trigger material also gets
-    /// <c>SURF_NODRAW</c> (<c>textures.cpp:145-148</c>).
+    /// <c>SURF_NODRAW</c>.
     /// </summary>
     public bool NodrawTriggers { get; init; }
 
     /// <summary>
     /// <c>-nowater</c>'s companion: water that is not
     /// <c>%compileKeepLight</c> gains <c>SURF_NOLIGHT</c>
-    /// (<c>textures.cpp:244-247</c>).
     /// </summary>
     public bool DisableWaterLighting { get; init; }
 }
 
 /// <summary>
-/// <c>FindMiptex</c> (<c>src/utils/vbsp/textures.cpp:49-286</c>), as a
+/// <c>FindMiptex</c>, as a
 /// function of a material's facts.
 /// </summary>
 /// <remarks>
@@ -98,7 +95,7 @@ public static class MaterialSurfaceClassifier
 
         if (!facts.Found)
         {
-            // textures.cpp:69-73: FindOriginalMaterial returned
+            // FindOriginalMaterial returned
             // MATERIAL_NOT_FOUND, so FindMiptex returns index 0 with the
             // zeroed textureref it had just initialised.
             return default;
@@ -110,7 +107,7 @@ public static class MaterialSurfaceClassifier
 
         bool Has(MaterialCompileFlags flag) => (compile & flag) != 0;
 
-        // textures.cpp:83-156 -- ONE branch of this chain runs, no more.
+        // -- ONE branch of this chain runs, no more.
         if (Has(MaterialCompileFlags.Sky))
         {
             flags |= SurfaceFlags.Sky | SurfaceFlags.NoLight;
@@ -162,7 +159,7 @@ public static class MaterialSurfaceClassifier
         }
         else if (Has(MaterialCompileFlags.NoLight) && !Has(MaterialCompileFlags.Water))
         {
-            // textures.cpp:151-152: %compileNoLight is ignored on water, which
+            // %compileNoLight is ignored on water, which
             // has its own lighting rule further down.
             flags |= SurfaceFlags.NoLight;
         }
@@ -184,7 +181,7 @@ public static class MaterialSurfaceClassifier
 
         bool Has(MaterialCompileFlags flag) => (compile & flag) != 0;
 
-        // textures.cpp:158-284 -- independent tests, in order.
+        // -- independent tests, in order.
         if (Has(MaterialCompileFlags.Ladder))
         {
             contents |= BrushContents.Ladder;
@@ -263,7 +260,7 @@ public static class MaterialSurfaceClassifier
             }
         }
 
-        // textures.cpp:253-259, precedence and all. The C++ reads
+        // Precedence and all. The C++ reads
         //   !bKeepLighting && water5 || unlit12
         // and && binds tighter than ||, so %compileKeepLight does NOT protect
         // an UnlitGeneric material -- only a water one. Written out here so

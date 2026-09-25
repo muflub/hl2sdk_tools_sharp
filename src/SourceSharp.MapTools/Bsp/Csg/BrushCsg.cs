@@ -5,31 +5,31 @@ using SourceSharp.MapTools.Materials;
 namespace SourceSharp.MapTools.Bsp.Csg;
 
 /// <summary>
-/// <c>utils/vbsp/csg.cpp</c>: brush subtraction, intersection, clipping to a
+/// Brush subtraction, intersection, clipping to a
 /// block, and <c>ChopBrushes</c>.
 /// </summary>
 /// <remarks>
 /// The stage's whole job is stated in stock's opening comment: "there will be
-/// no brush overlap after csg phase" (<c>csg.cpp:15</c>). Everything below is
+/// no brush overlap after csg phase". Everything below is
 /// in service of that and of doing it without fragmenting the world more than
 /// it has to.
 /// </remarks>
 public static class BrushCsg
 {
     /// <summary>
-    /// <c>TRANSPARENT_CONTENTS</c>, <c>utils/vbsp/vbsp.h:457</c>.
+    /// <c>TRANSPARENT_CONTENTS</c>.
     /// </summary>
     public const int TransparentContents = (int)(BrushContents.Grate | BrushContents.Window);
 
     /// <summary>
-    /// <c>MASK_SPLITAREAPORTAL</c>, <c>src/public/bspflags.h:140</c>: the
+    /// <c>MASK_SPLITAREAPORTAL</c>: the
     /// contents an areaportal is allowed to bite.
     /// </summary>
     public const int SplitAreaPortalMask = (int)(BrushContents.Water | BrushContents.Slime);
 
     /// <summary>
     /// Everything of <c>a</c> that is not inside <c>b</c>:
-    /// <c>SubtractBrush</c>, <c>csg.cpp:61</c>.
+    /// <c>SubtractBrush</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="a">The brush being bitten. Undisturbed.</param>
@@ -44,7 +44,7 @@ public static class BrushCsg
     /// <b>Three different kinds of answer come back through one return
     /// value</b>, and every caller has to tell them apart by reference: the
     /// identity check <c>if (sub == b1)</c> in <c>ChopBrushes</c>
-    /// (<c>csg.cpp:703</c>) is how "no intersection" is distinguished from "one
+    /// Is how "no intersection" is distinguished from "one
     /// fragment". Getting that wrong frees the input.
     /// </remarks>
     public static BspBrush? SubtractBrush(BspBuildContext context, BspBrush a, BspBrush b)
@@ -91,7 +91,7 @@ public static class BrushCsg
 
     /// <summary>
     /// The overlap of two brushes, or null when they are disjoint:
-    /// <c>IntersectBrush</c>, <c>csg.cpp:101</c>.
+    /// <c>IntersectBrush</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="a">The first brush. Undisturbed.</param>
@@ -99,7 +99,7 @@ public static class BrushCsg
     /// <returns>A single brush, or null.</returns>
     /// <exception cref="ArgumentNullException">Any argument is null.</exception>
     /// <remarks>
-    /// The only caller (<c>FixupAreaportalWaterBrushes</c>, <c>csg.cpp:364</c>)
+    /// The only caller(<c>FixupAreaportalWaterBrushes</c>)
     /// frees the result immediately and uses only whether it was null, so this
     /// is an intersection TEST with an allocation in it. It is kept as stock
     /// wrote it rather than shortened, because <c>BrushesDisjoint</c> is the
@@ -143,7 +143,6 @@ public static class BrushCsg
 
     /// <summary>
     /// Whether two brushes definitely do not touch: <c>BrushesDisjoint</c>,
-    /// <c>csg.cpp:134</c>.
     /// </summary>
     /// <param name="a">The first brush.</param>
     /// <param name="b">The second brush.</param>
@@ -173,7 +172,7 @@ public static class BrushCsg
         return new BrushBox(a.Mins, a.Maxs).Disjoint(new BrushBox(b.Mins, b.Maxs)) || MirroredPlanes(a, b);
     }
 
-    // The second half of BrushesDisjoint (csg.cpp:145-152): a plane of a that
+    // The second half of BrushesDisjoint: a plane of a that
     // is the mirror of a plane of b.
     private static bool MirroredPlanes(BspBrush a, BspBrush b)
     {
@@ -195,7 +194,7 @@ public static class BrushCsg
     }
 
     // A brush's box, flattened, and the first half of BrushesDisjoint
-    // (csg.cpp:138-143): >= and <= in stock's operand order, axis by axis.
+    // >= and <= in stock's operand order, axis by axis.
     private readonly struct BrushBox(Vec3 mins, Vec3 maxs)
     {
         private readonly float _minX = mins.X, _minY = mins.Y, _minZ = mins.Z;
@@ -209,7 +208,6 @@ public static class BrushCsg
 
     /// <summary>
     /// Carves a brush down to a block: <c>ClipBrushToBox</c>,
-    /// <c>csg.cpp:169</c>.
     /// </summary>
     /// <param name="context">The build context, whose bounding planes are read.</param>
     /// <param name="brush">The brush, consumed.</param>
@@ -222,7 +220,7 @@ public static class BrushCsg
     /// <remarks>
     /// <para>
     /// <b>Only X and Y are clipped</b> — stock's loop is
-    /// <c>for (j=0 ; j&lt;2 ; j++)</c> (<c>csg.cpp:175</c>) — because the
+    /// <c>for (j=0; j&lt;2; j++)</c> — because the
     /// blocks span the whole legal Z range and a Z clip would be a no-op that
     /// cost two splits per brush.
     /// </para>
@@ -304,7 +302,7 @@ public static class BrushCsg
 
     /// <summary>
     /// Copies a map brush and clips it to a block:
-    /// <c>CreateClippedBrush</c>, <c>csg.cpp:216</c>.
+    /// <c>CreateClippedBrush</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="mapBrush">The map brush.</param>
@@ -321,7 +319,7 @@ public static class BrushCsg
     /// the first thing this function tests.
     /// </para>
     /// <para>
-    /// <b>Hint sides are forced visible here</b> (<c>csg.cpp:246</c>, "hints
+    /// <b>Hint sides are forced visible here</b> ("hints
     /// are always visible") — so a hint brush gets to be a BSP splitter even
     /// where the loader would have called its sides invisible. That single line
     /// is what makes <c>tools/toolshint</c> do anything at all.
@@ -381,7 +379,7 @@ public static class BrushCsg
 
     /// <summary>
     /// Builds the brush list for a block out of a range of map brushes:
-    /// <c>MakeBspBrushList</c>, <c>csg.cpp:384</c>.
+    /// <c>MakeBspBrushList</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="startBrush">The first map brush index.</param>
@@ -393,7 +391,7 @@ public static class BrushCsg
     /// <exception cref="ArgumentNullException"><paramref name="context"/> is null.</exception>
     /// <remarks>
     /// <b>The list comes out in REVERSE map order</b>, because each brush is
-    /// pushed onto the head (<c>csg.cpp:408</c>). That is not incidental: it is
+    /// pushed onto the head. That is not incidental: it is
     /// the order <c>ChopBrushes</c> then visits pairs in and the order
     /// <c>SelectSplitSide</c> scores candidate planes in, and both of those
     /// decide output. Building it forwards would be a different compile.
@@ -439,7 +437,6 @@ public static class BrushCsg
 
     /// <summary>
     /// The same, from an explicit set of brushes: <c>MakeBspBrushList</c>,
-    /// <c>csg.cpp:420</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brushes">The map brushes, in the order they are taken.</param>
@@ -480,7 +477,7 @@ public static class BrushCsg
 
     /// <summary>
     /// Appends one list to another and returns the new tail:
-    /// <c>AddBrushListToTail</c>, <c>csg.cpp:444</c>.
+    /// <c>AddBrushListToTail</c>.
     /// </summary>
     /// <param name="list">The list to append, or null.</param>
     /// <param name="tail">The last element of the list being appended to.</param>
@@ -512,7 +509,6 @@ public static class BrushCsg
 
     /// <summary>
     /// Rebuilds a list without one brush, REVERSED: <c>CullList</c>,
-    /// <c>csg.cpp:466</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="list">The head of the list to rebuild.</param>
@@ -556,7 +552,7 @@ public static class BrushCsg
     }
 
     /// <summary>How many brushes are in a list: <c>CountBrushList</c>,
-    /// <c>brushbsp.cpp:280</c>.</summary>
+    /// </summary>
     /// <param name="brushes">The head of the list, or null.</param>
     /// <returns>The count.</returns>
     public static int CountBrushList(BspBrush? brushes)
@@ -572,7 +568,7 @@ public static class BrushCsg
 
     /// <summary>
     /// Whether <paramref name="b1"/> is allowed to bite <paramref name="b2"/>:
-    /// <c>BrushGE</c>, <c>csg.cpp:630</c>.
+    /// <c>BrushGE</c>.
     /// </summary>
     /// <param name="b1">The biter.</param>
     /// <param name="b2">The bitten.</param>
@@ -632,7 +628,6 @@ public static class BrushCsg
 
     /// <summary>
     /// Carves intersecting brushes apart: <c>ChopBrushes</c>,
-    /// <c>csg.cpp:662</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="head">The head of the list, consumed.</param>
@@ -649,7 +644,7 @@ public static class BrushCsg
     /// loop — a queue, a worklist, a sort — is a different compiler.
     /// </para>
     /// <para>
-    /// The fragmentation rule at <c>csg.cpp:733</c> is the other half of the
+    /// The fragmentation rule is the other half of the
     /// answer: when BOTH directions would produce more than one fragment,
     /// neither bite is taken and the brushes are left overlapping, unless they
     /// are both detail or either is an areaportal. Stock's comment
@@ -658,7 +653,7 @@ public static class BrushCsg
     /// </para>
     /// <para>
     /// <b>The early <c>return NULL</c> at the top discards everything already
-    /// kept.</b> It is stock's (<c>csg.cpp:681-682</c>), and it is only
+    /// kept.</b> It is stock's, and it is only
     /// reachable on the first pass: after a bite, <see cref="CullList"/> is
     /// called either from <c>b1</c> skipping <c>b1</c> — and a bite requires a
     /// <c>b2</c> after <c>b1</c>, so at least that survives — or from
@@ -744,7 +739,7 @@ public static class BrushCsg
                     sub2 = SubtractBrush(context, b2, b1);
                     if (ReferenceEquals(sub2, b2))
                     {
-                        // Stock leaks `sub` here (csg.cpp:717). Nothing reads it
+                        // Stock leaks `sub` here. Nothing reads it
                         // again, and freeing it would change which arena slots
                         // later windings are recycled into.
                         continue;

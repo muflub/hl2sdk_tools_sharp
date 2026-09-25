@@ -21,14 +21,14 @@ public readonly record struct DispRayHit(float Distance, int Face, float LuxelS,
 
 /// <summary>
 /// The ray half of one displacement's collision tree: <c>CDispCollTree</c>
-/// (<c>dispcoll_common.cpp</c>) plus the luxel coordinates
-/// <c>CVRADDispColl::Create</c> adds (<c>vrad_dispcoll.cpp:48</c>).
+/// Plus the luxel coordinates
+/// <c>CVRADDispColl::Create</c> adds.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Only <c>AABBTree_Ray( ray, RayDispOutput_t&amp; )</c> is ported: that is
 /// the query <c>ClipRayToDispInLeaf</c> makes for both leaf ambient callers
-/// (<c>vraddisps.cpp:702</c>). The quad tree is kept -- four child boxes per
+/// The quad tree is kept -- four child boxes per
 /// node, two triangles per leaf, leaves in Morton order -- because it decides
 /// WHICH triangles are tested, and the closest-hit comparison is strict, so on
 /// an exact tie the earlier-listed triangle keeps the hit.
@@ -41,13 +41,13 @@ public readonly record struct DispRayHit(float Distance, int Face, float LuxelS,
 /// </remarks>
 public sealed class DispCollisionTree
 {
-    /// <summary><c>DISPCOLL_DIST_EPSILON</c> (<c>dispcoll_common.h:34</c>).</summary>
+    /// <summary><c>DISPCOLL_DIST_EPSILON</c>.</summary>
     public const float DistEpsilon = 0.03125f;
 
-    /// <summary><c>CCoreDispInfo::SURF_NORAY_COLL</c> (<c>builddisp.h:739</c>).</summary>
+    /// <summary><c>CCoreDispInfo::SURF_NORAY_COLL</c>.</summary>
     public const int SurfNoRayColl = 0x8;
 
-    /// <summary><c>MASK_OPAQUE</c> (<c>bspflags.h:114</c>).</summary>
+    /// <summary><c>MASK_OPAQUE</c>.</summary>
     public const int MaskOpaque = 0x1 | 0x4000 | 0x80;
 
     private readonly Vec3[] _verts;
@@ -55,11 +55,11 @@ public sealed class DispCollisionTree
     private readonly float[] _luxelS;
     private readonly float[] _luxelT;
 
-    // Per inner node, the four child boxes (dispcoll_common.cpp:432).
+    // Per inner node, the four child boxes.
     private readonly Vec3[] _nodeMins;
     private readonly Vec3[] _nodeMaxs;
 
-    // Per leaf (Morton index), its two triangles (dispcoll_common.cpp:406).
+    // Per leaf (Morton index), its two triangles.
     private readonly int[] _leafTris;
 
     // Per inner node, its four child boxes again, as six four-lane rows
@@ -78,7 +78,7 @@ public sealed class DispCollisionTree
     /// <param name="disp">The displacement, after <see cref="CoreDispInfo.Create"/>.</param>
     /// <param name="face">Its base face (<c>pSurf-&gt;GetHandle()</c>).</param>
     /// <remarks>
-    /// <c>AABBTree_Create</c> (<c>dispcoll_common.cpp:295</c>): copy, leaves,
+    /// <c>AABBTree_Create</c>: copy, leaves,
     /// then bounds.
     /// </remarks>
     public DispCollisionTree(CoreDispInfo disp, int face)
@@ -90,7 +90,7 @@ public sealed class DispCollisionTree
         Flags = disp.Surface.Flags;
         Contents = disp.Surface.Contents;
 
-        // AABBTree_CopyDispData, dispcoll_common.cpp:316.
+        // AABBTree_CopyDispData.
         int size = disp.Size;
         _verts = new Vec3[size];
         _luxelS = new float[size];
@@ -99,7 +99,7 @@ public sealed class DispCollisionTree
         {
             _verts[i] = disp.Vert(i);
 
-            // vrad_dispcoll.cpp:66, GetLuxelCoord( 0, iVert ).
+            // GetLuxelCoord(0, iVert).
             DispUv luxel = disp.LuxelCoord(0, i);
             _luxelS[i] = luxel.X;
             _luxelT[i] = luxel.Y;
@@ -129,7 +129,7 @@ public sealed class DispCollisionTree
             _triGeometry[(tri * 3) + 2] = _verts[_tris[(tri * 3) + 1]] - a;
         }
 
-        // AABBTree_CreateLeafs, dispcoll_common.cpp:406.
+        // AABBTree_CreateLeafs.
         for (int hgt = 0; hgt < width - 1; hgt++)
         {
             for (int wid = 0; wid < width - 1; wid++)
@@ -141,7 +141,7 @@ public sealed class DispCollisionTree
             }
         }
 
-        // AABBTree_CalcBounds, dispcoll_common.cpp:468.
+        // AABBTree_CalcBounds.
         if (size == 0 || _nodeCount == 0)
         {
             Mins = new Vec3(float.MaxValue, float.MaxValue, float.MaxValue);
@@ -166,7 +166,7 @@ public sealed class DispCollisionTree
             }
         }
 
-        // "Bloat a little." INCLUDE_SURFACE_IN_BOUNDS is 0 (dispcoll_common.cpp:480).
+        // "Bloat a little." INCLUDE_SURFACE_IN_BOUNDS is 0.
         Mins = new Vec3(mins.X - 1.0f, mins.Y - 1.0f, mins.Z - 1.0f);
         Maxs = new Vec3(maxs.X + 1.0f, maxs.Y + 1.0f, maxs.Z + 1.0f);
     }
@@ -193,14 +193,14 @@ public sealed class DispCollisionTree
     public int VertexCount => _verts.Length;
 
     /// <summary>
-    /// <c>Nodes_CalcCount</c> (<c>dispcoll_common.h:363</c>): nodes including leaves.
+    /// <c>Nodes_CalcCount</c>: nodes including leaves.
     /// </summary>
     /// <param name="power">The power.</param>
     /// <returns>The count.</returns>
     public static int NodesCalcCount(int power) => (1 << ((power + 1) << 1)) / 3;
 
     /// <summary>
-    /// <c>Nodes_GetIndexFromComponents</c> (<c>dispcoll_common.h:409</c>): bit
+    /// <c>Nodes_GetIndexFromComponents</c>: bit
     /// interleave, x in the even bits.
     /// </summary>
     /// <param name="x">Column.</param>
@@ -224,9 +224,8 @@ public sealed class DispCollisionTree
 
     /// <summary>
     /// <c>AABBTree_Ray( ray, RayDispOutput_t&amp; )</c>
-    /// (<c>dispcoll_common.cpp:555</c>), then what
+    /// then what
     /// <c>DispRayDistance_EnumerateElement</c> derives from a hit
-    /// (<c>vraddisps.cpp:724-741</c>).
     /// </summary>
     /// <param name="start">The ray start.</param>
     /// <param name="delta">The ray delta.</param>
@@ -274,7 +273,7 @@ public sealed class DispCollisionTree
             return false;
         }
 
-        // Ray_t::InvDelta, cmodel.h:102.
+        // Ray_t::InvDelta.
         Vec3 invDelta = new(
             delta.X != 0.0f ? 1.0f / delta.X : float.MaxValue,
             delta.Y != 0.0f ? 1.0f / delta.Y : float.MaxValue,
@@ -285,7 +284,7 @@ public sealed class DispCollisionTree
         float bestV = -1.0f;
         int bestTri = -1;
 
-        // AABBTree_TreeTrisRayBarycentricTest, dispcoll_common.cpp:598.
+        // AABBTree_TreeTrisRayBarycentricTest.
         Span<int> list = stackalloc int[MaxAabbList];
         int maxIndex = 0;
         int listIndex = BuildRayLeafList(list, ref maxIndex, start, invDelta);
@@ -318,12 +317,12 @@ public sealed class DispCollisionTree
             return false;
         }
 
-        // dispcoll_common.cpp:584: ndxVerts = tri verts 0, 2, 1.
+        // NdxVerts = tri verts 0, 2, 1.
         int n0 = _tris[bestTri * 3];
         int n1 = _tris[(bestTri * 3) + 2];
         int n2 = _tris[(bestTri * 3) + 1];
 
-        // ComputePointFromBarycentric (collisionutils.cpp:2090):
+        // ComputePointFromBarycentric:
         // pt = v0 + u*(v1-v0); pt = pt + v*(v2-v0).
         float eus = _luxelS[n1] - _luxelS[n0];
         float eut = _luxelT[n1] - _luxelT[n0];
@@ -334,7 +333,6 @@ public sealed class DispCollisionTree
         s += bestV * evs;
         tt += bestV * evt;
 
-        // vraddisps.cpp:737-741.
         Vec3 e0 = _verts[n1] - _verts[n0];
         Vec3 e1 = _verts[n2] - _verts[n0];
         (Vec3 normal, _) = Vec3.Cross(e0, e1).Normalise();
@@ -343,11 +341,11 @@ public sealed class DispCollisionTree
         return true;
     }
 
-    /// <summary><c>MAX_AABB_LIST</c> (<c>dispcoll_common.h:140</c>).</summary>
+    /// <summary><c>MAX_AABB_LIST</c>.</summary>
     private const int MaxAabbList = 344;
 
     /// <summary>
-    /// <c>BuildRayLeafList</c> (<c>dispcoll_common.cpp:247</c>): breadth-first
+    /// <c>BuildRayLeafList</c>: breadth-first
     /// over the quad tree, children in order 0..3.
     /// </summary>
     private int BuildRayLeafList(Span<int> list, ref int maxIndex, Vec3 start, Vec3 invDelta)
@@ -381,9 +379,8 @@ public sealed class DispCollisionTree
     }
 
     /// <summary>
-    /// One lane of <c>IntersectRayWithFourBoxes</c> (<c>dispcoll_common.cpp:152</c>),
+    /// One lane of <c>IntersectRayWithFourBoxes</c>,
     /// with the ray extents at <see cref="DistEpsilon"/> (a point ray,
-    /// <c>:606</c>).
     /// </summary>
     private static bool RayHitsBox(Vec3 start, Vec3 invDelta, Vec3 mins, Vec3 maxs)
     {
@@ -465,7 +462,7 @@ public sealed class DispCollisionTree
 
     /// <summary>
     /// <c>ComputeIntersectionBarycentricCoordinates</c>
-    /// (<c>collisionutils.cpp:140</c>) for a point ray (<c>boxt = 1e-3</c>).
+    /// For a point ray (<c>boxt = 1e-3</c>).
     /// </summary>
     public static bool IntersectBarycentric(
         Vec3 start, Vec3 delta, Vec3 v1, Vec3 v2, Vec3 v3, out float u, out float v, out float t) =>
@@ -502,7 +499,7 @@ public sealed class DispCollisionTree
         Vec3 orgCrossEdge1 = Vec3.Cross(org, edge1);
         v = Vec3.Dot(orgCrossEdge1, delta) * denom;
 
-        // ComputeBoxOffset returns 1e-3f for a point ray (collisionutils.cpp:45).
+        // ComputeBoxOffset returns 1e-3f for a point ray.
         const float BoxT = 1e-3f;
         t = Vec3.Dot(orgCrossEdge1, edge2) * denom;
         return !(t < -BoxT || t > 1.0f + BoxT);
@@ -510,7 +507,7 @@ public sealed class DispCollisionTree
 
     /// <summary>
     /// <c>IsBoxIntersectingRay( boxMin, boxMax, origin, delta, tolerance )</c>,
-    /// the SIMD branch compiled (<c>collisionutils.cpp:642</c>,
+    /// The SIMD branch compiled (
     /// <c>USE_SIMD_RAY_CHECKS 1</c>).
     /// </summary>
     /// <remarks>
@@ -566,13 +563,13 @@ public sealed class DispCollisionTree
         return !(lastIn > firstOut);
     }
 
-    /// <summary><c>AABBTree_GenerateBoxes_r</c> (<c>dispcoll_common.cpp:432</c>).</summary>
+    /// <summary><c>AABBTree_GenerateBoxes_r</c>.</summary>
     /// <summary>
     /// <see cref="IsBoxIntersectingRay"/>'s reciprocal of one delta component.
     /// </summary>
     /// <remarks>
     /// ReciprocalSaturate: 1/0 becomes 1/FLT_EPSILON rather than infinity
-    /// (Four_Epsilons, sseconst.cpp:27). Unreachable for a zero delta, which
+    /// (Four_Epsilons). Unreachable for a zero delta, which
     /// never crosses a plane, and kept so the reason is written down.
     /// </remarks>
     internal static float SaturatedReciprocal(float delta)
@@ -615,7 +612,7 @@ public sealed class DispCollisionTree
         mins = new Vec3(minX, minY, minZ);
         maxs = new Vec3(maxX, maxY, maxZ);
 
-        // AddPointToBounds (mathlib.cpp): per component, strict compares.
+        // AddPointToBounds: per component, strict compares.
         void Add(Vec3 p)
         {
             if (p.X < minX) { minX = p.X; }

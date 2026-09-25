@@ -9,7 +9,7 @@ using SourceSharp.MapTools.Materials;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// <c>BuildFacelights</c> (<c>lightmap.cpp:3059</c>) for one face, as a small
+/// <c>BuildFacelights</c> for one face, as a small
 /// state machine that runs in ROUNDS so its rays can be traced in batches.
 /// </summary>
 /// <remarks>
@@ -26,7 +26,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <para>
 /// Round 0 is the direct gather (<c>GatherSampleLightAt4Points</c>). Round
 /// <c>p</c> &gt; 0 is supersampling pass <c>p</c> for every style still going.
-/// Stock runs the styles one after another (<c>lightmap.cpp:3165-3173</c>);
+/// Stock runs the styles one after another;
 /// they share nothing but scratch, so running their passes side by side gives
 /// the same numbers.
 /// </para>
@@ -94,7 +94,7 @@ public sealed class FaceLightJob
     public int RoundsCompleted => _round;
 
     /// <summary>
-    /// The per-face set-up of <c>BuildFacelights</c> (<c>lightmap.cpp:3087-3117</c>):
+    /// The per-face set-up of <c>BuildFacelights</c>:
     /// decides whether the face is lit at all, then builds its frame, samples
     /// and luxels.
     /// </summary>
@@ -108,7 +108,7 @@ public sealed class FaceLightJob
         ref readonly DFace face = ref geometry.Faces[FaceNum];
         ref readonly TexInfo tex = ref geometry.TexInfos[face.TexInfo];
 
-        // :3094. TEX_SPECIAL is SURF_SKY | SURF_NOLIGHT (vrad.h:432).
+        // TEX_SPECIAL is SURF_SKY | SURF_NOLIGHT.
         const int texSpecial = (int)(SurfaceFlags.Sky | SurfaceFlags.NoLight);
         if ((tex.Flags & texSpecial) != 0)
         {
@@ -119,7 +119,7 @@ public sealed class FaceLightJob
         int normalCount = (tex.Flags & (int)SurfaceFlags.BumpLight) != 0 ? BumpBasis.LightmapCount : 1;
 
         // A displacement face is sampled by the displacement manager
-        // (lightmap.cpp:833-886, StaticDispMgr()->BuildDispSamples/Luxels).
+        // (StaticDispMgr->BuildDispSamples/Luxels).
         // Without one in the context it is left unlit and flagged, as before.
         if (face.DispInfo != -1)
         {
@@ -132,7 +132,7 @@ public sealed class FaceLightJob
             }
         }
 
-        // :3097-3099. No patch means the face was degenerate.
+        // No patch means the face was degenerate.
         if (_context.Patches.FacePatches[FaceNum] == Patch.Invalid)
         {
             Done = true;
@@ -156,7 +156,7 @@ public sealed class FaceLightJob
                 _context.Settings.Fast, _context.Settings.CenterSamples, _context.Settings.Supersample);
         }
 
-        // :3040-3056, InitSampleInfo's flat-face normals. A displacement's are
+        // InitSampleInfo's flat-face normals. A displacement's are
         // replaced per sample in ComputeIlluminationPointAndNormals.
         if (info.IsFlat && normalCount > 1 && _disp is null)
         {
@@ -164,7 +164,7 @@ public sealed class FaceLightJob
             BumpBasis.Build(texS, texT, info.FaceNormal, info.FaceNormal, _flatBump, _context.Settings.StockNormalise);
         }
 
-        // :3111-3112. Style 0 always exists.
+        // Style 0 always exists.
         faceLight.Styles[0] = 0;
         faceLight.AllocateStyle(0);
 
@@ -214,7 +214,7 @@ public sealed class FaceLightJob
     }
 
     /// <summary>
-    /// <c>ComputeIlluminationPointAndNormalsSSE</c> (<c>lightmap.cpp:2437</c>).
+    /// <c>ComputeIlluminationPointAndNormalsSSE</c>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void ComputeIlluminationPointAndNormals(ReadOnlySpan<Vec3> pos, int count, ReadOnlySpan<Vec3> sampleNormals = default)
@@ -225,7 +225,7 @@ public sealed class FaceLightJob
         g.Count = count;
         g.NormalCount = fl.NormalCount;
 
-        // :2448-2453. One unit off the face, "so that light sampling will not
+        // One unit off the face, "so that light sampling will not
         // be affected by a bug where raycasts will intersect with the face
         // being lit".
         for (int i = 0; i < SampleGroup.Lanes; i++)
@@ -235,7 +235,7 @@ public sealed class FaceLightJob
 
         if (_disp is not null)
         {
-            // :2453-2456 and :2443. A displacement's point normal is the
+ // A displacement's point normal is the
             // sample's own blended normal, and its bump basis is always rebuilt
             // from it (computeNormals is true for a displacement).
             (Vec3 texS, Vec3 texT) = TextureAxes(_context.Geometry.TexInfos[_context.Geometry.Faces[FaceNum].TexInfo]);
@@ -266,7 +266,7 @@ public sealed class FaceLightJob
         }
         else
         {
-            // :2459-2467. The phong normal is taken at the sample position with
+            // The phong normal is taken at the sample position with
             // the model origin removed, in dvertex space.
             Span<Vec3> spots = stackalloc Vec3[SampleGroup.Lanes];
             Span<Vec3> normals = stackalloc Vec3[SampleGroup.Lanes];
@@ -286,7 +286,6 @@ public sealed class FaceLightJob
                 g.Normal(0, i) = normals[i];
                 if (fl.NormalCount > 1)
                 {
-                    // :2469-2483.
                     BumpBasis.Build(texS, texT, l.FaceNormal, normals[i], bump, _context.Settings.StockNormalise);
                     for (int b = 0; b < BumpBasis.Count; b++)
                     {
@@ -296,7 +295,7 @@ public sealed class FaceLightJob
             }
         }
 
-        // :2486-2487. The cluster of the sample position, not of the offset point.
+        // The cluster of the sample position, not of the offset point.
         for (int i = 0; i < SampleGroup.Lanes; i++)
         {
             g.Clusters[i] = _context.Tree.ClusterFromPoint(pos[i]);
@@ -305,7 +304,7 @@ public sealed class FaceLightJob
 
     /// <summary>
     /// The emit half of one group of the direct gather:
-    /// <c>GatherSampleLightAt4Points</c> (<c>lightmap.cpp:2491</c>) up to the
+    /// <c>GatherSampleLightAt4Points</c> up to the
     /// rays. Tape: count, lane 0's point, then per light that survives the PVS
     /// test its index, its lane mask and the gatherer's record; -1 ends it.
     /// </summary>
@@ -327,7 +326,7 @@ public sealed class FaceLightJob
 
         ComputeIlluminationPointAndNormals(positions, count, sampleNormals);
 
-        // :3137-3141. A smoothed face's samples keep their phong normal. It
+        // A smoothed face's samples keep their phong normal. It
         // depends on no ray, so it is written here, once.
         if (!Info!.IsFlat)
         {
@@ -349,7 +348,6 @@ public sealed class FaceLightJob
         {
             DirectLight dl = lights[li];
 
-            // :2499-2510.
             int mask = 0;
             for (int s = 0; s < SampleGroup.Lanes; s++)
             {
@@ -389,7 +387,7 @@ public sealed class FaceLightJob
             DirectLight dl = lights[li];
             _context.Gatherer.Resolve(rays, _output);
 
-            // :2515-2526. (dot * mask) * falloff.
+            // 2515-2526. (dot * mask) * falloff.
             bool skipLight = true;
             for (int b = 0; b < normals; b++)
             {
@@ -407,7 +405,6 @@ public sealed class FaceLightJob
                 continue;
             }
 
-            // :2529-2541.
             int styleIndex = fl.FindOrAllocateStyle(dl.Style);
             if (styleIndex < 0)
             {
@@ -420,7 +417,6 @@ public sealed class FaceLightJob
                 continue;
             }
 
-            // :2555-2562.
             for (int n = 0; n < normals; n++)
             {
                 LightingValue[] target = fl.LightFor(styleIndex, n)!;
@@ -434,7 +430,7 @@ public sealed class FaceLightJob
     }
 
     /// <summary>
-    /// The emit half of <c>ResampleLightAt4Points</c> (<c>lightmap.cpp:2572</c>)
+    /// The emit half of <c>ResampleLightAt4Points</c>
     /// for the current group. Tape: per light, index and lane mask then the
     /// gatherer's record; -1 ends it.
     /// </summary>
@@ -449,7 +445,6 @@ public sealed class FaceLightJob
         {
             DirectLight dl = lights[li];
 
-            // :2588-2598.
             if (ambientOnly && dl.Type != EmitType.SkyAmbient)
             {
                 continue;
@@ -505,7 +500,7 @@ public sealed class FaceLightJob
             DirectLight dl = lights[li];
             _context.Gatherer.Resolve(rays, _output);
 
-            // :2616-2637. falloff * dot * mask, and no skip test.
+            // 2616-2637. falloff * dot * mask, and no skip test.
             for (int i = 0; i < SampleGroup.Lanes; i++)
             {
                 for (int n = 0; n < normals; n++)
@@ -530,7 +525,6 @@ public sealed class FaceLightJob
             {
                 int numSamples = Result!.Samples.Length;
 
-                // :3114.
                 _itemCount = (numSamples & 0x3) != 0 ? (numSamples / 4) + 1 : numSamples / 4;
             }
             else
@@ -670,7 +664,7 @@ public sealed class FaceLightJob
         }
         else
         {
-            // A supersampling pass finished: :2963 pass++.
+ // A supersampling pass finished::2963 pass++.
             foreach (StyleSupersample? state in _supersample)
             {
                 if (state is not null && state.Selected.Count > 0)
@@ -680,7 +674,7 @@ public sealed class FaceLightJob
             }
         }
 
-        // :2883 `while (do_anotherpass && pass <= extrapasses)`: choose what
+        // 2883 `while (do_anotherpass && pass <= extrapasses)`: choose what
         // the next pass supersamples, from the answers just resolved.
         bool any = false;
         foreach (StyleSupersample? state in _supersample)
@@ -729,7 +723,6 @@ public sealed class FaceLightJob
             state.Visualize[i] = new Vec3((pass & 1) * 255, (pass & 2) * 128, (pass & 4) * 64);
         }
 
-        // :2940-2954.
         if (ambientCount > 0 && directCount > 0)
         {
             for (int n = 0; n < fl.NormalCount; n++)
@@ -750,7 +743,7 @@ public sealed class FaceLightJob
     private const int RowOutside = -1;
 
     /// <summary>
-    /// The emit half of <c>SupersampleLightAtPoint</c> (<c>lightmap.cpp:2683</c>).
+    /// The emit half of <c>SupersampleLightAtPoint</c>.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void EmitSupersamplePoint(int sampleIndex, int styleIndex, bool ambientOnly, LightRayLog rays)
@@ -760,10 +753,9 @@ public sealed class FaceLightJob
         ref readonly LightSample sample = ref fl.Samples[sampleIndex];
         GatherTape tape = rays.Tape;
 
-        // :2688-2692.
         (float originS, float originT) = l.WorldToLuxel(sample.Position);
 
-        // :2694-2697. 4x4 for direct light, 2x2 for ambient; csshift is a
+        // 2694-2697. 4x4 for direct light, 2x2 for ambient; csshift is a
         // double division narrowed.
         float sampleWidth = ambientOnly ? 2 : 4;
         float cscale = 1.0f / sampleWidth;
@@ -789,13 +781,12 @@ public sealed class FaceLightJob
                 float ct;
                 if (ambientOnly)
                 {
-                    // :2759-2762. LoadAndSwizzle of four offsets.
+                    // LoadAndSwizzle of four offsets.
                     cs = originS + (lane < 2 ? csshift : csshift + cscale);
                     ct = originT + ((lane & 1) == 0 ? csshift : csshift + cscale);
                 }
                 else
                 {
-                    // :2721-2723.
                     cs = originS + aRow[s];
                     ct = originT + aRow[lane];
                 }
@@ -803,7 +794,7 @@ public sealed class FaceLightJob
                 positions[lane] = l.LuxelToWorld(cs, ct);
             }
 
-            // :2729-2731. Only a partial sample has a winding to test against.
+            // Only a partial sample has a winding to test against.
             int invalidBits = 0;
             if (!winding.IsEmpty && !PointsInWinding(positions, winding, out invalidBits))
             {
@@ -868,13 +859,13 @@ public sealed class FaceLightJob
     private void ComputeSupersampleIllumination(ReadOnlySpan<Vec3> positions, Vec3 sampleNormal)
     {
         // The supersample normal matters only to displacements (:2703,
-        // :2455), which never reach here.
+        // 2455), which never reach here.
         _ = sampleNormal;
         ComputeIlluminationPointAndNormals(positions, SampleGroup.Lanes);
     }
 
     /// <summary>
-    /// <c>PointsInWinding</c> (<c>lightmap.cpp:2641</c>): which of four points
+    /// <c>PointsInWinding</c>: which of four points
     /// lie inside a convex world-space winding.
     /// </summary>
     /// <param name="points">Four points.</param>
@@ -885,7 +876,7 @@ public sealed class FaceLightJob
     /// Each edge's cross product with the point is compared in SIGN against the
     /// first edge's. Stock normalises the crosses with an estimate, which
     /// cannot change a sign; this normalises exactly. Stock also never
-    /// initialises <c>invalidMask</c> (<c>lightmap.cpp:2644</c>) before OR-ing
+    /// initialises <c>invalidMask</c> before OR-ing
     /// into it -- whatever the stack held. Here it starts at zero, which is the
     /// only defined reading.
     /// </remarks>
@@ -933,7 +924,6 @@ public sealed class FaceLightJob
 
         if (_context.Settings.DebugExtra)
         {
-            // :2968-2977.
             foreach (StyleSupersample? state in _supersample)
             {
                 if (state is null)
@@ -953,7 +943,7 @@ public sealed class FaceLightJob
 
         PatchLighting.BuildPatchLights(_context, FaceNum, fl);
 
-        // :3187-3194. The sample windings exist for supersampling only.
+        // The sample windings exist for supersampling only.
         fl.SampleWindingPoints = [];
         for (int i = 0; i < fl.Samples.Length; i++)
         {
@@ -974,8 +964,8 @@ public sealed class FaceLightJob
     /// <remarks>
     /// <para>
     /// <c>pSampleIntensity</c> is <c>stackalloc</c>'d and never cleared
-    /// (<c>lightmap.cpp:2881</c>); only luxels that HAVE a sample are written
-    /// (<c>:2839-2862</c>), so on any face whose outline does not fill its
+    /// Only luxels that HAVE a sample are written
+ /// So on any face whose outline does not fill its
     /// lightmap rectangle the gradient of an edge sample is taken against
     /// whatever the stack held. That is undefined and cannot be reproduced
     /// bit for bit.
@@ -1005,7 +995,7 @@ public sealed class FaceLightJob
     }
 
     /// <summary>
-    /// The state of <c>BuildSupersampleFaceLights</c> (<c>lightmap.cpp:2868</c>)
+    /// The state of <c>BuildSupersampleFaceLights</c>
     /// for one light style.
     /// </summary>
     private sealed class StyleSupersample
@@ -1035,7 +1025,7 @@ public sealed class FaceLightJob
                 _hasSample[sample.S + (sample.T * _width)] = true;
             }
 
-            // :2873-2880. Stock stackallocs these UNINITIALISED; the intensity
+            // Stock stackallocs these UNINITIALISED; the intensity
             // of a luxel with no sample is whatever the stack held, and the
             // gradient test reads it for every edge sample. Zero here.
             _processed = new bool[Math.Max(_size, fl.Samples.Length)];
@@ -1062,7 +1052,7 @@ public sealed class FaceLightJob
             }
         }
 
-        /// <summary><c>ComputeLuxelIntensity</c> (<c>lightmap.cpp:2839</c>).</summary>
+        /// <summary><c>ComputeLuxelIntensity</c>.</summary>
         public void ComputeLuxelIntensity(int sampleIdx)
         {
             ref readonly LightSample sample = ref _fl.Samples[sampleIdx];
@@ -1078,7 +1068,7 @@ public sealed class FaceLightJob
 
         /// <summary>
         /// One pass's selection: <c>ComputeLightmapGradients</c> then the
-        /// 0.0625 threshold (<c>lightmap.cpp:2886-2911</c>).
+        /// 0.0625 threshold.
         /// </summary>
         public void SelectForPass()
         {

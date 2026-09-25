@@ -6,7 +6,6 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 /// The quad-tree of axis-aligned boxes over one displacement's triangles:
 /// <c>CDispCollTree</c>'s <c>AABBTree_CreateLeafs</c>,
 /// <c>AABBTree_GenerateBoxes_r</c> and <c>AABBTree_CalcBounds</c>
-/// (<c>public/dispcoll_common.cpp:406-495</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -127,7 +126,7 @@ public sealed class DispCollisionTree
 
         GenerateBoxes(surface, numNodes, leafTris, childMins, childMaxs, 0, out Vec3 mins, out Vec3 maxs);
 
-        // :487-492. Bloat a little.
+        // Bloat a little.
         mins = new Vec3(mins.X - 1.0f, mins.Y - 1.0f, mins.Z - 1.0f);
         maxs = new Vec3(maxs.X + 1.0f, maxs.Y + 1.0f, maxs.Z + 1.0f);
         return new DispCollisionTree(numNodes, childMins, childMaxs, leafTris, mins, maxs);
@@ -188,7 +187,7 @@ public sealed class DispCollisionTree
 
         public readonly Vec3 Maxs => new(MaxX, MaxY, MaxZ);
 
-        // AddPointToBounds (mathlib_base.cpp:1293): two independent ifs per axis.
+        // AddPointToBounds: two independent ifs per axis.
         public void Add(Vec3 v)
         {
             if (v.X < MinX)

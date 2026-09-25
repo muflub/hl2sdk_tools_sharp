@@ -8,7 +8,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
 /// Cutting faces down until their lightmaps fit
-/// (<c>SubdivideFace</c>, <c>src/utils/vbsp/faces.cpp:1167</c>).
+/// (<c>SubdivideFace</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -137,7 +137,7 @@ public sealed class FaceSubdivider
 
     /// <summary>
     /// Subdivides every face on one node's list
-    /// (<c>SubdivideFaceList</c>, <c>faces.cpp:1241</c>).
+    /// (<c>SubdivideFaceList</c>).
     /// </summary>
     /// <param name="head">The head of the list.</param>
     /// <returns>The head afterwards, which changes when anything was split.</returns>

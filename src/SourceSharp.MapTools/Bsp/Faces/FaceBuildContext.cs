@@ -6,7 +6,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
 /// Everything the face stage reads or writes, in one place instead of the
-/// eighteen file-scope globals <c>faces.cpp</c> keeps it in.
+/// eighteen file-scope globals keeps it in.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -89,14 +89,14 @@ public sealed class FaceBuildContext
     /// <remarks>
     /// Read in two places that behave completely differently for the world:
     /// <c>FaceFromPortal</c> writes the raw plane number rather than the
-    /// side-tagged one for brush models (<c>faces.cpp:1334</c>), and
+    /// side-tagged one for brush models, and
     /// <c>FixFaceEdges</c> builds a re-triangulation primitive only for the
-    /// world (<c>:652</c>).
+ /// World.
     /// </remarks>
     public int EntityNumber { get; set; }
 
     /// <summary>
-    /// <c>g_maxLightmapDimension</c> (<c>faces.cpp:62</c>), which
+    /// <c>g_maxLightmapDimension</c>, which
     /// <c>-maxlightmapdim</c> overrides.
     /// </summary>
     public float MaxLightmapDimension { get; init; } = 32f;

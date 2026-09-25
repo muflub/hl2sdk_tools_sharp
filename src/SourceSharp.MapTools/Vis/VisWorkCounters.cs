@@ -5,25 +5,25 @@ namespace SourceSharp.MapTools.Vis;
 /// </summary>
 /// <param name="Chains">
 /// How many times <c>RecursiveLeafFlow</c> was entered, over every portal --
-/// stock's <c>c_chains</c> (<c>src/utils/vvis/flow.cpp:510</c>) summed over the
+/// Stock's <c>c_chains</c> summed over the
 /// whole run instead of printed per portal.
 /// </param>
 /// <param name="Candidates">
 /// How many candidate portals passed the <c>mightsee</c> bit test at
-/// <c>flow.cpp:524</c> -- the portals a frame actually considered.
+/// -- the portals a frame actually considered.
 /// </param>
 /// <param name="SeparatorClips">
 /// How many times <c>ClipToSeperators</c> was called from the flow
-/// (<c>flow.cpp:608</c>), counting the first of each pair.
+/// Counting the first of each pair.
 /// </param>
 /// <param name="BaseRays">
 /// How many portal-pair <c>portalfront</c> tests <see cref="VisBaseFlow"/>
 /// performed — stock's <c>BasePortalVis</c> inner loop
-/// (<c>flow.cpp:744-775</c>), counted per (source portal, candidate portal)
+/// Counted per (source portal, candidate portal)
 /// pair and summed over the whole run. This is the pass the P12 anomaly-3
 /// report misremembered <c>-fast</c> as skipping: it skips NOTHING, in stock
-/// or here (<c>all.c:19955</c> dispatches the base pass unconditionally; the
-/// one fastvis branch is <c>all.c:20004</c>, and it lives in
+/// or here (<c>all.c</c> dispatches the base pass unconditionally; the
+/// one fastvis branch is <c>all.c</c>, and it lives in
 /// <c>CalcPortalVis</c>), so this counter is the gate that keeps a future
 /// well-meaning "skip the base pass under -fast" from ever merging.
 /// </param>

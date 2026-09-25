@@ -8,15 +8,14 @@ namespace SourceSharp.MapTools.Phys;
 
 /// <summary>
 /// The surface-property database vbsp indexes materials into: a managed
-/// port of <c>CPhysicsSurfaceProps</c> (the 2018 engine drop's
-/// <c>vphysics/physics_material.cpp</c>, read as the consumer-side oracle),
-/// loaded the way <c>LoadSurfaceProperties</c> (<c>textures.cpp:711</c>) loads it.
+/// Reimplementation of <c>CPhysicsSurfaceProps</c>,
+/// loaded the way <c>LoadSurfaceProperties</c> loads it.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Managed because the library's own copy is a process-wide singleton that
 /// only grows and refuses to parse the same file name twice
-/// (<c>AddFileToDatabase</c>, <c>physics_material.cpp:205</c>): two compiles
+/// (<c>AddFileToDatabase</c>): two compiles
 /// against two games in one process could not both be right through it. The
 /// indices are output -- <c>g_SurfaceProperties</c> numbers go into the world
 /// collide's per-triangle materials and the <c>materialtable</c> keydata -- so
@@ -26,24 +25,24 @@ namespace SourceSharp.MapTools.Phys;
 /// <para>
 /// Behaviours reproduced, each pinned by a fact: names and values are
 /// LOWER-CASED by the tokenizer (<c>ParseKeyvalue</c>,
-/// <c>vcollide_parse.cpp:919</c>) and looked up case-insensitively; a property
+///) and looked up case-insensitively; a property
 /// seen again overrides the first one's data and keeps its index; a property
 /// inherits from one of the same name if it exists, otherwise from
 /// <c>default</c>, and <c>base</c> re-inherits; and after the FIRST file the
 /// reserved <c>$MATERIAL_INDEX_SHADOW</c> property is appended
-/// (<c>physics_material.cpp:593</c>), so every later file's properties come
+/// So every later file's properties come
 /// after it.
 /// </para>
 /// </remarks>
 public sealed class SurfacePropertyTable
 {
-    /// <summary><c>MATERIAL_INDEX_SHADOW</c>, <c>vphysics/physics_material.h:31</c>.</summary>
+    /// <summary><c>MATERIAL_INDEX_SHADOW</c>.</summary>
     public const int ShadowMaterialIndex = 0xF000;
 
     /// <summary>The reserved name for <see cref="ShadowMaterialIndex"/>.</summary>
     public const string ShadowMaterialName = "$MATERIAL_INDEX_SHADOW";
 
-    /// <summary><c>MAX_KEYVALUE</c>, <c>vcollide_parse_private.h</c>.</summary>
+    /// <summary><c>MAX_KEYVALUE</c>.</summary>
     private const int MaxKeyValue = 1024;
 
     private readonly List<Entry> _props = [];
@@ -57,7 +56,7 @@ public sealed class SurfacePropertyTable
 
     /// <summary>
     /// Loads <c>scripts/surfaceproperties_manifest.txt</c> and every file it
-    /// names, in order: <c>LoadSurfaceProperties</c>, <c>textures.cpp:711</c>.
+    /// names, in order: <c>LoadSurfaceProperties</c>.
     /// </summary>
     /// <param name="content">The game content.</param>
     /// <param name="cancellationToken">Cancels the reads.</param>
@@ -82,7 +81,7 @@ public sealed class SurfacePropertyTable
 
         foreach (string file in manifest.Files)
         {
-            // LoadSurfacePropFile, textures.cpp:688: a missing file is skipped.
+            // LoadSurfacePropFile: a missing file is skipped.
             string? text = await ReadTextAsync(content, file, cancellationToken).ConfigureAwait(false);
             if (text is not null)
             {
@@ -94,7 +93,7 @@ public sealed class SurfacePropertyTable
     }
 
     /// <summary>
-    /// <c>ParseSurfaceData</c>, <c>physics_material.cpp:402</c>.
+    /// <c>ParseSurfaceData</c>.
     /// </summary>
     /// <param name="fileName">The file's name; a name parsed before is ignored.</param>
     /// <param name="text">The file's text.</param>
@@ -164,7 +163,7 @@ public sealed class SurfacePropertyTable
         return _props.Count;
     }
 
-    /// <summary><c>GetSurfaceIndex</c>, <c>physics_material.cpp:219</c>.</summary>
+    /// <summary><c>GetSurfaceIndex</c>.</summary>
     /// <param name="name">The property name, any case.</param>
     /// <returns>Its index, or -1.</returns>
     public int GetSurfaceIndex(string name)
@@ -180,13 +179,13 @@ public sealed class SurfacePropertyTable
         return _byName.TryGetValue(name, out int index) ? index : -1;
     }
 
-    /// <summary><c>GetPropName</c>, <c>physics_material.cpp:244</c>.</summary>
+    /// <summary><c>GetPropName</c>.</summary>
     /// <param name="index">The index.</param>
     /// <returns>The name as stored (lower case), or null.</returns>
     public string? GetPropName(int index) => Internal(index)?.Name;
 
     /// <summary>
-    /// <c>GetPhysicsProperties</c>, <c>physics_material.cpp:276</c>: an
+    /// <c>GetPhysicsProperties</c>: an
     /// unknown index answers with <c>default</c>'s values.
     /// </summary>
     /// <param name="index">The index.</param>
@@ -198,7 +197,7 @@ public sealed class SurfacePropertyTable
     }
 
     /// <summary>
-    /// <c>GetSurfaceProperties</c>, <c>textures.cpp:344</c>: a material's
+    /// <c>GetSurfaceProperties</c>: a material's
     /// <c>$surfaceprop</c> to an index, <c>default</c> when it names nothing,
     /// -1 when the material has none.
     /// </summary>
@@ -216,7 +215,7 @@ public sealed class SurfacePropertyTable
     }
 
     /// <summary>
-    /// <c>GetSurfaceProperties2</c>, <c>textures.cpp:368</c>: as
+    /// <c>GetSurfaceProperties2</c>: as
     /// <see cref="ResolveMaterial"/> for <c>$surfaceprop2</c>, except that a
     /// material without one answers -1 ("No surface property 2") only when a
     /// table is loaded -- with no table stock returns its initial -1 as well.
@@ -233,7 +232,7 @@ public sealed class SurfacePropertyTable
 
     private Entry? Internal(int index)
     {
-        // GetInternalSurface, physics_material.cpp:258: reserved indices fall back.
+        // GetInternalSurface: reserved indices fall back.
         if (index == ShadowMaterialIndex)
         {
             index = _shadowFallback;
@@ -277,8 +276,8 @@ public sealed class SurfacePropertyTable
     }
 
     /// <summary>
-    /// <c>ParseKeyvalue</c> (<c>vcollide_parse.cpp:919</c>) over
-    /// <c>ParseFile</c> (<c>public/filesystem_helpers.cpp:29</c>).
+    /// <c>ParseKeyvalue</c> over
+    /// <c>ParseFile</c>.
     /// </summary>
     internal static int? ParseKeyvalue(byte[] text, int? cursor, out string key, out string value)
     {

@@ -14,7 +14,7 @@ namespace SourceSharp.MapTools.Compare;
 /// </summary>
 /// <remarks>
 /// <para>
-/// plan_maptools.md 1 requires that anything assigning an index the BSP stores
+/// The port's plan §1 requires that anything assigning an index the BSP stores
 /// -- plane numbers, vertex welds, node and leaf numbering -- commits in the
 /// stock insertion order, and the reason that rule needs enforcing is that
 /// nothing in the FORMAT requires it: a map with its planes in a different
@@ -150,7 +150,7 @@ internal static class CanonicalLumpDiff
         Dictionary<int, List<string>> clusters = [];
 
         // dleaf_t is 56 bytes at LUMP version 0 and 32 at version 1
-        // (bspfile.h:799 and :826), and nothing else in the file says which.
+ //And nothing else in the file says which.
         if (lump.Version == 0)
         {
             if (!BspStructView.Fits<DLeafVersion0>(lump))
@@ -378,7 +378,7 @@ internal sealed class FaceGeometry
     /// <remarks>
     /// A surfedge is a SIGNED index into the edge lump: positive takes the
     /// edge's first vertex, negative its second, which is how one edge serves
-    /// two faces wound opposite ways (<c>bspfile.h:480</c>).
+    /// two faces wound opposite ways.
     /// </remarks>
     internal void Ring(DFace face, List<Vec3> ring)
     {

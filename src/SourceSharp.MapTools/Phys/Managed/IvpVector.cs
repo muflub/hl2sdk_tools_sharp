@@ -10,7 +10,7 @@ namespace SourceSharp.MapTools.Phys.Managed;
 internal static class IvpVector
 {
     /// <summary>
-    /// <c>IVP_U_Point::inline_calc_cross_product</c> as emitted at SDK 001ff990 / TF2 002091a0:
+    /// <c>IVP_U_Point::inline_calc_cross_product</c> as both reference builds emit it:
     /// <c>a x b</c> with x = a.y*b.z - b.y*a.z, y = a.z*b.x - b.z*a.x, z = b.y*a.x - a.y*b.x.
     /// </summary>
     /// <typeparam name="T">Precision.</typeparam>

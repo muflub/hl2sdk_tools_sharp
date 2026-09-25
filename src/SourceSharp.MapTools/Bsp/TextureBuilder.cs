@@ -6,7 +6,7 @@ using SourceSharp.MapTools.Diagnostics;
 namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
-/// <c>TexinfoForBrushTexture</c>, <c>utils/vbsp/textures.cpp:571</c>: turns a
+/// <c>TexinfoForBrushTexture</c>: turns a
 /// brush side's texture placement into a TEXINFO entry and returns its index.
 /// </summary>
 /// <remarks>
@@ -22,12 +22,12 @@ namespace SourceSharp.MapTools.Bsp;
 /// <para>
 /// <b>The pre-220 path is not ported, and neither is the plane parameter it
 /// needed.</b> <c>g_nMapFileVersion</c> is assigned exactly once in the whole
-/// compiler — <c>map.cpp:2565</c>, unconditionally <c>400</c>, with the comment
+/// compiler —, unconditionally <c>400</c>, with the comment
 /// "Dummy this up for the texture handling. This can be removed when old .MAP
-/// file support is removed" — and <c>map_shared.cpp:98</c> does the same for
-/// the vrad entry point. So <c>textures.cpp:586</c> and <c>:600</c> are
+/// file support is removed" — and does the same for
+/// The vrad entry point. So are
 /// unreachable, and with them <c>TextureAxisFromPlane</c>
-/// (<c>textures.cpp:316</c>), the <c>rotate</c> key, and the hard-wired
+/// The <c>rotate</c> key, and the hard-wired
 /// lightmap scale of 16. <see cref="MapFileVersion"/> pins the constant so a
 /// fact can assert it rather than this comment being the argument.
 /// </para>
@@ -35,13 +35,13 @@ namespace SourceSharp.MapTools.Bsp;
 public static class TextureBuilder
 {
     /// <summary>
-    /// The one value <c>g_nMapFileVersion</c> ever holds: <c>map.cpp:2565</c>.
+    /// The one value <c>g_nMapFileVersion</c> ever holds:.
     /// </summary>
     public const int MapFileVersion = 400;
 
     /// <summary>
     /// The shift scale the legacy path would have used:
-    /// <c>textures.cpp:597-598</c>, <c>1.0f / 16.0f</c>.
+    /// <c>1.0f / 16.0f</c>.
     /// </summary>
     /// <remarks>
     /// Never reaches the lump — the v220 branch assigns over it — and named
@@ -72,22 +72,22 @@ public static class TextureBuilder
     /// <remarks>
     /// <para>
     /// A side whose material name is empty returns texinfo 0 without touching
-    /// either table (<c>textures.cpp:580</c>) — index 0, not -1, so it aliases
+    /// either table — index 0, not -1, so it aliases
     /// whatever the first texinfo turned out to be.
     /// </para>
     /// <para>
     /// The fixed-up placement comes back because stock writes it through the
-    /// pointer it was given (<c>textures.cpp:591-594</c>) and the caller then
+    /// pointer it was given and the caller then
     /// stores that same struct into <c>side_brushtextures</c>
-    /// (<c>map.cpp:2790</c> then <c>:2797</c>), so the replaced zero is what an
+ ///So the replaced zero is what an
     /// origin brush later rebuilds the texinfo from. An <c>async</c> method
     /// cannot take a <c>ref</c>, hence a return value; a caller that discards
     /// it is choosing stock's <c>MergeBrushSides</c> behaviour, where the
-    /// placement was a local copy anyway (<c>map.cpp:2246</c>).
+    /// placement was a local copy anyway.
     /// </para>
     /// <para>
     /// <c>lightmapWorldUnitsPerLuxel</c> is divided by with NO zero guard, as
-    /// <c>textures.cpp:661-666</c> has none. A side with no
+    /// Has none. A side with no
     /// <c>lightmapscale</c> key therefore produces infinities in the lightmap
     /// rows, and because <see cref="TexInfoTable.Find"/> compares bit patterns
     /// those entries still dedup with each other. Stock does that on a map
@@ -109,14 +109,14 @@ public static class TextureBuilder
 
         BrushTexture bt = brushTexture;
 
-        // textures.cpp:580 -- an empty name is texinfo 0, and neither table is
+        // -- an empty name is texinfo 0, and neither table is
         // touched. bt comes back unchanged, including any zero scale.
         if (string.IsNullOrEmpty(bt.Name))
         {
             return (0, bt);
         }
 
-        // textures.cpp:591-594. An EXACT zero test, no epsilon.
+        // An EXACT zero test, no epsilon.
         if (bt.TextureWorldUnitsPerTexelU == 0f)
         {
             bt.TextureWorldUnitsPerTexelU = 1f;
@@ -129,7 +129,7 @@ public static class TextureBuilder
 
         TexInfo tx = default;
 
-        // textures.cpp:650-669, the v220+ path. Per component, in this order.
+        // The v220+ path. Per component, in this order.
         for (int k = 0; k < 3; k++)
         {
             tx.TextureVecsTexelsPerWorldUnits[k] = bt.UAxis[k] / bt.TextureWorldUnitsPerTexelU;
@@ -141,7 +141,7 @@ public static class TextureBuilder
         float shiftScaleU = bt.TextureWorldUnitsPerTexelU / bt.LightmapWorldUnitsPerLuxel;
         float shiftScaleV = bt.TextureWorldUnitsPerTexelV / bt.LightmapWorldUnitsPerLuxel;
 
-        // textures.cpp:671-679. DOT_PRODUCT (mathlib.h:394) reads components
+        // DOT_PRODUCT reads components
         // 0..2 of the row, so the column being written is not one of its inputs.
         tx.TextureVecsTexelsPerWorldUnits[3] =
             bt.ShiftU + Dot3(tx.TextureVecsTexelsPerWorldUnits, 0, origin);

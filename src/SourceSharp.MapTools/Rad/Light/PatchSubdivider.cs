@@ -37,7 +37,7 @@ public readonly record struct SubdivisionReport(
 
 /// <summary>
 /// <c>SubdividePatches</c>, <c>SubdividePatch</c>, <c>CreateChildPatch</c> and
-/// <c>PreventSubdivision</c> (<c>vrad.cpp:926, 835, 768, 750</c>).
+/// <c>PreventSubdivision</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -45,21 +45,20 @@ public readonly record struct SubdivisionReport(
 /// <c>-chop</c> luxels across. The leaves are what the transfer matrix is built
 /// over, so this pass sets the size of the radiosity problem: on this project's
 /// catalogue it turns 36 patches into 2,632, and on a real map 1,292 into
-/// 82,452.
 /// </para>
 /// <para>
 /// <b>Three passes run AFTER the recursion and none of them is optional.</b>
-/// The face lists are rebuilt from scratch (<c>:966-984</c>) so that children
+/// The face lists are rebuilt from scratch so that children
 /// come before parents; cluster numbers are resolved only now
-/// (<c>:994-1013</c>) because a child's origin can land in a different leaf
+/// Because a child's origin can land in a different leaf
 /// from its parent's; and the per-cluster leaf list is built in REVERSE
-/// (<c>:1016-1019</c>), which makes it come out in forward order after the
+/// Which makes it come out in forward order after the
 /// prepends. Reordering any of the three changes the order transfers are
 /// accumulated in, and floating-point addition is not associative.
 /// </para>
 /// <para>
 /// <b>Nothing happens at all when <c>-bounce 0</c> is set</b>
-/// (<c>:930-931</c>): the early return leaves every root patch as its own leaf
+/// The early return leaves every root patch as its own leaf
 /// and leaves <c>faceParents</c>, <c>clusterChildren</c> and every
 /// <c>parent</c> field untouched -- so a <c>-bounce 0</c> compile has patches
 /// whose <c>parent</c> is still the zero the <c>memset</c> left, meaning patch
@@ -88,7 +87,7 @@ public static class PatchSubdivider
     /// <param name="smoothingThreshold">The smoothing cosine.</param>
     /// <param name="subdivideDisplacement">
     /// Splits a displacement root patch (<c>StaticDispMgr()-&gt;SubdividePatch</c>,
-    /// <c>vrad.cpp:958-961</c>); null leaves displacement patches whole.
+    ///); null leaves displacement patches whole.
     /// </param>
     /// <returns>The counts stock prints, plus two it does not.</returns>
     /// <exception cref="ArgumentNullException">Any reference argument is null.</exception>
@@ -110,14 +109,14 @@ public static class PatchSubdivider
 
         int before = patches.Count;
 
-        // vrad.cpp:930-931. Not "skip the splitting" -- skip EVERYTHING,
+        // Not "skip the splitting" -- skip EVERYTHING,
         // including the face-list rebuild and the cluster resolution.
         if (bounces == 0)
         {
             return new SubdivisionReport(before, before, 0, 0, 0);
         }
 
-        // :936-943. Cache each root patch's plane distance and thread the
+        // Cache each root patch's plane distance and thread the
         // faceParents list. This runs over the ORIGINAL count, so the children
         // created below are not in faceParents -- which is the definition of
         // that list.
@@ -131,7 +130,7 @@ public static class PatchSubdivider
 
         int zeroArea = 0;
 
-        // :945-963. Also over the original count, and note that `parent` is set
+        // Also over the original count, and note that `parent` is set
         // to -1 for every root patch HERE rather than in MakePatchForFace.
         for (int i = 0; i < before; i++)
         {
@@ -147,7 +146,7 @@ public static class PatchSubdivider
                 continue;
             }
 
-            // :954-961. A displacement patch goes to the displacement
+            // A displacement patch goes to the displacement
             // manager's own splitter, which this lane does not own.
             if (geometry.Faces[patches.At(i).FaceNumber].DispInfo == -1)
             {
@@ -156,7 +155,7 @@ public static class PatchSubdivider
             }
             else
             {
-                // StaticDispMgr()->SubdividePatch (vraddisps.cpp:521), lane 4e's.
+                // StaticDispMgr->SubdividePatch, lane 4e's.
                 subdivideDisplacement?.Invoke(patches, i);
             }
         }
@@ -168,7 +167,7 @@ public static class PatchSubdivider
     }
 
     /// <summary>
-    /// <c>PreventSubdivision</c> (<c>vrad.cpp:750</c>): whether a surface takes
+    /// <c>PreventSubdivision</c>: whether a surface takes
     /// or emits light at all.
     /// </summary>
     /// <param name="geometry">The map's lumps.</param>
@@ -210,7 +209,7 @@ public static class PatchSubdivider
         float smoothingThreshold,
         ref int zeroArea)
     {
-        // vrad.cpp:850-852. Sky patches exist so the form factors work out and
+        // Sky patches exist so the form factors work out and
         // are never split.
         if (patches.At(patchIndex).Sky)
         {
@@ -225,7 +224,7 @@ public static class PatchSubdivider
             chop = patch.Chop;
         }
 
-        // :860-872. Widest axis and the subdivide decision, in one pass. The
+        // Widest axis and the subdivide decision, in one pass. The
         // ">= chop AND >= minchop" pair matters: chop can have been halved
         // below minchop by an earlier pass, and the second test is what stops
         // the recursion from running away when it has.
@@ -249,7 +248,7 @@ public static class PatchSubdivider
 
         if (!subdivide && widestAxis != -1)
         {
-            // :874-885. "Make more square": a patch more than twice as long as
+            // 874-885. "Make more square": a patch more than twice as long as
             // it is wide in BOTH other axes is split anyway, and its chop is
             // halved at the same time so the halves do not immediately qualify
             // again.
@@ -285,7 +284,7 @@ public static class PatchSubdivider
             dist = (Component(patch.Mins, widestAxis) + Component(patch.Maxs, widestAxis)) * 0.5f;
         }
 
-        // :894. ON_EPSILON here, not the lightmap epsilon: this is a world-space
+        // ON_EPSILON here, not the lightmap epsilon: this is a world-space
         // winding.
         arena.ClipEpsilon(
             winding, split, dist, LightConstants.OnEpsilon, out Winding o1, out Winding o2);
@@ -293,7 +292,7 @@ public static class PatchSubdivider
         float area1 = arena.AreaAndBalancePoint(o1, out Vec3 center1);
         float area2 = arena.AreaAndBalancePoint(o2, out Vec3 center2);
 
-        // :901-905. Stock prints and returns, leaving BOTH child windings
+        // Stock prints and returns, leaving BOTH child windings
         // allocated and the parent unsplit. The leak is not reproduced; the
         // control flow is.
         if (area1 == 0f || area2 == 0f)
@@ -310,7 +309,7 @@ public static class PatchSubdivider
             geometry, neighbours, patches, patchIndex, o2, area2, center2, minChop, smoothingThreshold);
 
         {
-            // :911-914, with stock's own comment about the refetch: both
+            // 911-914, with stock's own comment about the refetch: both
             // AddToTail calls above may have reallocated the array.
             ref Patch patch = ref patches.At(patchIndex);
             patch.Child1 = child1;
@@ -332,7 +331,7 @@ public static class PatchSubdivider
         float minChop,
         float smoothingThreshold)
     {
-        // vrad.cpp:776. The whole parent, copied by value -- including its
+        // The whole parent, copied by value -- including its
         // winding handle, its lighting accumulators and its displacement
         // indices -- and then the fields below overwritten.
         Patch child = patches.At(parentIndex);
@@ -349,7 +348,7 @@ public static class PatchSubdivider
         child.Area = area;
         child.Origin = center;
 
-        // :791-800. A displacement patch would take the displacement surface's
+        // A displacement patch would take the displacement surface's
         // own normal; stock says "shouldn't get here anymore" and prints,
         // because SubdividePatches routes displacements elsewhere. The brush
         // branch is the only reachable one here.
@@ -366,14 +365,14 @@ public static class PatchSubdivider
         child.Mins = mins;
         child.Maxs = maxs;
 
-        // :805-809. A surface light's patches are never refined by the edge
+        // A surface light's patches are never refined by the edge
         // rule -- stock's comment is "don't check edges on surf lights".
         if (child.BaseLight != Vec3.Zero)
         {
             return patches.Add(child);
         }
 
-        // :811-826. A child that reaches the FACE's bounding box on some axis
+        // A child that reaches the FACE's bounding box on some axis
         // sits on the face's silhouette, where a coarse patch shows as a
         // blocky shadow edge; so its chop is halved once. The guard is that the
         // child is ALREADY below chop in every axis, which is what makes this
@@ -401,7 +400,7 @@ public static class PatchSubdivider
 
     private static void RebuildFaceLists(PatchSet patches)
     {
-        // vrad.cpp:966-984. Clear every head, then prepend every patch in
+        // Clear every head, then prepend every patch in
         // index order. Children have higher indices than their parents, so
         // prepending in index order puts CHILDREN FIRST in the resulting list
         // -- which BuildPatchLights depends on to push sample light up to
@@ -421,7 +420,7 @@ public static class PatchSubdivider
         int solid = 0;
         int clusterless = 0;
 
-        // vrad.cpp:994-1013, and stock's comment explains the timing: a child
+        // And stock's comment explains the timing: a child
         // patch's origin can land in a different leaf from its parent's,
         // because only model 0's faces are split by the BSP that governs the
         // PVS.
@@ -437,7 +436,7 @@ public static class PatchSubdivider
 
             solid++;
 
-            // :1001-1012. An origin in solid space -- which detail and
+            // An origin in solid space -- which detail and
             // displacement surfaces produce -- borrows the cluster of the
             // FIRST winding corner that has one.
             foreach (Vec3 point in patches.Arena.Points(patch.Winding))
@@ -456,7 +455,7 @@ public static class PatchSubdivider
             }
         }
 
-        // :1016-1042. In REVERSE index order, so that after the prepends each
+        // In REVERSE index order, so that after the prepends each
         // cluster's list comes out in forward index order. Only leaf patches
         // are listed. The heads are NOT cleared first: stock initialises them
         // once in VRAD_LoadBSP (:2262-2273) and AddDispsToClusterTable appends

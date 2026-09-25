@@ -5,7 +5,7 @@
 
 namespace SourceSharp.MapTools.Phys.Managed.Qhull;
 
-/// <summary>qhull.h / user.h / merge.h / poly.h constants used by the 3-d subset.</summary>
+/// <summary> / / / constants used by the 3-d subset.</summary>
 internal static class QhConst
 {
     internal const int qh_ERRnone = 0;
@@ -64,7 +64,7 @@ internal enum QhCenter
     qh_AScentrum,
 }
 
-/// <summary>mergeType (merge.h); the order matters (comparisons with &lt; and &lt;=).</summary>
+/// <summary>mergeType; the order matters (comparisons with &lt; and &lt;=).</summary>
 internal enum MergeType
 {
     MRGnone = 0,

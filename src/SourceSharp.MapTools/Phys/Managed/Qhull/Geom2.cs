@@ -29,7 +29,7 @@ internal sealed partial class Qh
         else if (dim == 3)
         {
             double[] r0 = rows[0]!, r1 = rows[1]!, r2 = rows[2]!;
-            // BINARY ORDER 85afc: (a1*(b2c3 - b3c2) + b1*(c2a3 - c3a2)) + c1*(a2b3 - b2a3)
+            // reference order: (a1*(b2c3 - b3c2) + b1*(c2a3 - c3a2)) + c1*(a2b3 - b2a3)
             det = (r0[0] * (r1[1] * r2[2] - r1[2] * r2[1])
                    + r1[0] * (r2[1] * r0[2] - r2[2] * r0[1]))
                   + r2[0] * (r0[1] * r1[2] - r1[1] * r0[2]);
@@ -100,7 +100,7 @@ internal sealed partial class Qh
         MINdenom = MINdenom_1 * MAXabs_coord;
         MINdenom_1_2 = Math.Sqrt(MINdenom_1 * hull_dim);
         MINdenom_2 = MINdenom_1_2 * MAXabs_coord;
-        ANGLEround = hull_dim * (1.01 * REALepsilon); // BINARY ORDER 861e5: folded constant
+        ANGLEround = hull_dim * (1.01 * REALepsilon); // reference order: folded constant
         if (premerge_cos < REALmax / 2)
         {
             premerge_cos -= ANGLEround;
@@ -117,7 +117,7 @@ internal sealed partial class Qh
                 maxangle = premerge_cos;
             if (maxangle > postmerge_cos)
                 maxangle = postmerge_cos;
-            // BINARY ORDER 863a9..863d1: sqrt(dim)*sqrt(x) became sqrt(x*dim)
+            // reference order: sqrt(dim)*sqrt(x) became sqrt(x*dim)
             ONEmerge = Math.Sqrt((1.0 - maxangle * maxangle) * hull_dim) * MAXwidth + DISTround;
             maxrho = hull_dim * premerge_centrum + DISTround;
             if (ONEmerge < maxrho)
@@ -314,7 +314,7 @@ internal sealed partial class Qh
         if (build_cnt > 1 && JOGGLEmax > fmax_(MAXwidth / 4, 0.1))
             throw qh_errexit(qh_ERRqhull, null, null);
         _ = qh_rand(); // seed= qh_RANDOMint; only reported by qh_option
-        randa = JOGGLEmax * (2.0 / qh_RANDOMmax); // BINARY ORDER 898ee: folded constant 0x1.0000000400000p-30
+        randa = JOGGLEmax * (2.0 / qh_RANDOMmax); // evaluation order pinned: the reference folds 2/qh_RANDOMmax to 0x1.00000p-30
         randb = -JOGGLEmax;
         for (int i = 0; i < num_points; i++)
         {
@@ -323,7 +323,7 @@ internal sealed partial class Qh
             for (int k = 0; k < hull_dim; k++)
             {
                 randr = qh_rand();
-                outp[k] = (inp[k] - JOGGLEmax) + randr * randa; // BINARY ORDER 89954..89961
+                outp[k] = (inp[k] - JOGGLEmax) + randr * randa; // reference order.89961
                 _ = randb;
             }
         }
@@ -391,7 +391,7 @@ internal sealed partial class Qh
             MAXsumcoord += maxcoord;
             QSet<double[]>.Append(ref set, maximum);
             QSet<double[]>.Append(ref set, minimum);
-            NEARzero[k] = (80 * REALepsilon) * MAXsumcoord; // BINARY ORDER 87de2: folded constant
+            NEARzero[k] = (80 * REALepsilon) * MAXsumcoord; // reference order: folded constant
         }
         return set!;
     }

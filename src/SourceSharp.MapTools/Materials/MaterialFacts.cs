@@ -9,7 +9,7 @@ namespace SourceSharp.MapTools.Materials;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>src/utils/common/utilmatlib.cpp</c> is 184 lines and is the ENTIRE
+/// Is 184 lines and is the ENTIRE
 /// dependency both compilers have on the material system:
 /// <c>FindMaterial</c>, one generic string getter, the shader name, the
 /// dimensions, the reflectivity, and two shader questions. This type is the
@@ -80,7 +80,7 @@ public sealed class MaterialFacts
     /// </summary>
     /// <remarks>
     /// The <c>pFound</c> out-parameter of <c>FindMaterial</c>
-    /// (<c>utilmatlib.cpp:71-85</c>): false means the material system returned
+    /// False means the material system returned
     /// its error material, and vbsp warns "Material not found!" and carries on
     /// with a texture that has no flags at all.
     /// </remarks>
@@ -106,7 +106,7 @@ public sealed class MaterialFacts
     /// </summary>
     /// <remarks>
     /// This is what vbsp writes into <c>TEXDATA</c>
-    /// (<c>vbsp/textures.cpp:442</c>), so it is directly checkable against a
+    /// So it is directly checkable against a
     /// map stock compiled.
     /// </remarks>
     public Vec3 Reflectivity { get; }
@@ -132,7 +132,7 @@ public sealed class MaterialFacts
     /// </summary>
     /// <remarks>
     /// False means <c>GetPreviewImageProperties</c> did not return
-    /// <c>MATERIAL_PREVIEW_IMAGE_OK</c> and <c>utilmatlib.cpp:100-101</c>
+    /// <c>MATERIAL_PREVIEW_IMAGE_OK</c> and
     /// substituted 128 by 128 — which is then what lands in the BSP, so it is
     /// a real value and not a failure.
     /// </remarks>
@@ -168,7 +168,7 @@ public sealed class MaterialFacts
     /// <c>$subdivsize</c> as a number, or 0 when absent.
     /// </summary>
     /// <remarks>
-    /// <c>vbsp/faces.cpp:1745-1754</c> subdivides only when this is strictly
+    /// Subdivides only when this is strictly
     /// greater than zero, so 0 and absent are the same answer — which is why
     /// this is a float and not a nullable one.
     /// </remarks>
@@ -179,7 +179,7 @@ public sealed class MaterialFacts
     /// </summary>
     public string? DetailType => GetVar(MaterialVarNames.DetailType);
 
-    /// <summary><c>$macro_texture</c> (<c>vbsp/writebsp.cpp:1180</c>).</summary>
+    /// <summary><c>$macro_texture</c>.</summary>
     public string? MacroTexture => GetVar(MaterialVarNames.MacroTexture);
 
     /// <summary>
@@ -187,7 +187,7 @@ public sealed class MaterialFacts
     /// </summary>
     /// <remarks>
     /// Read here because the material carries it, but note that vrad in THIS
-    /// drop does not: <c>vrad/vrad.cpp:644-663</c> is inside a <c>/* */</c>
+    /// drop does not: is inside a <c>/* */</c>
     /// block, with a comment saying the dependency on the material system was
     /// not worth the file accesses. So a stock 2013 vrad ignores <c>%chop</c>
     /// entirely, and a port that honoured it would differ from stock.
@@ -202,8 +202,8 @@ public sealed class MaterialFacts
     /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
     /// <remarks>
     /// Null and not the empty string, because every caller in vbsp tests the
-    /// pointer — <c>utilmatlib.cpp:161-175</c> returns NULL for an undefined
-    /// var and <c>textures.cpp</c> is written as
+    /// pointer — returns NULL for an undefined
+    /// var and is written as
     /// <c>if ( (propVal = GetMaterialVar(...)) &amp;&amp; StringIsTrue(propVal) )</c>.
     /// </remarks>
     public string? GetVar(string name)
@@ -220,7 +220,7 @@ public sealed class MaterialFacts
 
     private static MaterialOpacity ComputeOpacity(KeyValuesNode material)
     {
-        // utilmatlib.cpp:147-158, in its order: translucent wins over
+        // In its order: translucent wins over
         // alpha-tested. Both are MaterialVarFlags_t, so both are read as ints
         // and NOT through vbsp's StringIsTrue.
         if (MaterialVarValue.IsFlagSet(material.GetString(MaterialVarNames.Translucent)) ||

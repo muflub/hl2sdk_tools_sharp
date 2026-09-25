@@ -4,7 +4,7 @@ using SourceSharp.MapTools.Geometry;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// One radiosity patch: <c>CPatch</c> (<c>vrad.h:186</c>).
+/// One radiosity patch: <c>CPatch</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -19,14 +19,14 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <b>Links are indices, and -1 means none.</b> Stock uses
 /// <c>g_Patches.InvalidIndex()</c>, which is <c>-1</c> for a
 /// <c>CUtlVector</c>; the header still carries the commented-out pointer
-/// versions those indices replaced (<c>vrad.h:235-237</c>). The links matter
+/// versions those indices replaced. The links matter
 /// more than they look: <see cref="Next"/> chains a face's patches CHILDREN
 /// FIRST, and three separate loops in <c>BuildPatchLights</c> depend on that
 /// order to push sample light up to parents in one pass.
 /// </para>
 /// <para>
 /// <c>normalMajorAxis</c> from the C++ is absent. It is declared
-/// (<c>vrad.h:199</c>) and never written or read anywhere in
+/// And never written or read anywhere in
 /// <c>src/utils/vrad</c>; carrying a field no code touches would only invite
 /// somebody to start touching it.
 /// </para>
@@ -50,7 +50,7 @@ public struct Patch
     /// unchanged by every child.
     /// </summary>
     /// <remarks>
-    /// Read by <c>CreateChildPatch</c> (<c>vrad.cpp:819</c>) to tell whether a
+    /// Read by <c>CreateChildPatch</c> to tell whether a
     /// child touches the face's edge, which is the only thing that drives the
     /// chop below <c>-maxchop</c>. A child that lies strictly inside the face
     /// never subdivides further than its parent's chop.
@@ -64,9 +64,9 @@ public struct Patch
     /// The patch's centre, offset into the owning brush model's position.
     /// </summary>
     /// <remarks>
-    /// <c>WindingCenter</c> for a root patch (<c>vrad.cpp:617</c>) but
+    /// <c>WindingCenter</c> for a root patch but
     /// <c>WindingAreaAndBalancePoint</c>'s balance point for a child
-    /// (<c>:898-899</c>). Those are different points on a non-convex or
+ /// Those are different points on a non-convex or
     /// irregular winding: the first is the mean of the VERTICES, the second the
     /// area-weighted centroid. Reproduced as stock has it.
     /// </remarks>
@@ -82,7 +82,7 @@ public struct Patch
     /// <remarks>
     /// Stock reaches this through <c>patch-&gt;plane</c>, a pointer into
     /// <c>dplanes</c> -- or into the FAKE PLANES it appends past
-    /// <c>numplanes</c> for origined models (<c>vrad.cpp:604-613</c>), writing
+    /// <c>numplanes</c> for origined models, writing
     /// into the plane lump's spare capacity. Held inline here, because the
     /// fake planes are never written to the BSP and nothing but the patch reads
     /// them.
@@ -96,7 +96,7 @@ public struct Patch
     /// <remarks>
     /// Redundant with <see cref="PlaneDist"/> here and not in stock, where
     /// <c>plane</c> is a pointer that could in principle be repointed. Kept
-    /// because <c>vismat.cpp:190,220</c> reads this field by name when it
+    /// because <c>,220</c> reads this field by name when it
     /// decides whether two patches can see each other, and a reader comparing
     /// the two files should find the same name.
     /// </remarks>
@@ -120,8 +120,8 @@ public struct Patch
     /// <remarks>
     /// Starts at <c>-maxchop</c> and is HALVED, down to <c>-chop</c>, by two
     /// separate rules: a child that touches the face's edge
-    /// (<c>vrad.cpp:815-826</c>) and a patch that is more than twice as long as
-    /// it is wide (<c>:874-885</c>). So it is per-patch state and not a setting.
+    /// And a patch that is more than twice as long as
+ /// it is wide. So it is per-patch state and not a setting.
     /// </remarks>
     public float Chop;
 
@@ -151,7 +151,7 @@ public struct Patch
     /// </summary>
     /// <remarks>
     /// Not an area in world units despite the name. It divides the emitted
-    /// intensity at <c>lightmap.cpp:1577</c> so that a texlight's brightness is
+    /// intensity so that a texlight's brightness is
     /// per texture INSTANCE rather than per world area -- which is why a
     /// texlight scaled up in Hammer does not get brighter.
     /// </remarks>
@@ -228,7 +228,7 @@ public struct Patch
 }
 
 /// <summary>
-/// <c>bumplights_t</c> (<c>vrad.h:103</c>): one colour per bump basis vector
+/// <c>bumplights_t</c>: one colour per bump basis vector
 /// plus the unbumped one.
 /// </summary>
 /// <remarks>
@@ -280,7 +280,7 @@ public struct BumpLights
 }
 
 /// <summary>
-/// <c>face_centroids</c> (<c>lightmap.cpp:64</c>): the un-offset centre of each
+/// <c>face_centroids</c>: the un-offset centre of each
 /// face, as the patch pass computed it.
 /// </summary>
 /// <remarks>

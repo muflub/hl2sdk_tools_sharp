@@ -33,8 +33,8 @@ public sealed partial class RadWorld
     internal const int TapeWordsPerBatch = 1 << 18;
 
     /// <summary>
-    /// <c>BuildFacelights</c> over every face (<c>vrad.cpp:2025</c>), then
-    /// <c>PrecompLightmapOffsets</c> (<c>vrad.cpp:2034</c>).
+    /// <c>BuildFacelights</c> over every face, then
+    /// <c>PrecompLightmapOffsets</c>.
     /// </summary>
     /// <param name="tracer">The tracer.</param>
     /// <param name="parallelism">How many workers.</param>
@@ -319,7 +319,7 @@ public sealed partial class RadWorld
             (Memory<ulong> bits, Memory<HitId> hits) = _rays.FirstStageAnswers();
 
             // The tracer answers for the SEGMENT (IRayTracer.TraceVisibilityAsync),
-            // which is TestLine's HitDistance < len (trace.cpp:171).
+            // which is TestLine's HitDistance < len.
             if (_rays.VisibilityCount > 0)
             {
                 Keep(_shared.Tracer.TraceVisibilityAsync(

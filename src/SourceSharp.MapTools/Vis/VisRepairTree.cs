@@ -8,7 +8,7 @@ namespace SourceSharp.MapTools.Vis;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The nodes.</b> Node 0 is the portal's head frame (<c>flow.cpp:646</c>).
+/// <b>The nodes.</b> Node 0 is the portal's head frame.
 /// Each candidate a tracked frame recurses into -- or tests and then skips --
 /// is a child node, down to <see cref="Levels"/> levels below the head. A read
 /// made in a tracked frame is charged to the child it computes the mask for (it

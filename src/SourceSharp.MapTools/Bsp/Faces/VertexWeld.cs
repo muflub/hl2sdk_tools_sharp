@@ -4,7 +4,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
 /// The welded vertex table and the 2D spatial hash over it
-/// (<c>src/utils/vbsp/faces.cpp:73-156</c> and <c>:342-399</c>).
+///.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -17,7 +17,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// </para>
 /// <para>
 /// <b>The hash is 2D on purpose.</b> z is not in the key at all
-/// (<c>HashVec</c>, <c>:91</c>), so a column of vertices stacked above each
+/// (<c>HashVec</c>), so a column of vertices stacked above each
 /// other all land in one bucket. That is what makes the chains long in tall
 /// maps, and it is also what makes <c>FindEdgeVerts</c> able to answer "every
 /// vertex near this edge" by sweeping a rectangle of buckets.
@@ -25,22 +25,22 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// </remarks>
 public sealed class VertexWeld
 {
-    /// <summary><c>INTEGRAL_EPSILON</c> (<c>faces.cpp:29</c>): snap to integer within this.</summary>
+    /// <summary><c>INTEGRAL_EPSILON</c>: snap to integer within this.</summary>
     public const double IntegralEpsilon = 0.01;
 
-    /// <summary><c>POINT_EPSILON</c> (<c>faces.cpp:30</c>): two points this close are one.</summary>
+    /// <summary><c>POINT_EPSILON</c>: two points this close are one.</summary>
     public const double PointEpsilon = 0.1;
 
-    /// <summary><c>HASH_BITS</c> (<c>faces.cpp:79</c>): the cell is 2^7 = 128 units.</summary>
+    /// <summary><c>HASH_BITS</c>: the cell is 2^7 = 128 units.</summary>
     public const int HashBits = 7;
 
-    /// <summary><c>MAX_COORD_INTEGER</c> (<c>worldsize.h:19</c>).</summary>
+    /// <summary><c>MAX_COORD_INTEGER</c>.</summary>
     public const int MaxCoordInteger = 16384;
 
     /// <summary><c>HASH_SIZE</c>: <c>COORD_EXTENT &gt;&gt; HASH_BITS</c> = 256 cells per axis.</summary>
     public const int HashSize = (2 * MaxCoordInteger) >> HashBits;
 
-    /// <summary><c>MAX_MAP_VERTS</c> (<c>bspfile.h:78</c>).</summary>
+    /// <summary><c>MAX_MAP_VERTS</c>.</summary>
     public const int MaxMapVerts = 65536;
 
     private readonly List<Vec3> _vertexes = [];
@@ -79,7 +79,7 @@ public sealed class VertexWeld
     public Vec3 this[int index] => _vertexes[index];
 
     /// <summary>
-    /// The hash bucket a point falls in (<c>HashVec</c>, <c>faces.cpp:91</c>).
+    /// The hash bucket a point falls in(<c>HashVec</c>).
     /// </summary>
     /// <param name="point">The point, already snapped.</param>
     /// <returns>The bucket index.</returns>
@@ -106,7 +106,7 @@ public sealed class VertexWeld
     /// <summary>Clears both hash arrays and keeps the table, as <c>FixTjuncs</c> does.</summary>
     public void ResetHash()
     {
-        // FixTjuncs (faces.cpp:744-745) memsets hashverts and vertexchain and
+        // FixTjuncs memsets hashverts and vertexchain and
         // NOTHING else: numvertexes and dvertexes carry on across models, so a
         // brush model's faces index the same vertex lump the world's do and
         // start numbering where the previous model stopped. Only the weld's
@@ -132,17 +132,17 @@ public sealed class VertexWeld
     }
 
     // BeginBSPFile: "leave vertex 0 as an error" -- numvertexes = 1
-    // (writebsp.cpp:1137-1138). Stock's dvertexes is a zeroed global, so the
+    // Stock's dvertexes is a zeroed global, so the
     // placeholder is (0,0,0); it is never entered in the hash and not counted
     // by c_uniqueverts/c_totalverts. With it in place the first welded vertex
-    // is 1, so the zero terminator of GetVertexnum's chain (faces.cpp:131) can
+    // is 1, so the zero terminator of GetVertexnum's chain can
     // never hide a real vertex, and Count is c_uniqueverts + 1 on a one-model
     // compile.
     private void ReserveErrorVertex() => _vertexes.Add(default);
 
     /// <summary>
     /// The index of a point in the welded table, emitting it if it is new
-    /// (<c>GetVertexnum</c>, <c>faces.cpp:112</c>).
+    /// (<c>GetVertexnum</c>).
     /// </summary>
     /// <param name="point">The point to weld.</param>
     /// <returns>The index into <see cref="Vertexes"/>.</returns>
@@ -155,7 +155,7 @@ public sealed class VertexWeld
 
         int h = HashVec(vert);
 
-        // The chain terminator is the index 0 (faces.cpp:131). That hides
+        // The chain terminator is the index 0. That hides
         // nothing: vertex 0 is the reserved error vertex and is never hashed.
         for (int vnum = _hashVerts[h]; vnum != 0; vnum = _vertexChain[vnum])
         {
@@ -188,7 +188,7 @@ public sealed class VertexWeld
 
     /// <summary>
     /// Emits a point without welding it (<c>-noweld</c>,
-    /// <c>EmitFaceVertexes</c>, <c>faces.cpp:277</c>).
+    /// <c>EmitFaceVertexes</c>).
     /// </summary>
     /// <param name="point">The point.</param>
     /// <returns>The index it was given.</returns>
@@ -214,7 +214,7 @@ public sealed class VertexWeld
 
     /// <summary>
     /// Collects every hashed vertex in the rectangle of buckets the two
-    /// endpoints span (<c>FindEdgeVerts</c>, <c>faces.cpp:342</c>).
+    /// endpoints span(<c>FindEdgeVerts</c>).
     /// </summary>
     /// <param name="v1">One end of the edge.</param>
     /// <param name="v2">The other end.</param>
@@ -222,7 +222,7 @@ public sealed class VertexWeld
     /// <para>
     /// The bucket rectangle is the bounding box of the two ENDPOINTS, not of
     /// the edge plus a margin: the <c>x1--; x2++;</c> expansion stock wrote is
-    /// inside an <c>#if 0</c> (<c>:374</c>). A cell is 128 units and
+ /// inside an <c>#if 0</c>. A cell is 128 units and
     /// <c>OFF_EPSILON</c> is 0.25, so a t-junction vertex can only be missed if
     /// it sits outside the endpoints' own cell span, which for a straight edge
     /// it cannot.

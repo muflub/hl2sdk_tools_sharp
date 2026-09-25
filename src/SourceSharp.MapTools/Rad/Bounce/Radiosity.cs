@@ -7,7 +7,7 @@ namespace SourceSharp.MapTools.Rad.Bounce;
 
 /// <summary>
 /// <c>BounceLight</c>, <c>GatherLight</c> and <c>CollectLight</c>
-/// (<c>vrad.cpp:1413-1725</c>): light passed from patch to patch along the
+/// Light passed from patch to patch along the
 /// transfers until a bounce adds less than 1 in every channel.
 /// </summary>
 /// <remarks>
@@ -16,9 +16,9 @@ namespace SourceSharp.MapTools.Rad.Bounce;
 /// patch's direct light out of <c>totallight.light[0]</c> into
 /// <c>emitlight</c> and zeroes it, so that when the loop ends
 /// <c>totallight</c> holds the BOUNCED light only, per bump normal on a bumped
-/// face (<c>vrad.cpp:1662-1668</c>, "only the bounced light is integrated into
+/// face ("only the bounced light is integrated into
 /// totallight!"). That is what <c>FinalLightFace</c> blends back in through the
-/// radial filter (<c>radial.cpp:332,337</c>), so it is written back into
+/// radial filter, so it is written back into
 /// <see cref="Patch.TotalLight"/> exactly as stock leaves it.
 /// <see cref="Patch.DirectLight"/> is not touched.
 /// </para>
@@ -79,7 +79,7 @@ public sealed class Radiosity
     public ReadOnlySpan<BumpLights> AddLight => _add;
 
     /// <summary>
-    /// <c>BounceLight</c> (<c>vrad.cpp:1653</c>).
+    /// <c>BounceLight</c>.
     /// </summary>
     /// <param name="queue">The workers.</param>
     /// <param name="cancellationToken">Cancels the bounce.</param>
@@ -89,7 +89,7 @@ public sealed class Radiosity
     /// </returns>
     /// <remarks>
     /// The loop stops after <c>numbounce</c> bounces or after the first bounce
-    /// that adds less than 1 in all three channels (<c>:1717</c>, double
+ /// that adds less than 1 in all three channels (double
     /// compares) -- so it always runs at least once when it runs at all.
     /// </remarks>
     public async Task<IReadOnlyList<Vec3>> BounceAsync(WorkQueue queue, CancellationToken cancellationToken)
@@ -133,7 +133,7 @@ public sealed class Radiosity
     }
 
     /// <summary>
-    /// The first step of <c>BounceLight</c> (<c>vrad.cpp:1661-1668</c>): every
+    /// The first step of <c>BounceLight</c>: every
     /// patch's direct light becomes its first emission and is zeroed in its
     /// total, "to integrate bounces only".
     /// </summary>
@@ -148,7 +148,7 @@ public sealed class Radiosity
     }
 
     /// <summary>
-    /// <c>GatherLight</c> for one patch (<c>vrad.cpp:1535</c>): the light it
+    /// <c>GatherLight</c> for one patch: the light it
     /// receives this bounce, into <see cref="AddLight"/>.
     /// </summary>
     /// <param name="j">The receiving patch.</param>
@@ -159,12 +159,12 @@ public sealed class Radiosity
     /// <para>
     /// A BUMPED one first divides out the receiver's cosine, which the
     /// transfer's form factor already contains ("remove normal already
-    /// factored into transfer steradian", <c>:1604</c>), then re-applies the
+ /// factored into transfer steradian",), then re-applies the
     /// cosine against each of its four normals -- the flat normal and the three
     /// bump basis vectors -- skipping any the source is behind. The flat slot
     /// uses <c>patch-&gt;normal</c>, not the phong normal the basis was built
     /// from (stock's own "FIXME: why does the patch not use the phong
-    /// normal?", <c>:1590</c>).
+ /// Normal?",).
     /// </para>
     /// </remarks>
     public void GatherLight(int j)
@@ -218,7 +218,7 @@ public sealed class Radiosity
     }
 
     /// <summary>
-    /// <c>CollectLight</c> (<c>vrad.cpp:1413</c>): add what every leaf patch
+    /// <c>CollectLight</c>: add what every leaf patch
     /// received to its total, pull it up the patch tree, make it next
     /// bounce's emission, and clear <see cref="AddLight"/>.
     /// </summary>
@@ -228,7 +228,7 @@ public sealed class Radiosity
     /// parents -- are done first. A sky patch emits nothing. A parent's light
     /// is its children's, weighted by area; stock's
     /// <c>(int)patch-&gt;area != (int)(child1-&gt;area + child2-&gt;area)</c>
-    /// test (<c>:1450</c>) assigns a variable that is overwritten on the next
+ /// test assigns a variable that is overwritten on the next
     /// line, so it has no effect and is not ported.
     /// </remarks>
     public Vec3 CollectLight()
@@ -280,7 +280,6 @@ public sealed class Radiosity
 
     /// <summary>
     /// The four normals <c>GatherLight</c> builds for a bumped patch
-    /// (<c>vrad.cpp:1558-1587</c>).
     /// </summary>
     /// <param name="i">The patch.</param>
     public void PrepareNormals(int i)
@@ -298,7 +297,7 @@ public sealed class Radiosity
 
         if (geometry.Faces[patch.FaceNumber].DispInfo != -1)
         {
-            // :1560-1569. A displacement's basis comes from its texture axes
+            // A displacement's basis comes from its texture axes
             // mapped into lightmap space.
             Vec3 normal = patch.Normal;
             (Vec3 u, Vec3 v) = PreGetBumpNormalsForDisp(in tex, ref normal, stock);
@@ -307,7 +306,7 @@ public sealed class Radiosity
         }
         else
         {
-            // :1571-1578. The phong normal at the patch origin, as
+            // The phong normal at the patch origin, as
             // CreateChildPatch computes it: in offset space.
             Vec3 phong = PhongNormals.Compute(
                 geometry, _context.Neighbours, _context.Patches.Centroids,
@@ -316,12 +315,12 @@ public sealed class Radiosity
             BumpBasis.Build(s, t, patch.Normal, phong, normals[1..], stock);
         }
 
-        // :1582. "force the base lightmap to use the flat normal".
+        // 1582. "force the base lightmap to use the flat normal".
         normals[0] = patch.Normal;
     }
 
     /// <summary>
-    /// <c>PreGetBumpNormalsForDisp</c> (<c>vrad.cpp:1494</c>): a displacement's
+    /// <c>PreGetBumpNormalsForDisp</c>: a displacement's
     /// texture axes, re-expressed in lightmap space when the two disagree.
     /// </summary>
     /// <param name="tex">The face's texinfo.</param>
@@ -333,7 +332,7 @@ public sealed class Radiosity
     /// axis (<c>|dot| &lt; 0.999f</c>) the result is the columns of
     /// <c>ConcatTransforms(light, tex)</c> with each matrix's columns the
     /// (U, V, normal) axes; <c>ConcatTransforms</c> is the SSE form
-    /// (<c>mathlib_base.cpp:658</c>), so each element is
+    /// So each element is
     /// <c>a0*b0 + (a1*b1 + a2*b2)</c>.
     /// </remarks>
     public static (Vec3 U, Vec3 V) PreGetBumpNormalsForDisp(in TexInfo tex, ref Vec3 normal, bool stockNormalise)

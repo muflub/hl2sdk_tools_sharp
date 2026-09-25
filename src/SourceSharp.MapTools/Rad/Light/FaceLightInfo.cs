@@ -5,8 +5,8 @@ using SourceSharp.MapTools.Geometry;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// One face's luxel-space frame: <c>lightinfo_t</c> (<c>lightmap.h:88</c>) and
-/// <c>CalcFaceVectors</c> (<c>lightmap.cpp:417</c>).
+/// One face's luxel-space frame: <c>lightinfo_t</c> and
+/// <c>CalcFaceVectors</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,7 +20,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <para>
 /// <b>The frame is DEGENERATE when the lightmap axes lie in the face's plane.</b>
 /// Stock warns and sets <c>luxelOrigin</c> to the world origin
-/// (<c>lightmap.cpp:451-455</c>), leaving <c>luxelToWorldSpace</c> as the zeros
+/// Leaving <c>luxelToWorldSpace</c> as the zeros
 /// <c>memset</c> left -- so every sample on that face collapses onto the model
 /// origin and the face lights as if it were one point. Reproduced, including
 /// the zeros, because the alternative is inventing a frame stock does not have;
@@ -31,7 +31,7 @@ public sealed class FaceLightInfo
 {
     /// <summary>
     /// How near zero the solve's determinant may come before the frame is
-    /// called degenerate: <c>1.0e-20</c> (<c>lightmap.cpp:451</c>).
+    /// called degenerate: <c>1.0e-20</c>.
     /// </summary>
     /// <remarks>
     /// Compared with <c>fabs</c> against a value computed in FLOAT and then
@@ -139,7 +139,7 @@ public sealed class FaceLightInfo
     public bool IsDegenerate { get; }
 
     /// <summary>
-    /// Builds a face's frame: <c>InitLightinfo</c> (<c>lightmap.cpp:2979</c>).
+    /// Builds a face's frame: <c>InitLightinfo</c>.
     /// </summary>
     /// <param name="geometry">The map's lumps.</param>
     /// <param name="neighbours">The smoothing pass, for the flatness test.</param>
@@ -168,9 +168,9 @@ public sealed class FaceLightInfo
 
         Vec3 faceNormal = plane.Normal;
 
-        // lightmap.cpp:425-431. The s and t rows are the LIGHTMAP axes'
+        // The s and t rows are the LIGHTMAP axes'
         // xyz, with column 3 -- the offset -- deliberately left out; it is
-        // folded into luxelOrigin at :470-471 instead.
+ // folded into luxelOrigin instead.
         Vec3 worldToLuxelS = new(
             tex.LightmapVecsLuxelsPerWorldUnits[0],
             tex.LightmapVecsLuxelsPerWorldUnits[1],
@@ -182,9 +182,9 @@ public sealed class FaceLightInfo
         float offsetS = tex.LightmapVecsLuxelsPerWorldUnits[3];
         float offsetT = tex.LightmapVecsLuxelsPerWorldUnits[7];
 
-        // :440-448. NOT Cross(t, s) and not Cross(s, t): each component pairs
+        // NOT Cross(t, s) and not Cross(s, t): each component pairs
         // a t term with an s term in an order that is neither, because the
-        // expression is the 2x2 minor of the 3x3 solve at :433-436 rather than
+ // expression is the 2x2 minor of the 3x3 solve rather than
         // a cross product that happens to be written out. Transcribed
         // component by component for that reason.
         Vec3 luxelSpaceCross = new(
@@ -201,13 +201,13 @@ public sealed class FaceLightInfo
 
         if (degenerate)
         {
-            // :452-455. vec3_origin, and the two luxelToWorldSpace rows stay
-            // as the memset at :2985 left them: zero.
+            // 452-455. vec3_origin, and the two luxelToWorldSpace rows stay
+ // as the memset left them: zero.
             luxelOrigin = Vec3.Zero;
         }
         else
         {
-            // :459-467. The inverse, written out per component.
+            // The inverse, written out per component.
             luxelToWorldS = new Vec3(
                 ((faceNormal.Z * worldToLuxelT.Y) - (faceNormal.Y * worldToLuxelT.Z)) / det,
                 ((faceNormal.X * worldToLuxelT.Z) - (faceNormal.Z * worldToLuxelT.X)) / det,
@@ -221,13 +221,13 @@ public sealed class FaceLightInfo
                 -(plane.Dist * luxelSpaceCross.Y) / det,
                 -(plane.Dist * luxelSpaceCross.Z) / det);
 
-            // :470-471. Now the texinfo's luxel offsets, subtracted along the
+            // Now the texinfo's luxel offsets, subtracted along the
             // world-space luxel axes.
             luxelOrigin += luxelToWorldS * -offsetS;
             luxelOrigin += luxelToWorldT * -offsetT;
         }
 
-        // :474, and OUTSIDE the else: an origined brush model's degenerate
+        // 474, and OUTSIDE the else: an origined brush model's degenerate
         // face still gets its model origin added to a zero luxel origin.
         luxelOrigin += modelOrigin;
 
@@ -250,7 +250,7 @@ public sealed class FaceLightInfo
     }
 
     /// <summary>
-    /// <c>WorldToLuxelSpace</c> (<c>radial.cpp:18</c>).
+    /// <c>WorldToLuxelSpace</c>.
     /// </summary>
     /// <param name="world">A world point, expected to lie on the face's plane.</param>
     /// <returns>Its luxel coordinate, relative to the lightmap's own origin.</returns>
@@ -263,7 +263,7 @@ public sealed class FaceLightInfo
     }
 
     /// <summary>
-    /// <c>LuxelSpaceToWorld</c> (<c>radial.cpp:27</c>).
+    /// <c>LuxelSpaceToWorld</c>.
     /// </summary>
     /// <param name="s">The luxel s coordinate.</param>
     /// <param name="t">The luxel t coordinate.</param>
@@ -284,7 +284,7 @@ public sealed class FaceLightInfo
     }
 
     /// <summary>
-    /// <c>LightmapCoordWindingForFace</c> (<c>lightmap.cpp:479</c>): the face's
+    /// <c>LightmapCoordWindingForFace</c>: the face's
     /// polygon flattened into luxel space, with z zeroed.
     /// </summary>
     /// <param name="arena">Where the winding is allocated.</param>

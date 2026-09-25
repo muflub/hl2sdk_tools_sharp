@@ -9,7 +9,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <remarks>
 /// <para>
 /// <b><see cref="Active"/> is in stock's LIST order, which is reverse creation
-/// order.</b> <c>AllocDLight</c> PREPENDS (<c>lightmap.cpp:984-985</c>), so the
+/// order.</b> <c>AllocDLight</c> PREPENDS, so the
 /// head of <c>activelights</c> is the last light made. Two things read that
 /// order and both are observable:
 /// <c>ExportDirectLightsToWorldLights</c> writes the worldlights lump in it,
@@ -21,7 +21,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// counts every <c>AllocDLight</c>, including the ones never added to the list:
 /// a SECOND <c>light_environment</c> allocates a light, increments the counter,
 /// takes a PVS row, and is then dropped on the floor because
-/// <c>gSkyLight</c> is already set (<c>lightmap.cpp:1490</c>). So a map with
+/// <c>gSkyLight</c> is already set. So a map with
 /// two sky lights prints one more than it exports. That is what
 /// <see cref="Count"/> is for, and the difference is
 /// <see cref="OrphanedSkyLights"/>.
@@ -52,7 +52,7 @@ public sealed class DirectLightSet
     /// </summary>
     /// <remarks>
     /// Stored as the sine, not the angle, because that is what
-    /// <c>lightmap.cpp:1487</c> stores and what the sun sampler multiplies by.
+    /// Stores and what the sun sampler multiplies by.
     /// Zero means a point sun and one ray per sample; anything else means
     /// <see cref="LightConstants.SunAreaLightSamples"/> jittered rays.
     /// </remarks>
@@ -84,7 +84,7 @@ public sealed class DirectLightSet
     public IList<string> Warnings { get; } = [];
 
     /// <summary>
-    /// <c>AllocDLight</c> (<c>lightmap.cpp:968</c>).
+    /// <c>AllocDLight</c>.
     /// </summary>
     /// <param name="visibility">The PVS accessor.</param>
     /// <param name="tree">The compiled tree, for the light's cluster.</param>
@@ -132,7 +132,7 @@ public sealed class DirectLightSet
     }
 
     /// <summary>
-    /// <c>AddDLightToActiveList</c> (<c>lightmap.cpp:991</c>): prepend.
+    /// <c>AddDLightToActiveList</c>: prepend.
     /// </summary>
     /// <param name="light">The light.</param>
     /// <exception cref="ArgumentNullException"><paramref name="light"/> is null.</exception>

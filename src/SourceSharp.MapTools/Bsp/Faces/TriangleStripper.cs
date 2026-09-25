@@ -2,7 +2,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
 /// The Xbox tristripper vbsp uses on water primitives
-/// (<c>Stripify</c>, <c>src/utils/common/mstristrip.cpp</c>).
+/// (<c>Stripify</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -16,7 +16,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// <para>
 /// <b>The whole mesh is stripped twice and the cheaper answer wins.</b> Once
 /// with the SGI greedy lookahead on and once with it off
-/// (<c>rgargmap</c>, <c>mstristrip.cpp:812</c>); <c>EstimateStripCost</c> then
+/// (<c>rgargmap</c>); <c>EstimateStripCost</c> then
 /// picks between them, with ties going to the FIRST — the lookahead pass —
 /// because the comparison is a strict <c>&lt;</c>.
 /// </para>
@@ -37,7 +37,7 @@ public static class TriangleStripper
 
     /// <summary>
     /// Turns a triangle list into one long strip (<c>Stripify</c>,
-    /// <c>mstristrip.cpp:796</c>).
+    ///).
     /// </summary>
     /// <param name="triangles">Three indices per triangle.</param>
     /// <returns>The strip's indices, or an empty array for an empty input.</returns>
@@ -62,7 +62,7 @@ public static class TriangleStripper
         List<StripVerts> best = [];
         int bestCost = 0;
 
-        // rgargmap, mstristrip.cpp:812: lookahead on, then off. Ties go to the
+        // rgargmap: lookahead on, then off. Ties go to the
         // FIRST, because the cost comparison is a strict less-than.
         foreach (bool lookAhead in new[] { true, false })
         {
@@ -81,7 +81,7 @@ public static class TriangleStripper
 
     /// <summary>
     /// A guess at how many indices a set of strips would cost once
-    /// concatenated (<c>EstimateStripCost</c>, <c>mstristrip.cpp:625</c>).
+    /// concatenated(<c>EstimateStripCost</c>).
     /// </summary>
     /// <param name="strips">The strips.</param>
     /// <returns>Their total length plus two stitching indices per join.</returns>
@@ -99,7 +99,7 @@ public static class TriangleStripper
 
     /// <summary>
     /// Concatenates every strip into one, stitching with degenerates
-    /// (<c>CStripper::CreateLongStrip</c>, <c>mstristrip.cpp:438</c>).
+    /// (<c>CStripper::CreateLongStrip</c>).
     /// </summary>
     /// <param name="strips">The strips, which are consumed.</param>
     /// <returns>The indices.</returns>
@@ -157,7 +157,7 @@ public static class TriangleStripper
 
     /// <summary>
     /// Picks the strip that would hit the vertex cache hardest, reversing it
-    /// when that helps (<c>FindBestCachedStrip</c>, <c>mstristrip.cpp:298</c>).
+    /// when that helps(<c>FindBestCachedStrip</c>).
     /// </summary>
     /// <param name="strips">The remaining strips. The winner is swapped to the front.</param>
     /// <param name="state">The cache as it stands.</param>
@@ -267,7 +267,7 @@ public static class TriangleStripper
 
     /// <summary>
     /// The simulated post-transform vertex cache
-    /// (<c>CVertCache</c>, <c>mstristrip.cpp:121</c>).
+    /// (<c>CVertCache</c>).
     /// </summary>
     /// <remarks>
     /// A FIFO of <see cref="CacheSize"/> entries, each remembering which STRIP
@@ -336,7 +336,7 @@ public static class TriangleStripper
 
     /// <summary>
     /// The stripper's per-mesh state: adjacency and the used flags
-    /// (<c>CStripper</c>, <c>mstristrip.cpp:78</c>).
+    /// (<c>CStripper</c>).
     /// </summary>
     internal sealed class Stripper
     {
@@ -379,7 +379,7 @@ public static class TriangleStripper
 
         /// <summary>
         /// Builds a set of strips covering the whole mesh
-        /// (<c>CStripper::BuildStrips</c>, <c>mstristrip.cpp:520</c>).
+        /// (<c>CStripper::BuildStrips</c>).
         /// </summary>
         /// <param name="maxLength">The longest strip to build.</param>
         /// <param name="lookAhead">Whether to use the SGI greedy lookahead.</param>
@@ -474,7 +474,7 @@ public static class TriangleStripper
 
         /// <summary>
         /// Walks the longest strip it can from one triangle and vertex
-        /// (<c>CStripper::CreateStrip</c>, <c>mstristrip.cpp:156</c>).
+        /// (<c>CStripper::CreateStrip</c>).
         /// </summary>
         /// <param name="tri">The starting triangle.</param>
         /// <param name="vert">Which of its vertices to start at.</param>

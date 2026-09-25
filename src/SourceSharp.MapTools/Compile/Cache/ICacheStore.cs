@@ -2,7 +2,6 @@ namespace SourceSharp.MapTools.Compile.Cache;
 
 /// <summary>
 /// The content-addressed store behind the incremental cache
-/// (plan_maptools.md 10a, ruling Q7: beside the map, in a SQLite database).
 /// </summary>
 /// <remarks>
 /// <para>

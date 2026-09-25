@@ -129,7 +129,7 @@ public static class MaterialVarValue
     /// while <c>"%compileSky" "true"</c> does make it a sky. The two are read
     /// through different code: flags through
     /// <c>CMaterial::ParseMaterialFlag</c>, compile vars through vbsp's own
-    /// <c>StringIsTrue</c> (<c>textures.cpp:36-47</c>).
+    /// <c>StringIsTrue</c>.
     /// </remarks>
     public static int ToInt(string? value)
     {
@@ -159,7 +159,7 @@ public static class MaterialVarValue
     }
 
     /// <summary>
-    /// <c>atof</c> on a VMT value, as <c>vbsp/faces.cpp:1747</c> does it.
+    /// <c>atof</c> on a VMT value, as does it.
     /// </summary>
     /// <param name="value">The raw value, or null.</param>
     /// <param name="fallback">What an absent or unparseable value gives.</param>

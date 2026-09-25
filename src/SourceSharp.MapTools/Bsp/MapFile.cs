@@ -8,7 +8,7 @@ using SourceSharp.MapTools.Options;
 namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
-/// One loaded VMF: <c>CMapFile</c>, <c>utils/vbsp/vbsp.h:254</c>.
+/// One loaded VMF: <c>CMapFile</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -16,9 +16,9 @@ namespace SourceSharp.MapTools.Bsp;
 /// the whole reason stock made <c>CMapFile</c> a class in the first place: an
 /// instance is loaded into its own plane table, brush array and entity array
 /// and then merged into the main map's (<c>CMapFile::MergeInstance</c>,
-/// <c>map.cpp:2074</c>). Nothing here is static. Stock kept
+///). Nothing here is static. Stock kept
 /// <c>m_InstancePath</c>, <c>m_InstanceCount</c> and <c>c_areaportals</c> as
-/// class statics (<c>map.cpp:54-56</c>) — shared across every map in the
+/// class statics — shared across every map in the
 /// process — and those three live on <see cref="VbspContext"/> instead, which
 /// is what makes two compiles in one process possible.
 /// </para>
@@ -37,25 +37,22 @@ public sealed class MapFile
 {
     /// <summary>
     /// The format's brush ceiling: <c>MAX_MAP_BRUSHES</c>,
-    /// <c>public/bspfile.h:61</c>.
     /// </summary>
     public const int MaxMapBrushes = 8192;
 
     /// <summary>
     /// The format's side ceiling: <c>MAX_MAP_BRUSHSIDES</c>,
-    /// <c>public/bspfile.h:76</c>.
     /// </summary>
     public const int MaxMapBrushSides = 65536;
 
     /// <summary>
     /// The format's entity ceiling: <c>MAX_MAP_ENTITIES</c>,
-    /// <c>public/bspfile.h:62</c>.
     /// </summary>
     public const int MaxMapEntities = 8192;
 
     /// <summary>
     /// The clip epsilon <c>MakeBrushWindings</c> chops with:
-    /// <c>BRUSH_CLIP_EPSILON</c>, <c>map.cpp:30</c>.
+    /// <c>BRUSH_CLIP_EPSILON</c>.
     /// </summary>
     /// <remarks>
     /// <c>0.01f</c>, and stock's own comment says it "should probably be the
@@ -67,12 +64,11 @@ public sealed class MapFile
 
     /// <summary>
     /// What <c>ClearBounds</c> puts in a minimum: 99999,
-    /// <c>mathlib/mathlib_base.cpp:1288</c>.
     /// </summary>
     /// <remarks>
     /// Not <see cref="float.MaxValue"/>, and the difference is observable:
     /// <c>LoadMapFile</c> skips a brush from the map bounds when its
-    /// <c>mins[0] &gt; MAX_COORD_INTEGER</c> (<c>map.cpp:2653</c>), and
+    /// <c>mins[0] &gt; MAX_COORD_INTEGER</c>, and
     /// <c>MakeBrushWindings</c> reports "no visible sides on brush" on the same
     /// test — so this value is compared against, not just overwritten.
     /// </remarks>
@@ -144,7 +140,7 @@ public sealed class MapFile
     /// </summary>
     /// <remarks>
     /// Kept so an origin brush found later in the same entity can rebuild every
-    /// texinfo from the original placement (<c>map.cpp:1579</c>). Parallel by
+    /// texinfo from the original placement. Parallel by
     /// construction: <see cref="AddBrushSide"/> is the only thing that appends
     /// to either.
     /// </remarks>
@@ -182,7 +178,7 @@ public sealed class MapFile
     /// <remarks>
     /// Stock builds a singly-linked stack, so walking it visits the pairs in
     /// reverse of the order they were parsed. Instance merging walks it twice
-    /// (<c>map.cpp:2475</c> and <c>:2480</c>) and the second walk rewrites the
+ /// And the second walk rewrites the
     /// values, so the order is observable and this list is in stock's order,
     /// newest first.
     /// </remarks>
@@ -192,7 +188,7 @@ public sealed class MapFile
     /// The entity numbers of the map's <c>func_viscluster</c> entities.
     /// </summary>
     /// <remarks>
-    /// <c>AddVisCluster</c> (<c>map.cpp:1606</c>) keeps these for the portal
+    /// <c>AddVisCluster</c> keeps these for the portal
     /// file rather than emitting them to the BSP. The visibility lane consumes
     /// the list; the loader's job is to notice them and not blank them.
     /// </remarks>
@@ -203,7 +199,7 @@ public sealed class MapFile
     /// </summary>
     /// <remarks>
     /// Stock parses each into <c>g_aMapOverlays</c> and rewrites the entity as
-    /// an <c>info_overlay_accessor</c> (<c>map.cpp:1647-1668</c>). Overlays are
+    /// an <c>info_overlay_accessor</c>. Overlays are
     /// a later lane's; recording the entity numbers here means that lane has
     /// the list and the loader drops nothing silently.
     /// </remarks>
@@ -215,9 +211,9 @@ public sealed class MapFile
     /// </summary>
     /// <remarks>
     /// Stock reads each into <c>g_aMapWaterOverlays</c> while the entity is
-    /// loaded (<c>LoadOverlayTransitionCallback</c>, <c>map.cpp:1427</c>,
+    /// loaded (<c>LoadOverlayTransitionCallback</c>,
     /// registered for every <c>world</c> and <c>entity</c> chunk at
-    /// <c>:1521</c>). The chunks are kept whole because the overlay stage, not
+ ///). The chunks are kept whole because the overlay stage, not
     /// the loader, parses them; before this list the stage needed the VMF
     /// document passed in beside the map.
     /// </remarks>
@@ -225,7 +221,7 @@ public sealed class MapFile
 
     /// <summary>
     /// The brush side ids named by <c>info_no_dynamic_shadow</c> entities:
-    /// <c>g_NoDynamicShadowSides</c>, <c>map.cpp:89</c>.
+    /// <c>g_NoDynamicShadowSides</c>.
     /// </summary>
     public List<int> NoDynamicShadowSides { get; } = [];
 
@@ -268,7 +264,7 @@ public sealed class MapFile
         _sideBrushTextures[index] = texture;
 
     /// <summary>
-    /// <c>AddPointToBounds</c> (<c>mathlib_base.cpp:1293</c>): strict
+    /// <c>AddPointToBounds</c>: strict
     /// <c>&lt;</c> and <c>&gt;</c>, so the FIRST of two equal values stays.
     /// </summary>
     /// <param name="v">The point.</param>
@@ -299,7 +295,7 @@ public sealed class MapFile
 
     /// <summary>
     /// Builds every side's winding and the brush's bounds:
-    /// <c>MakeBrushWindings</c>, <c>utils/vbsp/map.cpp:620</c>.
+    /// <c>MakeBrushWindings</c>.
     /// </summary>
     /// <param name="brush">The brush.</param>
     /// <param name="diagnostics">Where out-of-range bounds are reported, or null.</param>
@@ -308,7 +304,7 @@ public sealed class MapFile
     /// <para>
     /// Each side starts as the huge base winding for its plane and is chopped
     /// by the OPPOSITE of every other non-bevel side's plane
-    /// (<c>mapplanes[planenum ^ 1]</c>, <c>map.cpp:639</c>) — which is only a
+    /// (<c>mapplanes[planenum ^ 1]</c>) — which is only a
     /// single array lookup because the plane table stores pairs.
     /// </para>
     /// <para>
@@ -397,7 +393,6 @@ public sealed class MapFile
     /// <summary>
     /// Adds the axial and edge bevel planes a brush needs to be expanded
     /// against a bounding box: <c>AddBrushBevels</c>,
-    /// <c>utils/vbsp/map.cpp:471</c>.
     /// </summary>
     /// <param name="brush">The brush, which must be the most recently added.</param>
     /// <exception cref="ArgumentNullException"><paramref name="brush"/> is null.</exception>
@@ -414,7 +409,7 @@ public sealed class MapFile
     /// The first half puts the six axial planes in canonical order
     /// (-X, +X, -Y, +Y, -Z, +Z), SWAPPING existing sides into place — and
     /// swapping <see cref="SideBrushTextures"/> in step, because the two are
-    /// parallel arrays and stock swaps both (<c>map.cpp:526-528</c>). A brush
+    /// parallel arrays and stock swaps both. A brush
     /// with six axial sides returns here.
     /// </para>
     /// <para>
@@ -422,7 +417,7 @@ public sealed class MapFile
     /// the six slanted axials that is outside the hull. Its "already used"
     /// test uses 0.01 for BOTH epsilons rather than the plane table's
     /// (1e-5, 0.01) — stock's comment: "Use a larger tolerance for collision
-    /// planes than for rendering planes" (<c>map.cpp:577-578</c>).
+    /// planes than for rendering planes".
     /// </para>
     /// </remarks>
     public void AddBrushBevels(MapBrush brush)
@@ -490,7 +485,7 @@ public sealed class MapFile
                 int next = (j + 1) % w.Count;
                 Vec3 edge = Windings.Points(w)[j] - Windings.Points(w)[next];
 
-                // StockQuirk.EdgeBevelNormalise, map.cpp:550. VectorNormalize,
+                // StockQuirk.EdgeBevelNormalise. VectorNormalize,
                 // so the estimate and not a divide -- and its return is
                 // sqrlen*invlen rather than the length, which is what the
                 // 0.5 test sees.
@@ -528,17 +523,16 @@ public sealed class MapFile
     /// <summary>
     /// Moves an entity's brushes into worldspawn, keeping every entity's
     /// brushes contiguous: <c>MoveBrushesToWorld</c>,
-    /// <c>utils/vbsp/map.cpp:674</c>.
     /// </summary>
     /// <param name="entity">The entity whose brushes move.</param>
     /// <exception cref="ArgumentNullException"><paramref name="entity"/> is null.</exception>
     /// <remarks>
     /// <b>Only valid while the entity is the one being loaded.</b> Stock says
-    /// so in capitals (<c>map.cpp:671</c>) and the reason is the shift below:
+    /// so in capitals and the reason is the shift below:
     /// it assumes the moving brushes are at the END of the array, so every
     /// other entity's first brush moves up by the same amount. Brush NUMBERS
     /// are not preserved and stock keeps them deliberately
-    /// (<c>map.cpp:690-693</c> is <c>#if 0</c>'d with the comment "let them
+    /// (is <c>#if 0</c>'d with the comment "let them
     /// keep their original brush numbers").
     /// </remarks>
     public void MoveBrushesToWorld(MapEntity entity)
@@ -565,7 +559,6 @@ public sealed class MapFile
     /// <summary>
     /// Moves an entity's brushes into worldspawn when the entity is NOT the
     /// last one loaded: <c>MoveBrushesToWorldGeneral</c>,
-    /// <c>utils/vbsp/map.cpp:721</c>.
     /// </summary>
     /// <param name="entity">The entity whose brushes move.</param>
     /// <param name="displacements">
@@ -577,7 +570,7 @@ public sealed class MapFile
     /// The difference from <see cref="MoveBrushesToWorld"/> is the guard on
     /// which entities shift: only those whose first brush is BEFORE the moving
     /// entity's, with a strict comparison so the entity being moved is not
-    /// remapped — stock's own comment at <c>map.cpp:766</c> says "if we use
+    /// remapped — stock's own comment says "if we use
     /// &lt;=, then we'll remap the passed in ent, which we don't want to".
     /// </remarks>
     public void MoveBrushesToWorldGeneral(
@@ -623,13 +616,12 @@ public sealed class MapFile
     /// <summary>
     /// Clears <c>CONTENTS_DETAIL</c> from every side of every brush of an
     /// entity: <c>RemoveContentsDetailFromEntity</c>,
-    /// <c>utils/vbsp/map.cpp:805</c>.
     /// </summary>
     /// <param name="entity">The entity.</param>
     /// <exception cref="ArgumentNullException"><paramref name="entity"/> is null.</exception>
     /// <remarks>
     /// Run on every entity that is not worldspawn once it has finished loading
-    /// (<c>map.cpp:1786-1789</c>): detail is a property of world geometry, and
+    /// Detail is a property of world geometry, and
     /// a <c>func_detail</c> that reached here was already folded into the world.
     /// </remarks>
     public void RemoveContentsDetailFromEntity(MapEntity entity)
@@ -650,7 +642,7 @@ public sealed class MapFile
 
     /// <summary>
     /// The index of the side with a given VMF id, or -1:
-    /// <c>CMapFile::SideIDToIndex</c>, <c>utils/vbsp/map.cpp:1228</c>.
+    /// <c>CMapFile::SideIDToIndex</c>.
     /// </summary>
     /// <param name="brushSideId">The side's VMF <c>id</c>.</param>
     /// <returns>The index into <see cref="BrushSides"/>, or -1.</returns>
@@ -670,11 +662,10 @@ public sealed class MapFile
     /// <summary>
     /// Marks every side as casting dynamic shadows, then clears the ones an
     /// <c>info_no_dynamic_shadow</c> named: <c>MarkNoDynamicShadowSides</c>,
-    /// <c>utils/vbsp/vbsp.cpp:784</c>.
     /// </summary>
     /// <remarks>
     /// Belongs to the pipeline rather than to loading — stock calls it from
-    /// <c>vbsp.cpp</c> — but the list it reads is filled during the load, so
+    /// — but the list it reads is filled during the load, so
     /// leaving it out would leave that list with no consumer and
     /// <see cref="MapBrushSide.DynamicShadowsEnabled"/> meaning nothing.
     /// </remarks>
@@ -718,7 +709,7 @@ public sealed class MapFile
             {
                 Vec3 vec2 = AxisVector(axis, dir);
 
-                // StockQuirk.EdgeBevelNormalise, map.cpp:568. The one that
+                // StockQuirk.EdgeBevelNormalise. The one that
                 // decides the stored plane TYPE: on a normal whose |x| and |z|
                 // are mathematically equal, the estimate breaks the tie and an
                 // exact divide does not.
@@ -741,7 +732,7 @@ public sealed class MapFile
                 {
                     MapBrushSide other = _brushSides[brush.FirstSide + k];
 
-                    // map.cpp:577-578: a LARGER tolerance than the plane
+                    // A LARGER tolerance than the plane
                     // table's, and the same value for both epsilons.
                     if (Plane.Equal(Planes[other.PlaneNumber], candidate, 0.01f, 0.01f))
                     {

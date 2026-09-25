@@ -4,16 +4,15 @@ using System.Numerics;
 namespace SourceSharp.MapTools.Phys.Managed;
 
 /// <summary>
-/// The parts of <c>CPhysicsCollision</c> (the 2018 engine drop's <c>vphysics/physics_collide.cpp</c>)
-/// the cooker needs, over the decompiled IVP builders: convexes from planes or points, and a
+/// The parts of the reference <c>CPhysicsCollision</c>
+/// the cooker needs, over the IVP builders: convexes from planes or points, and a
 /// collide from convexes, serialised as a <c>VPHY</c> blob.
 /// </summary>
 /// <remarks>
-/// Ported from the drop's wrapper (plan ruling Q16) and checked against the SDK binary:
-/// <c>ConvexFromPlanes</c> 0011f8a0, <c>ConvexFromVerts</c> 00121b60 with
-/// <c>ConvexFromVertsFast</c> 00121a30 and <c>RebuildConvexFromPlanes</c> 001216f0,
-/// <c>ConvertConvexToCollideParams</c> 00122040, <c>CollideWrite</c>/<c>SerializeToBuffer</c>
-/// 0011f630/0011f550.
+/// Mirrors the reference wrapper's cook path and was checked against stock output:
+/// <c>ConvexFromPlanes</c>, <c>ConvexFromVerts</c> with
+/// <c>ConvexFromVertsFast</c> and <c>RebuildConvexFromPlanes</c>,
+/// <c>ConvertConvexToCollideParams</c>, and <c>CollideWrite</c>/<c>SerializeToBuffer</c>.
 /// </remarks>
 /// <typeparam name="T">IVP_DOUBLE.</typeparam>
 /// <typeparam name="TP">The precision policy.</typeparam>
@@ -33,7 +32,7 @@ internal static class IvpCooker<T, TP>
         return HalfspacesToLedge(soup, merge, context);
     }
 
-    /// <summary>0017f590: halfspaces to a ledge through their corner points.</summary>
+    /// <summary>: halfspaces to a ledge through their corner points.</summary>
     private static IvpCompactLedge? HalfspacesToLedge(List<IvpPoint<T>> soup, T merge, IvpCookContext context)
     {
         List<IvpPoint<T>> points = IvpHalfspaceSoup<T, TP>.CornerPoints(soup, merge);
@@ -60,7 +59,7 @@ internal static class IvpCooker<T, TP>
     }
 
     /// <summary>
-    /// 00121a30 <c>ConvexFromVertsFast</c> (also the point soup behind <c>PolysoupAddTriangle</c>,
+    /// <c>ConvexFromVertsFast</c> (also the point soup behind <c>PolysoupAddTriangle</c>,
     /// <c>BBoxToConvex</c> and the virtual mesh's bounding hull): the points converted with
     /// <c>ConvertPositionToIVP</c> and handed to <c>convert_pointsoup_to_compact_ledge</c>.
     /// </summary>
@@ -84,7 +83,7 @@ internal static class IvpCooker<T, TP>
         return IvpPointSoup<T, TP>.ToCompactLedge(soup, context);
     }
 
-    /// <summary>001216f0 <c>RebuildConvexFromPlanes</c>.</summary>
+    /// <summary> <c>RebuildConvexFromPlanes</c>.</summary>
     private static IvpCompactLedge? RebuildFromPlanes(IvpCompactLedge ledge, T merge, IvpCookContext context)
     {
         var soup = new List<IvpPoint<T>>(ledge.TriangleCount);
@@ -112,8 +111,8 @@ internal static class IvpCooker<T, TP>
     }
 
     /// <summary>
-    /// <c>IVP_U_Hesse::calc_hesse</c> as emitted (SDK 002003f0/002004a0, TF2 00209a80/00209b30):
-    /// with u = b - p, v = c - p: n = (v x u) grouped per component as the binary does, and
+    /// <c>IVP_U_Hesse::calc_hesse</c> as emitted (stock, TF2):
+    /// with u = b - p, v = c - p: n = (v x u) grouped per component as stock does, and
     /// w = -((p.x*n.x + n.y*p.y) + n.z*p.z).
     /// </summary>
     /// <param name="p">Base point.</param>
@@ -163,7 +162,7 @@ internal static class IvpCooker<T, TP>
             return null;
         }
 
-        // 00122040: dummy[0] (the collide index) = 0, dummy[2] = 'IVPS'.
+        // dummy[0] (the collide index) = 0, dummy[2] = 'IVPS'.
         BinaryPrimitives.WriteInt32LittleEndian(surface.AsSpan(0x24), 0);
         BinaryPrimitives.WriteUInt32LittleEndian(surface.AsSpan(0x2c), 0x53505649u);
         return VphyWriter.Serialize(surface, dragAxisAreas);
@@ -171,7 +170,7 @@ internal static class IvpCooker<T, TP>
 }
 
 /// <summary>
-/// <c>compactsurfaceheader_t</c> + the surface (physics_collide.cpp:170-186, :508).
+/// <c>compactsurfaceheader_t</c> + the surface(:508).
 /// </summary>
 internal static class VphyWriter
 {

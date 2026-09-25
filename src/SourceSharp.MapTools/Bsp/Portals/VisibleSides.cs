@@ -8,7 +8,6 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 /// <summary>
 /// Choosing a brush side to texture each portal, and marking the sides that
 /// turned into visible faces
-/// (<c>src/utils/vbsp/portals.cpp:1435-1683</c>).
 /// </summary>
 /// <remarks>
 /// This is what decides whether a brush side ever becomes a face. A portal
@@ -53,7 +52,7 @@ public sealed class VisibleSides
     /// <summary>
     /// The total absolute distance of a winding's points from a plane, giving
     /// up once it passes a bound
-    /// (<c>ComputeDistFromPlane</c>, <c>portals.cpp:1435</c>).
+    /// (<c>ComputeDistFromPlane</c>).
     /// </summary>
     /// <param name="arena">The arena holding the winding.</param>
     /// <param name="winding">The winding to measure.</param>
@@ -87,7 +86,7 @@ public sealed class VisibleSides
 
     /// <summary>
     /// Finds the brush side that should texture a portal
-    /// (<c>FindPortalSide</c>, <c>portals.cpp:1498</c>).
+    /// (<c>FindPortalSide</c>).
     /// </summary>
     /// <param name="portal">The portal to match.</param>
     /// <remarks>
@@ -118,12 +117,12 @@ public sealed class VisibleSides
             return;
         }
 
-        // portals.cpp:1540 compares `side->planenum & ~1` against the node's
+        // Compares `side->planenum & ~1` against the node's
         // RAW planenum. That is not a quirk worth a compliance switch: a node
         // is always on the even half of its plane pair -- BuildTree_r stores
-        // `bestside->planenum & ~1` (brushbsp.cpp:1358) and BlockTree's axial
+        // `bestside->planenum & ~1` and BlockTree's axial
         // splits take FindFloatPlane's positive-normal half, which is stored
-        // first (vbsp.cpp:131/:142, map.cpp CreateNewFloatPlane) -- so masking
+        // first(/:142, CreateNewFloatPlane) -- so masking
         // the node too is identical on every tree stock builds, and it stays
         // right if a tree ever does carry an odd node.
         // ComplianceQuirkEffectTests.StockNeverPutsANodeOnAnOddPlane reads
@@ -220,7 +219,7 @@ public sealed class VisibleSides
 
     /// <summary>
     /// Marks every brush side that a portal chose
-    /// (<c>MarkVisibleSides_r</c>, <c>portals.cpp:1589</c>).
+    /// (<c>MarkVisibleSides_r</c>).
     /// </summary>
     /// <param name="node">The root of the subtree.</param>
     public void MarkVisibleSidesRecursive(IBspNode node)
@@ -268,7 +267,7 @@ public sealed class VisibleSides
     /// <summary>
     /// Clears the visible flag on a range of brushes and then sets it on every
     /// side a portal chose
-    /// (<c>MarkVisibleSides</c>, <c>portals.cpp:1626</c>).
+    /// (<c>MarkVisibleSides</c>).
     /// </summary>
     /// <param name="tree">The portalised tree.</param>
     /// <param name="brushes">The map's brush list.</param>
@@ -312,7 +311,7 @@ public sealed class VisibleSides
 
     /// <summary>
     /// The occluder overload: clear a named set of brushes, then mark
-    /// (<c>MarkVisibleSides</c>, <c>portals.cpp:1665</c>).
+    /// (<c>MarkVisibleSides</c>).
     /// </summary>
     /// <param name="tree">The portalised tree.</param>
     /// <param name="brushes">The brushes to clear.</param>

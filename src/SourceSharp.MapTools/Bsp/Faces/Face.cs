@@ -6,7 +6,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
 /// One face of the BSP, from the moment a portal becomes one until it is
-/// written (<c>face_t</c>, <c>src/utils/vbsp/vbsp.h:102</c>).
+/// Written(<c>face_t</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -33,7 +33,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 public sealed class Face : IBspFace
 {
     /// <summary>
-    /// <c>MAXEDGES</c> (<c>vbsp.h:100</c>): the most vertices one face may
+    /// <c>MAXEDGES</c>: the most vertices one face may
     /// carry before <c>FaceFromSuperverts</c> fragments it.
     /// </summary>
     public const int MaxEdges = 32;
@@ -77,7 +77,7 @@ public sealed class Face : IBspFace
     /// one dead.
     /// </summary>
     /// <remarks>
-    /// <c>ClipFaceToBrushList</c> (<c>detail.cpp:571</c>) also uses
+    /// <c>ClipFaceToBrushList</c> also uses
     /// <c>split[0] = self</c> as a "this fragment was clipped away" marker, so
     /// a face can be its own split without a second half.
     /// </remarks>
@@ -189,12 +189,12 @@ public sealed class Face : IBspFace
 
 /// <summary>
 /// One entry of a leaf's list of faces that overlap it
-/// (<c>leafface_t</c>, <c>src/utils/vbsp/vbsp.h:193</c>).
+/// (<c>leafface_t</c>).
 /// </summary>
 /// <remarks>
 /// A separate node type rather than a second <c>next</c> on <see cref="Face"/>
 /// because the same detail face is referenced from every leaf its fragments
-/// fell into — <c>MergeFace_r</c> (<c>detail.cpp:96</c>) leaves one of these in
+/// fell into — <c>MergeFace_r</c> leaves one of these in
 /// each — so the face cannot own the link.
 /// </remarks>
 public sealed class LeafFace

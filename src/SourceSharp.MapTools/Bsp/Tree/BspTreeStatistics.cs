@@ -2,7 +2,6 @@ namespace SourceSharp.MapTools.Bsp.Tree;
 
 /// <summary>
 /// The six numbers <c>BrushBSP</c> prints under <c>-v</c>,
-/// <c>utils/vbsp/brushbsp.cpp:1438-1453</c>.
 /// </summary>
 /// <param name="Brushes">"%5i brushes": how many entered the build.</param>
 /// <param name="VisibleFaces">
@@ -41,7 +40,6 @@ public readonly record struct BspTreeStatistics(
 
 /// <summary>
 /// The two numbers <c>ChopBrushes</c> prints under <c>-v</c>,
-/// <c>utils/vbsp/csg.cpp:670-773</c>.
 /// </summary>
 /// <param name="Input">"original brushes: %i".</param>
 /// <param name="Output">"output brushes: %i".</param>
@@ -65,7 +63,7 @@ public readonly record struct ChopStatistics(int Input, int Output);
 /// <param name="Tree">The tree counts, or null when the block was empty.</param>
 /// <remarks>
 /// An empty block becomes a solid leaf with no tree at all
-/// (<c>vbsp.cpp:180-187</c>), which is why both members are optional and why a
+/// Which is why both members are optional and why a
 /// count of these records is not a count of trees.
 /// </remarks>
 public readonly record struct BlockBuildStatistics(

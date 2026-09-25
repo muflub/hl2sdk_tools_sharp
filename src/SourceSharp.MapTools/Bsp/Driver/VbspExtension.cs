@@ -19,34 +19,34 @@ namespace SourceSharp.MapTools.Bsp.Driver;
 /// <item><see cref="AfterLoad"/> — after <c>WorldVertexTransitionFixup</c>,
 /// where <c>Cubemap_FixupBrushSidesMaterials</c>,
 /// <c>Cubemap_AttachDefaultCubemapToSpecularSides</c> and
-/// <c>Cubemap_AddUnreferencedCubemaps</c> run (<c>vbsp.cpp:1419-1424</c>)
+/// <c>Cubemap_AddUnreferencedCubemaps</c> run
 /// [3g]. Also where an extension registers its
 /// <see cref="VbspStageContext.OverlayFaces"/> sink and its
 /// <see cref="VbspStageContext.TexInfoReferences"/>.</item>
 /// <item><see cref="BeforeProcessModels"/> — <c>LoadEmitDetailObjectDictionary</c>
-/// (<c>vbsp.cpp:1427</c>) [3g].</item>
+/// [3g].</item>
 /// <item><see cref="InitialDispInfos"/> — <c>EmitInitialDispInfos</c>, after
 /// <c>BeginBSPFile</c> and <c>MarkNoDynamicShadowSides</c>, before the occluders
-/// (<c>vbsp.cpp:849</c>) [3f].</item>
+/// [3f].</item>
 /// <item><see cref="ModelDisplacementFaces"/> — once per model inside
 /// <c>WriteBSP</c>, after the tree and area portals are written and before the
 /// water volumes: <c>EmitFaceVertexes</c> + <c>EmitFace</c> for every
-/// <c>mapdispinfo</c> of this entity (<c>writebsp.cpp:927-935</c>) [3f].</item>
+/// <c>mapdispinfo</c> of this entity [3f].</item>
 /// <item><see cref="DefaultCubemaps"/> — <c>Cubemap_CreateDefaultCubemaps</c>,
-/// after the model loop (<c>vbsp.cpp:884</c>) [3g].</item>
+/// after the model loop [3g].</item>
 /// <item><see cref="DispLightmapAlphaAndNeighbors"/> —
-/// <c>EmitDispLMAlphaAndNeighbors</c> (<c>writebsp.cpp:1256</c>), after brushes,
+/// <c>EmitDispLMAlphaAndNeighbors</c>, after brushes,
 /// planes, vertex normals and lightmap extents [3f].</item>
 /// <item><see cref="OverlayFaces"/> — <c>Overlay_EmitOverlayFaces</c> and
-/// <c>OverlayTransition_EmitOverlayFaces</c> (<c>writebsp.cpp:1259-1260</c>)
+/// <c>OverlayTransition_EmitOverlayFaces</c>
 /// [3g].</item>
 /// <item><see cref="PhysCollision"/> — <c>EmitPhysCollision</c>
-/// (<c>writebsp.cpp:1264</c>) [3h]. The leaf water ids it assigns are done by
+/// [3h]. The leaf water ids it assigns are done by
 /// the driver just before, whether or not a cooker is attached.</item>
 /// <item><see cref="StaticProps"/> — <c>EmitStaticProps</c>
-/// (<c>writebsp.cpp:1272</c>) [3g].</item>
+/// [3g].</item>
 /// <item><see cref="DetailObjects"/> — <c>EmitDetailObjects</c>
-/// (<c>writebsp.cpp:1275</c>) [3g].</item>
+/// [3g].</item>
 /// <item><see cref="WriteFile"/> — inside <c>WriteBSPFile</c>, after every lump
 /// this lane owns has been placed in <see cref="VbspStageContext.Bsp"/>: game
 /// lumps, the pak file, cubemap and overlay lumps [3g], physics lumps [3h],
@@ -124,7 +124,7 @@ internal sealed class VbspStageContext
     /// <summary>The patched water materials, for the pak writer.</summary>
     internal WaterVolumeSet Water { get; } = new();
 
-    /// <summary>The displacements, for <see cref="VbspExtensionPoint.PhysCollision"/>'s <c>disp_ivp.cpp</c>.</summary>
+    /// <summary>The displacements, for <see cref="VbspExtensionPoint.PhysCollision"/>'s.</summary>
     internal DisplacementStage? Displacements { get; set; }
 
     /// <summary>The patched world-vertex-transition materials, for the pak writer.</summary>

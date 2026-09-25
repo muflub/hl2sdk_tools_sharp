@@ -23,7 +23,7 @@ public static partial class BspValidator
         CheckSurfaceExtents(bsp, counts, findings);
         cancellationToken.ThrowIfCancellationRequested();
 
-        // engine/modelloader.cpp:2433-2441 -- with -requirecubemaps this is
+        // -- with -requirecubemaps this is
         // Sys_Error( "Map \"%s\" does not have cubemaps!" ); without it every
         // reflective surface in the map silently falls back to
         // engine/defaultcubemap.
@@ -48,7 +48,7 @@ public static partial class BspValidator
     /// <see cref="BspRuleCodes.Leaf0Solid"/>.
     /// </summary>
     /// <remarks>
-    /// <c>engine/cmodel_bsp.cpp:457-459</c> and <c>:520-522</c> -- the same
+ /// -- the same
     /// <c>Sys_Error( "Map leaf 0 is not CONTENTS_SOLID")</c> at the end of both
     /// leaf loaders, because the collision code uses leaf 0 AS the solid leaf
     /// (<c>pBSPData-&gt;solidleaf = 0</c> on the next line). <c>contents</c> is
@@ -79,17 +79,17 @@ public static partial class BspValidator
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>engine/modelloader.cpp:1617-1620</c>: <c>if ( !(tex-&gt;flags &amp;
+    /// <c>if (!(tex-&gt;flags &amp;
     /// SURF_NOLIGHT) &amp;&amp; MSurf_LightmapExtents(...)[i] &gt;
     /// MSurf_MaxLightmapSizeWithBorder( surfID ) ) Sys_Error ("Bad surface
     /// extents on texture %s")</c>. The limit is picked per face by
-    /// <c>engine/gl_model_private.h:649-653</c>: 128 for a displacement,
-    /// 35 for anything else (<c>public/bspfile.h:32</c>, <c>:36</c>).
+    /// 128 for a displacement,
+ /// 35 for anything else.
     /// </para>
     /// <para>
     /// The engine compares the extents it RECOMPUTES from the face's vertices
     /// against that limit, not the ones the file stores -- but it stores what it
-    /// computed at <c>:1800-1801</c>, so for a map written by a working compiler
+ /// computed, so for a map written by a working compiler
     /// the two are the same number and the stored one is checkable without a
     /// vertex walk. A face whose stored extents and real extents disagree is a
     /// separate defect, and one the diff instrument is the right tool for.
@@ -160,10 +160,10 @@ public static partial class BspValidator
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>engine/cmodel_bsp.cpp:1049-1070</c> walks LUMP_PHYSCOLLIDE as a flat
+    /// Walks LUMP_PHYSCOLLIDE as a flat
     /// run of <c>dphysmodel_t</c> headers, each followed by <c>dataSize</c>
     /// bytes of solids and <c>keydataSize</c> bytes of text, ending at a record
-    /// whose <c>dataSize</c> is not positive -- the comment at <c>:1051-1052</c>
+ /// whose <c>dataSize</c> is not positive -- the comment
     /// says that terminator is <c>modelIndex -1, dataSize -1</c>. Its only
     /// defence against a corrupt lump is <c>if ( (int)(ptr - basePtr) &gt;
     /// lh.LumpSize() ) break;</c>, which stops the walk after it has already
@@ -171,14 +171,14 @@ public static partial class BspValidator
     /// </para>
     /// <para>
     /// Inside <c>dataSize</c> each solid is <c>int size</c> then that many
-    /// bytes (<c>src/utils/common/bsplib.cpp:1602-1627</c>). The four-byte
+    /// Bytes. The four-byte
     /// padding that code adds belongs to the X360 swap pass and is folded into
     /// <c>dataSize</c> there; a PC map frames tight, which is what
     /// <c>dm_lockdown.bsp</c> does, so this rule demands the solids account for
     /// <c>dataSize</c> exactly and allows no slack.
     /// </para>
     /// <para>
-    /// <c>:1060</c> then subscripts <c>map_cmodels[ physModel.modelIndex ]</c>
+ /// Then subscripts <c>map_cmodels[ physModel.modelIndex ]</c>
     /// with nothing bounding it.
     /// </para>
     /// </remarks>
@@ -311,11 +311,11 @@ public static partial class BspValidator
     /// <see cref="BspRuleCodes.DispRuns"/>.
     /// </summary>
     /// <remarks>
-    /// <c>engine/cmodel_bsp.cpp:1186-1194</c> reads
+    /// Reads
     /// <c>NUM_DISP_POWER_VERTS( dispInfo.power )</c> vertices into a
     /// <c>CDispVert tempVerts[MAX_DISPVERTS]</c> declared on the stack, where
     /// <c>MAX_DISPVERTS</c> is fixed at <c>MAX_MAP_DISP_POWER</c> of 4
-    /// (<c>public/bspfile.h:48</c>, <c>:68</c>). A power above 4 overruns that
+ /// A power above 4 overruns that
     /// buffer, and the running <c>iCurVert</c> / <c>iCurTri</c> offsets read
     /// past the vertex and triangle lumps.
     /// </remarks>
@@ -398,7 +398,7 @@ public static partial class BspValidator
     /// visibility, occlusion, <c>sprp</c>, <c>dprp</c> -- cannot be checked by a
     /// modulus. The engine reads them through a <c>CUtlBuffer</c> whose
     /// <c>Get</c> past the end is an overflow with no message
-    /// (<c>engine/staticpropmgr.cpp:1268-1296</c>), so "the counts frame inside
+    /// So "the counts frame inside
     /// the bytes" is the whole rule. Each reader in this tree raises
     /// <see cref="InvalidBspException"/> for exactly that, which is what is
     /// caught here and turned into a finding.
@@ -464,9 +464,9 @@ public static partial class BspValidator
     /// <see cref="BspRuleCodes.StaticPropLeafRun"/>.
     /// </summary>
     /// <remarks>
-    /// <c>engine/staticpropmgr.cpp:1348</c> subscripts
+    /// Subscripts
     /// <c>m_StaticPropDict[ lump.m_PropType ]</c> straight from the file, and
-    /// <c>:1521-1524</c> walks <c>m_StaticPropLeaves</c> from
+ /// Walks <c>m_StaticPropLeaves</c>
     /// <c>prop.FirstLeaf()</c> for <c>prop.LeafCount()</c> entries. Neither is
     /// bounded anywhere in that file.
     /// </remarks>

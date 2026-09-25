@@ -7,16 +7,16 @@ namespace SourceSharp.MapTools.Phys.Managed;
 
 /// <summary>
 /// The one knob between the two managed cookers: what IVP's <c>IVP_DOUBLE</c> is, and the few
-/// routines whose code differs between the two <c>vphysics.so</c> builds beyond width.
+/// routines whose code differs between the stock and TF2 builds beyond width.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Measured, not assumed (<c>~/re/ghidra/re-vphys/re-vphys-findings.md</c>, plan ruling Q18): SDK
-/// 2013 and TF2 linux64 <c>vphysics.so</c> are the same IVP source built with the same GCC 10.3,
+/// Measured, not assumed: the stock and TF2 linux64 <c>vphysics.so</c> are the same IVP source built with the same GCC 10.3,
 /// <c>-ffast-math</c>, SSE2 and no FMA. The only cook-path difference is the precision typedef:
-/// <c>IVP_DOUBLE</c> is <c>float</c> in SDK and <c>double</c> in TF2. Everything else in this
+/// <c>IVP_DOUBLE</c> is <c>float</c> under the stock policy and <c>double</c> under the
+/// corrected one. Everything else in this
 /// namespace is written once, generic over <typeparamref name="T"/> = <c>IVP_DOUBLE</c>, in the
-/// compiled evaluation order read from the SDK disassembly (and checked against TF2's).
+/// compiled evaluation order of the reference builds (and checked against both).
 /// <c>IVP_FLOAT</c> fields stay <see cref="float"/> in both.
 /// </para>
 /// <para>
@@ -28,7 +28,7 @@ namespace SourceSharp.MapTools.Phys.Managed;
 internal interface IIvpPrecision<T>
     where T : unmanaged, IBinaryFloatingPointIeee754<T>
 {
-    /// <summary>True for TF2's double build, false for SDK's float build.</summary>
+    /// <summary>True for TF2's double build, false for the stock float build.</summary>
     static abstract bool IsDouble { get; }
 
     /// <summary>A short name for identities and diagnostics.</summary>
@@ -56,9 +56,8 @@ internal interface IIvpPrecision<T>
 }
 
 /// <summary>
-/// SDK 2013's build: <c>IVP_DOUBLE = float</c>, and <c>-ffast-math</c> lowering of <c>1/sqrtf</c> to
-/// <c>rsqrtss</c>/<c>rsqrtps</c> plus one Newton step. <c>vphysics.so</c> md5
-/// <c>95eb3dfb50e53c25d2c06047243faa03</c>, BuildID <c>641e6bf36fc19e353a45d70857080b99749671f1</c>.
+/// The stock policy: <c>IVP_DOUBLE = float</c>, and <c>-ffast-math</c> lowering of <c>1/sqrtf</c> to
+/// <c>rsqrtss</c>/<c>rsqrtps</c> plus one Newton step.
 /// </summary>
 /// <remarks>
 /// The estimate instruction's result is implementation-defined, so this build's output depends on
@@ -72,13 +71,13 @@ internal readonly struct StockPrecision : IIvpPrecision<float>
     public static bool IsDouble => false;
 
     /// <inheritdoc/>
-    public static string Name => "sdk2013-float";
+    public static string Name => "stock-float";
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool NormizeFloatPoint(ref float x, ref float y, ref float z)
     {
-        // SDK 001ff790: s = (x*x + y*y) + z*z; if (s < 1e-10f) return false;
+        // Stock: s = (x*x + y*y) + z*z; if (s < 1e-10f) return false;
         // r = rsqrtss(s); f = ((s*r)*r + -3) * (r * -0.5); x*=f, y*=f, z = f*z.
         float s = ((x * x) + (y * y)) + (z * z);
         if (!(1.0e-10f <= s))
@@ -97,7 +96,7 @@ internal readonly struct StockPrecision : IIvpPrecision<float>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void NormizeHesse(ref float x, ref float y, ref float z, ref float w)
     {
-        // SDK 00200550 (rsqrtps, all four lanes share one length): s = x*x + (y*y + z*z).
+        // Stock (rsqrtps, all four lanes share one length): s = x*x + (y*y + z*z).
         float s = (x * x) + ((y * y) + (z * z));
         float f = RsqrtNewton(s);
         x = f * x;
@@ -119,7 +118,7 @@ internal readonly struct StockPrecision : IIvpPrecision<float>
         if (!Sse.IsSupported)
         {
             throw new PlatformNotSupportedException(
-                "The stock-precision cooker reproduces SDK 2013's rsqrtss estimate and has no meaning without SSE.");
+                "The stock-precision cooker reproduces the reference build's rsqrtss estimate and has no meaning without SSE.");
         }
 
         float r = Sse.ReciprocalSqrtScalar(Vector128.CreateScalarUnsafe(s)).ToScalar();
@@ -128,9 +127,8 @@ internal readonly struct StockPrecision : IIvpPrecision<float>
 }
 
 /// <summary>
-/// TF2's build: <c>IVP_DOUBLE = double</c>, no approximate instructions on the cook path. Plain IEEE,
-/// so identical on every CPU. <c>vphysics.so</c> md5 <c>22f18bb2928ba302839a22fd19159654</c>, BuildID
-/// <c>ab4c2d0c4c56edf61af5a7501907d1b6aba51324</c>.
+/// The TF2 policy: <c>IVP_DOUBLE = double</c>, no approximate instructions on the cook path. Plain IEEE,
+/// So identical on every CPU.
 /// </summary>
 internal readonly struct CorrectPrecision : IIvpPrecision<double>
 {
@@ -144,7 +142,7 @@ internal readonly struct CorrectPrecision : IIvpPrecision<double>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool NormizeFloatPoint(ref float x, ref float y, ref float z)
     {
-        // TF2 00208dc0: the squared length is summed in float, widened, and IVP's exponent
+        // TF2: the squared length is summed in float, widened, and IVP's exponent
         // bit-hack inverse square root refines it with four double Newton steps.
         double s = ((x * x) + (y * y)) + (z * z);
         if (!(1e-19 <= s))
@@ -163,7 +161,7 @@ internal readonly struct CorrectPrecision : IIvpPrecision<double>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void NormizeHesse(ref double x, ref double y, ref double z, ref double w)
     {
-        // TF2 00209c00: f = 1.0 / sqrt((x*x + y*y) + z*z).
+        // TF2: f = 1.0 / sqrt((x*x + y*y) + z*z).
         double f = 1.0 / Math.Sqrt(((x * x) + (y * y)) + (z * z));
         x *= f;
         y *= f;
@@ -173,7 +171,7 @@ internal readonly struct CorrectPrecision : IIvpPrecision<double>
 
     /// <summary>
     /// TF2's <c>isqrt</c>: a first guess from the exponent bits, then four
-    /// <c>r = r * (1.5 - (r*r) * (s*0.5))</c> steps (00208dc0).
+    /// <c>r = r * (1.5 - (r*r) * (s*0.5))</c> steps.
     /// </summary>
     /// <param name="s">The positive argument.</param>
     /// <returns>An approximation of <c>1/sqrt(s)</c> that is identical on every CPU.</returns>

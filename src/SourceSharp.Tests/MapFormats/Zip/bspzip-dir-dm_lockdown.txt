@@ -1,17 +1,18 @@
-# stock bspzip.exe -dir listing, checked in as a fixture.
+# stock bspzip -dir listing, checked in as a fixture.
 #
-# Regenerate with, from the repo root:
+# Regenerate with, from the repo root (the reference build's own tool directory):
 #
-#   WINEPREFIX=~/.local/share/source-sdk-wineprefix WINEDEBUG=-all \
+#   REF_TOOLS_BIN=<directory holding the reference bspzip> \
+#   WINEPREFIX=<wine prefix> WINEDEBUG=-all \
 #   "$HOME/.steam/steam/steamapps/common/Proton - Experimental/files/bin/wine" \
-#     /home/lodle/sdk2013-win-tools/bin/x64/bspzip.exe \
+#     "$REF_TOOLS_BIN/x64/bspzip" \
 #     -game <windows path to tools/mapgame> \
 #     -dir  <windows path to game/mod_sharp/maps/dm_lockdown.bsp>
 #
 # then strip the banner, the two "Reading unknown lump" lines and the ANSI
 # colour escapes, leaving one pak entry per line in bspzip's own order.
 #
-# Produced by bspzip.exe (Feb 17 2025), 64-bit, from the SDK 2013 toolset.
+# Produced by the reference build's bspzip (Feb 17 2025), 64-bit.
 materials/maps/dm_lockdown/tile/tilewall009b_-3792_3120_72.vmt
 materials/maps/dm_lockdown/tile/tilewall009b_-3488_2752_80.vmt
 materials/maps/dm_lockdown/tile/tilewall009b_-3488_3104_72.vmt

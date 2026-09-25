@@ -6,7 +6,6 @@ namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
 /// One displacement as the VMF describes it: <c>mapdispinfo_t</c>,
-/// <c>utils/vbsp/vbsp.h:138</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -36,7 +35,7 @@ public sealed class MapDisplacement : IMapDisplacement
                 nameof(power),
                 power,
                 $"a displacement's power is {PowerInfo.MinMapDispPower} to "
-                + $"{PowerInfo.MaxMapDispPower} (bspfile.h:47).");
+                + $"{PowerInfo.MaxMapDispPower}.");
         }
 
         Power = power;
@@ -80,7 +79,7 @@ public sealed class MapDisplacement : IMapDisplacement
     /// Read from the file and then NOT written to the BSP: vbsp overwrites
     /// <c>ddispinfo_t::minTess</c> with <c>flags | 0x80000000</c> and leaves
     /// the line that would have used this commented out
-    /// (<c>disp_vbsp.cpp:328</c>). It is kept because it is in the VMF.
+    /// It is kept because it is in the VMF.
     /// </remarks>
     public int MinTess { get; set; }
 
@@ -99,7 +98,7 @@ public sealed class MapDisplacement : IMapDisplacement
     /// <remarks>
     /// <c>GeneratePointStartIndexFromMappingAxes</c> is the old way of choosing
     /// the start corner and nothing in vbsp calls it — <c>InitSurf</c>, its
-    /// only caller, is inside an <c>#if 0</c> (<c>builddisp.cpp:671</c>). The
+    /// only caller, is inside an <c>#if 0</c>. The
     /// axes are parsed because the key is in the file.
     /// </remarks>
     public Vec3 UAxis { get; set; }
@@ -138,14 +137,14 @@ public sealed class MapDisplacement : IMapDisplacement
     /// <remarks>
     /// The VMF's own encoding is the <c>COREDISPTRI_TAG_*</c> one, which has
     /// separate "forced" bits, and the collapse happens during parsing
-    /// (<c>map.cpp:1195</c>) rather than on the way out. See
+    /// Rather than on the way out. See
     /// <see cref="VmfDisplacementReader.CollapseTriangleTags"/>.
     /// </remarks>
     public ushort[] TriangleTags { get; }
 
     /// <summary>
     /// The combined field vector and distance one vertex contributes:
-    /// <c>disp_vbsp.cpp:262</c> and, identically, <c>:342</c>.
+ /// And,.
     /// </summary>
     /// <param name="index">The vertex's flattened grid index.</param>
     /// <param name="stockNormalise">

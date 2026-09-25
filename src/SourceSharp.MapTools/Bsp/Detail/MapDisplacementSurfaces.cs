@@ -6,7 +6,7 @@ namespace SourceSharp.MapTools.Bsp.Detail;
 
 /// <summary>
 /// <see cref="IDetailDisplacementSurfaces"/> over a loaded map's displacements,
-/// as <c>EmitDetailObjects</c> builds them (<c>detailobjects.cpp:885-896</c>).
+/// as <c>EmitDetailObjects</c> builds them.
 /// </summary>
 /// <remarks>
 /// <para>

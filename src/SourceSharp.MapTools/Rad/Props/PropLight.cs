@@ -7,7 +7,7 @@ using SourceSharp.MapTools.Rad.Light;
 namespace SourceSharp.MapTools.Rad.Props;
 
 /// <summary>
-/// The part of a <c>directlight_t</c> (<c>vrad.h</c>) that prop lighting reads:
+/// The part of a <c>directlight_t</c> that prop lighting reads:
 /// the <c>dworldlight_t</c>, its PVS row, and the fade and cap distances.
 /// </summary>
 /// <remarks>
@@ -66,7 +66,7 @@ public sealed record PropLight
 /// <summary>Builds <see cref="PropLight"/>s.</summary>
 public static class PropLights
 {
-    /// <summary><c>(float)(1.0 / 255.0)</c>, the export scale (<c>lightmap.cpp:1647</c>).</summary>
+    /// <summary><c>(float)(1.0 / 255.0)</c>, the export scale.</summary>
     private const float ExportScale = (float)(1.0 / 255.0);
 
     /// <summary>
@@ -124,11 +124,11 @@ public static class PropLights
     /// <remarks>
     /// <para>
     /// SOUND BECAUSE THE LUMP IS THE LIST: <c>ExportDirectLightsToWorldLights</c>
-    /// (<c>lightmap.cpp:1626</c>) walks <c>activelights</c> head to tail and
+    /// Walks <c>activelights</c> head to tail and
     /// writes one record per light. The PVS is rebuilt as <c>AllocDLight</c>
-    /// does -- <c>SetDLightVis( dl, dl-&gt;light.cluster )</c> (<c>:978</c>) --
+ /// does -- <c>SetDLightVis(dl, dl-&gt;light.cluster)</c> --
     /// plus, for the sky light, every leaf holding a sky face
-    /// (<c>BuildVisForLightEnvironment</c>, <c>:1343-1368</c>). Fade and cap
+ /// (<c>BuildVisForLightEnvironment</c>). Fade and cap
     /// distances are not in the lump; entity keys set them, and the defaults
     /// (no fade, no cap) are taken here.
     /// </para>
@@ -225,7 +225,7 @@ public static class PropLights
 
     /// <summary>
     /// The OR of the PVS rows of every leaf holding a sky face
-    /// (<c>BuildVisForLightEnvironment</c>'s first loop, <c>lightmap.cpp:1346-1368</c>).
+    /// (<c>BuildVisForLightEnvironment</c>'s first loop).
     /// </summary>
     private static byte[] SkyLeafRows(BspData bsp, LightVisibility vis, int rowBytes)
     {

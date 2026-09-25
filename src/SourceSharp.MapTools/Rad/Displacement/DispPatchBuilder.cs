@@ -8,13 +8,13 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 
 /// <summary>
 /// Radiosity patches for displacements: <c>CVRadDispMgr::MakePatches</c> and
-/// <c>SubdividePatch</c> (<c>vraddisps.cpp:498, 521</c>) over
-/// <c>CVRADDispColl</c>'s patch builders (<c>vrad_dispcoll.cpp:385-1062</c>).
+/// <c>SubdividePatch</c> over
+/// <c>CVRADDispColl</c>'s patch builders.
 /// </summary>
 /// <remarks>
 /// <para>
 /// A displacement's root patch is the QUAD of its four corner vertices
-/// (<c>CreateParentPatches</c>, <c>:385</c>), appended after every brush
+/// (<c>CreateParentPatches</c>), appended after every brush
 /// face's patch. Subdivision then splits it along the grid: the root quad into
 /// two triangles on its diagonal, each triangle in two at the grid vertex
 /// halfway along its long edge -- <c>(indices[0] + indices[1]) / 2</c> -- for
@@ -33,7 +33,7 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 public static class DispPatchBuilder
 {
     /// <summary>
-    /// <c>CVRadDispMgr::MakePatches</c> (<c>vraddisps.cpp:498</c>): one root
+    /// <c>CVRadDispMgr::MakePatches</c>: one root
     /// patch per displacement, appended to the set in LUMP_DISPINFO order.
     /// </summary>
     /// <param name="displacements">The map's displacements.</param>
@@ -72,7 +72,6 @@ public static class DispPatchBuilder
 
     /// <summary>
     /// <c>CreateParentPatches</c> + <c>InitParentPatch</c>
-    /// (<c>vrad_dispcoll.cpp:385, 799</c>).
     /// </summary>
     /// <param name="d">The displacement.</param>
     /// <param name="geometry">The map.</param>
@@ -102,7 +101,7 @@ public static class DispPatchBuilder
         ArgumentNullException.ThrowIfNull(texLights);
         ArgumentNullException.ThrowIfNull(settings);
 
-        // :890-895. BaseLightForFace, and the bump flag from the face's texinfo.
+        // BaseLightForFace, and the bump flag from the face's texinfo.
         (Vec3 baseLight, float baseArea, Vec3 reflectivity) =
             PatchBuilder.BaseLightForFace(geometry, texLights, d.ParentFace);
         return CreateParentPatch(
@@ -141,7 +140,7 @@ public static class DispPatchBuilder
         int face = d.ParentFace;
         Patch patch = NewPatch(settings.DispChop);
 
-        // :812-814. A root: prepended to the face's list.
+        // A root: prepended to the face's list.
         patch.Next = patches.FacePatches[face];
         patch.FaceNumber = face;
 
@@ -149,7 +148,7 @@ public static class DispPatchBuilder
         Vec3 e1 = points[3] - points[0];
         (Vec3 normal, float area) = VradDispSurface.NormaliseWithLength(Vec3.Cross(e1, e0), settings.StockNormalise);
 
-        // :836-848. The centre is summed from zero in point order, times 1/4.
+        // The centre is summed from zero in point order, times 1/4.
         Vec3 center = Vec3.Zero;
         foreach (Vec3 p in points)
         {
@@ -172,7 +171,7 @@ public static class DispPatchBuilder
     }
 
     /// <summary>
-    /// <c>CVRadDispMgr::SubdividePatch</c> (<c>vraddisps.cpp:521</c>):
+    /// <c>CVRadDispMgr::SubdividePatch</c>:
     /// <c>CreateChildPatches(iPatch, 0)</c> on the patch's displacement.
     /// </summary>
     /// <param name="surfaceForFace">The displacement of a face (by its <c>dispinfo</c>).</param>
@@ -190,7 +189,7 @@ public static class DispPatchBuilder
     }
 
     /// <summary>
-    /// <c>CreateChildPatches</c> (<c>vrad_dispcoll.cpp:528</c>).
+    /// <c>CreateChildPatches</c>.
     /// </summary>
     /// <param name="d">The displacement.</param>
     /// <param name="patches">The patch set.</param>
@@ -208,7 +207,7 @@ public static class DispPatchBuilder
         Patch parent = patches.At(parentIndex);
         ReadOnlySpan<Vec3> pw = arena.Points(parent.Winding);
 
-        // :537. The root is a quad.
+        // The root is a quad.
         if (pw.Length == 4)
         {
             (int c0, int c1) = CreateChildPatchesFromRoot(d, patches, parentIndex, settings);
@@ -238,7 +237,7 @@ public static class DispPatchBuilder
             return;
         }
 
-        // :574-579. Slivers: area under half the square of the chop.
+        // Slivers: area under half the square of the chop.
         float minArea = (settings.DispChop * maxLength) * (settings.DispChop * maxLength) * 0.5f;
         float testArea = VradDispSurface.NormaliseWithLength(Vec3.Cross(e1, e0), settings.StockNormalise).Length;
         testArea *= 0.5f;
@@ -247,7 +246,7 @@ public static class DispPatchBuilder
             return;
         }
 
-        // :582-586. Out of grid vertices: split in world space.
+        // Out of grid vertices: split in world space.
         if (level >= d.Power * 2)
         {
             CreateChildPatchesSub(d, patches, parentIndex, settings);
@@ -273,7 +272,7 @@ public static class DispPatchBuilder
     }
 
     /// <summary>
-    /// <c>CreateChildPatchesFromRoot</c> (<c>vrad_dispcoll.cpp:421</c>): the
+    /// <c>CreateChildPatchesFromRoot</c>: the
     /// root quad split on the diagonal from the last vertex to the first.
     /// </summary>
     private static (int Child0, int Child1) CreateChildPatchesFromRoot(
@@ -324,7 +323,7 @@ public static class DispPatchBuilder
     }
 
     /// <summary>
-    /// <c>CreateChildPatchesSub</c> (<c>vrad_dispcoll.cpp:649</c>): a triangle
+    /// <c>CreateChildPatchesSub</c>: a triangle
     /// past the grid's resolution, halved on its longest edge in world space.
     /// </summary>
     private static void CreateChildPatchesSub(VradDispSurface d, PatchSet patches, int parentIndex, DirectLightingSettings settings)
@@ -338,7 +337,7 @@ public static class DispPatchBuilder
         float maxLength = MaxMacro(d.SampleWidth, d.SampleHeight);
         float minEdgeLength = maxLength * settings.DispChop;
 
-        // :667-669. NOTE the edges differ from CreateChildPatches': a cycle.
+        // NOTE the edges differ from CreateChildPatches': a cycle.
         Vec3 e0 = pw[1] - pw[0];
         Vec3 e1 = pw[2] - pw[1];
         Vec3 e2 = pw[0] - pw[2];
@@ -397,7 +396,7 @@ public static class DispPatchBuilder
     }
 
     /// <summary>
-    /// <c>InitPatch</c> (<c>vrad_dispcoll.cpp:904</c>) for a child: appends a
+    /// <c>InitPatch</c> for a child: appends a
     /// triangle patch and links it under its parent.
     /// </summary>
     private static int InitPatch(
@@ -433,7 +432,7 @@ public static class DispPatchBuilder
         patch.Origin = center * (1.0f / 3.0f);
         FillPlaneAndBounds(ref patch, normal, points, area);
 
-        // :1036-1038, :1051-1055. From the parent.
+ // From the parent.
         patch.FaceMins = parent.FaceMins;
         patch.FaceMaxs = parent.FaceMaxs;
         patch.BaseLight = parent.BaseLight;
@@ -458,7 +457,7 @@ public static class DispPatchBuilder
 
     private static Patch NewPatch(float dispChop)
     {
-        // memset(0), then :816-834 / :925-953.
+ // Memset(0), /:925-953.
         Patch patch = default;
         patch.Child1 = Patch.Invalid;
         patch.Child2 = Patch.Invalid;
@@ -481,7 +480,7 @@ public static class DispPatchBuilder
         patch.CachedPlaneDist = patch.PlaneDist;
         patch.Area = area;
 
-        // :868, :1017. The max is seeded with FLT_MIN -- the smallest POSITIVE
+ // The max is seeded with FLT_MIN -- the smallest POSITIVE
         // float, not -FLT_MAX -- so a displacement lying wholly on the negative
         // side of an axis gets a max of ~0 on it. Reproduced, not switched:
         // nothing reads a displacement patch's mins/maxs (the flat subdivider

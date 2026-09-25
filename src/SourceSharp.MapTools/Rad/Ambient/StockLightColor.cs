@@ -38,7 +38,7 @@ public static class StockLightColor
     /// <c>MathLib_Init(2.2f, 2.2f, 0.0f, 2.0f, ...)</c> leaves it.
     /// </summary>
     /// <remarks>
-    /// <c>vrad.cpp:2374</c> is the only call, so vrad's table is fixed for the
+    /// Is the only call, so vrad's table is fixed for the
     /// life of the process and can be a static here. Built once, lazily, by the
     /// static constructor.
     /// </remarks>
@@ -47,13 +47,13 @@ public static class StockLightColor
 
     /// <summary>
     /// <c>power2_n</c>: <c>2^(i-128) / 255</c>, as floats
-    /// (<c>color_conversion.cpp:38</c>).
+    ///.
     /// </summary>
     private static readonly ImmutableArray<float> Power2N =
         ImmutableCollectionsMarshal.AsImmutableArray(BuildPower2N());
 
     /// <summary>
-    /// One lightmap channel's linear value (<c>mathlib.h</c>,
+    /// One lightmap channel's linear value (
     /// <c>TexLightToLinear</c>).
     /// </summary>
     /// <param name="mantissa">The channel byte.</param>
@@ -72,7 +72,7 @@ public static class StockLightColor
 
     /// <summary>
     /// A linear 0..1 value in gamma-corrected 0..255
-    /// (<c>color_conversion.cpp:437</c>).
+    ///.
     /// </summary>
     /// <param name="f">The linear value.</param>
     /// <returns>The screen value, 0..255.</returns>
@@ -103,7 +103,7 @@ public static class StockLightColor
 
     /// <summary>
     /// A linear colour in <c>ColorRGBExp32</c>
-    /// (<c>color_conversion.cpp:566</c>, the shipping IEEE-754 branch).
+    /// (the shipping IEEE-754 branch).
     /// </summary>
     /// <param name="v">The colour. Negative components are not expected.</param>
     /// <returns>The encoded sample.</returns>
@@ -267,13 +267,13 @@ public static class StockLightColor
     /// <summary>
     /// <c>lineartovertex</c>: linear 0..4 (times 1024) to vertex-light 0..1, as
     /// <c>BuildGammaTable(2.2f, 2.2f, 0.0f, 2)</c> leaves it
-    /// (<c>color_conversion.cpp:245-256</c>).
+    ///.
     /// </summary>
     private static readonly ImmutableArray<float> LinearToVertex =
         ImmutableCollectionsMarshal.AsImmutableArray(BuildLinearToVertex());
 
     /// <summary>
-    /// <c>LinearToVertexLight</c> (<c>mathlib.h:1423</c>): a round-to-nearest
+    /// <c>LinearToVertexLight</c>: a round-to-nearest
     /// table index, clamped to 0..4095.
     /// </summary>
     /// <param name="f">The linear value.</param>
@@ -290,7 +290,7 @@ public static class StockLightColor
     }
 
     /// <summary>
-    /// <c>ConvertRGBExp32ToRGBA8888</c> (<c>lightmap.cpp:3553</c>): decode, map
+    /// <c>ConvertRGBExp32ToRGBA8888</c>: decode, map
     /// through <see cref="LinearToVertexLight"/>, <c>ColorClamp</c>, and round
     /// each channel to a byte. Alpha is 255.
     /// </summary>
@@ -302,7 +302,7 @@ public static class StockLightColor
         float g = LinearToVertexLight(TexLightToLinear(c.G, c.Exponent));
         float b = LinearToVertexLight(TexLightToLinear(c.B, c.Exponent));
 
-        // ColorClamp, mathlib.h:1463: max( x, max( y, z ) ), then scale by its reciprocal.
+        // ColorClamp: max(x, max(y, z)), then scale by its reciprocal.
         float yz = g > b ? g : b;
         float maxc = r > yz ? r : yz;
         if (maxc > 1.0f)
@@ -321,7 +321,7 @@ public static class StockLightColor
     }
 
     /// <summary>
-    /// <c>RoundFloatToInt</c> (<c>mathlib.h:1175</c>): <c>cvtss2si</c>, round half
+    /// <c>RoundFloatToInt</c>: <c>cvtss2si</c>, round half
     /// to even, and <c>0x80000000</c> for NaN or out of range.
     /// </summary>
     /// <param name="f">The value.</param>

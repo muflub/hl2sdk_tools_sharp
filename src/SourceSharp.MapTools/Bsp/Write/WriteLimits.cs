@@ -1,6 +1,6 @@
 namespace SourceSharp.MapTools.Bsp.Write;
 
-/// <summary>The <c>MAX_MAP_*</c> caps the write stage enforces (<c>public/bspfile.h:60-89</c>).</summary>
+/// <summary>The <c>MAX_MAP_*</c> caps the write stage enforces.</summary>
 internal static class WriteLimits
 {
     internal const int MaxMapModels = 1024;
@@ -18,17 +18,17 @@ internal static class WriteLimits
     internal const int MaxMapPortalVerts = 128000;
     internal const int MaxMapSurfEdges = 512000;
 
-    /// <summary><c>MAX_SWITCHED_LIGHTS</c> (<c>writebsp.cpp:984</c>).</summary>
+    /// <summary><c>MAX_SWITCHED_LIGHTS</c>.</summary>
     internal const int MaxSwitchedLights = 32;
 
     /// <summary>
-    /// <c>MAX_LIGHTMAP_DIM_WITHOUT_BORDER</c> (<c>bspfile.h:40</c>), which this
+    /// <c>MAX_LIGHTMAP_DIM_WITHOUT_BORDER</c>, which this
     /// SDK defines as the DISPLACEMENT limit, 125 -- not the brush limit of 32
-    /// (<c>bspfile.h:30</c>). <c>CalcFaceExtents</c> uses it for brush faces.
+    /// <c>CalcFaceExtents</c> uses it for brush faces.
     /// </summary>
     internal const int MaxLightmapDimWithoutBorder = 125;
 
-    /// <summary><c>MAX_DISP_LIGHTMAP_DIM_WITHOUT_BORDER</c> (<c>bspfile.h:35</c>).</summary>
+    /// <summary><c>MAX_DISP_LIGHTMAP_DIM_WITHOUT_BORDER</c>.</summary>
     internal const int MaxDispLightmapDimWithoutBorder = 125;
 }
 

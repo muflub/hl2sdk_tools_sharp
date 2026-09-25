@@ -7,7 +7,7 @@ using SourceSharp.MapTools.Io;
 namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
-/// <c>LoadMapFile</c>, <c>utils/vbsp/map.cpp:2555</c>: opens a <c>.vmf</c> or
+/// <c>LoadMapFile</c>: opens a <c>.vmf</c> or
 /// <c>.vmm</c>, loads it, merges its instances, cordons it, and takes its
 /// bounds.
 /// </summary>
@@ -21,7 +21,7 @@ namespace SourceSharp.MapTools.Bsp;
 /// This is also the recursion point: <c>CheckForInstances</c> loads each
 /// <c>func_instance</c> through this same function, and stock's loop
 /// deliberately re-reads the growing entity list so that an instance inside an
-/// instance is reached without recursing further (<c>map.cpp:2025-2027</c>).
+/// instance is reached without recursing further.
 /// </para>
 /// </remarks>
 public sealed class MapFileReader
@@ -106,7 +106,7 @@ public sealed class MapFileReader
     /// <returns>The loaded map.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="document"/> is null.</exception>
     /// <remarks>
-    /// <c>LoadMapFile</c> (<c>map.cpp:2555</c>) with the text parse taken out,
+    /// <c>LoadMapFile</c> with the text parse taken out,
     /// so a host that generates a map needs no VMF text in between.
     /// </remarks>
     public async Task<MapFile> LoadDocumentAsync(
@@ -136,7 +136,7 @@ public sealed class MapFileReader
 
     /// <summary>
     /// Merges every <c>func_instance</c> in a map, and every one those pull
-    /// in: <c>CMapFile::CheckForInstances</c>, <c>utils/vbsp/map.cpp:1982</c>.
+    /// in: <c>CMapFile::CheckForInstances</c>.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <param name="basePath">The file the map was read from.</param>
@@ -148,7 +148,7 @@ public sealed class MapFileReader
     /// The loop index walks a list that GROWS as instances are merged, so a
     /// nested <c>func_instance</c> is reached by the same loop rather than by
     /// recursion. Every <c>func_instance</c> entity is blanked afterwards
-    /// whether it loaded or not (<c>map.cpp:2058-2059</c>), so a missing
+    /// whether it loaded or not, so a missing
     /// instance leaves an empty entity slot and a red message, not a failure.
     /// </para>
     /// <para>
@@ -212,7 +212,7 @@ public sealed class MapFileReader
 
     /// <summary>
     /// Takes the map's bounds from its worldspawn brushes:
-    /// <c>utils/vbsp/map.cpp:2649-2660</c>.
+    ///.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <exception cref="ArgumentNullException"><paramref name="map"/> is null.</exception>

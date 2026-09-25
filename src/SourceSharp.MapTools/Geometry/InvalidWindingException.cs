@@ -5,7 +5,7 @@ namespace SourceSharp.MapTools.Geometry;
 /// </summary>
 /// <remarks>
 /// Every one of these replaces a call to <c>Error()</c> in
-/// <c>utils/common/polylib.cpp</c>, which prints and calls <c>exit</c>. A
+/// Which prints and calls <c>exit</c>. A
 /// library cannot exit the host's process, and a map compile that fails should
 /// say which map and which brush rather than terminating a service, so the
 /// same conditions raise this instead. The conditions themselves are unchanged:

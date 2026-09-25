@@ -5,12 +5,11 @@ using SourceSharp.MapTools.Materials;
 namespace SourceSharp.MapTools.Bsp.Csg;
 
 /// <summary>
-/// Contents bits as the names stock prints: <c>PrintBrushContentsToString</c>,
-/// <c>utils/vbsp/csg.cpp:580</c>.
+/// Contents bits as the names stock prints: <c>PrintBrushContentsToString</c>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Reachable, not debug-only: <c>portals.cpp:1454-1456</c> builds three of
+/// Reachable, not debug-only: builds three of
 /// these to name the two leaves and the visible contents in the
 /// "mixed face contents" error, which is Phase 3c's to raise. That is why it
 /// is ported and why its exact text matters — the message is what a level
@@ -79,7 +78,7 @@ public static class BrushContentsText
     /// The trailing space is stock's: the macro appends <c>#flag " "</c>, so
     /// every name carries one and the result never has a separator-free form.
     /// Stock also truncates at 1024 characters
-    /// (<c>PrintBrushContents</c>'s buffer, <c>csg.cpp:618</c>); the longest
+    /// (<c>PrintBrushContents</c>'s buffer); the longest
     /// possible output here is 528 characters, so the truncation cannot fire
     /// and is not reproduced.
     /// </remarks>

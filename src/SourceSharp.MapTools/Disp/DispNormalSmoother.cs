@@ -6,7 +6,6 @@ namespace SourceSharp.MapTools.Disp;
 /// <summary>
 /// Sews displacement normals across neighbours so lighting has no seams:
 /// <c>SmoothNeighboringDispSurfNormals</c> and its three passes,
-/// <c>utils/vrad/disp_vrad.cpp</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -17,7 +16,7 @@ namespace SourceSharp.MapTools.Disp;
 /// </para>
 /// <para>
 /// ORDER MATTERS and is stock's: T-junctions, then corners, then edges
-/// (<c>disp_vrad.cpp:324-328</c>), each pass over the list in index order and
+/// Each pass over the list in index order and
 /// each writing the averaged normal into every participant before the next
 /// vertex is visited — so a later average reads earlier averages, and the
 /// result depends on list order. Serial by construction.
@@ -27,19 +26,17 @@ public static class DispNormalSmoother
 {
     /// <summary>
     /// How close a neighbour's corner must be to count as the same point:
-    /// <c>FindNeighborCornerVert</c>'s <c>0.1f</c>, <c>disp_vrad.cpp:43</c>.
+    /// <c>FindNeighborCornerVert</c>'s <c>0.1f</c>.
     /// </summary>
     public const float CornerMatchDistance = 0.1f;
 
     /// <summary>
     /// The cap on <see cref="GetAllNeighbors"/>: its <c>int[512]</c>,
-    /// <c>disp_vrad.cpp:49</c>.
     /// </summary>
     public const int MaxNeighbors = 512;
 
     /// <summary>
     /// All three passes: <c>SmoothNeighboringDispSurfNormals</c>,
-    /// <c>disp_vrad.cpp:317</c>.
     /// </summary>
     /// <param name="list">Every displacement, in LUMP_DISPINFO order, created.</param>
     /// <param name="stockNormalise">
@@ -60,7 +57,7 @@ public static class DispNormalSmoother
     /// <summary>
     /// Which of a displacement's four corners lies within
     /// <see cref="CornerMatchDistance"/> of a point:
-    /// <c>FindNeighborCornerVert</c>, <c>disp_vrad.cpp:21</c>.
+    /// <c>FindNeighborCornerVert</c>.
     /// </summary>
     /// <param name="disp">The displacement.</param>
     /// <param name="test">The point.</param>
@@ -92,13 +89,13 @@ public static class DispNormalSmoother
 
     /// <summary>
     /// Every neighbour index, corners first then edges:
-    /// <c>GetAllNeighbors</c>, <c>disp_vrad.cpp:49</c>.
+    /// <c>GetAllNeighbors</c>.
     /// </summary>
     /// <param name="disp">The displacement.</param>
     /// <returns>
     /// The list, not de-duplicated. In real data there is nothing to
     /// de-duplicate: <c>SetupCornerNeighbors</c> refuses a displacement that
-    /// is already an edge neighbour (<c>disp_common.cpp:981</c>), so only a
+    /// is already an edge neighbour, so only a
     /// hand-built table can list one twice.
     /// </returns>
     public static List<int> GetAllNeighbors(CoreDispInfo disp)
@@ -136,7 +133,7 @@ public static class DispNormalSmoother
 
     /// <summary>
     /// Averages each corner's normal with every neighbour corner at the same
-    /// point: <c>BlendCorners</c>, <c>disp_vrad.cpp:81</c>.
+    /// point: <c>BlendCorners</c>.
     /// </summary>
     /// <param name="list">Every displacement.</param>
     /// <param name="stockNormalise">Stock's normalise estimate.</param>
@@ -190,7 +187,6 @@ public static class DispNormalSmoother
     /// <summary>
     /// Where one wide edge meets two narrow ones, averages the wide edge's
     /// midpoint with the two narrow corners at it: <c>BlendTJuncs</c>,
-    /// <c>disp_vrad.cpp:156</c>.
     /// </summary>
     /// <param name="list">Every displacement.</param>
     /// <param name="stockNormalise">Stock's normalise estimate.</param>
@@ -241,7 +237,7 @@ public static class DispNormalSmoother
     /// <summary>
     /// Averages every shared interior edge vertex with its neighbour's, then
     /// re-interpolates the vertices a lower-power neighbour has no partner for:
-    /// <c>BlendEdges</c>, <c>disp_vrad.cpp:207</c>.
+    /// <c>BlendEdges</c>.
     /// </summary>
     /// <param name="list">Every displacement.</param>
     /// <param name="stockNormalise">Stock's normalise estimate.</param>
@@ -315,7 +311,7 @@ public static class DispNormalSmoother
         }
     }
 
-    /// <summary><c>RemapVal</c>, <c>mathlib.h:612</c>.</summary>
+    /// <summary><c>RemapVal</c>.</summary>
     /// <param name="val">The value.</param>
     /// <param name="a">Input low.</param>
     /// <param name="b">Input high.</param>

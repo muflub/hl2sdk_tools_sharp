@@ -4,7 +4,7 @@ namespace SourceSharp.MapTools.Bsp.Collision;
 
 /// <summary>
 /// One solid of one model's collision: <c>CPhysCollisionEntry</c> and its
-/// four kinds (<c>ivp.cpp:195-372</c>), holding the cooked bytes rather than
+/// four kinds, holding the cooked bytes rather than
 /// a live <c>CPhysCollide*</c>.
 /// </summary>
 /// <param name="Blob">What <c>CollideWrite</c> produced, from its <c>VPHY</c> header.</param>
@@ -22,7 +22,7 @@ public abstract record PhysCollisionEntry(byte[] Blob)
 }
 
 /// <summary>
-/// <c>CPhysCollisionEntrySolid</c>, <c>ivp.cpp:220</c>: a brush entity's
+/// <c>CPhysCollisionEntrySolid</c>: a brush entity's
 /// movable solid.
 /// </summary>
 /// <param name="Blob">The cooked bytes.</param>
@@ -53,7 +53,7 @@ public sealed record PhysSolidEntry(byte[] Blob, string? Material, float Mass, f
 }
 
 /// <summary>
-/// <c>CPhysCollisionEntryStaticSolid</c>, <c>ivp.cpp:265</c>: the world's
+/// <c>CPhysCollisionEntryStaticSolid</c>: the world's
 /// brushes of one contents class.
 /// </summary>
 /// <param name="Blob">The cooked bytes.</param>
@@ -72,7 +72,7 @@ public sealed record PhysStaticSolidEntry(byte[] Blob, int Contents) : PhysColli
 }
 
 /// <summary>
-/// <c>CPhysCollisionEntryStaticMesh</c>, <c>ivp.cpp:298</c>: displacement
+/// <c>CPhysCollisionEntryStaticMesh</c>: displacement
 /// terrain as a polysoup (the <c>-novirtualmesh</c> road). It writes no
 /// contents key: a mesh is always solid.
 /// </summary>
@@ -90,7 +90,7 @@ public sealed record PhysStaticMeshEntry(byte[] Blob) : PhysCollisionEntry(Blob)
 }
 
 /// <summary>
-/// <c>CPhysCollisionEntryFluid</c>, <c>ivp.cpp:318</c>: one connected water volume.
+/// <c>CPhysCollisionEntryFluid</c>: one connected water volume.
 /// </summary>
 /// <param name="Blob">The cooked bytes.</param>
 /// <param name="SurfaceProp">The water's surface property (stock: always <c>water</c>).</param>

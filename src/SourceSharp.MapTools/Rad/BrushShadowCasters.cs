@@ -11,15 +11,15 @@ using SourceSharp.MapTools.Options;
 namespace SourceSharp.MapTools.Rad;
 
 /// <summary>
-/// The brush and sky half of vrad's caster load: <c>trace.cpp:478-652</c>.
+/// The brush and sky half of vrad's caster load:.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Two entry points because stock has two, thirty-seven lines apart and with
 /// the static prop and displacement managers wedged between them:
 /// <see cref="AddBrushEntities"/> is <c>ExtractBrushEntityShadowCasters</c> at
-/// <c>vrad.cpp:2240</c> and <see cref="AddWorld"/> is
-/// <c>AddBrushesForRayTrace</c> at <c>vrad.cpp:2277</c>. Merging them would be
+/// And <see cref="AddWorld"/> is
+/// <c>AddBrushesForRayTrace</c>. Merging them would be
 /// the obvious tidy-up and it would be wrong: a caster triangle has no identity
 /// beyond its index in <see cref="ShadowCasterBuilder"/>'s list, so the order
 /// the two runs append in is the only thing that makes a recorded comparison
@@ -37,7 +37,7 @@ namespace SourceSharp.MapTools.Rad;
 public static class BrushShadowCasters
 {
     /// <summary>
-    /// <c>MASK_OPAQUE</c>, <c>public/bspflags.h:114</c>: everything that blocks
+    /// <c>MASK_OPAQUE</c>: everything that blocks
     /// lighting.
     /// </summary>
     /// <remarks>
@@ -69,12 +69,12 @@ public static class BrushShadowCasters
     /// </exception>
     /// <remarks>
     /// <para>
-    /// <c>ExtractBrushEntityShadowCasters</c>, <c>trace.cpp:578</c>. The key is
+    /// <c>ExtractBrushEntityShadowCasters</c>. The key is
     /// read with <c>IntForKey</c>, so any non-zero integer turns it on and a
     /// missing key reads as zero; no classname is required and nothing checks
     /// that the entity is a brush entity at all. An entity whose <c>model</c>
     /// key does not name a submodel simply contributes nothing, because
-    /// <c>AddBrushes</c> takes a null model (<c>trace.cpp:563</c>).
+    /// <c>AddBrushes</c> takes a null model.
     /// </para>
     /// <para>
     /// <see cref="ShadowCasterSource.BrushEntity"/> is begun once here rather
@@ -121,9 +121,9 @@ public static class BrushShadowCasters
             Vec3 origin = ScanVector(entity.Get("origin"));
             Vec3 angles = ScanVector(entity.Get("angles"));
 
-            // VMatrix::SetupMatrixOrgAngles (vmatrix.cpp:533) is
+            // VMatrix::SetupMatrixOrgAngles is
             // SetupMatrixAnglesInternal plus a translation in column 3, and
-            // SetupMatrixAnglesInternal (vmatrix.cpp:510) is element for
+            // SetupMatrixAnglesInternal is element for
             // element the same (YAW * PITCH) * ROLL that AngleMatrix builds --
             // so InstanceTransform.FromAngles IS that matrix, and
             // TransformPoint (VectorTransform) is VMul4x3's
@@ -159,14 +159,14 @@ public static class BrushShadowCasters
     /// </exception>
     /// <remarks>
     /// <para>
-    /// <c>AddBrushesForRayTrace</c>, <c>trace.cpp:595</c>. Model 0 only, so a
+    /// <c>AddBrushesForRayTrace</c>. Model 0 only, so a
     /// <c>func_detail</c>'s brushes are in (vbsp merges them into the world) and
     /// a <c>func_brush</c>'s are not unless it opted in through
     /// <see cref="AddBrushEntities"/>.
     /// </para>
     /// <para>
     /// The <paramref name="useHdrFaces"/> switch is stock's <c>g_pFaces</c>
-    /// selection at <c>vrad.cpp:2223-2237</c>, and it has one wrinkle worth
+    /// selection, and it has one wrinkle worth
     /// naming: when the run is HDR but the HDR face lump is EMPTY, stock copies
     /// the LDR faces into it and then points at the copy. The two are then
     /// identical, so reading the LDR lump directly -- which is what this does --
@@ -185,7 +185,7 @@ public static class BrushShadowCasters
         ReadOnlySpan<DModel> models = BspStructView.As<DModel>(bsp[BspLump.Models]);
         if (models.Length == 0)
         {
-            // trace.cpp:597, `if ( !nummodels ) return;`. A map with no models
+            // `if (!nummodels) return;`. A map with no models
             // has no world and no sky either, so both loops below are skipped
             // rather than only the first.
             return;
@@ -207,7 +207,7 @@ public static class BrushShadowCasters
     }
 
     /// <summary>
-    /// <c>BrushmodelForEntity</c>, <c>trace.cpp:478</c>.
+    /// <c>BrushmodelForEntity</c>.
     /// </summary>
     /// <remarks>
     /// Stock does NOT check for the leading <c>*</c>: it requires a value longer
@@ -241,7 +241,7 @@ public static class BrushShadowCasters
     }
 
     /// <summary>
-    /// <c>AddBrushes</c>, <c>trace.cpp:563</c>: collect the model's brushes and
+    /// <c>AddBrushes</c>: collect the model's brushes and
     /// add each one.
     /// </summary>
     private static void AddBrushes(
@@ -263,7 +263,7 @@ public static class BrushShadowCasters
     }
 
     /// <summary>
-    /// <c>GetBrushes_r</c>, <c>trace.cpp:536</c>: the brushes of every leaf under
+    /// <c>GetBrushes_r</c>: the brushes of every leaf under
     /// a node, deduplicated, in first-visit order.
     /// </summary>
     /// <remarks>
@@ -325,7 +325,7 @@ public static class BrushShadowCasters
     }
 
     /// <summary>
-    /// <c>AddBrushToRaytraceEnvironment</c>, <c>trace.cpp:492</c>: one brush as a
+    /// <c>AddBrushToRaytraceEnvironment</c>: one brush as a
     /// triangle soup.
     /// </summary>
     /// <remarks>
@@ -335,7 +335,7 @@ public static class BrushShadowCasters
     /// fails loudly on a plane with no major axis, so moving the tests up would
     /// make a map with a degenerate sky-side plane compile here and not in
     /// stock. Stock then <c>continue</c>s without freeing the winding
-    /// (<c>trace.cpp:504</c>) -- a real leak of one winding per skipped side,
+    /// -- a real leak of one winding per skipped side,
     /// not reproduced, because the arena's free list is the reason the port does
     /// not allocate per side at all.
     /// </para>
@@ -418,7 +418,7 @@ public static class BrushShadowCasters
     }
 
     /// <summary>
-    /// The second loop of <c>AddBrushesForRayTrace</c>, <c>trace.cpp:612-651</c>:
+    /// The second loop of <c>AddBrushesForRayTrace</c>:
     /// model 0's <c>SURF_SKY</c> faces as <see cref="TraceId.Sky"/> triangles.
     /// </summary>
     /// <remarks>
@@ -440,7 +440,7 @@ public static class BrushShadowCasters
         bool useHdrFaces,
         ShadowCasterBuilder builder)
     {
-        // g_pFaces, vrad.cpp:2223. The HDR lump is used only when the run is HDR
+        // g_pFaces. The HDR lump is used only when the run is HDR
         // AND that lump has faces in it; stock's "copy the LDR faces into it"
         // branch makes the empty case identical to reading the LDR lump.
         BspLumpData faceLump = useHdrFaces && !bsp[BspLump.FacesHdr].IsEmpty
@@ -483,7 +483,7 @@ public static class BrushShadowCasters
                 {
                     throw new InvalidBspException(
                         $"face {index} has {face.NumEdges} edges; stock calls this "
-                        + "\"***** ERROR! MAX_POINTS_ON_WINDING reached!\" (trace.cpp:624)");
+                        + "\"***** ERROR! MAX_POINTS_ON_WINDING reached!\" ");
                 }
 
                 int slot = face.FirstEdge + j;
@@ -494,7 +494,7 @@ public static class BrushShadowCasters
                         + $"{surfEdges.Length}");
                 }
 
-                // trace.cpp:634. The sign of a surfedge says which END of the
+                // The sign of a surfedge says which END of the
                 // edge the face walks into, so a negative one takes v[1] of the
                 // edge at the NEGATED index -- reversing the edge rather than
                 // indexing backwards.
@@ -525,8 +525,8 @@ public static class BrushShadowCasters
     }
 
     /// <summary>
-    /// <c>GetVectorForKey</c> / <c>GetAnglesForKey</c>, <c>bsplib.cpp:3193</c>
-    /// and <c>:3218</c>: the two are the same function.
+    /// <c>GetVectorForKey</c> / <c>GetAnglesForKey</c>,
+ /// The two are the same function.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -635,7 +635,7 @@ public static class BrushShadowCasters
     }
 
     /// <summary>
-    /// The lumps <c>trace.cpp</c>'s brush walk reads, as spans rather than the
+    /// The lumps the reference implementation's brush walk reads, as spans rather than the
     /// six file-scope arrays stock reaches for.
     /// </summary>
     /// <remarks>

@@ -6,7 +6,6 @@ namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
 /// The three-vector tangent-space basis every bumped lightmap is sampled along
-/// (<c>mathlib/bumpvects.cpp:28</c>, <c>mathlib/bumpvects.h:27</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -34,7 +33,7 @@ public static class BumpBasis
     /// </summary>
     public const int LightmapCount = Count + 1;
 
-    // bumpvects.h:19-22. Spelled as the C++ spells them, to the digit: these
+    // Spelled as the C++ spells them, to the digit: these
     // are float literals in the header and not computed from sqrt at runtime,
     // so recomputing them here would give different last bits.
     private const float OneOverSqrt2 = 0.70710676908493042f;
@@ -82,12 +81,12 @@ public static class BumpBasis
     /// </exception>
     /// <remarks>
     /// <para>
-    /// <c>GetBumpNormals</c>, <c>bumpvects.cpp:28-65</c>. Two things about it
+    /// <c>GetBumpNormals</c>. Two things about it
     /// surprise every reader:
     /// </para>
     /// <para>
     /// <b>The s and t vectors are the TEXTURE axes, not the lightmap axes.</b>
-    /// <c>lightmap.cpp:3047</c> and <c>:2473</c> both pass
+ /// Both pass
     /// <c>textureVecsTexelsPerWorldUnits</c>, while everything else in the
     /// sample path uses <c>lightmapVecsLuxelsPerWorldUnits</c>. They are
     /// usually parallel and are not required to be, so a face with rotated or
@@ -101,10 +100,10 @@ public static class BumpBasis
     /// the texture mapping is mirrored; a mirrored face negates the second
     /// basis row. Nothing else reads it, so passing the phong normal for both
     /// arguments (which <c>InitSampleInfo</c> does on flat faces,
-    /// <c>lightmap.cpp:3048-3049</c>) is correct rather than sloppy.
+    ///) is correct rather than sloppy.
     /// </para>
     /// <para>
-    /// The final step is <c>VectorIRotate</c> (<c>mathlib_base.cpp:313</c>),
+    /// The final step is <c>VectorIRotate</c>,
     /// the TRANSPOSE of a rotation, so each output is the tangent vector's
     /// coordinates read down the basis matrix's columns rather than across its
     /// rows.
@@ -124,11 +123,11 @@ public static class BumpBasis
                 $"bumpNormals must hold at least {Count} vectors.", nameof(bumpNormals));
         }
 
-        // bumpvects.cpp:36-44. Handedness from the texture axes against the
+        // Handedness from the texture axes against the
         // FLAT normal.
         bool leftHanded = Vec3.Dot(flatNormal, Vec3.Cross(sVector, tVector)) < 0.0f;
 
-        // :47-53. row1 = normalise(phong x s); row0 = normalise(row1 x phong);
+        // 47-53. row1 = normalise(phong x s); row0 = normalise(row1 x phong);
         // row2 = phong, NOT normalised -- stock copies it through untouched,
         // so a phong normal that is slightly off unit length stays that way.
         Vec3 row1 = Normalise(Vec3.Cross(phongNormal, sVector), stockNormalise);
@@ -140,7 +139,7 @@ public static class BumpBasis
             row1 = -row1;
         }
 
-        // :59-62, VectorIRotate: out = (local . column0, local . column1,
+        // VectorIRotate: out = (local . column0, local . column1,
         // local . column2).
         for (int i = 0; i < Count; i++)
         {
@@ -162,7 +161,7 @@ public static class BumpBasis
     /// <para>
     /// The same fork <c>StockQuirk.BaseWindingNormalise</c> describes, at a
     /// different call site. On <c>PLATFORM_INTEL</c> -- which every shipped
-    /// vrad.exe is -- <c>vector.h:2239</c> adds <c>1e-10f</c> to the squared
+    /// vrad.exe is -- adds <c>1e-10f</c> to the squared
     /// length and runs <c>rsqrtss</c> plus one Newton-Raphson step, so the
     /// result carries about 22 bits of mantissa rather than 24.
     /// </para>

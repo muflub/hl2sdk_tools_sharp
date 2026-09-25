@@ -67,7 +67,7 @@ public static class CollisionModelKey
         h.I32(m.FirstFace);
         h.I32(m.NumFaces);
 
-        // The walk the cook performs (VisitLeaves_r, ivp.cpp:664), recorded
+        // The walk the cook performs(VisitLeaves_r), recorded
         // as the brush reference set — so the key's brush set IS the cook's.
         SortedSet<int> brushes = [];
         Walk(input, m.HeadNode, brushes);

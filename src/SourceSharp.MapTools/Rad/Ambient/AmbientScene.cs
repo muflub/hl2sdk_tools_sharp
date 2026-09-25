@@ -9,9 +9,9 @@ namespace SourceSharp.MapTools.Rad.Ambient;
 /// Which of the two lighting universes a vrad pass is computing.
 /// </summary>
 /// <remarks>
-/// <c>SetHDRMode</c> (<c>bsplib.cpp:3820</c>) swaps four things at once --
+/// <c>SetHDRMode</c> swaps four things at once --
 /// the lightmap lump, the worldlight lump, and both ambient output lumps -- and
-/// <c>vrad.cpp:2224</c> swaps the face lump alongside. A pass that mixed them
+/// Swaps the face lump alongside. A pass that mixed them
 /// would read HDR lightmaps at LDR face offsets and produce plausible garbage,
 /// so the mode is one value threaded through rather than four independent
 /// choices.
@@ -91,7 +91,7 @@ public sealed class AmbientScene
             ? bsp[BspLump.LightingHdr].Data
             : bsp[BspLump.Lighting].Data;
 
-        // vrad.cpp:2224. The HDR pass uses the HDR face lump, which carries its
+        // The HDR pass uses the HDR face lump, which carries its
         // own lightofs and styles; when the map has none, stock copies the LDR
         // faces into it, so falling back to the LDR lump is the same behaviour.
         ReadOnlyMemory<byte> hdrFaces = bsp[BspLump.FacesHdr].Data;
@@ -158,7 +158,7 @@ public sealed class AmbientScene
     /// The map's leaves at version 1, converting a version-0 lump
     /// (<c>dleaf_version_0_t</c>, which carries a per-leaf ambient cube the
     /// newer layout moved to lumps 55/56) field by field, as
-    /// <c>bsplib.cpp</c>'s leaf loader does.
+    /// The reference implementation's leaf loader does.
     /// </summary>
     /// <param name="bsp">The map.</param>
     /// <returns>The leaves.</returns>
@@ -267,7 +267,7 @@ public sealed class AmbientScene
     /// <param name="lightStyleIndex">Which of the face's four style slots.</param>
     /// <returns>The average sample.</returns>
     /// <remarks>
-    /// <c>bsplib.h:396</c>, <c>dface_AvgLightColor</c>: the averages live
+    /// <c>dface_AvgLightColor</c>: the averages live
     /// BEFORE the face's samples, at <c>lightofs - (n+1) * 4</c>.
     /// </remarks>
     public ColorRgbExp32 AverageLightColor(ref readonly DFace face, int lightStyleIndex) =>
@@ -287,7 +287,7 @@ public sealed class AmbientScene
     /// <summary>
     /// A face's style-slot average, already decoded and tinted:
     /// <c>TexLightToLinear</c> then <c>ComputeAmbientFromSurface</c>'s
-    /// reflectivity multiply (<c>vraddetailprops.cpp:286-290</c>). The same
+    /// Reflectivity multiply. The same
     /// floats stock computes per hit, computed once.
     /// </summary>
     /// <param name="face">The face.</param>
@@ -310,7 +310,7 @@ public sealed class AmbientScene
             s.Tmax = face.LightmapTextureSizeInLuxels[1] + 1;
             s.Sky = (tex.Flags & RayAmbientLighting.SurfSky) != 0;
 
-            // SurfHasBumpedLightmaps, vraddetailprops.cpp:302.
+            // SurfHasBumpedLightmaps.
             bool bumped = (tex.Flags & 0x0800) != 0 && (tex.Flags & RayAmbientLighting.SurfNoLight) == 0;
             s.Stride = s.Smax * s.Tmax * (bumped ? 4 : 1);
             s.Reflectivity = _texData[tex.TexData].Reflectivity;

@@ -6,8 +6,8 @@ using SourceSharp.MapTools.Diagnostics;
 namespace SourceSharp.MapTools.Bsp.Write;
 
 /// <summary>
-/// <c>EmitBrushes</c> and <c>EmitPlanes</c> (<c>writebsp.cpp:1048</c>,
-/// <c>:46</c>): the original map brushes, un-CSG'd, and every plane the map
+/// <c>EmitBrushes</c> and <c>EmitPlanes</c> (
+///): the original map brushes, un-CSG'd, and every plane the map
 /// ever created.
 /// </summary>
 internal static class BrushLumps

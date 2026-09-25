@@ -17,7 +17,7 @@ namespace SourceSharp.MapTools.Bsp.Write;
 
 /// <summary>
 /// <c>EmitOccluderBrushes</c> and <c>AssignOccluderAreas</c>
-/// (<c>src/utils/vbsp/vbsp.cpp:492-782</c>): LUMP_OCCLUSION.
+/// LUMP_OCCLUSION.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,7 +30,7 @@ namespace SourceSharp.MapTools.Bsp.Write;
 /// </para>
 /// <para>
 /// The entities then lose their brushes (<c>numbrushes = 0</c>,
-/// <c>vbsp.cpp:678</c>) so the model loop skips them.
+///) so the model loop skips them.
 /// </para>
 /// </remarks>
 internal sealed class OccluderEmitter
@@ -49,7 +49,7 @@ internal sealed class OccluderEmitter
         _compile = compile;
     }
 
-    /// <summary><c>EmitOccluderBrushes</c> (<c>vbsp.cpp:585</c>).</summary>
+    /// <summary><c>EmitOccluderBrushes</c>.</summary>
     internal void Emit()
     {
         _state.Occluders.Clear();
@@ -148,7 +148,7 @@ internal sealed class OccluderEmitter
         }
     }
 
-    /// <summary><c>AssignOccluderAreas</c> (<c>vbsp.cpp:748</c>): after the world model.</summary>
+    /// <summary><c>AssignOccluderAreas</c>: after the world model.</summary>
     /// <param name="worldHead">The world tree.</param>
     /// <param name="diagnostics">Where a straddling occluder is reported.</param>
     internal void AssignAreas(TreeNode worldHead, IList<CompileDiagnostic> diagnostics)
@@ -165,7 +165,7 @@ internal sealed class OccluderEmitter
         }
     }
 
-    /// <summary><c>ClipOccluderBrushes</c> (<c>vbsp.cpp:492</c>).</summary>
+    /// <summary><c>ClipOccluderBrushes</c>.</summary>
     private TreeNode? ClipOccluderBrushes()
     {
         // Create a list of all occluder brushes in the level
@@ -219,7 +219,7 @@ internal sealed class OccluderEmitter
         return tree.HeadNode;
     }
 
-    /// <summary><c>GenerateOccluderFaceList</c> (<c>vbsp.cpp:556</c>).</summary>
+    /// <summary><c>GenerateOccluderFaceList</c>.</summary>
     private void GenerateOccluderFaceList(TreeNode node, List<Face> faces)
     {
         if (node.IsLeaf)
@@ -236,7 +236,7 @@ internal sealed class OccluderEmitter
         GenerateOccluderFaceList(node.Children[1]!, faces);
     }
 
-    /// <summary><c>AssignAreaToOccluder</c> (<c>vbsp.cpp:710</c>).</summary>
+    /// <summary><c>AssignAreaToOccluder</c>.</summary>
     private void AssignAreaToOccluder(
         int occluder, TreeNode head, bool crossAreaPortals, IList<CompileDiagnostic> diagnostics)
     {
@@ -280,7 +280,7 @@ internal sealed class OccluderEmitter
         }
     }
 
-    /// <summary><c>SetOccluderArea</c> (<c>vbsp.cpp:689</c>).</summary>
+    /// <summary><c>SetOccluderArea</c>.</summary>
     private void SetOccluderArea(int occluder, int area, int entityNumber, IList<CompileDiagnostic> diagnostics)
     {
         DOccluderData data = _state.Occluders[occluder];

@@ -1,7 +1,7 @@
 namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
-/// The running counts <c>faces.cpp</c> keeps in file-scope globals and prints
+/// The running counts keeps in file-scope globals and prints
 /// under <c>-v</c>.
 /// </summary>
 /// <remarks>
@@ -15,8 +15,8 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// </para>
 /// <para>
 /// The reset points are not uniform and are reproduced as they are:
-/// <c>MakeFaces</c> zeroes three of them (<c>faces.cpp:1801</c>) and
-/// <c>FixTjuncs</c> zeroes six (<c>:746</c> and <c>:756</c>), while
+/// <c>MakeFaces</c> zeroes three of them and
+/// <c>FixTjuncs</c> zeroes six, while
 /// <c>c_badstartverts</c> is zeroed by NEITHER — it is reset only by the
 /// program starting, so the "%5i bad start verts" line of a map with several
 /// brush models is cumulative across all of them.
@@ -57,7 +57,7 @@ public sealed class FaceCounters
     /// <summary><c>c_tryedges</c>: how many edges <c>GetEdge2</c> was asked for.</summary>
     public int TryEdges { get; set; }
 
-    /// <summary>What <c>MakeFaces</c> zeroes before it runs (<c>faces.cpp:1801</c>).</summary>
+    /// <summary>What <c>MakeFaces</c> zeroes before it runs.</summary>
     public void ResetForMakeFaces()
     {
         Merged = 0;
@@ -67,7 +67,7 @@ public sealed class FaceCounters
 
     /// <summary>
     /// What <c>FixTjuncs</c> zeroes: three before the weld and four before the
-    /// t-junction pass (<c>faces.cpp:746</c>, <c>:756</c>).
+ /// T-junction pass.
     /// </summary>
     /// <remarks>
     /// <see cref="BadStartVerts"/> is deliberately absent. Stock does not reset

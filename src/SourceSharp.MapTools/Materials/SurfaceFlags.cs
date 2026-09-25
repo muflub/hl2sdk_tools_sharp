@@ -1,7 +1,7 @@
 namespace SourceSharp.MapTools.Materials;
 
 /// <summary>
-/// <c>SURF_*</c> from <c>src/public/bspflags.h:79-95</c>: the flags a compiler
+/// <c>SURF_*</c> from the reference implementation: the flags a compiler
 /// writes into a <c>texinfo_t</c>.
 /// </summary>
 /// <remarks>

@@ -21,7 +21,7 @@ internal interface ITexInfoReferences
 }
 
 /// <summary>
-/// <c>CompactTexinfos</c> (<c>writebsp.cpp:771</c>): drop every texinfo and
+/// <c>CompactTexinfos</c>: drop every texinfo and
 /// texdata nothing references, fold all sky texinfos into one (and all 2D sky
 /// into another), and rebuild the texdata string table from what is left.
 /// </summary>
@@ -233,7 +233,7 @@ internal static class TexInfoCompactor
     }
 
     /// <summary>
-    /// <c>FindMatchingBrushSideTexinfo</c> (<c>writebsp.cpp:679</c>).
+    /// <c>FindMatchingBrushSideTexinfo</c>.
     /// </summary>
     private static int FindMatchingBrushSideTexinfo(
         int sideTexInfo, int[] refCounts, TexInfoTable texInfos, IReadOnlyList<int> surfaceProperties)

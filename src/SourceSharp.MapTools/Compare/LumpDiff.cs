@@ -52,7 +52,7 @@ public sealed class LumpDiff
     public int LumpIndex { get; }
 
     /// <summary>
-    /// The named lump, or null for slots 61..63, which <c>bspfile.h</c> never
+    /// The named lump, or null for slots 61..63, which never
     /// assigned and which therefore have no name to give.
     /// </summary>
     public BspLump? Lump =>

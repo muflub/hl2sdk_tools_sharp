@@ -6,7 +6,7 @@ using SourceSharp.MapTools.Tracing;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// The bounce half of <c>RadWorld_Go</c> (<c>vrad.cpp:2062-2072</c>): lane 4d's
+/// The bounce half of <c>RadWorld_Go</c>: lane 4d's
 /// additions to the hand-off object, kept in their own file.
 /// </summary>
 /// <remarks>
@@ -19,12 +19,12 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <item><description>
 /// <see cref="Patch.TotalLight"/> of every patch holds the BOUNCED light only
 /// -- the direct light was moved out before the first bounce
-/// (<c>vrad.cpp:1662-1668</c>). <c>Flat</c> for every patch; <c>Bump1..3</c>
+/// <c>Flat</c> for every patch; <c>Bump1..3</c>
 /// too on a <c>SURF_BUMPLIGHT</c> face. It is in the same units as the
 /// facelight values (pre-encode linear light, style 0).
 /// </description></item>
 /// <item><description>
-/// <c>radial.cpp</c>'s <c>BuildPatchRadial</c> reads it for every LEAF patch
+/// The reference implementation's <c>BuildPatchRadial</c> reads it for every LEAF patch
 /// (<see cref="Patch.Child1"/> == -1) of the face and its neighbours, at
 /// <see cref="Patch.Origin"/> (or the winding centre on a displacement), and
 /// blends it into style 0 only. <see cref="Patch.DirectLight"/> is not
@@ -34,12 +34,11 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// With <see cref="DirectLightingSettings.Bounces"/> 0 (<c>-bounce 0</c>, or a
 /// map with no vis) nothing here runs, <see cref="IsBounced"/> stays false,
 /// and <c>FinalLightFace</c> adds no patch light at all
-/// (<c>radial.cpp:718</c>, <c>numbounce &gt; 0 &amp;&amp; k == 0</c>).
+/// (<c>numbounce &gt; 0 &amp;&amp; k == 0</c>).
 /// </description></item>
 /// <item><description>
 /// Static-prop lighting (4g) reads the same product: with
 /// <c>numbounce &gt;= 1</c> its indirect term traces into the lit world
-/// (<c>vradstaticprops.cpp:1418</c>).
 /// </description></item>
 /// </list>
 /// <para>
@@ -169,7 +168,7 @@ public sealed partial class RadWorld
     public BounceContext BounceContext() => new(Geometry, Neighbours, Patches, Visibility, Settings);
 
     /// <summary>
-    /// <c>MakeAllScales</c> then <c>BounceLight</c> (<c>vrad.cpp:2062-2072</c>),
+    /// <c>MakeAllScales</c> then <c>BounceLight</c>,
     /// when the settings ask for bounces.
     /// </summary>
     /// <param name="tracer">The tracer the transfer rays go to.</param>

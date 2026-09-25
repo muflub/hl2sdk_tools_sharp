@@ -1,8 +1,7 @@
 namespace SourceSharp.MapTools.Bsp.Tree;
 
 /// <summary>
-/// Where a brush sits relative to a plane: <c>PSIDE_*</c>,
-/// <c>utils/vbsp/vbsp.h:486-489</c>.
+/// Where a brush sits relative to a plane: <c>PSIDE_*</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -10,9 +9,9 @@ namespace SourceSharp.MapTools.Bsp.Tree;
 /// that is on purpose. Stock stores these in <c>bspbrush_t::side</c> and
 /// <c>::testside</c>, which are <c>int</c>, and compares them with both
 /// <c>&amp;</c> AND <c>==</c> — <c>SelectSplitSide</c> counts
-/// <c>s == PSIDE_BOTH</c> (<c>brushbsp.cpp:934</c>) while
+/// <c>s == PSIDE_BOTH</c> while
 /// <c>SplitBrushList</c> tests <c>sides == PSIDE_BOTH</c> and then
-/// <c>sides &amp; PSIDE_FRONT</c> (<c>brushbsp.cpp:1279</c>, <c>:1311</c>).
+/// <c>sides &amp; PSIDE_FRONT</c>.
 /// The equality comparisons mean the value is a four-state code as often as it
 /// is a bit set, and wrapping that in an enum would invite someone to add a
 /// fifth bit and quietly change what <c>== Both</c> means.
@@ -22,7 +21,7 @@ namespace SourceSharp.MapTools.Bsp.Tree;
 /// one of its own sides, so it is orthogonal to front/back rather than a third
 /// position. A facing brush always comes back with exactly one of front or back
 /// set, never both, and <c>SelectSplitSide</c> errors out if a facing result
-/// also reported splits (<c>brushbsp.cpp:916</c>).
+/// Also reported splits.
 /// </para>
 /// </remarks>
 public static class PlaneSideFlags
@@ -38,7 +37,6 @@ public static class PlaneSideFlags
 
     /// <summary>
     /// The brush has this plane as one of its own sides: <c>PSIDE_FACING</c>,
-    /// 4.
     /// </summary>
     public const int Facing = 4;
 }

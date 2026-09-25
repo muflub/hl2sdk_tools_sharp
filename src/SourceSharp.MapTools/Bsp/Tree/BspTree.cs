@@ -5,12 +5,12 @@ using SourceSharp.MapTools.Bsp.Portals;
 namespace SourceSharp.MapTools.Bsp.Tree;
 
 /// <summary>
-/// A BSP tree: <c>tree_t</c>, <c>utils/vbsp/vbsp.h:238</c>.
+/// A BSP tree: <c>tree_t</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// A head node, a bounding box and the sentinel leaf outside it. Stock's
-/// <c>AllocTree</c> (<c>brushbsp.cpp:295</c>) <c>memset</c>s the whole thing
+/// <c>AllocTree</c> <c>memset</c>s the whole thing
 /// and then calls <c>ClearBounds</c>, so a fresh tree's bounds are inside out
 /// at ±99999 — which is what <c>BrushBSP</c>'s union over the brush list then
 /// relies on.
@@ -18,7 +18,7 @@ namespace SourceSharp.MapTools.Bsp.Tree;
 /// <para>
 /// <b><see cref="OutsideNode"/> is embedded in stock, not pointed to.</b>
 /// <c>tree_t::outside_node</c> is a <c>node_t</c> by value
-/// (<c>vbsp.h:241</c>), so it is zeroed with the tree and is never passed
+/// So it is zeroed with the tree and is never passed
 /// through <c>AllocNode</c> — it has id 0, <c>diskId</c> 0 rather than -1, and
 /// it does not advance the node counter. Phase 3c's <c>MakeHeadnodePortals</c>
 /// is what puts it to work, as the node on the far side of the six portals that
@@ -51,7 +51,7 @@ public sealed class BspTree : IBspTree
     /// <para>
     /// <b>It is a LEAF from the start.</b> Stock's memset leaves
     /// <c>planenum</c> 0 and <c>MakeHeadnodePortals</c> then assigns
-    /// <c>PLANENUM_LEAF</c> (<c>portals.cpp:297</c>); the portal contract's
+    /// <c>PLANENUM_LEAF</c>; the portal contract's
     /// <c>IBspNode.PlaneNumber</c> has no setter, so the assignment is made
     /// here instead. Nothing reads it in between. Left at 0, every leaked map
     /// failed in the area flood with "Portal_EntityFlood: not a leaf", because

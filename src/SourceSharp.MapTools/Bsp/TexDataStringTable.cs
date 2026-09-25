@@ -4,8 +4,7 @@ namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
 /// LUMP_TEXDATA_STRING_DATA and LUMP_TEXDATA_STRING_TABLE:
-/// <c>g_TexDataStringData</c> and <c>g_TexDataStringTable</c>,
-/// <c>utils/common/bsplib.h:174-175</c>.
+/// <c>g_TexDataStringData</c> and <c>g_TexDataStringTable</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,7 +19,7 @@ namespace SourceSharp.MapTools.Bsp;
 /// </para>
 /// <para>
 /// The dedup (<c>TexDataStringTable_AddOrFindString</c>,
-/// <c>bsplib.cpp:1266</c>) is a linear <c>stricmp</c> scan — case-INSENSITIVE
+///) is a linear <c>stricmp</c> scan — case-INSENSITIVE
 /// matching, but the string is STORED verbatim. So the first spelling of a name
 /// wins and every later spelling collapses onto it, casing and all. The comment
 /// on the C++ ("garymcthack: Make this use an RBTree!") notwithstanding, a
@@ -65,7 +64,7 @@ public sealed class TexDataStringTable
 
     /// <summary>
     /// Adds a name or finds the existing one:
-    /// <c>TexDataStringTable_AddOrFindString</c>, <c>bsplib.cpp:1266</c>.
+    /// <c>TexDataStringTable_AddOrFindString</c>.
     /// </summary>
     /// <param name="name">The material name.</param>
     /// <returns>The index into the TABLE lump.</returns>
@@ -116,7 +115,7 @@ public sealed class TexDataStringTable
 
     /// <summary>
     /// The name at a table index: <c>TexDataStringTable_GetString</c>,
-    /// <c>bsplib.cpp:1261</c>.
+    ///.
     /// </summary>
     /// <param name="stringId">The TABLE lump index.</param>
     /// <returns>The name, without its terminator.</returns>

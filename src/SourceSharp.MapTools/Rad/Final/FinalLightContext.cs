@@ -62,7 +62,7 @@ public sealed class FinalLightContext
     public Displacement.DispRadialContext? Displacements { get; init; }
 
     /// <summary>
-    /// <c>InitLightinfo</c> (<c>lightmap.cpp:2979</c>) for any face, built once
+    /// <c>InitLightinfo</c> for any face, built once
     /// and shared by every radial that reads it.
     /// </summary>
     /// <param name="faceNum">The face.</param>

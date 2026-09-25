@@ -6,7 +6,7 @@ using SourceSharp.MapTools.Parallel;
 namespace SourceSharp.MapTools.Tracing;
 
 /// <summary>
-/// Builds stock's KD-tree: <c>raytrace.cpp</c>'s
+/// Builds stock's KD-tree: the reference implementation's
 /// <c>SetupAccelerationStructure</c>, <c>RefineNode</c> and
 /// <c>CalculateCostsOfSplit</c>.
 /// </summary>
@@ -23,19 +23,19 @@ namespace SourceSharp.MapTools.Tracing;
 /// hitting a sub-box is the ratio of their surface areas, so splitting costs
 /// <c>Ct + Ci * (SA(L)/SA(V) * Nl + SA(R)/SA(V) * Nr)</c> and not splitting
 /// costs <c>Ci * N</c>. Stock's constants are 75 and 167 "approximate
-/// #operations" (<c>raytrace.cpp:648-649</c>), and their RATIO is what decides
+/// #operations", and their RATIO is what decides
 /// every split, so they are reproduced rather than re-derived.
 /// </para>
 /// </remarks>
 public static class KdTreeBuilder
 {
-    /// <summary><c>COST_OF_TRAVERSAL</c>, <c>raytrace.cpp:648</c>.</summary>
+    /// <summary><c>COST_OF_TRAVERSAL</c>.</summary>
     public const float CostOfTraversal = 75.0f;
 
-    /// <summary><c>COST_OF_INTERSECTION</c>, <c>raytrace.cpp:649</c>.</summary>
+    /// <summary><c>COST_OF_INTERSECTION</c>.</summary>
     public const float CostOfIntersection = 167.0f;
 
-    /// <summary><c>MAX_TREE_DEPTH</c>, <c>raytrace.cpp:257</c>.</summary>
+    /// <summary><c>MAX_TREE_DEPTH</c>.</summary>
     public const int MaxTreeDepth = 21;
 
     /// <summary><c>PLANECHECK_POSITIVE</c>.</summary>
@@ -306,7 +306,6 @@ public static class KdTreeBuilder
 
     /// <summary>
     /// <c>RayTracingEnvironment::CalculateTriangleListBounds</c>,
-    /// <c>raytrace.cpp:599</c>.
     /// </summary>
     private static (Vec3 Min, Vec3 Max) CalculateTriangleListBounds(
         KdBuildTriangle[] tris, int[] list, int offset, int count)
@@ -331,7 +330,7 @@ public static class KdTreeBuilder
         return (new Vec3(minX, minY, minZ), new Vec3(maxX, maxY, maxZ));
     }
 
-    /// <summary><c>BoxSurfaceArea</c>, <c>raytrace.cpp:268</c>.</summary>
+    /// <summary><c>BoxSurfaceArea</c>.</summary>
     /// <remarks>
     /// Stock's expression is <c>2.0*((d0*d2)+(d0*d1)+(d1*d2))</c> over float
     /// components, so the three products and their two sums happen in FLOAT
@@ -357,7 +356,6 @@ public static class KdTreeBuilder
 
     /// <summary>
     /// <c>CacheOptimizedTriangle::ClassifyAgainstAxisSplit</c>,
-    /// <c>raytrace.cpp:235</c>.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -406,7 +404,6 @@ public static class KdTreeBuilder
 
     /// <summary>
     /// <c>RayTracingEnvironment::CalculateCostsOfSplit</c>,
-    /// <c>raytrace.cpp:652</c>.
     /// </summary>
     /// <remarks>
     /// <paramref name="splitValue"/> is <c>ref</c> because stock's is
@@ -461,7 +458,7 @@ public static class KdTreeBuilder
             }
         }
 
-        // raytrace.cpp:694. Grow whichever side came out empty.
+        // Grow whichever side came out empty.
         if (nleft != 0 && nboth == 0 && nright == 0)
         {
             splitValue = maxCoord;
@@ -477,7 +474,7 @@ public static class KdTreeBuilder
         float saL = BoxSurfaceArea(minBound, leftMax);
         float saR = BoxSurfaceArea(rightMin, maxBound);
 
-        // raytrace.cpp:707-709. The reciprocal is taken in double (1.0/...)
+        // The reciprocal is taken in double (1.0/...)
         // and the cost expression is then a float one.
         float isa = (float)(1.0 / BoxSurfaceArea(minBound, maxBound));
         return CostOfTraversal
@@ -498,7 +495,7 @@ public static class KdTreeBuilder
         _ => v.Z,
     };
 
-    /// <summary><c>RayTracingEnvironment::RefineNode</c>, <c>raytrace.cpp:719</c>.</summary>
+    /// <summary><c>RayTracingEnvironment::RefineNode</c>.</summary>
     private static void RefineNode(
         List<KdNode> nodes,
         List<int> indices,
@@ -536,7 +533,7 @@ public static class KdTreeBuilder
     }
 
     /// <summary>
-    /// <c>RefineNode</c>'s decision (<c>raytrace.cpp:719-853</c>): leaf, or
+    /// <c>RefineNode</c>'s decision: leaf, or
     /// which plane, and the partitioned list its two children take.
     /// </summary>
     private static SplitChoice ChooseSplit(
@@ -567,7 +564,7 @@ public static class KdTreeBuilder
         sbyte[] side = ArrayPool<sbyte>.Shared.Rent(count);
         sbyte[] bestSide = ArrayPool<sbyte>.Shared.Rent(count);
 
-        // raytrace.cpp:741. Strided, so a big list does not cost O(n^2) split
+        // Strided, so a big list does not cost O(n^2) split
         // trials: one candidate in every 1 + n/10, which is at most eleven
         // triangles' worth of vertices per axis however large the list is.
         int triSkip = 1 + (count / 10);
@@ -605,7 +602,7 @@ public static class KdTreeBuilder
                         bestNboth = tb;
                         bestSplit = trialSplit;
 
-                        // raytrace.cpp:771. The classification is saved, so the
+                        // The classification is saved, so the
                         // partition below uses the BEST split's labelling and
                         // not the last one tried.
                         (side, bestSide) = (bestSide, side);
@@ -651,7 +648,7 @@ public static class KdTreeBuilder
             }
         }
 
-        // raytrace.cpp:849. A small list that split entirely to one side is
+        // A small list that split entirely to one side is
         // pushed 100 levels down, which is stock's way of saying "stop":
         // the depth test then makes both children leaves.
         if (count < 20 && (bestNleft == 0 || bestNright == 0))
@@ -704,7 +701,7 @@ public static class KdTreeBuilder
         }
     }
 
-    /// <summary><c>GetEdgeEquation</c>, <c>raytrace.cpp:157</c>.</summary>
+    /// <summary><c>GetEdgeEquation</c>.</summary>
     private static Vec3 GetEdgeEquation(
         Vec3 p1, Vec3 p2, int c1, int c2, Vec3 insidePoint)
     {
@@ -732,7 +729,6 @@ public static class KdTreeBuilder
 
     /// <summary>
     /// <c>CacheOptimizedTriangle::ChangeIntoIntersectionFormat</c>,
-    /// <c>raytrace.cpp:180</c>.
     /// </summary>
     private static KdTriangle ToIntersectionFormat(in KdBuildTriangle src)
     {

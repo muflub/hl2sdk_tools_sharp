@@ -8,7 +8,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// <summary>
 /// Welding every face's vertices into one table and splitting edges wherever
 /// another face's vertex lands on them
-/// (<c>FixTjuncs</c>, <c>src/utils/vbsp/faces.cpp:740</c>).
+/// (<c>FixTjuncs</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -34,10 +34,10 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// </remarks>
 public sealed class TJunctionFixer
 {
-    /// <summary><c>OFF_EPSILON</c> (<c>faces.cpp:31</c>): how far off an edge still counts as on it.</summary>
+    /// <summary><c>OFF_EPSILON</c>: how far off an edge still counts as on it.</summary>
     public const double OffEpsilon = 0.25;
 
-    /// <summary><c>MAX_SUPERVERTS</c> (<c>faces.cpp:44</c>).</summary>
+    /// <summary><c>MAX_SUPERVERTS</c>.</summary>
     public const int MaxSuperVerts = 512;
 
     private readonly FaceBuildContext _context;
@@ -70,7 +70,7 @@ public sealed class TJunctionFixer
 
     /// <summary>
     /// Fills a face's vertex list from <see cref="SuperVerts"/>, fragmenting it
-    /// when there are too many (<c>FaceFromSuperverts</c>, <c>faces.cpp:222</c>).
+    /// when there are too many(<c>FaceFromSuperverts</c>).
     /// </summary>
     /// <param name="head">The list the fragments are pushed onto.</param>
     /// <param name="face">The face to fill.</param>
@@ -127,7 +127,7 @@ public sealed class TJunctionFixer
 
     /// <summary>
     /// Welds one face's winding into the vertex table
-    /// (<c>EmitFaceVertexes</c>, <c>faces.cpp:265</c>).
+    /// (<c>EmitFaceVertexes</c>).
     /// </summary>
     /// <param name="head">The list any fragments are pushed onto.</param>
     /// <param name="face">The face to weld.</param>
@@ -157,7 +157,7 @@ public sealed class TJunctionFixer
 
     /// <summary>
     /// Welds every face on every node of a subtree
-    /// (<c>EmitNodeFaceVertexes_r</c>, <c>faces.cpp:300</c>).
+    /// (<c>EmitNodeFaceVertexes_r</c>).
     /// </summary>
     /// <param name="node">The subtree root.</param>
     /// <remarks>Leaf faces are welded separately, in a second pass.</remarks>
@@ -185,7 +185,7 @@ public sealed class TJunctionFixer
 
     /// <summary>
     /// Welds every face on the detail leaf-face list
-    /// (<c>EmitLeafFaceVertexes</c>, <c>faces.cpp:322</c>).
+    /// (<c>EmitLeafFaceVertexes</c>).
     /// </summary>
     /// <param name="head">The leaf face list.</param>
     /// <returns>The head afterwards.</returns>
@@ -202,7 +202,7 @@ public sealed class TJunctionFixer
     /// <summary>
     /// Adds every welded vertex that lies strictly between two points of an
     /// edge, recursing into the two halves
-    /// (<c>TestEdge</c>, <c>faces.cpp:426</c>).
+    /// (<c>TestEdge</c>).
     /// </summary>
     /// <param name="start">Distance along the edge where this segment begins.</param>
     /// <param name="end">Distance along the edge where it ends.</param>
@@ -278,7 +278,7 @@ public sealed class TJunctionFixer
 
     /// <summary>
     /// Splits every edge of one face at its t-junctions
-    /// (<c>FixFaceEdges</c>, <c>faces.cpp:587</c>).
+    /// (<c>FixFaceEdges</c>).
     /// </summary>
     /// <param name="head">The list any fragments are pushed onto.</param>
     /// <param name="face">The face to fix.</param>
@@ -364,7 +364,7 @@ public sealed class TJunctionFixer
 
     /// <summary>
     /// Splits every face on every node of a subtree
-    /// (<c>FixEdges_r</c>, <c>faces.cpp:702</c>).
+    /// (<c>FixEdges_r</c>).
     /// </summary>
     /// <param name="node">The subtree root.</param>
     public void FixEdgesRecursive(IBspNode node)
@@ -391,7 +391,7 @@ public sealed class TJunctionFixer
 
     /// <summary>
     /// Splits every face on the detail leaf-face list
-    /// (<c>FixLeafFaceEdges</c>, <c>faces.cpp:723</c>).
+    /// (<c>FixLeafFaceEdges</c>).
     /// </summary>
     /// <param name="head">The leaf face list.</param>
     /// <returns>The head afterwards.</returns>
@@ -407,7 +407,7 @@ public sealed class TJunctionFixer
 
     /// <summary>
     /// Welds all vertices and removes all t-junctions for one model
-    /// (<c>FixTjuncs</c>, <c>faces.cpp:740</c>).
+    /// (<c>FixTjuncs</c>).
     /// </summary>
     /// <param name="headNode">The model's tree root.</param>
     /// <param name="leafFaceList">The detail faces filtered into leaves.</param>
@@ -422,7 +422,7 @@ public sealed class TJunctionFixer
     /// details sew to the world. That is the whole meaning of the switch.
     /// </para>
     /// <para>
-    /// Only the weld HASH is cleared here (<c>faces.cpp:744-745</c>), which
+    /// Only the weld HASH is cleared here, which
     /// makes welding per-MODEL; the vertex table itself is per-MAP, so a brush
     /// model's vertices are numbered after the world's in the one vertex lump.
     /// (Clearing the table, as this once did, renumbered every submodel's
@@ -462,7 +462,7 @@ public sealed class TJunctionFixer
 
     /// <summary>
     /// Whether two superverts can be joined by a diagonal, i.e. do NOT share an
-    /// edge (<c>IsDiagonal</c>, <c>faces.cpp:514</c>).
+    /// edge(<c>IsDiagonal</c>).
     /// </summary>
     /// <param name="v0">One vertex's edge membership.</param>
     /// <param name="v1">The other's.</param>
@@ -472,7 +472,7 @@ public sealed class TJunctionFixer
 
     /// <summary>
     /// Fans a polygon into triangles, never cutting along an edge two vertices
-    /// share (<c>Triangulate_r</c>, <c>faces.cpp:523</c>).
+    /// share(<c>Triangulate_r</c>).
     /// </summary>
     /// <param name="output">Where triangle indices are appended.</param>
     /// <param name="indices">The polygon, as supervert indices.</param>
@@ -594,7 +594,7 @@ public sealed class TJunctionFixer
 
 /// <summary>
 /// Which of a face's edges one supervert belongs to
-/// (<c>face_vert_table_t</c>, <c>src/utils/vbsp/faces.cpp:477</c>).
+/// (<c>face_vert_table_t</c>).
 /// </summary>
 /// <remarks>
 /// At most two, because a supervert is either a corner of the face (on the two

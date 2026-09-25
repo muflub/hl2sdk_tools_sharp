@@ -4,16 +4,15 @@ namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
 /// Point queries on the displaced surface: <c>GetPositionOnSurface</c> and
-/// the <c>DispUVToSurf</c> family, <c>builddisp.cpp:2219-2765</c>.
+/// The <c>DispUVToSurf</c> family.
 /// </summary>
 /// <remarks>
 /// vbsp's one caller is detail-prop placement on displacements
-/// (<c>detailobjects.cpp:761</c>).
 /// </remarks>
 public sealed partial class CoreDispInfo
 {
     /// <summary>
-    /// <c>TRIEDGE_EPSILON</c>, <c>builddisp.cpp:2459</c>: how far past the
+    /// <c>TRIEDGE_EPSILON</c>: how far past the
     /// diagonal a point must be before the top-left-to-bottom-right split
     /// counts it in the far triangle.
     /// </summary>
@@ -22,7 +21,7 @@ public sealed partial class CoreDispInfo
     /// <summary>
     /// The displaced position, normal and alpha at a point of the base quad
     /// given in its own (u, v): <c>GetPositionOnSurface</c>,
-    /// <c>builddisp.cpp:2219</c>.
+    ///.
     /// </summary>
     /// <param name="u">0..1 across the quad from point 0 towards point 3.</param>
     /// <param name="v">0..1 from point 0 towards point 1.</param>
@@ -48,7 +47,7 @@ public sealed partial class CoreDispInfo
         float u, float v, ref Vec3 position, ref Vec3 normal, ref float alpha) =>
         DispUvToSurf(new DispUv(u, v), ref position, ref normal, ref alpha);
 
-    /// <summary><c>DispUVToSurf</c>, <c>builddisp.cpp:2727</c>.</summary>
+    /// <summary><c>DispUVToSurf</c>.</summary>
     /// <param name="dispUv">The quad-space point.</param>
     /// <param name="position">Overwritten when the query lands.</param>
     /// <param name="normal">Overwritten when the query lands.</param>
@@ -96,20 +95,20 @@ public sealed partial class CoreDispInfo
 
         if (odd)
         {
-            // DispUVToSurf_TriTLToBR, builddisp.cpp:2456.
+            // DispUVToSurf_TriTLToBR.
             return fracU + fracV >= 1.0f + TriEdgeEpsilon
                 ? Tri(TriCase.TlBr1, intersect, sq, ref position, ref normal, ref alpha, false)
                 : Tri(TriCase.TlBr2, intersect, sq, ref position, ref normal, ref alpha, false);
         }
 
-        // DispUVToSurf_TriBLToTR, builddisp.cpp:2699.
+        // DispUVToSurf_TriBLToTR.
         return fracU < fracV
             ? Tri(TriCase.BlTr1, intersect, sq, ref position, ref normal, ref alpha, false)
             : Tri(TriCase.BlTr2, intersect, sq, ref position, ref normal, ref alpha, false);
     }
 
     /// <summary>
-    /// <c>PointInQuadFromBarycentric</c>, <c>collisionutils.cpp:2046</c>:
+    /// <c>PointInQuadFromBarycentric</c>:
     /// two <c>VectorLerp</c>s along v then one along u.
     /// </summary>
     /// <param name="v1">Quad point one.</param>
@@ -126,7 +125,7 @@ public sealed partial class CoreDispInfo
     }
 
     /// <summary>
-    /// <c>CalcBarycentricCooefs</c>, <c>builddisp.cpp:134</c>: barycentric
+    /// <c>CalcBarycentricCooefs</c>: barycentric
     /// weights from three sub-triangle AREAS.
     /// </summary>
     /// <param name="v0">Triangle point 0.</param>
@@ -141,7 +140,7 @@ public sealed partial class CoreDispInfo
     /// Areas are unsigned, so the weights are never negative: a point OUTSIDE
     /// the triangle is detected only because its three areas then sum to more
     /// than the whole. The 1e-3 is a <c>double</c> literal in stock, so the
-    /// comparison is made in double (<c>:170</c>). A degenerate triangle has
+ /// comparison is made in double. A degenerate triangle has
     /// area zero and every weight zero, which fails.
     /// </remarks>
     public static bool CalcBarycentricCoefs(
@@ -173,7 +172,6 @@ public sealed partial class CoreDispInfo
 
     /// <summary>
     /// The four <c>DispUVToSurf_Tri*_1/_2</c> functions
-    /// (<c>builddisp.cpp:2244</c>, <c>:2350</c>, <c>:2487</c>, <c>:2593</c>),
     /// which are one body with different vertex choices, folded together.
     /// </summary>
     /// <remarks>
@@ -184,7 +182,7 @@ public sealed partial class CoreDispInfo
     /// </para>
     /// <para>
     /// A quirk kept as found: <c>TriBLToTR_1</c>'s degenerate-in-u branch
-    /// crosses <c>(edgeU, edgeV)</c> (<c>:2528</c>) where its other two
+ /// crosses <c>(edgeU, edgeV)</c> where its other two
     /// branches cross <c>(edgeV, edgeU)</c> — so on the displacement's last
     /// column that triangle's normal points the other way.
     /// </para>

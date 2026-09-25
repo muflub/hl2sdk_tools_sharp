@@ -42,7 +42,7 @@ public readonly record struct Ray(
 /// <para>
 /// TWO first-class operations, not one and a variant. The seam was written
 /// visibility-only, and that was wrong by wall clock: leaf ambient is 51.6 %
-/// of stock vrad's run (§10c) and it is a CLOSEST-HIT stage --
+/// of stock vrad's run and it is a CLOSEST-HIT stage --
 /// <c>CalcRayAmbientLighting</c> samples the lightmap of the surface the ray
 /// landed on, so it needs an identity and a distance, not a bit. A stage that
 /// large cannot hang off an afterthought, and the two operations are gated
@@ -69,8 +69,8 @@ public interface IRayTracer
     /// "Blocks" means a hit strictly SHORT of the segment's end,
     /// <c>Origin + MaxDistance * Direction</c>: a surface at or past the end
     /// sets no bit. That is stock's own test, which its callers make after an
-    /// unclipped trace (<c>trace.cpp:171</c> <c>HitDistance &lt; len</c>,
-    /// <c>vismat.cpp:86</c> <c>HitDistance &gt;= ray_length</c> makes a
+    /// unclipped trace (<c>HitDistance &lt; len</c>,
+    /// <c>HitDistance &gt;= ray_length</c> makes a
     /// transfer). Every implementation, GPU included, must honour it.
     /// </para>
     /// <para>

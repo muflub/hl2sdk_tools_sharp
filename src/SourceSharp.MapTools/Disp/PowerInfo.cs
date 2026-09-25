@@ -6,7 +6,7 @@ namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
 /// One vertex another vertex needs in order to exist:
-/// <c>CVertDependency</c>, <c>disp_powerinfo.h:56</c>.
+/// <c>CVertDependency</c>.
 /// </summary>
 /// <param name="Vert">
 /// The dependency's index, in the SAME power as the displacement holding it,
@@ -24,7 +24,7 @@ public readonly record struct VertDependency(VertIndex Vert, int Neighbor)
 
     /// <summary>Whether this slot holds a dependency at all.</summary>
     /// <remarks>
-    /// <c>CVertDependency::IsValid</c> (<c>disp_powerinfo.h:63</c>) tests
+    /// <c>CVertDependency::IsValid</c> tests
     /// <b>only x</b>, which is reproduced exactly: the y component of an empty
     /// slot is never examined.
     /// </remarks>
@@ -33,7 +33,7 @@ public readonly record struct VertDependency(VertIndex Vert, int Neighbor)
 
 /// <summary>
 /// The precalculated facts about one vertex of a displacement of a given
-/// power: <c>CVertInfo</c>, <c>disp_powerinfo.h:83</c>.
+/// Power: <c>CVertInfo</c>.
 /// </summary>
 public sealed class VertInfo
 {
@@ -68,7 +68,7 @@ public sealed class VertInfo
     public VertIndex Parent { get; internal set; } = VertIndex.Invalid;
 }
 
-/// <summary>Four vertex indices: <c>CFourVerts</c>, <c>disp_powerinfo.h:100</c>.</summary>
+/// <summary>Four vertex indices: <c>CFourVerts</c>.</summary>
 public sealed class FourVerts
 {
     /// <summary>The four indices.</summary>
@@ -76,8 +76,7 @@ public sealed class FourVerts
 }
 
 /// <summary>
-/// One fully-tessellated triangle by vertex index: <c>CTriInfo</c>,
-/// <c>disp_powerinfo.h:107</c>.
+/// One fully-tessellated triangle by vertex index: <c>CTriInfo</c>.
 /// </summary>
 /// <param name="A">The first vertex.</param>
 /// <param name="B">The second.</param>
@@ -102,7 +101,7 @@ public readonly record struct TriInfo(ushort A, ushort B, ushort C)
 
 /// <summary>
 /// One step of the winding a node walks while tessellating:
-/// <c>CTesselateVert</c>, <c>disp_powerinfo.h:43</c>.
+/// <c>CTesselateVert</c>.
 /// </summary>
 /// <param name="Index">The offset from the node, in units of the node's span.</param>
 /// <param name="Node">
@@ -113,14 +112,14 @@ public readonly record struct TesselateVert(VertIndex Index, int Node);
 
 /// <summary>
 /// Everything about displacements of one power that does not depend on the
-/// map: <c>CPowerInfo</c>, <c>disp_powerinfo.h:111</c>.
+/// Map: <c>CPowerInfo</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Stock builds these once into file-scope arrays sized <c>5x5</c>,
 /// <c>9x9</c> and <c>17x17</c> and initialises them from a static
 /// constructor object (<c>CPowerInfoInitializer</c>,
-/// <c>disp_powerinfo.cpp:543</c>). This does the same with a static
+///). This does the same with a static
 /// constructor, and the tables are immutable once built.
 /// </para>
 /// <para>
@@ -189,11 +188,11 @@ public sealed class PowerInfo
     }
 
     /// <summary>The largest power the format allows.</summary>
-    /// <remarks><c>MAX_MAP_DISP_POWER</c>, <c>bspfile.h:48</c>.</remarks>
+    /// <remarks><c>MAX_MAP_DISP_POWER</c>.</remarks>
     public const int MaxMapDispPower = 4;
 
     /// <summary>The smallest power the format allows.</summary>
-    /// <remarks><c>MIN_MAP_DISP_POWER</c>, <c>bspfile.h:47</c>.</remarks>
+    /// <remarks><c>MIN_MAP_DISP_POWER</c>.</remarks>
     public const int MinMapDispPower = 2;
 
     /// <summary>The displacement power: 2, 3 or 4.</summary>
@@ -236,7 +235,7 @@ public sealed class PowerInfo
     /// <remarks>
     /// Stock fills this with <c>m_Corner1</c> only — <c>m_Corner2</c> goes
     /// into <see cref="ErrorEdges"/> and nowhere else
-    /// (<c>disp_powerinfo.cpp:413</c>) — so the name is broader than the
+    /// — so the name is broader than the
     /// contents.
     /// </remarks>
     public FourVerts[] SideVertCorners { get; }
@@ -262,7 +261,7 @@ public sealed class PowerInfo
     /// row-major scan of <c>GenerateCollisionSurface</c>. The two produce the
     /// same set of triangles for a fully-active displacement and in a
     /// completely different sequence, and <c>FindTriIndexMapByUV</c>
-    /// (<c>disp_vbsp.cpp:58</c>) writes THIS index into the lightmap sample
+    /// Writes THIS index into the lightmap sample
     /// positions — so a lightmap sample's triangle number indexes the quad-tree
     /// order and not the lump.
     /// </remarks>
@@ -293,7 +292,7 @@ public sealed class PowerInfo
 
     /// <summary>
     /// The winding a node walks while tessellating:
-    /// <c>g_TesselateVerts</c>, <c>disp_powerinfo.cpp:242</c>.
+    /// <c>g_TesselateVerts</c>.
     /// </summary>
     /// <remarks>
     /// Nine entries for eight triangles — the first is repeated at the end to
@@ -316,7 +315,7 @@ public sealed class PowerInfo
         new(new VertIndex(1, -1), ChildNodeLowerRight),
     ];
 
-    /// <summary><c>CHILDNODE_UPPER_RIGHT</c>, <c>bspfile.h:229</c>.</summary>
+    /// <summary><c>CHILDNODE_UPPER_RIGHT</c>.</summary>
     public const int ChildNodeUpperRight = 0;
 
     /// <summary><c>CHILDNODE_UPPER_LEFT</c>.</summary>
@@ -345,8 +344,7 @@ public sealed class PowerInfo
             throw new ArgumentOutOfRangeException(
                 nameof(power),
                 power,
-                $"a displacement's power is {MinMapDispPower} to {MaxMapDispPower} "
-                + "(bspfile.h:47).");
+                $"a displacement's power is {MinMapDispPower} to {MaxMapDispPower}.");
         }
 
         return ByPower[power]!;
@@ -372,7 +370,7 @@ public sealed class PowerInfo
     /// <param name="edge">A <see cref="DispEdge"/>.</param>
     /// <returns>The grid index of that edge's middle vertex.</returns>
     /// <exception cref="ArgumentOutOfRangeException">Not 0..3.</exception>
-    /// <remarks><c>CDispUtilsHelper::GetEdgeMidPoint</c>, <c>disp_common.cpp:700</c>.</remarks>
+    /// <remarks><c>CDispUtilsHelper::GetEdgeMidPoint</c>.</remarks>
     public VertIndex EdgeMidPoint(int edge)
     {
         int end = SideLength - 1;
@@ -413,7 +411,7 @@ public sealed class PowerInfo
         return [.. infos];
     }
 
-    /// <summary><c>InitPowerInfo</c>, <c>disp_powerinfo.cpp:456</c>.</summary>
+    /// <summary><c>InitPowerInfo</c>.</summary>
     private void Build()
     {
         int sideLength = SideLength;
@@ -460,7 +458,7 @@ public sealed class PowerInfo
         NodeCount = curTotal + curPowerOf4;
     }
 
-    /// <summary><c>InitPowerInfo_R</c>, <c>disp_powerinfo.cpp:373</c>.</summary>
+    /// <summary><c>InitPowerInfo_R</c>.</summary>
     private void BuildRecursive(
         VertIndex nodeIndex,
         VertIndex dependency1,
@@ -539,7 +537,7 @@ public sealed class PowerInfo
         }
     }
 
-    /// <summary><c>AddDependency</c>, <c>disp_powerinfo.cpp:167</c>.</summary>
+    /// <summary><c>AddDependency</c>.</summary>
     /// <remarks>
     /// Both of stock's callers pass <c>bAddReverseDependency = true</c>, so the
     /// parameter is dropped and the reverse edge is always added.
@@ -579,7 +577,7 @@ public sealed class PowerInfo
     }
 
     /// <summary>
-    /// <c>GetFreeDependency</c>, <c>disp_powerinfo.cpp:154</c>: the first empty
+    /// <c>GetFreeDependency</c>: the first empty
     /// slot, or slot 0 when full.
     /// </summary>
     /// <remarks>
@@ -602,7 +600,7 @@ public sealed class PowerInfo
         return 0;
     }
 
-    /// <summary><c>WrapVertIndex</c>, <c>disp_powerinfo.cpp:136</c>.</summary>
+    /// <summary><c>WrapVertIndex</c>.</summary>
     /// <remarks>
     /// The negative branch is <c>sideLength - 1 - ((-v) % sideLength)</c>,
     /// which is NOT the usual positive modulus: for <c>v = -1</c> and a side
@@ -630,7 +628,7 @@ public sealed class PowerInfo
         }
     }
 
-    /// <summary><c>InitPowerInfoTriInfos_R</c>, <c>disp_powerinfo.cpp:319</c>.</summary>
+    /// <summary><c>InitPowerInfoTriInfos_R</c>.</summary>
     private void BuildTriInfos(VertIndex nodeIndex, ref int cursor, int level)
     {
         int iNode = VertIndexToInt(nodeIndex);
@@ -666,7 +664,7 @@ public sealed class PowerInfo
         }
     }
 
-    /// <summary><c>GetEdgeVertIndex</c>, <c>disp_powerinfo.cpp:104</c>.</summary>
+    /// <summary><c>GetEdgeVertIndex</c>.</summary>
     private static VertIndex EdgeVertIndex(int sideLength, int edge, int vert) => edge switch
     {
         (int)DispEdge.Right => new VertIndex(sideLength - 1, vert),
@@ -677,7 +675,7 @@ public sealed class PowerInfo
         _ => new VertIndex(vert, 0),
     };
 
-    /// <summary><c>Transform2D</c>, <c>disp_powerinfo.cpp:87</c>.</summary>
+    /// <summary><c>Transform2D</c>.</summary>
     private static VertIndex Transform2D(int orientation, VertIndex vert, VertIndex centre)
     {
         VertIndex translated = vert - centre;
@@ -691,10 +689,10 @@ public sealed class PowerInfo
         return transformed + centre;
     }
 
-    /// <summary><c>g_SideVertMul</c>, <c>disp_powerinfo.cpp:33</c>.</summary>
+    /// <summary><c>g_SideVertMul</c>.</summary>
     private static ReadOnlySpan<short> SideVertMul => [1, 0, 0, 1, -1, 0, 0, -1];
 
-    /// <summary><c>g_SideVertCorners</c>, <c>disp_powerinfo.cpp:35</c>, flattened.</summary>
+    /// <summary><c>g_SideVertCorners</c>, flattened.</summary>
     private static ReadOnlySpan<short> SideVertCornerMul =>
     [
         1, -1, 1, 1,
@@ -703,7 +701,7 @@ public sealed class PowerInfo
         -1, -1, 1, -1,
     ];
 
-    /// <summary><c>g_OrientationRotations</c>, <c>disp_powerinfo.cpp:66</c>, flattened.</summary>
+    /// <summary><c>g_OrientationRotations</c>, flattened.</summary>
     private static ReadOnlySpan<int> OrientationRotations =>
     [
         1, 0, 0, 1,
@@ -712,7 +710,7 @@ public sealed class PowerInfo
         0, -1, 1, 0,
     ];
 
-    /// <summary><c>g_ChildNodeIndexMul</c>, <c>disp_powerinfo.cpp:48</c>.</summary>
+    /// <summary><c>g_ChildNodeIndexMul</c>.</summary>
     private static readonly ImmutableArray<VertIndex> ChildNodeIndexMul =
     [
         new(1, 1),
@@ -721,7 +719,7 @@ public sealed class PowerInfo
         new(1, -1),
     ];
 
-    /// <summary><c>g_ChildNodeDependencies</c>, <c>disp_powerinfo.cpp:57</c>, flattened.</summary>
+    /// <summary><c>g_ChildNodeDependencies</c>, flattened.</summary>
     private static readonly ImmutableArray<VertIndex> ChildNodeDependencies =
     [
         new(1, 0), new(0, 1),

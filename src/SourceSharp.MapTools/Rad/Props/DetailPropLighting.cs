@@ -23,12 +23,12 @@ public sealed record DetailPropLightingResult(
     DetailObjectLump[] Props, DetailPropLightstylesLump[] LightStyles, int BogusProps);
 
 /// <summary>
-/// <c>ComputeDetailPropLighting</c> (<c>vraddetailprops.cpp:1009</c>): each detail
+/// <c>ComputeDetailPropLighting</c>: each detail
 /// prop's base colour and lightstyle colours.
 /// </summary>
 /// <remarks>
 /// <para>
-/// Per prop (<c>ComputeLighting</c>, <c>:783</c>): the brightest direct light --
+/// Per prop (<c>ComputeLighting</c>): the brightest direct light --
 /// every <c>activelights</c> entry whose PVS holds the prop's cluster, through
 /// <c>GatherSampleLightSSE</c> -- plus the same 162-ray ambient
 /// <c>CalcRayAmbientLighting</c> leaf ambient uses, over all 64 lightstyles
@@ -51,11 +51,11 @@ public sealed record DetailPropLightingResult(
 /// </remarks>
 public static class DetailPropLighting
 {
-    /// <summary><c>studiohdr_t::hull_min</c>'s offset (<c>studio.h</c>).</summary>
+    /// <summary><c>studiohdr_t::hull_min</c>'s offset.</summary>
     private const int HullMinOffset = 104;
 
     /// <summary>
-    /// The model centre offsets (<c>UnserializeModelDict</c>, <c>:833</c>):
+ /// The model centre offsets (<c>UnserializeModelDict</c>):
     /// half the sum of each dictionary model's hull extents, or zero when the
     /// model cannot be loaded.
     /// </summary>
@@ -94,7 +94,7 @@ public static class DetailPropLighting
     }
 
     /// <summary>
-    /// The sprite centre offsets (<c>UnserializeSpriteDict</c>, <c>:858</c>):
+ /// The sprite centre offsets (<c>UnserializeSpriteDict</c>):
     /// x 0, y and z the mid-points of the sprite's corners.
     /// </summary>
     /// <param name="lump">The detail prop lump.</param>
@@ -201,7 +201,7 @@ public static class DetailPropLighting
     /// <summary>
     /// Writes a pass's result into a map: the props back into <c>dprp</c> and
     /// the styles into this pass's lump (<c>WriteDetailLightingLumps</c>,
-    /// <c>:929</c>), leaving the other pass's style lump as it was.
+ ///), leaving the other pass's style lump as it was.
     /// </summary>
     /// <param name="bsp">The map.</param>
     /// <param name="lump">The detail prop lump the pass read.</param>
@@ -210,7 +210,7 @@ public static class DetailPropLighting
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// Stock rewrites BOTH style lumps every pass, having first read the other
-    /// pass's back in (<c>:1018-1025</c>); an absent one is written empty. The
+ /// Pass's back; an absent one is written empty. The
     /// same holds here: a missing other-pass lump becomes an empty one.
     /// </remarks>
     public static void WriteInto(BspData bsp, DetailPropLump lump, DetailPropLightingResult result, bool hdr)
@@ -253,7 +253,7 @@ public static class DetailPropLighting
 
     /// <summary>
     /// A style lump as its game lump: <c>int count</c> then the records
-    /// (<c>WriteDetailLightingLump</c>, <c>:912</c>), version 0.
+ /// (<c>WriteDetailLightingLump</c>), version 0.
     /// </summary>
     /// <param name="styles">The records.</param>
     /// <param name="hdr">Whether this is <c>dplh</c>.</param>
@@ -272,7 +272,7 @@ public static class DetailPropLighting
     }
 
     /// <summary>
-    /// A style game lump's records (<c>UnserializeDetailPropLighting</c>, <c>:936</c>).
+ /// A style game lump's records (<c>UnserializeDetailPropLighting</c>).
     /// </summary>
     /// <param name="entry">The <c>dplt</c> or <c>dplh</c> lump.</param>
     /// <returns>The records.</returns>
@@ -289,7 +289,7 @@ public static class DetailPropLighting
             bytes.Slice(4, count * System.Runtime.CompilerServices.Unsafe.SizeOf<DetailPropLightstylesLump>())).ToArray();
     }
 
-    /// <summary><c>ComputeWorldCenter</c> (<c>:130</c>): the prop's centre and up vector.</summary>
+ /// <summary><c>ComputeWorldCenter</c>: the prop's centre and up vector.</summary>
     /// <param name="prop">The prop.</param>
     /// <param name="modelCentres">Model centre offsets.</param>
     /// <param name="spriteCentres">Sprite centre offsets.</param>
@@ -329,8 +329,8 @@ public static class DetailPropLighting
     }
 
     /// <summary>
-    /// <c>AngleVectors</c> (<c>mathlib_base.cpp:919</c>) with <c>SinCos</c> as
-    /// <c>sinf</c>/<c>cosf</c> (<c>math_pfns.h:15</c>).
+    /// <c>AngleVectors</c> with <c>SinCos</c> as
+    /// <c>sinf</c>/<c>cosf</c>.
     /// </summary>
     /// <param name="angles">Pitch, yaw, roll in degrees.</param>
     /// <returns>Forward, right, up.</returns>
@@ -387,7 +387,7 @@ public static class DetailPropLighting
 
         if (!IsValid(origin) || !IsValid(normal))
         {
-            // :168-183 and :757-772: fill with the debug colour.
+ // 168-183: fill with the debug colour.
             for (int s = 0; s < RayAmbientLighting.MaxLightStyles; s++)
             {
                 c.Direct[s] = new Vec3(1, 0, 0);
@@ -398,7 +398,7 @@ public static class DetailPropLighting
             return c;
         }
 
-        // ComputeMaxDirectLighting, :160.
+ // ComputeMaxDirectLighting.
         int cluster = ClusterFromPoint(scene, origin);
         for (int i = 0; i < lights.Count; i++)
         {
@@ -415,20 +415,20 @@ public static class DetailPropLighting
             c.Direct[dl.Style] = Ma(c.Direct[dl.Style], scale, dl.Intensity);
         }
 
-        // ComputeAmbientLightingAtPoint, :622.
+ // ComputeAmbientLightingAtPoint.
         ambient.Compute(origin, c.Ambient);
         return c;
     }
 
     private static bool IsValid(Vec3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
 
-    /// <summary><c>PVSCheck</c> (<c>vrad.h:372</c>): a negative cluster is always visible.</summary>
+    /// <summary><c>PVSCheck</c>: a negative cluster is always visible.</summary>
     private static bool PvsCheck(byte[] pvs, int cluster) =>
         cluster < 0 || (pvs[cluster >> 3] & (1 << (cluster & 7))) != 0;
 
     /// <summary>
-    /// <c>ClusterFromPoint</c> (<c>vismat.cpp:123</c>) over <c>PointInLeaf</c>
-    /// (<c>:95</c>): straddling the plane within <c>TEST_EPSILON</c> (0.1, a
+    /// <c>ClusterFromPoint</c> over <c>PointInLeaf</c>
+ /// Straddling the plane within <c>TEST_EPSILON</c> (0.1, a
     /// double) tries the front child first and keeps it unless its cluster is -1.
     /// </summary>
     /// <param name="scene">The map.</param>
@@ -484,7 +484,7 @@ public static class DetailPropLighting
     }
 
     /// <summary>
-    /// <c>ComputeAmbientLightingAtPoint</c> (<c>vraddetailprops.cpp:622</c>)
+    /// <c>ComputeAmbientLightingAtPoint</c>
     /// with a worker's displacement scratch.
     /// </summary>
     private sealed class PropAmbient

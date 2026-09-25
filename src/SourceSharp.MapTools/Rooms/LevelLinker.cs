@@ -19,7 +19,7 @@ namespace SourceSharp.MapTools.Rooms;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The link is <b>relocation, not rebuild</b> (plan_maptools.md §10b): each
+/// The link is <b>relocation, not rebuild</b>: each
 /// room's compiled BSP — planes, vertices, faces, edges, its own node subtree,
 /// leaves, brushes — is carried in verbatim and moved by <see cref="RoomTransform"/>:
 /// a quarter turn about +z and a whole-cell translation, so every relocated
@@ -824,7 +824,7 @@ public static class LevelLinker
     /// dot is an integer times an integer, so the relocated plane is exactly
     /// representable — the same input byte-yields on any thread (I14). The
     /// plane's flip entry is rebuilt as the exact negation of the transformed
-    /// non-flip, which is what the pair contract in <c>bspfile.h:473</c> asks
+    /// non-flip, which is what the pair contract in the reference implementation asks
     /// for and what survives a vbsp that stored either side non-canonical.
     /// </remarks>
     private static DPlane[] TransformPlanes(DPlane[] planes, RoomTransform transform)

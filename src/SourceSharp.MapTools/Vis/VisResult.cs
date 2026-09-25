@@ -72,7 +72,7 @@ public sealed class VisResult
     public int RowBytes { get; }
 
     /// <summary>The size of the visibility lump that was written.</summary>
-    /// <remarks>Stock's <c>visdatasize</c> (<c>vvis.cpp:1191</c>).</remarks>
+    /// <remarks>Stock's <c>visdatasize</c>.</remarks>
     public int VisDataSize { get; }
 
     /// <summary>
@@ -129,7 +129,7 @@ public sealed class VisResult
     /// </summary>
     /// <remarks>
     /// Stock writes these to <c>&lt;map&gt;.lin</c> as one <c>%f %f %f</c> per
-    /// line (<c>flow.cpp:446-470</c>). Returning the points rather than writing
+    /// line. Returning the points rather than writing
     /// a file is the library rule: rendering it is the caller's, and a host that
     /// wants to draw it in its own viewer never touches a disk.
     /// </remarks>

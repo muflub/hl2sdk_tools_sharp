@@ -4,7 +4,7 @@ namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
 /// Walks the vertices two displacements share along ONE sub-neighbour:
-/// <c>CDispSubEdgeIterator</c>, <c>disp_common.h:48</c>.
+/// <c>CDispSubEdgeIterator</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -39,7 +39,7 @@ public struct DispSubEdgeIterator
 
     /// <summary>
     /// Points the iterator at one sub-neighbour:
-    /// <c>CDispSubEdgeIterator::Start</c>, <c>disp_common.cpp:478</c>.
+    /// <c>CDispSubEdgeIterator::Start</c>.
     /// </summary>
     /// <param name="disp">The displacement to walk from.</param>
     /// <param name="edge">Which of its edges.</param>
@@ -103,7 +103,7 @@ public struct DispSubEdgeIterator
 
 /// <summary>
 /// Walks every vertex one displacement shares along one whole edge, across
-/// both sub-neighbours: <c>CDispEdgeIterator</c>, <c>disp_common.h:84</c>.
+/// both sub-neighbours: <c>CDispEdgeIterator</c>.
 /// </summary>
 /// <remarks>
 /// Corner vertices are never visited, and neither is the edge's own midpoint
@@ -160,7 +160,7 @@ public struct DispEdgeIterator
 
 /// <summary>
 /// Walks every vertex on the boundary of a displacement, corners included:
-/// <c>CDispCircumferenceIterator</c>, <c>disp_common.h:114</c>.
+/// <c>CDispCircumferenceIterator</c>.
 /// </summary>
 /// <remarks>
 /// The order is left edge upward, top rightward, right downward, bottom

@@ -10,7 +10,7 @@ using SourceSharp.MapTools.Phys;
 namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
-/// The VMF-to-<see cref="MapFile"/> half of <c>utils/vbsp/map.cpp</c>: the
+/// The VMF-to-<see cref="MapFile"/> half of the reference implementation: the
 /// entity, solid and side callbacks, and the per-classname dispatch that
 /// follows an entity.
 /// </summary>
@@ -20,9 +20,9 @@ namespace SourceSharp.MapTools.Bsp;
 /// sub-chunks arrive interleaved in FILE order. That interleaving is
 /// behaviour, not an artefact: <c>classname func_detail</c> sets the base
 /// contents that the <c>solid</c> chunks after it are loaded with
-/// (<c>map_shared.cpp:30</c> feeding <c>map.cpp:3003</c>), and inside a side
+/// (feeding), and inside a side
 /// the <c>material</c> key seeds flags that a later <c>flags</c> key ORs into
-/// (<c>map.cpp:2857</c> and <c>:2899</c>). So this walks the parsed chunk's
+///So this walks the parsed chunk's
 /// children in order and dispatches each, rather than reading keys first and
 /// chunks second.
 /// </para>
@@ -67,8 +67,8 @@ public static class MapFileLoader
     /// <remarks>
     /// The root-level chunks vbsp registers handlers for are exactly
     /// <c>world</c> and <c>entity</c>, both going to the same callback
-    /// (<c>map.cpp:2615-2616</c>), and root-level KEYS are ignored — stock's
-    /// own comment says so at <c>map.cpp:2621</c>. So <c>versioninfo</c>,
+    /// And root-level KEYS are ignored — stock's
+    /// own comment says so. So <c>versioninfo</c>,
     /// <c>visgroups</c>, <c>viewsettings</c>, <c>cameras</c> and <c>cordon</c>
     /// at the root are skipped, and worldspawn is entity 0 only because it
     /// comes first in the file.
@@ -81,7 +81,7 @@ public static class MapFileLoader
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(document);
 
-        // LoadSurfaceProperties runs before LoadMapFile (vbsp.cpp:1310), so
+        // LoadSurfaceProperties runs before LoadMapFile, so
         // every texdata the load creates resolves its $surfaceprop.
         context.TexDatas.PropertyTable ??= await SurfacePropertyTable
             .LoadAsync(context.Content, cancellationToken).ConfigureAwait(false);
@@ -105,7 +105,7 @@ public static class MapFileLoader
 
     /// <summary>
     /// Loads one <c>world</c> or <c>entity</c> chunk:
-    /// <c>CMapFile::LoadEntityCallback</c>, <c>utils/vbsp/map.cpp:1492</c>.
+    /// <c>CMapFile::LoadEntityCallback</c>.
     /// </summary>
     /// <param name="context">The compile.</param>
     /// <param name="map">The map being loaded.</param>
@@ -143,7 +143,7 @@ public static class MapFileLoader
             {
                 if (string.Equals(key.Name, "mapversion", StringComparison.OrdinalIgnoreCase))
                 {
-                    // g_MapRevision, map_shared.cpp:52 -- stamped into the BSP
+ // G_MapRevision -- stamped into the BSP
                     // header later. The key is still stored under its own name.
                     context.MapRevision = VmfValue.ParseInt(key.Value);
                 }
@@ -168,7 +168,7 @@ public static class MapFileLoader
             }
             else if (string.Equals(child.Name, OverlayTransitionChunk, StringComparison.OrdinalIgnoreCase))
             {
-                // LoadOverlayTransitionCallback (map.cpp:1427): only its
+                // LoadOverlayTransitionCallback: only its
                 // overlaydata chunks, in order.
                 foreach (VmfChunk data in child.Chunks)
                 {
@@ -186,7 +186,6 @@ public static class MapFileLoader
 
     /// <summary>
     /// Applies one entity key: <c>LoadEntityKeyCallback</c>,
-    /// <c>utils/common/map_shared.cpp:24</c>.
     /// </summary>
     /// <param name="entity">The entity.</param>
     /// <param name="key">The key.</param>
@@ -241,7 +240,7 @@ public static class MapFileLoader
             return;
         }
 
-        // "mapversion" also sets g_MapRevision (map_shared.cpp:52), which is
+        // "mapversion" also sets g_MapRevision, which is
         // stamped into the BSP header. The revision lives on the context; the
         // key itself is stored under its own name either way, which is why
         // that branch and this line are the same line here.
@@ -250,7 +249,6 @@ public static class MapFileLoader
 
     /// <summary>
     /// Loads one <c>solid</c> chunk: <c>CMapFile::LoadSolidCallback</c>,
-    /// <c>utils/vbsp/map.cpp:2988</c>.
     /// </summary>
     /// <param name="context">The compile.</param>
     /// <param name="map">The map being loaded.</param>
@@ -371,7 +369,7 @@ public static class MapFileLoader
             MapEntity owner = map.Entities[brush.EntityNumber];
 
             // sprintf("%i %i %i") on floats cast to int: truncation toward
-            // zero, so a brush centred at -0.5 gives 0 and not -1 (map.cpp:3083).
+            // zero, so a brush centred at -0.5 gives 0 and not -1.
             owner.SetKeyValue(
                 "origin",
                 string.Create(
@@ -384,7 +382,7 @@ public static class MapFileLoader
 
         if (HasDisplacement(map, brush))
         {
-            // DispGetFaceInfo (map.cpp:3107, disp_vbsp.cpp:622) hands the base
+            // DispGetFaceInfo hands the base
             // face to the displacement: the side (winding, texinfo, planenum,
             // id) stays in the side array, and the brush's contents and entity
             // go onto the displacement. The brush itself is not kept.
@@ -416,7 +414,6 @@ public static class MapFileLoader
 
     /// <summary>
     /// Loads one <c>side</c> chunk: <c>CMapFile::LoadSideCallback</c>,
-    /// <c>utils/vbsp/map.cpp:2700</c>.
     /// </summary>
     /// <param name="context">The compile.</param>
     /// <param name="map">The map being loaded.</param>
@@ -435,13 +432,13 @@ public static class MapFileLoader
     /// to detail; <c>-fulldetail</c> then clears detail everywhere; a side with
     /// no visible contents and no clip contents is made solid; and finally a
     /// hint or skip side has its contents cleared to nothing at all
-    /// (<c>map.cpp:2731-2754</c>). Reordering any two of those changes which
+    /// Reordering any two of those changes which
     /// brushes the BSP treats as solid.
     /// </para>
     /// <para>
     /// A side whose plane duplicates or mirrors one already on the brush is
     /// DROPPED — the side is not committed and the brush's count does not grow
-    /// (<c>map.cpp:2766-2784</c>) — but the plane it created stays in the plane
+    /// — but the plane it created stays in the plane
     /// table, because <c>PlaneFromPoints</c> ran before the check.
     /// </para>
     /// </remarks>
@@ -550,7 +547,7 @@ public static class MapFileLoader
                 .ConfigureAwait(false);
         }
 
-        // LoadSideCallback's "dispinfo" sub-chunk handler (map.cpp:2720):
+        // LoadSideCallback's "dispinfo" sub-chunk handler:
         // the displacement is read with the side and hangs off it.
         VmfChunk? dispinfo = chunk.GetChunk("dispinfo");
         if (dispinfo is not null)
@@ -565,7 +562,6 @@ public static class MapFileLoader
 
     /// <summary>
     /// The contents of a whole brush: <c>BrushContents</c>,
-    /// <c>utils/vbsp/map.cpp:407</c>.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <param name="brush">The brush.</param>
@@ -610,7 +606,6 @@ public static class MapFileLoader
 
     /// <summary>
     /// Whether a classname is an areaportal: <c>IsAreaPortal</c>,
-    /// <c>utils/vbsp/map.cpp:445</c>.
     /// </summary>
     /// <param name="className">The classname.</param>
     /// <returns>True when it starts with <c>func_areaportal</c>.</returns>
@@ -655,7 +650,6 @@ public static class MapFileLoader
     /// <summary>
     /// Forces <c>CONTENTS_WINDOW</c> on the brushes an areaportal window points
     /// at: <c>ForceFuncAreaPortalWindowContents</c>,
-    /// <c>utils/vbsp/map.cpp:1816</c>.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <exception cref="ArgumentNullException"><paramref name="map"/> is null.</exception>
@@ -707,7 +701,6 @@ public static class MapFileLoader
 
     /// <summary>
     /// The first entity with a given <c>targetname</c>: <c>EntityByName</c>,
-    /// <c>utils/vbsp/map.cpp:1798</c>.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <param name="name">The target name, matched case-insensitively.</param>
@@ -735,7 +728,7 @@ public static class MapFileLoader
 
     /// <summary>
     /// Writes a brush entity's bounds onto it as six keys:
-    /// <c>CMapFile::AddLadderKeys</c>, <c>utils/vbsp/map.cpp:1445</c>.
+    /// <c>CMapFile::AddLadderKeys</c>.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <param name="entity">The ladder entity.</param>
@@ -775,7 +768,7 @@ public static class MapFileLoader
 
     /// <summary>
     /// Rewrites a space-separated list of side ids as side indices:
-    /// <c>ConvertSideList</c>, <c>utils/vbsp/map.cpp:1248</c>.
+    /// <c>ConvertSideList</c>.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <param name="entity">The entity holding the list.</param>
@@ -814,7 +807,7 @@ public static class MapFileLoader
 
     /// <summary>
     /// The contents that make a surface visible:
-    /// <c>ALL_VISIBLE_CONTENTS</c>, <c>public/bspflags.h:36</c>.
+    /// <c>ALL_VISIBLE_CONTENTS</c>.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -824,7 +817,7 @@ public static class MapFileLoader
     /// not that bit has a name today. Writing it instead as an OR of the named
     /// flags is how this constant came to be <c>0xBF</c>:
     /// <c>CONTENTS_BLOCKLOS</c> (<c>0x40</c>) sits inside the range and was not
-    /// in the list, so the solid default at <c>map.cpp:2745</c> fired for a
+    /// in the list, so the solid default fired for a
     /// <c>%compileBlockLOS</c> brush and gave it a <c>CONTENTS_SOLID</c> stock
     /// does not. Observed on <c>l1_tool_textures</c> brush 9: stock
     /// <c>0x8000040</c>, this port <c>0x8000041</c>.
@@ -839,7 +832,7 @@ public static class MapFileLoader
 
     /// <summary>
     /// The highest contents bit that makes a surface visible:
-    /// <c>LAST_VISIBLE_CONTENTS</c>, <c>public/bspflags.h:34</c>.
+    /// <c>LAST_VISIBLE_CONTENTS</c>.
     /// </summary>
     /// <remarks>
     /// <c>CONTENTS_OPAQUE</c>'s bit. Stock's own comment above the unused
@@ -875,14 +868,13 @@ public static class MapFileLoader
 
             MapKeyValue pair = entity.AddKeyValue(key.Name, key.Value);
 
-            // m_ConnectionPairs is a stack: newest first (map.cpp:2953).
+            // m_ConnectionPairs is a stack: newest first.
             map.ConnectionPairs.Insert(0, pair);
         }
     }
 
     /// <summary>
     /// Applies one side key: <c>LoadSideKeyCallback</c>,
-    /// <c>utils/vbsp/map.cpp:2830</c>.
     /// </summary>
     /// <param name="context">The compile.</param>
     /// <param name="side">The side being built.</param>
@@ -900,7 +892,7 @@ public static class MapFileLoader
     /// through <c>-replacematerials</c>, classifies it through
     /// <see cref="TextureReferenceTable.FindMiptexAsync"/>, and then SETS —
     /// not ORs — the side's contents and surface from the result
-    /// (<c>map.cpp:2857-2861</c>). A <c>contents</c> or <c>flags</c> key
+    /// A <c>contents</c> or <c>flags</c> key
     /// earlier in the same side is therefore overwritten by a later
     /// <c>material</c>, which is why the keys are applied in file order.
     /// </para>
@@ -990,7 +982,7 @@ public static class MapFileLoader
         }
         else if (string.Equals(key, "lightmapscale", StringComparison.OrdinalIgnoreCase))
         {
-            // atoi, NOT atof: "16.5" is 16 (map.cpp:2881).
+            // atoi, NOT atof: "16.5" is 16.
             float luxel = VmfValue.ParseInt(value);
 
             if (luxel == 0f)
@@ -1016,7 +1008,7 @@ public static class MapFileLoader
             td.Flags |= VmfValue.ParseInt(value);
 
             // ASSIGNMENT, not an OR: a flags key replaces whatever the
-            // material contributed to the side's surf (map.cpp:2900).
+            // material contributed to the side's surf.
             side.Surface = td.Flags;
         }
 
@@ -1057,7 +1049,7 @@ public static class MapFileLoader
     }
 
     // sscanf("[%f %f %f %f] %f") -- all five fields, or the key is an error
-    // (map.cpp:2865-2869). The bracketed four are the axis and the shift; the
+    // The bracketed four are the axis and the shift; the
     // trailing one is world units per texel.
     private static bool TryParseAxis(string value, out Vec3 axis, out float shift, out float scale)
     {
@@ -1152,7 +1144,7 @@ public static class MapFileLoader
 
         if (string.Equals(className, "info_overlay", StringComparison.Ordinal))
         {
-            // Overlay_GetFromEntity (map.cpp:1649) parses the overlay and
+            // Overlay_GetFromEntity parses the overlay and
             // converts the entity to info_overlay_accessor. Overlays are a
             // later lane's; the entity number is recorded so that lane has
             // its list and nothing is silently dropped here.
@@ -1252,7 +1244,7 @@ public static class MapFileLoader
                 }
 
                 // The ORIGINAL placement, kept in side_brushtextures, is what
-                // the rebuilt texinfo is computed from (map.cpp:1579) -- not
+                // the rebuilt texinfo is computed from -- not
                 // the one the first pass already baked an origin into, because
                 // the first pass baked vec3_origin.
                 (side.TexInfo, BrushTexture fixedUp) = await TextureBuilder
@@ -1296,7 +1288,6 @@ public static class MapFileLoader
 
 /// <summary>
 /// One <c>env_cubemap</c> the map placed: <c>Cubemap_InsertSample</c>,
-/// <c>utils/vbsp/cubemap.cpp</c>.
 /// </summary>
 /// <param name="Origin">Where the sample is taken.</param>
 /// <param name="Size">The <c>cubemapsize</c> key, or zero for the default.</param>

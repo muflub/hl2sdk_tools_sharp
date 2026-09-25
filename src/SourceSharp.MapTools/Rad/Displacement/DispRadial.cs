@@ -7,12 +7,12 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 
 /// <summary>
 /// A displacement face's radial accumulation: stock's <c>radial_t</c>
-/// (<c>radial.h:37</c>), per luxel a weight and, per bump normal, a weighted
+/// Per luxel a weight and, per bump normal, a weighted
 /// light sum.
 /// </summary>
 public sealed class DispRadialMap
 {
-    /// <summary>Creates an empty map for a face (<c>AllocateRadial</c>, <c>radial.cpp:259</c>).</summary>
+    /// <summary>Creates an empty map for a face(<c>AllocateRadial</c>).</summary>
     /// <param name="faceNum">The face.</param>
     /// <param name="width">Luxels across.</param>
     /// <param name="height">Luxels down.</param>
@@ -47,8 +47,8 @@ public sealed class DispRadialMap
 
 /// <summary>
 /// The radial filter for displacement faces: <c>CVRadDispMgr::BuildLuxelRadial</c>,
-/// <c>BuildPatchRadial</c> and <c>SampleRadial</c> (<c>vraddisps.cpp:831-1420</c>),
-/// which <c>FinalLightFace</c> (<c>radial.cpp:706-780</c>) calls for a
+/// <c>BuildPatchRadial</c> and <c>SampleRadial</c>,
+/// which <c>FinalLightFace</c> calls for a
 /// displacement in place of the brush-face radial.
 /// </summary>
 /// <remarks>
@@ -67,21 +67,21 @@ public sealed class DispRadialMap
 /// Every accumulation runs in stock's order -- voxels z, y, x; each voxel's
 /// items in insertion order -- so the float sums are stock's. The patch
 /// radial's "already seen" test uses a per-call set instead of stock's shared
-/// <c>m_IterationKey</c> on each patch (<c>samplehash.cpp:159</c>), which is
+/// <c>m_IterationKey</c> on each patch, which is
 /// the same answer without writing shared state from a parallel face loop.
 /// </para>
 /// </remarks>
 public static class DispRadial
 {
-    /// <summary>The luxel radial's normal cut-off, <c>vraddisps.cpp:861</c>.</summary>
+    /// <summary>The luxel radial's normal cut-off.</summary>
     public const float MinSampleAngle = 0.15f;
 
-    /// <summary>A non-bumped neighbour's weight into a bumped luxel, <c>:891</c>.</summary>
+ /// <summary>A non-bumped neighbour's weight into a bumped luxel,.</summary>
     public const float UnbumpedNeighbourScale = 0.05f;
 
     /// <summary>
-    /// <c>BuildLuxelRadial</c> (<c>vraddisps.cpp:1033</c>) +
-    /// <c>RadialLuxelBuild</c> (<c>:1007</c>): the direct-light radial of one
+    /// <c>BuildLuxelRadial</c> +
+ /// <c>RadialLuxelBuild</c>: the direct-light radial of one
     /// light style.
     /// </summary>
     /// <param name="context">The lit world.</param>
@@ -122,7 +122,7 @@ public static class DispRadial
         bool bump,
         int lightStyle)
     {
-        // :932-944. 1/64 is exact, so the multiply is the divide.
+        // 932-944. 1/64 is exact, so the multiply is the divide.
         const float ooVoxelSize = 1.0f / VoxelKey.VoxelSize;
         Span<int> vMin = stackalloc int[3];
         Span<int> vMax = stackalloc int[3];
@@ -136,7 +136,7 @@ public static class DispRadial
         LightGeometry geometry = context.Geometry;
         float radius2 = radius * radius;
 
-        // :947-949. Each loop runs to vMax INCLUSIVE.
+        // Each loop runs to vMax INCLUSIVE.
         for (int z = vMin[2]; z < vMax[2] + 1; z++)
         {
             for (int y = vMin[1]; y < vMax[1] + 1; y++)
@@ -153,7 +153,7 @@ public static class DispRadial
 
                         FaceLight nfl = context.FaceLights[neighbourFace]!;
 
-                        // :974-987. The neighbour's slot holding this style.
+                        // The neighbour's slot holding this style.
                         int neighbourStyle = -1;
                         for (int k = 0; k < LightConstants.MaxLightmaps; k++)
                         {
@@ -181,7 +181,7 @@ public static class DispRadial
         }
     }
 
-    /// <summary><c>GetSampleLight</c> (<c>vraddisps.cpp:831</c>).</summary>
+    /// <summary><c>GetSampleLight</c>.</summary>
     private static void GetSampleLight(FaceLight fl, int styleIndex, bool bumped, int sample, Span<LightingValue> light)
     {
         if (bumped)
@@ -198,7 +198,7 @@ public static class DispRadial
     }
 
     /// <summary>
-    /// <c>AddSampleLightToRadial</c> (<c>vraddisps.cpp:855</c>): one sample's
+    /// <c>AddSampleLightToRadial</c>: one sample's
     /// weighted light into one luxel.
     /// </summary>
     /// <param name="samplePos">The sample's position.</param>
@@ -270,8 +270,8 @@ public static class DispRadial
     }
 
     /// <summary>
-    /// <c>BuildPatchRadial</c> (<c>vraddisps.cpp:1391</c>) +
-    /// <c>RadialPatchBuild</c> (<c>:1356</c>): the bounced-light radial, from
+    /// <c>BuildPatchRadial</c> +
+ /// <c>RadialPatchBuild</c>: the bounced-light radial,
     /// the leaf patches of the face and its neighbours near its luxels.
     /// </summary>
     /// <param name="context">The lit world.</param>
@@ -290,7 +290,7 @@ public static class DispRadial
         float radius2 = surface.PatchSampleRadius2;
         float radius = (float)Math.Sqrt(radius2);
 
-        // SAMPLEHASH_QUERY_ONCE (vrad.h:53) is defined: one query per face.
+        // SAMPLEHASH_QUERY_ONCE is defined: one query per face.
         List<int> interesting = GetInterestingPatchesForLuxels(context, faceNum, radius);
 
         int size = radial.Width * radial.Height;
@@ -314,7 +314,7 @@ public static class DispRadial
     }
 
     /// <summary>
-    /// <c>GetInterestingPatchesForLuxels</c> (<c>vraddisps.cpp:1250</c>): every
+    /// <c>GetInterestingPatchesForLuxels</c>: every
     /// leaf patch of the face or a neighbour in a voxel within
     /// <paramref name="radius"/> of a luxel, first-seen order.
     /// </summary>
@@ -417,7 +417,7 @@ public static class DispRadial
         return result;
     }
 
-    /// <summary><c>GetPatchLight</c> (<c>vraddisps.cpp:1089</c>).</summary>
+    /// <summary><c>GetPatchLight</c>.</summary>
     private static void GetPatchLight(in Patch patch, bool bump, Span<Vec3> light)
     {
         light[0] = patch.TotalLight.Flat;
@@ -431,7 +431,7 @@ public static class DispRadial
     }
 
     /// <summary>
-    /// <c>AddPatchLightToRadial</c> (<c>vraddisps.cpp:1108</c>).
+    /// <c>AddPatchLightToRadial</c>.
     /// </summary>
     /// <param name="patchOrigin">The patch origin.</param>
     /// <param name="patchNormal">Its normal.</param>
@@ -450,7 +450,7 @@ public static class DispRadial
     /// On a bumped face the luxel normal first goes through
     /// <c>PreGetBumpNormalsForDisp</c>, which may rotate it into the lightmap
     /// frame; the three bump normals <c>GetBumpNormals</c> then computes are
-    /// never read (<c>:1133</c>), so they are not computed here.
+ /// never read, so they are not computed here.
     /// </remarks>
     public static void AddPatchLightToRadial(
         Vec3 patchOrigin,
@@ -511,7 +511,7 @@ public static class DispRadial
     }
 
     /// <summary>
-    /// <c>CVRadDispMgr::SampleRadial</c> (<c>vraddisps.cpp:1058</c>): a luxel's
+    /// <c>CVRadDispMgr::SampleRadial</c>: a luxel's
     /// weighted mean, per bump normal.
     /// </summary>
     /// <param name="radial">The radial.</param>
@@ -542,7 +542,7 @@ public static class DispRadial
         return good;
     }
 
-    /// <summary><c>IsNeighbor</c> (<c>vraddisps.cpp:910</c>): the face itself or one of its <c>faceneighbor</c> list.</summary>
+    /// <summary><c>IsNeighbor</c>: the face itself or one of its <c>faceneighbor</c> list.</summary>
     /// <param name="neighbours">PairEdges' output.</param>
     /// <param name="face">The face.</param>
     /// <param name="other">The candidate.</param>

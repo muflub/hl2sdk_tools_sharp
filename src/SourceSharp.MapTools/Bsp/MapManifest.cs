@@ -6,7 +6,7 @@ using SourceSharp.MapTools.Io;
 namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
-/// One cordon volume: <c>Cordon_t</c>, <c>utils/vbsp/manifest.h:19</c>.
+/// One cordon volume: <c>Cordon_t</c>.
 /// </summary>
 /// <param name="Name">The cordon's name.</param>
 /// <param name="Active">Whether this cordon culls.</param>
@@ -14,7 +14,7 @@ namespace SourceSharp.MapTools.Bsp;
 public sealed record MapCordon(string Name, bool Active, IReadOnlyList<(Vec3 Mins, Vec3 Maxs)> Boxes);
 
 /// <summary>
-/// <c>CManifest</c>, <c>utils/vbsp/manifest.cpp</c>: a <c>.vmm</c> and the
+/// <c>CManifest</c>: a <c>.vmm</c> and the
 /// per-user <c>.vmm_prefs</c> beside it.
 /// </summary>
 /// <remarks>
@@ -23,7 +23,7 @@ public sealed record MapCordon(string Name, bool Active, IReadOnlyList<(Vec3 Min
 /// merge them itself: <c>LoadSubMaps</c> fabricates one synthetic worldspawn
 /// and one <c>func_instance</c> per sub-map, all at the origin with
 /// <c>fixup_style 2</c>, and the ordinary instance pipeline does the rest
-/// (<c>manifest.cpp:291</c>). So a manifest compile is an instance compile
+/// So a manifest compile is an instance compile
 /// with the entities written by the compiler instead of by Hammer.
 /// </para>
 /// <para>
@@ -37,7 +37,7 @@ public sealed record MapCordon(string Name, bool Active, IReadOnlyList<(Vec3 Min
 /// <para>
 /// The prefs file is named after the logged-in user
 /// (<c>&lt;manifest&gt;\&lt;username&gt;.vmm_prefs</c>,
-/// <c>manifest.cpp:367</c>), which makes a manifest compile depend on WHO runs
+///), which makes a manifest compile depend on WHO runs
 /// it. <see cref="LoadAsync"/> takes the user name explicitly rather than
 /// reading the environment, so a compile is reproducible and a test can pin
 /// it.
@@ -70,7 +70,7 @@ public sealed class MapManifest
 
     /// <summary>
     /// The directory the sub-VMFs live in: the manifest's path with its
-    /// extension stripped, plus a separator (<c>manifest.cpp:423-424</c>).
+    /// extension stripped, plus a separator.
     /// </summary>
     public string InstanceDirectory { get; }
 
@@ -89,13 +89,12 @@ public sealed class MapManifest
     /// <remarks>
     /// It has no classname and no keys at all — it exists only to hold brushes
     /// until <see cref="CordonWorld"/> hands them to worldspawn
-    /// (<c>manifest.cpp:231-240</c>).
     /// </remarks>
     public MapEntity? CordoningEntity { get; private set; }
 
     /// <summary>
     /// Reads a <c>.vmm</c> and the prefs beside it:
-    /// <c>CManifest::LoadVMFManifest</c>, <c>utils/vbsp/manifest.cpp:421</c>.
+    /// <c>CManifest::LoadVMFManifest</c>.
     /// </summary>
     /// <param name="context">The compile.</param>
     /// <param name="files">Where the manifest and prefs are read from.</param>
@@ -110,7 +109,7 @@ public sealed class MapManifest
     /// <exception cref="ArgumentNullException">Any required argument is null.</exception>
     /// <remarks>
     /// The order is the sub-map entities first and the cordoning entity last
-    /// (<c>manifest.cpp:441-445</c>), so the cordon walls are entity
+    /// So the cordon walls are entity
     /// <c>1 + submaps</c> and their brushes start at brush 0 — the map is still
     /// brush-empty when the prefs are read.
     /// </remarks>
@@ -163,7 +162,6 @@ public sealed class MapManifest
     /// <summary>
     /// Culls the map to the active cordons and folds the cordon walls into
     /// worldspawn: <c>CManifest::CordonWorld</c>,
-    /// <c>utils/vbsp/manifest.cpp:474</c>.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -263,7 +261,7 @@ public sealed class MapManifest
             {
                 // "File" is the only key with any effect. "Name", "IsPrimary"
                 // and "IsProtected" are parsed and thrown away -- their
-                // assignments are commented out in manifest.cpp:40-58.
+                // assignments are commented out in the reference implementation.
                 subMaps.Add(vmf.GetValue("File") ?? string.Empty);
             }
         }
@@ -281,7 +279,7 @@ public sealed class MapManifest
         {
             MapEntity instance = new();
 
-            // manifest.cpp:318-343, in call order -- and SetKeyValue prepends,
+            // In call order -- and SetKeyValue prepends,
             // so the pair list comes out reversed from this.
             instance.SetKeyValue("angles", "0 0 0");
             instance.SetKeyValue("fixup_style", MapInstanceMerger.NameFixupNone);
@@ -328,7 +326,7 @@ public sealed class MapManifest
     private void ReadCordons(VmfChunk cordons)
     {
         // "active" here is the MASTER switch; each cordon has its own.
-        // ReadKeyValueBool is atoi() > 0 (chunkfile.cpp:636), so the string
+        // ReadKeyValueBool is atoi > 0, so the string
         // "true" reads as FALSE -- Hammer writes "1".
         if (cordons.GetValue("active") is { } active)
         {
@@ -342,7 +340,7 @@ public sealed class MapManifest
             foreach (VmfChunk box in cordon.GetChunks("box"))
             {
                 // ReadKeyValuePoint: "(x y z)", PARENTHESISED -- not the
-                // bracketed form the manifest.cpp doc comment shows.
+                // bracketed form the reference implementation doc comment shows.
                 _ = VmfValue.TryParsePoint(box.GetValue("mins"), out Vec3 mins);
                 _ = VmfValue.TryParsePoint(box.GetValue("maxs"), out Vec3 maxs);
                 boxes.Add((mins, maxs));
@@ -366,7 +364,7 @@ public sealed class MapManifest
 
             foreach ((Vec3 boxMins, Vec3 boxMaxs) in cordon.Boxes)
             {
-                // BoundBox::IsIntersectingBox (boundbox.cpp:141): STRICT, so
+                // BoundBox::IsIntersectingBox: STRICT, so
                 // two boxes that merely touch do not intersect.
                 if (boxMins.X >= maxs.X || boxMaxs.X <= mins.X ||
                     boxMins.Y >= maxs.Y || boxMaxs.Y <= mins.Y ||
@@ -393,7 +391,7 @@ public sealed class MapManifest
 
             foreach ((Vec3 boxMins, Vec3 boxMaxs) in cordon.Boxes)
             {
-                // BoundBox::ContainsPoint (boundbox.cpp:122): INCLUSIVE on
+                // BoundBox::ContainsPoint: INCLUSIVE on
                 // both faces, unlike the box test above.
                 if (point.X < boxMins.X || point.X > boxMaxs.X ||
                     point.Y < boxMins.Y || point.Y > boxMaxs.Y ||

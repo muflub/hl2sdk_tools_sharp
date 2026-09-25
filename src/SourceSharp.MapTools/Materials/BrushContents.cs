@@ -1,7 +1,7 @@
 namespace SourceSharp.MapTools.Materials;
 
 /// <summary>
-/// <c>CONTENTS_*</c> from <c>src/public/bspflags.h:23-77</c>.
+/// <c>CONTENTS_*</c> from the reference implementation.
 /// </summary>
 /// <remarks>
 /// Only a handful are reachable from a material — <c>FindMiptex</c> sets

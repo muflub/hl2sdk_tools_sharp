@@ -8,14 +8,13 @@ using SourceSharp.MapTools.Materials;
 namespace SourceSharp.MapTools.Bsp.Tree;
 
 /// <summary>
-/// The tree-building half of <c>utils/vbsp/brushbsp.cpp</c>: the split
+/// The tree-building half of the reference implementation: the split
 /// heuristic, the recursive build and the leaf classification.
 /// </summary>
 public static class BrushBspTree
 {
     /// <summary>
     /// Which side of a plane a box is on: <c>BrushBspBoxOnPlaneSide</c>,
-    /// <c>brushbsp.cpp:453</c>.
     /// </summary>
     /// <param name="mins">The box's minimum.</param>
     /// <param name="maxs">The box's maximum.</param>
@@ -99,7 +98,7 @@ public static class BrushBspTree
 
     /// <summary>
     /// The cheap version of the split test, without counting real splits:
-    /// <c>QuickTestBrushToPlanenum</c>, <c>brushbsp.cpp:504</c>.
+    /// <c>QuickTestBrushToPlanenum</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush to test.</param>
@@ -155,7 +154,6 @@ public static class BrushBspTree
 
     /// <summary>
     /// How a plane would cut a brush: <c>TestBrushToPlanenum</c>,
-    /// <c>brushbsp.cpp:544</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush to test.</param>
@@ -180,13 +178,13 @@ public static class BrushBspTree
     /// not already on a node; a side crossing the plane counts unless it is
     /// <c>SURF_SKIP</c>. The per-point threshold is <b>0.1</b>, with the
     /// commented-out <c>PLANESIDE_EPSILON</c> beside it
-    /// (<c>brushbsp.cpp:600-603</c>) recording that it is deliberately a
+    /// Recording that it is deliberately a
     /// hundred times looser than the box test's.
     /// </para>
     /// <para>
     /// <b><paramref name="epsilonBrush"/> accumulates across the whole brush
     /// list, and stock never resets it per brush.</b> <c>SelectSplitSide</c>
-    /// zeroes it once per candidate plane (<c>brushbsp.cpp:908</c>) and then
+    /// zeroes it once per candidate plane and then
     /// passes the same variable to every brush, and <c>d_front</c>/<c>d_back</c>
     /// inside here also accumulate across every SIDE of one brush rather than
     /// being per-side. So "this plane only just clips something" is a property
@@ -285,7 +283,6 @@ public static class BrushBspTree
 
     /// <summary>
     /// Turns a node into a leaf and gives it its contents: <c>LeafNode</c>,
-    /// <c>brushbsp.cpp:755</c>.
     /// </summary>
     /// <param name="node">The node to make a leaf.</param>
     /// <param name="brushes">The fragments that landed here.</param>
@@ -341,7 +338,7 @@ public static class BrushBspTree
 
     /// <summary>
     /// Drops the areaportal fragments out of every leaf:
-    /// <c>RemoveAreaPortalBrushes_R</c>, <c>brushbsp.cpp:785</c>.
+    /// <c>RemoveAreaPortalBrushes_R</c>.
     /// </summary>
     /// <param name="node">The subtree root.</param>
     /// <exception cref="ArgumentNullException"><paramref name="node"/> is null.</exception>
@@ -354,7 +351,7 @@ public static class BrushBspTree
     /// </para>
     /// <para>
     /// <b>The test is <c>==</c> and not <c>&amp;</c></b>
-    /// (<c>brushbsp.cpp:794</c>): a brush is removed only if areaportal is the
+    /// A brush is removed only if areaportal is the
     /// WHOLE of its contents. That is what spares the water-areaportal combos
     /// <see cref="AreaportalWaterFixup"/> has just given extra bits to, which
     /// still have to be in the leaf for the water to work.
@@ -410,7 +407,7 @@ public static class BrushBspTree
 
     /// <summary>
     /// Whether a plane already appears above this node:
-    /// <c>CheckPlaneAgainstParents</c>, <c>brushbsp.cpp:814</c>.
+    /// <c>CheckPlaneAgainstParents</c>.
     /// </summary>
     /// <param name="planeNumber">The candidate plane.</param>
     /// <param name="node">The node being split.</param>
@@ -418,7 +415,7 @@ public static class BrushBspTree
     /// <exception cref="ArgumentNullException"><paramref name="node"/> is null.</exception>
     /// <remarks>
     /// Stock does not return anything: it calls <c>Error("Tried parent")</c>
-    /// and exits the process (<c>brushbsp.cpp:821</c>). That is an assertion
+    /// and exits the process. That is an assertion
     /// about the algorithm, not a report about the map — a plane reaching here
     /// twice means the <c>tested</c> flags or <c>TEXINFO_NODE</c> marking went
     /// wrong — so it comes back as a bool and
@@ -442,7 +439,7 @@ public static class BrushBspTree
 
     /// <summary>
     /// Whether a plane actually divides the node's volume:
-    /// <c>CheckPlaneAgainstVolume</c>, <c>brushbsp.cpp:825</c>.
+    /// <c>CheckPlaneAgainstVolume</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="planeNumber">The candidate plane.</param>
@@ -486,7 +483,6 @@ public static class BrushBspTree
 
     /// <summary>
     /// Chooses the plane to split a node on: <c>SelectSplitSide</c>,
-    /// <c>brushbsp.cpp:852</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brushes">The node's brush list.</param>
@@ -504,7 +500,7 @@ public static class BrushBspTree
     /// <para>
     /// <b>Two passes, and the first one that finds anything wins.</b> Pass 0
     /// considers only VISIBLE sides and pass 1 only non-visible ones — the test
-    /// is <c>side-&gt;visible ^ (pass&lt;1)</c> (<c>brushbsp.cpp:892</c>),
+    /// is <c>side-&gt;visible ^ (pass&lt;1)</c>,
     /// which reads backwards until you notice it is a skip. Structural geometry
     /// that a player can see therefore shapes the tree before geometry that
     /// cannot, and stock counts how often it had to fall through
@@ -522,7 +518,7 @@ public static class BrushBspTree
     /// </para>
     /// <para>
     /// <b>The winner is the first plane to strictly EXCEED the running best</b>
-    /// (<c>brushbsp.cpp:963</c>), so ties go to whichever was scored first —
+    /// So ties go to whichever was scored first —
     /// which makes the order of the brush list, and the order of sides within a
     /// brush, part of the output. Phase 3p's parallel scorer has to reduce with
     /// that same tie-break.
@@ -564,7 +560,7 @@ public static class BrushBspTree
                         || brush.Sides[i].Visible != (pass < 1))
                     {
                         // The last test is stock's `side->visible ^ (pass<1)`
-                        // (brushbsp.cpp:892) on two ints that only ever hold 0
+                        // On two ints that only ever hold 0
                         // or 1, which is a logical XOR: skip the side when its
                         // visibility does not match the pass. Pass 0 takes
                         // visible sides, pass 1 takes the rest.
@@ -625,7 +621,7 @@ public static class BrushBspTree
                         if (s == PlaneSideFlags.Both) { both++; }
                     }
 
-                    // `both` is counted by stock and never read (brushbsp.cpp:935).
+                    // `both` is counted by stock and never read.
                     // It is kept so that the loop is the loop.
                     _ = both;
 
@@ -702,7 +698,6 @@ public static class BrushBspTree
 
     /// <summary>
     /// Divides a brush list by a node's plane: <c>SplitBrushList</c>,
-    /// <c>brushbsp.cpp:1265</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brushes">The list to divide. Not freed here.</param>
@@ -721,7 +716,7 @@ public static class BrushBspTree
     /// </para>
     /// <para>
     /// <b>A brush FACING the plane has that plane's sides marked
-    /// <see cref="BspBrushSide.TexInfoNode"/></b> (<c>brushbsp.cpp:1306</c>),
+    /// <see cref="BspBrushSide.TexInfoNode"/></b>,
     /// on the copy, so the face is now the node's and will never be considered
     /// as a splitter or emitted as geometry again. The test is on
     /// <c>planenum &amp; ~1</c>, so both orientations are consumed.
@@ -729,7 +724,7 @@ public static class BrushBspTree
     /// <para>
     /// A brush whose saved side is neither front, back nor both is silently
     /// dropped — the copy is made and then linked to nothing. That is stock's
-    /// fall-through at <c>brushbsp.cpp:1322</c>, and it is reachable, because
+    /// fall-through, and it is reachable, because
     /// <see cref="BoxOnPlaneSide"/> can return 0.
     /// </para>
     /// </remarks>
@@ -801,7 +796,6 @@ public static class BrushBspTree
 
     /// <summary>
     /// Builds the tree under a node: <c>BuildTree_r</c>,
-    /// <c>brushbsp.cpp:1334</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="node">The node to fill in.</param>
@@ -823,7 +817,7 @@ public static class BrushBspTree
     /// allocated (so their ids are consecutive and precede everything in either
     /// subtree); the node's volume is split into theirs; and only then does the
     /// recursion happen, front child first. Allocating the children before
-    /// recursing is stock's own comment (<c>brushbsp.cpp:1363</c>) and it is
+    /// recursing is stock's own comment and it is
     /// what makes <c>node-&gt;id</c> a breadth-ish numbering rather than a
     /// depth-first one.
     /// </para>
@@ -873,7 +867,6 @@ public static class BrushBspTree
 
     /// <summary>
     /// The leaf a point falls in: <c>PointInLeaf</c>,
-    /// <c>brushbsp.cpp:418</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="node">The subtree root.</param>
@@ -885,7 +878,7 @@ public static class BrushBspTree
     /// <remarks>
     /// Takes the axial shortcut when the plane's stored type allows it, and
     /// sends a point exactly on the plane to the FRONT child (<c>d &gt;= 0</c>).
-    /// <c>NodeForPoint</c> in <c>tree.cpp</c> is the same walk without the
+    /// <c>NodeForPoint</c> in the reference implementation is the same walk without the
     /// shortcut, and the two can therefore disagree for a point within a
     /// rounding step of an axial plane — see
     /// <see cref="TreeOperations.NodeForPoint"/>.
@@ -914,7 +907,6 @@ public static class BrushBspTree
 
     /// <summary>
     /// Builds a tree from a brush list: <c>BrushBSP</c>,
-    /// <c>brushbsp.cpp:1393</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brushList">The brush list, consumed.</param>
@@ -927,10 +919,10 @@ public static class BrushBspTree
     /// <b>The tree's bounds are the BRUSHES' bounds, not the box it was asked
     /// for.</b> <paramref name="mins"/> and <paramref name="maxs"/> size the
     /// head node's VOLUME, while <see cref="BspTree.Mins"/> is accumulated from
-    /// every brush in the list (<c>brushbsp.cpp:1434</c>). For a block that is
+    /// every brush in the list. For a block that is
     /// the difference between "this 1024-unit column" and "the part of it that
     /// has anything in it" — and the caller then overwrites both with the block
-    /// grid's own numbers anyway (<c>vbsp.cpp:277-283</c>), which is why the
+    /// Grid's own numbers anyway, which is why the
     /// accumulation is invisible in a world compile and visible in a submodel.
     /// </para>
     /// <para>

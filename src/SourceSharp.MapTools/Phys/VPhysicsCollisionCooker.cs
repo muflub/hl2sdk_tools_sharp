@@ -8,7 +8,7 @@ using SourceSharp.MapTools.Io;
 namespace SourceSharp.MapTools.Phys;
 
 /// <summary>
-/// The collision cooker over Valve's own 64-bit <c>vphysics.so</c>: every call
+/// The collision cooker over the shipping 64-bit <c>vphysics.so</c>: every call
 /// is marshalled onto ONE dedicated thread.
 /// </summary>
 /// <remarks>
@@ -65,7 +65,7 @@ public sealed class VPhysicsCollisionCooker : ICollisionCooker
     /// <remarks>
     /// The SDK build of <c>vphysics.so</c> links <c>crtfastmath</c>, whose
     /// constructor sets FTZ and DAZ in MXCSR on the thread that loads it
-    /// (Ghidra comparison, re-vphys-findings §5). MXCSR is per thread but is
+    /// MXCSR is per thread but is
     /// INHERITED by threads that thread creates, and the .NET thread pool can
     /// create workers from the cooker thread; the first binding leaked FTZ onto
     /// a pool thread that way (measured). So the cooker captures the library's

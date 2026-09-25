@@ -4,7 +4,7 @@ using SourceSharp.MapFormats.Text;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// <c>LightForTexture</c> (<c>vrad.cpp:300</c>): the emissive colour of a
+/// <c>LightForTexture</c>: the emissive colour of a
 /// material, with vbsp's cubemap patch names unwound first.
 /// </summary>
 /// <remarks>
@@ -25,7 +25,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </para>
 /// <para>
 /// The unwind is three <c>strrchr('_')</c> truncations
-/// (<c>vrad.cpp:322-333</c>), applied only if all three found a separator. A
+/// Applied only if all three found a separator. A
 /// material whose own name contains underscores is therefore safe: the three
 /// stripped are the three vbsp appended.
 /// </para>
@@ -81,14 +81,14 @@ public sealed class TextureLightTable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        // vrad.cpp:308. Q_strncmp, case-SENSITIVE, unlike the table lookup it
+        // Q_strncmp, case-SENSITIVE, unlike the table lookup it
         // feeds.
         if (!name.StartsWith("maps/", StringComparison.Ordinal))
         {
             return name;
         }
 
-        // :311. Also case-sensitive, and a PREFIX test rather than an equality
+        // Also case-sensitive, and a PREFIX test rather than an equality
         // one -- so a level called "de_dust" matches a material under
         // "maps/de_dust2/...". Reproduced; the three-underscore test below is
         // what actually rejects the mismatch.
@@ -106,7 +106,7 @@ public sealed class TextureLightTable
 
         baseName = baseName[1..];
 
-        // :322-333. Three truncations at the LAST underscore each time. Stock
+        // Three truncations at the LAST underscore each time. Stock
         // tracks whether every one of them found a separator and keeps the
         // original name unless all three did.
         for (int i = 0; i < 3; i++)

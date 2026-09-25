@@ -10,8 +10,7 @@ namespace SourceSharp.MapTools.Validation;
 
 /// <summary>
 /// The engine's load-time rule set, transcribed as code: everything
-/// <c>engine/modelloader.cpp</c>, <c>engine/cmodel_bsp.cpp</c>,
-/// <c>engine/Overlay.cpp</c>, <c>engine/staticpropmgr.cpp</c> and the detail
+/// And the detail
 /// prop system demand of a map before they will load it.
 /// </summary>
 /// <remarks>
@@ -71,7 +70,7 @@ public static partial class BspValidator
     /// <para>
     /// <c>CMapLoadHelper::Init</c> reads the header, rejects a wrong ident, then
     /// rejects a version outside 19..20, and only then is there anything to
-    /// load (<c>engine/modelloader.cpp:453-468</c>). This method reproduces that
+    /// Load. This method reproduces that
     /// order: a file that fails the gate is reported and NOT parsed, because
     /// every later rule would be reading a file the engine never opened.
     /// </para>
@@ -120,8 +119,8 @@ public static partial class BspValidator
         }
 
         int version = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(4));
-        // The SDK-2013 modelloader itself stops at MINBSPVERSION..BSPVERSION,
-        // 19..20 (engine/modelloader.cpp:462-468, public/bspfile.h:24-25). The
+        // The reference model loader itself stops at MINBSPVERSION..BSPVERSION,
+        // 19..20. The
         // ceiling here is BspData.MaxVersion, 21: the branches of that era's
         // line (L4D2, Portal 2, Ep2) read 21, and the format presets write it,
         // so 19..21 is the range a legitimately produced map can carry. The
@@ -263,7 +262,7 @@ public static partial class BspValidator
         /// <remarks>
         /// Rounding down is what the engine does -- <c>count = LumpSize() /
         /// sizeof(*in)</c> after its modulus check
-        /// (<c>engine/modelloader.cpp:1780-1784</c>) -- so a lump that fails
+        /// -- so a lump that fails
         /// <see cref="BspRuleCodes.LumpElementSize"/> still yields a usable
         /// count here and the index rules keep running over it instead of the
         /// whole report stopping at the first ragged lump.

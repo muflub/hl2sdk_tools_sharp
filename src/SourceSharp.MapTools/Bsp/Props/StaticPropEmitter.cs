@@ -11,7 +11,7 @@ using SourceSharp.MapTools.Io;
 namespace SourceSharp.MapTools.Bsp.Props;
 
 /// <summary>
-/// <c>EmitStaticProps</c> (<c>utils/vbsp/staticprop.cpp:570-683</c>): every
+/// <c>EmitStaticProps</c>: every
 /// <c>prop_static</c> into the <c>sprp</c> game lump, and the props and
 /// <c>info_lighting</c> entities out of the entity lump.
 /// </summary>
@@ -19,13 +19,13 @@ namespace SourceSharp.MapTools.Bsp.Props;
 /// <para>
 /// <b>Stock call order.</b> In <c>EndBSPFile</c> after
 /// <c>EmitPhysCollision</c> and <c>ClearDistToClosestWater</c>, before
-/// <c>EmitDetailObjects</c> (<c>writebsp.cpp:1272</c>); also in the
-/// <c>-onlyents</c> and <c>-onlyprops</c> paths (<c>vbsp.cpp:1367,1395</c>).
+/// <c>EmitDetailObjects</c>; also in the
+/// <c>-onlyents</c> and <c>-onlyprops</c> paths.
 /// It reads the WRITTEN tree (<see cref="BspTreeView"/>).
 /// </para>
 /// <para>
 /// One collision model per distinct model, keyed on the lower-cased,
-/// forward-slashed name (<c>GetCollisionModel</c>, <c>:245-307</c>); a model
+/// forward-slashed name (<c>GetCollisionModel</c>); a model
 /// that failed to load is remembered as failed, so its warning is printed
 /// once.
 /// </para>
@@ -75,7 +75,7 @@ public sealed class StaticPropEmitter
 
         // Stock does one prop at a time: GetCollisionModel (load and cook the
         // model the first time it is named), ComputeStaticPropLeaves, append
-        // (staticprop.cpp:476-532). The props do not read each other, so this
+        // The props do not read each other, so this
         // runs it as passes (plan 3p): read every prop; load each new model
         // once, in the order stock first names it; cook the hulls (perhaps
         // already cooking since PrefetchAsync) and trace the leaves in
@@ -134,7 +134,7 @@ public sealed class StaticPropEmitter
                 Add(lump, prop.Build, prop.Leaves!, entities, lightingInfo);
             }
 
-            // staticprop.cpp:669, epairs = 0, whether or not it was emitted.
+            // Epairs = 0, whether or not it was emitted.
             prop.Entity.Clear();
         }
 
@@ -185,7 +185,7 @@ public sealed class StaticPropEmitter
 
     /// <summary>
     /// The entity's keys as <c>EmitStaticProps</c> reads them into a
-    /// <c>StaticPropBuild_t</c> (<c>staticprop.cpp:598-665</c>).
+    /// <c>StaticPropBuild_t</c>.
     /// </summary>
     /// <param name="entity">A <c>prop_static</c>.</param>
     /// <returns>The build.</returns>
@@ -260,7 +260,7 @@ public sealed class StaticPropEmitter
             LightmapResolutionY: lightmapY);
     }
 
-    // AddStaticPropToLump, staticprop.cpp:476-532, after its two queries:
+    // AddStaticPropToLump, after its two queries:
     // the model's hull is not null and the leaves are the prop's.
     private void Add(
         StaticPropLump lump,
@@ -299,7 +299,7 @@ public sealed class StaticPropEmitter
             LightmapResolutionY = unchecked((ushort)build.LightmapResolutionY),
         };
 
-        // ComputeLightingOrigin, :454-470: the LAST info_lighting whose
+ // ComputeLightingOrigin: the LAST info_lighting whose
         // targetname matches, case-sensitively.
         if (build.LightingOrigin.Length > 0)
         {
@@ -319,7 +319,7 @@ public sealed class StaticPropEmitter
         lump.LeafEntries.AddRange(leaves);
     }
 
-    // AddStaticPropDictLump, :131-143: strncpy into 128 bytes, then a memcmp
+ // AddStaticPropDictLump: strncpy into 128 bytes, then a memcmp
     // search from the END, so the match is by exact bytes.
     private static int AddDictionary(StaticPropLump lump, string modelName)
     {
@@ -342,7 +342,7 @@ public sealed class StaticPropEmitter
             || string.Equals(className, "prop_static", StringComparison.Ordinal);
     }
 
-    // s_ModelCollisionCache's key (staticprop.cpp:248-258): lower case,
+    // S_ModelCollisionCache's key: lower case,
     // forward slashes. A new entry keeps the spelling that named it first.
     private ModelEntry Entry(string modelName, List<ModelEntry> newModels)
     {
@@ -375,7 +375,7 @@ public sealed class StaticPropEmitter
         }
     }
 
-    // GetCollisionModel's cook half, :284-291, for many models at once,
+ // GetCollisionModel's cook half, for many models at once,
     // biggest first so that the longest cook starts first.
     private Task CookAsync(ModelEntry[] models, CancellationToken cancellationToken)
     {
@@ -408,7 +408,7 @@ public sealed class StaticPropEmitter
         }, cancellationToken);
     }
 
-    // GetCollisionModel's load half, :261-282: the warnings go to the model's
+ // GetCollisionModel's load half: the warnings go to the model's
     // own list and reach the compile's when its first prop is committed.
     private async ValueTask LoadAsync(ModelEntry model, CancellationToken cancellationToken)
     {
@@ -480,7 +480,7 @@ public sealed class StaticPropEmitter
         public IReadOnlyList<ushort>? Leaves { get; set; }
     }
 
-    // mstudiomodel_t::CacheVertexData, :703-759: "models/" + the header's own
+ // mstudiomodel_t::CacheVertexData: "models/" + the header's own
     // name, extension swapped for .vvd. Every failure there is Error().
     private async ValueTask<VvdFile> LoadVertexFileAsync(MdlFile mdl, CancellationToken cancellationToken)
     {
@@ -520,7 +520,7 @@ public sealed class StaticPropEmitter
 }
 
 /// <summary>
-/// <c>StaticPropBuild_t</c> (<c>staticprop.cpp:42-59</c>): one prop's keys,
+/// <c>StaticPropBuild_t</c>: one prop's keys,
 /// already interpreted.
 /// </summary>
 /// <param name="ModelName">The <c>model</c> key.</param>

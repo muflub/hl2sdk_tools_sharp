@@ -4,16 +4,16 @@ namespace SourceSharp.MapTools.Bsp.Csg;
 
 /// <summary>
 /// One side of a brush being carved: the fields of <c>side_t</c>
-/// (<c>utils/vbsp/vbsp.h:65</c>) that the CSG and BSP stages read or write.
+/// That the CSG and BSP stages read or write.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>A struct, where <see cref="MapBrushSide"/> is a class, and the difference
 /// is stock's.</b> <c>CreateClippedBrush</c> fills a new brush's sides with
 /// <c>memcpy (newbrush-&gt;sides, mb-&gt;original_sides,
-/// nNumSides*sizeof(side_t))</c> (<c>csg.cpp:235</c>) and <c>SplitBrush</c>
+/// nNumSides*sizeof(side_t))</c> and <c>SplitBrush</c>
 /// copies one side into another with <c>*cs = *s</c>
-/// (<c>brushbsp.cpp:1170</c>). Those are value copies: setting
+/// Those are value copies: setting
 /// <see cref="Tested"/> or <see cref="TexInfo"/> on a carved side does NOT
 /// reach the <see cref="MapBrushSide"/> it was copied from. Reference
 /// semantics here would silently join the two, and the join would show up as
@@ -21,10 +21,10 @@ namespace SourceSharp.MapTools.Bsp.Csg;
 /// </para>
 /// <para>
 /// <b>There is no <c>original</c> back-pointer, because stock's is always
-/// null.</b> <c>side_t::original</c> exists (<c>vbsp.h:71</c>) and
-/// <c>CopyMatchingTexinfos</c> reads it (<c>csg.cpp:325</c>), but the one line
-/// that would set it is commented out (<c>csg.cpp:250</c>) and
-/// <c>CMapFile::Init</c>'s memset (<c>map.cpp:70</c>) zeroes the field it is
+/// null.</b> <c>side_t::original</c> exists and
+/// <c>CopyMatchingTexinfos</c> reads it, but the one line
+/// that would set it is commented out and
+/// <c>CMapFile::Init</c>'s memset zeroes the field it is
 /// copied from. So <c>pSide-&gt;original</c> is null at every reachable call
 /// and that branch of <c>CopyMatchingTexinfos</c> is dead code. Reproducing a
 /// pointer that is never non-null would only invite someone to set it.
@@ -55,7 +55,7 @@ public struct BspBrushSide : IEquatable<BspBrushSide>
     /// <summary>The displacement on this side, or null. Phase 3f owns the type.</summary>
     /// <remarks>
     /// <c>pMapDisp</c>. Copied by the <c>memcpy</c> and cleared by hand on a
-    /// midwinding side (<c>brushbsp.cpp:1229</c>), which is why it is here and
+    /// midwinding side, which is why it is here and
     /// not left to the map side.
     /// </remarks>
     public IMapDisplacement? Displacement { get; set; }
@@ -79,7 +79,7 @@ public struct BspBrushSide : IEquatable<BspBrushSide>
     public bool Bevel { get; set; }
 
     /// <summary>
-    /// <c>TEXINFO_NODE</c>, <c>utils/vbsp/vbsp.h:32</c>: "side is allready on a
+    /// <c>TEXINFO_NODE</c>: "side is allready on a
     /// node".
     /// </summary>
     public const int TexInfoNode = -1;
@@ -91,7 +91,7 @@ public struct BspBrushSide : IEquatable<BspBrushSide>
     /// <remarks>
     /// The winding handle is copied as-is, NOT duplicated — stock's memcpy
     /// copies the pointer and <c>CreateClippedBrush</c> then replaces it with
-    /// <c>CopyWinding</c> on the next line (<c>csg.cpp:241</c>). Keeping the two
+    /// <c>CopyWinding</c> on the next line. Keeping the two
     /// steps apart keeps that order visible.
     /// </remarks>
     public static BspBrushSide From(MapBrushSide side)

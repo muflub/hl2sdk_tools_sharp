@@ -5,21 +5,21 @@ using SourceSharp.MapFormats.Text;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// <c>ValueForKey</c> and its numeric siblings, as <c>bsplib.cpp</c> defines
+/// <c>ValueForKey</c> and its numeric siblings, as defines
 /// them for the compiled-map entity list vrad reads.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Not the same functions as <c>MapEntity</c>'s.</b> That class models
 /// vbsp's <c>.map</c> entity and matches keys CASE-INSENSITIVELY, because
-/// <c>map_shared</c> does. <c>bsplib.cpp:3128</c>'s <c>ValueForKey</c> uses
+/// <c>map_shared</c> does. the reference implementation's <c>ValueForKey</c> uses
 /// <c>strcmp</c> and is case-SENSITIVE, and vrad reads only through that one.
 /// Two different functions with the same name in two files is a trap worth one
 /// separate type.
 /// </para>
 /// <para>
 /// <b>The pair list is searched BACKWARDS.</b> <c>ParseEntity</c>
-/// (<c>bsplib.cpp:3052-3057</c>) PREPENDS each pair, so stock's list is in
+/// PREPENDS each pair, so stock's list is in
 /// reverse file order and <c>ValueForKey</c>'s "first match" is the LAST
 /// occurrence in the file. <see cref="BspEntity.Pairs"/> is in file order, so
 /// matching stock means walking it from the end. That only shows on an entity
@@ -31,7 +31,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 public static class EntityKeys
 {
     /// <summary>
-    /// <c>ValueForKey</c> (<c>bsplib.cpp:3128</c>).
+    /// <c>ValueForKey</c>.
     /// </summary>
     /// <param name="entity">The entity.</param>
     /// <param name="key">The key, matched case-sensitively.</param>
@@ -41,7 +41,7 @@ public static class EntityKeys
         ValueForKeyOrNull(entity, key) ?? string.Empty;
 
     /// <summary>
-    /// <c>ValueForKeyWithDefault</c> (<c>lightmap.cpp:1465</c>), which returns
+    /// <c>ValueForKeyWithDefault</c>, which returns
     /// null rather than the empty string so that "present but empty" is
     /// distinguishable.
     /// </summary>
@@ -51,7 +51,7 @@ public static class EntityKeys
     /// <exception cref="ArgumentNullException">Either argument is null.</exception>
     /// <remarks>
     /// The distinction is load-bearing exactly once: <c>SunSpreadAngle</c> on
-    /// a <c>light_environment</c> (<c>:1483</c>). A present-but-empty key sets
+ /// a <c>light_environment</c>. A present-but-empty key sets
     /// <c>g_SunAngularExtent</c> to <c>atof("")</c> = 0 and PRINTS, where an
     /// absent one leaves the previous value; the two are otherwise the same
     /// number.
@@ -60,7 +60,7 @@ public static class EntityKeys
         ValueForKeyOrNull(entity, key);
 
     /// <summary>
-    /// <c>FloatForKey</c> (<c>bsplib.cpp:3162</c>).
+    /// <c>FloatForKey</c>.
     /// </summary>
     /// <param name="entity">The entity.</param>
     /// <param name="key">The key.</param>
@@ -70,7 +70,7 @@ public static class EntityKeys
         VmfValue.ParseFloat(ValueForKey(entity, key));
 
     /// <summary>
-    /// <c>FloatForKeyWithDefault</c> (<c>bsplib.cpp:3168</c>).
+    /// <c>FloatForKeyWithDefault</c>.
     /// </summary>
     /// <param name="entity">The entity.</param>
     /// <param name="key">The key.</param>
@@ -86,7 +86,7 @@ public static class EntityKeys
     }
 
     /// <summary>
-    /// <c>IntForKey</c> (<c>bsplib.cpp:3156</c>).
+    /// <c>IntForKey</c>.
     /// </summary>
     /// <param name="entity">The entity.</param>
     /// <param name="key">The key.</param>
@@ -96,7 +96,7 @@ public static class EntityKeys
         VmfValue.ParseInt(ValueForKey(entity, key));
 
     /// <summary>
-    /// <c>GetVectorForKey</c> (<c>bsplib.cpp:3194</c>).
+    /// <c>GetVectorForKey</c>.
     /// </summary>
     /// <param name="entity">The entity.</param>
     /// <param name="key">The key.</param>

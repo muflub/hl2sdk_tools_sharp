@@ -5,7 +5,7 @@ namespace SourceSharp.MapTools.Phys.Managed;
 
 /// <summary>
 /// The IVP builders at one precision, behind one non-generic face so the session code is written
-/// once (the arithmetic is still chosen once per cooker: SDK float or TF2 double).
+/// once (the arithmetic is still chosen once per cooker: stock float or TF2 double).
 /// </summary>
 internal interface IIvpBuild
 {
@@ -29,7 +29,7 @@ internal interface IIvpBuild
 }
 
 /// <summary><see cref="IIvpBuild"/> at one precision over one thread's scratch.</summary>
-/// <typeparam name="T">float (SDK 2013) or double (TF2).</typeparam>
+/// <typeparam name="T">float (stock) or double (TF2).</typeparam>
 /// <typeparam name="TP">The matching precision policy.</typeparam>
 internal sealed class IvpBuild<T, TP>(IvpCookContext context) : IIvpBuild
     where T : unmanaged, IBinaryFloatingPointIeee754<T>

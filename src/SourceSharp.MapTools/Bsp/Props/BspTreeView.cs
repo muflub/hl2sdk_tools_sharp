@@ -54,7 +54,7 @@ public sealed record BspTreeView(DNode[] Nodes, DPlane[] Planes, int[] LeafConte
     }
 
     /// <summary>
-    /// <c>ComputeDetailLeaf</c> (<c>detailobjects.cpp:414-429</c>): the leaf a
+    /// <c>ComputeDetailLeaf</c>: the leaf a
     /// point falls in, a point exactly on a plane going FRONT.
     /// </summary>
     /// <param name="point">The point.</param>

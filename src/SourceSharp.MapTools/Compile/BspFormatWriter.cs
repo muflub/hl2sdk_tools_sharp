@@ -14,7 +14,7 @@ namespace SourceSharp.MapTools.Compile;
 /// (<c>Compile.MapCompiler</c>'s chain write and <c>ssmap vbsp</c>'s
 /// <c>VbspCommand.WriteBspAsync</c>) ask <see cref="ToWriteFormat"/> and pass
 /// the result to the format-aware <c>BspFile.SaveAsync</c> overload when it is
-/// non-null — the seam T1/T2 left open is closed (tools++ T3); this class
+/// non-null — the seam T1/T2 left open is closed (the T3 feature lane); this class
 /// remains the one place the mapping lives, with its facts.
 /// </para>
 /// <para>
@@ -29,7 +29,7 @@ namespace SourceSharp.MapTools.Compile;
 /// <c>noineligiblevertexlitprops</c>, <c>csgoclipcontents</c>,
 /// <c>dispinfolimit</c>) are compile-BEHAVIOUR flags: they change what the
 /// compiler generates, not the container, so they never reach the writer;
-/// the tools++ T3/T4 feature lanes consume them off the resolved record.
+/// the T3/T4 feature lanes consume them off the resolved record.
 /// </para>
 /// <para>
 /// The L4D2 layout flag is inert unless the header version is 21 (T1's ctor

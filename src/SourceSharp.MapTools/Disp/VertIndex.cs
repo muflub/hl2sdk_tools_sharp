@@ -1,16 +1,15 @@
 namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
-/// A vertex's position in a displacement's square grid: <c>CVertIndex</c>,
-/// <c>public/disp_vertindex.h:23</c>.
+/// A vertex's position in a displacement's square grid: <c>CVertIndex</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>The components are short, and that is load bearing rather than thrift.</b>
-/// <c>RotateVertIncrement</c> (<c>disp_common.cpp:134</c>) negates an
+/// <c>RotateVertIncrement</c> negates an
 /// increment, <c>CDispSubEdgeIterator::Start</c> steps an index one increment
-/// BEFORE the first vertex (<c>disp_common.cpp:487</c>), and
-/// <c>WrapVertIndex</c> (<c>disp_powerinfo.cpp:136</c>) is handed indices
+/// BEFORE the first vertex, and
+/// <c>WrapVertIndex</c> is handed indices
 /// outside the grid on purpose. Negative and out-of-range values are part of
 /// the arithmetic, so this is a signed pair and not an unsigned one; 16 bits is
 /// simply what stock chose, and a displacement side is at most 17 posts.
@@ -27,8 +26,8 @@ public readonly record struct VertIndex(short X, short Y)
     /// <summary>The index stock uses to mean "no vertex": (-1, -1).</summary>
     /// <remarks>
     /// <c>CVertInfo::CVertInfo</c> fills the dependency arrays with it
-    /// (<c>disp_powerinfo.cpp:227</c>) and <c>CVertDependency::IsValid</c>
-    /// tests <b>only x</b> against -1 (<c>disp_powerinfo.h:63</c>), which is
+    /// And <c>CVertDependency::IsValid</c>
+    /// tests <b>only x</b> against -1, which is
     /// why nothing may construct a (-1, y) index and expect it to be treated
     /// as real.
     /// </remarks>
@@ -55,7 +54,7 @@ public readonly record struct VertIndex(short X, short Y)
     /// </exception>
     /// <remarks>
     /// Stock reaches the components through <c>operator[]</c> by casting
-    /// <c>this</c> to <c>short*</c> (<c>disp_vertindex.h:80</c>), which is what
+    /// <c>this</c> to <c>short*</c>, which is what
     /// lets <c>g_EdgeDims</c> name a dimension by number. That indexing is the
     /// whole neighbour system's vocabulary, so it is kept — as a switch, since
     /// the layout pun is not something to reproduce.
@@ -104,7 +103,7 @@ public readonly record struct VertIndex(short X, short Y)
     /// <param name="offset">The direction, usually a unit step.</param>
     /// <param name="multiplier">How far to step.</param>
     /// <returns>The offset index.</returns>
-    /// <remarks><c>BuildOffsetVertIndex</c>, <c>disp_vertindex.h:52</c>.</remarks>
+    /// <remarks><c>BuildOffsetVertIndex</c>.</remarks>
     public VertIndex Offset(VertIndex offset, int multiplier) =>
         new(X + (offset.X * multiplier), Y + (offset.Y * multiplier));
 

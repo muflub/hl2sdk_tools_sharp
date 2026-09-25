@@ -28,7 +28,7 @@ namespace SourceSharp.MapTools.Tracing;
 /// <description>
 /// <see cref="StockExact"/> for anything being compared against stock vrad's
 /// own output. Stock starts its BSP walk at fraction 0 exactly
-/// (<c>bsplib.cpp:3736</c>) and its KD-tree at the caller's <c>TMin</c>, and a
+/// And its KD-tree at the caller's <c>TMin</c>, and a
 /// managed tracer that quietly nudged that would stop being a reference.
 /// </description>
 /// </item>

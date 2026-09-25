@@ -13,14 +13,14 @@ namespace SourceSharp.MapTools.Compile;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Typed options, never <c>argv</c> (plan_maptools.md 1a). A host holding a
+/// Typed options, never <c>argv</c>. A host holding a
 /// Hammer command line turns it into these with
 /// <see cref="StockArgs.ParseVbsp"/>, <see cref="StockArgs.ParseVvis"/> and
 /// <see cref="StockArgs.ParseVrad"/>; that is what <c>ssmap all</c> does.
 /// </para>
 /// <para>
 /// One <see cref="Parallel"/> for the whole chain. Stock's <c>-threads</c> is
-/// per tool, and vbsp's is ignored (<c>vbsp.cpp:1302</c> forces one thread);
+/// per tool, and vbsp's is ignored(forces one thread);
 /// a chain in one process has one machine to share, so it has one degree.
 /// </para>
 /// </remarks>
@@ -36,7 +36,7 @@ public sealed record CompileRequest
     /// </summary>
     /// <remarks>
     /// Stock's vrad finds <c>&lt;map&gt;.rad</c> BESIDE the map
-    /// (<c>vrad.cpp:2168-2186</c>), outside any search path. A host that wants
+    /// Outside any search path. A host that wants
     /// that layers the file over its content; <c>ssmap all</c> does.
     /// </remarks>
     public required IContentFileSystem Content { get; init; }
@@ -70,7 +70,7 @@ public sealed record CompileRequest
     /// <summary>
     /// The cooker vbsp's collision lumps are made with, or null for a map with
     /// no PHYSCOLLIDE or PHYSDISP: stock's road when <c>vphysics.dll</c> does
-    /// not load (<c>ivp.cpp:1510</c>).
+    /// Not load.
     /// </summary>
     public ICollisionCooker? CollisionCooker { get; init; }
 
@@ -84,7 +84,7 @@ public sealed record CompileRequest
     public TimeProvider Time { get; init; } = TimeProvider.System;
 
     /// <summary>
-    /// The incremental cache's store (plan_maptools.md 10a), or null for no
+    /// The incremental cache's store, or null for no
     /// cache. Owned by the host, like the cooker. Beside-the-map placement is
     /// the host's choice (the plan's ruling Q7 is one <c>&lt;map&gt;.sscache.db</c>
     /// beside the map; <c>ssmap</c> implements that default).

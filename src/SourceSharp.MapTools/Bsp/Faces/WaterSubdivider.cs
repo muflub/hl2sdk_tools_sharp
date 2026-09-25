@@ -10,7 +10,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// <summary>
 /// Cutting a water surface into a grid of tiles and emitting it as one
 /// triangle strip
-/// (<c>SubdivideFaceBySubdivSize</c>, <c>src/utils/vbsp/faces.cpp:1514</c>).
+/// (<c>SubdivideFaceBySubdivSize</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -22,11 +22,11 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// <para>
 /// <b>Stock calls this feature unsupported</b> and prints a warning when it
 /// runs ("NOTE: Subdivision is unsupported and should be phased out",
-/// <c>faces.cpp:1751</c>). It is ported because it is in this stage's file and
+///). It is ported because it is in this stage's file and
 /// its output goes into the file verbatim, not because any current map uses
 /// it. The whole pass is also unreachable in a stock compile: the only caller,
 /// <c>SplitSubdividedFaces</c>, is commented out in <c>ProcessWorldModel</c>
-/// (<c>vbsp.cpp:349</c>). That is recorded rather than acted on — a port that
+/// That is recorded rather than acted on — a port that
 /// silently dropped a function because the shipped tool never called it would
 /// be deciding something the port is not entitled to decide.
 /// </para>
@@ -53,7 +53,7 @@ public sealed class WaterSubdivider
 
     /// <summary>
     /// Subdivides a face if its material asks for it
-    /// (<c>SubdivideFaceBySubdivSize</c>, <c>faces.cpp:1727</c>).
+    /// (<c>SubdivideFaceBySubdivSize</c>).
     /// </summary>
     /// <param name="face">The face.</param>
     public void SubdivideFaceBySubdivSize(Face face)
@@ -87,7 +87,7 @@ public sealed class WaterSubdivider
 
     /// <summary>
     /// Subdivides one face at a known tile size
-    /// (<c>SubdivideFaceBySubdivSize</c>, <c>faces.cpp:1514</c>).
+    /// (<c>SubdivideFaceBySubdivSize</c>).
     /// </summary>
     /// <param name="face">The face.</param>
     /// <param name="subdivSize">The tile size in world units, truncated to an integer.</param>
@@ -194,7 +194,7 @@ public sealed class WaterSubdivider
 
     /// <summary>
     /// Subdivides every face on every node of a subtree
-    /// (<c>SplitSubdividedFaces_Node_r</c>, <c>faces.cpp:1758</c>).
+    /// (<c>SplitSubdividedFaces_Node_r</c>).
     /// </summary>
     /// <param name="node">The subtree root.</param>
     public void SplitSubdividedFacesRecursive(IBspNode node)
@@ -217,7 +217,7 @@ public sealed class WaterSubdivider
 
     /// <summary>
     /// Subdivides every leaf face and every node face
-    /// (<c>SplitSubdividedFaces</c>, <c>faces.cpp:1777</c>).
+    /// (<c>SplitSubdividedFaces</c>).
     /// </summary>
     /// <param name="leafFaceList">The detail leaf face list.</param>
     /// <param name="headNode">The model's tree root.</param>

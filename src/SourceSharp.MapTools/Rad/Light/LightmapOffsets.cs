@@ -16,7 +16,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 public sealed record LightmapLayout(byte[] Styles, int[] LightOffsets, int LightDataSize);
 
 /// <summary>
-/// <c>PrecompLightmapOffsets</c> (<c>lightmap.cpp:3366</c>).
+/// <c>PrecompLightmapOffsets</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -29,7 +29,7 @@ public sealed record LightmapLayout(byte[] Styles, int[] LightOffsets, int Light
 /// <para>
 /// A face whose texinfo is <c>TEX_SPECIAL</c> is skipped and keeps whatever
 /// <c>lightofs</c> it had; <c>BuildFacelights</c> set every face to -1 and
-/// 255 first (<c>lightmap.cpp:3089-3091</c>), so that is -1. Under
+/// 255 first, so that is -1. Under
 /// <c>-dlightmap</c> every non-special face's second style becomes 0 before
 /// counting -- including faces that had no style at all, whose first slot is
 /// still 255, so they stay unlit.
@@ -85,7 +85,6 @@ public static class LightmapOffsets
 
             Span<byte> faceStyles = styles.AsSpan(f * LightConstants.MaxLightmaps, LightConstants.MaxLightmaps);
 
-            // :3383.
             if (separateDirectLightmap)
             {
                 faceStyles[1] = 0;
@@ -105,7 +104,6 @@ public static class LightmapOffsets
                 continue;
             }
 
-            // :3396-3414.
             lightDataSize += lightstyles * 4;
             offsets[f] = lightDataSize;
 

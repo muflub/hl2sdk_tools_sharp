@@ -6,13 +6,13 @@ namespace SourceSharp.MapTools.Geometry;
 
 /// <summary>
 /// A pool of winding storage and the polygon operations that work on it: the
-/// port of <c>utils/common/polylib.cpp</c>.
+/// Port of the reference implementation.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Not thread safe, and that is the point.</b> Stock serialises every
 /// <c>AllocWinding</c> and every <c>FreeWinding</c> on one global
-/// <c>CRITICAL_SECTION</c> (<c>polylib.cpp:53</c>, <c>:76</c>) shared with the
+/// <c>CRITICAL_SECTION</c> shared with the
 /// work dispatcher, so the two hottest operations in vbsp and vvis contend with
 /// each other and with progress printing. Here each worker owns an arena and
 /// there is no lock at all. <see cref="Parallel.WorkQueue"/> hands one out per
@@ -39,7 +39,6 @@ public sealed class WindingArena
     /// The largest number of points a winding may end up with.
     /// </summary>
     /// <remarks>
-    /// <c>utils/common/polylib.h:30</c>:
     /// <c>#define MAX_POINTS_ON_WINDING 64</c>. The clipper checks its results
     /// against this and stock calls <c>Error()</c> when a winding exceeds it,
     /// so it is a hard limit on output rather than a hint.
@@ -50,8 +49,8 @@ public sealed class WindingArena
     // wrap-around slot the side/dist arrays need, plus slack.
     //
     // Stock sizes these `dists[MAX_POINTS_ON_WINDING+4]`
-    // (polylib.cpp:367) -- 68 entries, indices 0..67 -- and then writes
-    // `dists[i]` with i == in->numpoints after the loop (polylib.cpp:395). A
+    // -- 68 entries, indices 0..67 -- and then writes
+    // `dists[i]` with i == in->numpoints after the loop. A
     // winding that a previous clip left at 68 points therefore writes one past
     // the end. That is a latent overflow in stock; the port does not reproduce
     // it, it refuses the input instead. See ClipEpsilon.
@@ -107,7 +106,7 @@ public sealed class WindingArena
 
     /// <summary>How many windings are allocated and not yet freed.</summary>
     /// <remarks>
-    /// Stock's <c>c_active_windings</c> (<c>polylib.cpp:22</c>), which it only
+    /// Stock's <c>c_active_windings</c>, which it only
     /// maintains when <c>numthreads == 1</c> because the counters are, in its
     /// own words, "an awefull coherence problem". Per-worker arenas make that
     /// problem go away, so these are always accurate here.
@@ -143,7 +142,7 @@ public sealed class WindingArena
     /// <paramref name="capacity"/> is not positive.
     /// </exception>
     /// <remarks>
-    /// <c>AllocWinding</c>, <c>polylib.cpp:41</c>. Stock sets
+    /// <c>AllocWinding</c>. Stock sets
     /// <c>numpoints = 0</c> on the way out with the comment "None are occupied
     /// yet even though allocated", and the same is true here: the caller fills
     /// <see cref="Storage"/> and then calls <see cref="SetCount"/>.
@@ -184,13 +183,13 @@ public sealed class WindingArena
     /// The winding has already been freed.
     /// </exception>
     /// <remarks>
-    /// <c>FreeWinding</c>, <c>polylib.cpp:71</c>. Stock stamps
+    /// <c>FreeWinding</c>. Stock stamps
     /// <c>numpoints = 0xdeaddead</c> and errors out when it sees that stamp
     /// again — "freed a freed winding". The same check is here, kept because a
     /// double free in the clipper is the kind of bug that otherwise surfaces
     /// later as a winding with someone else's points in it. Freeing
     /// <see cref="Winding.Null"/> does nothing, which is what the
-    /// <c>if (b) FreeWinding(b)</c> pattern at <c>polylib.cpp:741</c> wants.
+    /// <c>if (b) FreeWinding(b)</c> pattern wants.
     /// </remarks>
     public void Free(Winding winding)
     {
@@ -273,7 +272,7 @@ public sealed class WindingArena
     /// <param name="winding">The winding to copy.</param>
     /// <returns>The copy.</returns>
     /// <remarks>
-    /// <c>CopyWinding</c>, <c>polylib.cpp:324</c>. The copy's capacity is the
+    /// <c>CopyWinding</c>. The copy's capacity is the
     /// SOURCE'S POINT COUNT, not the source's capacity: a 68-point reservation
     /// holding 5 points copies to a 5-point winding. That matters because the
     /// free list is keyed on capacity, so copying is also how stock compacts.
@@ -289,7 +288,7 @@ public sealed class WindingArena
     /// <param name="winding">The winding to reverse.</param>
     /// <returns>The reversed copy.</returns>
     /// <remarks>
-    /// <c>ReverseWinding</c>, <c>polylib.cpp:341</c>. Point <c>i</c> of the
+    /// <c>ReverseWinding</c>. Point <c>i</c> of the
     /// result is point <c>n-1-i</c> of the source, so the first point MOVES: it
     /// becomes the last. A reversal that kept point 0 fixed and reversed the
     /// rest would describe the same polygon with the same winding order and
@@ -322,14 +321,14 @@ public sealed class WindingArena
     /// </exception>
     /// <remarks>
     /// <para>
-    /// <c>BaseWindingForPlane</c>, <c>polylib.cpp:253</c>. Three details are
+    /// <c>BaseWindingForPlane</c>. Three details are
     /// load-bearing:
     /// </para>
     /// <para>
     /// The major axis search uses a strict <c>&gt;</c> from a starting maximum
     /// of -1, so on a tie the LOWEST axis wins. The up vector chosen from it
     /// is +Z for an X-major or Y-major plane and +X for a Z-major one
-    /// (<c>polylib.cpp:277-286</c>) — which means the resulting quad's vertex
+    /// — which means the resulting quad's vertex
     /// ORDER depends on the plane's orientation, and portal windings inherit
     /// that.
     /// </para>
@@ -376,9 +375,9 @@ public sealed class WindingArena
         float d = Vec3.Dot(vup, normal);
         vup += normal * -d;
 
-        // StockQuirk.BaseWindingNormalise. polylib.cpp:291 calls
+        // StockQuirk.BaseWindingNormalise. calls
         // VectorNormalize, which is rsqrtss plus one Newton-Raphson step
-        // (vector.h:2239) and not a divide. The quad is then pushed out to
+        // And not a divide. The quad is then pushed out to
         // 65536 units and clipped with an epsilon of exactly zero, so the
         // estimate's last bits decide which slivers survive -- and, further
         // downstream, what AddBrushBevels computes an edge bevel's plane
@@ -406,7 +405,7 @@ public sealed class WindingArena
     /// <param name="winding">The winding.</param>
     /// <returns>The area in square world units.</returns>
     /// <remarks>
-    /// <c>WindingArea</c>, <c>polylib.cpp:154</c>. A fan triangulation from
+    /// <c>WindingArea</c>. A fan triangulation from
     /// point 0, summing the lengths of the cross products and halving at the
     /// end — so it is correct for any convex polygon and quietly wrong for a
     /// non-convex one, which is why <see cref="Check"/> tests convexity
@@ -432,7 +431,7 @@ public sealed class WindingArena
     /// <param name="mins">The lowest coordinate on each axis.</param>
     /// <param name="maxs">The highest coordinate on each axis.</param>
     /// <remarks>
-    /// <c>WindingBounds</c>, <c>polylib.cpp:171</c>. The seeds are +99999 and
+    /// <c>WindingBounds</c>. The seeds are +99999 and
     /// -99999, NOT infinities and not
     /// <see cref="GeometryEpsilons.MaxCoordInteger"/>. An empty winding
     /// therefore comes back inside out with mins above maxs, which is stock's
@@ -465,14 +464,14 @@ public sealed class WindingArena
     /// <param name="winding">The winding.</param>
     /// <returns>The centre.</returns>
     /// <remarks>
-    /// <c>WindingCenter</c>, <c>polylib.cpp:197</c>. The vertex average, not
+    /// <c>WindingCenter</c>. The vertex average, not
     /// the area centroid — for that see
     /// <see cref="AreaAndBalancePoint"/>, and the two differ for any winding
     /// whose vertices are unevenly spaced.
     /// The scale is computed as <c>1.0 / numpoints</c> in DOUBLE and then
     /// narrowed to <c>float</c>, because stock declares <c>float scale</c> and
-    /// assigns a double expression to it (<c>polylib.cpp:200</c> and
-    /// <c>:206</c>). <c>1f / n</c> is not always the same number.
+    /// assigns a double expression to it (and
+ ///). <c>1f / n</c> is not always the same number.
     /// </remarks>
     public Vec3 Center(Winding winding)
     {
@@ -491,7 +490,7 @@ public sealed class WindingArena
     /// <param name="center">The centroid.</param>
     /// <returns>The area.</returns>
     /// <remarks>
-    /// <c>WindingAreaAndBalancePoint</c>, <c>polylib.cpp:217</c>. Each fan
+    /// <c>WindingAreaAndBalancePoint</c>. Each fan
     /// triangle contributes its own centroid weighted by its area, accumulated
     /// as three separate <c>VectorMA</c> calls with a scale of
     /// <c>area / 3.0</c> — a DOUBLE divide narrowed to the <c>float</c>
@@ -531,19 +530,19 @@ public sealed class WindingArena
     /// <returns>The plane, with a normal on the winding's front face.</returns>
     /// <remarks>
     /// <para>
-    /// <c>WindingPlane</c>, <c>polylib.cpp:127</c>. Two things here are not what
+    /// <c>WindingPlane</c>. Two things here are not what
     /// a fresh implementation would do.
     /// </para>
     /// <para>
     /// The second edge is taken to point <b>3</b>, not point 2, whenever the
     /// winding has more than three points — stock's own comment calls it
-    /// "HACKHACK: Avoid potentially collinear verts" (<c>polylib.cpp:133</c>).
+    /// "HACKHACK: Avoid potentially collinear verts".
     /// So a five-point winding's plane is decided by points 0, 1 and 3, and
     /// moving point 2 does not change the answer at all.
     /// </para>
     /// <para>
     /// The cross product is <c>v2 x v1</c> and not <c>v1 x v2</c>
-    /// (<c>polylib.cpp:142</c>). Taking it the other way round returns the
+    /// Taking it the other way round returns the
     /// plane facing backwards, and since portals are matched to their opposite
     /// by plane sign that would silently invert visibility.
     /// </para>
@@ -571,7 +570,7 @@ public sealed class WindingArena
     /// <returns>The winding, with the same storage and possibly fewer points.</returns>
     /// <remarks>
     /// <para>
-    /// <c>RemoveColinearPoints</c>, <c>polylib.cpp:90</c>. A point is KEPT when
+    /// <c>RemoveColinearPoints</c>. A point is KEPT when
     /// the dot of its two normalised edge directions is below 0.999, so a point
     /// is dropped when the turn at it is less than about 2.56 degrees. The
     /// literal is a <c>double</c> compared against a <c>float</c> dot, so the
@@ -585,7 +584,7 @@ public sealed class WindingArena
     /// </para>
     /// <para>
     /// Stock writes the survivors to a 64-entry stack array
-    /// (<c>polylib.cpp:95</c>) while iterating up to <c>numpoints</c>, which a
+    /// While iterating up to <c>numpoints</c>, which a
     /// clip can have left at 68; that is a latent overflow and the port does
     /// not have it.
     /// </para>
@@ -624,7 +623,7 @@ public sealed class WindingArena
     /// <exception cref="InvalidWindingException">It is not.</exception>
     /// <remarks>
     /// <para>
-    /// <c>CheckWinding</c>, <c>polylib.cpp:753</c>. Five conditions: at least
+    /// <c>CheckWinding</c>. Five conditions: at least
     /// three points, an area of at least 1, every coordinate inside
     /// <c>MIN_COORD_INTEGER</c>..<c>MAX_COORD_INTEGER</c>, every point within
     /// <c>ON_EPSILON</c> of the winding's own plane, and no degenerate edge —
@@ -717,7 +716,7 @@ public sealed class WindingArena
     /// <see cref="PlaneSide.On"/> or <see cref="PlaneSide.Cross"/>.
     /// </returns>
     /// <remarks>
-    /// <c>WindingOnPlaneSide</c>, <c>polylib.cpp:817</c>. It returns
+    /// <c>WindingOnPlaneSide</c>. It returns
     /// <see cref="PlaneSide.Cross"/> as soon as it has seen a point on each
     /// side, so it does not visit every point when the answer is already known.
     /// Both comparisons are against the bare <c>ON_EPSILON</c> macro and
@@ -772,14 +771,14 @@ public sealed class WindingArena
     /// <param name="back">The part behind, or <see cref="Winding.Null"/>.</param>
     /// <remarks>
     /// <para>
-    /// <c>ClipWindingEpsilon</c>, <c>polylib.cpp:364</c>. The two-way split
+    /// <c>ClipWindingEpsilon</c>. The two-way split
     /// every other clipping function is built from. It does NOT free its input;
     /// <see cref="Chop"/> is the variant that does.
     /// </para>
     /// <para>
     /// <b>A winding entirely on the plane comes back as BACK, not front.</b>
     /// The first early-out is <c>if (!counts[0])</c> where <c>counts[0]</c> is
-    /// the FRONT count (<c>polylib.cpp:399</c>), so a winding whose every point
+    /// the FRONT count, so a winding whose every point
     /// is within the epsilon has no front points, takes that branch, and is
     /// copied to <paramref name="back"/> with <paramref name="front"/> left
     /// null. Any caller that reads only the front result silently drops
@@ -789,7 +788,7 @@ public sealed class WindingArena
     /// <b>The split point is snapped on axial planes.</b> For each axis, if the
     /// plane's normal component is exactly 1 or exactly -1 the new vertex takes
     /// <c>dist</c> or <c>-dist</c> on that axis outright rather than being
-    /// interpolated (<c>polylib.cpp:449-454</c>). Stock's comment is "avoid
+    /// interpolated. Stock's comment is "avoid
     /// round off error when possible". It is the reason a grid-aligned map
     /// produces exactly-integer vertices, and it is why the epsilons behave
     /// differently on axial and non-axial planes.
@@ -797,13 +796,13 @@ public sealed class WindingArena
     /// <para>
     /// <b>The reservation is <c>numpoints + 4</c>.</b> Not <c>counts[0] + 2</c>,
     /// which is the geometrically correct bound — stock's comment says it "cant
-    /// use counts[0]+2 because of fp grouping errors" (<c>polylib.cpp:410</c>),
+    /// use counts[0]+2 because of fp grouping errors",
     /// meaning it does not trust its own side classification to be consistent
     /// with the interpolation that follows.
     /// </para>
     /// <para>
     /// <b>The wrap-around slot.</b> After classifying, stock copies side 0 and
-    /// distance 0 into slot <c>numpoints</c> (<c>polylib.cpp:394</c>) so the
+    /// distance 0 into slot <c>numpoints</c> so the
     /// loop can read <c>sides[i+1]</c> without a modulo. The port keeps the same
     /// shape; unlike stock it sizes the buffer for it.
     /// </para>
@@ -901,9 +900,9 @@ public sealed class WindingArena
     /// <see cref="Winding.Null"/>.
     /// </param>
     /// <remarks>
-    /// <c>ClassifyWindingEpsilon</c>, <c>polylib.cpp:512</c>. Byte for byte the
+    /// <c>ClassifyWindingEpsilon</c>. Byte for byte the
     /// same as <see cref="ClipEpsilon"/> apart from one extra early-out
-    /// (<c>polylib.cpp:547</c>): when there is neither a front nor a back point
+    /// When there is neither a front nor a back point
     /// the winding is returned as <paramref name="on"/>. That is the case
     /// <see cref="ClipEpsilon"/> reports as <paramref name="back"/>, so the two
     /// functions genuinely disagree about a coplanar winding and a caller has
@@ -1005,7 +1004,7 @@ public sealed class WindingArena
     /// front.
     /// </returns>
     /// <remarks>
-    /// <c>ChopWinding</c>, <c>polylib.cpp:735</c>. It passes
+    /// <c>ChopWinding</c>. It passes
     /// <c>ON_EPSILON</c> through <c>ClipWindingEpsilon</c>'s <c>vec_t</c>
     /// parameter, so this is the FLOAT 0.1f and not the double 0.1 that
     /// <see cref="Check"/> uses. The input and the discarded back fragment are
@@ -1031,10 +1030,10 @@ public sealed class WindingArena
     /// </returns>
     /// <remarks>
     /// <para>
-    /// <c>ChopWindingInPlace</c>, <c>polylib.cpp:628</c>. The same clip again,
+    /// <c>ChopWindingInPlace</c>. The same clip again,
     /// but building only the front side, and with one behaviour the two-sided
     /// version does not have: when there is nothing BEHIND the plane it returns
-    /// the winding <b>unchanged and unfreed</b> (<c>polylib.cpp:671</c>,
+    /// the winding <b>unchanged and unfreed</b> (
     /// "inout stays the same"), where <see cref="ClipEpsilon"/> would have made
     /// a copy. So the returned handle is sometimes the one that was passed in
     /// and sometimes a fresh one, and the old handle is dead in the second case
@@ -1108,7 +1107,7 @@ public sealed class WindingArena
     /// <param name="winding">The winding to move, in place.</param>
     /// <param name="offset">How far to move it.</param>
     /// <remarks>
-    /// <c>TranslateWinding</c>, <c>polylib.cpp:909</c>.
+    /// <c>TranslateWinding</c>.
     /// </remarks>
     public void Translate(Winding winding, Vec3 offset)
     {
@@ -1132,7 +1131,7 @@ public sealed class WindingArena
     /// <param name="front">The part in front, or <see cref="Winding.Null"/>.</param>
     /// <param name="back">The part behind, or <see cref="Winding.Null"/>.</param>
     /// <remarks>
-    /// <c>ClipWindingEpsilon_Offset</c>, <c>polylib.cpp:472</c>. Identical to
+    /// <c>ClipWindingEpsilon_Offset</c>. Identical to
     /// <see cref="ClipEpsilon"/> except that everything is moved by
     /// <paramref name="offset"/> first and moved back after, which buys
     /// precision when the geometry is far from the origin: a float's spacing at
@@ -1180,7 +1179,7 @@ public sealed class WindingArena
     /// <param name="back">The part behind, or <see cref="Winding.Null"/>.</param>
     /// <param name="on">The whole winding when coplanar, otherwise null.</param>
     /// <remarks>
-    /// <c>ClassifyWindingEpsilon_Offset</c>, <c>polylib.cpp:487</c>.
+    /// <c>ClassifyWindingEpsilon_Offset</c>.
     /// </remarks>
     public void ClassifyEpsilonOffset(
         Winding winding,
@@ -1218,7 +1217,7 @@ public sealed class WindingArena
     /// <returns>True when the point is inside.</returns>
     /// <remarks>
     /// <para>
-    /// <c>PointInWinding</c>, <c>polylib.cpp:856</c>. It takes the cross of each
+    /// <c>PointInWinding</c>. It takes the cross of each
     /// edge with the vector to the point and asks whether all of them face the
     /// same way as the first one's. There is no epsilon at all: the test is
     /// <c>&lt; 0.0f</c>, so a point exactly on an edge is inside and a point a
@@ -1231,7 +1230,7 @@ public sealed class WindingArena
     /// </para>
     /// <para>
     /// The stock file also carries a shorter version of this in an
-    /// <c>#if 0</c> block (<c>polylib.cpp:861-882</c>) that tests the angle at
+    /// <c>#if 0</c> block that tests the angle at
     /// the point instead. It is not equivalent, and it is not what shipped.
     /// </para>
     /// </remarks>
@@ -1292,7 +1291,7 @@ public sealed class WindingArena
             counts[(int)sides[i]]++;
         }
 
-        // polylib.cpp:394 -- the wrap-around slot the loop reads as sides[i+1].
+        // -- the wrap-around slot the loop reads as sides[i+1].
         sides[n] = sides[0];
         dists[n] = dists[0];
         return n;
@@ -1311,7 +1310,7 @@ public sealed class WindingArena
 
         float dot = dists[i] / (dists[i] - dists[i + 1]);
 
-        // polylib.cpp:447-455 -- "avoid round off error when possible". Written
+        // -- "avoid round off error when possible". Written
         // out per axis rather than as stock's `for (j=0; j<3; j++)` loop so the
         // method stays inlineable; the three branches and their order are the
         // same.
@@ -1338,7 +1337,7 @@ public sealed class WindingArena
 
     private static void CheckClipResult(int count, int maxpts)
     {
-        // Stock checks both of these after the fact (polylib.cpp:463-466),
+        // Stock checks both of these after the fact,
         // having already written past the end of its reservation if the first
         // one is going to fire. Here the span's own bounds check fires first,
         // so this arm is unreachable and is kept only so the two files read the

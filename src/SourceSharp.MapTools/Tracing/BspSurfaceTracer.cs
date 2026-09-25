@@ -13,7 +13,7 @@ namespace SourceSharp.MapTools.Tracing;
 /// <para>
 /// THIS, NOT THE KD-TREE, IS WHAT LEAF AMBIENT USES, and leaf ambient is
 /// 51.6 % of stock vrad's wall clock. <c>CalcRayAmbientLighting</c>
-/// (<c>vraddetailprops.cpp:655</c>) constructs a <c>CLightSurface</c> and calls
+/// Constructs a <c>CLightSurface</c> and calls
 /// <c>FindIntersection</c>; it never touches <c>g_RtEnv</c>. A port that
 /// replaced this with a BVH would be replacing the single largest stage in the
 /// tool with a structure that is worse at its shape, and the measurement says
@@ -62,7 +62,7 @@ namespace SourceSharp.MapTools.Tracing;
 public sealed class BspSurfaceTracer : IRayTracer
 {
     /// <summary>
-    /// <c>bsplib.cpp:3403</c>, <c>TEST_EPSILON</c>. One thirty-second of a
+    /// <c>TEST_EPSILON</c>. One thirty-second of a
     /// unit, and exactly representable, so it is the same number here as
     /// there.
     /// </summary>
@@ -227,8 +227,8 @@ public sealed class BspSurfaceTracer : IRayTracer
     /// </exception>
     /// <remarks>
     /// Stock's <c>CLightSurface::FindIntersection</c>
-    /// (<c>vraddetailprops.cpp:487</c>) plus
-    /// <c>EnumerateNodesAlongRay_R</c> (<c>bsplib.cpp:3662</c>), fused: the
+    /// Plus
+    /// <c>EnumerateNodesAlongRay_R</c>, fused: the
     /// enumerator interface exists in stock so that three different callers can
     /// share one walk, and there is exactly one caller of this shape. Keeping
     /// the virtual call would cost an indirect branch per node and per leaf on
@@ -297,14 +297,14 @@ public sealed class BspSurfaceTracer : IRayTracer
 
         while (true)
         {
-            // bsplib.cpp:3668, the `while (node >= 0)` that walks down through
+            // The `while (node >= 0)` that walks down through
             // every node the ray passes wholly on one side of. These push
             // nothing, and they are the common case.
             while (node >= 0)
             {
                 ref TraceNode n = ref Unsafe.Add(ref c.Nodes, node);
 
-                // bsplib.cpp:3673. Stock reads the component directly for
+                // Stock reads the component directly for
                 // an axial plane, and that shortcut is worth 1.13x here -- see
                 // TraceNode's remarks, which used to argue for dropping it.
                 float startDotN;
@@ -413,7 +413,7 @@ public sealed class BspSurfaceTracer : IRayTracer
     }
 
     /// <summary>
-    /// <c>CLightSurface::EnumerateNode</c>, <c>vraddetailprops.cpp:361</c>.
+    /// <c>CLightSurface::EnumerateNode</c>.
     /// </summary>
     /// <param name="c">The ray and the best hit so far.</param>
     /// <param name="node">Which node.</param>
@@ -421,7 +421,7 @@ public sealed class BspSurfaceTracer : IRayTracer
     /// <returns>False to stop the whole walk.</returns>
     /// <remarks>
     /// Note what this does NOT do on the sky path: <c>m_HitFrac</c> is left at
-    /// 1.0 even when a sky face is accepted (<c>vraddetailprops.cpp:391-396</c>
+    /// 1.0 even when a sky face is accepted (
     /// sets only <c>pSkySurface</c>). So a sky hit reports the full ray length
     /// rather than the distance to the sky surface, and that is reproduced
     /// rather than corrected: <c>CalcRayAmbientLighting</c> uses
@@ -465,7 +465,7 @@ public sealed class BspSurfaceTracer : IRayTracer
             }
         }
 
-        // vraddetailprops.cpp:404. The assignment is unconditional in stock,
+        // The assignment is unconditional in stock,
         // including the case where no sky face passed and m_pSurface is set
         // back to null -- which is safe only because nothing can have set it
         // earlier: any earlier hit returned false and ended the walk.
@@ -474,7 +474,7 @@ public sealed class BspSurfaceTracer : IRayTracer
     }
 
     /// <summary>
-    /// <c>CLightSurface::EnumerateLeaf</c>, <c>vraddetailprops.cpp:409</c>,
+    /// <c>CLightSurface::EnumerateLeaf</c>,
     /// without the displacement clip.
     /// </summary>
     /// <param name="c">The ray and the best hit so far.</param>
@@ -503,7 +503,7 @@ public sealed class BspSurfaceTracer : IRayTracer
             int face = Unsafe.Add(ref first, i);
             ref TraceSurface s = ref Unsafe.Add(ref c.Surfaces, face);
 
-            // vraddetailprops.cpp:432. Stock computes this dot product twice,
+            // Stock computes this dot product twice,
             // once for the backface cull and once as deltaDotN. Computing it
             // once is the same float: the operands and the order are identical,
             // so there is no rounding to preserve.
@@ -548,7 +548,7 @@ public sealed class BspSurfaceTracer : IRayTracer
 
     /// <summary>
     /// <c>CLightSurface::TestPointAgainstSurface</c>,
-    /// <c>vraddetailprops.cpp:494</c>: is the point inside the face's lightmap
+    /// Is the point inside the face's lightmap
     /// rectangle?
     /// </summary>
     /// <param name="s">The face's gathered data.</param>
@@ -571,7 +571,7 @@ public sealed class BspSurfaceTracer : IRayTracer
     private static bool TestPointAgainstSurface(
         ref readonly TraceSurface s, float px, float py, float pz)
     {
-        // vraddetailprops.cpp:498. The SURF_NOLIGHT test is folded into the
+        // The SURF_NOLIGHT test is folded into the
         // gathered data: a face with no lightmap gets a zero-size rectangle
         // there, which no point can be inside.
         float sc = (px * s.Sx) + (py * s.Sy) + (pz * s.Sz) + s.So;
@@ -589,7 +589,7 @@ public sealed class BspSurfaceTracer : IRayTracer
 
     /// <summary>
     /// <c>CLightSurface::TestPointAgainstSkySurface</c>,
-    /// <c>vraddetailprops.cpp:523</c>: <c>PointInWinding</c> against the
+    /// <c>PointInWinding</c> against the
     /// face's polygon.
     /// </summary>
     /// <param name="face">Which face.</param>
@@ -598,7 +598,7 @@ public sealed class BspSurfaceTracer : IRayTracer
     /// <param name="pz">The point, z.</param>
     /// <returns>True when the point is inside the sky face.</returns>
     /// <remarks>
-    /// <c>polylib.cpp:856</c>, the <c>#else</c> branch, which is the one
+    /// The <c>#else</c> branch, which is the one
     /// compiled: cross the first edge with the vector to the point, normalise,
     /// and require every other edge's cross to agree in sign with it. The
     /// normalisations go through <see cref="Vec3.NormaliseLikeStock"/> because

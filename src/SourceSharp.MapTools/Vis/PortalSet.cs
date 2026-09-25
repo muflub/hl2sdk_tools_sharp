@@ -6,7 +6,6 @@ namespace SourceSharp.MapTools.Vis;
 /// <summary>
 /// The memory portals vvis works on, and the per-cluster lists that index them:
 /// stock's <c>portals</c> and <c>leafs</c> arrays after <c>LoadPortals</c>
-/// (<c>src/utils/vvis/vvis.cpp:407-563</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -24,7 +23,7 @@ namespace SourceSharp.MapTools.Vis;
 /// </para>
 /// <para>
 /// Arrays of components rather than an array of portal structs, in the order
-/// the candidate loop reads them (<c>flow.cpp:520-594</c> never touches a
+/// the candidate loop reads them (never touches a
 /// winding). That is a layout choice, not an optimisation pass -- the 2b work
 /// is elsewhere.
 /// </para>
@@ -118,7 +117,7 @@ public sealed class PortalSet
 
     /// <summary>
     /// The centre of one portal's bounding sphere (<c>SetPortalSphere</c>,
-    /// <c>vvis.cpp:373</c>).
+    ///).
     /// </summary>
     /// <param name="portal">A memory-portal index.</param>
     /// <returns>The centre.</returns>
@@ -151,7 +150,7 @@ public sealed class PortalSet
     /// <exception cref="InvalidPortalFileException">
     /// A portal names a cluster outside the declared count. Stock's own bound
     /// check is off by one and lets <c>leafnum == portalclusters</c> through to
-    /// index one past the end of its leaf array (<c>vvis.cpp:507</c>); the
+    /// index one past the end of its leaf array; the
     /// reader in <c>SourceSharp.MapFormats</c> reproduces that check exactly,
     /// so the value that stock would corrupt memory with arrives here and is
     /// refused here instead.
@@ -256,7 +255,7 @@ public sealed class PortalSet
     }
 
     /// <summary>
-    /// <c>SetPortalSphere</c> (<c>src/utils/vvis/vvis.cpp:373-400</c>): the
+    /// <c>SetPortalSphere</c>: the
     /// centre is the mean of the points and the radius the farthest of them.
     /// </summary>
     /// <param name="winding">The portal's points.</param>
@@ -264,8 +263,8 @@ public sealed class PortalSet
     /// <exception cref="ArgumentException"><paramref name="winding"/> is empty.</exception>
     /// <remarks>
     /// Not a bounding sphere in the tight sense: it is the mean, which is what
-    /// the two early-out tests in <c>RecursiveLeafFlow</c> (<c>flow.cpp:561</c>
-    /// and <c>:579</c>) are calibrated against, so fitting a smaller one would
+    /// the two early-out tests in <c>RecursiveLeafFlow</c> (
+ /// ) are calibrated against, so fitting a smaller one would
     /// change the answer.
     /// </remarks>
     public static (Vec3 Origin, float Radius) PortalSphere(ReadOnlySpan<Vec3> winding)
@@ -275,7 +274,7 @@ public sealed class PortalSet
             throw new ArgumentException("a portal winding has at least one point", nameof(winding));
         }
 
-        // vvis.cpp:381-388 -- accumulate, then divide each component by the
+        // -- accumulate, then divide each component by the
         // point count. The divide is per component and in float, which is why
         // this is not written as a multiply by a reciprocal.
         float x = 0f;
@@ -294,7 +293,7 @@ public sealed class PortalSet
         for (int i = 0; i < winding.Length; i++)
         {
             // VectorLength is FastSqrt, which is ::sqrtf on every platform this
-            // tree builds (math_pfns.h:24), so MathF.Sqrt is the same function.
+            // tree builds, so MathF.Sqrt is the same function.
             float r = (winding[i] - total).Length();
             if (r > best)
             {

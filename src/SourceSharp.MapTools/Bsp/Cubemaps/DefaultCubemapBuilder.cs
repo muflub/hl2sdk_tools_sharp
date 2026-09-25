@@ -9,20 +9,20 @@ using SourceSharp.MapTools.Materials;
 namespace SourceSharp.MapTools.Bsp.Cubemaps;
 
 /// <summary>
-/// <c>Cubemap_CreateDefaultCubemaps</c> (<c>utils/vbsp/cubemap.cpp:282-480</c>):
+/// <c>Cubemap_CreateDefaultCubemaps</c>:
 /// the placeholder cubemap VTFs written into the pak so an env_cubemap reads
 /// as something other than the pink checkerboard until <c>buildcubemaps</c> runs.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>WHAT STOCK ACTUALLY WRITES IS BLACK.</b> The copy loop at
-/// <c>cubemap.cpp:334-344</c> does <c>memset(pDstBits, 0, iSize); continue;</c>
+/// Does <c>memset(pDstBits, 0, iSize); continue;</c>
 /// before any of the face-copying code ("Set this to black until HDR cubemaps
 /// are built properly!"), so every cube face of every mip is zero and the
 /// skybox's pixels are never read. What the skybox still decides is the
 /// file's SHAPE: face 0's format and frame count, the union of the six faces'
 /// flags, and whether the six faces agree well enough for any file to be
-/// written at all (<c>LoadSrcVTFFiles</c>, <c>:192-263</c>). That is all this
+/// written at all (<c>LoadSrcVTFFiles</c>). That is all this
 /// reads, and it writes the file stock's VTF library would serialise for a
 /// zero cube: a 7.4 header with one resource, seven faces (the six plus the
 /// sphere map), 32x32 and six mips.
@@ -32,17 +32,16 @@ namespace SourceSharp.MapTools.Bsp.Cubemaps;
 /// <c>GenerateSpheremap</c> computes the sphere map from black faces, and the
 /// result is converted back. <b>The HDR sphere map is NOT reproducible</b>:
 /// with a float format <c>GenerateSpheremap</c> skips
-/// <c>ComputeSpheremapFrame</c> (<c>vtf.cpp:2393-2396</c>) and mips a buffer
-/// it never initialised (<c>new unsigned char[]</c> at <c>:2379</c>) into face
+/// <c>ComputeSpheremapFrame</c> and mips a buffer
+/// it never initialised (<c>new unsigned char[]</c>) into face
 /// 6, so stock's bytes there are heap garbage. This writes zeros, and the
 /// stock gate compares faces 0-5 of the HDR file exactly and excludes face 6.
 /// </para>
 /// <para>
 /// <b>Flags</b> are the union of the six source faces, plus
 /// <c>TEXTUREFLAGS_ENVMAP</c>; for the LDR file the two
-/// <c>ConvertImageFormat</c> round trips (<c>cubemap.cpp:417,429</c>) then
+/// <c>ConvertImageFormat</c> round trips then
 /// rewrite the alpha flags from the formats' alpha bit counts
-/// (<c>vtf.cpp:1958-1982</c>).
 /// </para>
 /// <para>
 /// UNVERIFIED: a block-compressed skybox (DXT). The LDR data is compressed
@@ -53,7 +52,7 @@ namespace SourceSharp.MapTools.Bsp.Cubemaps;
 /// </remarks>
 public static class DefaultCubemapBuilder
 {
-    /// <summary><c>DEFAULT_CUBEMAP_SIZE</c>, <c>cubemap.cpp:280</c>.</summary>
+    /// <summary><c>DEFAULT_CUBEMAP_SIZE</c>.</summary>
     public const int Size = 32;
 
     /// <summary><c>TEXTUREFLAGS_ONEBITALPHA</c>.</summary>
@@ -68,16 +67,16 @@ public static class DefaultCubemapBuilder
     /// <summary><c>CUBEMAP_FACE_COUNT</c>: six faces and the sphere map.</summary>
     public const int FaceCount = 7;
 
-    /// <summary>The skybox face suffixes, in cube-face order (<c>cubemap.cpp:195</c>).</summary>
+    /// <summary>The skybox face suffixes, in cube-face order.</summary>
     public static IReadOnlyList<string> FaceSuffixes { get; } = ["rt", "lf", "bk", "ft", "up", "dn"];
 
     /// <summary>
     /// Writes the LDR set then the HDR set, as
-    /// <c>Cubemap_CreateDefaultCubemaps</c> does (<c>cubemap.cpp:476-480</c>).
+    /// <c>Cubemap_CreateDefaultCubemaps</c> does.
     /// </summary>
     /// <param name="skyName">
     /// worldspawn's <c>skyname</c>; null when the map has no worldspawn, which
-    /// stock prints as <c>(null)</c> (<c>cubemap.cpp:290</c>).
+    /// stock prints as <c>(null)</c>.
     /// </param>
     /// <param name="mapBase">The map name.</param>
     /// <param name="defaultCubemapNames">
@@ -170,7 +169,7 @@ public static class DefaultCubemapBuilder
             faces[i] = header.Value;
             unionFlags |= header.Value.Flags;
 
-            // cubemap.cpp:242-252. Face 0 may be half height (a side texture)
+            // Face 0 may be half height (a side texture)
             // and any face may be 4x4; flags must agree except for alpha.
             uint noAlpha = header.Value.Flags & ~(EightBitAlpha | OneBitAlpha);
             uint firstNoAlpha = faces[0].Flags & ~(EightBitAlpha | OneBitAlpha);
@@ -191,11 +190,11 @@ public static class DefaultCubemapBuilder
         }
 
         // HDR converts every source face to RGBA16161616F first
-        // (cubemap.cpp:254-259), and the destination takes face 0's format.
+        // And the destination takes face 0's format.
         ImageFormat format = hdr ? ImageFormat.Rgba16161616F : (ImageFormat)faces[0].ImageFormat;
         uint flags = unionFlags | EnvMap;
         // ConvertImageFormat to a format the texture is already in returns
-        // before touching the flags (vtf.cpp:1880-1883).
+        // before touching the flags.
         if (!hdr && format != ImageFormat.Rgba8888)
         {
             flags = AfterConversion(flags, ImageFormat.Rgba8888);
@@ -208,7 +207,7 @@ public static class DefaultCubemapBuilder
 
     /// <summary>
     /// <c>CVTFTexture::ConvertImageFormat</c>'s flag rewrite
-    /// (<c>vtf.cpp:1958-1982</c>). A conversion to the format it is already
+    /// A conversion to the format it is already
     /// in returns early and changes nothing — the caller decides that.
     /// </summary>
     /// <param name="flags">The flags before.</param>
@@ -242,7 +241,6 @@ public static class DefaultCubemapBuilder
 
     /// <summary>
     /// <c>m_NumAlphaBits</c> from the image format table
-    /// (<c>bitmap/imageformat.cpp:31-61</c>).
     /// </summary>
     /// <param name="format">The format.</param>
     /// <returns>Its alpha bits.</returns>
@@ -259,7 +257,7 @@ public static class DefaultCubemapBuilder
     };
 
     /// <summary>
-    /// <c>CVTFTexture::Serialize</c> (<c>vtf.cpp:1418-1520</c>) of a
+    /// <c>CVTFTexture::Serialize</c> of a
     /// <see cref="Size"/>-square, all-zero cube map with a sphere map.
     /// </summary>
     /// <param name="format">The image format.</param>
@@ -287,7 +285,7 @@ public static class DefaultCubemapBuilder
         byte[] file = new byte[headerSize + resourceSize + imageBytes];
         Span<byte> s = file;
 
-        // VTFFileHeader_t, memset to zero first (vtf.cpp:1427-1428).
+        // VTFFileHeader_t, memset to zero first.
         "VTF\0"u8.CopyTo(s);
         BinaryPrimitives.WriteInt32LittleEndian(s[4..], VtfFile.MajorVersion);
         BinaryPrimitives.WriteInt32LittleEndian(s[8..], VtfFile.MinorVersion);
@@ -299,7 +297,7 @@ public static class DefaultCubemapBuilder
         BinaryPrimitives.WriteUInt16LittleEndian(s[26..], 0);          // startFrame
 
         // Reflectivity (1,1,1) and bump scale 1: the constructor's values
-        // (vtf.cpp:263-264). Nothing on this path computes reflectivity.
+        // Nothing on this path computes reflectivity.
         BinaryPrimitives.WriteSingleLittleEndian(s[32..], 1.0f);
         BinaryPrimitives.WriteSingleLittleEndian(s[36..], 1.0f);
         BinaryPrimitives.WriteSingleLittleEndian(s[40..], 1.0f);
@@ -320,7 +318,7 @@ public static class DefaultCubemapBuilder
     }
 
     /// <summary>
-    /// The pak half of <c>CreateDefaultCubemaps</c> (<c>cubemap.cpp:433-466</c>):
+    /// The pak half of <c>CreateDefaultCubemaps</c>:
     /// <c>cubemapdefault[.hdr].vtf</c>, then one copy per referenced cubemap
     /// not already in the pak.
     /// </summary>
@@ -350,7 +348,7 @@ public static class DefaultCubemapBuilder
     }
 
     /// <summary>
-    /// <c>VTFNameToHDRVTFName</c> (<c>cubemap.cpp:265-278</c>): from the FIRST
+    /// <c>VTFNameToHDRVTFName</c>: from the FIRST
     /// <c>.vtf</c> (any case) on, the name becomes <c>.hdr.vtf</c>.
     /// </summary>
     /// <param name="name">The VTF name.</param>

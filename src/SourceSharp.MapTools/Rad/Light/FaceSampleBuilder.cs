@@ -5,7 +5,7 @@ using SourceSharp.MapTools.Geometry;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// <c>CalcPoints</c> (<c>lightmap.cpp:896</c>) for brush faces: where a face's
+/// <c>CalcPoints</c> for brush faces: where a face's
 /// light samples and luxels are.
 /// </summary>
 /// <remarks>
@@ -28,12 +28,12 @@ public static class FaceSampleBuilder
 {
     /// <summary>
     /// The capacity stock allocates for one face's samples before copying out:
-    /// <c>SINGLE_BRUSH_MAP * 2</c> (<c>lightmap.cpp:665</c>).
+    /// <c>SINGLE_BRUSH_MAP * 2</c>.
     /// </summary>
     public const int SampleCapacity = LightConstants.SingleBrushMap * 2;
 
     /// <summary>
-    /// <c>worldAreaPerLuxel</c> (<c>lightmap.cpp:659-662</c>): the world area one
+    /// <c>worldAreaPerLuxel</c>: the world area one
     /// full luxel covers.
     /// </summary>
     /// <param name="tex">The face's texinfo.</param>
@@ -83,7 +83,7 @@ public static class FaceSampleBuilder
         ArgumentNullException.ThrowIfNull(faceLight);
         ArgumentNullException.ThrowIfNull(arena);
 
-        // lightmap.cpp:908-915. -fast builds samples and luxels together, on the
+        // -fast builds samples and luxels together, on the
         // luxel grid, with no clipping at all.
         if (fast)
         {
@@ -96,7 +96,7 @@ public static class FaceSampleBuilder
     }
 
     /// <summary>
-    /// <c>BuildFacesamples</c> (<c>lightmap.cpp:650</c>): the face's
+    /// <c>BuildFacesamples</c>: the face's
     /// lightmap-space polygon cut into one piece per luxel cell.
     /// </summary>
     /// <param name="geometry">The map.</param>
@@ -113,11 +113,11 @@ public static class FaceSampleBuilder
     /// <c>t + offset</c> and the BACK piece (smaller t) is then swept along s
     /// the same way; each BACK piece of that inner sweep is one sample. The
     /// offset is 1.0 -- so cell <c>t</c> spans (t, t+1] of what remains --
-    /// unless <c>-centersamples</c> makes it 0.5 (<c>lightmap.cpp:681</c>).
+    /// unless <c>-centersamples</c> makes it 0.5.
     /// </para>
     /// <para>
     /// The clip epsilon is <c>ON_EPSILON / 16</c>, stock's lightmap-space
-    /// "hack" (<c>lightmap.cpp:694</c>), and the planes are exactly axial, so
+    /// "hack", and the planes are exactly axial, so
     /// <see cref="WindingArena.ClipEpsilon"/> snaps every new vertex onto the
     /// cut. Both loops stop as soon as nothing is left to cut.
     /// </para>
@@ -125,7 +125,6 @@ public static class FaceSampleBuilder
     /// A sample's winding is kept, converted to world space, only when
     /// <paramref name="keepPartialWindings"/> is set and the sample is short of
     /// a full luxel by more than <c>EQUAL_EPSILON</c> -- a DOUBLE comparison
-    /// (<c>lightmap.cpp:743</c>).
     /// </para>
     /// </remarks>
     public static void BuildFacesamples(
@@ -156,14 +155,14 @@ public static class FaceSampleBuilder
         Vec3 sNorm = new(1.0f, 0.0f, 0.0f);
         Vec3 tNorm = new(0.0f, 1.0f, 0.0f);
 
-        // :681. A double literal narrowed into a float.
+        // A double literal narrowed into a float.
         float sampleOffset = centerSamples ? 0.5f : 1.0f;
 
         for (int t = 0; t < height && !lightmapWinding.IsNull; t++)
         {
             float dist = t + sampleOffset;
 
-            // :694. Front is the rest of the face, back is this row.
+            // Front is the rest of the face, back is this row.
             arena.ClipEpsilon(
                 lightmapWinding, tNorm, dist, LightConstants.LightmapOnEpsilon,
                 out Winding windingT1, out Winding windingT2);
@@ -182,8 +181,7 @@ public static class FaceSampleBuilder
                     {
                         throw new InvalidOperationException(
                             $"face {info.FaceNum} produced more than {SampleCapacity} light samples; "
-                            + "stock writes past its SINGLE_BRUSH_MAP * 2 buffer here "
-                            + "(lightmap.cpp:665-667).");
+                            + "stock writes past its SINGLE_BRUSH_MAP * 2 buffer here.");
                     }
 
                     samples.Add(MakeSample(
@@ -192,12 +190,11 @@ public static class FaceSampleBuilder
                     arena.Free(windingS2);
                 }
 
-                // :775-781. The row's remainder becomes the next s-cut's input.
+                // The row's remainder becomes the next s-cut's input.
                 arena.Free(windingT2);
                 windingT2 = windingS1;
             }
 
-            // :787-797.
             arena.Free(lightmapWinding);
             if (!windingT2.IsNull)
             {
@@ -212,7 +209,7 @@ public static class FaceSampleBuilder
             arena.Free(lightmapWinding);
         }
 
-        // :808-812. Every sample starts with the flat face normal; a smoothed
+        // Every sample starts with the flat face normal; a smoothed
         // face's are replaced by BuildFacelights once the phong normals exist.
         LightSample[] result = [.. samples];
         for (int i = 0; i < result.Length; i++)
@@ -225,7 +222,7 @@ public static class FaceSampleBuilder
     }
 
     /// <summary>
-    /// <c>BuildFaceLuxels</c> (<c>lightmap.cpp:847</c>): one world position per
+    /// <c>BuildFaceLuxels</c>: one world position per
     /// lightmap texel, at integer lightmap coordinates.
     /// </summary>
     /// <param name="info">The face's lighting frame.</param>
@@ -251,7 +248,7 @@ public static class FaceSampleBuilder
     }
 
     /// <summary>
-    /// <c>BuildFacesamplesAndLuxels_DoFast</c> (<c>lightmap.cpp:576</c>).
+    /// <c>BuildFacesamplesAndLuxels_DoFast</c>.
     /// </summary>
     /// <param name="geometry">The map.</param>
     /// <param name="info">The face's lighting frame.</param>
@@ -324,7 +321,6 @@ public static class FaceSampleBuilder
         bool keepPartialWindings,
         List<Vec3> windingPoints)
     {
-        // :724-738.
         float area = arena.AreaAndBalancePoint(cell, out Vec3 center) * worldAreaPerLuxel;
         arena.Bounds(cell, out Vec3 mins, out Vec3 maxs);
 
@@ -342,7 +338,7 @@ public static class FaceSampleBuilder
             Position = info.LuxelToWorld(center.X, center.Y),
         };
 
-        // :743. Double arithmetic: EQUAL_EPSILON is a double literal.
+        // Double arithmetic: EQUAL_EPSILON is a double literal.
         if (keepPartialWindings
             && area < worldAreaPerLuxel - LightConstants.EqualEpsilonDouble)
         {

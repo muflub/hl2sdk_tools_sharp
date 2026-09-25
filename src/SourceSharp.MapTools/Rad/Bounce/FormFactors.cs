@@ -6,7 +6,6 @@ namespace SourceSharp.MapTools.Rad.Bounce;
 
 /// <summary>
 /// The two form factors <c>MakeTransfer</c> chooses between
-/// (<c>vrad.cpp:1067-1111</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -35,7 +34,7 @@ public static class FormFactors
         stockNormalise ? v.NormaliseLikeStock() : v.Normalise();
 
     /// <summary>
-    /// <c>FormFactorDiffToDiff</c> (<c>vrad.cpp:1103</c>): two differential
+    /// <c>FormFactorDiffToDiff</c>: two differential
     /// patches, good when they are at least five patch-widths apart.
     /// </summary>
     /// <param name="diff1Origin"><c>pDiff1-&gt;origin</c>.</param>
@@ -51,13 +50,13 @@ public static class FormFactors
     public static float DiffToDiff(
         Vec3 diff1Origin, Vec3 diff1Normal, Vec3 diff2Origin, Vec3 diff2Normal, bool stockNormalise)
     {
-        // :1106-1110. The length is the normalise's return value.
+        // The length is the normalise's return value.
         (Vec3 delta, float length) = Normalise(diff1Origin - diff2Origin, stockNormalise);
         return -Vec3.Dot(delta, diff1Normal) * Vec3.Dot(delta, diff2Normal) / (length * length);
     }
 
     /// <summary>
-    /// <c>FormFactorPolyToDiff</c> (<c>vrad.cpp:1067</c>): a polygon patch to a
+    /// <c>FormFactorPolyToDiff</c>: a polygon patch to a
     /// differential one, Dutre's formula 81, divided by the polygon's area.
     /// </summary>
     /// <param name="polygon">The polygon's winding points, in order.</param>
@@ -74,18 +73,18 @@ public static class FormFactors
     /// </returns>
     /// <remarks>
     /// <para>
-    /// <b>The sine guard (<c>:1084</c>).</b> The edge's sine is the
+ /// <b>The sine guard.</b> The edge's sine is the
     /// normalise's RETURN value on the cross product of two unit vectors, and
     /// rounding can take it past 1, where <c>asin</c> would be NaN. Stock
     /// answers by returning 0 for the WHOLE polygon, discarding every other
     /// edge's contribution and with it the transfer, because its caller drops a
-    /// form factor at or below 0 (<c>vrad.cpp:1165</c>). Under
+    /// form factor at or below 0. Under
     /// <see cref="StockQuirk.FormFactorSineAboveOne"/> that is reproduced;
     /// correct clamps the sine to 1, which is the value it was an ulp away
     /// from.
     /// </para>
     /// <para>
-    /// <c>asin</c> is the <c>float</c> overload (MSVC's C++ <c>math.h</c> maps
+    /// <c>asin</c> is the <c>float</c> overload (MSVC's C++ maps
     /// <c>asin(float)</c> to <c>asinf</c>), so <see cref="MathF.Asin"/>.
     /// </para>
     /// </remarks>
@@ -124,7 +123,7 @@ public static class FormFactors
             formFactor += Vec3.Dot(gamma, diffNormal);
         }
 
-        // :1090. "divide by pi later, multiply by area later".
+        // 1090. "divide by pi later, multiply by area later".
         formFactor *= 0.5f / polygonArea;
         return formFactor;
     }

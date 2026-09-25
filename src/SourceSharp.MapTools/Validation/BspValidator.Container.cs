@@ -16,9 +16,9 @@ public static partial class BspValidator
     /// </summary>
     private static void CheckHeader(BspData bsp, Findings findings)
     {
-        // engine/modelloader.cpp:462-468 -- CMapLoadHelper::Init rejects the
+        // -- CMapLoadHelper::Init rejects the
         // file outright, "has wrong version (%i when expecting %i)". That
-        // branch's range is MINBSPVERSION..BSPVERSION, public/bspfile.h:24-25,
+        // Branch's range is MINBSPVERSION..BSPVERSION,
         // 19..20; the ceiling here is BspData.MaxVersion, 21, because the
         // contemporary branches' loaders read 21 and the format presets write
         // it. Same range as the reader and as CheckFileAsync -- see the rule
@@ -39,9 +39,9 @@ public static partial class BspValidator
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>engine/modelloader.cpp:639-645</c> walks every lump looking for one
+    /// Walks every lump looking for one
     /// that starts after the lighting lump and is not <c>LUMP_PAKFILE</c>; the
-    /// 360 loader at <c>:3108-3112</c> then reads the file up TO the pak lump's
+ /// 360 loader then reads the file up TO the pak lump's
     /// offset and calls that "guranateed last". So the format's rule is that
     /// nothing may start after the pak.
     /// </para>
@@ -103,7 +103,7 @@ public static partial class BspValidator
         CheckElementSizes(bsp, findings);
         CheckCaps(bsp, findings);
 
-        // engine/cmodel_bsp.cpp:323,383,423,569,609,839,877 -- "Map with no
+        // 383,423,569,609,839,877 -- "Map with no
         // textures", "Map with no texinfo", "Map with no leafs", "Map with no
         // planes" (twice, the second is really leafbrushes), "Map with no
         // models", "Map has no nodes". Each is count < 1 and each is fatal.
@@ -118,7 +118,7 @@ public static partial class BspValidator
             }
         }
 
-        // engine/modelloader.cpp:2603-2605 -- the one MAX_MAP_* the renderer's
+        // -- the one MAX_MAP_* the renderer's
         // own loader checks, and the only lump with a LOWER bound as well.
         if (counts.SurfEdges < 1 || counts.SurfEdges >= BspLimits.MaxMapSurfEdges)
         {
@@ -133,13 +133,12 @@ public static partial class BspValidator
     /// <see cref="BspRuleCodes.LumpElementSize"/>: the "funny lump size" gate.
     /// </summary>
     /// <remarks>
-    /// <c>engine/modelloader.cpp:1780-1782</c> is the generic form --
+    /// Is the generic form --
     /// <c>if ( lh.LumpSize() % elementSize ) Host_Error( "Mod_LoadLump: funny
     /// lump size in %s" )</c> -- and the same idiom is written out by hand at
-    /// modelloader :1209, :1256, :1292, :1437, :1641, :1695, :1728, :1757,
-    /// :1868, :2054, :2130, :2196, :2337, :2381, :2492, :2513, :2601 and in
-    /// cmodel_bsp at :308, :318, :380, :416, :479, :563, :602, :655, :737,
-    /// :835, :873, :913, :950, :1091, :1099, :1107, :1121, :1134.
+ /// Modelloader.
+ /// 1868 and
+ /// Cmodel_bsp,:318,
     /// </remarks>
     private static void CheckElementSizes(BspData bsp, Findings findings)
     {
@@ -181,7 +180,7 @@ public static partial class BspValidator
     /// <see cref="BspLumpLayout.ElementSize"/> answers with
     /// <c>dleafambientlighting_t</c> (28 bytes) for the two leaf-ambient lumps,
     /// which is right for a lump at version 1. It is wrong for one at any other
-    /// version: <c>engine/modelloader.cpp:2206-2212</c> takes the legacy branch
+    /// Version: takes the legacy branch
     /// and casts the SAME lump to <c>CompressedLightCube*</c> (24 bytes),
     /// asserting the length divides by that and holds one per leaf.
     /// </para>
@@ -220,7 +219,7 @@ public static partial class BspValidator
             }
         }
 
-        // engine/cmodel_bsp.cpp:985-987 -- the visibility lump is capped on its
+        // -- the visibility lump is capped on its
         // BYTE length, because it is not an array of anything.
         int visBytes = bsp[BspLump.Visibility].Length;
         if (visBytes > BspLimits.MaxMapVisibilityBytes)
@@ -242,9 +241,9 @@ public static partial class BspValidator
     /// </summary>
     private static void CheckLumpVersions(BspData bsp, Counts counts, Findings findings)
     {
-        // engine/modelloader.cpp:1331-1399 -- a switch on the lump version with
+        // -- a switch on the lump version with
         // cases 2, 1 and 0, and Host_Error("Invalid occlusion lump version!")
-        // in the default. The size test at :1599 comes FIRST, so an empty
+ // in the default. The size test comes FIRST, so an empty
         // occlusion lump is never asked what version it is.
         BspLumpData occlusion = bsp[BspLump.Occlusion];
         if (!occlusion.IsEmpty && occlusion.Version is not (0 or 1 or 2))
@@ -255,7 +254,6 @@ public static partial class BspValidator
                 + "and 2 and stops on anything else");
         }
 
-        // engine/modelloader.cpp:2286-2308 and engine/cmodel_bsp.cpp:527-544 --
         // both loaders switch on this version and both Error on the default.
         // It is also what decides whether a leaf is 56 bytes or 32, so a wrong
         // version reads every leaf at the wrong stride.
@@ -271,7 +269,7 @@ public static partial class BspValidator
         CheckLeafAmbient(bsp, counts, findings);
         CheckHdrPair(bsp, findings);
 
-        // src/utils/common/bsplib.cpp:2279-2280 -- "It's assumed by other code
+        // -- "It's assumed by other code
         // that the data lump is filled with C strings. We need to make sure
         // that the buffer as a whole ends with a '\0'." Without it every
         // consumer's strlen walks off the end of the lump.
@@ -291,7 +289,7 @@ public static partial class BspValidator
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>engine/modelloader.cpp:2203</c>: <c>if (
+    /// <c>if (
     /// ambientLightingLump.LumpVersion() != LUMP_LEAF_AMBIENT_LIGHTING_VERSION
     /// || ambientLightingTable.LumpSize() == 0 )</c> takes the legacy branch,
     /// which reads the lump as a flat <c>CompressedLightCube</c> per leaf and
@@ -327,8 +325,8 @@ public static partial class BspValidator
             + "legacy path and reads it as one light cube per leaf, discarding the sample "
             + "positions");
 
-        // :2210-2212 asserts the lump is a whole number of CompressedLightCube
-        // and that there is exactly one per leaf, then :2226 memcpy's
+        // 2210-2212 asserts the lump is a whole number of CompressedLightCube
+ // and that there is exactly one per leaf, memcpy's
         // inLightCubes[i] for every leaf. Short, and it reads past the lump.
         int cubeSize = System.Runtime.CompilerServices.Unsafe.SizeOf<CompressedLightCube>();
         int cubes = ambient.Length / cubeSize;
@@ -345,9 +343,9 @@ public static partial class BspValidator
     /// <see cref="BspRuleCodes.HdrLumpPair"/>.
     /// </summary>
     /// <remarks>
-    /// <c>engine/modelloader.cpp:1029-1031</c>: <c>bHasHDR = LumpSize(
+    /// <c>bHasHDR = LumpSize(
     /// LUMP_LIGHTING_HDR ) &gt; 0 &amp;&amp; LumpSize( LUMP_WORLDLIGHTS_HDR )
-    /// &gt; 0;</c>, and then <c>:1034-1037</c> clears it again if the file is
+ /// &gt; 0;</c>, and then clears it again if the file is
     /// version 20 or newer and has no HDR leaf ambient lump. Half a set of HDR
     /// lumps is megabytes of data the engine will never look at.
     /// </remarks>
@@ -373,7 +371,7 @@ public static partial class BspValidator
             findings.Add(
                 BspRuleCodes.HdrLumpPair,
                 $"the map is version {bsp.FileVersion} with HDR lighting but no "
-                + "LeafAmbientLightingHdr, which turns HDR back off at modelloader.cpp:1034");
+                + "LeafAmbientLightingHdr, which turns HDR back off when it loads the map");
         }
     }
 
@@ -388,7 +386,7 @@ public static partial class BspValidator
         {
             string code = entry.IdString();
 
-            // engine/staticpropmgr.cpp:1320-1325 -- "Really old map format!
+            // -- "Really old map format!
             // Static props can't be loaded..." is a Warning and a return, so
             // the map loads and every prop in it is gone.
             if (code == GameLumpId.StaticProps && entry.Version < BspLimits.MinStaticPropVersion)
@@ -400,7 +398,7 @@ public static partial class BspValidator
                     + "only prints a warning");
             }
 
-            // game/client/detailobjectsystem.cpp:1447-1451 -- the same shape:
+            // -- the same shape:
             // "Map uses old detail prop file format.. ignoring detail props".
             if (code == GameLumpId.DetailProps && entry.Version < BspLimits.MinDetailPropVersion)
             {

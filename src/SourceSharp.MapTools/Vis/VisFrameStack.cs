@@ -6,7 +6,6 @@ namespace SourceSharp.MapTools.Vis;
 
 /// <summary>
 /// The per-worker slab that stands in for stock's <c>pstack_t</c>
-/// (<c>src/utils/vvis/vis.h:67</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -37,7 +36,7 @@ internal sealed class VisFrameStack
 {
     /// <summary>Where one frame's chopped <c>pass</c> winding starts.</summary>
     /// <remarks>
-    /// Stock's frame holds three windings (<c>vis.h:76</c>) behind a free list,
+    /// Stock's frame holds three windings behind a free list,
     /// which is the same budget arrived at the other way round. Here each has a
     /// fixed role, so there is no allocator and no "already free" error to hit.
     /// </remarks>
@@ -131,7 +130,7 @@ internal sealed class VisFrameStack
     /// <param name="depth">The recursion depth, from one.</param>
     /// <param name="ordering">
     /// Zero for the source-then-pass derivation, one for the reverse -- the two
-    /// calls stock makes at <c>flow.cpp:608</c> and <c>:611</c>.
+ /// Calls stock makes.
     /// </param>
     /// <param name="minimum">
     /// How many planes this frame could possibly derive, which is

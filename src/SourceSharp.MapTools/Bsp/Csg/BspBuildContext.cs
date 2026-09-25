@@ -7,29 +7,29 @@ using SourceSharp.MapTools.Options;
 namespace SourceSharp.MapTools.Bsp.Csg;
 
 /// <summary>
-/// The state <c>csg.cpp</c>, <c>brushbsp.cpp</c> and <c>tree.cpp</c> keep in
+/// The state, and keep in
 /// file-scope statics, in one object with an owner.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Eleven pieces of hidden state are replaced here: <c>c_nodes</c>,
-/// <c>c_nonvis</c>, <c>c_active_brushes</c> (<c>brushbsp.cpp:12-14</c>),
-/// <c>c_pruned</c> (<c>tree.cpp:153</c>), <c>AllocNode</c>'s
-/// <c>static int s_NodeCount</c> (<c>brushbsp.cpp:313</c>),
-/// <c>AllocBrush</c>'s <c>static int s_BrushId</c> (<c>brushbsp.cpp:335</c>),
-/// <c>minplanenums</c> and <c>maxplanenums</c> (<c>csg.cpp:159-160</c>),
-/// <c>block_nodes</c> (<c>vbsp.cpp:85</c>) and the pair
-/// <c>brush_start</c>/<c>brush_end</c> (<c>vbsp.cpp:156</c>). All of them are
+/// <c>c_nonvis</c>, <c>c_active_brushes</c>,
+/// <c>c_pruned</c>, <c>AllocNode</c>'s
+/// <c>static int s_NodeCount</c>,
+/// <c>AllocBrush</c>'s <c>static int s_BrushId</c>,
+/// <c>minplanenums</c> and <c>maxplanenums</c>,
+/// <c>block_nodes</c> and the pair
+/// <c>brush_start</c>/<c>brush_end</c>. All of them are
 /// per-compile, and two of them — the bounding plane numbers and the block node
 /// grid — are per-compile state that stock's one threaded call site
-/// (<c>vbsp.cpp:263</c>) writes from what it believes are several threads.
+/// Writes from what it believes are several threads.
 /// </para>
 /// <para>
 /// <b>Stock's <c>numthreads == 1</c> guards are always taken.</b>
 /// <c>AllocBrush</c>, <c>FreeBrush</c>, <c>BuildTree_r</c>,
 /// <c>SelectSplitSide</c> and <c>FreeTree_r</c> all bump their counters only
 /// when <c>numthreads == 1</c> — and vbsp sets <c>numthreads = 1</c>
-/// unconditionally at <c>vbsp.cpp:1302</c>, after parsing <c>-threads</c>, with
+/// unconditionally, after parsing <c>-threads</c>, with
 /// the comment "multiple threads aren't helping...". So the guard is dead and
 /// the counters are always live. They are always live here too, and the guard
 /// is not reproduced: a counter that silently stops counting when a later phase
@@ -93,8 +93,8 @@ public sealed class BspBuildContext
 
     /// <summary>How many nodes the current tree has: <c>c_nodes</c>.</summary>
     /// <remarks>
-    /// Reset to zero at the top of <c>BrushBSP</c> (<c>brushbsp.cpp:1442</c>)
-    /// and decremented by <c>FreeTree_r</c> (<c>tree.cpp:94</c>), so it is a
+    /// Reset to zero at the top of <c>BrushBSP</c>
+    /// and decremented by <c>FreeTree_r</c>, so it is a
     /// live count and not a total. <c>BrushBSP</c> reports
     /// <c>c_nodes/2 - c_nonvis</c> visible nodes and <c>(c_nodes+1)/2</c>
     /// leaves off it.
@@ -114,9 +114,9 @@ public sealed class BspBuildContext
     /// <c>maxplanenums</c>.
     /// </summary>
     /// <remarks>
-    /// Three slots because stock declares three (<c>csg.cpp:160</c>), but
+    /// Three slots because stock declares three, but
     /// <c>ComputeBoundingPlanes</c> only ever fills the first two
-    /// (<c>csg.cpp:269</c>, <c>for (i=0 ; i&lt;2 ; i++)</c>) and
+    /// (<c>for (i=0; i&lt;2; i++)</c>) and
     /// <c>ClipBrushToBox</c> only ever reads those two. The Z slot is never
     /// written and never read; it stays -1 here where stock leaves it zero,
     /// so that reading it is an obviously invalid plane index rather than a
@@ -132,7 +132,7 @@ public sealed class BspBuildContext
     /// <b>These are +X and +Y normals at the box's MINIMUM distance, not
     /// negated planes.</b> <c>ComputeBoundingPlanes</c> sets
     /// <c>normal[i] = 1</c> once and calls <c>FindFloatPlane</c> twice, at
-    /// <c>clipmaxs[i]</c> and then <c>clipmins[i]</c> (<c>csg.cpp:271-276</c>),
+    /// <c>clipmaxs[i]</c> and then <c>clipmins[i]</c>,
     /// which is why <c>ClipBrushToBox</c> keeps the FRONT half when it clips on
     /// a min plane and the BACK half on a max plane.
     /// </remarks>
@@ -150,7 +150,7 @@ public sealed class BspBuildContext
 
     /// <summary>
     /// Allocates a brush and gives it the next id: <c>AllocBrush</c>,
-    /// <c>brushbsp.cpp:333</c>.
+    ///.
     /// </summary>
     /// <param name="sideCapacity">How many sides to reserve.</param>
     /// <returns>The brush.</returns>
@@ -164,7 +164,7 @@ public sealed class BspBuildContext
 
     /// <summary>
     /// Frees a brush's windings and drops it from the live count:
-    /// <c>FreeBrush</c>, <c>brushbsp.cpp:354</c>.
+    /// <c>FreeBrush</c>.
     /// </summary>
     /// <param name="brush">The brush to free.</param>
     /// <exception cref="ArgumentNullException"><paramref name="brush"/> is null.</exception>
@@ -188,7 +188,7 @@ public sealed class BspBuildContext
     }
 
     /// <summary>
-    /// Frees a whole list: <c>FreeBrushList</c>, <c>brushbsp.cpp:372</c>.
+    /// Frees a whole list: <c>FreeBrushList</c>.
     /// </summary>
     /// <param name="brushes">The head of the list, or null.</param>
     public void FreeBrushList(BspBrush? brushes)
@@ -203,7 +203,7 @@ public sealed class BspBuildContext
 
     /// <summary>
     /// Allocates a node and gives it the next id: <c>AllocNode</c>,
-    /// <c>brushbsp.cpp:311</c>.
+    ///.
     /// </summary>
     /// <returns>The node, with <c>diskId</c> -1 as stock sets it.</returns>
     public Tree.BspNode AllocNode()
@@ -215,7 +215,7 @@ public sealed class BspBuildContext
 
     /// <summary>
     /// Records the bounding planes of a clip box:
-    /// <c>ComputeBoundingPlanes</c>, <c>csg.cpp:265</c>.
+    /// <c>ComputeBoundingPlanes</c>.
     /// </summary>
     /// <param name="clipMins">The box's minimum.</param>
     /// <param name="clipMaxs">The box's maximum.</param>

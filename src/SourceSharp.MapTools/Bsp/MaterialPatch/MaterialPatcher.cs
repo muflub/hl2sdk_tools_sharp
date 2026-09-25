@@ -14,7 +14,6 @@ public enum MaterialPatchType
     /// <summary>
     /// <c>PATCH_REPLACE</c>: the original is walked and a key is written into
     /// <c>"replace"</c> only where the original has it
-    /// (<c>materialpatch.cpp:69-86</c>).
     /// </summary>
     Replace,
 }
@@ -24,19 +23,19 @@ public enum MaterialPatchType
 /// <param name="Value">What it is set to.</param>
 /// <param name="RequiredOriginalValue">
 /// When not null, the key is patched only where the original value equals this,
-/// ignoring case (<c>materialpatch.cpp:77</c>).
+/// Ignoring case.
 /// </param>
 public readonly record struct MaterialPatchInfo(string Key, string Value, string? RequiredOriginalValue = null);
 
 /// <summary>
-/// vbsp's material patcher, <c>utils/vbsp/materialpatch.cpp</c>, as one object
+/// Vbsp's material patcher, as one object
 /// per compile: the patched-to-original name table and the pak the patches
 /// are written into.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Stock keeps the table in two statics (<c>s_SymbolTable</c>,
-/// <c>s_MapPatchedMatToOriginalMat</c>, <c>materialpatch.cpp:18,32</c>). They
+/// <c>s_MapPatchedMatToOriginalMat</c>, <c>,32</c>). They
 /// are shared by every stage that asks "what material is this patch of" —
 /// the cubemap fixups that create patches, the detail-prop emitter that reads
 /// <c>%detailtype</c> through <c>FindOriginalMaterial</c>, the water depth
@@ -46,9 +45,9 @@ public readonly record struct MaterialPatchInfo(string Key, string Value, string
 /// <para>
 /// THE TWO FILE SOURCES ARE DIFFERENT ON PURPOSE. The "does this material have
 /// key X" family reads the ORIGINAL through the game file system only
-/// (<c>kv-&gt;LoadFromFile(g_pFileSystem, ...)</c>, <c>:211,232,253</c>) and
+/// (<c>kv-&gt;LoadFromFile(g_pFileSystem,...)</c>) and
 /// never expands a patch; the "load for rewriting" family reads the BSP's own
-/// pak first (<c>LoadKeyValuesFromPackOrFile</c>, <c>:285-294</c>). A patch
+/// pak first (<c>LoadKeyValuesFromPackOrFile</c>). A patch
 /// VMT therefore reads as having none of the keys it inserts — which is why
 /// stock never cubemap-patches a material that is itself a <c>patch</c>
 /// (measured: <c>l2_cubemap_on_water_and_patch</c>'s <c>p3g/patchedmetal</c>
@@ -66,7 +65,7 @@ public sealed class MaterialPatcher
     private readonly IContentFileSystem _content;
 
     // Patched name -> original name, case-insensitively: s_SymbolTable is
-    // constructed case-insensitive (materialpatch.cpp:18), so the RB tree's
+    // constructed case-insensitive, so the RB tree's
     // symbol compare is too. First registration wins, as a CUtlRBTree Find
     // of a key inserted twice returns the earlier node.
     private readonly Dictionary<string, string> _originals = new(StringComparer.OrdinalIgnoreCase);
@@ -98,7 +97,7 @@ public sealed class MaterialPatcher
     /// <summary>How many patched names have been registered.</summary>
     public int TranslationCount => _originals.Count;
 
-    /// <summary><c>AddNewTranslation</c>, <c>materialpatch.cpp:34-42</c>.</summary>
+    /// <summary><c>AddNewTranslation</c>.</summary>
     /// <param name="originalMaterialName">The material patched.</param>
     /// <param name="newMaterialName">The patch's name.</param>
     public void AddTranslation(string originalMaterialName, string newMaterialName)
@@ -111,7 +110,7 @@ public sealed class MaterialPatcher
 
     /// <summary>
     /// <c>GetOriginalMaterialNameForPatchedMaterial</c>
-    /// (<c>materialpatch.cpp:44-66</c>): follows the chain of patches back to
+    /// Follows the chain of patches back to
     /// the first name that is not itself a patch.
     /// </summary>
     /// <param name="patchedMaterialName">Any material name.</param>
@@ -167,7 +166,7 @@ public sealed class MaterialPatcher
     }
 
     /// <summary>
-    /// <c>LoadKeyValuesFromPackOrFile</c> (<c>materialpatch.cpp:285-294</c>):
+    /// <c>LoadKeyValuesFromPackOrFile</c>:
     /// the pak first, read as text, then the game file system.
     /// </summary>
     /// <param name="path">A content path.</param>
@@ -190,7 +189,6 @@ public sealed class MaterialPatcher
 
     /// <summary>
     /// <c>CreateMaterialPatch</c>, the multi-key form
-    /// (<c>materialpatch.cpp:91-148</c>).
     /// </summary>
     /// <param name="originalMaterialName">The material being patched.</param>
     /// <param name="newMaterialName">The patch's name.</param>
@@ -200,8 +198,8 @@ public sealed class MaterialPatcher
     /// <returns>
     /// True when the patch was written. False only on the REPLACE path when the
     /// original cannot be loaded — stock's <c>Assert(0); return;</c> at
-    /// <c>:121-126</c>, which in a release build writes NOTHING but has already
-    /// registered the translation (<c>:97</c>).
+ ///Which in a release build writes NOTHING but has already
+ /// registered the translation.
     /// </returns>
     public async ValueTask<bool> CreatePatchAsync(
         string originalMaterialName,
@@ -247,7 +245,7 @@ public sealed class MaterialPatcher
     }
 
     /// <summary>
-    /// <c>DoesMaterialHaveKey</c> (<c>materialpatch.cpp:167-221</c>): the
+    /// <c>DoesMaterialHaveKey</c>: the
     /// original, or any section in it, has the key.
     /// </summary>
     /// <param name="materialName">A material, patched or not.</param>
@@ -264,7 +262,7 @@ public sealed class MaterialPatcher
     }
 
     /// <summary>
-    /// <c>DoesMaterialHaveKeyValuePair</c> (<c>materialpatch.cpp:186-242</c>):
+    /// <c>DoesMaterialHaveKeyValuePair</c>:
     /// some section has the key with that value, ignoring case.
     /// </summary>
     /// <param name="materialName">A material, patched or not.</param>
@@ -283,7 +281,7 @@ public sealed class MaterialPatcher
     }
 
     /// <summary>
-    /// <c>GetValueFromMaterial</c> (<c>materialpatch.cpp:247-268</c>): a
+    /// <c>GetValueFromMaterial</c>: a
     /// TOP-LEVEL key of the original, ignoring patches.
     /// </summary>
     /// <param name="materialName">A material, patched or not.</param>
@@ -300,7 +298,7 @@ public sealed class MaterialPatcher
     }
 
     /// <summary>
-    /// <c>LoadMaterialKeyValues</c> (<c>materialpatch.cpp:374-394</c>).
+    /// <c>LoadMaterialKeyValues</c>.
     /// </summary>
     /// <param name="materialName">The material.</param>
     /// <param name="expandPatch">
@@ -328,7 +326,7 @@ public sealed class MaterialPatcher
     }
 
     /// <summary>
-    /// <c>WriteMaterialKeyValuesToPak</c> (<c>materialpatch.cpp:396-410</c>).
+    /// <c>WriteMaterialKeyValuesToPak</c>.
     /// </summary>
     /// <param name="materialName">The material's name.</param>
     /// <param name="material">Its keys.</param>
@@ -341,7 +339,7 @@ public sealed class MaterialPatcher
     }
 
     /// <summary>
-    /// <c>GetValueFromPatchedMaterial</c> (<c>materialpatch.cpp:416-440</c>):
+    /// <c>GetValueFromPatchedMaterial</c>:
     /// a top-level key after expanding the patch chain, pak first.
     /// </summary>
     /// <param name="materialName">The material, typically a patch in the pak.</param>
@@ -362,7 +360,7 @@ public sealed class MaterialPatcher
     }
 
     /// <summary>
-    /// <c>ExpandPatchFile</c> (<c>materialpatch.cpp:327-372</c>), vbsp's OWN
+    /// <c>ExpandPatchFile</c>, vbsp's OWN
     /// patch dialect.
     /// </summary>
     /// <param name="material">A loaded material, patch or not.</param>
@@ -375,20 +373,20 @@ public sealed class MaterialPatcher
     /// <list type="bullet">
     /// <item><description>
     /// After an <c>insert</c> is applied the tree IS the include
-    /// (<c>keyValues = *includeKeyValues</c>, <c>:352</c>), so the
-    /// <c>replace</c> lookup at <c>:355</c> searches the INCLUDED material,
+ /// (<c>keyValues = *includeKeyValues</c>), so the
+ /// <c>replace</c> lookup searches the INCLUDED material,
     /// not the patch: a patch with both sections loses its replace. A defect:
     /// <see cref="StockQuirk.PatchExpandInsertDropsReplace"/>.
     /// </description></item>
     /// <item><description>
     /// A patch with neither section never stops being a patch, so the loop
     /// re-reads the same include ten times and stock warns "Infinite recursion
-    /// in patch file?" (<c>:368-371</c>). The result is still the patch. A
+ /// in patch file?". The result is still the patch. A
     /// defect: <see cref="StockQuirk.PatchExpandEmptyPatchNeverResolves"/>.
     /// </description></item>
     /// <item><description>
     /// Only scalar keys are copied (<c>InsertKeyValues</c> has no
-    /// <c>TYPE_NONE</c> case, <c>:307-320</c>); a section in insert or replace
+ /// <c>TYPE_NONE</c> case,); a section in insert or replace
     /// is ignored, and replace checks existence at the top level only.
     /// </description></item>
     /// </list>
@@ -446,8 +444,8 @@ public sealed class MaterialPatcher
     }
 
     // The original of a (possibly patched) material, as the "does it have key
-    // X" family and the REPLACE walk read it: materialpatch.cpp:118-121,
-    // :208-211, :229-232, :250-253 -- LoadFromFile, raw. Under Correct a
+    // X" family and the REPLACE walk read it:,
+ // 208-211 -- LoadFromFile, raw. Under Correct a
     // patch is expanded first (StockQuirk.CubemapIgnoresPatchMaterials).
     private async ValueTask<KeyValuesNode?> LoadOriginalAsync(string materialName, CancellationToken cancellationToken)
     {
@@ -501,7 +499,7 @@ public sealed class MaterialPatcher
         return false;
     }
 
-    // CreateMaterialPatchRecursive, materialpatch.cpp:69-86. Every true sub
+    // CreateMaterialPatchRecursive. Every true sub
     // key of the original gets a same-named key in the patch, created whether
     // or not anything is set in it -- the writer then drops the empty ones.
     private static void PatchRecursive(KeyValuesNode original, KeyValuesNode patch, IReadOnlyList<MaterialPatchInfo> infos)

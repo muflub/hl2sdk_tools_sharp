@@ -12,7 +12,7 @@ namespace SourceSharp.MapTools.Parallel;
 /// process and behaves like one.
 /// </para>
 /// <para>
-/// There is deliberately no cap of the kind stock has. <c>threads.h:21</c> sets
+/// There is deliberately no cap of the kind stock has. sets
 /// <c>MAX_TOOL_THREADS</c> to 16 and <c>ThreadSetDefault</c> drops to ONE
 /// thread when the CPU count exceeds 32 -- so on a 32-thread box the stock
 /// tools are at their cliff edge, and on anything larger they fall off it.

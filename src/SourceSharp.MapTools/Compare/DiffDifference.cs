@@ -22,7 +22,7 @@ public readonly record struct DiffDifference(string Subject, string InA, string 
 /// What one canonicalised multiset has that the other does not.
 /// </summary>
 /// <remarks>
-/// plan_maptools.md 2 asks for what is in one and not the other rather than a
+/// The port's plan §2 asks for what is in one and not the other rather than a
 /// count, because a count of 12 says nothing about whether one plane moved or
 /// twelve did. Both are carried: the counts are complete, and the samples are
 /// bounded by <see cref="DiffOptions.MaxReportedItems"/> so a pair of unrelated

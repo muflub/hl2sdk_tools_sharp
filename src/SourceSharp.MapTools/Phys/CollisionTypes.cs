@@ -12,7 +12,7 @@ namespace SourceSharp.MapTools.Phys;
 /// Valid only inside the <see cref="ICollisionCooker.RunAsync{T}"/> callback that
 /// produced it, on the cooker thread. A convex handed to
 /// <see cref="ICollisionSession.ConvertConvexToCollide"/> is consumed by it
-/// (<c>vphysics_interface.h:210</c>: "this deletes the convex elements").
+/// (: "this deletes the convex elements").
 /// </remarks>
 public readonly record struct ConvexHandle(nint Value)
 {
@@ -38,15 +38,15 @@ public readonly record struct PolysoupHandle(nint Value)
 
 /// <summary>
 /// One bounding plane in the layout <c>ConvexFromPlanes</c> reads: four floats,
-/// normal then distance (<c>ivp.cpp:396</c>, <c>listplane_t</c>).
+/// normal then distance(<c>listplane_t</c>).
 /// </summary>
-/// <param name="Normal">The OUTWARD normal (<c>physics_collide.cpp:712</c>).</param>
+/// <param name="Normal">The OUTWARD normal.</param>
 /// <param name="Dist">The plane distance.</param>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public readonly record struct CollisionPlane(Vec3 Normal, float Dist);
 
 /// <summary>
-/// <c>convertconvexparams_t</c>, <c>vphysics_interface.h:1077</c>.
+/// <c>convertconvexparams_t</c>.
 /// </summary>
 /// <param name="BuildOuterConvexHull">Build a hull around all the convexes.</param>
 /// <param name="BuildDragAxisAreas">Compute the drag areas.</param>
@@ -59,7 +59,7 @@ public readonly record struct ConvertConvexParams(
     float DragAreaEpsilon)
 {
     /// <summary>
-    /// <c>convertconvexparams_t::Defaults</c>, <c>vphysics_interface.h:1085</c>:
+    /// <c>convertconvexparams_t::Defaults</c>:
     /// everything off and an epsilon of 0.25.
     /// </summary>
     public static ConvertConvexParams Defaults => new(false, false, false, 0.25f);
@@ -73,7 +73,7 @@ public readonly record struct ConvertConvexParams(
 /// <param name="PlaneNormal">The hit plane's normal.</param>
 /// <param name="Fraction">How far along the sweep it got, 0..1.</param>
 /// <param name="AllSolid">Whether the whole sweep was inside.</param>
-/// <param name="StartSolid">Whether it started inside: what <c>staticprop.cpp:350</c> reads.</param>
+/// <param name="StartSolid">Whether it started inside: what reads.</param>
 public readonly record struct CollisionTrace(
     Vec3 StartPosition,
     Vec3 EndPosition,
@@ -83,7 +83,7 @@ public readonly record struct CollisionTrace(
     bool StartSolid);
 
 /// <summary>
-/// A <c>vcollide_t</c> (<c>public/vcollide.h:13</c>) loaded by
+/// A <c>vcollide_t</c> loaded by
 /// <c>VCollideLoad</c>: its solids, as handles valid until
 /// <c>VCollideUnload</c>, and its keydata.
 /// </summary>
@@ -94,14 +94,14 @@ public sealed record LoadedVCollide(nint Native, IReadOnlyList<CollideHandle> So
 
 /// <summary>
 /// A triangle mesh handed to <c>CreateVirtualMesh</c>: what
-/// <c>CDispMeshEvent</c> (<c>disp_ivp.cpp:199</c>) serves back to vphysics.
+/// <c>CDispMeshEvent</c> serves back to vphysics.
 /// </summary>
 /// <param name="Vertices">The vertex positions.</param>
 /// <param name="Indices">Three indices per triangle, in the order they are served.</param>
 public sealed record VirtualMeshSource(Vec3[] Vertices, ushort[] Indices)
 {
     /// <summary>
-    /// <c>MAX_VIRTUAL_TRIANGLES</c>, <c>vphysics/virtualmesh.h:13</c>: the
+    /// <c>MAX_VIRTUAL_TRIANGLES</c>: the
     /// index array vphysics hands the event is this many triangles long.
     /// </summary>
     public const int MaxVirtualTriangles = 1024;

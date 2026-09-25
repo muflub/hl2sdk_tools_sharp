@@ -8,7 +8,7 @@ using SourceSharp.MapTools.Phys;
 namespace SourceSharp.MapTools.Compile.Cache;
 
 /// <summary>
-/// The store-backed per-model cooked-collision cache (plan_maptools.md 10a):
+/// The store-backed per-model cooked-collision cache:
 /// content-hash keys, self-checking replay, report counters.
 /// </summary>
 /// <remarks>

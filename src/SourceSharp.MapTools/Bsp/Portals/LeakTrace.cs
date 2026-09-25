@@ -12,7 +12,7 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 
 /// <summary>
 /// The leak line: the shortest chain of portals from outside the map to the
-/// entity that got out (<c>src/utils/vbsp/leakfile.cpp</c>).
+/// Entity that got out.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -38,7 +38,7 @@ public static class LeakTrace
 
     /// <summary>
     /// Traces the leak from the outside leaf back to the entity
-    /// (<c>LeakFile</c>, <c>leakfile.cpp:31</c>).
+    /// (<c>LeakFile</c>).
     /// </summary>
     /// <param name="tree">The flooded tree.</param>
     /// <param name="windings">The arena holding the portal windings.</param>
@@ -83,10 +83,10 @@ public static class LeakTrace
 
         // Add the occupant's origin to the leakfile.
         //
-        // StockQuirk.LeakFileUnnudgedOrigin. leakfile.cpp:82 re-reads the
+        // StockQuirk.LeakFileUnnudgedOrigin. re-reads the
         // `origin` key, so stock's last point is a place the flood never
         // stood: FloodEntities raised it by one unit in z before placing the
-        // occupant (portals.cpp:765) and may have moved it on the 16-unit grid
+        // occupant and may have moved it on the 16-unit grid
         // as well. The line is therefore drawn from the wrong end.
         MapEntity? occupant = node.Occupant;
         Vec3 keyOrigin = occupant?.GetVectorForKey("origin") ?? Vec3.Zero;
@@ -104,7 +104,7 @@ public static class LeakTrace
 
     /// <summary>
     /// The diagnostic stock spews in red beside the <c>.lin</c>
-    /// (<c>leakfile.cpp:92</c>).
+    ///.
     /// </summary>
     /// <param name="report">The traced leak.</param>
     /// <returns>A warning naming the entity and where it was.</returns>
@@ -125,7 +125,7 @@ public static class LeakTrace
 
     /// <summary>
     /// The leak line for an areaportal that failed to separate two areas
-    /// (<c>AreaportalLeakFile</c>, <c>leakfile.cpp:95</c>).
+    /// (<c>AreaportalLeakFile</c>).
     /// </summary>
     /// <param name="tree">The tree; skipped entirely if it has already leaked.</param>
     /// <param name="windings">The arena holding the portal windings.</param>
@@ -203,7 +203,7 @@ public static class LeakTrace
 
     /// <summary>
     /// Renders a leak path as a <c>.lin</c> file
-    /// (<c>leakfile.cpp:76</c>: one <c>"%f %f %f"</c> line per point).
+    /// (: one <c>"%f %f %f"</c> line per point).
     /// </summary>
     /// <param name="report">The leak to render.</param>
     /// <param name="lineEnding">

@@ -9,7 +9,7 @@ using SourceSharp.MapTools.Parallel;
 namespace SourceSharp.MapTools.Vis;
 
 /// <summary>
-/// <c>-tighten</c> (plan_maptools.md 5, 2c): prune with finished neighbours'
+/// <c>-tighten</c>: prune with finished neighbours'
 /// <c>portalvis</c>, as stock does, but decide WHICH neighbours from the map
 /// alone, so the answer is the same at every thread count.
 /// </summary>
@@ -17,8 +17,8 @@ namespace SourceSharp.MapTools.Vis;
 /// <para>
 /// <b>What stock does, and why the port stopped doing it.</b> A candidate
 /// portal is intersected with its FINISHED <c>portalvis</c> when it happens to
-/// be done and with its <c>portalflood</c> otherwise (<c>flow.cpp:529-536</c>),
-/// portals having been sorted cheapest first (<c>vvis.cpp:147</c>). At one
+/// be done and with its <c>portalflood</c> otherwise,
+/// portals having been sorted cheapest first. At one
 /// thread "done" means exactly "ranked lower in that sort". At more, it means
 /// whatever finished first -- spike 0c measured stock's lump moving between
 /// <c>-threads 1</c> and <c>-threads 16</c>. Phase 2a therefore always read the
@@ -57,7 +57,7 @@ namespace SourceSharp.MapTools.Vis;
 /// vector read while growing is a subset of an exact one by induction), the
 /// windings along a chain depend only on the portals in it, so the chains a
 /// run walks are chains the exact flow may walk, and the <c>!more</c> early-out
-/// (<c>flow.cpp:545</c>) skips a candidate only when recursing could set no bit
+/// Skips a candidate only when recursing could set no bit
 /// not already set -- which holds whatever valid bits the vector started with.
 /// (2) The settled run computes the exact intersection at every frame it
 /// visits: that is what "no recorded vector meets the final one" says, read by
@@ -164,8 +164,8 @@ internal sealed class VisTightening : IVisFlowSplitter
             _order[i] = i;
         }
 
-        // SortPortals, vvis.cpp:147: the runtime's qsort with PComp
-        // (vvis.cpp:127), counts only -- the tie order is the runtime's.
+        // SortPortals: the runtime's qsort with PComp
+        // Counts only -- the tie order is the runtime's.
         VisStockSort.Sort(_order, (a, b) =>
         {
             int ca = state.MightSeeCount(a);

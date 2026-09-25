@@ -9,18 +9,17 @@ namespace SourceSharp.MapTools.Bsp.MaterialPatch;
 /// <remarks>
 /// <para>
 /// Every name is LOWER-CASED on the way in and on every lookup
-/// (<c>src/public/zip_utils.cpp:1000-1002</c> in <c>AddBufferToZip</c>,
-/// <c>:1227-1230</c> in <c>FileExistsInZip</c>), so two spellings of one path
+/// (in <c>AddBufferToZip</c>,
+/// In <c>FileExistsInZip</c>), so two spellings of one path
 /// are one entry. Adding a name that is already there REPLACES its bytes
-/// ("Adds a new lump, or overwrites existing one", <c>:988</c>), which this
+/// ("Adds a new lump, or overwrites existing one",), which this
 /// does in place so the entry keeps its position.
 /// </para>
 /// <para>
-/// Text mode is <c>CopyTextData</c> (<c>zip_utils.cpp:958-985</c>): every LF
-/// becomes CR LF on the way in, and <c>ReadTextData</c> (<c>:931-952</c>)
+/// Text mode is <c>CopyTextData</c>: every LF
+/// becomes CR LF on the way, and <c>ReadTextData</c>
 /// turns CR LF back into LF on the way out. The patched VMTs are written in
-/// text mode (<c>materialpatch.cpp:144,406</c>); the cubemap VTFs are not
-/// (<c>cubemap.cpp:453,465</c>).
+/// Text mode; the cubemap VTFs are not
 /// </para>
 /// <para>
 /// ORDER: entries are kept in first-insertion order. Stock's order is not
@@ -56,12 +55,12 @@ public sealed class MapPakFile
         return pak;
     }
 
-    /// <summary><c>AddBufferToPak</c>, <c>utils/common/bsplib.cpp:836</c>.</summary>
+    /// <summary><c>AddBufferToPak</c>.</summary>
     /// <param name="name">The pak-relative path. Lower-cased.</param>
     /// <param name="data">The bytes.</param>
     /// <param name="textMode">
     /// True to store it as text: each LF becomes CR LF
-    /// (<c>zip_utils.cpp:1006-1015</c>).
+    ///.
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
     public void Add(string name, ReadOnlySpan<byte> data, bool textMode)
@@ -81,12 +80,12 @@ public sealed class MapPakFile
         return _index.ContainsKey(name.ToLowerInvariant());
     }
 
-    /// <summary><c>ReadFileFromPak</c>, <c>zip_utils.cpp:1142-1222</c>.</summary>
+    /// <summary><c>ReadFileFromPak</c>.</summary>
     /// <param name="name">The pak-relative path.</param>
     /// <param name="textMode">True to turn CR LF back into LF.</param>
     /// <returns>The bytes, or null when there is no such entry.</returns>
     /// <remarks>
-    /// Stock's text read also appends a NUL (<c>:951</c>); that terminator is
+ /// Stock's text read also appends a NUL; that terminator is
     /// a C-string convenience and is not returned here.
     /// </remarks>
     public byte[]? Read(string name, bool textMode)

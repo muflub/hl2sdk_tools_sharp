@@ -3,7 +3,7 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// <c>SetupLightNormalFromProps</c> (<c>public/map_utils.cpp:13</c>): the
+/// <c>SetupLightNormalFromProps</c>: the
 /// direction a light entity points, from its <c>angles</c>, <c>angle</c> and
 /// <c>pitch</c> keys.
 /// </summary>
@@ -18,7 +18,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </para>
 /// <para>
 /// Two sentinel values short-circuit the yaw entirely: <c>ANGLE_UP</c> (-1)
-/// and <c>ANGLE_DOWN</c> (-2) from <c>bspfile.h:895</c>. They set the vector
+/// and <c>ANGLE_DOWN</c> (-2) from the reference implementation. They set the vector
 /// straight up or down -- and are then OVERWRITTEN by the pitch block below,
 /// which unconditionally assigns <c>output[2] = sin(pitch)</c>. So
 /// <c>"angle" "-1"</c> does not aim a light upward unless the pitch happens to
@@ -31,10 +31,10 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </remarks>
 public static class LightNormals
 {
-    /// <summary><c>ANGLE_UP</c> (<c>bspfile.h:895</c>).</summary>
+    /// <summary><c>ANGLE_UP</c>.</summary>
     public const float AngleUp = -1f;
 
-    /// <summary><c>ANGLE_DOWN</c> (<c>bspfile.h:896</c>).</summary>
+    /// <summary><c>ANGLE_DOWN</c>.</summary>
     public const float AngleDown = -2f;
 
     /// <summary>
@@ -47,11 +47,11 @@ public static class LightNormals
     /// <param name="angle">The <c>angle</c> key, or zero.</param>
     /// <param name="pitch">The <c>pitch</c> key, or zero.</param>
     /// <param name="crtCosine">
-    /// Take cosines as the shipped binary's C runtime does at a right angle
+    /// Take cosines as the reference build's C runtime does at a right angle
     /// (<see cref="Options.StockQuirk.CrtCosineAtRightAngle"/>).
     /// </param>
     /// <param name="reciprocalDegrees">
-    /// Convert degrees as the shipped binary does, multiplying by the float
+    /// Convert degrees as the reference build does, multiplying by the float
     /// <c>1/180</c> (<see cref="Options.StockQuirk.DegreesToRadiansByReciprocal"/>).
     /// </param>
     /// <returns>A unit vector.</returns>
@@ -73,7 +73,7 @@ public static class LightNormals
         }
         else
         {
-            // map_utils.cpp:28-31. A zero `angle` falls back to the yaw, which
+            // A zero `angle` falls back to the yaw, which
             // QAngle indexes as component 1 -- the SECOND number of the angles
             // key.
             if (angle == 0f)
@@ -85,13 +85,13 @@ public static class LightNormals
             y = (float)Math.Sin(Radians(angle, reciprocalDegrees));
         }
 
-        // :38-42. Likewise, a zero pitch falls back to component 0.
+        // Likewise, a zero pitch falls back to component 0.
         if (pitch == 0f)
         {
             pitch = angles.X;
         }
 
-        // :44-46, and note z is ASSIGNED here rather than multiplied, which is
+        // 44-46, and note z is ASSIGNED here rather than multiplied, which is
         // what erases the ANGLE_UP and ANGLE_DOWN sentinels above.
         float z = (float)Math.Sin(Radians(pitch, reciprocalDegrees));
         float cosPitch = (float)Cosine(Radians(pitch, reciprocalDegrees), crtCosine);

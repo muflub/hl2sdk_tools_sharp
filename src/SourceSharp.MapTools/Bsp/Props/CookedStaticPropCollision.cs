@@ -83,7 +83,7 @@ public sealed class CookedStaticPropCollision : IStaticPropCollision
                 },
                 cancellationToken).ConfigureAwait(false);
 
-        // TestLeafAgainstCollide, staticprop.cpp:314-351.
+        // TestLeafAgainstCollide.
         public async ValueTask<bool> IntersectsAsync(
             ReadOnlyMemory<(Vec3 Normal, float Dist)> planes,
             Vec3 origin,

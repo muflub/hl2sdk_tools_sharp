@@ -5,8 +5,8 @@ namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
 /// Point queries against a COMPILED map's node and leaf lumps:
-/// <c>PointInLeaf</c> / <c>ClusterFromPoint</c> (<c>vismat.cpp:95, 123</c>) and
-/// <c>PointLeafnum</c> (<c>trace.cpp:435</c>).
+/// <c>PointInLeaf</c> / <c>ClusterFromPoint</c> and
+/// <c>PointLeafnum</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -34,7 +34,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 public sealed class CompiledBspTree
 {
     /// <summary>
-    /// <c>TEST_EPSILON</c> (<c>vismat.cpp:33</c>): 0.1, how near a splitting
+    /// <c>TEST_EPSILON</c>: 0.1, how near a splitting
     /// plane counts as being on it.
     /// </summary>
     public const float TestEpsilon = 0.1f;
@@ -59,7 +59,7 @@ public sealed class CompiledBspTree
     public int LeafCount => _leaves.Length;
 
     /// <summary>
-    /// <c>ClusterFromPoint</c> (<c>vismat.cpp:123</c>).
+    /// <c>ClusterFromPoint</c>.
     /// </summary>
     /// <param name="point">A world point.</param>
     /// <returns>The vis cluster, or -1 when the point is in solid space.</returns>
@@ -70,7 +70,7 @@ public sealed class CompiledBspTree
     public int ClusterFromPoint(Vec3 point) => _leaves[PointInLeaf(0, point)].Cluster;
 
     /// <summary>
-    /// <c>PointInLeaf</c> (<c>vismat.cpp:95</c>): the descent that straddles.
+    /// <c>PointInLeaf</c>: the descent that straddles.
     /// </summary>
     /// <param name="node">
     /// The node to start at, or a negative value naming a leaf as
@@ -133,7 +133,7 @@ public sealed class CompiledBspTree
     }
 
     /// <summary>
-    /// <c>PointLeafnum</c> (<c>trace.cpp:469</c>): the descent that does not
+    /// <c>PointLeafnum</c>: the descent that does not
     /// straddle.
     /// </summary>
     /// <param name="point">A world point.</param>

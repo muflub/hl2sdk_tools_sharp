@@ -75,7 +75,7 @@ public sealed class VbspContext
 
     /// <summary>
     /// The compile's material patches and the pak they are written into:
-    /// <c>materialpatch.cpp</c>'s translation table and <c>GetPakFile()</c>.
+    /// The reference implementation's translation table and <c>GetPakFile</c>.
     /// </summary>
     /// <remarks>
     /// One per compile, and owned HERE rather than by the stage that happens
@@ -83,7 +83,7 @@ public sealed class VbspContext
     /// reads: the face stage's <c>AssignBottomWaterMaterialToFace</c> reads a
     /// water's <c>$bottommaterial</c> through <c>GetValueFromPatchedMaterial</c>,
     /// from the patch the cubemap fixup put in the pak
-    /// (<c>faces.cpp:1255-1264</c>, "This happens *after* cubemap fixup").
+    /// ("This happens *after* cubemap fixup").
     /// </remarks>
     public MaterialPatch.MaterialPatcher Patcher { get; }
 
@@ -110,7 +110,6 @@ public sealed class VbspContext
     /// One for the whole compile, not one per map, because a merged instance
     /// keeps the winding handles it was given
     /// (<c>MergeBrushSides</c> transforms the points in place,
-    /// <c>map.cpp:2230-2234</c>).
     /// </remarks>
     public WindingArena Windings { get; }
 
@@ -142,7 +141,7 @@ public sealed class VbspContext
     /// <remarks>
     /// Stock never removes from this and neither does this, even though an
     /// instance's <c>CMapFile</c> is <c>delete</c>d right after it is merged
-    /// (<c>map.cpp:2045</c>) — leaving a dangling pointer in <c>g_Maps</c> that
+    /// — leaving a dangling pointer in <c>g_Maps</c> that
     /// nothing happens to dereference. Keeping the object alive is the same
     /// behaviour minus the bug.
     /// </remarks>
@@ -165,7 +164,7 @@ public sealed class VbspContext
     /// </summary>
     /// <remarks>
     /// Only ever read to name an instance that has no <c>targetname</c> and no
-    /// <c>name</c>, as <c>InstanceAuto&lt;n&gt;</c> (<c>map.cpp:2361</c>).
+    /// <c>name</c>, as <c>InstanceAuto&lt;n&gt;</c>.
     /// </remarks>
     public int InstanceCount { get; set; }
 
@@ -174,7 +173,7 @@ public sealed class VbspContext
     /// </summary>
     /// <remarks>
     /// One-based when written into an entity's <c>portalnumber</c>: the counter
-    /// is incremented BEFORE it is used (<c>map.cpp:1702-1707</c>), so the
+    /// is incremented BEFORE it is used, so the
     /// first areaportal in a map is portal 1.
     /// </remarks>
     public int AreaPortalCount { get; set; }
@@ -185,14 +184,13 @@ public sealed class VbspContext
     /// <remarks>
     /// Read by <c>GeneratePatchedMaterialName</c> to build
     /// <c>maps/&lt;mapbase&gt;/&lt;material&gt;_wvt_patch</c>
-    /// (<c>worldvertextransitionfixup.cpp:51</c>), so it is part of a material
+    /// So it is part of a material
     /// name that reaches TEXDATA_STRING_DATA.
     /// </remarks>
     public string MapBase { get; set; } = string.Empty;
 
     /// <summary>
     /// The VMF's <c>mapversion</c>: <c>g_MapRevision</c>,
-    /// <c>utils/common/bsplib.cpp:695</c>.
     /// </summary>
     /// <remarks>
     /// Written into the BSP header. Set by whichever entity carries the key,
@@ -214,14 +212,13 @@ public sealed class VbspContext
     /// <summary>
     /// The default luxel size when a side's <c>lightmapscale</c> is zero:
     /// <c>g_defaultLuxelSize</c>, from <c>DEFAULT_LUXEL_SIZE</c>
-    /// (<c>utils/common/bsplib.h:44</c>).
     /// </summary>
     public float DefaultLuxelSize { get; set; } = 16.0f;
 
     /// <summary>
     /// The collision cooker <c>EmitPhysCollision</c> drives, or null for no
     /// collision lumps: stock's <c>physcollision == NULL</c>, which writes
-    /// neither LUMP_PHYSCOLLIDE nor LUMP_PHYSDISP (<c>ivp.cpp:1510</c>).
+    /// neither LUMP_PHYSCOLLIDE nor LUMP_PHYSDISP.
     /// </summary>
     /// <remarks>
     /// Owned by the host, not the compile: the native
@@ -249,7 +246,7 @@ public sealed class VbspContext
     /// <c>-threads</c>, mapped by the host.
     /// </summary>
     /// <remarks>
-    /// Stock vbsp is serial whatever it is told (<c>vbsp.cpp:1302</c>). Here
+    /// Stock vbsp is serial whatever it is told. Here
     /// the parallel stages compute into index-addressed slots and commit in
     /// stock's order, so every degree, 1 included, writes the same bytes; this
     /// only decides how many cores that takes.
@@ -257,7 +254,7 @@ public sealed class VbspContext
     public CompileParallelism Parallelism { get; set; } = CompileParallelism.Default;
 
     /// <summary>
-    /// The per-model cooked-collision cache, or null (plan_maptools.md 10a).
+    /// The per-model cooked-collision cache, or null.
     /// Owned by the host like the cooker; a hit replays one model's collision
     /// bytes instead of cooking them.
     /// </summary>

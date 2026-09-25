@@ -16,15 +16,14 @@ public enum StudioModelRejection
     /// <summary>Accepted.</summary>
     None,
 
-    /// <summary>No such file, or not <c>IDST</c>/<c>IDAG</c> (<c>staticprop.cpp:151-159</c>).</summary>
+    /// <summary>No such file, or not <c>IDST</c>/<c>IDAG</c>.</summary>
     Unreadable,
 
-    /// <summary>Not compiled with <c>$staticprop</c> (<c>staticprop.cpp:104-105</c>).</summary>
+    /// <summary>Not compiled with <c>$staticprop</c>.</summary>
     NotStaticProp,
 
     /// <summary>
     /// Has <c>prop_data</c> without <c>allowstatic</c>: must be dynamic
-    /// (<c>staticprop.cpp:111-118</c>).
     /// </summary>
     DynamicOnly,
 }
@@ -41,15 +40,15 @@ public sealed record StudioModelLoad(string Name, StudioModelRejection Rejection
 
 /// <summary>
 /// <c>LoadStudioModel</c> and <c>IsStaticProp</c>
-/// (<c>utils/vbsp/staticprop.cpp:102-190</c>), shared by the static and the
+/// Shared by the static and the
 /// detail prop emitters.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Old model versions load.</b> <c>Studio_ConvertStudioHdrToNewVersion</c>
-/// runs BEFORE the version test (<c>staticprop.cpp:163-168</c>) and ends by
+/// runs BEFORE the version test and ends by
 /// slamming <c>version = STUDIO_VERSION</c> whatever it was
-/// (<c>public/studio.h:3171-3172</c>), so the test at <c>:165</c> can never
+/// So the test can never
 /// fire and a version 44 HL2 model is accepted. Its only other effect is on
 /// animation data vbsp never reads. This slams 44..47 the same way. Slamming
 /// a version outside that range is a defect -- the file has another layout --
@@ -104,8 +103,8 @@ public static class StudioModelCheck
             return new StudioModelLoad(modelName, StudioModelRejection.Unreadable, null);
         }
 
-        // studio.h:3171-3172 slams ANY version to 48 and staticprop.cpp:165's
-        // check can then never fire. Valve's comment is "they're compatible",
+        // Slams ANY version to 48 and the reference implementation's
+        // check can then never fire. the reference comment is "they're compatible",
         // which holds for 44..47 (the conversion above it fixes those); a
         // model older than 44 or newer than 48 has another layout and is read
         // as garbage. Correct refuses those (StockQuirk.StudioVersionSlam).
@@ -156,21 +155,20 @@ public static class StudioModelCheck
     /// </summary>
     public const int OldestCompatibleVersion = 44;
 
-    /// <summary><c>STUDIOHDR_FLAGS_STATIC_PROP</c>, <c>public/studio.h</c>.</summary>
+    /// <summary><c>STUDIOHDR_FLAGS_STATIC_PROP</c>.</summary>
     public const int StaticPropFlag = 0x10;
 
     /// <summary>
     /// Every mesh's vertex positions, in body-part, model, mesh order: what
     /// <c>ComputeConvexHull</c> hands the physics library, one convex per mesh
-    /// (<c>staticprop.cpp:196-239</c>).
     /// </summary>
     /// <param name="mdl">The model.</param>
     /// <param name="vvd">Its vertex file.</param>
     /// <returns>One point list per mesh.</returns>
     /// <remarks>
     /// The positions come from the VVD's RAW vertex block
-    /// (<c>vertexFileHeader_t::GetVertexData</c>, <c>studio.h:1959</c>, reached
-    /// through <c>mstudiomodel_t::GetVertexData</c> at <c>:1985-1995</c>), not
+    /// (<c>vertexFileHeader_t::GetVertexData</c>, reached
+ /// through <c>mstudiomodel_t::GetVertexData</c>), not
     /// from a fixed-up LOD 0 list: vbsp's <c>CacheVertexData</c> hands the file
     /// over as read.
     /// </remarks>
@@ -206,7 +204,7 @@ public static class StudioModelCheck
         return hulls;
     }
 
-    // IsStaticProp's second half, staticprop.cpp:107-121: the model's own
+    // IsStaticProp's second half: the model's own
     // keyvalues, "prop_data" under the root, "allowstatic" as an int.
     private static async ValueTask<bool> IsDynamicOnlyAsync(MdlFile mdl, CancellationToken cancellationToken)
     {

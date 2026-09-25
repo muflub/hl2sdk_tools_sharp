@@ -7,7 +7,7 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 
 /// <summary>
 /// Turning a built BSP tree into portals: the boundary faces between every
-/// pair of adjacent nodes (<c>src/utils/vbsp/portals.cpp:26-621</c>).
+/// Pair of adjacent nodes.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -22,29 +22,29 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 /// Three different epsilons take part in that, which is worth knowing before
 /// anyone tries to tidy them into one: the plane winding is clipped by its
 /// parents at <see cref="BaseWindingEpsilon"/> (0.001), by the node's sibling
-/// portals at a hardcoded 0.1 (<c>portals.cpp:422</c>), and existing portals
+/// portals at a hardcoded 0.1, and existing portals
 /// are split at <see cref="SplitWindingEpsilon"/> (0.001). They are not
 /// tunables.
 /// </para>
 /// </remarks>
 public sealed class TreePortals
 {
-    /// <summary><c>SIDESPACE</c> (<c>portals.cpp:279</c>): slack around the tree's bounds.</summary>
+    /// <summary><c>SIDESPACE</c>: slack around the tree's bounds.</summary>
     public const float SideSpace = 8f;
 
-    /// <summary><c>BASE_WINDING_EPSILON</c> (<c>portals.cpp:347</c>).</summary>
+    /// <summary><c>BASE_WINDING_EPSILON</c>.</summary>
     public const float BaseWindingEpsilon = 0.001f;
 
-    /// <summary><c>SPLIT_WINDING_EPSILON</c> (<c>portals.cpp:348</c>).</summary>
+    /// <summary><c>SPLIT_WINDING_EPSILON</c>.</summary>
     public const float SplitWindingEpsilon = 0.001f;
 
-    /// <summary>The epsilon <c>MakeNodePortal</c> clips by, written inline at <c>portals.cpp:422</c>.</summary>
+    /// <summary>The epsilon <c>MakeNodePortal</c> clips by, written inline.</summary>
     public const float NodePortalClipEpsilon = 0.1f;
 
-    /// <summary><c>MIN_COORD_INTEGER</c> (<c>src/public/worldsize.h:20</c>).</summary>
+    /// <summary><c>MIN_COORD_INTEGER</c>.</summary>
     public const float MinCoordInteger = GeometryEpsilons.MinCoordInteger;
 
-    /// <summary><c>MAX_COORD_INTEGER</c> (<c>src/public/worldsize.h:19</c>).</summary>
+    /// <summary><c>MAX_COORD_INTEGER</c>.</summary>
     public const float MaxCoordInteger = GeometryEpsilons.MaxCoordInteger;
 
     /// <summary>A node's volume came out empty.</summary>
@@ -108,21 +108,21 @@ public sealed class TreePortals
 
     /// <summary>
     /// Whether a winding would be crunched out of existence by vertex snapping
-    /// (<c>WindingIsTiny</c>, <c>brushbsp.cpp:647</c>).
+    /// (<c>WindingIsTiny</c>).
     /// </summary>
     /// <param name="arena">The arena holding the winding.</param>
     /// <param name="winding">The winding to measure.</param>
     /// <returns><see langword="true"/> when it has fewer than three edges longer than 0.2.</returns>
     /// <remarks>
-    /// Lives here rather than with the rest of <c>brushbsp.cpp</c> because
-    /// <c>portals.cpp</c> is its only other caller and the two stages were
+    /// Lives here rather than with the rest of the reference implementation because
+    /// Is its only other caller and the two stages were
     /// ported separately; it is eight lines and has no state.
     /// </remarks>
     public static bool IsTiny(WindingArena arena, Winding winding)
     {
         ArgumentNullException.ThrowIfNull(arena);
 
-        // StockQuirk.WindingIsTinyEdgePromotion, brushbsp.cpp:646. EDGE_LENGTH
+        // StockQuirk.WindingIsTinyEdgePromotion. EDGE_LENGTH
         // is spelled `0.2` with no `f`, so `len > EDGE_LENGTH` promotes the
         // float length to double and an edge of exactly 0.2f
         // (0.20000000298...) compares as LONGER than the threshold. Comparing
@@ -158,7 +158,7 @@ public sealed class TreePortals
     /// <returns>Zero minus it, component by component.</returns>
     public static Vec3 SubtractFromOrigin(Vec3 v) => new(0f - v.X, 0f - v.Y, 0f - v.Z);
 
-    /// <summary>Allocates a portal (<c>AllocPortal</c>, <c>portals.cpp:26</c>).</summary>
+    /// <summary>Allocates a portal(<c>AllocPortal</c>).</summary>
     /// <returns>A fresh portal with a unique id.</returns>
     public Portal AllocPortal()
     {
@@ -172,7 +172,7 @@ public sealed class TreePortals
         return new Portal(_nextPortalId++);
     }
 
-    /// <summary>Frees a portal and its winding (<c>FreePortal</c>, <c>portals.cpp:45</c>).</summary>
+    /// <summary>Frees a portal and its winding(<c>FreePortal</c>).</summary>
     /// <param name="portal">The portal to free.</param>
     public void FreePortal(Portal portal)
     {
@@ -189,7 +189,7 @@ public sealed class TreePortals
 
     /// <summary>
     /// Threads a portal onto both of the nodes it separates
-    /// (<c>AddPortalToNodes</c>, <c>portals.cpp:191</c>).
+    /// (<c>AddPortalToNodes</c>).
     /// </summary>
     /// <param name="portal">The portal to link.</param>
     /// <param name="front">The node in front of its plane.</param>
@@ -217,7 +217,7 @@ public sealed class TreePortals
 
     /// <summary>
     /// Unthreads a portal from one node's list
-    /// (<c>RemovePortalFromNode</c>, <c>portals.cpp:211</c>).
+    /// (<c>RemovePortalFromNode</c>).
     /// </summary>
     /// <param name="portal">The portal to unlink.</param>
     /// <param name="node">The node to unlink it from.</param>
@@ -294,7 +294,7 @@ public sealed class TreePortals
 
     /// <summary>
     /// Frees every portal in a subtree
-    /// (<c>FreeTreePortals_r</c>, <c>tree.cpp:39</c>).
+    /// (<c>FreeTreePortals_r</c>).
     /// </summary>
     /// <param name="node">The root of the subtree.</param>
     /// <remarks>
@@ -329,7 +329,7 @@ public sealed class TreePortals
 
     /// <summary>
     /// Gives the head node six portals to the outside leaf
-    /// (<c>MakeHeadnodePortals</c>, <c>portals.cpp:280</c>).
+    /// (<c>MakeHeadnodePortals</c>).
     /// </summary>
     /// <param name="tree">The tree to bound.</param>
     /// <remarks>
@@ -409,7 +409,7 @@ public sealed class TreePortals
 
     /// <summary>
     /// The full winding of a node's split plane, clipped by every ancestor
-    /// (<c>BaseWindingForNode</c>, <c>portals.cpp:350</c>).
+    /// (<c>BaseWindingForNode</c>).
     /// </summary>
     /// <param name="node">The splitting node.</param>
     /// <returns>The winding, or <see cref="Winding.Null"/> if it clipped away.</returns>
@@ -447,7 +447,7 @@ public sealed class TreePortals
 
     /// <summary>
     /// Creates the portal between a node's two children
-    /// (<c>MakeNodePortal</c>, <c>portals.cpp:392</c>).
+    /// (<c>MakeNodePortal</c>).
     /// </summary>
     /// <param name="node">The splitting node.</param>
     public void MakeNodePortal(IBspNode node)
@@ -508,7 +508,7 @@ public sealed class TreePortals
 
     /// <summary>
     /// Hands a node's portals down to its two children, splitting the ones the
-    /// node's plane cuts (<c>SplitNodePortals</c>, <c>portals.cpp:455</c>).
+    /// Node's plane cuts(<c>SplitNodePortals</c>).
     /// </summary>
     /// <param name="node">The splitting node.</param>
     public void SplitNodePortals(IBspNode node)
@@ -630,7 +630,7 @@ public sealed class TreePortals
 
     /// <summary>
     /// Recomputes a node's bounds from the portals that bound it
-    /// (<c>CalcNodeBounds</c>, <c>portals.cpp:553</c>).
+    /// (<c>CalcNodeBounds</c>).
     /// </summary>
     /// <param name="node">The node or leaf to measure.</param>
     public void CalcNodeBounds(IBspNode node)
@@ -665,7 +665,7 @@ public sealed class TreePortals
 
     /// <summary>
     /// Portalises a whole tree
-    /// (<c>MakeTreePortals</c>, <c>portals.cpp:617</c>).
+    /// (<c>MakeTreePortals</c>).
     /// </summary>
     /// <param name="tree">The tree to portalise.</param>
     public void MakeTreePortals(IBspTree tree)
@@ -679,7 +679,7 @@ public sealed class TreePortals
     /// <summary>
     /// The second portalisation, for the portal file: no bounds, no warnings,
     /// and it stops at the leaves
-    /// (<c>CreateVisPortals_r</c>, <c>prtfile.cpp:293</c>).
+    /// (<c>CreateVisPortals_r</c>).
     /// </summary>
     /// <param name="node">The node to portalise from.</param>
     public void CreateVisPortals(IBspNode node)

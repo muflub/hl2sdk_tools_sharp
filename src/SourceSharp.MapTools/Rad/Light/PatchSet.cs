@@ -6,7 +6,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <summary>
 /// Every patch in a map, plus the four index tables that thread them:
 /// <c>g_Patches</c>, <c>g_FacePatches</c>, <c>faceParents</c> and
-/// <c>clusterChildren</c> (<c>vrad.h:246-249</c>).
+/// <c>clusterChildren</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -96,9 +96,9 @@ public sealed class PatchSet
     /// </summary>
     /// <remarks>
     /// vrad's own progress line prints this as square feet and square inches
-    /// (<c>vrad.cpp:732</c>), which is the most sensitive single number the
+    /// Which is the most sensitive single number the
     /// patch pass produces: it moves if any face's winding differs by a sliver.
-    /// <b>A <c>float</c>, not a double</b> -- <c>vrad.cpp:501</c> declares it
+    /// <b>A <c>float</c>, not a double</b> -- declares it
     /// <c>float</c>, and on a map with thousands of faces the accumulator's
     /// rounding is part of the printed answer.
     /// </remarks>
@@ -117,7 +117,7 @@ public sealed class PatchSet
     /// The reference is invalidated by the next <see cref="Add"/>. That is the
     /// same contract as <c>CUtlVector::Element</c>, which stock violates in
     /// <c>SubdividePatch</c> and then repairs by re-fetching
-    /// (<c>vrad.cpp:911-912</c>, with a comment).
+    /// (with a comment).
     /// </remarks>
     public ref Patch At(int index)
     {

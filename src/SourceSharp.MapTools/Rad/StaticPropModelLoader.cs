@@ -10,8 +10,8 @@ namespace SourceSharp.MapTools.Rad;
 /// <summary>
 /// Loads vrad's static prop model dictionary:
 /// <c>CVradStaticPropMgr::UnserializeModelDict</c>
-/// (<c>vradstaticprops.cpp:1016</c>) and the
-/// <c>CreateCollisionModel</c> (<c>vradstaticprops.cpp:942</c>) it calls once
+/// And the
+/// <c>CreateCollisionModel</c> it calls once
 /// per entry.
 /// </summary>
 /// <remarks>
@@ -27,7 +27,7 @@ namespace SourceSharp.MapTools.Rad;
 /// <para>
 /// One thing moves. Stock loads the <c>.vvd</c> LAZILY, from
 /// <c>CVradStaticPropMgr::SetupStudioHdr</c>'s vertex-data callback
-/// (<c>vradstaticprops.cpp:2190</c>), the first time anything asks a mesh for
+/// The first time anything asks a mesh for
 /// its vertices; this loader reads it up front with the other three. The
 /// difference is WHEN, not WHAT -- the bytes and the fixup pass are identical
 /// -- and it buys an immutable <see cref="StaticPropModel"/> instead of one
@@ -49,7 +49,7 @@ public sealed class StaticPropModelLoader
     /// <param name="collision">Where a model's collision triangles come from.</param>
     /// <param name="forcedTextureShadowModels">
     /// The models <c>lights.rad</c> named in <c>forcetextureshadow</c> lines
-    /// (<c>vrad.cpp:234</c>), in any spelling;
+    /// In any spelling;
     /// <see cref="StaticPropModel.CleanModelName"/> is applied to both sides.
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="content"/> or <paramref name="collision"/> is null.</exception>
@@ -86,7 +86,7 @@ public sealed class StaticPropModelLoader
     /// <remarks>
     /// SEQUENTIAL, and in lump order, because the order is observable: stock's
     /// dictionary index IS the loop counter of <c>UnserializeModelDict</c>
-    /// (<c>vradstaticprops.cpp:1019</c>), and every prop names its model by
+    /// And every prop names its model by
     /// that index.
     /// </remarks>
     public async ValueTask<IReadOnlyList<StaticPropModel>> LoadDictionaryAsync(
@@ -124,9 +124,9 @@ public sealed class StaticPropModelLoader
             return Rejected(path, StaticPropModelRejection.FileMissing, forced);
         }
 
-        // Studio_ConvertStudioHdrToNewVersion, studio.h:3114, called from
-        // LoadStudioModel at vradstaticprops.cpp:483 -- BEFORE the version
-        // test at :487, which is the only reason that test ever passes.
+        // Studio_ConvertStudioHdrToNewVersion, called from
+        // LoadStudioModel -- BEFORE the version
+ // test, which is the only reason that test ever passes.
         //
         // NOT OPTIONAL, and skipping it is not a small divergence: EVERY prop
         // model dm_lockdown references is studiohdr version 44, and without
@@ -138,7 +138,7 @@ public sealed class StaticPropModelLoader
         try
         {
             // MdlFile.Parse enforces both of LoadStudioModel's format tests:
-            // the IDST/IDAG ident (vradstaticprops.cpp:476) and
+            // the IDST/IDAG ident and
             // version == STUDIO_VERSION (:487).
             mdl = MdlFile.Parse(mdlBytes);
         }
@@ -147,10 +147,10 @@ public sealed class StaticPropModelLoader
             return Rejected(path, StaticPropModelRejection.NotAStudioModel, forced);
         }
 
-        // IsStaticProp, vradstaticprops.cpp:378. A model without $staticprop
+        // IsStaticProp. A model without $staticprop
         // has no usable vertex data here at all: its vertices are in bone
         // space and stock's loader does not set up bones, which is what the
-        // warning at :495 is really saying.
+ // warning is really saying.
         if ((mdl.Header.Flags & StaticPropModel.StudioFlagStaticProp) == 0)
         {
             return Rejected(path, StaticPropModelRejection.NotAStaticProp, forced);
@@ -180,7 +180,7 @@ public sealed class StaticPropModelLoader
                 vvd = VvdFile.Parse(vvdBytes);
 
                 // Studio_LoadVertexes( pVvdHdr, pNewVvdHdr, 0, true ),
-                // vradstaticprops.cpp:2235. LOD 0, fixups applied.
+                // LOD 0, fixups applied.
                 vertices = vvd.VerticesForLod(0);
             }
             catch (InvalidStudioException)
@@ -208,11 +208,11 @@ public sealed class StaticPropModelLoader
     }
 
     /// <summary>
-    /// <c>LoadVTXFile</c>, <c>vradstaticprops.cpp:526</c>.
+    /// <c>LoadVTXFile</c>.
     /// </summary>
     /// <remarks>
     /// <c>.dx80.vtx</c>, NOT <c>.dx90.vtx</c> and not the bare <c>.vtx</c>
-    /// (<c>vradstaticprops.cpp:534</c>). The three differ: a dx90 file can
+    /// The three differ: a dx90 file can
     /// carry more strip groups and a different vertex ordering for hardware
     /// skinning, so reading the wrong one gives a triangle count that is
     /// plausible, close, and not stock's. The version and the checksum are
@@ -241,14 +241,14 @@ public sealed class StaticPropModelLoader
             return null;
         }
 
-        // vradstaticprops.cpp:551 -- a VTX whose checksum does not match the
+        // -- a VTX whose checksum does not match the
         // MDL is a stale compile of the same model, and its indices name
         // vertices that moved.
         return vtx.Checksum == mdl.Checksum ? vtx : null;
     }
 
     /// <summary>
-    /// <c>LoadStudioCollisionModel</c>'s gate, <c>vradstaticprops.cpp:506</c>.
+    /// <c>LoadStudioCollisionModel</c>'s gate.
     /// </summary>
     /// <remarks>
     /// The whole of stock's test, and nothing more: the file is there, its
@@ -266,7 +266,6 @@ public sealed class StaticPropModelLoader
         if (bytes is null)
         {
             // "this is not an error, the model simply has no PHY file"
-            // (vradstaticprops.cpp:515).
             return 0;
         }
 
@@ -283,11 +282,11 @@ public sealed class StaticPropModelLoader
         }
     }
 
-    /// <summary><c>sizeof(phyheader_t)</c>, <c>public/phyfile.h:14</c>.</summary>
+    /// <summary><c>sizeof(phyheader_t)</c>.</summary>
     private const int PhyHeaderSize = 16;
 
     /// <summary>
-    /// <c>Studio_ConvertStudioHdrToNewVersion</c>, <c>studio.h:3114</c>.
+    /// <c>Studio_ConvertStudioHdrToNewVersion</c>.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -331,7 +330,7 @@ public sealed class StaticPropModelLoader
         StaticPropModelRejection rejection,
         bool forcedTextureShadows) =>
 
-        // vradstaticprops.cpp:951-955: the dictionary entry is kept, its model
+        // The dictionary entry is kept, its model
         // pointer stays null, and BOTH hull corners are set to vec3_origin
         // rather than left at whatever the header would have said. That zero
         // hull is what makes stock's AABB fallback a degenerate point box.
@@ -351,7 +350,6 @@ public sealed class StaticPropModelLoader
 
     /// <summary>
     /// <c>Q_StripExtension</c> then the new extension:
-    /// <c>vradstaticprops.cpp:510</c> and <c>:531</c>.
     /// </summary>
     private static VPath WithExtension(VPath path, string extension)
     {

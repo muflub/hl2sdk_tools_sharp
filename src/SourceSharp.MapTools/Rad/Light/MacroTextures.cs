@@ -15,14 +15,14 @@ namespace SourceSharp.MapTools.Rad.Light;
 public sealed record MacroTexture(int Width, int Height, byte[] Rgba);
 
 /// <summary>
-/// <c>macro_texture.cpp</c>: the whole-map and per-material "macro" textures
+/// The whole-map and per-material "macro" textures
 /// <c>FinalLightFace</c> multiplies into every luxel.
 /// </summary>
 /// <remarks>
 /// <para>
 /// A macro texture is a top-down image stretched over the map's
 /// <c>world_mins</c>/<c>world_maxs</c> box (worldspawn keys) and multiplied into
-/// the lightmap by X/Y position (<c>ApplyMacroTextures</c>, <c>:154</c>). There
+/// the lightmap by X/Y position (<c>ApplyMacroTextures</c>). There
 /// are two: a global one at <c>materials/macro/&lt;map&gt;/base.vtf</c>, and one
 /// per face named by LUMP_FACE_MACRO_TEXTURE_INFO. Loaded here in the stage's
 /// async load phase; <see cref="Apply"/> is the pure half 4f calls per luxel.
@@ -30,7 +30,7 @@ public sealed record MacroTexture(int Width, int Height, byte[] Rgba);
 /// <para>
 /// Stock opens the PER-FACE file at <c>gamedir + "materials/" + name +
 /// ".vtf"</c> -- an absolute path into the mod directory, not a search-path
-/// lookup (<c>:120</c>). The global one IS a search-path lookup. The content
+/// lookup. The global one IS a search-path lookup. The content
 /// system passed here decides both; a host wanting stock's exact reach passes
 /// one mounted on the mod directory alone for the per-face files.
 /// </para>
@@ -66,7 +66,7 @@ public sealed class MacroTextures
         (uint)faceNum < (uint)_faceTextures.Length ? _faceTextures[faceNum] : null;
 
     /// <summary>
-    /// <c>InitMacroTexture</c> (<c>macro_texture.cpp:82</c>).
+    /// <c>InitMacroTexture</c>.
     /// </summary>
     /// <param name="bsp">The map.</param>
     /// <param name="geometry">Its texdata strings.</param>
@@ -78,7 +78,7 @@ public sealed class MacroTextures
     /// <returns>The textures.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidVtfException">
-    /// A file exists and is not a VTF; stock's <c>Error()</c> at <c>:62</c>.
+ /// A file exists and is not a VTF; stock's <c>Error</c>.
     /// </exception>
     public static async Task<MacroTextures> LoadAsync(
         BspData bsp,
@@ -96,7 +96,7 @@ public sealed class MacroTextures
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(warnings);
 
-        // :85-98. The FIRST worldspawn, by exact classname.
+        // The FIRST worldspawn, by exact classname.
         BspEntity? world = null;
         foreach (BspEntity e in entities)
         {
@@ -116,11 +116,10 @@ public sealed class MacroTextures
         Vec3 mins = EntityKeys.GetVectorForKey(world, "world_mins");
         Vec3 maxs = EntityKeys.GetVectorForKey(world, "world_maxs");
 
-        // :111-113.
         MacroTexture? global = await LoadFileAsync(
             content, $"materials/macro/{mapName}/base.vtf", cancellationToken).ConfigureAwait(false);
 
-        // :116-137. One load per distinct file name.
+        // One load per distinct file name.
         ReadOnlySpan<FaceMacroTextureInfo> infos =
             BspStructView.As<FaceMacroTextureInfo>(bsp[BspLump.FaceMacroTextureInfo]);
         ushort[] ids = new ushort[infos.Length];
@@ -143,7 +142,7 @@ public sealed class MacroTextures
             {
                 texture = await LoadFileAsync(content, file, cancellationToken).ConfigureAwait(false);
 
-                // :127-131. Only a file that LOADED goes in the dictionary, so
+                // Only a file that LOADED goes in the dictionary, so
                 // a missing one is looked up again for every face naming it.
                 if (texture is not null)
                 {
@@ -158,7 +157,7 @@ public sealed class MacroTextures
     }
 
     /// <summary>
-    /// <c>SampleMacroTexture</c> (<c>macro_texture.cpp:141</c>): the texel over a
+    /// <c>SampleMacroTexture</c>: the texel over a
     /// world position, as 0..1 colour.
     /// </summary>
     /// <param name="texture">The texture.</param>
@@ -188,7 +187,7 @@ public sealed class MacroTextures
     }
 
     /// <summary>
-    /// <c>ApplyMacroTextures</c> (<c>macro_texture.cpp:154</c>): multiplies a
+    /// <c>ApplyMacroTextures</c>: multiplies a
     /// luxel by the global texture and then by the face's own.
     /// </summary>
     /// <param name="faceNum">The face.</param>
@@ -208,7 +207,7 @@ public sealed class MacroTextures
         }
     }
 
-    /// <summary><c>RemapVal</c> (<c>mathlib.h:612</c>), in float.</summary>
+    /// <summary><c>RemapVal</c>, in float.</summary>
     /// <param name="val">The value.</param>
     /// <param name="a">Input low.</param>
     /// <param name="b">Input high.</param>
@@ -237,7 +236,7 @@ public sealed class MacroTextures
             return null;
         }
 
-        // :61-64. Unserialize or Error(); then ConvertImageFormat(RGBA8888).
+        // Unserialize or Error(); then ConvertImageFormat(RGBA8888).
         VtfFile vtf = VtfFile.Parse(bytes.Memory.ToArray());
         return new MacroTexture(vtf.Width, vtf.Height, vtf.DecodeToRgba8888(mip: 0, frame: 0, face: 0));
     }

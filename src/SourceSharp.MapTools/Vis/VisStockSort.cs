@@ -2,8 +2,8 @@ namespace SourceSharp.MapTools.Vis;
 
 /// <summary>
 /// The C runtime's <c>qsort</c>, as stock vvis runs it: <c>SortPortals</c>
-/// (<c>src/utils/vvis/vvis.cpp:156</c>) sorts with <c>PComp</c>
-/// (<c>vvis.cpp:127</c>), which compares <c>nummightsee</c> ONLY, so the
+/// Sorts with <c>PComp</c>
+/// Which compares <c>nummightsee</c> ONLY, so the
 /// order of equal counts is whatever the runtime's sort leaves.
 /// </summary>
 /// <remarks>

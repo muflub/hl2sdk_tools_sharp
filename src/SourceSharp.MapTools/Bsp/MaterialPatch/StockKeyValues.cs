@@ -6,14 +6,14 @@ namespace SourceSharp.MapTools.Bsp.MaterialPatch;
 /// <summary>
 /// The handful of <c>KeyValues</c> behaviours vbsp's material patcher depends
 /// on, reproduced on <see cref="KeyValuesNode"/> where the general-purpose
-/// model differs from <c>src/tier1/KeyValues.cpp</c>.
+/// Model differs from the reference implementation.
 /// </summary>
 public static class StockKeyValues
 {
     /// <summary>
     /// <c>GetString(key, NULL)</c>: the first child of that name,
     /// case-insensitively, when it holds a value; null when it is absent OR a
-    /// section (<c>KeyValues.cpp:1409-1460</c> — a <c>TYPE_NONE</c> key falls
+    /// section (— a <c>TYPE_NONE</c> key falls
     /// to <c>default: return defaultValue</c>).
     /// </summary>
     /// <param name="node">The section to search.</param>
@@ -80,7 +80,7 @@ public static class StockKeyValues
 
     /// <summary>
     /// Whether a child is a "true sub key": <c>m_iDataType == TYPE_NONE</c>,
-    /// which is what <c>GetFirstTrueSubKey</c> walks (<c>KeyValues.cpp</c>).
+    /// which is what <c>GetFirstTrueSubKey</c> walks.
     /// An EMPTY section is one too; a key with a value is not.
     /// </summary>
     /// <param name="node">The child.</param>
@@ -93,7 +93,7 @@ public static class StockKeyValues
 
     /// <summary>
     /// <c>RecursiveSaveToFile(buf, 0)</c> into a TEXT <c>CUtlBuffer</c>, with
-    /// every default argument (<c>KeyValues.cpp:819-900</c>).
+    /// Every default argument.
     /// </summary>
     /// <param name="root">The root key; always written as a section.</param>
     /// <returns>The text, LF line ends (the pak adds the CRs).</returns>
@@ -111,7 +111,7 @@ public static class StockKeyValues
     /// </para>
     /// <para>
     /// Scalars are indent, quoted name, the four bytes <c>"\t\t"</c>, quoted
-    /// value (<c>:870-880</c>). A double quote in either is escaped; a
+ /// value. A double quote in either is escaped; a
     /// backslash is not (<c>m_bHasEscapeSequences</c> is false for a tree the
     /// patcher built).
     /// </para>

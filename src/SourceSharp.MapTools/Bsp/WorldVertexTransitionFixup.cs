@@ -18,7 +18,7 @@ public sealed record WorldVertexTransitionPatch(string Name, KeyValuesNode Mater
 
 /// <summary>
 /// <c>WorldVertexTransitionFixup</c>,
-/// <c>utils/vbsp/worldvertextransitionfixup.cpp</c>: gives every
+/// Gives every
 /// NON-displacement brush side that uses a blend shader a single-texture
 /// material of its own.
 /// </summary>
@@ -34,10 +34,10 @@ public sealed record WorldVertexTransitionPatch(string Name, KeyValuesNode Mater
 /// </para>
 /// <para>
 /// <b>Two pieces of stock are deliberately not reproduced.</b> The prefix-sum
-/// over entity side ranges at <c>worldvertextransitionfixup.cpp:167-185</c>
-/// and the <c>currentEntity</c> walk at <c>:205-209</c> compute a value that
+/// Over entity side ranges
+/// and the <c>currentEntity</c> walk compute a value that
 /// is never read afterwards; they are dead. And
-/// <c>SideIsNotDispAndHasDispMaterial</c> (<c>:20</c>) is never called at all,
+/// <c>SideIsNotDispAndHasDispMaterial</c> is never called at all,
 /// and its body is a no-op expression statement where the second half of the
 /// test should be.
 /// </para>
@@ -50,31 +50,28 @@ public static class WorldVertexTransitionFixup
 {
     /// <summary>
     /// The suffix a patched material's name carries:
-    /// <c>worldvertextransitionfixup.cpp:51</c>.
     /// </summary>
     public const string PatchSuffix = "_wvt_patch";
 
     /// <summary>
     /// The shader a patched material is forced to:
-    /// <c>worldvertextransitionfixup.cpp:78</c>.
     /// </summary>
     public const string PatchedShader = "LightmappedGeneric";
 
     /// <summary>
     /// The substring that identifies a blend shader, matched
-    /// case-insensitively: <c>worldvertextransitionfixup.cpp:202</c>.
+    /// Case-insensitively:.
     /// </summary>
     public const string BlendShaderSubstring = "worldvertextransition";
 
     /// <summary>
     /// The longest a generated name may be:
-    /// <c>TEXTURE_NAME_LENGTH - 1</c>, <c>public/bspfile.h:508</c>.
+    /// <c>TEXTURE_NAME_LENGTH - 1</c>.
     /// </summary>
     public const int MaxPatchedNameLength = 127;
 
     /// <summary>
     /// The variables stripped from a patched material, in stock's order:
-    /// <c>worldvertextransitionfixup.cpp:81-87</c>.
     /// </summary>
     public static IReadOnlyList<string> StrippedVariables { get; } =
     [
@@ -90,7 +87,6 @@ public static class WorldVertexTransitionFixup
     /// <summary>
     /// The name of the patch for a material:
     /// <c>GeneratePatchedMaterialName</c>,
-    /// <c>utils/vbsp/worldvertextransitionfixup.cpp:47</c>.
     /// </summary>
     /// <param name="materialName">The original material name.</param>
     /// <param name="mapBase">The map's base name.</param>
@@ -117,7 +113,7 @@ public static class WorldVertexTransitionFixup
                 $"Generated worldvertextransition patch name : {name} too long! (max = 128)");
         }
 
-#pragma warning disable CA1308 // Q_strlower, worldvertextransitionfixup.cpp:58.
+#pragma warning disable CA1308 // Q_strlower.
         return name.Replace('\\', '/').ToLowerInvariant();
 #pragma warning restore CA1308
     }
@@ -125,7 +121,6 @@ public static class WorldVertexTransitionFixup
     /// <summary>
     /// Whether a shader name is a blend shader:
     /// <c>Q_stristr(pShaderName, "worldvertextransition")</c>,
-    /// <c>worldvertextransitionfixup.cpp:202</c>.
     /// </summary>
     /// <param name="shaderName">The shader name, or null.</param>
     /// <returns>True when it contains the substring, in any case.</returns>
@@ -141,7 +136,6 @@ public static class WorldVertexTransitionFixup
     /// <summary>
     /// Builds the patched material from the original:
     /// <c>CreateWorldVertexTransitionPatchedMaterial</c>,
-    /// <c>utils/vbsp/worldvertextransitionfixup.cpp:71</c>.
     /// </summary>
     /// <param name="original">The original material.</param>
     /// <returns>The patched material, which is a copy.</returns>
@@ -150,7 +144,7 @@ public static class WorldVertexTransitionFixup
     /// <c>$envmap</c> is removed only when <c>$basetexturenoenvmap</c> is a
     /// non-zero integer. Stock reads that variable through a <c>FindKey</c>
     /// that can return null and calls <c>GetInt</c> on it unguarded
-    /// (<c>:89-92</c>); an absent variable reads as zero, so the key is KEPT,
+ /// An absent variable reads as zero, so the key is KEPT,
     /// and that is the behaviour here.
     /// </remarks>
     public static KeyValuesNode PatchMaterial(KeyValuesNode original)
@@ -176,7 +170,6 @@ public static class WorldVertexTransitionFixup
     /// <summary>
     /// Repoints every non-displacement blend-shader side at a patched
     /// material: <c>WorldVertexTransitionFixup</c>,
-    /// <c>utils/vbsp/worldvertextransitionfixup.cpp:164</c>.
     /// </summary>
     /// <param name="context">The compile.</param>
     /// <param name="map">The map to fix up.</param>
@@ -230,7 +223,6 @@ public static class WorldVertexTransitionFixup
     /// <summary>
     /// The patched texinfo for one original:
     /// <c>CreateBrushVersionOfWorldVertexTransitionMaterial</c>,
-    /// <c>utils/vbsp/worldvertextransitionfixup.cpp:98</c>.
     /// </summary>
     /// <param name="context">The compile.</param>
     /// <param name="originalTexInfo">The texinfo to patch.</param>
@@ -243,13 +235,13 @@ public static class WorldVertexTransitionFixup
     /// <remarks>
     /// <para>
     /// Idempotent by name: a texinfo whose material already contains
-    /// <c>_wvt_patch</c> is returned unchanged (<c>:109</c>), and so is
+ /// <c>_wvt_patch</c> is returned unchanged, and so is
     /// <see cref="TexInfoTable.TexInfoNode"/>.
     /// </para>
     /// <para>
     /// The texinfo lookup is SKIPPED when the texdata had to be created,
     /// because no existing texinfo can reference a brand-new texdata
-    /// (<c>:134-142</c>) — and the new texinfo is appended directly rather than
+ /// — and the new texinfo is appended directly rather than
     /// through <c>FindOrCreateTexInfo</c>, which is how this pass adds texinfos
     /// under <c>-onlyents</c> where that function would have errored.
     /// </para>

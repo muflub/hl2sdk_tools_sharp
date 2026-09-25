@@ -7,14 +7,14 @@ namespace SourceSharp.MapTools.Bsp.Collision;
 
 /// <summary>
 /// One model's record in <c>LUMP_PHYSCOLLIDE</c>: a <c>dphysmodel_t</c>
-/// (<c>bspfile.h:450</c>), its solids and its keydata.
+/// Its solids and its keydata.
 /// </summary>
 /// <param name="ModelIndex">The brush model.</param>
 /// <param name="Solids">Each solid's cooked blob, without its size prefix.</param>
 /// <param name="KeyData">The keydata text, including its terminating NUL.</param>
 public sealed record PhysCollideModel(int ModelIndex, IReadOnlyList<byte[]> Solids, byte[] KeyData)
 {
-    /// <summary><c>dataSize</c>: a four-byte size per solid plus the blobs (<c>ivp.cpp:1611-1616</c>).</summary>
+    /// <summary><c>dataSize</c>: a four-byte size per solid plus the blobs.</summary>
     public int DataSize => (4 * Solids.Count) + Solids.Sum(s => s.Length);
 
     /// <summary>The keydata as text, without the NUL.</summary>
@@ -23,8 +23,8 @@ public sealed record PhysCollideModel(int ModelIndex, IReadOnlyList<byte[]> Soli
 
 /// <summary>
 /// The framing of <c>LUMP_PHYSCOLLIDE</c>, written and read exactly: the tail
-/// of <c>EmitPhysCollision</c> (<c>ivp.cpp:1591-1652</c>) and the walk the
-/// engine does at load (<c>cmodel_bsp.cpp:1017</c>).
+/// of <c>EmitPhysCollision</c> and the walk the
+/// Engine does at load.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -32,10 +32,10 @@ public sealed record PhysCollideModel(int ModelIndex, IReadOnlyList<byte[]> Soli
 /// then per solid an <c>int</c> size and the blob, then the keydata; after the
 /// last model a terminator <c>{-1, -1, 0, 0}</c>. Stock's write path emits the
 /// blobs UNPADDED -- the lump length is exactly the sum, and
-/// <c>(size + 3) &amp; ~3</c> at <c>:1597</c> only sizes the allocation.
+/// <c>(size + 3) &amp; ~3</c> only sizes the allocation.
 /// </para>
 /// <para>
-/// The four-byte alignment the plan names (<c>bsplib.cpp:1556</c>,
+/// The four-byte alignment the plan names (
 /// <c>SwapPhyscollideLump</c>) is a different road: stock applies it only
 /// when byte-swapping a BSP for another platform, padding every solid and
 /// each record's keydata to four bytes. <see cref="AlignForSwap"/> ports it,
@@ -136,7 +136,7 @@ public static class PhysCollideLump
 
     /// <summary>
     /// The aligned form <c>SwapPhyscollideLump</c> produces before swapping
-    /// (<c>bsplib.cpp:1586-1645</c>): every solid padded to four bytes (its
+    /// Every solid padded to four bytes (its
     /// size prefix rewritten to the padded size, <c>dataSize</c> grown), and
     /// each record's keydata zero-padded so <c>dataSize + keydataSize</c> is a
     /// multiple of four.
@@ -207,7 +207,7 @@ public static class PhysCollideLump
 }
 
 /// <summary>
-/// <c>LUMP_PHYSDISP</c> (<c>disp_ivp.cpp:316-336</c>): a <c>ushort</c> count,
+/// <c>LUMP_PHYSDISP</c>: a <c>ushort</c> count,
 /// a <c>ushort</c> size per displacement (<c>0xFFFF</c> for none -- stock's
 /// <c>PutShort( -1 )</c>), then the virtual-mesh hull blobs in order.
 /// </summary>

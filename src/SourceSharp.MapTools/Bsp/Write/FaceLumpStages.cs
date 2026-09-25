@@ -11,7 +11,7 @@ namespace SourceSharp.MapTools.Bsp.Write;
 
 /// <summary>
 /// Looks up <c>$macro_texture</c> on a material, for
-/// <c>DiscoverMacroTextures</c> (<c>writebsp.cpp:1164</c>).
+/// <c>DiscoverMacroTextures</c>.
 /// </summary>
 internal interface IMacroTextureResolver
 {
@@ -28,7 +28,7 @@ internal interface IMacroTextureResolver
 internal static class FaceLumpStages
 {
     /// <summary>
-    /// <c>SaveVertexNormals</c> (<c>normals.cpp:12</c>): one flat normal per
+    /// <c>SaveVertexNormals</c>: one flat normal per
     /// face, indexed once per surfedge.
     /// </summary>
     /// <param name="state">The emitted lumps.</param>
@@ -46,7 +46,7 @@ internal static class FaceLumpStages
     }
 
     /// <summary>
-    /// <c>UpdateAllFaceLightmapExtents</c> (<c>bsplib.cpp:3383</c>): the
+    /// <c>UpdateAllFaceLightmapExtents</c>: the
     /// lightmap mins and size of every lit face.
     /// </summary>
     /// <param name="state">The emitted lumps.</param>
@@ -75,7 +75,7 @@ internal static class FaceLumpStages
         }
     }
 
-    /// <summary><c>CalcFaceExtents</c> (<c>bsplib.cpp:3319</c>).</summary>
+    /// <summary><c>CalcFaceExtents</c>.</summary>
     internal static void CalcFaceExtents(
         BspWriteState state, TexInfoTable texInfos, ref DFace s, Func<int, string> materialNameOf)
     {
@@ -139,7 +139,7 @@ internal static class FaceLumpStages
     }
 
     /// <summary>
-    /// <c>DiscoverMacroTextures</c> (<c>writebsp.cpp:1164</c>): one entry per
+    /// <c>DiscoverMacroTextures</c>: one entry per
     /// face, the string-table index of its material's <c>$macro_texture</c> or
     /// 0xFFFF. Runs AFTER compaction and appends to the compacted string table.
     /// </summary>
@@ -173,7 +173,7 @@ internal static class FaceLumpStages
         }
     }
 
-    // A face's i'th vertex, through its surfedge (bsplib.cpp:3336-3339).
+    // A face's i'th vertex, through its surfedge.
     private static Vec3 FaceVertex(BspWriteState state, DFace s, int i)
     {
         int e = state.SurfEdges[s.FirstEdge + i];

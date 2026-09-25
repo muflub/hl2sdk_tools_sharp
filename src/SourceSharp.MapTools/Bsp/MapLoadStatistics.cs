@@ -4,7 +4,7 @@ namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
 /// The eight numbers <c>LoadMapFile</c> prints when vbsp is run with
-/// <c>-v</c>: <c>utils/vbsp/map.cpp:2662-2671</c>.
+/// <c>-v</c>:.
 /// </summary>
 /// <param name="Brushes">"%5i brushes", <c>nummapbrushes</c>.</param>
 /// <param name="ClipBrushes">"%5i clipbrushes", <c>c_clipbrushes</c>.</param>
@@ -28,7 +28,7 @@ namespace SourceSharp.MapTools.Bsp;
 /// <para>
 /// The counts are of the LOADING map, except <c>AreaPortals</c>, which stock
 /// keeps as a class static shared across every map in the process
-/// (<c>map.cpp:56</c>) and which is therefore cumulative over the main map and
+/// And which is therefore cumulative over the main map and
 /// all its instances.
 /// </para>
 /// </remarks>

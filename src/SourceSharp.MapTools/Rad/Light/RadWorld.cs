@@ -26,7 +26,7 @@ public sealed class RadWorldStatistics
     /// <summary>Faces left unlit because they are displacements and no displacement manager was loaded.</summary>
     public int DeferredDisplacementFaces { get; internal set; }
 
-    /// <summary><c>m_DispTrees.Size()</c>: the "N Displacements" line (<c>vraddisps.cpp:514</c>).</summary>
+    /// <summary><c>m_DispTrees.Size</c>: the "N Displacements" line.</summary>
     public int Displacements { get; internal set; }
 
     /// <summary>The summed displacement patch area: the "[N Square Inches]" of the displacement line.</summary>
@@ -50,8 +50,8 @@ public sealed class RadWorldStatistics
 
 /// <summary>
 /// The patch and direct-lighting model of one vrad pass: stock's
-/// <c>RadWorld_Start</c> (<c>vrad.cpp:1754</c>) and the direct half of
-/// <c>RadWorld_Go</c> (<c>vrad.cpp:2000-2045</c>), as one explicit context.
+/// <c>RadWorld_Start</c> and the direct half of
+/// <c>RadWorld_Go</c>, as one explicit context.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -137,7 +137,7 @@ public sealed partial class RadWorld
 
     /// <summary>
     /// The displacements (lane 4e): <c>StaticDispMgr()</c>, loaded before the
-    /// patches (<c>vrad.cpp:2243</c>).
+    /// Patches.
     /// </summary>
     public Displacement.VradDisplacements Displacements { get; private set; } = null!;
 
@@ -174,7 +174,7 @@ public sealed partial class RadWorld
     public byte[] WorldLightBytes() => MemoryMarshal.AsBytes(WorldLights.AsSpan()).ToArray();
 
     /// <summary>
-    /// <c>RadWorld_Start</c> (<c>vrad.cpp:1754</c>): patches, subdivision,
+    /// <c>RadWorld_Start</c>: patches, subdivision,
     /// direct lights, sky cameras -- everything before the first ray.
     /// </summary>
     /// <param name="bsp">The map, as vvis left it.</param>
@@ -237,12 +237,12 @@ public sealed partial class RadWorld
         List<BspEntity> entities = EntityLump.Parse(bsp[BspLump.Entities]);
         RadWorld world = new(bsp, settings, geometry, entities);
 
-        // vrad.cpp:2243, StaticDispMgr()->Init(): before the patches, which
+        // StaticDispMgr->Init: before the patches, which
         // include the displacements' own.
         world.Displacements = Displacement.VradDisplacements.Load(bsp, geometry, settings);
 
-        // vrad.cpp:2245-2249: no vis data means direct light only.
-        // vrad.cpp:2245-2251: no vis data means direct light only, AND a flat
+        // No vis data means direct light only.
+        // No vis data means direct light only, AND a flat
         // ambient of 0.1 in every channel, whatever -ambient said.
         if (!world.Visibility.HasVisibility)
         {
@@ -259,11 +259,11 @@ public sealed partial class RadWorld
         DirectLightingSettings s = Settings;
         Statistics.Faces = Geometry.Faces.Length;
 
-        // vrad.cpp:1811-1826, in stock's order. MakeParents (:1806) is
+        // In stock's order. MakeParents (:1806) is
         // Rad.Ambient.BspParents, lane 4g's, the only reader of its output.
         Patches = PatchBuilder.Build(Geometry, Entities, texLights, s.MaxChop, s.TexScale);
 
-        // vrad.cpp:735: MakePatches ends with StaticDispMgr()->MakePatches().
+        // MakePatches ends with StaticDispMgr->MakePatches.
         Statistics.Displacements = Displacements.Count;
         Statistics.DisplacementArea = Displacement.DispPatchBuilder.MakePatches(
             Displacements.Surfaces, Geometry, Patches, texLights, s);
@@ -311,7 +311,7 @@ public sealed partial class RadWorld
     }
 
     /// <summary>
-    /// The displacement sample and patch hashes (<c>vrad.cpp:2076-2082</c>),
+    /// The displacement sample and patch hashes,
     /// built in parallel; call after <see cref="LightFacesAsync"/> and after
     /// bounce, before <c>FinalLightFace</c>.
     /// </summary>
@@ -346,7 +346,7 @@ public sealed partial class RadWorld
             Settings.StockNormalise);
 
     /// <summary>
-    /// <c>CanLeafTraceToSky</c> (<c>lightmap.cpp:1315</c>) for every radial
+    /// <c>CanLeafTraceToSky</c> for every radial
     /// leaf <see cref="SkyLeafVisibility"/> could not decide, as one batch.
     /// </summary>
     private async Task ProbeRadialSkyLeavesAsync(
@@ -400,7 +400,7 @@ public sealed partial class RadWorld
     }
 
     /// <summary>
-    /// <c>CanLeafTraceToSky</c> (<c>lightmap.cpp:1315</c>): does any of the 162
+    /// <c>CanLeafTraceToSky</c>: does any of the 162
     /// <c>g_anorms</c> directions from the leaf's box centre reach sky?
     /// </summary>
     /// <param name="leaf">The leaf.</param>
@@ -408,14 +408,14 @@ public sealed partial class RadWorld
     /// <returns>True when a ray saw sky; false while collecting.</returns>
     /// <remarks>
     /// <para>
-    /// <b>The tail double-count (<c>:1327-1328</c>).</b> The directions go four
+ /// <b>The tail double-count.</b> The directions go four
     /// at a time with each index clamped to 161, so the last group is
     /// <c>anorms[160], [161], [161], [161]</c>: direction 161 is cast three
     /// times. It cannot change an "any hit" answer; it is reproduced because the
     /// ray set is an observable of the tracer's work.
     /// </para>
     /// <para>
-    /// <b>A stock bug that is not reproduced (<c>:1325-1333</c>).</b> The box
+ /// <b>A stock bug that is not reproduced.</b> The box
     /// centre is computed into <c>center</c> and then never used: the rays are
     /// cast from <c>center4</c>, a <c>FourVectors</c> that is declared and never
     /// initialised, so stock traces from whatever the stack held. That has no

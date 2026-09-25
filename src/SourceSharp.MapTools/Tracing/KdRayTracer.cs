@@ -21,7 +21,7 @@ namespace SourceSharp.MapTools.Tracing;
 /// 51.6 % of vrad's wall clock.
 /// </para>
 /// <para>
-/// Ported from <c>src/raytrace/raytrace.cpp</c> operation for operation, with
+/// Ported from the reference implementation operation for operation, with
 /// <see cref="Vector128{T}"/> standing in for <c>fltx4</c>. That is not
 /// decoration: every SSE intrinsic stock uses has a one-to-one managed
 /// equivalent, so the arithmetic is the same instructions in the same order,
@@ -34,14 +34,14 @@ namespace SourceSharp.MapTools.Tracing;
 /// answer when they do not agree is to re-trace the packet in up to four
 /// passes, each time broadcasting one ray into all four lanes and folding in
 /// whichever other rays happen to share its signs
-/// (<c>raytrace.cpp:277-338</c>). That is reproduced, and it matters for
+/// That is reproduced, and it matters for
 /// throughput on real data far more than it looks: leaf-ambient-style fans
 /// point every way at once.
 /// </para>
 /// </remarks>
 public sealed class KdRayTracer : IRayTracer
 {
-    /// <summary><c>MAILBOX_HASH_SIZE</c>, <c>raytrace.cpp:256</c>.</summary>
+    /// <summary><c>MAILBOX_HASH_SIZE</c>.</summary>
     private const int MailboxSize = 256;
 
     /// <summary><c>MAX_NODE_STACK_LEN</c>: 40 * MAX_TREE_DEPTH.</summary>
@@ -76,8 +76,8 @@ public sealed class KdRayTracer : IRayTracer
 
     /// <summary>
     /// Stock's <c>Four_Epsilons</c>, <c>FLT_EPSILON</c>
-    /// (<c>sseconst.cpp:27</c>): what <c>ReciprocalSaturateSIMD</c>
-    /// (<c>ssemath.h:2288-2291</c>) ORs into a zero direction component.
+    /// What <c>ReciprocalSaturateSIMD</c>
+    /// ORs into a zero direction component.
     /// </summary>
     internal const float StockZeroSubstitute = 1.1920929e-7f;
 
@@ -241,7 +241,7 @@ public sealed class KdRayTracer : IRayTracer
     /// How many bytes one intersection-format triangle occupies.
     /// </summary>
     /// <remarks>
-    /// FORTY-EIGHT. <c>raytrace.h</c> says "16longs=64 bytes" over the struct
+    /// FORTY-EIGHT. says "16longs=64 bytes" over the struct
     /// and the plan repeats it; a compiled <c>sizeof</c> of stock's own header
     /// in this tree prints 48, and so does this. The comment is stale.
     /// </remarks>
@@ -289,7 +289,7 @@ public sealed class KdRayTracer : IRayTracer
     /// <para>
     /// <b>The fraction can exceed 1.</b> Stock's <c>Trace4Rays</c> bounds the
     /// traversal by <c>TMax</c> but does not clip the hit
-    /// (<c>raytrace.cpp:496</c> is commented out), so a triangle in the same
+    /// (is commented out), so a triangle in the same
     /// KD leaf as the segment's end is reported even when it lies beyond it.
     /// That is kept here, because stock's closest-hit callers see the same
     /// answer; a caller asking about the SEGMENT tests
@@ -336,7 +336,7 @@ public sealed class KdRayTracer : IRayTracer
     }
 
     /// <summary>
-    /// <c>TestLine</c> (<c>vrad/trace.cpp:151</c>) with texture shadows off, in
+    /// <c>TestLine</c> with texture shadows off, in
     /// stock's own parameterisation, for a batch of segments.
     /// </summary>
     /// <param name="starts">Segment starts.</param>
@@ -345,15 +345,15 @@ public sealed class KdRayTracer : IRayTracer
     /// strictly before its end.</param>
     /// <param name="stockReciprocal">
     /// Normalise with <c>ReciprocalSIMD</c> -- <c>rcpps</c> plus one Newton step
-    /// (<c>ssemath.h:2277</c>) -- as stock does; false divides exactly.
+    /// -- as stock does; false divides exactly.
     /// </param>
     /// <param name="skyDoesNotBlock">
-    /// <c>TestLine_DoesHitSky</c> (<c>trace.cpp:352</c>): a hit on a
+    /// <c>TestLine_DoesHitSky</c>: a hit on a
     /// <c>TRACE_ID_SKY</c> triangle counts as reaching the sky, not as a block.
     /// Its recursion into 3D skyboxes is NOT ported.
     /// </param>
     /// <param name="skipId">
-    /// <c>Trace4Rays</c>' <c>skip_id</c> (<c>raytrace.cpp:475</c>): triangles
+    /// <c>Trace4Rays</c>' <c>skip_id</c>: triangles
     /// with this id are ignored. <c>TestLine</c> passes
     /// <c>TRACE_ID_STATICPROP | prop</c> so a prop does not shadow itself; -1
     /// ignores nothing. Transparent (<c>-textureshadows</c>) triangles are still
@@ -417,7 +417,7 @@ public sealed class KdRayTracer : IRayTracer
                 in packet, tmin, Vector128.Create(len), skipId, ref scratch,
                 out Vector128<float> distance, out Vector128<int> ids);
 
-            // TestLine_DoesHitSky (trace.cpp:371-380) differs from TestLine in one
+            // TestLine_DoesHitSky differs from TestLine in one
             // place: a hit on a TRACE_ID_SKY (0x01000000) triangle does not occlude.
             int hitId = ids.ToScalar();
             blocked[i] = hitId != -1 && distance.ToScalar() < len
@@ -432,7 +432,7 @@ public sealed class KdRayTracer : IRayTracer
     /// <remarks>
     /// A hit at or beyond the segment's end does not set the bit, which is the
     /// test stock's callers make after an unclipped <c>Trace4Rays</c>
-    /// (<c>trace.cpp:171</c>, <c>vismat.cpp:86</c>). <see cref="TraceClosest"/>
+    /// <see cref="TraceClosest"/>
     /// does NOT clip, as stock does not, and can report a fraction above 1.
     /// </remarks>
     /// <param name="rays">The rays.</param>
@@ -464,7 +464,7 @@ public sealed class KdRayTracer : IRayTracer
             // The direction goes in as given and the reach as TMax, which is
             // exactly how stock's callers trace: TestLine and the transfer
             // stream normalise the direction and pass the length as TMax
-            // (trace.cpp:156-164, trace2.cpp:308-313). A caller passing the
+            // A caller passing the
             // whole segment with a reach of 1 gets the same packet it always
             // did (x * 1 is x).
             LoadPacket(rays, i, out RayPacket packet, out Vector128<float> reach);
@@ -472,10 +472,10 @@ public sealed class KdRayTracer : IRayTracer
             Trace4Rays(in packet, tmin, reach, -1, ref scratch, out Vector128<float> distance, out Vector128<int> ids);
 
             // The segment test stock's callers make themselves, because
-            // Trace4Rays does not clip a hit to TMax (raytrace.cpp:496 is
+            // Trace4Rays does not clip a hit to TMax (is
             // commented out): TestLine keeps a hit only when
-            // HitDistance < len (trace.cpp:171), and CTransferMaker makes
-            // a transfer when HitDistance >= ray_length (vismat.cpp:86).
+            // HitDistance < len, and CTransferMaker makes
+            // a transfer when HitDistance >= ray_length.
             // i is a multiple of four, so the packet's four bits never straddle
             // a word.
             Vector128<float> blockedLanes = Sse.And(
@@ -562,12 +562,12 @@ public sealed class KdRayTracer : IRayTracer
 
     /// <summary>
     /// <c>Trace4Rays</c> without a direction sign mask,
-    /// <c>raytrace.cpp:274</c>: works out whether the four can go together and
+    /// Works out whether the four can go together and
     /// splits the packet when they cannot.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The split is stock's (raytrace.cpp:285): up to four passes, each
+    /// The split is stock's: up to four passes, each
     /// broadcasting ray <c>tryTrace</c>'s direction into every lane and keeping
     /// the own direction of every still-untraced lane whose signs match it, so
     /// a packet whose directions disagree usually costs two traversals rather
@@ -664,7 +664,7 @@ public sealed class KdRayTracer : IRayTracer
 
     /// <summary>
     /// <c>Trace4Rays</c> with a known direction sign mask,
-    /// <c>raytrace.cpp:341</c>: the traversal proper.
+    /// The traversal proper.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -676,7 +676,7 @@ public sealed class KdRayTracer : IRayTracer
     /// from the sign mask's bit for that axis.
     /// </para>
     /// <para>
-    /// The mailbox (<c>raytrace.cpp:471</c>) is stamped with a per-traversal
+    /// The mailbox is stamped with a per-traversal
     /// generation instead of being refilled with -1 for every packet, as stock's
     /// <c>memset</c> does: a slot counts only when its generation is this
     /// traversal's, which is exactly "cleared at the start". That is 2 KB of
@@ -711,7 +711,7 @@ public sealed class KdRayTracer : IRayTracer
         inverse.Y = ReciprocalSaturate(rays.Dy, zeroSubstitute);
         inverse.Z = ReciprocalSaturate(rays.Dz, zeroSubstitute);
 
-        // raytrace.cpp:355. Clip against the scene's bounding box first; if no
+        // Clip against the scene's bounding box first; if no
         // lane survives, nothing was hit and there is nothing to walk.
         ClipAxis(_min.X, _max.X, rays.Ox, inverse.X, ref tmin, ref tmax);
         ClipAxis(_min.Y, _max.Y, rays.Oy, inverse.Y, ref tmin, ref tmax);
@@ -802,7 +802,7 @@ public sealed class KdRayTracer : IRayTracer
                 {
                     int tnum = Unsafe.Add(ref run, t);
 
-                    // raytrace.cpp:471. The mailbox stops a triangle that
+                    // The mailbox stops a triangle that
                     // straddles several leaves being tested more than once per
                     // ray, which the SAH build makes common: nboth triangles go
                     // into BOTH children.
@@ -815,7 +815,7 @@ public sealed class KdRayTracer : IRayTracer
 
                     ref KdTriangle tri = ref Unsafe.Add(ref triangles0, tnum);
 
-                    // raytrace.cpp:475: a triangle carrying skip_id is passed
+                    // A triangle carrying skip_id is passed
                     // over, and NOT mailboxed (the test precedes the store).
                     if (skipId != -1 && tri.Id == skipId)
                     {
@@ -851,7 +851,7 @@ public sealed class KdRayTracer : IRayTracer
                     pending = -1;
                 }
 
-                // raytrace.cpp:568. If every lane's best hit is already nearer
+                // If every lane's best hit is already nearer
                 // than this node's far edge, nothing further along can win.
                 if (Sse.MoveMask(Sse.CompareLessThanOrEqual(tmax, distance)) == 0)
                 {
@@ -881,7 +881,7 @@ public sealed class KdRayTracer : IRayTracer
             + "tree capped at depth " + KdTreeBuilder.MaxTreeDepth + " cannot do");
 
     /// <summary>
-    /// The per-triangle test, <c>raytrace.cpp:479-560</c>: plane, then two
+    /// The per-triangle test: plane, then two
     /// pre-scaled edge equations in the projection, then the third implied.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -911,7 +911,7 @@ public sealed class KdRayTracer : IRayTracer
             Sse.Subtract(Vector128.Create(tri.D), Dot(origin.X, origin.Y, origin.Z, nx, ny, nz));
         Vector128<float> isectT = Sse.Divide(numerator, ddotn);
 
-        // raytrace.cpp:491 compares against FourZeros, which in stock is
+        // Compares against FourZeros, which in stock is
         // declared as {1e-10, 1e-10, 1e-10, 1e-10} and NOT as zeros. That is
         // reproduced rather than corrected: it is the tracer's near clip, and
         // "FourZeros" being 1e-10 is a name, not a value.
@@ -1085,7 +1085,7 @@ public sealed class KdRayTracer : IRayTracer
     }
 
     /// <summary>
-    /// <c>ReciprocalSaturateSIMD</c>, <c>ssemath.h:2288</c>: zeros become
+    /// <c>ReciprocalSaturateSIMD</c>: zeros become
     /// <paramref name="zeroSubstitute"/>, keeping their sign bit, then
     /// <c>rcpps</c> with one Newton step.
     /// </summary>
@@ -1098,7 +1098,7 @@ public sealed class KdRayTracer : IRayTracer
     /// </para>
     /// <para>
     /// Stock's substitute is <c>Four_Epsilons</c>, <c>FLT_EPSILON</c>
-    /// (<c>sseconst.cpp:27</c>), NOT <c>raytrace.cpp:267</c>'s file-local
+    /// NOT the reference implementation's file-local
     /// <c>FourEpsilons</c> of 1e-10, which is a different constant used only
     /// by the plane test. This port used 1e-10 here until lane p5-trace;
     /// <see cref="StockQuirk.KdZeroDirectionReachCut"/> says why stock's

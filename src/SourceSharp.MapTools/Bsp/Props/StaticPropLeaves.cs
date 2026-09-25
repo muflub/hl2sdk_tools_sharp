@@ -6,12 +6,12 @@ namespace SourceSharp.MapTools.Bsp.Props;
 
 /// <summary>
 /// <c>ComputeStaticPropLeaves</c> and <c>ComputeConvexHullLeaves_R</c>
-/// (<c>utils/vbsp/staticprop.cpp:357-448</c>): the leaves a placed prop hull
+/// The leaves a placed prop hull
 /// touches, in the order stock lists them.
 /// </summary>
 public static class StaticPropLeaves
 {
-    /// <summary>The node list's capacity, <c>tempNodeList[1024]</c> (<c>:445</c>).</summary>
+ /// <summary>The node list's capacity, <c>tempNodeList[1024]</c>.</summary>
     public const int MaxDepth = 1024;
 
     /// <summary>The leaves, in walk order.</summary>
@@ -24,7 +24,7 @@ public static class StaticPropLeaves
     /// <remarks>
     /// <para>
     /// The box is classified against each node plane by its two corners
-    /// (<c>:371-383</c>): wholly behind (<c>&lt;= dist</c>) descends BACK and
+ /// Wholly behind (<c>&lt;= dist</c>) descends BACK and
     /// records the node, wholly in front (<c>&gt;= dist</c>) descends FRONT and
     /// records <c>-node - 1</c>; a straddle recurses back first, then front.
     /// A box exactly on the plane is "behind".
@@ -32,7 +32,7 @@ public static class StaticPropLeaves
     /// <para>
     /// At a leaf, solid leaves are skipped and every other leaf is tested
     /// against the hull with the recorded planes, deepest first
-    /// (<c>:318-331</c>): a positive entry keeps <c>n·x &lt;= d</c>, a negative
+ /// A positive entry keeps <c>n·x &lt;= d</c>, a negative
     /// one the flipped plane.
     /// </para>
     /// </remarks>

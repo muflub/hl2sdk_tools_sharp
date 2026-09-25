@@ -5,7 +5,7 @@ using SourceSharp.MapTools.Tracing;
 namespace SourceSharp.MapTools.Rad.Ambient;
 
 /// <summary>
-/// <c>CLeafSampler</c> (<c>leaf_ambient_lighting.cpp:201</c>): rejection
+/// <c>CLeafSampler</c>: rejection
 /// sampling for a point that is really inside a leaf.
 /// </summary>
 /// <remarks>
@@ -42,7 +42,7 @@ public sealed class LeafSampler
 {
     /// <summary>How many draws before giving up on a leaf.</summary>
     /// <remarks>
-    /// 1000. A leaf whose interior is a vanishing fraction of its bounding box
+    /// A leaf whose interior is a vanishing fraction of its bounding box
     /// -- a long thin diagonal sliver -- can exhaust this, and then the sample
     /// is taken at the box CENTRE, which may not be inside the leaf at all. That
     /// is stock's fallback and it is reproduced; the x-leafambient prototype
@@ -181,12 +181,12 @@ public sealed class LeafSampler
 
     /// <summary>
     /// The 1/32 unit the sample must be inside every boundary plane by
-    /// (<c>trace.cpp:37</c>, <c>DIST_EPSILON</c>).
+    /// (<c>DIST_EPSILON</c>).
     /// </summary>
     public const float DistEpsilon = LeafBrushTrace.DistEpsilonSingle;
 
     /// <summary>
-    /// <c>CastRayInLeaf</c> (<c>vraddetailprops.cpp:546</c>): how far a ray gets
+    /// <c>CastRayInLeaf</c>: how far a ray gets
     /// before the leaf's own brushes or displacements stop it.
     /// </summary>
     /// <param name="start">Where the ray starts. Note stock's argument order.</param>
@@ -195,7 +195,7 @@ public sealed class LeafSampler
     /// <returns>The fraction and, when it is not 1, the surface normal.</returns>
     /// <remarks>
     /// The brush trace, then <c>StartRayTest</c> and
-    /// <c>ClipRayToDispInLeaf</c> (<c>:562-571</c>): the nearer of the two wins,
+ /// <c>ClipRayToDispInLeaf</c>: the nearer of the two wins,
     /// strictly. The displacement scratch is this sampler's own -- stock's
     /// <c>s_DispTested[iThread]</c> as per-work-item state.
     /// </remarks>

@@ -9,9 +9,9 @@ namespace SourceSharp.MapTools.Phys;
 /// <remarks>
 /// <para>
 /// One member per <c>IPhysicsCollision</c> method vbsp calls
-/// (<c>vphysics_interface.h:179</c>), in HL units and HL axes: the
+/// In HL units and HL axes: the
 /// <c>(x,-z,y)</c> metre transform is done INSIDE vphysics
-/// (<c>vphysics/convert.h:36-48</c>), so nothing here converts.
+/// So nothing here converts.
 /// </para>
 /// <para>
 /// Synchronous on purpose. The closed library is not thread-safe at any level
@@ -222,7 +222,7 @@ public interface ICollisionSession
     /// <summary>The surface-property database of the same library.</summary>
     /// <remarks>
     /// A process-wide singleton inside the library (<c>g_SurfaceDatabase</c>,
-    /// <c>vphysics/physics_material.cpp:171</c>) that only ever grows and never
+    ///) that only ever grows and never
     /// parses the same file name twice, which is why the compile uses the
     /// managed <see cref="SurfacePropertyTable"/> and this is kept for the
     /// equality assertion.
@@ -231,7 +231,7 @@ public interface ICollisionSession
 }
 
 /// <summary>
-/// <c>ICollisionQuery</c>, <c>vphysics_interface.h:305</c>: triangle-level
+/// <c>ICollisionQuery</c>: triangle-level
 /// access to a collide's convexes.
 /// </summary>
 public interface ICollisionQueryModel
@@ -269,7 +269,7 @@ public interface ICollisionQueryModel
 }
 
 /// <summary>
-/// <c>IPhysicsSurfaceProps</c>, <c>vphysics_interface.h:969</c>, the subset vbsp uses.
+/// <c>IPhysicsSurfaceProps</c>, the subset vbsp uses.
 /// </summary>
 public interface ISurfacePropertySession
 {

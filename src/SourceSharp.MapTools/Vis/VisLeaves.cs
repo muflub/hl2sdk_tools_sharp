@@ -17,7 +17,6 @@ namespace SourceSharp.MapTools.Vis;
 /// <see cref="DLeaf"/> (version 1, 32 bytes) and
 /// <see cref="DLeafVersion0"/> (version 0, 56 bytes), because version 1 is
 /// version 0 with the trailing ambient cube removed
-/// (<c>bspfile.h:848</c>).
 /// </para>
 /// <para>
 /// So rather than two code paths or a conversion pass, this reads and writes

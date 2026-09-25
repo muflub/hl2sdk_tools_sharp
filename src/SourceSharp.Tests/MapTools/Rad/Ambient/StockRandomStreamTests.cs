@@ -12,7 +12,7 @@ namespace SourceSharp.Tests.MapTools.Rad.Ambient;
 /// <para>
 /// <b>Two tiers.</b> vstdlib ships without sources, so the port is of a
 /// published algorithm. The unit tier compares against
-/// <see cref="StockRandomStreamVectors"/>, drawn from the shipped binary by
+/// <see cref="StockRandomStreamVectors"/>, drawn from the reference library by
 /// <c>gen_stock_random_vectors.py</c> (committed beside this file) and so needing
 /// no native library at run time. The <c>[VstdlibFact]</c> facts repeat the
 /// comparison against the live library, and one of them checks the table itself

@@ -6,7 +6,7 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 
 /// <summary>
 /// Which forced vis cluster a leaf falls in, if any
-/// (<c>GetVisCluster</c>, <c>prtfile.cpp:154</c>).
+/// (<c>GetVisCluster</c>).
 /// </summary>
 /// <remarks>
 /// A <c>func_viscluster</c> brush entity merges every leaf that overlaps it
@@ -43,12 +43,11 @@ public readonly record struct PortalFileResult(
 
 /// <summary>
 /// The <c>.prt</c> file: the portal graph vvis reads
-/// (<c>src/utils/vbsp/prtfile.cpp</c>).
 /// </summary>
 /// <remarks>
 /// <para>
 /// The first thing this does is throw away every portal the tree already has
-/// and build them again (<c>prtfile.cpp:336-339</c>). That is not a tidy-up:
+/// and build them again. That is not a tidy-up:
 /// the tree has been pruned and merged since <c>MakeTreePortals</c> ran, so the
 /// portals in the <c>.prt</c> are a portalisation of the FINAL tree, the one
 /// that was just written to the BSP, and not of the tree the entity flood
@@ -87,7 +86,7 @@ public sealed class PortalFileBuilder
 
     /// <summary>
     /// The areas a <c>sky_camera</c> was found in
-    /// (<c>g_SkyAreas</c>, <c>vbsp.cpp:339</c>).
+    /// (<c>g_SkyAreas</c>).
     /// </summary>
     public IReadOnlyCollection<int> SkyAreas { get; init; } = [];
 
@@ -103,7 +102,7 @@ public sealed class PortalFileBuilder
 
     /// <summary>
     /// Re-portalises the tree, numbers its clusters, and collects the portals
-    /// between them (<c>WritePortalFile</c>, <c>prtfile.cpp:323</c>, up to the
+    /// between them (<c>WritePortalFile</c>, up to the
     /// point where it writes).
     /// </summary>
     /// <param name="tree">The final tree, as written to the BSP.</param>
@@ -154,7 +153,7 @@ public sealed class PortalFileBuilder
 
     /// <summary>
     /// Turns one portal into a file record, flipping the leaf order when the
-    /// winding disagrees with the plane (<c>prtfile.cpp:66-74</c>).
+    /// winding disagrees with the plane.
     /// </summary>
     /// <param name="portal">The portal to write.</param>
     /// <returns>Its file record.</returns>
@@ -190,7 +189,7 @@ public sealed class PortalFileBuilder
 
     /// <summary>
     /// Collects the non-solid leaves and marks the rest
-    /// (<c>BuildVisLeafList_r</c>, <c>prtfile.cpp:175</c>).
+    /// (<c>BuildVisLeafList_r</c>).
     /// </summary>
     /// <param name="node">The root of the subtree.</param>
     public void BuildVisLeafList(IBspNode node)
@@ -218,7 +217,7 @@ public sealed class PortalFileBuilder
 
     /// <summary>
     /// Gives each empty leaf a cluster number
-    /// (<c>NumberLeafs</c>, <c>prtfile.cpp:196</c>).
+    /// (<c>NumberLeafs</c>).
     /// </summary>
     /// <param name="leaves">The empty leaves, in tree order.</param>
     /// <returns>How many clusters were allocated.</returns>
@@ -266,7 +265,7 @@ public sealed class PortalFileBuilder
 
     /// <summary>
     /// Collects every portal that joins two different clusters
-    /// (<c>BuildPortalList</c>, <c>prtfile.cpp:259</c>).
+    /// (<c>BuildPortalList</c>).
     /// </summary>
     /// <param name="byCluster">One list per cluster, filled in place.</param>
     /// <param name="leaves">The empty leaves, in tree order.</param>
@@ -311,7 +310,7 @@ public sealed class PortalFileBuilder
 
     /// <summary>
     /// Records every leaf's cluster in tree order
-    /// (<c>SaveClusters_r</c>, <c>prtfile.cpp:307</c>).
+    /// (<c>SaveClusters_r</c>).
     /// </summary>
     /// <param name="node">The root of the subtree.</param>
     public void SaveClusters(IBspNode node)

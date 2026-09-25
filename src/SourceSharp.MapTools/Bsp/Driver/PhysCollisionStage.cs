@@ -9,10 +9,10 @@ using SourceSharp.MapTools.Phys;
 namespace SourceSharp.MapTools.Bsp.Driver;
 
 /// <summary>
-/// <c>EmitPhysCollision</c> (<c>ivp.cpp:1498</c>) in the vbsp driver: Phase
+/// <c>EmitPhysCollision</c> in the vbsp driver: Phase
 /// 3h's <see cref="PhysCollisionEmitter"/> over the lumps the write stage has
 /// emitted, at <see cref="VbspExtensionPoint.PhysCollision"/>
-/// (<c>writebsp.cpp:1264</c>), with LUMP_PHYSCOLLIDE and LUMP_PHYSDISP placed
+/// With LUMP_PHYSCOLLIDE and LUMP_PHYSDISP placed
 /// at <see cref="VbspExtensionPoint.WriteFile"/>.
 /// </summary>
 /// <remarks>
@@ -20,7 +20,7 @@ namespace SourceSharp.MapTools.Bsp.Driver;
 /// Attached by <see cref="Vbsp.CompileAsync(MapFile, VbspContext, CancellationToken)"/>
 /// when the context carries a <see cref="VbspContext.CollisionCooker"/>.
 /// Without one the map gets no collision lumps: stock's
-/// <c>"!!! WARNING: Can't build collision data!"</c> road (<c>ivp.cpp:1510</c>).
+/// <c>"!!! WARNING: Can't build collision data!"</c> road.
 /// </para>
 /// <para>
 /// The emitter reads three things that are not in any lump, and they come from
@@ -61,7 +61,7 @@ internal sealed class PhysCollisionStage : IVbspExtension
                 stage.Bsp.SetLump(BspLump.PhysCollide, result.PhysCollide);
 
                 // The -novirtualmesh road writes no LUMP_PHYSDISP at all
-                // (g_pPhysDisp stays NULL, ivp.cpp:1644).
+                // (g_pPhysDisp stays NULL).
                 if (result.PhysDisp is { } physDisp)
                 {
                     stage.Bsp.SetLump(BspLump.PhysDisp, physDisp);
@@ -113,8 +113,8 @@ internal sealed class PhysCollisionStage : IVbspExtension
     /// <summary>
     /// <c>g_MainMap-&gt;mapbrushes[b].original_sides[i].visible</c>, per brush
     /// in LUMP_BRUSHES order (<c>EmitBrushes</c> writes every map brush,
-    /// <c>writebsp.cpp:1003</c>); a brush's axial box sides past its own
-    /// count are stock's <c>i &gt;= numsides</c> case (<c>ivp.cpp:505</c>).
+    ///); a brush's axial box sides past its own
+    /// count are stock's <c>i &gt;= numsides</c> case.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <returns>The flags.</returns>
@@ -136,7 +136,7 @@ internal sealed class PhysCollisionStage : IVbspExtension
     }
 
     // g_CoreDispInfos with mapdispinfo's contents and texinfo, and each
-    // texdata's $surfaceprop2 (GetSurfaceProperties2, textures.cpp:367).
+    // Texdata's $surfaceprop2(GetSurfaceProperties2).
     private static async Task<IReadOnlyList<CollisionDisplacement>> DisplacementsAsync(
         VbspStageContext stage, CancellationToken cancellationToken)
     {

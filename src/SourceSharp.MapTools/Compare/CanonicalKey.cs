@@ -12,7 +12,7 @@ namespace SourceSharp.MapTools.Compare;
 /// <remarks>
 /// <para>
 /// Text rather than a hash, for two reasons. The report has to be able to SAY
-/// what is in one map and not the other -- plan_maptools.md 2 asks for the
+/// what is in one map and not the other -- the port's plan §2 asks for the
 /// items, not a count -- and a hash collision in a comparison instrument would
 /// be a false "identical", which is the one failure mode a check like this must
 /// not have.

@@ -12,21 +12,21 @@ namespace SourceSharp.MapTools.Bsp.Overlays;
 
 /// <summary>
 /// A compile's overlays: <c>g_aMapOverlays</c> and <c>g_aMapWaterOverlays</c>
-/// (<c>utils/vbsp/overlay.cpp:16-17</c>), from the map to LUMP_OVERLAYS,
+/// From the map to LUMP_OVERLAYS,
 /// LUMP_OVERLAY_FADES and LUMP_WATEROVERLAYS.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Stock call order.</b> During the load of each map, every
 /// <c>info_overlay</c> goes through <see cref="AddFromEntity"/> as its entity
-/// is read (<c>map.cpp:1647-1668</c>) and every <c>overlaytransition</c>'s
+/// is read and every <c>overlaytransition</c>'s
 /// <c>overlaydata</c> through <see cref="AddWaterOverlay"/>
-/// (<c>map.cpp:1413-1431</c>); when that map's load finishes the side lists
+/// When that map's load finishes the side lists
 /// are resolved against ITS sides (<see cref="UpdateSideLists"/>,
-/// <c>map.cpp:2639-2640</c>). While faces are written, <c>EmitFace</c> calls
-/// <see cref="AddFace"/> for every face (<c>writebsp.cpp:519-534</c>). In
+///). While faces are written, <c>EmitFace</c> calls
+/// <see cref="AddFace"/> for every face. In
 /// <c>EndBSPFile</c>, after the displacement pass and before the collision
-/// lumps, <see cref="EmitAsync"/> converts both lists (<c>writebsp.cpp:1258-1260</c>).
+/// lumps, <see cref="EmitAsync"/> converts both lists.
 /// </para>
 /// <para>
 /// The 3a loader records <c>info_overlay</c> entities in
@@ -34,7 +34,7 @@ namespace SourceSharp.MapTools.Bsp.Overlays;
 /// the <c>overlaytransition</c> chunks in <see cref="MapFile.WaterOverlayData"/>;
 /// <see cref="Load(MapFile, MaterialReplacements?, ComplianceOptions?)"/> does
 /// both from the map, for a map with no instances. Overlays inside instances
-/// (<c>Overlay_Translate</c>, <c>overlay.cpp:432</c>) are not handled here.
+/// (<c>Overlay_Translate</c>) are not handled here.
 /// </para>
 /// </remarks>
 public sealed class OverlaySet
@@ -47,8 +47,8 @@ public sealed class OverlaySet
 
     /// <summary>
     /// The material replacement table, or null: applied to a WATER overlay's
-    /// material (<c>map.cpp:1327-1330</c>), and to an <c>info_overlay</c>'s
-    /// only under Correct (<c>overlay.cpp:72</c> reads the key raw).
+    /// material, and to an <c>info_overlay</c>'s
+    /// only under Correct(reads the key raw).
     /// </summary>
     public MaterialReplacements? Replacements { get; set; }
 
@@ -137,13 +137,13 @@ public sealed class OverlaySet
     }
 
     /// <summary>
-    /// <c>Overlay_GetFromEntity</c> (<c>overlay.cpp:21-102</c>) plus the
-    /// entity rewrite of <c>map.cpp:1651-1666</c>.
+    /// <c>Overlay_GetFromEntity</c> plus the
+    /// Entity rewrite of the reference implementation.
     /// </summary>
     /// <param name="entity">An <c>info_overlay</c>.</param>
     /// <returns>The accessor id: the overlay's id when it is named, else -1.</returns>
     /// <exception cref="MapCompileException">
-    /// An invalid render order (<c>:58-61</c>) or a material name too long (<c>:74-78</c>).
+ /// An invalid render order or a material name too long.
     /// </exception>
     public int AddFromEntity(MapEntity entity)
     {
@@ -182,7 +182,7 @@ public sealed class OverlaySet
         overlay.Basis[1] = entity.GetVectorForKey("BasisV");
         overlay.Basis[2] = entity.GetVectorForKey("BasisNormal");
 
-        // overlay.cpp:72 reads the key raw although the water overlays and the
+        // Reads the key raw although the water overlays and the
         // brush sides go through -replacematerials: a defect
         // (StockQuirk.OverlayMaterialNotReplaced), fixed under Correct.
         string material = entity.ValueForKey("material");
@@ -210,7 +210,7 @@ public sealed class OverlaySet
 
     /// <summary>
     /// <c>LoadOverlayDataTransitionCallback</c> and its key callback
-    /// (<c>map.cpp:1321-1425</c>): one water overlay.
+    /// One water overlay.
     /// </summary>
     /// <param name="overlayData">An <c>overlaydata</c> chunk.</param>
     /// <returns>The overlay.</returns>
@@ -218,12 +218,12 @@ public sealed class OverlaySet
     /// <para>
     /// Keys are matched case-insensitively and applied in file order; the
     /// vectors are <c>ReadKeyValueVector3</c>, which wants BRACKETS
-    /// (<c>"[%f %f %f]"</c>, <c>chunkfile.cpp:753</c>) and on a failed scan
+    /// (<c>"[%f %f %f]"</c>) and on a failed scan
     /// leaves the vector as it was — zero here, uninitialised in stock. The
     /// render order is always 0 and the fade distances are never read.
     /// </para>
     /// </remarks>
-    /// <exception cref="MapCompileException">A material name too long (<c>map.cpp:1332-1336</c>).</exception>
+    /// <exception cref="MapCompileException">A material name too long.</exception>
     public MapOverlay AddWaterOverlay(VmfChunk overlayData)
     {
         ArgumentNullException.ThrowIfNull(overlayData);
@@ -284,7 +284,7 @@ public sealed class OverlaySet
             }
             else if (Is(name, "sides"))
             {
-                // map.cpp:1397-1409: the lists are purged and refilled, so the
+                // The lists are purged and refilled, so the
                 // LAST "sides" key wins.
                 overlay.SideList.Clear();
                 overlay.FaceList.Clear();
@@ -297,7 +297,7 @@ public sealed class OverlaySet
 
     /// <summary>
     /// <c>Overlay_UpdateSideLists</c> and <c>OverlayTransition_UpdateSideLists</c>
-    /// (<c>overlay.cpp:119-167</c>): each overlay's id is added, once, to every
+    /// Each overlay's id is added, once, to every
     /// side of <paramref name="map"/> it names.
     /// </summary>
     /// <param name="map">The map just loaded: <c>g_LoadingMap</c>.</param>
@@ -334,8 +334,8 @@ public sealed class OverlaySet
 
     /// <summary>
     /// <c>Overlay_AddFaceToLists</c> and <c>OverlayTransition_AddFaceToLists</c>
-    /// (<c>overlay.cpp:171-203</c>), as <c>EmitFace</c> calls them
-    /// (<c>writebsp.cpp:519-534</c>) for the face it just wrote.
+    /// As <c>EmitFace</c> calls them
+    /// For the face it just wrote.
     /// </summary>
     /// <param name="faceIndex">The face's index in LUMP_FACES.</param>
     /// <param name="side">The face's original side, or null.</param>
@@ -350,7 +350,7 @@ public sealed class OverlaySet
         AddWaterOverlayFace(faceIndex, side);
     }
 
-    /// <summary><c>Overlay_AddFaceToLists</c> (<c>overlay.cpp:171-186</c>) alone.</summary>
+    /// <summary><c>Overlay_AddFaceToLists</c> alone.</summary>
     /// <param name="faceIndex">The face's index in LUMP_FACES.</param>
     /// <param name="side">The face's original side.</param>
     public void AddOverlayFace(int faceIndex, MapBrushSide side)
@@ -362,7 +362,7 @@ public sealed class OverlaySet
         }
     }
 
-    /// <summary><c>OverlayTransition_AddFaceToLists</c> (<c>overlay.cpp:188-203</c>) alone.</summary>
+    /// <summary><c>OverlayTransition_AddFaceToLists</c> alone.</summary>
     /// <param name="faceIndex">The face's index in LUMP_FACES.</param>
     /// <param name="side">The face's original side.</param>
     public void AddWaterOverlayFace(int faceIndex, MapBrushSide side)
@@ -376,7 +376,6 @@ public sealed class OverlaySet
 
     /// <summary>
     /// <c>Overlay_EmitOverlayFaces</c> and <c>OverlayTransition_EmitOverlayFaces</c>
-    /// (<c>overlay.cpp:207-402</c>).
     /// </summary>
     /// <param name="context">
     /// The compile: each overlay's texdata and texinfo are found or created
@@ -451,13 +450,13 @@ public sealed class OverlaySet
 
             if (TooMany(context, map.FaceList.Count, MapOverlay.MaxWaterFaces))
             {
-                // overlay.cpp:366 prints OVERLAY_BSP_FACE_COUNT as the limit it
+                // Prints OVERLAY_BSP_FACE_COUNT as the limit it
                 // just exceeded WATEROVERLAY_BSP_FACE_COUNT: the message is
                 // wrong, the check is right.
                 throw TooManyFaces("Water Overlay", map, MapOverlay.MaxFaces);
             }
 
-            // SetRenderOrder then SetFaceCount (overlay.cpp:330,370): order in
+            // SetRenderOrder then SetFaceCount(370): order in
             // the top two bits, count in the rest.
             o.FaceCountAndRenderOrder = (ushort)((map.RenderOrder << 14) | (map.FaceList.Count & 0x3FFF));
             for (int f = 0; f < map.FaceList.Count; f++)
@@ -471,7 +470,7 @@ public sealed class OverlaySet
         return new OverlayLumps(overlays, fades, water);
     }
 
-    // overlay.cpp:232-253: the four uv points, BasisU packed into the unused z
+    // The four uv points, BasisU packed into the unused z
     // of the first three, and the V-flip flag into the fourth's z.
     private static void FillUv(MapOverlay map, Span<Vec3> uv)
     {
@@ -491,7 +490,7 @@ public sealed class OverlaySet
         }
     }
 
-    // overlay.cpp:256-270: flags 0, texdata by name, all vectors zero with a
+    // Flags 0, texdata by name, all vectors zero with a
     // -99999 offset -- never through FindMiptex, so no SURF_ flags.
     private static async ValueTask<int> TexInfoForAsync(VbspContext context, string material, CancellationToken cancellationToken)
     {
@@ -510,7 +509,7 @@ public sealed class OverlaySet
         return context.TexInfos.FindOrCreate(texInfo);
     }
 
-    // overlay.cpp:275,364: ">=" the array size, so a list that FILLS the
+    // 364: ">=" the array size, so a list that FILLS the
     // 64 (or 256) slots is refused although it fits: a defect
     // (StockQuirk.OverlayFaceLimitOffByOne); Correct refuses only an overflow.
     private static bool TooMany(VbspContext context, int count, int slots) =>
@@ -533,7 +532,7 @@ public sealed class OverlaySet
         return material;
     }
 
-    // GetSide, overlay.cpp:106-115: the first side of the loading map with the id.
+    // GetSide: the first side of the loading map with the id.
     private static MapBrushSide? GetSide(MapFile map, int sideId)
     {
         int index = map.SideIdToIndex(sideId);

@@ -14,7 +14,7 @@ namespace SourceSharp.MapTools.Compare;
 /// "within limits", not a silent zero.
 /// </para>
 /// <para>
-/// Phase 0 (plan_maptools_lane_notes.md, spike 0d) is the reason this matters
+/// Phase 0 is the reason this matters
 /// more than usual for the lighting lumps. Stock vrad is bit-exact at
 /// <c>-threads 1</c> and differs on EVERY run above one thread, where 2.90 % of
 /// 2.4 M samples move, the p99 envelope is 0.000245 and the maximum is

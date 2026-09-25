@@ -16,7 +16,7 @@ namespace SourceSharp.MapTools.Bsp.Detail;
 /// <summary>
 /// A displacement's surface as <c>CCoreDispInfo::GetPositionOnSurface</c>
 /// answers it, for detail placement on displacement faces
-/// (<c>detailobjects.cpp:737-775</c>). Lane 3f's displacement builder
+/// Lane 3f's displacement builder
 /// implements it.
 /// </summary>
 public interface IDetailDisplacementSurfaces
@@ -30,7 +30,7 @@ public interface IDetailDisplacementSurfaces
 }
 
 /// <summary>
-/// <c>EmitDetailObjects</c> (<c>utils/vbsp/detailobjects.cpp:835-966</c>):
+/// <c>EmitDetailObjects</c>:
 /// detail props scattered on every face whose material has a
 /// <c>%detailtype</c>, plus the <c>prop_detail</c> and
 /// <c>prop_detail_sprite</c> entities, into the <c>dprp</c> game lump.
@@ -38,14 +38,14 @@ public interface IDetailDisplacementSurfaces
 /// <remarks>
 /// <para>
 /// <b>Stock call order.</b> <c>LoadEmitDetailObjectDictionary</c> after the
-/// map is loaded (<c>vbsp.cpp:1426</c>); <c>EmitDetailObjects</c> in
+/// map is loaded; <c>EmitDetailObjects</c> in
 /// <c>EndBSPFile</c> right after <c>EmitStaticProps</c>
-/// (<c>writebsp.cpp:1275</c>), over the WRITTEN faces. Also in
-/// <c>-onlyprops</c> (<c>vbsp.cpp:1398-1399</c>), never in <c>-onlyents</c>.
+/// Over the WRITTEN faces. Also in
+/// <c>-onlyprops</c>, never in <c>-onlyents</c>.
 /// </para>
 /// <para>
 /// Placement is a function of each face's Hammer id: <c>srand(hammerfaceid)</c>
-/// and <c>RandomSeed(hammerfaceid)</c> per face (<c>:878-883</c>), the MSVC
+/// and <c>RandomSeed(hammerfaceid)</c> per face, the MSVC
 /// <c>rand()</c> sequence consumed in face order, then the unstable CRT
 /// <c>qsort</c> by leaf. Both are reproduced as the specification. The one
 /// piece of state that crosses faces is the Gaussian stream's cached value
@@ -54,7 +54,7 @@ public interface IDetailDisplacementSurfaces
 /// </remarks>
 public sealed class DetailPropEmitter
 {
-    /// <summary><c>65535</c>: the most detail props the lump can index (<c>:468,503</c>).</summary>
+ /// <summary><c>65535</c>: the most detail props the lump can index.</summary>
     public const int MaxDetailProps = 65535;
 
     private readonly VbspContext _context;
@@ -80,7 +80,7 @@ public sealed class DetailPropEmitter
     }
 
     /// <summary>
-    /// <c>LoadEmitDetailObjectDictionary</c> (<c>:306-316</c>): worldspawn's
+ /// <c>LoadEmitDetailObjectDictionary</c>: worldspawn's
     /// <c>detailvbsp</c>, else <c>detail.vbsp</c>; a missing or unparseable
     /// file is an EMPTY dictionary, silently.
     /// </summary>
@@ -215,7 +215,7 @@ public sealed class DetailPropEmitter
 
         await EmitEntitiesAsync(entities, props, lump, tree, cancellationToken).ConfigureAwait(false);
 
-        // SetLumpData, :795-829: sorted by leaf with the CRT's qsort.
+ // SetLumpData: sorted by leaf with the CRT's qsort.
         DetailObjectLump[] sorted = [.. props];
         MsvcQsort.Sort<DetailObjectLump>(sorted, static (a, b) => Math.Sign(a.Leaf - b.Leaf));
         lump.Props.AddRange(sorted);
@@ -231,7 +231,7 @@ public sealed class DetailPropEmitter
         return lump;
     }
 
-    // EmitDetailObjectsOnFace, :633-698.
+ // EmitDetailObjectsOnFace.
     private async Task OnFaceAsync(
         DFace face, FaceGeometry geometry, DetailType detail, FaceRandom random,
         List<DetailObjectLump> props, DetailPropLump lump, BspTreeView tree, CancellationToken cancellationToken)
@@ -283,8 +283,8 @@ public sealed class DetailPropEmitter
         }
     }
 
-    // EmitDetailObjectsOnDisplacementFace, :737-775, with the base face's
-    // area from its first two triangles (ComputeDisplacementFaceArea, :704-731).
+ // EmitDetailObjectsOnDisplacementFace, with the base face's
+ // area from its first two triangles (ComputeDisplacementFaceArea).
     private async Task OnDisplacementAsync(
         DFace face, FaceGeometry geometry, DetailType detail, FaceRandom random, IDetailDisplacementSurfaces displacements,
         List<DetailObjectLump> props, DetailPropLump lump, BspTreeView tree, CancellationToken cancellationToken)
@@ -318,7 +318,7 @@ public sealed class DetailPropEmitter
         }
     }
 
-    /// <summary><c>SelectGroup</c> (<c>:322-354</c>).</summary>
+ /// <summary><c>SelectGroup</c>.</summary>
     /// <param name="detail">The type.</param>
     /// <param name="alpha">The surface alpha, 0 to 1.</param>
     /// <param name="random">The face's CRT stream; one draw only when two groups bracket the alpha.</param>
@@ -358,7 +358,7 @@ public sealed class DetailPropEmitter
         return r > dist ? start : end;
     }
 
-    /// <summary><c>SelectDetail</c> (<c>:360-373</c>): -1 when the draw falls past the last cumulative amount.</summary>
+ /// <summary><c>SelectDetail</c>: -1 when the draw falls past the last cumulative amount.</summary>
     /// <param name="group">The group.</param>
     /// <param name="random">The face's CRT stream; one draw.</param>
     /// <returns>The model index, or -1.</returns>
@@ -378,7 +378,7 @@ public sealed class DetailPropEmitter
         return -1;
     }
 
-    // PlaceDetail, :548-627.
+ // PlaceDetail.
     private async Task PlaceAsync(
         DetailModel model, Vec3 pt, Vec3 normal, FaceRandom random,
         List<DetailObjectLump> props, DetailPropLump lump, BspTreeView tree, CancellationToken cancellationToken)
@@ -422,8 +422,8 @@ public sealed class DetailPropEmitter
 
     /// <summary>
     /// The orientation of a detail that conforms to its surface
-    /// (<c>detailobjects.cpp:580-601</c>): a basis around the normal, a random
-    /// spin about it, and <c>MatrixToAngles</c> (<c>mathlib/vmatrix.cpp:587</c>).
+    /// A basis around the normal, a random
+    /// spin about it, and <c>MatrixToAngles</c>.
     /// </summary>
     /// <param name="normal">The surface normal.</param>
     /// <param name="rand">The <c>rand()</c> value that picks the spin.</param>
@@ -457,7 +457,7 @@ public sealed class DetailPropEmitter
         float rotAngle = 360.0f * rand / MsvcRandom.RandMax;
         float[,] r = AxisRotZ(rotAngle);
 
-        // VMatrix::MatrixMul, vmatrix.cpp:222-245, rows 0-2; the fourth
+        // VMatrix::MatrixMul, rows 0-2; the fourth
         // term's m[i][3] * r[3][j] is 0 * 0 and is kept because adding +0
         // turns a -0 sum into +0.
         float[,] p = new float[3, 3];
@@ -472,7 +472,7 @@ public sealed class DetailPropEmitter
         return MatrixToAngles(p);
     }
 
-    // SetupMatrixAxisRot(Vector(0, 0, 1), degrees), vmatrix.cpp:122-144,
+    // SetupMatrixAxisRot(Vector(0, 0, 1), degrees),
     // written with the axis components so every product and its sign is
     // stock's.
     private static float[,] AxisRotZ(float degrees)
@@ -495,7 +495,7 @@ public sealed class DetailPropEmitter
         };
     }
 
-    // MatrixToAngles(const VMatrix&), vmatrix.cpp:587-632.
+    // MatrixToAngles(const VMatrix&).
     private static Vec3 MatrixToAngles(float[,] m)
     {
         float f0 = m[0, 0], f1 = m[1, 0], f2 = m[2, 0];
@@ -511,7 +511,7 @@ public sealed class DetailPropEmitter
         return new Vec3(Rad2Deg(Atan2F(-f2, xyDist)), Rad2Deg(Atan2F(-l0, l1)), 0f);
     }
 
-    // RAD2DEG, mathlib.h:298: (float)x * (float)(180.f / M_PI_F).
+    // RAD2DEG: (float)x * (float)(180.f / M_PI_F).
     private static float Rad2Deg(float x) => x * (180.0f / (float)Math.PI);
 
     // atan2f. Stock's CRT float trig (sinf, cosf, atan2f) is not the
@@ -520,7 +520,7 @@ public sealed class DetailPropEmitter
     // detail gate holds angles to a MEASURED 2^-15 degrees for that reason.
     private static float Atan2F(float y, float x) => MathF.Atan2(y, x);
 
-    // AddDetailToLump, :460-490.
+ // AddDetailToLump.
     private async Task AddModelAsync(
         string modelName, Vec3 pt, Vec3 angles, int orientation,
         List<DetailObjectLump> props, DetailPropLump lump, BspTreeView tree, CancellationToken cancellationToken)
@@ -542,7 +542,7 @@ public sealed class DetailPropEmitter
         props.Add(record);
     }
 
-    // AddDetailSpriteToLump, :496-525.
+ // AddDetailSpriteToLump.
     private static void AddSprite(
         Vec3 pt, Vec3 angles, int orientation, (float X, float Y)[] pos, (float X, float Y)[] tex, float scale,
         DetailModelType type, byte shapeAngle, byte shapeSize, byte sway,
@@ -576,7 +576,7 @@ public sealed class DetailPropEmitter
         return record;
     }
 
-    // AddDetailDictLump, :379-391: strncpy then a memcmp from the end.
+ // AddDetailDictLump: strncpy then a memcmp from the end.
     private static int AddModelName(DetailPropLump lump, string modelName)
     {
         for (int i = lump.ModelNames.Count - 1; i >= 0; i--)
@@ -591,7 +591,7 @@ public sealed class DetailPropEmitter
         return lump.ModelNames.Count - 1;
     }
 
-    // AddDetailSpriteDictLump, :393-408: memcmp, so bitwise.
+ // AddDetailSpriteDictLump: memcmp, so bitwise.
     private static int AddSpriteDict(DetailPropLump lump, (float X, float Y)[] pos, (float X, float Y)[] tex)
     {
         DetailSpriteDictLump entry = default;
@@ -623,7 +623,7 @@ public sealed class DetailPropEmitter
         return x.SequenceEqual(y);
     }
 
-    // IsModelValid, :435-453: one LoadStudioModel per exact name.
+ // IsModelValid: one LoadStudioModel per exact name.
     private async ValueTask<bool> IsModelValidAsync(string modelName, CancellationToken cancellationToken)
     {
         if (_validModels.TryGetValue(modelName, out bool known))
@@ -646,7 +646,7 @@ public sealed class DetailPropEmitter
         return load.IsValid;
     }
 
-    // The entity half of EmitDetailModels, :905-946.
+ // The entity half of EmitDetailModels.
     private async Task EmitEntitiesAsync(
         IReadOnlyList<MapEntity> entities, List<DetailObjectLump> props, DetailPropLump lump, BspTreeView tree,
         CancellationToken cancellationToken)
@@ -679,7 +679,7 @@ public sealed class DetailPropEmitter
                 float t0x = texUl.X + 0.5f;
                 float t0y = texUl.Y + 0.5f;
 
-                // Vector2D::operator/=, vector2d.h:380-388: a reciprocal, then multiplies.
+                // Vector2D::operator/=: a reciprocal, then multiplies.
                 float oofl = 1.0f / total;
 
                 AddSprite(

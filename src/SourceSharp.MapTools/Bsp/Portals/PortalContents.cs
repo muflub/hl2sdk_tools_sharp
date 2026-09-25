@@ -5,7 +5,6 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 
 /// <summary>
 /// The content tests that decide what a portal lets through
-/// (<c>src/utils/vbsp/portals.cpp:64-179</c>).
 /// </summary>
 public static class PortalContents
 {
@@ -22,14 +21,14 @@ public static class PortalContents
     public const int Translucent = (int)BrushContents.Translucent;
 
     /// <summary>
-    /// <c>LAST_VISIBLE_CONTENTS</c> (<c>src/public/bspflags.h:34</c>): the
+    /// <c>LAST_VISIBLE_CONTENTS</c>: the
     /// highest bit <see cref="VisibleContents"/> will consider.
     /// </summary>
     public const int LastVisibleContents = 0x80;
 
     /// <summary>
     /// The single strongest visible content bit present
-    /// (<c>VisibleContents</c>, <c>portals.cpp:64</c>).
+    /// (<c>VisibleContents</c>).
     /// </summary>
     /// <param name="contents">A mask of <c>CONTENTS_*</c> bits.</param>
     /// <returns>
@@ -56,7 +55,7 @@ public static class PortalContents
 
     /// <summary>
     /// The contents of a whole subtree, ORed together
-    /// (<c>ClusterContents</c>, <c>portals.cpp:85</c>).
+    /// (<c>ClusterContents</c>).
     /// </summary>
     /// <param name="node">The node or leaf to collapse.</param>
     /// <returns>The combined <c>CONTENTS_*</c> mask.</returns>
@@ -89,7 +88,7 @@ public static class PortalContents
 
     /// <summary>
     /// Whether the PVS calculation can see through this portal
-    /// (<c>Portal_VisFlood</c>, <c>portals.cpp:113</c>).
+    /// (<c>Portal_VisFlood</c>).
     /// </summary>
     /// <param name="portal">The portal to test.</param>
     /// <returns><see langword="true"/> when vis may flood through it.</returns>
@@ -141,7 +140,7 @@ public static class PortalContents
 
     /// <summary>
     /// Whether the entity flood can cross this portal
-    /// (<c>Portal_EntityFlood</c>, <c>portals.cpp:152</c>).
+    /// (<c>Portal_EntityFlood</c>).
     /// </summary>
     /// <param name="portal">The portal to test.</param>
     /// <returns><see langword="true"/> unless either side is solid.</returns>
@@ -162,7 +161,7 @@ public static class PortalContents
 
     /// <summary>
     /// Whether the areaportal-leak flood can cross this portal
-    /// (<c>Portal_AreaLeakFlood</c>, <c>portals.cpp:167</c>).
+    /// (<c>Portal_AreaLeakFlood</c>).
     /// </summary>
     /// <param name="portal">The portal to test.</param>
     /// <returns>

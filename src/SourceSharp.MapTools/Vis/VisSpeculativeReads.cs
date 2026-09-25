@@ -15,7 +15,7 @@ namespace SourceSharp.MapTools.Vis;
 /// <para>
 /// <b>What a speculative read is.</b> Under <c>-tighten</c> the portal at rank
 /// <c>k</c> tests a lower-ranked candidate <c>q</c> against <c>q</c>'s FINAL
-/// <c>portalvis</c> (<c>flow.cpp:529-536</c>, as stock reads it at one thread).
+/// <c>portalvis</c>(as stock reads it at one thread).
 /// When <c>q</c> is still being flowed, this reads <c>q</c>'s vector as it
 /// stands instead. Bits of a <c>portalvis</c> only ever go from clear to set,
 /// and every bit a tightened flow sets is a bit of its final answer (see

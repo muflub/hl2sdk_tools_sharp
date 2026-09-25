@@ -25,7 +25,7 @@ namespace SourceSharp.MapTools.Tracing;
 /// <para>
 /// THE AXIAL SHORTCUT IS KEPT, and this comment used to say the opposite. Stock
 /// reads the ray component directly when <c>plane.type &lt;= PLANE_Z</c>
-/// (<c>bsplib.cpp:3673</c>) instead of taking two dot products, and the first
+/// Instead of taking two dot products, and the first
 /// draft of this port dropped it on the argument that a predictable branch
 /// costs more than six multiplies. Measured on 324,000 of dm_lockdown's
 /// leaf-ambient rays, putting it back is worth 5.94 Mray/s against 5.26 -- a
@@ -143,7 +143,7 @@ internal struct TraceSurface
 
     /// <summary>
     /// <c>face.m_LightmapTextureMinsInLuxels[0]</c>, as a float because stock
-    /// compares it against one (<c>vraddetailprops.cpp:504</c>) and the int to
+    /// compares it against one and the int to
     /// float conversion is exact for every value a lightmap origin can hold.
     /// </summary>
     public float MinS;
@@ -174,7 +174,7 @@ internal struct TraceSurface
 /// THE FILTERING DONE HERE IS NOT AN OPTIMISATION THAT CHANGES THE ANSWER.
 /// Stock skips a leaf face when <c>dispinfo != -1</c> or <c>onNode</c>, and a
 /// node face when <c>!onNode</c> or <c>dispinfo != -1</c>, per ray, per
-/// candidate (<c>vraddetailprops.cpp:373-380, 415-424</c>). Doing it once at
+/// Candidate. Doing it once at
 /// load time visits exactly the same faces in exactly the same order.
 /// </para>
 /// <para>
@@ -398,7 +398,7 @@ public sealed class BspTraceGeometry
     /// </summary>
     /// <remarks>
     /// Precomputed, where stock builds and frees one per candidate PER RAY
-    /// (<c>vraddetailprops.cpp:527-533</c>: <c>WindingFromFace</c>, which
+    /// (: <c>WindingFromFace</c>, which
     /// allocates, walks surfedges, and runs <c>RemoveColinearPoints</c>, then
     /// <c>FreeWinding</c>). The geometry cannot change between rays, so that is
     /// an allocation and a colinearity pass per sky test that produce the same
@@ -490,7 +490,7 @@ public sealed class BspTraceGeometry
             DFace face = faces[f];
             raw.Clear();
 
-            // vrad.cpp:366-386, WindingFromFace, with origin (0,0,0) -- which
+            // WindingFromFace, with origin (0,0,0) -- which
             // is the only origin CLightSurface ever passes.
             for (int i = 0; i < face.NumEdges; i++)
             {
@@ -508,7 +508,7 @@ public sealed class BspTraceGeometry
     }
 
     /// <summary>
-    /// <c>polylib.cpp:90</c>, <c>RemoveColinearPoints</c>, appended to a flat
+    /// <c>RemoveColinearPoints</c>, appended to a flat
     /// list instead of rewritten in place.
     /// </summary>
     /// <param name="source">The winding's points, in file order.</param>
@@ -536,7 +536,7 @@ public sealed class BspTraceGeometry
             }
         }
 
-        // polylib.cpp:113's early return is "nothing changed, leave the winding
+        // The reference implementation's early return is "nothing changed, leave the winding
         // alone". Appending only the survivors reaches the same winding in both
         // cases, so there is nothing to undo here.
     }
@@ -592,7 +592,7 @@ public sealed class BspTraceGeometry
     /// <remarks>
     /// <c>SURF_NOLIGHT</c> is folded into the rectangle rather than kept as a
     /// flag to branch on. Stock's test returns false for such a face before
-    /// looking at anything else (<c>vraddetailprops.cpp:498</c>); a face given
+    /// looking at anything else; a face given
     /// zero axes and a size of -1 here fails the same test arithmetically,
     /// because the point's s and t come out 0, 0 is not less than the mins of
     /// 0, and 0 is not less than or equal to a size of -1. Same answer, one
@@ -691,7 +691,7 @@ public sealed class BspTraceGeometry
                         $"node {n} names face {f}, and the map has {faces.Length}");
                 }
 
-                // vraddetailprops.cpp:373-380, in stock's own order.
+                // In stock's own order.
                 if (faces[f].OnNode == 0 || faces[f].DispInfo != -1)
                 {
                     continue;
@@ -798,7 +798,7 @@ public sealed class BspTraceGeometry
                         $"leaf {l} names face {f}, and the map has {faces.Length}");
                 }
 
-                // vraddetailprops.cpp:415-424, in stock's own order.
+                // In stock's own order.
                 if (faces[f].DispInfo != -1 || faces[f].OnNode != 0)
                 {
                     continue;
@@ -815,7 +815,7 @@ public sealed class BspTraceGeometry
 }
 
 /// <summary>
-/// The <c>SURF_*</c> bits this tracer reads, from <c>bspflags.h</c>.
+/// The <c>SURF_*</c> bits this tracer reads, from the reference implementation.
 /// </summary>
 /// <remarks>
 /// Only the two stock's surface test looks at. The rest are not copied here
@@ -824,7 +824,7 @@ public sealed class BspTraceGeometry
 /// </remarks>
 public static class SurfaceFlags
 {
-    /// <summary><c>SURF_SKY</c> (<c>bspflags.h</c>): the 2D skybox.</summary>
+    /// <summary><c>SURF_SKY</c>: the 2D skybox.</summary>
     public const int Sky = 0x0004;
 
     /// <summary><c>SURF_NOLIGHT</c>: the surface carries no lightmap.</summary>

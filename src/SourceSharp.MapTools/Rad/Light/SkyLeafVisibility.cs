@@ -10,7 +10,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <param name="leafCentre">The leaf's bounding box centre.</param>
 /// <returns>True when any of 162 probe directions hits sky.</returns>
 /// <remarks>
-/// The seam for <c>CanLeafTraceToSky</c> (<c>lightmap.cpp:1315</c>), which
+/// The seam for <c>CanLeafTraceToSky</c>, which
 /// needs the ray tracer Phase 4b builds. It is a delegate rather than a direct
 /// call so that <see cref="SkyLeafVisibility"/> can be exercised, and its two
 /// PVS passes gated against stock, without a tracer in hand.
@@ -18,13 +18,13 @@ namespace SourceSharp.MapTools.Rad.Light;
 public delegate bool LeafSkyProbe(Vec3 leafCentre);
 
 /// <summary>
-/// <c>BuildVisForLightEnvironment</c> (<c>lightmap.cpp:1344</c>): which leaves
+/// <c>BuildVisForLightEnvironment</c>: which leaves
 /// see sky, and the union of their PVS rows that becomes the sun's reach.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Three passes, and their separation is load-bearing. Stock's own comment at
-/// <c>:1425</c> says why the third exists: "Must set the bits in a separate
+/// Says why the third exists: "Must set the bits in a separate
 /// pass so as to not flood-fill LEAF_FLAGS_SKY everywhere". Pass two reads the
 /// flags pass one set and writes to a side bit array; folding it into pass
 /// three would let a leaf that just became sky-visible make its neighbours
@@ -32,7 +32,7 @@ public delegate bool LeafSkyProbe(Vec3 leafCentre);
 /// </para>
 /// <para>
 /// <b>Pass two is O(leaves squared).</b> For every non-sky leaf it walks EVERY
-/// other leaf looking for a sky one in its PVS (<c>:1399-1422</c>), with only
+/// other leaf looking for a sky one in its PVS, with only
 /// an early break once a 3D-sky leaf is found. On a map with 40,000 leaves
 /// that is 1.6 billion iterations of a cheap test. It is reproduced as written
 /// -- this is a correctness port -- and it is an obvious candidate for the
@@ -42,7 +42,7 @@ public delegate bool LeafSkyProbe(Vec3 leafCentre);
 /// <b>This mutates the leaf lump's flags.</b> SKY and SKY2D are cleared on
 /// every leaf and recomputed, and they are written back to the BSP, so a
 /// second vrad run on the same map starts from the first run's answer only
-/// because the clear at <c>:1349</c> throws it away. The flags live in
+/// because the clear throws it away. The flags live
 /// <see cref="Flags"/> here rather than in
 /// <see cref="LightGeometry.Leaves"/>, which stays immutable.
 /// </para>
@@ -62,7 +62,7 @@ public sealed class SkyLeafVisibility
 
     /// <summary>
     /// The radial-vis leaves that pass three would have probed with
-    /// <c>CanLeafTraceToSky</c> (<c>lightmap.cpp:1454</c>) but could not,
+    /// <c>CanLeafTraceToSky</c> but could not,
     /// because no synchronous probe was given. A batch tracer answers them
     /// afterwards and calls <see cref="MarkSky"/>; the order is leaf order.
     /// </summary>
@@ -133,11 +133,11 @@ public sealed class SkyLeafVisibility
         RadialLeavesSkipped = 0;
         _radialCandidates.Clear();
 
-        // lightmap.cpp:1347-1371. Pass one: a leaf containing a sky face is a
+        // Pass one: a leaf containing a sky face is a
         // sky leaf, and its PVS joins the sun's.
         for (int leaf = 0; leaf < leaves.Length; leaf++)
         {
-            // :1349. The SKY and SKY2D bits are cleared; every OTHER flag --
+            // The SKY and SKY2D bits are cleared; every OTHER flag --
             // RADIAL in particular, which pass three reads -- survives.
             Flags[leaf] = leaves[leaf].Flags & ~(LeafFlags.Sky | LeafFlags.Sky2D);
 
@@ -152,7 +152,7 @@ public sealed class SkyLeafVisibility
                     continue;
                 }
 
-                // :1358-1365. SKY2D and SKY are exclusive here: a face with
+                // SKY2D and SKY are exclusive here: a face with
                 // both bits set counts only as 2D.
                 Flags[leaf] |= (flags & (int)SurfaceFlags.Sky2D) != 0
                     ? LeafFlags.Sky2D
@@ -165,7 +165,7 @@ public sealed class SkyLeafVisibility
             }
         }
 
-        // :1375-1423. Pass two: which non-sky leaves can SEE a sky leaf.
+        // Pass two: which non-sky leaves can SEE a sky leaf.
         bool[] seesSky = new bool[leaves.Length];
         bool[] seesSky2D = new bool[leaves.Length];
         byte[] pvs = new byte[Math.Max(visibility.RowBytes, 1)];
@@ -214,7 +214,7 @@ public sealed class SkyLeafVisibility
             }
         }
 
-        // :1427-1462. Pass three: apply, and rescue radial-vis leaves.
+        // Pass three: apply, and rescue radial-vis leaves.
         for (int leaf = 0; leaf < leaves.Length; leaf++)
         {
             if ((Flags[leaf] & LeafFlags.Sky) != 0)
@@ -234,13 +234,13 @@ public sealed class SkyLeafVisibility
 
             if (seesSky[leaf])
             {
-                // :1446-1447. 3D sky supersedes 2D, and clears it.
+                // 1446-1447. 3D sky supersedes 2D, and clears it.
                 Flags[leaf] |= LeafFlags.Sky;
                 Flags[leaf] &= ~LeafFlags.Sky2D;
                 continue;
             }
 
-            // :1451-1460. Radial vis culls portals, so the PVS can be missing
+            // Radial vis culls portals, so the PVS can be missing
             // a path that really exists. Tracing is the fallback, and stock's
             // FIXME notes it cannot tell 2D sky from 3D when it does.
             if ((Flags[leaf] & LeafFlags.Radial) == 0)

@@ -4,7 +4,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
 /// <c>AllocFace</c>, <c>NewFaceFromFace</c>, <c>FreeFace</c> and
-/// <c>FreeFaceList</c> (<c>src/utils/vbsp/faces.cpp:792-838</c>), with the
+/// <c>FreeFaceList</c>, with the
 /// <c>c_faces</c> balance they keep.
 /// </summary>
 /// <remarks>
@@ -77,7 +77,7 @@ public sealed class FaceAllocator
 
     /// <summary>
     /// Allocates a copy of a face together with a copy of its winding
-    /// (<c>CopyFace</c>, <c>detail.cpp:21</c>).
+    /// (<c>CopyFace</c>).
     /// </summary>
     /// <param name="face">The face to copy.</param>
     /// <returns>The copy.</returns>

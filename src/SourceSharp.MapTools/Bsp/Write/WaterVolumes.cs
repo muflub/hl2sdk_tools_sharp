@@ -38,7 +38,7 @@ internal sealed class WaterVolumeSet
 
 /// <summary>
 /// <c>EmitWaterVolumesForBSP</c> and <c>WriteFogVolumeIDs</c>
-/// (<c>ivp.cpp:875-1161</c>) as the write stage drives them: the volumes
+/// As the write stage drives them: the volumes
 /// themselves are Phase 3h's <see cref="WaterVolumeBuilder"/>; this class is
 /// its face and texture stages -- the per-depth water texinfo
 /// (<see cref="IWaterTexInfoSink"/>), LUMP_LEAFWATERDATA, every warped face's
@@ -46,8 +46,8 @@ internal sealed class WaterVolumeSet
 /// </summary>
 /// <remarks>
 /// <para>
-/// This lives in stock's <c>ivp.cpp</c> but writes nothing physical; it is
-/// called from <c>WriteBSP</c> (<c>writebsp.cpp:937</c>) while the model's tree
+/// This lives in stock's but writes nothing physical; it is
+/// called from <c>WriteBSP</c> while the model's tree
 /// and portals exist, and its outputs are ordinary lumps. The collision pass
 /// later reads <see cref="WaterVolumeSet.Models"/>.
 /// </para>
@@ -122,7 +122,7 @@ internal sealed class WaterVolumes
 
     /// <summary>
     /// <c>ClearLeafWaterData</c> then the id assignment of
-    /// <c>ConvertWaterModelToPhysCollide</c> (<c>ivp.cpp:1475</c>, <c>:1187</c>):
+ /// <c>ConvertWaterModelToPhysCollide</c>:
     /// every leaf -1 and <c>CONTENTS_TESTFOGVOLUME</c> cleared, then each water
     /// model's leaves get its fog volume.
     /// </summary>
@@ -146,7 +146,7 @@ internal sealed class WaterVolumes
         }
 
         // Only the WORLD's water models: ConvertWaterModelToPhysCollide is
-        // called from BuildWorldPhysModel alone, for model 0 (ivp.cpp:1335);
+        // called from BuildWorldPhysModel alone, for model 0;
         // a brush model's water leaves keep -1.
         foreach (WaterModel water in _builder.WaterModels)
         {
@@ -164,7 +164,7 @@ internal sealed class WaterVolumes
         }
     }
 
-    /// <summary><c>FirstWaterTexinfo</c> (<c>ivp.cpp:1069</c>).</summary>
+    /// <summary><c>FirstWaterTexinfo</c>.</summary>
     private int FirstWaterTexinfo(TreeNode leaf, int contents)
     {
         // The leaf's brushlist in stock order: the detail fragments
@@ -193,7 +193,7 @@ internal sealed class WaterVolumes
         return 0;
     }
 
-    /// <summary><c>FindOrCreateWaterTexInfo</c> (<c>ivp.cpp:825</c>).</summary>
+    /// <summary><c>FindOrCreateWaterTexInfo</c>.</summary>
     private async Task<int> FindOrCreateWaterTexInfoAsync(
         int baseTexInfo, float depth, CancellationToken cancellationToken)
     {
@@ -211,14 +211,14 @@ internal sealed class WaterVolumes
         }
 
         // Remember the current material name
-#pragma warning disable CA1308 // strlwr, ivp.cpp:842
+#pragma warning disable CA1308 // strlwr
         string materialName = name.ToLowerInvariant();
 #pragma warning restore CA1308
 
         // Make a copy, with a texdata that is based on the underlying existing entry
         TexInfo ti = baseInfo;
         // FindAliasedTexData describes it with FindOriginalMaterial of the
-        // water's texdata (textures.cpp:431): through the patch chain, since a
+        // Water's texdata: through the patch chain, since a
         // cubemap-patched water's own name exists only in the pak.
         ti.TexData = await _compile.TexDatas
             .FindAliasedAsync(fullName, _compile.Patcher.OriginalNameFor(name), _compile.Materials, _compile.Diagnostics, cancellationToken)
@@ -234,7 +234,7 @@ internal sealed class WaterVolumes
         return texInfo;
     }
 
-    /// <summary><c>WriteFogVolumeIDs</c> (<c>ivp.cpp:875</c>).</summary>
+    /// <summary><c>WriteFogVolumeIDs</c>.</summary>
     private void WriteFogVolumeIds(int modelIndex)
     {
         // The model's face range: WriteBSP runs before EndModel, so the
@@ -322,7 +322,7 @@ internal sealed class WaterVolumes
     }
 }
 
-/// <summary>Coordinate limits (<c>public/worldsize.h</c>).</summary>
+/// <summary>Coordinate limits.</summary>
 internal static class WriteConstants
 {
     /// <summary><c>MAX_COORD_INTEGER</c>.</summary>

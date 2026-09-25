@@ -6,7 +6,6 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 
 /// <summary>
 /// The convex outline of an areaportal, as the engine clips against it
-/// (<c>src/utils/vbsp/portals.cpp:1012-1269</c>).
 /// </summary>
 /// <remarks>
 /// The engine needs one convex polygon per areaportal to clip the view against,
@@ -21,7 +20,7 @@ public static class AreaPortalGeometry
     public const string AreaPortalHasManyVerts = "VBSP0309";
 
     /// <summary>
-    /// <c>MAX_MAP_PORTALVERTS</c> (<c>src/public/bspfile.h</c>): the whole map's
+    /// <c>MAX_MAP_PORTALVERTS</c>: the whole map's
     /// budget for areaportal hull vertices.
     /// </summary>
     public const int MaxMapPortalVerts = 128000;
@@ -29,12 +28,12 @@ public static class AreaPortalGeometry
     /// <summary>The hull vertex count above which stock suspects its own output.</summary>
     public const int SuspiciousVertexCount = 32;
 
-    /// <summary>The fixed size of stock's index and touched arrays (<c>portals.cpp:1054</c>).</summary>
+    /// <summary>The fixed size of stock's index and touched arrays.</summary>
     public const int MaxHullPoints = 512;
 
     /// <summary>
     /// The angle from one direction round to another, always in [0, 2π)
-    /// (<c>AngleOffset</c>, <c>portals.cpp:1014</c>).
+    /// (<c>AngleOffset</c>).
     /// </summary>
     /// <param name="baseAngle">The direction to measure from.</param>
     /// <param name="testAngle">The direction to measure to.</param>
@@ -61,7 +60,7 @@ public static class AreaPortalGeometry
     /// <summary>
     /// The indices of the points that are not within
     /// <paramref name="tolerance"/> of an earlier one
-    /// (<c>FindUniquePoints</c>, <c>portals.cpp:1023</c>).
+    /// (<c>FindUniquePoints</c>).
     /// </summary>
     /// <param name="points">The points to thin.</param>
     /// <param name="indexMap">Filled with the surviving indices.</param>
@@ -107,7 +106,7 @@ public static class AreaPortalGeometry
 
     /// <summary>
     /// The 2D convex hull of a set of points, by gift wrapping
-    /// (<c>Convex2D</c>, <c>portals.cpp:1051</c>).
+    /// (<c>Convex2D</c>).
     /// </summary>
     /// <param name="points">The points to wrap.</param>
     /// <param name="indices">Filled with indices into <paramref name="points"/>.</param>
@@ -233,7 +232,7 @@ public static class AreaPortalGeometry
     /// <summary>
     /// Every portal in the tree that separates the two given areas and lies in
     /// the given plane
-    /// (<c>FindPortalsLeadingToArea_R</c>, <c>portals.cpp:1158</c>).
+    /// (<c>FindPortalsLeadingToArea_R</c>).
     /// </summary>
     /// <param name="headNode">The tree root.</param>
     /// <param name="planes">The map's plane table.</param>
@@ -299,7 +298,7 @@ public static class AreaPortalGeometry
     }
 
     /// <summary>
-    /// <c>FindPortalsLeadingToArea_R</c>'s plane test (<c>portals.cpp:1184-1195</c>):
+    /// <c>FindPortalsLeadingToArea_R</c>'s plane test:
     /// the portal's node plane parallel to <paramref name="plane"/> within
     /// 0.01 of an absolute dot of 1, and the two planes' closest points to the
     /// origin within 0.1 of each other.
@@ -327,7 +326,7 @@ public static class AreaPortalGeometry
 
     /// <summary>
     /// The convex hull of every portal between two areas in one plane
-    /// (<c>EmitClipPortalGeometry</c>, <c>portals.cpp:1202</c>).
+    /// (<c>EmitClipPortalGeometry</c>).
     /// </summary>
     /// <param name="headNode">The tree root.</param>
     /// <param name="planes">The map's plane table.</param>
@@ -416,7 +415,7 @@ public static class AreaPortalGeometry
 
     /// <summary>
     /// A direction as pitch/yaw/roll degrees
-    /// (<c>VectorAngles</c>, <c>mathlib_base.cpp:1000</c>).
+    /// (<c>VectorAngles</c>).
     /// </summary>
     /// <param name="forward">The direction.</param>
     /// <returns>Pitch, yaw and roll in degrees; roll is always zero.</returns>
@@ -453,7 +452,7 @@ public static class AreaPortalGeometry
 
     /// <summary>
     /// Pitch/yaw/roll degrees as three basis vectors
-    /// (<c>AngleVectors</c>, <c>mathlib_base.cpp:919</c>).
+    /// (<c>AngleVectors</c>).
     /// </summary>
     /// <param name="angles">Pitch, yaw and roll in degrees.</param>
     /// <returns>The forward, right and up vectors.</returns>

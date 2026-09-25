@@ -4,7 +4,7 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapTools.Rad.Displacement;
 
 /// <summary>
-/// <c>PreGetBumpNormalsForDisp</c> (<c>vrad.cpp:1494</c>): the texture axes a
+/// <c>PreGetBumpNormalsForDisp</c>: the texture axes a
 /// displacement's bump basis is built from, rotated into the lightmap frame
 /// when the two disagree.
 /// </summary>
@@ -19,13 +19,13 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 /// texture axes pass through and the normal is untouched.
 /// </para>
 /// <para>
-/// Read by the displacement patch radial (<c>vraddisps.cpp:1132</c>) and by
-/// bounce (<c>vrad.cpp:1566</c>, lane 4d).
+/// Read by the displacement patch radial and by
+/// Bounce(lane 4d).
 /// </para>
 /// </remarks>
 public static class DispBumpBasis
 {
-    /// <summary>The axis agreement threshold, <c>vrad.cpp:1507</c>.</summary>
+    /// <summary>The axis agreement threshold.</summary>
     public const float AxisDotEpsilon = 0.999f;
 
     /// <summary><c>PreGetBumpNormalsForDisp</c>.</summary>
@@ -42,7 +42,7 @@ public static class DispBumpBasis
         Vec3 lightU = VradDispSurface.Normalise(new Vec3(l[0], l[1], l[2]), stockNormalise);
         Vec3 lightV = VradDispSurface.Normalise(new Vec3(l[4], l[5], l[6]), stockNormalise);
 
-        // :1507-1515. fabs of a float -> the double fabs; the compare is in double.
+        // 1507-1515. fabs of a float -> the double fabs; the compare is in double.
         bool convert = Math.Abs(Vec3.Dot(texU, lightU)) < AxisDotEpsilon
             || Math.Abs(Vec3.Dot(texV, lightV)) < AxisDotEpsilon;
         if (!convert)
@@ -51,7 +51,7 @@ public static class DispBumpBasis
         }
 
         // matrix3x4_t(x, y, z, origin) puts the axes in COLUMNS; ConcatTransforms
-        // (mathlib_base.cpp:658) is light * tex, each output row
+        // Is light * tex, each output row
         // a0*B.row0 + (a1*B.row1 + a2*B.row2).
         float[,] a = Columns(lightU, lightV, normal);
         float[,] b = Columns(texU, texV, normal);

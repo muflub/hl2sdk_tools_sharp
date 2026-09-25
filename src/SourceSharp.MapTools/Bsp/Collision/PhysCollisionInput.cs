@@ -7,7 +7,7 @@ using SourceSharp.MapTools.Phys;
 namespace SourceSharp.MapTools.Bsp.Collision;
 
 /// <summary>
-/// Everything <c>EmitPhysCollision</c> (<c>ivp.cpp:1498</c>) reads, as the
+/// Everything <c>EmitPhysCollision</c> reads, as the
 /// finished lumps and tables it reads them from.
 /// </summary>
 /// <remarks>
@@ -15,14 +15,14 @@ namespace SourceSharp.MapTools.Bsp.Collision;
 /// Stock reads the <c>d*</c> globals of the BSP being written plus three
 /// things that are not in any lump: which original brush sides are visible
 /// (<c>g_MainMap-&gt;mapbrushes[b].original_sides[i].visible</c>, for the
-/// brush-entity shrink, <c>ivp.cpp:505</c>), the surface-property index per
+/// brush-entity shrink), the surface-property index per
 /// texdata (<c>g_SurfaceProperties</c>), and the water volumes
 /// <c>EmitWaterVolumesForBSP</c> recorded while the tree still existed
 /// (<see cref="WaterVolumeBuilder"/>). Those come in explicitly.
 /// </para>
 /// <para>
 /// CALL POSITION, for the vbsp driver: stock calls <c>EmitPhysCollision</c>
-/// from <c>EndBSPFile</c> (<c>writebsp.cpp:1264</c>), after
+/// from <c>EndBSPFile</c>, after
 /// <c>EmitBrushes</c>/<c>EmitPlanes</c> and the displacement neighbour and
 /// alpha passes, and before <c>EmitStaticProps</c>. Everything it reads is
 /// final by then, and what it writes back -- each leaf's
@@ -102,7 +102,7 @@ public sealed record PhysCollisionInput
 }
 
 /// <summary>
-/// One water volume: <c>watermodel_t</c> (<c>ivp.cpp:1091</c>) with its
+/// One water volume: <c>watermodel_t</c> with its
 /// leaves.
 /// </summary>
 /// <param name="ModelIndex">The brush model it belongs to (only model 0's are emitted).</param>
@@ -128,14 +128,14 @@ public sealed record WaterModel(
 
 /// <summary>
 /// One displacement as the collision code reads it: <c>g_CoreDispInfos[i]</c>
-/// plus the three things <c>disp_ivp.cpp</c> takes from <c>mapdispinfo[i]</c>.
+/// plus the three things takes from <c>mapdispinfo[i]</c>.
 /// </summary>
 /// <param name="Core">The built surface, allowed-verts already set up.</param>
 /// <param name="Contents"><c>mapdispinfo[i].contents</c>.</param>
 /// <param name="TexInfo"><c>mapdispinfo[i].face.texinfo</c>.</param>
 /// <param name="SurfaceProp2">
 /// The material's <c>$surfaceprop2</c> index (<c>GetSurfaceProperties2</c>,
-/// <c>textures.cpp:368</c>), or -1.
+///), or -1.
 /// </param>
 public sealed record CollisionDisplacement(CoreDispInfo Core, int Contents, int TexInfo, int SurfaceProp2);
 

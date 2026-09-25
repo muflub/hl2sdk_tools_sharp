@@ -8,7 +8,7 @@ namespace SourceSharp.MapTools.Materials;
 /// <remarks>
 /// Every default here is what <c>InitMaterialSystem</c> gives the compilers: a
 /// default-constructed <c>MaterialSystem_Config_t</c> handed to
-/// <c>OverrideConfig</c> (<c>utilmatlib.cpp:57-62</c>), and vbsp's own copy of
+/// <c>OverrideConfig</c>, and vbsp's own copy of
 /// patch resolution rather than the engine's.
 /// </remarks>
 public sealed record MaterialFactsOptions
@@ -26,9 +26,9 @@ public sealed record MaterialFactsOptions
     /// </para>
     /// <para>
     /// With one honest caveat, recorded here rather than smoothed over.
-    /// <c>utilmatlib.cpp:71</c> goes through
+    /// Goes through
     /// <c>g_pMaterialSystem-&gt;FindMaterial</c>, which is the ENGINE's
-    /// resolver; vbsp's own copy in <c>materialpatch.cpp</c> is what CREATES
+    /// resolver; vbsp's own copy in the reference implementation is what CREATES
     /// the patches vbsp writes into the pak, and what
     /// <c>GetValueFromMaterial</c> uses. So a compile really does run both. The
     /// two disagree only on a patch that carries <c>insert</c> and
@@ -45,7 +45,7 @@ public sealed record MaterialFactsOptions
     /// </summary>
     /// <remarks>
     /// True: <c>MATSYS_VIDCFG_FLAGS_DISABLE_BUMPMAP</c> is clear in a default
-    /// config (<c>materialsystem_config.h:62</c>). With this false no material
+    /// config. With this false no material
     /// asks for bumped lightmaps, whatever its bump map says.
     /// </remarks>
     public bool UseBumpmapping { get; init; } = true;
@@ -54,8 +54,8 @@ public sealed record MaterialFactsOptions
     /// The width a material with no readable base texture reports.
     /// </summary>
     /// <remarks>
-    /// 128, from <c>utilmatlib.cpp:100</c>. The <c>#if 0</c> above it is the
-    /// alternative Valve chose against: erroring out instead.
+    /// 128, from the reference implementation. The disabled branch above it is the
+    /// alternative the reference build weighed: erroring out instead.
     /// </remarks>
     public int FallbackWidth { get; init; } = 128;
 

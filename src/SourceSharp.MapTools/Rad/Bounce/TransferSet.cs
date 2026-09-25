@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace SourceSharp.MapTools.Rad.Bounce;
 
 /// <summary>
-/// <c>transfer_t</c> (<c>vrad.h:109</c>): how much of one patch's emitted
+/// <c>transfer_t</c>: how much of one patch's emitted
 /// light another receives.
 /// </summary>
 /// <param name="Patch">The SHOOTING patch the light comes from.</param>
@@ -25,9 +25,9 @@ public readonly record struct Transfer(int Patch, float Weight);
 /// <remarks>
 /// <para>
 /// Stock allocates each patch's list separately (<c>calloc</c> in
-/// <c>MakeScales</c>, <c>vrad.cpp:1222</c>) -- hundreds of thousands of small
+/// <c>MakeScales</c>) -- hundreds of thousands of small
 /// allocations on a real map -- and stages them through three
-/// <c>MAX_PATCHES</c>-sized arrays per thread (<c>vismat.cpp:69-71,381</c>).
+/// <c>MAX_PATCHES</c>-sized arrays per thread.
 /// Here they are one array. A patch that never shoots (a parent, a sky patch,
 /// a patch in no cluster) has a count of zero.
 /// </para>

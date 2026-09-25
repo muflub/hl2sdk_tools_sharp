@@ -5,21 +5,20 @@ namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
 /// One tessellated displacement: <c>CCoreDispInfo</c>,
-/// <c>public/builddisp.h:705</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>What this port leaves out, and why.</b> Stock's <c>Create</c>
-/// (<c>builddisp.cpp:2003</c>) runs eight passes; this runs all but the
+/// Runs eight passes; this runs all but the
 /// quad-tree's per-node error terms.
 /// </para>
 /// <para>
 /// <c>GenerateLODTree</c> builds the node array, and
 /// <c>GenerateCollisionSurface</c> — which runs after it — sets
-/// <c>m_RenderIndexCount</c> back to zero (<c>builddisp.cpp:943</c>) and
+/// <c>m_RenderIndexCount</c> back to zero and
 /// writes the full un-decimated index list over the top. The tree contributes
 /// nothing to the triangles. The ONE thing any caller reads from it is the
-/// root node's bounding box (<c>Disp_GridIndex</c>, <c>disp_ivp.cpp:56</c>),
+/// root node's bounding box(<c>Disp_GridIndex</c>),
 /// which is the axis-aligned box of every vertex as it stood when
 /// <c>Create</c> ran — exposed as <see cref="RootBounds"/>.
 /// </para>
@@ -103,7 +102,7 @@ public sealed partial class CoreDispInfo : IDispUtils
     public int Size => PowerInfo.MaxVerts;
 
     /// <summary>
-    /// The number of triangles: <c>GetTriCount</c>, <c>builddisp.cpp:2946</c>.
+    /// The number of triangles: <c>GetTriCount</c>.
     /// </summary>
     public int TriCount => (PostSpacing - 1) * (PostSpacing - 1) * 2;
 
@@ -132,7 +131,7 @@ public sealed partial class CoreDispInfo : IDispUtils
     /// <remarks>
     /// ZERO for every vertex in every stock run. The tangent space starts from
     /// the surface's <c>tAxis</c>, which <c>CCoreDispSurface::Init</c> clears
-    /// (<c>builddisp.cpp:214</c>) and nothing under <c>src/utils</c> ever
+    /// And nothing under <c>src/utils</c> ever
     /// sets (<c>SetTAxis</c> has no caller). <c>VectorNormalize</c> of zero is
     /// zero, and every cross product that follows has a zero operand.
     /// </remarks>
@@ -143,10 +142,10 @@ public sealed partial class CoreDispInfo : IDispUtils
 
     /// <summary>
     /// The quad-tree root's bounding box: <c>GetNode(0)->GetBoundingBox</c>,
-    /// read by <c>Disp_GridIndex</c> (<c>disp_ivp.cpp:56</c>).
+    /// read by <c>Disp_GridIndex</c>.
     /// </summary>
     /// <remarks>
-    /// <c>CalcBoundingBoxAtNode</c> (<c>builddisp.cpp:1197</c>) unions each
+    /// <c>CalcBoundingBoxAtNode</c> unions each
     /// leaf's 3x3 block of vertices upward, so the root's box is the exact
     /// min/max of every vertex. It is computed ONCE, inside
     /// <see cref="Create"/>, so it describes the vertices BEFORE
@@ -166,7 +165,7 @@ public sealed partial class CoreDispInfo : IDispUtils
     /// <summary>
     /// Leave each vertex normal as the unnormalised MEAN of its fan, as stock
     /// does (<see cref="Options.StockQuirk.DispVertexNormalMeanUnnormalised"/>,
-    /// <c>builddisp.cpp:1835</c>). False, the default, normalises it.
+    ///). False, the default, normalises it.
     /// </summary>
     public bool StockVertexNormalMean { get; set; }
 
@@ -269,8 +268,7 @@ public sealed partial class CoreDispInfo : IDispUtils
         if (_listBase is null)
         {
             throw new InvalidOperationException(
-                "this displacement has no neighbour list; call SetListBase first "
-                + "(CCoreDispInfo::SetDispUtilsHelperInfo, builddisp.cpp:866).");
+                "this displacement has no neighbour list; call SetListBase first.");
         }
 
         return index == DispSubNeighbor.NoNeighbor ? null : _listBase[index];
@@ -278,7 +276,7 @@ public sealed partial class CoreDispInfo : IDispUtils
 
     /// <summary>
     /// Gives this displacement the list its neighbour indices refer to:
-    /// <c>SetDispUtilsHelperInfo</c>, <c>builddisp.cpp:866</c>.
+    /// <c>SetDispUtilsHelperInfo</c>.
     /// </summary>
     /// <param name="list">Every displacement in the map, in LUMP_DISPINFO order.</param>
     /// <exception cref="ArgumentNullException"><paramref name="list"/> is null.</exception>
@@ -305,7 +303,7 @@ public sealed partial class CoreDispInfo : IDispUtils
 
     /// <summary>
     /// Loads the per-vertex field and tags:
-    /// <c>InitDispInfo</c>, <c>builddisp.cpp:752</c>.
+    /// <c>InitDispInfo</c>.
     /// </summary>
     /// <param name="minTess">
     /// The VMF's <c>mintess</c>, or — as vbsp always passes — the surface flags
@@ -319,7 +317,7 @@ public sealed partial class CoreDispInfo : IDispUtils
     /// The top bit of <paramref name="minTess"/> is a TYPE TAG, not a value:
     /// set, the remaining 31 bits are <c>SURF_*</c> flags and go to the
     /// surface; clear, the whole thing was a tessellation level and is dropped
-    /// on the floor. vbsp always sets it (<c>disp_vbsp.cpp:327</c>), so
+    /// on the floor. vbsp always sets it, so
     /// <c>ddispinfo_t::minTess</c> in every modern BSP is <c>0x80000000 |
     /// flags</c> and never a tessellation level.
     /// </remarks>
@@ -357,8 +355,7 @@ public sealed partial class CoreDispInfo : IDispUtils
     /// <summary>
     /// Loads the field and tags from a BSP's own lumps: the
     /// <c>CDispVert</c>/<c>CDispTri</c> overload of <c>InitDispInfo</c>,
-    /// <c>builddisp.cpp:841</c>, which is how vrad rebuilds a displacement
-    /// (<c>vraddisps.cpp:418</c>).
+    /// Which is how vrad rebuilds a displacement
     /// </summary>
     /// <param name="minTess"><c>ddispinfo_t::minTess</c>.</param>
     /// <param name="verts">This displacement's run of LUMP_DISP_VERTS.</param>
@@ -407,7 +404,7 @@ public sealed partial class CoreDispInfo : IDispUtils
 
     /// <summary>
     /// Builds the vertex grid, the coordinates and the triangle list:
-    /// <c>Create</c>, <c>builddisp.cpp:2003</c>.
+    /// <c>Create</c>.
     /// </summary>
     /// <remarks>
     /// Stock returns false when the surface has other than four points; there
@@ -434,7 +431,7 @@ public sealed partial class CoreDispInfo : IDispUtils
     /// <summary>
     /// The root node's box, as <see cref="RootBounds"/> describes: the exact
     /// min/max of every vertex, which is what <c>CalcBoundingBoxAtNode</c>'s
-    /// union of 3x3 leaf blocks comes to (<c>builddisp.cpp:1155-1265</c>).
+    /// union of 3x3 leaf blocks comes to.
     /// </summary>
     private DispBox CalcRootBounds()
     {
@@ -459,7 +456,7 @@ public sealed partial class CoreDispInfo : IDispUtils
 
     /// <summary>
     /// Whether the grid has a neighbour in one direction:
-    /// <c>DoesEdgeExist</c>, <c>builddisp.cpp:1854</c>.
+    /// <c>DoesEdgeExist</c>.
     /// </summary>
     /// <param name="row">The column index, <c>x</c> (stock calls it the row).</param>
     /// <param name="col">The row index, <c>y</c>.</param>
@@ -477,7 +474,7 @@ public sealed partial class CoreDispInfo : IDispUtils
         };
 
     /// <summary>
-    /// <c>GenerateDispSurfNormals</c>, <c>builddisp.cpp:1886</c>.
+    /// <c>GenerateDispSurfNormals</c>.
     /// </summary>
     private void GenerateDispSurfNormals()
     {
@@ -500,10 +497,10 @@ public sealed partial class CoreDispInfo : IDispUtils
 
     /// <summary>
     /// The mean of the unit normals of up to eight triangles around one
-    /// vertex: <c>CalcNormalFromEdges</c>, <c>builddisp.cpp:1732</c>.
+    /// vertex: <c>CalcNormalFromEdges</c>.
     /// </summary>
     /// <remarks>
-    /// Stock does NOT renormalise the mean (<c>:1835</c> scales by
+ /// Stock does NOT renormalise the mean (scales
     /// <c>1/normalCount</c> and stops), so a vertex on a crease carries a
     /// normal shorter than one; <see cref="StockVertexNormalMean"/> chooses. Each quadrant contributes its two triangles
     /// whatever the tessellation's diagonal actually is there: this is a
@@ -540,7 +537,7 @@ public sealed partial class CoreDispInfo : IDispUtils
 
         Vec3 mean = accum * (1.0f / count);
 
-        // builddisp.cpp:1835 stops at the mean; every consumer uses the result
+        // Stops at the mean; every consumer uses the result
         // as a direction (see StockQuirk.DispVertexNormalMeanUnnormalised).
         return StockVertexNormalMean ? mean : Normalise(mean);
     }
@@ -561,7 +558,7 @@ public sealed partial class CoreDispInfo : IDispUtils
     }
 
     /// <summary>
-    /// <c>GenerateDispSurfTangentSpaces</c>, <c>builddisp.cpp:1692</c>.
+    /// <c>GenerateDispSurfTangentSpaces</c>.
     /// </summary>
     /// <remarks>
     /// Written out in full although its output is always zero (see
@@ -591,7 +588,7 @@ public sealed partial class CoreDispInfo : IDispUtils
     }
 
     /// <summary>
-    /// <c>GenerateDispSurf</c>, <c>builddisp.cpp:1918</c>.
+    /// <c>GenerateDispSurf</c>.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -607,7 +604,7 @@ public sealed partial class CoreDispInfo : IDispUtils
     /// <c>SetElevation</c> — and the subdivision position is zero because
     /// Hammer bakes subdivision into the field vectors before writing the VMF,
     /// which stock's own comment says in as many words at
-    /// <c>builddisp.cpp:816</c> ("offset have been combined with fieldvectors
+    /// ("offset have been combined with fieldvectors
     /// at this point!!!"). They are kept as terms so that the arithmetic is
     /// stock's, and their arrays stay zero.
     /// </para>
@@ -642,7 +639,7 @@ public sealed partial class CoreDispInfo : IDispUtils
     }
 
     /// <summary>
-    /// <c>CalcDispSurfCoords</c>, <c>builddisp.cpp:1549</c>: the same bilinear
+    /// <c>CalcDispSurfCoords</c>: the same bilinear
     /// walk in 2D, over texture or luxel coordinates.
     /// </summary>
     private void CalcDispSurfCoords(bool lightMap, int lightmapId)
@@ -683,14 +680,13 @@ public sealed partial class CoreDispInfo : IDispUtils
 
     /// <summary>
     /// <c>GenerateCollisionSurface</c> plus <c>CreateTris</c>,
-    /// <c>builddisp.cpp:934</c> and <c>:3033</c>.
     /// </summary>
     /// <remarks>
     /// <para>
     /// The diagonal of each quad ALTERNATES, and what decides it is the flat
     /// index of the quad's lower-left post rather than its row and column:
     /// <c>bOdd = ((ndx % 2) == 1)</c> with <c>ndx = iV * nWidth + iU</c>
-    /// (<c>builddisp.cpp:948</c>). Because <c>nWidth</c> is <c>2^power + 1</c>
+    /// Because <c>nWidth</c> is <c>2^power + 1</c>
     /// and therefore ODD, the parity flips along each row and again from row to
     /// row, which is what makes the result a checkerboard rather than stripes.
     /// An even width would have given stripes from the same expression, and
@@ -717,7 +713,7 @@ public sealed partial class CoreDispInfo : IDispUtils
 
                 if (ndx % 2 == 1)
                 {
-                    // BuildTriTLtoBR, builddisp.cpp:896.
+                    // BuildTriTLtoBR.
                     _triIndices[count++] = (ushort)ndx;
                     _triIndices[count++] = (ushort)(ndx + width);
                     _triIndices[count++] = (ushort)(ndx + 1);
@@ -728,7 +724,7 @@ public sealed partial class CoreDispInfo : IDispUtils
                 }
                 else
                 {
-                    // BuildTriBLtoTR, builddisp.cpp:915.
+                    // BuildTriBLtoTR.
                     _triIndices[count++] = (ushort)ndx;
                     _triIndices[count++] = (ushort)(ndx + width);
                     _triIndices[count++] = (ushort)(ndx + width + 1);

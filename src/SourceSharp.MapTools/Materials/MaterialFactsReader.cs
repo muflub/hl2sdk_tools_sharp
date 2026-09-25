@@ -263,7 +263,7 @@ public static class MaterialFactsReader
 
         if (!reflectivityFromVar)
         {
-            // utilmatlib.cpp:118-123: no $reflectivity, so the material's own
+            // No $reflectivity, so the material's own
             // value -- which the material system took from the representative
             // texture's VTF header.
             reflectivity = texture?.Reflectivity ?? Vec3.Zero;
@@ -333,7 +333,7 @@ public static class MaterialFactsReader
                 catch (InvalidVtfException)
                 {
                     // GetPreviewImageProperties' MATERIAL_PREVIEW_IMAGE_BAD:
-                    // utilmatlib.cpp:96-103 substitutes the fallback size
+                    // Substitutes the fallback size
                     // rather than erroring, because the #if 0 above it is
                     // switched off.
                     facts = null;

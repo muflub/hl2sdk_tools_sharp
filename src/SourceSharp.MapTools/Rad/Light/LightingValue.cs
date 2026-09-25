@@ -3,14 +3,14 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// One sample's accumulated light: <c>LightingValue_t</c> (<c>vrad.h:116</c>).
+/// One sample's accumulated light: <c>LightingValue_t</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// A colour and a "direct sun amount". The sun amount is accumulated by every
-/// light add (<c>vrad.h:162</c>) and, in this drop of the SDK, READ BY NOTHING:
+/// light add and, in this drop of the SDK, READ BY NOTHING:
 /// <c>grep -rn m_flDirectSunAmount src/utils/vrad</c> finds only the struct's
-/// own methods and the two <c>AddLight</c> calls in <c>lightmap.cpp</c>. It is
+/// own methods and the two <c>AddLight</c> calls in the reference implementation. It is
 /// carried anyway so a consumer that wants it (Mapbase's sun-shadow lightmaps
 /// read it) does not have to re-derive the four-lane rule that decides it.
 /// </para>
@@ -37,11 +37,11 @@ public struct LightingValue
         DirectSunAmount = directSunAmount;
     }
 
-    /// <summary><c>Intensity()</c>: the plain sum of the three channels (<c>vrad.h:154</c>).</summary>
+    /// <summary><c>Intensity</c>: the plain sum of the three channels.</summary>
     /// <returns><c>x + y + z</c>, left to right.</returns>
     public readonly float Intensity() => Lighting.X + Lighting.Y + Lighting.Z;
 
-    /// <summary><c>AddLight(amount, color, sun)</c> (<c>vrad.h:159</c>).</summary>
+    /// <summary><c>AddLight(amount, color, sun)</c>.</summary>
     /// <param name="amount">The scale on <paramref name="color"/>.</param>
     /// <param name="color">The light's intensity.</param>
     /// <param name="sunAmount">Added to the sun amount unscaled.</param>
@@ -54,7 +54,7 @@ public struct LightingValue
         DirectSunAmount += sunAmount;
     }
 
-    /// <summary><c>AddLight(const LightingValue_t&amp;)</c> (<c>vrad.h:167</c>).</summary>
+    /// <summary><c>AddLight(const LightingValue_t&amp;)</c>.</summary>
     /// <param name="other">The value to add.</param>
     public void AddLight(in LightingValue other)
     {
@@ -62,7 +62,7 @@ public struct LightingValue
         DirectSunAmount += other.DirectSunAmount;
     }
 
-    /// <summary><c>AddWeighted(src, weight)</c> (<c>vrad.h:143</c>): <c>this += weight * src</c>.</summary>
+    /// <summary><c>AddWeighted(src, weight)</c>: <c>this += weight * src</c>.</summary>
     /// <param name="other">The value to add.</param>
     /// <param name="weight">Its weight.</param>
     public void AddWeighted(in LightingValue other, float weight)
@@ -71,7 +71,7 @@ public struct LightingValue
         DirectSunAmount += weight * other.DirectSunAmount;
     }
 
-    /// <summary><c>Scale(s)</c> (<c>vrad.h:137</c>).</summary>
+    /// <summary><c>Scale(s)</c>.</summary>
     /// <param name="scale">The factor.</param>
     public void Scale(float scale)
     {

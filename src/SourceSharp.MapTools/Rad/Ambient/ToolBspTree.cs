@@ -4,16 +4,16 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapTools.Rad.Ambient;
 
 /// <summary>
-/// <c>CToolBSPTree</c>'s box query (<c>bsplib.cpp:3461</c>), shared by the
+/// <c>CToolBSPTree</c>'s box query, shared by the
 /// empty-leaf neighbour search and the displacement leaf lists.
 /// </summary>
 public static class ToolBspTree
 {
-    /// <summary><c>TEST_EPSILON</c> (<c>bsplib.cpp:3403</c>).</summary>
+    /// <summary><c>TEST_EPSILON</c>.</summary>
     private const float TestEpsilon = 0.03125f;
 
     /// <summary>
-    /// <c>CToolBSPTree::EnumerateLeavesInBox</c> (<c>bsplib.cpp:3461</c>).
+    /// <c>CToolBSPTree::EnumerateLeavesInBox</c>.
     /// </summary>
     /// <param name="nodes">The map's nodes.</param>
     /// <param name="planes">The map's planes.</param>

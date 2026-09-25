@@ -11,13 +11,13 @@ using SourceSharp.MapTools.Bsp.Write;
 namespace SourceSharp.MapTools.Bsp.Driver;
 
 /// <summary>
-/// The lump half of <c>WriteBSPFile</c> (<c>bsplib.cpp:2631</c>): the
+/// The lump half of <c>WriteBSPFile</c>: the
 /// <c>d*</c> arrays into a <see cref="BspData"/>. The byte layout — lump order,
 /// padding, game-lump directory — is <see cref="BspFile"/>'s.
 /// </summary>
 internal static class BspAssembler
 {
-    /// <summary><c>GAMELUMP_STATIC_PROPS_VERSION</c> (<c>gamebspfile.h</c>).</summary>
+    /// <summary><c>GAMELUMP_STATIC_PROPS_VERSION</c>.</summary>
     internal const int StaticPropsVersion = 10;
 
     /// <summary><c>GAMELUMP_DETAIL_PROPS_VERSION</c>.</summary>
@@ -79,7 +79,7 @@ internal static class BspAssembler
         Put(bsp, BspLump.TexDataStringTable, strings.Offsets, 0);
 
         Put(bsp, BspLump.VertNormals, state.VertNormals, 0);
-        // g_vertnormalindices is unsigned short (bsplib.cpp), not int.
+        // g_vertnormalindices is unsigned short, not int.
         ushort[] normalIndices = new ushort[state.VertNormalIndices.Count];
         for (int i = 0; i < normalIndices.Length; i++)
         {

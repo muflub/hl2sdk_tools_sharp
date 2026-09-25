@@ -24,7 +24,7 @@ public readonly record struct ShadowCasterStats(int Triangles, Vec3 Min, Vec3 Ma
     /// infinity -- rather than zero. A zero box is a real, tiny box at the
     /// origin, and the union of it with a real one moves the answer; the
     /// inverted one is the identity for union, which is what stock's
-    /// <c>CalculateTriangleListBounds</c> sentinel (<c>raytrace.cpp:610</c>)
+    /// <c>CalculateTriangleListBounds</c> sentinel
     /// is too.
     /// </remarks>
     public static ShadowCasterStats Empty => new(
@@ -42,7 +42,7 @@ public readonly record struct ShadowCasterStats(int Triangles, Vec3 Min, Vec3 Ma
 /// <remarks>
 /// <para>
 /// One immutable object rather than a global, which is the whole difference
-/// from stock: <c>g_RtEnv</c> (<c>vrad.cpp:126</c>) is a file-scope
+/// from stock: <c>g_RtEnv</c> is a file-scope
 /// <c>RayTracingEnvironment</c> that eleven translation units reach into, and
 /// the reason vrad cannot run two maps in one process is that emptying it is
 /// not an operation anybody wrote.

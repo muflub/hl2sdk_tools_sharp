@@ -35,7 +35,7 @@ public readonly record struct TracedTriangle(
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>public/raytrace.h</c>, <c>CacheOptimizedKDNode</c>, reproduced exactly
+/// <c>CacheOptimizedKDNode</c>, reproduced exactly
 /// because the size is the design: (a) the right child always sits
 /// immediately after the left, so one index serves both; (b) the node type
 /// lives in the bottom two bits of that index; and (c) a leaf has no splitting
@@ -94,7 +94,7 @@ internal struct KdNode
 /// <remarks>
 /// <para>
 /// FORTY-EIGHT BYTES, and that number is worth saying out loud because both
-/// stock's own comment and the plan say 64. <c>raytrace.h</c> declares
+/// Stock's own comment and the plan say 64. declares
 /// "this structure is 16longs=64 bytes for cache line packing" over a struct
 /// whose fields total four floats, an int, six floats and four bytes -- 48 --
 /// and the compiler agrees: a build of stock's header in this tree prints

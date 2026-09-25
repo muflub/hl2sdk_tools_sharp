@@ -16,10 +16,10 @@ namespace SourceSharp.MapTools.Compile;
 /// <para>
 /// <see cref="ToDirectory"/> writes what stock's three tools write, with their
 /// names and their rules: <c>name.bsp</c>; <c>name.prt</c> for a sealed map
-/// (<c>vbsp.cpp:368</c>) and <c>name.lin</c> for a leaked one; the stale
+/// And <c>name.lin</c> for a leaked one; the stale
 /// <c>.prt</c> and <c>.lin</c> of an earlier compile deleted first
-/// (<c>vbsp.cpp:1321-1326</c>); and <c>name.log</c>, APPENDED to as stock's
-/// <c>SetSpewFunctionLogFile</c> opens it (<c>cmdlib.cpp:369</c>, mode
+/// And <c>name.log</c>, APPENDED to as stock's
+/// <c>SetSpewFunctionLogFile</c> opens it (mode
 /// <c>"a"</c>). The <c>.bsp</c> is written with
 /// <see cref="IFileSystem.ReplaceAsync"/>, so a killed compile never leaves
 /// half of one.

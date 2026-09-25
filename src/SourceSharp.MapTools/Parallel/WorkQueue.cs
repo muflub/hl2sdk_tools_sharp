@@ -4,20 +4,20 @@ namespace SourceSharp.MapTools.Parallel;
 
 /// <summary>
 /// Runs a compile stage's work items across the whole machine: the replacement
-/// for <c>utils/common/threads.cpp</c>.
+/// For.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Stock's runner cannot use a modern machine, and that is measured rather than
-/// asserted. <c>MAX_TOOL_THREADS</c> is 16 (<c>utils/common/threads.h:21</c>)
-/// and <c>RunThreads_Start</c> clamps to it (<c>threads.cpp:182</c>).
+/// asserted. <c>MAX_TOOL_THREADS</c> is 16
+/// and <c>RunThreads_Start</c> clamps to it.
 /// <c>ThreadSetDefault</c> is worse: it reads the processor count and then
 /// <c>if (numthreads &lt; 1 || numthreads &gt; 32) numthreads = 1</c>
-/// (<c>threads.cpp:139</c>) — so a 64-thread workstation runs the compile on
+/// — so a 64-thread workstation runs the compile on
 /// ONE thread. And every single work item is handed out under one global
 /// <c>CRITICAL_SECTION</c> with the progress pacifier called inside it
-/// (<c>threads.cpp:57-69</c>), which the winding allocator then contends with
-/// because it takes the same lock (<c>polylib.cpp:53</c>).
+/// Which the winding allocator then contends with
+/// because it takes the same lock.
 /// </para>
 /// <para>
 /// This replaces all of that: dedicated threads with no cap, lock-free claiming
@@ -146,7 +146,7 @@ public sealed class WorkQueue : IDisposable
     /// </exception>
     /// <remarks>
     /// The equivalent of <c>RunThreadsOnIndividual</c>
-    /// (<c>utils/common/threads.cpp:91</c>), for a stage whose items write into
+    /// For a stage whose items write into
     /// storage the caller already owns and indexes itself. When the per-item
     /// result is a value, use
     /// <see cref="RunAsync{TScratch, TResult}"/> instead and get the
@@ -476,7 +476,7 @@ public sealed class WorkQueue : IDisposable
                     job.Execute(job.Order[slot], scratch, context);
 
                     // Reported here, holding nothing. This is the line stock
-                    // has inside its critical section (threads.cpp:65).
+                    // has inside its critical section.
                     IProgress<CompileProgress>? progress = job.Progress;
                     if (progress is not null)
                     {

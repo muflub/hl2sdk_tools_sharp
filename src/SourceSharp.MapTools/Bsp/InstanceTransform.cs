@@ -9,7 +9,7 @@ namespace SourceSharp.MapTools.Bsp;
 /// <remarks>
 /// <para>
 /// <b>The minimum this lane needed, not a matrix library.</b> Instance merging
-/// is the only thing in <c>map.cpp</c> that uses one, and it uses exactly five
+/// is the only thing in the reference implementation that uses one, and it uses exactly five
 /// operations: <c>AngleMatrix</c> to build it,
 /// <see cref="TransformPoint"/> (<c>VectorTransform</c>),
 /// <see cref="RotateVector"/> (<c>VectorRotate</c>),
@@ -46,14 +46,14 @@ public readonly struct InstanceTransform : IEquatable<InstanceTransform>
 
     /// <summary>
     /// Builds a transform from Hammer angles and a position:
-    /// <c>AngleMatrix</c>, <c>mathlib/mathlib_base.cpp:1188</c>.
+    /// <c>AngleMatrix</c>.
     /// </summary>
     /// <param name="angles">Pitch, yaw and roll in degrees, in that order.</param>
     /// <param name="position">The translation, which becomes column 3.</param>
     /// <returns>The transform.</returns>
     /// <remarks>
     /// The composition is <c>(YAW * PITCH) * ROLL</c>, spelled out element by
-    /// element exactly as <c>mathlib_base.cpp:1216-1234</c> spells it, and the
+    /// element exactly as spells it, and the
     /// angle order in a <c>QAngle</c> is pitch, yaw, roll — so
     /// <c>angles.X</c> is pitch and <c>angles.Y</c> is yaw, not the other way
     /// round.
@@ -86,7 +86,7 @@ public readonly struct InstanceTransform : IEquatable<InstanceTransform>
 
     /// <summary>
     /// Rotates and translates a point: <c>VectorTransform</c>,
-    /// <c>mathlib/mathlib_base.cpp:259</c>.
+    ///.
     /// </summary>
     /// <param name="point">The point.</param>
     /// <returns>The transformed point.</returns>
@@ -97,7 +97,7 @@ public readonly struct InstanceTransform : IEquatable<InstanceTransform>
 
     /// <summary>
     /// Rotates a direction, ignoring the translation:
-    /// <c>VectorRotate</c>, <c>mathlib/mathlib_base.cpp:286</c>.
+    /// <c>VectorRotate</c>.
     /// </summary>
     /// <param name="vector">The direction.</param>
     /// <returns>The rotated direction.</returns>
@@ -109,7 +109,7 @@ public readonly struct InstanceTransform : IEquatable<InstanceTransform>
     /// <summary>
     /// Transforms an axis-aligned box into the smallest axis-aligned box that
     /// contains it: <c>TransformAABB</c>,
-    /// <c>mathlib/mathlib_base.cpp:2910</c>.
+    ///.
     /// </summary>
     /// <param name="mins">The box minimum.</param>
     /// <param name="maxs">The box maximum.</param>
@@ -136,7 +136,7 @@ public readonly struct InstanceTransform : IEquatable<InstanceTransform>
 
     /// <summary>
     /// Transforms a plane: <c>MatrixTransformPlane</c>,
-    /// <c>public/mathlib/mathlib.h:1810</c>.
+    ///.
     /// </summary>
     /// <param name="plane">The plane.</param>
     /// <returns>The transformed plane.</returns>
@@ -195,7 +195,7 @@ public readonly struct InstanceTransform : IEquatable<InstanceTransform>
     private float Row3Dot(int row, Vec3 v) =>
         (this[row, 0] * v.X) + (this[row, 1] * v.Y) + (this[row, 2] * v.Z);
 
-    // DotProductAbs (public/mathlib/vector.h:1231) takes the absolute value of
+    // DotProductAbs takes the absolute value of
     // each PRODUCT, not of each matrix element -- the same answer only while
     // the extents are non-negative, which they are here but which is not what
     // the function says.

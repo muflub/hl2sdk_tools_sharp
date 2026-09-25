@@ -6,7 +6,7 @@ using SourceSharp.MapTools.Tracing;
 namespace SourceSharp.MapTools.Rad.Ambient;
 
 /// <summary>
-/// <c>CalcRayAmbientLighting</c> (<c>vraddetailprops.cpp:579</c>): what colour
+/// <c>CalcRayAmbientLighting</c>: what colour
 /// one ray brings back.
 /// </summary>
 /// <remarks>
@@ -29,7 +29,7 @@ namespace SourceSharp.MapTools.Rad.Ambient;
 /// <para>
 /// A NOTE ON THE SKY PATH that matters for anyone optimising this. When the ray
 /// ends on a sky face the tracer reports fraction 1 rather than the distance to
-/// the sky (<c>vraddetailprops.cpp:391-396</c> never touches
+/// The sky (never touches
 /// <c>m_HitFrac</c>), which would make the cone enormous -- but the same path
 /// forces <c>scaleAvg</c> to 1, so the cone radius is never read. Changing
 /// either half alone changes the map.
@@ -43,7 +43,7 @@ public static class RayAmbientLighting
     /// <summary>How many lightstyles exist (<c>MAX_LIGHTSTYLES</c>).</summary>
     public const int MaxLightStyles = 64;
 
-    /// <summary><c>SURF_SKY</c> (<c>bspflags.h</c>).</summary>
+    /// <summary><c>SURF_SKY</c>.</summary>
     public const int SurfSky = 0x0004;
 
     /// <summary><c>SURF_NOLIGHT</c>.</summary>
@@ -101,13 +101,13 @@ public static class RayAmbientLighting
 
         int face = hit.Surface;
 
-        // vraddetailprops.cpp:591. The cone's radius where it meets the surface.
+        // The cone's radius where it meets the surface.
         float dist = delta.Length() * tanTheta * hit.Fraction;
 
-        // vraddetailprops.cpp:600, RemapValClamped(dist, 20, 40, 0, 1).
+        // RemapValClamped(dist, 20, 40, 0, 1).
         float scaleAvg = RemapValClamped(dist, 20.0f, 40.0f, 0.0f, 1.0f);
 
-        // vraddetailprops.cpp:602: m_bHasLuxel is false only on the sky path.
+        // M_bHasLuxel is false only on the sky path.
         if (!hit.HasLuxel)
         {
             scaleAvg = 1.0f;
@@ -136,7 +136,7 @@ public static class RayAmbientLighting
     /// </returns>
     /// <remarks>
     /// <para>
-    /// Stock's <c>FindAmbientSkyLight</c> (<c>vraddetailprops.cpp:104</c>) walks
+    /// Stock's <c>FindAmbientSkyLight</c> walks
     /// the <c>activelights</c> list -- vrad's own parsed lights, which this port
     /// does not have at this stage -- and returns the first
     /// <c>emit_skyambient</c>, caching it in a function-local static for the
@@ -144,7 +144,7 @@ public static class RayAmbientLighting
     /// </para>
     /// <para>
     /// <b>The world-light lump is the same list, in the same order.</b>
-    /// <c>ExportDirectLightsToWorldLights</c> (<c>lightmap.cpp:1626</c>) walks
+    /// <c>ExportDirectLightsToWorldLights</c> walks
     /// <c>activelights</c> head to tail and appends one <c>dworldlight_t</c> per
     /// entry, every type included, so "first <c>emit_skyambient</c> in
     /// <c>activelights</c>" and "first <c>SkyAmbient</c> in
@@ -177,7 +177,7 @@ public static class RayAmbientLighting
     }
 
     /// <summary>
-    /// <c>ComputeLightmapColorFromAverage</c> (<c>vraddetailprops.cpp:266</c>).
+    /// <c>ComputeLightmapColorFromAverage</c>.
     /// </summary>
     /// <param name="scene">The map.</param>
     /// <param name="face">The face hit.</param>
@@ -222,7 +222,7 @@ public static class RayAmbientLighting
     }
 
     /// <summary>
-    /// <c>ComputeLightmapColorPointSample</c> (<c>vraddetailprops.cpp:317</c>).
+    /// <c>ComputeLightmapColorPointSample</c>.
     /// </summary>
     /// <param name="scene">The map.</param>
     /// <param name="face">The face hit.</param>
@@ -235,12 +235,12 @@ public static class RayAmbientLighting
     /// <para>
     /// The style slots are strided: slot <c>n</c>'s samples begin
     /// <c>n * smax * tmax</c> after slot 0's, times four again on a bumped
-    /// surface (<c>:331-333</c>).
+ /// Surface.
     /// </para>
     /// <para>
-    /// A face with <c>lightofs == -1</c> returns immediately (<c>:320</c>).
+ /// A face with <c>lightofs == -1</c> returns immediately.
     /// Otherwise each slot goes through <c>ComputeAmbientFromSurface</c>
-    /// (<c>:239</c>), whose SKY branch REPLACES the colour with the sky ambient
+ /// Whose SKY branch REPLACES the colour with the sky ambient
     /// (or leaves it untinted when there is none) -- reachable only for a lit
     /// sky face in a leaf, and reproduced so it is not a trap.
     /// </para>
@@ -295,7 +295,7 @@ public static class RayAmbientLighting
     }
 
     /// <summary>
-    /// <c>RemapValClamped</c> (<c>mathlib.h</c>).
+    /// <c>RemapValClamped</c>.
     /// </summary>
     /// <param name="val">The value.</param>
     /// <param name="a">The input range's start.</param>

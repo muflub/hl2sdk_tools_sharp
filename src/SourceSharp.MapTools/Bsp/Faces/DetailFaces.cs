@@ -9,7 +9,6 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
 /// Building faces for detail brushes and folding them into the world tree
-/// (<c>src/utils/vbsp/detail.cpp</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -24,7 +23,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// <para>
 /// <b>Detail faces are never fragmented.</b> When a face clips into more than
 /// one visible piece, <c>ComputeVisibleBrushSides</c> throws the pieces away
-/// and keeps the whole face (<c>detail.cpp:663-670</c>), with a comment saying
+/// and keeps the whole face, with a comment saying
 /// a 2D convex hull would be the real fix. So a detail surface partly hidden
 /// behind another detail brush is drawn whole, overdraw and all.
 /// </para>
@@ -56,7 +55,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// Whether two brushes' boxes overlap
-    /// (<c>BrushBoxOverlap</c>, <c>detail.cpp:323</c>).
+    /// (<c>BrushBoxOverlap</c>).
     /// </summary>
     /// <param name="p1">One brush.</param>
     /// <param name="p2">The other.</param>
@@ -84,7 +83,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// Counts the faces in a list that have not been split
-    /// (<c>CountFaceList</c>, <c>detail.cpp:532</c>).
+    /// (<c>CountFaceList</c>).
     /// </summary>
     /// <param name="head">The list.</param>
     /// <returns>How many are still whole.</returns>
@@ -112,7 +111,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// The map brush side a BSP brush side came from
-    /// (<c>FindOriginalSide</c>, <c>detail.cpp:467</c>).
+    /// (<c>FindOriginalSide</c>).
     /// </summary>
     /// <param name="brush">The original map brush.</param>
     /// <param name="planeNumber">The BSP side's plane number.</param>
@@ -162,7 +161,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// Makes a face from a brush side and a winding
-    /// (<c>MakeBrushFace</c>, <c>detail.cpp:436</c>).
+    /// (<c>MakeBrushFace</c>).
     /// </summary>
     /// <param name="originalSide">The map side the face is textured from.</param>
     /// <param name="winding">The polygon, which is copied.</param>
@@ -183,7 +182,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// Clips a face against every side of a brush
-    /// (<c>ClipFaceToBrush</c>, <c>detail.cpp:346</c>).
+    /// (<c>ClipFaceToBrush</c>).
     /// </summary>
     /// <param name="face">The face to clip. It is not modified.</param>
     /// <param name="brush">The brush to clip against.</param>
@@ -299,7 +298,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// The brushes that could cut a source brush's faces
-    /// (<c>GetListOfCutBrushes</c>, <c>detail.cpp:503</c>).
+    /// (<c>GetListOfCutBrushes</c>).
     /// </summary>
     /// <param name="source">The brush whose faces are being cut.</param>
     /// <param name="list">Every detail brush.</param>
@@ -407,7 +406,7 @@ public sealed class DetailFaces
                     continue;
                 }
 
-                // BrushBoxOverlap (detail.cpp:323), the source as p1.
+                // BrushBoxOverlap, the source as p1.
                 int w = i * 6;
                 if (minX > box[w + 3] || maxX < box[w]
                     || minY > box[w + 4] || maxY < box[w + 1]
@@ -425,7 +424,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// Clips one face against a list of brushes
-    /// (<c>ClipFaceToBrushList</c>, <c>detail.cpp:547</c>).
+    /// (<c>ClipFaceToBrushList</c>).
     /// </summary>
     /// <param name="face">The face.</param>
     /// <param name="cutBrushes">The brushes that might cut it.</param>
@@ -489,7 +488,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// The visible faces of a list of already-chopped detail brushes
-    /// (<c>ComputeVisibleBrushSides</c>, <c>detail.cpp:602</c>).
+    /// (<c>ComputeVisibleBrushSides</c>).
     /// </summary>
     /// <param name="list">The chopped detail brushes.</param>
     /// <returns>The face list.</returns>
@@ -592,7 +591,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// Merges coplanar detail faces, bucketed by plane
-    /// (<c>TryMergeFaceList</c>, <c>detail.cpp:188</c>).
+    /// (<c>TryMergeFaceList</c>).
     /// </summary>
     /// <param name="head">The face list.</param>
     /// <returns>The list afterwards, reordered by plane.</returns>
@@ -650,7 +649,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// Filters a brush fragment down to the leaves it falls in
-    /// (<c>MergeBrush_r</c>, <c>detail.cpp:45</c>).
+    /// (<c>MergeBrush_r</c>).
     /// </summary>
     /// <param name="node">The subtree root.</param>
     /// <param name="brush">The fragment, which is consumed.</param>
@@ -689,7 +688,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// Filters a face down to the leaves it falls in, leaving a reference to
-    /// the whole face in each (<c>MergeFace_r</c>, <c>detail.cpp:84</c>).
+    /// the whole face in each(<c>MergeFace_r</c>).
     /// </summary>
     /// <param name="node">The subtree root.</param>
     /// <param name="face">The clipped fragment, which is consumed.</param>
@@ -766,7 +765,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// Filters every detail face into the tree
-    /// (<c>FilterFacesIntoTree</c>, <c>detail.cpp:155</c>).
+    /// (<c>FilterFacesIntoTree</c>).
     /// </summary>
     /// <param name="headNode">The world tree's root.</param>
     /// <param name="faces">The detail faces.</param>
@@ -805,7 +804,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// Filters every detail brush into the tree
-    /// (<c>FilterBrushesIntoTree</c>, <c>detail.cpp:257</c>).
+    /// (<c>FilterBrushesIntoTree</c>).
     /// </summary>
     /// <param name="headNode">The world tree's root.</param>
     /// <param name="brushes">The detail brushes.</param>
@@ -821,7 +820,7 @@ public sealed class DetailFaces
 
     /// <summary>
     /// The whole detail pass for one model
-    /// (<c>MergeDetailTree</c>, <c>detail.cpp:273</c>).
+    /// (<c>MergeDetailTree</c>).
     /// </summary>
     /// <param name="headNode">The world tree's root.</param>
     /// <param name="brushStart">The model's first brush index.</param>

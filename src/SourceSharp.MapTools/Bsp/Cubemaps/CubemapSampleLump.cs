@@ -11,7 +11,7 @@ public static class CubemapSampleLump
 {
     /// <summary>
     /// The samples, filled as <c>Cubemap_InsertSample</c> fills them
-    /// (<c>utils/vbsp/cubemap.cpp:88-96</c>).
+    ///.
     /// </summary>
     /// <param name="samples">The context's samples, in entity order.</param>
     /// <returns>The lump's records.</returns>

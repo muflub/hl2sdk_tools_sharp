@@ -9,7 +9,7 @@ namespace SourceSharp.MapTools.Rad.Ambient;
 /// casters -- stock's <c>g_RtEnv</c> -- with <c>TestLine</c>'s own arithmetic.
 /// </summary>
 /// <remarks>
-/// <c>TestLine</c> (<c>trace.cpp:151</c>) with texture shadows off: a segment
+/// <c>TestLine</c> with texture shadows off: a segment
 /// is blocked when a triangle is hit strictly before its end, and the fraction
 /// visible is then 0, else 1. The ray is stock's: a direction normalised with
 /// <c>ReciprocalSIMD</c> under <see cref="StockQuirk.AmbientCubeReciprocalEstimate"/>

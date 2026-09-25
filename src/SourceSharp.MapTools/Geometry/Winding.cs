@@ -11,11 +11,11 @@ namespace SourceSharp.MapTools.Geometry;
 /// <see cref="int"/>s and is meant to be copied freely.
 /// </para>
 /// <para>
-/// Stock's <c>winding_t</c> (<c>utils/common/polylib.h:22</c>) is a heap node
+/// Stock's <c>winding_t</c> is a heap node
 /// with a pointer to a separate <c>calloc</c>'d point array and a
 /// <c>next</c> pointer threading it onto a free list — two allocations per
 /// winding, and a global <c>CRITICAL_SECTION</c> taken on every alloc and every
-/// free (<c>polylib.cpp:53</c> and <c>:76</c>). vbsp and vvis create and destroy
+/// Free. vbsp and vvis create and destroy
 /// windings in the millions; a class per winding here would put the whole port
 /// on the GC, and a shared free list would put it back behind stock's lock.
 /// Hence an arena per worker and a value handle into it.
@@ -48,7 +48,7 @@ public readonly struct Winding : IEquatable<Winding>
     /// <remarks>
     /// Separate from <see cref="Count"/> because the clipper reserves
     /// <c>in-&gt;numpoints + 4</c> and then fills in fewer — stock's comment at
-    /// <c>polylib.cpp:410</c> explains it cannot use the exact count "because of
+    /// Explains it cannot use the exact count "because of
     /// fp grouping errors". The capacity is also what the arena's free list is
     /// keyed on, exactly as stock keys <c>winding_pool</c> on
     /// <c>maxpoints</c>.

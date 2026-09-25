@@ -5,7 +5,7 @@ using SourceSharp.MapTools.Diagnostics;
 
 namespace SourceSharp.MapTools.Bsp.Detail;
 
-/// <summary><c>DETAIL_PROP_TYPE_*</c>, <c>public/gamebspfile.h</c>.</summary>
+/// <summary><c>DETAIL_PROP_TYPE_*</c>.</summary>
 public enum DetailModelType : byte
 {
     /// <summary>A studio model.</summary>
@@ -21,7 +21,7 @@ public enum DetailModelType : byte
     ShapeTri = 3,
 }
 
-/// <summary>One model entry of a group: <c>DetailModel_t</c> (<c>detailobjects.cpp:40-55</c>).</summary>
+/// <summary>One model entry of a group: <c>DetailModel_t</c>.</summary>
 public sealed class DetailModel
 {
     /// <summary><c>m_ModelName</c>: the <c>model</c> key, or null for a sprite.</summary>
@@ -89,8 +89,7 @@ public sealed class DetailType
 
 /// <summary>
 /// <c>s_DetailObjectDict</c>: <c>detail.vbsp</c> as vbsp's own parser reads it
-/// (<c>ParseDetailObjectFile</c>/<c>ParseDetailGroup</c>,
-/// <c>utils/vbsp/detailobjects.cpp:106-278</c>).
+/// (<c>ParseDetailObjectFile</c>/<c>ParseDetailGroup</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -101,21 +100,21 @@ public sealed class DetailType
 /// <list type="number">
 /// <item><description>
 /// A group of EQUAL alpha is inserted BEFORE the existing ones
-/// (<c>:111-119</c>: the backward scan stops at the first STRICTLY smaller
+/// (the backward scan stops at the first STRICTLY smaller
 /// alpha and inserts after it), so equal-alpha groups end up in reverse file
 /// order — and <c>SelectGroup</c> picks the LAST, so this decides which group
 /// a flat face draws from.
 /// </description></item>
 /// <item><description>
-/// <c>minAngle</c> below <c>maxAngle</c> is clamped (<c>:231-235</c>).
+/// <c>minAngle</c> below <c>maxAngle</c> is clamped.
 /// </description></item>
 /// <item><description>
-/// A sprite's card and texture rectangles (<c>:166-196</c>), which the lump's
+/// A sprite's card and texture rectangles, which the lump's
 /// sprite dictionary is made of.
 /// </description></item>
 /// <item><description>
 /// Type names match case-sensitively (<c>CUtlSymbol</c>'s table is built
-/// case-sensitive, <c>tier1/utlsymbol.cpp:66</c>, <c>utlsymbol.h:182</c>).
+/// Case-sensitive).
 /// </description></item>
 /// </list>
 /// </remarks>
@@ -137,7 +136,7 @@ public sealed class DetailDictionary
     /// </summary>
     /// <param name="root">The file's first root.</param>
     /// <returns>The dictionary.</returns>
-    /// <exception cref="MapCompileException">A malformed <c>sprite</c> key: fatal in stock (<c>:171-174</c>).</exception>
+ /// <exception cref="MapCompileException">A malformed <c>sprite</c> key: fatal in stock.</exception>
     public static DetailDictionary Parse(KeyValuesNode root)
     {
         ArgumentNullException.ThrowIfNull(root);
@@ -243,7 +242,7 @@ public sealed class DetailDictionary
         }
     }
 
-    // detailobjects.cpp:142-212.
+    //.
     private static void ParseSprite(DetailModel model, KeyValuesNode node, string sprite)
     {
         string? shape = StockKeyValues.GetString(node, "sprite_shape");

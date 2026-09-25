@@ -9,7 +9,7 @@ using SourceSharp.MapTools.Tracing;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// <c>GATHERLFLAGS_*</c> (<c>vrad.h:453</c>).
+/// <c>GATHERLFLAGS_*</c>.
 /// </summary>
 [Flags]
 public enum GatherFlags
@@ -33,10 +33,10 @@ public enum GatherFlags
 /// Four lanes, kept as a unit, because two things in stock's gather are
 /// decided across the lanes rather than per lane: a light is skipped for the
 /// whole group only when EVERY lane's contribution is zero
-/// (<c>lightmap.cpp:2529-2538</c>), and the 3D-skybox recursion runs only when
+/// And the 3D-skybox recursion runs only when
 /// not every lane is occluded and is started from LANE ZERO's leaf
-/// (<c>trace.cpp:387-397</c>). A group of fewer than four samples pads with
-/// copies of its last one (<c>lightmap.cpp:3124-3128</c>); the padding lanes are
+/// A group of fewer than four samples pads with
+/// copies of its last one; the padding lanes are
 /// never traced here -- their answers are the last real lane's, copied.
 /// </para>
 /// </remarks>
@@ -85,7 +85,7 @@ public sealed class GatherOutput
     /// <summary>The sun amount per lane (<c>m_flSunAmount</c>).</summary>
     public float[] SunAmount { get; } = new float[SampleGroup.Lanes];
 
-    /// <summary>Zeroes everything, as <c>GatherSampleLightSSE</c> does first (<c>lightmap.cpp:2009-2012</c>).</summary>
+    /// <summary>Zeroes everything, as <c>GatherSampleLightSSE</c> does first.</summary>
     public void Clear()
     {
         Array.Clear(Dot);
@@ -95,14 +95,14 @@ public sealed class GatherOutput
 }
 
 /// <summary>
-/// <c>GatherSampleLightSSE</c> and its three helpers (<c>lightmap.cpp:1673-2057</c>):
+/// <c>GatherSampleLightSSE</c> and its three helpers:
 /// how much of one direct light reaches a group of sample points.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>Numerics.</b> Stock's SSE build computes every reciprocal and reciprocal
 /// square root here with an ESTIMATE instruction plus one Newton step
-/// (<c>ssemath.h:2252, 2278</c>) and the spot exponent with a fixed-point
+/// And the spot exponent with a fixed-point
 /// <c>PowSIMD</c> that rounds the exponent down to a quarter. Under
 /// <see cref="StockQuirk.GatherReciprocalEstimate"/> and
 /// <see cref="StockQuirk.SpotExponentQuarterSteps"/> both are reproduced
@@ -114,7 +114,7 @@ public sealed class GatherOutput
 /// their SECOND operand when either is NaN. That matters in the sky-ambient
 /// normalisation, where a sample with no valid sky direction divides zero by
 /// zero: stock's NaN is clamped back to 0 by <c>MaxSIMD(dot, Four_Zeros)</c>
-/// (<c>lightmap.cpp:2051</c>), and <see cref="Math.Max(float, float)"/> would
+/// And <see cref="Math.Max(float, float)"/> would
 /// have kept it. <see cref="MaxPs"/> and <see cref="MinPs"/> reproduce the
 /// instruction.
 /// </para>
@@ -159,13 +159,13 @@ public sealed class DirectLightGatherer
         Leaves = leaves;
         SkyCameras = skyCameras;
 
-        // lightmap.cpp:1765-1769. The sample count is an int of a float
+        // The sample count is an int of a float
         // product, and -fast (or FORCE_FAST) quarters the UNSCALED count.
         int skySamples = (int)(LightConstants.VertexNormalCount * settings.SkySampleScale);
         _ambientDirections = SamplerPrefix(skySamples);
         _ambientDirectionsFast = SamplerPrefix(LightConstants.VertexNormalCount / 4);
 
-        // :1693-1712. Jitter is drawn only for d >= 1, so ray d uses value d-1.
+        // Jitter is drawn only for d >= 1, so ray d uses value d-1.
         _sunJitter = SamplerPrefix(LightConstants.SunAreaLightSamples);
 
         _estimates = settings.Compliance.Emulates(StockQuirk.GatherReciprocalEstimate);
@@ -201,7 +201,7 @@ public sealed class DirectLightGatherer
     /// <summary>
     /// The indices, in list order, of every light that can reach at least one
     /// of four clusters -- every light that a group in those clusters does not
-    /// skip on its PVS test (<c>lightmap.cpp:2499-2510</c>). A superset is
+    /// skip on its PVS test. A superset is
     /// allowed; the caller still tests each lane.
     /// </summary>
     /// <param name="clusters">The four lanes' clusters.</param>
@@ -307,7 +307,7 @@ public sealed class DirectLightGatherer
     private const int TapeAmbient = 4;
 
     /// <summary>
-    /// <c>GatherSampleLightSSE</c> (<c>lightmap.cpp:2003</c>): one light, one group.
+    /// <c>GatherSampleLightSSE</c>: one light, one group.
     /// </summary>
     /// <param name="light">The light.</param>
     /// <param name="group">The points and normals.</param>
@@ -424,7 +424,7 @@ public sealed class DirectLightGatherer
                 throw new InvalidOperationException($"the gather tape holds {kind} where a gather record belongs");
         }
 
-        // :2051-2057. A light behind the face must not light ANY bump
+        // A light behind the face must not light ANY bump
         // direction: every other normal is zeroed where the flat one is.
         for (int lane = 0; lane < SampleGroup.Lanes; lane++)
         {
@@ -457,7 +457,7 @@ public sealed class DirectLightGatherer
     }
 
     /// <summary>
-    /// <c>TestLine_DoesHitSky</c> for a group (<c>trace.cpp:352</c>): the
+    /// <c>TestLine_DoesHitSky</c> for a group: the
     /// fraction of each lane's ray that sees sky, with the 3D-skybox recursion.
     /// </summary>
     /// <param name="start">Four starts.</param>
@@ -518,7 +518,7 @@ public sealed class DirectLightGatherer
             return;
         }
 
-        // trace.cpp:397. Stock asks lane ZERO's leaf for all four lanes
+        // Stock asks lane ZERO's leaf for all four lanes
         // (StockQuirk.SkyboxRecursionFromLaneZero); correct asks each lane's own.
         int mask = 0;
         for (int lane = 0; lane < SampleGroup.Lanes; lane++)
@@ -535,7 +535,7 @@ public sealed class DirectLightGatherer
         if (rays.DeferRecursion)
         {
             // Stock recurses only when the first rays were not ALL occluded
-            // (trace.cpp:387); that needs their answers, so it is the second
+            // That needs their answers, so it is the second
             // stage's decision (EmitDeferredRecursion).
             rays.Defer(primaryBase, count, mask, start, stop);
             return;
@@ -546,7 +546,7 @@ public sealed class DirectLightGatherer
         EmitRecursion(start, stop, count, rays);
     }
 
-    // trace.cpp:398-418: per camera, the same four rays carried into the
+    // Per camera, the same four rays carried into the
     // skybox. One camera's rays are one packet of their own.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void EmitRecursion(ReadOnlySpan<Vec3> start, ReadOnlySpan<Vec3> stop, int count, LightRayLog rays)
@@ -561,7 +561,6 @@ public sealed class DirectLightGatherer
         {
             for (int lane = 0; lane < count; lane++)
             {
-                // :409-416.
                 Vec3 skyStart = camera.Origin + (start[lane] * camera.WorldToSky);
                 Vec3 skyStop = skyStart + (dir[lane] * LightConstants.MaxTraceLength);
                 rays.EmitSky2(skyStart, skyStop);
@@ -574,7 +573,7 @@ public sealed class DirectLightGatherer
     /// <summary>
     /// The second stage of <see cref="LightRayLog.DeferRecursion"/>: for every
     /// deferred sky test whose first rays were not all occluded, the skybox
-    /// rays stock traces (<c>trace.cpp:387-418</c>), camera by camera.
+    /// rays stock traces, camera by camera.
     /// </summary>
     /// <param name="rays">A log whose first stage has been traced into its own answers.</param>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
@@ -588,7 +587,7 @@ public sealed class DirectLightGatherer
 
         foreach (DeferredSkyTest test in tests)
         {
-            // :387. Padding lanes copy the last real one, so "all four" is
+            // Padding lanes copy the last real one, so "all four" is
             // "every real lane".
             bool fullyOccluded = true;
             for (int lane = 0; lane < test.Count; lane++)
@@ -623,7 +622,7 @@ public sealed class DirectLightGatherer
 
         rays.SkipCallPadding();
 
-        // :387. Fully occluded means every lane, padding included -- and the
+        // Fully occluded means every lane, padding included -- and the
         // padding copies the last real lane, so that is every real lane.
         bool fullyOccluded = true;
         for (int lane = 0; lane < SampleGroup.Lanes; lane++)
@@ -657,7 +656,7 @@ public sealed class DirectLightGatherer
 
                     for (int lane = 0; lane < SampleGroup.Lanes; lane++)
                     {
-                        // The inner test's fractionVisible, then :417-418.
+ // The inner test's fractionVisible.
                         float fraction = 1.0f - MinPs(MaxPs(inner[lane], 0.0f), 1.0f);
                         if ((mask & (1 << lane)) != 0)
                         {
@@ -683,7 +682,6 @@ public sealed class DirectLightGatherer
         bool forceFast = (flags & GatherFlags.ForceFast) != 0;
         int normals = group.NormalCount;
 
-        // lightmap.cpp:1682-1690.
         Span<float> dot = stackalloc float[SampleGroup.Lanes];
         bool allZero = true;
         for (int lane = 0; lane < SampleGroup.Lanes; lane++)
@@ -703,7 +701,6 @@ public sealed class DirectLightGatherer
             return;
         }
 
-        // :1692-1698.
         int nsamples = 1;
         if (SunAngularExtent > 0.0f)
         {
@@ -730,7 +727,7 @@ public sealed class DirectLightGatherer
 
         Span<Vec3> stop = stackalloc Vec3[SampleGroup.Lanes];
 
-        // :1709. MAX_TRACE_LENGTH is a double macro, narrowed as VectorScale's
+        // MAX_TRACE_LENGTH is a double macro, narrowed as VectorScale's
         // float argument; with jitter it multiplies a float extent in double.
         float jitterScale = (float)(1.732050807569 * (2 * 16384) * SunAngularExtent);
 
@@ -749,7 +746,7 @@ public sealed class DirectLightGatherer
             }
 
             // The sun traces every real lane: its amount is added to every
-            // lane of a lit group, PVS or not (lightmap.cpp:2561).
+            // lane of a lit group, PVS or not.
             EmitSkyTest(group.Points, stop, group.Count, rays, canRecurse: true);
         }
     }
@@ -785,7 +782,7 @@ public sealed class DirectLightGatherer
             }
         }
 
-        // :1726-1741. `1.0f / nsamples` is a float divide.
+        // 1726-1741. `1.0f / nsamples` is a float divide.
         float inv = 1.0f / nsamples;
         for (int lane = 0; lane < SampleGroup.Lanes; lane++)
         {
@@ -803,7 +800,7 @@ public sealed class DirectLightGatherer
     }
 
     /// <summary>
-    /// <c>GatherSampleSkyAmbientLightSSE</c> (<c>lightmap.cpp:1745</c>), both
+    /// <c>GatherSampleSkyAmbientLightSSE</c>, both
     /// halves in one body so the per-direction arithmetic has one spelling:
     /// the emit walks the directions for their rays, the resolve walks them
     /// again for the sums, reading the normals and switches back off the tape.
@@ -881,7 +878,6 @@ public sealed class DirectLightGatherer
 
         foreach (Vec3 anorm in directions)
         {
-            // :1778-1789.
             bool anyValid = false;
             for (int lane = 0; lane < L; lane++)
             {
@@ -914,8 +910,8 @@ public sealed class DirectLightGatherer
                     dots[k] = valid2 ? d : 0.0f;
                     possibleHits[k] = (valid[lane] && valid2 ? 1.0f : 0.0f) + possibleHits[k];
 
-                    // :1797-1800 mask a bump dot by ITS OWN validity only, and
-                    // :1817 accumulates it with the lane's real visibility --
+                    // 1797-1800 mask a bump dot by ITS OWN validity only, and
+                    // 1817 accumulates it with the lane's real visibility --
                     // so a direction behind the flat normal but in front of a
                     // bump normal still needs its ray.
                     traceLane[lane] |= valid2;
@@ -923,7 +919,7 @@ public sealed class DirectLightGatherer
 
                 if (emit)
                 {
-                    // :1807-1813. The ray ENDS at pos - anorm * MAX_TRACE_LENGTH
+                    // The ray ENDS at pos - anorm * MAX_TRACE_LENGTH
                     // but STARTS epsilon off the surface: surfacePos -= (anorm * -eps).
                     stop[lane] = (anorm * -LightConstants.MaxTraceLength) + points[lane];
                     surfacePos[lane] = points[lane] - (anorm * -epsilon);
@@ -952,7 +948,6 @@ public sealed class DirectLightGatherer
             return;
         }
 
-        // :1823-1832.
         for (int lane = 0; lane < L; lane++)
         {
             output.Falloff[lane] = 1.0f;
@@ -1100,7 +1095,7 @@ public sealed class DirectLightGatherer
                 output.Dot[(n * SampleGroup.Lanes) + lane] = tape.ReadFloat();
             }
 
-            // :1972-1975. Visibility multiplies the dot and nothing else.
+            // Visibility multiplies the dot and nothing else.
             if ((traced & (1 << lane)) != 0)
             {
                 output.Dot[lane] = rays.ReadVisibility() * output.Dot[lane];
@@ -1123,7 +1118,7 @@ public sealed class DirectLightGatherer
     }
 
     /// <summary>
-    /// One lane of <c>GatherSampleStandardLightSSE</c> (<c>lightmap.cpp:1836</c>)
+    /// One lane of <c>GatherSampleStandardLightSSE</c>
     /// up to its visibility ray: records the ray when the lane needs one and
     /// leaves the unoccluded dot in <paramref name="output"/>.
     /// </summary>
@@ -1141,22 +1136,21 @@ public sealed class DirectLightGatherer
     {
         Vec3 pos = group.Points[lane];
 
-        // lightmap.cpp:1843-1850. Every light made by AllocDLight has facenum
+        // Every light made by AllocDLight has facenum
         // -1, surface lights included, so src is always the light's origin.
         Vec3 src = light.FaceNum == -1 ? light.Origin : Vec3.Zero;
 
-        // :1852-1857. Stock: rsqrt ESTIMATE then multiply; here exact.
+        // Stock: rsqrt ESTIMATE then multiply; here exact.
         Vec3 delta = src - pos;
         float dist2 = delta.LengthSquared();
         float rpcDist = StockSimd.ReciprocalSqrt(dist2, _estimates);
         delta *= rpcDist;
         float dist = MathF.Sqrt(dist2);
 
-        // :1860-1863.
         float dot = ignoreNormals ? LightConstants.ConstantDot : Vec3.Dot(delta, group.Normal(0, lane));
         dot = MaxPs(0.0f, dot);
 
-        // :1866-1873. Past the hard fade distance the dot is zero.
+        // Past the hard fade distance the dot is zero.
         if (hardFalloff && !(dist <= light.EndFadeDistance))
         {
             return false;
@@ -1174,7 +1168,6 @@ public sealed class DirectLightGatherer
 
             case EmitType.Surface:
             {
-                // :1893-1908.
                 float dot2 = -Vec3.Dot(delta, light.Normal);
                 dot2 = MaxPs(0.0f, dot2);
                 if (dot == 0.0f)
@@ -1191,7 +1184,6 @@ public sealed class DirectLightGatherer
 
             case EmitType.Spotlight:
             {
-                // :1910-1945.
                 float dot2 = -Vec3.Dot(delta, light.Normal);
                 if (!(dot2 > light.StopDot2))
                 {
@@ -1205,7 +1197,7 @@ public sealed class DirectLightGatherer
                 mult = MinPs(mult, 1.0f);
                 mult = MaxPs(mult, 0.0f);
 
-                // :1935-1936. Stock's PowSIMD is fixed point ("isn't the most
+                // Stock's PowSIMD is fixed point ("isn't the most
                 // accurate, but it doesn't need to be"); exact pow here.
                 if (light.Exponent != 0.0f && light.Exponent != 1.0f)
                 {
@@ -1221,7 +1213,7 @@ public sealed class DirectLightGatherer
                 return false;
         }
 
-        // :1951-1969. The fade curve, QuinticInterpolatingPolynomial, in the
+        // The fade curve, QuinticInterpolatingPolynomial, in the
         // order the SSE spells it.
         if (hardFalloff)
         {
@@ -1236,7 +1228,7 @@ public sealed class DirectLightGatherer
             falloff = mult * falloff;
         }
 
-        // :1972-1975. Only a lane whose contribution could be nonzero is
+        // Only a lane whose contribution could be nonzero is
         // worth a ray: visibility multiplies the dot and nothing else.
         bool trace = needed && dot != 0.0f && falloff != 0.0f;
         if (trace)
@@ -1286,10 +1278,8 @@ public sealed class DirectLightGatherer
         Vector128<float> zero = Vector128<float>.Zero;
         Vector128<float> one = Vector128.Create(1.0f);
 
-        // lightmap.cpp:1843-1850.
         Vec3 src = light.FaceNum == -1 ? light.Origin : Vec3.Zero;
 
-        // :1852-1857.
         Vector128<float> dx = Vector128.Create(src.X) - Vector128.Create(p[0].X, p[1].X, p[2].X, p[3].X);
         Vector128<float> dy = Vector128.Create(src.Y) - Vector128.Create(p[0].Y, p[1].Y, p[2].Y, p[3].Y);
         Vector128<float> dz = Vector128.Create(src.Z) - Vector128.Create(p[0].Z, p[1].Z, p[2].Z, p[3].Z);
@@ -1300,7 +1290,6 @@ public sealed class DirectLightGatherer
         dy *= rpcDist;
         dz *= rpcDist;
 
-        // :1860-1863.
         Vector128<float> dot = ignoreNormals
             ? Vector128.Create(LightConstants.ConstantDot)
             : ((dx * Vector128.Create(nrm[0].X, nrm[1].X, nrm[2].X, nrm[3].X))
@@ -1308,7 +1297,7 @@ public sealed class DirectLightGatherer
               + (dz * Vector128.Create(nrm[0].Z, nrm[1].Z, nrm[2].Z, nrm[3].Z));
         dot = MaxPs4(zero, dot);
 
-        // :1866-1873. A lane past the hard fade distance keeps its zeros.
+        // A lane past the hard fade distance keeps its zeros.
         Vector128<float> live = hardFalloff
             ? Vector128.LessThanOrEqual(dist, Vector128.Create(light.EndFadeDistance))
             : Vector128<float>.AllBitsSet;
@@ -1316,14 +1305,13 @@ public sealed class DirectLightGatherer
         dist = MaxPs4(dist, one);
         Vector128<float> d = MinPs4(dist, Vector128.Create(light.CapDist));
 
-        // :1885-1890, InverseQuadratic.
+        // InverseQuadratic.
         Vector128<float> f = d * d;
         f *= Vector128.Create(light.QuadraticAttn);
         f += Vector128.Create(light.LinearAttn) * d;
         f += Vector128.Create(light.ConstantAttn);
         Vector128<float> falloff = one / f;
 
-        // :1951-1969.
         if (hardFalloff)
         {
             Vector128<float> t = (dist - Vector128.Create(light.StartFadeDistance))
@@ -1349,7 +1337,6 @@ public sealed class DirectLightGatherer
             float fl = falloff.GetElement(lane);
             bool needed = laneNeeded.IsEmpty || laneNeeded[lane];
 
-            // :1972-1975.
             if (needed && dl != 0.0f && fl != 0.0f)
             {
                 rays.EmitVisibility(p[lane], src);
@@ -1396,7 +1383,7 @@ public sealed class DirectLightGatherer
 
     private float InverseQuadratic(DirectLight light, float d)
     {
-        // lightmap.cpp:1885-1890: ((d*d)*q + l*d) + c, then its reciprocal.
+        // ((d*d)*q + l*d) + c, then its reciprocal.
         float f = d * d;
         f *= light.QuadraticAttn;
         f += light.LinearAttn * d;
@@ -1411,7 +1398,7 @@ public sealed class DirectLightGatherer
     private float Divide(float num, float den) =>
         _estimates ? StockSimd.Reciprocal(den, true) * num : num / den;
 
-    // trace.cpp:390-399: the leaf's area has no sky camera of its own. A
+    // The leaf's area has no sky camera of its own. A
     // pure function of the point, so the tape remembers the last few: an
     // ambient gather asks it for the same four points in all 162 directions.
     private bool LaneRecurses(Vec3 start, GatherTape cache)

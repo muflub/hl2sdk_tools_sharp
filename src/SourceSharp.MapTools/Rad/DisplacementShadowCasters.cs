@@ -11,13 +11,12 @@ namespace SourceSharp.MapTools.Rad;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>StaticDispMgr()->AddPolysForRayTrace()</c>, <c>vrad.cpp:2278</c> -- one
+/// <c>StaticDispMgr->AddPolysForRayTrace</c>, -- one
 /// line between the sky faces and the static props, and the shortest of the
 /// five load paths by a wide margin. There is no filtering to speak of: no
 /// per-displacement identity (every triangle carries the bare
 /// <see cref="TraceId.Opaque"/>), no alpha, no material index, no
 /// <c>FCACHETRI_TRANSPARENT</c>, and coverage fixed at one
-/// (<c>vrad_dispcoll.cpp:1068-1078</c>).
 /// </para>
 /// <para>
 /// The work is therefore all in getting the geometry right, and that is
@@ -28,7 +27,7 @@ namespace SourceSharp.MapTools.Rad;
 /// SURPRISE WORTH RECORDING: stock builds a <c>CVRADDispColl</c> for every
 /// displacement whether or not it ever casts a shadow, complete with an AABB
 /// tree, per-vertex normals and luxel coordinates
-/// (<c>vraddisps.cpp:472-488</c>), and only then throws the non-opaque ones
+/// And only then throws the non-opaque ones
 /// away one line into <c>AddPolysForRayTrace</c>. That is not wasted work in
 /// stock, because the same trees serve the lighting and patch passes; it is
 /// worth knowing here so that a future pass which does need those trees does
@@ -82,7 +81,7 @@ public static class DisplacementShadowCasters
         {
             DisplacementSurface surface = surfaces[i];
 
-            // vrad_dispcoll.cpp:1066. Per displacement, before the triangle
+            // Per displacement, before the triangle
             // loop: all of it or none of it.
             if (!surface.IsOpaque)
             {
@@ -120,7 +119,7 @@ public static class DisplacementShadowCasters
     /// <para>
     /// The face-to-displacement direction is stock's:
     /// <c>UnserializeDisps</c> walks the FACES and initialises
-    /// <c>builderDisps[pFace->dispinfo]</c> (<c>vraddisps.cpp:452-460</c>),
+    /// <c>builderDisps[pFace->dispinfo]</c>,
     /// rather than walking the displacements and reading
     /// <c>ddispinfo_t::m_iMapFace</c>. The two agree on a well-formed map, but
     /// only the face direction survives a map where they disagree, and it is
@@ -155,7 +154,7 @@ public static class DisplacementShadowCasters
 
         for (int f = 0; f < faces.Length; f++)
         {
-            // ValidDispFace, vrad.h:542. The numedges test is not a formality:
+            // ValidDispFace. The numedges test is not a formality:
             // the base surface is read as exactly four winding points below,
             // and a displacement face that had been split would silently give
             // four points of a larger polygon.
@@ -185,12 +184,12 @@ public static class DisplacementShadowCasters
             {
                 // Stock does not survive this either, it just fails later and
                 // less legibly: the CCoreDispInfo keeps its zero point count,
-                // Create() returns false at builddisp.cpp:2008 and the return
-                // value is dropped (vraddisps.cpp:465), so AABBTree_CopyDispData
+                // Create returns false and the return
+                // value is dropped, so AABBTree_CopyDispData
                 // then reads a null vertex array.
                 throw new InvalidBspException(
                     $"displacement {d} has no face with four edges naming it, so it has no base "
-                    + "surface to be built on (ValidDispFace, vrad.h:542).");
+                    + "surface to be built on (ValidDispFace).");
             }
 
             DFace face = faces[faceIndex];

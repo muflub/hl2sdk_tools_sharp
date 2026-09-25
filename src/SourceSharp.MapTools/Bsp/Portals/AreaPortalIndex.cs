@@ -4,13 +4,13 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 
 /// <summary>
 /// Every portal of a finished tree that <c>FindPortalsLeadingToArea_R</c>
-/// (<c>portals.cpp:1158</c>) could ever return, grouped by the pair of areas
+/// Could ever return, grouped by the pair of areas
 /// it joins, in the order that walk meets them.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Stock walks the whole tree once per areaportal (<c>EmitClipPortalGeometry</c>,
-/// <c>portals.cpp:1202</c>, from <c>EmitAreaPortals</c>). The walk's answer
+/// From <c>EmitAreaPortals</c>). The walk's answer
 /// depends only on the tree and on the two areas and the plane asked about,
 /// and nothing changes the tree, its portals, their occupancy or their areas
 /// while the areaportals are emitted. So this walks it once, keeps every

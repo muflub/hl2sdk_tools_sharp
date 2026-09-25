@@ -6,14 +6,14 @@ using SourceSharp.MapTools.Materials;
 namespace SourceSharp.MapTools.Bsp.Tree;
 
 /// <summary>
-/// <c>utils/vbsp/tree.cpp</c>: walking the finished tree, collapsing solid
+/// Walking the finished tree, collapsing solid
 /// nodes, and releasing it.
 /// </summary>
 public static class TreeOperations
 {
     /// <summary>
     /// The leaf a point falls in, without the axial shortcut:
-    /// <c>NodeForPoint</c>, <c>tree.cpp:14</c>.
+    /// <c>NodeForPoint</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="node">The subtree root.</param>
@@ -51,7 +51,6 @@ public static class TreeOperations
 
     /// <summary>
     /// Collapses nodes that separate solid from solid: <c>PruneNodes</c>,
-    /// <c>tree.cpp:199</c>.
     /// </summary>
     /// <param name="context">The build context, whose pruned count is updated.</param>
     /// <param name="node">The subtree root.</param>
@@ -71,7 +70,7 @@ public static class TreeOperations
     /// </para>
     /// <para>
     /// <b>The children are not detached.</b> Stock's comment is
-    /// "FIXME: free stuff" (<c>tree.cpp:177</c>): the node becomes a leaf by
+    /// "FIXME: free stuff": the node becomes a leaf by
     /// having its plane number overwritten, and its two children stay reachable
     /// through <c>children[]</c> forever. Anything that walks the tree by
     /// checking <c>planenum</c> first — everything does — never sees them
@@ -82,10 +81,10 @@ public static class TreeOperations
     /// The collapsed node inherits both children's brush lists, the SECOND
     /// child's first and then the first child's brushes pushed on in front of
     /// it one at a time — which reverses child 0's list and leaves child 1's in
-    /// order (<c>tree.cpp:185-192</c>).
+    /// Order.
     /// </para>
     /// <para>
-    /// Skipped entirely under <c>-noprune</c> (<c>vbsp.cpp:352</c>), which is
+    /// Skipped entirely under <c>-noprune</c>, which is
     /// the caller's business and not this function's.
     /// </para>
     /// </remarks>
@@ -145,7 +144,7 @@ public static class TreeOperations
 
     /// <summary>
     /// Releases the brushes and volumes a tree holds: the part of
-    /// <c>FreeTree_r</c> (<c>tree.cpp:68</c>) that Phase 3b owns.
+    /// <c>FreeTree_r</c> that Phase 3b owns.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="node">The subtree root.</param>
@@ -192,7 +191,6 @@ public static class TreeOperations
 
     /// <summary>
     /// Walks the tree, leaves first, as <c>PrintTree_r</c> renders it:
-    /// <c>tree.cpp:116</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="node">The subtree root.</param>

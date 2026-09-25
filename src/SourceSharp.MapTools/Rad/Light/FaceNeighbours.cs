@@ -6,7 +6,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
 /// Which faces share a vertex with which, and the smoothed normal at every
-/// face corner: <c>PairEdges</c> (<c>lightmap.cpp:151</c>).
+/// face corner: <c>PairEdges</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -23,7 +23,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </para>
 /// <para>
 /// <b>The smoothing rules are three, not one</b>, and which applies is decided
-/// per NEIGHBOUR rather than per face (<c>lightmap.cpp:247-285</c>):
+/// per NEIGHBOUR rather than per face:
 /// </para>
 /// <list type="number">
 /// <item><description>
@@ -41,7 +41,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </list>
 /// <para>
 /// Note the asymmetry in rule 1: a non-displacement face SKIPS displacement
-/// neighbours entirely (<c>:239-240</c>) while a displacement face accepts
+/// neighbours entirely while a displacement face accepts
 /// brush neighbours. So the smoothing relation is not symmetric, and the seam
 /// between a displacement and the brush it sits on is smoothed from one side
 /// only. That is stock's behaviour and it is reproduced: it is a deliberate
@@ -51,7 +51,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 public sealed class FaceNeighbours
 {
     /// <summary>
-    /// <c>SMOOTHING_GROUP_HARD_EDGE</c> (<c>lightmap.cpp:32</c>): the top byte
+    /// <c>SMOOTHING_GROUP_HARD_EDGE</c>: the top byte
     /// of the smoothing-group mask, which vetoes smoothing rather than
     /// requesting it.
     /// </summary>
@@ -62,8 +62,8 @@ public sealed class FaceNeighbours
     /// <c>tmpneighbor[64]</c> overflows.
     /// </summary>
     /// <remarks>
-    /// Stock's bound check (<c>lightmap.cpp:299</c>) runs AFTER the write that
-    /// overflows -- <c>tmpneighbor[m] = ...</c> at <c>:297</c> with
+    /// Stock's bound check runs AFTER the write that
+ /// overflows -- <c>tmpneighbor[m] =...</c> with
     /// <c>m == 64</c> is already out of bounds -- so its <c>Error</c> is raised
     /// from a corrupted stack. There is no output difference to reproduce
     /// either way, because both tools stop; this one simply checks first.
@@ -98,7 +98,7 @@ public sealed class FaceNeighbours
     /// <returns>The plane normal.</returns>
     /// <remarks>
     /// Copied straight from <c>dplanes[f-&gt;planenum].normal</c> without
-    /// consulting <c>f-&gt;side</c> (<c>lightmap.cpp:205</c>), so a face on the
+    /// consulting <c>f-&gt;side</c>, so a face on the
     /// back of its plane gets the plane's normal rather than its own. vbsp does
     /// not emit those for world faces, and vrad's patch path corrects
     /// separately through <c>patch-&gt;plane</c>; this value is what the
@@ -136,7 +136,7 @@ public sealed class FaceNeighbours
     /// </param>
     /// <returns><c>lightinfo_t::isflat</c>.</returns>
     /// <remarks>
-    /// <c>InitLightinfo</c> (<c>lightmap.cpp:3001-3016</c>). The tolerance is
+    /// <c>InitLightinfo</c>. The tolerance is
     /// <c>EQUAL_EPSILON</c>, 0.001, against the DOT PRODUCT and not against an
     /// angle, so a corner bent by up to about 2.6 degrees still counts as flat.
     /// </remarks>
@@ -150,7 +150,7 @@ public sealed class FaceNeighbours
         Vec3 faceNormal = _faceNormals[faceNum];
         foreach (Vec3 corner in _cornerNormals[faceNum])
         {
-            // lightmap.cpp:3010: `dot < 1.0 - EQUAL_EPSILON`, a double comparison.
+            // `dot < 1.0 - EQUAL_EPSILON`, a double comparison.
             if (Vec3.Dot(faceNormal, corner) < 1.0 - LightConstants.EqualEpsilonDouble)
             {
                 return false;
@@ -180,7 +180,7 @@ public sealed class FaceNeighbours
         DFace[] faces = geometry.Faces;
         int faceCount = faces.Length;
 
-        // lightmap.cpp:159-197, in three passes: count references per vertex,
+        // In three passes: count references per vertex,
         // allocate, then fill with a linear dedup. The dedup matters -- a face
         // that touches the same vertex twice (a degenerate winding vbsp did not
         // collapse) would otherwise appear twice in the list and be smoothed in
@@ -220,7 +220,7 @@ public sealed class FaceNeighbours
             }
         }
 
-        // :199-213. Face normals and the displacement flag, both needed by the
+        // Face normals and the displacement flag, both needed by the
         // neighbour walk below, so they are a separate pass over every face.
         Vec3[] faceNormals = new Vec3[faceCount];
         bool[] hasDisp = new bool[faceCount];
@@ -252,7 +252,7 @@ public sealed class FaceNeighbours
                         continue;
                     }
 
-                    // :239-240. A brush face never smooths with a displacement;
+                    // A brush face never smooths with a displacement;
                     // the reverse is allowed by rule 1 below.
                     if (!hasDisp[i] && hasDisp[other])
                     {
@@ -271,7 +271,7 @@ public sealed class FaceNeighbours
                     {
                         // Rule 2 (:255-266). `cos_normals_angle` is declared
                         // double (:231) but is ASSIGNED a float: DotProduct on two
-                        // Vectors is vec_t arithmetic (mathlib/vector.h), so the
+                        // Vectors is vec_t arithmetic, so the
                         // product is rounded to float first and only then widened.
                         // The comparison against the float threshold therefore
                         // sees no extra bits.
@@ -318,7 +318,7 @@ public sealed class FaceNeighbours
 
             neighbours[i] = numNeighbours == 0 ? [] : scratch[..numNeighbours];
 
-            // :318-323. The face's OWN normal is added last and once, whatever
+            // The face's OWN normal is added last and once, whatever
             // the neighbour count -- so a corner with no smoothing neighbours
             // normalises to the face normal exactly, and a corner with three
             // neighbours is the average of four vectors rather than three.

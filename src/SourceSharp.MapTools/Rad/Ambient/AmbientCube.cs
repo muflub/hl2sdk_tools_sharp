@@ -16,7 +16,7 @@ namespace SourceSharp.MapTools.Rad.Ambient;
 /// An "ambient cube" is six colours, one per axis direction, and the engine
 /// reconstructs the light arriving at a point from any direction by blending the
 /// three that face it. <c>ComputeAmbientFromSphericalSamples</c>
-/// (<c>leaf_ambient_lighting.cpp:139</c>) builds one by firing 162 rays, then
+/// Builds one by firing 162 rays, then
 /// projecting what came back onto those six axes (<see cref="Project"/>) and
 /// adding the baked surface lights (<see cref="AddEmitSurfaceLights"/>).
 /// <see cref="AmbientSampler"/> strings the three together per sample.
@@ -29,7 +29,7 @@ public static class AmbientCube
 
     /// <summary>
     /// The six axis directions, in the order the lump stores them
-    /// (<c>leaf_ambient_lighting.cpp:20</c>, <c>g_BoxDirections</c>).
+    /// (<c>g_BoxDirections</c>).
     /// </summary>
     /// <remarks>
     /// +x, -x, +y, -y, +z, -z. The ORDER is the disk format, so it is not
@@ -55,7 +55,7 @@ public static class AmbientCube
     /// </summary>
     /// <remarks>
     /// <c>COORD_EXTENT</c> is <c>2 * MAX_COORD_INTEGER</c> = 32768
-    /// (<c>coordsize.h</c>), and 1.74 is a hand-rounded square root of three.
+    /// And 1.74 is a hand-rounded square root of three.
     /// Stock's product is a DOUBLE narrowed to float by <c>Vector * float</c>;
     /// both that and this float product are 57016.3203125.
     /// </remarks>
@@ -63,7 +63,6 @@ public static class AmbientCube
 
     /// <summary>
     /// Projects 162 ray colours onto the six cube directions
-    /// (<c>leaf_ambient_lighting.cpp:157-175</c>).
     /// </summary>
     /// <param name="radColor">What each of the <see cref="VertexNormals.Count"/> rays brought back.</param>
     /// <param name="cube">Receives the six colours. Overwritten.</param>
@@ -100,7 +99,7 @@ public static class AmbientCube
     }
 
     /// <summary>
-    /// <c>AddEmitSurfaceLights</c> (<c>leaf_ambient_lighting.cpp:92</c>): the
+    /// <c>AddEmitSurfaceLights</c>: the
     /// direct contribution of the lights that were folded into the cubes.
     /// </summary>
     /// <param name="lights">
@@ -124,7 +123,7 @@ public static class AmbientCube
     /// that the engine's <c>r_worldlightmin</c> would discard them, so the dim
     /// ones are baked into the ambient cube instead of being shipped as lights;
     /// <see cref="LeafAmbientSurfaceLights.IsAmbientCubeLight"/> decides which.
-    /// A light the sample cannot see is skipped (<c>:111-113</c>), and the rest
+ /// A light the sample cannot see is skipped, and the rest
     /// are scaled by the fraction that got through.
     /// </remarks>
     public static void AddEmitSurfaceLights(
@@ -176,7 +175,7 @@ public static class AmbientCube
 
     /// <summary>
     /// <c>Engine_WorldLightDistanceFalloff</c>
-    /// (<c>leaf_ambient_lighting.cpp:77</c>), the <c>emit_surface</c> case.
+    /// The <c>emit_surface</c> case.
     /// </summary>
     /// <param name="wl">The light.</param>
     /// <param name="delta">From the sample to the light.</param>
@@ -197,7 +196,7 @@ public static class AmbientCube
     }
 
     /// <summary>
-    /// <c>Engine_WorldLightAngle</c> (<c>leaf_ambient_lighting.cpp:58</c>), the
+    /// <c>Engine_WorldLightAngle</c>, the
     /// <c>emit_surface</c> case.
     /// </summary>
     /// <param name="lightNormal">The emitting surface's normal.</param>
@@ -218,7 +217,7 @@ public static class AmbientCube
 
         float dot2 = -Vec3.Dot(delta, lightNormal);
 
-        // ON_EPSILON is a DOUBLE 0.1 (polylib.h:37), so this compares in double.
+        // ON_EPSILON is a DOUBLE 0.1, so this compares in double.
         if ((double)dot2 <= OnEpsilon / 10)
         {
             return 0;
@@ -227,11 +226,11 @@ public static class AmbientCube
         return dot * dot2;
     }
 
-    /// <summary><c>ON_EPSILON</c> (<c>polylib.h:37</c>), a double.</summary>
+    /// <summary><c>ON_EPSILON</c>, a double.</summary>
     private const double OnEpsilon = 0.1;
 
     /// <summary>
-    /// <c>InvRSquared</c> (<c>mathlib.h</c>): <c>1 / max(1, |v|^2)</c>.
+    /// <c>InvRSquared</c>: <c>1 / max(1, |v|^2)</c>.
     /// </summary>
     /// <param name="v">The vector.</param>
     /// <returns>The inverse square, floored at 1.</returns>
@@ -255,7 +254,7 @@ public static class AmbientCube
     /// <returns>The estimate.</returns>
     /// <remarks>
     /// <para>
-    /// <c>vector.h:2207</c>, the <c>PLATFORM_INTEL</c> branch:
+    /// The <c>PLATFORM_INTEL</c> branch:
     /// <c>_mm_rcp_ss(_mm_max_ss(_mm_set_ss(1.0f), _mm_load_ss(&amp;sqrlen)))</c>
     /// over <c>sqrlen = x*x + y*y + z*z + 1.0e-10f</c>.
     /// </para>

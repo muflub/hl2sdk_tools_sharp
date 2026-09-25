@@ -7,7 +7,7 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 
 /// <summary>
 /// A light sample by face and index: stock's <c>SampleHandle_t</c>
-/// (<c>vrad.h:552</c>), which packs the face into the upper 16 bits.
+/// Which packs the face into the upper 16 bits.
 /// </summary>
 /// <param name="Face">The face.</param>
 /// <param name="Sample">The sample's index in the face's facelight.</param>
@@ -16,8 +16,8 @@ public readonly record struct SampleHandle(int Face, int Sample);
 /// <summary>
 /// The two voxel hashes the displacement radial filter reads:
 /// <c>InsertSamplesDataIntoHashTable</c> and
-/// <c>InsertPatchSampleDataIntoHashTable</c> (<c>vraddisps.cpp:1425, 1489</c>),
-/// built between bounce and <c>FinalLightFace</c> (<c>vrad.cpp:2076-2082</c>).
+/// <c>InsertPatchSampleDataIntoHashTable</c>,
+/// built between bounce and <c>FinalLightFace</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,7 +25,7 @@ public readonly record struct SampleHandle(int Face, int Sample);
 /// too, since a displacement's luxel blends its neighbours' samples -- at the
 /// voxel of its position. The PATCH hash holds every leaf patch at the voxel of
 /// its ORIGIN (<c>SAMPLEHASH_USE_AREA_PATCHES</c> is commented out,
-/// <c>vrad.h:52</c>), and only when light bounces. Faces with
+///), and only when light bounces. Faces with
 /// <c>TEX_SPECIAL</c> are skipped in both. Insertion is face order, then sample
 /// (or patch-list) order; see <see cref="VoxelTable{T}"/> for how that order is
 /// kept while building in parallel.
@@ -105,7 +105,7 @@ public sealed class DispSampleHash
         VoxelTable<SampleHandle> sampleTable =
             await VoxelTable<SampleHandle>.BuildAsync(sampleKeys, sampleItems, queue, cancellationToken).ConfigureAwait(false);
 
-        // :1492. "don't insert patch samples if we are not bouncing light".
+        // 1492. "don't insert patch samples if we are not bouncing light".
         if (bounces <= 0)
         {
             return new DispSampleHash(sampleTable, VoxelTable<int>.CreateEmpty());
@@ -140,7 +140,7 @@ public sealed class DispSampleHash
         return new DispSampleHash(sampleTable, patchTable);
     }
 
-    /// <summary><c>TEX_SPECIAL</c> (<c>vrad.h:432</c>): SURF_SKY | SURF_NOLIGHT.</summary>
+    /// <summary><c>TEX_SPECIAL</c>: SURF_SKY | SURF_NOLIGHT.</summary>
     /// <param name="geometry">The map.</param>
     /// <param name="face">The face.</param>
     /// <returns>True when the face's texinfo carries either flag.</returns>

@@ -12,7 +12,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <remarks>
 /// <para>
 /// Stock traces four rays in the middle of the gather and carries on
-/// (<c>TestLine</c>, <c>trace.cpp:151</c>). The batch tracer answers only
+/// (<c>TestLine</c>). The batch tracer answers only
 /// between batches, so the gather is split at every ray: everything computed
 /// before a ray is asked for is computed ONCE, while emitting, and whatever the
 /// rest of the arithmetic needs from it is written here; the resolve reads it

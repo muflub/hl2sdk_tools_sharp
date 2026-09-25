@@ -26,9 +26,9 @@ public sealed class VisMatrixStatistics
 }
 
 /// <summary>
-/// <c>vismat.cpp</c>: which patches can see each other, and the transfers
+/// Which patches can see each other, and the transfers
 /// that say how much light each passes on (<c>BuildVisMatrix</c> and the
-/// <c>MakeTransfer</c>/<c>MakeScales</c> of <c>vrad.cpp</c>).
+/// <c>MakeTransfer</c>/<c>MakeScales</c> of the reference implementation).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -54,8 +54,8 @@ public sealed class VisMatrixStatistics
 /// </list>
 /// <para>
 /// <b>Why no per-worker staging.</b> Stock gives each thread three
-/// <c>MAX_PATCHES</c>-sized arrays (<c>vismat.cpp:69-71</c>) and a fourth for
-/// the unscaled transfers (<c>:381</c>), because a patch's transfer count is
+/// <c>MAX_PATCHES</c>-sized arrays and a fourth for
+/// the unscaled transfers, because a patch's transfer count is
 /// unknown until its rays are traced. Here each patch already owns a disjoint
 /// range of the chunk -- its rays -- and a patch never has more transfers than
 /// rays, so its unscaled transfers are staged in that same range. Nothing is
@@ -75,13 +75,13 @@ public sealed class VisMatrix
     /// <summary>Rays per tracer call. A multiple of 64, so a slab owns whole words of bits.</summary>
     public const int RaysPerTraceSlab = 16 * 1024;
 
-    /// <summary><c>PLANE_TEST_EPSILON</c> (<c>vismat.cpp:34</c>), a double.</summary>
+    /// <summary><c>PLANE_TEST_EPSILON</c>, a double.</summary>
     public const double PlaneTestEpsilon = 0.01;
 
-    /// <summary><c>TRANSFER_EPSILON</c> (<c>vrad.h:64</c>), a double.</summary>
+    /// <summary><c>TRANSFER_EPSILON</c>, a double.</summary>
     public const double TransferEpsilon = 0.0000001;
 
-    /// <summary><c>MAX_PATCHES</c> (<c>vrad.h:184</c>): the cap on one patch's transfer count.</summary>
+    /// <summary><c>MAX_PATCHES</c>: the cap on one patch's transfer count.</summary>
     public const int MaxPatches = 4 * 65536;
 
     private readonly BounceContext _context;
@@ -113,7 +113,7 @@ public sealed class VisMatrix
 
     /// <summary>
     /// The receiving patches in stock's order: clusters ascending, each
-    /// cluster's <c>clusterChildren</c> list (<c>vismat.cpp:392-409</c>).
+    /// Cluster's <c>clusterChildren</c> list.
     /// </summary>
     /// <returns>Patch indices.</returns>
     public int[] ReceiverOrder()
@@ -133,7 +133,7 @@ public sealed class VisMatrix
 
     /// <summary>
     /// <c>BuildVisMatrix</c> plus <c>MakeScales</c> for every patch
-    /// (<c>MakeAllScales</c>, <c>vrad.cpp:1925</c>).
+    /// (<c>MakeAllScales</c>).
     /// </summary>
     /// <param name="tracer">The tracer.</param>
     /// <param name="queue">The workers.</param>
@@ -157,7 +157,7 @@ public sealed class VisMatrix
         Statistics.Receivers = receivers.Length;
         WorkQueueOptions stage = new() { Stage = "BuildVisLeafs" };
 
-        // 1. Count.
+        // Count.
         int[] counts = await queue.RunAsync<Enumerator, int>(
             receivers.Length,
             (k, e, _) => e.Run(receivers[k], clusterOf[k], []),
@@ -165,7 +165,7 @@ public sealed class VisMatrix
             stage,
             cancellationToken).ConfigureAwait(false);
 
-        // 2. Chunks of consecutive receivers, bounded in rays.
+        // Chunks of consecutive receivers, bounded in rays.
         List<(int Start, int End, int Rays)> chunks = [];
         int largest = 0;
         for (int start = 0; start < receivers.Length;)
@@ -250,7 +250,7 @@ public sealed class VisMatrix
                 stage,
                 cancellationToken).ConfigureAwait(false);
 
-            // 4. Compact the chunk.
+            // Compact the chunk.
             long chunkTotal = 0;
             foreach (int m in made)
             {
@@ -302,7 +302,7 @@ public sealed class VisMatrix
 
     /// <summary>
     /// The candidate rays of one receiver (<c>TestPatchToPatch</c>,
-    /// <c>vismat.cpp:188-195</c>): from each patch's origin pushed one unit
+    ///): from each patch's origin pushed one unit
     /// along its normal, "so that don't intersect their owners".
     /// </summary>
     /// <param name="receiver">The receiving patch.</param>
@@ -324,7 +324,7 @@ public sealed class VisMatrix
     /// <summary>
     /// The ray stock's transfer stream traces from <paramref name="start"/> to
     /// <paramref name="end"/>: <c>AddToRayStream</c> and
-    /// <c>FlushStreamEntry</c> (<c>trace2.cpp:308-313, 329-340</c>).
+ /// <c>FlushStreamEntry</c>.
     /// </summary>
     /// <param name="start">The receiver's pushed-out origin.</param>
     /// <param name="end">The source's pushed-out origin.</param>
@@ -357,8 +357,8 @@ public sealed class VisMatrix
     }
 
     /// <summary>
-    /// <c>CTransferMaker::Finish</c> (<c>vismat.cpp:81-91</c>) and
-    /// <c>MakeScales</c> (<c>vrad.cpp:1202</c>) for one receiver.
+    /// <c>CTransferMaker::Finish</c> and
+    /// <c>MakeScales</c> for one receiver.
     /// </summary>
     /// <param name="receiver">The receiving patch.</param>
     /// <param name="sources">Its candidates, in test order.</param>
@@ -381,7 +381,7 @@ public sealed class VisMatrix
                 continue;
             }
 
-            // vrad.cpp:1135, the overflow check, ahead of the rest.
+            // The overflow check, ahead of the rest.
             if (made >= MaxPatches)
             {
                 continue;
@@ -398,7 +398,7 @@ public sealed class VisMatrix
     }
 
     /// <summary>
-    /// <c>MakeTransfer</c> (<c>vrad.cpp:1114</c>): the unscaled transfer from
+    /// <c>MakeTransfer</c>: the unscaled transfer from
     /// <paramref name="source"/> to <paramref name="receiver"/>, or none.
     /// </summary>
     /// <param name="receiver"><c>ndxPatch1</c>, whose list it goes on.</param>
@@ -412,19 +412,19 @@ public sealed class VisMatrix
         ref Patch patch1 = ref patches.At(receiver);
         ref Patch patch2 = ref patches.At(source);
 
-        // :1132. Light is never taken from the sky.
+        // Light is never taken from the sky.
         if (_context.Geometry.IsSky(patch2.FaceNumber))
         {
             return false;
         }
 
-        // :1141. "hack for patch areas that area <= 0 (degenerate)".
+        // 1141. "hack for patch areas that area <= 0 (degenerate)".
         if (patch2.Area <= 0)
         {
             return false;
         }
 
-        // :1148. FormFactorDiffToDiff( pPatch2, pPatch1 ).
+        // FormFactorDiffToDiff( pPatch2, pPatch1 ).
         float scale = FormFactors.DiffToDiff(
             patch2.Origin, patch2.Normal, patch1.Origin, patch1.Normal, _stockNormalise);
         if (scale <= 0)
@@ -432,7 +432,7 @@ public sealed class VisMatrix
             return false;
         }
 
-        // :1158-1167, the five-times rule: `float flThreshold = (M_PI * 0.04)
+        // 1158-1167, the five-times rule: `float flThreshold = (M_PI * 0.04)
         // * DotProduct(...)` is a double product narrowed into a float.
         Vec3 delta = patch1.Origin - patch2.Origin;
         float threshold = (float)((Math.PI * 0.04) * Vec3.Dot(delta, delta));
@@ -453,12 +453,12 @@ public sealed class VisMatrix
 
         trans = patch2.Area * scale;
 
-        // :1171. A double compare.
+        // A double compare.
         return trans > TransferEpsilon;
     }
 
     /// <summary>
-    /// <c>MakeScales</c> (<c>vrad.cpp:1202</c>): normalise one receiver's
+    /// <c>MakeScales</c>: normalise one receiver's
     /// transfers so that they sum to at most 1.
     /// </summary>
     /// <param name="transfers">The receiver's unscaled transfers, scaled in place.</param>
@@ -531,7 +531,7 @@ public sealed class VisMatrix
 
     /// <summary>
     /// <c>BuildVisRow</c>, <c>TestPatchToFace</c> and <c>TestPatchToPatch</c>
-    /// (<c>vismat.cpp:151-248, 307-360</c>) for one worker: which patches one
+ /// For one worker: which patches one
     /// receiver tests, in stock's order.
     /// </summary>
     /// <remarks>
@@ -565,7 +565,6 @@ public sealed class VisMatrix
             if (cluster != _pvsCluster)
             {
                 // BuildVisLeafs_Cluster decompresses the cluster's own row
-                // (vismat.cpp:389).
                 _owner._context.Visibility.GetVisCache(cluster, _pvs);
                 _pvsCluster = cluster;
             }
@@ -641,7 +640,7 @@ public sealed class VisMatrix
                 return;
             }
 
-            // vismat.cpp:220. "if emitter is behind that face plane, skip all
+            // "if emitter is behind that face plane, skip all
             // patches" -- the receiver's origin against the first ROOT patch's
             // normal and plane, a double compare.
             Vec3 origin = patches.At(receiver).Origin;
@@ -665,7 +664,7 @@ public sealed class VisMatrix
 
             if (patch2.Child1 != Patch.Invalid)
             {
-                // vismat.cpp:171-178. Near enough that the patch subtends a
+                // Near enough that the patch subtends a
                 // large angle: test its children instead. A double compare.
                 Vec3 tmp = patch.Origin - patch2.Origin;
                 if (Vec3.Dot(tmp, tmp) * 0.0625 < patch2.Area)
@@ -678,7 +677,7 @@ public sealed class VisMatrix
                 }
             }
 
-            // :190. The source must be in front of the receiver's plane. Stock
+            // The source must be in front of the receiver's plane. Stock
             // takes the receiver's SHADING normal -- the phong normal on a
             // child of a smoothed face -- against its FLAT plane's distance
             // (StockQuirk.VisPlaneTestPhongNormal); correct takes the plane's

@@ -4,7 +4,7 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 
 /// <summary>
 /// A built BSP tree, reduced to what the portal stages need
-/// (<c>tree_t</c>, <c>src/utils/vbsp/vbsp.h:239</c>).
+/// (<c>tree_t</c>).
 /// </summary>
 /// <remarks>
 /// <see cref="OutsideNode"/> is the one part worth a sentence. Stock holds it
@@ -34,7 +34,7 @@ public interface IBspTree
 
     /// <summary>
     /// Set once a leak file has been written, so that an areaportal leak does
-    /// not overwrite a real one (<c>leakfile.cpp:104</c>).
+    /// not overwrite a real one.
     /// </summary>
     bool Leaked { get; set; }
 }

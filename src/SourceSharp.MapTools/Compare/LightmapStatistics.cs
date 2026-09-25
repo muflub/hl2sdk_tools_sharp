@@ -102,7 +102,7 @@ public sealed class LightmapStatistics
     /// <remarks>
     /// A face with <c>lightofs == -1</c> owns no samples: vrad skips
     /// <c>TEX_SPECIAL</c> surfaces and faces with no light styles
-    /// (<c>lightmap.cpp:3377-3392</c>), so this is below the face count on every
+    /// So this is below the face count on every
     /// real map and that is not a gap.
     /// </remarks>
     public int FacesAttributed { get; }

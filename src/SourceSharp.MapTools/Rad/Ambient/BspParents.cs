@@ -3,7 +3,7 @@ using SourceSharp.MapFormats.Bsp.Structs;
 namespace SourceSharp.MapTools.Rad.Ambient;
 
 /// <summary>
-/// Which node each node and each leaf hangs off (<c>vrad.cpp:146</c>,
+/// Which node each node and each leaf hangs off (
 /// <c>MakeParents</c>).
 /// </summary>
 /// <remarks>
@@ -63,7 +63,7 @@ public sealed class BspParents
             return;
         }
 
-        // vrad.cpp:1806, MakeParents(0, -1).
+        // MakeParents(0, -1).
         _nodeParents[0] = NoParent;
 
         Stack<int> pending = new();

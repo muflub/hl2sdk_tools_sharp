@@ -7,7 +7,7 @@ using SourceSharp.MapTools.Materials;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// <c>MakePatches</c> and <c>MakePatchForFace</c> (<c>vrad.cpp:690, 502</c>):
+/// <c>MakePatches</c> and <c>MakePatchForFace</c>:
 /// one root patch per lit brush face.
 /// </summary>
 /// <remarks>
@@ -18,7 +18,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </para>
 /// <para>
 /// <b>Displacements are NOT made here.</b> Stock's last line calls
-/// <c>StaticDispMgr()-&gt;MakePatches()</c> (<c>vrad.cpp:735</c>), which
+/// <c>StaticDispMgr-&gt;MakePatches</c>, which
 /// tessellates each displacement into its own patch tree. That belongs to the
 /// displacement lane; <see cref="Build"/> covers the brush half and the patch
 /// set it returns is open for that pass to append to.
@@ -26,9 +26,9 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <para>
 /// <b>This pass MUTATES the texinfo lump.</b> A face whose material has a
 /// non-zero texlight value gets <c>SURF_LIGHT</c> OR-ed into its texinfo
-/// (<c>vrad.cpp:634</c>) -- on the SHARED texinfo, so one emitting face turns
+/// -- on the SHARED texinfo, so one emitting face turns
 /// the flag on for every face that reuses the same texinfo. It is then read by
-/// <c>PreventSubdivision</c> (<c>vrad.cpp:758</c>) to decide that a
+/// <c>PreventSubdivision</c> to decide that a
 /// <c>SURF_NOLIGHT</c> surface which also emits must still be chopped. The flag
 /// is never written back to the BSP, so this is compile-local state carried in
 /// the lump array; <see cref="LightGeometry.TexInfos"/> being a copy is what
@@ -38,14 +38,13 @@ namespace SourceSharp.MapTools.Rad.Light;
 public static class PatchBuilder
 {
     /// <summary>
-    /// <c>reflectivityScale</c> (<c>vrad.cpp:99</c>): 1.0, and not settable in
+    /// <c>reflectivityScale</c>: 1.0, and not settable in
     /// a release build.
     /// </summary>
     public const float ReflectivityScale = 1.0f;
 
     /// <summary>
     /// The ceiling a face's reflectivity is clamped to: 0.99
-    /// (<c>vrad.cpp:420-421</c>).
     /// </summary>
     /// <remarks>
     /// Stock's comment says it plainly -- "always keep this less than 1 or the
@@ -57,11 +56,10 @@ public static class PatchBuilder
 
     /// <summary>
     /// The chop scale a face gets when <c>-notexscale</c> is in force: 16
-    /// (<c>vrad.cpp:555</c>).
     /// </summary>
     /// <remarks>
     /// Unreachable in a release build -- <c>texscale</c> is only cleared inside
-    /// <c>#if ALLOWDEBUGOPTIONS</c>, which <c>vrad.cpp:23</c> defines as
+    /// <c>#if ALLOWDEBUGOPTIONS</c>, which defines as
     /// <c>(0 || _DEBUG)</c> -- but it is the initialiser, and
     /// <see cref="Build"/> takes the flag so the branch is exercised rather
     /// than assumed dead.
@@ -100,7 +98,7 @@ public static class PatchBuilder
         {
             ref readonly DModel model = ref geometry.Models[modelIndex];
 
-            // vrad.cpp:706-711. The entity that references "*<n>", or
+            // The entity that references "*<n>", or
             // worldspawn when nothing does.
             int entityIndex = EntityForModel(entities, modelIndex);
             Vec3 origin = entityIndex >= 0
@@ -113,7 +111,7 @@ public static class PatchBuilder
                 patches.FaceEntities[faceNum] = entityIndex;
                 patches.FaceOffsets[faceNum] = origin;
 
-                // :719. Displacements are skipped here and made by the
+                // Displacements are skipped here and made by the
                 // displacement manager instead.
                 if (geometry.Faces[faceNum].DispInfo != -1)
                 {
@@ -129,7 +127,7 @@ public static class PatchBuilder
     }
 
     /// <summary>
-    /// <c>EntityForModel</c> (<c>vrad.cpp:667</c>).
+    /// <c>EntityForModel</c>.
     /// </summary>
     /// <param name="entities">The entity list.</param>
     /// <param name="modelIndex">The submodel number.</param>
@@ -161,7 +159,7 @@ public static class PatchBuilder
     }
 
     /// <summary>
-    /// <c>BaseLightForFace</c> (<c>vrad.cpp:399</c>): a face's emission, texel
+    /// <c>BaseLightForFace</c>: a face's emission, texel
     /// area and reflectivity.
     /// </summary>
     /// <param name="geometry">The map's lumps.</param>
@@ -212,7 +210,7 @@ public static class PatchBuilder
         ref readonly DFace face = ref geometry.Faces[faceNum];
         ref TexInfo tex = ref geometry.TexInfos[face.TexInfo];
 
-        // vrad.cpp:524-530. A face with no area is counted and dropped, and
+        // A face with no area is counted and dropped, and
         // its winding is LEAKED in stock; here the arena takes it back.
         float area = arena.Area(winding);
         if (area <= 0)
@@ -233,10 +231,10 @@ public static class PatchBuilder
         patch.Parent = Patch.Invalid;
         patch.NeedsBumpmap = (tex.Flags & (int)SurfaceFlags.BumpLight) != 0;
 
-        // :552-579. TWO scales from the same shape: patch->scale from the
+        // TWO scales from the same shape: patch->scale from the
         // TEXTURE axes, chopscale from the LIGHTMAP axes. They are different
         // numbers and are used for different things -- scale multiplies a
-        // surface light's intensity (lightmap.cpp:1577), chopscale decides how
+        // surface light's intensity, chopscale decides how
         // finely the patch is subdivided -- so conflating them changes both
         // the brightness and the resolution of every texlight.
         float chopScaleS = FixedChopScale;
@@ -261,7 +259,7 @@ public static class PatchBuilder
         patch.Chop = maxChop;
         patch.Winding = winding;
 
-        // :596-614. The face's plane, displaced along its own normal when the
+        // The face's plane, displaced along its own normal when the
         // owning model has an origin brush. Stock appends a FAKE PLANE past
         // numplanes for this; held inline here.
         ref readonly DPlane plane = ref geometry.Planes[face.PlaneNum];
@@ -277,7 +275,7 @@ public static class PatchBuilder
         patch.FaceNumber = faceNum;
         patch.Origin = arena.Center(winding);
 
-        // :620. The centroid PhongNormals reads is the patch origin with the
+        // The centroid PhongNormals reads is the patch origin with the
         // model offset taken back off, so it lives in the same space as
         // dvertexes.
         patches.Centroids[faceNum] = patch.Origin - offset;
@@ -296,14 +294,14 @@ public static class PatchBuilder
         patch.BaseArea = baseArea;
         patch.Reflectivity = reflectivity;
 
-        // :631-635. An emitting material turns SURF_LIGHT on for every face
+        // An emitting material turns SURF_LIGHT on for every face
         // that shares the texinfo. See the type remarks.
         if (baseLight != Vec3.Zero)
         {
             tex.Flags |= (int)SurfaceFlags.Light;
         }
 
-        // :638-641. A no-op -- chop is already maxchop -- and kept because
+        // A no-op -- chop is already maxchop -- and kept because
         // stock's comment says it is deliberately undoing -extra, which a
         // future change to the line above would silently break.
         if (geometry.IsValidDispFace(faceNum))
@@ -311,7 +309,7 @@ public static class PatchBuilder
             patch.Chop = maxChop;
         }
 
-        // :547-548. Prepend to the face's list; the head moves to the new
+        // Prepend to the face's list; the head moves to the new
         // patch and the old head becomes its Next.
         patch.Next = patches.FacePatches[faceNum];
         int index = patches.Add(patch);
@@ -321,7 +319,7 @@ public static class PatchBuilder
     private static float AxisLength(FloatArray8 axes, int row)
     {
         // The C++ sums the squares of components 0..2 of row `row` and takes
-        // the square root: vrad.cpp:563-573.
+        // the square root:.
         int b = row * 4;
         float sum = (axes[b] * axes[b])
             + (axes[b + 1] * axes[b + 1])

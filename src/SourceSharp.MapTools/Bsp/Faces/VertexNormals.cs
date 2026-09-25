@@ -5,7 +5,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
 /// The placeholder vertex normals vbsp writes
-/// (<c>SaveVertexNormals</c>, <c>src/utils/vbsp/normals.cpp:12</c>).
+/// (<c>SaveVertexNormals</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,10 +25,10 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// </remarks>
 public static class VertexNormals
 {
-    /// <summary><c>MAX_MAP_VERTNORMALS</c> (<c>bspfile.h:79</c>).</summary>
+    /// <summary><c>MAX_MAP_VERTNORMALS</c>.</summary>
     public const int MaxVertNormals = 256000;
 
-    /// <summary><c>MAX_MAP_VERTNORMALINDICES</c> (<c>bspfile.h:80</c>).</summary>
+    /// <summary><c>MAX_MAP_VERTNORMALINDICES</c>.</summary>
     public const int MaxVertNormalIndices = 256000;
 
     /// <summary>

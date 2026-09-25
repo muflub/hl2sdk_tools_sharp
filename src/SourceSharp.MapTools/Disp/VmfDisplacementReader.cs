@@ -6,8 +6,7 @@ using SourceSharp.MapTools.Diagnostics;
 namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
-/// Reads a VMF <c>dispinfo</c> chunk: the <c>LoadDisp*Callback</c> family,
-/// <c>utils/vbsp/map.cpp:823-1220</c>.
+/// Reads a VMF <c>dispinfo</c> chunk: the <c>LoadDisp*Callback</c> family.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -51,7 +50,7 @@ public static class VmfDisplacementReader
     /// <summary>The per-triangle tag rows.</summary>
     public const string TriangleTagsChunk = "triangle_tags";
 
-    /// <summary><c>COREDISPTRI_TAG_WALKABLE</c>, <c>builddisp.h:691</c>.</summary>
+    /// <summary><c>COREDISPTRI_TAG_WALKABLE</c>.</summary>
     public const int CoreTagWalkable = 1 << 0;
 
     /// <summary><c>COREDISPTRI_TAG_FORCE_WALKABLE_BIT</c>.</summary>
@@ -89,8 +88,7 @@ public static class VmfDisplacementReader
         {
             throw new MapCompileException(
                 $"dispinfo has power {power}; the format allows "
-                + $"{PowerInfo.MinMapDispPower} to {PowerInfo.MaxMapDispPower} "
-                + "(bspfile.h:47).");
+                + $"{PowerInfo.MinMapDispPower} to {PowerInfo.MaxMapDispPower}.");
         }
 
         MapDisplacement disp = new(power);
@@ -134,7 +132,7 @@ public static class VmfDisplacementReader
     }
 
     /// <summary>
-    /// <c>LoadDispInfoKeyCallback</c>, <c>utils/vbsp/map.cpp:918</c>.
+    /// <c>LoadDispInfoKeyCallback</c>.
     /// </summary>
     /// <param name="disp">The displacement being filled.</param>
     /// <param name="key">The key name.</param>
@@ -191,7 +189,7 @@ public static class VmfDisplacementReader
 
     /// <summary>
     /// Collapses the VMF's triangle tags to the BSP's:
-    /// <c>LoadDispTriangleTagsKeyCallback</c>, <c>utils/vbsp/map.cpp:1195</c>.
+    /// <c>LoadDispTriangleTagsKeyCallback</c>.
     /// </summary>
     /// <param name="coreTags">The <c>COREDISPTRI_TAG_*</c> word from the file.</param>
     /// <returns>A <c>DISPTRI_TAG_*</c> word.</returns>

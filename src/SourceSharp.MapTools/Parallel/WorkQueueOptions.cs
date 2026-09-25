@@ -18,7 +18,7 @@ public sealed record WorkQueueOptions
     /// Reported from the worker that finished the item, holding NO lock. Stock
     /// calls <c>UpdatePacifier</c> from inside the one global
     /// <c>CRITICAL_SECTION</c> it takes to hand out work
-    /// (<c>utils/common/threads.cpp:65</c>), so on stock every worker that
+    /// So on stock every worker that
     /// wants its next item waits behind whatever the pacifier is doing —
     /// which, when the output is a pipe or a log file rather than a console, is
     /// a write syscall.
@@ -44,7 +44,7 @@ public sealed record WorkQueueOptions
     /// portal in the middle of a large open area floods vastly more than one in
     /// a corridor, and one displacement face can carry more luxels than a
     /// hundred world faces. Stock hands items out strictly in index order
-    /// (<c>threads.cpp:67</c>), which is roughly cheapest first because of how
+    /// Which is roughly cheapest first because of how
     /// maps are authored, so the expensive items are what is left at the end
     /// and they run with most of the machine idle. Sorting longest-first turns
     /// that tail into a head, where there is still work to overlap it with.

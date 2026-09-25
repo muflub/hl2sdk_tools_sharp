@@ -10,7 +10,7 @@ namespace SourceSharp.MapTools.Bsp.Collision;
 
 /// <summary>
 /// Where the water pass creates the per-depth water texinfo:
-/// <c>FindOrCreateWaterTexInfo</c> (<c>ivp.cpp:825</c>), which clones the
+/// <c>FindOrCreateWaterTexInfo</c>, which clones the
 /// surface's texdata under <see cref="WaterVolumeBuilder.WaterTextureName"/>,
 /// finds or creates the texinfo, and emits the patched <c>.vmt</c> with
 /// <c>$waterdepth</c> into the pak. Those tables belong to the texture and
@@ -26,16 +26,16 @@ public interface IWaterTexInfoSink
 }
 
 /// <summary>
-/// <c>EmitWaterVolumesForBSP</c> (<c>ivp.cpp:1106</c>): while a model's tree
+/// <c>EmitWaterVolumesForBSP</c>: while a model's tree
 /// and portals still exist, find its connected water volumes, give each a
 /// <c>dleafwaterdata_t</c>, and record them for
 /// <see cref="PhysCollisionEmitter"/>.
 /// </summary>
 /// <remarks>
 /// <para>
-/// CALL POSITION: stock calls it from <c>WriteBSP</c> (<c>writebsp.cpp:937</c>)
+/// CALL POSITION: stock calls it from <c>WriteBSP</c>
 /// once per model, after the model's leaves have their disk ids and before
-/// the tree is freed; then <c>WriteFogVolumeIDs</c> (<c>ivp.cpp:875</c>) sets
+/// the tree is freed; then <c>WriteFogVolumeIDs</c> sets
 /// each of that model's faces' <c>surfaceFogVolumeID</c> -- which needs the
 /// face-to-node map of the face stage and is left to it (the leaf data it
 /// reads is <see cref="LeafWaterData"/>).
@@ -59,7 +59,7 @@ public sealed class WaterVolumeBuilder
     /// <param name="arena">The arena the portal windings live in.</param>
     /// <param name="diskId">A leaf's index in LUMP_LEAFS (<c>node_t::diskId</c>), -1 if none.</param>
     /// <param name="firstWaterTexInfo">
-    /// <c>FirstWaterTexinfo</c> (<c>ivp.cpp:1069</c>): the first original side
+    /// <c>FirstWaterTexinfo</c>: the first original side
     /// of the leaf's brush list with the contents, for a volume with no
     /// surface (a leaked map).
     /// </param>
@@ -95,7 +95,7 @@ public sealed class WaterVolumeBuilder
     public List<int> DepthTexInfos { get; } = [];
 
     /// <summary>
-    /// <c>GetWaterTextureName</c>, <c>ivp.cpp:785</c>:
+    /// <c>GetWaterTextureName</c>:
     /// <c>maps/&lt;map&gt;/&lt;material&gt;_depth_&lt;depth&gt;</c>, lower-cased.
     /// </summary>
     /// <param name="mapName">The map's base name.</param>
@@ -155,7 +155,7 @@ public sealed class WaterVolumeBuilder
         }
     }
 
-    /// <summary><c>FindOrCreateLeafWaterData</c>, <c>ivp.cpp:924</c>: exact float match.</summary>
+    /// <summary><c>FindOrCreateLeafWaterData</c>: exact float match.</summary>
     private int FindOrCreateLeafWaterData(float surfaceZ, float minZ, int surfaceTexInfo)
     {
         for (int i = 0; i < LeafWaterData.Count; i++)
@@ -171,7 +171,7 @@ public sealed class WaterVolumeBuilder
         return LeafWaterData.Count - 1;
     }
 
-    /// <summary><c>EnumLeaves_r</c>, <c>ivp.cpp:947</c>: front before back.</summary>
+    /// <summary><c>EnumLeaves_r</c>: front before back.</summary>
     private static void EnumLeaves(List<IBspNode> list, IBspNode node, int contentsMask)
     {
         if (!node.IsLeaf())
@@ -187,7 +187,7 @@ public sealed class WaterVolumeBuilder
         }
     }
 
-    /// <summary><c>BuildWaterLeaf</c>, <c>ivp.cpp:966</c>.</summary>
+    /// <summary><c>BuildWaterLeaf</c>.</summary>
     private WaterLeaf BuildWaterLeaf(IBspNode leaf)
     {
         WaterLeaf result = new(leaf)
@@ -242,7 +242,7 @@ public sealed class WaterVolumeBuilder
     }
 
     /// <summary>
-    /// <c>IsLowerLeaf</c>, <c>ivp.cpp:709</c>: whether a new leaf sorts before
+    /// <c>IsLowerLeaf</c>: whether a new leaf sorts before
     /// the current one. The one pointing most up goes first, and a leaf with a
     /// surface before one without.
     /// </summary>
@@ -297,7 +297,7 @@ public sealed class WaterVolumeBuilder
         return newHasSurface;
     }
 
-    /// <summary><c>InsertSortWaterLeaf</c>, <c>ivp.cpp:1017</c>.</summary>
+    /// <summary><c>InsertSortWaterLeaf</c>.</summary>
     private void InsertSortWaterLeaf(List<WaterLeaf> list, WaterLeaf leaf)
     {
         for (int i = 0; i < list.Count; i++)
@@ -315,7 +315,7 @@ public sealed class WaterVolumeBuilder
         list.Add(leaf);
     }
 
-    /// <summary><c>PortalCrossesWater</c>, <c>ivp.cpp:911</c>.</summary>
+    /// <summary><c>PortalCrossesWater</c>.</summary>
     private bool PortalCrossesWater(WaterLeaf baseLeaf, Portal portal)
     {
         if (!baseLeaf.HasSurface)
@@ -328,7 +328,7 @@ public sealed class WaterVolumeBuilder
     }
 
     /// <summary>
-    /// <c>Flood_FindConnectedWaterVolumes_r</c>, <c>ivp.cpp:1038</c>, with an
+    /// <c>Flood_FindConnectedWaterVolumes_r</c>, with an
     /// explicit stack. The set of leaves reached does not depend on the visit
     /// order: a leaf is refused on its OWN portals, never on the path taken.
     /// </summary>
@@ -380,7 +380,7 @@ public sealed class WaterVolumeBuilder
         }
     }
 
-    /// <summary><c>waterleaf_t</c>, <c>ivp.cpp:693</c>; a class, because the flood updates <c>minZ</c> in place.</summary>
+    /// <summary><c>waterleaf_t</c>; a class, because the flood updates <c>minZ</c> in place.</summary>
     private sealed class WaterLeaf(IBspNode node)
     {
         public IBspNode Node { get; } = node;

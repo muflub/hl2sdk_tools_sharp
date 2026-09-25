@@ -2,13 +2,12 @@ namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
 /// Turns a displacement's allowed-vertex bit vector into the triangle list the
-/// engine would actually draw: <c>TesselateDisplacement</c>,
-/// <c>public/disp_tesselate.h:194</c>.
+/// engine would actually draw: <c>TesselateDisplacement</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Shared between vbsp and the engine in stock, as a template over a helper
-/// class. vbsp's helper (<c>CVBSPTesselateHelper</c>, <c>disp_ivp.h:23</c>)
+/// class. vbsp's helper(<c>CVBSPTesselateHelper</c>)
 /// does two things: it appends indices to a list, and it hands back a single
 /// static <c>DispNodeInfo_t</c> for every node because it does not care about
 /// per-node counts. This port therefore drops the node-info half entirely
@@ -41,7 +40,7 @@ public static class DispTesselator
     }
 
     /// <summary>
-    /// <c>TesselateDisplacement_R</c>, <c>disp_tesselate.h:95</c>: recurse into
+    /// <c>TesselateDisplacement_R</c>: recurse into
     /// the live children, then fan the node itself.
     /// </summary>
     private static void Tesselate(
@@ -76,7 +75,7 @@ public static class DispTesselator
     }
 
     /// <summary>
-    /// <c>TesselateDisplacementNode</c>, <c>disp_tesselate.h:48</c>: walk the
+    /// <c>TesselateDisplacementNode</c>: walk the
     /// node's nine-step winding, emitting a triangle each time two vertices
     /// have accumulated.
     /// </summary>
@@ -135,7 +134,7 @@ public static class DispTesselator
     }
 
     /// <summary>
-    /// <c>InternalEndTriangle</c>, <c>disp_tesselate.h:25</c>.
+    /// <c>InternalEndTriangle</c>.
     /// </summary>
     /// <remarks>
     /// The third vertex is always the NODE's own centre, and the second vertex

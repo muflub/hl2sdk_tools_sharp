@@ -4,7 +4,7 @@ namespace SourceSharp.MapTools.Phys.Managed;
 
 /// <summary>
 /// <c>IVP_Template_Polygon</c>: points, undirected lines, and surfaces made of lines with a
-/// per-line direction flag. Built by SDK 00182f50 (TF2 001879d0) from qhull's facets.
+/// Per-line direction flag. Built from qhull's facets by the reference implementation.
 /// </summary>
 /// <typeparam name="T">IVP_DOUBLE.</typeparam>
 internal sealed class IvpTemplatePolygon<T>
@@ -39,7 +39,7 @@ internal sealed class IvpTemplatePolygon<T>
     }
 
     /// <summary>
-    /// 00182f50. Points are copied from the unique list with an equality search whose "found at
+    /// Points are copied from the unique list with an equality search whose "found at
     /// index 0" result is taken as "not found" (so a point equal, by <c>==</c>, to point 0 is
     /// appended again; only +0/-0 twins of point 0 can trigger it, and the copy is never
     /// referenced, so the ledge is unaffected). Lines are the undirected polygon edges in first
@@ -143,7 +143,7 @@ internal sealed class IvpTemplatePolygon<T>
         return t;
     }
 
-    /// <summary>The binary's point lookup: first <c>==</c> match, or 0 when there is none.</summary>
+    /// <summary>The reference point lookup: first <c>==</c> match, or 0 when there is none.</summary>
     /// <param name="p">The point.</param>
     /// <returns>Its index.</returns>
     private int IndexOf(IvpPoint<T> p)

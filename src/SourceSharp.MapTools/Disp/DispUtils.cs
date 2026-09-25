@@ -8,7 +8,7 @@ namespace SourceSharp.MapTools.Disp;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>public/disp_common.cpp</c>, the half of it that is not the finder. This
+/// The half of it that is not the finder. This
 /// is what makes two displacements of different powers join without a seam:
 /// every function here answers some form of "which of the neighbour's vertices
 /// is this one of mine?", and <c>SetupAllowedVerts</c> then deletes the
@@ -28,7 +28,7 @@ public static class DispUtils
 {
     /// <summary>
     /// The power a neighbour effectively has across one connection:
-    /// <c>GetNeighborEdgePower</c>, <c>disp_common.cpp:203</c>.
+    /// <c>GetNeighborEdgePower</c>.
     /// </summary>
     /// <param name="disp">The displacement asking.</param>
     /// <param name="edge">Which of its edges.</param>
@@ -59,7 +59,6 @@ public static class DispUtils
 
     /// <summary>
     /// The part of an edge a span covers: <c>SetupSpan</c>,
-    /// <c>disp_common.cpp:327</c>.
     /// </summary>
     /// <param name="power">The displacement's power.</param>
     /// <param name="edge">A <see cref="DispEdge"/>.</param>
@@ -111,7 +110,7 @@ public static class DispUtils
 
     /// <summary>
     /// Maps one of our edge vertices onto a named sub-neighbour:
-    /// <c>TransformIntoSubNeighbor</c>, <c>disp_common.cpp:356</c>.
+    /// <c>TransformIntoSubNeighbor</c>.
     /// </summary>
     /// <param name="disp">The displacement the vertex belongs to.</param>
     /// <param name="edge">Which of its edges.</param>
@@ -132,7 +131,7 @@ public static class DispUtils
     /// </para>
     /// <para>
     /// Note the DELIBERATELY REVERSED out-parameters in stock's second
-    /// <c>SetupSpan</c> call (<c>disp_common.cpp:375</c>: <c>viDestEnd</c> then
+    /// <c>SetupSpan</c> call (: <c>viDestEnd</c> then
     /// <c>viDestStart</c>). Two displacements that share an edge traverse it in
     /// opposite directions, so the neighbour's start is our end. Reading that
     /// line as a typo and "fixing" it mirrors every joined vertex.
@@ -181,7 +180,6 @@ public static class DispUtils
 
     /// <summary>
     /// Which sub-neighbour a vertex falls in: <c>GetSubNeighborIndex</c>,
-    /// <c>disp_common.cpp:278</c>.
     /// </summary>
     /// <param name="disp">The displacement.</param>
     /// <param name="edge">Which of its edges.</param>
@@ -244,7 +242,7 @@ public static class DispUtils
 
     /// <summary>
     /// Maps one of our vertices into whichever neighbour touches it:
-    /// <c>TransformIntoNeighbor</c>, <c>disp_common.cpp:394</c>.
+    /// <c>TransformIntoNeighbor</c>.
     /// </summary>
     /// <param name="disp">The displacement.</param>
     /// <param name="edge">
@@ -290,7 +288,7 @@ public static class DispUtils
 
     /// <summary>
     /// Whether anything at all touches a vertex:
-    /// <c>DoesPointHaveAnyNeighbors</c>, <c>disp_common.cpp:437</c>.
+    /// <c>DoesPointHaveAnyNeighbors</c>.
     /// </summary>
     /// <param name="disp">The displacement.</param>
     /// <param name="index">The vertex.</param>
@@ -324,7 +322,7 @@ public static class DispUtils
 
     /// <summary>
     /// How to walk the vertices two displacements share along one
-    /// sub-neighbour: <c>SetupEdgeIncrements</c>, <c>disp_common.cpp:219</c>.
+    /// sub-neighbour: <c>SetupEdgeIncrements</c>.
     /// </summary>
     /// <param name="disp">The displacement.</param>
     /// <param name="edge">Which of its edges.</param>

@@ -17,7 +17,7 @@ namespace SourceSharp.MapTools.Rad;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The stage order is stock's <c>RunVRAD</c> (<c>vrad.cpp:2910</c>):
+/// The stage order is stock's <c>RunVRAD</c>:
 /// <c>VRAD_LoadBSP</c> (texlight files, shadow casters, the KD-tree,
 /// <c>RadWorld_Start</c>), <c>RadWorld_Go</c> (<c>BuildFacelights</c>,
 /// <c>PrecompLightmapOffsets</c>, the bounce, <c>FinalLightFace</c>),
@@ -26,7 +26,7 @@ namespace SourceSharp.MapTools.Rad;
 /// </para>
 /// <para>
 /// <b><c>-both</c> is one compile, not two.</b> Stock's launcher runs the
-/// whole DLL twice (<c>vrad_launcher.cpp:101-139</c>): LDR, write, then HDR on
+/// whole DLL twice: LDR, write, then HDR on
 /// the map the LDR pass wrote. This runs the same two passes in that order on
 /// the same in-memory map, so the HDR pass sees exactly what stock's second
 /// run loads -- but the texlight files are read once and the shadow casters
@@ -112,7 +112,7 @@ public static class Vrad
             }
         }
 
-        // VRAD_LoadBSP's texlight half (vrad.cpp:2168-2186): read once, parsed per range.
+        // VRAD_LoadBSP's texlight half: read once, parsed per range.
         Report(context, LoadStage, 0);
         List<(string Name, byte[] Bytes)> radFiles = await LoadTexlightFilesAsync(
             content, options, mapName, Warn, cancellationToken).ConfigureAwait(false);
@@ -126,7 +126,7 @@ public static class Vrad
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            // RadWorld_Start's head (vrad.cpp:1758): -luxeldensity edits the map.
+            // RadWorld_Start's head: -luxeldensity edits the map.
             float density = LuxelDensity.Effective(options.LuxelDensity);
             if (density < 1.0f)
             {
@@ -142,7 +142,7 @@ public static class Vrad
                     : o.Redundant ? $"Redundant '{o.Name}' def" : $"Overriding '{o.Name}'");
             }
 
-            // vrad.cpp:2240-2290, once for the whole compile: the casters and the KD-tree.
+            // Once for the whole compile: the casters and the KD-tree.
             if (tracer is null)
             {
                 tracer = await BuildTracerAsync(
@@ -195,7 +195,7 @@ public static class Vrad
         bool go = !options.OnlyDetail && !options.OnlyStaticProps;
         if (go)
         {
-            // RadWorld_Go: InitMacroTexture first (vrad.cpp:2004).
+            // RadWorld_Go: InitMacroTexture first.
             List<string> macroWarnings = [];
             MacroTextures macro = await MacroTextures.LoadAsync(
                 bsp, world.Geometry, world.Entities, context.MapName, content, macroWarnings, cancellationToken)
@@ -209,8 +209,8 @@ public static class Vrad
             await world.LightFacesAsync(tracer, parallelism, cancellationToken).ConfigureAwait(false);
             Report(context, FacelightsStage, 1);
 
-            // vrad.cpp:2063. world.Settings, not settings: a map with no vis
-            // has had its bounces forced to zero (vrad.cpp:2245).
+            // World.Settings, not settings: a map with no vis
+            // has had its bounces forced to zero.
             if (world.Settings.Bounces > 0)
             {
                 if (context.Stages.Bounce is { } bounce)
@@ -226,7 +226,7 @@ public static class Vrad
                 }
             }
 
-            // vrad.cpp:2076-2082: the displacement sample and patch hashes,
+            // The displacement sample and patch hashes,
             // after the bounce (the patch hash reads TotalLight).
             Displacement.DispRadialContext? dispRadials = null;
             if (world.Statistics.Displacements > 0)
@@ -281,7 +281,7 @@ public static class Vrad
             warn(VradCodes.StageWarning, w);
         }
 
-        // VRAD_ComputeOtherLighting (vrad.cpp:2310-2325), in stock's order.
+        // VRAD_ComputeOtherLighting, in stock's order.
         Report(context, OtherStage, 0);
         if (!options.NoDetailLighting)
         {
@@ -305,7 +305,7 @@ public static class Vrad
             warn(VradCodes.StageWarning, w);
         }
 
-        // VRAD_LoadBSP sets g_LevelFlags (vrad.cpp:2214-2219); WriteBSPFile writes it.
+        // VRAD_LoadBSP sets g_LevelFlags; WriteBSPFile writes it.
         RadLumpWriter.WriteLevelFlags(bsp, hdr, options.StaticPropLighting);
 
         return (new RadPassResult(hdr, world.Statistics, final, pass.LightData.Length), world.ShareTransfers() ?? reuseTransfers);
@@ -340,7 +340,7 @@ public static class Vrad
 
     /// <summary>
     /// <c>lights.rad</c>, the <c>-lights</c> file, then <c>&lt;map&gt;.rad</c>
-    /// (<c>vrad.cpp:2168-2186</c>), as raw bytes.
+    /// As raw bytes.
     /// </summary>
     private static async Task<List<(string Name, byte[] Bytes)>> LoadTexlightFilesAsync(
         IContentFileSystem content,
@@ -424,7 +424,7 @@ public static class Vrad
             transparency: null,
             cancellationToken).ConfigureAwait(false);
 
-        // g_RtEnv.SetupAccelerationStructure (vrad.cpp:2288): on a worker, never
+        // g_RtEnv.SetupAccelerationStructure: on a worker, never
         // on the caller's thread.
         if (casters.Set.Count == 0)
         {

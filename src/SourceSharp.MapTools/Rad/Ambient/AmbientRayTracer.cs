@@ -22,9 +22,9 @@ public readonly record struct AmbientHit(int Surface, float Fraction, bool HasLu
 }
 
 /// <summary>
-/// <c>CLightSurface</c> (<c>vraddetailprops.cpp:358</c>) over
-/// <c>EnumerateNodesAlongRay</c> (<c>bsplib.cpp:3662</c>), WITH the
-/// displacement clip that ends every leaf (<c>:470-482</c>).
+/// <c>CLightSurface</c> over
+/// <c>EnumerateNodesAlongRay</c>, WITH the
+/// displacement clip that ends every leaf.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -87,7 +87,7 @@ public sealed class AmbientRayTracer
     public DispCollisionSet Displacements => _disps;
 
     /// <summary>
-    /// <c>FindIntersection</c> (<c>vraddetailprops.cpp:486</c>).
+    /// <c>FindIntersection</c>.
     /// </summary>
     /// <param name="start">The ray start.</param>
     /// <param name="delta">The ray delta (end - start).</param>
@@ -114,7 +114,7 @@ public sealed class AmbientRayTracer
     /// <param name="state">The enumerator's state, updated in place.</param>
     /// <returns>Whether the walk stopped on a surface (<c>FindIntersection</c>'s result).</returns>
     /// <remarks>
-    /// <c>ComputeIndirectLightingAtPoint</c> (<c>vraddetailprops.cpp:662</c>)
+    /// <c>ComputeIndirectLightingAtPoint</c>
     /// constructs ONE <c>CLightSurface</c> and calls <c>FindIntersection</c>
     /// for every sample direction, and <c>FindIntersection</c> resets nothing
     /// but the displacement counter -- so each ray only accepts leaf and
@@ -265,7 +265,7 @@ public sealed class AmbientRayTracer
         return stopped;
     }
 
-    /// <summary><c>CLightSurface::EnumerateNode</c> (<c>vraddetailprops.cpp:364</c>).</summary>
+    /// <summary><c>CLightSurface::EnumerateNode</c>.</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private bool EnumerateNode(ref Ctx c, int node, float f)
     {
@@ -313,7 +313,7 @@ public sealed class AmbientRayTracer
         return skyHit == -1;
     }
 
-    /// <summary><c>CLightSurface::EnumerateLeaf</c> (<c>vraddetailprops.cpp:413</c>).</summary>
+    /// <summary><c>CLightSurface::EnumerateLeaf</c>.</summary>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private bool EnumerateLeaf(ref Ctx c, int leaf, float start, float end)
     {
@@ -366,7 +366,7 @@ public sealed class AmbientRayTracer
             }
         }
 
-        // vraddetailprops.cpp:470-482: every leaf ends with the displacements.
+        // Every leaf ends with the displacements.
         if (_disps.Count > 0)
         {
             _disps.ClipRayInLeaf(c.Scratch!, c.Start, c.Delta, leaf, out DispRayHit disp);
@@ -385,7 +385,7 @@ public sealed class AmbientRayTracer
     }
 
     /// <summary>
-    /// <c>TestPointAgainstSurface</c> (<c>vraddetailprops.cpp:493</c>), with the
+    /// <c>TestPointAgainstSurface</c>, with the
     /// luxel coordinate it records.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -408,8 +408,8 @@ public sealed class AmbientRayTracer
     }
 
     /// <summary>
-    /// <c>TestPointAgainstSkySurface</c> (<c>vraddetailprops.cpp:524</c>):
-    /// <c>PointInWinding</c> (<c>polylib.cpp:856</c>).
+    /// <c>TestPointAgainstSkySurface</c>:
+    /// <c>PointInWinding</c>.
     /// </summary>
     private bool TestPointAgainstSkySurface(int face, float px, float py, float pz)
     {

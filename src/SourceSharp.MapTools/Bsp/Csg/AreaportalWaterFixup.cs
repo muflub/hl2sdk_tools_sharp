@@ -8,7 +8,7 @@ namespace SourceSharp.MapTools.Bsp.Csg;
 
 /// <summary>
 /// The areaportal-inside-water hack: <c>FixupAreaportalWaterBrushes</c> and
-/// <c>CopyMatchingTexinfos</c>, <c>utils/vbsp/csg.cpp:284-377</c>.
+/// <c>CopyMatchingTexinfos</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -24,13 +24,13 @@ namespace SourceSharp.MapTools.Bsp.Csg;
 /// copies, which are thrown away when the tree is freed; this writes
 /// <c>pAreaportal-&gt;original-&gt;contents</c> and the texinfos of
 /// <c>pAreaportal-&gt;original-&gt;original_sides</c> — the MAP brush and the
-/// MAP sides, which <c>EmitBrushes</c> (<c>writebsp.cpp:1048</c>) copies into
+/// MAP sides, which <c>EmitBrushes</c> copies into
 /// the lumps verbatim. Stock's own comment says so: "Ideally, this should have
 /// been done before the bspbrush_t was created from the map brush."
 /// </para>
 /// <para>
 /// It runs once per block and, because the world model is built twice
-/// (<c>vbsp.cpp:259</c>, the <c>optimize</c> loop), up to twice per block per
+/// (the <c>optimize</c> loop), up to twice per block per
 /// compile. Both effects are idempotent — an <c>|=</c> of the same bits and an
 /// assignment of the same texinfo — which is why running it repeatedly is
 /// harmless and why nothing guards against it.
@@ -40,7 +40,7 @@ public static class AreaportalWaterFixup
 {
     /// <summary>
     /// Gives an areaportal inside water the water's contents and texinfos:
-    /// <c>FixupAreaportalWaterBrushes</c>, <c>csg.cpp:345</c>.
+    /// <c>FixupAreaportalWaterBrushes</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="list">The block's brush list, before <c>ChopBrushes</c>.</param>
@@ -105,7 +105,7 @@ public static class AreaportalWaterFixup
 
     /// <summary>
     /// Retextures a carved brush's sides from a source brush's map sides:
-    /// <c>CopyMatchingTexinfos</c>, <c>csg.cpp:284</c>.
+    /// <c>CopyMatchingTexinfos</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="destination">The brush whose sides are retextured.</param>
@@ -135,7 +135,7 @@ public static class AreaportalWaterFixup
     /// <summary>
     /// The same, over a map brush's own sides:
     /// <c>CopyMatchingTexinfos(pAreaportal-&gt;original-&gt;original_sides, ...)</c>,
-    /// <c>csg.cpp:374</c>.
+    ///.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="destination">The map brush whose sides are retextured.</param>
@@ -175,7 +175,7 @@ public static class AreaportalWaterFixup
     /// <para>
     /// Three details of stock's search are load-bearing. It walks the source
     /// brush's <b>original</b> map sides and not the carved ones — stock's
-    /// comment (<c>csg.cpp:291-295</c>) says why: a carved side can carry
+    /// comment says why: a carved side can carry
     /// <see cref="BspBrushSide.TexInfoNode"/>, and an areaportal that inherited
     /// one "will flood into the entire water volume". It stops at the FIRST
     /// exact match, on either an identical plane index or a dot product of

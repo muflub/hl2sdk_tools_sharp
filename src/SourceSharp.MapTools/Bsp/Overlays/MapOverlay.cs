@@ -4,18 +4,18 @@ namespace SourceSharp.MapTools.Bsp.Overlays;
 
 /// <summary>
 /// One overlay as the map described it: <c>mapoverlay_t</c>
-/// (<c>utils/vbsp/vbsp.h</c>), shared by <c>info_overlay</c> and the water
+/// Shared by <c>info_overlay</c> and the water
 /// overlays of an <c>overlaytransition</c> block.
 /// </summary>
 public sealed class MapOverlay
 {
-    /// <summary><c>MAX_MAP_OVERLAYS</c>, <c>public/bspfile.h</c>.</summary>
+    /// <summary><c>MAX_MAP_OVERLAYS</c>.</summary>
     public const int MaxMapOverlays = 512;
 
-    /// <summary><c>MAX_MAP_WATEROVERLAYS</c>, <c>public/bspfile.h</c>.</summary>
+    /// <summary><c>MAX_MAP_WATEROVERLAYS</c>.</summary>
     public const int MaxMapWaterOverlays = 16384;
 
-    /// <summary><c>OVERLAY_MAP_STRLEN</c>, <c>utils/vbsp/vbsp.h</c>.</summary>
+    /// <summary><c>OVERLAY_MAP_STRLEN</c>.</summary>
     public const int MaterialNameLength = 256;
 
     /// <summary><c>OVERLAY_NUM_RENDER_ORDERS</c>: <c>1 &lt;&lt; OVERLAY_RENDER_ORDER_NUM_BITS</c>.</summary>
@@ -29,7 +29,7 @@ public sealed class MapOverlay
 
     /// <summary>
     /// <c>nId</c>: the overlay's index for an <c>info_overlay</c>; for a water
-    /// overlay, <c>MAX_MAP_OVERLAYS + 1</c> plus its index (<c>map.cpp:1420</c>).
+    /// overlay, <c>MAX_MAP_OVERLAYS + 1</c> plus its index.
     /// </summary>
     public int Id { get; set; }
 
@@ -41,7 +41,7 @@ public sealed class MapOverlay
 
     /// <summary>
     /// <c>flFadeDistMinSq</c>: <c>fademindist</c>, squared when positive
-    /// (<c>overlay.cpp:43-47</c>). Never set for a water overlay, whose fades
+    /// Never set for a water overlay, whose fades
     /// are not emitted.
     /// </summary>
     public float FadeDistMinSq { get; set; }

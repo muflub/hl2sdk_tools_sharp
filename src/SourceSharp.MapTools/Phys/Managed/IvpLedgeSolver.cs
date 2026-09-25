@@ -7,11 +7,10 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// inertia, radius and surface deviation of compact ledges.
 /// </summary>
 /// <remarks>
-/// Decompiled from SDK 2013 (TF2): calc_bounding_box 001c0980 (001c5650), the triangle normal
-/// 001c13a0 (001c61d0), the mass-centre integrand 001a3e90 (001a89a0) and its loop 001a4090
-/// (001a8c90), the inertia integrand 001a3a00 (001a84c0) and loop 001a4110 (001a8d20), the
-/// finaliser 001a4280 (001a8e80), the flat-ledge fallback 001a3880 (001a8310), and the radius /
-/// deviation pass 001c1650/001c1480 (001c64c0/001c62d0). The two builds group every expression
+/// Mirrors the ledge solver's stages: calc_bounding_box, the triangle normal,
+/// The mass-centre integrand and its loop, the inertia integrand and loop, the
+/// finaliser, the flat-ledge fallback, and the radius /
+/// Deviation pass. The stock and TF2 builds group every expression
 /// here identically except where noted; the note says what the difference is.
 /// </remarks>
 /// <typeparam name="T">IVP_DOUBLE.</typeparam>
@@ -20,13 +19,13 @@ internal static class IvpLedgeSolver<T, TP>
     where T : unmanaged, IBinaryFloatingPointIeee754<T>
     where TP : struct, IIvpPrecision<T>
 {
-    /// <summary>The build's <c>P_DOUBLE_EPS</c> (1e-10f / 1e-19).</summary>
+    /// <summary>The policy's <c>P_DOUBLE_EPS</c> (1e-10f / 1e-19).</summary>
     public static T Eps => TP.IsDouble ? T.CreateTruncating(1e-19) : T.CreateTruncating(1.0e-10f);
 
-    /// <summary>The solver's resolution epsilon (1e-6f in SDK, 1e-12 in TF2).</summary>
+    /// <summary>The solver's resolution epsilon (1e-6f stock, 1e-12 TF2).</summary>
     public static T SolverEps => TP.IsDouble ? T.CreateTruncating(1e-12) : T.CreateTruncating(1.0e-6f);
 
-    /// <summary>001c0980: min and max over every triangle corner of a ledge.</summary>
+    /// <summary>: min and max over every triangle corner of a ledge.</summary>
     /// <param name="ledge">The ledge.</param>
     /// <param name="min">Minimum.</param>
     /// <param name="max">Maximum.</param>
@@ -79,7 +78,7 @@ internal static class IvpLedgeSolver<T, TP>
     }
 
     /// <summary>
-    /// 001c13a0: a triangle's (unnormalised) normal (next - base) x (prev - base), from the
+    /// a triangle's (unnormalised) normal (next - base) x (prev - base), from the
     /// ledge's float points widened to IVP_DOUBLE.
     /// </summary>
     /// <param name="ledge">The ledge.</param>
@@ -104,8 +103,8 @@ internal static class IvpLedgeSolver<T, TP>
     }
 
     /// <summary>
-    /// 001a4280 via 001a4090 / 001a4110: the mass centre and rotation inertia of a set of ledges,
-    /// or the flat fallback 001a3880 when the volume is negligible.
+    /// Via: the mass centre and rotation inertia of a set of ledges,
+    /// or the flat fallback when the volume is negligible.
     /// </summary>
     /// <param name="ledges">The ledges (the ledge tree's leaves, left first).</param>
     /// <param name="massCenter">The mass centre.</param>
@@ -113,7 +112,7 @@ internal static class IvpLedgeSolver<T, TP>
     /// <param name="skipZeroLengthEdges">Skip zero-length edges in the inertia integral (the correct-mode fix).</param>
     public static void MassProperties(List<IvpCompactLedge> ledges, out (T X, T Y, T Z) massCenter, out (T X, T Y, T Z) inertia, bool skipZeroLengthEdges = false)
     {
-        // 001a4090: ledges from the last, triangles in order.
+        // ledges from the last, triangles in order.
         float sx = 0f, sy = 0f, sz = 0f;
         T area = T.Zero, volume = T.Zero;
         for (int l = ledges.Count - 1; l >= 0; l--)
@@ -125,7 +124,7 @@ internal static class IvpLedgeSolver<T, TP>
             }
         }
 
-        // 001a4280: flat when vol <= (area * 1e-9f) * sqrt(area).
+        // flat when vol <= (area * 1e-9f) * sqrt(area).
         T flatLimit = (area * T.CreateTruncating(1.0e-9f)) * T.Sqrt(area);
         if (volume <= flatLimit)
         {
@@ -149,8 +148,8 @@ internal static class IvpLedgeSolver<T, TP>
     }
 
     /// <summary>
-    /// 001a3e90: one triangle's contribution to the volume, area and first-moment sums. The
-    /// triple product and the moment sums are float in both builds; SDK folds the area sum as
+    /// one triangle's contribution to the volume, area and first-moment sums. The
+    /// triple product and the moment sums are float under both policies; stock folds the area sum as
     /// <c>(cy^2 + cx^2) + (cz^2 + acc)</c> in float, TF2 adds <c>(float)((cx^2 + cy^2) + cz^2)</c>
     /// to a double accumulator.
     /// </summary>
@@ -193,7 +192,7 @@ internal static class IvpLedgeSolver<T, TP>
     }
 
     /// <summary>
-    /// 001a4110: the second moment about one axis, as <c>acc3/acc1</c> of the per-edge integrals,
+    /// the second moment about one axis, as <c>acc3/acc1</c> of the per-edge integrals,
     /// or 1 when the first integral is below <c>P_DOUBLE_EPS</c>.
     /// </summary>
     private static T AxisMoment(List<IvpCompactLedge> ledges, (T X, T Y, T Z) mc, int a, int b, int c, bool skipZeroLengthEdges)
@@ -208,7 +207,7 @@ internal static class IvpLedgeSolver<T, TP>
             }
         }
 
-        // comisd acc1, eps ; ja fallback -- a NaN acc1 takes the divide, as the binary does.
+        // comisd acc1, eps ; ja fallback -- a NaN acc1 takes the divide, as stock does.
         if (double.CreateTruncating(Eps) > acc1)
         {
             return T.One;
@@ -217,7 +216,7 @@ internal static class IvpLedgeSolver<T, TP>
         return T.CreateTruncating(acc3 / acc1);
     }
 
-    /// <summary>The ledge point moved into the mass-centre frame (00202e40 with an identity rotation).</summary>
+    /// <summary>The ledge point moved into the mass-centre frame (with an identity rotation).</summary>
     private static (float X, float Y, float Z) ToMassFrame(IvpCompactLedge ledge, int point, (T X, T Y, T Z) mc)
     {
         (float px, float py, float pz) = ledge.Point(point);
@@ -246,9 +245,9 @@ internal static class IvpLedgeSolver<T, TP>
     };
 
     /// <summary>
-    /// 001a3a00: one triangle's contribution to the three moment integrals about axis
+    /// one triangle's contribution to the three moment integrals about axis
     /// <paramref name="a"/>, integrating along each edge's projection. The per-edge polynomial is
-    /// double in both builds; the normal, slopes and threshold are IVP_DOUBLE.
+    /// double under both policies; the normal, slopes and threshold are IVP_DOUBLE.
     /// </summary>
     private static void InertiaIntegrand(
         IvpCompactLedge ledge, int tri, (T X, T Y, T Z) mc, int a, int b, int c, bool skipZeroLengthEdges,
@@ -289,7 +288,7 @@ internal static class IvpLedgeSolver<T, TP>
                 continue;
             }
 
-            // Stock divides 0 by 0 here when a ledge has two coincident points (the double build
+            // Stock divides 0 by 0 here when a ledge has two coincident points (the double policy
             // de-duplicates in double, then rounds the survivors to float), and the NaN reaches
             // rotation_inertia. A zero-length edge contributes nothing to the integral.
             if (skipZeroLengthEdges && len == T.Zero)
@@ -343,7 +342,7 @@ internal static class IvpLedgeSolver<T, TP>
     }
 
     /// <summary>
-    /// <c>IVP_U_Point::real_length</c> of the edge vector: SDK 001ff650 in float, TF2 00208930 in
+    /// <c>IVP_U_Point::real_length</c> of the edge vector: stock in float, TF2 in
     /// double over the widened float difference.
     /// </summary>
     private static T RealLength(T dx, T dy, T dz, float fx, float fy, float fz)
@@ -357,8 +356,8 @@ internal static class IvpLedgeSolver<T, TP>
     }
 
     /// <summary>
-    /// <c>IVP_U_Point::normize</c> for IVP_DOUBLE: SDK 001ff790 (rsqrtss + one Newton step, the
-    /// same code as the float point), TF2 00208ed0 (bit-hack isqrt with five double Newton steps).
+    /// <c>IVP_U_Point::normize</c> for IVP_DOUBLE: stock (rsqrtss + one Newton step, the
+    /// same code as the float point), TF2 (bit-hack isqrt with five double Newton steps).
     /// </summary>
     public static void NormizePoint(ref T x, ref T y, ref T z)
     {
@@ -394,7 +393,7 @@ internal static class IvpLedgeSolver<T, TP>
     }
 
     /// <summary>
-    /// 001a3880: a flat set of ledges gets the bounding-box centre as its mass centre and
+    /// a flat set of ledges gets the bounding-box centre as its mass centre and
     /// <c>((|max-min|/2)^2)/2</c> on every axis as its inertia.
     /// </summary>
     private static void FlatFallback(List<IvpCompactLedge> ledges, out (T X, T Y, T Z) massCenter, out (T X, T Y, T Z) inertia)
@@ -416,7 +415,7 @@ internal static class IvpLedgeSolver<T, TP>
     }
 
     /// <summary>
-    /// 001ff5f0 <c>set_interpolate(a, b, t)</c> as grouped by GCC: x = t*b.x + a.x*(1-t),
+    /// <c>set_interpolate(a, b, t)</c> as grouped by GCC: x = t*b.x + a.x*(1-t),
     /// y = b.y*t + a.y*(1-t), z = (1-t)*a.z + b.z*t.
     /// </summary>
     /// <param name="t">Weight of b.</param>
@@ -430,7 +429,7 @@ internal static class IvpLedgeSolver<T, TP>
     }
 
     /// <summary>
-    /// 001c1650/001c1480: the largest distance of any corner from the mass centre, and the
+    /// the largest distance of any corner from the mass centre, and the
     /// largest distance of any corner from the line through the mass centre along its triangle's
     /// normal (the surface deviation).
     /// </summary>

@@ -5,7 +5,7 @@ using SourceSharp.MapTools.Options;
 namespace SourceSharp.MapTools.Rad.Ambient;
 
 /// <summary>
-/// <c>TestLine</c> (<c>trace.cpp:151</c>) as leaf ambient uses it: how much of
+/// <c>TestLine</c> as leaf ambient uses it: how much of
 /// the segment from a sample to a surface light is unobstructed.
 /// </summary>
 /// <remarks>
@@ -32,7 +32,7 @@ public interface IAmbientLightVisibility
 
 /// <summary>
 /// One work item's ambient-cube computer: <c>ComputeAmbientFromSphericalSamples</c>
-/// (<c>leaf_ambient_lighting.cpp:139</c>) with every buffer it needs owned here.
+/// With every buffer it needs owned here.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -76,7 +76,7 @@ public sealed class AmbientSampler
         _compliance = compliance;
         _skyAmbient = RayAmbientLighting.FindSkyAmbient(scene);
 
-        // leaf_ambient_lighting.cpp:143: tan( DEG2RAD( 7.275 ) ), all float.
+        // Tan(DEG2RAD(7.275)), all float.
         _tanTheta = MathF.Tan(VertexNormals.ConeInnerAngleRadians);
         Displacements = scene.Tracer.Displacements.CreateScratch();
 
@@ -115,7 +115,7 @@ public sealed class AmbientSampler
     /// <param name="cube">Receives the six colours.</param>
     /// <remarks>
     /// ONLY LIGHTSTYLE 0: stock clears element 0 of a 64-wide per-ray array,
-    /// fires the ray into it, and reads element 0 (<c>:150-154</c>). The other
+ /// fires the ray into it, and reads element 0. The other
     /// styles are written by faces with switchable styles and never read.
     /// </remarks>
     public void ComputeCube(Vec3 start, Span<Vec3> cube)

@@ -8,7 +8,7 @@ namespace SourceSharp.MapTools.Phys;
 /// <param name="Bytes">
 /// The cooked blob, beginning with the <c>VPHY</c> container header. NOTE that
 /// the leading record size is NOT part of this: stock writes it in the caller
-/// (<c>ivp.cpp:183-187</c>), so the lump's record framing is the port's job and
+/// So the lump's record framing is the port's job and
 /// not the cooker's.
 /// </param>
 /// <param name="CookerIdentity">
@@ -21,10 +21,10 @@ public readonly record struct CookedCollide(ReadOnlyMemory<byte> Bytes, string C
 /// </summary>
 /// <remarks>
 /// <para>
-/// The default implementation drives Valve's own closed <c>vphysics.so</c>
+/// The default implementation drives the shipping <c>vphysics.so</c> as-is
 /// through its vtable, which closes the worst risk in this port by
 /// construction: the engine performs NO validation of the physics lump
-/// (<c>cmodel_bsp.cpp:1017</c> walks the records and hands them straight to
+/// (walks the records and hands them straight to
 /// <c>VCollideLoad</c>), so a wrong byte is a crash inside closed code rather
 /// than an error message. Bytes produced by the same library that will load
 /// them cannot be wrong in that way.
@@ -55,7 +55,7 @@ public readonly record struct CookedCollide(ReadOnlyMemory<byte> Bytes, string C
 /// 47 solids over 2,227 convexes cook in 78-83 ms, on a stage the incremental
 /// cache stores per model anyway. Set against that, the scheme degrades
 /// SILENTLY -- a symlink instead of a copy makes glibc deduplicate with no
-/// error and returns you to the crashing regime, and a future Valve build that
+/// error and returns you to the crashing regime, and a future reference build that
 /// ships a <c>DT_SONAME</c> would do the same. If Phase 3p's profile ever
 /// disagrees, build it with file copies rather than <c>dlmopen</c> (which caps
 /// at 13 cookers and costs 5.7x the memory), and assert the interface, vtable
@@ -102,7 +102,7 @@ public static class CollisionCookerExtensions
     /// <summary>
     /// Cooks one convex solid described by the planes that bound it:
     /// <c>ConvexFromPlanes</c> then <c>ConvertConvexToCollide</c> then
-    /// <c>CollideWrite</c> (<c>ivp.cpp:531</c>, <c>:546</c>, <c>:183-187</c>).
+ /// <c>CollideWrite</c>.
     /// </summary>
     /// <param name="cooker">The cooker.</param>
     /// <param name="planes">Outward-facing bounding planes.</param>
@@ -124,7 +124,7 @@ public static class CollisionCookerExtensions
 
     /// <summary>
     /// Cooks the convex hull of a point cloud: <c>ConvexFromVerts</c>
-    /// (<c>staticprop.cpp:208</c>) then <c>ConvertConvexToCollide</c>.
+    /// Then <c>ConvertConvexToCollide</c>.
     /// </summary>
     /// <param name="cooker">The cooker.</param>
     /// <param name="points">The points.</param>

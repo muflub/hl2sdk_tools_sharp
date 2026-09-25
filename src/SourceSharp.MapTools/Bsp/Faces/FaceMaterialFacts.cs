@@ -16,7 +16,7 @@ public interface IFaceMaterialResolver
 {
     /// <summary>
     /// The texinfo to give the underside of a water surface
-    /// (<c>AssignBottomWaterMaterialToFace</c>, <c>faces.cpp:1255</c>).
+    /// (<c>AssignBottomWaterMaterialToFace</c>).
     /// </summary>
     /// <param name="texInfo">The top surface's texinfo.</param>
     /// <param name="bottomTexInfo">The underside's texinfo, when there is one.</param>
@@ -29,7 +29,7 @@ public interface IFaceMaterialResolver
 
     /// <summary>
     /// A material's <c>$subdivsize</c>
-    /// (<c>SubdivideFaceBySubdivSize</c>, <c>faces.cpp:1745</c>).
+    /// (<c>SubdivideFaceBySubdivSize</c>).
     /// </summary>
     /// <param name="texInfo">The face's texinfo.</param>
     /// <returns>The size, or zero when the material has none or was not found.</returns>
@@ -75,7 +75,7 @@ public sealed class FaceMaterialFacts : IFaceMaterialResolver
     /// <exception cref="ArgumentNullException"><paramref name="compile"/> is null.</exception>
     /// <remarks>
     /// Call it where stock's face stage would first ask: after the post-load
-    /// fixups (<c>vbsp.cpp:1418-1424</c>), so the cubemap patches are in the
+    /// fixups, so the cubemap patches are in the
     /// texdata table and the pak. The driver does
     /// (<see cref="Driver.Vbsp"/>).
     /// </remarks>
@@ -113,15 +113,13 @@ public sealed class FaceMaterialFacts : IFaceMaterialResolver
     /// <item><description>
     /// <c>$subdivsize</c> and a created texdata's size come from
     /// <c>FindOriginalMaterial</c>: the material a patch was made FROM
-    /// (<c>faces.cpp:1739</c>, <c>textures.cpp:494</c>,
-    /// <c>materialpatch.cpp:274-278</c>).
     /// </description></item>
     /// <item><description>
     /// <c>$bottommaterial</c> comes from <c>GetValueFromPatchedMaterial</c>:
     /// the PATCHED VMT, pak first, with its patch chain expanded
-    /// (<c>faces.cpp:1264</c>, <c>materialpatch.cpp:416-440</c>). A water the
+    /// A water the
     /// cubemap fixup patched names a patched bottom
-    /// (<c>cubemap.cpp:546-579</c>), which exists only in the pak, and which
+    /// Which exists only in the pak, and which
     /// a read from disk cannot see: it found no facts, dropped the bottom face
     /// and its texinfo, and warned VBSP0320 for it (p3g integration item 2).
     /// </description></item>
@@ -148,7 +146,7 @@ public sealed class FaceMaterialFacts : IFaceMaterialResolver
                 .ConfigureAwait(false);
         }
 
-        // AssignBottomWaterMaterialToFace (faces.cpp:1287) creates the bottom
+        // AssignBottomWaterMaterialToFace creates the bottom
         // material's texdata during MakeFaces -- often one the map never
         // references, so it is not among the above. Read those now, while the
         // compile is still in its async load phase, so that the face stage can
@@ -243,7 +241,7 @@ public sealed class FaceMaterialFacts : IFaceMaterialResolver
 
         // The bottom material was not one the map referenced, so it has no
         // texdata yet: create it now, from the facts PrepareAsync read for
-        // exactly this (FindOrCreateTexData, faces.cpp:1287).
+        // exactly this(FindOrCreateTexData).
         if (_facts.TryGetValue(name, out MaterialFacts? facts))
         {
             return _compile.TexDatas.FindOrCreateLoaded(name, facts, _compile.Diagnostics);

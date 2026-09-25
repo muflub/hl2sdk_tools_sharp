@@ -9,12 +9,11 @@ namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
 /// One key and one value on an entity: stock's <c>epair_t</c>,
-/// <c>public/bspfile.h:1131</c>.
 /// </summary>
 /// <remarks>
 /// Mutable, because <c>SetKeyValue</c> replaces a value in place and leaves the
 /// pair where it is in the list, which is what keeps the entity lump's key
-/// order stable across a rewrite (<c>bsplib.cpp:3138-3145</c>).
+/// Order stable across a rewrite.
 /// </remarks>
 public sealed class MapKeyValue
 {
@@ -39,7 +38,6 @@ public sealed class MapKeyValue
 
 /// <summary>
 /// One entity as loaded from the VMF: <c>entity_t</c>,
-/// <c>utils/common/bsplib.h:49</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -47,8 +45,8 @@ public sealed class MapKeyValue
 /// list, so where a key lands in it is in the BSP. Stock's list is
 /// singly-linked and the two ways into it disagree on purpose:
 /// <c>SetKeyValue</c> PREPENDS a key that is not already there
-/// (<c>bsplib.cpp:3148-3150</c>), while the <c>connections</c> chunk APPENDS to
-/// the tail and allows duplicates (<c>map.cpp:2960-2971</c>) because an entity
+/// While the <c>connections</c> chunk APPENDS to
+/// the tail and allows duplicates because an entity
 /// may have many outputs with the same name. <see cref="Pairs"/> is that list
 /// with index 0 as the head, so both spellings stay visible in the code that
 /// uses them.
@@ -78,13 +76,13 @@ public sealed class MapEntity
     /// <remarks>
     /// <para>
     /// <b>Not the <c>origin</c> key.</b> <c>FloodEntities</c>
-    /// (<c>portals.cpp:765</c>) raises every origin by one unit "so objects on
+    /// Raises every origin by one unit "so objects on
     /// floor are ok", and an <c>info_player_start</c> that lands in solid is
     /// retried on a 3x3 grid of 16-unit offsets with the successful offset left
     /// applied. This is that point.
     /// </para>
     /// <para>
-    /// Stock has no such field and <c>leakfile.cpp:82</c> re-reads the key
+    /// Stock has no such field and re-reads the key
     /// instead, so its <c>.lin</c> ends at a point the flood never used. See
     /// <see cref="StockQuirk.LeakFileUnnudgedOrigin"/>.
     /// </para>
@@ -108,7 +106,7 @@ public sealed class MapEntity
     /// <summary>The two areas an areaportal joins, or -1.</summary>
     /// <remarks>
     /// Stock leaves these zero after <c>memset</c> and the two lines that would
-    /// have set them to -1 are commented out (<c>map.cpp:1505-1506</c>). The
+    /// have set them to -1 are commented out. The
     /// array is here so the portal lane has somewhere to put its answer; the
     /// zeroes are stock's.
     /// </remarks>
@@ -116,15 +114,14 @@ public sealed class MapEntity
 
     /// <summary>
     /// The value of a key, or the empty string: <c>ValueForKey</c>,
-    /// <c>bsplib.cpp:3155</c>.
     /// </summary>
     /// <param name="key">The key to look for, matched case-insensitively.</param>
     /// <returns>The first matching value, or <see cref="string.Empty"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
     /// <remarks>
     /// The empty string rather than null is stock's, and callers depend on it:
-    /// <c>*pMinDXLevelStr != '\0'</c> (<c>map.cpp:1536</c>) and
-    /// <c>pInstanceFile[0]</c> (<c>map.cpp:2035</c>) are both reading index 0 of
+    /// <c>*pMinDXLevelStr != '\0'</c> and
+    /// <c>pInstanceFile[0]</c> are both reading index 0 of
     /// a string that may be the literal <c>""</c>.
     /// </remarks>
     public string ValueForKey(string key)
@@ -149,7 +146,7 @@ public sealed class MapEntity
     /// <remarks>
     /// Distinct from a non-empty <see cref="ValueForKey"/>: a key present with
     /// an empty value is not the same as an absent key, and
-    /// <c>FloatForKeyWithDefault</c> (<c>bsplib.cpp:3168</c>) is the stock
+    /// <c>FloatForKeyWithDefault</c> is the stock
     /// function that tells them apart.
     /// </remarks>
     public bool HasKey(string key)
@@ -169,7 +166,6 @@ public sealed class MapEntity
 
     /// <summary>
     /// Replaces a key's value, or prepends the pair: <c>SetKeyValue</c>,
-    /// <c>bsplib.cpp:3137</c>.
     /// </summary>
     /// <param name="key">The key.</param>
     /// <param name="value">The value.</param>
@@ -206,7 +202,7 @@ public sealed class MapEntity
     /// <exception cref="ArgumentNullException">Either argument is null.</exception>
     /// <remarks>
     /// The <c>connections</c> chunk's insertion
-    /// (<c>CMapFile::LoadConnectionsKeyCallback</c>, <c>map.cpp:2960</c>). An
+    /// (<c>CMapFile::LoadConnectionsKeyCallback</c>). An
     /// entity's outputs are many pairs with the same key, so this must neither
     /// replace nor prepend.
     /// </remarks>
@@ -218,7 +214,7 @@ public sealed class MapEntity
     }
 
     /// <summary>
-    /// A key parsed as an integer: <c>IntForKey</c>, <c>bsplib.cpp:3180</c>.
+    /// A key parsed as an integer: <c>IntForKey</c>.
     /// </summary>
     /// <param name="key">The key.</param>
     /// <returns>The value as C's <c>atol</c> reads it, or zero.</returns>
@@ -226,7 +222,7 @@ public sealed class MapEntity
     public int IntForKey(string key) => VmfValue.ParseInt(ValueForKey(key));
 
     /// <summary>
-    /// A key parsed as a float: <c>FloatForKey</c>, <c>bsplib.cpp:3162</c>.
+    /// A key parsed as a float: <c>FloatForKey</c>.
     /// </summary>
     /// <param name="key">The key.</param>
     /// <returns>The value as C's <c>atof</c> reads it, or zero.</returns>
@@ -235,7 +231,6 @@ public sealed class MapEntity
 
     /// <summary>
     /// A key parsed as three numbers: <c>GetVectorForKey</c>,
-    /// <c>bsplib.cpp:3194</c>.
     /// </summary>
     /// <param name="key">The key.</param>
     /// <returns>The vector, or the zero vector.</returns>

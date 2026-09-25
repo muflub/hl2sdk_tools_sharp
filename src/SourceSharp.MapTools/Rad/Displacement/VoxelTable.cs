@@ -4,26 +4,26 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 
 /// <summary>
 /// A sample-hash voxel: stock's <c>SampleData_t</c> / <c>PatchSampleData_t</c>
-/// key (<c>vrad.h:555-566</c>), the integer voxel coordinates of a 64-unit grid.
+/// key, the integer voxel coordinates of a 64-unit grid.
 /// </summary>
 /// <param name="X">The voxel column.</param>
 /// <param name="Y">The voxel row.</param>
 /// <param name="Z">The voxel layer.</param>
 /// <remarks>
 /// Stock stores <c>x * 100</c>, <c>y * 10</c> and <c>z</c> and hashes their SUM
-/// (<c>samplehash.cpp:33</c>), but compares the three fields
-/// (<c>:24-29</c>), so a voxel's identity is exactly its three coordinates and
+/// But compares the three fields
+/// So a voxel's identity is exactly its three coordinates and
 /// the scaled form is only a bucket choice. The coordinates come from
 /// <c>(int)(p / 64)</c>, which truncates toward zero: voxel 0 spans (-64, 64).
 /// </remarks>
 public readonly record struct VoxelKey(int X, int Y, int Z)
 {
-    /// <summary><c>SAMPLEHASH_VOXEL_SIZE</c>, <c>vrad.h:551</c>.</summary>
+    /// <summary><c>SAMPLEHASH_VOXEL_SIZE</c>.</summary>
     public const float VoxelSize = 64.0f;
 
     /// <summary>
     /// The voxel of a point, as <c>SampleData_InsertIntoHashTable</c>
-    /// (<c>samplehash.cpp:62</c>) and <c>GetPatchSampleHashXYZ</c> (<c>:147</c>)
+ /// And <c>GetPatchSampleHashXYZ</c>
     /// compute it: a float divide by 64, truncated.
     /// </summary>
     /// <param name="x">X.</param>
@@ -44,13 +44,13 @@ public readonly record struct VoxelKey(int X, int Y, int Z)
 /// <summary>
 /// An immutable voxel-to-items table built in parallel and deterministically:
 /// the storage behind stock's <c>g_SampleHashTable</c> and
-/// <c>g_PatchSampleHashTable</c> (<c>samplehash.cpp</c>).
+/// <c>g_PatchSampleHashTable</c>.
 /// </summary>
 /// <typeparam name="T">The item (a sample handle, a patch index).</typeparam>
 /// <remarks>
 /// <para>
 /// Stock builds both tables in one serial loop -- "make threaded!!!"
-/// (<c>vrad.cpp:2076</c>) -- appending each item to its voxel's
+/// -- appending each item to its voxel's
 /// <c>CUtlVector</c>, so a voxel lists its items in INSERTION order, and the
 /// radial filter that reads them sums floats in that order. This builds the
 /// same lists in parallel: entries are cut into fixed chunks, each chunk
@@ -129,7 +129,7 @@ public sealed class VoxelTable<T>
         const int mask = ShardCount - 1;
         WorkQueueOptions stage = new() { Stage = "Build Patch/Sample Hash Table(s)" };
 
-        // 1. Count per (chunk, shard).
+        // Count per (chunk, shard).
         int[] counts = new int[chunks * ShardCount];
         await queue.RunAsync(
             chunks,
@@ -144,7 +144,7 @@ public sealed class VoxelTable<T>
             stage,
             cancellationToken).ConfigureAwait(false);
 
-        // 2. Offsets: shard-major, chunk order inside a shard.
+        // Offsets: shard-major, chunk order inside a shard.
         int[] offsets = new int[chunks * ShardCount];
         int[] shardSize = new int[ShardCount];
         for (int s = 0; s < ShardCount; s++)
@@ -167,7 +167,7 @@ public sealed class VoxelTable<T>
             shardItems[s] = new T[shardSize[s]];
         }
 
-        // 3. Scatter, keeping entry order within each shard.
+        // Scatter, keeping entry order within each shard.
         await queue.RunAsync(
             chunks,
             (c, _) =>
@@ -190,7 +190,7 @@ public sealed class VoxelTable<T>
             stage,
             cancellationToken).ConfigureAwait(false);
 
-        // 4. Group each shard by voxel, in entry order.
+        // Group each shard by voxel, in entry order.
         Dictionary<VoxelKey, (int Start, int Count)>[] index = new Dictionary<VoxelKey, (int, int)>[ShardCount];
         T[][] grouped = new T[ShardCount][];
         await queue.RunAsync(

@@ -15,7 +15,7 @@ namespace SourceSharp.MapTools.Bsp.Write;
 /// <summary>
 /// Called for every face <c>EmitFace</c> writes whose original side carries
 /// overlays: <c>Overlay_AddFaceToLists</c> and
-/// <c>OverlayTransition_AddFaceToLists</c> (<c>writebsp.cpp:519-534</c>).
+/// <c>OverlayTransition_AddFaceToLists</c>.
 /// </summary>
 /// <remarks>
 /// Phase 3g's. The write stage only knows WHEN it happens: the face's final
@@ -38,7 +38,6 @@ internal interface IOverlayFaceSink
 /// <c>WriteBSP</c> and everything it calls: numbering the tree into LUMP_NODES
 /// and LUMP_LEAFS, the faces into LUMP_FACES / ORIGINALFACES / FACEIDS, their
 /// edges into LUMP_EDGES / SURFEDGES, and the leaf face and brush lists
-/// (<c>src/utils/vbsp/writebsp.cpp:68-942</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -52,7 +51,7 @@ internal interface IOverlayFaceSink
 /// <para>
 /// One instance per compile, because two of its tables outlive a model:
 /// <c>pOrigFaceSideList</c> is a static that is cleared once
-/// (<c>FindOrigFace</c>'s <c>bClear</c>, <c>writebsp.cpp:358</c>) and never
+/// (<c>FindOrigFace</c>'s <c>bClear</c>) and never
 /// again, and the edge table is per map.
 /// </para>
 /// </remarks>
@@ -129,7 +128,7 @@ internal sealed class BspTreeWriter
         return EmitDrawNode(headNode, isWorld);
     }
 
-    /// <summary><c>EmitFace</c> (<c>writebsp.cpp:415</c>).</summary>
+    /// <summary><c>EmitFace</c>.</summary>
     /// <param name="f">The face.</param>
     /// <param name="onNode">Whether it lies on a node (false for detail and displacement faces).</param>
     internal void EmitFace(Face f, bool onNode)
@@ -235,7 +234,7 @@ internal sealed class BspTreeWriter
         }
     }
 
-    /// <summary><c>EmitDrawNode_r</c> (<c>writebsp.cpp:575</c>).</summary>
+    /// <summary><c>EmitDrawNode_r</c>.</summary>
     private int EmitDrawNode(TreeNode node, bool isWorld)
     {
         if (node.IsLeaf)
@@ -313,7 +312,7 @@ internal sealed class BspTreeWriter
         return index;
     }
 
-    /// <summary><c>EmitLeaf</c> (<c>writebsp.cpp:109</c>).</summary>
+    /// <summary><c>EmitLeaf</c>.</summary>
     private void EmitLeaf(TreeNode node, bool isWorld)
     {
         // emit a leaf
@@ -326,7 +325,7 @@ internal sealed class BspTreeWriter
 
         DLeaf leaf = default;
 
-        // Submodels don't have clusters (writebsp.cpp:134-139).
+        // Submodels don't have clusters.
         leaf.Cluster = (short)(isWorld ? node.Cluster : -1);
         leaf.Contents = node.Contents;
 
@@ -338,7 +337,7 @@ internal sealed class BspTreeWriter
         leaf.Maxs = ToShorts(node.Maxs);
 
         // write the leafbrushes: the detail fragments MergeDetailTree
-        // prepended (AddBrushToLeaf, detail.cpp:34) come first, then the
+        // prepended(AddBrushToLeaf) come first, then the
         // leaf's own brushlist.
         leaf.FirstLeafBrush = (ushort)_state.LeafBrushes.Count;
         for (BspBrush? b = _state.Faces.Lists.DetailBrushesOf(node); b is not null; b = b.Next)
@@ -386,7 +385,7 @@ internal sealed class BspTreeWriter
         _state.LeafNodes.Add(node);
     }
 
-    /// <summary><c>EmitMarkFace</c> (<c>writebsp.cpp:68</c>).</summary>
+    /// <summary><c>EmitMarkFace</c>.</summary>
     private void EmitMarkFace(int firstLeafFace, Face f)
     {
         while (f.Merged is not null)
@@ -450,7 +449,7 @@ internal sealed class BspTreeWriter
         _state.LeafBrushes.Add((ushort)brushNumber);
     }
 
-    /// <summary><c>FindOrCreateOrigFace</c> (<c>writebsp.cpp:388</c>).</summary>
+    /// <summary><c>FindOrCreateOrigFace</c>.</summary>
     private int FindOrCreateOrigFace(Face f)
     {
         // check for an original face
@@ -463,7 +462,7 @@ internal sealed class BspTreeWriter
         return index == -1 ? CreateOrigFace(f) : index;
     }
 
-    /// <summary><c>FindOrigFace</c> (<c>writebsp.cpp:349</c>).</summary>
+    /// <summary><c>FindOrigFace</c>.</summary>
     private int FindOrigFace(Face f)
     {
         _origFaceSideList.TryGetValue(f.PlaneNumber, out MapBrushSide? side);
@@ -480,7 +479,7 @@ internal sealed class BspTreeWriter
         return -1;
     }
 
-    /// <summary><c>CreateOrigFace</c> (<c>writebsp.cpp:211</c>).</summary>
+    /// <summary><c>CreateOrigFace</c>.</summary>
     private int CreateOrigFace(Face f)
     {
         // not a real face!
@@ -539,7 +538,7 @@ internal sealed class BspTreeWriter
             int e1 = indices[(i + 1) % points.Length];
 
             // look for matching edges first: the first j >= firstmodeledge
-            // stock's linear scan would stop at (writebsp.cpp:297-318), from
+            // Stock's linear scan would stop at, from
             // the edge table's pair index instead of an O(numedges) walk
             int j = _state.Edges.FindReverseEdge(e0, e1, f.Contents, _state.FirstModelEdge);
 
@@ -571,7 +570,7 @@ internal sealed class BspTreeWriter
     }
 
     // VECTOR_COPY into a short[3]: a C float-to-short conversion, which
-    // truncates toward zero (writebsp.cpp:151).
+    // truncates toward zero.
     private static ShortArray3 ToShorts(Vec3 v)
     {
         ShortArray3 s = default;

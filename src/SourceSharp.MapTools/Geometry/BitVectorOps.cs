@@ -89,7 +89,7 @@ public static class BitVectorOps
     /// <remarks>
     /// <para>
     /// <see cref="BitOperations.PopCount(ulong)"/>, which is one instruction.
-    /// Stock counts a bit at a time (<c>utils/vvis/flow.cpp:32</c>) and does it
+    /// Stock counts a bit at a time and does it
     /// once per leaf when it prints the average cluster visibility, and again
     /// per cluster in <c>CalcVis</c>.
     /// </para>
@@ -146,7 +146,7 @@ public static class BitVectorOps
     /// </exception>
     /// <remarks>
     /// <para>
-    /// <c>utils/vvis/flow.cpp:539-543</c>:
+    ///:
     /// </para>
     /// <code>
     /// more = 0;

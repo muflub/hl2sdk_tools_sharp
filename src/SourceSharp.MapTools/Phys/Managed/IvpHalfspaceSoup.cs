@@ -45,13 +45,12 @@ internal sealed class IvpPoint<T>
 /// soup of its corners.
 /// </summary>
 /// <remarks>
-/// Decompiled from SDK 2013 <c>vphysics.so</c> (md5 95eb3dfb...) with TF2's build checked for
-/// every floating-point expression: <c>ConvexFromPlanes</c> 0011f8a0 (TF2 00120d00),
-/// <c>IVP_Halfspacesoup::add_halfspace</c> 0017edf0 (001835f0), the plane-triple loop 0017f260
-/// (00183a90), the merge insert 0017f190 (001839b0), the three-plane intersection 00200a60
-/// (0020a2b0) and <c>IVP_U_Matrix3::real_invert</c> 00200850 (0020a090). Every expression here is
+/// The behaviour follows the reference IVP builders: <c>ConvexFromPlanes</c> and
+/// <c>IVP_Halfspacesoup::add_halfspace</c>, the plane-triple loop
+/// And <c>IVP_U_Matrix3::real_invert</c>, with the TF2 build checked for
+/// Every floating-point expression. Every expression here is
 /// grouped as GCC emitted it (-ffast-math reassociates, so the source grouping is not what ran);
-/// both builds were found to group these identically.
+/// both reference builds were found to group these identically.
 /// </remarks>
 /// <typeparam name="T">IVP_DOUBLE.</typeparam>
 /// <typeparam name="TP">The precision policy.</typeparam>
@@ -74,7 +73,7 @@ internal static class IvpHalfspaceSoup<T, TP>
         float mergeDistance,
         out T mergeIvp)
     {
-        // 0011f8a0: mergeDistance = mergeDistance * 0.0254f (float), widened to IVP_DOUBLE.
+        // mergeDistance = mergeDistance * 0.0254f (float), widened to IVP_DOUBLE.
         mergeIvp = T.CreateTruncating(mergeDistance * HlToIvp);
         var soup = new List<IvpPoint<T>>(planes.Length);
         foreach ((float nx, float ny, float nz, float d) in planes)
@@ -132,7 +131,7 @@ internal static class IvpHalfspaceSoup<T, TP>
     }
 
     /// <summary>
-    /// 0017f260: intersect every plane triple, keep the points inside every halfspace, and merge
+    /// Intersect every plane triple, keep the points inside every halfspace, and merge
     /// points closer than the merge distance.
     /// </summary>
     /// <param name="soup">The halfspaces.</param>
@@ -200,7 +199,7 @@ internal static class IvpHalfspaceSoup<T, TP>
         return points;
     }
 
-    /// <summary>0017f190: append a point unless one is already within the merge distance.</summary>
+    /// <summary>: append a point unless one is already within the merge distance.</summary>
     /// <param name="p">The point.</param>
     /// <param name="points">The list.</param>
     /// <param name="merge2">Merge distance squared.</param>
@@ -221,8 +220,8 @@ internal static class IvpHalfspaceSoup<T, TP>
     }
 
     /// <summary>
-    /// 00200a60: the point where three planes meet, by inverting the matrix of their normals
-    /// (00200850, <c>IVP_U_Matrix3::real_invert</c>).
+    /// The point where three planes meet, by inverting the matrix of their normals
+    /// (<c>IVP_U_Matrix3::real_invert</c>).
     /// </summary>
     /// <param name="a">First plane.</param>
     /// <param name="b">Second plane.</param>
@@ -243,7 +242,7 @@ internal static class IvpHalfspaceSoup<T, TP>
         T c2 = (m21 * m10) - (m11 * m20);
         T det = ((m00 * c0) + (m01 * c1)) + (m02 * c2);
 
-        // comiss eps, |det| ; jbe ok: fails only when |det| < eps (NaN passes, as in the binary).
+        // comiss eps, |det| ; jbe ok: fails only when |det| < eps (NaN passes, as stock does).
         T eps = TP.IsDouble ? T.CreateTruncating(1e-19) : T.CreateTruncating(1.0e-10f);
         if (T.Abs(det) < eps)
         {

@@ -26,13 +26,13 @@ public sealed class VbspResult
 
     /// <summary>
     /// The compiled map, or null when <c>-leaktest</c> stopped the compile at
-    /// a leak (stock exits without writing, <c>vbsp.cpp:302-306</c>).
+    /// a leak(stock exits without writing).
     /// </summary>
     public BspData? Bsp { get; }
 
     /// <summary>
     /// The portal file vvis reads, or null when the map leaked: stock writes
-    /// one only for a sealed world (<c>vbsp.cpp:368</c>).
+    /// one only for a sealed world.
     /// </summary>
     public PortalFile? Portals { get; }
 
@@ -44,7 +44,7 @@ public sealed class VbspResult
 }
 
 /// <summary>
-/// vbsp: a loaded map in, a BSP out (<c>src/utils/vbsp/vbsp.cpp</c>).
+/// Vbsp: a loaded map in, a BSP out.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -54,7 +54,7 @@ public sealed class VbspResult
 /// </para>
 /// <para>
 /// <b>Serial, as stock is.</b> Stock parses <c>-threads</c> and then forces
-/// <c>numthreads = 1</c> (<c>vbsp.cpp:1302</c>); every index this stage
+/// <c>numthreads = 1</c>; every index this stage
 /// assigns — planes, nodes, leaves, faces, edges, vertices — is assigned in
 /// one walk. The CPU work runs on the compile's own dedicated worker, not on
 /// the caller's thread or the host's thread pool. Parallelising the stages
@@ -67,7 +67,7 @@ public sealed class VbspResult
 /// taken dies in <c>HashVec</c> with stock's
 /// <c>"HashVec: point outside valid range"</c>
 /// (<see cref="Faces.VertexWeld.HashVec"/>, the repo's port of
-/// <c>faces.cpp:91</c>) on the first welded point rather than compiling a
+///) on the first welded point rather than compiling a
 /// wrong map.
 /// </para>
 /// </remarks>
@@ -138,7 +138,7 @@ public static class Vbsp
     /// <summary>
     /// <c>-onlyents</c> / <c>-onlyprops</c>: re-reads the entities (and the
     /// static props) from the map into an already compiled BSP
-    /// (<c>vbsp.cpp:1349-1402</c>).
+    ///.
     /// </summary>
     /// <param name="existing">The previously compiled BSP. It is modified and returned.</param>
     /// <param name="map">The freshly loaded map.</param>

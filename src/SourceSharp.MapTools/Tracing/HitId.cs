@@ -16,10 +16,10 @@ namespace SourceSharp.MapTools.Tracing;
 /// <c>Origin + Fraction * Direction</c>. Undefined on a miss. It CAN EXCEED
 /// <see cref="Ray.MaxDistance"/> on <see cref="KdRayTracer"/>: stock's
 /// <c>Trace4Rays</c> does not clip a hit to <c>TMax</c>
-/// (<c>raytrace.cpp:496</c> is commented out), so a surface just beyond the
+/// (is commented out), so a surface just beyond the
 /// segment's end can be reported. A caller that asks about the segment tests
 /// <c>Fraction &lt; MaxDistance</c> itself, as stock's do
-/// (<c>trace.cpp:171</c>), or asks <see cref="IRayTracer.TraceVisibilityAsync"/>,
+/// Or asks <see cref="IRayTracer.TraceVisibilityAsync"/>,
 /// which honours the end.
 /// </param>
 /// <remarks>
@@ -53,7 +53,7 @@ namespace SourceSharp.MapTools.Tracing;
 /// <description>
 /// "Has luxel" is not information either. Stock sets it on every path that
 /// sets <c>m_pSurface</c> EXCEPT the sky path
-/// (<c>vraddetailprops.cpp:391-396</c>), so it is exactly
+/// So it is exactly
 /// "hit something, and that something is not a <c>SURF_SKY</c> face" -- which
 /// the caller reads off the returned surface's own texinfo flags.
 /// </description>

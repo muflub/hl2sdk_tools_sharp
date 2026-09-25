@@ -8,9 +8,9 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Layout (little-endian; field semantics from the 2018 engine drop's <c>vphysics/ledgewriter.cpp</c>,
+/// Layout (little-endian; field semantics from the reference implementation's format,
 /// bit positions from the MIT-licensed VPhysics-Jolt <c>ivp_compat</c> structs, and every field
-/// confirmed against the SDK 2013 generator at 0019d1f0/0019d5b0):
+/// Confirmed byte for byte against stock output):
 /// </para>
 /// <code>
 /// +0   int  c_point_offset        (from this ledge to its first point)
@@ -41,8 +41,7 @@ internal sealed class IvpCompactLedge
         var ledge = new IvpCompactLedge(new byte[size]);
         ledge.PointOffset = 16 + (16 * triangles);
         ledge.TriangleCount = (short)triangles;
-
-        // 0019d5b0: size_div_16 << 8 | (flags & 0xf3 | 4) -- is_compact = 1, has_children = 0.
+        // Size_div_16 << 8 | (flags & 0xf3 | 4) -- is_compact = 1, has_children = 0.
         ledge.FlagsWord = ((uint)(size >> 4) << 8) | 4u;
         return ledge;
     }

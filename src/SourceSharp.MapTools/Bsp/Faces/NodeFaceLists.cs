@@ -6,8 +6,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// <summary>
 /// The three per-node lists faces live on: <c>node-&gt;faces</c>,
 /// <c>node-&gt;leaffacelist</c> and the detail brushes
-/// <c>node-&gt;brushlist</c> gains (<c>node_t</c>,
-/// <c>src/utils/vbsp/vbsp.h:199</c>).
+/// <c>node-&gt;brushlist</c> gains (<c>node_t</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -35,14 +34,14 @@ public sealed class NodeFaceLists
 
     /// <summary>
     /// The face a portal produced on one side (<c>portal_t::face[2]</c>,
-    /// <c>vbsp.h:233</c>), as <c>MakeFaces_r</c> assigned it
-    /// (<c>faces.cpp:1437</c>).
+    ///), as <c>MakeFaces_r</c> assigned it
+    ///.
     /// </summary>
     /// <param name="portal">The portal.</param>
     /// <param name="side">0 for the front node's side, 1 for the back's.</param>
     /// <returns>The face, or null when that side is not visible.</returns>
     /// <remarks>
-    /// <c>EmitLeaf</c> (<c>writebsp.cpp:186</c>) builds every leaf's face list
+    /// <c>EmitLeaf</c> builds every leaf's face list
     /// by walking the leaf's portals and reading exactly this, so it is the
     /// write stage's only way from a leaf to the faces that bound it.
     /// </remarks>
@@ -140,7 +139,7 @@ public sealed class NodeFaceLists
 
     /// <summary>
     /// The detail brush fragments filtered into a leaf
-    /// (<c>AddBrushToLeaf</c>, <c>detail.cpp:34</c>).
+    /// (<c>AddBrushToLeaf</c>).
     /// </summary>
     /// <param name="node">The leaf.</param>
     /// <returns>The head of the chain, or null.</returns>

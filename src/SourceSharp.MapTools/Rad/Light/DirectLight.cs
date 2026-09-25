@@ -5,7 +5,6 @@ namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
 /// One light source as vrad resolves it: <c>directlight_t</c>
-/// (<c>vrad.h:66</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -23,9 +22,9 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </para>
 /// <para>
 /// The six <see cref="EmitType"/> values are not six equal cases.
-/// <see cref="EmitType.QuakeLight"/> is declared in <c>bspfile.h</c> and
+/// <see cref="EmitType.QuakeLight"/> is declared in the reference implementation and
 /// produced by nothing in <c>src/utils/vrad</c>, and
-/// <c>GatherSampleLightSSE</c>'s switch (<c>lightmap.cpp:2016-2034</c>) has no
+/// <c>GatherSampleLightSSE</c>'s switch has no
 /// case for it -- it falls to <c>Error("Bad dl->light.type")</c>. The other
 /// five split three ways: sky and sky-ambient trace toward the sky, and point,
 /// surface and spotlight share one falloff function.
@@ -49,7 +48,7 @@ public sealed class DirectLight
     /// The light's colour, in vrad's 0..255 linear scale.
     /// </summary>
     /// <remarks>
-    /// Divided by 255 on the way into the BSP (<c>lightmap.cpp:1647</c>), with
+    /// Divided by 255 on the way into the BSP, with
     /// stock's own comment asking why. The scale is arbitrary-but-consistent
     /// and so is reproduced rather than normalised.
     /// </remarks>
@@ -86,9 +85,9 @@ public sealed class DirectLight
     /// The face this light was emitted from, or -1.
     /// </summary>
     /// <remarks>
-    /// Set to -1 by <c>AllocDLight</c> (<c>lightmap.cpp:980</c>) and never
+    /// Set to -1 by <c>AllocDLight</c> and never
     /// assigned anything else anywhere in <c>src/utils/vrad</c>. It is still
-    /// READ, at <c>lightmap.cpp:1846</c>, where <c>dl-&gt;facenum == -1</c>
+    /// READ, where <c>dl-&gt;facenum == -1</c>
     /// gates whether the light's own origin is used as the ray source -- so the
     /// branch is always taken and the other branch leaves the source at the
     /// world origin. Carried because the test is real code on a real path, and
@@ -117,7 +116,7 @@ public sealed class DirectLight
     /// </summary>
     /// <remarks>
     /// Initialised to -1 with <see cref="StartFadeDistance"/> at 0
-    /// (<c>vrad.h:96-97</c>), and stock's comment says the encoding out loud:
+    /// And stock's comment says the encoding out loud:
     /// "end&lt;start indicates not set".
     /// </remarks>
     public float EndFadeDistance { get; set; } = -1.0f;

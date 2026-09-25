@@ -8,20 +8,20 @@ using SourceSharp.MapTools.Options;
 namespace SourceSharp.MapTools.Bsp.Cubemaps;
 
 /// <summary>
-/// The load-time half of <c>utils/vbsp/cubemap.cpp</c>: pointing specular
+/// The load-time half of the reference implementation: pointing specular
 /// brush sides at a per-cubemap patch of their material, and collecting the
 /// names of the cubemap VTFs the default-cubemap pass must write.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Stock call order</b> (<c>vbsp.cpp:1418-1424</c>), all after
+/// <b>Stock call order</b>, all after
 /// <c>LoadMapFile</c> and <c>WorldVertexTransitionFixup</c> and only when
 /// <c>g_nDXLevel</c> is 0 or at least 70:
 /// <see cref="FixupBrushSidesMaterialsAsync"/>, then
 /// <see cref="AttachDefaultCubemapToSpecularSidesAsync"/>, then
 /// <see cref="AddUnreferencedCubemaps"/>. The names gathered here are consumed
 /// much later by <see cref="DefaultCubemapBuilder"/>, which stock runs after
-/// <c>ProcessModels</c> and before <c>EndBSPFile</c> (<c>vbsp.cpp:884</c>).
+/// <c>ProcessModels</c> and before <c>EndBSPFile</c>.
 /// </para>
 /// <para>
 /// One instance per compile; it holds what stock keeps in the statics
@@ -30,17 +30,17 @@ namespace SourceSharp.MapTools.Bsp.Cubemaps;
 /// </para>
 /// <para>
 /// A displacement side's face carries its own copy of the texinfo in stock
-/// (<c>pSide-&gt;pMapDisp-&gt;face.texinfo</c>, <c>cubemap.cpp:734-737,950-953</c>).
+/// (<c>pSide-&gt;pMapDisp-&gt;face.texinfo</c>, <c>,950-953</c>).
 /// <see cref="IMapDisplacement"/> has no such field; whoever builds the
 /// displacement face must take the texinfo from the side AFTER these fixups.
 /// </para>
 /// </remarks>
 public sealed class CubemapFixups
 {
-    /// <summary><c>TEXTURE_NAME_LENGTH</c>, <c>public/bspfile.h:508</c>.</summary>
+    /// <summary><c>TEXTURE_NAME_LENGTH</c>.</summary>
     public const int TextureNameLength = 128;
 
-    // s_pDependentMaterialVar, cubemap.cpp:136-143, in its order.
+    // s_pDependentMaterialVar, in its order.
     private static string[] DependentMaterialVars => ["$bottommaterial", "$crackmaterial", "$fallbackmaterial"];
 
     private readonly VbspContext _context;
@@ -55,7 +55,6 @@ public sealed class CubemapFixups
     /// The compile. Its <see cref="VbspContext.CubemapSamples"/> are the
     /// <c>env_cubemap</c>s, and each sample's <c>sides</c> string is parsed
     /// here as <c>Cubemap_SaveBrushSides</c> did at load
-    /// (<c>cubemap.cpp:484-502</c>).
     /// </param>
     /// <param name="map">The main map: <c>g_MainMap</c>.</param>
     /// <param name="patcher">The compile's material patcher.</param>
@@ -86,7 +85,7 @@ public sealed class CubemapFixups
 
     /// <summary>
     /// <c>Cubemap_InsertSample</c>'s integer origin: each coordinate converted
-    /// with a C cast, which TRUNCATES toward zero (<c>cubemap.cpp:91-93</c>).
+    /// with a C cast, which TRUNCATES toward zero.
     /// </summary>
     /// <param name="origin">The entity origin.</param>
     /// <returns>The sample origin.</returns>
@@ -94,7 +93,7 @@ public sealed class CubemapFixups
         ((int)origin.X, (int)origin.Y, (int)origin.Z);
 
     /// <summary>
-    /// <c>GeneratePatchedName</c> (<c>cubemap.cpp:508-525</c>):
+    /// <c>GeneratePatchedName</c>:
     /// <c>maps/&lt;map&gt;/&lt;material&gt;[_]x_y_z</c>, slashes forward, lower case.
     /// </summary>
     /// <param name="materialName">The material, or <c>"c"</c> for a cubemap texture.</param>
@@ -103,7 +102,7 @@ public sealed class CubemapFixups
     /// <param name="isMaterialName">True to separate the coordinates with an underscore.</param>
     /// <returns>The name.</returns>
     /// <exception cref="MapCompileException">
-    /// A material name of <see cref="TextureNameLength"/> - 1 characters or more (<c>:514-521</c>).
+ /// A material name of <see cref="TextureNameLength"/> - 1 characters or more.
     /// </exception>
     public static string PatchedName(string materialName, string mapBase, (int X, int Y, int Z) origin, bool isMaterialName)
     {
@@ -125,7 +124,7 @@ public sealed class CubemapFixups
     }
 
     /// <summary>
-    /// <c>Cubemap_FixupBrushSidesMaterials</c> (<c>cubemap.cpp:702-740</c>):
+    /// <c>Cubemap_FixupBrushSidesMaterials</c>:
     /// every side an <c>env_cubemap</c> named gets that cubemap's patch.
     /// </summary>
     /// <param name="cancellationToken">Cancels the material reads.</param>
@@ -159,7 +158,7 @@ public sealed class CubemapFixups
 
     /// <summary>
     /// <c>Cubemap_AttachDefaultCubemapToSpecularSides</c>
-    /// (<c>cubemap.cpp:905-955</c>): every side whose material (or a
+    /// Every side whose material (or a
     /// dependent) has <c>$envmap</c>, and that no <c>env_cubemap</c> named, is
     /// patched to the nearest sample in front of it.
     /// </summary>
@@ -190,7 +189,7 @@ public sealed class CubemapFixups
             }
 
             // A side no kept brush owns (a discarded brush's slot was reused,
-            // map.cpp:3027-3110) reads entities[-1] in stock: memory before
+            //) reads entities[-1] in stock: memory before
             // the array, unreproducible. The world's origin is used instead.
             int entity = sideEntity[i];
             Vec3 entityOrigin = entity >= 0 ? _map.Entities[entity].Origin : Vec3.Zero;
@@ -208,7 +207,7 @@ public sealed class CubemapFixups
     }
 
     /// <summary>
-    /// <c>Cubemap_AddUnreferencedCubemaps</c> (<c>cubemap.cpp:958-995</c>):
+    /// <c>Cubemap_AddUnreferencedCubemaps</c>:
     /// every sample's VTF name, whether or not any side used it.
     /// </summary>
     /// <remarks>
@@ -216,7 +215,7 @@ public sealed class CubemapFixups
     /// (<c>maps/m/c1_2_3</c>) with the stored FILE names
     /// (<c>materials/maps/m/c1_2_3.vtf</c>) and so never matches: every sample
     /// is appended again. Harmless in stock's output, because the writer
-    /// skips a name already in the pak (<c>:461-464</c>): the pak is the same
+ /// skips a name already in the pak: the pak is the same
     /// either way. Reproduced under
     /// <see cref="StockQuirk.CubemapUnreferencedNeverMatches"/>; fixed otherwise.
     /// </remarks>
@@ -229,7 +228,7 @@ public sealed class CubemapFixups
             string file = $"materials/{texture}.vtf";
 
             // Stock compares the bare texture name with the stored FILE names
-            // (cubemap.cpp:980), which never match; Correct compares like with like.
+            // Which never match; Correct compares like with like.
             string wanted = _context.Options.Compliance.Emulates(StockQuirk.CubemapUnreferencedNeverMatches) ? texture : file;
             bool found = _defaultCubemapNames.Any(n => string.Equals(n, wanted, StringComparison.OrdinalIgnoreCase));
             if (!found)
@@ -240,14 +239,14 @@ public sealed class CubemapFixups
     }
 
     /// <summary>
-    /// <c>Cubemap_FindClosestCubemap</c> (<c>cubemap.cpp:835-899</c>).
+    /// <c>Cubemap_FindClosestCubemap</c>.
     /// </summary>
     /// <param name="entityOrigin">The origin of the entity owning the side.</param>
     /// <param name="side">The side.</param>
     /// <returns>
     /// The nearest sample in front of the side's plane, else the nearest
     /// sample, else -1 when there are none; 0 for a side with no winding
-    /// ("a valid (if random) cubemap", <c>:840-842</c>).
+ /// ("a valid (if random) cubemap",).
     /// </returns>
     public int FindClosestCubemap(Vec3 entityOrigin, MapBrushSide side)
     {
@@ -309,7 +308,7 @@ public sealed class CubemapFixups
     }
 
     /// <summary>
-    /// <c>Cubemap_CreateTexInfo</c> (<c>cubemap.cpp:600-682</c>): the texinfo
+    /// <c>Cubemap_CreateTexInfo</c>: the texinfo
     /// of the per-cubemap patch of a side's material, creating the patch,
     /// the texdata and the texinfo as needed.
     /// </summary>
@@ -381,7 +380,7 @@ public sealed class CubemapFixups
         return _context.TexInfos.Add(patched);
     }
 
-    // PatchEnvmapForMaterialAndDependents, cubemap.cpp:531-584. Stock recurses
+    // PatchEnvmapForMaterialAndDependents. Stock recurses
     // without a bound, so a cycle of dependents overflows its stack; the
     // depth bound here turns that crash into "no patch".
     private async ValueTask<bool> PatchEnvmapAsync(
@@ -436,7 +435,7 @@ public sealed class CubemapFixups
         return true;
     }
 
-    // FindDependentMaterial, cubemap.cpp:145-186: the first of the three vars
+    // FindDependentMaterial: the first of the three vars
     // the material has at its top level, skipping one that names the material
     // itself.
     private async ValueTask<(string Name, string Var)?> FindDependentMaterialAsync(
@@ -473,7 +472,7 @@ public sealed class CubemapFixups
         return null;
     }
 
-    // Cubemap_InitCubemapSideData's first loop, cubemap.cpp:775-814, with the
+    // Cubemap_InitCubemapSideData's first loop, with the
     // cache keyed on the texdata's string-table id as stock's is.
     private async ValueTask<bool[]> InitSpecularAsync(CancellationToken cancellationToken)
     {
@@ -504,7 +503,7 @@ public sealed class CubemapFixups
         return specular;
     }
 
-    // DoesMaterialOrDependentsUseEnvmap, cubemap.cpp:758-769.
+    // DoesMaterialOrDependentsUseEnvmap.
     private async ValueTask<bool> UsesEnvmapAsync(string patchedName, int depth, CancellationToken cancellationToken)
     {
         if (depth > 32)
@@ -524,7 +523,7 @@ public sealed class CubemapFixups
         return dependent is { } d && await UsesEnvmapAsync(d.Name, depth + 1, cancellationToken).ConfigureAwait(false);
     }
 
-    // Cubemap_InitCubemapSideData's second loop, cubemap.cpp:817-830.
+    // Cubemap_InitCubemapSideData's second loop.
     private bool[] ManuallyPicked()
     {
         bool[] manual = new bool[_map.BrushSideCount];
@@ -546,7 +545,6 @@ public sealed class CubemapFixups
     /// <summary>
     /// <c>strtok(" ")</c> then <c>sscanf("%d")</c>: each space-separated
     /// token's leading integer, a token with none skipped
-    /// (<c>cubemap.cpp:487-501</c>, <c>overlay.cpp:85-99</c>).
     /// </summary>
     /// <param name="sides">The <c>sides</c> key.</param>
     /// <returns>The ids, in order.</returns>

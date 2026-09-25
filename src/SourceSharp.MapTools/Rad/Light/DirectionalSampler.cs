@@ -3,14 +3,14 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// <c>HaltonSequenceGenerator_t</c> (<c>mathlib/halton.cpp</c>): the radical
+/// <c>HaltonSequenceGenerator_t</c>: the radical
 /// inverse of an integer counter in a prime base.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b>The sequence starts at element 2, not 1.</b> <c>NextValue</c> is
 /// <c>return GetElement(seed++);</c> and <c>GetElement</c> ignores its argument
-/// and reads the MEMBER <c>seed</c> (<c>halton.cpp:25</c>), which the
+/// and reads the MEMBER <c>seed</c>, which the
 /// post-increment has already advanced by the time the body runs. So the
 /// first value of the base-2 sequence is 0.25 (element 2), not 0.5 (element 1).
 /// </para>
@@ -45,7 +45,7 @@ public struct HaltonSequence
         int tmpseed = _seed;
         float ret = 0.0f;
 
-        // halton.cpp:22. `1.0/fbase` is a double divide narrowed to float;
+        // `1.0/fbase` is a double divide narrowed to float;
         // the running `base_inv /= fbase` is float.
         float baseInv = (float)(1.0 / _fbase);
         while (tmpseed != 0)
@@ -61,7 +61,7 @@ public struct HaltonSequence
 }
 
 /// <summary>
-/// <c>DirectionalSampler_t</c> (<c>mathlib/halton.h:43</c>): quasi-random unit
+/// <c>DirectionalSampler_t</c>: quasi-random unit
 /// vectors, the directions of sky ambient rays and of sun jitter.
 /// </summary>
 /// <remarks>

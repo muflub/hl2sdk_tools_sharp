@@ -17,7 +17,7 @@ public enum ShaderLightmapRule
 
     /// <summary>
     /// Only when <c>$basetexture</c> is defined
-    /// (<c>LightmappedReflective</c>, <c>lightmappedreflective.cpp:50-53</c>).
+    /// (<c>LightmappedReflective</c>).
     /// </summary>
     WhenBaseTexture,
 }
@@ -32,20 +32,20 @@ public enum ShaderBumpedLightmapRule
 
     /// <summary>
     /// <c>$bumpmap</c> defined and <c>$nodiffusebumplighting</c> zero —
-    /// <c>lightmappedgeneric_dx9_helper.cpp:161-164</c>, shared by
+    /// Shared by
     /// <c>LightmappedGeneric</c>, <c>WorldVertexTransition</c> and
     /// <c>WorldTwoTextureBlend</c>.
     /// </summary>
     BumpMapWithoutNoDiffuse,
 
     /// <summary>
-    /// <c>$normalmap</c> defined (<c>water.cpp:124-127</c>).
+    /// <c>$normalmap</c> defined.
     /// </summary>
     NormalMap,
 
     /// <summary>
     /// <c>$basetexture</c> AND <c>$normalmap</c> defined
-    /// (<c>lightmappedreflective.cpp:50-57</c>: the bumped test is nested
+    /// (: the bumped test is nested
     /// inside the basetexture one).
     /// </summary>
     NormalMapWithBaseTexture,
@@ -91,7 +91,7 @@ public readonly record struct MaterialShaderRule(
     /// <c>g_pConfig-&gt;UseBumpmapping()</c>. True for a default
     /// <c>MaterialSystem_Config_t</c>, which is what
     /// <c>InitMaterialSystem</c> hands the compilers
-    /// (<c>utilmatlib.cpp:57-62</c>), so true is what a map compile sees.
+    /// So true is what a map compile sees.
     /// </param>
     /// <returns>True when the shader would ask for bumped lightmaps.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="material"/> is null.</exception>
@@ -132,7 +132,7 @@ public readonly record struct MaterialShaderRule(
 /// exactly two lighting questions and both are answered by flags a shader sets
 /// in <c>SHADER_INIT_PARAMS</c> — <c>MATERIAL_VAR2_LIGHTING_LIGHTMAP</c> and
 /// <c>MATERIAL_VAR2_LIGHTING_BUMPED_LIGHTMAP</c>
-/// (<c>public/materialsystem/imaterial.h:404-405</c>). Grepping
+/// Grepping
 /// <c>src/materialsystem/stdshaders</c> for those two names gives the complete
 /// list, and this is it.
 /// </para>
@@ -144,7 +144,7 @@ public readonly record struct MaterialShaderRule(
 /// the empty shader API claims. Both the fallback targets and the names a VMT
 /// actually uses are in the table, so either spelling answers the same. The
 /// one consumer that looks at the string itself
-/// (<c>textures.cpp:253-254</c>) compares only the first five characters
+/// Compares only the first five characters
 /// against <c>"water"</c>, which every spelling shares.
 /// </para>
 /// </remarks>
@@ -156,25 +156,25 @@ public static class MaterialShaderTable
     /// </summary>
     public static ImmutableArray<MaterialShaderRule> Rules { get; } =
     [
-        // lightmappedgeneric_dx9_helper.cpp:160-164
+        //
         new("LightmappedGeneric", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.BumpMapWithoutNoDiffuse),
         new("LightmappedGeneric_DX9", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.BumpMapWithoutNoDiffuse),
         new("LightmappedGeneric_DX8", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.BumpMapWithoutNoDiffuse),
         new("LightmappedGeneric_DX6", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
 
-        // worldvertextransition.cpp:13 routes the DX9 shader through the
+        // Routes the DX9 shader through the
         // LightmappedGeneric helper, so the rule is the same one.
         new("WorldVertexTransition", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.BumpMapWithoutNoDiffuse),
         new("WorldVertexTransition_DX9", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.BumpMapWithoutNoDiffuse),
         new("WorldVertexTransition_DX8", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.BumpMapWithoutNoDiffuse),
         new("WorldVertexTransition_DX6", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
 
-        // worldtwotextureblend.cpp:117-121
+        //
         new("WorldTwoTextureBlend", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.BumpMapWithoutNoDiffuse),
         new("WorldTwoTextureBlend_DX8", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.BumpMapWithoutNoDiffuse),
         new("WorldTwoTextureBlend_DX6", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
 
-        // water.cpp:118-127
+        //
         new("Water", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.NormalMap),
         new("Water_DX90", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.NormalMap),
         new("Water_DX9_HDR", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.NormalMap),
@@ -182,27 +182,27 @@ public static class MaterialShaderTable
         new("Water_DX80", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.NormalMap),
         new("Water_DX60", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
 
-        // lightmappedreflective.cpp:50-57 -- the only conditional lightmap.
+        // -- the only conditional lightmap.
         new("LightmappedReflective", ShaderLightmapRule.WhenBaseTexture, ShaderBumpedLightmapRule.NormalMapWithBaseTexture),
 
-        // lightmappedtwotexture.cpp:31
+        //
         new("LightmappedTwoTexture", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
 
-        // lightmappedgeneric_decal.cpp:45
+        //
         new("LightmappedGeneric_Decal", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
 
-        // worldvertexalpha.cpp:23
+        //
         new("WorldVertexAlpha", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
         new("WorldVertexAlpha_DX8", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
 
-        // DecalBaseTimesLightmapAlphaBlendSelfIllum_dx9.cpp:46 and the dx8/dx6
+        // And the dx8/dx6
         // copies at the same place in each.
         new("DecalBaseTimesLightmapAlphaBlendSelfIllum", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
         new("DecalBaseTimesLightmapAlphaBlendSelfIllum_DX9", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
         new("DecalBaseTimesLightmapAlphaBlendSelfIllum_DX8", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
         new("DecalBaseTimesLightmapAlphaBlendSelfIllum_DX6", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
 
-        // debugluxel.cpp:28 and overlay_fit.cpp:34 -- SHADER_NOT_EDITABLE, so
+        // And -- SHADER_NOT_EDITABLE, so
         // no VMT should name them, but vbsp would answer for them if one did.
         new("DebugLuxels", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),
         new("Overlay_Fit", ShaderLightmapRule.Always, ShaderBumpedLightmapRule.Never),

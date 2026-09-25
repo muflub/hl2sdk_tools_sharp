@@ -24,7 +24,7 @@ namespace SourceSharp.MapTools.Rad;
 /// loading and in the acceleration-structure build, both of which live here.
 /// Stock's only visible half of that is its own
 /// <c>Setting up ray-trace acceleration structure... Done (%.2f seconds)</c>
-/// (<c>vrad.cpp:2286-2290</c>), which on this project's golden map goes from
+/// Which on this project's golden map goes from
 /// 0.41 s to 1.27 s; the LOAD half it never prints at all.
 /// </remarks>
 public readonly record struct ShadowCasterLoadReport(
@@ -44,7 +44,7 @@ public readonly record struct ShadowCasterLoadReport(
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is <c>VRAD_LoadBSP</c>'s caster half (<c>vrad.cpp:2240, 2277, 2278,
+/// This is <c>VRAD_LoadBSP</c>'s caster half (<c>, 2277, 2278,
 /// 2279</c>) with the globals replaced by arguments and the result returned
 /// rather than left in a file-scope variable. The ORDER of the four calls is
 /// reproduced exactly, and it is not cosmetic: the caster list is append-only,
@@ -54,14 +54,14 @@ public readonly record struct ShadowCasterLoadReport(
 /// <para>
 /// Stock's order has one feature worth stating because it looks like a
 /// mistake: <c>ExtractBrushEntityShadowCasters</c> runs at
-/// <c>vrad.cpp:2240</c>, thirty-seven lines BEFORE the world's own brushes at
-/// <c>:2277</c>. So an entity's brushes come first in the list. Nothing in
+/// Thirty-seven lines BEFORE the world's own brushes at
+///So an entity's brushes come first in the list. Nothing
 /// stock depends on that, but a dump compared triangle for triangle does.
 /// </para>
 /// <para>
 /// WHAT THIS DELIBERATELY DOES NOT DO is build the acceleration structure.
-/// Stock keeps those separate too (<c>vrad.cpp:2288</c>), and it has to:
-/// <c>ChangeIntoIntersectionFormat</c> (<c>raytrace.cpp:186</c>) overwrites
+/// Stock keeps those separate too, and it has to:
+/// <c>ChangeIntoIntersectionFormat</c> overwrites
 /// each triangle's vertices with plane and edge equations, so after the build
 /// there is nothing left to compare against stock's own dump. Call
 /// <see cref="ShadowCasterSet.BuildTracer(Options.ComplianceOptions)"/> afterwards.
@@ -82,7 +82,7 @@ public static class ShadowCasterLoader
     /// managed answer yet.
     /// </param>
     /// <param name="noShadowMaterials">
-    /// The <c>noshadow</c> names from <c>lights.rad</c> (<c>vrad.cpp:232</c>).
+    /// The <c>noshadow</c> names from <c>lights.rad</c>.
     /// </param>
     /// <param name="transparency">
     /// The <c>-textureshadows</c> hook, or null when the switch is off.
@@ -109,7 +109,7 @@ public static class ShadowCasterLoader
 
         ShadowCasterBuilder builder = new() { Compliance = options.Compliance };
 
-        // vrad.cpp:2221-2234 picks g_pFaces once, before any of this. The HDR
+        // Picks g_pFaces once, before any of this. The HDR
         // face lump is written only when it DIFFERS from the LDR one, so an
         // HDR run on a map without it reads the LDR faces -- which is why the
         // emptiness test is here and not only the range test.
@@ -118,19 +118,17 @@ public static class ShadowCasterLoader
 
         long start = Stopwatch.GetTimestamp();
 
-        // vrad.cpp:2240. Entities first, before the world's own brushes.
+        // Entities first, before the world's own brushes.
         List<BspEntity> entities = EntityLump.Parse(bsp[BspLump.Entities]);
         BrushShadowCasters.AddBrushEntities(bsp, entities, builder, options.Compliance);
 
-        // vrad.cpp:2277. Brushes, then the sky faces of the same model.
+        // Brushes, then the sky faces of the same model.
         BrushShadowCasters.AddWorld(bsp, useHdrFaces, builder, options.Compliance);
         long afterBrushes = Stopwatch.GetTimestamp();
 
-        // vrad.cpp:2278.
         DisplacementShadowCasters.Add(bsp, builder);
         long afterDisplacements = Stopwatch.GetTimestamp();
 
-        // vrad.cpp:2279.
         StaticPropShadowCasterReport props = await AddPropsAsync(
                 bsp, options, content, collision, noShadowMaterials, transparency, builder,
                 cancellationToken)
@@ -168,7 +166,7 @@ public static class ShadowCasterLoader
         if (sprp is null)
         {
             // UnserializeStaticProps reads GameLumpSize BEFORE checking the
-            // handle (vradstaticprops.cpp:1061), so an absent sprp indexes a
+            // handle, so an absent sprp indexes a
             // CUtlLinkedList out of range and reads garbage, which then trips
             // the version check. That is measured, not inferred -- an earlier
             // lane deleted the lump from this map and watched it happen. A map

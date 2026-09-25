@@ -15,14 +15,14 @@ namespace SourceSharp.MapTools.Rad;
 /// </param>
 /// <param name="ConvexCount">
 /// How many convex pieces the triangles came from. Recorded rather than
-/// computed because <c>vradstaticprops.cpp:1847</c> loops convexes and then
+/// computed because loops convexes and then
 /// triangles, and a caster set that flattened the two loops could not be
 /// compared against a dump that did not.
 /// </param>
 /// <remarks>
 /// MODEL SPACE, not world space. The caller applies
 /// <c>VMatrix::SetupMatrixOrgAngles( prop.m_Origin, prop.m_Angles )</c> per
-/// prop (<c>vradstaticprops.cpp:1845</c>), so one load serves every prop that
+/// prop, so one load serves every prop that
 /// shares a model -- which is the whole reason stock keeps the collide in the
 /// model dictionary rather than per prop.
 /// </remarks>
@@ -47,13 +47,13 @@ public sealed record PropCollisionMesh(
 /// </para>
 /// <para>
 /// Stock's <c>CVradStaticPropMgr::CreateCollisionModel</c>
-/// (<c>vradstaticprops.cpp:942</c>) gets a <c>CPhysCollide*</c> down two
+/// Gets a <c>CPhysCollide*</c> down two
 /// different roads and BOTH of them go through vphysics:
 /// </para>
 /// <list type="bullet">
 /// <item>
 /// <description>
-/// With a usable <c>.phy</c> (<c>vradstaticprops.cpp:965</c>):
+/// With a usable <c>.phy</c>:
 /// <c>IPhysicsCollision::VCollideLoad</c> over the file's solids, then
 /// <c>m_loadedModel.solids[0]</c>. The solid payload is an IVP compact ledge
 /// tree in Havok's private format; nothing in this tree decodes it, stock does
@@ -65,9 +65,9 @@ public sealed record PropCollisionMesh(
 /// </item>
 /// <item>
 /// <description>
-/// With no <c>.phy</c> (<c>vradstaticprops.cpp:978</c>):
+/// With no <c>.phy</c>:
 /// <c>ComputeConvexHull( studiohdr_t* )</c>
-/// (<c>vradstaticprops.cpp:433</c>), which makes ONE CONVEX HULL PER RENDER
+/// Which makes ONE CONVEX HULL PER RENDER
 /// MESH out of that mesh's vertices via
 /// <c>IPhysicsCollision::ConvexFromVerts</c> and glues them together with
 /// <c>ConvertConvexToCollide</c>. That is also vphysics, and it is also not
@@ -89,7 +89,7 @@ public sealed record PropCollisionMesh(
 /// <para>
 /// See <see cref="NullPropCollisionSource"/> for the honest placeholder:
 /// answering null routes every prop to stock's AABB branch
-/// (<c>vradstaticprops.cpp:1861</c>), which is wrong in a way that is visible
+/// Which is wrong in a way that is visible
 /// in the caster count rather than wrong in a way that looks right.
 /// </para>
 /// </remarks>
@@ -100,7 +100,7 @@ public interface IPropCollisionSource
     /// The model's content path, as the <c>sprp</c> dictionary spells it --
     /// <c>models/props_c17/oildrum001.mdl</c>. The implementation derives the
     /// <c>.phy</c> path from it the way
-    /// <c>LoadStudioCollisionModel</c> does (<c>vradstaticprops.cpp:508</c>:
+    /// <c>LoadStudioCollisionModel</c> does (:
     /// <c>Q_SetExtension</c> to <c>.phy</c>).
     /// </param>
     /// <param name="cancellationToken">Cancels the load.</param>
@@ -121,7 +121,7 @@ public interface IPropCollisionSource
 /// Not a mock and not a test double: it is the honest answer for a build with
 /// no vphysics binding, and it is what lets the default (non
 /// <c>-StaticPropPolys</c>) path be exercised end to end today. Every prop
-/// falls to stock's AABB branch (<c>vradstaticprops.cpp:1861</c>) and
+/// Falls to stock's AABB branch and
 /// contributes the twelve triangles of its model's hull box.
 /// </para>
 /// <para>

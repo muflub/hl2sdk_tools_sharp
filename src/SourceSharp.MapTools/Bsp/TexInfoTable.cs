@@ -4,8 +4,8 @@ namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
 /// LUMP_TEXINFO: the <c>texinfo</c> vector,
-/// <c>utils/common/bsplib.h:102</c>, with <c>FindTexInfo</c> and
-/// <c>FindOrCreateTexInfo</c> from <c>utils/vbsp/textures.cpp</c>.
+/// With <c>FindTexInfo</c> and
+/// <c>FindOrCreateTexInfo</c> from the reference implementation.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -25,13 +25,12 @@ public sealed class TexInfoTable
 {
     /// <summary>
     /// The texinfo of a side the BSP has already consumed:
-    /// <c>TEXINFO_NODE</c>, <c>utils/vbsp/vbsp.h:32</c>.
+    /// <c>TEXINFO_NODE</c>.
     /// </summary>
     public const int TexInfoNode = -1;
 
     /// <summary>
     /// The format's ceiling: <c>MAX_MAP_TEXINFO</c>,
-    /// <c>public/bspfile.h:63</c>.
     /// </summary>
     /// <remarks>
     /// Not enforced here, because stock does not enforce it here either: the
@@ -60,7 +59,6 @@ public sealed class TexInfoTable
 
     /// <summary>
     /// Finds an identical entry, or -1: <c>FindTexInfo</c>,
-    /// <c>textures.cpp:536</c>.
     /// </summary>
     /// <param name="search">The entry to look for.</param>
     /// <returns>The index, or -1.</returns>
@@ -90,7 +88,7 @@ public sealed class TexInfoTable
 
     /// <summary>
     /// Finds an identical entry or appends one:
-    /// <c>FindOrCreateTexInfo</c>, <c>textures.cpp:555</c>.
+    /// <c>FindOrCreateTexInfo</c>.
     /// </summary>
     /// <param name="search">The entry.</param>
     /// <returns>The entry's index.</returns>
@@ -107,7 +105,7 @@ public sealed class TexInfoTable
     /// <returns>The entry's index.</returns>
     /// <remarks>
     /// <c>CreateBrushVersionOfWorldVertexTransitionMaterial</c> appends
-    /// directly (<c>worldvertextransitionfixup.cpp:147</c>) rather than going
+    /// Directly rather than going
     /// through <c>FindOrCreateTexInfo</c>, having already decided that no
     /// duplicate can exist. That path needs this one.
     /// </remarks>

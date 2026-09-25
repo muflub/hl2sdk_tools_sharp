@@ -3,7 +3,7 @@ namespace SourceSharp.MapTools.Vis;
 /// <summary>
 /// The run-length coder LUMP_VISIBILITY stores its rows in:
 /// <c>CompressVis</c> and <c>DecompressVis</c>
-/// (<c>src/utils/common/bsplib.cpp:1441</c> and <c>:1477</c>).
+///.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -24,7 +24,7 @@ public static class VisRunLength
 {
     /// <summary>The largest repeat one run can encode.</summary>
     /// <remarks>
-    /// <c>bsplib.cpp:1458</c> breaks the run at <c>rep == 255</c>, so a longer
+    /// Breaks the run at <c>rep == 255</c>, so a longer
     /// stretch of zeroes becomes several runs.
     /// </remarks>
     public const int MaxRepeat = 255;
@@ -41,7 +41,7 @@ public static class VisRunLength
     /// Reached by a row of alternating zero and non-zero bytes: every zero
     /// costs its own byte plus a repeat count of one. Stock has no such bound
     /// and writes straight into the vismap, which is why it needs the
-    /// "Vismap expansion overflow" check (<c>vvis.cpp:270</c>) at all.
+    /// "Vismap expansion overflow" check at all.
     /// </remarks>
     public static int MaxCompressedLength(int rowBytes)
     {
@@ -75,7 +75,7 @@ public static class VisRunLength
 
         int written = 0;
 
-        // bsplib.cpp:1451-1465, including the j-- that hands the byte the inner
+        // Including the j-- that hands the byte the inner
         // loop stopped on back to the outer loop. Written with the same index
         // arithmetic rather than restructured, because the boundary case --
         // stopping at rep == 255 WITHOUT consuming that byte -- is exactly what
@@ -118,11 +118,11 @@ public static class VisRunLength
     /// </param>
     /// <exception cref="InvalidDataException">
     /// A zero byte is followed by a repeat count of zero, which stock treats as
-    /// a fatal error (<c>bsplib.cpp:1497</c>), or the input ends mid-run.
+    /// a fatal error, or the input ends mid-run.
     /// </exception>
     /// <remarks>
     /// Stock's overrun case -- a run that would write past the row -- is
-    /// clamped with a warning rather than an error (<c>bsplib.cpp:1500-1504</c>),
+    /// clamped with a warning rather than an error,
     /// and is clamped here too.
     /// </remarks>
     public static void Decompress(ReadOnlySpan<byte> compressed, Span<byte> row)

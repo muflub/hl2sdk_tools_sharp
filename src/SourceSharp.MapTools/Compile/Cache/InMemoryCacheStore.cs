@@ -5,7 +5,7 @@ namespace SourceSharp.MapTools.Compile.Cache;
 /// <summary>
 /// The package-free store: everything in memory, the whole surface of
 /// <see cref="ICacheStore"/>, the same commit/dedup/integrity semantics the
-/// SQLite store must have (plan_maptools.md 10a).
+/// SQLite store must have.
 /// </summary>
 /// <remarks>
 /// <para>

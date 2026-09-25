@@ -11,10 +11,10 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>ReciprocalSIMD</c> (<c>ssemath.h:2278</c>) is <c>rcpps</c> plus one
-/// Newton step, <c>2y - a*y*y</c>; <c>ReciprocalSqrtSIMD</c> (<c>:2252</c>) is
+/// <c>ReciprocalSIMD</c> is <c>rcpps</c> plus one
+/// Newton step, <c>2y - a*y*y</c>; <c>ReciprocalSqrtSIMD</c> is
 /// <c>rsqrtps</c> plus one, <c>0.5 * y * (3 - a*y*y)</c>; a
-/// <c>FourVectors::VectorNormalize</c> (<c>:2753</c>) multiplies by the latter
+/// <c>FourVectors::VectorNormalize</c> multiplies by the latter
 /// with NO epsilon, unlike the scalar <c>VectorNormalize</c>. The estimate
 /// instructions are architecturally allowed to differ between CPU models, so
 /// the stock form is machine-dependent
@@ -93,7 +93,7 @@ public static class StockSimd
     }
 
     /// <summary>
-    /// <c>PowSIMD</c> (<c>ssemath.h:3024</c>, <c>powsse.cpp:13</c>): <c>x</c> to
+    /// <c>PowSIMD</c>: <c>x</c> to
     /// an exponent held in fixed point with TWO fractional bits.
     /// </summary>
     /// <param name="x">The base.</param>
@@ -145,7 +145,7 @@ public static class StockSimd
         if (fixedExponent < 0)
         {
             RequireSse();
-            // Four_Epsilons is FLT_EPSILON (sseconst.cpp:27), OR-ed into a zero.
+            // Four_Epsilons is FLT_EPSILON, OR-ed into a zero.
             float saturated = result == 0.0f ? 1.1920929e-7f : result;
             return Sse.ReciprocalScalar(Vector128.CreateScalarUnsafe(saturated)).ToScalar();
         }

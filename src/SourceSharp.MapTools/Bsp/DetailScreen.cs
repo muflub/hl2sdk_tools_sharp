@@ -1,14 +1,13 @@
 namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
-/// Which brushes a stage is interested in: <c>detailscreen_e</c>,
-/// <c>utils/vbsp/vbsp.h:451</c>.
+/// Which brushes a stage is interested in: <c>detailscreen_e</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Lives in <c>Bsp</c> rather than in <c>Bsp.Csg</c> or <c>Bsp.Portals</c>
 /// because both of them screen brush lists with it and stock declares it once,
-/// in <c>vbsp.h</c>, above either stage.
+/// In the reference implementation, above either stage.
 /// </para>
 /// <para>
 /// Phases 3b and 3c each defined their own copy, in their own namespace, with

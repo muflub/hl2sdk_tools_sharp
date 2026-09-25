@@ -108,7 +108,7 @@ public static class GameContentMounter
         try
         {
             // Portal 2's sibling content, the way ++ mounts it during
-            // FileSystem setup (dumps/vbsp.all.c:68091-68108): the caller of
+ // FileSystem setup (dumps/vbsp.all.c): the caller of
             // MountPortal2ContentAsync fires once appid==620 — UNCONDITIONALLY
             // on the appid, before and independently of the gameinfo
             // SearchPaths walk at 68100+, and independently of any preset
@@ -218,7 +218,7 @@ public static class GameContentMounter
     /// <remarks>
     /// An app that is not installed is REFUSED, not skipped: the engine stops
     /// with "This mod requires %s (%d) to be installed"
-    /// (<c>public/filesystem_init.cpp:711-719</c>), because a mod that names an
+    /// Because a mod that names an
     /// app's content cannot be built or run without it. Skipping it would
     /// compile every material from that app as missing, with exit code 0.
     /// </remarks>
@@ -252,12 +252,11 @@ public static class GameContentMounter
     /// <c>pak01_dir.vpk</c> before its directory.
     /// </summary>
     /// <remarks>
-    /// Faithful to the dump's loops (<c>MountPortal2ContentAsync</c>,
-    /// <c>dumps/vbsp.all.c</c> around <c>FUN_14004ba10</c>/<c>Local_388</c>):
+    /// Faithful to the reference mounter's loop (<c>MountPortal2ContentAsync</c>):
     /// probe <c>dlc1</c>, <c>dlc2</c>, … while the directory exists, stop at
     /// the first miss, cap at 99, then walk back down from the highest found
     /// mounting vpk-then-directory. The paths are relative to the
-    /// <c>gameinfo.txt</c> directory, not the install (the dump canonicalises
+    /// <c>gameinfo.txt</c> directory, not the install (the reference mounter canonicalises
     /// the gameinfo path and appends <c>/update</c>, <c>/portal2_dlcN</c> to
     /// it), so everything goes through <see cref="MountOneAsync"/> rooted at
     /// <see cref="GameContentRoots.GameInfoDirectory"/>.
@@ -273,7 +272,7 @@ public static class GameContentMounter
 
         // The update dir gates its own pair: no directory, no update mounts.
         // The probe is an enumerate, not ExistsAsync: this file system surface
-        // answers ExistsAsync only for FILES (PhysicalFileSystem.cs:267-271 is
+ // answers ExistsAsync only for FILES (PhysicalFileSystem.cs is
         // File.Exists), so asking it about a directory answers false and the
         // whole block would be unreachable. ++ probes with FindFirstFile on
         // the directory name (dumps/vbsp.all.c, MountPortal2ContentAsync),
@@ -325,7 +324,7 @@ public static class GameContentMounter
     /// <remarks>
     /// There is no directory-exists on <see cref="IFileSystem"/>, and
     /// <see cref="IFileSystem.ExistsAsync"/> is file-only in both implementations
-    /// (<c>PhysicalFileSystem.cs:267-271</c> is <c>File.Exists</c>;
+ /// (<c>PhysicalFileSystem.cs</c> is <c>File.Exists</c>;
     /// <see cref="InMemoryFileSystem"/> has no directories at all — one exists
     /// exactly when a file is under it). Enumerating is the question that means
     /// "the directory is there" on both, and it is what

@@ -3,7 +3,7 @@ using SourceSharp.MapFormats.Bsp.Structs;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// <c>ExportDirectLightsToWorldLights</c> (<c>lightmap.cpp:1626</c>): the
+/// <c>ExportDirectLightsToWorldLights</c>: the
 /// LUMP_WORLDLIGHTS the engine reads back.
 /// </summary>
 /// <remarks>
@@ -18,14 +18,14 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <see cref="DWorldLight.TexInfo"/> and <see cref="DWorldLight.Owner"/>. Stock
 /// writes twelve fields into an entry of the file-scope <c>dworldlights</c>
 /// array and leaves those two holding whatever the array held -- which for a
-/// map compiled once is the zero of a static, and for a map being RE-lit is the
+/// map compiled once is the zero of a static, and for a map being re-lit is the
 /// previous run's value at the same index, matched to a completely different
 /// light. Reproduced as zero, which is what a fresh compile produces; a
 /// re-light is a case this port does not have to reproduce because it never
 /// reads the old lump.
 /// </para>
 /// <para>
-/// <b>The intensity is divided by 255</b> (<c>:1647</c>), with stock's own
+/// <b>The intensity is divided by 255</b>, with stock's own
 /// comment asking "why does vrad want 0 to 255 and not 0 to 1??". So the
 /// lump's units are not vrad's internal units, and a value read back cannot be
 /// fed to the sampler without multiplying again.
@@ -34,7 +34,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 public static class WorldLightExporter
 {
     /// <summary>
-    /// <c>MAX_MAP_WORLDLIGHTS</c> (<c>bspfile.h</c>): 8192.
+    /// <c>MAX_MAP_WORLDLIGHTS</c>: 8192.
     /// </summary>
     public const int MaxWorldLights = 8192;
 

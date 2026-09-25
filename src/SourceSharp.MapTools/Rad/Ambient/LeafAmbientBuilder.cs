@@ -6,7 +6,7 @@ using SourceSharp.MapTools.Parallel;
 namespace SourceSharp.MapTools.Rad.Ambient;
 
 /// <summary>
-/// <c>ComputePerLeafAmbientLighting</c> (<c>leaf_ambient_lighting.cpp:621</c>):
+/// <c>ComputePerLeafAmbientLighting</c>:
 /// the whole leaf-ambient stage.
 /// </summary>
 /// <remarks>
@@ -46,7 +46,7 @@ public static class LeafAmbientBuilder
     /// <summary>The largest number of candidate samples a leaf may draw.</summary>
     public const int MaxSampleCount = 128;
 
-    /// <summary><c>CONTENTS_SOLID</c> (<c>bspflags.h:26</c>).</summary>
+    /// <summary><c>CONTENTS_SOLID</c>.</summary>
     public const int ContentsSolid = 0x1;
 
     /// <summary>
@@ -124,7 +124,7 @@ public static class LeafAmbientBuilder
     }
 
     /// <summary>
-    /// <c>ComputeAmbientForLeaf</c> (<c>leaf_ambient_lighting.cpp:525</c>): one
+    /// <c>ComputeAmbientForLeaf</c>: one
     /// leaf's surviving samples.
     /// </summary>
     /// <param name="scene">The map.</param>
@@ -140,7 +140,7 @@ public static class LeafAmbientBuilder
     /// <paramref name="sampler"/>, the leaf and the options. The leaf's
     /// <see cref="LeafSampler"/> is constructed here, which is what gives every
     /// leaf a stream seeded zero -- stock's <c>CLeafSampler sampler( iThread );</c>
-    /// is a local of this same function (<c>:528</c>). Hoisting it would change
+ /// is a local of this same function. Hoisting it would change
     /// every sample position in the map after the first leaf.
     /// </para>
     /// <para>
@@ -190,7 +190,7 @@ public static class LeafAmbientBuilder
 
     /// <summary>
     /// How many candidate samples a leaf draws
-    /// (<c>leaf_ambient_lighting.cpp:532-546</c>).
+    ///.
     /// </summary>
     /// <param name="scene">The map.</param>
     /// <param name="leafIndex">The leaf.</param>
@@ -337,7 +337,7 @@ public static class LeafAmbientBuilder
 
     /// <summary>
     /// The nearest leaf that has ambient samples
-    /// (<c>NearestNeighborWithLight</c>, <c>leaf_ambient_lighting.cpp:486</c>).
+    /// (<c>NearestNeighborWithLight</c>).
     /// </summary>
     /// <param name="scene">The map.</param>
     /// <param name="index">The index built so far.</param>
@@ -403,7 +403,7 @@ public static class LeafAmbientBuilder
 
     /// <summary>
     /// How far apart two boxes are (<c>AABBDistance</c>,
-    /// <c>leaf_ambient_lighting.cpp:450</c>).
+    ///).
     /// </summary>
     /// <param name="mins0">The first box's low corner.</param>
     /// <param name="maxs0">Its high corner.</param>
@@ -433,7 +433,7 @@ public static class LeafAmbientBuilder
 
     /// <summary>
     /// A position as an eight-bit fraction of a range (<c>Fixed8Fraction</c>,
-    /// <c>leaf_ambient_lighting.cpp:514</c>).
+    ///).
     /// </summary>
     /// <param name="t">The value.</param>
     /// <param name="min">The range's low end.</param>

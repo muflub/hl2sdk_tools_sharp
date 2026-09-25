@@ -21,14 +21,14 @@ public static class MapCompilerCodes
     /// vbsp wrote no portal file (the map leaked, or has no sealed interior),
     /// so vvis did not run and vrad lit the unvised map. That is what a
     /// Hammer-style chain of the stock tools does: vvis fails to open the
-    /// <c>.prt</c> (<c>LoadPortals</c>, <c>vvis.cpp:462</c>) and vrad runs regardless.
+    /// <c>.prt</c>(<c>LoadPortals</c>) and vrad runs regardless.
     /// </summary>
     public const string VisSkipped = "ALL0001";
 }
 
 /// <summary>
 /// The whole compile, vbsp then vvis then vrad, in one process with the BSP
-/// held in memory between the stages (plan_maptools.md 1a, Phase 7).
+/// held in memory between the stages.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,7 +40,7 @@ public static class MapCompilerCodes
 /// </para>
 /// <para>
 /// <b>The portal file is handed over as its text.</b> Stock vvis reads the
-/// windings vbsp wrote with <c>%f</c> (<c>prtfile.cpp:76-83</c>), so the
+/// windings vbsp wrote with <c>%f</c>, so the
 /// precision it computes with is six decimals, not the float vbsp held. So
 /// the chain renders the <c>.prt</c> and parses it back, in memory: the text
 /// is the contract between the two tools, and the chain keeps it, so that its
@@ -56,7 +56,7 @@ public static class MapCompilerCodes
 /// A map with no portal file (leaked, or nothing sealed in it) gets no vvis
 /// and is lit unvised, with a <see cref="MapCompilerCodes.VisSkipped"/>
 /// warning. <c>-leaktest</c> on a leak stops the chain after vbsp, as stock
-/// vbsp stops (<c>vbsp.cpp:302-306</c>).
+/// Vbsp stops.
 /// </para>
 /// </remarks>
 public static class MapCompiler
@@ -105,7 +105,7 @@ public static class MapCompiler
 
         VbspContext vbspContext = new(request.Vbsp, request.Content)
         {
-            // mapbase: the file's base name, lowercased (vbsp.cpp:920-921)
+            // mapbase: the file's base name, lowercased
 #pragma warning disable CA1308 // strlwr
             MapBase = name.ToLowerInvariant(),
 #pragma warning restore CA1308
@@ -124,7 +124,7 @@ public static class MapCompiler
         CompileOutput output = request.Output;
         if (output.WritesFiles)
         {
-            // delete portal and line files (vbsp.cpp:1321-1326)
+            // delete portal and line files
             await chain.DeleteAsync(output.PathFor(name, ".prt"), cancellationToken).ConfigureAwait(false);
             await chain.DeleteAsync(output.PathFor(name, ".lin"), cancellationToken).ConfigureAwait(false);
         }
@@ -152,7 +152,7 @@ public static class MapCompiler
         }
 
         // The collision stage finished inside Vbsp.CompileAsync: what it
-        // staged is now visible to the next run (plan_maptools.md 10a). A
+        // staged is now visible to the next run. A
         // commit that throws is a lost cache, not a lost compile.
         if (chain.CollisionCache is { } collisionCache)
         {
@@ -247,7 +247,7 @@ public static class MapCompiler
             chain.Time("write", mark);
         }
 
-        // The store figures ride the report (ruling Q12); the read happens
+        // The store figures ride the report; the read happens
         // here, on the async path — Render itself never blocks.
         Cache.CacheStats? cacheStats = null;
         if (chain.CollisionCache is not null && request.Cache is { } cacheStore)
@@ -269,7 +269,7 @@ public static class MapCompiler
 
     /// <summary>
     /// Builds the run's collision-cache seam when the request carries a store
-    /// and a cooker (plan_maptools.md 10a); null otherwise.
+    /// and a cooker; null otherwise.
     /// </summary>
     private static Cache.CollisionModelCache? NewCollisionCache(
         CompileRequest request,
@@ -340,7 +340,7 @@ public static class MapCompiler
             }
         }
 
-        // cmdlib.cpp:369 opens the log with "a": each compile appends.
+        // Opens the log with "a": each compile appends.
         public async Task FlushLogAsync(VPath path, CancellationToken cancellationToken)
         {
             if (request.Output.Files is not { } files)

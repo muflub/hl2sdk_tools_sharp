@@ -17,9 +17,9 @@ public enum VisChopResult
 {
     /// <summary>
     /// The winding is unchanged: either it was entirely in front of the plane
-    /// (<c>flow.cpp:147</c>) or the result would have needed more than
+    /// Or the result would have needed more than
     /// <see cref="VisClip.MaxPointsOnFixedWinding"/> points and stock fell back
-    /// to the original (<c>flow.cpp:167-171,189-193</c>).
+ /// To the original.
     /// </summary>
     /// <remarks>
     /// The two are one outcome on purpose. The fallback is not an error path in
@@ -34,7 +34,7 @@ public enum VisChopResult
 
     /// <summary>
     /// The winding is entirely behind the plane and is gone --
-    /// stock's NULL return (<c>flow.cpp:150-154</c>).
+    /// Stock's NULL return.
     /// </summary>
     Empty,
 }
@@ -42,15 +42,15 @@ public enum VisChopResult
 /// <summary>
 /// The two geometric predicates the portal flow is built out of:
 /// <c>ChopWinding</c> and <c>ClipToSeperators</c>
-/// (<c>src/utils/vvis/flow.cpp:118</c> and <c>:239</c>).
+///.
 /// </summary>
 /// <remarks>
 /// <para>
 /// These are pure functions over spans, with no allocation and no shared state,
 /// which is what lets a fact drive one of them directly. That matters more here
 /// than anywhere else in vvis: every bit the tool ever sets is set immediately
-/// after one of these says a sight line survived (<c>flow.cpp:601</c> and
-/// <c>:616</c>), so an error in either is an error in the answer, and an error
+/// after one of these says a sight line survived (and
+///), so an error in either is an error in the answer, and an error
 /// in either is invisible in aggregate -- a PVS that is slightly too large
 /// looks exactly like a PVS that is correct.
 /// </para>
@@ -59,7 +59,7 @@ public enum VisChopResult
 /// polylib, whose windings hold up to 64 points, whose epsilon is polylib's and
 /// whose chop has no fallback. vvis's stack windings are a different type with
 /// a different cap, a different epsilon and a fallback that keeps the original
-/// -- <c>winding_t</c> in <c>vis.h:31</c> is its own struct for exactly that
+/// -- <c>winding_t</c> in the reference implementation is its own struct for exactly that
 /// reason. Sharing the polylib implementation here would be sharing a name, not
 /// an algorithm.
 /// </para>
@@ -80,13 +80,13 @@ public enum VisChopResult
 public static class VisClip
 {
     /// <summary>
-    /// <c>MAX_POINTS_ON_WINDING</c> (<c>src/utils/vvis/vis.h:28</c>): the cap on
+    /// <c>MAX_POINTS_ON_WINDING</c>: the cap on
     /// a winding read from the portal file.
     /// </summary>
     public const int MaxPointsOnWinding = 64;
 
     /// <summary>
-    /// <c>MAX_POINTS_ON_FIXED_WINDING</c> (<c>src/utils/vvis/vis.h:29</c>): the
+    /// <c>MAX_POINTS_ON_FIXED_WINDING</c>: the
     /// cap on a winding produced by a chop.
     /// </summary>
     /// <remarks>
@@ -97,20 +97,20 @@ public static class VisClip
     public const int MaxPointsOnFixedWinding = 12;
 
     /// <summary>
-    /// <c>ON_VIS_EPSILON</c> (<c>src/public/mathlib/mathlib.h:311</c>).
+    /// <c>ON_VIS_EPSILON</c>.
     /// </summary>
     /// <remarks>
     /// <para>
     /// <b>A <see cref="double"/>, and that is not a transcription choice.</b>
     /// The C++ spells it <c>0.01</c> with no <c>f</c>, so every
-    /// <c>float &lt; ON_VIS_EPSILON</c> in <c>flow.cpp</c> promotes its left
+    /// <c>float &lt; ON_VIS_EPSILON</c> in the reference implementation promotes its left
     /// side to double and compares against 0.010000000000000000208, not against
     /// <c>0.01f</c> = 0.0099999997764825821.
     /// </para>
     /// <para>
     /// For the <c>&gt;</c> comparisons that makes no difference, because no
     /// float lies strictly between the two values. For the <c>&lt;</c>
-    /// comparison at <c>flow.cpp:272</c> it decides the case exactly at
+    /// comparison it decides the case exactly at
     /// <c>0.01f</c>: in double that is below the epsilon and the separator is
     /// skipped, in float it is not below and the separator is used. So the
     /// constant is held in double here and every comparison is written to
@@ -125,7 +125,6 @@ public static class VisClip
 
     /// <summary>
     /// Clips a winding by a plane, keeping the front side
-    /// (<c>flow.cpp:118-217</c>).
     /// </summary>
     /// <param name="input">The winding to clip; at most
     /// <see cref="MaxPointsOnWinding"/> points.</param>
@@ -171,7 +170,7 @@ public static class VisClip
                 nameof(output));
         }
 
-        // One past the end, for the sides[i] = sides[0] wrap at flow.cpp:156.
+        // One past the end, for the sides[i] = sides[0] wrap.
         Span<float> dists = stackalloc float[MaxPointsOnWinding + 1];
         Span<int> sides = stackalloc int[MaxPointsOnWinding + 1];
         int front = 0;
@@ -180,7 +179,7 @@ public static class VisClip
         int n = input.Length;
         for (int i = 0; i < n; i++)
         {
-            // flow.cpp:133-134. Two statements, not one expression: the dot is
+            // Two statements, not one expression: the dot is
             // formed first and the plane distance subtracted afterwards. Vec3.Dot
             // is longhand float arithmetic and RyuJIT does not contract on its
             // own, so nothing here fuses into an FMA -- which would change the
@@ -208,14 +207,14 @@ public static class VisClip
 
         if (back == 0)
         {
-            // flow.cpp:147 -- completely on the front side.
+            // -- completely on the front side.
             outputCount = n;
             return VisChopResult.Unchanged;
         }
 
         if (front == 0)
         {
-            // flow.cpp:150 -- nothing survives.
+            // -- nothing survives.
             outputCount = 0;
             return VisChopResult.Empty;
         }
@@ -256,7 +255,7 @@ public static class VisClip
                 return VisChopResult.Unchanged;
             }
 
-            // flow.cpp:196 is `w->points[(i+1)%w->numpoints]`, and i is already
+            // Is `w->points[(i+1)%w->numpoints]`, and i is already
             // known to be below n, so the remainder can only wrap on the last
             // edge. Written as the wrap it is rather than as a division: this
             // line is inside the innermost loop of the innermost function of
@@ -266,7 +265,7 @@ public static class VisClip
             Vec3 p2 = input[i + 1 == n ? 0 : i + 1];
             float dot = dists[i] / (dists[i] - dists[i + 1]);
 
-            // flow.cpp:199-207. The axis-aligned special case: on an axis where
+            // The axis-aligned special case: on an axis where
             // the normal is exactly +-1 the split point's coordinate IS the
             // plane distance, so it is assigned rather than interpolated. Not an
             // optimisation -- it is what keeps a cut against an axial portal
@@ -286,14 +285,14 @@ public static class VisClip
     /// <summary>
     /// Clips <paramref name="target"/> by every separating plane formed from an
     /// edge of <paramref name="source"/> and a vertex of
-    /// <paramref name="pass"/> (<c>flow.cpp:239-375</c>).
+    /// <paramref name="pass"/>.
     /// </summary>
     /// <param name="source">The near portal of the ordering.</param>
     /// <param name="pass">The middle portal of the ordering.</param>
     /// <param name="target">The far portal, the one being clipped.</param>
     /// <param name="flipClip">
     /// True when the ordering is pass, source, target rather than source, pass,
-    /// target -- stock's second call at <c>flow.cpp:611</c>.
+    /// target -- stock's second call.
     /// </param>
     /// <param name="result">
     /// Where the surviving winding is written; at least
@@ -343,7 +342,7 @@ public static class VisClip
 
         for (int i = 0; i < source.Length; i++)
         {
-            // flow.cpp:255, and the same wrap-not-a-division as in ChopWinding.
+            // And the same wrap-not-a-division as in ChopWinding.
             int l = i + 1 == source.Length ? 0 : i + 1;
             Vec3 v1 = source[l] - source[i];
 
@@ -416,7 +415,7 @@ public static class VisClip
     /// </para>
     /// <para>
     /// The planes are the PRE-<c>flipClip</c> ones. <c>flipClip</c> is applied
-    /// after both side tests (<c>flow.cpp:344-349</c>) and is a property of
+    /// after both side tests and is a property of
     /// which of the two calls this is rather than of the geometry, so one
     /// derivation serves both.
     /// </para>
@@ -469,7 +468,6 @@ public static class VisClip
     /// <param name="target">The far portal, the one being clipped.</param>
     /// <param name="flipClip">
     /// True when the ordering is pass, source, target -- stock's second call at
-    /// <c>flow.cpp:611</c>.
     /// </param>
     /// <param name="result">
     /// Where the surviving winding is written; at least
@@ -546,7 +544,6 @@ public static class VisClip
     /// One candidate separating plane: the edge <paramref name="i"/>-
     /// <paramref name="l"/> of <paramref name="source"/> against vertex
     /// <paramref name="j"/> of <paramref name="pass"/>
-    /// (<c>flow.cpp:257-342</c>).
     /// </summary>
     /// <param name="source">The near portal of the ordering.</param>
     /// <param name="pass">The middle portal of the ordering.</param>
@@ -578,14 +575,14 @@ public static class VisClip
 
         Vec3 v2 = pass[j] - source[i];
 
-        // flow.cpp:262-264. Written out rather than Vec3.Cross so the operand
+        // Written out rather than Vec3.Cross so the operand
         // order is on the page: this is cross(v1, v2), where PlaneFromWinding
         // next door is cross(v2, v1).
         float nx = (v1.Y * v2.Z) - (v1.Z * v2.Y);
         float ny = (v1.Z * v2.X) - (v1.X * v2.Z);
         float nz = (v1.X * v2.Y) - (v1.Y * v2.X);
 
-        // flow.cpp:268-273. THE QUIRK: `length` here is the SQUARED length, and
+        // THE QUIRK: `length` here is the SQUARED length, and
         // it is compared against ON_VIS_EPSILON, which is the epsilon the rest
         // of the file uses on LINEAR distances. So the degeneracy test rejects
         // cross products shorter than 0.1, not shorter than 0.01. Faithful, and
@@ -598,7 +595,7 @@ public static class VisClip
             return false;
         }
 
-        // flow.cpp:275. `sqrt` on a float promotes to double, and the reciprocal
+        // `sqrt` on a float promotes to double, and the reciprocal
         // is formed in double before being narrowed back to vec_t. Doing it in
         // float instead double-rounds and moves the last bit of the normal.
         length = (float)(1.0 / Math.Sqrt(length));
@@ -609,7 +606,7 @@ public static class VisClip
         Vec3 normal = new(nx, ny, nz);
         float distance = Vec3.Dot(pass[j], normal);
 
-        // flow.cpp:287-308 -- which side of the candidate plane the source
+        // -- which side of the candidate plane the source
         // portal is on. The loop STOPS at the first point that is off the plane,
         // and running to the end means the source is planar with the candidate,
         // which is not a separator.
@@ -647,7 +644,7 @@ public static class VisClip
             distance = -distance;
         }
 
-        // flow.cpp:325-342 -- every other point of pass must be on the positive
+        // -- every other point of pass must be on the positive
         // side, and at least one strictly so.
         int positive = 0;
         for (k = 0; k < pass.Length; k++)
@@ -685,8 +682,8 @@ public static class VisClip
     }
 
     /// <summary>
-    /// <c>VectorSubtract(vec3_origin, v, v)</c>, which is how <c>flow.cpp</c>
-    /// spells a negation (<c>:317</c>, <c>:358</c>, <c>:552</c>).
+    /// <c>VectorSubtract(vec3_origin, v, v)</c>, which is how
+ /// Spells a negation.
     /// </summary>
     /// <param name="v">The vector to negate.</param>
     /// <returns>Zero minus it.</returns>

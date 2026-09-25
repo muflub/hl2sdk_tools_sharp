@@ -4,16 +4,16 @@ namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
 /// One brush side's texture placement as the VMF spells it:
-/// <c>brush_texture_t</c>, <c>utils/vbsp/vbsp.h:48</c>.
+/// <c>brush_texture_t</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// A struct, and copied by value, because stock copies it by value in the
 /// places that matter: <c>side_brushtextures[nummapbrushsides] = pSideInfo-&gt;td</c>
-/// (<c>map.cpp:2797</c>) keeps a snapshot of the side's placement so an origin
+/// Keeps a snapshot of the side's placement so an origin
 /// brush found later in the same entity can rebuild the texinfo from it
-/// (<c>map.cpp:1579</c>), and <c>MergeBrushSides</c> takes a local copy before
-/// rotating the axes (<c>map.cpp:2246</c>) so the instance's own table is left
+/// And <c>MergeBrushSides</c> takes a local copy before
+/// rotating the axes so the instance's own table is left
 /// alone.
 /// </para>
 /// <para>
@@ -55,10 +55,10 @@ public struct BrushTexture
     /// <remarks>
     /// Zero when the side has no <c>lightmapscale</c>, because
     /// <c>FindMiptex</c> initialises <c>textureref[].lightmapWorldUnitsPerLuxel</c>
-    /// to <c>0.0f</c> (<c>textures.cpp:69</c>) and never writes it again — the
+    /// to <c>0.0f</c> and never writes it again — the
     /// only writer in the whole compiler is the key handler at
-    /// <c>map.cpp:2881</c>. <see cref="TextureBuilder"/> divides by this with no
-    /// guard, exactly as <c>textures.cpp:661</c> does.
+    /// <see cref="TextureBuilder"/> divides by this with no
+    /// guard, exactly as does.
     /// </remarks>
     public float LightmapWorldUnitsPerLuxel;
 

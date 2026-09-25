@@ -68,7 +68,7 @@ public readonly record struct GameInfoSearchPath(IReadOnlyList<string> Kinds, st
     /// </exception>
     /// <remarks>
     /// <para>
-    /// <c>FileSystem_LoadSearchPaths</c>, <c>public/filesystem_init.cpp:694-735</c>:
+ /// <c>FileSystem_LoadSearchPaths</c>:
     /// the prefix is matched case-insensitively and only at the START of the
     /// location; the id is <c>V_atoi</c> of what follows (leading digits); the
     /// rest starts after the next <c>|</c> and is made absolute against the
@@ -174,10 +174,9 @@ public sealed class GameInfo
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Tools++ reads exactly this shape, from the SAME mounted
-    /// <c>gameinfo.txt</c> and in its FileSystem setup
-    /// (<c>~/re/toolsplusplus/dumps/vbsp.all.c:21750-21758</c>:
-    /// <c>FindKey("Tools")</c> then <c>ReadString("vbsp", …)</c>), and splices
+    /// The reference build reads exactly this shape, from the SAME mounted
+    /// <c>gameinfo.txt</c> and in its file-system setup
+    /// (find the <c>Tools</c> child, then read the <c>vbsp</c> string), and splices
     /// the value into the argument list before the real command line, logging
     /// <c>"Adding arguments from gameinfo: %s"</c>. So the working spelling is
     /// the section form:
@@ -243,15 +242,15 @@ public sealed class GameInfo
         ArgumentNullException.ThrowIfNull(text);
 
         // KeyValues::LoadFromBuffer folds the file's FIRST top-level section
-        // into the root node (KeyValues.cpp:2313-2340: on the first iteration
+ // into the root node (: on the first iteration
         // pCurrentKey is the node being loaded, so it is only renamed to that
         // section's key and the section's entries become the root's own
         // children), while every LATER top-level section becomes a plain child
         // of that root. Every key the engine and the tools read is then looked
         // up with KeyValues::FindKey, a walk of one node's CHILD list, first
-        // match wins, never a descent into a subsection (KeyValues.cpp:
-        // 1014-1024; the recursion at :1068 only serves "a/b" path syntax,
-        // and the ++ dump's lookup chain — vbsp.all.c:21750 FindKey(mainFile,
+ // match wins, never a descent into a subsection (:
+ // 1014-1024; the recursion only serves "a/b" path syntax.
+ // and the ++ dump's lookup chain — vbsp.all.c FindKey(mainFile.
         // "Tools") — passes no such path). Parse therefore hoists the first
         // section's children into the root, and every lookup below is a
         // direct-child lookup on it. A Tools block written deeper — inside
@@ -260,9 +259,8 @@ public sealed class GameInfo
         Node root = Node.Parse(text);
         Node body = root;
 
-        // The tools splice reads exactly ONE Tools child — FindKey("Tools")
-        // from the gameinfo root (~/re/toolsplusplus/dumps/vbsp.all.c:21750),
-        // first match wins — and only that node's string-valued children.
+        // The tools splice reads exactly ONE Tools child from the gameinfo
+        // root, first match wins — and only that node's string-valued children.
         Node? tools = body.FindDirect("tools");
         Dictionary<string, string> toolArguments = new(StringComparer.OrdinalIgnoreCase);
         bool flatTools = false;
@@ -285,7 +283,7 @@ public sealed class GameInfo
                 {
                     // First child with the tool's name wins even when the file
                     // duplicates it — FindKey's peer walk breaks on the first
-                    // match (KeyValues.cpp:1014-1024) — and a child whose value
+ // Match — and a child whose value
                     // is a nested block carries no string to splice.
                     if (child.Value is { Length: > 0 } value
                         && !toolArguments.ContainsKey(child.Name))
@@ -299,7 +297,7 @@ public sealed class GameInfo
         // The engine's own pass reads the game name, SteamAppId and the
         // SearchPaths list through the same direct-child FindKey: the FIRST
         // FileSystem child of the body, and inside it the FIRST SearchPaths
-        // child (src/public/filesystem_init.cpp:490-499). A second one at
+ // Child. A second one at
         // either level is dead text.
         List<GameInfoSearchPath> searchPaths = [];
         string game = body.FirstValueOf("game") ?? string.Empty;
@@ -320,7 +318,7 @@ public sealed class GameInfo
             {
                 // GetFirstValue/GetNextValue walks EVERY child line, duplicate
                 // keys included, in file order — the file's order IS the
-                // resolution order (filesystem_init.cpp:685-688).
+ // Resolution order.
                 foreach (Node line in searchPathsBlock.Entries)
                 {
                     if (line.Value is { Length: > 0 } location)
@@ -397,7 +395,7 @@ public sealed class GameInfo
                     // The file's FIRST top-level block is the fold: stock's
                     // RecursiveLoadFromBuffer renames the node being loaded to
                     // that key and loads the block's entries AS the root's own
-                    // children (KeyValues.cpp:2313-2340), so pushing the root
+ // Children, so pushing the root
                     // again is all it takes and no child node is made.
                     if (!topLevelSeen && stack.Count == 1 && pendingKey is not null)
                     {

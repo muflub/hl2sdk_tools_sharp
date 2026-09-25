@@ -85,7 +85,7 @@ public sealed class RadPass
 }
 
 /// <summary>
-/// <c>MakeAllScales</c> and <c>BounceLight</c> (<c>vrad.cpp:2063-2071</c>):
+/// <c>MakeAllScales</c> and <c>BounceLight</c>:
 /// the radiosity bounce. Lane 4d's.
 /// </summary>
 public interface IVradBounceStage
@@ -101,7 +101,7 @@ public interface IVradBounceStage
 }
 
 /// <summary>
-/// One of <c>VRAD_ComputeOtherLighting</c>'s stages (<c>vrad.cpp:2310</c>):
+/// One of <c>VRAD_ComputeOtherLighting</c>'s stages:
 /// detail props, leaf ambient, static props. Lane 4g's.
 /// </summary>
 public interface IVradOtherLightingStage

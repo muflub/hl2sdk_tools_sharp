@@ -7,7 +7,7 @@ namespace SourceSharp.MapTools.Bsp.Detail;
 /// <remarks>
 /// <para>
 /// Not stable, and that is the point of porting it: vbsp sorts the detail
-/// props by leaf alone (<c>SortFunc</c>, <c>detailobjects.cpp:781-798</c>), so
+/// props by leaf alone(<c>SortFunc</c>), so
 /// the order of props within a leaf — which LUMP_GAME_LUMP stores — is
 /// whatever this algorithm leaves. Like <see cref="MsvcRandom"/> it is the
 /// specification of the output rather than a defect, and is reproduced
@@ -179,7 +179,7 @@ public static class MsvcQsort
         }
     }
 
-    // shortsort: the maximum of lo..hi to hi, repeatedly. "> 0" keeps the
+    // shortsort: the maximum of i to hi, repeatedly. "> 0" keeps the
     // FIRST of equal maxima as the one swapped.
     private static void ShortSort<T>(Span<T> items, int lo, int hi, Comparison<T> compare)
     {

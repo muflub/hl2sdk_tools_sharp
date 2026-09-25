@@ -8,7 +8,7 @@ namespace SourceSharp.MapTools.Io;
 /// </summary>
 /// <remarks>
 /// The engine asks the Steam client (<c>SteamApps()-&gt;GetAppInstallDir</c>,
-/// <c>public/filesystem_init.cpp:721</c>). A compile has no Steam client, so
+///). A compile has no Steam client, so
 /// the implementation reads what the client itself writes
 /// (<see cref="SteamLibraryFolders"/>); a test gives an in-memory one.
 /// </remarks>

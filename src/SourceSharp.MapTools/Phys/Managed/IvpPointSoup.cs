@@ -8,10 +8,10 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// ledge.
 /// </summary>
 /// <remarks>
-/// Decompiled from SDK 2013 <c>vphysics.so</c> with TF2's checked: <c>convert_pointsoup_to_compact_ledge</c>
-/// 00184690 (TF2 00189150), the qhull driver with its retry loop 00183ed0 (001889b0), facets to
-/// polygons 00183870 (00188300) with the polygon area 00183570 (00188010) and perimeter 001836b0
-/// (00188140), and the template-polygon builder 00182f50 (001879d0).
+/// Mirrors the point-soup builder, checked against the TF2 build: <c>convert_pointsoup_to_compact_ledge</c>,
+/// The qhull driver with its retry loop, facets to
+/// Polygons with the polygon area and perimeter,
+/// And the template-polygon builder.
 /// </remarks>
 /// <typeparam name="T">IVP_DOUBLE.</typeparam>
 /// <typeparam name="TP">The precision policy.</typeparam>
@@ -23,7 +23,7 @@ internal static class IvpPointSoup<T, TP>
     public const string QhullCommand = "qhull Qs Pp C-0 W1e-14 E1.0e-6";
 
     /// <summary>
-    /// 00184690: fewer than three points is no ledge, three is a flat two-sided triangle, more go
+    /// fewer than three points is no ledge, three is a flat two-sided triangle, more go
     /// through qhull.
     /// </summary>
     /// <param name="points">The point soup.</param>
@@ -45,7 +45,7 @@ internal static class IvpPointSoup<T, TP>
     }
 
     /// <summary>
-    /// 00183ed0: dedupe, run qhull, drop points that make sliver facets and retry, and on failure
+    /// dedupe, run qhull, drop points that make sliver facets and retry, and on failure
     /// retry with joggle (<c>QJ</c>) growing from 1e-12 by x1.2 up to 0.02.
     /// </summary>
     /// <param name="input">The points; their fourth component is zeroed, as IVP does.</param>
@@ -182,7 +182,7 @@ internal static class IvpPointSoup<T, TP>
     }
 
     /// <summary>
-    /// 00183870: one polygon per qhull facet; a sliver facet (area &lt; 0.005 * perimeter) marks one
+    /// one polygon per qhull facet; a sliver facet (area &lt; 0.005 * perimeter) marks one
     /// of its middle points for removal and asks for a retry instead of building.
     /// </summary>
     private static IvpCompactLedge? FacetsToLedge(
@@ -310,7 +310,7 @@ internal static class IvpPointSoup<T, TP>
     /// <summary><c>maxss acc, d</c>: <c>acc &gt; d ? acc : d</c>.</summary>
     private static T MaxSse(T acc, T d) => acc > d ? acc : d;
 
-    /// <summary>00183570: the fan sum of <c>cross(p[i+1]-p[i], p[i]-p[0]) . normal</c>.</summary>
+    /// <summary>: the fan sum of <c>cross(p[i+1]-p[i], p[i]-p[0]). normal</c>.</summary>
     private static T Area(IvpFacetPolygon<T> poly)
     {
         int n = poly.Points.Count;
@@ -334,7 +334,7 @@ internal static class IvpPointSoup<T, TP>
         return acc;
     }
 
-    /// <summary>001836b0: the sum of edge lengths.</summary>
+    /// <summary>: the sum of edge lengths.</summary>
     private static T Perimeter(IvpFacetPolygon<T> poly)
     {
         int n = poly.Points.Count;

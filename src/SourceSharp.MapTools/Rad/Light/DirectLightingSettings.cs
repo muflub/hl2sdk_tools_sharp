@@ -5,7 +5,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
 /// Every switch the patch and direct-lighting stages read, with stock's
-/// defaults: the globals at the top of <c>vrad.cpp</c>, gathered.
+/// defaults: the globals at the top of the reference implementation, gathered.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -22,7 +22,7 @@ public sealed record DirectLightingSettings
 
     /// <summary>
     /// <c>numbounce</c>: 100 by default, and forced to 0 by a map with no
-    /// visibility (<c>vrad.cpp:2248</c>). Zero skips subdivision and patch
+    /// visibility. Zero skips subdivision and patch
     /// light entirely.
     /// </summary>
     public int Bounces { get; init; } = 100;
@@ -33,7 +33,7 @@ public sealed record DirectLightingSettings
     /// <summary><c>do_extra</c>: supersample high-gradient samples.</summary>
     public bool Supersample { get; init; } = true;
 
-    /// <summary><c>extrapasses</c> (<c>vrad.cpp:104</c>): how many supersampling passes at most.</summary>
+    /// <summary><c>extrapasses</c>: how many supersampling passes at most.</summary>
     public int ExtraPasses { get; init; } = 4;
 
     /// <summary><c>debug_extra</c>: paint the supersampling passes into the lightmap.</summary>
@@ -82,19 +82,19 @@ public sealed record DirectLightingSettings
     public bool SeparateDirectLightmap { get; init; }
 
     /// <summary>
-    /// <c>-dispchop</c> (<c>vrad.cpp:55</c>, default 8): the tightest
+    /// <c>-dispchop</c>(default 8): the tightest
     /// displacement patch, in luxel widths.
     /// </summary>
     public float DispChop { get; init; } = 8.0f;
 
     /// <summary>
-    /// <c>-maxdisppatchradius</c> (<c>vrad.cpp:56</c>, default 1500): the
+    /// <c>-maxdisppatchradius</c>(default 1500): the
     /// ceiling on a displacement's patch radial radius.
     /// </summary>
     public float MaxDispPatchRadius { get; init; } = 1500.0f;
 
     /// <summary>
-    /// <c>-maxdispsamplesize</c> (<c>vrad_dispcoll.cpp:18</c>, default 512):
+    /// <c>-maxdispsamplesize</c>(default 512):
     /// the ceiling on a displacement's luxel radial radius.
     /// </summary>
     public float MaxDispSampleSize { get; init; } = 512.0f;
@@ -116,24 +116,24 @@ public sealed record DirectLightingSettings
     /// <exception cref="NotSupportedException">
     /// <see cref="VradOptions.LuxelDensity"/> means a density below 1, which
     /// rewrites texinfo and every face's lightmap extents
-    /// (<c>vrad.cpp:1758-1802</c>) before anything here is built; apply
+    /// Before anything here is built; apply
     /// <see cref="Final.LuxelDensity.Apply"/> to the map first.
     /// </exception>
     public static DirectLightingSettings FromVrad(VradOptions options, bool hdr)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        // vrad.cpp:2555-2556 stores 1/n for n > 1, so "-luxeldensity 2" is a
+        // Stores 1/n for n > 1, so "-luxeldensity 2" is a
         // density of 0.5 and rewrites the map just as "-luxeldensity 0.5" does.
         if (Final.LuxelDensity.Effective(options.LuxelDensity) < 1.0f)
         {
             throw new NotSupportedException(
                 "-luxeldensity rewrites texinfo and every face's lightmap extents "
-                + "(vrad.cpp:1758) before the world is built: run Rad.Final.LuxelDensity.Apply "
+                + "before the world is built: run Rad.Final.LuxelDensity.Apply "
                 + "on the map first (Vrad.LightAsync does) and pass a density of 1 here");
         }
 
-        // vrad.cpp:105 vs :2538: the DEFAULT is a literal, -smooth is a cosine
+ // Vs: the DEFAULT is a literal, -smooth is a cosine
         // of the argument. 45 is taken to mean "not given".
         float smoothing = options.SmoothingAngleDegrees == 45.0f
             ? LightConstants.DefaultSmoothingThreshold
@@ -156,7 +156,7 @@ public sealed record DirectLightingSettings
             Ambient = options.Ambient,
             TexScale = options.TexScale,
 
-            // vrad.cpp:2581: sin((M_PI/180.0)*g), in double, narrowed.
+            // Sin((M_PI/180.0)*g), in double, narrowed.
             SunAngularExtent = options.SunAngularExtentDegrees == 0f
                 ? 0f
                 : (float)Math.Sin(Math.PI / 180.0 * options.SunAngularExtentDegrees),

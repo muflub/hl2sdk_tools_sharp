@@ -50,8 +50,8 @@ public readonly record struct DisplacementFace(
 /// Whether stock's <c>CalcLuxelCoords</c> asked for the lightmap axes to be
 /// swapped. See <see cref="CoreDispSurface.CalcLuxelCoords"/>.
 /// <b>Stock output never shows it</b>: the swap repoints only the MAP face's
-/// texinfo (<c>disp_vbsp.cpp:242</c>) after the <c>dface_t</c> was emitted
-/// (<c>writebsp.cpp:933</c>), and <c>CompactTexinfos</c> removes the
+/// texinfo after the <c>dface_t</c> was emitted
+/// And <c>CompactTexinfos</c> removes the
 /// unreferenced copy. The driver asks <see cref="DispVbspHooks.FaceTexInfos"/>
 /// which texinfo the face carries: stock's (unchanged) or, under Correct
 /// (<see cref="StockQuirk.DispLightmapSwapDropped"/>), the swapped copy.
@@ -67,15 +67,14 @@ public sealed record DisplacementResult(
 /// <summary>
 /// Every displacement lump a vbsp compile writes:
 /// <c>EmitInitialDispInfos</c> and <c>EmitDispLMAlphaAndNeighbors</c>,
-/// <c>utils/vbsp/disp_vbsp.cpp:282</c> and <c>:519</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Stock splits this across two moments of the compile because it has to: the
 /// vertex and triangle runs are laid out before the BSP is built
-/// (<c>vbsp.cpp:849</c>), and the neighbour, allowed-vertex and lightmap-sample
+/// And the neighbour, allowed-vertex and lightmap-sample
 /// data cannot be computed until faces exist
-/// (<c>writebsp.cpp:1256</c>). The split is real but the DATA does not
+/// The split is real but the DATA does not
 /// actually straddle it — the first half needs only the VMF, and the second
 /// needs the faces. So this is one call taking both, and the caller is
 /// responsible for having faces.
@@ -84,7 +83,7 @@ public sealed record DisplacementResult(
 /// WHAT IS NOT HERE, and must be done by the caller because it is not this
 /// lane's: writing <c>m_LightmapTextureSizeInLuxels</c> back onto the face
 /// (<see cref="DisplacementResult.LightmapSizeU"/>/<c>V</c>, which stock DOES
-/// write, <c>disp_vbsp.cpp:208</c>). The swapped texinfo
+/// write). The swapped texinfo
 /// (<see cref="DisplacementResult.NeedsSwappedTexInfo"/>) is reported, and in
 /// stock never reaches the BSP.
 /// </para>
@@ -97,7 +96,7 @@ public static class DisplacementLumpBuilder
     /// </summary>
     /// <remarks>
     /// <c>ALL_VISIBLE_CONTENTS | CONTENTS_PLAYERCLIP | CONTENTS_MONSTERCLIP</c>,
-    /// <c>disp_vbsp.cpp:163</c>. A displacement whose material gave it none of
+    /// A displacement whose material gave it none of
     /// these — a nodraw one, say — is made <c>CONTENTS_SOLID</c> so that it
     /// still blocks movement.
     /// </remarks>
@@ -107,7 +106,7 @@ public static class DisplacementLumpBuilder
         | (int)BrushContents.MonsterClip;
 
     /// <summary>
-    /// <c>ALL_VISIBLE_CONTENTS</c>, <c>bspflags.h:36</c>.
+    /// <c>ALL_VISIBLE_CONTENTS</c>.
     /// </summary>
     /// <remarks>
     /// Spelled <c>LAST_VISIBLE_CONTENTS | (LAST_VISIBLE_CONTENTS - 1)</c>, so
@@ -194,14 +193,13 @@ public static class DisplacementLumpBuilder
                 Power = disp.Power,
 
                 // The high bit says "these are FLAGS", and vbsp always sets it.
-                // disp_vbsp.cpp:326-328, with the minTess line commented out
+                // With the minTess line commented out
                 // beside it.
                 MinTess = unchecked((int)0x80000000) | disp.Flags,
                 SmoothingAngle = disp.SmoothingAngle,
 
                 // From the BRUSH, not from the material and not from the
                 // forced-solid value DispMapToCoreDispInfo computes below.
-                // disp_vbsp.cpp:333.
                 Contents = face.Contents,
                 StartPosition = disp.StartPosition,
                 MapFace = (ushort)face.FaceIndex,
@@ -248,10 +246,10 @@ public static class DisplacementLumpBuilder
                 displacements[i], faces[i], cores[i], stockNormalise);
         }
 
-        // AddDispsToBounds' boxes (ComputeDispInfoBounds, disp_vbsp.cpp:29),
+        // AddDispsToBounds' boxes(ComputeDispInfoBounds),
         // before the neighbours are found. Stock builds a second CCoreDispInfo
         // per displacement for them, with no face: that only leaves the corner
-        // texture coordinates at the unit square (disp_vbsp.cpp:171), and
+        // texture coordinates at the unit square, and
         // neither box reads them -- the base quad's points and the displaced
         // vertices are the same in both builds -- so this core's boxes are the
         // second one's (plan 3p: the rebuild was a third of the stage).
@@ -302,7 +300,7 @@ public static class DisplacementLumpBuilder
 
     /// <summary>
     /// Fills one <see cref="CoreDispInfo"/> from its VMF data and its base
-    /// face: <c>DispMapToCoreDispInfo</c>, <c>disp_vbsp.cpp:147</c>.
+    /// face: <c>DispMapToCoreDispInfo</c>.
     /// </summary>
     /// <param name="disp">The VMF displacement.</param>
     /// <param name="face">Its base face.</param>
@@ -313,15 +311,15 @@ public static class DisplacementLumpBuilder
     /// </param>
     /// <param name="withFace">
     /// False reproduces stock's <c>pFace == NULL</c> callers
-    /// (<c>ComputeDispInfoBounds</c>, <c>disp_vbsp.cpp:36</c>, and detail-prop
-    /// placement, <c>detailobjects.cpp:894</c>): the corner texture
+    /// (<c>ComputeDispInfoBounds</c>, and detail-prop
+    /// placement): the corner texture
     /// coordinates stay at stock's unit-square defaults
-    /// <c>{(0,0),(0,1),(1,0),(1,1)}</c> (<c>:171</c>) instead of being
+ /// <c>{(0,0),(0,1),(1,0),(1,1)}</c> instead of being
     /// projected. Everything else, the luxel layout included, is the same.
     /// </param>
     /// <returns>
     /// Whether the face's texinfo needs its lightmap axes swapped. Stock acts
-    /// on it only when a face was given (<c>:212</c>).
+ /// on it only when a face was given.
     /// </returns>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="disp"/> or <paramref name="core"/> is null.
@@ -347,7 +345,7 @@ public static class DisplacementLumpBuilder
 
         // The displacement's OWN contents, which is the brush's plus a forced
         // solid when the brush contributes nothing visible or clipping. Note
-        // this is NOT what goes in the lump -- disp_vbsp.cpp:333 writes the
+        // this is NOT what goes in the lump -- writes the
         // unforced brush contents there.
         int contents = face.Contents;
         if ((contents & VisibleOrClipContents) == 0)
@@ -409,7 +407,7 @@ public static class DisplacementLumpBuilder
     }
 
     /// <summary>
-    /// <c>CalcTextureCoordsAtPoints</c>, <c>utils/common/bsplib.cpp:3288</c>.
+    /// <c>CalcTextureCoordsAtPoints</c>.
     /// </summary>
     /// <param name="textureVecs">Two rows of four: three axis components and an offset.</param>
     /// <param name="points">The points to map.</param>
@@ -423,7 +421,7 @@ public static class DisplacementLumpBuilder
     /// adds the offset, which is one rounding more than a fused expression
     /// would do and is reproduced as written. The <c>subtractOffset</c>
     /// parameter is zero at the only call site that matters
-    /// (<c>disp_vbsp.cpp:180</c>) and is dropped.
+    /// And is dropped.
     /// </remarks>
     public static DispUv[] CalcTextureCoordsAtPoints(
         float[] textureVecs, IReadOnlyList<Vec3> points)
@@ -463,8 +461,7 @@ public static class DisplacementLumpBuilder
     /// <summary>
     /// Copies the found neighbours and allowed vertices into the lump entry:
     /// <c>ExportCoreDispNeighborData</c> and
-    /// <c>ExportCoreDispAllowedVertList</c>, <c>disp_vbsp.cpp:368</c> and
-    /// <c>:389</c>.
+    /// <c>ExportCoreDispAllowedVertList</c>, and
     /// </summary>
     /// <param name="core">The tessellated displacement.</param>
     /// <param name="info">The lump entry to fill.</param>
@@ -487,7 +484,7 @@ public static class DisplacementLumpBuilder
 
     /// <summary>
     /// Flattens the vertices the tessellation dropped onto the surface it
-    /// kept: <c>SnapRemainingVertsToSurface</c>, <c>disp_vbsp.cpp:438</c>.
+    /// kept: <c>SnapRemainingVertsToSurface</c>.
     /// </summary>
     /// <param name="core">The tessellated displacement.</param>
     /// <param name="info">Its lump entry, for the vertex run's start.</param>
@@ -505,7 +502,7 @@ public static class DisplacementLumpBuilder
     /// </para>
     /// <para>
     /// THE CHEESY PART, and stock's own word for it
-    /// (<c>disp_vbsp.cpp:483</c>): the new position cannot be written
+    /// The new position cannot be written
     /// directly, because a <c>CDispVert</c> stores a direction and a distance
     /// relative to the flat surface rather than a position. So the OFFSET is
     /// folded into the direction and the distance is set to 1 — which leaves
@@ -551,7 +548,7 @@ public static class DisplacementLumpBuilder
                 {
                     // Stock asserts here and carries on with the vertex left
                     // where it was. Its own comment says this should not happen
-                    // unless disp_tesselation.h produced a triangulation that
+                    // unless produced a triangulation that
                     // misses part of the displacement.
                     continue;
                 }
@@ -578,7 +575,7 @@ public static class DisplacementLumpBuilder
     }
 
     /// <summary>
-    /// <c>FindEnclosingTri</c>, <c>disp_vbsp.cpp:410</c>: the first triangle of
+    /// <c>FindEnclosingTri</c>: the first triangle of
     /// the tessellation whose grid coordinates contain a point.
     /// </summary>
     private static bool FindEnclosingTri(
@@ -613,8 +610,8 @@ public static class DisplacementLumpBuilder
 
     /// <summary>
     /// One displacement's box for the world bounds:
-    /// <c>ComputeDispInfoBounds</c>, <c>disp_vbsp.cpp:29</c>, as read by
-    /// <c>AddDispsToBounds</c> (<c>writebsp.cpp:1522</c>).
+    /// <c>ComputeDispInfoBounds</c>, as read by
+    /// <c>AddDispsToBounds</c>.
     /// </summary>
     /// <param name="disp">The VMF displacement.</param>
     /// <param name="face">Its base face; only the winding and lightmap vectors are read.</param>
@@ -622,8 +619,8 @@ public static class DisplacementLumpBuilder
     /// <returns>The box.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
-    /// Stock returns <c>GetDispBox</c> (<c>disp_vbsp.cpp:39</c>,
-    /// <c>disp_common.cpp:770</c>): the FLAT base quad puffed by 0.1, so the
+    /// Stock returns <c>GetDispBox</c> (
+    ///): the FLAT base quad puffed by 0.1, so the
     /// displacement's height never reaches <c>world_mins</c>/<c>world_maxs</c>.
     /// Correct returns the box of the displaced vertices
     /// (<see cref="CoreDispInfo.RootBounds"/>). See
@@ -646,7 +643,6 @@ public static class DisplacementLumpBuilder
 
     /// <summary>
     /// The texinfo a swapped displacement face is repointed at:
-    /// <c>disp_vbsp.cpp:222-228</c>.
     /// </summary>
     /// <param name="original">The face's texinfo.</param>
     /// <returns>
@@ -669,8 +665,7 @@ public static class DisplacementLumpBuilder
     /// <summary>
     /// Appends the swapped texinfos and says which texinfo each displacement
     /// face must use: the <c>pSwappedTexInfos</c> bookkeeping of
-    /// <c>EmitDispLMAlphaAndNeighbors</c>, <c>disp_vbsp.cpp:547-566</c> and
-    /// <c>:212-230</c>.
+    /// <c>EmitDispLMAlphaAndNeighbors</c>, and
     /// </summary>
     /// <param name="results">
     /// <see cref="Build"/>'s results; each one's
@@ -693,7 +688,7 @@ public static class DisplacementLumpBuilder
     /// <c>dface_t</c>, so in a stock BSP the copies are all compacted away (see
     /// <see cref="DisplacementResult.NeedsSwappedTexInfo"/>). Use this only to
     /// reproduce stock's in-memory texinfo table (e.g. for a pass that reads
-    /// <c>mapdispinfo_t::face.texinfo</c>, as <c>disp_ivp.cpp:79</c> does for
+    /// <c>mapdispinfo_t::face.texinfo</c>, as does for
     /// the surface property — whose texdata the copy shares), not to repoint
     /// LUMP_FACES.
     /// </para>

@@ -35,7 +35,7 @@ public class ManagedCollisionCookerTests
     {
         await using ManagedCollisionCooker stock = ManagedCollisionCooker.Create(ComplianceOptions.Stock);
         await using ManagedCollisionCooker correct = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
-        Assert.Contains("sdk2013-float", stock.CookerIdentity, StringComparison.Ordinal);
+        Assert.Contains("stock-float", stock.CookerIdentity, StringComparison.Ordinal);
         Assert.Contains("tf2-double", correct.CookerIdentity, StringComparison.Ordinal);
     }
 

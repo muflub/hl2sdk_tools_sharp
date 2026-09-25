@@ -11,9 +11,9 @@ namespace SourceSharp.MapTools.Rad;
 /// <para>
 /// This is <c>RayTracingEnvironment</c>'s three append-only lists --
 /// <c>OptimizedTriangleList</c>, <c>TriangleColors</c> and
-/// <c>TriangleMaterials</c> (<c>raytrace.cpp:88-104</c>) -- and nothing else.
+/// <c>TriangleMaterials</c> -- and nothing else.
 /// The KD-tree is not built here: <c>SetupAccelerationStructure</c> is a
-/// separate call in stock too (<c>vrad.cpp:2288</c>), and keeping the two apart
+/// separate call in stock too, and keeping the two apart
 /// is what makes <c>-dumptrace</c> possible at all, since
 /// <c>ChangeIntoIntersectionFormat</c> destroys the vertices it reads.
 /// </para>
@@ -29,7 +29,7 @@ namespace SourceSharp.MapTools.Rad;
 /// <para>
 /// The per-source bookkeeping around <see cref="BeginSource"/> is this port's
 /// own, and it is the 4b gate: stock emits no caster count anywhere
-/// (<c>Total triangle count:</c> is <c>bsplib.cpp:2962</c>, a
+/// (<c>Total triangle count:</c>, a
 /// <c>sum of dfaces[i].numedges - 2</c> that does not move when
 /// <c>-StaticPropPolys</c> triples the scene).
 /// </para>
@@ -86,7 +86,7 @@ public sealed class ShadowCasterBuilder
     /// <param name="v2">Third vertex.</param>
     /// <param name="coverage">
     /// Stock's per-triangle colour, of which only <c>x</c> is ever read
-    /// (<c>trace.cpp:97</c>). One means the triangle blocks light completely.
+    /// One means the triangle blocks light completely.
     /// </param>
     /// <param name="flags"><c>FCACHETRI_*</c>; see <see cref="TracedTriangle.Flags"/>.</param>
     /// <param name="materialIndex">
@@ -95,7 +95,7 @@ public sealed class ShadowCasterBuilder
     /// <remarks>
     /// Degenerate triangles are NOT rejected, and that is deliberate rather
     /// than an omission. <c>AddBrushToRaytraceEnvironment</c> clips its
-    /// windings with an epsilon of exactly zero (<c>trace.cpp:516</c>), so a
+    /// windings with an epsilon of exactly zero, so a
     /// brush with a sliver side yields zero-area triangles; stock keeps them,
     /// they reach the KD build, and dropping them here would move the triangle
     /// index of everything after them.
@@ -120,7 +120,7 @@ public sealed class ShadowCasterBuilder
     }
 
     /// <summary>
-    /// Appends a quad as two triangles, <c>raytrace.cpp:107-114</c>.
+    /// Appends a quad as two triangles.
     /// </summary>
     /// <param name="id">The identity of the FIRST triangle.</param>
     /// <param name="v1">First corner.</param>
@@ -132,7 +132,7 @@ public sealed class ShadowCasterBuilder
     /// Under <see cref="CompliancePolicy.Stock"/> THE SECOND TRIANGLE GETS
     /// <c>id + 1</c>, which is stock's own arithmetic and is a defect
     /// everywhere vrad uses it. The only vrad caller is the static-prop AABB
-    /// fallback (<c>vradstaticprops.cpp:1865</c>), which passes
+    /// Fallback, which passes
     /// <c>TRACE_ID_STATICPROP | nProp</c> -- so six of the twelve triangles of
     /// a prop's box are attributed to prop <c>nProp + 1</c>, and a shadow ray
     /// that should skip its own prop skips its neighbour's box instead.
@@ -143,7 +143,7 @@ public sealed class ShadowCasterBuilder
     {
         AddTriangle(id, v1, v2, v3, coverage);
 
-        // StockQuirk.AddQuadSecondTriangleId, raytrace.cpp:113.
+        // StockQuirk.AddQuadSecondTriangleId.
         int secondId = Compliance.Emulates(StockQuirk.AddQuadSecondTriangleId)
             ? id + 1
             : id;
@@ -153,7 +153,6 @@ public sealed class ShadowCasterBuilder
 
     /// <summary>
     /// Appends the twelve triangles of an axis-aligned box,
-    /// <c>raytrace.cpp:117-157</c>.
     /// </summary>
     /// <param name="id">The identity passed to each of the six quads.</param>
     /// <param name="min">The box's lower corner.</param>

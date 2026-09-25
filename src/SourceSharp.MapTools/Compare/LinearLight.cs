@@ -7,8 +7,8 @@ namespace SourceSharp.MapTools.Compare;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>mathlib.h:975</c>: <c>TexLightToLinear(c, exponent)</c> is
-/// <c>(float)c * power2_n[exponent + 128]</c>, and <c>color_conversion.cpp:38</c>
+/// <c>TexLightToLinear(c, exponent)</c> is
+/// <c>(float)c * power2_n[exponent + 128]</c>, and
 /// declares that table as <c>2**(index - 128) / 255</c>. So a channel's linear
 /// value is <c>c * 2^e / 255</c>, which is the scale Phase 0 measured the
 /// vrad noise floor in and the only scale its numbers are comparable against.
@@ -16,7 +16,7 @@ namespace SourceSharp.MapTools.Compare;
 /// <para>
 /// Deliberately NOT <c>ColorRgbExp32.ToLinear()</c>, which reproduces
 /// <c>ColorRGBExp32ToVector</c> -- that helper multiplies the same expression
-/// back by 255 (<c>color_conversion.cpp:454</c>, under a comment asking why the
+/// back by 255 (under a comment asking why the
 /// factor is there at all) and so answers in a different scale. Both are right
 /// for their own caller; a statistic quoted against Phase 0's numbers has to be
 /// in Phase 0's scale.

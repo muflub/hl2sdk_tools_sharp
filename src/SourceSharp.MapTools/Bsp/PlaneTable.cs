@@ -6,7 +6,7 @@ namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
 /// <c>vbsp</c>'s plane table: <c>mapplanes</c>, <c>nummapplanes</c> and
-/// <c>planehash</c> from <c>CMapFile</c> (<c>utils/vbsp/vbsp.h:296-299</c>),
+/// <c>planehash</c> from <c>CMapFile</c>,
 /// with the three functions that maintain them.
 /// </summary>
 /// <remarks>
@@ -30,14 +30,14 @@ namespace SourceSharp.MapTools.Bsp;
 /// Planes are stored in PAIRS: every <see cref="Create"/> appends a plane and
 /// its opposite, so <c>index ^ 1</c> is always the back side. The BSP builder
 /// relies on that (stock spells it <c>mapplanes[s-&gt;planenum^1]</c>,
-/// <c>map.cpp:639</c>), which is the third reason nothing may be inserted
+///), which is the third reason nothing may be inserted
 /// between the halves of a pair.
 /// </para>
 /// <para>
 /// One table per <see cref="MapFile"/>, never a static: a <c>func_instance</c>
 /// is loaded into its own <see cref="MapFile"/> with its own table and then
 /// merged plane by plane through <see cref="Find"/>
-/// (<c>CMapFile::MergePlanes</c>, <c>map.cpp:2106</c>), which only works if the
+/// (<c>CMapFile::MergePlanes</c>), which only works if the
 /// two tables are separate objects.
 /// </para>
 /// </remarks>
@@ -45,7 +45,6 @@ public sealed class PlaneTable
 {
     /// <summary>
     /// How many planes the BSP format can hold: <c>MAX_MAP_PLANES</c>,
-    /// <c>public/bspfile.h:74</c>.
     /// </summary>
     public const int MaxMapPlanes = 65536;
 
@@ -59,7 +58,7 @@ public sealed class PlaneTable
     // planehash, as an index chain rather than a pointer chain. _hashHead[b] is
     // the most recently added plane in bucket b, or -1; _hashNext[i] is the
     // plane added to i's bucket before it, or -1. That reproduces stock's LIFO
-    // chain exactly (map.cpp:199-200 pushes at the head), which matters because
+    // chain exactly(pushes at the head), which matters because
     // Find returns the FIRST epsilon match it walks into.
     private readonly int[] _hashHead = new int[Plane.PlaneHashes];
     private readonly List<int> _hashNext = [];
@@ -98,7 +97,7 @@ public sealed class PlaneTable
     /// <returns>The stored <c>dplane_t.type</c>.</returns>
     /// <remarks>
     /// <c>CreateNewFloatPlane</c> computes this once for the front half and
-    /// assigns the same value to both halves (<c>map.cpp:221</c>) — before the
+    /// assigns the same value to both halves — before the
     /// pair may be swapped, so both halves carry the front half's answer either
     /// way. That is not a discrepancy: <c>PlaneTypeForNormal</c> is invariant
     /// under negation, because its exact tests are <c>== 1 || == -1</c> and its
@@ -109,7 +108,6 @@ public sealed class PlaneTable
 
     /// <summary>
     /// Finds a plane, or appends it and its opposite: <c>FindFloatPlane</c>,
-    /// <c>utils/vbsp/map.cpp:351</c>.
     /// </summary>
     /// <param name="normal">The plane normal. Snapped before the lookup.</param>
     /// <param name="dist">The plane distance. Snapped before the lookup.</param>
@@ -122,7 +120,7 @@ public sealed class PlaneTable
     /// Stock takes the normal by non-const reference and lets
     /// <c>SnapPlane</c> write the snapped value back into the caller's
     /// variable; two call sites pass a reference to a plane already IN a table
-    /// (<c>map.cpp:1576</c> and <c>map.cpp:2111</c>), so stock snaps table
+    /// So stock snaps table
     /// entries in place as a side effect. That is unobservable — a table entry
     /// was snapped when it was created and snapping is idempotent — so this
     /// takes the normal by value and the difference cannot be seen.
@@ -164,7 +162,7 @@ public sealed class PlaneTable
 
     /// <summary>
     /// Finds the plane through three points, or appends it:
-    /// <c>CMapFile::PlaneFromPoints</c>, <c>utils/vbsp/map.cpp:384</c>.
+    /// <c>CMapFile::PlaneFromPoints</c>.
     /// </summary>
     /// <param name="p0">The first point.</param>
     /// <param name="p1">The second point, the corner the edges meet at.</param>
@@ -195,7 +193,6 @@ public sealed class PlaneTable
 
     /// <summary>
     /// Appends a plane and its opposite: <c>CreateNewFloatPlane</c>,
-    /// <c>utils/vbsp/map.cpp:208</c>.
     /// </summary>
     /// <param name="normal">The plane normal, already snapped.</param>
     /// <param name="dist">The plane distance, already snapped.</param>
@@ -215,14 +212,14 @@ public sealed class PlaneTable
     /// <para>
     /// The opposite normal is <c>0 - x</c> per component and not <c>-x</c>:
     /// <c>VectorSubtract (vec3_origin, normal, (p+1)-&gt;normal)</c>,
-    /// <c>map.cpp:223</c>. For an axial plane the two zero components stay
+    /// For an axial plane the two zero components stay
     /// <c>+0.0f</c> where unary negation would make them <c>-0.0f</c>. Same
     /// number, different bytes in LUMP_PLANES. <see cref="Plane.Flipped"/>
     /// carries that spelling.
     /// </para>
     /// <para>
     /// The flip that follows is stock's "always put axial planes facing
-    /// positive first" (<c>map.cpp:228</c>), and its test is on the plane's
+    /// positive first", and its test is on the plane's
     /// stored type being axial AND any component being negative. Because the
     /// opposite's zeroes are <c>+0.0f</c> and <c>+0.0f &lt; 0</c> is false, only
     /// the genuinely negative axis triggers it.
@@ -244,7 +241,7 @@ public sealed class PlaneTable
         Plane back = front.Flipped;
 
         // One classification for both halves, from the FRONT half's normal, as
-        // map.cpp:221 does it -- and before the swap below, as map.cpp does.
+        // Does it -- and before the swap below, as does.
         PlaneType type = front.Type;
 
         int first = _planes.Count;
@@ -265,12 +262,12 @@ public sealed class PlaneTable
 
             // The plane that was asked for now lives in the second slot. Stock
             // returns nummapplanes - 1 here and nummapplanes - 2 otherwise
-            // (map.cpp:240 and :246); the pair itself does not move.
+ //The pair itself does not move.
             result = first + 1;
         }
 
-        // Both halves, front slot first, AFTER any swap -- map.cpp:238-239 and
-        // :244-245. They share a bucket (|dist| is the same for a plane and its
+        // Both halves, front slot first, AFTER any swap -- and
+        // They share a bucket (|dist| is the same for a plane and its
         // opposite), so the second push leaves slot first+1 at the head of the
         // chain and slot first behind it. Find walks the chain head first, so
         // that order decides which half a tolerant match lands on.

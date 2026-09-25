@@ -5,15 +5,15 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 /// <summary>
 /// A node or a leaf of the BSP tree, reduced to what portalisation, the entity
 /// flood, leak detection and the area flood actually touch
-/// (<c>node_t</c>, <c>src/utils/vbsp/vbsp.h:197</c>).
+/// (<c>node_t</c>).
 /// </summary>
 /// <remarks>
 /// <para>
 /// This is an interface rather than the tree's own class because the tree is
-/// built by a different stage (<c>BuildTree_r</c>, <c>brushbsp.cpp</c>) than
+/// built by a different stage(<c>BuildTree_r</c>) than
 /// the one that portalises it, and the two were ported by different lanes. The
 /// members here are the whole contract between them: everything stock's
-/// <c>portals.cpp</c>, <c>leakfile.cpp</c> and <c>prtfile.cpp</c> read or write
+/// And read or write
 /// on a <c>node_t</c>, and nothing else. A tree builder satisfies it by putting
 /// <c>: IBspNode</c> on its node type.
 /// </para>
@@ -27,7 +27,7 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 /// </remarks>
 public interface IBspNode
 {
-    /// <summary><c>PLANENUM_LEAF</c> (<c>vbsp.h:98</c>): the value of <see cref="PlaneNumber"/> on a leaf.</summary>
+    /// <summary><c>PLANENUM_LEAF</c>: the value of <see cref="PlaneNumber"/> on a leaf.</summary>
     public const int LeafPlaneNumber = -1;
 
     /// <summary>A number unique within the tree, for diagnostics only.</summary>
@@ -51,7 +51,6 @@ public interface IBspNode
     /// <summary>
     /// The brush side that created this node, when there was one. Read only to
     /// name a material in the unbounded-volume warning
-    /// (<c>portals.cpp:591</c>).
     /// </summary>
     MapBrushSide? Side { get; }
 
@@ -96,8 +95,8 @@ public interface IBspNode
     /// </summary>
     /// <remarks>
     /// Order is load-bearing twice over. <c>AreaportalBrushForNode</c>
-    /// (<c>portals.cpp:260</c>) takes the FIRST areaportal brush it finds, and
-    /// <c>FindPortalSide</c> (<c>:1498</c>) breaks distance ties by taking the
+    /// Takes the FIRST areaportal brush it finds, and
+ /// <c>FindPortalSide</c> breaks distance ties by taking the
     /// first candidate at the best distance.
     /// </remarks>
     IReadOnlyList<MapBrush> LeafBrushes { get; }
@@ -127,7 +126,7 @@ public static class BspNodes
 
     /// <summary>
     /// Whether this leaf is part of an areaportal brush
-    /// (<c>IsAreaportalNode</c>, <c>portals.cpp:821</c>).
+    /// (<c>IsAreaportalNode</c>).
     /// </summary>
     /// <param name="node">The leaf to ask about.</param>
     /// <returns><see langword="true"/> when <c>CONTENTS_AREAPORTAL</c> is set.</returns>

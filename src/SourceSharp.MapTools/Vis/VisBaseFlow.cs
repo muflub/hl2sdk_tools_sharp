@@ -7,7 +7,7 @@ namespace SourceSharp.MapTools.Vis;
 
 /// <summary>
 /// The first-order approximation: <c>BasePortalVis</c> and <c>SimpleFlood</c>
-/// (<c>src/utils/vvis/flow.cpp:714</c> and <c>:684</c>).
+///.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -35,7 +35,7 @@ internal sealed class VisBaseFlow
     /// portal it was handed. One <see cref="Interlocked"/> add per portal, so
     /// it costs the stage nothing; it exists because this is the pass P12
     /// anomaly 3 claimed <c>-fast</c> skips and stock proves it does NOT
-    /// (<c>all.c:19955</c>), and a measured zero where stock casts is the
+ /// (<c>all.c</c>), and a measured zero where stock casts is the
     /// defect the tests guard.
     /// </summary>
     internal long BaseRays => Volatile.Read(ref _rays);
@@ -46,7 +46,7 @@ internal sealed class VisBaseFlow
     /// <param name="useRadius">Whether radial vis is on.</param>
     /// <param name="radiusSquared">
     /// <c>g_VisRadius</c>, already squared, as a <see cref="double"/> -- which
-    /// is the type stock keeps it in (<c>vvis.cpp:55</c>).
+    /// is the type stock keeps it in.
     /// </param>
     internal VisBaseFlow(PortalSet portals, VisPortalState state, bool useRadius, double radiusSquared)
     {
@@ -84,7 +84,7 @@ internal sealed class VisBaseFlow
                 continue;
             }
 
-            // flow.cpp:750-758 -- any point of the other winding strictly in
+            // -- any point of the other winding strictly in
             // front of THIS plane. The loop stops at the first one, and running
             // to the end means "no points on front".
             ReadOnlySpan<Vec3> other = _portals.Winding(j);
@@ -93,7 +93,7 @@ internal sealed class VisBaseFlow
                 continue;
             }
 
-            // flow.cpp:763-771 -- and any point of this winding strictly BEHIND
+            // -- and any point of this winding strictly BEHIND
             // the other plane. Note the asymmetry: front uses `d > eps`, this
             // one uses `d < -eps`. It is not a transcription slip; the two
             // planes point at each other.
@@ -119,7 +119,7 @@ internal sealed class VisBaseFlow
     }
 
     /// <summary>
-    /// <c>SimpleFlood</c> (<c>flow.cpp:684-707</c>), with the recursion turned
+    /// <c>SimpleFlood</c>, with the recursion turned
     /// into an explicit stack.
     /// </summary>
     /// <param name="portalIndex">The portal whose flood set is being built.</param>
@@ -204,7 +204,7 @@ internal sealed class VisBaseFlow
     }
 
     /// <summary>
-    /// The radial-vis test (<c>flow.cpp:777-793</c>): is any point of the other
+    /// The radial-vis test: is any point of the other
     /// winding inside the vis radius of this portal's centre?
     /// </summary>
     /// <param name="winding">The other portal's points.</param>
@@ -218,7 +218,7 @@ internal sealed class VisBaseFlow
     /// </remarks>
     private bool WithinRadius(ReadOnlySpan<Vec3> winding, Vec3 origin)
     {
-        // flow.cpp:780 -- 32000 squared, the seed for the minimum.
+        // -- 32000 squared, the seed for the minimum.
         double minimum = 1024000000.0;
 
         for (int k = 0; k < winding.Length; k++)

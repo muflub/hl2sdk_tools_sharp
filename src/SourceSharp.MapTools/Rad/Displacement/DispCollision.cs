@@ -5,7 +5,7 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 
 /// <summary>
 /// The closest hit of a ray on one displacement: stock's
-/// <c>RayDispOutput_t</c> (<c>dispcoll_common.h</c>).
+/// <c>RayDispOutput_t</c>.
 /// </summary>
 /// <param name="Dist">The hit's fraction along the ray's delta.</param>
 /// <param name="U">Barycentric u along <c>verts[Vert1] - verts[Vert0]</c>.</param>
@@ -17,8 +17,8 @@ public readonly record struct DispRayHit(float Dist, float U, float V, int Vert0
 
 /// <summary>
 /// Ray tests against displacements: <c>CDispCollTree::AABBTree_Ray</c> with a
-/// <c>RayDispOutput_t</c> (<c>dispcoll_common.cpp:555-647</c>) and the helpers
-/// it calls from <c>collisionutils.cpp</c>.
+/// <c>RayDispOutput_t</c> and the helpers
+/// It calls from the reference implementation.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,7 +40,7 @@ public static class DispCollision
     /// <summary><c>DISPCOLL_DIST_EPSILON</c>.</summary>
     public const float DistEpsilon = 0.03125f;
 
-    /// <summary><c>MASK_OPAQUE</c> (<c>bspflags.h:114</c>): SOLID | MOVEABLE | OPAQUE.</summary>
+    /// <summary><c>MASK_OPAQUE</c>: SOLID | MOVEABLE | OPAQUE.</summary>
     public const int MaskOpaque = 0x1 | 0x4000 | 0x80;
 
     /// <summary><c>CCoreDispInfo::SURF_NORAY_COLL</c>.</summary>
@@ -54,7 +54,7 @@ public static class DispCollision
 
     /// <summary>
     /// <c>AABBTree_Ray( ray, output )</c>, the "lower perf helper" with the
-    /// bounds check (<c>dispcoll_common.cpp:555</c>): the closest triangle hit
+    /// bounds check: the closest triangle hit
     /// nearer than <paramref name="hit"/>'s distance.
     /// </summary>
     /// <param name="surface">The displacement.</param>
@@ -76,7 +76,7 @@ public static class DispCollision
     }
 
     /// <summary>
-    /// <c>AABBTree_Ray( ray, invDelta, output )</c> (<c>dispcoll_common.cpp:564</c>).
+    /// <c>AABBTree_Ray(ray, invDelta, output)</c>.
     /// </summary>
     /// <param name="surface">The displacement.</param>
     /// <param name="start">The ray start.</param>
@@ -142,7 +142,7 @@ public static class DispCollision
     }
 
     /// <summary>
-    /// <c>BuildRayLeafList</c> (<c>dispcoll_common.cpp:247</c>): a breadth-first
+    /// <c>BuildRayLeafList</c>: a breadth-first
     /// walk that keeps every child box the ray crosses, leaving the leaves at
     /// the end of the list.
     /// </summary>
@@ -159,7 +159,7 @@ public static class DispCollision
         ArgumentNullException.ThrowIfNull(tree);
         _ = delta;
 
-        // :611-613. A point ray's extents are zero, plus DISPCOLL_DIST_EPSILON.
+        // A point ray's extents are zero, plus DISPCOLL_DIST_EPSILON.
         const float ext = DistEpsilon;
         list[0] = 0;
         int listIndex = 0;
@@ -189,7 +189,7 @@ public static class DispCollision
 
     private static int IntersectRayWithFourBoxes(DispCollisionTree tree, int node, Vec3 start, Vec3 invDelta, float ext)
     {
-        // :150. Per box: slab entry/exit, entry clamped to >= 0, exit to <= 1.
+        // Per box: slab entry/exit, entry clamped to >= 0, exit to <= 1.
         int mask = 0;
         for (int i = 0; i < 4; i++)
         {
@@ -231,7 +231,7 @@ public static class DispCollision
         delta.Z != 0.0f ? 1.0f / delta.Z : float.MaxValue);
 
     /// <summary>
-    /// <c>ComputeIntersectionBarycentricCoordinates</c> (<c>collisionutils.cpp:140</c>)
+    /// <c>ComputeIntersectionBarycentricCoordinates</c>
     /// for a point ray.
     /// </summary>
     /// <param name="start">The ray start.</param>
@@ -257,7 +257,7 @@ public static class DispCollision
         v = 0f;
         t = 0f;
 
-        // :157. The 1e-6 is a double literal: the float is widened.
+        // The 1e-6 is a double literal: the float is widened.
         if (Math.Abs(denom) < 1e-6)
         {
             return false;
@@ -274,7 +274,7 @@ public static class DispCollision
     }
 
     /// <summary>
-    /// <c>IsBoxIntersectingRay</c> with a tolerance (<c>collisionutils.cpp:642</c>,
+    /// <c>IsBoxIntersectingRay</c> with a tolerance (
     /// the <c>USE_SIMD_RAY_CHECKS</c> body).
     /// </summary>
     /// <param name="boxMin">Box mins.</param>
@@ -352,7 +352,7 @@ public static class DispCollision
     /// <returns>The point.</returns>
     public static DispUv PointFromBarycentric(DispUv v0, DispUv v1, DispUv v2, float u, float v)
     {
-        // collisionutils.h: edgeU = v1 - v0; edgeV = v2 - v0; pt = v0 + edgeU*u + edgeV*v.
+        // EdgeU = v1 - v0; edgeV = v2 - v0; pt = v0 + edgeU*u + edgeV*v.
         DispUv edgeU = v1 - v0;
         DispUv edgeV = v2 - v0;
         return new DispUv(v0.X + (edgeU.X * u) + (edgeV.X * v), v0.Y + (edgeU.Y * u) + (edgeV.Y * v));

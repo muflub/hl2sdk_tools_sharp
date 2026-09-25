@@ -8,13 +8,12 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// "pierce" partner, and writes the compact ledge.
 /// </summary>
 /// <remarks>
-/// Decompiled (SDK 2013 / TF2): 00184a80/001849f0/00184890 driver (00189540/001894b0/00189350),
-/// tetra ctor 001a02d0 (001a4d20), make_triangles 001a16d0 (001a6130), the 2-D line representation
-/// 0019f290 (001a3d20), the baseline triangulation 0019f730 (001a41b0) with its segment tests
-/// 0019f040/0019eda0/0019ef50/0019ee70 (001a3ac0/001a3840/001a39d0/001a38f0) and the
-/// <c>IVP_U_Min_Hash</c> 002054b0..00205890, the triangle hesse 0019e8d0/002003f0/00200550, the
-/// pierce pairing 001a37b0 (001a8230), and the compact-ledge generator 0019d1f0/0019d5b0
-/// (001a1c70/001a2030).
+/// Mirrors the polygon-convex builder: the driver,
+/// tetra ctor, make_triangles, the 2-D line representation,
+/// The baseline triangulation with its segment tests
+/// And the
+/// <c>IVP_U_Min_Hash</c>, the triangle hesse, the
+/// pierce pairing, and the compact-ledge generator.
 /// </remarks>
 /// <typeparam name="T">IVP_DOUBLE.</typeparam>
 /// <typeparam name="TP">The precision policy.</typeparam>
@@ -133,7 +132,7 @@ internal static class IvpPolygonTetra<T, TP>
             list[i] = created[n - 1 - i];
         }
 
-        // 0019e8d0: hesse of every triangle, normalised (the mirrors IVP also builds never reach the
+        // hesse of every triangle, normalised (the mirrors IVP also builds never reach the
         // ledge, so they are not modelled).
         foreach (Triangle t in list)
         {
@@ -172,7 +171,7 @@ internal static class IvpPolygonTetra<T, TP>
     }
 
     /// <summary>
-    /// 0019e8d0 = 002003f0 then the hesse normalise: n = (next - p0) x (prev - p0) in the grouping
+    /// = then the hesse normalise: n = (next - p0) x (prev - p0) in the grouping
     /// the binary uses, w = -((p0.x*n.x + n.y*p0.y) + n.z*p0.z).
     /// </summary>
     private static void Hesse(Triangle t)
@@ -192,7 +191,7 @@ internal static class IvpPolygonTetra<T, TP>
     }
 
     /// <summary>
-    /// 001a37b0: each triangle without a partner takes the one whose normal is most opposite
+    /// each triangle without a partner takes the one whose normal is most opposite
     /// (first minimum below -1e-6), and that one takes it back.
     /// </summary>
     private static bool PairPierce(Triangle[] list)
@@ -233,7 +232,7 @@ internal static class IvpPolygonTetra<T, TP>
     /// <summary><c>minss acc, d</c>: <c>acc &lt; d ? acc : d</c>.</summary>
     private static T MinSse(T acc, T d) => acc < d ? acc : d;
 
-    /// <summary>0019d1f0 + 0019d5b0: number the triangles and points and write the ledge.</summary>
+    /// <summary> +: number the triangles and points and write the ledge.</summary>
     private static IvpCompactLedge Generate(Triangle[] list)
     {
         var order = new List<PolyPoint>();
@@ -286,7 +285,7 @@ internal static class IvpPolygonTetra<T, TP>
     }
 
     /// <summary>
-    /// 0019f290 + 0019f730: project a surface onto its dominant plane and triangulate it by
+    /// +: project a surface onto its dominant plane and triangulate it by
     /// advancing a baseline to the nearest admissible point.
     /// </summary>
     /// <param name="template">The template.</param>
@@ -296,7 +295,7 @@ internal static class IvpPolygonTetra<T, TP>
     /// <returns>False on either stage's failure ("No 2d representation" / "no 3d representation").</returns>
     private static bool Triangulate(IvpTemplatePolygon<T> template, IvpTemplatePolygon<T>.Surface s, List<(int, int, int)> triangles, Action<string>? trace)
     {
-        // Dominant axis and projection (0019f290).
+        // Dominant axis and projection.
         T ax = T.Abs(s.NX), ay = T.Abs(s.NY), az = T.Abs(s.NZ);
         int u, v;
         bool flip;
@@ -374,14 +373,14 @@ internal static class IvpPolygonTetra<T, TP>
         _ => q.Z,
     };
 
-    /// <summary>The binary's left-of-line test: (q.y - s.y)*dx + (s.x - q.x)*dy.</summary>
+    /// <summary>The reference left-of-line test: (q.y - s.y)*dx + (s.x - q.x)*dy.</summary>
     private static T Side(Line2 l, Point2 q) =>
         ((q.Y - l.Start.Y) * l.Dx) + ((l.Start.X - q.X) * l.Dy);
 
-    /// <summary>The <c>P_DOUBLE_EPS</c> of the build: 1e-10f / 1e-19.</summary>
+    /// <summary>The <c>P_DOUBLE_EPS</c> of the policy: 1e-10f / 1e-19.</summary>
     private static T Eps => TP.IsDouble ? T.CreateTruncating(1e-19) : T.CreateTruncating(1.0e-10f);
 
-    /// <summary>0019f730's main loop.</summary>
+    /// <summary>'s main loop.</summary>
     private static bool Advance(LinkedList<Line2> lines, List<(int, int, int)> triangles, Action<string>? trace)
     {
         T eps = Eps;
@@ -516,7 +515,7 @@ internal static class IvpPolygonTetra<T, TP>
     }
 
     /// <summary>
-    /// The intersection screen in 0019f730: does any boundary line cross the proposed new edges?
+    /// The intersection screen in: does any boundary line cross the proposed new edges?
     /// Lines already joining the candidate to a baseline end are exempt from that edge's test.
     /// </summary>
     private static bool CrossesAny(LinkedList<Line2> lines, Point2 pt, Point2 s, Point2 e, Line2 new6, Line2 new7)
@@ -541,7 +540,7 @@ internal static class IvpPolygonTetra<T, TP>
         return false;
     }
 
-    /// <summary>0019f040: do two segments cross (sharing an end point does not count)?</summary>
+    /// <summary>: do two segments cross (sharing an end point does not count)?</summary>
     private static bool Intersects(Line2 l1, Line2 l2)
     {
         T cross = (l2.Dx * l1.Dy) - (l1.Dx * l2.Dy);
@@ -575,7 +574,7 @@ internal static class IvpPolygonTetra<T, TP>
         return !(lo > w) && !(w > hi);
     }
 
-    /// <summary>0019eda0: signed distance of a point from a line (SDK: rsqrt estimate; TF2: divide).</summary>
+    /// <summary>: signed distance of a point from a line (stock: rsqrt estimate; TF2: divide).</summary>
     private static T PointLineDistance(Line2 l, Point2 p)
     {
         T len2 = (l.Dy * l.Dy) + (l.Dx * l.Dx);
@@ -596,7 +595,7 @@ internal static class IvpPolygonTetra<T, TP>
         return T.CreateTruncating(f) * num;
     }
 
-    /// <summary>0019ef50: do two collinear segments overlap (beyond 1e-8)?</summary>
+    /// <summary>: do two collinear segments overlap (beyond 1e-8)?</summary>
     private static bool Overlap(Line2 l1, Line2 l2)
     {
         T eps = T.CreateTruncating(1.0e-8f);
@@ -642,7 +641,7 @@ internal static class IvpPolygonTetra<T, TP>
         return c < hi - eps || d < hi - eps;
     }
 
-    /// <summary>0019ee70: is a point strictly inside a (degenerate-direction) segment?</summary>
+    /// <summary>: is a point strictly inside a (degenerate-direction) segment?</summary>
     private static bool PointInside(Line2 l, Point2 p)
     {
         T eps = Eps;

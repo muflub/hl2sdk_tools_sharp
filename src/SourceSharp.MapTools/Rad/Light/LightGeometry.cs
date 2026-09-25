@@ -13,8 +13,8 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <remarks>
 /// <para>
 /// Stock reaches these through twelve file-scope arrays declared in
-/// <c>bsplib.h</c> and filled by <c>LoadBSPFile</c>. Every function in
-/// <c>lightmap.cpp</c> and the patch half of <c>vrad.cpp</c> indexes them
+/// And filled by <c>LoadBSPFile</c>. Every function in
+/// And the patch half of the reference implementation indexes them
 /// directly, which is why none of those functions can be called twice on two
 /// maps and why none of them can be tested without a map on disk. Collecting
 /// them into one argument is the whole of the structural change: the bodies
@@ -27,7 +27,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </para>
 /// <para>
 /// <b><see cref="Faces"/> is the LDR or HDR face lump, chosen once.</b> Stock's
-/// <c>g_pFaces</c> (<c>vrad.cpp:2221-2234</c>) is a pointer switched at load,
+/// <c>g_pFaces</c> is a pointer switched at load,
 /// and every later read goes through it -- so an HDR compile of a map whose HDR
 /// face lump is empty lights the LDR faces. Reproduced by
 /// <see cref="Load"/> taking the range rather than by a flag read later.
@@ -125,8 +125,8 @@ public sealed class LightGeometry
     /// </para>
     /// <para>
     /// Bound to <see cref="StockQuirk.VradVectorNormalise"/>: vrad's own
-    /// <c>VectorNormalize</c> sites (<c>lightmap.cpp:322, 1153, 2192</c>,
-    /// <c>bumpvects.cpp:52-54</c>), all reaching <c>vector.h:2239</c>'s
+ /// <c>VectorNormalize</c> sites.
+    ///), all reaching the reference implementation's
     /// <c>rsqrtss</c> plus one Newton-Raphson step on <c>PLATFORM_INTEL</c>.
     /// </para>
     /// </remarks>
@@ -156,7 +156,7 @@ public sealed class LightGeometry
         ArgumentNullException.ThrowIfNull(bsp);
         ArgumentNullException.ThrowIfNull(compliance);
 
-        // vrad.cpp:2221-2234. The HDR lump is written only when it DIFFERS
+        // The HDR lump is written only when it DIFFERS
         // from the LDR one, so "HDR was asked for" is not enough.
         bool useHdrFaces = range != VradLightingRange.Ldr && !bsp[BspLump.FacesHdr].IsEmpty;
         BspLump faceLump = useHdrFaces ? BspLump.FacesHdr : BspLump.Faces;
@@ -183,7 +183,7 @@ public sealed class LightGeometry
     }
 
     /// <summary>
-    /// <c>EdgeVertex</c> (<c>lightmap.cpp:123</c>): the vertex at one corner of
+    /// <c>EdgeVertex</c>: the vertex at one corner of
     /// a face, with the index wrapped.
     /// </summary>
     /// <param name="faceNum">The face.</param>
@@ -221,7 +221,7 @@ public sealed class LightGeometry
     }
 
     /// <summary>
-    /// <c>WindingFromFace</c> (<c>vrad.cpp:366</c>): a face's polygon, offset
+    /// <c>WindingFromFace</c>: a face's polygon, offset
     /// into a brush model's in-use position.
     /// </summary>
     /// <param name="arena">Where the winding is allocated.</param>
@@ -288,7 +288,7 @@ public sealed class LightGeometry
     }
 
     /// <summary>
-    /// <c>ValidDispFace</c> (<c>vrad.h:542</c>): whether a face is a
+    /// <c>ValidDispFace</c>: whether a face is a
     /// displacement vrad will light as one.
     /// </summary>
     /// <param name="faceNum">The face.</param>
@@ -308,7 +308,7 @@ public sealed class LightGeometry
     }
 
     /// <summary>
-    /// <c>IsSky</c> (<c>vrad.cpp:425</c>): whether a face's texinfo carries
+    /// <c>IsSky</c>: whether a face's texinfo carries
     /// <c>SURF_SKY</c>.
     /// </summary>
     /// <param name="faceNum">The face.</param>
@@ -380,7 +380,7 @@ public sealed class LightGeometry
 /// on-disk shapes -- version 0 carries an ambient cube inline and is 56 bytes,
 /// the current one is 32 -- and every caller below would otherwise branch on
 /// the version. The flags are mutable state during lighting --
-/// <c>BuildVisForLightEnvironment</c> (<c>lightmap.cpp:1344</c>) writes SKY and
+/// <c>BuildVisForLightEnvironment</c> writes SKY and
 /// SKY2D back into the lump -- so the sky pass carries its own flag array and
 /// this record stays immutable.
 /// </remarks>

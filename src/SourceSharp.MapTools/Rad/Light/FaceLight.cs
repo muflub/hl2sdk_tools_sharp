@@ -3,7 +3,7 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
-/// One light sample on a face: <c>sample_t</c> (<c>lightmap.h:56</c>).
+/// One light sample on a face: <c>sample_t</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -14,7 +14,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </para>
 /// <para>
 /// The clipped winding stock keeps in <c>sample_t::w</c> survives only for the
-/// partial samples supersampling will need (<c>lightmap.cpp:743</c>), in WORLD
+/// partial samples supersampling will need, in WORLD
 /// space. Here it is a range of <see cref="FaceLight.SampleWindingPoints"/>
 /// rather than a per-sample allocation: <see cref="WindingCount"/> is zero when
 /// stock's pointer would be null.
@@ -51,7 +51,7 @@ public struct LightSample
 
     /// <summary>
     /// The normal lighting was gathered with: the face normal on a flat face,
-    /// the phong normal otherwise (<c>lightmap.cpp:3137-3141</c>).
+    /// The phong normal otherwise.
     /// </summary>
     public Vec3 Normal;
 
@@ -70,7 +70,7 @@ public struct LightSample
 
 /// <summary>
 /// Everything direct lighting produced for one face: <c>facelight_t</c>
-/// (<c>lightmap.h:70</c>) plus the face's light styles.
+/// Plus the face's light styles.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -128,13 +128,13 @@ public sealed class FaceLight
 
     /// <summary>
     /// The world-space position of every luxel, <c>width * height</c> of them,
-    /// row-major (<c>lightmap.cpp:865</c>).
+    /// Row-major.
     /// </summary>
     public Vec3[] Luxels { get; internal set; } = [];
 
     /// <summary>
     /// <c>luxelNormals</c>: a DISPLACEMENT face's per-luxel surface normal,
-    /// parallel to <see cref="Luxels"/> (<c>vraddisps.cpp:1692-1700</c>); empty
+    /// parallel to <see cref="Luxels"/>; empty
     /// for a brush face, which stock never gives one.
     /// </summary>
     public Vec3[] LuxelNormals { get; internal set; } = [];
@@ -171,7 +171,7 @@ public sealed class FaceLight
         Light[(styleIndex * BumpBasis.LightmapCount) + normal];
 
     /// <summary>
-    /// <c>AllocateLightstyleSamples</c> (<c>lightmap.cpp:2385</c>): zeroed
+    /// <c>AllocateLightstyleSamples</c>: zeroed
     /// storage for every normal of one slot.
     /// </summary>
     /// <param name="styleIndex">The slot.</param>
@@ -184,7 +184,7 @@ public sealed class FaceLight
     }
 
     /// <summary>
-    /// <c>FindOrAllocateLightstyleSamples</c> (<c>lightmap.cpp:2408</c>).
+    /// <c>FindOrAllocateLightstyleSamples</c>.
     /// </summary>
     /// <param name="lightStyle">The style number.</param>
     /// <returns>The slot, or -1 when all four are taken by other styles.</returns>

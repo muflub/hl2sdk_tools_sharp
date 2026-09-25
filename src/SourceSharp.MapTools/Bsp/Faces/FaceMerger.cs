@@ -6,7 +6,6 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
 /// Joining two coplanar faces that share an edge back into one
-/// (<c>src/utils/vbsp/faces.cpp:931-1156</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -22,17 +21,17 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// <para>
 /// A merged face is appended to the END of the node's list so that it is
 /// visited again and can merge further (<c>MergeFaceList</c>,
-/// <c>:1147</c>). The two originals stay in the list forever with
+///). The two originals stay in the list forever with
 /// <see cref="Face.Merged"/> set.
 /// </para>
 /// </remarks>
 public sealed class FaceMerger
 {
-    /// <summary><c>CONTINUOUS_EPSILON</c> (<c>faces.cpp:931</c>).</summary>
+    /// <summary><c>CONTINUOUS_EPSILON</c>.</summary>
     public const double ContinuousEpsilon = 0.001;
 
     /// <summary>
-    /// <c>EQUAL_EPSILON</c> (<c>mathlib.h:312</c>), whose comment says it is
+    /// <c>EQUAL_EPSILON</c>, whose comment says it is
     /// there for <c>faces.c</c>.
     /// </summary>
     public const double EqualEpsilon = 0.001;
@@ -50,7 +49,7 @@ public sealed class FaceMerger
 
     /// <summary>
     /// Whether two faces carry the same set of overlay ids
-    /// (<c>OverlaysAreEqual</c>, <c>faces.cpp:1043</c>).
+    /// (<c>OverlaysAreEqual</c>).
     /// </summary>
     /// <param name="f1">One face.</param>
     /// <param name="f2">The other.</param>
@@ -86,7 +85,7 @@ public sealed class FaceMerger
 
     /// <summary>
     /// Whether a face came off a water or slime brush
-    /// (<c>FaceOnWaterBrush</c>, <c>faces.cpp:1063</c>).
+    /// (<c>FaceOnWaterBrush</c>).
     /// </summary>
     /// <param name="face">The face.</param>
     /// <returns>True when its original side carries water or slime contents.</returns>
@@ -106,7 +105,7 @@ public sealed class FaceMerger
 
     /// <summary>
     /// Merges two coplanar windings across a shared edge
-    /// (<c>TryMergeWinding</c>, <c>faces.cpp:944</c>).
+    /// (<c>TryMergeWinding</c>).
     /// </summary>
     /// <param name="w1">The first polygon.</param>
     /// <param name="w2">The second.</param>
@@ -238,7 +237,7 @@ public sealed class FaceMerger
 
     /// <summary>
     /// Merges two faces if everything about them allows it
-    /// (<c>TryMerge</c>, <c>faces.cpp:1086</c>).
+    /// (<c>TryMerge</c>).
     /// </summary>
     /// <param name="f1">One face.</param>
     /// <param name="f2">The other.</param>
@@ -304,7 +303,7 @@ public sealed class FaceMerger
 
     /// <summary>
     /// Merges every pair it can in one node's face list
-    /// (<c>MergeFaceList</c>, <c>faces.cpp:1125</c>).
+    /// (<c>MergeFaceList</c>).
     /// </summary>
     /// <param name="head">The head of the list.</param>
     /// <returns>The head afterwards, which is unchanged unless it was null.</returns>
@@ -366,7 +365,7 @@ public sealed class FaceMerger
 
     /// <summary>
     /// <c>VectorNormalize</c> as the merge test calls it
-    /// (<c>vector.h:2239</c>).
+    ///.
     /// </summary>
     /// <remarks>
     /// <para>

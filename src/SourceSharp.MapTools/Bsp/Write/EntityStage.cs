@@ -12,12 +12,12 @@ namespace SourceSharp.MapTools.Bsp.Write;
 /// <summary>
 /// The entity-lump half of vbsp: model numbers, switched light styles, the
 /// default <c>water_lod_control</c>, the world bounds keys and the lump text
-/// itself (<c>writebsp.cpp:953-1233, 1535</c>; <c>bsplib.cpp:3088</c>).
+/// Itself;).
 /// </summary>
 internal static class EntityStage
 {
     /// <summary>
-    /// <c>SetModelNumbers</c> (<c>writebsp.cpp:953</c>): every brush entity
+    /// <c>SetModelNumbers</c>: every brush entity
     /// but the world gets <c>"model" "*N"</c>, numbered in entity order;
     /// a <c>func_occluder</c> gets an empty model and does not advance N.
     /// </summary>
@@ -51,7 +51,7 @@ internal static class EntityStage
     }
 
     /// <summary>
-    /// <c>SetLightStyles</c> (<c>writebsp.cpp:985</c>): every named
+    /// <c>SetLightStyles</c>: every named
     /// <c>light*</c> entity except <c>light_dynamic</c> gets a switchable style
     /// from 32 up, one per distinct targetname in first-seen order.
     /// </summary>
@@ -119,7 +119,7 @@ internal static class EntityStage
     }
 
     /// <summary>
-    /// <c>EnsurePresenceOfWaterLODControlEntity</c> (<c>writebsp.cpp:1201</c>).
+    /// <c>EnsurePresenceOfWaterLODControlEntity</c>.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <param name="hasWater"><c>g_bHasWater</c>: whether any side's material is water.</param>
@@ -163,7 +163,7 @@ internal static class EntityStage
     }
 
     /// <summary>
-    /// <c>ComputeBoundsNoSkybox</c> (<c>writebsp.cpp:1535</c>): the world's
+    /// <c>ComputeBoundsNoSkybox</c>: the world's
     /// drawn bounds, excluding the 3D skybox areas, sky and nodraw faces,
     /// written onto <c>worldspawn</c> as <c>world_mins</c>/<c>world_maxs</c>.
     /// </summary>
@@ -210,7 +210,7 @@ internal static class EntityStage
     }
 
     /// <summary>
-    /// <c>UnparseEntities</c> (<c>bsplib.cpp:3088</c>): the ENTITIES lump.
+    /// <c>UnparseEntities</c>: the ENTITIES lump.
     /// </summary>
     /// <param name="map">The map.</param>
     /// <returns>The lump.</returns>
@@ -233,7 +233,7 @@ internal static class EntityStage
         return EntityLump.Write(entities);
     }
 
-    /// <summary><c>IsFuncOccluder</c> (<c>vbsp.cpp:457</c>): <c>strcmp</c>, case-sensitive.</summary>
+    /// <summary><c>IsFuncOccluder</c>: <c>strcmp</c>, case-sensitive.</summary>
     /// <param name="e">The entity.</param>
     /// <returns>Whether it is a <c>func_occluder</c>.</returns>
     internal static bool IsFuncOccluder(MapEntity e) =>
@@ -274,7 +274,7 @@ internal static class EntityStage
     private static string Ints(Vec3 v) => string.Create(
         CultureInfo.InvariantCulture, $"{(int)v.X} {(int)v.Y} {(int)v.Z}");
 
-    /// <summary><c>AddNodeToBounds</c> (<c>writebsp.cpp:1400</c>).</summary>
+    /// <summary><c>AddNodeToBounds</c>.</summary>
     private static void AddNodeToBounds(
         WorldLumps state, int node, ref Vec3 mins, ref Vec3 maxs)
     {
@@ -324,7 +324,7 @@ internal static class EntityStage
         }
     }
 
-    /// <summary><c>IsBoxInsideWorld</c> (<c>writebsp.cpp:1456</c>).</summary>
+    /// <summary><c>IsBoxInsideWorld</c>.</summary>
     private static bool IsBoxInsideWorld(WorldLumps state, int node, Vec3 mins, Vec3 maxs)
     {
         while (true)

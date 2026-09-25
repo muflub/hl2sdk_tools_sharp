@@ -64,7 +64,7 @@ internal sealed class ManagedCollide
         Surface is not null ? VphyWriter.Serialize(Surface, OrthoAreas) : (byte[]?)PackedHull?.Clone() ?? [];
 
     /// <summary>
-    /// <c>CPhysCollide::UnserializeFromBuffer</c> (physics_collide.cpp:310): a <c>VPHY</c> blob, or
+    /// <c>CPhysCollide::UnserializeFromBuffer</c>: a <c>VPHY</c> blob, or
     /// a bare compact surface; <c>dummy[0]</c> becomes <paramref name="index"/>.
     /// </summary>
     /// <param name="blob">The bytes.</param>

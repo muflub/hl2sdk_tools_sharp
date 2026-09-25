@@ -3,7 +3,7 @@ using SourceSharp.MapFormats.Geometry;
 
 namespace SourceSharp.MapTools.Rad.Light;
 
-/// <summary>One <c>sky_camera</c>: <c>sky_camera_t</c> (<c>vrad.h</c>).</summary>
+/// <summary>One <c>sky_camera</c>: <c>sky_camera_t</c>.</summary>
 /// <param name="Origin">The camera's origin, inside the 3D skybox.</param>
 /// <param name="SkyToWorld">The entity's <c>scale</c>.</param>
 /// <param name="WorldToSky"><c>1.0f / scale</c>.</param>
@@ -11,7 +11,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 public readonly record struct SkyCamera(Vec3 Origin, float SkyToWorld, float WorldToSky, int Area);
 
 /// <summary>
-/// <c>ProcessSkyCameras</c> (<c>vrad.cpp:454</c>): the 3D skyboxes a sky ray
+/// <c>ProcessSkyCameras</c>: the 3D skyboxes a sky ray
 /// may continue into.
 /// </summary>
 /// <remarks>
@@ -20,7 +20,7 @@ public readonly record struct SkyCamera(Vec3 Origin, float SkyToWorld, float Wor
 /// sample's area has NO sky camera of its own, and the map has any, the ray
 /// is re-cast from inside each 3D skybox -- start scaled by the camera's
 /// <c>1/scale</c> about its origin -- and whatever it hits there occludes the
-/// sun too (<c>trace.cpp:389-424</c>). An area that holds a camera is the
+/// sun too. An area that holds a camera is the
 /// skybox itself and does not recurse.
 /// </para>
 /// </remarks>
@@ -62,7 +62,7 @@ public sealed class SkyCameras
     /// <remarks>
     /// The classname test is <c>stricmp</c> -- case-insensitive, unlike the
     /// light entities' <c>strncmp</c>. A camera with <c>scale &lt;= 0</c> is
-    /// ignored outright (<c>vrad.cpp:477</c>). When two cameras share an area
+    /// ignored outright. When two cameras share an area
     /// the LATER one wins the area slot, but both still recurse from every
     /// camera-less area.
     /// </remarks>

@@ -9,8 +9,8 @@ namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
 /// LUMP_TEXDATA: <c>dtexdata</c> and <c>numtexdata</c>,
-/// <c>utils/common/bsplib.h:104-105</c>, with the four functions in
-/// <c>utils/vbsp/textures.cpp</c> that build it.
+/// With the four functions in
+/// That build it.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -20,7 +20,7 @@ namespace SourceSharp.MapTools.Bsp;
 /// </para>
 /// <para>
 /// Stock keeps <c>g_SurfaceProperties</c> as a separate array indexed by the
-/// same number (<c>vbsp.h:397</c>) rather than a field of <c>dtexdata_t</c>,
+/// same number rather than a field of <c>dtexdata_t</c>,
 /// because <c>dtexdata_t</c> is wire format and the surface property is not.
 /// <see cref="SurfaceProperties"/> is that array, and is parallel by
 /// construction.
@@ -30,7 +30,6 @@ public sealed class TexDataTable
 {
     /// <summary>
     /// The format's ceiling: <c>MAX_MAP_TEXDATA</c>,
-    /// <c>public/bspfile.h:64</c>.
     /// </summary>
     public const int MaxMapTexData = 2048;
 
@@ -61,9 +60,9 @@ public sealed class TexDataTable
     /// </summary>
     /// <remarks>
     /// -1 is stock's "the material has no <c>$surfaceprop</c>, or there is no
-    /// physics surface-prop table loaded" (<c>textures.cpp:347</c> and
-    /// <c>:352</c>). An entry created for a material that did not resolve is
-    /// never written at all by stock (<c>textures.cpp:493-499</c> returns
+    /// physics surface-prop table loaded" (and
+ ///). An entry created for a material that did not resolve is
+    /// never written at all by stock (returns
     /// early), leaving whatever was in the array — zero on a fresh array. That
     /// zero is reproduced rather than -1.
     /// </remarks>
@@ -72,7 +71,7 @@ public sealed class TexDataTable
     /// <summary>
     /// The surface-property database <see cref="SurfaceProperties"/> indexes
     /// into: stock's <c>physprops</c>, filled by <c>LoadSurfaceProperties</c>
-    /// (<c>textures.cpp:711</c>) before the map loads (<c>vbsp.cpp:1310</c>).
+    /// Before the map loads.
     /// </summary>
     /// <remarks>
     /// Null resolves every material to -1, stock's value when no physics
@@ -94,7 +93,6 @@ public sealed class TexDataTable
 
     /// <summary>
     /// Finds an entry by name, or -1: <c>FindTexData</c>,
-    /// <c>textures.cpp:452</c>.
     /// </summary>
     /// <param name="name">The material name.</param>
     /// <returns>The index, or -1.</returns>
@@ -123,7 +121,7 @@ public sealed class TexDataTable
 
     /// <summary>
     /// Finds an entry by name or creates one from the material:
-    /// <c>FindOrCreateTexData</c>, <c>textures.cpp:471</c>.
+    /// <c>FindOrCreateTexData</c>.
     /// </summary>
     /// <param name="name">The material name, as the map spells it.</param>
     /// <param name="materials">Where the material's facts come from.</param>
@@ -137,13 +135,13 @@ public sealed class TexDataTable
     /// <remarks>
     /// <para>
     /// The name goes into the string table with the casing the caller supplied
-    /// — stock's <c>_alloca</c> copy at <c>textures.cpp:473</c> does no
+    /// — stock's <c>_alloca</c> copy does no
     /// lowercasing, unlike <c>FindAliasedTexData</c>'s, so what lands in
     /// TEXDATA_STRING_DATA is the VMF's own spelling.
     /// </para>
     /// <para>
     /// A material that does not resolve still gets an entry, and a VALID index
-    /// is returned (<c>textures.cpp:497</c>) — with reflectivity and dimensions
+    /// is returned — with reflectivity and dimensions
     /// left at zero and no surface property written. That is the difference
     /// from <see cref="FindAliasedAsync(string, DTexData, MaterialFactsCache, ICollection{CompileDiagnostic}?, CancellationToken)"/>, which returns -1 in the same situation.
     /// </para>
@@ -183,7 +181,7 @@ public sealed class TexDataTable
 
     /// <summary>
     /// Creates an entry named for one material but described by another:
-    /// <c>FindAliasedTexData</c>, <c>textures.cpp:402</c>.
+    /// <c>FindAliasedTexData</c>.
     /// </summary>
     /// <param name="name">The new name. Lowercased before anything else.</param>
     /// <param name="source">The entry whose material describes it.</param>
@@ -198,13 +196,13 @@ public sealed class TexDataTable
     /// <remarks>
     /// <para>
     /// Three quirks are stock's and are kept. The name is lowercased in place
-    /// (<c>strlwr</c>, <c>textures.cpp:406</c>) BEFORE the dedup scan, and that
-    /// scan is a case-SENSITIVE <c>strcmp</c> (<c>:413</c>) — so it can only
+    /// (<c>strlwr</c>) BEFORE the dedup scan, and that
+ /// scan is a case-SENSITIVE <c>strcmp</c> — so it can only
     /// ever match an entry that was already stored lowercase.
     /// </para>
     /// <para>
     /// And the -1 return happens AFTER the entry has been appended and the name
-    /// added to the string table (<c>:424-435</c>), so a failure still grows
+ /// added to the string table, so a failure still grows
     /// both lumps by one. Returning -1 without the append would produce a
     /// different TEXDATA lump than stock's.
     /// </para>
@@ -227,7 +225,7 @@ public sealed class TexDataTable
     /// <summary>
     /// <see cref="FindAliasedAsync(string, DTexData, MaterialFactsCache, ICollection{CompileDiagnostic}?, CancellationToken)"/>
     /// with the describing material already resolved to what
-    /// <c>FindOriginalMaterial</c> reads (<c>textures.cpp:431</c>): for a
+    /// <c>FindOriginalMaterial</c> reads: for a
     /// patched source, the material the patch was made from
     /// (<see cref="MaterialPatch.MaterialPatcher.OriginalNameFor"/>).
     /// </summary>
@@ -238,7 +236,7 @@ public sealed class TexDataTable
         ICollection<CompileDiagnostic>? diagnostics,
         CancellationToken cancellationToken)
     {
-#pragma warning disable CA1308 // strlwr is what textures.cpp:406 calls; this is a byte-for-byte port of it.
+#pragma warning disable CA1308 // strlwr is what calls; this is a byte-for-byte port of it.
         string lowered = name.ToLowerInvariant();
 #pragma warning restore CA1308
 
@@ -270,7 +268,6 @@ public sealed class TexDataTable
 
     /// <summary>
     /// Copies an entry under a new name: <c>AddCloneTexData</c>,
-    /// <c>textures.cpp:518</c>.
     /// </summary>
     /// <param name="existingIndex">The entry to copy.</param>
     /// <param name="cloneName">The copy's name.</param>
@@ -289,7 +286,7 @@ public sealed class TexDataTable
     /// <summary>
     /// <see cref="FindOrCreateAsync"/> for a caller that has already read the
     /// material: the same append and fill, with no I/O, so a synchronous stage
-    /// (the face stage's <c>FindOrCreateTexData</c>, <c>faces.cpp:1287</c>)
+    /// (the face stage's <c>FindOrCreateTexData</c>)
     /// can create the entry at exactly the point stock does.
     /// </summary>
     /// <param name="name">The material name.</param>
@@ -362,9 +359,9 @@ public sealed class TexDataTable
         entry.Reflectivity = facts.Reflectivity;
         _texData[index] = entry;
 
-        // GetSurfaceProperties (textures.cpp:344): $surfaceprop against the
+        // GetSurfaceProperties: $surfaceprop against the
         // table LoadSurfaceProperties built before the map was loaded
-        // (vbsp.cpp:1310); -1 without one, as stock's physprops == NULL.
+        // -1 without one, as stock's physprops == NULL.
         _surfaceProperties[index] = PropertyTable?.ResolveMaterial(facts.SurfaceProp) ?? -1;
     }
 }
@@ -374,12 +371,12 @@ public static class TextureDiagnostics
 {
     /// <summary>
     /// A material named by the map did not resolve:
-    /// <c>WARNING: material not found</c>, <c>textures.cpp:496</c>.
+    /// <c>WARNING: material not found</c>.
     /// </summary>
     public const string MaterialNotFound = "VBSP0301";
 
     /// <summary>
-    /// A side's <c>lightmapscale</c> was zero: <c>map.cpp:2884</c>.
+    /// A side's <c>lightmapscale</c> was zero:.
     /// </summary>
     public const string LuxelSizeZero = "VBSP0302";
 }

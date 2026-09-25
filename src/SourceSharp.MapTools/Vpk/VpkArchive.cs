@@ -8,26 +8,26 @@ using SourceSharp.MapTools.Io;
 namespace SourceSharp.MapTools.Vpk;
 
 /// <summary>
-/// A read-only reader for Valve's VPK archives, version 1 and version 2.
+/// A read-only reader for VPK archives, version 1 and version 2.
 /// </summary>
 /// <remarks>
 /// <para>
 /// OURS, per the plan's ruling that this assembly takes no packages. The format
 /// is described by the engine drop's own <c>vpklib/fileformat.txt</c> and
-/// <c>packedstore_internal.h</c>, which is where the layout below comes from;
-/// the MIT-licensed ValvePak was read as a second opinion on the corners
+/// Which is where the layout below comes from;
+/// the format was cross-checked against public documentation on the corners
 /// (the <c>0x7fff</c> embedded-chunk index and the multi-part descriptor list)
 /// and no code from it is here. The reader is about three hundred lines because
 /// the format is three loops and a struct.
 /// </para>
 /// <para>
 /// READ-ONLY, deliberately. Nothing in a map compile writes a VPK, and a writer
-/// would have to reproduce Valve's chunking and signing to be worth anything.
+/// would have to reproduce the shipping tools' chunking and signing to be worth anything.
 /// </para>
 /// <para>
 /// The directory lives in <c>&lt;name&gt;_dir.vpk</c> and the bytes in
 /// <c>&lt;name&gt;_000.vpk</c>, <c>_001</c> and so on — except for the small
-/// files Valve stores in the directory file itself, which is what archive index
+/// files the shipping tools store in the directory file itself, which is what archive index
 /// <see cref="EmbeddedArchiveIndex"/> means. <c>gameinfo.txt</c> names the
 /// archive WITHOUT the <c>_dir</c>, so <see cref="OpenAsync"/> accepts either
 /// spelling.

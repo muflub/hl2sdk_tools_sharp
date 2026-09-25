@@ -7,7 +7,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
 /// The interpolated surface normal at a point on a face: <c>GetPhongNormal</c>
-/// (<c>lightmap.cpp:2118</c> scalar, <c>:2217</c> four-wide).
+/// (scalar, four-wide).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -19,15 +19,15 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </para>
 /// <para>
 /// <b>The two overloads disagree about which triangle wins.</b> The scalar one
-/// RETURNS from inside the loop (<c>:2211</c>), so the FIRST edge whose wedge
+/// RETURNS from inside the loop, so the FIRST edge whose wedge
 /// contains the point decides. The four-wide one has no early exit: it blends
-/// each lane's result through a mask and keeps going (<c>:2297-2299</c>), so
+/// each lane's result through a mask and keeps going, so
 /// the LAST matching edge decides. For a convex face and an interior point
 /// exactly one edge matches and they agree; on a boundary where two wedges
 /// share the point, or on a face vbsp left non-convex, they do not. Both are
 /// ported as written, because the scalar one feeds patch normals
-/// (<c>vrad.cpp:799</c>) and the wide one feeds luxel normals
-/// (<c>lightmap.cpp:2464</c>), and swapping either for the other moves output
+/// And the wide one feeds luxel normals
+/// And swapping either for the other moves output
 /// that has nothing to do with the bug.
 /// </para>
 /// <para>
@@ -68,13 +68,13 @@ public static class PhongNormals
     /// <para>
     /// The model-origin convention is easy to get backwards and stock's two
     /// callers do it differently in APPEARANCE only. <c>face_centroids</c> is
-    /// stored with the offset removed (<c>vrad.cpp:620</c>) and
+    /// stored with the offset removed and
     /// <c>dvertexes</c> are un-offset, so this function works entirely in
     /// un-offset space. <c>CreateChildPatch</c> passes <c>child-&gt;origin</c>,
-    /// which IS offset (<c>vrad.cpp:799</c>) -- a mismatch that only cancels
+    /// which IS offset -- a mismatch that only cancels
     /// because brush models with an origin brush are rare and their faces are
     /// usually flat. <c>ComputeIlluminationPointAndNormalsSSE</c> subtracts the
-    /// model origin first (<c>lightmap.cpp:2462-2463</c>), which is the right
+    /// model origin first, which is the right
     /// thing. Both are reproduced at their call sites; this function takes what
     /// it is given.
     /// </para>
@@ -119,7 +119,7 @@ public static class PhongNormals
             float bb = Vec3.Dot(v2, v2);
             float ab = Vec3.Dot(v1, v2);
 
-            // :2174-2175. Solved in FLOAT -- a1 and a2 are float locals in the
+            // Solved in FLOAT -- a1 and a2 are float locals in the
             // C++ and every operand is a vec_t -- so the division's rounding is
             // part of the answer.
             float a1 = ((bb * Vec3.Dot(v1, vspot)) - (ab * Vec3.Dot(vspot, v2)))
@@ -128,11 +128,11 @@ public static class PhongNormals
 
             if (a1 >= 0.0f && a2 >= 0.0f)
             {
-                // :2185-2192. The face normal is weighted by what is LEFT
+                // The face normal is weighted by what is LEFT
                 // OVER, so the three weights sum to one and the blend stays on
                 // the unit sphere before normalising.
                 // `1.0 - a1 - a2` is a DOUBLE expression narrowed into the float
-                // `scale` (lightmap.cpp:2185), so it rounds once, not twice.
+                // `scale`, so it rounds once, not twice.
                 float scale = (float)(1.0 - a1 - a2);
                 Vec3 blended = (faceNormal * scale) + (n1 * a1) + (n2 * a2);
                 return BumpBasis.Normalise(blended, geometry.StockNormalise);
@@ -163,7 +163,7 @@ public static class PhongNormals
     /// <para>
     /// Written as four scalar lanes rather than as SIMD, and that is a
     /// behavioural decision rather than a shortcut: stock's version uses
-    /// <c>ReciprocalSIMD</c> for both divisions (<c>:2267, 2270</c>), which is
+ /// <c>ReciprocalSIMD</c> for both divisions, which is
     /// <c>rcpps</c> plus a Newton-Raphson step and NOT an exact divide, so its
     /// barycentric weights differ from the scalar function's in the last bits
     /// even on the same point. Four exact divides here means the two overloads
@@ -173,7 +173,7 @@ public static class PhongNormals
     /// </para>
     /// <para>
     /// The final <c>VectorNormalize</c> is unconditional in stock
-    /// (<c>:2302</c>), so a lane that matched no wedge has its face normal
+ /// So a lane that matched no wedge has its face normal
     /// renormalised. That is reproduced: on an unnormalised plane normal the
     /// two overloads would otherwise differ by more than rounding.
     /// </para>
@@ -238,7 +238,7 @@ public static class PhongNormals
             for (int lane = 0; lane < 4; lane++)
             {
                 Vec3 vspot = spots[lane] - centroid;
-                // :2267-2271. Stock multiplies by ReciprocalSIMD estimates
+                // Stock multiplies by ReciprocalSIMD estimates
                 // (StockQuirk.GatherReciprocalEstimate); correct divides.
                 float num1 = (bb * Vec3.Dot(vspot, v1)) - (ab * Vec3.Dot(vspot, v2));
                 float den1 = (aa * bb) - (ab * ab);
@@ -254,7 +254,7 @@ public static class PhongNormals
             }
         }
 
-        // :2302. FourVectors::VectorNormalize: rsqrtps and one Newton step, no
+        // FourVectors::VectorNormalize: rsqrtps and one Newton step, no
         // epsilon -- the four-wide form of StockQuirk.VradVectorNormalise.
         for (int lane = 0; lane < 4; lane++)
         {

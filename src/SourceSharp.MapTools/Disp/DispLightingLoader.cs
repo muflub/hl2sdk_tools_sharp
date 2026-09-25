@@ -9,7 +9,7 @@ namespace SourceSharp.MapTools.Disp;
 /// <summary>
 /// Rebuilds every displacement of a compiled BSP the way vrad does, sewn
 /// normals included: <c>CVRadDispMgr::UnserializeDisps</c> up to the
-/// collision-tree build, <c>utils/vrad/vraddisps.cpp:427-468</c>.
+/// Collision-tree build.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -23,7 +23,7 @@ namespace SourceSharp.MapTools.Disp;
 /// A pure CPU pass over lumps already in memory, synchronous like
 /// <see cref="DisplacementLumpBuilder.Build"/>; the async stage that calls
 /// it owns cancellation. The per-displacement init is independent, so the
-/// stock face-order loop (<c>:444</c>) and a displacement-order loop give the
+/// stock face-order loop and a displacement-order loop give the
 /// same cores; the smoothing that follows is order-dependent and serial.
 /// </para>
 /// </remarks>
@@ -42,9 +42,9 @@ public static class DispLightingLoader
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// A displacement no valid face points at (<c>ValidDispFace</c>,
-    /// <c>vrad.h:542</c>: dispinfo set and four edges) is left
+    /// Dispinfo set and four edges) is left
     /// un-initialised and not created — stock's <c>Create</c> refuses it too
-    /// (<c>builddisp.cpp:2007</c>, point count not four).
+    /// (point count not four).
     /// </remarks>
     public static CoreDispInfo[] Load(BspData bsp, ComplianceOptions compliance)
     {
@@ -127,7 +127,7 @@ public static class DispLightingLoader
 
     /// <summary>
     /// One displacement from its lump entry and base face:
-    /// <c>CVRadDispMgr::DispBuilderInit</c>, <c>vraddisps.cpp:348</c>.
+    /// <c>CVRadDispMgr::DispBuilderInit</c>.
     /// </summary>
     /// <param name="core">The core to fill (not yet created).</param>
     /// <param name="info">Its LUMP_DISPINFO entry.</param>

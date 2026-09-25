@@ -16,7 +16,7 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// between sessions except the surface-property table, which is locked.
 /// </para>
 /// <para>
-/// Ported from the 2018 drop's <c>physics_collide.cpp</c> (ruling Q16) over the decompiled IVP
+/// Mirrors the reference <c>CPhysicsCollision</c> wrapper over the IVP
 /// builders. The traces (<c>TraceBox</c> as a ray, a zero-length <c>TraceCollide</c>) are exact
 /// geometric tests rather than a port of <c>CPhysicsTrace</c>; see <see cref="ManagedTrace"/>.
 /// </para>
@@ -123,7 +123,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession
     /// <inheritdoc/>
     public float ConvexSurfaceArea(ConvexHandle convex) => LedgeArea(Convex(convex));
 
-    /// <summary><c>ConvexSurfaceArea</c> (physics_collide.cpp:1130): the triangles' HL areas summed.</summary>
+    /// <summary><c>ConvexSurfaceArea</c>: the triangles' HL areas summed.</summary>
     private static float LedgeArea(IvpCompactLedge ledge)
     {
         float area = 0f;
@@ -208,7 +208,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession
     }
 
     /// <summary>
-    /// The material fix-up after a polysoup compile (physics_collide.cpp:1459-1482), stock's walk
+    /// The material fix-up after a polysoup compile, stock's walk
     /// included: when a ledge's first triangle has material 0 the search loop leaves the triangle
     /// pointer past the ledge's last triangle, and the copy loop then writes past it.
     /// </summary>
@@ -495,7 +495,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession
         visit(new QueryModel(Collide(collide).RequireSurface()));
     }
 
-    /// <summary><c>CCollisionQuery</c> (physics_collide.cpp:1755) over the surface bytes, in place.</summary>
+    /// <summary><c>CCollisionQuery</c> over the surface bytes, in place.</summary>
     private sealed class QueryModel(byte[] surface) : ICollisionQueryModel
     {
         private readonly List<int> _ledges = IvpCollideQueries.LeafOffsets(surface);
@@ -510,7 +510,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession
         {
             IvpCompactLedge ledge = IvpCollideQueries.LedgeAt(surface, _ledges[convexIndex]);
 
-            // Edges 2, 1, 0 (physics_collide.cpp:1840).
+            // Edges 2, 1, 0.
             (float ax, float ay, float az) = IvpCollideQueries.HlPoint(ledge, ledge.EdgeStart(triangleIndex, 2));
             (float bx, float by, float bz) = IvpCollideQueries.HlPoint(ledge, ledge.EdgeStart(triangleIndex, 1));
             (float cx, float cy, float cz) = IvpCollideQueries.HlPoint(ledge, ledge.EdgeStart(triangleIndex, 0));

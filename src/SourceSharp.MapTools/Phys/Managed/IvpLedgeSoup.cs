@@ -9,12 +9,12 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Decompiled from SDK 2013 (TF2): ctor 00181fe0 (00186a00), insert_ledge 0017f840 (00184080),
-/// compile 00182d20 (001877a0) with its stages ledges-to-spheres 001800b0 (00184960), sphere
-/// clustering 00182c40/00182020 (001876c0/00186a40) and its box 001810e0 (00185a80), the root
-/// hull 0017fb50/0017f8c0/0019d8b0/0019dae0 (00184390/00184100/001a2340/001a2590), surface
-/// allocation 001814b0/00181390/00181200 (00185e90/00185d70/00185be0), the node writer 00181720
-/// (00186100), and the mass/inertia/radius writer 00181ac0 (001864b0).
+/// One algorithm, reimplemented from the reference surface builder: ctor, insert_ledge,
+/// compile with its stages ledges-to-spheres, sphere
+/// Clustering and its box, the root
+/// Hull, surface
+/// Allocation, the node writer,
+/// And the mass/inertia/radius writer.
 /// </para>
 /// <para>
 /// Compact surface layout (48-byte header, then the ledges, then 28-byte tree nodes):
@@ -39,7 +39,7 @@ internal static class IvpLedgeSoup<T, TP>
         public Sphere? Left, Right;
     }
 
-    /// <summary>The soup's float bounding box scratch (+0x50 / +0x60 in the binary).</summary>
+    /// <summary>The soup's float bounding box scratch ()</summary>
     private struct Box
     {
         public float MinX, MinY, MinZ, MaxX, MaxY, MaxZ;
@@ -59,7 +59,7 @@ internal static class IvpLedgeSoup<T, TP>
             return null;
         }
 
-        // 001800b0: one sphere per ledge, and the soup's float box of all spheres.
+        // one sphere per ledge, and the soup's float box of all spheres.
         var box = new Box { MinX = 1e6f, MinY = 1e6f, MinZ = 1e6f, MaxX = -1e6f, MaxY = -1e6f, MaxZ = -1e6f };
         var leaves = new List<Sphere>(ledges.Count);
         foreach (IvpCompactLedge ledge in ledges)
@@ -71,10 +71,10 @@ internal static class IvpLedgeSoup<T, TP>
             leaves.Add(s);
         }
 
-        // 00182c40: cluster.
+        // cluster.
         Sphere root = Cluster(leaves, ref box);
 
-        // 0017fb50: the outer hull goes on the root, and its ledge after all the leaves.
+        // the outer hull goes on the root, and its ledge after all the leaves.
         IvpCompactLedge? hull = null;
         if (buildRootConvexHull && ledges.Count > 1)
         {
@@ -89,7 +89,7 @@ internal static class IvpLedgeSoup<T, TP>
             root.Ledge = hull;
         }
 
-        // 001814b0: layout.
+        // layout.
         int ledgeBytes = 0;
         foreach (IvpCompactLedge l in ledges)
         {
@@ -106,7 +106,7 @@ internal static class IvpLedgeSoup<T, TP>
         int byteSize = treeOffset + (nodes * 28);
         byte[] surface = new byte[byteSize];
 
-        // 00181390: copy the leaves (in insertion order), then the hull.
+        // copy the leaves (in insertion order), then the hull.
         int cursor = 0x30;
         var placed = new Dictionary<IvpCompactLedge, int>(ReferenceEqualityComparer.Instance);
         foreach (Sphere s in leaves)
@@ -124,14 +124,14 @@ internal static class IvpLedgeSoup<T, TP>
             cursor += hull.Size;
         }
 
-        // 00181720: nodes depth first, left subtree immediately after its parent.
+        // nodes depth first, left subtree immediately after its parent.
         int nodeCursor = treeOffset;
         WriteNode(root, surface, placed, ref nodeCursor);
 
         BinaryPrimitives.WriteUInt32LittleEndian(surface.AsSpan(0x1c), (uint)byteSize << 8);
         BinaryPrimitives.WriteInt32LittleEndian(surface.AsSpan(0x20), treeOffset);
 
-        // 00181ac0: mass properties over the tree's leaves, left first.
+        // mass properties over the tree's leaves, left first.
         var leafLedges = new List<IvpCompactLedge>();
         CollectLeafCopies(root, surface, placed, leafLedges);
         IvpLedgeSolver<T, TP>.MassProperties(leafLedges, out (T X, T Y, T Z) mc, out (T X, T Y, T Z) inertia, context.SkipZeroLengthInertiaEdges);
@@ -153,7 +153,7 @@ internal static class IvpLedgeSoup<T, TP>
 
     /// <summary>
     /// The sphere of a box: centre = interpolate(0.5, max, min), radius = |max - centre|,
-    /// box sizes = (int)((max - centre) * (C/radius)) + 1 (001800b0, 00182020).
+    /// box sizes = (int)((max - centre) * (C/radius)) + 1.
     /// </summary>
     private static Sphere SphereOf((T X, T Y, T Z) min, (T X, T Y, T Z) max)
     {
@@ -207,7 +207,7 @@ internal static class IvpLedgeSoup<T, TP>
         }
     }
 
-    /// <summary>001810e0: the box of a set of spheres from their quantised box sizes.</summary>
+    /// <summary>: the box of a set of spheres from their quantised box sizes.</summary>
     private static Box BoxOf(List<Sphere> set)
     {
         var box = new Box { MinX = 1e6f, MinY = 1e6f, MinZ = 1e6f, MaxX = -1e6f, MaxY = -1e6f, MaxZ = -1e6f };
@@ -225,7 +225,7 @@ internal static class IvpLedgeSoup<T, TP>
     }
 
     /// <summary>
-    /// 00182020: a single sphere is its own node; otherwise a parent around the set's box, split on
+    /// a single sphere is its own node; otherwise a parent around the set's box, split on
     /// whichever axis gives the smallest sum of the halves' box volumes.
     /// </summary>
     private static Sphere Cluster(List<Sphere> set, ref Box soupBox)
@@ -323,7 +323,7 @@ internal static class IvpLedgeSoup<T, TP>
             rights[axis] = right;
         }
 
-        // The binary lowers the best cost even when that axis left a side empty, and only moves
+        // Stock lowers the best cost even when that axis left a side empty, and only moves
         // the selection when both sides have members.
         float best = 1.0e20f;
         int chosen = 0;
@@ -344,7 +344,7 @@ internal static class IvpLedgeSoup<T, TP>
         return node;
     }
 
-    /// <summary>A box volume as the builds group it (SDK (|dy|*|dz|)*|dx|, TF2 (|dx|*|dy|)*|dz|).</summary>
+    /// <summary>A box volume as the policies group it (stock (|dy|*|dz|)*|dx|, TF2 (|dx|*|dy|)*|dz|).</summary>
     private static float Volume(Box b)
     {
         float dx = MathF.Abs(b.MaxX - b.MinX), dy = MathF.Abs(b.MaxY - b.MinY), dz = MathF.Abs(b.MaxZ - b.MinZ);
@@ -360,7 +360,7 @@ internal static class IvpLedgeSoup<T, TP>
 
     private static int CountNodes(Sphere s) => s.Left is null ? 1 : 1 + CountNodes(s.Left) + CountNodes(s.Right!);
 
-    /// <summary>The leaves depth first, left first (0017fb50 / 001c0ac0 order).</summary>
+    /// <summary>The leaves depth first, left first (order).</summary>
     private static void CollectLeaves(Sphere s, List<IvpCompactLedge> into)
     {
         if (s.Left is null)
@@ -387,7 +387,7 @@ internal static class IvpLedgeSoup<T, TP>
         CollectLeafCopies(s.Right!, surface, placed, into);
     }
 
-    /// <summary>00181720.</summary>
+    /// <summary>.</summary>
     private static int WriteNode(Sphere s, byte[] surface, Dictionary<IvpCompactLedge, int> placed, ref int cursor)
     {
         int at = cursor;
@@ -429,7 +429,7 @@ internal static class IvpLedgeSoup<T, TP>
     }
 
     /// <summary>
-    /// 0019d8b0 + 0019dae0: the convex hull of every leaf's points (leaves last first, points
+    /// +: the convex hull of every leaf's points (leaves last first, points
     /// deduplicated on all 16 bytes), with the triangles and edges that no leaf has flagged
     /// virtual.
     /// </summary>
@@ -461,7 +461,7 @@ internal static class IvpLedgeSoup<T, TP>
             return null;
         }
 
-        // 0019dae0: ids by first appearance over the leaves, triangles and directed edges keyed on ids.
+        // ids by first appearance over the leaves, triangles and directed edges keyed on ids.
         var ids = new Dictionary<(uint, uint, uint, uint), int>();
         var tris = new HashSet<(int, int, int)>();
         var edges = new HashSet<(int, int)>();

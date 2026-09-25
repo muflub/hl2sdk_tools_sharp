@@ -7,9 +7,9 @@ namespace SourceSharp.MapTools.Rad;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>alphatexture_t</c> (<c>src/utils/vrad/vradstaticprops.cpp:857-873</c>).
-/// <c>LoadVTFRGB8888</c> (<c>:650-684</c>) converts the whole top mip to
-/// <c>IMAGE_FORMAT_RGBA8888</c> and <c>InitFromRGB8888</c> (<c>:865-872</c>)
+/// <c>alphatexture_t</c>.
+/// <c>LoadVTFRGB8888</c> converts the whole top mip to
+/// <c>IMAGE_FORMAT_RGBA8888</c> and <c>InitFromRGB8888</c>
 /// then keeps ONE byte per pixel out of the four -- the alpha -- and throws the
 /// colour away. So a 2048x2048 texture costs 4MB to decode and 4MB to keep,
 /// and nothing downstream can ask this type what colour anything was.
@@ -17,7 +17,7 @@ namespace SourceSharp.MapTools.Rad;
 /// <para>
 /// Immutable once built. Stock's struct is mutable and is written in two
 /// places (<c>InitFromRGB8888</c>, then <c>allowBackface</c>/<c>clampU</c>/
-/// <c>clampV</c> poked in by <c>FindOrLoadIfValid</c> at <c>:721-729</c>); here
+/// <c>clampV</c> poked in by <c>FindOrLoadIfValid</c>); here
 /// those four values are constructor arguments, because there is no third
 /// writer and a shared table of mutable texture records is a race waiting for
 /// the day the prop loop is parallelised.
@@ -36,7 +36,7 @@ public sealed class AlphaTexture
     /// </param>
     /// <param name="allowBackface">
     /// <c>$nocull</c>: whether a ray that hits this triangle from behind still
-    /// sees the texture (<c>vradstaticprops.cpp:722-726</c>).
+    /// Sees the texture.
     /// </param>
     /// <param name="clampU">
     /// <c>TEXTUREFLAGS_CLAMPS</c>, read and then IGNORED. See
@@ -80,7 +80,7 @@ public sealed class AlphaTexture
 
     /// <summary>The texture's width in pixels.</summary>
     /// <remarks>
-    /// Stock stores this as a <c>short</c> (<c>vradstaticprops.cpp:859</c>),
+    /// Stock stores this as a <c>short</c>,
     /// which a 65536-wide texture would overflow. No shipping VTF is that wide
     /// and an <c>int</c> costs nothing, so this port does not reproduce it.
     /// </remarks>
@@ -93,7 +93,7 @@ public sealed class AlphaTexture
     /// <c>$nocull</c>: whether a backfacing hit still samples the texture.
     /// </summary>
     /// <remarks>
-    /// Set from the VMT, not the VTF (<c>vradstaticprops.cpp:722-726</c>), and
+    /// Set from the VMT, not the VTF, and
     /// carried on the TEXTURE rather than the material entry -- so two
     /// materials sharing one base texture cannot disagree about it, and the
     /// last one loaded does not win either: only the FIRST load creates the
@@ -107,9 +107,9 @@ public sealed class AlphaTexture
     /// </summary>
     /// <remarks>
     /// A DELIBERATE REPRODUCTION OF A STOCK DEFECT.
-    /// <c>LoadVTFRGB8888</c> reads the flag (<c>vradstaticprops.cpp:669</c>)
-    /// and <c>FindOrLoadIfValid</c> stores it (<c>:727</c>), but the only code
-    /// that would act on it is inside the <c>#if 0</c> at <c>:844-849</c>:
+    /// <c>LoadVTFRGB8888</c> reads the flag
+ /// and <c>FindOrLoadIfValid</c> stores it, but the only code
+ /// that would act on it is inside the <c>#if 0</c>:
     /// <c>SampleMaterial</c> takes the <c>#else</c> branch and wraps
     /// unconditionally. So a clamped alpha texture whose UVs run outside
     /// [0,1] tiles in stock's shadows and does not tile on screen. Kept
@@ -144,7 +144,7 @@ public sealed class AlphaTexture
     /// </exception>
     /// <remarks>
     /// <c>alphatexture_t::InitFromRGB8888</c>
-    /// (<c>vradstaticprops.cpp:865-872</c>). Its name says RGB and its input is
+    /// Its name says RGB and its input is
     /// RGBA: byte 3 of each pixel is what it keeps.
     /// </remarks>
     public static AlphaTexture FromRgba8888(
@@ -187,14 +187,14 @@ public sealed class AlphaTexture
     /// <exception cref="ArgumentNullException"><paramref name="texture"/> is null.</exception>
     /// <exception cref="NotSupportedException">
     /// The VTF's image format has no decoder. <c>LoadVTFRGB8888</c> answers
-    /// the same case by returning NULL (<c>vradstaticprops.cpp:677-681</c>,
+    /// the same case by returning NULL (
     /// <c>ConvertImageFormat</c> failing), which its caller reads as "no alpha
     /// shadows for this material"; <see cref="ShadowTextureList"/> catches this
     /// and does the same.
     /// </exception>
     /// <remarks>
     /// Mip 0, frame 0, face 0 — <c>ImageData(0, 0, 0, 0, 0, 0)</c>
-    /// (<c>vradstaticprops.cpp:664</c>). The FULL-size mip, not a cheap one:
+    /// The FULL-size mip, not a cheap one:
     /// the width and height stock then uses are
     /// <c>pTex-&gt;Width()</c>/<c>Height()</c>, so a coarser level would put
     /// the wrong number of texels behind those dimensions and every UV would
@@ -225,8 +225,8 @@ public sealed class AlphaTexture
     /// <exception cref="ArgumentOutOfRangeException">Either coordinate is off the texture.</exception>
     /// <remarks>
     /// The raw read <c>ComputeCoverageForTriangle</c> does inside its box loop
-    /// (<c>vradstaticprops.cpp:816</c>), where the coordinates have already
-    /// been brought into range by the clamp at <c>:795-798</c>.
+    /// Where the coordinates have already
+ /// been brought into range by the clamp.
     /// </remarks>
     public byte Texel(int u, int v)
     {
@@ -246,20 +246,20 @@ public sealed class AlphaTexture
     /// <returns>The alpha value, 0 to 255.</returns>
     /// <remarks>
     /// <para>
-    /// <c>vradstaticprops.cpp:837-854</c>, exactly: multiply by the dimension
+    /// Exactly: multiply by the dimension
     /// (NOT by dimension minus one — that is what makes <c>u == 1.0</c> land
     /// back on column 0 rather than on the last column), round to nearest, and
     /// mask.
     /// </para>
     /// <para>
-    /// The rounding is <c>RoundFloatToInt</c> (<c>mathlib.h:1175</c>), which on
+    /// The rounding is <c>RoundFloatToInt</c>, which on
     /// every platform this branch builds for is <c>_mm_cvtss_si32</c> — SSE's
     /// round-to-nearest with ties going to EVEN, not away from zero. .NET's
     /// <c>MathF.Round</c> defaults to the same tie rule, which is why it is
     /// spelled without an explicit mode here and pinned by a fact.
     /// </para>
     /// <para>
-    /// The mask is the whole wrap: stock's comment at <c>:842</c> says "asume
+ /// The mask is the whole wrap: stock's comment says "asume
     /// power of 2", and for a non-power-of-two texture <c>x &amp; (w - 1)</c>
     /// is not a modulo — it is some other in-range index. It cannot leave the
     /// array, because ANDing only clears bits, so the result is never above

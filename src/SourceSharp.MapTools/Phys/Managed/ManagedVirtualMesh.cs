@@ -7,9 +7,9 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// serialised, its packed bounding hull (LUMP_PHYSDISP's per-displacement blob).
 /// </summary>
 /// <remarks>
-/// Ported from the 2018 drop (ruling Q16): <c>physics_virtualmesh.cpp</c>
+/// Mirrors the reference mesh-hull path
 /// (<c>CreateMeshBoundingHull</c>, <c>CreateBoundingSurfaceFromRange</c>, <c>SerializeToBuffer</c>)
-/// and <c>ledgewriter.cpp</c> (<c>LedgeCanBePacked</c>, <c>CreatePackedHullFromLedges</c>,
+/// and (<c>LedgeCanBePacked</c>, <c>CreatePackedHullFromLedges</c>,
 /// <c>PackLedgeIntoBuffer</c>, <c>BuildVertMap</c>). The hull itself is the ledge soup compile's
 /// root convex hull over one two-sided triangle ledge per mesh triangle.
 /// </remarks>

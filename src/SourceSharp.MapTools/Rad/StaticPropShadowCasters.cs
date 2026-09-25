@@ -22,7 +22,7 @@ public readonly record struct PropTexCoord(float U, float V);
 /// <param name="Coverage">
 /// How much light the triangle blocks, stock's <c>color.x</c>. Only read when
 /// <paramref name="MaterialIndex"/> is not negative, which is stock's own
-/// arithmetic at <c>vradstaticprops.cpp:1968</c>: <c>color</c> starts at
+/// Arithmetic: <c>color</c> starts at
 /// <c>vec3_origin</c> and is written only inside the <c>coverage &lt; 1.0f</c>
 /// branch.
 /// </param>
@@ -48,11 +48,11 @@ public readonly record struct PropTriangleShadow(float Coverage, int MaterialInd
 /// <remarks>
 /// <para>
 /// This is <c>g_ShadowTextureList.ComputeCoverageForTriangle</c> followed by
-/// <c>AddMaterialEntry</c> (<c>vradstaticprops.cpp:1971-1976</c>) behind a
+/// <c>AddMaterialEntry</c> behind a
 /// delegate, so that the static prop loader does not depend on the shadow
 /// texture list. An implementation MUST return a negative
 /// <see cref="PropTriangleShadow.MaterialIndex"/> when the coverage is 1 --
-/// stock's <c>else materialIndex = -1</c> at <c>:1980</c> -- because that is
+/// Stock's <c>else materialIndex = -1</c> -- because that is
 /// what keeps a fully opaque alpha-tested triangle out of the per-ray
 /// transparency test.
 /// </para>
@@ -87,7 +87,7 @@ public enum StaticPropAbandonReason
 
     /// <summary>
     /// A prop's model has no studio header or no VTX
-    /// (<c>vradstaticprops.cpp:1873-1879</c>). Stock's comment is "must have
+    /// Stock's comment is "must have
     /// model and its verts for decoding triangles", which is a reason to skip
     /// the prop; the code returns from the whole function.
     /// </summary>
@@ -95,7 +95,7 @@ public enum StaticPropAbandonReason
 
     /// <summary>
     /// A strip is not a triangle list
-    /// (<c>vradstaticprops.cpp:2003-2010</c>). Stock prints "unexpected strips
+    /// Stock prints "unexpected strips
     /// found", asserts, and returns -- so on a debug build it is a crash and
     /// on a release build it is a map whose props stop casting shadows part
     /// way through.
@@ -109,7 +109,7 @@ public enum StaticPropAbandonReason
 /// <param name="PropsConsidered">How many props the lump held.</param>
 /// <param name="PropsSkippedNoShadow">
 /// How many carried <see cref="StaticPropFlags.NoShadow"/> and were skipped
-/// before anything else was decided (<c>vradstaticprops.cpp:1837</c>).
+/// Before anything else was decided.
 /// </param>
 /// <param name="PropsFromCollision">
 /// How many contributed collision triangles through
@@ -117,7 +117,6 @@ public enum StaticPropAbandonReason
 /// </param>
 /// <param name="PropsFromHullBox">
 /// How many fell to the axis-aligned hull box
-/// (<c>vradstaticprops.cpp:1861</c>).
 /// </param>
 /// <param name="PropsFromRenderMesh">
 /// How many contributed render-mesh triangles under
@@ -145,7 +144,7 @@ public sealed class StaticPropShadowCasterOptions
 {
     /// <summary>
     /// <c>-StaticPropPolys</c>: cast from the render mesh rather than from
-    /// collision (<c>g_bStaticPropPolys</c>, <c>vrad.cpp:118</c>).
+    /// collision(<c>g_bStaticPropPolys</c>).
     /// </summary>
     /// <remarks>
     /// It is not a refinement of the default, it is a different pipeline: the
@@ -157,13 +156,13 @@ public sealed class StaticPropShadowCasterOptions
 
     /// <summary>
     /// The <c>noshadow</c> names from <c>lights.rad</c>
-    /// (<c>g_NonShadowCastingMaterialStrings</c>, <c>vrad.cpp:232</c>).
+    /// (<c>g_NonShadowCastingMaterialStrings</c>).
     /// </summary>
     /// <remarks>
     /// Matched as a CASE-INSENSITIVE SUBSTRING of a mesh's material name
-    /// (<c>Q_stristr</c>, <c>vradstaticprops.cpp:1908</c>), not as an equality
+    /// (<c>Q_stristr</c>), not as an equality
     /// and not as a glob. So <c>noshadow glass</c> silences every material
-    /// with "glass" anywhere in its name, which is deliberate on Valve's part
+    /// with "glass" anywhere in its name, which is deliberate on the reference build's part
     /// and is why the list entries are short. The <c>.vmt</c> extension is
     /// stripped when the line is parsed, so entries never carry one.
     /// </remarks>
@@ -171,12 +170,11 @@ public sealed class StaticPropShadowCasterOptions
 
     /// <summary>
     /// The models <c>lights.rad</c> named in <c>forcetextureshadow</c> lines
-    /// (<c>vrad.cpp:234</c>).
     /// </summary>
     /// <remarks>
     /// A model takes part in the texture-shadow pass if it is named here OR it
     /// carries <c>STUDIOHDR_FLAGS_CAST_TEXTURE_SHADOWS</c>
-    /// (<c>vradstaticprops.cpp:1008</c>). Compared after
+    /// Compared after
     /// <see cref="StaticPropModel.CleanModelName"/> on both sides, which is
     /// what stock's <c>IsModelTextureShadowsForced</c> does.
     /// </remarks>
@@ -197,13 +195,13 @@ public sealed class StaticPropShadowCasterOptions
 
 /// <summary>
 /// <c>CVradStaticPropMgr::AddPolysForRayTrace</c>,
-/// <c>vradstaticprops.cpp:1819</c>: every static prop's shadow casting
+/// Every static prop's shadow casting
 /// geometry, in stock's order.
 /// </summary>
 public static class StaticPropShadowCasters
 {
     /// <summary>
-    /// <c>STRIP_IS_TRILIST</c>, <c>public/optimize.h:56</c>.
+    /// <c>STRIP_IS_TRILIST</c>.
     /// </summary>
     /// <remarks>
     /// Spelled out rather than taken from
@@ -229,7 +227,7 @@ public static class StaticPropShadowCasters
     /// <exception cref="InvalidStudioException">
     /// A model's render mesh is needed and its <c>.vvd</c> is not in the
     /// content. Stock's equivalent is <c>Error()</c>
-    /// (<c>vradstaticprops.cpp:2197</c>), which aborts the compile.
+    /// Which aborts the compile.
     /// </exception>
     public static async ValueTask<StaticPropShadowCasterReport> AddAsync(
         StaticPropLump props,
@@ -250,7 +248,7 @@ public static class StaticPropShadowCasters
         int count = props.Props.Count;
         if (count == 0)
         {
-            // vradstaticprops.cpp:1821 -- "nothing to do", before the model
+            // -- "nothing to do", before the model
             // dictionary is touched at all.
             return new StaticPropShadowCasterReport(
                 0, 0, 0, 0, 0, 0, StaticPropAbandonReason.None, -1);
@@ -283,7 +281,7 @@ public static class StaticPropShadowCasters
         private readonly StaticPropShadowCasterOptions _options;
         private readonly ShadowCasterBuilder _builder;
 
-        // Stock's dict.m_triangleMaterialIndex (vradstaticprops.cpp:1876),
+        // Stock's dict.m_triangleMaterialIndex,
         // keyed by dictionary index. Created empty on first use so that
         // "is this the first prop of this model?" is Count == 0, which is
         // exactly what stock's bInitTriangles tests.
@@ -337,7 +335,7 @@ public static class StaticPropShadowCasters
                 if ((uint)modelIndex >= (uint)_models.Count)
                 {
                     // Stock indexes m_StaticPropDict with m_ModelIdx and never
-                    // range checks it (vradstaticprops.cpp:1835), so a lump
+                    // range checks it, so a lump
                     // whose dictionary and props disagree reads whatever
                     // follows the array. Refused here instead.
                     throw new InvalidBspException(
@@ -347,12 +345,12 @@ public static class StaticPropShadowCasters
 
                 StaticPropModel model = _models[modelIndex];
 
-                // vradstaticprops.cpp:1837. FIRST, before the model is looked
+                // FIRST, before the model is looked
                 // at: a NO_SHADOW prop with a broken model is not a warning.
                 //
                 // Note what is NOT tested anywhere in this function:
                 // prop.Solid. vrad parses m_Solid out of the lump
-                // (gamebspfile.h:163) and the shadow path never reads it, so a
+                // And the shadow path never reads it, so a
                 // SOLID_NONE prop -- one the player walks through -- still
                 // casts a full shadow. Pinned by a fact rather than fixed.
                 if ((prop.Flags & StaticPropFlags.NoShadow) != 0)
@@ -371,7 +369,7 @@ public static class StaticPropShadowCasters
 
                 if (!AddRenderMesh(nProp, id, prop, model, modelIndex))
                 {
-                    // vradstaticprops.cpp:1876 and :2009 -- RETURN, not
+ // And -- RETURN, not
                     // continue. Every prop after this one is dropped.
                     return;
                 }
@@ -380,17 +378,16 @@ public static class StaticPropShadowCasters
 
         /// <summary>
         /// The default path: collision triangles, or the hull box
-        /// (<c>vradstaticprops.cpp:1841-1869</c>).
         /// </summary>
         private void AddDefault(int id, StaticProp prop, StaticPropModel model)
         {
             if (model.Collision is not null)
             {
                 // xform.SetupMatrixOrgAngles( prop.m_Origin, prop.m_Angles ),
-                // vradstaticprops.cpp:1845, then VMul4x3 per vertex.
+                // Then VMul4x3 per vertex.
                 //
                 // Built from AngleMatrix's element order rather than
-                // SetupMatrixAnglesInternal's (vmatrix.cpp:509). The two are
+                // SetupMatrixAnglesInternal's. The two are
                 // algebraically the same matrix -- sr*sp*cy + cr*-sy against
                 // sp*(sr*cy) - cr*sy -- and differ only in how the products
                 // are associated, so they can disagree in the last bit of a
@@ -407,7 +404,7 @@ public static class StaticPropShadowCasters
                     Vec3 v2 = transform.TransformPoint(mesh.Vertices[mesh.Indices[i + 2]]);
 
                     // fullCoverage: a Vector whose x is 1 and whose y and z
-                    // were never initialised (vradstaticprops.cpp:1827). Only
+                    // were never initialised. Only
                     // x is ever read.
                     _builder.AddTriangle(id, v0, v1, v2, 1.0f);
                     _added++;
@@ -417,7 +414,6 @@ public static class StaticPropShadowCasters
                 return;
             }
 
-            // vradstaticprops.cpp:1861-1866.
             //
             // THE ANGLES ARE IGNORED. The box is the model's hull translated
             // by the prop's origin and nothing else, so a prop rotated 45
@@ -428,7 +424,7 @@ public static class StaticPropShadowCasters
             //
             // Note also that in stock this branch is reachable ONLY when the
             // model failed to load, in which case both hull corners were
-            // zeroed at :953 and the "box" is a degenerate point at the
+ // zeroed and the "box" is a degenerate point at the
             // prop's origin. This port also lands here when the collision
             // source has nothing for a model that loaded fine, where the hull
             // is real -- see NullPropCollisionSource.
@@ -442,7 +438,6 @@ public static class StaticPropShadowCasters
 
         /// <summary>
         /// The <c>-StaticPropPolys</c> path
-        /// (<c>vradstaticprops.cpp:1871-2015</c>).
         /// </summary>
         /// <returns>False when one of stock's two early returns fired.</returns>
         private bool AddRenderMesh(
@@ -452,7 +447,6 @@ public static class StaticPropShadowCasters
             StaticPropModel model,
             int modelIndex)
         {
-            // vradstaticprops.cpp:1873-1879.
             if (model.Mdl is null || model.Vtx is null)
             {
                 _abandoned = StaticPropAbandonReason.MissingModelOrVtx;
@@ -467,7 +461,7 @@ public static class StaticPropShadowCasters
             }
 
             // AngleMatrix( prop.m_Angles, prop.m_Origin, matrix ),
-            // vradstaticprops.cpp:1954 -- which stock rebuilds INSIDE the
+            // -- which stock rebuilds INSIDE the
             // per-triangle loop, from two values that do not change. Hoisted
             // here: the matrix is a pure function of the prop's angles and
             // origin, so every triangle gets the bit-identical matrix stock
@@ -476,7 +470,7 @@ public static class StaticPropShadowCasters
             InstanceTransform transform =
                 InstanceTransform.FromAngles(prop.Angles, prop.Origin);
 
-            // dict.m_triangleMaterialIndex, vradstaticprops.cpp:1876-1877.
+            // dict.m_triangleMaterialIndex.
             if (!_materialIndices.TryGetValue(modelIndex, out List<int>? materialIndices))
             {
                 materialIndices = [];
@@ -492,7 +486,7 @@ public static class StaticPropShadowCasters
                 Vec3 p2 = transform.TransformPoint(model.VertexPosition(triangle.V1));
                 Vec3 p3 = transform.TransformPoint(model.VertexPosition(triangle.V2));
 
-                // vradstaticprops.cpp:1963-1965: colour starts at
+                // Colour starts at
                 // vec3_origin, flags at 0, material index at -1. So WITHOUT
                 // -textureshadows every render-mesh caster triangle carries
                 // coverage ZERO, not 1 -- unlike the default path's
@@ -524,7 +518,7 @@ public static class StaticPropShadowCasters
                     }
                     else
                     {
-                        // vradstaticprops.cpp:1985. A STOCK DEFECT worth
+                        // A STOCK DEFECT worth
                         // naming: the replay branch restores the material
                         // index but NOT the coverage, which stays vec3_origin.
                         // So the first prop to use a model gets the real
@@ -550,7 +544,7 @@ public static class StaticPropShadowCasters
 
             if (plan.NonTriangleListStrip)
             {
-                // vradstaticprops.cpp:2003-2010. The triangles emitted above
+                // The triangles emitted above
                 // are the ones stock had already added when it hit the bad
                 // strip; then it returns out of the whole function.
                 _abandoned = StaticPropAbandonReason.NonTriangleListStrip;
@@ -609,7 +603,6 @@ public static class StaticPropShadowCasters
 
         /// <summary>
         /// Walks body parts, models, LOD 0, meshes, strip groups and strips
-        /// (<c>vradstaticprops.cpp:1884-2012</c>).
         /// </summary>
         public static RenderPlan Build(StaticPropModel model, StaticPropShadowCasterOptions options)
         {
@@ -621,7 +614,7 @@ public static class StaticPropShadowCasters
                 throw new InvalidStudioException(
                     $"\"{model.Path.Value}\" has no .vvd in the content, so its render mesh has "
                     + "no vertex positions; stock calls Error() here "
-                    + "(vradstaticprops.cpp:2197) and aborts the compile");
+                    + " and aborts the compile");
             }
 
             string[] materialNames = new string[mdl.Header.NumTextures];
@@ -657,7 +650,7 @@ public static class StaticPropShadowCasters
                     StudioModel studioModel = studioModels[modelId];
 
                     // "assuming lod 0, could iterate if required",
-                    // vradstaticprops.cpp:1897. LOD 0 only, which is why the
+                    // LOD 0 only, which is why the
                     // vertices are VerticesForLod(0) and not the raw block.
                     IReadOnlyList<(int Offset, VtxModelLodHeader Header)> lods =
                         vtx.Lods(vtxModelOffset, vtxModel);
@@ -683,7 +676,7 @@ public static class StaticPropShadowCasters
                             ? materialNames[mesh.Material]
                             : string.Empty;
 
-                        // vradstaticprops.cpp:1906-1917: any of the noshadow
+                        // Any of the noshadow
                         // strings appearing ANYWHERE in the material name,
                         // case-insensitively, silences the whole mesh.
                         if (IsNonShadowCasting(materialName, options.NoShadowMaterials))

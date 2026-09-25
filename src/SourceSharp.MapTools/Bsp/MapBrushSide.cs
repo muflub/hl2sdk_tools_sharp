@@ -4,7 +4,6 @@ namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
 /// One side of a brush as loaded from the VMF: <c>side_t</c>,
-/// <c>utils/vbsp/vbsp.h:65</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -12,8 +11,8 @@ namespace SourceSharp.MapTools.Bsp;
 /// <c>side_t</c> lives in one global array and is addressed by pointer from
 /// four directions at once — <c>mapbrush_t::original_sides</c> points into it,
 /// <c>bspbrush_t</c> sides carry an <c>original</c> back-pointer to it
-/// (<c>vbsp.h:71</c>), <c>mapdispinfo_t::face.originalface</c> is one of them
-/// (<c>map.cpp:2267</c>), and the CSG stage mutates <c>visible</c> and
+/// <c>mapdispinfo_t::face.originalface</c> is one of them
+/// And the CSG stage mutates <c>visible</c> and
 /// <c>tested</c> through whichever of those it has. Copying by value would
 /// silently fork that identity. Reference semantics here mean the aliasing is
 /// the same aliasing, without the pointer arithmetic.
@@ -22,7 +21,7 @@ namespace SourceSharp.MapTools.Bsp;
 /// The consequence stock's pointer arithmetic also has is an INDEX: a side's
 /// position in <see cref="MapFile.BrushSides"/> is what
 /// <c>side_brushtextures</c> is keyed on (<c>s - brushsides</c>,
-/// <c>map.cpp:1579</c>) and what <c>WorldVertexTransitionFixup</c> walks. That
+///) and what <c>WorldVertexTransitionFixup</c> walks. That
 /// index is preserved by never removing a side once it is appended.
 /// </para>
 /// </remarks>
@@ -45,8 +44,8 @@ public sealed class MapBrushSide
     /// <remarks>
     /// Defaults to 0, not to <see cref="TexInfoTable.TexInfoNode"/>, because
     /// stock's <c>side_t</c> is zeroed by <c>CMapFile::Init</c>'s memset
-    /// (<c>map.cpp:70</c>) and an <c>-onlyents</c> compile never assigns it
-    /// (<c>map.cpp:2788</c> is guarded). A side loaded under that switch
+    /// And an <c>-onlyents</c> compile never assigns it
+    /// (is guarded). A side loaded under that switch
     /// therefore carries texinfo 0.
     /// </remarks>
     public int TexInfo { get; set; }
@@ -59,7 +58,7 @@ public sealed class MapBrushSide
     /// <summary>The side's polygon, or <see cref="Winding.Null"/>.</summary>
     /// <remarks>
     /// Built by <c>MakeBrushWindings</c> and re-built when an origin brush
-    /// shifts the entity (<c>map.cpp:1582</c>). Bevel sides never get one.
+    /// shifts the entity. Bevel sides never get one.
     /// </remarks>
     public Winding Winding { get; set; } = Winding.Null;
 
@@ -81,7 +80,7 @@ public sealed class MapBrushSide
     /// </summary>
     /// <remarks>
     /// A bevel is never used as a BSP splitter and is skipped when the other
-    /// sides are chopped against it (<c>map.cpp:637</c>), which is why it must
+    /// sides are chopped against it, which is why it must
     /// be a property of the side and not inferred from its position.
     /// </remarks>
     public bool Bevel { get; set; }
@@ -103,8 +102,8 @@ public sealed class MapBrushSide
     /// </summary>
     /// <remarks>
     /// The loader never writes it: <c>CMapFile::Init</c> memsets the whole
-    /// <c>brushsides</c> array (<c>map.cpp:70</c>) so it starts false, and
-    /// <c>MarkNoDynamicShadowSides</c> (<c>vbsp.cpp:784</c>) then sets EVERY
+    /// <c>brushsides</c> array so it starts false, and
+    /// <c>MarkNoDynamicShadowSides</c> then sets EVERY
     /// side true and clears only the ones an <c>info_no_dynamic_shadow</c>
     /// named. <see cref="MapFile.MarkNoDynamicShadowSides"/> is that pass;
     /// until a caller runs it, this value means nothing, which is why the

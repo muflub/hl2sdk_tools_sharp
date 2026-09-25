@@ -6,18 +6,18 @@ namespace SourceSharp.MapTools.Bsp;
 /// <remarks>
 /// <para>
 /// <b>Deliberately minimal, and owned by the displacement lane.</b> Stock's
-/// <c>mapdispinfo_t</c> (<c>utils/vbsp/vbsp.h:180</c>) carries a face, power,
+/// <c>mapdispinfo_t</c> carries a face, power,
 /// distances, normals, offsets, alphas and triangle tags — none of which
-/// <c>map.cpp</c> reads. What <c>map.cpp</c> does with a displacement is:
+/// Reads. What does with a displacement is:
 /// </para>
 /// <list type="bullet">
 /// <item>test whether a side has one at all
-/// (<c>HasDispInfo</c>, and <c>map.cpp:2199</c>, <c>map.cpp:3104</c>);</item>
+/// (<c>HasDispInfo</c>, and);</item>
 /// <item>reassign <see cref="EntityNumber"/> when a brush moves to worldspawn
-/// (<c>MoveBrushesToWorldGeneral</c>, <c>map.cpp:728-734</c>);</item>
+/// (<c>MoveBrushesToWorldGeneral</c>);</item>
 /// <item>offset <see cref="EntityNumber"/> and set
 /// <see cref="BrushSideId"/> when an instance is merged
-/// (<c>MergeBrushSides</c>, <c>map.cpp:2259-2270</c>).</item>
+/// (<c>MergeBrushSides</c>).</item>
 /// </list>
 /// <para>
 /// Those three are this interface. Phase 3f owns the real type and will

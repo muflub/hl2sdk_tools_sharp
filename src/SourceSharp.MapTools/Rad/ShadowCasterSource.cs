@@ -17,7 +17,7 @@ namespace SourceSharp.MapTools.Rad;
 /// against anything. This port does: the per-source counts and bounds below
 /// are the 4b gate, and they are compared against stock's own
 /// <c>-dumptrace</c> output, which separates the same five runs by their
-/// position in the file (the add order at <c>vrad.cpp:2240, 2277, 2278,
+/// position in the file (the add order at <c>, 2277, 2278,
 /// 2279</c> is fixed).
 /// </para>
 /// </remarks>
@@ -25,24 +25,24 @@ public enum ShadowCasterSource
 {
     /// <summary>
     /// A brush of an entity carrying <c>vrad_brush_cast_shadows</c>
-    /// (<c>trace.cpp:578</c>), transformed by the entity's origin and angles.
+    /// Transformed by the entity's origin and angles.
     /// </summary>
     /// <remarks>
     /// First in the list, because <c>ExtractBrushEntityShadowCasters</c> runs
-    /// at <c>vrad.cpp:2240</c> -- thirty-seven lines before the world's own
+    /// -- thirty-seven lines before the world's own
     /// brushes.
     /// </remarks>
     BrushEntity,
 
-    /// <summary>A brush of model 0, clipped to its own sides (<c>trace.cpp:595</c>).</summary>
+    /// <summary>A brush of model 0, clipped to its own sides.</summary>
     WorldBrush,
 
-    /// <summary>A <c>SURF_SKY</c> face of model 0 (<c>trace.cpp:612</c>).</summary>
+    /// <summary>A <c>SURF_SKY</c> face of model 0.</summary>
     Sky,
 
-    /// <summary>A displacement triangle (<c>vrad_dispcoll.cpp:1064</c>).</summary>
+    /// <summary>A displacement triangle.</summary>
     Displacement,
 
-    /// <summary>A static prop triangle (<c>vradstaticprops.cpp:1819</c>).</summary>
+    /// <summary>A static prop triangle.</summary>
     StaticProp,
 }

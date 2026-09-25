@@ -51,7 +51,7 @@ public sealed record VradContext
     public IRayTracer? Tracer { get; init; }
 
     /// <summary>
-    /// The host's GPU-tracer factory (plan_maptools.md 10c), or null for the
+    /// The host's GPU-tracer factory, or null for the
     /// managed KD tracer alone. Unlike <see cref="Tracer"/> it is asked AFTER
     /// the shadow casters are loaded — the GPU scene needs them — so a host
     /// with <c>-gpu</c> supplies a factory rather than a tracer. An offered

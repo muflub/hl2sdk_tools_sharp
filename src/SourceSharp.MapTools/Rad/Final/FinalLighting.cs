@@ -32,7 +32,7 @@ public sealed record FinalLightingResult(byte[] LightData, FinalLightingStatisti
 
 /// <summary>
 /// <c>RunThreadsOnIndividual(numfaces, true, FinalLightFace)</c>
-/// (<c>vrad.cpp:2090</c>): every face, on the work queue.
+/// Every face, on the work queue.
 /// </summary>
 public static class FinalLighting
 {

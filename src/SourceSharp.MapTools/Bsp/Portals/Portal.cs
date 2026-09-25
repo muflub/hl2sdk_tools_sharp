@@ -5,7 +5,7 @@ namespace SourceSharp.MapTools.Bsp.Portals;
 
 /// <summary>
 /// One face of the boundary between two BSP nodes
-/// (<c>portal_t</c>, <c>src/utils/vbsp/vbsp.h:225</c>).
+/// (<c>portal_t</c>).
 /// </summary>
 /// <remarks>
 /// <para>

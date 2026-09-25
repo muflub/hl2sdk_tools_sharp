@@ -2,7 +2,7 @@ namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
 /// Where each of a displacement's lightmap samples lands on its surface:
-/// <c>CalculateLightmapSamplePositions</c>, <c>utils/vbsp/disp_vbsp.cpp:93</c>.
+/// <c>CalculateLightmapSamplePositions</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -102,7 +102,7 @@ public static class LightmapSamplePositions
 
     /// <summary>
     /// Finds the triangle whose luxel coordinates contain a sample:
-    /// <c>FindTriIndexMapByUV</c>, <c>disp_vbsp.cpp:58</c>.
+    /// <c>FindTriIndexMapByUV</c>.
     /// </summary>
     /// <param name="disp">The displacement.</param>
     /// <param name="sample">The sample's luxel coordinate.</param>
@@ -114,7 +114,7 @@ public static class LightmapSamplePositions
     /// <para>
     /// <b>The triangles are the POWER INFO's, not the displacement's.</b>
     /// Stock's own <c>GetTriIndices</c> call is commented out at
-    /// <c>disp_vbsp.cpp:68</c> and replaced by a direct read of
+    /// And replaced by a direct read of
     /// <c>pPowerInfo-&gt;m_pTriInfos[iTri]</c>, so the index written into this
     /// lump indexes <see cref="PowerInfo.TriInfos"/> — the quad tree's
     /// depth-first order — and NOT <see cref="CoreDispInfo.TriIndices"/>, which
@@ -167,7 +167,7 @@ public static class LightmapSamplePositions
     }
 
     /// <summary>
-    /// <c>GetBarycentricCoords2D</c>, <c>mathlib/mathlib.h:1364</c>.
+    /// <c>GetBarycentricCoords2D</c>.
     /// </summary>
     /// <param name="a">The triangle's first vertex.</param>
     /// <param name="b">Its second.</param>
@@ -192,7 +192,7 @@ public static class LightmapSamplePositions
     }
 
     /// <summary>
-    /// <c>TriArea2DTimesTwo</c>, <c>mathlib/mathlib.h:1359</c>: the cross
+    /// <c>TriArea2DTimesTwo</c>: the cross
     /// product of two edges, which is twice the signed area.
     /// </summary>
     /// <param name="a">The first vertex.</param>

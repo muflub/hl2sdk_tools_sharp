@@ -5,7 +5,7 @@ using SourceSharp.MapTools.Rad.Ambient;
 namespace SourceSharp.MapTools.Rad.Props;
 
 /// <summary>
-/// <c>ComputeIndirectLightingAtPoint</c> (<c>vraddetailprops.cpp:658</c>): the
+/// <c>ComputeIndirectLightingAtPoint</c>: the
 /// bounced light a point sees, gathered from the final lightmaps.
 /// </summary>
 /// <remarks>
@@ -27,7 +27,7 @@ public static class PropIndirectLighting
     /// <summary><c>(0.7071/2)</c>, a double narrowed to the float <c>dot</c>.</summary>
     private const float IgnoreNormalsDot = (float)(0.7071 / 2);
 
-    /// <summary><c>EQUAL_EPSILON</c> (<c>mathlib.h:312</c>), a double.</summary>
+    /// <summary><c>EQUAL_EPSILON</c>, a double.</summary>
     private const double EqualEpsilon = 0.001;
 
     /// <summary>The indirect colour at a point.</summary>
@@ -123,16 +123,16 @@ public static class PropIndirectLighting
             }
 
             // The weighting is the ++ -StaticPropIndirectMode switch, one
-            // consumer: FUN_14003ecb0 (ComputeIndirectLightingAtPoint
-            // counterpart, vraddetailprops.cpp:658), branches at
-            // all.c:46468 (== 0), 46478 (== 1), 46496 (== 2), fallthrough
-            // 46493-46495. The gate global is 0x1417194ec.
+            // consumer: ComputeIndirectLightingAtPoint
+            // counterpart), branches at
+ // all.c (== 0), 46478 (== 1), 46496 (== 2), fallthrough
+            // The gate global is.
             //
             // ((vEnd - position) * m_HitFrac / 128.0).LengthSqr(): a Vector
             // times a float, then divided by 128 (VectorDivide: times 1/128).
             // Mode 1 replaces the traced-ray vector with the TRUE hit point
             // (hit - position), still scaled by the fraction over 128
-            // (fVar17 = local_164 * _DAT_1400e5ea0 at 46479; hit = position +
+            // (the offset scalar times the stored axis unit vector; hit = position +
             // (vEnd - position) * fraction), which for the port's tracer is
             // (vEnd - position) * fraction^2 / 128 -- a strictly smaller d,
             // hence a weight nearer 1.
@@ -148,17 +148,17 @@ public static class PropIndirectLighting
             d = new Vec3(d.X * Inv128, d.Y * Inv128, d.Z * Inv128);
             float invLengthSqr = staticPropIndirectMode switch
             {
-                // Mode 2 drops the inverse-square entirely (all.c:46496-46502:
-                // weight 1, reflectivity kept).
+        // Mode 2 drops the inverse-square entirely:
+            // weight 1, reflectivity kept.
                 2 => 1.0f,
-                // Modes 0 and 1: 1/(1+|d|^2) (DAT_1400e2004 = 1.0f).
+                // Modes 0 and 1: 1/(1+|d|^2), the 1.0f baseline.
                 _ => 1.0f / (1.0f + d.LengthSquared()),
             };
 
             if (staticPropIndirectMode is < 0 or > 2)
             {
                 // Out of range takes NONE of the weighting branches
-                // (all.c:46493-46495): the raw lightmap triple accumulates,
+ // (all.c): the raw lightmap triple accumulates.
                 // no weight, no reflectivity.
                 outColor += lightmapColor;
                 continue;
@@ -180,7 +180,7 @@ public static class PropIndirectLighting
         return outColor;
     }
 
-    /// <summary><c>ColorRGBExp32ToVector</c> (<c>color_conversion.cpp:450</c>): 255 times the linear value.</summary>
+    /// <summary><c>ColorRGBExp32ToVector</c>: 255 times the linear value.</summary>
     private static Vec3 ToVector(MapFormats.Bsp.Structs.ColorRgbExp32 c) => new(
         255.0f * StockLightColor.TexLightToLinear(c.R, c.Exponent),
         255.0f * StockLightColor.TexLightToLinear(c.G, c.Exponent),

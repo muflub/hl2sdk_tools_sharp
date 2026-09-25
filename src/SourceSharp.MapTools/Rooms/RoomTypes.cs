@@ -119,7 +119,7 @@ public readonly record struct RoomSocket(RoomFacing Facing, string Name)
 /// fixed kit, the shell is sealed except at the registered openings, the
 /// interior is convex-enough to be reached from every corner without leaving
 /// the cell — are enforced by <see cref="RoomLinter"/>, not assumed: every
-/// shortcut the linker takes is unsound without them (§10b).
+/// shortcut the linker takes is unsound without them.
 /// </remarks>
 public sealed record RoomDefinition(string Name, float CellSize, SocketKit Kit, IReadOnlyList<RoomSocket> Sockets)
 {

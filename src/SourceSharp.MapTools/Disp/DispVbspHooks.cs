@@ -10,9 +10,9 @@ namespace SourceSharp.MapTools.Disp;
 /// <summary>
 /// The three points where the vbsp driver (lane p3e) hands displacement work
 /// to this lane, in compile order: <c>DispGetFaceInfo</c> at load
-/// (<c>map.cpp:3107</c>), the base-face description once the face is emitted
-/// (<c>writebsp.cpp:929-933</c>), and the lump write at the end of
-/// <c>EndBSPFile</c> (<c>writebsp.cpp:1256</c>).
+/// The base-face description once the face is emitted
+/// And the lump write at the end of
+/// <c>EndBSPFile</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -44,7 +44,7 @@ public static class DispVbspHooks
 
     /// <summary>
     /// The checks <c>DispGetFaceInfo</c> makes before a displacement brush is
-    /// accepted: <c>disp_vbsp.cpp:628-642</c>.
+    /// Accepted:.
     /// </summary>
     /// <param name="entityNumber">The brush's entity; 0 is worldspawn.</param>
     /// <param name="className">That entity's classname, for the message.</param>
@@ -77,10 +77,10 @@ public static class DispVbspHooks
     /// <param name="faceIndex">The emitted face's LUMP_FACES index.</param>
     /// <param name="sideWinding">
     /// The SIDE's winding — <c>face.originalface-&gt;winding</c>
-    /// (<c>disp_vbsp.cpp:149</c>) — in float, not the snapped emitted
+    /// — in float, not the snapped emitted
     /// vertices.
     /// </param>
-    /// <param name="brushContents">The brush's contents: <c>face.contents</c> (<c>disp_vbsp.cpp:652</c>).</param>
+    /// <param name="brushContents">The brush's contents: <c>face.contents</c>.</param>
     /// <param name="texInfo">The side's texinfo, unswapped.</param>
     /// <returns>The face description.</returns>
     /// <exception cref="ArgumentException">The winding is not four points.</exception>
@@ -109,7 +109,7 @@ public static class DispVbspHooks
 
     /// <summary>
     /// The texinfo each displacement's BASE FACE must carry in LUMP_FACES:
-    /// the swap bookkeeping of <c>disp_vbsp.cpp:212-242</c>, under the
+    /// The swap bookkeeping of the reference implementation, under the
     /// compile's compliance.
     /// </summary>
     /// <param name="results"><see cref="DisplacementLumpBuilder.Build"/>'s results.</param>
@@ -157,7 +157,7 @@ public static class DispVbspHooks
     /// <summary>
     /// Writes LUMP_DISPINFO, LUMP_DISP_VERTS, LUMP_DISP_TRIS and
     /// LUMP_DISP_LIGHTMAP_SAMPLE_POSITIONS, and each base face's
-    /// <c>m_LightmapTextureSizeInLuxels</c> (<c>disp_vbsp.cpp:208-209</c>).
+    /// <c>m_LightmapTextureSizeInLuxels</c>.
     /// </summary>
     /// <param name="bsp">The map being written; its LUMP_FACES must already hold the base faces.</param>
     /// <param name="results">What <see cref="DisplacementLumpBuilder.Build"/> returned.</param>

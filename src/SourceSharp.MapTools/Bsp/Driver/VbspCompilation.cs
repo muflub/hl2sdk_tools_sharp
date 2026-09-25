@@ -22,9 +22,8 @@ namespace SourceSharp.MapTools.Bsp.Driver;
 
 /// <summary>
 /// One full vbsp compile: <c>RunVBSP</c>'s "start from scratch" branch from
-/// <c>WorldVertexTransitionFixup</c> on (<c>vbsp.cpp:1418-1428</c>),
-/// <c>ProcessModels</c> (<c>:841</c>) and <c>EndBSPFile</c>
-/// (<c>writebsp.cpp:1241</c>).
+/// <c>WorldVertexTransitionFixup</c> on,
+/// <c>ProcessModels</c> and <c>EndBSPFile</c>
 /// </summary>
 internal sealed class VbspCompilation
 {
@@ -71,7 +70,7 @@ internal sealed class VbspCompilation
 
         // Read AFTER the post-load fixups, below: AssignBottomWaterMaterialToFace
         // reads a water's $bottommaterial from the cubemap-PATCHED material,
-        // "This happens *after* cubemap fixup" (faces.cpp:1255-1264).
+        // "This happens *after* cubemap fixup".
         FaceMaterialFacts materials = FaceMaterialFacts.Create(_compile);
 
         _faces = new FaceBuildContext(_compile.Windings, _map.Planes, _compile.TexInfos, Options)
@@ -215,7 +214,7 @@ internal sealed class VbspCompilation
             : ProcessSubModel(entityNumber);
     }
 
-    /// <summary><c>BeginModel</c> (<c>writebsp.cpp:1307</c>).</summary>
+    /// <summary><c>BeginModel</c>.</summary>
     private void BeginModel(int entityNumber)
     {
         if (_state.Models.Count == WriteLimits.MaxMapModels)
@@ -257,7 +256,7 @@ internal sealed class VbspCompilation
         });
     }
 
-    /// <summary><c>ProcessWorldModel</c> (<c>vbsp.cpp:206</c>) up to the head of <c>WriteBSP</c>.</summary>
+    /// <summary><c>ProcessWorldModel</c> up to the head of <c>WriteBSP</c>.</summary>
     private TreeNode? ProcessWorldModel()
     {
         MapEntity e = _map.Entities[0];
@@ -386,7 +385,7 @@ internal sealed class VbspCompilation
     private TreePortals? _worldPortals;
     private bool _worldLeaked;
 
-    /// <summary><c>ProcessSubModel</c> (<c>vbsp.cpp:383</c>) up to the head of <c>WriteBSP</c>.</summary>
+    /// <summary><c>ProcessSubModel</c> up to the head of <c>WriteBSP</c>.</summary>
     private TreeNode ProcessSubModel(int entityNumber)
     {
         MapEntity e = _map.Entities[entityNumber];
@@ -426,7 +425,7 @@ internal sealed class VbspCompilation
         _faces.EntityNumber = entityNumber;
         new FaceBuilder(_faces).MakeFaces(tree.HeadNode);
 
-        // nDetailScreen is FULL_DETAIL, so no detail merge (vbsp.cpp:436-440).
+        // nDetailScreen is FULL_DETAIL, so no detail merge.
         new TJunctionFixer(_faces).FixTjuncs(tree.HeadNode, null);
         WriteModelTree(tree.HeadNode, null, isWorld: false);
 
@@ -459,7 +458,7 @@ internal sealed class VbspCompilation
     }
 
     /// <summary>
-    /// <c>WritePortalFile</c> (<c>prtfile.cpp:319</c>): re-portalise the
+    /// <c>WritePortalFile</c>: re-portalise the
     /// finished world tree for vis and number the clusters into the leaves.
     /// </summary>
     private void WritePortalFile()
@@ -483,7 +482,7 @@ internal sealed class VbspCompilation
         }
     }
 
-    /// <summary><c>Compute3DSkyboxAreas</c> (<c>vbsp.cpp:807</c>).</summary>
+    /// <summary><c>Compute3DSkyboxAreas</c>.</summary>
     private void Compute3DSkyboxAreas(TreeNode head)
     {
         foreach (MapEntity e in _map.Entities)

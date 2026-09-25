@@ -8,7 +8,7 @@ namespace SourceSharp.MapTools.Materials;
 /// <remarks>
 /// <para>
 /// These are the whole of what <c>FindMiptex</c>
-/// (<c>src/utils/vbsp/textures.cpp:49-286</c>) asks a material, and every one
+/// Asks a material, and every one
 /// of them is a boolean read through <c>StringIsTrue</c> — so the VALUE is
 /// either "true"/"1" or it is not, and nothing else about the string matters.
 /// </para>
@@ -24,70 +24,70 @@ public enum MaterialCompileFlags : uint
     /// <summary>The material sets none of them.</summary>
     None = 0,
 
-    /// <summary><c>%compileSky</c> (<c>textures.cpp:85</c>).</summary>
+    /// <summary><c>%compileSky</c>.</summary>
     Sky = 1u << 0,
 
-    /// <summary><c>%compile2DSky</c> (<c>textures.cpp:90</c>).</summary>
+    /// <summary><c>%compile2DSky</c>.</summary>
     Sky2D = 1u << 1,
 
-    /// <summary><c>%compileHint</c> (<c>textures.cpp:96</c>).</summary>
+    /// <summary><c>%compileHint</c>.</summary>
     Hint = 1u << 2,
 
-    /// <summary><c>%compileSkip</c> (<c>textures.cpp:102</c>).</summary>
+    /// <summary><c>%compileSkip</c>.</summary>
     Skip = 1u << 3,
 
-    /// <summary><c>%compileOrigin</c> (<c>textures.cpp:108</c>).</summary>
+    /// <summary><c>%compileOrigin</c>.</summary>
     Origin = 1u << 4,
 
-    /// <summary><c>%compileClip</c> (<c>textures.cpp:115</c>).</summary>
+    /// <summary><c>%compileClip</c>.</summary>
     Clip = 1u << 5,
 
-    /// <summary><c>%playerClip</c> (<c>textures.cpp:121</c>).</summary>
+    /// <summary><c>%playerClip</c>.</summary>
     PlayerClip = 1u << 6,
 
-    /// <summary><c>%compileNpcClip</c> (<c>textures.cpp:128</c>).</summary>
+    /// <summary><c>%compileNpcClip</c>.</summary>
     NpcClip = 1u << 7,
 
-    /// <summary><c>%compileNoChop</c> (<c>textures.cpp:135</c>).</summary>
+    /// <summary><c>%compileNoChop</c>.</summary>
     NoChop = 1u << 8,
 
-    /// <summary><c>%compileTrigger</c> (<c>textures.cpp:141</c>).</summary>
+    /// <summary><c>%compileTrigger</c>.</summary>
     Trigger = 1u << 9,
 
-    /// <summary><c>%compileNoLight</c> (<c>textures.cpp:151</c>).</summary>
+    /// <summary><c>%compileNoLight</c>.</summary>
     NoLight = 1u << 10,
 
-    /// <summary><c>%compileWater</c> (<c>textures.cpp:152,238</c>).</summary>
+ /// <summary><c>%compileWater</c>.</summary>
     Water = 1u << 11,
 
-    /// <summary><c>%compileLadder</c> (<c>textures.cpp:161</c>).</summary>
+    /// <summary><c>%compileLadder</c>.</summary>
     Ladder = 1u << 12,
 
-    /// <summary><c>%noPortal</c> (<c>textures.cpp:167</c>).</summary>
+    /// <summary><c>%noPortal</c>.</summary>
     NoPortal = 1u << 13,
 
-    /// <summary><c>%compilePassBullets</c> (<c>textures.cpp:173</c>).</summary>
+    /// <summary><c>%compilePassBullets</c>.</summary>
     PassBullets = 1u << 14,
 
-    /// <summary><c>%compileNoDraw</c> (<c>textures.cpp:195</c>).</summary>
+    /// <summary><c>%compileNoDraw</c>.</summary>
     NoDraw = 1u << 15,
 
-    /// <summary><c>%compileInvisible</c> (<c>textures.cpp:202</c>).</summary>
+    /// <summary><c>%compileInvisible</c>.</summary>
     Invisible = 1u << 16,
 
-    /// <summary><c>%compileNonsolid</c> (<c>textures.cpp:213</c>).</summary>
+    /// <summary><c>%compileNonsolid</c>.</summary>
     NonSolid = 1u << 17,
 
-    /// <summary><c>%compileBlockLOS</c> (<c>textures.cpp:220</c>).</summary>
+    /// <summary><c>%compileBlockLOS</c>.</summary>
     BlockLos = 1u << 18,
 
-    /// <summary><c>%compileDetail</c> (<c>textures.cpp:228</c>).</summary>
+    /// <summary><c>%compileDetail</c>.</summary>
     Detail = 1u << 19,
 
-    /// <summary><c>%compileKeepLight</c> (<c>textures.cpp:234</c>).</summary>
+    /// <summary><c>%compileKeepLight</c>.</summary>
     KeepLight = 1u << 20,
 
-    /// <summary><c>%compileSlime</c> (<c>textures.cpp:261</c>).</summary>
+    /// <summary><c>%compileSlime</c>.</summary>
     Slime = 1u << 21,
 }
 
@@ -95,7 +95,7 @@ public enum MaterialCompileFlags : uint
 /// The VMT variable name behind each <see cref="MaterialCompileFlags"/> bit.
 /// </summary>
 /// <param name="Name">
-/// The variable as it is spelled in <c>textures.cpp</c>. Looked up without
+/// The variable as it is spelled in the reference implementation. Looked up without
 /// regard to case, the way the material system's <c>FindVar</c> does.
 /// </param>
 /// <param name="Flag">The bit it sets.</param>
@@ -142,7 +142,7 @@ public static class MaterialCompileVars
     ];
 
     /// <summary>
-    /// <c>StringIsTrue</c> (<c>src/utils/vbsp/textures.cpp:36-47</c>).
+    /// <c>StringIsTrue</c>.
     /// </summary>
     /// <param name="value">The variable's value, or null when it is absent.</param>
     /// <returns>True when the compiler would treat it as set.</returns>

@@ -15,7 +15,6 @@ namespace SourceSharp.MapTools.Phys;
 /// 12-byte <c>Vector</c> return of <c>CollideGetExtent</c> in xmm0/xmm1 rather
 /// than through a hidden pointer, because <c>Vector</c> is trivially copyable
 /// in this tree (its copy constructor is commented out at
-/// <c>mathlib/vector.h:187</c>).
 /// </remarks>
 internal sealed unsafe class NativeCollisionSession : ICollisionSession, ISurfacePropertySession
 {
@@ -315,7 +314,7 @@ internal sealed unsafe class NativeCollisionSession : ICollisionSession, ISurfac
             handles[i] = new CollideHandle(solids[i]);
         }
 
-        // VCollideLoad copies exactly the bytes after the last solid (physics_collide.cpp:1650).
+        // VCollideLoad copies exactly the bytes after the last solid.
         int position = 0;
         for (int i = 0; i < solidCount && position + 4 <= buffer.Length; i++)
         {

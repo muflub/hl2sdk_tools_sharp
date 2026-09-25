@@ -7,22 +7,22 @@ using SourceSharp.MapTools.Options;
 namespace SourceSharp.MapTools.Bsp.Csg;
 
 /// <summary>
-/// The geometric half of <c>utils/vbsp/brushbsp.cpp</c>: bounds, volumes,
+/// The geometric half of the reference implementation: bounds, volumes,
 /// windings and the brush splitter everything else is built out of.
 /// </summary>
 /// <remarks>
 /// It lives beside the CSG rather than beside the tree because
 /// <see cref="SplitBrush"/> is what <c>SubtractBrush</c>,
 /// <c>IntersectBrush</c> and <c>ClipBrushToBox</c> are made of
-/// (<c>csg.cpp:71</c>, <c>:110</c>, <c>:179</c>) — CSG depends on it and the
+/// — CSG depends on it and the
 /// tree depends on CSG, so putting it here is the arrangement with no cycle in
-/// it. Stock has the cycle: <c>csg.cpp</c> and <c>brushbsp.cpp</c> each call
+/// it. Stock has the cycle: and each call
 /// into the other.
 /// </remarks>
 public static class BrushGeometry
 {
     /// <summary>
-    /// <c>EDGE_LENGTH</c>, <c>brushbsp.cpp:646</c>: how long an edge has to be
+    /// <c>EDGE_LENGTH</c>: how long an edge has to be
     /// to count.
     /// </summary>
     public const float EdgeLength = 0.2f;
@@ -40,7 +40,7 @@ public static class BrushGeometry
     public const double StockEdgeLength = 0.2;
 
     /// <summary>
-    /// <c>PLANESIDE_EPSILON</c>, <c>brushbsp.cpp:18</c>: how far a brush may
+    /// <c>PLANESIDE_EPSILON</c>: how far a brush may
     /// poke past a plane before the box test calls it a crossing.
     /// </summary>
     /// <remarks>
@@ -58,7 +58,7 @@ public static class BrushGeometry
 
     /// <summary>
     /// Sets a brush's bounds from its side windings: <c>BoundBrush</c>,
-    /// <c>brushbsp.cpp:116</c>.
+    ///.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush to bound.</param>
@@ -66,7 +66,7 @@ public static class BrushGeometry
     /// <remarks>
     /// A brush with no windings at all comes back inside out — mins 99999,
     /// maxs -99999 — which is <c>ClearBounds</c>'s seed
-    /// (<c>mathlib_base.cpp:1289</c>) and is what <c>SplitBrush</c>'s
+    /// And is what <c>SplitBrush</c>'s
     /// out-of-range check then rejects.
     /// </remarks>
     public static void BoundBrush(BspBuildContext context, BspBrush brush)
@@ -102,7 +102,7 @@ public static class BrushGeometry
 
     /// <summary>
     /// A point somewhere inside the brush: <c>PointInsideBrush</c>,
-    /// <c>brushbsp.cpp:132</c>.
+    ///.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush.</param>
@@ -151,7 +151,7 @@ public static class BrushGeometry
 
     /// <summary>
     /// Builds every side's winding from the brush's planes:
-    /// <c>CreateBrushWindings</c>, <c>brushbsp.cpp:161</c>.
+    /// <c>CreateBrushWindings</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush, whose side windings are replaced.</param>
@@ -162,14 +162,14 @@ public static class BrushGeometry
     /// differences are the point. This one translates the whole problem so that
     /// a point inside the brush sits at the origin before clipping and
     /// translates the result back ("translate the CSG problem to improve
-    /// precision", <c>brushbsp.cpp:168</c>); it clips with epsilon <b>0</b>
+    /// precision"); it clips with epsilon <b>0</b>
     /// rather than <c>CLIP_EPSILON</c>, with the 0.1 left in the source as a
-    /// commented-out argument (<c>brushbsp.cpp:184</c>); and it does not
+    /// commented-out argument; and it does not
     /// discard a side whose winding came out null, where the map loader reports
     /// the brush.
     /// </para>
     /// <para>
-    /// It skips bevels as clip planes (<c>brushbsp.cpp:181</c>) but still
+    /// It skips bevels as clip planes but still
     /// builds a winding FOR one, so a bevel side ends up with the winding its
     /// plane cuts out of the rest of the hull rather than with none. Only
     /// <see cref="BrushFromBounds"/> reaches this function in the shipped
@@ -221,7 +221,7 @@ public static class BrushGeometry
 
     /// <summary>
     /// An axial brush filling a box: <c>BrushFromBounds</c>,
-    /// <c>brushbsp.cpp:201</c>.
+    ///.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="mins">The box's minimum.</param>
@@ -233,7 +233,7 @@ public static class BrushGeometry
     /// The side order is <c>+X +Y +Z -X -Y -Z</c> — three maxs then three
     /// mins, at <c>sides[i]</c> and <c>sides[3+i]</c> — which is NOT the
     /// canonical order <c>AddBrushBevels</c> puts a map brush's sides in
-    /// (<c>-X +X -Y +Y -Z +Z</c>, <c>map.cpp:481</c>). Nothing here depends on
+    /// (<c>-X +X -Y +Y -Z +Z</c>). Nothing here depends on
     /// either order, but a reader comparing the two will notice.
     /// </para>
     /// <para>
@@ -267,7 +267,7 @@ public static class BrushGeometry
     }
 
     /// <summary>
-    /// The brush's volume: <c>BrushVolume</c>, <c>brushbsp.cpp:233</c>.
+    /// The brush's volume: <c>BrushVolume</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush, or null.</param>
@@ -281,7 +281,7 @@ public static class BrushGeometry
     /// <para>
     /// <b>The face the corner was taken from is included in the sum, not
     /// skipped.</b> Stock's second loop continues from the index the first one
-    /// stopped at (<c>brushbsp.cpp:260</c>, <c>for ( ; i&lt;...</c>) rather than
+    /// stopped at (<c>for (; i&lt;...</c>) rather than
     /// restarting, so that face contributes <c>d * area</c> with
     /// <c>d</c> the distance from a point ON its own plane, which is zero up to
     /// rounding. Restarting the loop at zero would be the same answer in exact
@@ -335,7 +335,7 @@ public static class BrushGeometry
 
     /// <summary>
     /// Whether vertex snapping would erase the winding: <c>WindingIsTiny</c>,
-    /// <c>brushbsp.cpp:647</c>.
+    ///.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="winding">The winding.</param>
@@ -343,7 +343,7 @@ public static class BrushGeometry
     /// <exception cref="ArgumentNullException"><paramref name="context"/> is null.</exception>
     /// <remarks>
     /// Stock carries a better version of this beside it — an OBB fit with the
-    /// note "UNDONE: Test &amp; use this instead" (<c>brushbsp.cpp:670-724</c>)
+    /// note "UNDONE: Test &amp; use this instead"
     /// — inside <c>#if 0</c>. It is not what shipped and it is not what this
     /// is.
     /// </remarks>
@@ -351,7 +351,7 @@ public static class BrushGeometry
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        // StockQuirk.WindingIsTinyEdgePromotion. brushbsp.cpp:646 spells
+        // StockQuirk.WindingIsTinyEdgePromotion. spells
         // EDGE_LENGTH `0.2` with no `f`, so the compare happens in double and
         // an edge of exactly 0.2f counts as LONG. This copy of the function
         // compared in float and so was already doing the right thing while
@@ -380,7 +380,7 @@ public static class BrushGeometry
 
     /// <summary>
     /// Whether the winding still reaches past the legal world:
-    /// <c>WindingIsHuge</c>, <c>brushbsp.cpp:735</c>.
+    /// <c>WindingIsHuge</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="winding">The winding.</param>
@@ -411,7 +411,7 @@ public static class BrushGeometry
 
     /// <summary>
     /// Which side of a plane the brush is mostly on:
-    /// <c>BrushMostlyOnSide</c>, <c>brushbsp.cpp:1006</c>.
+    /// <c>BrushMostlyOnSide</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush.</param>
@@ -467,7 +467,7 @@ public static class BrushGeometry
 
     /// <summary>
     /// Duplicates a brush, its sides and its windings: <c>CopyBrush</c>,
-    /// <c>brushbsp.cpp:391</c>.
+    ///.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush to copy.</param>
@@ -476,10 +476,10 @@ public static class BrushGeometry
     /// <remarks>
     /// <b>The copy inherits the original's id and its <see cref="BspBrush.Next"/>
     /// pointer</b>, because stock copies the whole header with one
-    /// <c>memcpy</c> (<c>brushbsp.cpp:400</c>) over the id
+    /// <c>memcpy</c> over the id
     /// <c>AllocBrush</c> had just assigned. Most callers overwrite
     /// <c>next</c> on the following line; <c>SplitBrush</c>'s two early returns
-    /// (<c>brushbsp.cpp:1079</c>, <c>:1084</c>) do not, so a brush that was
+ /// Do not, so a brush that was
     /// "only on one side" leaves the splitter still linked to whatever the
     /// input was linked to. Nothing reads it before it is overwritten, and
     /// reproducing it costs one line.
@@ -515,7 +515,7 @@ public static class BrushGeometry
 
     /// <summary>
     /// Splits a brush by a plane, leaving the original alone:
-    /// <c>SplitBrush</c>, <c>brushbsp.cpp:1048</c>.
+    /// <c>SplitBrush</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="brush">The brush to split.</param>
@@ -533,14 +533,14 @@ public static class BrushGeometry
     /// <list type="number">
     /// <item><description>
     /// The 0.1 in <c>d_front &lt; 0.1</c> and <c>d_back &gt; -0.1</c>
-    /// (<c>brushbsp.cpp:1077</c>, <c>:1082</c>) — not
+ /// — not
     /// <see cref="PlaneSideEpsilon"/>, which the commented-out text beside it
     /// says it once was. A brush within a tenth of a unit of the plane is
     /// "only on one side" and is copied whole.
     /// </description></item>
     /// <item><description>
     /// The midwinding is cut from a base winding by EVERY side, bevels
-    /// included (<c>brushbsp.cpp:1095</c>) — unlike
+    /// Included — unlike
     /// <see cref="CreateBrushWindings"/>, which skips them — with epsilon 0.
     /// </description></item>
     /// <item><description>
@@ -560,13 +560,13 @@ public static class BrushGeometry
     /// </list>
     /// <para>
     /// The arithmetic is done translated to the brush's own centre
-    /// (<c>-0.5 * (mins + maxs)</c>, <c>brushbsp.cpp:1091</c>) and translated
+    /// (<c>-0.5 * (mins + maxs)</c>) and translated
     /// back, which is why <c>ClipWindingEpsilon_Offset</c> exists at all.
     /// </para>
     /// <para>
     /// <b>Two windings are leaked on purpose.</b> The tiny-midwinding return
-    /// (<c>brushbsp.cpp:1101</c>) and the one-sided return
-    /// (<c>brushbsp.cpp:1200</c>) both drop <c>w</c> without freeing it. Both
+    /// And the one-sided return
+    /// Both drop <c>w</c> without freeing it. Both
     /// are reproduced: freeing them would change which arena slots later
     /// windings are recycled into, and the whole point of this stage is that
     /// nothing downstream can tell this apart from stock.

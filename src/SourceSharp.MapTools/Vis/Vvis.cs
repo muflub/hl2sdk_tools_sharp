@@ -13,8 +13,7 @@ using SourceSharp.MapTools.Parallel;
 namespace SourceSharp.MapTools.Vis;
 
 /// <summary>
-/// vvis: the visibility compiler (<c>src/utils/vvis/vvis.cpp</c>,
-/// <c>flow.cpp</c>).
+/// Vvis: the visibility compiler.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,11 +29,11 @@ namespace SourceSharp.MapTools.Vis;
 /// which direction the resulting difference from stock goes.
 /// </para>
 /// <para>
-/// Dropped from the port, with reasons in plan_maptools.md 9: <c>mpivis.cpp</c>
-/// (VMPI is a Windows-only cluster mode), <c>WaterDist.cpp</c> (not referenced
+/// Dropped from the port, with reasons in the port's plan §9: the VMPI cluster
+/// mode (VMPI is Windows-only), the water-distance pass (not referenced
 /// by anything), <c>-low</c> (a process priority is the host's), and the
 /// <c>BetterPortalVis</c> second-order approximation, which stock itself marks
-/// "WAAAAAAY too slow" (<c>flow.cpp:817</c>) and never calls.
+/// "WAAAAAAY too slow" and never calls.
 /// </para>
 /// </remarks>
 public static class Vvis
@@ -95,7 +94,7 @@ public static class Vvis
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidBspException">
     /// The map has no nodes or no faces (stock's "Empty map",
-    /// <c>vvis.cpp:1144</c>), a leaf lump this port cannot read, or a cluster
+    ///), a leaf lump this port cannot read, or a cluster
     /// count that disagrees with the portal file's.
     /// </exception>
     /// <exception cref="OperationCanceledException">The compile was cancelled.</exception>
@@ -126,7 +125,7 @@ public static class Vvis
         using WorkQueue queue = new(context.Parallelism);
 
         // The whole of the setup runs on a worker, not on the thread that
-        // awaited (plan_maptools.md 1a: an ...Async method returns an incomplete
+        // awaited (the port's plan §1a: an ...Async method returns an incomplete
         // task promptly and never runs the compile on the caller's thread).
         // That is not ceremony here: the two per-portal bit vectors alone are
         // portalCount * portalbytes * 2, which is over a gigabyte on a map at
@@ -142,7 +141,7 @@ public static class Vvis
             1,
             (_, _) =>
             {
-                // vvis.cpp:1144 -- the emptiness check is on nodes and faces,
+                // -- the emptiness check is on nodes and faces,
                 // before anything else is read.
                 if (bsp[BspLump.Nodes].IsEmpty || bsp[BspLump.Faces].IsEmpty)
                 {
@@ -154,7 +153,7 @@ public static class Vvis
 
                 if (useRadius)
                 {
-                    // MarkLeavesAsRadial, vvis.cpp:906. Every leaf, not just the
+                    // MarkLeavesAsRadial. Every leaf, not just the
                     // ones the radius actually culled.
                     for (int leaf = 0; leaf < leaves.Count; leaf++)
                     {
@@ -212,18 +211,17 @@ public static class Vvis
 
         int deepest = 0;
         // The base pass already ran — it runs for EVERY option set, -fast
-        // included (stock dispatches it unconditionally, all.c:19955) — so its
+        // included (stock dispatches it unconditionally) — so its
         // cast count seeds the record and survives to the result whatever the
         // flow stage below does or skips.
         VisWorkCounters work = new(Chains: 0, Candidates: 0, SeparatorClips: 0, BaseRays: baseRays);
         if (context.Options.Fast)
         {
-            // vvis.cpp:294-302.
             state.UseFloodAsVis();
         }
         else if (context.Options.Tighten)
         {
-            // plan_maptools.md 5, 2c: prune with finished neighbours' portalvis
+            // The port's plan §5, 2c: prune with finished neighbours' portalvis
             // where stock at one thread would, and nowhere else. See
             // VisTightening for why that makes the answer independent of the
             // degree and of -nosort (the ranking is stock's sort, whatever
@@ -301,8 +299,7 @@ public static class Vvis
         // leaf-to-water pass, not CalcPAS, is the whole of it.
         //
         // Each still runs on a worker rather than on the thread that awaited:
-        // the library never runs a compile on the caller's thread
-        // (plan_maptools.md 1a).
+        // the library never runs a compile on the caller's thread.
         Begin(context, ClusterMergeStage, clusters);
         await queue.RunAsync(
             1,
@@ -373,12 +370,12 @@ public static class Vvis
         context.Progress?.Report(new CompileProgress(stage, 0, total));
 
     /// <summary>
-    /// <c>CalcVisTrace</c> (<c>vvis.cpp:318</c>): flow only the portals leaving
+    /// <c>CalcVisTrace</c>: flow only the portals leaving
     /// the start cluster and record the first route that reaches the end one.
     /// </summary>
     /// <remarks>
     /// Writes no lumps -- stock skips the whole write path for a trace
-    /// (<c>vvis.cpp:1179</c>) -- so the rows come back empty and only
+    /// -- so the rows come back empty and only
     /// <see cref="VisResult.Trace"/> is meaningful.
     /// </remarks>
     private static async Task<VisResult> TraceAsync(
@@ -405,7 +402,7 @@ public static class Vvis
 
         VisTraceSink sink = new(start, stop);
 
-        // BuildTracePortals, vvis.cpp:137: the scheduled portals are exactly the
+        // BuildTracePortals: the scheduled portals are exactly the
         // start cluster's, in its own list order.
         int[] scheduled = portals.ClusterPortals(start).ToArray();
 
@@ -428,8 +425,7 @@ public static class Vvis
     }
 
     /// <summary>
-    /// <c>DetermineVisRadius</c> (<c>vvis.cpp:886</c>) and the override at
-    /// <c>vvis.cpp:935-942</c>.
+    /// <c>DetermineVisRadius</c> and the <c>-radius_override</c> path.
     /// </summary>
     /// <remarks>
     /// The two paths square the radius in different precisions and that is
@@ -457,7 +453,7 @@ public static class Vvis
                 continue;
             }
 
-            // vvis.cpp:896-899 -- the FIRST one wins, and a farz of exactly zero
+            // -- the FIRST one wins, and a farz of exactly zero
             // means "no radius" rather than "a radius of zero".
             float far = ParseFloat(entity.Get("farz"));
             return far > 0f ? (true, (double)(far * far)) : (false, 0.0);
@@ -476,7 +472,7 @@ public static class Vvis
             : 0f;
 
     /// <summary>
-    /// <c>SortPortals</c> (<c>vvis.cpp:147</c>): cheapest first, or file order
+    /// <c>SortPortals</c>: cheapest first, or file order
     /// under <c>-nosort</c>.
     /// </summary>
     /// <remarks>
@@ -511,7 +507,6 @@ public static class Vvis
 
     /// <summary>
     /// <c>ClusterMerge</c> and <c>LeafVectorFromPortalVector</c>
-    /// (<c>vvis.cpp:196</c> and <c>:165</c>).
     /// </summary>
     private static int ClusterMerge(
         PortalSet portals,
@@ -563,7 +558,7 @@ public static class Vvis
                 }
             }
 
-            // vvis.cpp:232-233 -- a cluster always sees itself, and the count is
+            // -- a cluster always sees itself, and the count is
             // incremented whether or not the bit was already there. It never is:
             // a cluster's portals point AWAY from it.
             row[cluster >> 3] |= (byte)(1 << (cluster & 7));
@@ -577,7 +572,6 @@ public static class Vvis
 
     /// <summary>
     /// The symmetry pass of <c>CompressAndCrosscheckClusterVis</c>
-    /// (<c>vvis.cpp:250-264</c>).
     /// </summary>
     /// <remarks>
     /// Stock does this in place while walking clusters in order, so a row it has
@@ -623,7 +617,7 @@ public static class Vvis
     }
 
     /// <summary>
-    /// <c>CalcPAS</c> (<c>vvis.cpp:574</c>): each cluster hears the union of
+    /// <c>CalcPAS</c>: each cluster hears the union of
     /// what every cluster it can see can see.
     /// </summary>
     /// <remarks>
@@ -688,7 +682,7 @@ public static class Vvis
 
     /// <summary>
     /// Assembles LUMP_VISIBILITY: the header, then every PVS row, then every
-    /// PAS row (<c>vvis.cpp:265-279</c> and <c>:621-631</c>).
+ /// PAS row.
     /// </summary>
     private static byte[] BuildVisibilityLump(int clusters, int rowBytes, byte[] pvs, byte[] pas)
     {

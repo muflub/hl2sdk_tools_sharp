@@ -11,15 +11,14 @@ namespace SourceSharp.MapTools.Bsp.Write;
 
 /// <summary>
 /// The write stage's half of displacements: <c>mapdispinfo</c>'s base faces
-/// into LUMP_FACES during <c>WriteBSP</c> (<c>writebsp.cpp:927-935</c>), then
+/// into LUMP_FACES during <c>WriteBSP</c>, then
 /// Phase 3f's lump builder at <c>EmitDispLMAlphaAndNeighbors</c>
-/// (<c>writebsp.cpp:1256</c>).
 /// </summary>
 /// <remarks>
 /// <para>
 /// <c>mapdispinfo</c> is in side-load order, which is the order sides sit in
 /// the side array: the displacement brush itself is dropped
-/// (<c>b-&gt;numsides = 0</c>, <c>map.cpp:3109</c>) but its sides stay, and
+/// (<c>b-&gt;numsides = 0</c>) but its sides stay, and
 /// <c>DispGetFaceInfo</c> has put the brush's contents and entity onto each
 /// displacement.
 /// </para>
@@ -53,7 +52,7 @@ internal sealed class DisplacementStage
 
     /// <summary>
     /// <c>WriteBSP</c>'s displacement loop for one entity: weld the base face's
-    /// four points and emit it, off-node (<c>writebsp.cpp:927-935</c>).
+    /// four points and emit it, off-node.
     /// </summary>
     /// <param name="entityNumber">The entity whose model is being written.</param>
     /// <param name="faces">The face stage's context.</param>
@@ -71,7 +70,7 @@ internal sealed class DisplacementStage
             }
 
             // DispGetFaceInfo's copy of the side, with EmitInitialDispInfos'
-            // dispinfo index (disp_vbsp.cpp:363, :642-648).
+            // dispinfo index(:642-648).
             Face face = faces.Faces.Alloc();
             face.OriginalFace = side;
             face.TexInfo = side.TexInfo;
@@ -104,7 +103,7 @@ internal sealed class DisplacementStage
     /// <param name="bounds">Receives one box per displacement.</param>
     /// <remarks>
     /// Runs BEFORE <c>UpdateAllFaceLightmapExtents</c>, one step earlier than
-    /// stock (<c>writebsp.cpp:1253-1256</c>), in p3f2's order: the build needs
+    /// stock, in p3f2's order: the build needs
     /// no face extents, and under Correct the base face must already carry
     /// its swapped texinfo when its lightmap mins are computed
     /// (<see cref="StockQuirk.DispLightmapSwapDropped"/>). Under Stock the
@@ -168,7 +167,7 @@ internal sealed class DisplacementStage
     }
 
     /// <summary>
-    /// What <c>disp_ivp.cpp</c> reads per displacement, in
+    /// What reads per displacement, in
     /// <c>g_CoreDispInfos</c> order, once <see cref="Build"/> has run: the
     /// built surface, <c>mapdispinfo[i].contents</c>, and the index of its
     /// base face (whose texinfo is <c>mapdispinfo[i].face.texinfo</c>).

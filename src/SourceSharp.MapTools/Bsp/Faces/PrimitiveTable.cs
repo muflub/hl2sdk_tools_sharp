@@ -6,7 +6,7 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// <summary>
 /// The three primitive tables a face can point into: <c>g_primitives</c>,
 /// <c>g_primindices</c> and <c>g_primverts</c>
-/// (<c>bspfile.h:687</c>, filled by <c>faces.cpp</c>).
+/// (filled).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -14,9 +14,9 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// as a fan of its own vertices. Two things in this stage produce one: a
 /// t-junction-fixed world face with no clean starting vertex, which gets a
 /// triangle LIST that sews its cracks (<c>FixFaceEdges</c>,
-/// <c>faces.cpp:676</c>), and a water face with a <c>$subdivsize</c>, which
+///), and a water face with a <c>$subdivsize</c>, which
 /// gets a triangle STRIP over a grid of sub-windings
-/// (<c>SubdivideFaceBySubdivSize</c>, <c>:1644</c>).
+/// (<c>SubdivideFaceBySubdivSize</c>).
 /// </para>
 /// <para>
 /// <b>The two kinds index different things and that is not a mistake.</b> A
@@ -28,13 +28,13 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// </remarks>
 public sealed class PrimitiveTable
 {
-    /// <summary><c>MAX_MAP_PRIMITIVES</c> (<c>bspfile.h:100</c>).</summary>
+    /// <summary><c>MAX_MAP_PRIMITIVES</c>.</summary>
     public const int MaxPrimitives = 32768;
 
-    /// <summary><c>MAX_MAP_PRIMVERTS</c> (<c>bspfile.h:101</c>).</summary>
+    /// <summary><c>MAX_MAP_PRIMVERTS</c>.</summary>
     public const int MaxPrimVerts = 65536;
 
-    /// <summary><c>MAX_MAP_PRIMINDICES</c> (<c>bspfile.h:102</c>).</summary>
+    /// <summary><c>MAX_MAP_PRIMINDICES</c>.</summary>
     public const int MaxPrimIndices = 65536;
 
     private readonly List<DPrimitive> _primitives = [];
@@ -52,7 +52,7 @@ public sealed class PrimitiveTable
 
     /// <summary>
     /// Appends a triangle-list primitive over a face's own vertices
-    /// (<c>FixFaceEdges</c>, <c>faces.cpp:676-693</c>).
+    /// (<c>FixFaceEdges</c>).
     /// </summary>
     /// <param name="indices">Triangle indices into the face's vertex list.</param>
     /// <returns>The index of the new primitive.</returns>
@@ -161,7 +161,7 @@ public sealed class PrimitiveTable
 /// </summary>
 /// <remarks>
 /// Stock writes the struct into the array first and increments the count only
-/// once the primitive turns out to be real (<c>faces.cpp:1720</c>: "don't
+/// once the primitive turns out to be real (: "don't
 /// increment until we get here and are sure that we have a primitive"). The
 /// builder is that shape made explicit: a primitive that is abandoned is never
 /// committed, and the indices and vertices it did write stay — which stock also
@@ -201,7 +201,7 @@ public sealed class PrimitiveBuilder
     /// <summary>
     /// Adds a winding's points to the primitive's vertex array, welding to
     /// points it already holds
-    /// (<c>AddWindingToPrimverts</c>, <c>faces.cpp:1474</c>).
+    /// (<c>AddWindingToPrimverts</c>).
     /// </summary>
     /// <param name="points">The winding's points.</param>
     /// <param name="indices">Filled with one index per point.</param>

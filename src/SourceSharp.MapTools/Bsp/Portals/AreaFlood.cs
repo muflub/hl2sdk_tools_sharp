@@ -14,7 +14,6 @@ public readonly record struct AreaPortalLink(Portal? Into0, Portal? Into1);
 
 /// <summary>
 /// Dividing the map into areas, bounded by areaportal brushes
-/// (<c>src/utils/vbsp/portals.cpp:819-1381</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -75,7 +74,7 @@ public sealed class AreaFlood
 
     /// <summary>
     /// The first brush in a leaf whose original is an areaportal
-    /// (<c>AreaportalBrushForNode</c>, <c>portals.cpp:260</c>).
+    /// (<c>AreaportalBrushForNode</c>).
     /// </summary>
     /// <param name="node">The areaportal leaf.</param>
     /// <returns>That brush.</returns>
@@ -105,7 +104,7 @@ public sealed class AreaFlood
 
     /// <summary>
     /// Gives every node the area its children agree on, or -1
-    /// (<c>SetNodeAreaIndices_R</c>, <c>portals.cpp:1273</c>).
+    /// (<c>SetNodeAreaIndices_R</c>).
     /// </summary>
     /// <param name="node">The root of the subtree.</param>
     /// <remarks>Leaf areas must already be set; this only fills in the nodes.</remarks>
@@ -126,7 +125,7 @@ public sealed class AreaFlood
 
     /// <summary>
     /// Marks each leaf with an area, bounded by areaportals
-    /// (<c>FloodAreas</c>, <c>portals.cpp:1372</c>).
+    /// (<c>FloodAreas</c>).
     /// </summary>
     /// <param name="tree">The flooded, filled tree.</param>
     /// <param name="windings">The arena holding the portal windings.</param>
@@ -144,7 +143,7 @@ public sealed class AreaFlood
 
     /// <summary>
     /// Descends the tree, starting a new area at every reachable leaf that does
-    /// not have one (<c>FindAreas_r</c>, <c>portals.cpp:896</c>).
+    /// not have one(<c>FindAreas_r</c>).
     /// </summary>
     /// <param name="node">The root of the subtree.</param>
     public void FindAreas(IBspNode node)
@@ -185,7 +184,7 @@ public sealed class AreaFlood
 
     /// <summary>
     /// Floods one area outward from a leaf
-    /// (<c>FloodAreas_r</c>, <c>portals.cpp:831</c>).
+    /// (<c>FloodAreas_r</c>).
     /// </summary>
     /// <param name="start">The leaf to start from.</param>
     /// <remarks>
@@ -246,7 +245,7 @@ public sealed class AreaFlood
     /// <summary>
     /// Gives each areaportal leaf the area recorded on its entity, and reports
     /// the ones that only ever touched one
-    /// (<c>SetAreaPortalAreas_r</c>, <c>portals.cpp:982</c>).
+    /// (<c>SetAreaPortalAreas_r</c>).
     /// </summary>
     /// <param name="tree">The tree, for the leak trace.</param>
     /// <param name="windings">The arena holding the portal windings.</param>
@@ -290,14 +289,14 @@ public sealed class AreaFlood
 
     /// <summary>
     /// Builds the leak line around an areaportal that did not seal
-    /// (<c>ReportAreaportalLeak</c>, <c>portals.cpp:924</c>).
+    /// (<c>ReportAreaportalLeak</c>).
     /// </summary>
     /// <param name="tree">The tree.</param>
     /// <param name="windings">The arena holding the portal windings.</param>
     /// <param name="node">The areaportal leaf.</param>
     /// <remarks>
     /// <b>The second loop here advances along the wrong link and that is
-    /// stock's code, not a porting slip.</b> At <c>portals.cpp:952</c> the loop
+    /// Stock's code, not a porting slip.</b> At the loop
     /// increment is <c>p = p-&gt;next[s]</c>, but on the iteration that skips
     /// <c>pStart</c> the <c>continue</c> jumps over the line that would have
     /// set <c>s</c> for this portal, so the step uses whatever <c>s</c> was
@@ -356,7 +355,7 @@ public sealed class AreaFlood
         {
             if (ReferenceEquals(p, start))
             {
-                // StockQuirk.AreaportalLeakWalk, portals.cpp:952. Stock's
+                // StockQuirk.AreaportalLeakWalk. Stock's
                 // `continue` jumps over the `s = ...` below, so the step uses
                 // the value left from above the loop -- the COMPLEMENT of the
                 // convention every other loop in the file uses -- and the walk
@@ -390,7 +389,7 @@ public sealed class AreaFlood
 
         // write the linefile that goes from pBest to pStart
         // Only the first report is a file: TraceAreaportal returns null once
-        // the tree is marked leaked (leakfile.cpp:104), and that null must not
+        // the tree is marked leaked, and that null must not
         // replace the report already made.
         AreaportalLeak ??= LeakTrace.TraceAreaportal(tree, windings, start, best, best.NodeAt(bestSide)!);
     }

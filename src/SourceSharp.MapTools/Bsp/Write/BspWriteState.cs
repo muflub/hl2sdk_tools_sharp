@@ -12,11 +12,11 @@ namespace SourceSharp.MapTools.Bsp.Write;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Stock keeps these as ~110 MB of process-wide globals in <c>bsplib.cpp</c>
+/// Stock keeps these as ~110 MB of process-wide globals in the reference implementation
 /// with a bare counter beside each (<c>dnodes</c>/<c>numnodes</c>, ...). Here
 /// they are one object per compile, so two compiles in one process cannot see
 /// each other's lumps. <see cref="BeginBspFile"/> is <c>BeginBSPFile</c>
-/// (<c>writebsp.cpp:1121</c>) and seeds exactly the entries stock reserves.
+/// And seeds exactly the entries stock reserves.
 /// </para>
 /// <para>
 /// The vertex, edge and primitive tables are the face stage's, shared rather
@@ -55,7 +55,7 @@ internal sealed class BspWriteState
     internal List<DFace> DrawFaces { get; } = [];
 
     /// <summary>
-    /// <c>dfacenodes</c> (<c>writebsp.cpp:24</c>): the water leaf each emitted
+    /// <c>dfacenodes</c>: the water leaf each emitted
     /// face was generated in, for the fog volume pass.
     /// </summary>
     internal List<IBspNode?> FaceNodes { get; } = [];
@@ -107,7 +107,7 @@ internal sealed class BspWriteState
     /// <summary>The ENTITIES lump text, NUL included; null until <c>UnparseEntities</c>.</summary>
     internal byte[]? EntityData { get; set; }
 
-    /// <summary><c>firstmodeledge</c> (<c>writebsp.cpp:1323</c>).</summary>
+    /// <summary><c>firstmodeledge</c>.</summary>
     internal int FirstModelEdge { get; set; }
 
     /// <summary>The face stage's vertex table, which is <c>dvertexes</c>.</summary>
@@ -121,7 +121,7 @@ internal sealed class BspWriteState
     /// Edge 0 is not used "because 0 can't be negated", vertex 0 is "an
     /// error" (reserved by <see cref="VertexWeld"/> itself) and leaf 0 is an
     /// error leaf whose contents are <c>CONTENTS_SOLID</c> and every other
-    /// field zero (<c>writebsp.cpp:1134-1142</c>) -- including its CLUSTER, 0
+    /// field zero -- including its CLUSTER, 0
     /// rather than -1, because <c>dleafs</c> is a zeroed global and
     /// <c>SaveClusters_r</c> starts writing at leaf 1.
     /// </remarks>

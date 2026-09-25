@@ -4,7 +4,7 @@ namespace SourceSharp.MapTools.Disp;
 
 /// <summary>
 /// What the displacement neighbour rules need of a displacement:
-/// <c>CDispUtilsHelper</c>, <c>public/disp_common.h:26</c>.
+/// <c>CDispUtilsHelper</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -18,7 +18,7 @@ namespace SourceSharp.MapTools.Disp;
 /// </para>
 /// <para>
 /// The neighbour accessors return <c>ref</c>, which is not an aesthetic choice:
-/// <c>AddNeighbor</c> (<c>disp_common.cpp:850</c>) writes into BOTH
+/// <c>AddNeighbor</c> writes into BOTH
 /// displacements' sub-neighbour slots through pointers it took earlier, and a
 /// by-value accessor would silently make that a no-op on a struct.
 /// </para>
@@ -46,7 +46,7 @@ public interface IDispUtils
     /// </param>
     /// <returns>That displacement, or null for the no-neighbour sentinel.</returns>
     /// <remarks>
-    /// <c>CCoreDispInfo::GetDispUtilsByIndex</c> (<c>builddisp.cpp:887</c>)
+    /// <c>CCoreDispInfo::GetDispUtilsByIndex</c>
     /// tests <c>index == 0xFFFF</c> and returns null. Every caller that could
     /// pass the sentinel checks <c>IsValid()</c> first, so the null return is
     /// defence rather than a path, and it is kept as one.
@@ -73,7 +73,7 @@ public static class DispNeighborExtensions
 {
     /// <summary>
     /// Clears both sub-neighbours: <c>CDispNeighbor::SetInvalid</c>,
-    /// <c>bspfile.h:589</c>.
+    ///.
     /// </summary>
     /// <param name="neighbor">The edge record to clear.</param>
     public static void SetInvalid(this ref DispNeighbor neighbor)
@@ -84,7 +84,7 @@ public static class DispNeighborExtensions
 
     /// <summary>
     /// Whether anything at all touches this edge:
-    /// <c>CDispNeighbor::IsValid</c>, <c>bspfile.h:592</c>.
+    /// <c>CDispNeighbor::IsValid</c>.
     /// </summary>
     /// <param name="neighbor">The edge record.</param>
     /// <returns>True if either sub-neighbour names a displacement.</returns>
@@ -93,7 +93,7 @@ public static class DispNeighborExtensions
 
     /// <summary>
     /// Empties a corner's neighbour list:
-    /// <c>CDispCornerNeighbors::SetInvalid</c>, <c>bspfile.h:607</c>.
+    /// <c>CDispCornerNeighbors::SetInvalid</c>.
     /// </summary>
     /// <param name="corner">The corner record to clear.</param>
     /// <remarks>

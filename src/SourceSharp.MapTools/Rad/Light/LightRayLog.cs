@@ -13,7 +13,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <para>
 /// <b>Why record and answer later rather than trace in place.</b> Stock traces
 /// four rays at a time from the middle of the gather loop (<c>TestLine</c>,
-/// <c>trace.cpp:151</c>). This port's tracer is the batch-only
+///). This port's tracer is the batch-only
 /// <see cref="IRayTracer"/> seam, which wants thousands of rays at once and may
 /// be a GPU that answers asynchronously -- and a worker in the middle of a
 /// face cannot usefully <c>await</c>. So the gather is split at its rays: the
@@ -25,7 +25,7 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <para>
 /// That is sound only because the gather's control flow never depends on a ray
 /// answer before it asks for the next ray, with one exception: the 3D-skybox
-/// recursion in <c>TestLine_DoesHitSky</c> (<c>trace.cpp:387-397</c>) runs only
+/// recursion in <c>TestLine_DoesHitSky</c> runs only
 /// when the first rays were not all occluded. Those rays go to a list of their
 /// own; with <see cref="DeferRecursion"/> they are asked for in a SECOND
 /// stage, only for the tests that need them, exactly as stock traces them;
@@ -97,7 +97,7 @@ public sealed class LightRayLog
     /// <summary>
     /// Ask for the 3D-skybox recursion rays in a second stage, only for the
     /// tests whose first rays were not all occluded (stock's own condition,
-    /// <c>trace.cpp:387</c>), instead of recording them unconditionally.
+    ///), instead of recording them unconditionally.
     /// </summary>
     internal bool DeferRecursion { get; set; }
 
@@ -342,7 +342,7 @@ public sealed class LightRayLog
         && _sky2Cursor == _sky2Count && Tape.FullyRead;
 
     /// <summary>
-    /// <c>TestLine</c> for one ray (<c>trace.cpp:151</c>): 1 when nothing lies
+    /// <c>TestLine</c> for one ray: 1 when nothing lies
     /// between the two points, 0 when something does.
     /// </summary>
     /// <param name="start">Where the ray starts.</param>
@@ -364,7 +364,7 @@ public sealed class LightRayLog
 
     /// <summary>
     /// One ray of <c>TestLine_DoesHitSky</c> before any skybox recursion
-    /// (<c>trace.cpp:371-382</c>): 1 when the first thing hit is not sky, else 0.
+    /// 1 when the first thing hit is not sky, else 0.
     /// </summary>
     /// <param name="start">Where the ray starts.</param>
     /// <param name="stop">Its far end.</param>
@@ -468,7 +468,7 @@ public sealed class LightRayLog
                 "the replay asked for a sky ray the collection never recorded");
         }
 
-        // trace.cpp:375-376: a hit counts only SHORT of the segment's end
+        // A hit counts only SHORT of the segment's end
         // (`HitDistance < len`); the tracer reports the nearest triangle
         // along the whole line, including past the end.
         return Occlusion(_skyHits.Span[_skyBase + _skyCursor++]);
@@ -488,14 +488,14 @@ public sealed class LightRayLog
         return Occlusion(_sky2Hits.Span[_sky2Cursor++]);
     }
 
-    /// <summary>A sky answer as <c>TestLine_DoesHitSky</c>'s per-lane occlusion (<c>trace.cpp:371-382</c>).</summary>
+    /// <summary>A sky answer as <c>TestLine_DoesHitSky</c>'s per-lane occlusion.</summary>
     /// <param name="hit">The closest hit.</param>
     /// <returns>1 when something other than sky blocks the segment, else 0.</returns>
     internal static float Occlusion(HitId hit) => IsBlocking(hit) && !TraceId.IsSky(hit.Surface) ? 1.0f : 0.0f;
 
     /// <summary>
     /// Whether a closest hit lies within the segment: stock's
-    /// <c>HitIds != -1 &amp;&amp; HitDistance &lt; len</c> (<c>trace.cpp:171-172, 375-376</c>).
+ /// <c>HitIds != -1 &amp;&amp; HitDistance &lt; len</c>.
     /// </summary>
     /// <param name="hit">The tracer's answer for a ray made by <see cref="MakeRay"/>.</param>
     /// <returns>True when something blocks the segment.</returns>
@@ -518,7 +518,7 @@ public sealed class LightRayLog
     /// <returns>A ray whose direction is the whole segment and whose reach is 1.</returns>
     /// <remarks>
     /// Stock normalises the direction with a reciprocal ESTIMATE and traces to
-    /// <c>len</c> (<c>trace.cpp:156-164</c>); the seam takes the unnormalised
+    /// <c>len</c>; the seam takes the unnormalised
     /// segment and a reach of 1, which is the same segment with no estimate in
     /// it.
     /// </remarks>
@@ -530,7 +530,7 @@ public sealed class LightRayLog
 
     /// <summary>
     /// A segment as stock's <c>TestLine</c> and <c>TestLine_DoesHitSky</c>
-    /// build it (<c>trace.cpp:155-160, 353-358</c>): the direction divided by
+ /// Build it: the direction divided by
     /// its length with <c>ReciprocalSIMD</c> (<c>rcpps</c> plus one Newton
     /// step), and the length itself as the far limit.
     /// </summary>
@@ -539,7 +539,7 @@ public sealed class LightRayLog
     /// <returns>The ray.</returns>
     /// <remarks>
     /// <c>length()</c> is <c>SqrtEstSIMD</c>, which on the PC is an exact
-    /// <c>sqrtps</c> (<c>ssemath.h:2228</c>). The reciprocal is the estimate, so
+    /// <c>sqrtps</c>. The reciprocal is the estimate, so
     /// this is part of <see cref="Options.StockQuirk.GatherReciprocalEstimate"/>:
     /// on axis-aligned maps a ray that grazes a brush edge is decided by these
     /// last bits, which is what moved single supersamples at shadow edges.

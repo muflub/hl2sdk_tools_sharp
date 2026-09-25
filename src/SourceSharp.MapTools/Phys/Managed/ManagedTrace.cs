@@ -10,8 +10,8 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// a zero-length <c>TraceCollide</c> (a static prop's hull against a leaf polytope).
 /// </summary>
 /// <remarks>
-/// NOT a port of <c>CPhysicsTrace</c> (trace.cpp is outside ruling Q16 and IVP's own solver is not
-/// decompiled here): these are exact tests in double on the very polytopes IVP cooked. They can
+/// NOT a port of <c>CPhysicsTrace</c> (IVP's own trace solver is not reproduced
+/// Here): these are exact tests in double on the very polytopes IVP cooked. They can
 /// disagree with vphysics only on grazing contact, and the driver gates measure how often.
 /// </remarks>
 internal static class ManagedTrace
@@ -256,7 +256,7 @@ internal static class ManagedTrace
     }
 
     /// <summary>
-    /// <c>CPhysCollideCompactSurface::ComputeOrthographicAreas</c> (physics_collide.cpp:553): the
+    /// <c>CPhysCollideCompactSurface::ComputeOrthographicAreas</c>: the
     /// fraction of a grid of axis rays, <c>sqrt(epsilon)</c> apart, that hit the solid.
     /// </summary>
     public static (float X, float Y, float Z) OrthographicAreas(ReadOnlySpan<byte> surface, float epsilon, bool doublePrecision)
@@ -312,8 +312,8 @@ internal static class ManagedTrace
     }
 
     /// <summary>
-    /// The native ray walk over a compact surface's ledge tree (SDK 0014be20, with the ray set up
-    /// as 00146a30 does): a node is entered only when the ray's LINE passes strictly inside its
+    /// The native ray walk over a compact surface's ledge tree, with the ray set up
+    /// as the reference implementation sets it up: a node is entered only when the ray's LINE passes strictly inside its
     /// sphere (radius plus the ray's 1e-8 m radius), in float, IVP space. IVP's cluster spheres are
     /// approximations that need not contain their children, so this cull decides some hits: a ray
     /// through a leaf whose ancestor sphere misses the line is a miss, as it is in vphysics.

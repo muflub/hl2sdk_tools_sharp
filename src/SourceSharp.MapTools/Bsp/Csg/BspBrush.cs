@@ -3,27 +3,27 @@ using SourceSharp.MapFormats.Geometry;
 namespace SourceSharp.MapTools.Bsp.Csg;
 
 /// <summary>
-/// A brush being carved: <c>bspbrush_t</c>, <c>utils/vbsp/vbsp.h:177</c>.
+/// A brush being carved: <c>bspbrush_t</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// <b><see cref="Next"/> is not an implementation detail.</b> Stock threads
 /// every brush list through <c>bspbrush_t::next</c> and the CSG stage then
 /// SPLICES those lists — <c>AddBrushListToTail</c> appends one to another
-/// (<c>csg.cpp:444</c>), <c>CullList</c> rebuilds one REVERSED
-/// (<c>csg.cpp:466</c>), and <c>ChopBrushes</c>'s <c>goto newlist</c> restarts
-/// the whole O(n²) scan over the result (<c>csg.cpp:679</c>). The order those
+/// <c>CullList</c> rebuilds one REVERSED
+/// And <c>ChopBrushes</c>'s <c>goto newlist</c> restarts
+/// the whole O(n²) scan over the result. The order those
 /// operations leave behind decides which brush bites which, so it decides the
 /// output. A <c>List&lt;BspBrush&gt;</c> here would be a different algorithm
 /// wearing the same name.
 /// </para>
 /// <para>
 /// The sides are a growable array rather than stock's variable-length
-/// <c>sides[6]</c> tail allocation (<c>vbsp.h:184</c>), which exists so that
+/// <c>sides[6]</c> tail allocation, which exists so that
 /// <c>AllocBrush(n)</c> can <c>malloc</c> exactly
 /// <c>offsetof(bspbrush_t, sides[n])</c> bytes. The behaviour that depends on
 /// it is that <c>SplitBrush</c> reserves <c>numsides + 1</c> and then appends
-/// (<c>brushbsp.cpp:1132</c>, <c>:1168</c>, <c>:1222</c>) — appending is what
+/// — appending is what
 /// this reproduces, and the capacity is kept so that over-appending is caught
 /// rather than silently grown.
 /// </para>
@@ -41,7 +41,7 @@ public sealed class BspBrush
     /// <param name="capacity">How many sides to reserve: <c>AllocBrush</c>'s argument.</param>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="capacity"/> is negative.</exception>
     /// <remarks>
-    /// <c>AllocBrush</c>, <c>brushbsp.cpp:333</c>. The id and the active-brush
+    /// <c>AllocBrush</c>. The id and the active-brush
     /// count it also maintains belong to the compile, so they are assigned by
     /// <see cref="BspBuildContext.AllocBrush"/> rather than here — a brush
     /// constructed directly is a brush outside the accounting, which is what a
@@ -56,7 +56,7 @@ public sealed class BspBrush
     /// <summary>The brush's serial number: <c>bspbrush_t::id</c>.</summary>
     /// <remarks>
     /// Stock's <c>s_BrushId</c> counts every brush ever allocated in the
-    /// process (<c>brushbsp.cpp:335</c>) and the value is read only by the
+    /// process and the value is read only by the
     /// glview debug dumps. It is kept because a brush id in a diagnostic that
     /// does not match stock's is worse than no id at all.
     /// </remarks>
@@ -77,7 +77,7 @@ public sealed class BspBrush
     /// <remarks>
     /// A <see cref="Tree.PlaneSideFlags"/> value saved by
     /// <c>SelectSplitSide</c> from <see cref="TestSide"/> when a plane wins,
-    /// and read by <c>SplitBrushList</c> (<c>brushbsp.cpp:1277</c>). Two fields
+    /// and read by <c>SplitBrushList</c>. Two fields
     /// and not one because the winner is only known after every candidate has
     /// been scored.
     /// </remarks>
@@ -92,7 +92,7 @@ public sealed class BspBrush
     /// <remarks>
     /// Never null on a brush that came from <c>MakeBspBrushList</c>, and null
     /// on a node's <c>volume</c> brush, which <c>BrushFromBounds</c> builds out
-    /// of nothing (<c>brushbsp.cpp:201</c>). Stock has the same two cases and
+    /// of nothing. Stock has the same two cases and
     /// the same null; <c>LeafNode</c> only ever walks the first kind.
     /// </remarks>
     public MapBrush? Original { get; set; }
@@ -149,7 +149,7 @@ public sealed class BspBrush
     /// <param name="brush">The map brush.</param>
     /// <exception cref="ArgumentNullException">Either argument is null.</exception>
     /// <remarks>
-    /// <c>CreateClippedBrush</c>'s memcpy, <c>csg.cpp:235</c>. The windings are
+    /// <c>CreateClippedBrush</c>'s memcpy. The windings are
     /// the map sides' own handles at this point; the caller duplicates them, as
     /// stock does on the following line.
     /// </remarks>

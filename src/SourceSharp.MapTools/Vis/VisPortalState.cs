@@ -6,7 +6,6 @@ namespace SourceSharp.MapTools.Vis;
 
 /// <summary>
 /// How far one portal has got: stock's <c>vstatus_t</c>
-/// (<c>src/utils/vvis/vis.h:43</c>).
 /// </summary>
 public enum VisPortalStatus
 {
@@ -23,7 +22,6 @@ public enum VisPortalStatus
 /// <summary>
 /// The mutable half of a vis computation: the two bit vectors that outlive a
 /// work item, and the status, from what stock hangs off each <c>portal_t</c>
-/// (<c>vis.h:54-58</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,7 +38,7 @@ public enum VisPortalStatus
 /// </para>
 /// <para>
 /// <b>Two vectors per portal, not stock's three.</b> <c>portalfront</c>
-/// (<c>vis.h:56</c>) is written and read entirely inside one portal's
+/// Is written and read entirely inside one portal's
 /// <c>BasePortalVis</c> -- nothing in vvis ever looks at another portal's -- so
 /// it is a WORKER's scratch here and lives on <see cref="VisFloodScratch"/>.
 /// One vector per worker instead of one per portal is 20 MB saved on 2fort and
@@ -119,7 +117,7 @@ internal sealed class VisPortalState
     /// <para>
     /// <b><see cref="Volatile"/>, and it stays volatile even though this port
     /// does not race on it.</b> Stock's flow reads a NEIGHBOUR's status to
-    /// decide which of its bit vectors to prune with (<c>flow.cpp:529</c>) while
+    /// decide which of its bit vectors to prune with while
     /// another thread is writing it, with no barrier of any kind. That is benign
     /// only because x86 is total-store-ordered and the two values it chooses
     /// between are both valid; on a weaker model it is a torn read of a vector
@@ -146,7 +144,7 @@ internal sealed class VisPortalState
 
     /// <summary>
     /// Copies every <c>portalflood</c> into its <c>portalvis</c> and marks every
-    /// portal done -- stock's <c>-fast</c> path (<c>vvis.cpp:294-302</c>).
+    /// portal done -- stock's <c>-fast</c> path.
     /// </summary>
     /// <remarks>
     /// Stock ALIASES the two pointers rather than copying, which is why its
@@ -170,7 +168,7 @@ internal sealed class VisPortalState
     /// <param name="portal">A memory-portal index.</param>
     /// <returns>How many portals it might see.</returns>
     /// <remarks>
-    /// Stock's <c>CountBits</c> (<c>flow.cpp:32</c>) is a loop over every bit
+    /// Stock's <c>CountBits</c> is a loop over every bit
     /// calling a macro; the padding past <see cref="Count"/> is held at zero by
     /// <see cref="BitVector"/>, so counting the whole vector gives the same
     /// answer as counting the first <c>g_numportals*2</c> bits.

@@ -9,14 +9,13 @@ namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
 /// <c>CMapFile::MergeInstance</c> and the five merges under it:
-/// <c>utils/vbsp/map.cpp:2074-2547</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// A <c>func_instance</c> is a whole second VMF, loaded into its own
 /// <see cref="MapFile"/> and then folded into the host at the instance
 /// entity's origin and angles. The five merges run in a fixed order — planes,
-/// brushes, sides, entities, overlays (<c>map.cpp:2088-2092</c>) — and the
+/// brushes, sides, entities, overlays — and the
 /// order is load-bearing twice over: the brush merge rebases side ranges that
 /// the side merge then walks, and the entity merge's
 /// <c>MoveBrushesToWorldGeneral</c> at its end assumes the brushes are already
@@ -24,8 +23,8 @@ namespace SourceSharp.MapTools.Bsp;
 /// </para>
 /// <para>
 /// <b>What is transformed and what is not.</b> Only the instance's WORLDSPAWN
-/// brushes and its ladder brushes move (<c>map.cpp:2146</c> and
-/// <c>:2219</c>); a brush belonging to any other entity of the instance keeps
+/// brushes and its ladder brushes move (and
+///); a brush belonging to any other entity of the instance keeps
 /// its coordinates and is moved by that entity's own origin instead. That
 /// asymmetry is stock's and is why the side merge has two separate loops
 /// looking for which range a side falls in.
@@ -42,19 +41,18 @@ public static class MapInstanceMerger
 {
     /// <summary>
     /// The key prefix a <c>func_instance</c> uses to substitute values into
-    /// its contents: <c>INSTANCE_VARIABLE_KEY</c>, <c>map.cpp:1861</c>.
+    /// its contents: <c>INSTANCE_VARIABLE_KEY</c>.
     /// </summary>
     public const string InstanceVariableKey = "replace";
 
     /// <summary>
     /// The <c>fixup_style</c> that renames nothing:
-    /// <c>GameData::NAME_FIXUP_NONE</c>, <c>public/fgdlib/gamedata.h:67</c>.
+    /// <c>GameData::NAME_FIXUP_NONE</c>.
     /// </summary>
     public const int NameFixupNone = 2;
 
     /// <summary>
     /// Merges a loaded instance into a host map: <c>MergeInstance</c>,
-    /// <c>utils/vbsp/map.cpp:2074</c>.
     /// </summary>
     /// <param name="context">The compile.</param>
     /// <param name="host">The map the instance is folded into.</param>
@@ -90,7 +88,7 @@ public static class MapInstanceMerger
 
     /// <summary>
     /// Re-adds every plane PAIR of the instance to the host's table:
-    /// <c>MergePlanes</c>, <c>utils/vbsp/map.cpp:2106</c>.
+    /// <c>MergePlanes</c>.
     /// </summary>
     /// <param name="host">The host map.</param>
     /// <param name="instance">The instance.</param>
@@ -152,7 +150,7 @@ public static class MapInstanceMerger
                 FirstSide = hostSideCount + source.FirstSide,
             };
 
-            // map.cpp:2146: worldspawn brushes and ladders are physically
+            // Worldspawn brushes and ladders are physically
             // moved; everything else keeps its coordinates and is placed by
             // its own entity's origin instead.
             if (i < instanceWorldBrushes ||
@@ -205,7 +203,7 @@ public static class MapInstanceMerger
 
             // The instance's planes were re-added to the host's table by
             // MergePlanes, so the plane NUMBER has to be looked up again --
-            // stock's comment at map.cpp:2193 says an index map would be
+            // Stock's comment says an index map would be
             // faster and that it did not build one.
             Plane sourcePlane = instance.Planes[source.PlaneNumber];
             side.PlaneNumber = host.Planes.Find(sourcePlane.Normal, sourcePlane.Dist);
@@ -255,7 +253,7 @@ public static class MapInstanceMerger
         }
     }
 
-    // map.cpp:2199-2225. Three ways a side needs moving, tested in this order:
+    // Three ways a side needs moving, tested in this order:
     // it carries a worldspawn displacement, it belongs to a worldspawn brush,
     // or it belongs to a ladder brush outside worldspawn.
     private static bool NeedsTranslation(
@@ -382,7 +380,7 @@ public static class MapInstanceMerger
 
     /// <summary>
     /// Substitutes a <c>func_instance</c>'s <c>replace</c> variables into one
-    /// value: <c>ReplaceInstancePair</c>, <c>utils/vbsp/map.cpp:2292</c>.
+    /// value: <c>ReplaceInstancePair</c>.
     /// </summary>
     /// <param name="value">The value to substitute into.</param>
     /// <param name="instanceEntity">The <c>func_instance</c>.</param>

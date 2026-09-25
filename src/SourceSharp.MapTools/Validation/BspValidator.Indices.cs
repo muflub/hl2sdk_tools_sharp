@@ -17,7 +17,7 @@ public static partial class BspValidator
     /// </summary>
     /// <remarks>
     /// <c>dleaf_t</c> is 32 bytes at lump version 1 and <c>dleaf_version_0_t</c>
-    /// is 56 (<c>public/bspfile.h:799</c>, <c>:826</c>), and nothing but that
+ /// Is 56, and nothing but that
     /// version field says which. Reading the wrong one shifts every leaf after
     /// the first, so the choice is made once, here.
     /// </remarks>
@@ -141,12 +141,12 @@ public static partial class BspValidator
 
             ReadOnlySpan<DFace> faces = View<DFace>(bsp, lump);
 
-            // engine/modelloader.cpp:1913-1917 -- "Mod_LoadFaces: bad texinfo
+            // -- "Mod_LoadFaces: bad texinfo
             // number". The one index bound in the face loader that IS guarded.
             int badTexInfo = 0;
             string firstTexInfo = string.Empty;
 
-            // :1911 -- out2->plane = lh.GetMap()->planes + planenum, unguarded.
+            // 1911 -- out2->plane = lh.GetMap()->planes + planenum, unguarded.
             int badPlane = 0;
             string firstPlane = string.Empty;
 
@@ -187,7 +187,7 @@ public static partial class BspValidator
             }
         }
 
-        // engine/modelloader.cpp:2525-2527 -- "Mod_LoadMarksurfaces: bad
+        // -- "Mod_LoadMarksurfaces: bad
         // surface number". The entries are unsigned, so only the upper bound
         // exists.
         ReadOnlySpan<ushort> leafFaces = View<ushort>(bsp, BspLump.LeafFaces);
@@ -219,7 +219,7 @@ public static partial class BspValidator
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Neither is guarded. <c>engine/modelloader.cpp:2619</c> is
+    /// Neither is guarded. is
     /// <c>out[i] = pedges[edge].v[index]</c> with <c>edge</c> the magnitude of
     /// the surfedge straight out of the file, and the vertex index it produces
     /// is used to subscript the vertex array with no test either. A map that
@@ -228,8 +228,8 @@ public static partial class BspValidator
     /// <para>
     /// <b>Both are reachability-scoped, because that is the engine's scope.</b>
     /// The only two places that ever dereference an edge both go through a
-    /// surfedge: <c>modelloader.cpp:2612-2620</c> for the render verts, and
-    /// <c>cmodel_bsp.cpp:1213-1223</c> for a displacement's four corner points
+    /// surfedge: for the render verts, and
+    /// For a displacement's four corner points
     /// (<c>pSurfEdges[pFaces-&gt;firstedge+j]</c>, then
     /// <c>pVerts[pEdges[eIndex].v[...]]</c>). Nothing walks the Edges lump for
     /// its own sake — <c>Mod_LoadEdges</c> copies it whole and checks only the
@@ -238,7 +238,7 @@ public static partial class BspValidator
     /// That is not a hypothetical: the tool's own edge table carries such
     /// entries. Stock reserves edge 0 as the error slot and never emits it —
     /// <c>BeginBSPFile</c> sets <c>numedges = 1</c> because "edge 0 is unused
-    /// because 0 cannot be sign-inverted" (<c>src/utils/vbsp/writebsp.cpp:1134-1135</c>)
+    /// Because 0 cannot be sign-inverted"
     /// — and an aggressive cull pass leaves removed edges behind with both
     /// endpoints at 0xffff, the sentinel the edge table uses for "no valid
     /// endpoint". A validator that checked dead edges would reject a map the
@@ -322,10 +322,10 @@ public static partial class BspValidator
     /// <see cref="BspRuleCodes.PlaneIndex"/> for nodes.
     /// </summary>
     /// <remarks>
-    /// <c>engine/modelloader.cpp:2081-2088</c> tests only the SIGN of a child:
+    /// Tests only the SIGN of a child:
     /// non-negative is a node index, negative is the leaf <c>-1 - p</c>
-    /// (<c>public/bspfile.h:490</c>). Neither branch is bounded, and the plane
-    /// at <c>:2073-2074</c> is <c>planes + p</c> with no test at all.
+    /// Neither branch is bounded, and the plane
+ /// Is <c>planes + p</c> with no test at all.
     /// </remarks>
     private static void CheckNodeIndices(BspData bsp, Counts counts, Findings findings)
     {
@@ -390,9 +390,9 @@ public static partial class BspValidator
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>engine/cmodel_bsp.cpp:448-452</c> does not bound a leaf's cluster; it
+    /// Does not bound a leaf's cluster; it
     /// GROWS the map's cluster count to fit it. The bound that matters is the
-    /// other way round: <c>engine/cmodel.cpp:2339-2345</c> subscripts the
+    /// Other way round: subscripts the
     /// visibility lump's own offset table by cluster, so a cluster the vis lump
     /// does not have a row for reads past that table.
     /// </para>
@@ -495,7 +495,7 @@ public static partial class BspValidator
         {
             DBrush brush = brushes[i];
 
-            // engine/cmodel_bsp.cpp:800-807 -- the loader walks
+            // -- the loader walks
             // in[firstbrushside + j] for j < numsides with nothing bounding it.
             if (brush.FirstSide < 0
                 || brush.NumSides < 0
@@ -527,9 +527,9 @@ public static partial class BspValidator
         {
             DBrushSide side = sides[i];
 
-            // engine/cmodel_bsp.cpp:808-811 -- "Bad brushside texinfo" on
+            // -- "Bad brushside texinfo" on
             // t >= map_texinfo.Size(). A NEGATIVE texinfo is legal and becomes
-            // SURFACE_INDEX_INVALID at :813; the comment there says vbsp writes
+ // SURFACE_INDEX_INVALID; the comment there says vbsp writes
             // -1 and wonders why, so -1 is not a defect.
             if (side.TexInfo >= counts.TexInfo)
             {
@@ -542,7 +542,7 @@ public static partial class BspValidator
                 }
             }
 
-            // :805 -- &map_planes[pInputSide->planenum], unguarded.
+            // 805 -- &map_planes[pInputSide->planenum], unguarded.
             if (side.PlaneNum >= counts.Planes)
             {
                 badPlane++;
@@ -570,7 +570,7 @@ public static partial class BspValidator
     /// <see cref="BspRuleCodes.ModelHeadNode"/>.
     /// </summary>
     /// <remarks>
-    /// <c>engine/modelloader.cpp:4662-4666</c> -- <c>Sys_Error( "Inline model
+    /// -- <c>Sys_Error("Inline model
     /// %i has bad firstnode", i )</c> on <c>firstnode &gt;=
     /// m_worldBrushData.numnodes</c>. One of the few bounds the engine states
     /// out loud.
@@ -605,7 +605,7 @@ public static partial class BspValidator
     /// <see cref="BspRuleCodes.TexDataStringIndex"/>.
     /// </summary>
     /// <remarks>
-    /// <c>engine/cmodel_bsp.cpp:340-345</c> reads <c>&amp;pStringData[
+    /// Reads <c>&amp;pStringData[
     /// pStringTable[ in-&gt;nameStringTableID ] ]</c> and then treats it as a C
     /// string. The two <c>Assert</c>s above it are compiled out of a release
     /// build, so in a shipped engine this is two unbounded subscripts.
@@ -657,21 +657,21 @@ public static partial class BspValidator
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>engine/Overlay.cpp:1200-1204</c> sizes a vector from
+    /// Sizes a vector from
     /// <c>GetFaceCount()</c> and then reads <c>pOverlayIn-&gt;aFaces[iFace]</c>
     /// for every one of them. <c>aFaces</c> is a fixed
     /// <c>int[OVERLAY_BSP_FACE_COUNT]</c> inside the on-disk struct
-    /// (<c>public/bspfile.h:1023</c>, and 256 for a water overlay at
-    /// <c>:1064</c>), so a count above it reads the NEXT overlay's bytes as
+    /// (and 256 for a water overlay at
+ ///), so a count above it reads the NEXT overlay's bytes as
     /// face indices. The face indices themselves go to
     /// <c>SurfaceHandleFromIndex</c> unbounded.
     /// </para>
     /// <para>
-    /// The render-order check at <c>Overlay.cpp:1151</c> and <c>:1217</c> is
+ /// The render-order check is
     /// deliberately NOT transcribed. <c>GetRenderOrder()</c> is
     /// <c>m_nFaceCountAndRenderOrder &gt;&gt; 14</c> and
     /// <c>OVERLAY_NUM_RENDER_ORDERS</c> is <c>1 &lt;&lt; 2</c>
-    /// (<c>public/bspfile.h:1002</c>, <c>:1046-1051</c>), so the value is
+ /// So the value is
     /// always 0..3 and the test can never fail whatever the file says. A rule
     /// that cannot fire is not a rule.
     /// </para>

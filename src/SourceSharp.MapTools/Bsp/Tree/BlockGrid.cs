@@ -9,7 +9,7 @@ namespace SourceSharp.MapTools.Bsp.Tree;
 /// <summary>
 /// The 1024-unit block grid the world model is compiled on:
 /// <c>BlockTree</c>, <c>ProcessBlock_Thread</c> and the block clamping at the
-/// top of <c>ProcessWorldModel</c>, <c>utils/vbsp/vbsp.cpp:73-283</c>.
+/// Top of <c>ProcessWorldModel</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -17,13 +17,13 @@ namespace SourceSharp.MapTools.Bsp.Tree;
 /// and the per-block trees are then stitched together by a tree of axial
 /// splitting planes on the block boundaries. Stock's reason is in its own
 /// comment: "oversizing the blocks guarantees that all the boundaries will also
-/// get nodes" (<c>vbsp.cpp:268</c>).
+/// Get nodes".
 /// </para>
 /// <para>
 /// <b>It is also why vbsp's only threaded call site exists</b>
-/// (<c>vbsp.cpp:263</c>, <c>RunThreadsOnIndividual</c> over the blocks) — and
+/// (<c>RunThreadsOnIndividual</c> over the blocks) — and
 /// why that call site runs on one thread in every shipped build, because
-/// <c>numthreads</c> is forced to 1 at <c>vbsp.cpp:1302</c>. Blocks are
+/// <c>numthreads</c> is forced to 1. Blocks are
 /// genuinely independent apart from the plane table and the material tables
 /// they all append to, which is exactly the serialisation Phase 3p has to
 /// solve rather than the parallelism it has to invent.
@@ -32,27 +32,27 @@ namespace SourceSharp.MapTools.Bsp.Tree;
 public static class BlockGrid
 {
     /// <summary>
-    /// <c>BLOCKS_SIZE</c>, <c>vbsp.cpp:73</c>: a block is 1024 units square.
+    /// <c>BLOCKS_SIZE</c>: a block is 1024 units square.
     /// </summary>
     public const int BlockSize = 1024;
 
     /// <summary>
-    /// <c>BLOCKS_SPACE</c>, <c>vbsp.cpp:74</c>: how many blocks span the world.
+    /// <c>BLOCKS_SPACE</c>: how many blocks span the world.
     /// </summary>
     /// <remarks>
     /// <c>COORD_EXTENT / BLOCKS_SIZE</c> = 32768 / 1024 = 32.
     /// </remarks>
     public const int BlockSpace = 32;
 
-    /// <summary><c>BLOCKS_MIN</c>, <c>vbsp.cpp:77</c>: -16.</summary>
+    /// <summary><c>BLOCKS_MIN</c>: -16.</summary>
     public const int BlockMin = -(BlockSpace / 2);
 
-    /// <summary><c>BLOCKS_MAX</c>, <c>vbsp.cpp:78</c>: 15.</summary>
+    /// <summary><c>BLOCKS_MAX</c>: 15.</summary>
     public const int BlockMax = (BlockSpace / 2) - 1;
 
     /// <summary>
     /// Narrows the grid to the part of the world the map actually occupies:
-    /// the clamping at <c>vbsp.cpp:224-257</c>.
+    /// The clamping.
     /// </summary>
     /// <param name="requested">The grid the switches asked for.</param>
     /// <param name="mapMins">The map's bounds.</param>
@@ -120,7 +120,7 @@ public static class BlockGrid
     /// <param name="mins">The box's minimum.</param>
     /// <param name="maxs">The box's maximum.</param>
     /// <remarks>
-    /// <c>vbsp.cpp:170-176</c>. Full height in Z, so a brush is never clipped
+    /// Full height in Z, so a brush is never clipped
     /// vertically by the grid.
     /// </remarks>
     public static void BlockBounds(int blockX, int blockY, out Vec3 mins, out Vec3 maxs)
@@ -132,7 +132,7 @@ public static class BlockGrid
     }
 
     /// <summary>
-    /// Compiles one block: <c>ProcessBlock_Thread</c>, <c>vbsp.cpp:157</c>.
+    /// Compiles one block: <c>ProcessBlock_Thread</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="blockX">The block's X coordinate.</param>
@@ -143,12 +143,12 @@ public static class BlockGrid
     /// <remarks>
     /// <para>
     /// A block with no brushes in it becomes a leaf of
-    /// <c>CONTENTS_SOLID</c> and not an empty one (<c>vbsp.cpp:184</c>) — which
+    /// <c>CONTENTS_SOLID</c> and not an empty one — which
     /// is what stops the flood fill from escaping through a part of the world
     /// nobody built anything in. The DIFFERENT empty leaf that
     /// <see cref="BuildBlockTree"/> makes for a block outside the compiled
     /// range has contents 0, with stock's <c>//CONTENTS_SOLID</c> beside it
-    /// recording that it used to be solid too (<c>vbsp.cpp:114</c>).
+    /// recording that it used to be solid too.
     /// </para>
     /// <para>
     /// The brush list is built with
@@ -201,7 +201,6 @@ public static class BlockGrid
 
     /// <summary>
     /// Stitches the per-block head nodes into one tree: <c>BlockTree</c>,
-    /// <c>vbsp.cpp:101</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
     /// <param name="blocks">
@@ -220,7 +219,7 @@ public static class BlockGrid
     /// <remarks>
     /// <para>
     /// <b>The caller passes a range one block wider than it compiled</b>, on
-    /// all four sides (<c>vbsp.cpp:275</c>,
+    /// all four sides (
     /// <c>BlockTree (block_xl-1, block_yl-1, block_xh+1, block_yh+1)</c>). The
     /// extra ring has no block nodes in it and becomes empty leaves, and its
     /// only job is to force a splitting plane onto the outer boundary of every
@@ -295,7 +294,6 @@ public static class BlockGrid
     /// <summary>
     /// Compiles every block of a grid and stitches the result: the body of
     /// one <c>optimize</c> pass of <c>ProcessWorldModel</c>,
-    /// <c>vbsp.cpp:259-283</c>.
     /// </summary>
     /// <param name="context">The build context, whose brush range is read.</param>
     /// <param name="grid">The clamped grid.</param>
@@ -313,7 +311,7 @@ public static class BlockGrid
     /// <c>MarkVisibleSides</c> has by then written <c>visible</c> onto the MAP
     /// brush sides, and the second pass's <see cref="BrushBspTree.SelectSplitSide"/>
     /// therefore splits only with planes that turned out to carry renderable
-    /// geometry. Stock's own comment says exactly that (<c>vbsp.cpp:314</c>).
+    /// geometry. Stock's own comment says exactly that.
     /// The loop breaks after one pass under <c>-noopt</c> or if the map leaked.
     /// </para>
     /// <para>
@@ -325,7 +323,7 @@ public static class BlockGrid
     /// <para>
     /// The tree's bounds are the GRID's, not the brushes' — the block range
     /// times 1024 in X and Y, and the map's own Z padded by 8
-    /// (<c>vbsp.cpp:277-283</c>) — overwriting whatever
+    /// — overwriting whatever
     /// <see cref="BrushBspTree.BrushBsp"/> accumulated for the last block.
     /// </para>
     /// </remarks>

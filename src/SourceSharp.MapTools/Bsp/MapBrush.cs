@@ -4,7 +4,6 @@ namespace SourceSharp.MapTools.Bsp;
 
 /// <summary>
 /// One brush as loaded from the VMF: <c>mapbrush_t</c>,
-/// <c>utils/vbsp/vbsp.h:87</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -19,12 +18,12 @@ namespace SourceSharp.MapTools.Bsp;
 /// <item><c>AddBrushBevels</c> appends new sides at
 /// <c>original_sides[numsides]</c> — the next slot of the shared array, which
 /// is only free because the brush being beveled is the one being loaded
-/// (<c>map.cpp:600</c>);</item>
+/// </item>
 /// <item><c>side_brushtextures</c> is keyed on the shared index, so a side's
 /// placement is found by <c>s - brushsides</c>
-/// (<c>map.cpp:1579</c>);</item>
+/// </item>
 /// <item>instance merging rebases the range with pointer arithmetic
-/// (<c>map.cpp:2158-2159</c>).</item>
+/// </item>
 /// </list>
 /// </remarks>
 public sealed class MapBrush
@@ -42,7 +41,7 @@ public sealed class MapBrush
     /// <remarks>
     /// Derived by <see cref="MapFileLoader.BrushContentsOf"/> once the sides are
     /// loaded, then overwritten to <c>CONTENTS_AREAPORTAL</c> for an areaportal
-    /// entity (<c>map.cpp:1701</c>).
+    /// Entity.
     /// </remarks>
     public int Contents { get; set; }
 
@@ -61,7 +60,7 @@ public sealed class MapBrush
     /// <remarks>
     /// Set to zero to discard a brush. Stock does that for origin brushes, for
     /// displacement brushes and for detail or water brushes removed by a switch
-    /// (<c>map.cpp:3027</c>, <c>:3034</c>, <c>:3089</c>, <c>:3110</c>) — and
+ /// — and
     /// because it does not advance <c>nummapbrushes</c> in those cases, the
     /// slot is reused by the next brush. So a zero count is not a brush with no
     /// sides; it is a brush that was never kept.

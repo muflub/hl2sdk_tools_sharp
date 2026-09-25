@@ -2,7 +2,7 @@ namespace SourceSharp.MapTools.Compile.Cache;
 
 /// <summary>
 /// The switches the cache honours, all defaults matching "a cache you can
-/// leave switched on" (plan_maptools.md 10a).
+/// Leave switched on".
 /// </summary>
 public sealed record CachePolicy
 {

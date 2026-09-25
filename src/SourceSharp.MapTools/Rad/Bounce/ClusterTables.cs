@@ -48,11 +48,11 @@ public sealed class ClusterTables
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// <para>
-    /// <c>BuildClusterTable</c> (<c>bsplib.cpp:3745</c>): every leaf whose
+    /// <c>BuildClusterTable</c>: every leaf whose
     /// cluster is <c>i</c>, in leaf order.
     /// </para>
     /// <para>
-    /// <c>AddDispsToClusterTable</c> (<c>vismat.cpp:256</c>): for each
+    /// <c>AddDispsToClusterTable</c>: for each
     /// displacement face in face order, walk its patch list and add the face
     /// to the cluster of every patch that has one, once per cluster
     /// (stock's <c>Find</c> before <c>AddToTail</c>). A displacement's leaf

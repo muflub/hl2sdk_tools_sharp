@@ -5,7 +5,7 @@ namespace SourceSharp.MapTools.Rad.Ambient;
 
 /// <summary>
 /// The planes that bound a leaf, all pointing INWARDS
-/// (<c>leaf_ambient_lighting.cpp:278</c>, <c>GetLeafBoundaryPlanes</c>).
+/// (<c>GetLeafBoundaryPlanes</c>).
 /// </summary>
 /// <remarks>
 /// <para>

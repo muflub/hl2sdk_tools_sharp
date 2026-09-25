@@ -8,7 +8,7 @@ using SourceSharp.MapTools.Tracing;
 
 namespace SourceSharp.MapTools.Rad.Props;
 
-/// <summary><c>GATHERLFLAGS_*</c> (<c>vrad.h</c>).</summary>
+/// <summary><c>GATHERLFLAGS_*</c>.</summary>
 [Flags]
 public enum PropGatherFlags
 {
@@ -28,9 +28,9 @@ public enum PropGatherFlags
 public readonly record struct PropLightSample(float Falloff, float Dot);
 
 /// <summary>
-/// <c>GatherSampleLightSSE</c> (<c>lightmap.cpp:2003</c>) for ONE sample
+/// <c>GatherSampleLightSSE</c> for ONE sample
 /// position and ONE normal, the shape prop lighting calls it with
-/// (<c>vraddetailprops.cpp:229</c>): <c>facenum</c> -1, no flags, no epsilon.
+/// <c>facenum</c> -1, no flags, no epsilon.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -39,7 +39,7 @@ public readonly record struct PropLightSample(float Falloff, float Dot);
 /// <see cref="StockQuirk.GatherReciprocalEstimate"/>:
 /// <c>ReciprocalSqrtSIMD</c> is <c>rsqrtps</c> plus one Newton step,
 /// <c>ReciprocalSIMD</c> is <c>rcpps</c> plus one, and <c>PowSIMD</c> is the
-/// fixed-point exponent (<c>powsse.cpp:13</c>) on <c>sqrtps</c>.
+/// fixed-point exponent on <c>sqrtps</c>.
 /// </para>
 /// <para>
 /// THE SEAM for the direct-lighting lane: this is the one place prop lighting
@@ -49,13 +49,13 @@ public readonly record struct PropLightSample(float Falloff, float Dot);
 /// </remarks>
 public sealed class PropLightSampler
 {
-    /// <summary><c>MAX_TRACE_LENGTH</c> (<c>worldsize.h:32</c>) as a float scale.</summary>
+    /// <summary><c>MAX_TRACE_LENGTH</c> as a float scale.</summary>
     public const float MaxTraceLength = (float)(1.732050807569 * 32768.0);
 
-    /// <summary><c>DIST_EPSILON</c> (<c>vrad/trace.cpp</c>... <c>lightmap.cpp</c>'s 0.03125).</summary>
+    /// <summary><c>DIST_EPSILON</c>(... the reference implementation's 0.03125).</summary>
     private const float DistEpsilon = 0.03125f;
 
-    /// <summary><c>CONSTANT_DOT</c> (<c>lightmap.cpp:1667</c>).</summary>
+    /// <summary><c>CONSTANT_DOT</c>.</summary>
     private const float ConstantDot = (float)(.7 / 2);
 
     private readonly KdRayTracer _environment;
@@ -105,14 +105,14 @@ public sealed class PropLightSampler
             _ => throw new InvalidOperationException($"Bad dl->light.type {light.Type}"),
         };
 
-        // lightmap.cpp:2042: out.m_flDot[0] = MaxSIMD( out.m_flDot[0], Four_Zeros ).
+        // Out.m_flDot[0] = MaxSIMD(out.m_flDot[0], Four_Zeros).
         return s with { Dot = Max(s.Dot, 0.0f) };
     }
 
-    /// <summary><c>GatherSampleStandardLightSSE</c> (<c>lightmap.cpp:1836</c>).</summary>
+    /// <summary><c>GatherSampleStandardLightSSE</c>.</summary>
     private PropLightSample Standard(PropLight dl, Vec3 pos, Vec3 normal, PropGatherFlags flags, int skipId)
     {
-        // facenum is always -1 (AllocDLight, :980), so src is the origin.
+ // facenum is always -1 (AllocDLight), so src is the origin.
         Vec3 src = dl.Origin;
 
         Vec3 delta = src - pos;
@@ -237,7 +237,7 @@ public sealed class PropLightSampler
         return new PropLightSample(falloff, dot);
     }
 
-    /// <summary><c>GatherSampleSkyLightSSE</c> (<c>lightmap.cpp:1673</c>).</summary>
+    /// <summary><c>GatherSampleSkyLightSSE</c>.</summary>
     private PropLightSample Sky(PropLight dl, Vec3 pos, Vec3 normal, PropGatherFlags flags, int skipId)
     {
         float dot = (flags & PropGatherFlags.IgnoreNormals) != 0
@@ -285,7 +285,7 @@ public sealed class PropLightSampler
         return new PropLightSample(1.0f, dot * seeAmount);
     }
 
-    /// <summary><c>GatherSampleAmbientSkySSE</c> (<c>lightmap.cpp:1745</c>), one normal.</summary>
+    /// <summary><c>GatherSampleAmbientSkySSE</c>, one normal.</summary>
     private PropLightSample AmbientSky(Vec3 pos, Vec3 normal, PropGatherFlags flags, float epsilon, int skipId)
     {
         bool ignoreNormals = (flags & PropGatherFlags.IgnoreNormals) != 0;
@@ -333,7 +333,7 @@ public sealed class PropLightSampler
             ambient += fractionVisible * dot;
         }
 
-        // :1824-1832, normalCount 1: factor = 1/count * count; dot = ambient * 1/(factor*sumdot).
+        // 1824-1832, normalCount 1: factor = 1/count * count; dot = ambient * 1/(factor*sumdot).
         float factor = Reciprocal(possibleHitCount);
         factor *= possibleHitCount;
         float d = factor * sumdot;
@@ -371,7 +371,7 @@ public sealed class PropLightSampler
         return (est + est) - (a * (est * est));
     }
 
-    /// <summary><c>Pow_FixedPoint_Exponent_SIMD</c> (<c>powsse.cpp:13</c>).</summary>
+    /// <summary><c>Pow_FixedPoint_Exponent_SIMD</c>.</summary>
     /// <param name="x">The base.</param>
     /// <param name="exponent">Four times the exponent, truncated.</param>
     /// <returns>The power.</returns>
@@ -426,11 +426,11 @@ public sealed class PropLightSampler
 }
 
 /// <summary>
-/// <c>DirectionalSampler_t</c> (<c>halton.h</c>): Halton-sequence sphere
+/// <c>DirectionalSampler_t</c>: Halton-sequence sphere
 /// samples, bases 2 and 3.
 /// </summary>
 /// <remarks>
-/// <c>HaltonSequenceGenerator_t::GetElement</c> (<c>halton.cpp</c>) ignores
+/// <c>HaltonSequenceGenerator_t::GetElement</c> ignores
 /// its argument and reads the member <c>seed</c>, which <c>NextValue</c>'s
 /// <c>seed++</c> has already advanced -- so the first value drawn is element
 /// TWO, not one. Reproduced: it is the sequence stock samples.

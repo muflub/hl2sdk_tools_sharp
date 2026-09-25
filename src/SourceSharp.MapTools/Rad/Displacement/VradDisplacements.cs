@@ -7,12 +7,12 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 
 /// <summary>
 /// Every displacement of one vrad pass: stock's <c>CVRadDispMgr</c>
-/// (<c>vraddisps.cpp:72</c>, the <c>StaticDispMgr()</c> singleton) as an
+/// (the <c>StaticDispMgr</c> singleton) as an
 /// explicit, immutable context.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <see cref="Load"/> is <c>CVRadDispMgr::Init</c> (<c>vraddisps.cpp:318</c>):
+/// <see cref="Load"/> is <c>CVRadDispMgr::Init</c>:
 /// <c>UnserializeDisps</c> -- here <see cref="DispLightingLoader.Load"/>, which
 /// builds, creates and sews every core -- then one
 /// <see cref="VradDispSurface"/> per displacement (<c>CVRADDispColl::Create</c>)

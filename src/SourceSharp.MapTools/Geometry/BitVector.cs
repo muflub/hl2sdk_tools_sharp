@@ -19,9 +19,9 @@ namespace SourceSharp.MapTools.Geometry;
 /// <para>
 /// <b>The bit order matches stock's byte arrays exactly.</b> vvis addresses bits
 /// as <c>bits[i&gt;&gt;3] &amp; (1&lt;&lt;(i&amp;7))</c>
-/// (<c>public/bitvec.h</c>, used all through <c>utils/vvis/flow.cpp</c>), and it
+/// (used all through), and it
 /// also casts those same bytes to <c>long*</c> and works on them word-wise
-/// (<c>flow.cpp:531</c>). On a little-endian machine — the only kind Source
+/// On a little-endian machine — the only kind Source
 /// ships the tools for — bit <c>i</c> of that byte array is bit
 /// <c>i &amp; 63</c> of word <c>i &gt;&gt; 6</c>, which is what
 /// <see cref="BitVectorOps.GetBit"/> does. So a vector built here can be
@@ -99,7 +99,7 @@ public static class BitVector
     /// <returns>The population count.</returns>
     /// <remarks>
     /// <para>
-    /// This is stock's <c>CountBits</c>, <c>utils/vvis/flow.cpp:32</c>: a loop
+    /// This is stock's <c>CountBits</c>: a loop
     /// over every bit calling <c>CheckBit</c>. It is kept, and it is kept
     /// SLOW, because it is the reference the fast one is checked against — a
     /// popcount that agreed with a second popcount written the same way would

@@ -20,7 +20,7 @@ internal delegate void VisFrameObserver(
 
 /// <summary>
 /// The real answer: <c>PortalFlow</c> and <c>RecursiveLeafFlow</c>
-/// (<c>src/utils/vvis/flow.cpp:631</c> and <c>:480</c>).
+///.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,7 +30,7 @@ internal delegate void VisFrameObserver(
 /// </para>
 /// <para>
 /// <b>The one deliberate difference from stock, and the reason for it.</b>
-/// Stock's candidate test at <c>flow.cpp:529-536</c> reads a neighbouring
+/// Stock's candidate test reads a neighbouring
 /// portal's FINISHED <c>portalvis</c> when that portal happens to be done and
 /// its <c>portalflood</c> otherwise. It is a good optimisation and it is a data
 /// race on the answer: how much pruning has happened depends on how many
@@ -322,15 +322,15 @@ internal sealed class VisPortalFlow
         _chains = 0;
         _state.SetStatus(portalIndex, VisPortalStatus.Working);
 
-        // flow.cpp:646-650. The head frame's `source` is the portal's own
-        // winding, its `pass` is null (the memset at :643), its plane is the
+        // The head frame's `source` is the portal's own
+ // winding, its `pass` is null (the memset ), its plane is the
         // portal's, and its `mightsee` is a copy of portalflood. The copy is
         // skipped here: nothing writes the head frame's mightsee, so handing the
         // flood vector itself down is the same values.
         ReadOnlySpan<Vec3> source = _portals.Winding(portalIndex);
         ReadOnlySpan<ulong> flood = _state.Flood(portalIndex);
 
-        // flow.cpp:427 -- the head frame has no `pass`, so the trace walk uses
+        // -- the head frame has no `pass`, so the trace walk uses
         // its portal's own winding for that link.
         _chain?.Clear();
         _chain?.Add(source.ToArray());
@@ -362,7 +362,7 @@ internal sealed class VisPortalFlow
     {
         if (_trace is not null && cluster == _trace.Stop)
         {
-            // flow.cpp:498-502 -- reaching the stop cluster records the route
+            // -- reaching the stop cluster records the route
             // and stops descending. It is checked before the chain counter, so
             // the terminating step is not counted.
             _trace.Capture(_portals, _chain!);
@@ -460,8 +460,8 @@ internal sealed class VisPortalFlow
 
             // THE TWO SPHERE REJECTIONS, HOISTED ABOVE THE BIT-VECTOR PASS.
             //
-            // flow.cpp does the bit-vector pass first (:539) and these two
-            // tests afterwards (:561 and :579). Neither test reads `might` or
+            // Does the bit-vector pass first (:539) and these two
+ // tests afterwards (:561 ). Neither test reads `might` or
             // `more`, neither has a side effect, and either one rejecting the
             // candidate skips the same `continue` the pass would have led to --
             // so doing the cheap halves first cannot change which portals are
@@ -471,14 +471,14 @@ internal sealed class VisPortalFlow
             //
             // The CHOPS stay below: they are the expensive half of each test
             // and they are only needed once the candidate has survived the
-            // pruning at :545 as well. Hence the distances are computed here
+ // pruning as well. Hence the distances are computed here
             // and carried down rather than recomputed.
             Vec3 portalOrigin = _portals.Origin(pnum);
             float portalRadius = _portals.Radius(pnum);
 
-            // flow.cpp:561-576. The candidate portal's sphere against the BASE
+            // The candidate portal's sphere against the BASE
             // portal's plane -- `thread->pstack_head.portalplane`, not this
-            // frame's. (stack.portalplane is assigned at :551 and never read;
+ // Frame's. (stack.portalplane is assigned and never read;
             // it is dead in stock and absent here.)
             float passSide = Vec3.Dot(portalOrigin, basePlaneNormal);
             passSide -= basePlaneDistance;
@@ -491,7 +491,7 @@ internal sealed class VisPortalFlow
             Vec3 portalNormal = _portals.Normal(pnum);
             float portalDistance = _portals.Distance(pnum);
 
-            // flow.cpp:579-594. The BASE portal's sphere against the candidate's
+            // The BASE portal's sphere against the candidate's
             // plane.
             float sourceSide = Vec3.Dot(baseOrigin, portalNormal);
             sourceSide -= portalDistance;
@@ -501,7 +501,7 @@ internal sealed class VisPortalFlow
                 continue;
             }
 
-            // flow.cpp:529-536, WITHOUT the opportunistic read of a finished
+            // WITHOUT the opportunistic read of a finished
             // neighbour's portalvis: see the type's remarks. Under -tighten the
             // portalvis IS read, but only for a neighbour ranked below the
             // limit -- so which vector is meant is a function of the ranks. If
@@ -620,7 +620,7 @@ internal sealed class VisPortalFlow
 
             if (prevPass.IsEmpty)
             {
-                // flow.cpp:597-605 -- the second leaf can only be blocked if
+                // -- the second leaf can only be blocked if
                 // coplanar, so there is nothing to clip against yet.
                 SetVisible(vis, pnum);
                 _chain?.Add(pass.ToArray());

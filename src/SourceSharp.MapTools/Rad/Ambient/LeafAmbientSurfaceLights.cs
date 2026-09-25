@@ -5,8 +5,7 @@ namespace SourceSharp.MapTools.Rad.Ambient;
 
 /// <summary>
 /// Which <c>emit_surface</c> lights get folded into the ambient cubes instead of
-/// being shipped as lights (<c>IsLeafAmbientSurfaceLight</c>,
-/// <c>leaf_ambient_lighting.cpp:183</c>).
+/// being shipped as lights (<c>IsLeafAmbientSurfaceLight</c>.
 /// </summary>
 /// <remarks>
 /// <para>

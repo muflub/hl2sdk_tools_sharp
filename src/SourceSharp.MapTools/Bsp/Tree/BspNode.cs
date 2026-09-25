@@ -9,12 +9,12 @@ namespace SourceSharp.MapTools.Bsp.Tree;
 /// A face of the BSP tree. <b>Phase 3d owns the type.</b>
 /// </summary>
 /// <remarks>
-/// Stock's <c>face_t</c> (<c>utils/vbsp/vbsp.h:102</c>) carries a winding, a
+/// Stock's <c>face_t</c> carries a winding, a
 /// texinfo, a dispinfo, merge and split back-pointers and a vertex list, none
 /// of which the CSG or the tree build reads. What THEY do with a face is
 /// exactly three things: <c>PruneNodes_r</c> refuses to collapse a node that
-/// has any (<c>tree.cpp:172-175</c>), <c>FreeTree_r</c> releases the chain
-/// (<c>tree.cpp:83-87</c>), and both walk it through <c>next</c>. That is this
+/// has any, <c>FreeTree_r</c> releases the chain
+/// And both walk it through <c>next</c>. That is this
 /// interface, and nothing in Phase 3b constructs one.
 /// </remarks>
 public interface IBspFace
@@ -25,7 +25,6 @@ public interface IBspFace
 
 /// <summary>
 /// One node or leaf of the BSP tree: <c>node_t</c>,
-/// <c>utils/vbsp/vbsp.h:199</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,7 +39,7 @@ public interface IBspFace
 /// <para>
 /// A leaf is NOT a permanent state: <c>PruneNodes_r</c> turns a node into one
 /// by assigning <see cref="Leaf"/> over its plane number
-/// (<c>tree.cpp:178</c>), after which its children are still reachable through
+/// After which its children are still reachable through
 /// <see cref="Children"/> and are simply never walked again.
 /// </para>
 /// </remarks>
@@ -49,7 +48,7 @@ public sealed class BspNode : IBspNode
     private readonly BspNode?[] _children = new BspNode?[2];
 
     /// <summary>
-    /// <c>PLANENUM_LEAF</c>, <c>utils/vbsp/vbsp.h:98</c>: the
+    /// <c>PLANENUM_LEAF</c>: the
     /// <see cref="PlaneNumber"/> of a leaf.
     /// </summary>
     public const int Leaf = -1;
@@ -57,7 +56,7 @@ public sealed class BspNode : IBspNode
     /// <summary>The node's serial number: <c>node_t::id</c>.</summary>
     /// <remarks>
     /// Stock's <c>s_NodeCount</c> counts every node ever allocated in the
-    /// process (<c>brushbsp.cpp:313</c>), so ids are unique across blocks and
+    /// process, so ids are unique across blocks and
     /// across models but are not the order a tree is walked in.
     /// </remarks>
     public int Id { get; set; }
@@ -68,7 +67,7 @@ public sealed class BspNode : IBspNode
     /// <remarks>
     /// Always the EVEN member of a plane pair on a real node —
     /// <c>BuildTree_r</c> assigns <c>bestside-&gt;planenum &amp; ~1</c>,
-    /// "always use front facing" (<c>brushbsp.cpp:1358</c>) — which is what
+    /// "always use front facing" — which is what
     /// makes <see cref="Children"/>[0] the front child everywhere.
     /// </remarks>
     public int PlaneNumber { get; set; }
@@ -87,7 +86,7 @@ public sealed class BspNode : IBspNode
     /// </summary>
     /// <remarks>
     /// One brush per node and per leaf, built by splitting the parent's volume
-    /// on the parent's plane (<c>brushbsp.cpp:1371</c>). The head node's is the
+    /// on the parent's plane. The head node's is the
     /// whole block, from <c>BrushFromBounds</c>. It is what
     /// <c>CheckPlaneAgainstVolume</c> tests a candidate splitter against, so a
     /// plane that misses the node's own volume is never chosen.
@@ -100,7 +99,7 @@ public sealed class BspNode : IBspNode
     /// <remarks>
     /// A copy and not a reference, because the side it names is a
     /// <see cref="BspBrushSide"/> inside a brush that <c>BuildTree_r</c> frees
-    /// on the next line (<c>brushbsp.cpp:1361</c>). Stock keeps the pointer and
+    /// on the next line. Stock keeps the pointer and
     /// it dangles; every later reader of <c>node-&gt;side</c> —
     /// <c>FindPortalSide</c> in Phase 3c is the main one — reads freed memory
     /// that happens still to hold the side. Copying the nine fields is the same
@@ -111,7 +110,7 @@ public sealed class BspNode : IBspNode
     /// <summary>Whether <see cref="Side"/> holds a side at all.</summary>
     /// <remarks>
     /// Stock sets <c>node-&gt;side = NULL</c> on a leaf
-    /// (<c>brushbsp.cpp:1350</c>) and a value type has no null, so the
+    /// And a value type has no null, so the
     /// distinction is carried here.
     /// </remarks>
     public bool HasSide { get; set; }
@@ -120,9 +119,9 @@ public sealed class BspNode : IBspNode
     /// <remarks>
     /// <c>children[0]</c> is the FRONT side of <see cref="PlaneNumber"/> and
     /// <c>children[1]</c> is the back, everywhere:
-    /// <c>SplitBrushList</c>'s outputs (<c>brushbsp.cpp:1273</c>),
-    /// <c>PointInLeaf</c>'s descent (<c>brushbsp.cpp:435</c>) and
-    /// <c>BlockTree</c>'s construction (<c>vbsp.cpp:132</c>) all agree.
+    /// <c>SplitBrushList</c>'s outputs,
+    /// <c>PointInLeaf</c>'s descent and
+    /// <c>BlockTree</c>'s construction all agree.
     /// </remarks>
     public Span<BspNode?> Children => _children;
 
@@ -141,7 +140,7 @@ public sealed class BspNode : IBspNode
     /// The OR of every brush's contents in this leaf: <c>contents</c>.
     /// </summary>
     /// <remarks>
-    /// Set by <c>LeafNode</c> (<c>brushbsp.cpp:755</c>), with one exception
+    /// Set by <c>LeafNode</c>, with one exception
     /// that overrides the OR entirely: a solid brush whose every side is
     /// already on a node "eats everything", and the leaf becomes exactly
     /// <c>CONTENTS_SOLID</c>.
@@ -175,7 +174,7 @@ public sealed class BspNode : IBspNode
     /// </summary>
     /// <remarks>
     /// -1 until <c>WriteBSP</c> (Phase 3e) assigns it, exactly as
-    /// <c>AllocNode</c> initialises it (<c>brushbsp.cpp:320</c>) — which is why
+    /// <c>AllocNode</c> initialises it — which is why
     /// it is the one field of a freshly allocated node that is not zero.
     /// </remarks>
     public int DiskId { get; set; } = -1;
@@ -185,7 +184,7 @@ public sealed class BspNode : IBspNode
 
     // --- IBspNode: the portal, face and write stages' view of the same node ---
     //
-    // Stock has ONE node_t (vbsp.h:199) that BuildTree_r fills, MakeTreePortals
+    // Stock has ONE node_t that BuildTree_r fills, MakeTreePortals
     // annotates, MakeFaces reads and WriteBSP numbers. Phase 3b and 3c each
     // defined their half of it; this is where the halves meet, so every stage
     // walks the same objects and reference identity -- which every portal loop
@@ -208,7 +207,7 @@ public sealed class BspNode : IBspNode
     /// </summary>
     /// <remarks>
     /// The only reader is the material name in the unbounded-volume warning
-    /// (<c>portals.cpp:591</c>), so a null costs that one warning its texture
+    /// So a null costs that one warning its texture
     /// name and nothing else.
     /// </remarks>
     MapBrushSide? IBspNode.Side => null;

@@ -30,7 +30,7 @@ public sealed record FaceLightContext(
     Displacement.VradDisplacements? Displacements = null);
 
 /// <summary>
-/// <c>BuildPatchLights</c> and <c>AddSampleToPatch</c> (<c>lightmap.cpp:3198,
+/// <c>BuildPatchLights</c> and <c>AddSampleToPatch</c> (<c>,
 /// 2060</c>): a face's direct light handed to its radiosity patches.
 /// </summary>
 /// <remarks>
@@ -39,7 +39,7 @@ public sealed record FaceLightContext(
 /// (§8, "correctness fixes") lists <c>AddSampleToPatch</c> as a shared-patch
 /// accumulation needing per-worker merge. It is not one: the patch walk starts
 /// at <c>g_FacePatches[facenum]</c>, and after <c>SubdividePatches</c> rebuilt
-/// that list it holds ONLY that face's patches (<c>vrad.cpp:971-977</c>), whose
+/// that list it holds ONLY that face's patches, whose
 /// parents are the same face's too. Each face's job therefore writes a
 /// disjoint set of patches, in sample order, and the sums are deterministic at
 /// any thread count with no merge at all.
@@ -48,7 +48,7 @@ public sealed record FaceLightContext(
 public static class PatchLighting
 {
     /// <summary>
-    /// <c>BuildPatchLights</c> (<c>lightmap.cpp:3198</c>).
+    /// <c>BuildPatchLights</c>.
     /// </summary>
     /// <param name="context">The lighting state.</param>
     /// <param name="faceNum">The face.</param>
@@ -63,7 +63,7 @@ public static class PatchLighting
         PatchSet patches = context.Patches;
         int bounces = context.Settings.Bounces;
 
-        // :3207-3214. The slot holding style 0; none means nothing to send.
+        // The slot holding style 0; none means nothing to send.
         int k;
         for (k = 0; k < LightConstants.MaxLightmaps; k++)
         {
@@ -90,7 +90,7 @@ public static class PatchLighting
             return;
         }
 
-        // :3225-3243. Children first in the list, so one forward walk pushes
+        // Children first in the list, so one forward walk pushes
         // every level up.
         for (int p = head; p != Patch.Invalid; p = patches.At(p).Next)
         {
@@ -105,7 +105,6 @@ public static class PatchLighting
             parent.SampleLight += patch.SampleLight;
         }
 
-        // :3246-3265.
         if (bounces > 0)
         {
             for (int p = head; p != Patch.Invalid; p = patches.At(p).Next)
@@ -122,7 +121,7 @@ public static class PatchLighting
             }
         }
 
-        // :3268-3292. A parent's light is the area-weighted blend of its two
+        // A parent's light is the area-weighted blend of its two
         // children's -- overwriting what the loop above averaged into it.
         for (int p = head; p != Patch.Invalid; p = patches.At(p).Next)
         {
@@ -143,7 +142,7 @@ public static class PatchLighting
             patch.DirectLight = total;
         }
 
-        // :3301-3320. -ambient, into every normal of the style-0 slot.
+        // 3301-3320. -ambient, into every normal of the style-0 slot.
         Vec3 ambient = context.Settings.Ambient;
         if (ambient.X != 0f || ambient.Y != 0f || ambient.Z != 0f)
         {
@@ -169,7 +168,7 @@ public static class PatchLighting
     }
 
     /// <summary>
-    /// <c>AddSampleToPatch</c> (<c>lightmap.cpp:2060</c>): credits one sample's
+    /// <c>AddSampleToPatch</c>: credits one sample's
     /// light to every leaf patch of the face whose bounds it roughly overlaps.
     /// </summary>
     /// <param name="patches">The patches.</param>
@@ -194,7 +193,7 @@ public static class PatchLighting
             return;
         }
 
-        // :2069. VectorAvg is a float divide by 3.
+        // VectorAvg is a float divide by 3.
         if ((light.X + light.Y + light.Z) / 3 < 1)
         {
             return;
@@ -206,7 +205,7 @@ public static class PatchLighting
             return;
         }
 
-        // :2081. sqrt of a float, then a DOUBLE halving narrowed.
+        // 2081. sqrt of a float, then a DOUBLE halving narrowed.
         float radius = (float)(MathF.Sqrt(sample.Area) / 2.0);
 
         for (int p = head; p != Patch.Invalid; p = patches.At(p).Next)

@@ -11,7 +11,7 @@ namespace SourceSharp.MapTools.Rad.Final;
 
 /// <summary>
 /// <c>-luxeldensity</c>: the head of <c>RadWorld_Start</c>
-/// (<c>vrad.cpp:1758-1804</c>), which caps every texinfo's luxels-per-unit and
+/// Which caps every texinfo's luxels-per-unit and
 /// recomputes every face's lightmap extents to match.
 /// </summary>
 /// <remarks>
@@ -31,17 +31,17 @@ namespace SourceSharp.MapTools.Rad.Final;
 public static class LuxelDensity
 {
     /// <summary>
-    /// <c>MAX_LIGHTMAP_DIM_WITHOUT_BORDER</c> (<c>bspfile.h:40</c>), which this
+    /// <c>MAX_LIGHTMAP_DIM_WITHOUT_BORDER</c>, which this
     /// SDK defines as the displacement limit.
     /// </summary>
     public const int MaxLightmapDimWithoutBorder = 125;
 
-    /// <summary><c>MAX_DISP_LIGHTMAP_DIM_WITHOUT_BORDER</c> (<c>bspfile.h:35</c>).</summary>
+    /// <summary><c>MAX_DISP_LIGHTMAP_DIM_WITHOUT_BORDER</c>.</summary>
     public const int MaxDispLightmapDimWithoutBorder = 125;
 
     /// <summary>
     /// The density stock compares against: <c>-luxeldensity n</c> stores
-    /// <c>1/n</c> when <c>n &gt; 1</c> (<c>vrad.cpp:2555-2556</c>).
+    /// <c>1/n</c> when <c>n &gt; 1</c>.
     /// </summary>
     /// <param name="typed">What was typed (<see cref="VradOptions.LuxelDensity"/>).</param>
     /// <returns>The effective density; below 1 means the map is rewritten.</returns>
@@ -68,13 +68,12 @@ public static class LuxelDensity
         Span<TexInfo> texinfo = MemoryMarshal.Cast<byte, TexInfo>(texBytes.AsSpan());
 
         // An HDR pass lights a copy of the LDR faces taken BEFORE this runs
-        // (vrad.cpp:2221-2229 precedes RadWorld_Start); see the quirk.
+        // (precedes RadWorld_Start); see the quirk.
         if (hdr && bsp[BspLump.FacesHdr].IsEmpty && StaleHdrFaces(compliance))
         {
             bsp.SetLump(BspLump.FacesHdr, bsp[BspLump.Faces].Data.ToArray(), bsp[BspLump.Faces].Version);
         }
 
-        // :1774-1798.
         for (int i = 0; i < texinfo.Length; i++)
         {
             for (int j = 0; j < 2; j++)
@@ -100,7 +99,7 @@ public static class LuxelDensity
 
         bsp.SetLump(BspLump.TexInfo, texBytes, bsp[BspLump.TexInfo].Version);
 
-        // :1803, UpdateAllFaceLightmapExtents (bsplib.cpp:3383): dfaces ONLY.
+        // UpdateAllFaceLightmapExtents: dfaces ONLY.
         UpdateExtents(bsp, BspLump.Faces, texinfo);
         if (!bsp[BspLump.FacesHdr].IsEmpty && !StaleHdrFaces(compliance))
         {
@@ -128,7 +127,7 @@ public static class LuxelDensity
         return compliance.Emulates(StockQuirk.LuxelDensityLeavesHdrFacesStale);
     }
 
-    /// <summary><c>CalcFaceExtents</c> (<c>bsplib.cpp:3317</c>) over one face lump.</summary>
+    /// <summary><c>CalcFaceExtents</c> over one face lump.</summary>
     private static void UpdateExtents(BspData bsp, BspLump lump, ReadOnlySpan<TexInfo> texinfo)
     {
         byte[] faceBytes = bsp[lump].Data.ToArray();

@@ -5,8 +5,7 @@ using SourceSharp.MapTools.Materials;
 namespace SourceSharp.MapTools.Bsp.Faces;
 
 /// <summary>
-/// Turning portals into faces (<c>MakeFaces</c>,
-/// <c>src/utils/vbsp/faces.cpp:1307-1810</c>).
+/// Turning portals into faces (<c>MakeFaces</c>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -45,7 +44,7 @@ public sealed class FaceBuilder
 
     /// <summary>
     /// The face a portal makes when seen from one side, or null
-    /// (<c>FaceFromPortal</c>, <c>faces.cpp:1307</c>).
+    /// (<c>FaceFromPortal</c>).
     /// </summary>
     /// <param name="portal">The portal.</param>
     /// <param name="side">0 to look from the front node, 1 from the back.</param>
@@ -80,7 +79,7 @@ public sealed class FaceBuilder
             // inside of the brush and so may be flipped.
             //
             // The water branch assigns exactly what the line above already
-            // assigned. That is stock, verbatim (faces.cpp:1338-1345), and it
+            // assigned. That is stock, verbatim, and it
             // is kept rather than folded away because the two branches are what
             // the code MEANS even though one of them is a no-op.
             if ((portal.NodeAt(side)!.Contents & MapFileLoader.MaskWater) != 0)
@@ -147,7 +146,7 @@ public sealed class FaceBuilder
     /// <summary>
     /// Gives a water underside the texinfo of its material's
     /// <c>$bottommaterial</c>
-    /// (<c>AssignBottomWaterMaterialToFace</c>, <c>faces.cpp:1255</c>).
+    /// (<c>AssignBottomWaterMaterialToFace</c>).
     /// </summary>
     /// <param name="face">The face to retexture.</param>
     /// <returns>False when the material has no bottom material, which discards the face.</returns>
@@ -182,7 +181,7 @@ public sealed class FaceBuilder
 
     /// <summary>
     /// Builds faces for a subtree, merging and subdividing on the way back up
-    /// (<c>MakeFaces_r</c>, <c>faces.cpp:1415</c>).
+    /// (<c>MakeFaces_r</c>).
     /// </summary>
     /// <param name="node">The root of the subtree.</param>
     public void MakeFacesRecursive(IBspNode node)
@@ -236,7 +235,7 @@ public sealed class FaceBuilder
 
     /// <summary>
     /// Turns portals with one solid side into faces, for a whole model
-    /// (<c>MakeFaces</c>, <c>faces.cpp:1798</c>).
+    /// (<c>MakeFaces</c>).
     /// </summary>
     /// <param name="headNode">The model's tree root.</param>
     public void MakeFaces(IBspNode headNode)

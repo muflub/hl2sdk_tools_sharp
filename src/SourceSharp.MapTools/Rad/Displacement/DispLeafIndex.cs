@@ -8,16 +8,16 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 /// <summary>
 /// Which displacements each BSP leaf touches, and the per-leaf ray clip that
 /// uses it: <c>CVRadDispMgr</c>'s <c>m_pBSPTreeData</c>
-/// (<c>vraddisps.cpp:288-312</c>, <c>public/bsptreedata.cpp</c>) and
-/// <c>ClipRayToDispInLeaf</c> (<c>vraddisps.cpp:583-612</c>).
+/// And
+/// <c>ClipRayToDispInLeaf</c>.
 /// </summary>
 /// <remarks>
 /// <para>
 /// A displacement is inserted into every leaf its collision bounds
 /// (<see cref="DispCollisionTree.Mins"/>/<see cref="DispCollisionTree.Maxs"/>)
 /// reach, walking the map's own BSP with <c>EnumerateLeavesInBox_R</c>
-/// (<c>bsplib.cpp:3461</c>, <c>TEST_EPSILON</c> 0.03125). Each leaf's list is
-/// built by PREPENDING (<c>AddHandleToLeaf</c>, <c>bsptreedata.cpp:204</c>), so
+/// (<c>TEST_EPSILON</c> 0.03125). Each leaf's list is
+/// built by PREPENDING(<c>AddHandleToLeaf</c>), so
 /// it is walked from the last-inserted displacement to the first; that order
 /// decides which of two equally distant hits wins.
 /// </para>
@@ -30,7 +30,7 @@ namespace SourceSharp.MapTools.Rad.Displacement;
 /// </remarks>
 public sealed class DispLeafIndex
 {
-    /// <summary><c>TEST_EPSILON</c>, <c>bsplib.cpp:3403</c>.</summary>
+    /// <summary><c>TEST_EPSILON</c>.</summary>
     public const double TestEpsilon = 0.03125;
 
     private readonly int[][] _leafDisps;
@@ -91,7 +91,7 @@ public sealed class DispLeafIndex
     }
 
     /// <summary>
-    /// <c>EnumerateLeavesInBox_R</c> (<c>bsplib.cpp:3461</c>): every leaf a box
+    /// <c>EnumerateLeavesInBox_R</c>: every leaf a box
     /// reaches, front child first.
     /// </summary>
     /// <param name="geometry">The map.</param>
@@ -139,7 +139,7 @@ public sealed class DispLeafIndex
 
     /// <summary>
     /// <c>ClipRayToDispInLeaf</c> with a face and luxel coordinate
-    /// (<c>vraddisps.cpp:583</c>, <c>DispRayDistance_EnumerateElement</c> :702):
+    /// (<c>DispRayDistance_EnumerateElement</c>:702):
     /// the nearest displacement hit in a leaf, as a fraction of the ray.
     /// </summary>
     /// <param name="state">The work item's tested marks; call <see cref="DispRayTestState.StartRayTest"/> first.</param>
@@ -198,12 +198,12 @@ public sealed class DispLeafIndex
 }
 
 /// <summary>
-/// <c>DispTested_t</c> (<c>vrad.h</c>): per work item, which displacements
+/// <c>DispTested_t</c>: per work item, which displacements
 /// the current ray has already been tested against.
 /// </summary>
 /// <remarks>
 /// Stock keeps one per thread (<c>s_DispTested[iThread]</c>,
-/// <c>trace.cpp:84</c>); owning one per work item is what makes the answer
+///); owning one per work item is what makes the answer
 /// independent of the thread count. A counter bumps per ray, so the marks never
 /// need clearing (it wraps after 2^31 rays, at which point it clears once).
 /// </remarks>
@@ -216,7 +216,7 @@ public sealed class DispRayTestState
     /// <param name="displacementCount">How many there are.</param>
     public DispRayTestState(int displacementCount) => _tested = new int[Math.Max(displacementCount, 0)];
 
-    /// <summary><c>StartRayTest</c> (<c>vraddisps.cpp:539</c>): begin a new ray.</summary>
+    /// <summary><c>StartRayTest</c>: begin a new ray.</summary>
     public void StartRayTest()
     {
         if (_enum == int.MaxValue)

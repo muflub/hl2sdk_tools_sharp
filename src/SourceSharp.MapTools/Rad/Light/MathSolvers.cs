@@ -2,7 +2,6 @@ namespace SourceSharp.MapTools.Rad.Light;
 
 /// <summary>
 /// <c>SolveInverseQuadratic</c> and <c>SolveInverseQuadraticMonotonic</c>
-/// (<c>mathlib_base.cpp:1345, 1362</c>).
 /// </summary>
 /// <remarks>
 /// Only one caller in all of vrad -- <see cref="LightFalloff"/> -- but it is
@@ -32,7 +31,7 @@ public static class MathSolvers
     /// <remarks>
     /// The determinant test is <c>== 0.0</c> exactly, with stock's own
     /// <c>FIXME: check with some sort of epsilon</c> beside it
-    /// (<c>mathlib_base.cpp:1349</c>). Two x values a float apart therefore
+    /// Two x values a float apart therefore
     /// "succeed" and produce coefficients of order 1e38. Reproduced; the only
     /// caller passes 0, d50 and d0, which a map would have to work at to make
     /// nearly equal.
@@ -44,9 +43,9 @@ public static class MathSolvers
     {
         float det = (x1 - x2) * (x1 - x3) * (x2 - x3);
 
-        // mathlib_base.cpp:1350. A failure returns WITHOUT writing a, b or c,
+        // A failure returns WITHOUT writing a, b or c,
         // so the caller's own values survive -- SetLightFalloffParams seeds
-        // them with 0, 1, 0 (lightmap.cpp:1185) and uses them regardless.
+        // them with 0, 1, 0 and uses them regardless.
         if (det == 0.0f)
         {
             return false;
@@ -61,7 +60,7 @@ public static class MathSolvers
         if (reciprocal)
         {
             // StockQuirk.InverseQuadraticReciprocal: what /fp:fast made of
-            // the three divides in the shipped binary.
+            // the three divides the reference build keeps.
             float inv = 1.0f / det;
             a = na * inv;
             b = nb * inv;
@@ -101,7 +100,7 @@ public static class MathSolvers
     /// <remarks>
     /// <para>
     /// The three points are sorted by x with a three-comparison bubble
-    /// (<c>:1369-1383</c>), then the MIDDLE point's y is blended toward the
+ /// Then the MIDDLE point's y is blended toward the
     /// straight line between the outer two in twenty-one steps of 0.05, until
     /// the fitted curve's derivative at the start has the same sign as the
     /// data's overall trend. Stock's own comment concedes "this code is not
@@ -119,7 +118,7 @@ public static class MathSolvers
     /// </para>
     /// <para>
     /// The loop counter is a <c>float</c> accumulated by <c>+= 0.05</c>
-    /// (<c>:1387</c>), and 0.05 is not representable: it runs <b>20</b> times,
+ /// And 0.05 is not representable: it runs <b>20</b> times,
     /// the last blend is 0.95000017 and the next value is 1.0000001, which
     /// fails <c>&lt;= 1.0</c>. So the fully-linear blend is never evaluated.
     /// Reproduced with a float accumulator, because the blend factor feeds the
@@ -132,7 +131,6 @@ public static class MathSolvers
         bool reciprocal = false,
         bool derivativeAtOne = false)
     {
-        // :1369-1383.
         if (x1 > x2)
         {
             (x1, x2) = (x2, x1);
@@ -151,7 +149,7 @@ public static class MathSolvers
             (y1, y2) = (y2, y1);
         }
 
-        // :1387. The float counter is stepped by the DOUBLE 0.05 and narrowed
+        // The float counter is stepped by the DOUBLE 0.05 and narrowed
         // back each time.
         for (float blend = 0.0f; blend <= 1.0f; blend = (float)(blend + 0.05))
         {
@@ -163,7 +161,7 @@ public static class MathSolvers
                 return false;
             }
 
-            // :1392. `2.0*a+b` is double arithmetic narrowed into a float, and
+            // 1392. `2.0*a+b` is double arithmetic narrowed into a float, and
             // it is the slope at x = 1 (StockQuirk.MonotonicDerivativeAtOne);
             // the slope at the start point the comment names is 2*a*x1 + b.
             float derivative = derivativeAtOne
@@ -186,19 +184,18 @@ public static class MathSolvers
             }
             else
             {
-                // :1406. Not monotonic in the data at all, so there is nothing
+                // Not monotonic in the data at all, so there is nothing
                 // to enforce and the first fit is accepted.
                 return true;
             }
         }
 
-        // :1409. Falls out of the loop reporting SUCCESS with whatever the
+        // Falls out of the loop reporting SUCCESS with whatever the
         // last blend produced, which is the 0.95 blend rather than the linear
         // one. The caller cannot tell this apart from an early success.
         return true;
     }
 
-    // mathlib.h:652.
     private static float FLerp(float f1, float f2, float i1, float i2, float x) =>
         f1 + ((f2 - f1) * (x - i1) / (i2 - i1));
 }

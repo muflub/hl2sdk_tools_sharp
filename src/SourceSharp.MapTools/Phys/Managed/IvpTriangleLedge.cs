@@ -3,14 +3,14 @@ using System.Numerics;
 namespace SourceSharp.MapTools.Phys.Managed;
 
 /// <summary>
-/// 00183d20 (TF2 001887a0): the three-point soup becomes a flat two-sided ledge, two triangles
+/// The three-point fast path: the three-point soup becomes a flat two-sided ledge, two triangles
 /// back to back, unless its area is essentially zero.
 /// </summary>
 /// <remarks>
-/// The binary cooks a unit triangle once through 00184f80/00184ae0 and caches it in a global
-/// (<c>DAT_00299228</c>), then copies that ledge and overwrites its three points. The cached
-/// topology is a constant, so it is written here directly (read back from the SDK library through
-/// the oracle: <c>ConvexFromVerts</c> of three points); no state survives a call.
+/// The reference implementation cooks a unit triangle once and caches it in a global,
+/// Then copies that ledge and overwrites its three points. The cached
+/// topology is a constant, so it is written here directly (verified against the
+/// Reference <c>ConvexFromVerts</c> of three points); no state survives a call.
 /// </remarks>
 /// <typeparam name="T">IVP_DOUBLE.</typeparam>
 /// <typeparam name="TP">The precision policy.</typeparam>

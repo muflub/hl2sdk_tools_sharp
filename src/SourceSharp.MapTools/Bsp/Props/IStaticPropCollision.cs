@@ -4,15 +4,15 @@ namespace SourceSharp.MapTools.Bsp.Props;
 
 /// <summary>
 /// The four physics-library calls the static prop emitter makes, as a seam
-/// (<c>utils/vbsp/staticprop.cpp</c>): the hull build, its bounding box, and the
+/// The hull build, its bounding box, and the
 /// leaf-against-hull test.
 /// </summary>
 /// <remarks>
 /// <para>
 /// Stock asks <c>vphysics</c>: <c>ConvexFromVerts</c> per mesh and
-/// <c>ConvertConvexToCollide</c> (<c>:196-239</c>), <c>CollideGetAABB</c>
-/// (<c>:442</c>), and <c>ConvexFromPlanes</c> + <c>TraceCollide</c> with a
-/// zero-length sweep, reading <c>startsolid</c> (<c>:314-351</c>). Which leaves
+/// <c>ConvertConvexToCollide</c>, <c>CollideGetAABB</c>
+/// And <c>ConvexFromPlanes</c> + <c>TraceCollide</c> with a
+/// zero-length sweep, reading <c>startsolid</c>. Which leaves
 /// a prop is listed in follows from those answers, so the answers decide
 /// LUMP_GAME_LUMP's leaf list.
 /// </para>
@@ -31,14 +31,14 @@ public interface IStaticPropCollision
     /// </summary>
     /// <param name="meshes">Each mesh's vertex positions, model space.</param>
     /// <param name="cancellationToken">Cancels before the build.</param>
-    /// <returns>The hull, or null for "Bad geometry" (<c>:288-291</c>).</returns>
+ /// <returns>The hull, or null for "Bad geometry".</returns>
     ValueTask<IStaticPropHull?> BuildHullAsync(
         IReadOnlyList<Vec3[]> meshes,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The same for a named model, which a cooker that caches per model
-    /// (<c>s_ModelCollisionCache</c>, <c>staticprop.cpp:76</c>) keys on.
+    /// (<c>s_ModelCollisionCache</c>) keys on.
     /// </summary>
     /// <param name="modelName">The model, as the entity spells it.</param>
     /// <param name="meshes">Each mesh's vertex positions, model space.</param>
@@ -58,7 +58,7 @@ public interface IStaticPropCollision
 /// </summary>
 public interface IStaticPropLeafHull : IStaticPropHull
 {
-    /// <summary><c>ComputeStaticPropLeaves</c> (<c>staticprop.cpp:437</c>).</summary>
+    /// <summary><c>ComputeStaticPropLeaves</c>.</summary>
     /// <param name="tree">The written tree; its <see cref="BspTreeView.Leafs"/> must be set.</param>
     /// <param name="origin">The prop origin.</param>
     /// <param name="angles">The prop angles.</param>

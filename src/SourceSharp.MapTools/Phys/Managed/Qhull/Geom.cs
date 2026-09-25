@@ -11,7 +11,7 @@ namespace SourceSharp.MapTools.Phys.Managed.Qhull;
 internal sealed partial class Qh
 {
     /// <summary>
-    /// fabs_ macro. BINARY ORDER: vphysics.so (GCC 10.3 -ffast-math) emits it as andpd, which
+    /// fabs_ macro. Codegen fact: vphysics.so (GCC 10.3 -ffast-math) emits it as andpd, which
     /// clears the sign of -0.0 (the source's ((a) &lt; 0) ? -(a) : (a) keeps it); e.g. aa5ac
     /// qh_gausselim, ac2dc qh_setfacetplane, 87fef qh_maxsimplex.
     /// </summary>
@@ -73,7 +73,7 @@ internal sealed partial class Qh
                 dist = facet.offset + point[0] * normal[0] + point[1] * normal[1];
                 break;
             case 3:
-                // BINARY ORDER a94d8: (x*nx + y*ny) + (offset + z*nz)
+                // reference order: (x*nx + y*ny) + (offset + z*nz)
                 dist = (point[0] * normal[0] + point[1] * normal[1]) + (facet.offset + point[2] * normal[2]);
                 break;
             case 4:
@@ -125,12 +125,12 @@ internal sealed partial class Qh
         if (ispartition)
             searchdist = 2 * DISTround;
         else
-            searchdist = (2 * DISTround + fmax_(MINvisible, MAXcoplanar)) + max_outside; // BINARY ORDER a9cee
+            searchdist = (2 * DISTround + fmax_(MINvisible, MAXcoplanar)) + max_outside; // reference order
         cutoff = bestdist - searchdist;
         mincutoff = 0;
         if (ischeckmax)
         {
-            mincutoff = fmax_(MINvisible, MAXcoplanar) - DISTround; // BINARY ORDER a9879
+            mincutoff = fmax_(MINvisible, MAXcoplanar) - DISTround; // reference order
             if (cutoff > mincutoff)
                 cutoff = mincutoff;
         }
@@ -338,7 +338,7 @@ internal sealed partial class Qh
         return bestfacet!;
     }
 
-    /// <summary>qh_DISToutside (user.h): fmax_(4*qh MINoutside, 2*qh max_outside)</summary>
+    /// <summary>qh_DISToutside: fmax_(4*qh MINoutside, 2*qh max_outside)</summary>
     internal double qh_DISToutside() => fmax_(4 * MINoutside, 2 * max_outside);
 
     /// <summary>qh_gausselim</summary>
@@ -378,13 +378,13 @@ internal sealed partial class Qh
             double[] pivotrow = rows[k]!;
             int pivotp = k;
             pivot = pivotrow[pivotp++];
-            double recip = 1.0 / pivot; // BINARY ORDER aa68a: one reciprocal per pivot
+            double recip = 1.0 / pivot; // reference order: one reciprocal per pivot
             for (int i = k + 1; i < numrow; i++)
             {
                 double[] rowi = rows[i]!;
                 int ai = k;
                 int ak = pivotp;
-                n = rowi[ai++] * recip; // BINARY ORDER aa6e3
+                n = rowi[ai++] * recip; // reference order
                 for (int j = numcol - (k + 1); j-- > 0;)
                     rowi[ai++] -= n * pivotrow[ak++];
             }
@@ -413,7 +413,7 @@ internal sealed partial class Qh
             center[k] = 0.0;
             for (int vi = 0; (vertex = vertices.e[vi]) != null; vi++)
                 center[k] += vertex.point![k];
-            center[k] = center[k] * (1.0 / count); // BINARY ORDER aa9ff/aaa64: times the reciprocal
+            center[k] = center[k] * (1.0 / count); // reference order times the reciprocal
         }
         return center;
     }
@@ -461,7 +461,7 @@ internal sealed partial class Qh
         mindist = mind;
         maxdist = maxd;
         mind = -mind;
-        // BINARY ORDER aabcc: maxsd (-mind > maxd) ? -mind : maxd (differs from the source only for +-0)
+        // reference order: maxsd (-mind > maxd) ? -mind : maxd (differs from the source only for +-0)
         if (mind > maxd)
             return mind;
         else
@@ -635,7 +635,7 @@ internal sealed partial class Qh
         else if (dim == 3)
         {
             double[] r0 = rows[0]!, r1 = rows[1]!, r2 = rows[2]!;
-            // BINARY ORDER ab478/ab4c1/ab505: det2_(a, b, c, d) = a*d - b*c is emitted as
+            // reference order det2_(a, b, c, d) = a*d - b*c is emitted as
             // a*d + b*(the negated difference), e.g. dY20*dZ10 + dZ20*(r0y - r1y)
             normal[0] = (r2[1] - r0[1]) * (r1[2] - r0[2]) + (r2[2] - r0[2]) * (r0[1] - r1[1]);
             normal[1] = (r1[0] - r0[0]) * (r2[2] - r0[2]) + (r1[2] - r0[2]) * (r0[0] - r2[0]);
@@ -649,7 +649,7 @@ internal sealed partial class Qh
                 double[] point = rows[i]!;
                 if (point != point0)
                 {
-                    // BINARY ORDER ab5be: (z*nz + offset) + (x*nx + y*ny)
+                    // reference order: (z*nz + offset) + (x*nx + y*ny)
                     double dist = (point[2] * normal[2] + offset) + (point[0] * normal[0] + point[1] * normal[1]);
                     if (dist > maxround || dist < -maxround)
                     {

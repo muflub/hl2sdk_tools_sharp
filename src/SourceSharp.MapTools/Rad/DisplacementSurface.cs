@@ -13,10 +13,10 @@ namespace SourceSharp.MapTools.Rad;
 /// <para>
 /// Stock reaches this through four classes and three files. A BSP
 /// <c>ddispinfo_t</c> is unpacked into a <c>CCoreDispInfo</c>
-/// (<c>vraddisps.cpp:348</c>, <c>CVRadDispMgr::DispBuilderInit</c>), which
-/// <c>CCoreDispInfo::Create</c> (<c>builddisp.cpp:2003</c>) turns into a
+/// (<c>CVRadDispMgr::DispBuilderInit</c>), which
+/// <c>CCoreDispInfo::Create</c> turns into a
 /// vertex grid; <c>CDispCollTree::AABBTree_CopyDispData</c>
-/// (<c>dispcoll_common.cpp:316</c>) then copies that grid into
+/// Then copies that grid into
 /// <c>m_aVerts</c>/<c>m_aTris</c>, and <c>CVRADDispColl</c> adds lightmap data
 /// on top. This class is the part of that chain a shadow caster reads, and
 /// nothing else: no normals, no tangent frames, no luxel coordinates, no LOD
@@ -24,13 +24,13 @@ namespace SourceSharp.MapTools.Rad;
 /// </para>
 /// <para>
 /// WHAT MAKES THE SHORT PATH CORRECT is that the vrad path never sets two of
-/// the three terms <c>GenerateDispSurf</c> (<c>builddisp.cpp:1918</c>) adds to
+/// the three terms <c>GenerateDispSurf</c> adds to
 /// a vertex. <c>m_Elevation</c> is zeroed by the constructor
-/// (<c>builddisp.cpp:643</c>) and no caller under <c>src/utils/vrad</c> calls
+/// And no caller under <c>src/utils/vrad</c> calls
 /// <c>SetElevation</c>, and <c>m_SubdivPos</c> is zeroed by
-/// <c>InitDispInfo</c> (<c>builddisp.cpp:783</c>) and only ever filled by
+/// <c>InitDispInfo</c> and only ever filled by
 /// Hammer's subdivision, which bakes its result into the lump's field vectors
-/// before the map is compiled -- the comment at <c>builddisp.cpp:815</c> says
+/// before the map is compiled -- the comment says
 /// so in as many words ("offset have been combined with fieldvectors at this
 /// point!!!"). So a compiled displacement's vertex is the flat bilinear point
 /// plus <c>vec * dist</c>, and the elevation and subdivision terms in stock's
@@ -64,7 +64,7 @@ public sealed class DisplacementSurface
     }
 
     /// <summary>
-    /// <c>MASK_OPAQUE</c> (<c>bspflags.h:114</c>): the contents bits that make
+    /// <c>MASK_OPAQUE</c>: the contents bits that make
     /// a surface block light.
     /// </summary>
     /// <remarks>
@@ -79,9 +79,9 @@ public sealed class DisplacementSurface
     /// <summary>This displacement's index in LUMP_DISPINFO.</summary>
     /// <remarks>
     /// The emission order, because <c>CVRadDispMgr::AddPolysForRayTrace</c>
-    /// (<c>vraddisps.cpp:615</c>) walks <c>m_DispTrees</c>, which
+    /// Walks <c>m_DispTrees</c>, which
     /// <c>UnserializeDisps</c> fills one entry per <c>g_dispinfo</c> entry in
-    /// that order (<c>vraddisps.cpp:477-487</c>) -- not in face order, which
+    /// that order -- not in face order, which
     /// is a different permutation on most maps.
     /// </remarks>
     public int Index { get; }
@@ -99,8 +99,8 @@ public sealed class DisplacementSurface
     /// FROM <c>ddispinfo_t::contents</c> AND NOT FROM THE FACE'S TEXINFO, which
     /// is the one thing about this path worth checking twice:
     /// <c>DispBuilderInit</c> calls <c>pSurf->SetContents( pDisp->contents )</c>
-    /// (<c>vraddisps.cpp:361</c>) and <c>AABBTree_CopyDispData</c> reads it
-    /// straight back out (<c>dispcoll_common.cpp:323</c>). vbsp put the
+    /// And <c>AABBTree_CopyDispData</c> reads it
+    /// straight back out. vbsp put the
     /// material's contents there when it wrote the lump, so the two normally
     /// agree -- which is exactly why reading the wrong one would go unnoticed.
     /// </remarks>
@@ -122,7 +122,7 @@ public sealed class DisplacementSurface
     /// <summary>
     /// The number of vertices along one edge, <c>2^power + 1</c>.
     /// </summary>
-    /// <remarks><c>GetPostSpacing</c>, <c>builddisp.h:1160</c>.</remarks>
+    /// <remarks><c>GetPostSpacing</c>.</remarks>
     public int PostSpacing => (1 << Power) + 1;
 
     /// <summary>
@@ -147,7 +147,7 @@ public sealed class DisplacementSurface
     /// <summary>Whether this displacement blocks light at all.</summary>
     /// <remarks>
     /// The single early-out of <c>CVRADDispColl::AddPolysForRayTrace</c>
-    /// (<c>vrad_dispcoll.cpp:1066</c>). It is per DISPLACEMENT, not per
+    /// It is per DISPLACEMENT, not per
     /// triangle: a displacement either contributes all of its triangles or none
     /// of them.
     /// </remarks>
@@ -168,7 +168,7 @@ public sealed class DisplacementSurface
     /// <remarks>
     /// <para>
     /// <c>CCoreDispSurface::FindSurfPointStartIndex</c>
-    /// (<c>builddisp.cpp:340</c>): NEAREST corner by squared distance, not an
+    /// NEAREST corner by squared distance, not an
     /// exact match. Stock is right to be loose about it -- the start position
     /// was written by vbsp from the same vertices, but through a different
     /// float path -- and the looseness is harmless because the four corners of
@@ -198,7 +198,7 @@ public sealed class DisplacementSurface
             float distanceSq = (startPosition - points[i]).LengthSquared();
 
             // Strictly less than, so a tie keeps the EARLIER corner, as stock's
-            // own loop does (builddisp.cpp:351).
+            // own loop does.
             if (distanceSq < minDistance)
             {
                 minDistance = distanceSq;
@@ -246,15 +246,15 @@ public sealed class DisplacementSurface
                 nameof(facePoints));
         }
 
-        // MIN_MAP_DISP_POWER and MAX_MAP_DISP_POWER, bspfile.h:46-47. Stock
-        // asserts this (builddisp.cpp:755) and then carries on in a release
+        // MIN_MAP_DISP_POWER and MAX_MAP_DISP_POWER. Stock
+        // asserts this and then carries on in a release
         // build, which for power 0 divides by zero in GenerateDispSurf and for
         // power 5 overruns MAX_DISPVERTS; neither is a thing to reproduce.
         if (info.Power is < 2 or > 4)
         {
             throw new InvalidBspException(
                 $"displacement {index} has power {info.Power}; the format allows 2 to 4 "
-                + "(MIN_MAP_DISP_POWER, bspfile.h:46).");
+                + "(MIN_MAP_DISP_POWER).");
         }
 
         int numVerts = info.NumVerts();
@@ -270,7 +270,7 @@ public sealed class DisplacementSurface
 
         int start = FindStartIndex(info.StartPosition, facePoints);
 
-        // CCoreDispSurface::AdjustSurfPointData, builddisp.cpp:368. It rotates
+        // CCoreDispSurface::AdjustSurfPointData. It rotates
         // the points in place rather than indexing through the start offset
         // later, so everything downstream can assume corner 0 is the start.
         Vec3[] points = new Vec3[4];
@@ -294,7 +294,7 @@ public sealed class DisplacementSurface
     }
 
     /// <summary>
-    /// <c>CCoreDispInfo::GenerateDispSurf</c>, <c>builddisp.cpp:1918</c>.
+    /// <c>CCoreDispInfo::GenerateDispSurf</c>.
     /// </summary>
     /// <remarks>
     /// The arithmetic is stock's, operation for operation, rather than the
@@ -352,14 +352,13 @@ public sealed class DisplacementSurface
 
     /// <summary>
     /// <c>CCoreDispInfo::GenerateCollisionSurface</c>,
-    /// <c>builddisp.cpp:932</c>.
     /// </summary>
     /// <remarks>
     /// <para>
     /// The diagonal of each quad ALTERNATES, and the thing that decides it is
     /// the flat vertex index of the quad's lower-left post rather than its
     /// row/column parity: <c>bOdd = ( ( ndx % 2 ) == 1 )</c> with
-    /// <c>ndx = iV * nWidth + iU</c> (<c>builddisp.cpp:948</c>). Because
+    /// <c>ndx = iV * nWidth + iU</c>. Because
     /// <c>nWidth</c> is odd -- it is <c>2^power + 1</c> -- the parity flips
     /// consistently along each row and also from row to row, which is what
     /// makes the tessellation a checkerboard rather than a set of parallel
@@ -369,8 +368,8 @@ public sealed class DisplacementSurface
     /// <para>
     /// Stock does not run this loop at all until <c>CCoreDispInfo::Create</c>
     /// has already built and discarded an LOD tree
-    /// (<c>builddisp.cpp:2025-2028</c>); <c>GenerateCollisionSurface</c> then
-    /// resets <c>m_RenderIndexCount</c> to zero (<c>builddisp.cpp:943</c>) and
+    /// <c>GenerateCollisionSurface</c> then
+    /// resets <c>m_RenderIndexCount</c> to zero and
     /// writes the full, un-decimated list over the top. So the LOD tree
     /// contributes nothing to what vrad shadows against.
     /// </para>
@@ -389,7 +388,7 @@ public sealed class DisplacementSurface
 
                 if (ndx % 2 == 1)
                 {
-                    // BuildTriTLtoBR, builddisp.cpp:895.
+                    // BuildTriTLtoBR.
                     indices[count++] = ndx;
                     indices[count++] = ndx + nWidth;
                     indices[count++] = ndx + 1;
@@ -400,7 +399,7 @@ public sealed class DisplacementSurface
                 }
                 else
                 {
-                    // BuildTriBLtoTR, builddisp.cpp:914.
+                    // BuildTriBLtoTR.
                     indices[count++] = ndx;
                     indices[count++] = ndx + nWidth;
                     indices[count++] = ndx + nWidth + 1;

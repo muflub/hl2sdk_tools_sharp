@@ -7,7 +7,7 @@ using SourceSharp.MapTools.Rad.Light;
 namespace SourceSharp.MapTools.Rad.Final;
 
 /// <summary>
-/// vrad's <c>SaveVertexNormals</c> (<c>lightmap.cpp:328</c>): the smoothed
+/// Vrad's <c>SaveVertexNormals</c>: the smoothed
 /// per-corner normals <c>PairEdges</c> computed, de-duplicated into
 /// <c>LUMP_VERTNORMALS</c> with one <c>LUMP_VERTNORMALINDICES</c> entry per
 /// face corner.
@@ -20,7 +20,7 @@ namespace SourceSharp.MapTools.Rad.Final;
 /// usually shrinks -- every flat room collapses to its six wall normals.
 /// </para>
 /// <para>
-/// <c>CNormalList::FindOrAddNormal</c> (<c>:85</c>) buckets normals on an
+/// <c>CNormalList::FindOrAddNormal</c> buckets normals on an
 /// 8x8x8 grid and compares with <c>Vector::operator==</c>, i.e. float
 /// equality per component. The grid is only an accelerator: equal vectors
 /// always land in the same bucket (the bucket is a function of the value, and
@@ -32,10 +32,10 @@ namespace SourceSharp.MapTools.Rad.Final;
 /// </remarks>
 public static class VradVertexNormals
 {
-    /// <summary><c>MAX_MAP_VERTNORMALS</c> (<c>bspfile.h:79</c>).</summary>
+    /// <summary><c>MAX_MAP_VERTNORMALS</c>.</summary>
     public const int MaxVertNormals = 256000;
 
-    /// <summary><c>MAX_MAP_VERTNORMALINDICES</c> (<c>bspfile.h:80</c>).</summary>
+    /// <summary><c>MAX_MAP_VERTNORMALINDICES</c>.</summary>
     public const int MaxVertNormalIndices = 256000;
 
     /// <summary>Collects the corner normals of every face, in face order.</summary>
@@ -60,7 +60,7 @@ public static class VradVertexNormals
 
             for (int j = 0; j < edges; j++)
             {
-                // :343-351. Every face has corner normals after PairEdges; a
+                // Every face has corner normals after PairEdges; a
                 // face without them would contribute the zero vector.
                 Vec3 n = j < corners.Length ? corners[j] : Vec3.Zero;
 

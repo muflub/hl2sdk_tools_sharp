@@ -8,7 +8,7 @@ namespace SourceSharp.MapTools.Phys;
 
 /// <summary>
 /// The vtable slots of <c>IPhysicsCollision</c> this port binds, derived from
-/// <c>public/vphysics_interface.h:179</c>'s declaration order.
+/// The reference implementation's declaration order.
 /// </summary>
 /// <remarks>
 /// The interface has no base class and its first member is a virtual
@@ -60,7 +60,7 @@ internal static class CollisionSlot
 }
 
 /// <summary>
-/// <c>ICollisionQuery</c>'s slots, <c>vphysics_interface.h:305</c>: a virtual
+/// <c>ICollisionQuery</c>'s slots: a virtual
 /// destructor (two slots), then source order.
 /// </summary>
 internal static class QuerySlot
@@ -74,7 +74,7 @@ internal static class QuerySlot
 }
 
 /// <summary>
-/// <c>IPhysicsSurfaceProps</c>' slots, <c>vphysics_interface.h:969</c>.
+/// <c>IPhysicsSurfaceProps</c>' slots.
 /// </summary>
 internal static class SurfacePropsSlot
 {
@@ -86,7 +86,7 @@ internal static class SurfacePropsSlot
 }
 
 /// <summary>
-/// The byte offsets inside <c>trace_t</c> (<c>public/cmodel.h</c>'s
+/// The byte offsets inside <c>trace_t</c> (the reference implementation's
 /// <c>CBaseTrace</c>) this port reads. The buffer handed to vphysics is
 /// larger than the whole struct, so a trace writing its game fields cannot
 /// overrun it.
@@ -113,7 +113,7 @@ internal struct ConvertConvexParamsNative
     [FieldOffset(8)] public nint ForcedOuterHull;
 }
 
-/// <summary><c>virtualmeshlist_t</c>, <c>vphysics/virtualmesh.h:15</c>.</summary>
+/// <summary><c>virtualmeshlist_t</c>.</summary>
 [StructLayout(LayoutKind.Explicit, Size = 32 + (VirtualMeshSource.MaxVirtualTriangles * 3 * 2))]
 internal unsafe struct VirtualMeshListNative
 {
@@ -126,7 +126,7 @@ internal unsafe struct VirtualMeshListNative
     [FieldOffset(32)] public fixed ushort Indices[VirtualMeshSource.MaxVirtualTriangles * 3];
 }
 
-/// <summary><c>virtualmeshtrianglelist_t</c>, <c>vphysics/virtualmesh.h:26</c>.</summary>
+/// <summary><c>virtualmeshtrianglelist_t</c>.</summary>
 [StructLayout(LayoutKind.Explicit, Size = 4 + (VirtualMeshSource.MaxVirtualTriangles * 3 * 2))]
 internal unsafe struct VirtualMeshTriangleListNative
 {
@@ -134,7 +134,7 @@ internal unsafe struct VirtualMeshTriangleListNative
     [FieldOffset(4)] public fixed ushort TriangleIndices[VirtualMeshSource.MaxVirtualTriangles * 3];
 }
 
-/// <summary><c>virtualmeshparams_t</c>, <c>vphysics/virtualmesh.h:39</c>.</summary>
+/// <summary><c>virtualmeshparams_t</c>.</summary>
 [StructLayout(LayoutKind.Explicit, Size = 24)]
 internal struct VirtualMeshParamsNative
 {
@@ -145,8 +145,7 @@ internal struct VirtualMeshParamsNative
 
 /// <summary>
 /// A C++ <c>IVirtualMeshEvent</c> object built in native memory, whose three
-/// virtual methods are managed callbacks: <c>CDispMeshEvent</c>,
-/// <c>disp_ivp.cpp:199</c>.
+/// virtual methods are managed callbacks: <c>CDispMeshEvent</c>.
 /// </summary>
 /// <remarks>
 /// vphysics keeps the handler pointer in the collide it returns and calls it
@@ -211,7 +210,7 @@ internal sealed unsafe class VirtualMeshEvent : IDisposable
     private static VirtualMeshEvent From(nint userData) =>
         (VirtualMeshEvent)GCHandle.FromIntPtr(userData).Target!;
 
-    /// <summary><c>CDispMeshEvent::GetVirtualMesh</c>, <c>disp_ivp.cpp:237</c>.</summary>
+    /// <summary><c>CDispMeshEvent::GetVirtualMesh</c>.</summary>
     [UnmanagedCallersOnly]
     private static void GetVirtualMesh(nint self, nint userData, VirtualMeshListNative* list)
     {
@@ -232,13 +231,13 @@ internal sealed unsafe class VirtualMeshEvent : IDisposable
         }
     }
 
-    /// <summary><c>CDispMeshEvent::GetWorldspaceBounds</c>, <c>disp_ivp.cpp:252</c>.</summary>
+    /// <summary><c>CDispMeshEvent::GetWorldspaceBounds</c>.</summary>
     [UnmanagedCallersOnly]
     private static void GetWorldspaceBounds(nint self, nint userData, Vec3* mins, Vec3* maxs)
     {
         VirtualMeshEvent handler = From(userData);
 
-        // ClearBounds, mathlib_base.cpp: 99999 / -99999.
+        // ClearBounds: 99999 / -99999.
         float minX = 99999f, minY = 99999f, minZ = 99999f;
         float maxX = -99999f, maxY = -99999f, maxZ = -99999f;
 
@@ -256,7 +255,7 @@ internal sealed unsafe class VirtualMeshEvent : IDisposable
         *maxs = new Vec3(maxX, maxY, maxZ);
     }
 
-    /// <summary><c>CDispMeshEvent::GetTrianglesInSphere</c>, <c>disp_ivp.cpp:262</c>.</summary>
+    /// <summary><c>CDispMeshEvent::GetTrianglesInSphere</c>.</summary>
     [UnmanagedCallersOnly]
     private static void GetTrianglesInSphere(
         nint self, nint userData, Vec3* center, float radius, VirtualMeshTriangleListNative* list)
@@ -337,7 +336,7 @@ internal sealed unsafe class VPhysicsModule
         {
             throw new VPhysicsLoadException(
                 $"{hostDirectory}/vphysics.so does not provide {CollisionInterfaceName} and "
-                + $"{SurfacePropsInterfaceName}; it is not the SDK 2013 library.");
+                + $"{SurfacePropsInterfaceName}; it is not the reference build's library.");
         }
 
         return new VPhysicsModule(collision, surfaceProps, create);

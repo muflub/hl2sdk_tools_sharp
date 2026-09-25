@@ -12,13 +12,13 @@ using SourceSharp.MapTools.Disp;
 namespace SourceSharp.MapTools.Rad.Ambient;
 
 /// <summary>
-/// <c>s_DispTested[iThread]</c> (<c>trace.cpp:84</c>) as per-work-item state:
+/// <c>s_DispTested[iThread]</c> as per-work-item state:
 /// which displacements the current ray has already been tested against.
 /// </summary>
 /// <remarks>
 /// Stock's <c>DispTested_t</c> is an int per displacement plus a running
 /// counter; <c>StartRayTest</c> bumps the counter so that one ray walking
-/// several leaves tests each displacement once (<c>vraddisps.cpp:539</c>).
+/// several leaves tests each displacement once.
 /// Here one instance belongs to one work item (a leaf, a detail prop), never
 /// to a thread, so the stage stays a pure function of its item.
 /// </remarks>
@@ -58,13 +58,13 @@ public sealed class DispTestedScratch
 
 /// <summary>
 /// vrad's displacement manager as leaf ambient sees it
-/// (<c>CVRadDispMgr::UnserializeDisps</c>, <c>vraddisps.cpp:426</c>, and the
-/// two <c>ClipRayToDispInLeaf</c> overloads, <c>:583</c> and <c>:600</c>).
+/// (<c>CVRadDispMgr::UnserializeDisps</c>, and the
+/// two <c>ClipRayToDispInLeaf</c> overloads,).
 /// </summary>
 /// <remarks>
 /// <para>
 /// Each displacement is rebuilt from the lump the way
-/// <c>DispBuilderInit</c> (<c>vraddisps.cpp:348</c>) does -- base points from
+/// <c>DispBuilderInit</c> does -- base points from
 /// the face's surfedges, start corner, luxel coordinates from the texinfo's
 /// lightmap vectors, field vectors from <c>LUMP_DISP_VERTS</c> -- and becomes a
 /// <see cref="DispCollisionTree"/>. Each tree's bloated box is then inserted
@@ -72,7 +72,7 @@ public sealed class DispTestedScratch
 /// </para>
 /// <para>
 /// LEAF LIST ORDER: <c>AddHandleToLeaf</c> links each new element BEFORE the
-/// leaf's first (<c>bsptreedata.cpp:203</c>), and the trees are inserted in
+/// Leaf's first, and the trees are inserted in
 /// displacement order, so a leaf enumerates its displacements in DESCENDING
 /// index order. The distance comparison is strict, so on an exact tie the
 /// first enumerated keeps the hit; the order is reproduced for that reason.
@@ -157,7 +157,7 @@ public sealed class DispCollisionSet
         int[] faceOf = new int[dispInfo.Length];
         Array.Fill(faceOf, -1);
 
-        // vraddisps.cpp:452-459: every ValidDispFace (vrad.h:542), in face order.
+        // Every ValidDispFace, in face order.
         for (int f = 0; f < faces.Length; f++)
         {
             ref readonly DFace face = ref faces[f];
@@ -182,12 +182,12 @@ public sealed class DispCollisionSet
         {
             CoreDispInfo builder = builders[d]
                 ?? throw new InvalidBspException(
-                    $"displacement {d} has no four-edged face naming it (ValidDispFace, vrad.h:542).");
+                    $"displacement {d} has no four-edged face naming it (ValidDispFace).");
             builder.Create();
             trees[d] = new DispCollisionTree(builder, faceOf[d]);
         }
 
-        // InsertDispIntoTree (vraddisps.cpp:288), in displacement order;
+        // InsertDispIntoTree, in displacement order;
         // AddHandleToLeaf prepends, so each leaf's list is reversed below.
         List<int>[] perLeaf = new List<int>[leafCount];
         List<int> leaves = [];
@@ -226,7 +226,7 @@ public sealed class DispCollisionSet
         _leafDisps.AsSpan(_leafStart[leaf], _leafStart[leaf + 1] - _leafStart[leaf]);
 
     /// <summary>
-    /// <c>ClipRayToDispInLeaf</c> (<c>vraddisps.cpp:583</c>/<c>:600</c>) with
+ /// <c>ClipRayToDispInLeaf</c>(/) with
     /// <c>CBSPDispRayDistanceEnumerator</c>: the nearest displacement hit in a
     /// leaf, skipping any this ray already tested.
     /// </summary>
@@ -376,7 +376,7 @@ public sealed class DispCollisionSet
     }
 
     /// <summary>
-    /// <c>DispBuilderInit</c> (<c>vraddisps.cpp:348</c>).
+    /// <c>DispBuilderInit</c>.
     /// </summary>
     private static CoreDispInfo BuilderInit(
         ref readonly DFace face,
@@ -391,7 +391,7 @@ public sealed class DispCollisionSet
         if (info.Power is < 2 or > 4)
         {
             throw new InvalidBspException(
-                $"a displacement has power {info.Power}; the format allows 2 to 4 (bspfile.h:46).");
+                $"a displacement has power {info.Power}; the format allows 2 to 4.");
         }
 
         CoreDispInfo disp = new(info.Power);
@@ -436,7 +436,7 @@ public sealed class DispCollisionSet
 
         disp.InitDispInfo(info.MinTess, alphas, vectors, dists);
 
-        // builddisp.cpp:858-862: the tags come from LUMP_DISP_TRIS.
+        // The tags come from LUMP_DISP_TRIS.
         int tris = disp.TriCount;
         if (info.DispTriStart >= 0 && info.DispTriStart + tris <= dispTris.Length)
         {

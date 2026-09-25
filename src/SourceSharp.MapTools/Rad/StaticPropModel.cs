@@ -13,7 +13,7 @@ namespace SourceSharp.MapTools.Rad;
 /// </summary>
 /// <remarks>
 /// Stock has no such enum: <c>LoadStudioModel</c>
-/// (<c>vradstaticprops.cpp:464</c>) prints four different <c>Warning</c>s and
+/// Prints four different <c>Warning</c>s and
 /// returns the same <c>false</c> for all of them, and
 /// <c>CreateCollisionModel</c> then leaves the dictionary entry with a null
 /// model and a zeroed hull. Recording WHICH warning fired costs one field and
@@ -27,21 +27,19 @@ public enum StaticPropModelRejection
 
     /// <summary>
     /// The <c>.mdl</c> is not in the content: <c>"Unable to load model"</c>,
-    /// <c>vradstaticprops.cpp:470</c>.
     /// </summary>
     FileMissing,
 
     /// <summary>
     /// The ident is neither <c>IDST</c> nor <c>IDAG</c>, or the version is not
-    /// <c>STUDIO_VERSION</c> (48, <c>studio.h:70</c>):
-    /// <c>vradstaticprops.cpp:476</c> and <c>:487</c>.
+    /// <c>STUDIO_VERSION</c>(48):
     /// </summary>
     NotAStudioModel,
 
     /// <summary>
     /// The model was not compiled with <c>$staticprop</c>, so
     /// <c>STUDIOHDR_FLAGS_STATIC_PROP</c> is clear and <c>IsStaticProp</c>
-    /// (<c>vradstaticprops.cpp:378</c>) says no.
+    /// Says no.
     /// </summary>
     NotAStaticProp,
 }
@@ -53,19 +51,17 @@ public enum PropCollisionKind
 {
     /// <summary>
     /// None: the caller falls back to the model's axis-aligned hull box
-    /// (<c>vradstaticprops.cpp:1861</c>).
     /// </summary>
     None,
 
     /// <summary>
     /// The model's <c>.phy</c>, through <c>VCollideLoad</c>
-    /// (<c>vradstaticprops.cpp:967</c>).
     /// </summary>
     PhysicsFile,
 
     /// <summary>
     /// A convex hull per render mesh, through <c>ComputeConvexHull</c>
-    /// (<c>vradstaticprops.cpp:433</c>), which stock uses only when there is
+    /// Which stock uses only when there is
     /// no usable <c>.phy</c>.
     /// </summary>
     RenderHull,
@@ -73,7 +69,7 @@ public enum PropCollisionKind
 
 /// <summary>
 /// One entry of vrad's static prop model dictionary: <c>StaticPropDict_t</c>
-/// (<c>vradstaticprops.cpp:150</c>), loaded.
+/// Loaded.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -81,7 +77,7 @@ public enum PropCollisionKind
 /// is the load-bearing part. <c>dm_lockdown</c> has 261 props over a few dozen
 /// distinct models, so loading per prop would read each <c>.mdl</c>,
 /// <c>.vvd</c> and <c>.vtx</c> several times over; and stock's texture-shadow
-/// material cache (<c>vradstaticprops.cpp:1876</c>'s
+/// Material cache (the reference implementation's
 /// <c>dict.m_triangleMaterialIndex</c>) is keyed on the dictionary entry, so
 /// sharing is observable in the output and not only in the clock.
 /// </para>
@@ -97,7 +93,7 @@ public enum PropCollisionKind
 public sealed class StaticPropModel
 {
     /// <summary>
-    /// <c>STUDIOHDR_FLAGS_STATIC_PROP</c>, <c>studio.h:2039</c>.
+    /// <c>STUDIOHDR_FLAGS_STATIC_PROP</c>.
     /// </summary>
     /// <remarks>
     /// Defined here rather than in <c>StudioStructs.cs</c> because that file
@@ -108,7 +104,7 @@ public sealed class StaticPropModel
     public const int StudioFlagStaticProp = 0x00000010;
 
     /// <summary>
-    /// <c>STUDIOHDR_FLAGS_CAST_TEXTURE_SHADOWS</c>, <c>studio.h:2088</c>.
+    /// <c>STUDIOHDR_FLAGS_CAST_TEXTURE_SHADOWS</c>.
     /// </summary>
     public const int StudioFlagCastTextureShadows = 0x00040000;
 
@@ -148,7 +144,7 @@ public sealed class StaticPropModel
     /// <remarks>
     /// Read off the managed struct rather than written down as 48, because the
     /// number that matters is the one this port's reader will actually stride
-    /// by. <c>studio.h:1204</c> says 48 and a fact pins the agreement; if the
+    /// by. says 48 and a fact pins the agreement; if the
     /// two ever part, the fact fails instead of the geometry quietly shifting.
     /// </remarks>
     public static int VertexStride => Unsafe.SizeOf<StudioVertex>();
@@ -171,7 +167,7 @@ public sealed class StaticPropModel
     /// <summary>The parsed <c>.dx80.vtx</c>, or null when it did not load.</summary>
     /// <remarks>
     /// Null is stock's <c>m_VtxBuf.Purge()</c>
-    /// (<c>vradstaticprops.cpp:1000</c>) -- "failed, leave state identified as
+    /// -- "failed, leave state identified as
     /// disabled" -- and it is one of the two things that make
     /// <c>AddPolysForRayTrace</c> abandon the whole prop loop.
     /// </remarks>
@@ -183,7 +179,7 @@ public sealed class StaticPropModel
     /// <remarks>
     /// <c>VvdFile.VerticesForLod(0)</c>, which is
     /// <c>Studio_LoadVertexes( pVvdHdr, pNewVvdHdr, 0, true )</c>
-    /// (<c>vradstaticprops.cpp:2235</c>) exactly: walk the fixup table and copy
+    /// Exactly: walk the fixup table and copy
     /// every run whose lod is at least 0, which is all of them. The RAW vertex
     /// block is a different order and indexing it with a mesh's
     /// <c>origMeshVertID</c> produces geometry that is scrambled within each
@@ -197,9 +193,9 @@ public sealed class StaticPropModel
     /// <remarks>
     /// ZERO WHEN THE MODEL DID NOT LOAD, which is stock's
     /// <c>VectorCopy( vec3_origin, m_Mins )</c>
-    /// (<c>vradstaticprops.cpp:953</c>) and matters more than it looks: a
+    /// And matters more than it looks: a
     /// failed load is the ONLY way stock reaches the AABB fallback at
-    /// <c>:1861</c>, so the box stock actually adds there is a DEGENERATE
+ ///So the box stock actually adds there is a DEGENERATE
     /// point box at the prop's origin -- twelve zero-area triangles, not a
     /// bounding box. This port reaches the same branch for a model with no
     /// collision source as well (see <see cref="NullPropCollisionSource"/>),
@@ -215,7 +211,7 @@ public sealed class StaticPropModel
     /// </summary>
     /// <remarks>
     /// "Usable" is <c>LoadStudioCollisionModel</c>'s whole test
-    /// (<c>vradstaticprops.cpp:519</c>): the file is there, its
+    /// The file is there, its
     /// <c>header.size</c> equals <c>sizeof(phyheader_t)</c>, and
     /// <c>solidCount</c> is positive. Anything else is "the model simply has
     /// no PHY file" -- not an error.
@@ -231,7 +227,7 @@ public sealed class StaticPropModel
     /// </summary>
     /// <remarks>
     /// A STOCK DEFECT, pinned rather than fixed.
-    /// <c>vradstaticprops.cpp:971</c> is
+    /// Is
     /// <c>m_pModel = m_loadedModel.solids[0]</c> -- the dictionary keeps the
     /// whole <c>vcollide_t</c> but the caster path only ever queries the first
     /// solid, so every solid after the first in a multi-solid <c>.phy</c>
@@ -257,7 +253,6 @@ public sealed class StaticPropModel
 
     /// <summary>
     /// Whether the model opts into texture shadows at all:
-    /// <c>vradstaticprops.cpp:1006</c>.
     /// </summary>
     public bool CastsTextureShadows =>
         ForcedTextureShadows
@@ -265,7 +260,7 @@ public sealed class StaticPropModel
 
     /// <summary>
     /// Strips <c>models/</c> and the extension off a model path, the way
-    /// <c>CleanModelName</c> does (<c>vradstaticprops.cpp:899</c>).
+    /// <c>CleanModelName</c> does.
     /// </summary>
     /// <param name="modelName">The model path.</param>
     /// <returns>The cleaned name, for comparing against a <c>lights.rad</c> line.</returns>
@@ -299,12 +294,12 @@ public sealed class StaticPropModel
     /// <returns>An index into <see cref="Vertices"/>.</returns>
     /// <remarks>
     /// <para>
-    /// Two indirections collapsed, both from <c>studio.h</c>:
+    /// Two indirections collapsed, both from the reference implementation:
     /// <c>mstudio_meshvertexdata_t::GetModelVertexIndex</c>
-    /// (<c>studio.h:1532</c>) adds the MESH's <c>vertexoffset</c>, which is an
+    /// Adds the MESH's <c>vertexoffset</c>, which is an
     /// index; then
     /// <c>mstudio_modelvertexdata_t::GetGlobalVertexIndex</c>
-    /// (<c>studio.h:1456</c>) adds the MODEL's <c>vertexindex</c> DIVIDED BY
+    /// Adds the MODEL's <c>vertexindex</c> DIVIDED BY
     /// <see cref="VertexStride"/>, because that one is a byte offset.
     /// </para>
     /// <para>

@@ -5,9 +5,8 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// <summary>
 /// The <c>CPhysicsCollision</c> queries vbsp asks of a cooked collide: volumes (written into the
 /// keydata as <c>"volume"</c> and used for mass), the axis-aligned bounds, and the extent along a
-/// direction. Ported from the 2018 drop's <c>vphysics/physics_collide.cpp</c> and
-/// <c>vphysics/trace.cpp</c> (ruling Q16), with every float expression grouped as the SDK/TF2
-/// binaries emit it (this wrapper code is instruction-identical in both builds).
+/// Direction. Mirrors the reference collision queries, with every float expression grouped as
+/// The stock and TF2 builds emit it (this wrapper code is identical in both).
 /// </summary>
 internal static class IvpCollideQueries
 {
@@ -15,8 +14,8 @@ internal static class IvpCollideQueries
     public const float IvpToHl = 1.0f / 0.0254f;
 
     /// <summary>
-    /// <c>CPhysicsCollision::ConvexVolume</c> (SDK 00120650): the tetrahedra from the ledge's first
-    /// point to each triangle, in HL units. The binary works on the scaled IVP axes and folds the
+    /// <c>CPhysicsCollision::ConvexVolume</c> (stock): the tetrahedra from the ledge's first
+    /// point to each triangle, in HL units. The reference implementation works on the scaled IVP axes and folds the
     /// axis swap into signs; this is that expression, operation for operation.
     /// </summary>
     /// <param name="ledge">The convex.</param>
@@ -131,7 +130,7 @@ internal static class IvpCollideQueries
         }
     }
 
-    /// <summary><c>CPhysicsCollision::CollideVolume</c> (SDK 00122ac0): the leaves' volumes summed.</summary>
+    /// <summary><c>CPhysicsCollision::CollideVolume</c> (SDK): the leaves' volumes summed.</summary>
     /// <param name="vphy">The blob.</param>
     /// <returns>Cubic inches.</returns>
     public static float CollideVolume(ReadOnlySpan<byte> vphy) => SurfaceVolume(Surface(vphy));
@@ -150,7 +149,7 @@ internal static class IvpCollideQueries
         return volume;
     }
 
-    /// <summary>A ledge point in HL units: (x*s, z*s, -(y*s)) (trace.cpp's IVP-to-HL matrix at the origin).</summary>
+    /// <summary>A ledge point in HL units: (x*s, z*s, -(y*s)) (the reference implementation's IVP-to-HL matrix at the origin).</summary>
     /// <param name="ledge">The ledge.</param>
     /// <param name="point">Point index.</param>
     /// <returns>The HL position.</returns>

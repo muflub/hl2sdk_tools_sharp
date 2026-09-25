@@ -9,7 +9,7 @@ namespace SourceSharp.MapTools.Bsp.Detail;
 /// <remarks>
 /// <para>
 /// Not a stock defect: detail-prop placement is DEFINED by this sequence
-/// (<c>srand(hammerfaceid)</c> per face, <c>detailobjects.cpp:882</c>), so it
+/// (<c>srand(hammerfaceid)</c> per face), so it
 /// is reproduced unconditionally. One instance per face, seeded as stock seeds
 /// it — which is what lets faces be placed in parallel and committed in face
 /// order.
@@ -17,7 +17,7 @@ namespace SourceSharp.MapTools.Bsp.Detail;
 /// </remarks>
 public struct MsvcRandom
 {
-    /// <summary><c>VALVE_RAND_MAX</c> and <c>RAND_MAX</c>: 0x7fff.</summary>
+    /// <summary>The reference generator's maximum: 32767.</summary>
     public const int RandMax = 0x7fff;
 
     private uint _state;
@@ -35,7 +35,7 @@ public struct MsvcRandom
     }
 
     /// <summary>
-    /// <c>rand() / (float)VALVE_RAND_MAX</c> as stock's BINARY computes it: a
+    /// <c>rand() / (float)RAND_MAX</c> as the reference build computes it: a
     /// multiply by the constant's reciprocal. 0 to 1 inclusive.
     /// </summary>
     /// <returns>The value.</returns>
@@ -46,7 +46,7 @@ public struct MsvcRandom
     /// of 976 detail props in <c>l1_detail_props</c> (and 18 of 896 in
     /// <c>l2_props_overlays_detail_cubemap</c>) land one ulp of <c>u</c> away
     /// from stock; with the reciprocal, every origin matches. The divide in
-    /// <c>360.0f * rand() / (float)VALVE_RAND_MAX</c> (an expression whose
+    /// <c>360.0f * rand() / (float)RAND_MAX</c> (an expression whose
     /// left side is not a lone <c>rand()</c>) was NOT rewritten: making it a
     /// reciprocal multiply too moved three more props off stock.
     /// </remarks>
@@ -55,7 +55,7 @@ public struct MsvcRandom
 
 /// <summary>
 /// <c>CGaussianRandomStream</c> over vstdlib's uniform stream
-/// (<c>vstdlib/random.cpp</c>): the Marsaglia polar method, with the second
+/// The Marsaglia polar method, with the second
 /// value of each pair kept for the next call.
 /// </summary>
 /// <remarks>

@@ -15,18 +15,18 @@ namespace SourceSharp.MapTools.Compare;
 internal static class DistributionalLumpDiff
 {
     /// <summary>
-    /// <c>SURF_BUMPLIGHT</c> (<c>bspflags.h:93</c>): the surface carries a
+    /// <c>SURF_BUMPLIGHT</c>: the surface carries a
     /// lightmap per bump basis vector as well as the flat one.
     /// </summary>
     private const int SurfBumpLight = 0x0800;
 
     /// <summary>
-    /// <c>NUM_BUMP_VECTS</c> (<c>bumpvects.h:25</c>) plus the flat lightmap:
-    /// the multiplier <c>lightmap.cpp:3404</c> applies to a bumped face.
+    /// <c>NUM_BUMP_VECTS</c> plus the flat lightmap:
+    /// the multiplier applies to a bumped face.
     /// </summary>
     private const int BumpLightmapCount = 4;
 
-    /// <summary><c>MAXLIGHTMAPS</c> (<c>bspfile.h:679</c>).</summary>
+    /// <summary><c>MAXLIGHTMAPS</c>.</summary>
     private const int MaxLightStyles = 4;
 
     /// <summary>
@@ -218,7 +218,7 @@ internal static class DistributionalLumpDiff
         into.Note = string.Create(
             CultureInfo.InvariantCulture,
             $"per-sample error is the largest per-CHANNEL absolute difference in linear space "
-            + $"(c * 2^e / 255, mathlib.h:975); statistics are over EVERY sample, as Phase 0's "
+            + $"(c * 2^e / 255); statistics are over EVERY sample, as Phase 0's "
             + $"were; samples are attributed to faces through {faceLump}'s lightofs");
 
         ReadOnlySpan<ColorRgbExp32> sa = BspStructView.As<ColorRgbExp32>(la);
@@ -386,7 +386,7 @@ internal static class DistributionalLumpDiff
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <c>lightmap.cpp:3395-3410</c> lays the lump out per face as: the average
+    /// Lays the lump out per face as: the average
     /// colours first, one per light style, THEN <c>lightofs</c>, then
     /// <c>(w+1)*(h+1)</c> luxels per style, times four when the surface carries
     /// <c>SURF_BUMPLIGHT</c>. So a face's own bytes start
