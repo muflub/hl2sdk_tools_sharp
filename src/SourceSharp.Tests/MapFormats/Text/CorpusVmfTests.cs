@@ -51,10 +51,10 @@ public class CorpusVmfTests
     [RepoSourceFact(VmfPath)]
     public async Task EverySideCarriesTheKeysVbspReads()
     {
-        // map.cpp's side handler reads plane, material, uaxis and vaxis. The
-        // texture axes are the BRACKETED vector-4 spelling
-        // (chunkfile.cpp:770), and the plane is three parenthesised points --
-        // a value the chunk grammar treats as one opaque string.
+        // The reference implementation's side handler reads plane, material, uaxis and vaxis. The
+        // texture axes are the BRACKETED vector-4 spelling, and the plane is
+        // three parenthesised points -- a value the chunk grammar treats as one
+        // opaque string.
         VmfDocument document = await LoadAsync();
 
         List<VmfChunk> sides =
@@ -103,8 +103,8 @@ public class CorpusVmfTests
         // A FINDING FOR THE INTEGRATOR, pinned so it cannot be discovered by
         // surprise later.
         //
-        // CChunkFile::WriteLine writes a literal "\r\n" through fwrite
-        // (chunkfile.cpp:977) -- unconditionally, on every platform, with no
+        // The reference chunk writer emits a literal "\r\n" through fwrite
+        // -- unconditionally, on every platform, with no
         // option. SourceSharp.MapGen writes this file with bare LFs. So a
         // FAITHFUL chunk writer cannot reproduce MapGen's bytes, and the plan's
         // "MapGen's writer -> this parser -> writer is a fixed point" holds
@@ -125,7 +125,7 @@ public class CorpusVmfTests
     [RepoSourceFact(VmfPath)]
     public async Task CorpusMapContainsAValueWithALiteralNewlineInIt()
     {
-        // The quirk at tokenreader.cpp:110-117 is not theoretical: the only
+        // The quirk in the reference tokenizer is not theoretical: the only
         // VMF in this tree exercises it. A point_worldtext entity's `message`
         // key holds two lines of text with a RAW newline between them, inside
         // the quotes.
@@ -146,22 +146,22 @@ public class CorpusVmfTests
         // defect in this port.
         //
         // GetString checks for 0x0d -- a CARRIAGE RETURN -- inside a quoted
-        // string and returns TOKENSTRINGTOOLONG (tokenreader.cpp:110-117). A
+        // string and returns TOKENSTRINGTOOLONG. A
         // bare LF is not checked, so the multi-line `message` value above
         // parses perfectly in this LF file and would parse in stock vbsp too.
         //
         // Convert the same file to CRLF and that newline becomes CR+LF INSIDE
         // THE QUOTES, and the tokenizer rejects it: "unterminated string or
-        // string too long". Which means CChunkFile cannot read back a file
-        // CChunkFile could have written -- WriteKeyValue is a plain
-        // "\"%s\" \"%s\"" with no escaping (chunkfile.cpp:787), and WriteLine
-        // always emits CRLF (:977).
+        // string too long". Which means the reference reader cannot read back a
+        // file it could have written -- WriteKeyValue is a plain
+        // "\"%s\" \"%s\"" with no escaping, and WriteLine
+        // always emits CRLF.
         //
         // So this is a real shape of VMF that a faithful writer turns into a
         // file stock cannot parse. The port does NOT paper over it by escaping
         // on write: that would make every managed-written value differ from
         // stock's. The fix belongs upstream, in whatever writes such a value --
-        // the reader decodes "\n" as a newline (tokenreader.cpp:130-133), so
+        // the reader decodes "\n" as a newline, so
         // the escape is what a writer should emit.
         byte[] original = File.ReadAllBytes(RepoSourceFactAttribute.Find(VmfPath)!);
         string crlf = Encoding.Latin1.GetString(original)
@@ -179,7 +179,7 @@ public class CorpusVmfTests
     {
         // The proof that the embedded newline is the ONLY thing standing
         // between this writer and byte-exactness: escape it the way the
-        // tokenizer decodes it (tokenreader.cpp:130-133), convert to CRLF, and
+        // tokenizer decodes it, convert to CRLF, and
         // 913 KB of real content round-trips byte for byte. If the reader or
         // writer differed from stock anywhere else, this would not hold.
         byte[] original = File.ReadAllBytes(RepoSourceFactAttribute.Find(VmfPath)!);

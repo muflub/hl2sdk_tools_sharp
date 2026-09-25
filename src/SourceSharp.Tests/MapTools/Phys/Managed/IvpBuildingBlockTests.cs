@@ -5,8 +5,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Phys.Managed;
 
 /// <summary>
-/// One behaviour per fact for the decompiled IVP building blocks. Each fact cites the SDK 2013
-/// <c>vphysics.so</c> function (Ghidra address) it was read from.
+/// One behaviour per fact for the IVP building blocks. Each fact was read off the reference
+/// collision cooker and pins the behaviour it reproduces.
 /// </summary>
 public class IvpBuildingBlockTests
 {
@@ -15,7 +15,7 @@ public class IvpBuildingBlockTests
     [Fact]
     public void AddHalfspaceDropsANewPlaneWhenAParallelOneIsTighter()
     {
-        // 0017edf0: dot > 0.9999 and existing.w < new.w -> the new plane is not added.
+        // The reference cooker drops a new plane when dot > 0.9999 and existing.w < new.w.
         var soup = new List<IvpPoint<double>> { H(1, 0, 0, 1) };
         IvpHalfspaceSoup<double, CorrectPrecision>.AddHalfspace(soup, H(1, 0, 0, 2));
         Assert.Single(soup);
@@ -44,7 +44,7 @@ public class IvpBuildingBlockTests
     [Fact]
     public void ThreeParallelPlanesHaveNoIntersection()
     {
-        // 00200a60 via real_invert 00200850: |det| below the build's epsilon fails.
+        // |det| below the build's epsilon fails the 3x3 inversion.
         bool ok = IvpHalfspaceSoup<double, CorrectPrecision>.Intersect(H(1, 0, 0, 1), H(1, 0, 0, 2), H(0, 1, 0, 1), out _, out _, out _);
         Assert.False(ok);
     }
@@ -71,8 +71,8 @@ public class IvpBuildingBlockTests
     [Fact]
     public void ThePlaneConversionFlipsToInwardAndSwapsYAndZ()
     {
-        // ConvexFromPlanes 0011f8a0 / convert.h ConvertPlaneToIVP(-n, -d): k = (-nx, nz, -ny),
-        // hesse = 0.0254f * d.
+        // The plane conversion in the reference cooker is ConvertPlaneToIVP(-n, -d):
+        // k = (-nx, nz, -ny), hesse = 0.0254f * d.
         List<IvpPoint<float>> soup = IvpHalfspaceSoup<float, StockPrecision>.FromHlPlanes([(0, 1, 0, 10)], 0f, out _);
         Assert.Equal((0f, 0f, -1f), (soup[0].X, soup[0].Y, soup[0].Z));
         Assert.Equal(0.0254f * 10, soup[0].W);
@@ -81,7 +81,7 @@ public class IvpBuildingBlockTests
     [Fact]
     public void ThreePointsMakeATwoSidedLedge()
     {
-        // 00183d20: the cached unit-triangle ledge with its points replaced.
+        // The reference cooker builds this from the cached unit-triangle ledge with its points replaced.
         IvpCompactLedge? ledge = IvpTriangleLedge<float, StockPrecision>.Build(
             new IvpPoint<float>(0, 0, 0, 0), new IvpPoint<float>(1, 0, 0, 0), new IvpPoint<float>(0, 1, 0, 0));
         Assert.NotNull(ledge);
@@ -102,8 +102,8 @@ public class IvpBuildingBlockTests
     [Fact]
     public void TheTemplateAppendsATwinOfPointZero()
     {
-        // 00182f50 treats "found at index 0" as "not found": -0.0 == +0.0, so a twin of point 0
-        // is appended again (and never referenced).
+        // The reference cooker's template build treats "found at index 0" as "not found":
+        // -0.0 == +0.0, so a twin of point 0 is appended again (and never referenced).
         var unique = new List<IvpPoint<float>> { new(0f, 1, 2, 0), new(5, 5, 5, 0), new(-0f, 1, 2, 0) };
         IvpTemplatePolygon<float> t = IvpTemplatePolygon<float>.Build(unique, []);
         Assert.Equal(3, t.Points.Count);
@@ -129,7 +129,7 @@ public class IvpBuildingBlockTests
     [Fact]
     public void TheJoggleOptionRoundTripsThroughSixSignificantDigits()
     {
-        // 00183ed0 sprintf("%G") then qhull's strtod.
+        // The reference cooker formats the joggle option with "%G" and hands it to qhull's strtod.
         Assert.Equal(1e-12, double.Parse(IvpPointSoup<double, CorrectPrecision>.FormatG(9.999999960041972e-13), System.Globalization.CultureInfo.InvariantCulture));
         Assert.Equal(2.4e-12, double.Parse(IvpPointSoup<double, CorrectPrecision>.FormatG(2.3999999e-12), System.Globalization.CultureInfo.InvariantCulture));
     }
@@ -149,7 +149,7 @@ public class IvpBuildingBlockTests
     [Fact]
     public void StockNormizeLeavesAShortVectorAlone()
     {
-        // 001ff790: s < 1e-10f -> false, vector unchanged.
+        // The earlier reference build: s < 1e-10f -> false, vector unchanged.
         float x = 1e-6f, y = 0, z = 0;
         Assert.False(StockPrecision.NormizeFloatPoint(ref x, ref y, ref z));
         Assert.Equal(1e-6f, x);
@@ -158,7 +158,7 @@ public class IvpBuildingBlockTests
     [Fact]
     public void CorrectNormizeAcceptsWhatStockRejects()
     {
-        // TF2 00208dc0 compares against 1e-19 in double.
+        // The later reference build compares against 1e-19 in double.
         float x = 1e-6f, y = 0, z = 0;
         Assert.True(CorrectPrecision.NormizeFloatPoint(ref x, ref y, ref z));
         Assert.Equal(1f, x, 6);
@@ -167,8 +167,8 @@ public class IvpBuildingBlockTests
     [Fact]
     public void TheBitHackInverseSquareRootIsWithinTenToTheMinusFourteen()
     {
-        // TF2's isqrt: four Newton steps from the exponent guess (measured worst 7.8e-15 relative
-        // over these inputs); the cooker's TF2 byte-exact goldens pin the exact bits.
+        // The later reference build's isqrt: four Newton steps from the exponent guess
+        // (measured worst 7.8e-15 relative over these inputs); the byte-exact goldens pin the exact bits.
         foreach (double s in new[] { 0.25, 2.0, 3.0, 1e-8, 12345.678 })
         {
             double exact = 1.0 / Math.Sqrt(s);

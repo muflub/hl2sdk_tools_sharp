@@ -45,7 +45,7 @@ public class EntityLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void KeepsPairsInFileOrder()
     {
-        // bsplib.cpp:3056 prepends, so stock reverses these on a round trip.
+        // Prepends, so stock reverses these on a round trip.
         // This port keeps file order; that is the deliberate difference.
         List<BspEntity> entities =
             EntityLump.Parse(Lump("{\n\"a\" \"1\"\n\"b\" \"2\"\n\"c\" \"3\"\n}\n"));
@@ -84,7 +84,7 @@ public class EntityLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void StripsTrailingWhitespaceFromValues()
     {
-        // bsplib.cpp:2986 -- StripTrailing walks back while *s <= 32, so it
+        // StripTrailing walks back while *s <= 32, so it
         // takes control characters too, not just spaces.
         List<BspEntity> entities = EntityLump.Parse(Lump("{\n\"targetname\" \"door \t\"\n}\n"));
 
@@ -112,7 +112,7 @@ public class EntityLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void AQuotedValueHasNoEscapeSequences()
     {
-        // scriplib.cpp:664 copies bytes until the next quote with no escape
+        // Copies bytes until the next quote with no escape
         // handling at all, so a backslash is a literal backslash.
         List<BspEntity> entities =
             EntityLump.Parse(Lump("{\n\"model\" \"models\\props\\crate.mdl\"\n}\n"));
@@ -123,7 +123,6 @@ public class EntityLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void SkipsDoubleSlashComments()
     {
-        // scriplib.cpp:627.
         List<BspEntity> entities =
             EntityLump.Parse(Lump("// a comment\n{\n\"classname\" \"light\"\n}\n"));
 
@@ -133,7 +132,7 @@ public class EntityLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void SkipsSemicolonComments()
     {
-        // scriplib.cpp:627 -- ';' and '#' are comment starters too, which is
+        // ';' and '#' are comment starters too, which is
         // easy to miss if you only port the '//' case.
         List<BspEntity> entities =
             EntityLump.Parse(Lump("; a comment\n{\n\"classname\" \"light\"\n}\n"));
@@ -144,7 +143,6 @@ public class EntityLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void SkipsBlockComments()
     {
-        // scriplib.cpp:643.
         List<BspEntity> entities =
             EntityLump.Parse(Lump("/* gone */\n{\n\"classname\" \"light\"\n}\n"));
 
@@ -154,7 +152,7 @@ public class EntityLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void RejectsTextThatEndsInsideAnEntity()
     {
-        // bsplib.cpp:3052 calls this "ParseEntity: EOF without closing brace".
+        // Calls this "ParseEntity: EOF without closing brace".
         Assert.Throws<InvalidBspException>(() => EntityLump.Parse(Lump("{\n\"a\" \"1\"\n")));
     }
 
@@ -167,7 +165,7 @@ public class EntityLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void WritesTheExactByteFormatUnparseEntitiesWrites()
     {
-        // bsplib.cpp:3104 -- "{\n", then "\"%s\" \"%s\"\n" per pair, then
+        // "{\n", then "\"%s\" \"%s\"\n" per pair, then
         // "}\n". A byte-exact golden rather than a round trip, because a round
         // trip passes with any self-consistent spelling.
         BspEntity entity = new();
@@ -189,7 +187,7 @@ public class EntityLumpTests : IClassFixture<LockdownFixture>
 
         BspLumpData lump = EntityLump.Write([entity]);
 
-        // bsplib.cpp:3118 -- entdatasize is TellPut()+1, so the terminator is
+        // Entdatasize is TellPut+1, so the terminator is
         // inside the lump's length and not an implicit extra byte.
         Assert.Equal(0, lump.Data.Span[^1]);
         Assert.DoesNotContain((byte)0, lump.Data.Span[..^1].ToArray());
@@ -198,7 +196,7 @@ public class EntityLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void SkipsAnEntityWithNoPairsAtAll()
     {
-        // bsplib.cpp:3102 -- "ent got removed". This is how vbsp deletes an
+        // "ent got removed". This is how vbsp deletes an
         // entity without renumbering the rest.
         BspEntity kept = new();
         kept.Pairs.Add(new BspKeyValue("classname", "light"));
@@ -221,7 +219,7 @@ public class EntityLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void StripsTrailingWhitespaceOnTheWaySideToo()
     {
-        // UnparseEntities strips again at write time (bsplib.cpp:3109), so a
+        // UnparseEntities strips again at write time, so a
         // pair built in memory with a trailing space still writes clean.
         BspEntity entity = new();
         entity.Pairs.Add(new BspKeyValue("targetname", "door  "));

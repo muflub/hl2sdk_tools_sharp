@@ -5,15 +5,15 @@ using Xunit;
 namespace SourceSharp.Tests.MapFormats.Zip;
 
 /// <summary>
-/// The Phase 1b round-trip gate, run against a pak Valve shipped rather than
-/// one this test wrote.
+/// The Phase 1b round-trip gate, run against a pak that ships inside real
+/// game content rather than one this test wrote.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <c>game/mod_sharp/maps/dm_lockdown.bsp</c> carries 595 files in lump 40. A
+/// Carries 595 files in lump 40. A
 /// synthesised pak only proves this writer agrees with itself; a shipped one
 /// proves it agrees with the compiler that made the map -- which is what
-/// "byte-exact" has to mean for a pak the engine will load.
+/// "byte-exact" has to mean for a pak the game will load.
 /// </para>
 /// <para>
 /// Skipped, not passed, when the map is not beside the binary: see
@@ -28,7 +28,6 @@ public class ShippedPakRoundTripTests
     /// <summary>
     /// The BSP header's fixed size: an ident, a version, 64 lump entries of
     /// four <c>int</c>s each, and a map revision
-    /// (<c>src/public/bspfile.h:370-380</c>).
     /// </summary>
     private const int LumpTableOffset = 8;
 
@@ -70,7 +69,7 @@ public class ShippedPakRoundTripTests
     public async Task ShippedPakStoredCrcsAgreeWithTheDataRecomputed()
     {
         // Nothing in Source ever verifies these -- the CRC is stored at
-        // zip_utils.cpp:740 and re-emitted and never compared. So this is the
+        // And re-emitted and never compared. So this is the
         // check that the CRC implementation here is the one the compiler used,
         // measured against 595 files of real content rather than one vector.
         byte[] pak = ReadPakLump();
@@ -82,7 +81,7 @@ public class ShippedPakRoundTripTests
     [RepoSourceFact(MapPath)]
     public async Task ShippedPakNamesAreAllLowerCase()
     {
-        // zip_utils.cpp:995-998,709 -- lower-cased on the way in and on the
+        // Lower-cased on the way in and on the
         // way out, so a shipped pak has no mixed-case name in it.
         byte[] pak = ReadPakLump();
         ZipArchiveReader read = await ZipArchiveReader.ParseAsync(pak, CancellationToken.None);
@@ -93,10 +92,10 @@ public class ShippedPakRoundTripTests
     [RepoSourceFact(MapPath)]
     public async Task ShippedPakHasNoZipCommentAtAll()
     {
-        // NOT WHAT THE SOURCE PREDICTS, and the reason the writer's comment is
-        // settable. MakeXZipCommentString (zip_utils.cpp:1303-1316) is
-        // unconditional in the CURRENT tree, and CalculateSize notes at
-        // :1384-1385 that "All processed zip files will have a comment
+        // NOT WHAT THE REFERENCE PREDICTS, and the reason the writer's comment is
+        // settable. The reference's MakeXZipCommentString is unconditional,
+        // and its size calculation
+        // calculation notes that "All processed zip files will have a comment
         // string". This shipped HL2DM map has a comment length of zero: it was
         // built by a vbsp that predates the XZIP work. A writer that always
         // emitted the 32-byte comment could not round-trip shipped content.

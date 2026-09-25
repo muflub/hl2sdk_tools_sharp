@@ -54,7 +54,6 @@ public class BspZipParityTests
         // Same entries, same order. Order matters: bspzip walks the central
         // directory in file order, and so does this reader -- unlike
         // CZipFile, which re-sorts into a red-black tree on load
-        // (zip_utils.cpp:735-760).
         ZipArchiveReader read = await ZipArchiveReader.ParseAsync(ReadPakLump(), CancellationToken.None);
 
         Assert.Equal(ReadFixture(), read.Entries.Select(e => e.Name).ToArray());

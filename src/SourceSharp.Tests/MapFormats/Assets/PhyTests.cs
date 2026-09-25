@@ -17,8 +17,8 @@ namespace SourceSharp.Tests.MapFormats.Assets;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Framing only. A solid's payload is an IVP compact ledge tree that vphysics
-/// owns; stock vrad hands the bytes to the library rather than decoding them,
+/// Framing only. A solid's payload is an IVP compact ledge tree that the reference
+/// collision cooker owns; stock vrad hands the bytes to the library rather than decoding them,
 /// and so does this port. That means there is no managed triangle count for a
 /// solid to be stable across runs -- the number comes from the library, and
 /// what this port guarantees is that the library gets the right bytes.
@@ -30,7 +30,7 @@ namespace SourceSharp.Tests.MapFormats.Assets;
 /// solids). Every one satisfied
 /// <c>headerSize + 4*solids + sum(solidBytes) == keyDataOffset</c> and began
 /// its key data with <c>solid {</c>. That corpus is not committed -- it is
-/// Valve content and it is 2,000 files -- so the committed facts below use
+/// third-party content and it is 2,000 files -- so the committed facts below use
 /// <c>dm_lockdown.bsp</c>'s own collision lump, which uses the same framing
 /// and IS committed.
 /// </para>
@@ -75,7 +75,7 @@ public class PhyTests : IClassFixture<LockdownFixture>
     [Fact]
     public void ThePhyHeaderIsSixteenBytes()
     {
-        // phyfile.h:14 -- four ints.
+        // Layout: four ints.
         Assert.Equal(16, Unsafe.SizeOf<PhyHeader>());
     }
 

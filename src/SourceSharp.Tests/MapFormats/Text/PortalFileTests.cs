@@ -6,8 +6,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapFormats.Text;
 
 /// <summary>
-/// Facts for the <c>.prt</c> portal file, from <c>src/utils/vvis/vvis.cpp</c>
-/// (the reader) and <c>src/utils/vbsp/prtfile.cpp</c> (the writer).
+/// Facts for the <c>.prt</c> portal file, from the reference implementation
+/// (the reader) and (the writer).
 /// </summary>
 public class PortalFileTests
 {
@@ -25,7 +25,7 @@ public class PortalFileTests
     [Fact]
     public async Task HeaderIsMagicThenClustersThenPortals()
     {
-        // vvis.cpp:464 -- fscanf(f, "%79s\n%i\n%i\n", magic, &portalclusters,
+        // Fscanf(f, "%79s\n%i\n%i\n", magic, &portalclusters,
         // &g_numportals). Clusters come FIRST.
         PortalFile file = await ParseAsync(OneSquarePortal);
 
@@ -36,8 +36,8 @@ public class PortalFileTests
     [Fact]
     public async Task LowercaseMagicIsAccepted()
     {
-        // vvis.cpp:466 compares with stricmp. The writer only ever emits upper
-        // case (prtfile.cpp:21,356), so this can only be hit by a hand-made or
+        // Compares with stricmp. The writer only ever emits upper
+        // case, so this can only be hit by a hand-made or
         // third-party file -- but it IS accepted.
         PortalFile file = await ParseAsync(OneSquarePortal.Replace("PRT1", "prt1", StringComparison.Ordinal));
 
@@ -47,8 +47,8 @@ public class PortalFileTests
     [Fact]
     public async Task Prt2IsRejected()
     {
-        // The only magic in the tree is PRT1 (vis.h:17, prtfile.cpp:21). PRT2
-        // and PRT1-AM belong to other branches and hit vvis.cpp:467.
+        // The only magic this reader accepts is PRT1. PRT2 and
+        // PRT1-AM belong to other branches of the reference tool and are rejected.
         InvalidPortalFileException error = await Assert.ThrowsAsync<InvalidPortalFileException>(
             async () => await ParseAsync(OneSquarePortal.Replace("PRT1", "PRT2", StringComparison.Ordinal)));
 
@@ -58,7 +58,7 @@ public class PortalFileTests
     [Fact]
     public async Task HeaderFieldsMaySitOnOneLine()
     {
-        // The '\n' characters in vvis.cpp:464's format string are ordinary
+        // The '\n' characters in the reference implementation's format string are ordinary
         // whitespace directives, so the conventional one-per-line layout is a
         // convention rather than a rule.
         PortalFile file = await ParseAsync("PRT1 2 1 4 0 1 (0 0 0 ) (0 0 64 ) (0 64 64 ) (0 64 0 ) \n");
@@ -70,7 +70,7 @@ public class PortalFileTests
     [Fact]
     public async Task TruncatedHeaderIsAFailedHeaderRead()
     {
-        // vvis.cpp:465 -- fewer than three fields.
+        // Fewer than three fields.
         InvalidPortalFileException error = await Assert.ThrowsAsync<InvalidPortalFileException>(
             async () => await ParseAsync("PRT1\n4\n"));
 
@@ -80,8 +80,8 @@ public class PortalFileTests
     [Fact]
     public async Task IntegerSpelledAndFloatSpelledCoordinatesParseIdentically()
     {
-        // THE quirk the plan calls out. vvis.cpp:522 scans with "%lf", so both
-        // spellings go through the same double conversion, and :525-526
+        // THE quirk the plan calls out. The reference implementation scans with "%lf", so both
+        // spellings go through the same double conversion,
         // narrows per component. The results must be bit-identical, not merely
         // close.
         PortalFile integers = await ParseAsync(
@@ -95,7 +95,7 @@ public class PortalFileTests
     [Fact]
     public async Task CoordinateIsNarrowedToFloatSoPrecisionBeyondItIsLost()
     {
-        // vvis.cpp:517-526, "scanf into double, then assign to vec_t". The
+        // The reference implementation, "scanf into double, then assign to vec_t". The
         // DOUBLE half of that is not observable through this reader -- IEEE
         // double rounding differs from a direct single-precision parse so
         // rarely that no realistic coordinate distinguishes them, and saying
@@ -112,7 +112,7 @@ public class PortalFileTests
     [Fact]
     public async Task EachFilePortalBecomesTwoMemoryPortals()
     {
-        // vvis.cpp:484-486 -- "each file portal is split into two memory
+        // "each file portal is split into two memory
         // portals".
         PortalFile file = await ParseAsync(OneSquarePortal);
 
@@ -122,7 +122,7 @@ public class PortalFileTests
     [Fact]
     public async Task ForwardPortalCarriesTheNegatedPlane()
     {
-        // vvis.cpp:538-539 -- VectorSubtract(vec3_origin, plane.normal, ...)
+        // Layout: VectorSubtract(vec3_origin, plane.normal,...)
         // and dist = -dist. BOTH halves are negated.
         PortalFile file = await ParseAsync(OneSquarePortal);
         (Vec3 normal, float distance) = PortalFile.PlaneFromWinding(file.Portals[0].Points);
@@ -136,7 +136,7 @@ public class PortalFileTests
     [Fact]
     public async Task ForwardPortalLeafIsTheSecondLeafNumber()
     {
-        // vvis.cpp:540 -- p->leaf = leafnums[1]. The portal is filed under
+        // P->leaf = leafnums[1]. The portal is filed under
         // leaf 0 but its `leaf` field names the NEIGHBOUR.
         PortalFile file = await ParseAsync(OneSquarePortal);
         MemoryPortal forward = file.ToMemoryPortals()[0];
@@ -148,7 +148,7 @@ public class PortalFileTests
     [Fact]
     public async Task ForwardPortalKeepsTheWindingOrderAsRead()
     {
-        // vvis.cpp:536 -- p->winding = w, the object the loader filled.
+        // P->winding = w, the object the loader filled.
         PortalFile file = await ParseAsync(OneSquarePortal);
 
         Assert.Equal(file.Portals[0].Points, file.ToMemoryPortals()[0].Points);
@@ -157,7 +157,7 @@ public class PortalFileTests
     [Fact]
     public async Task BackwardPortalCarriesTheUnNegatedPlaneAndTheOtherLeaf()
     {
-        // vvis.cpp:555-556 -- p->plane = plane; p->leaf = leafnums[0].
+        // P->plane = plane; p->leaf = leafnums[0].
         PortalFile file = await ParseAsync(OneSquarePortal);
         (Vec3 normal, float distance) = PortalFile.PlaneFromWinding(file.Portals[0].Points);
 
@@ -172,7 +172,7 @@ public class PortalFileTests
     [Fact]
     public async Task BackwardPortalReversesTheWinding()
     {
-        // vvis.cpp:550-553 -- points[w->numpoints - 1 - j].
+        // Points[w->numpoints - 1 - j].
         PortalFile file = await ParseAsync(OneSquarePortal);
 
         Assert.Equal(
@@ -183,9 +183,9 @@ public class PortalFileTests
     [Fact]
     public async Task OnlyTheForwardPortalIsMarkedAsTheOriginalWinding()
     {
-        // vvis.cpp:512 sets original = true on the loaded winding, which the
+        // Sets original = true on the loaded winding, which the
         // forward portal SHARES; the backward one gets a NewWinding whose flag
-        // the memset at :89 leaves false.
+        // the memset leaves false.
         PortalFile file = await ParseAsync(OneSquarePortal);
         IReadOnlyList<MemoryPortal> portals = file.ToMemoryPortals();
 
@@ -196,7 +196,7 @@ public class PortalFileTests
     [Fact]
     public void PlaneIsComputedFromTheWindingRatherThanReadFromTheFile()
     {
-        // vvis.cpp:61-71 -- v1 = p[2]-p[1], v2 = p[0]-p[1],
+        // V1 = p[2]-p[1], v2 = p[0]-p[1],
         // normal = cross(v2, v1) normalised, dist = dot(p[0], normal). The
         // operand order decides the sign, so a quad in the XY plane wound
         // counter-clockwise gives +Z.
@@ -217,7 +217,7 @@ public class PortalFileTests
     [Fact]
     public void AWindingOfTwoPointsCannotDefineAPlane()
     {
-        // The C++ reads points[0..2] unconditionally at vvis.cpp:66-67 and has
+        // The reference implementation reads points[0..2] unconditionally and has
         // no guard; this port refuses rather than reading past the winding.
         Assert.Throws<InvalidPortalFileException>(
             () => PortalFile.PlaneFromWinding([new Vec3(0, 0, 0), new Vec3(1, 0, 0)]));
@@ -226,9 +226,9 @@ public class PortalFileTests
     [Fact]
     public async Task LeafNumberEqualToTheClusterCountIsAccepted()
     {
-        // THE OFF-BY-ONE. vvis.cpp:507-508 tests (unsigned)leafnum >
+        // THE OFF-BY-ONE. The reference implementation tests (unsigned)leafnum >
         // portalclusters, NOT >=, so leafnum == portalclusters passes here and
-        // then indexes one past the leaf array at :534. Reproduced, because a
+        // then indexes one past the leaf array. Reproduced, because a
         // .prt stock loads must load here.
         PortalFile file = await ParseAsync("PRT1\n2\n1\n3 2 1 (0 0 0 ) (0 1 0 ) (0 0 1 ) \n");
 
@@ -246,7 +246,7 @@ public class PortalFileTests
     [Fact]
     public async Task NegativeLeafNumberIsRejected()
     {
-        // vvis.cpp:507 casts to unsigned, so a negative becomes a huge value
+        // Casts to unsigned, so a negative becomes a huge value
         // and fails the bound.
         await Assert.ThrowsAsync<InvalidPortalFileException>(
             async () => await ParseAsync("PRT1\n2\n1\n3 -1 1 (0 0 0 ) (0 1 0 ) (0 0 1 ) \n"));
@@ -255,7 +255,7 @@ public class PortalFileTests
     [Fact]
     public async Task SixtyFivePointsIsTooMany()
     {
-        // vvis.cpp:505-506 -- the test is > MAX_POINTS_ON_WINDING, so 64 is
+        // The test is > MAX_POINTS_ON_WINDING, so 64 is
         // legal and 65 is not.
         StringBuilder line = new("PRT1\n2\n1\n65 0 1 ");
         for (int i = 0; i < 65; i++)
@@ -290,7 +290,7 @@ public class PortalFileTests
     [Fact]
     public async Task PortalCountAtTheLimitIsRejectedBecauseTheCheckIsOnTheDoubledCount()
     {
-        // vvis.cpp:472 -- if (g_numportals * 2 >= MAX_PORTALS). With
+        // If (g_numportals * 2 >= MAX_PORTALS). With
         // MAX_PORTALS 65536 the largest accepted file count is 32767, not
         // 32768: the comparison is >=, not >.
         InvalidPortalFileException error = await Assert.ThrowsAsync<InvalidPortalFileException>(
@@ -302,7 +302,7 @@ public class PortalFileTests
     [Fact]
     public async Task MissingOpenParenOnAPointIsRejected()
     {
-        // vvis.cpp:522-524 -- the '(' is a hard literal in the format string.
+        // The '(' is a hard literal in the format string.
         await Assert.ThrowsAsync<InvalidPortalFileException>(
             async () => await ParseAsync("PRT1\n2\n1\n3 0 1 0 0 0 ) (0 1 0 ) (0 0 1 ) \n"));
     }
@@ -317,7 +317,6 @@ public class PortalFileTests
     [Fact]
     public async Task PortalLineWithFewerThanThreeIntegersIsRejected()
     {
-        // vvis.cpp:503-504.
         await Assert.ThrowsAsync<InvalidPortalFileException>(
             async () => await ParseAsync("PRT1\n2\n1\n4 0\n"));
     }
@@ -325,7 +324,7 @@ public class PortalFileTests
     [Fact]
     public async Task WriterEmitsTheHeaderOneValueToALine()
     {
-        // prtfile.cpp:356-358 -- three separate fprintf calls.
+        // Layout: three separate fprintf calls.
         PortalFile file = await ParseAsync(OneSquarePortal);
         string written = Encoding.Latin1.GetString(file.ToBytes());
 
@@ -335,7 +334,7 @@ public class PortalFileTests
     [Fact]
     public async Task WriterCollapsesANearIntegerCoordinate()
     {
-        // WriteFloat, prtfile.cpp:33-39: within 0.001 of an integer it prints
+        // WriteFloat, the reference implementation: within 0.001 of an integer it prints
         // "%i", so 64.0 is "64" and not "64.000000".
         PortalFile file = await ParseAsync(OneSquarePortal);
         string written = Encoding.Latin1.GetString(file.ToBytes());
@@ -346,7 +345,7 @@ public class PortalFileTests
     [Fact]
     public void WriterSpellsAFractionalCoordinateWithSixDecimals()
     {
-        // The other branch of prtfile.cpp:33-39: "%f", which is C's
+        // The other branch of the reference implementation: "%f", which is C's
         // six-decimal fixed form.
         PortalFile file = new() { ClusterCount = 2 };
         file.Portals.Add(new FilePortal(0, 1,
@@ -364,12 +363,12 @@ public class PortalFileTests
     [Fact]
     public void CollapseThresholdIsOneThousandthAndIsExclusive()
     {
-        // prtfile.cpp:36 -- fabs(v - RoundInt(v)) < 0.001. A value 0.0005 away
+        // Fabs(v - RoundInt(v)) < 0.001. A value 0.0005 away
         // collapses; one 0.002 away does not.
         //
         // And the one that did not collapse comes out as 64.001999, not
         // 64.002000: WriteFloat takes a vec_t, which is a float, and
-        // fprintf promotes it to double for "%f" (prtfile.cpp:38), so six
+        // fprintf promotes it to double for "%f", so six
         // decimals show the float's ACTUAL value rather than the literal that
         // was written in the source. That is a property of the format and a
         // trap for a port that formats the decimal string instead.
@@ -389,7 +388,7 @@ public class PortalFileTests
     [Fact]
     public void RoundingIsHalfUpNotHalfToEven()
     {
-        // RoundInt is floor(in + 0.5f), src/public/mathlib/mathlib.h:432-435.
+        // RoundInt is floor(in + 0.5f), the reference implementation.
         // .NET's Math.Round would give 2 for 2.5 and 2 for 1.5; this gives 3
         // and 2. The value 1.5 is far enough from both integers that it takes
         // the "%f" branch, so the observable difference is which integer a
@@ -413,9 +412,9 @@ public class PortalFileTests
     [Fact]
     public async Task WriterPutsASpaceBeforeAndAfterEachClosingParen()
     {
-        // prtfile.cpp:76-83 -- "(", then three floats EACH with a trailing
+        // "(", then three floats EACH with a trailing
         // space, then ") ". This is what makes the reader's "(%lf %lf %lf ) "
-        // at vvis.cpp:522 line up.
+        // format string line up.
         PortalFile file = await ParseAsync(OneSquarePortal);
         string written = Encoding.Latin1.GetString(file.ToBytes());
 
@@ -444,7 +443,7 @@ public class PortalFileTests
     [Fact]
     public async Task CrLfIsAvailableForComparingAgainstWindowsBuiltFiles()
     {
-        // prtfile.cpp:352 opens the file in TEXT mode, so a .prt from the
+        // Opens the file in TEXT mode, so a.prt from the
         // Windows toolset has CRLF line endings from the same fprintf.
         PortalFile file = await ParseAsync(OneSquarePortal);
         string written = Encoding.Latin1.GetString(file.ToBytes(PortalLineEnding.CrLf));
@@ -465,7 +464,7 @@ public class PortalFileTests
     [Fact]
     public async Task TrailingGarbageAfterTheLastPortalIsIgnored()
     {
-        // vvis.cpp:562 closes the file without checking it was consumed.
+        // Closes the file without checking it was consumed.
         PortalFile file = await ParseAsync(OneSquarePortal + "this is not a portal\n");
 
         Assert.Single(file.Portals);

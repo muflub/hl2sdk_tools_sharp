@@ -4,8 +4,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Phys.Managed;
 
 /// <summary>
-/// The grading instrument's own known answers, so a comparator that cannot fail is caught
-/// (memory: the-check-that-cannot-fail).
+/// The grading instrument's own known answers, so a comparator that cannot fail
+/// is caught before it can quietly pass everything.
 /// </summary>
 public class VphyCompareTests
 {

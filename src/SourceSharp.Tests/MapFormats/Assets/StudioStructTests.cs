@@ -11,17 +11,17 @@ namespace SourceSharp.Tests.MapFormats.Assets;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Two hazards run through <c>studio.h</c> and <c>optimize.h</c> and every
+/// Two hazards run through the reference layout, and every
 /// fact here is about one of them.
 /// </para>
 /// <para>
-/// First, this SDK tree is 64-bit ported, so several structs have
+/// First, the reference headers are 64-bit ported, so several structs have
 /// <c>#ifdef PLATFORM_64BITS</c> branches that shorten a reserved array to pay
 /// for a wider pointer. The FILE is always the 32-bit branch, and taking the
 /// 64-bit one would read every model in the game wrongly on this very machine.
 /// </para>
 /// <para>
-/// Second, <c>optimize.h:31</c> wraps the whole VTX block in
+/// Second, the reference implementation wraps the whole VTX block in
 /// <c>#pragma pack(1)</c>, which makes five of its structs odd sizes that
 /// natural alignment would round up.
 /// </para>
@@ -36,16 +36,16 @@ public class StudioStructTests
     [Fact]
     public void StudioHeaderIsFourHundredEightBytes()
     {
-        // studio.h:2134, with the four pointer members at four bytes each.
+        // The reference layout, with the four pointer members at four bytes each.
         Assert.Equal(408, Unsafe.SizeOf<StudioHeader>());
     }
 
     [Fact]
     public void StudioHeaderTwoIsTwoHundredFiftySixBytes()
     {
-        // studio.h:2096 -- seven ints and a float (32 bytes) then
+        // Layout: seven ints and a float (32 bytes) then
         // int reserved[56] (224). The 64-bit branch carves four pointers out
-        // of the FRONT of that array (studio.h:2121) and keeps the same total,
+        // of the FRONT of that array and keeps the same total,
         // which is why the size alone cannot tell the branches apart and the
         // 32-bit shape has to be chosen deliberately.
         Assert.Equal(256, Unsafe.SizeOf<StudioHeader2>());
@@ -86,44 +86,40 @@ public class StudioStructTests
     [Fact]
     public void StudioBoneIsTwoHundredSixteenBytes()
     {
-        // studio.h:271.
         Assert.Equal(216, Unsafe.SizeOf<StudioBone>());
     }
 
     [Fact]
     public void StudioBboxIsSixtyEightBytes()
     {
-        // studio.h:453.
         Assert.Equal(68, Unsafe.SizeOf<StudioBbox>());
     }
 
     [Fact]
     public void StudioHitboxSetIsTwelveBytes()
     {
-        // studio.h:1686.
         Assert.Equal(12, Unsafe.SizeOf<StudioHitboxSet>());
     }
 
     [Fact]
     public void StudioBodyPartsIsSixteenBytes()
     {
-        // studio.h:1661.
         Assert.Equal(16, Unsafe.SizeOf<StudioBodyParts>());
     }
 
     [Fact]
     public void StudioModelIsOneHundredFortyEightBytes()
     {
-        // studio.h:1405 -- name[64] + 9 ints + 8 bytes of run-time pointers +
+        // Layout: name[64] + 9 ints + 8 bytes of run-time pointers +
         // int unused[8]. The 64-bit branch shortens that array to six
-        // (studio.h:1441) and would give 140.
+        // would give 140.
         Assert.Equal(148, Unsafe.SizeOf<StudioModel>());
     }
 
     [Fact]
     public void StudioMeshIsOneHundredSixteenBytes()
     {
-        // studio.h:1362 -- 9 ints, a Vector, a run-time pointer, the real
+        // 9 ints, a Vector, a run-time pointer, the real
         // numLODVertexes[8], and int unused[8].
         Assert.Equal(116, Unsafe.SizeOf<StudioMesh>());
     }
@@ -132,7 +128,7 @@ public class StudioStructTests
     public void StudioMeshLodVertexCountsAreRealOnDiskDataAtOffsetFiftyTwo()
     {
         // The one genuinely on-disk member of mstudio_meshvertexdata_t
-        // (studio.h:1355): studiomdl writes it and the LOD culling reads it.
+        // : studiomdl writes it and the LOD culling reads it.
         // The pointer that precedes it is not.
         StudioMesh mesh = default;
         Assert.Equal(48, OffsetOf(ref mesh, ref mesh.ModelVertexDataPointer));
@@ -142,7 +138,7 @@ public class StudioStructTests
     [Fact]
     public void StudioTextureIsSixtyFourBytes()
     {
-        // studio.h:1220 -- four ints, two run-time pointers, int unused[10].
+        // Layout: four ints, two run-time pointers, int unused[10].
         // The 64-bit branch has unused[8] and would give 64 as well but with
         // the fields in different places, which is why the offsets matter.
         Assert.Equal(64, Unsafe.SizeOf<StudioTexture>());
@@ -151,7 +147,7 @@ public class StudioStructTests
     [Fact]
     public void StudioBoneWeightIsExactlySixteenBytes()
     {
-        // studio.h:1190 says so in a comment, and the struct has no padding:
+        // Says so in a comment, and the struct has no padding:
         // three floats, three chars, one byte.
         Assert.Equal(16, Unsafe.SizeOf<StudioBoneWeight>());
     }
@@ -159,7 +155,7 @@ public class StudioStructTests
     [Fact]
     public void StudioVertexIsExactlyFortyEightBytes()
     {
-        // studio.h:1203 says so in a comment. It is also how
+        // Says so in a comment. It is also how
         // mstudiomodel_t::vertexindex converts from a byte offset to an index.
         Assert.Equal(48, Unsafe.SizeOf<StudioVertex>());
     }
@@ -177,21 +173,20 @@ public class StudioStructTests
     [Fact]
     public void VertexFileHeaderIsSixtyFourBytes()
     {
-        // studio.h:1943 -- four ints, int[8], four ints.
+        // Layout: four ints, int[8], four ints.
         Assert.Equal(64, Unsafe.SizeOf<VertexFileHeader>());
     }
 
     [Fact]
     public void VertexFileFixupIsTwelveBytes()
     {
-        // studio.h:2015.
         Assert.Equal(12, Unsafe.SizeOf<VertexFileFixup>());
     }
 
     [Fact]
     public void VtxFileHeaderIsThirtySixBytes()
     {
-        // optimize.h:216 under pack(1): two ints, two ushorts, five ints.
+        // Under pack(1): two ints, two ushorts, five ints.
         Assert.Equal(36, Unsafe.SizeOf<VtxFileHeader>());
     }
 
@@ -216,7 +211,7 @@ public class StudioStructTests
     [Fact]
     public void VtxMeshIsNineBytesNotTwelve()
     {
-        // optimize.h:140 under pack(1): two ints and a byte. Natural alignment
+        // Under pack(1): two ints and a byte. Natural alignment
         // would round this to 12.
         Assert.Equal(9, Unsafe.SizeOf<VtxMeshHeader>());
     }
@@ -224,21 +219,21 @@ public class StudioStructTests
     [Fact]
     public void VtxStripGroupIsTwentyFiveBytesNotTwentyEight()
     {
-        // optimize.h:98 under pack(1): six ints and a byte.
+        // Under pack(1): six ints and a byte.
         Assert.Equal(25, Unsafe.SizeOf<VtxStripGroupHeader>());
     }
 
     [Fact]
     public void VtxStripIsTwentySevenBytesNotThirtyTwo()
     {
-        // optimize.h:61 under pack(1).
+        // Under pack(1).
         Assert.Equal(27, Unsafe.SizeOf<VtxStripHeader>());
     }
 
     [Fact]
     public void VtxVertexIsNineBytesNotTen()
     {
-        // optimize.h:40 under pack(1): uchar[3], uchar, ushort, char[3]. The
+        // Under pack(1): uchar[3], uchar, ushort, char[3]. The
         // single most consequential packing in this port -- a 10-byte stride
         // reads every vertex after the first one byte too far and produces
         // geometry that is wrong rather than obviously broken.
@@ -264,7 +259,7 @@ public class StudioStructTests
     [Fact]
     public void VtxMaterialReplacementIsSixBytesNotEight()
     {
-        // optimize.h:192 under pack(1): a short then an int.
+        // Under pack(1): a short then an int.
         Assert.Equal(6, Unsafe.SizeOf<VtxMaterialReplacementHeader>());
     }
 
@@ -283,7 +278,7 @@ public class StudioStructTests
     [Fact]
     public void TheVvdIdentSpellsIdsv()
     {
-        // studio.h:1938 builds it as ('V'<<24)+('S'<<16)+('D'<<8)+'I', the
+        // Builds it as ('V'<<24)+('S'<<16)+('D'<<8)+'I', the
         // hand-reversed form, so 'I' is the LOW byte and the file reads IDSV.
         Assert.Equal("IDSV", Fourcc(StudioIdents.Vvd));
     }
@@ -297,7 +292,7 @@ public class StudioStructTests
     [Fact]
     public void MaxBonesPerVertIsThree()
     {
-        // studio.h:92, and it sizes both mstudioboneweight_t and Vertex_t.
+        // The reference fixes it at three, and it sizes both mstudioboneweight_t and Vertex_t.
         Assert.Equal(3, StudioIdents.MaxBonesPerVert);
     }
 

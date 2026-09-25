@@ -1,6 +1,6 @@
 // Ported from Qhull 2.6 (1999/04/19), Copyright (c) 1993-1999 The Geometry Center,
-// University of Minnesota; modified 2026-09 by the SourceSharp port (Claude, lane p8a)
-// to C# for a managed collision cooker; original source: http://www.qhull.org
+// University of Minnesota; modified 2026-09 by the SourceSharp port to C# for a managed
+// collision cooker; original source: http://www.qhull.org
 // (2.6 archived at http://www.geom.uiuc.edu/software/qhull/). See COPYING.txt.
 
 using System.Globalization;
@@ -27,12 +27,12 @@ internal sealed class PointSet
 }
 
 /// <summary>
-/// The corpus text formats shared with the C oracle (p8aq-ref.c): point sets in
+/// The corpus text formats shared with the reference dumper: point sets in
 /// ("set NAME N" + N lines of three C99 hex floats), hull dumps out.
 /// </summary>
 internal static class HullText
 {
-    /// <summary>Reads a point-set file (the oracle's input format).</summary>
+    /// <summary>Reads a point-set file (the reference dumper's input format).</summary>
     public static List<PointSet> ReadSets(TextReader reader)
     {
         var sets = new List<PointSet>();
@@ -188,7 +188,7 @@ internal static class HullText
         return sb.ToString();
     }
 
-    /// <summary>Writes one set's result in the oracle's format.</summary>
+    /// <summary>Writes one set's result in the golden's format.</summary>
     public static void WriteResult(StringBuilder sb, PointSet set, QhullResult r)
     {
         sb.Append("set ").Append(set.Name).Append(' ').Append((set.Xyz.Length / 3).ToString(CultureInfo.InvariantCulture)).Append('\n');
@@ -220,7 +220,7 @@ internal static class HullText
         sb.Append("end\n");
     }
 
-    /// <summary>Splits an oracle dump into per-set blocks keyed by order.</summary>
+    /// <summary>Splits a golden dump into per-set blocks keyed by order.</summary>
     public static List<(string Name, string Text)> SplitBlocks(string text)
     {
         var blocks = new List<(string, string)>();

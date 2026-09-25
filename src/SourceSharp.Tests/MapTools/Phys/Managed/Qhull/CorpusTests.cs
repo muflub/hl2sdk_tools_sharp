@@ -1,6 +1,6 @@
 // Ported from Qhull 2.6 (1999/04/19), Copyright (c) 1993-1999 The Geometry Center,
-// University of Minnesota; modified 2026-09 by the SourceSharp port (Claude, lane p8a)
-// to C# for a managed collision cooker; original source: http://www.qhull.org
+// University of Minnesota; modified 2026-09 by the SourceSharp port to C# for a managed
+// collision cooker; original source: http://www.qhull.org
 // (2.6 archived at http://www.geom.uiuc.edu/software/qhull/). See COPYING.txt.
 
 using SourceSharp.MapGen;
@@ -13,11 +13,11 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Phys.Managed.Qhull;
 
 /// <summary>
-/// The differential gate against the golden corpus: every set's IVP sequence, exit codes,
-/// facet ids, flags, normals, offsets (bit-exact) and vertex order must equal the C oracle's
-/// dump (qhull 2.6 rewritten to vphysics.so's floating-point grouping, csrc-binorder, built
-/// -O2 -ffp-contract=off -fno-fast-math, vertex-id hash), both through fresh builds and
-/// through one reused <see cref="QhullSession"/>. Goldens are gzipped (p8aq-golden.sh).
+/// The differential gate against the golden corpus: every set's facet sequence, exit codes,
+/// facet ids, flags, normals, offsets (bit-exact) and vertex order must equal the recorded
+/// reference dump (the reference collision cooker's own qhull-compatible build,
+/// with its floating-point grouping and vertex-id hash), both through fresh builds
+/// and through one reused <see cref="QhullSession"/>. Goldens are gzipped.
 /// </summary>
 public class CorpusTests
 {
@@ -64,33 +64,33 @@ public class CorpusTests
             if (sb2.ToString() != expected[i].Text)
                 failures.Add(sets[i].Name + "(session)");
         }
-        Assert.True(failures.Count == 0, failures.Count + " sets differ from the oracle: " + string.Join(" ", failures.Take(10)));
+        Assert.True(failures.Count == 0, failures.Count + " sets differ from the reference: " + string.Join(" ", failures.Take(10)));
     }
 
     [Fact]
-    public void ShapesMatchTheOracle() => AssertCorpus("p8aq-shapes", 370);
+    public void ShapesMatchTheReference() => AssertCorpus("p8aq-shapes", 370);
 
     [Fact]
-    public void BrushPolytopesMatchTheOracle() => AssertCorpus("p8aq-brushes", 450);
+    public void BrushPolytopesMatchTheReference() => AssertCorpus("p8aq-brushes", 450);
 
     [Fact]
-    public void DuplicatedPointsMatchTheOracle() => AssertCorpus("p8aq-dups", 480);
+    public void DuplicatedPointsMatchTheReference() => AssertCorpus("p8aq-dups", 480);
 
     [Fact]
-    public void CoplanarGridsMatchTheOracle() => AssertCorpus("p8aq-coplanar", 120);
+    public void CoplanarGridsMatchTheReference() => AssertCorpus("p8aq-coplanar", 120);
 
     [Fact]
-    public void PointCloudsMatchTheOracle() => AssertCorpus("p8aq-clouds", 200);
+    public void PointCloudsMatchTheReference() => AssertCorpus("p8aq-clouds", 200);
 
     [Fact]
-    public void DegenerateSetsAndTheJoggleRetryMatchTheOracle() => AssertCorpus("p8aq-degenerate", 204);
+    public void DegenerateSetsAndTheJoggleRetryMatchTheReference() => AssertCorpus("p8aq-degenerate", 204);
 
     [Fact]
-    public void LatticeSetsMatchTheOracle() => AssertCorpus("p8aq-lattice", 950);
+    public void LatticeSetsMatchTheReference() => AssertCorpus("p8aq-lattice", 950);
 
     [Fact]
-    public void SearchedRarePathSetsMatchTheOracle() => AssertCorpus("p8aq-hard", 27);
+    public void SearchedRarePathSetsMatchTheReference() => AssertCorpus("p8aq-hard", 27);
 
     [Fact]
-    public void SeededRandomSetsMatchTheOracle() => AssertCorpus("p8aq-random", 3000);
+    public void SeededRandomSetsMatchTheReference() => AssertCorpus("p8aq-random", 3000);
 }

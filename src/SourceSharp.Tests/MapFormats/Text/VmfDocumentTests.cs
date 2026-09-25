@@ -6,7 +6,6 @@ namespace SourceSharp.Tests.MapFormats.Text;
 
 /// <summary>
 /// Facts for the VMF document reader and writer, from
-/// <c>src/public/chunkfile.cpp</c>.
 /// </summary>
 public class VmfDocumentTests
 {
@@ -42,7 +41,7 @@ public class VmfDocumentTests
     [Fact]
     public async Task TopLevelChunksAreSiblingsNotChildrenOfARoot()
     {
-        // A VMF has no root chunk: map_shared.cpp:121-124 calls ReadChunk in a
+        // A VMF has no root chunk: the reference implementation calls ReadChunk in a
         // loop until EOF.
         VmfDocument document = await VmfDocument.ParseAsync(SampleVmf, CancellationToken.None);
 
@@ -71,7 +70,6 @@ public class VmfDocumentTests
     public async Task KeyLookupIsCaseInsensitive()
     {
         // Every key handler in the tree compares with stricmp, e.g.
-        // map_shared.cpp:24-59.
         VmfDocument document = await VmfDocument.ParseAsync(SampleVmf, CancellationToken.None);
 
         Assert.Equal("worldspawn", document.GetChunk("WORLD")!.GetValue("ClassName"));
@@ -122,7 +120,7 @@ public class VmfDocumentTests
     public async Task InterleavedKeysAndChunksKeepTheirOrder()
     {
         // The reason keys and sub-chunks share one list. Hammer never writes
-        // this, but chunkfile.cpp:583-608 accepts it and a hand-edited VMF can
+        // this, but the reference implementation accepts it and a hand-edited VMF can
         // contain it.
         const string interleaved =
             "world\r\n{\r\n\t\"a\" \"1\"\r\n\tsolid\r\n\t{\r\n\t}\r\n\t\"b\" \"2\"\r\n}\r\n";
@@ -135,7 +133,7 @@ public class VmfDocumentTests
     [Fact]
     public void WriterIndentsWithOneTabPerLevel()
     {
-        // BuildIndentString, chunkfile.cpp:213-224.
+        // BuildIndentString, the reference implementation.
         ChunkFileWriter writer = new();
         writer.BeginChunk("world");
         writer.BeginChunk("solid");
@@ -151,7 +149,7 @@ public class VmfDocumentTests
     [Fact]
     public void WriterAlwaysEmitsCarriageReturnLineFeed()
     {
-        // chunkfile.cpp:977 writes the two bytes through fwrite, so it is CRLF
+        // Writes the two bytes through fwrite, so it is CRLF
         // on Linux too -- not a text-mode translation.
         ChunkFileWriter writer = new();
         writer.WriteLine("x");
@@ -163,8 +161,7 @@ public class VmfDocumentTests
     public void ChunkNameAndItsOpeningBraceSitAtTheOuterIndent()
     {
         // BeginChunk builds "%s\r\n%s{" with the CURRENT indent and increments
-        // afterwards (chunkfile.cpp:194-204); EndChunk decrements FIRST
-        // (:249-252).
+        // afterwards; EndChunk decrements FIRST
         ChunkFileWriter writer = new();
         writer.BeginChunk("outer");
         writer.BeginChunk("inner");
@@ -177,7 +174,7 @@ public class VmfDocumentTests
     [Fact]
     public void UnbalancedEndChunkClampsAtDepthZeroRatherThanThrowing()
     {
-        // chunkfile.cpp:249 -- "if (m_nCurrentDepth > 0)".
+        // "if (m_nCurrentDepth > 0)".
         ChunkFileWriter writer = new();
         writer.EndChunk();
 
@@ -188,7 +185,7 @@ public class VmfDocumentTests
     [Fact]
     public async Task UnclosedChunkIsUnexpectedEndOfFile()
     {
-        // chunkfile.cpp:559-562 -- EOF while the depth is not zero.
+        // EOF while the depth is not zero.
         ChunkFileException error = await Assert.ThrowsAsync<ChunkFileException>(
             async () => await VmfDocument.ParseAsync("world\r\n{\r\n", CancellationToken.None));
 
@@ -198,8 +195,8 @@ public class VmfDocumentTests
     [Fact]
     public async Task KeyWithNoValueIsUnexpectedEndOfFile()
     {
-        // chunkfile.cpp:522-526 -- a name token followed by EOF, even at depth
-        // zero, where a name token alone would have been a clean EOF at :565.
+        // A name token followed by EOF, even at depth
+        // zero, where a name token alone would have been a clean EOF.
         ChunkFileException error = await Assert.ThrowsAsync<ChunkFileException>(
             async () => await VmfDocument.ParseAsync("world\r\n{\r\n\t\"id\"\r\n", CancellationToken.None));
 
@@ -209,7 +206,7 @@ public class VmfDocumentTests
     [Fact]
     public async Task UnexpectedOperatorAfterANameIsAnUnexpectedSymbolNamingThatOperator()
     {
-        // chunkfile.cpp:505-510 -- an operator that is not "{".
+        // An operator that is not "{".
         ChunkFileException error = await Assert.ThrowsAsync<ChunkFileException>(
             async () => await VmfDocument.ParseAsync("world\r\n{\r\n\t\"id\" [\r\n", CancellationToken.None));
 
@@ -220,9 +217,9 @@ public class VmfDocumentTests
     [Fact]
     public void IntegerAfterAKeyFallsThroughAndReportsTheKeyName()
     {
-        // THE FALL-THROUGH, chunkfile.cpp:534. The inner switch has no case for
+        // THE FALL-THROUGH,. The inner switch has no case for
         // INTEGER and the outer case block has no break, so control reaches
-        // `case OPERATOR:` at :536 -- which tests szNAME against "}". The
+        // `case OPERATOR:` -- which tests szNAME against "}". The
         // reported token is therefore the KEY, not the number.
         ChunkFileReader reader = new(new ChunkTokenReader("\"id\" 12"));
 
@@ -244,7 +241,7 @@ public class VmfDocumentTests
     [Fact]
     public async Task UnterminatedStringAcrossACrLfLineIsStringTooLong()
     {
-        // tokenreader.cpp:110-117 reaching chunkfile.cpp:552-555.
+        // Reaching the reference implementation.
         ChunkFileException error = await Assert.ThrowsAsync<ChunkFileException>(
             async () => await VmfDocument.ParseAsync("world\r\n{\r\n\t\"broken\r\n\"\r\n}\r\n", CancellationToken.None));
 
@@ -254,7 +251,7 @@ public class VmfDocumentTests
     [Fact]
     public void ReaderDepthGoesUpOnAnOpenAndDownOnAClose()
     {
-        // chunkfile.cpp:500 and :541 -- the counter that decides whether EOF is
+        // The counter that decides whether EOF is
         // clean.
         ChunkFileReader reader = new(new ChunkTokenReader("world\r\n{\r\n}\r\n"));
 
@@ -268,7 +265,7 @@ public class VmfDocumentTests
     [Fact]
     public async Task ValueIsTruncatedToTheCppBufferLength()
     {
-        // chunkfile.cpp:517 -- Q_strncpy into szValue[MAX_KEYVALUE_LEN], so a
+        // Q_strncpy into szValue[MAX_KEYVALUE_LEN], so a
         // value keeps 1023 characters and a terminator.
         string longValue = new('v', ChunkFileReader.MaxKeyValueLength * 2);
         VmfDocument document = await VmfDocument.ParseAsync(
@@ -299,7 +296,7 @@ public class VmfDocumentTests
     public void ParseIsNotDependentOnAnyMutableStaticState()
     {
         // Two readers over two documents on two threads must not interfere: the
-        // C++ tokenizer's line number, position and stuffed token are all
+        // The reference tokenizer's line number, position and stuffed token are all
         // members, and so are these.
         ChunkTokenReader first = new("alpha\r\nbeta");
         ChunkTokenReader second = new("gamma");

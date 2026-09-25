@@ -25,7 +25,7 @@ public class ManagedCollisionSessionTests
     [Fact]
     public async Task ConvertingAConvexFreesItsHandle()
     {
-        // "NOTE: THIS FREES THE LEDGES in pConvex!!!" (physics_collide.cpp:1182).
+        // The reference contract: converting a convex frees its ledges.
         await Assert.ThrowsAsync<ArgumentException>(() => Run(s =>
         {
             ConvexHandle c = s.ConvexFromPlanes(Cube, 0f);

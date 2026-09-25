@@ -4,8 +4,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapFormats.Text;
 
 /// <summary>
-/// Facts for the VMF tokenizer, each derived from a line of
-/// <c>src/tier1/tokenreader.cpp</c> before the port was written.
+/// Facts for the VMF tokenizer, each traced through the reference tokenizer
+/// before the port was written.
 /// </summary>
 public class ChunkTokenReaderTests
 {
@@ -19,14 +19,14 @@ public class ChunkTokenReaderTests
     [Fact]
     public void QuotedStringYieldsItsContents()
     {
-        // tokenreader.cpp:279-282 dispatches a '"' to GetString.
+        // Dispatches a '"' to GetString.
         Assert.Equal((ChunkTokenType.String, "hello"), Next("\"hello\""));
     }
 
     [Fact]
     public void EmptyQuotedStringIsAStringNotAnError()
     {
-        // tokenreader.cpp:98-102 -- get() extracting nothing sets failbit,
+        // Get extracting nothing sets failbit,
         // which is cleared and treated as an empty string.
         Assert.Equal((ChunkTokenType.String, ""), Next("\"\""));
     }
@@ -34,30 +34,28 @@ public class ChunkTokenReaderTests
     [Fact]
     public void IdentifierIsLettersDigitsAndUnderscores()
     {
-        // tokenreader.cpp:324.
         Assert.Equal((ChunkTokenType.Identifier, "solid_1"), Next("solid_1"));
     }
 
     [Fact]
     public void BraceIsAnOperator()
     {
-        // tokenreader.cpp:266.
         Assert.Equal((ChunkTokenType.Operator, "{"), Next("{"));
     }
 
     [Fact]
     public void BackslashIsAnOperatorOutsideAString()
     {
-        // tokenreader.cpp:268 lists '\\' among the operators.
+        // Lists '\\' among the operators.
         Assert.Equal((ChunkTokenType.Operator, "\\"), Next("\\"));
     }
 
     [Fact]
     public void PlusIsNeverReturnedAsAnOperatorBecauseWhitespaceSkippingEatsIt()
     {
-        // '+' is in the operator list at tokenreader.cpp:255, but
-        // SkipWhiteSpace consumes it as the string-combining character at
-        // :442-446 before NextToken's switch ever sees it. So a bare '+'
+        // '+' is in the reference operator list, but
+        // SkipWhiteSpace consumes it as the string-combining character
+        // before NextToken's switch ever sees it. So a bare '+'
         // followed by an identifier yields the IDENTIFIER.
         Assert.Equal((ChunkTokenType.Identifier, "world"), Next("+world"));
     }
@@ -65,14 +63,14 @@ public class ChunkTokenReaderTests
     [Fact]
     public void NulByteIsWhitespace()
     {
-        // tokenreader.cpp:437 lists 0 alongside space, tab and CR.
+        // Lists 0 alongside space, tab and CR.
         Assert.Equal((ChunkTokenType.Identifier, "world"), Next("\0\0world"));
     }
 
     [Fact]
     public void LoneSlashIsSilentlyEaten()
     {
-        // tokenreader.cpp:462-469. The 'if (ch == '/')' branch neither starts a
+        // The reference implementation. The 'if (ch == '/')' branch neither starts a
         // comment (peek is not '/') nor reaches the else that would put the
         // character back, so the loop continues having consumed it.
         Assert.Equal((ChunkTokenType.Identifier, "world"), Next("/world"));
@@ -81,20 +79,19 @@ public class ChunkTokenReaderTests
     [Fact]
     public void DoubleSlashStartsACommentToEndOfLine()
     {
-        // tokenreader.cpp:464-466.
         Assert.Equal((ChunkTokenType.Identifier, "world"), Next("// a comment\nworld"));
     }
 
     [Fact]
     public void CommentLongerThanTheStreamBufferLeaksItsTailAsCode()
     {
-        // tokenreader.cpp:466 skips a comment with ignore(1024, '\n'), which
+        // Skips a comment with ignore(1024, '\n'), which
         // stops after 1024 characters whether or not it found the newline. The
         // rest of the comment is then tokenized as code.
         //
         // The arithmetic is exact and worth spelling out: the first '/' was
-        // consumed by get() at :435, the second is still in the stream when
-        // peek() sees it at :464, so ignore() discards that '/' plus 1023 of
+        // consumed by get, the second is still in the stream when
+        // peek sees it, so ignore discards that '/' plus 1023 of
         // the padding characters. One character short of the buffer size is
         // therefore the padding that leaves the next word exposed.
         string comment = "//" + new string('x', ChunkTokenReader.StreamBufferSize - 1) +
@@ -105,7 +102,6 @@ public class ChunkTokenReaderTests
     [Fact]
     public void LineCounterStartsAtOne()
     {
-        // tokenreader.cpp:22.
         ChunkTokenReader reader = new("world");
         Assert.Equal(1, reader.Line);
     }
@@ -113,7 +109,6 @@ public class ChunkTokenReaderTests
     [Fact]
     public void NewlineAdvancesTheLineCounter()
     {
-        // tokenreader.cpp:448-452.
         ChunkTokenReader reader = new("\n\nworld");
         reader.NextToken(out _);
         Assert.Equal(3, reader.Line);
@@ -122,14 +117,14 @@ public class ChunkTokenReaderTests
     [Fact]
     public void CarriageReturnInsideAQuotedStringIsStringTooLong()
     {
-        // tokenreader.cpp:110-117 -- the test is for 0x0d specifically.
+        // The test is for 0x0d specifically.
         Assert.Equal(ChunkTokenType.StringTooLong, Next("\"broken\r\nstring\"").Type);
     }
 
     [Fact]
     public void BareNewlineInsideAQuotedStringIsNotAnErrorAndIsKept()
     {
-        // The other half of tokenreader.cpp:110-117: only CR is checked, so an
+        // The other half of the reference implementation: only CR is checked, so an
         // LF-only file's multi-line string parses and keeps the newline. The
         // same VMF therefore reads differently depending on which platform
         // saved it.
@@ -139,7 +134,7 @@ public class ChunkTokenReaderTests
     [Fact]
     public void UnterminatedStringAtEndOfFileIsEndOfFileNotStringTooLong()
     {
-        // tokenreader.cpp:93-96 -- get() reaching the end sets eofbit and
+        // Get reaching the end sets eofbit and
         // GetString returns TOKENEOF, discarding what it had read.
         Assert.Equal(ChunkTokenType.EndOfFile, Next("\"never closed").Type);
     }
@@ -147,14 +142,14 @@ public class ChunkTokenReaderTests
     [Fact]
     public void BackslashNIsDecodedToANewline()
     {
-        // tokenreader.cpp:130-133 -- the ONE escape the C++ defines.
+        // The ONE escape the reference tokenizer defines.
         Assert.Equal((ChunkTokenType.String, "a\nb"), Next("\"a\\nb\""));
     }
 
     [Fact]
     public void UnknownEscapeYieldsTheEscapedCharacter()
     {
-        // A DOCUMENTED DEVIATION. tokenreader.cpp:123-136 consumes the
+        // A DOCUMENTED DEVIATION. The reference implementation consumes the
         // backslash and the character after it and advances the destination
         // pointer, but assigns only when the character is 'n' -- so "\t" emits
         // an uninitialised byte. That cannot be reproduced. The structure is:
@@ -165,7 +160,7 @@ public class ChunkTokenReaderTests
     [Fact]
     public void AdjacentQuotedStringsCombineWhenSeparatedByPlus()
     {
-        // tokenreader.cpp:163-175, with the '+' flag set at :442-446.
+        // The reference implementation, with the '+' flag set at:442-446.
         Assert.Equal((ChunkTokenType.String, "abcdef"), Next("\"abc\" + \"def\""));
     }
 
@@ -179,7 +174,7 @@ public class ChunkTokenReaderTests
     [Fact]
     public void StringLongerThanOneStreamChunkIsReadWhole()
     {
-        // tokenreader.cpp:92 takes 1023 characters at a time and loops at :142
+        // Takes 1023 characters at a time and loops
         // when the closing quote has not been reached.
         string body = new('z', ChunkTokenReader.StreamBufferSize * 3);
         Assert.Equal((ChunkTokenType.String, body), Next("\"" + body + "\""));
@@ -188,28 +183,27 @@ public class ChunkTokenReaderTests
     [Fact]
     public void DigitsAreAnIntegerToken()
     {
-        // tokenreader.cpp:287-318.
         Assert.Equal((ChunkTokenType.Integer, "512"), Next("512"));
     }
 
     [Fact]
     public void LeadingMinusIsPartOfAnIntegerToken()
     {
-        // tokenreader.cpp:287 admits '-' as a first character.
+        // Admits '-' as a first character.
         Assert.Equal((ChunkTokenType.Integer, "-512"), Next("-512"));
     }
 
     [Fact]
     public void SecondMinusSignInsideANumberIsAnError()
     {
-        // tokenreader.cpp:298-301 -- an error rather than a terminator.
+        // An error rather than a terminator.
         Assert.Equal(ChunkTokenType.Error, Next("5-3").Type);
     }
 
     [Fact]
     public void LetterTouchingANumberIsAnError()
     {
-        // tokenreader.cpp:307-310 -- "No identifier characters are allowed
+        // "No identifier characters are allowed
         // contiguous with numbers."
         Assert.Equal(ChunkTokenType.Error, Next("12abc").Type);
     }
@@ -217,8 +211,8 @@ public class ChunkTokenReaderTests
     [Fact]
     public void ADecimalNumberLexesAsThreeTokensBecauseThereIsNoFloatToken()
     {
-        // tokenreader.cpp:287-318 has no '.' and no exponent, and '.' is an
-        // operator at :259. This is why every float in a VMF lives inside a
+        // The reference number scanner has no '.' and no exponent, and '.' is an
+        // operator in its switch. This is why every float in a VMF lives inside a
         // quoted string.
         ChunkTokenReader reader = new("1.5");
 
@@ -233,7 +227,7 @@ public class ChunkTokenReaderTests
     [Fact]
     public void StuffedTokenComesBackFromTheNextRead()
     {
-        // tokenreader.cpp:376-381 and the early-out at :226-231.
+        // And the early-out at:226-231.
         ChunkTokenReader reader = new("world");
         reader.Stuff(ChunkTokenType.String, "injected");
 
@@ -244,7 +238,7 @@ public class ChunkTokenReaderTests
     [Fact]
     public void StuffedTokenIsOnlyOneDeep()
     {
-        // tokenreader.cpp:378-380 overwrites rather than pushing.
+        // Overwrites rather than pushing.
         ChunkTokenReader reader = new("world");
         reader.Stuff(ChunkTokenType.String, "first");
         reader.Stuff(ChunkTokenType.String, "second");
@@ -257,7 +251,7 @@ public class ChunkTokenReaderTests
     [Fact]
     public void PeekDoesNotConsume()
     {
-        // tokenreader.cpp:406-420 reads and stuffs.
+        // Reads and stuffs.
         ChunkTokenReader reader = new("world");
 
         Assert.Equal(ChunkTokenType.Identifier, reader.PeekTokenType(out string peeked));

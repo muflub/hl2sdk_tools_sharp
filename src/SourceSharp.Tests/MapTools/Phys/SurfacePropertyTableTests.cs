@@ -5,10 +5,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Phys;
 
 /// <summary>
-/// The managed surface-property database, fact by fact from
-/// <c>CPhysicsSurfaceProps</c> (<c>vphysics/physics_material.cpp</c>, 2018
-/// engine drop) and its tokenizer (<c>vcollide_parse.cpp:919</c>,
-/// <c>public/filesystem_helpers.cpp:29</c>).
+/// The managed surface-property database, fact by fact against the reference implementation's
+/// surface-property database and its tokenizer.
 /// </summary>
 public class SurfacePropertyTableTests
 {
@@ -51,7 +49,7 @@ public class SurfacePropertyTableTests
     [Fact]
     public void NamesAreStoredLowerCase()
     {
-        // ParseKeyvalue Q_strlower's the key, vcollide_parse.cpp:933.
+        // The parser lowercases the key before storing it.
         SurfacePropertyTable table = Parsed(("a.txt", Base));
 
         Assert.Equal("metal", table.GetPropName(1));
@@ -60,7 +58,7 @@ public class SurfacePropertyTableTests
     [Fact]
     public void LookupIsCaseInsensitive()
     {
-        // m_strings( 0, 32, true ): a case-insensitive symbol table, physics_material.cpp:184.
+        // Names live in a case-insensitive symbol table.
         SurfacePropertyTable table = Parsed(("a.txt", Base));
 
         Assert.Equal(1, table.GetSurfaceIndex("METAL"));
@@ -69,7 +67,7 @@ public class SurfacePropertyTableTests
     [Fact]
     public void ANewPropertyInheritsDefault()
     {
-        // physics_material.cpp:421-427: baseMaterial falls back to "default".
+        // A new property's base material falls back to "default".
         SurfacePropertyTable table = Parsed(("a.txt", Base));
 
         Assert.Equal(0.8f, table.GetPhysicsProperties(1).Friction);
@@ -78,7 +76,7 @@ public class SurfacePropertyTableTests
     [Fact]
     public void ARepeatedPropertyOverridesInPlaceAndKeepsItsIndex()
     {
-        // physics_material.cpp:434-441.
+        // Re-parsing a property overwrites the existing entry in place.
         SurfacePropertyTable table = Parsed(
             ("a.txt", Base),
             ("b.txt", "\"metal\" { \"density\" \"99\" }"));
@@ -90,7 +88,7 @@ public class SurfacePropertyTableTests
     [Fact]
     public void ARepeatedPropertyStartsFromItsOwnPreviousValues()
     {
-        // GetSurfaceIndex( key ) finds the existing one first, :421.
+        // The lookup finds the existing entry before creating a new one.
         SurfacePropertyTable table = Parsed(
             ("a.txt", Base),
             ("b.txt", "\"metal\" { \"friction\" \"0.1\" }"));
@@ -111,7 +109,7 @@ public class SurfacePropertyTableTests
     [Fact]
     public void TheShadowMaterialIsAppendedAfterTheFirstFile()
     {
-        // physics_material.cpp:588-597: m_init, once, after the first parse.
+        // The reserved shadow material is appended once, after the first parse.
         SurfacePropertyTable table = Parsed(("a.txt", Base));
 
         Assert.Equal(SurfacePropertyTable.ShadowMaterialName, table.GetPropName(2));
@@ -128,7 +126,6 @@ public class SurfacePropertyTableTests
     [Fact]
     public void TheShadowNameResolvesToTheReservedIndex()
     {
-        // GetReservedSurfaceIndex, :350.
         SurfacePropertyTable table = Parsed(("a.txt", Base));
 
         Assert.Equal(0xF000, table.GetSurfaceIndex("$material_index_shadow"));
@@ -137,7 +134,7 @@ public class SurfacePropertyTableTests
     [Fact]
     public void TheReservedIndexFallsBackToTheShadowEntry()
     {
-        // GetInternalSurface, :258: MATERIAL_INDEX_SHADOW -> m_shadowFallback.
+        // The reserved shadow index resolves to the shadow fallback entry.
         SurfacePropertyTable table = Parsed(("a.txt", Base));
 
         Assert.Equal(SurfacePropertyTable.ShadowMaterialName, table.GetPropName(0xF000));
@@ -146,7 +143,6 @@ public class SurfacePropertyTableTests
     [Fact]
     public void AFileNameSeenBeforeIsIgnored()
     {
-        // AddFileToDatabase, :205.
         SurfacePropertyTable table = Parsed(("a.txt", Base));
 
         Assert.Equal(0, table.ParseSurfaceData("A.TXT", "\"wood\" { }"));
@@ -156,7 +152,6 @@ public class SurfacePropertyTableTests
     [Fact]
     public void AnUnknownIndexAnswersWithDefaultsPhysics()
     {
-        // GetPhysicsProperties, :279-282.
         SurfacePropertyTable table = Parsed(("a.txt", Base));
 
         Assert.Equal(2000f, table.GetPhysicsProperties(77).Density);
@@ -174,7 +169,7 @@ public class SurfacePropertyTableTests
     [Fact]
     public void AColonBreaksAnUnquotedToken()
     {
-        // g_BreakSetIncludingColons "{}()':" is the default set, filesystem_helpers.cpp:22.
+        // The tokenizer's default break set is "{}()':".
         int? cursor = ParseFile("ab:cd"u8.ToArray(), 0, out string token);
 
         Assert.Equal("ab", token);
@@ -184,7 +179,7 @@ public class SurfacePropertyTableTests
     [Fact]
     public void AHighByteIsWhitespaceToTheSignedCharTest()
     {
-        // while ( (c = *pFileBytes) <= ' ' ) on a signed char: 0xE9 is negative.
+        // The whitespace test compares against a signed char, so 0xE9 counts as negative.
         ParseFile([(byte)'a', 0xE9, (byte)'b'], 0, out string token);
 
         Assert.Equal("a", token);
@@ -193,14 +188,14 @@ public class SurfacePropertyTableTests
     [Fact]
     public void ResolveMaterialWithoutASurfacePropIsMinusOne()
     {
-        // GetSurfaceProperties, textures.cpp:347: no $surfaceprop, index stays -1.
+        // With no $surfaceprop the resolved index stays -1.
         Assert.Equal(-1, Parsed(("a.txt", Base)).ResolveMaterial(null));
     }
 
     [Fact]
     public void ResolveMaterialWithAnUnknownSurfacePropIsDefault()
     {
-        // textures.cpp:355-359: "Can't find surfaceprop ... using default".
+        // An unknown surfaceprop falls back to the default entry.
         Assert.Equal(0, Parsed(("a.txt", Base)).ResolveMaterial("nonsense"));
     }
 }

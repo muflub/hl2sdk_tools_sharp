@@ -8,9 +8,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapFormats.Text;
 
 /// <summary>
-/// Facts for the conversions a VMF value goes through
-/// (<c>src/public/chunkfile.cpp:636-940</c>), and the assembly-wide rules the
-/// plan makes gates.
+/// Facts for the conversions a VMF value goes through, and the
+/// assembly-wide rules the plan makes gates.
 /// </summary>
 public class VmfValueTests
 {
@@ -31,11 +30,11 @@ public class VmfValueTests
     [InlineData(1234567f, "1.23457e+06")]
     [InlineData(0.0001f, "0.0001")]
     [InlineData(0.00001f, "1e-05")]
-    public void FloatsAreWrittenWithCsPercentG(float value, string expected)
+    public void FloatsAreWrittenWithTheReferencesPercentG(float value, string expected)
     {
-        // chunkfile.cpp:844 -- Q_snprintf(..., "\"%s\" \"%g\"", key,
-        // (double)fValue). .NET's "G6" is NOT the same conversion: it spells
-        // the exponent "E+06" and keeps a digit C drops.
+        // The reference writes "\"%s\" \"%g\"" with the value
+        // widened to double. .NET's "G6" is NOT the same conversion: it spells
+        // the exponent "E+06" and keeps a digit the reference drops.
         Assert.Equal(expected, VmfValue.FormatFloat(value));
     }
 
@@ -53,15 +52,15 @@ public class VmfValueTests
     [Fact]
     public void PointsArePARENTHESISED()
     {
-        // chunkfile.cpp:884 writes "(%g %g %g)" and :719 reads it back.
+        // Writes "(%g %g %g)" reads it back.
         Assert.Equal("(0 0 64)", VmfValue.FormatPoint(new Vec3(0, 0, 64)));
     }
 
     [Fact]
     public void VectorsAreBRACKETED()
     {
-        // chunkfile.cpp:916 writes "[%g %g %g]" and :753 reads it back. The two
-        // bracketings are NOT interchangeable and only the C++ says which
+        // Writes "[%g %g %g]" and reads it back. The two
+        // bracketings are NOT interchangeable and only the reference says which
         // keys use which.
         Assert.Equal("[1 0 0]", VmfValue.FormatVector3(new Vec3(1, 0, 0)));
     }
@@ -90,7 +89,7 @@ public class VmfValueTests
     [Fact]
     public void BoolIsStrictlyGreaterThanZeroSoMinusOneIsFalse()
     {
-        // chunkfile.cpp:638-647 -- atoi(value) > 0. Not what a C programmer
+        // Atoi(value) > 0. Not what a C programmer
         // expects from a flag, and it means a VMF storing -1 for "on" reads as
         // off.
         Assert.True(VmfValue.ParseBool("1"));
@@ -102,7 +101,7 @@ public class VmfValueTests
     [Fact]
     public void NonNumericValuesBecomeZeroRatherThanFailing()
     {
-        // chunkfile.cpp:659-676 -- atof and atoi report nothing, and the C++
+        // Atof and atoi report nothing, and the reference
         // returns true unconditionally.
         Assert.Equal(0f, VmfValue.ParseFloat("banana"));
         Assert.Equal(0, VmfValue.ParseInt("banana"));
@@ -111,7 +110,7 @@ public class VmfValueTests
     [Fact]
     public void FloatIsParsedAtDoublePrecisionAndThenNarrowed()
     {
-        // chunkfile.cpp:661 -- (float)atof(pszValue). Narrowing the correctly
+        // (float)atof(pszValue). Narrowing the correctly
         // rounded double is not always the same as parsing at single precision
         // directly.
         Assert.Equal((float)0.1d, VmfValue.ParseFloat("0.1"));
@@ -120,7 +119,7 @@ public class VmfValueTests
     [Fact]
     public void ColourComponentsWrapRatherThanClampBecauseTheCppAssignsIntToByte()
     {
-        // chunkfile.cpp:695-699 -- scanned into int, assigned to unsigned char.
+        // Scanned into int, assigned to unsigned char.
         Assert.True(VmfValue.TryParseColour("300 0 0", out (byte Red, byte Green, byte Blue) colour));
         Assert.Equal(44, colour.Red);
     }
@@ -139,9 +138,9 @@ public class VmfValueTests
     {
         // The plan's no-statics rule, enforced from the BUILT assembly rather
         // than from a reading of the source. A mutable static in a format
-        // parser is what makes two maps unable to compile at once -- the C++
-        // tokenizers are riddled with them (scriplib.cpp:44-50,
-        // KeyValues.cpp:45, which needs a process-wide mutex because of it).
+        // parser is what makes two maps unable to compile at once -- the reference
+        // tokenizers are riddled with them, including one that needs a
+        // process-wide mutex because of it.
         List<string> offenders = [];
 
         foreach (Type type in typeof(VmfValue).Assembly.GetTypes())

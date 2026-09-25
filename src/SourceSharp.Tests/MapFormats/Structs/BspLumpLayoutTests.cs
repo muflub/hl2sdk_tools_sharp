@@ -120,7 +120,7 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
     [Fact]
     public void TheGoldenMapCarriesTheDeprecatedPhysCollideSurfaceLump()
     {
-        // bspfile.h:341 calls lump 49 deprecated and nothing in this tree
+        // Calls lump 49 deprecated and nothing in this tree
         // writes it, yet this map has 1.1 MB of it. A port that "cleans up"
         // by dropping unknown lumps silently changes the map.
         Assert.False(Lockdown()[BspLump.PhysCollideSurface].IsEmpty);
@@ -160,9 +160,9 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
     /// <remarks>
     /// This list was one entry long, and that was a bug rather than a fact
     /// about the format: the validator lane found that at any version but 1 the
-    /// engine casts the leaf-ambient lump to <c>CompressedLightCube</c> (24
+    /// reference implementation casts the leaf-ambient lump to <c>CompressedLightCube</c> (24
     /// bytes) rather than <c>dleafambientlighting_t</c> (28) and asserts the
-    /// length divides by THAT (<c>modelloader.cpp:2203-2211</c>). Answering 28
+    /// length divides by THAT. Answering 28
     /// unconditionally made a legacy map's lump look misaligned when it was
     /// correct.
     /// </remarks>
@@ -215,7 +215,7 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
     [Fact]
     public void OriginalFacesIsVersionZeroEvenThoughItHoldsFaces()
     {
-        // bsplib.cpp:2671 versions LUMP_FACES and LUMP_FACES_HDR and lets
+        // Versions LUMP_FACES and LUMP_FACES_HDR and lets
         // LUMP_ORIGINALFACES default to zero. The golden map agrees.
         Assert.Equal(0, BspLumpLayout.CurrentVersion(BspLump.OriginalFaces));
         Assert.Equal(0, Lockdown()[BspLump.OriginalFaces].Version);
@@ -224,7 +224,7 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
     [Fact]
     public void TheFiveVersionedLumpsAreTheOnesBspfileLists()
     {
-        // bspfile.h:360 -- LIGHTING 1, FACES 1, OCCLUSION 2, LEAFS 1,
+        // LIGHTING 1, FACES 1, OCCLUSION 2, LEAFS 1,
         // LEAF_AMBIENT_LIGHTING 1, plus the HDR twins that share their
         // constants.
         Assert.Equal(1, BspLumpLayout.CurrentVersion(BspLump.Lighting));
@@ -246,7 +246,7 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
             }
         }
 
-        // The five from bspfile.h:360 plus LIGHTING_HDR, FACES_HDR and
+        // The five from the reference implementation plus LIGHTING_HDR, FACES_HDR and
         // LEAF_AMBIENT_LIGHTING_HDR, which reuse the same three constants.
         Assert.Equal(8, versioned);
     }
@@ -263,7 +263,7 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
     [Fact]
     public void TheGoldenMapHasAnEvenNumberOfPlanes()
     {
-        // bspfile.h:473 -- planes come in opposite pairs, so an odd count means
+        // Planes come in opposite pairs, so an odd count means
         // the struct size is wrong even though the length divided.
         BspData bsp = Lockdown();
         Assert.Equal(0, BspStructView.Count<DPlane>(bsp[BspLump.Planes]) % 2);
@@ -280,7 +280,7 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
     [Fact]
     public void TheGoldenMapsFirstModelIsTheWorldAndStartsAtFaceZero()
     {
-        // bspfile.h:441 -- model 0 is the world. A shifted dmodel_t would show
+        // Model 0 is the world. A shifted dmodel_t would show
         // up here as a nonsense head node or first face.
         BspData bsp = Lockdown();
         DModel world = BspStructView.As<DModel>(bsp[BspLump.Models])[0];
@@ -367,7 +367,7 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
     [Fact]
     public void TheGoldenMapsDisplacementsAllHaveALegalPower()
     {
-        // bspfile.h:47 -- MIN_MAP_DISP_POWER 2, MAX_MAP_DISP_POWER 4. This is
+        // MIN_MAP_DISP_POWER 2, MAX_MAP_DISP_POWER 4. This is
         // the sharpest available check on ddispinfo_t's 176 bytes: get the
         // size wrong and the power field reads as a coordinate.
         BspData bsp = Lockdown();
@@ -411,7 +411,7 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
     [Fact]
     public void TheGoldenMapsCubemapSizesAreAllSmall()
     {
-        // bspfile.h:997 -- 0 means default, otherwise 1<<(size-1). A shifted
+        // 0 means default, otherwise 1<<(size-1). A shifted
         // dcubemapsample_t puts a coordinate byte here and this blows up.
         BspData bsp = Lockdown();
 
@@ -424,7 +424,7 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
     [Fact]
     public void TheGoldenMapsWorldLightsAllHaveAKnownEmitType()
     {
-        // bspfile.h:954 -- six emit types. dworldlight_t is 88 bytes of mostly
+        // Layout: six emit types. dworldlight_t is 88 bytes of mostly
         // floats, so this int field is the one that catches a shift.
         BspData bsp = Lockdown();
 
@@ -480,7 +480,7 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
     [Fact]
     public void TheGoldenMapsLeafAreasAllFitInNineBits()
     {
-        // bspfile.h:807 -- area:9. MAX_MAP_AREAS is 256, so a real map's areas
+        // Area:9. MAX_MAP_AREAS is 256, so a real map's areas
         // are far below the 511 the field allows; a bitfield read from the
         // wrong end produces values above it.
         BspData bsp = Lockdown();
@@ -494,7 +494,7 @@ public class BspLumpLayoutTests : IClassFixture<LockdownFixture>
     [Fact]
     public void TheGoldenMapsNodeChildrenAllNameARealNodeOrLeaf()
     {
-        // bspfile.h:490 -- negative is -(leaf + 1). This is the fact that
+        // Negative is -(leaf + 1). This is the fact that
         // proves dnode_t's trailing pad is in the right place: put it at the
         // front and every child index shifts.
         BspData bsp = Lockdown();

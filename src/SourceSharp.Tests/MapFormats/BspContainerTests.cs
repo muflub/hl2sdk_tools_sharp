@@ -15,8 +15,8 @@ public class BspContainerTests
     public void HeaderIsTenThirtySixBytes()
     {
         // ident + version + 64 * sizeof(lump_t) + mapRevision. The number is
-        // quoted in bsplib's own comments and in this project's lane notes, so
-        // it is worth pinning against the arithmetic rather than trusting both.
+        // quoted in the reference implementation's own comments, so it is
+        // worth pinning against the arithmetic rather than trusting both.
         Assert.Equal(1036, BspData.HeaderSize);
     }
 
@@ -37,7 +37,7 @@ public class BspContainerTests
         // MakeId("sprp") == ('p'<<24)|('r'<<16)|('p'<<8)|'s', which is the
         // packing the implementation happened to use -- so the check compared
         // the code against a restatement of the code and passed while both were
-        // wrong. gamebspfile.h:28 spells the id as the C multi-character
+        // wrong. The reference implementation spells the id as the C multi-character
         // constant 'sprp', whose leftmost character lands in the HIGHEST byte.
         //
         // The fix is not a better constant in the test: it is to ask the FILE.
@@ -153,7 +153,7 @@ public class BspContainerTests
     {
         BspLump[] skippable = [.. BspWriteOrder.Steps.Where(s => s.SkipWhenEmpty).Select(s => s.Lump)];
 
-        // bsplib.cpp:2672 (`if (numfaces_hdr)`), :2719 and :2724 (null pointer
+        // (`if (numfaces_hdr)`) (null pointer
         // checks). Everything else is written even at length zero, which
         // records the writer's position in the header rather than leaving the
         // slot zeroed.

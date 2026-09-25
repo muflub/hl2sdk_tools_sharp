@@ -39,7 +39,7 @@ public class OcclusionAndVisibilityTests : IClassFixture<LockdownFixture>
     [Fact]
     public void AnEmptyOcclusionLumpIsTwelveBytesOfZeroCounts()
     {
-        // bsplib.cpp:1348 -- three ints even when everything is empty, which
+        // Layout: three ints even when everything is empty, which
         // is exactly what dm_lockdown.bsp's 12-byte lump is.
         Assert.Equal(12, new OcclusionLump().Write().Length);
     }
@@ -71,7 +71,7 @@ public class OcclusionAndVisibilityTests : IClassFixture<LockdownFixture>
     [Fact]
     public void OcclusionWritesAtVersionTwo()
     {
-        // bspfile.h:364, LUMP_OCCLUSION_VERSION.
+        // The reference implementation, LUMP_OCCLUSION_VERSION.
         Assert.Equal(2, Sample().Write().Version);
     }
 
@@ -113,14 +113,14 @@ public class OcclusionAndVisibilityTests : IClassFixture<LockdownFixture>
     [Fact]
     public void OcclusionLengthMatchesBsplibsArithmetic()
     {
-        // bsplib.cpp:1348 -- occluders*40 + polys*12 + indices*4 + 3*4.
+        // Occluders*40 + polys*12 + indices*4 + 3*4.
         Assert.Equal((1 * 40) + (2 * 12) + (8 * 4) + 12, Sample().Write().Length);
     }
 
     [Fact]
     public void OcclusionVersionZeroDecodesToNothingWhateverItsLengthSays()
     {
-        // bsplib.cpp:1423 -- "case 0: break;". A version 0 lump is not read at
+        // "case 0: break;". A version 0 lump is not read at
         // all, so bytes that look like counts are ignored.
         BspLumpData lump = Sample().Write() with { Version = 0 };
 
@@ -130,7 +130,7 @@ public class OcclusionAndVisibilityTests : IClassFixture<LockdownFixture>
     [Fact]
     public void OcclusionVersionOneReadsTheShorterOccluderStruct()
     {
-        // bspfile.h:540 -- doccluderdataV1_t has no area field, so a version 1
+        // DoccluderdataV1_t has no area field, so a version 1
         // lump is 36 bytes per occluder and reading it with the 40-byte struct
         // shifts everything after the first.
         DOccluderDataV1 v1 = new()
@@ -158,7 +158,7 @@ public class OcclusionAndVisibilityTests : IClassFixture<LockdownFixture>
     public void OcclusionVersionOneOccludersGetAreaZero()
     {
         // The field did not exist, and 0 is the outside-of-all-areas default
-        // the engine already uses.
+        // the reference implementation already uses.
         DOccluderDataV1 v1 = new() { PolyCount = 1 };
 
         List<byte> bytes = [];

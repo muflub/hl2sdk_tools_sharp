@@ -1,6 +1,6 @@
 // Ported from Qhull 2.6 (1999/04/19), Copyright (c) 1993-1999 The Geometry Center,
-// University of Minnesota; modified 2026-09 by the SourceSharp port (Claude, lane p8a)
-// to C# for a managed collision cooker; original source: http://www.qhull.org
+// University of Minnesota; modified 2026-09 by the SourceSharp port to C# for a managed
+// collision cooker; original source: http://www.qhull.org
 // (2.6 archived at http://www.geom.uiuc.edu/software/qhull/). See COPYING.txt.
 
 using SourceSharp.MapTools.Phys.Managed.Qhull;
@@ -14,7 +14,7 @@ public class QhullUnitTests
     [Fact]
     public void RandFromSeedOneIsParkMiller()
     {
-        // geom2.c qh_rand: 16807 * seed mod 2^31-1 (Schrage), seeded 1 by qh_initqhull_start
+        // qh_rand is Park-Miller: 16807 * seed mod 2^31-1 (Schrage); qh_initqhull_start seeds 1
         var qh = new Qh();
         qh.qh_srand(1);
         Assert.Equal(16807, qh.qh_rand());
@@ -34,8 +34,8 @@ public class QhullUnitTests
     [Fact]
     public void CompareAngleSortMatchesGlibcQsortWithTiesAndNaN()
     {
-        // merge.c qh_compareangle never returns 0; glibc 2.43 qsort gave 3 7 8 0 1 2 4 5 6
-        // for these angles (p8aq tmp/qs.c)
+        // merge.c qh_compareangle never returns 0; glibc qsort gave 3 7 8 0 1 2 4 5 6
+        // for these angles.
         double[] angles = { 0.5, double.NaN, 0.5, -1, 0.5, double.NaN, 2, -1, 0.25 };
         var merges = new MergeT?[angles.Length + 1];
         for (int i = 0; i < angles.Length; i++)

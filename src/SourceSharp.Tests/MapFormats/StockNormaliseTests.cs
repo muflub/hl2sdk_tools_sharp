@@ -19,7 +19,7 @@ public class StockNormaliseTests
     public void ExactAndStockNormalisationDisagree()
     {
         // If these agreed there would be no reason for two methods, and the
-        // fact below that compares against real C++ would prove nothing. The
+        // fact below that compares against the compiled reference would prove nothing. The
         // estimate is accurate to about 12 bits, so it differs from an exact
         // divide in the low mantissa on almost any input.
         Vec3 v = new(3f, 4f, 12f);
@@ -119,7 +119,7 @@ public class StockNormaliseTests
                     && uint.Parse(parts[1], CultureInfo.InvariantCulture) == Bits(managed.Y)
                     && uint.Parse(parts[2], CultureInfo.InvariantCulture) == Bits(managed.Z)
                     && uint.Parse(parts[3], CultureInfo.InvariantCulture) == Bits(returned),
-                    $"vector {i} ({vectors[i]}) differs: C++ gave [{lines[i]}], managed gave "
+                    $"vector {i} ({vectors[i]}) differs: the reference gave [{lines[i]}], managed gave "
                     + $"[{Bits(managed.X)} {Bits(managed.Y)} {Bits(managed.Z)} {Bits(returned)}]");
             }
         }
@@ -166,8 +166,8 @@ public class StockNormaliseTests
         (float)((random.NextDouble() * 2.0 - 1.0) * scale);
 
     /// <summary>
-    /// Stock's <c>VectorNormalize</c> x86 path, lifted from
-    /// <c>src/public/mathlib/vector.h:2225-2251</c>, with nothing around it.
+    /// The stock <c>VectorNormalize</c> x86 path, the reference implementation's
+    /// arithmetic with nothing around it.
     /// </summary>
     private const string CppSource = """
         #include <xmmintrin.h>
@@ -326,7 +326,7 @@ public sealed class NativeCompilerFactAttribute : FactAttribute
         if (NativeCompiler.Path64() is null)
         {
             Skip = "no g++ or clang++ on PATH, so the managed port cannot be compared against the "
-                + "C++ it was ported from here. The property facts beside it still run, but the "
+                + "reference arithmetic here. The property facts beside it still run, but the "
                 + "bit-exactness claim is unchecked in this tree.";
         }
     }

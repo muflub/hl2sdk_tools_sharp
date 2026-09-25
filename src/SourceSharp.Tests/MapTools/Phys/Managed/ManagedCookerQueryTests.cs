@@ -5,9 +5,9 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Phys.Managed;
 
 /// <summary>
-/// The managed collide queries vbsp uses (volume, AABB, extent) against SDK 2013 vphysics.so's
-/// answers for the first 150 whole blobs of the brush and cloud goldens (&lt;group&gt;.queries.sdk.txt.gz:
-/// each line is the oracle command followed by its answer).
+/// The managed collide queries vbsp uses (volume, AABB, extent) against the reference
+/// collision cooker's answers for the first 150 whole blobs of the brush and cloud
+/// goldens (&lt;group&gt;.queries.sdk.txt.gz: each line is the query followed by its answer).
 /// </summary>
 public class ManagedCookerQueryTests
 {
@@ -77,7 +77,7 @@ public class ManagedCookerQueryTests
     [MemberData(nameof(Groups))]
     public void AabbIsNumericallyEqual(string group)
     {
-        // Numerically, not bitwise: native reports -0 where the managed min is +0 on some axes.
+        // Numerically, not bitwise: the reference reports -0 where the managed min is +0.
         List<byte[]> blobs = Blobs(group);
         foreach (Query q in Queries(group).Where(q => q.Kind == 'Q'))
         {

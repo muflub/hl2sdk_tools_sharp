@@ -1,6 +1,6 @@
 // Ported from Qhull 2.6 (1999/04/19), Copyright (c) 1993-1999 The Geometry Center,
-// University of Minnesota; modified 2026-09 by the SourceSharp port (Claude, lane p8a)
-// to C# for a managed collision cooker; original source: http://www.qhull.org
+// University of Minnesota; modified 2026-09 by the SourceSharp port to C# for a managed
+// collision cooker; original source: http://www.qhull.org
 // (2.6 archived at http://www.geom.uiuc.edu/software/qhull/). See COPYING.txt.
 
 using SourceSharp.MapTools.Phys.Managed.Qhull;
@@ -67,7 +67,7 @@ public class QSetTests
     [Fact]
     public void DelOfNullDeletesNothing()
     {
-        // qset.c qh_setdel stops at the NULL terminator: qh_furthestout (poly2.c) passes
+        // qh_setdel stops at the NULL terminator: qh_furthestout passes
         // the loop variable, NULL after the FOREACH, so the furthest point never moves
         var (s, _) = Make(3);
         Assert.Null(QSet<E>.Del(s, null));
@@ -109,7 +109,7 @@ public class QSetTests
     [Fact]
     public void ForeachStopsAtTheFirstNullOfAnIndexedSet()
     {
-        // FOREACHsetelement_ in qset.h ends at the first NULL; qh_setsize still counts holes
+        // FOREACHsetelement_ in the reference implementation ends at the first NULL; qh_setsize still counts holes
         var (s, _) = Make(4);
         s.e[2] = null;
         Assert.Equal(new[] { 0, 1 }, Values(s));

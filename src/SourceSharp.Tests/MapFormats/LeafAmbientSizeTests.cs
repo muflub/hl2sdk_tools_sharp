@@ -24,7 +24,7 @@ public class LeafAmbientSizeTests
     [InlineData(BspLump.LeafAmbientLightingHdr)]
     public void AtAnyOtherVersionTheSameLumpIsCompressedLightCubes(BspLump lump)
     {
-        // modelloader.cpp:2203-2211: on the legacy branch the engine casts the
+        // On the legacy branch the reference implementation casts the
         // SAME lump to CompressedLightCube* and asserts its length divides by
         // 24, not 28. Answering 28 unconditionally made a legacy map's lump
         // look misaligned when it was correct -- found by the validator lane,

@@ -25,10 +25,10 @@ public class VtfTests : IClassFixture<TfLogoFixture>
     [Fact]
     public void TheHeaderStructIsEightyBytes()
     {
-        // vtf.h's own warning at :445 is that the 7.3 struct "ends at 0x48 as
+        // The reference implementation's own warning is that the 7.3 struct "ends at 0x48 as
         // you would expect by counting structure bytes. But, the Infos start
         // at 0x50!" -- the POSIX branch writes that difference out as
-        // char pad5[8] (vtf.h:550), so the struct on disk is 0x50 = 80.
+        // char pad5[8], so the struct on disk is 0x50 = 80.
         Assert.Equal(80, Unsafe.SizeOf<VtfHeader>());
     }
 
@@ -79,7 +79,7 @@ public class VtfTests : IClassFixture<TfLogoFixture>
     [Fact]
     public void AResourceEntryIsEightBytes()
     {
-        // vtf.h:530 -- a union of uint and char[4], plus a uint.
+        // A union of uint and char[4], plus a uint.
         Assert.Equal(8, Unsafe.SizeOf<VtfResourceEntry>());
     }
 
@@ -201,7 +201,7 @@ public class VtfTests : IClassFixture<TfLogoFixture>
     public void MipsAreStoredSmallestFirst()
     {
         // The last mip is the FIRST thing in the image block, which is what
-        // lets the engine stream a coarse level without reading the file.
+        // lets the game stream a coarse level without reading the file.
         Assert.Equal(
             _fixture.Vtf.ImageDataOffset,
             IndexOf(_fixture.Bytes, _fixture.Vtf.MipData(_fixture.Vtf.MipCount - 1)));

@@ -10,9 +10,10 @@ namespace SourceSharp.Tests.MapTools.Phys.Managed;
 
 /// <summary>
 /// The session calls vbsp makes beyond a single convex, through <see cref="ManagedCollisionSession"/>,
-/// against SDK 2013's and TF2's <c>vphysics.so</c> (session.*.txt.gz, cut by the oracle's C/Y/M
-/// commands): brush models with drag axis areas and an outer hull (ConvertConvexToCollideParams),
-/// displacement triangle soups (the -novirtualmesh road), and virtual-mesh packed hulls (PHYSDISP).
+/// against the earlier and later reference collision cooker builds (session.*.txt.gz,
+/// cut by the reference dumper's C/Y/M commands): brush models with drag axis areas
+/// and an outer hull (ConvertConvexToCollideParams), displacement triangle soups
+/// (the -novirtualmesh road), and virtual-mesh packed hulls (PHYSDISP).
 /// </summary>
 public class ManagedSessionParityTests
 {
@@ -183,7 +184,7 @@ public class ManagedSessionParityTests
 
     [Theory]
     [MemberData(nameof(Kinds))]
-    public void StockIsByteExactAgainstSdk2013(Kind kind) => AssertExact(kind, stock: true);
+    public void StockIsByteExactAgainstTheEarlierReferenceBuild(Kind kind) => AssertExact(kind, stock: true);
 
     [Theory]
     [MemberData(nameof(Kinds))]
@@ -202,7 +203,7 @@ public class ManagedSessionParityTests
     public void StockDragRaysUseThePointHullAndTwoSidedTriangles()
     {
         // drag.*: two random multi-convex brush models. Job 0 has rays that graze a ledge point
-        // lying just outside its triangles' planes (vphysics traces the points); job 1 has a flat
+        // lying just outside its triangles' planes (the collision library traces them); job 1 has a flat
         // two-sided triangle ledge (whose two faces bound no edges).
         AssertExact(Kind.BrushModel, stock: true, group: "drag");
     }

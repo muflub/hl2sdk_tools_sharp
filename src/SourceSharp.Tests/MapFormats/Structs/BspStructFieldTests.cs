@@ -26,7 +26,7 @@ public class BspStructFieldTests
     [Fact]
     public void TexDataStartsWithReflectivity()
     {
-        // bspfile.h:513 -- reflectivity is the FIRST field. vbsp copies it out
+        // Reflectivity is the FIRST field. vbsp copies it out
         // of the VTF header, so this offset is where a wrong VTF layout would
         // surface.
         DTexData value = default;
@@ -43,7 +43,7 @@ public class BspStructFieldTests
     [Fact]
     public void DispInfoAllowedVertsIsTheLastField()
     {
-        // bspfile.h:666 -- 40 bytes of bit vector ending the struct at 176.
+        // 40 bytes of bit vector ending the struct at 176.
         DispInfo value = default;
         Assert.Equal(136, OffsetOf(ref value, ref value.AllowedVerts));
     }
@@ -63,7 +63,7 @@ public class BspStructFieldTests
     [Fact]
     public void LeafPaddingIsTrailing()
     {
-        // bspfile.h:846 -- leafWaterDataID is the last real field, at 28.
+        // LeafWaterDataID is the last real field, at 28.
         DLeaf value = default;
         Assert.Equal(28, OffsetOf(ref value, ref value.LeafWaterDataId));
         Assert.Equal(30, OffsetOf(ref value, ref value.Padding));
@@ -72,7 +72,7 @@ public class BspStructFieldTests
     [Fact]
     public void LeafVersionZeroPutsTheAmbientCubeAfterTheWaterDataId()
     {
-        // bspfile.h:822 -- the cube is the field version 1 removed, and it sits
+        // The cube is the field version 1 removed, and it sits
         // at the END, so a version 0 leaf is a version 1 leaf's first 30 bytes
         // followed by 24 bytes of light.
         DLeafVersion0 value = default;
@@ -100,7 +100,7 @@ public class BspStructFieldTests
     [Fact]
     public void LeafAreaIsTheLowNineBitsAndFlagsTheTopSeven()
     {
-        // bspfile.h:833 -- short area:9; short flags:7. Little-endian bitfields
+        // Short area:9; short flags:7. Little-endian bitfields
         // allocate from the low bit, so area is 0..8 and flags 9..15.
         DLeaf leaf = default;
         leaf.SetAreaFlags(511, LeafFlags.Sky | LeafFlags.Sky2D);
@@ -138,7 +138,7 @@ public class BspStructFieldTests
     [Fact]
     public void FacePrimitiveCountIgnoresTheShadowBit()
     {
-        // bspfile.h:757 -- GetNumPrims masks with 0x7FFF.
+        // GetNumPrims masks with 0x7FFF.
         DFace face = default;
         face.NumPrimsAndFlags = 0x8007;
 
@@ -148,7 +148,7 @@ public class BspStructFieldTests
     [Fact]
     public void FaceDynamicShadowsAreDisabledByTheTopBitBeingSet()
     {
-        // bspfile.h:769 -- the sense is inverted, which is the easy bug.
+        // The sense is inverted, which is the easy bug.
         DFace face = default;
         face.NumPrimsAndFlags = 0x8000;
 
@@ -176,7 +176,7 @@ public class BspStructFieldTests
     [Fact]
     public void OverlayFaceCountIsTheLowFourteenBits()
     {
-        // bspfile.h:1039 -- masked with ~0xC000.
+        // Masked with ~0xC000.
         DOverlay overlay = default;
         overlay.FaceCountAndRenderOrder = 0xC000 | 17;
 
@@ -186,7 +186,7 @@ public class BspStructFieldTests
     [Fact]
     public void OverlayRenderOrderIsTheTopTwoBits()
     {
-        // bspfile.h:1050 -- shifted down by 16 - OVERLAY_RENDER_ORDER_NUM_BITS.
+        // Shifted down by 16 - OVERLAY_RENDER_ORDER_NUM_BITS.
         DOverlay overlay = default;
         overlay.FaceCountAndRenderOrder = 0xC000 | 17;
 
@@ -207,7 +207,7 @@ public class BspStructFieldTests
     [Fact]
     public void WaterOverlayUsesTheSameRenderOrderMaskDespiteHavingFourTimesTheFaces()
     {
-        // bspfile.h:1068 -- WATEROVERLAY_RENDER_ORDER_MASK is also 0xC000, so a
+        // WATEROVERLAY_RENDER_ORDER_MASK is also 0xC000, so a
         // water overlay's face count still has only 14 bits for its 256 faces.
         DWaterOverlay overlay = default;
         overlay.FaceCountAndRenderOrder = 0x4000 | 256;
@@ -219,7 +219,7 @@ public class BspStructFieldTests
     [Fact]
     public void DispSubNeighborSentinelIsAllOnes()
     {
-        // bspfile.h:568 -- SetInvalid writes 0xFFFF.
+        // SetInvalid writes 0xFFFF.
         Assert.Equal(0xFFFF, DispSubNeighbor.NoNeighbor);
     }
 
@@ -237,7 +237,7 @@ public class BspStructFieldTests
     [Fact]
     public void DispInfoVertexCountFollowsThePowerFormula()
     {
-        // bspfile.h:53 -- ((1 << power) + 1)^2. Power 4 is the maximum and
+        // ((1 << power) + 1)^2. Power 4 is the maximum and
         // gives the 289 that sizes m_AllowedVerts.
         DispInfo info = default;
         info.Power = 4;
@@ -248,7 +248,7 @@ public class BspStructFieldTests
     [Fact]
     public void DispInfoTriangleCountFollowsThePowerFormula()
     {
-        // bspfile.h:54 -- 2 * (1 << power)^2.
+        // 2 * (1 << power)^2.
         DispInfo info = default;
         info.Power = 4;
 
@@ -258,7 +258,7 @@ public class BspStructFieldTests
     [Fact]
     public void ColorRgbExp32DecodesWithASignedExponent()
     {
-        // mathlib.h:993 -- a signed char. Read unsigned, an exponent of -1
+        // A signed char. Read unsigned, an exponent of -1
         // becomes 255 and the sample is 2^255 times too bright.
         ColorRgbExp32 color = new() { R = 128, G = 64, B = 32, Exponent = -1 };
         Vec3 linear = color.ToLinear();
@@ -271,7 +271,7 @@ public class BspStructFieldTests
     [Fact]
     public void TexInfoTextureVectorsAreTwoRowsOfFour()
     {
-        // bspfile.h:502 -- float[2][4] is row-major, so the t axis starts at
+        // Layout: float[2][4] is row-major, so the t axis starts at
         // element 4 and the s axis' offset is element 3.
         TexInfo info = default;
         info.TextureVecsTexelsPerWorldUnits[3] = 12.5f;

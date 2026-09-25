@@ -1,6 +1,6 @@
 // Ported from Qhull 2.6 (1999/04/19), Copyright (c) 1993-1999 The Geometry Center,
-// University of Minnesota; modified 2026-09 by the SourceSharp port (Claude, lane p8a)
-// to C# for a managed collision cooker; original source: http://www.qhull.org
+// University of Minnesota; modified 2026-09 by the SourceSharp port to C# for a managed
+// collision cooker; original source: http://www.qhull.org
 // (2.6 archived at http://www.geom.uiuc.edu/software/qhull/). See COPYING.txt.
 
 using SourceSharp.MapTools.Phys.Managed.Qhull;
@@ -9,8 +9,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Phys.Managed.Qhull;
 
 /// <summary>
-/// The port follows vphysics.so's floating-point grouping (GCC 10.3 -ffast-math), not the
-/// qhull 2.6 source's. Each fact picks inputs where the two groupings round differently.
+/// The port follows the reference collision cooker's floating-point grouping, not
+/// qhull 2.6's own. Each fact picks inputs where the two groupings round differently.
 /// </summary>
 public class BinaryOrderTests
 {
@@ -26,7 +26,8 @@ public class BinaryOrderTests
     [Fact]
     public void DistplaneGroupsAsTheBinary()
     {
-        // vphysics.so a94d8: (x*nx + y*ny) + (offset + z*nz); geom.c qh_distplane: ((offset + x*nx) + y*ny) + z*nz
+        // The reference cooker groups distplane as (x*nx + y*ny) + (offset + z*nz); qhull's
+        // qh_distplane groups it as ((offset + x*nx) + y*ny) + z*nz.
         var qh = Qh3();
         double[] p = { H("-0x1.179e18d58c670p+0"), H("0x1.1b923ce04acecp+2"), H("-0x1.5b2f32016a5b0p+2"), 0 };
         var f = new Facet { normal = new[] { H("0x1.c7f50a8d15c78p-1"), H("0x1.9b0fcca8a188cp-1"), H("-0x1.e0ad04fd248cap-1") }, offset = H("-0x1.2fb6f33c094b9p+3") };
@@ -38,7 +39,7 @@ public class BinaryOrderTests
     [Fact]
     public void GetcenterMultipliesByTheReciprocalOfTheCount()
     {
-        // vphysics.so aa9ff/aaa64: sum * (1.0/count); geom.c qh_getcenter: sum / count
+        // The reference cooker's getcenter is sum * (1.0/count); qhull's qh_getcenter is sum / count.
         var qh = Qh3();
         double s = H("-0x1.301dfda4533e4p+1");
         QSet<Vertex>? vs = new QSet<Vertex>(3);
@@ -52,15 +53,17 @@ public class BinaryOrderTests
     [Fact]
     public void FabsClearsTheSignOfNegativeZero()
     {
-        // vphysics.so emits fabs_ as andpd (e.g. ac2dc); the macro ((a) < 0) ? -(a) : (a) keeps -0.0
+        // The reference cooker compiles fabs_ to andpd, which clears -0.0; the macro
+        // ((a) < 0) ? -(a) : (a) keeps -0.0.
         Assert.False(double.IsNegative(Qh.fabs_(-0.0)));
     }
 
     [Fact]
     public void JoggleGroupsAsTheBinaryWhereTheFormsDiffer()
     {
-        // vphysics.so 898ee..89961: (in - J) + r*(J*(2/RANDOMmax)); geom2.c qh_joggleinput:
-        // in + (r*(2*J/RANDOMmax) + -J). 'QJ1.8146E-05' is one of IVP's joggles where they differ.
+        // The reference cooker's joggle is (in - J) + r*(J*(2/RANDOMmax)); qhull's
+        // qh_joggleinput is in + (r*(2*J/RANDOMmax) + -J). 'QJ1.8146E-05' is one of IVP's
+        // joggles where they differ.
         double joggle = 1.8146E-05;
         double input = H("0x1.44a6780000000p-10");
         var qh = Qh3();
@@ -84,8 +87,9 @@ public class BinaryOrderTests
     [Fact]
     public void JoggleScalesByTheFoldedConstantWhereItDiffers()
     {
-        // vphysics.so 898ee: randa = J * (2/RANDOMmax) rather than 2*J/RANDOMmax; for this
-        // input the two randa give different joggled coordinates under the binary grouping.
+        // The reference cooker's random draw is randa = J * (2/RANDOMmax) rather than
+        // 2*J/RANDOMmax; for this input the two randa give different joggled coordinates
+        // under the reference grouping.
         double joggle = 1.8146E-05;
         double input = H("0x1.eb2c120000000p-14");
         var qh = Qh3();
@@ -102,7 +106,7 @@ public class BinaryOrderTests
     [Fact]
     public void JoggleUsesTheFoldedTwoOverRandomMax()
     {
-        // vphysics.so 898ee: JOGGLEmax * 0x1.0000000400000p-30 (2.0/qh_RANDOMmax folded)
+        // The reference cooker folds 2.0/qh_RANDOMmax: JOGGLEmax * 0x1.0000000400000p-30.
         double folded = 2.0 / QhConst.qh_RANDOMmax;
         Assert.Equal(0x3E10000000400000L, BitConverter.DoubleToInt64Bits(folded));
     }

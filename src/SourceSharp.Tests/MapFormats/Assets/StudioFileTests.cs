@@ -103,7 +103,7 @@ public class StudioFileTests
 
         StudioBone bone = new()
         {
-            // RELATIVE to the bone, not to the file: studio.h:275's accessor
+            // RELATIVE to the bone, not to the file: the reference implementation's accessor
             // is ((char *)this) + sznameindex.
             NameIndex = boneName - boneAt,
             Parent = -1,
@@ -337,7 +337,7 @@ public class StudioFileTests
     [Fact]
     public void ABoneNameOffsetIsRelativeToTheBoneAndNotToTheFile()
     {
-        // studio.h:275 -- ((char *)this) + sznameindex. Reading it as a file
+        // ((char *)this) + sznameindex. Reading it as a file
         // offset lands in the middle of the header on a real model and gives
         // either an empty string or garbage.
         byte[] bytes = BuildMdl(out int boneNameAt);
@@ -359,7 +359,7 @@ public class StudioFileTests
     public void ReadsTheMaterialSearchPaths()
     {
         // The cdtexture table is an array of ints, each an ABSOLUTE file
-        // offset -- unlike almost every other offset in studio.h.
+        // offset -- unlike almost every other offset in the reference implementation.
         MdlFile mdl = MdlFile.Parse(BuildMdl(out _));
 
         Assert.Equal(@"models\props\", mdl.MaterialSearchPaths()[0]);
@@ -378,7 +378,7 @@ public class StudioFileTests
     [Fact]
     public void AModelsVertexIndexIsAByteOffsetAndAMeshsIsAnIndex()
     {
-        // The two fields are spelled differently in the C++ for this reason
+        // The two fields are spelled differently in the reference format for this reason
         // (vertexindex against vertexoffset) and confusing them scales a
         // model's first vertex by 48.
         MdlFile mdl = MdlFile.Parse(BuildMdl(out _));
@@ -399,7 +399,7 @@ public class StudioFileTests
     [Fact]
     public void RejectsAnMdlOfAnotherVersion()
     {
-        // staticprop.cpp:165 -- vbsp refuses anything but STUDIO_VERSION, so
+        // Vbsp refuses anything but STUDIO_VERSION, so
         // reading a Portal 2 model here would be inventing compatibility.
         byte[] bytes = BuildMdl(out _);
         MemoryMarshal.Write(bytes.AsSpan(4), 49);
@@ -484,7 +484,7 @@ public class StudioFileTests
     [Fact]
     public void RejectsAThinVvdRatherThanMisreadingIt()
     {
-        // studio.h:1941 -- IDCV holds thinModelVertices_t, which is quantised
+        // IDCV holds thinModelVertices_t, which is quantised
         // and NOT 48 bytes per vertex. Reading it as if it were produces
         // plausible-looking garbage.
         byte[] bytes = BuildVvd(4, 0);

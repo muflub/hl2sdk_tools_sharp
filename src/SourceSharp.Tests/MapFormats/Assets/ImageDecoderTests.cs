@@ -60,7 +60,7 @@ public class ImageDecoderTests
     [Fact]
     public void Bgra8888PutsBlueFirstOnDisk()
     {
-        // imageformat.h:128 declares BGRA8888_t as b, g, r, a. A decoder that
+        // Declares BGRA8888_t as b, g, r, a. A decoder that
         // reads it as RGBA swaps every texture's red and blue, which is subtle
         // enough to ship.
         byte[] source = [10, 20, 30, 40];
@@ -309,7 +309,7 @@ public class ImageDecoderTests
     [Fact]
     public void TheFloatFormatsAreNotDecodable()
     {
-        // Named in imageformat.h, deliberately unsupported: nothing in the map
+        // Named in the reference implementation, deliberately unsupported: nothing in the map
         // tools samples an HDR texture, and a wrong guess would be worse than
         // a refusal.
         Assert.False(ImageDecoder.CanDecode(ImageFormat.Rgba16161616F));

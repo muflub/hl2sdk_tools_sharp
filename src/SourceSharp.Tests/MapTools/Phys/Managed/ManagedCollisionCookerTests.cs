@@ -86,7 +86,7 @@ public class ManagedCollisionCookerTests
     public async Task CorrectComplianceWritesFiniteInertiaWhereTf2WritesNaN()
     {
         // StockQuirk.CollisionInertiaZeroLengthEdge wired through Create: a dm_lockdown brush whose
-        // TF2-arithmetic cook has NaN rotation inertia cooks finite through the correct cooker.
+        // Tf2-mode cook has NaN rotation inertia cooks finite through the correct cooker.
         CookerFixture.Convex brush = FirstNaNInertiaBrush();
         await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
         byte[] blob = cooker.CookPlanes(Planes(brush), brush.Merge)!;
@@ -117,7 +117,7 @@ public class ManagedCollisionCookerTests
     [Fact]
     public async Task StockPolysoupsOverrunIntoTheirPointsOnMaterialZero()
     {
-        // StockQuirk.CollisionPolysoupMaterialOverrun: both vphysics builds clear the exponent of
+        // StockQuirk.CollisionPolysoupMaterialOverrun: both reference builds clear the exponent of
         // the first point's x when the triangle's material is 0.
         (float zero, float one) = await FirstPointX(ComplianceOptions.Stock);
         Assert.NotEqual(one, zero);

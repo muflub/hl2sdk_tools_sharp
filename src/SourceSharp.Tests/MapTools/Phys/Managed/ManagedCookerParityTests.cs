@@ -4,7 +4,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Phys.Managed;
 
 /// <summary>
-/// The managed cooker against the native <c>vphysics.so</c> builds, over the committed goldens
+/// The managed cooker against the reference collision cooker builds, over the committed goldens
 /// (plan ruling Q18: byte-exact per build on simple shapes; general brushes graded by
 /// <see cref="VphyCompare"/>; here every group turned out byte-exact).
 /// </summary>
@@ -14,10 +14,11 @@ public class ManagedCookerParityTests
 
     [Theory]
     [MemberData(nameof(Groups))]
-    public void StockIsByteExactAgainstSdk2013(string group)
+    public void StockIsByteExactAgainstTheEarlierReferenceBuild(string group)
     {
-        // Stock = SDK's float arithmetic with its rsqrtss estimate. The goldens were cut on an
-        // AMD Ryzen 9 9950X; rsqrtss is implementation-defined, so a different CPU vendor may
+        // Stock = the earlier reference build's float arithmetic with its rsqrt estimate.
+        // The goldens were cut on an AMD Ryzen 9 9950X; rsqrtss is implementation-defined,
+        // so a different CPU vendor may
         // legitimately disagree with both the goldens and this port in the same places.
         AssertExact(group, CookMode.Stock, "sdk");
     }
@@ -32,7 +33,7 @@ public class ManagedCookerParityTests
     [Fact]
     public void CorrectModeDiffersFromTf2OnlyByTheNaNInertiaItFixes()
     {
-        // StockQuirk.CollisionInertiaZeroLengthEdge: TF2 writes NaN rotation_inertia for six
+        // StockQuirk.CollisionInertiaZeroLengthEdge: Tf2 mode writes NaN rotation_inertia for six
         // dm_lockdown brushes; correct mode writes finite values and is otherwise identical.
         List<CookerFixture.Job> jobs = CookerFixture.Jobs("brushes");
         List<CookerFixture.Answer> answers = CookerFixture.Answers("brushes", "tf2");
@@ -58,10 +59,10 @@ public class ManagedCookerParityTests
     }
 
     [Fact]
-    public void TheSpikeCubeHashesAreReproduced()
+    public void TheCubeCookHashesAreReproduced()
     {
-        // Spike 0b (s0-phys-findings.md section 7): a 32-unit cube through ConvexFromPlanes +
-        // ConvertConvexToCollide + CollideWrite, sha256 1cbd3458... (SDK) and 00a6c695... (TF2).
+        // A 32-unit cube through ConvexFromPlanes + ConvertConvexToCollide + CollideWrite;
+        // the asserted digests are the two reference builds' answers for it.
         CookerFixture.Job cube = CookerFixture.Jobs("shapes")[0];
         byte[] sdk = CookerFixture.Cook(cube, CookMode.Stock, CookerFixture.Context(CookMode.Stock))!;
         byte[] tf2 = CookerFixture.Cook(cube, CookMode.Tf2, CookerFixture.Context(CookMode.Tf2))!;

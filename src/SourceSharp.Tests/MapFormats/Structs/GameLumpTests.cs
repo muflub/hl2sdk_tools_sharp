@@ -25,42 +25,37 @@ public class GameLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void StaticPropDictionaryEntryIsOneHundredTwentyEightBytes()
     {
-        // gamebspfile.h:145, STATIC_PROP_NAME_LENGTH.
+        // The reference implementation, STATIC_PROP_NAME_LENGTH.
         Assert.Equal(128, Unsafe.SizeOf<StaticPropDictLump>());
     }
 
     [Fact]
     public void StaticPropLeafEntryIsTwoBytes()
     {
-        // gamebspfile.h:276.
         Assert.Equal(2, Unsafe.SizeOf<StaticPropLeafLump>());
     }
 
     [Fact]
     public void StaticPropVersionFourIsFiftySixBytes()
     {
-        // gamebspfile.h:151.
         Assert.Equal(56, Unsafe.SizeOf<StaticPropLumpV4>());
     }
 
     [Fact]
     public void StaticPropVersionFiveAddsFourBytesForTheForcedFadeScale()
     {
-        // gamebspfile.h:168.
         Assert.Equal(60, Unsafe.SizeOf<StaticPropLumpV5>());
     }
 
     [Fact]
     public void StaticPropVersionSixAddsFourMoreForTheDirectXRange()
     {
-        // gamebspfile.h:186.
         Assert.Equal(64, Unsafe.SizeOf<StaticPropLumpV6>());
     }
 
     [Fact]
     public void StaticPropVersionTenIsSeventyTwoBytes()
     {
-        // gamebspfile.h:206.
         Assert.Equal(72, Unsafe.SizeOf<StaticPropLumpV10>());
     }
 
@@ -90,28 +85,27 @@ public class GameLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void StaticPropLightstyleSampleIsFourBytes()
     {
-        // gamebspfile.h:285 -- a bare ColorRGBExp32.
+        // A bare ColorRGBExp32.
         Assert.Equal(4, Unsafe.SizeOf<StaticPropLightstylesLump>());
     }
 
     [Fact]
     public void DetailObjectIsFiftyTwoBytes()
     {
-        // gamebspfile.h:87.
         Assert.Equal(52, Unsafe.SizeOf<DetailObjectLump>());
     }
 
     [Fact]
     public void DetailSpriteDictionaryEntryIsThirtyTwoBytes()
     {
-        // gamebspfile.h:77 -- four Vector2D.
+        // Layout: four Vector2D.
         Assert.Equal(32, Unsafe.SizeOf<DetailSpriteDictLump>());
     }
 
     [Fact]
     public void DetailPropLightstyleSampleIsFiveBytesWithNoPadding()
     {
-        // gamebspfile.h:110 -- every member is a byte, so the struct's
+        // Every member is a byte, so the struct's
         // alignment is one and there is no trailing pad. Round it up to 8 and
         // every sample after the first is misread.
         Assert.Equal(5, Unsafe.SizeOf<DetailPropLightstylesLump>());
@@ -126,7 +120,7 @@ public class GameLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void TheGoldenMapsGameLumpDirectoryHoldsSprpWithTheFirstCharacterHigh()
     {
-        // The arbiter. gamebspfile.h:28 writes the id as the C multi-character
+        // The arbiter. The reference implementation writes the id as the C multi-character
         // constant 'sprp', which both compilers evaluate with 's' in the HIGH
         // byte, so the directory's int is 0x73707270. Nothing but a real file
         // can settle this, and dm_lockdown.bsp is a real file.
@@ -219,7 +213,7 @@ public class GameLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void ReadsTheLeafListWhichComesBeforeThePropsNotAfter()
     {
-        // staticprop.cpp:560 writes dict, then LEAVES, then props. Swapping
+        // Writes dict, then LEAVES, then props. Swapping
         // the last two still parses a plausible-looking lump.
         StaticPropLump lump = StaticPropLump.Read(
             BuildSprp(4, ["models/props/crate.mdl"], [7, 9], [SampleV4()]));
@@ -230,7 +224,7 @@ public class GameLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void VersionFourPropsGetAForcedFadeScaleOfOne()
     {
-        // gamebspfile.h:244. A zero here would stop the prop fading at all.
+        // The reference implementation. A zero here would stop the prop fading at all.
         StaticPropLump lump = StaticPropLump.Read(
             BuildSprp(4, ["m.mdl"], [0], [SampleV4()]));
 
@@ -240,7 +234,7 @@ public class GameLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void VersionFourPropsGainNoPerTexelLighting()
     {
-        // gamebspfile.h:251 -- "Older versions don't want this."
+        // "Older versions don't want this."
         StaticPropLump lump = StaticPropLump.Read(
             BuildSprp(4, ["m.mdl"], [0], [SampleV4()]));
 
@@ -259,7 +253,7 @@ public class GameLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void VersionFivePropsKeepTheirOwnForcedFadeScale()
     {
-        // gamebspfile.h:259 -- the V4 path sets 1.0f and the V5 path then
+        // The V4 path sets 1.0f and the V5 path then
         // overwrites it, so a reader that stops at the V4 path silently
         // discards the field version 5 was created to add.
         StaticPropLumpV5 prop = new()
@@ -277,7 +271,6 @@ public class GameLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void VersionSixPropsKeepTheirDirectXRange()
     {
-        // gamebspfile.h:267.
         StaticPropLumpV6 prop = new()
         {
             Solid = 6,
@@ -343,7 +336,7 @@ public class GameLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void RejectsAVersionWithNoStructInThisTree()
     {
-        // There is no version 7, 8 or 9 struct anywhere in this SDK, and
+        // There is no version 7, 8 or 9 struct anywhere in this tree, and
         // guessing at one would be inventing another game's format.
         Assert.Throws<InvalidBspException>(() =>
             StaticPropLump.Read(BuildSprp(7, ["m.mdl"], [0], [SampleV4()])));
@@ -371,7 +364,7 @@ public class GameLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void WritesVersionTenWhateverItRead()
     {
-        // gamebspfile.h:37 and staticprop.cpp:550 -- the branch writes 10.
+        // And the reference implementation -- the branch writes 10.
         StaticPropLump lump = StaticPropLump.Read(BuildSprp(4, ["m.mdl"], [0], [SampleV4()]));
 
         Assert.Equal(10, lump.Write().Version);
@@ -457,7 +450,7 @@ public class GameLumpTests : IClassFixture<LockdownFixture>
     [Fact]
     public void DetailPropLumpRejectsAnyVersionButFour()
     {
-        // gamebspfile.h:35 defines only version 4.
+        // Defines only version 4.
         GameLumpEntry entry = new(GameLumpId.MakeId(GameLumpId.DetailProps), 0, 3, new byte[12]);
 
         Assert.Throws<InvalidBspException>(() => DetailPropLump.Read(entry));

@@ -13,18 +13,18 @@ namespace SourceSharp.Tests.MapFormats;
 /// <para>
 /// The regression net for the whole feature is the first fact: the default
 /// path must keep producing the exact bytes this branch produced before any
-/// of it existed. The hash below was taken from <c>git stash</c>-ed tip code
-/// (commit 8ff8753f0) over the committed golden map before the refactor
-/// landed; every version knob added here has to leave it untouched.
+/// of it existed. The hash below was captured from the pre-refactor writer
+/// over the committed golden map; every version knob added here has to leave
+/// it untouched.
 /// </para>
 /// <para>
-/// The v21/L4D2 fixture is SYNTHETIC until the tools++ oracle (lane T0)
-/// delivers real ++-compiled maps: it is built by this writer, not by vbsp++,
-/// so it proves the writer and reader agree with each other and with the
-/// recovered re-layout recipe, not that they agree with Valve's binary. The
-/// recipe itself is the Ghidra dump's 32-byte-to-shifted-16-byte loop
-/// (<c>dumps/vbsp/_gameflag/140054040_writebsp.c:28-38</c>): the same sixteen
-/// bytes per entry, fields shifted one dword right.
+/// The v21/L4D2 fixture is SYNTHETIC until a reference-produced map of
+/// that version is committed: it is built by this writer, not by the
+/// reference compiler, so it proves the writer and reader agree with each
+/// other and with the recovered re-layout recipe, not that they agree with
+/// the reference binary. The recipe itself is the reference writer's
+/// 32-byte-to-shifted-16-byte loop: the same sixteen bytes per
+/// entry, fields shifted one dword right.
 /// </para>
 /// </remarks>
 public class BspWriteFormatTests
@@ -193,7 +193,7 @@ public class BspWriteFormatTests
         await BspFile.SaveAsync(bsp, first, BspWriteMode.Canonical, l4d2);
         byte[] relaid = first.ToArray();
 
-        // The ++ reader's detection (140054040_writebsp.c:21): version 21 and
+        // The reference reader's detection: version 21 and
         // the first lump entry's first dword zero -- under the re-layout that
         // dword is the planes version, and planes is written at 0, so every
         // canonical re-layout file this writer emits is detectable.
@@ -229,7 +229,7 @@ public class BspWriteFormatTests
         }
 
         // Preserve mode of the re-laid-out file is byte-exact -- the contract
-        // the plan sets for a real ++-produced L4D2 map.
+        // the plan sets for a real reference-produced L4D2 map.
         using MemoryStream again = new();
         await BspFile.SaveAsync(loaded, again, BspWriteMode.PreserveSourceLayout);
         Assert.Equal(relaid, again.ToArray());

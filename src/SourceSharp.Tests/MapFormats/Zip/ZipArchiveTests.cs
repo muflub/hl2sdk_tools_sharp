@@ -7,7 +7,7 @@ namespace SourceSharp.Tests.MapFormats.Zip;
 
 /// <summary>
 /// Facts for the STORE-only pakfile reader and writer, from
-/// <c>src/public/zip_utils.cpp</c> and <c>src/public/zip_uncompressed.h</c>.
+/// And the reference implementation.
 /// </summary>
 public class ZipArchiveTests
 {
@@ -21,7 +21,7 @@ public class ZipArchiveTests
     [Fact]
     public void LocalFileHeaderStartsWithThePkSignature()
     {
-        // PKID(3,4), zip_uncompressed.h:15 and zip_utils.cpp:1536. On a
+        // PKID(3,4), the local file header signature. On a
         // little-endian machine the bytes read "PK\x03\x04".
         byte[] pak = BuildOneEntryPak("materials/a.vmt", [1, 2, 3]);
 
@@ -31,7 +31,6 @@ public class ZipArchiveTests
     [Fact]
     public void StoredEntryDeclaresVersionNeededTen()
     {
-        // zip_utils.cpp:1537.
         byte[] pak = BuildOneEntryPak("a.txt", [1]);
 
         Assert.Equal(10, BinaryPrimitives.ReadUInt16LittleEndian(pak.AsSpan(4)));
@@ -40,7 +39,7 @@ public class ZipArchiveTests
     [Fact]
     public void FlagsAreZeroSoThereIsNeverADataDescriptor()
     {
-        // zip_utils.cpp:1545 and :1612 hardcode 0. Bit 3 would mean the sizes
+        // Hardcode 0. Bit 3 would mean the sizes
         // follow the data in a PK\x07\x08 record, which is what
         // System.IO.Compression writes and Source cannot read.
         byte[] pak = BuildOneEntryPak("a.txt", [1, 2, 3, 4]);
@@ -62,7 +61,7 @@ public class ZipArchiveTests
     [Fact]
     public void ModificationTimeAndDateAreZero()
     {
-        // zip_utils.cpp:1547-1548. Nothing derives them from the clock, which
+        // The reference implementation. Nothing derives them from the clock, which
         // is why a pak is reproducible at all.
         byte[] pak = BuildOneEntryPak("a.txt", [1]);
 
@@ -73,9 +72,9 @@ public class ZipArchiveTests
     [Fact]
     public void ExtraFieldLengthIsZeroBecausePcAlignmentIsZero()
     {
-        // CalculatePadding returns 0 when m_AlignmentSize is 0
-        // (zip_utils.cpp:1288-1291), and it always is on the PC: the
-        // constructor sets it (:513-514) and ForceAlignment has no call site.
+        // The reference's CalculatePadding returns 0 when its alignment size is 0,
+        // and it always is on the PC: the
+        // constructor sets it and ForceAlignment has no call site.
         byte[] pak = BuildOneEntryPak("a.txt", [1]);
 
         Assert.Equal(0, BinaryPrimitives.ReadUInt16LittleEndian(pak.AsSpan(28)));
@@ -85,7 +84,7 @@ public class ZipArchiveTests
     [Fact]
     public void FileNameIsWrittenWithoutATerminator()
     {
-        // zip_utils.cpp:1561 -- Put(pFilename, V_strlen(pFilename)).
+        // Put(pFilename, V_strlen(pFilename)).
         byte[] pak = BuildOneEntryPak("ab.txt", [9]);
         ushort nameLength = BinaryPrimitives.ReadUInt16LittleEndian(pak.AsSpan(26));
 
@@ -97,7 +96,7 @@ public class ZipArchiveTests
     [Fact]
     public void NameIsLowerCased()
     {
-        // zip_utils.cpp:995-998 -- Q_strlower, unconditionally.
+        // Q_strlower, unconditionally.
         ZipArchiveWriter writer = new();
         ZipEntry entry = writer.Add("Materials/Metal/MetalWall.VMT", [1]);
 
@@ -107,7 +106,7 @@ public class ZipArchiveTests
     [Fact]
     public void CentralDirectoryDeclaresVersionMadeByTwenty()
     {
-        // zip_utils.cpp:1603, with the comment "This is the version that the
+        // The reference implementation, with the comment "This is the version that the
         // winzip that I have writes."
         byte[] pak = BuildOneEntryPak("a.txt", [1]);
         int directory = FindCentralDirectory(pak);
@@ -120,7 +119,7 @@ public class ZipArchiveTests
     [Fact]
     public void CentralDirectoryOffsetIsRelativeToTheStartOfThePak()
     {
-        // zip_utils.cpp:1511,1520 -- every offset subtracts
+        // Every offset subtracts
         // zipOffsetInStream, because the pak is embedded in a BSP at a
         // non-zero file offset.
         byte[] pak = BuildOneEntryPak("a.txt", [1]);
@@ -132,7 +131,7 @@ public class ZipArchiveTests
     [Fact]
     public void ExternalAttributesAreZero()
     {
-        // zip_utils.cpp:1625 -- "usually something, but zero is OK as if the
+        // "usually something, but zero is OK as if the
         // input came from stdin".
         byte[] pak = BuildOneEntryPak("a.txt", [1]);
         int directory = FindCentralDirectory(pak);
@@ -143,9 +142,9 @@ public class ZipArchiveTests
     [Fact]
     public void DefaultCommentIsTheThirtyTwoByteXzipString()
     {
-        // MakeXZipCommentString, zip_utils.cpp:1303-1316: "XZP%c %d" over a
+        // The reference's MakeXZipCommentString: "XZP%c %d" over a
         // zeroed 32-byte buffer, with '1' for the compatible format and 0 for
-        // the alignment. Every pak today's vbsp writes carries it.
+        // the alignment. Every pak the reference compiler writes carries it.
         byte[] comment = ZipArchiveWriter.BuildComment();
 
         Assert.Equal(ZipFormat.CommentLength, comment.Length);
@@ -170,8 +169,8 @@ public class ZipArchiveTests
     [Fact]
     public void ZeroLengthEntriesAreSilentlyDropped()
     {
-        // zip_utils.cpp:1533 and :1599 both skip an entry whose compressed
-        // size is not positive, and realNumFiles at :1638 counts only what was
+        // Both skip an entry whose compressed
+        // size is not positive, and realNumFiles counts only what was
         // written. An empty file put into a pak does not come out of it.
         ZipArchiveWriter writer = new();
         writer.Add("empty.txt", []);
@@ -185,7 +184,7 @@ public class ZipArchiveTests
     [Fact]
     public void Crc32MatchesTheWellKnownValueForTheStandardTestVector()
     {
-        // checksum_crc.cpp:14-15 and the table at :18-84: init 0xFFFFFFFF,
+        // And the table: init 0xFFFFFFFF,
         // reflected polynomial 0xEDB88320, final xor 0xFFFFFFFF. The CRC-32 of
         // "123456789" under that definition is the published 0xCBF43926.
         Assert.Equal(0xCBF43926u, Crc32.Compute("123456789"u8));
@@ -200,7 +199,7 @@ public class ZipArchiveTests
     [Fact]
     public void CrcIsComputedOverTheUncompressedBytes()
     {
-        // zip_utils.cpp:1017-1021 -- "CRC is before compression".
+        // "CRC is before compression".
         byte[] data = Encoding.Latin1.GetBytes("materials go here");
         ZipEntry entry = new("a.vmt", data);
 
@@ -225,7 +224,7 @@ public class ZipArchiveTests
     public async Task RoundTripPreservesEntryOrder()
     {
         // Stock cannot promise this: entries live in a CUtlRBTree keyed on a
-        // CUtlSymbol id (zip_utils.cpp:444,573), which is the order each name
+        // CUtlSymbol id, which is the order each name
         // was first interned anywhere in the process. This reader keeps a
         // list, which is what makes the byte-exact round trip possible.
         ZipArchiveWriter writer = new();
@@ -241,7 +240,7 @@ public class ZipArchiveTests
     [Fact]
     public void LookupIsCaseInsensitive()
     {
-        // zip_utils.cpp:1144-1147 lower-cases before looking up, against names
+        // Lower-cases before looking up, against names
         // that were lower-cased on the way in.
         ZipArchiveWriter writer = new();
         writer.Add("materials/metal.vmt", [7]);
@@ -254,7 +253,7 @@ public class ZipArchiveTests
     [Fact]
     public void EmptyPakWithNoEntriesIsValid()
     {
-        // zip_utils.cpp:680-685 -- zero entries returns quietly. Every BSP
+        // Zero entries returns quietly. Every BSP
         // without embedded content has one.
         ZipArchiveWriter writer = new();
         ZipArchiveReader read = ReadBack(writer.ToBytes());
@@ -265,7 +264,7 @@ public class ZipArchiveTests
     [Fact]
     public async Task PakShorterThanAnEndRecordIsRejected()
     {
-        // zip_utils.cpp:789-798 -- the one size sanity check either parser has.
+        // The one size sanity check either parser has.
         InvalidZipException error = await Assert.ThrowsAsync<InvalidZipException>(
             async () => await ZipArchiveReader.ParseAsync(new byte[10], CancellationToken.None));
 
@@ -285,7 +284,7 @@ public class ZipArchiveTests
     public async Task DeflateIsRejected()
     {
         // Method 8 is accepted NOWHERE in the tree: the gates at
-        // zip_utils.cpp:700-705 and :860-871 admit only 0 and 14. This is the
+        // Admit only 0 and 14. This is the
         // fact that justifies not using System.IO.Compression, which can only
         // write method 8.
         byte[] pak = BuildOneEntryPak("a.txt", [1, 2, 3]);
@@ -301,7 +300,7 @@ public class ZipArchiveTests
     [Fact]
     public async Task LzmaEntryIsAcceptedByTheDirectoryWalk()
     {
-        // Method 14 IS a legal method (zip_utils.h:21-27), so a pak carrying
+        // Method 14 IS a legal method, so a pak carrying
         // one must parse -- it is only the CONTENTS that cannot be produced.
         ZipArchiveWriter writer = new();
         writer.Add(new ZipEntry(
@@ -317,10 +316,10 @@ public class ZipArchiveTests
     }
 
     [Fact]
-    public void LzmaFramingIsTheZipSpecFormNotValvesLzmaHeader()
+    public void LzmaFramingIsTheZipSpecFormNotTheReferenceLzmaHeader()
     {
-        // zip_utils.cpp:1034-1061 strips Valve's lzma_header_t -- the 'LZMA'
-        // magic plus two sizes, lzmaDecoder.h:21-34 -- and substitutes the ZIP
+        // Strips the reference's lzma_header_t -- the 'LZMA'
+        // magic plus two sizes -- and substitutes the ZIP
         // 5.8.8 preamble: two SDK version bytes, a little-endian uint16
         // properties size, and five properties bytes. There is NO magic to
         // look for.
@@ -343,7 +342,7 @@ public class ZipArchiveTests
     [Fact]
     public void LzmaPropertiesSizeOtherThanFiveIsReportedAsUnloadable()
     {
-        // lzmaDecoder.cpp:376-382 rejects anything but LZMA_PROPS_SIZE, so
+        // Rejects anything but LZMA_PROPS_SIZE, so
         // such an entry would not load in the game either. Saying so is more
         // useful than saying "unsupported".
         ZipEntry entry = new(
@@ -377,7 +376,7 @@ public class ZipArchiveTests
     [Fact]
     public async Task EntryPointingPastTheEndOfThePakIsRejected()
     {
-        // Stock does no bounds check at all (zip_utils.cpp:735-760), so a
+        // Stock does no bounds check at all, so a
         // corrupt pak reads whatever memory follows. A library must not.
         byte[] pak = BuildOneEntryPak("a.txt", [1, 2, 3]);
         int directory = FindCentralDirectory(pak);
@@ -390,7 +389,7 @@ public class ZipArchiveTests
     [Fact]
     public async Task LocalHeaderSignatureIsVerifiedEvenThoughStockNeverLooks()
     {
-        // A DELIBERATE ADDITION. zip_utils.cpp:716-719 derives the data offset
+        // A DELIBERATE ADDITION. The reference implementation derives the data offset
         // arithmetically from the CENTRAL header and never reads the local
         // one, so a pak whose two headers disagree silently yields wrong
         // bytes. Checking costs one comparison.

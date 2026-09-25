@@ -4,10 +4,9 @@ using Xunit;
 namespace SourceSharp.Tests.MapFormats.Text;
 
 /// <summary>
-/// Facts for VMT <c>patch</c> resolution, from the TWO implementations:
-/// <c>src/utils/vbsp/materialpatch.cpp</c> (what a map compile does) and
-/// <c>materialsystem/cmaterial.cpp</c> in the 2018 engine drop (what the game
-/// does).
+/// Facts for VMT <c>patch</c> resolution, from the TWO sides of the
+/// reference implementation: what a map compile does and what the game
+/// does.
 /// </summary>
 public class VmtPatchTests
 {
@@ -32,7 +31,7 @@ public class VmtPatchTests
     [Fact]
     public void RootNamedPatchIsRecognisedWithoutRegardToCase()
     {
-        // materialpatch.cpp:330 and cmaterial.cpp:3420 both use a
+        // And the reference implementation both use a
         // case-insensitive compare.
         Assert.True(Vmt("\"Patch\"\n{\n}\n").IsPatch);
     }
@@ -46,7 +45,7 @@ public class VmtPatchTests
     [Fact]
     public void IncludePathIsUsedVerbatimWithNoPrefixAndNoExtension()
     {
-        // materialpatch.cpp:333 and cmaterial.cpp:3441,3453 both hand the
+        // And the reference implementation both hand the
         // value straight to LoadFromFile. Nothing prepends "materials/" and
         // nothing appends ".vmt", which is why a real patch spells the whole
         // path out.
@@ -58,8 +57,8 @@ public class VmtPatchTests
     [Fact]
     public async Task ResolvedRootTakesTheIncludedMaterialsShaderName()
     {
-        // cmaterial.cpp:3516 assigns the base wholesale, name included -- the
-        // string "patch" never survives resolution. vbsp's :352 does the same
+        // Assigns the base wholesale, name included -- the
+        // string "patch" never survives resolution. vbsp's does the same
         // through `keyValues = *includeKeyValues`.
         VmtDocument resolved = await ResolveAsync(
             "\"patch\"\n{\n\t\"include\" \"materials/a.vmt\"\n\t\"insert\"\n\t{\n\t\t\"$x\" \"1\"\n\t}\n}\n",
@@ -75,7 +74,7 @@ public class VmtPatchTests
     [Fact]
     public async Task InsertAddsAKeyTheBaseDidNotHave()
     {
-        // cmaterial.cpp:3273 with bCheckForExistence false: SET, unconditional.
+        // With bCheckForExistence false: SET, unconditional.
         VmtDocument resolved = await ResolveAsync(
             "\"patch\"\n{\n\t\"include\" \"materials/a.vmt\"\n\t\"insert\"\n\t{\n\t\t\"$waterdepth\" \"128\"\n\t}\n}\n",
             new Dictionary<string, string>
@@ -91,7 +90,7 @@ public class VmtPatchTests
     public async Task InsertAlsoOVERWRITESAKeyTheBaseAlreadyHad()
     {
         // The part the name gets wrong: "insert" is not "add if absent".
-        // cmaterial.cpp:3273's gate is `!bCheckForExistence || ...`, so with
+        // The reference implementation's gate is `!bCheckForExistence ||...`, so with
         // the flag false every key is written.
         VmtDocument resolved = await ResolveAsync(
             "\"patch\"\n{\n\t\"include\" \"materials/a.vmt\"\n\t\"insert\"\n\t{\n\t\t\"$basetexture\" \"new\"\n\t}\n}\n",
@@ -121,7 +120,7 @@ public class VmtPatchTests
     [Fact]
     public async Task ReplaceSkipsAKeyTheBaseDoesNotHave()
     {
-        // cmaterial.cpp:3273 with bCheckForExistence true -- silently skipped,
+        // With bCheckForExistence true -- silently skipped,
         // not added.
         VmtDocument resolved = await ResolveAsync(
             "\"patch\"\n{\n\t\"include\" \"materials/a.vmt\"\n\t\"replace\"\n\t{\n\t\t\"$envmap\" \"env_cubemap\"\n\t}\n}\n",
@@ -138,9 +137,9 @@ public class VmtPatchTests
     public async Task CompilerLosesTheReplaceBlockWhenAnInsertBlockIsAlsoPresent()
     {
         // THE BUG, and it changes what a compiled map contains.
-        // materialpatch.cpp:348-352 applies the insert, then does
+        // Applies the insert, then does
         // `keyValues = *includeKeyValues` -- replacing the whole object --
-        // so the FindKey("replace") at :355 searches the BASE MATERIAL rather
+        // so the FindKey("replace") searches the BASE MATERIAL rather
         // than the patch, and the patch's replace block is never applied.
         VmtDocument resolved = await ResolveAsync(
             "\"patch\"\n{\n" +
@@ -160,9 +159,9 @@ public class VmtPatchTests
     [Fact]
     public async Task EngineAppliesBothBlocksWhenBothArePresent()
     {
-        // The other side of the same input. cmaterial.cpp:3331-3332 caches both
+        // The other side of the same input. The reference implementation caches both
         // section pointers BEFORE applying either, so nothing is lost, and
-        // :3336-3341 applies insert then replace.
+        // applies insert then replace.
         VmtDocument resolved = await ResolveAsync(
             "\"patch\"\n{\n" +
             "\t\"include\" \"materials/a.vmt\"\n" +
@@ -181,7 +180,7 @@ public class VmtPatchTests
     [Fact]
     public async Task CompilerDropsANestedBlockInsideInsert()
     {
-        // materialpatch.cpp:300-325 -- the switch covers string, int, float and
+        // The switch covers string, int, float and
         // pointer and has NO subkey case, so a nested block is silently lost.
         VmtDocument resolved = await ResolveAsync(
             "\"patch\"\n{\n\t\"include\" \"materials/a.vmt\"\n" +
@@ -198,7 +197,7 @@ public class VmtPatchTests
     [Fact]
     public async Task EngineKeepsANestedBlockInsideInsert()
     {
-        // cmaterial.cpp:3288-3297 recurses into the TYPE_NONE case.
+        // Recurses into the TYPE_NONE case.
         VmtDocument resolved = await ResolveAsync(
             "\"patch\"\n{\n\t\"include\" \"materials/a.vmt\"\n" +
             "\t\"insert\"\n\t{\n\t\t\"Proxies\"\n\t\t{\n\t\t\t\"$p\" \"1\"\n\t\t}\n\t}\n}\n",
@@ -214,7 +213,7 @@ public class VmtPatchTests
     [Fact]
     public async Task EngineStampsThePatchDummyIntoABlockThatEndsUpEmpty()
     {
-        // cmaterial.cpp:3302-3307 -- a recursive call that left a block with no
+        // A recursive call that left a block with no
         // children adds "__vmtpatchdummy" so it is not pruned. vbsp has no
         // equivalent, so a compiled map never contains one.
         VmtDocument resolved = await ResolveAsync(
@@ -232,8 +231,8 @@ public class VmtPatchTests
     [Fact]
     public async Task EngineLetsTheDeeperPatchsValueWin()
     {
-        // cmaterial.cpp:3438 accumulates the OUTER patch first, and
-        // MergeKeyValues (:3351-3376, documented at :3347-3349) OVERWRITES --
+        // Accumulates the OUTER patch first, and
+        // MergeKeyValues (, documented) OVERWRITES
         // so the inner level, merged second, wins.
         VmtDocument resolved = await ResolveAsync(
             "\"patch\"\n{\n\t\"include\" \"materials/outer.vmt\"\n" +
@@ -256,7 +255,7 @@ public class VmtPatchTests
         // The real multi-level divergence, and it is not "which value wins":
         // it is that the outer patch's keys DISAPPEAR.
         //
-        // vbsp applies each level as it walks (materialpatch.cpp:348-352), so
+        // vbsp applies each level as it walks, so
         // the outer patch's insert is written onto the INNER PATCH's root --
         // which is then thrown away when the next iteration reassigns
         // `keyValues` from the base. Only the innermost patch's keys reach the
@@ -282,7 +281,7 @@ public class VmtPatchTests
     [Fact]
     public async Task EngineKeepsBothLevelsKeysAcrossTwoLevels()
     {
-        // The same file through the engine. cmaterial.cpp:3433-3438 accumulates
+        // The same file through the game side. The reference implementation accumulates
         // every level's sections before applying anything, so both survive.
         Dictionary<string, string> files = new()
         {
@@ -305,7 +304,7 @@ public class VmtPatchTests
     [Fact]
     public async Task CompilerNeverAdvancesPastAPatchThatHasNeitherSection()
     {
-        // materialpatch.cpp:347-359 has no else: with neither an insert nor a
+        // Has no else: with neither an insert nor a
         // replace, `keyValues` is never reassigned, so the loop spins on the
         // same patch until the counter runs out and warns. A "helpful" port
         // that assigned unconditionally would silently accept a patch stock
@@ -335,7 +334,7 @@ public class VmtPatchTests
     [Fact]
     public async Task MissingIncludeFileIsReported()
     {
-        // materialpatch.cpp and cmaterial.cpp:3468 both only Warn and carry on
+        // And the reference implementation both only Warn and carry on
         // with a half-built material; a library reports it instead.
         await Assert.ThrowsAsync<VmtPatchException>(
             async () => await ResolveAsync(
@@ -347,9 +346,9 @@ public class VmtPatchTests
     [Fact]
     public async Task PatchWithNoIncludeKeyIsReported()
     {
-        // materialpatch.cpp:335-337 leaves keyValues unassigned, so the loop
+        // Leaves keyValues unassigned, so the loop
         // spins ten times over the same patch and then warns
-        // ("Infinite recursion in patch file?", :370).
+        // ("Infinite recursion in patch file?").
         await Assert.ThrowsAsync<VmtPatchException>(
             async () => await ResolveAsync(
                 "\"patch\"\n{\n\t\"insert\"\n\t{\n\t\t\"$x\" \"1\"\n\t}\n}\n",
@@ -360,7 +359,7 @@ public class VmtPatchTests
     [Fact]
     public void DepthLimitIsTenInBothImplementations()
     {
-        // materialpatch.cpp:330 and cmaterial.cpp:3435 -- nCount < 10.
+        // And the reference implementation -- nCount < 10.
         Assert.Equal(10, VmtPatchResolver.MaxPatchDepth);
     }
 
@@ -390,10 +389,10 @@ public class VmtPatchTests
     [Fact]
     public void PatchIsSerialisedInVbspsExactPakFraming()
     {
-        // CreateMaterialPatch (materialpatch.cpp:104-144) builds a KeyValues
+        // CreateMaterialPatch builds a KeyValues
         // tree and writes it with RecursiveSaveToFile at indent level 0 --
         // there is not an fprintf in that file. "include" is written FIRST
-        // (:110) and exactly one section follows (:112-113).
+        // exactly one section follows.
         KeyValuesNode root = new("patch");
         root.SetString("include", "materials/nature/water.vmt");
         root.FindOrCreate("insert").SetString("$waterdepth", "128");

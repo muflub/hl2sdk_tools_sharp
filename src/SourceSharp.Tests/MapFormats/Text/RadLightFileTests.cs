@@ -5,9 +5,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapFormats.Text;
 
 /// <summary>
-/// Facts for <c>lights.rad</c>, from <c>ReadLightFile</c>
-/// (<c>src/utils/vrad/vrad.cpp:190-292</c>) and <c>LightForString</c>
-/// (<c>src/utils/vrad/lightmap.cpp:1056-1118</c>).
+/// Facts for <c>lights.rad</c>, as the reference implementation's
+/// <c>ReadLightFile</c> and <c>LightForString</c> define them.
 /// </summary>
 public class RadLightFileTests
 {
@@ -18,7 +17,7 @@ public class RadLightFileTests
     [Fact]
     public void MaterialNameIsTheFirstWordOnTheLine()
     {
-        // vrad.cpp:246 -- one %s.
+        // Layout: one %s.
         RadLightFile file = Parse("lights/white 255 255 255 200\n");
 
         Assert.Equal("lights/white", file.TexLights[0].Name);
@@ -27,7 +26,7 @@ public class RadLightFileTests
     [Fact]
     public void ThereIsNoCommentSyntaxSoASlashSlashLineBecomesATexlight()
     {
-        // Nothing in vrad.cpp:203-289 strips '//', '#' or ';'. A line that
+        // Nothing in the reference implementation strips '//', '#' or ';'. A line that
         // looks like a comment is parsed as a texlight named "//".
         RadLightFile file = Parse("// this is not a comment\n");
 
@@ -37,7 +36,7 @@ public class RadLightFileTests
     [Fact]
     public void OneNumberIsAGreyscaleIntensity()
     {
-        // lightmap.cpp:1092-1095 -- intensity[1] = intensity[2] = intensity[0].
+        // Layout: intensity[1] = intensity[2] = intensity[0].
         RadLightFile file = Parse("lights/grey 128\n");
         Vec3 intensity = file.TexLights[0].Intensity;
 
@@ -59,7 +58,7 @@ public class RadLightFileTests
     [Fact]
     public void ColourIsConvertedFromGammaToLinearWithAnExponentOf22()
     {
-        // lightmap.cpp:1088 -- pow(r / 255.0, 2.2) * 255.
+        // Pow(r / 255.0, 2.2) * 255.
         RadLightFile file = Parse("lights/half 128 128 128\n");
 
         Assert.Equal(
@@ -70,7 +69,7 @@ public class RadLightFileTests
     [Fact]
     public void FourthNumberIsABrightnessMultiplierNormalisedBy255()
     {
-        // lightmap.cpp:1104-1108 -- VectorScale(intensity, scaler / 255.0).
+        // Layout: VectorScale(intensity, scaler / 255.0).
         // Not a plain factor: a "scale" of 255 means one times.
         RadLightFile plain = Parse("lights/a 255 255 255\n");
         RadLightFile scaled = Parse("lights/a 255 255 255 255\n");
@@ -81,7 +80,7 @@ public class RadLightFileTests
     [Fact]
     public void EightNumbersAreTwoFourTuplesAndLdrTakesTheFirst()
     {
-        // lightmap.cpp:1069-1079 -- fields 5 to 8 replace 1 to 4 under -hdr.
+        // Fields 5 to 8 replace 1 to 4 under -hdr.
         RadLightFile ldr = Parse(
             "lights/a 255 0 0 255 0 0 255 255\n",
             new RadLightOptions(Hdr: false));
@@ -104,9 +103,9 @@ public class RadLightFileTests
     [Fact]
     public void FiveNumbersIsNotTheTwoTupleFormAndFallsIntoTheErrorBranch()
     {
-        // lightmap.cpp:1069 tests for EXACTLY 8. Five, six and seven all reach
-        // the default at :1111-1113, which prints and returns false -- and the
-        // entry is STORED ANYWAY because vrad.cpp:255 ignores the result.
+        // Tests for EXACTLY 8. Five, six and seven all reach
+        // the default, which prints and returns false -- and the
+        // entry is STORED ANYWAY because the reference implementation ignores the result.
         RadLightFile file = Parse("lights/a 255 255 255 200 1\n");
 
         Assert.False(file.TexLights[0].ValueParsed);
@@ -116,7 +115,6 @@ public class RadLightFileTests
     [Fact]
     public void NegativeComponentMakesTheWholeLightBlack()
     {
-        // lightmap.cpp:1082-1086.
         RadLightFile file = Parse("lights/a -1 255 255\n");
 
         Assert.Equal(Vec3.Zero, file.TexLights[0].Intensity);
@@ -125,7 +123,7 @@ public class RadLightFileTests
     [Fact]
     public void GlobalLightScaleIsAppliedLast()
     {
-        // lightmap.cpp:1115-1116 -- VectorScale by `lightscale`, the -scale
+        // Layout: VectorScale by `lightscale`, the -scale
         // command-line option, after everything else.
         RadLightFile plain = Parse("lights/a 255 255 255\n");
         RadLightFile doubled = Parse(
@@ -137,7 +135,6 @@ public class RadLightFileTests
     [Fact]
     public void HdrPrefixedLineIsSkippedInLdr()
     {
-        // vrad.cpp:207-213.
         RadLightFile file = Parse("hdr:lights/a 255 255 255\n", new RadLightOptions(Hdr: false));
 
         Assert.Empty(file.TexLights);
@@ -146,7 +143,6 @@ public class RadLightFileTests
     [Fact]
     public void LdrPrefixedLineIsSkippedInHdr()
     {
-        // vrad.cpp:217-222.
         RadLightFile file = Parse("ldr:lights/a 255 255 255\n", new RadLightOptions(Hdr: true));
 
         Assert.Empty(file.TexLights);
@@ -155,7 +151,7 @@ public class RadLightFileTests
     [Fact]
     public void ModePrefixIsCaseInsensitive()
     {
-        // vrad.cpp:208 uses strnicmp.
+        // Uses strnicmp.
         RadLightFile file = Parse("HDR:lights/a 255 255 255\n", new RadLightOptions(Hdr: true));
 
         Assert.Single(file.TexLights);
@@ -164,8 +160,8 @@ public class RadLightFileTests
     [Fact]
     public void ModePrefixMustStartAtColumnZero()
     {
-        // The prefix test at vrad.cpp:208 runs BEFORE the whitespace skip at
-        // :224, so an indented "hdr:" is not a prefix -- it is the start of the
+        // The reference's prefix test runs BEFORE its whitespace skip,
+        // so an indented "hdr:" is not a prefix -- it is the start of the
         // material name.
         RadLightFile file = Parse("  hdr:lights/a 255 255 255\n", new RadLightOptions(Hdr: false));
 
@@ -175,7 +171,7 @@ public class RadLightFileTests
     [Fact]
     public void BothPrefixesAreStrippedBecauseTheChecksAreNotExclusive()
     {
-        // vrad.cpp:207-222 are two sequential ifs, not an if/else. So
+        // Are two sequential ifs, not an if/else. So
         // "hdr:ldr:x" has BOTH stripped, and in LDR mode the second check
         // drops the line.
         RadLightFile ldr = Parse("hdr:ldr:lights/a 255 255 255\n", new RadLightOptions(Hdr: false));
@@ -186,7 +182,7 @@ public class RadLightFileTests
     [Fact]
     public void NoshadowRecordsTheMaterialWithItsExtensionStripped()
     {
-        // vrad.cpp:226-233, truncating at the FIRST '.' (:228-230).
+        // The reference truncates at the FIRST '.'.
         RadLightFile file = Parse("noshadow glass/window01.vmt\n");
 
         Assert.Equal(["glass/window01"], file.NonShadowCastingMaterials);
@@ -204,7 +200,6 @@ public class RadLightFileTests
     [Fact]
     public void ForcetextureshadowRecordsTheModel()
     {
-        // vrad.cpp:234-238.
         RadLightFile file = Parse("forcetextureshadow models/props/tree.mdl\n");
 
         Assert.Equal(["models/props/tree.mdl"], file.ForcedTextureShadowModels);
@@ -224,9 +219,9 @@ public class RadLightFileTests
     [Fact]
     public void ThereIsNoNoskyfillDirective()
     {
-        // The plan's brief mentioned one; a case-insensitive grep of
-        // src/utils/vrad finds nothing. Only hdr:, ldr:, noshadow and
-        // forcetextureshadow exist (vrad.cpp:207-238), so this line is a
+        // The plan's brief mentioned one; a case-insensitive search of the
+        // reference finds nothing. Only hdr:, ldr:, noshadow and
+        // forcetextureshadow exist, so this line is a
         // texlight named "noskyfill".
         RadLightFile file = Parse("noskyfill 1\n");
 
@@ -236,7 +231,7 @@ public class RadLightFileTests
     [Fact]
     public void BlankLineIsIgnoredSilently()
     {
-        // vrad.cpp:248-253 -- a line of four characters or fewer produces no
+        // A line of four characters or fewer produces no
         // message at all.
         RadLightFile file = Parse("\n\n");
 
@@ -247,7 +242,7 @@ public class RadLightFileTests
     [Fact]
     public void LookupIsCaseInsensitive()
     {
-        // LightForTexture, vrad.cpp:343-350, uses Q_strcasecmp.
+        // LightForTexture, the reference implementation, uses Q_strcasecmp.
         RadLightFile file = Parse("lights/White 255 255 255\n");
 
         Assert.NotNull(file.Lookup("LIGHTS/WHITE"));
@@ -257,8 +252,8 @@ public class RadLightFileTests
     public void TwoSpellingsOfTheSameNameBecomeTwoEntriesWithNoWarning()
     {
         // The mismatch: the duplicate check during a merge is strcmp
-        // (vrad.cpp:260, case SENSITIVE) while the lookup is Q_strcasecmp
-        // (:345, case INSENSITIVE). So "WOOD" and "wood" coexist and the
+        // (the reference implementation, case SENSITIVE) while the lookup is Q_strcasecmp
+        // (, case INSENSITIVE). So "WOOD" and "wood" coexist and the
         // FIRST in table order silently wins every lookup.
         RadLightFile first = Parse("WOOD 255 0 0\n");
         RadLightFile second = Parse("wood 0 0 255\n");
@@ -273,7 +268,7 @@ public class RadLightFileTests
     [Fact]
     public void LaterFileOverridesAnEarlierDefinitionInPlace()
     {
-        // vrad.cpp:282-284 writes to the EXISTING slot, and :287 keeps the
+        // Writes to the EXISTING slot, keeps the
         // count, so the table does not grow.
         RadLightFile global = Parse(
             "lights/a 255 0 0\nlights/b 0 255 0\n",
@@ -292,8 +287,8 @@ public class RadLightFileTests
     [Fact]
     public void OverrideFromTheSameFileIsFlaggedDifferentlyFromOneAcrossFiles()
     {
-        // vrad.cpp:264-265 reports a same-file duplicate as an "ERROR" (with an
-        // embedded BEL), which is still only a Msg; :271-272 reports a
+        // Reports a same-file duplicate as an "ERROR" (with an
+        // embedded BEL), which is still only a Msg; reports a
         // cross-file one as a Warning.
         RadLightFile first = Parse("lights/a 255 0 0\n", new RadLightOptions(SourceFile: "x.rad"));
         RadLightFile again = Parse("lights/a 0 0 255\n", new RadLightOptions(SourceFile: "x.rad"));
@@ -307,7 +302,7 @@ public class RadLightFileTests
     [Fact]
     public void RedefinitionWithTheSameValueIsFlaggedAsRedundant()
     {
-        // vrad.cpp:276-277 -- "Redundant '%s' def in '%s' AND '%s'!".
+        // "Redundant '%s' def in '%s' AND '%s'!".
         RadLightFile first = Parse("lights/a 255 0 0\n", new RadLightOptions(SourceFile: "x.rad"));
         RadLightFile again = Parse("lights/a 255 0 0\n", new RadLightOptions(SourceFile: "y.rad"));
 
@@ -320,7 +315,7 @@ public class RadLightFileTests
     [Fact]
     public void MoreThanTheTexlightLimitIsFatal()
     {
-        // vrad.cpp:243-244 -- the only condition in this parser that aborts
+        // The only condition in this parser that aborts
         // stock vrad.
         System.Text.StringBuilder text = new();
         for (int i = 0; i <= RadLightFile.MaxTexLights; i++)

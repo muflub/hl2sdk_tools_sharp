@@ -32,8 +32,8 @@ internal static class VphyCompare
     /// <param name="Detail">The first difference, for a failure message.</param>
     public readonly record struct Result(bool Identical, bool StructureEqual, bool FloatsWithin, double WorstRelative, string Detail);
 
-    /// <summary>Compares a managed blob against a native one.</summary>
-    /// <param name="native">The native blob.</param>
+    /// <summary>Compares a managed blob against a reference one.</summary>
+    /// <param name="native">The reference blob.</param>
     /// <param name="managed">The managed blob.</param>
     /// <returns>The grading.</returns>
     public static Result Compare(byte[] native, byte[] managed)
