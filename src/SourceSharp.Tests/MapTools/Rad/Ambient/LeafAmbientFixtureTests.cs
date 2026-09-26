@@ -1,3 +1,10 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 using System.Runtime.InteropServices;
 
 using SourceSharp.MapFormats.Bsp;
@@ -21,14 +28,27 @@ public sealed class LeafAmbientFixtureTests : IClassFixture<AmbientFixture>
     /// <param name="fixture">The loaded map.</param>
     public LeafAmbientFixtureTests(AmbientFixture fixture) => _fixture = fixture;
 
-    [Fact]
+    /// <summary>A lighting lump as one hex line per entry, the unit a vendor delta records.</summary>
+    private static string[] Entries(ReadOnlySpan<DLeafAmbientLighting> lump)
+    {
+        string[] lines = new string[lump.Length];
+        for (int i = 0; i < lump.Length; i++)
+        {
+            lines[i] = Convert.ToHexStringLower(MemoryMarshal.AsBytes(lump.Slice(i, 1)));
+        }
+
+        return lines;
+    }
+
+    [ReferenceRsqrtFact]
     public async Task TheLdrLightingLumpIsStocksByteForByte()
     {
         LeafAmbientResult r = await _fixture.BuildAsync(_fixture.Ldr, LeafAmbientOptions.StockParity);
 
+        string[] ours = Entries(r.Lighting);
         Assert.Equal(
-            MemoryMarshal.AsBytes<DLeafAmbientLighting>(_fixture.Lump<DLeafAmbientLighting>(BspLump.LeafAmbientLighting)).ToArray(),
-            MemoryMarshal.AsBytes<DLeafAmbientLighting>(r.Lighting).ToArray());
+            VendorGolden.Expected("leaf-ambient.ldr", Entries(_fixture.Lump<DLeafAmbientLighting>(BspLump.LeafAmbientLighting)), ours),
+            ours);
     }
 
     [Fact]
@@ -41,14 +61,15 @@ public sealed class LeafAmbientFixtureTests : IClassFixture<AmbientFixture>
             MemoryMarshal.AsBytes<DLeafAmbientIndex>(r.Index).ToArray());
     }
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public async Task TheHdrLightingLumpIsStocksByteForByte()
     {
         LeafAmbientResult r = await _fixture.BuildAsync(_fixture.Hdr, LeafAmbientOptions.StockParity);
 
+        string[] ours = Entries(r.Lighting);
         Assert.Equal(
-            MemoryMarshal.AsBytes<DLeafAmbientLighting>(_fixture.Lump<DLeafAmbientLighting>(BspLump.LeafAmbientLightingHdr)).ToArray(),
-            MemoryMarshal.AsBytes<DLeafAmbientLighting>(r.Lighting).ToArray());
+            VendorGolden.Expected("leaf-ambient.hdr", Entries(_fixture.Lump<DLeafAmbientLighting>(BspLump.LeafAmbientLightingHdr)), ours),
+            ours);
     }
 
     [Fact]

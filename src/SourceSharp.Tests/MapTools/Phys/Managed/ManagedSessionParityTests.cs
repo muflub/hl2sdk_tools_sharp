@@ -1,3 +1,10 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 using System.Globalization;
 using System.IO.Compression;
 using SourceSharp.MapFormats.Geometry;
@@ -162,17 +169,32 @@ public class ManagedSessionParityTests
         ManagedCollisionSession session = Session(stock);
         int checkedCount = 0;
         var failed = new List<int>();
-        for (int i = 0; i < jobs.Count; i++)
-        {
-            if (jobs[i].Kind != kind)
-            {
-                continue;
-            }
 
-            checkedCount++;
-            if (!CookerFixture.Matches(answers[i], jobs[i].Cook(session)))
+        if (stock)
+        {
+            // Stock precision normalises with rsqrtss, so its answers are per vendor.
+            int[] mine = [.. Enumerable.Range(0, jobs.Count).Where(i => jobs[i].Kind == kind)];
+            string[] ours = [.. mine.Select(i => CookerFixture.Line(jobs[i].Cook(session)))];
+            IReadOnlyList<string> expected = VendorGolden.Expected(
+                $"session.{group}.{kind}", [.. mine.Select(i => CookerFixture.Line(answers[i]))], ours);
+            Assert.Equal(expected.Count, ours.Length);
+            checkedCount = ours.Length;
+            failed.AddRange(Enumerable.Range(0, ours.Length).Where(k => ours[k] != expected[k]).Select(k => mine[k]));
+        }
+        else
+        {
+            for (int i = 0; i < jobs.Count; i++)
             {
-                failed.Add(i);
+                if (jobs[i].Kind != kind)
+                {
+                    continue;
+                }
+
+                checkedCount++;
+                if (!CookerFixture.Matches(answers[i], jobs[i].Cook(session)))
+                {
+                    failed.Add(i);
+                }
             }
         }
 
@@ -182,7 +204,7 @@ public class ManagedSessionParityTests
 
     public static TheoryData<Kind> Kinds => [Kind.BrushModel, Kind.Polysoup, Kind.VirtualMesh];
 
-    [Theory]
+    [ReferenceRsqrtTheory]
     [MemberData(nameof(Kinds))]
     public void StockIsByteExactAgainstTheEarlierReferenceBuild(Kind kind) => AssertExact(kind, stock: true);
 

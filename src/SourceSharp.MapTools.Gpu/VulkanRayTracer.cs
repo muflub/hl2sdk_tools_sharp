@@ -1,3 +1,10 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 using System.Runtime.InteropServices;
 using SourceSharp.MapFormats.Geometry;
 
@@ -248,7 +255,20 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     {
         TracedTriangle[] scene = triangles.ToArray();
         List<VulkanDeviceInfo> inventory = [];
-        VulkanDevice device = new();
+        VulkanDevice device;
+        try
+        {
+            device = new();
+        }
+        catch (Exception e) when (VulkanDevice.IsMissingLoader(e))
+        {
+            // No loader to open at all: the same clear decline as a driver
+            // that refuses, with the probe's one row as the inventory.
+            inventory.AddRange(VulkanDevice.ProbeDevices());
+            return new VulkanTracerAttempt(
+                null, new VulkanDeviceReport(inventory, null, "no Vulkan loader: " + e.Message), false);
+        }
+
         try
         {
             cancellationToken.ThrowIfCancellationRequested();

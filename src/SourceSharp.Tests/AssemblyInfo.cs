@@ -1,12 +1,16 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 using Xunit;
 
-// NO PARALLELISM, and this is not a workaround for flakiness — it is a property
-// of what is under test. The engine binding is per-SIDE and selected by a
-// thread-local, several registries are process-wide, and some suites publish
-// networked state that others read back. Two tests at once would be two tests
-// sharing one engine, and the failure would look like a bug in whichever lost
-// the race.
-//
-// The runner this replaces ran everything on one thread in one order and never
-// had to say so. Saying it is the improvement: the constraint was always there.
-[assembly: CollectionBehavior(DisableTestParallelization = true)]
+// Test classes run in parallel, as the compiles they exercise do in the
+// service that hosts these libraries: the libraries hold no mutable static
+// state, so two tests in one process must not interfere. Tests inside one
+// class still run one at a time. Tests that genuinely share something
+// process-wide (a loaded native library, a recorded fixture they rewrite)
+// go in one named [Collection] so they run serially with each other.
+[assembly: CollectionBehavior(CollectionBehavior.CollectionPerClass, DisableTestParallelization = false)]

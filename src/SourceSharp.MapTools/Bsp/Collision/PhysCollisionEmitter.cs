@@ -1,3 +1,10 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Diagnostics;
@@ -96,6 +103,9 @@ public static class PhysCollisionEmitter
         // in model order below; one at a time is stock's loop.
         Task<(List<PhysCollisionEntry>, bool, byte[]?)>?[] started =
             new Task<(List<PhysCollisionEntry>, bool, byte[]?)>?[input.Models.Count];
+
+        // Each cook's own time, for the cache row: a later hit reports it as saved.
+        long[] costMs = new long[input.Models.Count];
         if (input.MaxDegree > 1)
         {
             SemaphoreSlim gate = new(input.MaxDegree);
@@ -103,7 +113,7 @@ public static class PhysCollisionEmitter
             {
                 if (cached[i] is null)
                 {
-                    started[i] = CookGatedAsync(gate, cooker, context, i, cancellationToken);
+                    started[i] = CookGatedAsync(gate, cooker, context, i, costMs, cancellationToken);
                 }
             }
         }
@@ -132,7 +142,7 @@ public static class PhysCollisionEmitter
 
             (List<PhysCollisionEntry> entries, bool virtualTerrain, byte[]? disp) = started[i] is { } cooking
                 ? await cooking.ConfigureAwait(false)
-                : await cooker.RunAsync(session => Cook(context, session, modelIndex), cancellationToken).ConfigureAwait(false);
+                : await cooker.RunAsync(session => TimedCook(context, session, modelIndex, costMs), cancellationToken).ConfigureAwait(false);
 
             if (modelIndex == 0)
             {
@@ -151,7 +161,7 @@ public static class PhysCollisionEmitter
                         Offer(modelIndex, [], [],
                             modelIndex == 0 ? (short[])context.LeafWaterDataIds.Clone() : null,
                             modelIndex == 0 ? [.. context.WorldPropList] : null,
-                            modelIndex == 0 ? disp : null),
+                            modelIndex == 0 ? disp : null) with { CostMs = costMs[modelIndex] },
                         cancellationToken).ConfigureAwait(false);
                 }
 
@@ -197,7 +207,7 @@ public static class PhysCollisionEmitter
                     Offer(modelIndex, [.. entries.Select(e => e.Blob)], keyData,
                         modelIndex == 0 ? (short[])context.LeafWaterDataIds.Clone() : null,
                         modelIndex == 0 ? [.. context.WorldPropList] : null,
-                        modelIndex == 0 ? disp : null),
+                        modelIndex == 0 ? disp : null) with { CostMs = costMs[modelIndex] },
                     cancellationToken).ConfigureAwait(false);
             }
         }
@@ -218,13 +228,23 @@ public static class PhysCollisionEmitter
             ? context.BuildWorld(session)
             : (context.BuildBrushModel(session, modelIndex), false, null);
 
+    // The cook, timed for the cache row.
+    private static (List<PhysCollisionEntry>, bool, byte[]?) TimedCook(
+        Context context, ICollisionSession session, int modelIndex, long[] costMs)
+    {
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        (List<PhysCollisionEntry>, bool, byte[]?) cooked = Cook(context, session, modelIndex);
+        costMs[modelIndex] = (long)System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+        return cooked;
+    }
+
     private static async Task<(List<PhysCollisionEntry>, bool, byte[]?)> CookGatedAsync(
-        SemaphoreSlim gate, ICollisionCooker cooker, Context context, int modelIndex, CancellationToken cancellationToken)
+        SemaphoreSlim gate, ICollisionCooker cooker, Context context, int modelIndex, long[] costMs, CancellationToken cancellationToken)
     {
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await cooker.RunAsync(session => Cook(context, session, modelIndex), cancellationToken)
+            return await cooker.RunAsync(session => TimedCook(context, session, modelIndex, costMs), cancellationToken)
                 .ConfigureAwait(false);
         }
         finally

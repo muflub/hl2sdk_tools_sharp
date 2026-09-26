@@ -1,3 +1,10 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapTools.Bsp.Collision;
 using SourceSharp.MapTools.Phys;
@@ -34,6 +41,13 @@ namespace SourceSharp.MapTools.Compile.Cache;
 /// its identity string so a renamed material invalidates.
 /// </para>
 /// <para>
+/// A brush model (every model but the world) folds content instead of
+/// table indices: its brushes relative to its lowest one, planes by value,
+/// texinfos by the surface property they resolve to. A world brush added
+/// or removed renumbers every later brush, plane, node and face, and an
+/// index fold would miss every entity model on that edit.
+/// </para>
+/// <para>
 /// Consequence: a brush edit re-cooks the world model (stock recomputes it
 /// too) and that brush's own entity model, but not the other entity models;
 /// a light move or a non-brush entity edit changes no fold at all — the
@@ -56,6 +70,156 @@ public static class CollisionModelKey
             throw new ArgumentOutOfRangeException(nameof(modelIndex));
         }
 
+        return modelIndex == 0 ? OfWorld(input) : OfBrushModel(input, modelIndex);
+    }
+
+    /// <summary>
+    /// The brushes one model's cook reads, walked from its head node exactly
+    /// as the cook walks it, in the index order the cook adds them.
+    /// </summary>
+    /// <param name="input">The emitter input.</param>
+    /// <param name="modelIndex">The model.</param>
+    /// <returns>The brush indices, ascending.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="input"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">No such model.</exception>
+    public static SortedSet<int> BrushesOf(PhysCollisionInput input, int modelIndex)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        if (modelIndex < 0 || modelIndex >= input.Models.Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(modelIndex));
+        }
+
+        SortedSet<int> brushes = [];
+        Walk(input, input.Models[modelIndex].HeadNode, brushes);
+        return brushes;
+    }
+
+    /// <summary>
+    /// A brush model's fold: content only, no global table index. Brush
+    /// numbers fold relative to the model's lowest brush (the cook stores
+    /// the absolute number in each convex, which the cache rebases on
+    /// replay), planes fold by value, and texinfos by the surface property
+    /// they resolve to. So an edit that renumbers the BSP around this model
+    /// (a world brush added, a material added) leaves its key alone.
+    /// </summary>
+    private static string OfBrushModel(PhysCollisionInput input, int modelIndex)
+    {
+        using ModelDigest.CanonicalHash h = new("collision-brush-model");
+        DModel m = input.Models[modelIndex];
+
+        // Mins/maxs size the drag-area epsilon.
+        h.Vec3(m.Mins);
+        h.Vec3(m.Maxs);
+
+        SortedSet<int> brushes = BrushesOf(input, modelIndex);
+        int baseBrush = brushes.Count > 0 ? brushes.Min : 0;
+        h.U32(brushes.Count);
+        foreach (int brush in brushes)
+        {
+            h.I32(brush - baseBrush);
+            OfBrushContent(h, input, brush);
+        }
+
+        // The faces slice: per-face surface property and area (the mass).
+        h.U32(m.NumFaces);
+        for (int i = 0; i < m.NumFaces; i++)
+        {
+            int faceIndex = m.FirstFace + i;
+            if (faceIndex < 0 || faceIndex >= input.Faces.Count)
+            {
+                h.Bool(false);
+                continue;
+            }
+
+            h.Bool(true);
+            DFace face = input.Faces[faceIndex];
+            h.F32(face.Area);
+            OfProp(h, input, PropOfTexInfo(input, face.TexInfo));
+        }
+
+        // MassAndMaterial falls back to property 0 for "no property".
+        OfProp(h, input, 0);
+        return h.Finish();
+    }
+
+    private static void OfBrushContent(ModelDigest.CanonicalHash h, PhysCollisionInput input, int brush)
+    {
+        if (brush < 0 || brush >= input.Brushes.Count)
+        {
+            h.Bool(false);
+            return;
+        }
+
+        h.Bool(true);
+        DBrush b = input.Brushes[brush];
+        h.I32(b.Contents);
+        h.I32(b.NumSides);
+        for (int s = 0; s < b.NumSides; s++)
+        {
+            int sideIndex = b.FirstSide + s;
+            if (sideIndex < 0 || sideIndex >= input.BrushSides.Count)
+            {
+                h.Bool(false);
+                continue;
+            }
+
+            h.Bool(true);
+            DBrushSide side = input.BrushSides[sideIndex];
+            h.I16(side.Bevel);
+            if (side.PlaneNum < input.Planes.Count)
+            {
+                DPlane plane = input.Planes[side.PlaneNum];
+                h.Bool(true);
+                h.Vec3(plane.Normal);
+                h.F32(plane.Dist);
+            }
+            else
+            {
+                h.Bool(false);
+            }
+
+            // The NODRAW path reads the first non-bevel side's property.
+            OfProp(h, input, PropOfTexInfo(input, side.TexInfo));
+            h.Bool(SideVisible(input, brush, s) ?? true);
+        }
+    }
+
+    private static int PropOfTexInfo(PhysCollisionInput input, int texInfo)
+    {
+        if (texInfo < 0 || texInfo >= input.TexInfos.Count)
+        {
+            return -1;
+        }
+
+        int texData = input.TexInfos[texInfo].TexData;
+        return texData >= 0 && texData < input.SurfaceProperties.Count ? input.SurfaceProperties[texData] : -1;
+    }
+
+    // A surface property as the cook sees it: its database slot (the mass
+    // vote compares slots), its name and the physics the mass reads.
+    private static void OfProp(ModelDigest.CanonicalHash h, PhysCollisionInput input, int prop)
+    {
+        h.I32(prop);
+        if (prop < 0 || prop >= input.SurfaceProps.Count)
+        {
+            return;
+        }
+
+        h.Str(input.SurfaceProps.GetPropName(prop));
+        SurfacePhysics physics = input.SurfaceProps.GetPhysicsProperties(prop);
+        h.F32(physics.Density);
+        h.F32(physics.Thickness);
+        h.F32(physics.Friction);
+        h.F32(physics.Elasticity);
+    }
+
+    // The world's fold keeps the table indices: the world is compiled first,
+    // so edits elsewhere do not renumber it, and its cook writes per-leaf and
+    // per-brush data back by index.
+    private static string OfWorld(PhysCollisionInput input)
+    {
+        const int modelIndex = 0;
         using ModelDigest.CanonicalHash h = new("collision-model");
         DModel m = input.Models[modelIndex];
 
@@ -105,54 +269,47 @@ public static class CollisionModelKey
             }
         }
 
-        if (modelIndex == 0)
+        h.Bool(true);
+        h.Bool(input.NoVirtualMesh);
+
+        h.U32(input.WaterModels.Count);
+        foreach (WaterModel water in input.WaterModels)
         {
-            h.Bool(true);
-            h.Bool(input.NoVirtualMesh);
-
-            h.U32(input.WaterModels.Count);
-            foreach (WaterModel water in input.WaterModels)
+            if (water.ModelIndex != 0)
             {
-                if (water.ModelIndex != 0)
-                {
-                    continue;
-                }
-
-                h.I32(water.Contents);
-                h.Bool(water.HasSurface);
-                h.Vec3(water.SurfaceNormal);
-                h.F32(water.SurfaceDist);
-                h.I32(water.FogVolumeIndex);
-                h.I32(water.SurfaceTexInfo);
-                OfTexInfo(h, input, water.SurfaceTexInfo);
-                h.U32(water.Leaves.Count);
-                foreach (int leaf in water.Leaves)
-                {
-                    h.I32(leaf);
-                    if (leaf >= 0 && leaf < input.Leafs.Count)
-                    {
-                        OfLeaf(h, input, leaf);
-                    }
-                }
+                continue;
             }
 
-            h.U32(input.Displacements.Count);
-            foreach (CollisionDisplacement disp in input.Displacements)
+            h.I32(water.Contents);
+            h.Bool(water.HasSurface);
+            h.Vec3(water.SurfaceNormal);
+            h.F32(water.SurfaceDist);
+            h.I32(water.FogVolumeIndex);
+            h.I32(water.SurfaceTexInfo);
+            OfTexInfo(h, input, water.SurfaceTexInfo);
+            h.U32(water.Leaves.Count);
+            foreach (int leaf in water.Leaves)
             {
-                h.I32(disp.Contents);
-                h.I32(disp.TexInfo);
-                h.I32(disp.SurfaceProp2);
-                OfTexInfo(h, input, disp.TexInfo);
-                h.I32(disp.Core.Power);
-                h.Vec3Span(disp.Core.Verts);
-                h.Vec3Span(disp.Core.FlatVerts);
-                h.F32Span(disp.Core.Alphas);
-                h.U16Span(disp.Core.TriIndices);
+                h.I32(leaf);
+                if (leaf >= 0 && leaf < input.Leafs.Count)
+                {
+                    OfLeaf(h, input, leaf);
+                }
             }
         }
-        else
+
+        h.U32(input.Displacements.Count);
+        foreach (CollisionDisplacement disp in input.Displacements)
         {
-            h.Bool(false);
+            h.I32(disp.Contents);
+            h.I32(disp.TexInfo);
+            h.I32(disp.SurfaceProp2);
+            OfTexInfo(h, input, disp.TexInfo);
+            h.I32(disp.Core.Power);
+            h.Vec3Span(disp.Core.Verts);
+            h.Vec3Span(disp.Core.FlatVerts);
+            h.F32Span(disp.Core.Alphas);
+            h.U16Span(disp.Core.TriIndices);
         }
 
         // The surface-property index table.

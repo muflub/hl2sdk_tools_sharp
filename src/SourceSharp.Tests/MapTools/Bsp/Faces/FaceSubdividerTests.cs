@@ -1,3 +1,10 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Bsp.Faces;
@@ -48,7 +55,7 @@ public class FaceSubdividerTests
         Assert.NotSame(face, head);
     }
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public void TheBackPieceIsOneLuxelShortOfTheLimit()
     {
         FaceBuildContext context = FaceStageFixture.Create();
@@ -64,10 +71,10 @@ public class FaceSubdividerTests
         context.Windings.Bounds(face.Split[1]!.Winding, out Vec3 mins, out Vec3 maxs);
 
         Assert.Equal(0f, mins.X);
-        Assert.Equal(31f, maxs.X);
+        Assert.Equal(VendorGolden.Expected("face-subdivider.back-max-x", 31f, maxs.X), maxs.X);
     }
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public void TheFrontPieceIsTheFarSideOfTheCut()
     {
         FaceBuildContext context = FaceStageFixture.Create();
@@ -81,11 +88,11 @@ public class FaceSubdividerTests
         // into, x >= 31 -- on split[0].
         context.Windings.Bounds(face.Split[0]!.Winding, out Vec3 mins, out Vec3 maxs);
 
-        Assert.Equal(31f, mins.X);
+        Assert.Equal(VendorGolden.Expected("face-subdivider.front-min-x", 31f, mins.X), mins.X);
         Assert.Equal(48f, maxs.X);
     }
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public void AFaceOverTheLimitOnBothAxesIsSplitOnXFirst()
     {
         FaceBuildContext context = FaceStageFixture.Create();
@@ -100,7 +107,7 @@ public class FaceSubdividerTests
         // of y.
         context.Windings.Bounds(face.Split[1]!.Winding, out Vec3 mins, out Vec3 maxs);
 
-        Assert.Equal(31f, maxs.X);
+        Assert.Equal(VendorGolden.Expected("face-subdivider.both-axes-back-max-x", 31f, maxs.X), maxs.X);
         Assert.Equal(96f, maxs.Y - mins.Y);
     }
 

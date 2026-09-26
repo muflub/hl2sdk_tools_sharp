@@ -1,3 +1,10 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 using SourceSharp.MapCompile;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Geometry;
@@ -14,6 +21,13 @@ namespace SourceSharp.Tests.MapTools.Rad.Final;
 /// <summary><c>ssmap vrad</c>, on an in-memory file system.</summary>
 public sealed class VradCommandTests
 {
+    /// <summary>
+    /// Where the command looks for a rooted path it is given: it resolves the
+    /// map against the host (<c>/maps/box</c> is <c>D:\maps\box</c> on
+    /// Windows), so the in-memory file goes where that lands.
+    /// </summary>
+    private static string Rooted(string path) => VPath.Create(Path.GetFullPath(path)).Value;
+
     private static async Task<InMemoryFileSystem> MapAsync()
     {
         LightTestMap map = LightBox.Map();
@@ -29,7 +43,7 @@ public sealed class VradCommandTests
         using MemoryStream stream = new();
         await BspFile.SaveAsync(map.Build(), stream, BspWriteMode.Canonical);
         InMemoryFileSystem fs = new();
-        fs.AddFile("maps/box.bsp", stream.ToArray());
+        fs.AddFile(Rooted("/maps/box.bsp"), stream.ToArray());
         return fs;
     }
 
@@ -63,7 +77,7 @@ public sealed class VradCommandTests
         using StringWriter output = new();
         int exit = await VradCommand.RunAsync(fs, ["-bounce", "0", "-threads", "2", "/maps/box"], output);
 
-        BspData lit = await BspFile.LoadAsync(new MemoryStream(fs.GetBytes(VPath.Create("maps/box.bsp"))!));
+        BspData lit = await BspFile.LoadAsync(new MemoryStream(fs.GetBytes(VPath.Create(Rooted("/maps/box.bsp")))!));
         Assert.Equal((Program.ExitSuccess, false), (exit, lit[BspLump.Lighting].IsEmpty));
     }
 
@@ -173,7 +187,7 @@ public sealed class VradCommandTests
     public async Task TheLevelRadBesideTheMapIsRead()
     {
         InMemoryFileSystem fs = await MapAsync();
-        fs.AddText("maps/box.rad", "concrete/floor 255 255 255 200\n");
+        fs.AddText(Rooted("/maps/box.rad"), "concrete/floor 255 255 255 200\n");
         using StringWriter output = new();
         _ = await VradCommand.RunAsync(fs, ["-bounce", "0", "/maps/box.bsp"], output);
 

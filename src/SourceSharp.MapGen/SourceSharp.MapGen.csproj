@@ -1,8 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IsPackable>false</IsPackable>
-    <!-- Built and run from the repo, not shipped as a runtime assembly. -->
-    <OutputPath>bin\</OutputPath>
   </PropertyGroup>
   <ItemGroup>
     <!-- The catalog emits VMF text and reads BSP entity lumps; both formats

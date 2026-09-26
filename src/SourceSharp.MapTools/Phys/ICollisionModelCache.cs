@@ -1,3 +1,10 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 using SourceSharp.MapTools.Bsp.Collision;
 
 namespace SourceSharp.MapTools.Phys;
@@ -38,6 +45,9 @@ public sealed record CachedCollisionModel(
     int[]? WorldPropList,
     byte[]? PhysDisp)
 {
+    /// <summary>How long the cook took, in milliseconds (0 for a replay): the report's saved estimate on a later hit.</summary>
+    public long CostMs { get; init; }
+
     /// <summary>Total cooked bytes, for the report.</summary>
     public long Bytes => Text.LongLength + Solids.Sum(s => (long)s.Length);
 }
