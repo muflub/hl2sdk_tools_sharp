@@ -1,0 +1,158 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # The stock-parity facts that compare an rsqrtss-normalised result take
+      # their expected values by CPU vendor (see VendorGolden.cs), so the log
+      # says which one this runner is. macOS tests run on Intel: stock mode
+      # needs SSE and refuses on arm64 by design.
+      - name: CPU
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   lscpu | grep -E 'Vendor ID|Model name' ;;
+            macOS)   sysctl -n machdep.cpu.brand_string ;;
+            Windows) powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).Name" ;;
+          esac
+
+      - name: Restore
+        run: dotnet restore src/SourceSharp.MapTools.slnx
+
+      - name: Build
+        run: dotnet build src/SourceSharp.MapTools.slnx -c Release --no-restore
+
+      - name: Test
+        run: >-
+          dotnet test src/SourceSharp.MapTools.slnx -c Release --no-build
+          --logger "trx;LogFileName=results.trx"
+          --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: TestResults
+
+  # ssmap in two postures per platform: a native AOT executable (no .NET
+  # needed, GPU package linked in) and a framework-dependent dll build (needs
+  # the .NET 10 runtime; the GPU package is staged beside it, where ssmap
+  # looks for it by name). Built on every run so a PR proves both still
+  # publish; attached to the release only on a tag.
+  package:
+    name: package (${{ matrix.rid }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64, os: ubuntu-latest }
+          - { rid: win-x64, os: windows-latest }
+          - { rid: osx-arm64, os: macos-latest }
+          - { rid: osx-x64, os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Not VERSION: MSBuild reads environment variables as properties, and a
+      # commit hash as $(Version) makes every restore fail without an error.
+      - name: Label
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then v="$GITHUB_REF_NAME"; else v="${GITHUB_SHA::7}"; fi
+          echo "SSMAP_LABEL=$v" >> "$GITHUB_ENV"
+
+      - name: Publish native AOT
+        run: >-
+          dotnet publish src/SourceSharp.MapCompile -c Release -r ${{ matrix.rid }}
+          -p:PublishAot=true -o out/aot
+
+      - name: Publish framework-dependent
+        run: |
+          dotnet publish src/SourceSharp.MapCompile -c Release -r ${{ matrix.rid }} --self-contained false -o out/dll
+          dotnet publish src/SourceSharp.MapTools.Gpu -c Release -r ${{ matrix.rid }} --self-contained false -o out/dll
+
+      - name: Archive
+        run: |
+          mkdir -p dist
+          for kind in aot dll; do
+            find out/$kind \( -name '*.xml' -o -name '*.pdb' -o -name '*.dbg' -o -name '*.dSYM' \) -prune -exec rm -rf {} +
+            name="ssmap-$SSMAP_LABEL-${{ matrix.rid }}-$kind"
+            if [[ "$RUNNER_OS" == Windows ]]; then
+              (cd out/$kind && 7z a -tzip "../../dist/$name.zip" . > /dev/null)
+            else
+              tar -C out/$kind -czf "dist/$name.tar.gz" .
+            fi
+          done
+          ls -la dist
+
+      # The host can only run its own architecture; osx-x64 is cross-built on
+      # an arm64 runner and is not executed here.
+      - name: Smoke
+        if: matrix.rid != 'osx-x64'
+        run: |
+          ./out/aot/ssmap --help | sed -n 1p
+          ./out/dll/ssmap --help | sed -n 1p
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ssmap-${{ matrix.rid }}
+          path: dist/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [test, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ssmap-*
+          path: dist
+          merge-multiple: true
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -la dist
+          gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber

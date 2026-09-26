@@ -54,12 +54,14 @@ public sealed class BspSurfaceThroughputTests : IClassFixture<BspParityFixture>
     /// The floor, in millions of rays per second, single-threaded.
     /// </summary>
     /// <remarks>
-    /// One tenth of what this tracer does on the box it was written on, and a
-    /// quarter of what a prototype managed BVH did on the same rays. A machine
-    /// four times slower than that box still clears it; a tracer that has lost
-    /// its structure does not.
+    /// One fiftieth of what this tracer does on the box it was written on.
+    /// It was one tenth (0.5), until a hosted CI runner (a virtualised
+    /// i7-8700B on macOS) measured 0.39 and an Intel Xeon container 0.82: a
+    /// shared CI machine is more than ten times slower than that box, which is
+    /// not a catastrophe. A tracer that has lost its structure is slower by
+    /// orders of magnitude, not by a factor, so it still does not clear this.
     /// </remarks>
-    private const double FloorMraysPerSecond = 0.5;
+    private const double FloorMraysPerSecond = 0.1;
 
     private readonly BspParityFixture _fixture;
     private readonly ITestOutputHelper _output;
