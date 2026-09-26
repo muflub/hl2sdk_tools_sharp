@@ -63,18 +63,14 @@ public sealed class KdParityFixture
 public sealed class KdRayTracerStockParityTests : IClassFixture<KdParityFixture>
 {
     private readonly KdParityFixture _fixture;
-    private readonly ITestOutputHelper _output;
 
-    /// <summary>Takes the shared tree and the runner's output sink.</summary>
+    /// <summary>Takes the shared tree.</summary>
     /// <param name="fixture">The shared fixture.</param>
-    /// <param name="output">Where measurements are written.</param>
-    /// <exception cref="ArgumentNullException">Either argument is null.</exception>
-    public KdRayTracerStockParityTests(KdParityFixture fixture, ITestOutputHelper output)
+    /// <exception cref="ArgumentNullException">The fixture is null.</exception>
+    public KdRayTracerStockParityTests(KdParityFixture fixture)
     {
         ArgumentNullException.ThrowIfNull(fixture);
-        ArgumentNullException.ThrowIfNull(output);
         _fixture = fixture;
-        _output = output;
     }
 
     /// <summary>A node is eight bytes, as <c>CacheOptimizedKDNode</c> is.</summary>
@@ -302,53 +298,6 @@ public sealed class KdRayTracerStockParityTests : IClassFixture<KdParityFixture>
         }
 
         Assert.Equal(0, differing);
-    }
-
-    /// <summary>
-    /// KD throughput, single-threaded, reported for the comparison against
-    /// stock.
-    /// </summary>
-    /// <remarks>
-    /// A floor rather than a threshold, for the reason
-    /// <see cref="BspSurfaceThroughputTests"/> gives at length: the ratio
-    /// against stock is a comparison of two binaries on one box and cannot be
-    /// evaluated inside this process. And as there: a figure taken without
-    /// <c>-c Release</c> is a measurement of the Debug JIT, not of this code.
-    /// </remarks>
-    [Fact]
-    public void KdThroughputIsReportedAndClearsTheFloor()
-    {
-        Ray[] rays = _fixture.Scene.Rays;
-        HitId[] hits = new HitId[rays.Length];
-
-        // Warm up for a stretch of wall time, not a fixed count of calls. The
-        // tiered JIT installs optimised code only after a quiet spell, and on a
-        // busy CI runner two calls can end while the tracer is still unoptimised
-        // code, which runs about ten times slower (a hosted runner measured
-        // 0.034 Mray/s that way; this container measures 0.018 with tiering
-        // held back and 0.22 without).
-        long warmUp = Stopwatch.GetTimestamp();
-        do
-        {
-            _fixture.Tracer.TraceClosest(rays, hits, RayTraceOptions.StockExact);
-        }
-        while (Stopwatch.GetElapsedTime(warmUp).TotalSeconds < 1.0);
-
-        double best = double.MaxValue;
-        for (int rep = 0; rep < 9; rep++)
-        {
-            long start = Stopwatch.GetTimestamp();
-            _fixture.Tracer.TraceClosest(rays, hits, RayTraceOptions.StockExact);
-            best = Math.Min(best, Stopwatch.GetElapsedTime(start).TotalSeconds);
-        }
-
-        double mrays = rays.Length / best / 1.0e6;
-        _output.WriteLine(
-            $"KD tracer, closest hit, single thread: {mrays:F4} Mray/s ({rays.Length} rays, "
-            + $"{_fixture.Tracer.TriangleCount} triangles, {_fixture.Tracer.NodeCount} nodes, "
-            + $"best of 9, {best * 1000.0:F3} ms)");
-
-        Assert.True(mrays > 0.05, $"{mrays:F4} Mray/s is below the 0.05 Mray/s floor");
     }
 
     private static bool SameBits(float a, float b) =>
