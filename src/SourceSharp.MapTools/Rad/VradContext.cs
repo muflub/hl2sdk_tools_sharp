@@ -76,6 +76,13 @@ public sealed record VradContext
 
     /// <summary>The stages other lanes own; see <see cref="VradStages"/>.</summary>
     public VradStages Stages { get; init; } = VradStages.Default;
+
+    /// <summary>
+    /// The cross-compile bounce transfer cache, or null. Used only when vrad
+    /// builds its own tracer (not with <see cref="Tracer"/>), since the key
+    /// needs a digest of the scene the transfer rays are traced against.
+    /// </summary>
+    public Bounce.ITransferCache? TransferCache { get; init; }
 }
 
 /// <summary>One pass's counts.</summary>

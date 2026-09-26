@@ -192,8 +192,25 @@ public static class MapCompiler
                 Progress = progress,
             };
 
-            vis = await Vvis.ComputeAsync(bsp, PortalSet.FromPortalFile(read), visContext, cancellationToken)
-                .ConfigureAwait(false);
+            PortalSet portalSet = PortalSet.FromPortalFile(read);
+
+            // A light or entity edit leaves everything vvis reads alone.
+            Cache.VvisStageCache? visCache = chain.VisCache is { } vc && Cache.VvisStageCache.Applies(request.Vvis) ? vc : null;
+            string? visKey = visCache is null ? null : Cache.VvisStageCache.InputDigest(prt, bsp, request.Vvis);
+            vis = visCache is null
+                ? null
+                : await visCache.TryGetAsync(visKey!, bsp, portalSet.Count, cancellationToken).ConfigureAwait(false);
+            if (vis is null)
+            {
+                vis = await Vvis.ComputeAsync(bsp, portalSet, visContext, cancellationToken)
+                    .ConfigureAwait(false);
+                if (visCache is not null)
+                {
+                    long costMs = (long)request.Time.GetElapsedTime(mark).TotalMilliseconds;
+                    await visCache.StoreAsync(visKey!, bsp, vis, costMs, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
             mark = chain.Time("vvis", mark);
             chain.Line($"visdatasize:{vis.VisDataSize}");
         }
@@ -219,6 +236,7 @@ public static class MapCompiler
             Progress = progress,
             Tracer = request.Tracer,
             GpuTracerFactory = request.TracerFactory,
+            TransferCache = chain.TransferCache,
         };
 
         RadResult rad = await Vrad.LightAsync(bsp, radContext, cancellationToken).ConfigureAwait(false);
@@ -254,10 +272,29 @@ public static class MapCompiler
             chain.Time("write", mark);
         }
 
+        // The vvis row and vrad's transfer row (staged in the background while
+        // vrad finished), published once the map is written, like the collision rows.
+        if (chain.TransferCache is not null && request.Cache is { } transferStore)
+        {
+            try
+            {
+                await chain.TransferCache.FlushAsync(cancellationToken).ConfigureAwait(false);
+                if (transferStore.IsUsable)
+                {
+                    await transferStore.CommitAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                chain.Line($"cache: commit failed ({ex.Message}); this run's products were dropped");
+                transferStore.DiscardStaged();
+            }
+        }
+
         // The store figures ride the report; the read happens
         // here, on the async path — Render itself never blocks.
         Cache.CacheStats? cacheStats = null;
-        if (chain.CollisionCache is not null && request.Cache is { } cacheStore)
+        if (request.Cache is { } cacheStore)
         {
             try
             {
@@ -376,6 +413,24 @@ public static class MapCompiler
         /// <summary>The per-model collision seam, built once per run, or null.</summary>
         public SourceSharp.MapTools.Compile.Cache.CollisionModelCache? CollisionCache =>
             _collisionCache ??= NewCollisionCache(request, _cacheCounters);
+
+        private SourceSharp.MapTools.Compile.Cache.VvisStageCache? _visCache;
+
+        /// <summary>The vvis stage seam, built once per run when the request carries a store, or null.</summary>
+        public SourceSharp.MapTools.Compile.Cache.VvisStageCache? VisCache =>
+            _visCache ??= request.Cache is { } store
+                ? new SourceSharp.MapTools.Compile.Cache.VvisStageCache(
+                    store, request.CachePolicy ?? Cache.CachePolicy.Default, request.ContextTags, _cacheCounters)
+                : null;
+
+        private SourceSharp.MapTools.Compile.Cache.StoreTransferCache? _transferCache;
+
+        /// <summary>The bounce transfer seam, built once per run when the request carries a store, or null.</summary>
+        public SourceSharp.MapTools.Compile.Cache.StoreTransferCache? TransferCache =>
+            _transferCache ??= request.Cache is { } store
+                ? new SourceSharp.MapTools.Compile.Cache.StoreTransferCache(
+                    store, request.CachePolicy ?? Cache.CachePolicy.Default, request.ContextTags, _cacheCounters, request.Parallel.MaxDegree)
+                : null;
 
         /// <summary>The run's cache counters (report data, ruling Q12).</summary>
         public SourceSharp.MapTools.Compile.Cache.CacheRunCounters CacheCounters => _cacheCounters;

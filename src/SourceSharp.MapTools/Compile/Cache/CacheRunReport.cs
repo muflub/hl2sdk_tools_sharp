@@ -36,6 +36,16 @@ public static class CacheRunReport
         text.Append($", stored {FormatBytes(counters.BytesStored)}");
         text.Append($", est. saved {counters.EstimatedSavedMs} ms (net of cache overhead on the stage timings)");
 
+        if (counters.StageHits.Count != 0)
+        {
+            text.Append($"; stages reused: {string.Join(", ", counters.StageHits)}");
+        }
+
+        if (counters.StageMisses.Count != 0)
+        {
+            text.Append($"; stages computed: {string.Join(", ", counters.StageMisses)}");
+        }
+
         if (counters.CorruptRows != 0)
         {
             text.Append($"; {counters.CorruptRows} row(s) rejected as corrupt (treated as misses)");

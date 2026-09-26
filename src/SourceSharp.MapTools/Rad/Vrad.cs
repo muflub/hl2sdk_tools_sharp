@@ -126,6 +126,10 @@ public static class Vrad
 
         IRayTracer? tracer = context.Tracer;
 
+        // What the tracer traces against, for the transfer cache key; stays
+        // null for a host's tracer, whose scene vrad cannot see.
+        string? tracerDigest = null;
+
         // -both (plan 4p): the transfers are geometry; the second range reuses
         // the first's when its patch tree is the same (RadWorld.BounceAsync checks).
         Light.SharedTransfers? transfers = null;
@@ -152,7 +156,7 @@ public static class Vrad
             // Once for the whole compile: the casters and the KD-tree.
             if (tracer is null)
             {
-                tracer = await BuildTracerAsync(
+                (tracer, tracerDigest) = await BuildTracerAsync(
                     bsp, options, content, context, texFile, Warn, cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -160,7 +164,7 @@ public static class Vrad
             Report(context, LoadStage, 1);
 
             (RadPassResult pass, transfers) = await RunPassAsync(
-                bsp, context, content, tracer, texFile, hdr, transfers, Warn, NotYet, cancellationToken).ConfigureAwait(false);
+                bsp, context, content, tracer, tracerDigest, texFile, hdr, transfers, Warn, NotYet, cancellationToken).ConfigureAwait(false);
             passes.Add(pass);
         }
 
@@ -172,6 +176,7 @@ public static class Vrad
         VradContext context,
         IContentFileSystem content,
         IRayTracer tracer,
+        string? tracerDigest,
         RadLightFile texFile,
         bool hdr,
         Light.SharedTransfers? reuseTransfers,
@@ -192,6 +197,8 @@ public static class Vrad
             .ConfigureAwait(false);
         Report(context, StartStage, 1);
         world.ReuseTransfers = reuseTransfers;
+        world.TransferCache = context.TransferCache;
+        world.TransferTracerDigest = tracerDigest;
 
         RadPass pass = new(
             world, tracer, options, content, parallelism, context.MapName,
@@ -413,7 +420,7 @@ public static class Vrad
         return (merged, overrides);
     }
 
-    private static async Task<IRayTracer> BuildTracerAsync(
+    private static async Task<(IRayTracer Tracer, string? Digest)> BuildTracerAsync(
         BspData bsp,
         VradOptions options,
         IContentFileSystem content,
@@ -433,9 +440,10 @@ public static class Vrad
 
         // g_RtEnv.SetupAccelerationStructure: on a worker, never
         // on the caller's thread.
+        string? digest = context.TransferCache is null ? null : CasterDigest(casters.Set);
         if (casters.Set.Count == 0)
         {
-            return new EmptySceneTracer();
+            return (new EmptySceneTracer(), digest is null ? null : "empty/" + digest);
         }
 
         // The tree's subtrees are built on the queue's workers
@@ -457,7 +465,7 @@ public static class Vrad
             GpuTracerOffer offer = await factory.TryCreateAsync(casters.Set, cancellationToken).ConfigureAwait(false);
             if (offer.Tracer is { } gpu)
             {
-                return new HybridRayTracer(gpu, cpu);
+                return (new HybridRayTracer(gpu, cpu), digest is null ? null : $"gpu:{gpu.GetType().FullName}/{digest}");
             }
 
             warn(
@@ -466,7 +474,45 @@ public static class Vrad
                 + "CPU KD tracer for this run");
         }
 
-        return cpu;
+        return (cpu, digest is null ? null : "kd/" + digest);
+    }
+
+    /// <summary>A digest of every caster triangle, its coverage and material: the scene a tracer is built from.</summary>
+    /// <param name="set">The casters.</param>
+    /// <returns>Lower-case hex SHA-256.</returns>
+    internal static string CasterDigest(ShadowCasterSet set)
+    {
+        using System.Security.Cryptography.IncrementalHash sha =
+            System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        byte[] buffer = new byte[64];
+        void Put(Span<byte> span) => sha.AppendData(span);
+
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(buffer, set.Count);
+        Put(buffer.AsSpan(0, 4));
+        for (int i = 0; i < set.Count; i++)
+        {
+            Tracing.TracedTriangle t = set.Triangles[i];
+            Span<byte> b = buffer;
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(b, t.Id);
+            int at = 4;
+            foreach (MapFormats.Geometry.Vec3 v in (ReadOnlySpan<MapFormats.Geometry.Vec3>)[t.V0, t.V1, t.V2])
+            {
+                System.Buffers.Binary.BinaryPrimitives.WriteSingleLittleEndian(b[at..], v.X);
+                System.Buffers.Binary.BinaryPrimitives.WriteSingleLittleEndian(b[(at + 4)..], v.Y);
+                System.Buffers.Binary.BinaryPrimitives.WriteSingleLittleEndian(b[(at + 8)..], v.Z);
+                at += 12;
+            }
+
+            b[at++] = t.Flags;
+            System.Buffers.Binary.BinaryPrimitives.WriteSingleLittleEndian(b[at..], i < set.Coverage.Length ? set.Coverage[i] : float.NaN);
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(b[(at + 4)..], i < set.MaterialIndices.Length ? set.MaterialIndices[i] : -1);
+            Put(b[..(at + 8)]);
+        }
+
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(buffer, set.Coverage.Length);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(4), set.MaterialIndices.Length);
+        Put(buffer.AsSpan(0, 8));
+        return Convert.ToHexStringLower(sha.GetHashAndReset());
     }
 
     private static void Report(VradContext context, string stage, long done) =>
