@@ -119,9 +119,10 @@ cd src
 dotnet build SourceSharp.MapTools.slnx -c Release
 ```
 
-Build output goes to each project's `bin/` (the projects set
-`OutputPath=bin\`), so the CLI lands at
-`src/SourceSharp.MapCompile/bin/net10.0/ssmap.dll`.
+Every project builds into one shared folder at the repo root:
+`bin/Release/` or `bin/Debug/`, set once in `src/Directory.Build.props`. The
+CLI lands at `bin/Release/ssmap.dll`, with the optional GPU and SQLite
+backends and the test assembly beside it.
 
 To publish a self-contained native executable:
 
@@ -129,9 +130,10 @@ To publish a self-contained native executable:
 dotnet publish src/SourceSharp.MapCompile -c Release -r linux-x64 -p:PublishAot=true -o out/aot
 ```
 
-Under AOT the GPU backend is linked in statically. In a normal build it is
-loaded by name at run time, so it only works when
-`SourceSharp.MapTools.Gpu` has been published next to `ssmap`.
+Under AOT the GPU backend is linked in statically. Otherwise it is loaded
+by name at run time from the folder `ssmap` runs from. A solution build puts
+it there already; a `dotnet publish` of `ssmap` alone does not, so publish
+`SourceSharp.MapTools.Gpu` to the same folder if you want it.
 
 ## Running
 
@@ -363,7 +365,8 @@ assemblies rather than by review.
 - **Every behaviour that deliberately differs from the reference is a
   compliance quirk**, switchable with `-compliance`.
 - **The primary target is a long-lived service on Linux** that runs many
-  compiles in one process without restarting. Each compile releases
+  compiles in one process, in sequence and concurrently, without
+  restarting. Each compile releases
   everything it acquired, even on failure or cancellation. Windows and macOS
   are built and tested in CI.
 

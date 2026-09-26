@@ -2,10 +2,6 @@
   <PropertyGroup>
     <IsPackable>false</IsPackable>
 
-    <!-- Build-time tool library, not loaded by the game: same reasoning as
-         SourceSharp.MapTools. See that project for why the output is not the
-         mod's bin directory. -->
-    <OutputPath>bin\</OutputPath>
 
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>

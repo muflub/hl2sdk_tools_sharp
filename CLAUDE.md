@@ -30,11 +30,12 @@ dotnet test SourceSharp.Tests/SourceSharp.Tests.csproj -c Release --filter "Full
 
 # run the CLI
 dotnet run --project SourceSharp.MapCompile -c Release -- all ../maps/ss_sandbox.vmf -game <dir>
-dotnet src/SourceSharp.MapCompile/bin/net10.0/ssmap.dll -h   # after a build
+dotnet ../bin/Release/ssmap.dll -h                           # after a build
 ```
 
-Build output goes to `<project>/bin/`, not `bin/Release/`, because the
-projects set `OutputPath=bin\`.
+All projects build into one folder at the repo root, `bin/<Configuration>/`
+(set in `src/Directory.Build.props`; no project overrides `OutputPath`).
+`obj/` stays per project.
 
 The full suite is large (4,600+ facts). While iterating,
 run the folder or class you touched with `--filter`, then the full suite
@@ -56,8 +57,8 @@ These come from the project owner and apply to every change.
    `Environment.CurrentDirectory`. Tests use `InMemoryFileSystem`.
    `FileSystemSeamTests` scans the built IL and fails on any other caller.
 3. **The primary target is a long-lived service on Linux.** The libraries
-   are hosted in one process that runs many compiles over time without
-   restarting. `ssmap` as a standalone tool is useful, but the service is
+   are hosted in one process that runs many compiles, one after another and
+   concurrently, without restarting. `ssmap` as a standalone tool is useful, but the service is
    what decides. So:
    - nothing may accumulate across runs: no caches keyed by map that never
      evict, no growing registries, no leaked native handles, file handles or
@@ -65,8 +66,8 @@ These come from the project owner and apply to every change.
      including when it fails or is cancelled;
    - a failed or cancelled compile must leave the process fit for the next
      one: no half-initialised shared state, no poisoned pools;
-   - compiles may run concurrently in one process, which is why mutable
-     statics are banned (below);
+   - compiles run concurrently in one process, so they must not share
+     mutable state; this is why mutable statics are banned (below);
    - no process-wide side effects from the libraries: no changing the
      current directory, environment, culture, GC settings or console.
    Windows and macOS are built and tested in CI, but Linux behaviour is what

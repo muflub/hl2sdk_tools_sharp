@@ -2,8 +2,6 @@
   <PropertyGroup>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
-    <!-- Tests run from the repo, not a shipped bin directory. -->
-    <OutputPath>bin\</OutputPath>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
