@@ -90,45 +90,29 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Version
+      # Not VERSION: MSBuild reads environment variables as properties, and a
+      # commit hash as $(Version) makes every restore fail without an error.
+      - name: Label
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then v="$GITHUB_REF_NAME"; else v="${GITHUB_SHA::7}"; fi
-          echo "VERSION=$v" >> "$GITHUB_ENV"
-
-      # Temporary: why a project-level restore fails silently on the runner's SDK.
-      - name: Restore diagnostics
-        if: matrix.rid == 'linux-x64'
-        continue-on-error: true
-        run: |
-          set +e
-          dotnet --info | head -20
-          dotnet restore src/SourceSharp.MapCompile/SourceSharp.MapCompile.csproj -v:diag -tl:off > diag.log 2>&1; echo "exit $?"
-          grep -n -B60 "Failed to restore" diag.log | grep -vE "^[0-9]+-[[:space:]]*$" | tail -90 | cut -c1-300
-          git clean -fdxq src
-
-      # Restored through the solution: a restore of the project on its own
-      # fails without logging an error on the runner's SDK.
-      - name: Restore
-        run: >-
-          dotnet restore src/SourceSharp.MapTools.slnx -r ${{ matrix.rid }} -p:PublishAot=true
+          echo "SSMAP_LABEL=$v" >> "$GITHUB_ENV"
 
       - name: Publish native AOT
         run: >-
           dotnet publish src/SourceSharp.MapCompile -c Release -r ${{ matrix.rid }}
-          -p:PublishAot=true --no-restore -o out/aot
+          -p:PublishAot=true -o out/aot
 
       - name: Publish framework-dependent
         run: |
-          dotnet restore src/SourceSharp.MapTools.slnx -r ${{ matrix.rid }}
-          dotnet publish src/SourceSharp.MapCompile -c Release -r ${{ matrix.rid }} --self-contained false --no-restore -o out/dll
-          dotnet publish src/SourceSharp.MapTools.Gpu -c Release -r ${{ matrix.rid }} --self-contained false --no-restore -o out/dll
+          dotnet publish src/SourceSharp.MapCompile -c Release -r ${{ matrix.rid }} --self-contained false -o out/dll
+          dotnet publish src/SourceSharp.MapTools.Gpu -c Release -r ${{ matrix.rid }} --self-contained false -o out/dll
 
       - name: Archive
         run: |
           mkdir -p dist
           for kind in aot dll; do
             find out/$kind \( -name '*.xml' -o -name '*.pdb' -o -name '*.dbg' -o -name '*.dSYM' \) -prune -exec rm -rf {} +
-            name="ssmap-$VERSION-${{ matrix.rid }}-$kind"
+            name="ssmap-$SSMAP_LABEL-${{ matrix.rid }}-$kind"
             if [[ "$RUNNER_OS" == Windows ]]; then
               (cd out/$kind && 7z a -tzip "../../dist/$name.zip" . > /dev/null)
             else
