@@ -1169,7 +1169,9 @@ public static class BenchCommand
             {
                 rc = command == "vvis"
                     ? await VvisCommand.RunAsync(disk, [.. stageArgs], TextWriter.Null, ct).ConfigureAwait(false)
-                    : await VradCommand.RunAsync(disk, [.. stageArgs], TextWriter.Null, ct).ConfigureAwait(false);
+                    : await VradCommand.RunAsync(
+                        disk, [.. stageArgs], VbspHost.SteamFor(disk, DefaultRoots()), TextWriter.Null, ct)
+                        .ConfigureAwait(false);
                 if (File.Exists(paths.Bsp))
                 {
                     written.Add(VPath.Create(paths.Bsp));
