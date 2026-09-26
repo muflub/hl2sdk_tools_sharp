@@ -61,6 +61,18 @@ build-time fact checks the built assembly: every method listed as deciding
 a quirk must actually pass that quirk to the compliance check, so the
 ledger cannot drift from the code.
 
+## Measuring performance
+
+    tools/compile-perf.sh --map maps/ss_sandbox.vmf --game game/mod_sharp --threads 1,max --trace
+
+times the whole chain (`ssmap all`), then vbsp, vvis and vrad each on
+their own, then one `ssmap vrad --bench` run for vrad's own stages and ray
+counts, and with `--trace` a sampled CPU profile of vrad (needs
+`dotnet tool install -g dotnet-trace`). Everything lands in
+`perf-results/<timestamp>/`, with `summary.md` on top and `env.txt`
+recording the machine, the revision and the .NET runtime. `tools/compile-perf.sh -h`
+lists the options.
+
 ## Tests
 
     cd src

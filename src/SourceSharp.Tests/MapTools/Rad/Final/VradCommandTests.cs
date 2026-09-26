@@ -68,6 +68,35 @@ public sealed class VradCommandTests
     }
 
     [Fact]
+    public async Task BenchPrintsEveryStageAndTheWorkCounters()
+    {
+        InMemoryFileSystem fs = await MapAsync();
+        using StringWriter output = new();
+        int exit = await VradCommand.RunAsync(
+            fs, ["-bounce", "0", "-threads", "2", VradCommand.BenchSwitch, "/maps/box"], output);
+
+        string text = output.ToString();
+        Assert.Equal(Program.ExitSuccess, exit);
+        foreach (string stage in (string[])[SourceSharp.MapTools.Rad.Vrad.LoadStage, SourceSharp.MapTools.Rad.Vrad.StartStage, SourceSharp.MapTools.Rad.Vrad.FacelightsStage, SourceSharp.MapTools.Rad.Vrad.FinalStage, SourceSharp.MapTools.Rad.Vrad.OtherStage])
+        {
+            Assert.Contains($"bench {stage} ", text, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("bench total ", text, StringComparison.Ordinal);
+        Assert.Contains("bench work ldr samples=", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WithoutBenchNothingIsTimed()
+    {
+        InMemoryFileSystem fs = await MapAsync();
+        using StringWriter output = new();
+        await VradCommand.RunAsync(fs, ["-bounce", "0", "-threads", "2", "/maps/box"], output);
+
+        Assert.DoesNotContain("bench ", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TheCommandReportsStagesThatAreNotPortedYet()
     {
         InMemoryFileSystem fs = await MapAsync();
