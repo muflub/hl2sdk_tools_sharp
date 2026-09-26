@@ -362,8 +362,10 @@ assemblies rather than by review.
   `Environment.Exit`; the host does all of that.
 - **Every behaviour that deliberately differs from the reference is a
   compliance quirk**, switchable with `-compliance`.
-- **Linux is the primary target**, with Windows and macOS built and tested in
-  CI.
+- **The primary target is a long-lived service on Linux** that runs many
+  compiles in one process without restarting. Each compile releases
+  everything it acquired, even on failure or cancellation. Windows and macOS
+  are built and tested in CI.
 
 ## License
 

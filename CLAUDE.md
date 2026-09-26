@@ -55,8 +55,22 @@ These come from the project owner and apply to every change.
    `Path.GetTempPath`, `Path.GetTempFileName` or
    `Environment.CurrentDirectory`. Tests use `InMemoryFileSystem`.
    `FileSystemSeamTests` scans the built IL and fails on any other caller.
-3. **Linux is the primary target.** Windows and macOS are built and tested
-   in CI, but Linux behaviour is what decides.
+3. **The primary target is a long-lived service on Linux.** The libraries
+   are hosted in one process that runs many compiles over time without
+   restarting. `ssmap` as a standalone tool is useful, but the service is
+   what decides. So:
+   - nothing may accumulate across runs: no caches keyed by map that never
+     evict, no growing registries, no leaked native handles, file handles or
+     pooled buffers. Everything a compile acquires is released when it ends,
+     including when it fails or is cancelled;
+   - a failed or cancelled compile must leave the process fit for the next
+     one: no half-initialised shared state, no poisoned pools;
+   - compiles may run concurrently in one process, which is why mutable
+     statics are banned (below);
+   - no process-wide side effects from the libraries: no changing the
+     current directory, environment, culture, GC settings or console.
+   Windows and macOS are built and tested in CI, but Linux behaviour is what
+   decides.
 
 ## Rules the tests enforce
 
