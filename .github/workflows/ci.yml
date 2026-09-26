@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -32,9 +32,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # The stock-parity facts that compare an rsqrtss-normalised result against
-      # a committed golden run only on the vendor the goldens came from, so the
-      # log says which one this runner is.
+      # The stock-parity facts that compare an rsqrtss-normalised result take
+      # their expected values by CPU vendor (see VendorGolden.cs), so the log
+      # says which one this runner is. macOS tests run on Intel: stock mode
+      # needs SSE and refuses on arm64 by design.
       - name: CPU
         shell: bash
         run: |
@@ -94,91 +95,22 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then v="$GITHUB_REF_NAME"; else v="${GITHUB_SHA::7}"; fi
           echo "VERSION=$v" >> "$GITHUB_ENV"
 
+      # Temporary: why a project-level restore fails silently on the runner's SDK.
       - name: Restore diagnostics
         if: matrix.rid == 'linux-x64'
         continue-on-error: true
         run: |
           set +e
-          echo "::group::f solution rid+aot"; dotnet restore src/SourceSharp.MapTools.slnx -r linux-x64 -p:PublishAot=true -tl:off; echo "exit $?"; echo "::endgroup::"
-          git clean -fdxq src
-          echo "::group::g project file path"; dotnet restore src/SourceSharp.MapCompile/SourceSharp.MapCompile.csproj -tl:off; echo "exit $?"; echo "::endgroup::"
-          git clean -fdxq src
-          echo "::group::e diag"; dotnet restore src/SourceSharp.MapCompile -v:diag -tl:off > diag.log 2>&1; echo "exit $?"
-          grep -n -B80 "Failed to restore" diag.log | grep -vE "^[0-9]+-\s*$" | tail -120 | cut -c1-300; echo "::endgroup::"
+          dotnet --info | head -20
+          dotnet restore src/SourceSharp.MapCompile/SourceSharp.MapCompile.csproj -v:diag -tl:off > diag.log 2>&1; echo "exit $?"
+          grep -n -B60 "Failed to restore" diag.log | grep -vE "^[0-9]+-[[:space:]]*$" | tail -90 | cut -c1-300
           git clean -fdxq src
 
+      # Restored through the solution: a restore of the project on its own
+      # fails without logging an error on the runner's SDK.
       - name: Restore
-        run: dotnet restore src/SourceSharp.MapTools.slnx
-
-      - name: Build
-        run: dotnet build src/SourceSharp.MapTools.slnx -c Release --no-restore
-
-      - name: Test
         run: >-
-          dotnet test src/SourceSharp.MapTools.slnx -c Release --no-build
-          --logger "trx;LogFileName=results.trx"
-          --results-directory TestResults
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ matrix.os }}
-          path: TestResults
-
-  # ssmap in two postures per platform: a native AOT executable (no .NET
-  # needed, GPU package linked in) and a framework-dependent dll build (needs
-  # the .NET 10 runtime; the GPU package is staged beside it, where ssmap
-  # looks for it by name). Built on every run so a PR proves both still
-  # publish; attached to the release only on a tag.
-  package:
-    name: package (${{ matrix.rid }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { rid: linux-x64, os: ubuntu-latest }
-          - { rid: win-x64, os: windows-latest }
-          - { rid: osx-arm64, os: macos-latest }
-          - { rid: osx-x64, os: macos-latest }
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.x
-
-      - name: Version
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then v="$GITHUB_REF_NAME"; else v="${GITHUB_SHA::7}"; fi
-          echo "VERSION=$v" >> "$GITHUB_ENV"
-
-      - name: Restore diagnostics
-        if: matrix.rid == 'linux-x64'
-        continue-on-error: true
-        run: |
-          set +e
-          m=src/SourceSharp.MapCompile
-          echo "::group::a no rid"; dotnet restore $m -tl:off; echo "exit $?"; echo "::endgroup::"
-          git clean -fdxq src
-          echo "::group::b rid, no aot"; dotnet restore $m -r linux-x64 -tl:off; echo "exit $?"; echo "::endgroup::"
-          git clean -fdxq src
-          echo "::group::c rid+aot, WarningsAsErrors cleared"; dotnet restore $m -r linux-x64 -p:PublishAot=true -p:WarningsAsErrors= -tl:off; echo "exit $?"; echo "::endgroup::"
-          git clean -fdxq src
-          echo "::group::d rid+aot, disable-parallel"; dotnet restore $m -r linux-x64 -p:PublishAot=true --disable-parallel -tl:off; echo "exit $?"; echo "::endgroup::"
-          git clean -fdxq src
-          echo "::group::e diag"; dotnet restore $m -r linux-x64 -p:PublishAot=true -v:diag -tl:off > diag.log 2>&1; echo "exit $?"
-          grep -nE "NU[0-9]{4}|[Ee]rror|[Ww]arning|WarningsAsErrors|TreatWarnings" diag.log | grep -v "Property reassignment" | head -150; echo "::endgroup::"
-          git clean -fdxq src
-
-      - name: Restore
-        run: |
-          dotnet restore src/SourceSharp.MapCompile -r ${{ matrix.rid }} -p:PublishAot=true -v:n -tl:off
-          dotnet restore src/SourceSharp.MapTools.Gpu -r ${{ matrix.rid }} -v:n -tl:off
+          dotnet restore src/SourceSharp.MapTools.slnx -r ${{ matrix.rid }} -p:PublishAot=true
 
       - name: Publish native AOT
         run: >-
@@ -187,8 +119,9 @@ jobs:
 
       - name: Publish framework-dependent
         run: |
-          dotnet publish src/SourceSharp.MapCompile -c Release -r ${{ matrix.rid }} --self-contained false -o out/dll
-          dotnet publish src/SourceSharp.MapTools.Gpu -c Release -r ${{ matrix.rid }} --self-contained false -o out/dll
+          dotnet restore src/SourceSharp.MapTools.slnx -r ${{ matrix.rid }}
+          dotnet publish src/SourceSharp.MapCompile -c Release -r ${{ matrix.rid }} --self-contained false --no-restore -o out/dll
+          dotnet publish src/SourceSharp.MapTools.Gpu -c Release -r ${{ matrix.rid }} --self-contained false --no-restore -o out/dll
 
       - name: Archive
         run: |
@@ -216,15 +149,6 @@ jobs:
         with:
           name: ssmap-${{ matrix.rid }}
           path: dist/*
-
-  rsqrt-probe:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          lscpu | grep -E 'Vendor ID|Model name'
-          gcc -O2 -o rsdump .github/probe/rsdump.c
-          ./rsdump
 
   release:
     if: startsWith(github.ref, 'refs/tags/')

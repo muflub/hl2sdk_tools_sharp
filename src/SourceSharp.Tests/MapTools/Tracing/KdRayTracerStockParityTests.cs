@@ -1,5 +1,7 @@
 using System.Diagnostics;
 
+using SourceSharp.MapFormats.Geometry;
+
 using SourceSharp.MapTools.Tracing;
 
 using Xunit;
@@ -178,39 +180,23 @@ public sealed class KdRayTracerStockParityTests : IClassFixture<KdParityFixture>
     [ReferenceRsqrtFact]
     public void EveryTriangleConvertsExactlyAsStockDoes()
     {
+        (string[] stock, string[] ours) = KdVendorLines.Triangles(_fixture.Scene, _fixture.Tracer);
+        IReadOnlyList<string> expected = VendorGolden.Expected("kd-scene.triangles", stock, ours);
+
         int normalDiff = 0;
         int edgeDiff = 0;
         int axisDiff = 0;
 
-        for (int i = 0; i < _fixture.Tracer.TriangleCount; i++)
+        for (int i = 0; i < ours.Length; i++)
         {
-            (var normal, float d, _, float[] edges, int cs0, int cs1) =
-                _fixture.Tracer.Triangle(i);
-
-            if (!SameBits(normal.X, _fixture.Scene.TriangleNormals[i].X)
-                || !SameBits(normal.Y, _fixture.Scene.TriangleNormals[i].Y)
-                || !SameBits(normal.Z, _fixture.Scene.TriangleNormals[i].Z)
-                || !SameBits(d, _fixture.Scene.TriangleD[i]))
-            {
-                normalDiff++;
-            }
-
-            for (int e = 0; e < 6; e++)
-            {
-                if (!SameBits(edges[e], _fixture.Scene.TriangleEdges[(i * 6) + e]))
-                {
-                    edgeDiff++;
-                    break;
-                }
-            }
-
-            if (cs0 != _fixture.Scene.TriangleCoordSelect[i * 2]
-                || cs1 != _fixture.Scene.TriangleCoordSelect[(i * 2) + 1])
-            {
-                axisDiff++;
-            }
+            string[] want = expected[i].Split('|');
+            string[] got = ours[i].Split('|');
+            normalDiff += want[0] == got[0] ? 0 : 1;
+            edgeDiff += want[1] == got[1] ? 0 : 1;
+            axisDiff += want[2] == got[2] ? 0 : 1;
         }
 
+        Assert.Equal(expected.Count, ours.Length);
         Assert.Equal(0, normalDiff);
         Assert.Equal(0, edgeDiff);
         Assert.Equal(0, axisDiff);
@@ -278,21 +264,11 @@ public sealed class KdRayTracerStockParityTests : IClassFixture<KdParityFixture>
     [ReferenceRsqrtFact]
     public void EveryHitDistanceMatchesStockBitForBit()
     {
-        int differing = 0;
-        for (int i = 0; i < _fixture.Scene.RayCount; i++)
-        {
-            if (_fixture.Scene.StockHitId[i] < 0)
-            {
-                continue;
-            }
+        (string[] stock, string[] ours) = KdVendorLines.HitDistances(_fixture.Scene, _fixture.Ours);
+        IReadOnlyList<string> expected = VendorGolden.Expected("kd-scene.distances", stock, ours);
 
-            if (!SameBits(_fixture.Ours[i].Fraction, _fixture.Scene.StockDistance[i]))
-            {
-                differing++;
-            }
-        }
-
-        Assert.Equal(0, differing);
+        Assert.Equal(expected.Count, ours.Length);
+        Assert.Empty(ours.Where((line, i) => line != expected[i]));
     }
 
     /// <summary>
@@ -360,4 +336,57 @@ public sealed class KdRayTracerStockParityTests : IClassFixture<KdParityFixture>
 
     private static bool SameBits(float a, float b) =>
         BitConverter.SingleToInt32Bits(a) == BitConverter.SingleToInt32Bits(b);
+}
+
+/// <summary>
+/// A KD scene's stock-normalised quantities as lines, the unit a
+/// <see cref="VendorGolden"/> delta records.
+/// </summary>
+internal static class KdVendorLines
+{
+    /// <summary>Per ray, the hit distance's bits, or <c>-</c> where stock missed.</summary>
+    public static (string[] Stock, string[] Ours) HitDistances(StockKdScene scene, HitId[] ours)
+    {
+        string[] stock = new string[scene.RayCount];
+        string[] mine = new string[scene.RayCount];
+        for (int i = 0; i < scene.RayCount; i++)
+        {
+            bool hit = scene.StockHitId[i] >= 0;
+            stock[i] = hit ? VendorGolden.Bits(scene.StockDistance[i]) : "-";
+            mine[i] = hit ? VendorGolden.Bits(ours[i].Fraction) : "-";
+        }
+
+        return (stock, mine);
+    }
+
+    /// <summary>Per triangle, <c>normal and d | six edges | two axes</c>.</summary>
+    public static (string[] Stock, string[] Ours) Triangles(StockKdScene scene, KdRayTracer tracer)
+    {
+        string[] stock = new string[tracer.TriangleCount];
+        string[] mine = new string[tracer.TriangleCount];
+        for (int i = 0; i < tracer.TriangleCount; i++)
+        {
+            (var normal, float d, _, float[] edges, int cs0, int cs1) = tracer.Triangle(i);
+            mine[i] = Line(normal.X, normal.Y, normal.Z, d, edges, cs0, cs1);
+
+            Vec3 n = scene.TriangleNormals[i];
+            stock[i] = Line(
+                n.X, n.Y, n.Z, scene.TriangleD[i], scene.TriangleEdges.AsSpan(i * 6, 6),
+                scene.TriangleCoordSelect[i * 2], scene.TriangleCoordSelect[(i * 2) + 1]);
+        }
+
+        return (stock, mine);
+    }
+
+    private static string Line(float nx, float ny, float nz, float d, ReadOnlySpan<float> edges, int cs0, int cs1)
+    {
+        string[] e = new string[edges.Length];
+        for (int k = 0; k < edges.Length; k++)
+        {
+            e[k] = VendorGolden.Bits(edges[k]);
+        }
+
+        return $"{VendorGolden.Bits(nx)} {VendorGolden.Bits(ny)} {VendorGolden.Bits(nz)} {VendorGolden.Bits(d)}"
+            + $"|{string.Join(' ', e)}|{cs0} {cs1}";
+    }
 }

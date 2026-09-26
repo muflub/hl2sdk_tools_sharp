@@ -22,9 +22,10 @@ namespace SourceSharp.Tests;
 ///
 /// <para>
 /// A failure there would read as a regression, and a pass forced by loosening
-/// the comparison would make the oracle weaker everywhere. So the facts that
-/// compare a stock-normalised result bit-for-bit against a committed golden
-/// SKIP, visibly and with this reason, on any other vendor.
+/// the comparison would make the oracle weaker everywhere. So those facts take
+/// their expected values from <see cref="VendorGolden"/>, which holds a
+/// per-vendor delta against the goldens, and SKIP, visibly and with this
+/// reason, on a vendor that has none.
 /// </para>
 /// </summary>
 internal static class ReferenceRsqrt
@@ -58,19 +59,26 @@ internal static class ReferenceRsqrt
     }
 
     /// <summary>
-    /// Null when a stock-normalised golden is this vendor's answer, else why
-    /// the fact is skipped.
+    /// Null when this vendor has expected values to compare against (the
+    /// goldens themselves, or a captured delta), else why the fact is skipped.
     /// </summary>
-    public static string? SkipReason(string? vendor)
+    public static string? SkipReason(string? vendor, bool hasCaptures)
     {
-        if (vendor == ReferenceVendor)
+        if (vendor == ReferenceVendor || (vendor is not null && hasCaptures))
         {
             return null;
         }
 
         return $"the stock goldens this fact compares against were measured on {ReferenceVendor}; "
             + $"this CPU is {vendor ?? "not x86"}, whose rsqrtss estimate differs in the low bits, "
-            + "so a bit-exact comparison against them says nothing here";
+            + "and it has no captured delta to compare against instead";
+    }
+
+    /// <summary><see cref="SkipReason(string?, bool)"/> for this machine.</summary>
+    public static string? SkipReasonHere()
+    {
+        string? vendor = CpuVendor();
+        return SkipReason(vendor, vendor is not null && (VendorGolden.Capturing || VendorGolden.HasCaptures(vendor)));
     }
 }
 
@@ -83,7 +91,7 @@ public sealed class ReferenceRsqrtFactAttribute : FactAttribute
 {
     public ReferenceRsqrtFactAttribute()
     {
-        Skip = ReferenceRsqrt.SkipReason(ReferenceRsqrt.CpuVendor());
+        Skip = ReferenceRsqrt.SkipReasonHere();
     }
 }
 
@@ -96,6 +104,6 @@ public sealed class ReferenceRsqrtTheoryAttribute : TheoryAttribute
 {
     public ReferenceRsqrtTheoryAttribute()
     {
-        Skip = ReferenceRsqrt.SkipReason(ReferenceRsqrt.CpuVendor());
+        Skip = ReferenceRsqrt.SkipReasonHere();
     }
 }

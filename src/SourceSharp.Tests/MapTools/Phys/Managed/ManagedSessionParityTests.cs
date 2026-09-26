@@ -162,17 +162,32 @@ public class ManagedSessionParityTests
         ManagedCollisionSession session = Session(stock);
         int checkedCount = 0;
         var failed = new List<int>();
-        for (int i = 0; i < jobs.Count; i++)
-        {
-            if (jobs[i].Kind != kind)
-            {
-                continue;
-            }
 
-            checkedCount++;
-            if (!CookerFixture.Matches(answers[i], jobs[i].Cook(session)))
+        if (stock)
+        {
+            // Stock precision normalises with rsqrtss, so its answers are per vendor.
+            int[] mine = [.. Enumerable.Range(0, jobs.Count).Where(i => jobs[i].Kind == kind)];
+            string[] ours = [.. mine.Select(i => CookerFixture.Line(jobs[i].Cook(session)))];
+            IReadOnlyList<string> expected = VendorGolden.Expected(
+                $"session.{group}.{kind}", [.. mine.Select(i => CookerFixture.Line(answers[i]))], ours);
+            Assert.Equal(expected.Count, ours.Length);
+            checkedCount = ours.Length;
+            failed.AddRange(Enumerable.Range(0, ours.Length).Where(k => ours[k] != expected[k]).Select(k => mine[k]));
+        }
+        else
+        {
+            for (int i = 0; i < jobs.Count; i++)
             {
-                failed.Add(i);
+                if (jobs[i].Kind != kind)
+                {
+                    continue;
+                }
+
+                checkedCount++;
+                if (!CookerFixture.Matches(answers[i], jobs[i].Cook(session)))
+                {
+                    failed.Add(i);
+                }
             }
         }
 

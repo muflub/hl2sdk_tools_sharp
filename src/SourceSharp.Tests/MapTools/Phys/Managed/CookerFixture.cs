@@ -203,6 +203,24 @@ internal static class CookerFixture
             && string.Equals(Convert.ToHexStringLower(SHA256.HashData(managed)), answer.Sha256, StringComparison.Ordinal);
     }
 
+    /// <summary>A reference answer as one line: <c>null</c>, or the blob's SHA-256 and length.</summary>
+    /// <param name="answer">The answer.</param>
+    /// <returns>The line a vendor delta records.</returns>
+    public static string Line(Answer answer) =>
+        answer.IsNull
+            ? "null"
+            : answer.Blob is not null
+                ? Line(answer.Blob)
+                : $"{answer.Sha256} {answer.Length}";
+
+    /// <summary>A managed blob as the same line <see cref="Line(Answer)"/> gives an answer.</summary>
+    /// <param name="managed">The blob, or null for no collide.</param>
+    /// <returns>The line.</returns>
+    public static string Line(byte[]? managed) =>
+        managed is null
+            ? "null"
+            : $"{Convert.ToHexStringLower(SHA256.HashData(managed))} {managed.Length}";
+
     private static StreamReader OpenGz(string path) =>
         new(new GZipStream(File.OpenRead(path), CompressionMode.Decompress));
 

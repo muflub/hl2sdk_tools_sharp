@@ -15,13 +15,19 @@ public class ReferenceRsqrtTests
     [Fact]
     public void TheReferenceVendorRunsTheFact()
     {
-        Assert.Null(ReferenceRsqrt.SkipReason("AuthenticAMD"));
+        Assert.Null(ReferenceRsqrt.SkipReason("AuthenticAMD", hasCaptures: false));
     }
 
     [Fact]
-    public void AnotherVendorSkipsAndSaysWhich()
+    public void AnotherVendorWithCapturesRunsTheFact()
     {
-        string? reason = ReferenceRsqrt.SkipReason("GenuineIntel");
+        Assert.Null(ReferenceRsqrt.SkipReason("GenuineIntel", hasCaptures: true));
+    }
+
+    [Fact]
+    public void AnotherVendorWithoutCapturesSkipsAndSaysWhich()
+    {
+        string? reason = ReferenceRsqrt.SkipReason("GenuineIntel", hasCaptures: false);
 
         Assert.NotNull(reason);
         Assert.Contains("GenuineIntel", reason, StringComparison.Ordinal);
@@ -31,7 +37,7 @@ public class ReferenceRsqrtTests
     [Fact]
     public void NoVendorSkips()
     {
-        string? reason = ReferenceRsqrt.SkipReason(null);
+        string? reason = ReferenceRsqrt.SkipReason(null, hasCaptures: true);
 
         Assert.NotNull(reason);
         Assert.Contains("not x86", reason, StringComparison.Ordinal);
@@ -67,7 +73,7 @@ public class ReferenceRsqrtTests
     [Fact]
     public void TheAttributesSkipExactlyWhenTheGateSays()
     {
-        string? expected = ReferenceRsqrt.SkipReason(ReferenceRsqrt.CpuVendor());
+        string? expected = ReferenceRsqrt.SkipReasonHere();
 
         Assert.Equal(expected, new ReferenceRsqrtFactAttribute().Skip);
         Assert.Equal(expected, new ReferenceRsqrtTheoryAttribute().Skip);
