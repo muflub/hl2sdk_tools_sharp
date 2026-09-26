@@ -106,6 +106,18 @@ public sealed class CompilePool : IDisposable
     // The threads started so far, replaced whole so readers need no lock.
     private Thread[] _started = [];
 
+    /// <summary>Whether <see cref="Dispose"/> has begun: no thread starts another step.</summary>
+    internal bool IsStopping
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _shutdown;
+            }
+        }
+    }
+
     /// <summary>Stops the threads once their current chunk ends and waits for them.</summary>
     public void Dispose()
     {

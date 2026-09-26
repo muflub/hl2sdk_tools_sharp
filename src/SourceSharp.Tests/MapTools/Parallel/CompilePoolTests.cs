@@ -305,7 +305,10 @@ public class CompilePoolTests
         Assert.True(holding.Wait(Patience));
         Task abandoned = left.RunAsync(10, (_, _) => { }, null, CancellationToken.None);
 
+        // Release the held chunk only once the stop is flagged; released any
+        // sooner, the one thread could legitimately finish the job left behind.
         Task disposing = Task.Run(pool.Dispose);
+        Assert.True(SpinWait.SpinUntil(() => pool.IsStopping, Patience));
         release.Set();
         await disposing.WaitAsync(Patience);
 
