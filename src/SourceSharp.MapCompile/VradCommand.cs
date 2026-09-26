@@ -52,9 +52,32 @@ public static class VradCommand
     /// <see cref="Program.ExitUsage"/>.
     /// </returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static Task<int> RunAsync(
+        IFileSystem fileSystem,
+        IReadOnlyList<string> args,
+        TextWriter output,
+        CancellationToken cancellationToken = default) =>
+        RunAsync(fileSystem, args, steam: null, output, cancellationToken);
+
+    /// <summary>Runs one <c>vrad</c> invocation, with a Steam library for the game mount.</summary>
+    /// <param name="fileSystem">Where maps and game content are read and written.</param>
+    /// <param name="args">The arguments after <c>vrad</c>.</param>
+    /// <param name="steam">
+    /// Resolves the gameinfo's <c>|appid_N|</c> search paths, as vbsp's mount
+    /// does; null when there is no Steam library, and a gameinfo that names
+    /// one then lights without game content, with a note.
+    /// </param>
+    /// <param name="output">Where the running commentary goes.</param>
+    /// <param name="cancellationToken">Cancels the compile.</param>
+    /// <returns>
+    /// <see cref="Program.ExitSuccess"/>, <see cref="ExitFailed"/> or
+    /// <see cref="Program.ExitUsage"/>.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static async Task<int> RunAsync(
         IFileSystem fileSystem,
         IReadOnlyList<string> args,
+        ISteamAppLocator? steam,
         TextWriter output,
         CancellationToken cancellationToken = default)
     {
@@ -102,7 +125,7 @@ public static class VradCommand
 
         Stopwatch clock = Stopwatch.StartNew();
 
-        IContentFileSystem? game = await MountGameAsync(fileSystem, parsed.GameDirectory, source, output, cancellationToken)
+        IContentFileSystem? game = await MountGameAsync(fileSystem, parsed.GameDirectory, source, steam, output, cancellationToken)
             .ConfigureAwait(false);
         LooseFileContent content = new(fileSystem, game);
         content.Add(mapName + ".rad", source + ".rad");
@@ -177,6 +200,7 @@ public static class VradCommand
         IFileSystem fileSystem,
         string? gameDirectory,
         string source,
+        ISteamAppLocator? steam,
         TextWriter output,
         CancellationToken cancellationToken)
     {
@@ -204,14 +228,11 @@ public static class VradCommand
 
         try
         {
-            GameContentMounter.Result mounted = await GameContentMounter.MountAsync(
-                new ReadOnlyFileSystem(fileSystem),
-                info,
-                VPath.Create(Path.GetDirectoryName(directory)!),
-                cancellationToken: cancellationToken).ConfigureAwait(false);
+            GameContentMounter.Result mounted = await VbspCommand.MountGameAsync(
+                fileSystem, directory, steam, cancellationToken).ConfigureAwait(false);
             return mounted.Content;
         }
-        catch (IOException exception)
+        catch (Exception exception) when (exception is IOException or InvalidOperationException)
         {
             await output.WriteLineAsync($"ssmap vrad: cannot mount {directory}: {exception.Message}").ConfigureAwait(false);
             return null;

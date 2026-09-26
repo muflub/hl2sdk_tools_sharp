@@ -81,6 +81,69 @@ public sealed class VradCommandTests
         Assert.Equal((Program.ExitSuccess, false), (exit, lit[BspLump.Lighting].IsEmpty));
     }
 
+    private sealed class FixedSteam(string directory) : ISteamAppLocator
+    {
+        public List<int> Asked { get; } = [];
+
+        public ValueTask<VPath?> FindInstallDirectoryAsync(int appId, CancellationToken cancellationToken = default)
+        {
+            Asked.Add(appId);
+            return ValueTask.FromResult<VPath?>(VPath.Create(directory));
+        }
+    }
+
+    private const string SteamGameInfo = """
+        "GameInfo"
+        {
+            game "steam game"
+            FileSystem
+            {
+                SteamAppId 243750
+                SearchPaths
+                {
+                    game+mod |gameinfo_path|.
+                    game |appid_243750|hl2/hl2_misc.vpk
+                }
+            }
+        }
+        """;
+
+    // The box under game/maps, beside a gameinfo that mounts a Steam app.
+    private static async Task<InMemoryFileSystem> SteamMapAsync()
+    {
+        InMemoryFileSystem fs = await MapAsync();
+        fs.AddFile("game/maps/box.bsp", fs.GetBytes(VPath.Create("maps/box.bsp"))!);
+        fs.AddFile("game/gameinfo.txt", System.Text.Encoding.UTF8.GetBytes(SteamGameInfo));
+        fs.AddFile("steam/common/Half-Life 2/hl2/readme.txt", [1]);
+        return fs;
+    }
+
+    [Fact]
+    public async Task AGameThatMountsASteamAppIsFoundThroughTheLocator()
+    {
+        InMemoryFileSystem fs = await SteamMapAsync();
+        FixedSteam steam = new("/steam/common/Half-Life 2");
+        using StringWriter output = new();
+        int exit = await VradCommand.RunAsync(
+            fs, ["-bounce", "0", "-threads", "2", "-game", "/game", "/game/maps/box"], steam, output);
+
+        Assert.Equal(Program.ExitSuccess, exit);
+        Assert.Contains(243750, steam.Asked);
+        Assert.DoesNotContain("cannot mount", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WithoutASteamLibraryTheMapIsLitWithoutGameContent()
+    {
+        InMemoryFileSystem fs = await SteamMapAsync();
+        using StringWriter output = new();
+        int exit = await VradCommand.RunAsync(
+            fs, ["-bounce", "0", "-threads", "2", "-game", "/game", "/game/maps/box"], output);
+
+        Assert.Equal(Program.ExitSuccess, exit);
+        Assert.Contains("ssmap vrad: cannot mount /game", output.ToString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task TheCommandReportsStagesThatAreNotPortedYet()
     {
