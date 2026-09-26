@@ -5,7 +5,6 @@
     <AssemblyName>ssmap</AssemblyName>
     <RootNamespace>SourceSharp.MapCompile</RootNamespace>
     <IsPackable>false</IsPackable>
-    <OutputPath>bin\</OutputPath>
 
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>

@@ -5,9 +5,6 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
 
-    <!-- Build-time tool, not loaded by the game. See MapFormats for why this
-         does not go to the mod's bin directory. -->
-    <OutputPath>bin\</OutputPath>
 
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
