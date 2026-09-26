@@ -214,6 +214,31 @@ public sealed class VisMatrixBuildTests
         return (matrix, set, world);
     }
 
+    /// <summary>
+    /// Cutting the receivers into many small chunks, each its own segment of
+    /// the set, gives every patch the same list as one chunk does.
+    /// </summary>
+    [Fact]
+    public async Task TheChunkSizeDoesNotChangeAnyList()
+    {
+        LightTestMap map = BounceBox.Map();
+        (VisMatrix one, TransferSet whole, RadWorld w) = await BuildAsync(map);
+        RadWorld world = BounceBox.Build(map);
+        VisMatrix small = new(world.BounceContext()) { ChunkRays = 64 };
+        using WorkQueue queue = new(new CompileParallelism { MaxDegree = 4 });
+        TransferSet split = await small.BuildAsync(map.Tracer(), queue, CancellationToken.None);
+
+        Assert.Equal(1, one.Statistics.Chunks);
+        Assert.True(small.Statistics.Chunks > 1);
+        Assert.Equal(whole.Total, split.Total);
+        Assert.Equal(whole.Max, split.Max);
+        Assert.Equal(whole.Arena.ToArray(), split.Arena.ToArray());
+        for (int p = 0; p < w.Patches.Count; p++)
+        {
+            Assert.Equal(whole.For(p).ToArray(), split.For(p).ToArray());
+        }
+    }
+
     /// <summary>"don't check patches on the same face".</summary>
     [Fact]
     public async Task NoPatchTakesLightFromItsOwnFace()
@@ -404,5 +429,64 @@ public sealed class VisMatrixBuildTests
         {
             w.Patches.At(p).Normal = tilt;
         }
+    }
+}
+
+/// <summary>The transfer lists, kept in the build's segments.</summary>
+public sealed class TransferSetTests
+{
+    private static TransferSet Two() => new(
+        [[new(5, 0.5f), new(6, 0.25f), new(7, 1.0f)], [new(1, 2.0f), new(2, 3.0f)]],
+        segmentOf: [0, 0, 1, 0, 1],
+        offsets: [0, 1, 0, 0, 1],
+        counts: [1, 2, 1, 0, 1],
+        max: 2);
+
+    /// <summary>A patch's list is its run in its own segment.</summary>
+    [Fact]
+    public void AListIsItsRunInItsSegment()
+    {
+        TransferSet t = Two();
+        Assert.Equal([new Transfer(5, 0.5f)], t.For(0).ToArray());
+        Assert.Equal([new Transfer(6, 0.25f), new Transfer(7, 1.0f)], t.For(1).ToArray());
+        Assert.Equal([new Transfer(1, 2.0f)], t.For(2).ToArray());
+        Assert.Equal([new Transfer(2, 3.0f)], t.For(4).ToArray());
+    }
+
+    /// <summary>A patch with no transfers reads empty, whatever its segment says.</summary>
+    [Fact]
+    public void AnEmptyListIsEmpty()
+    {
+        TransferSet t = Two();
+        Assert.True(t.For(3).IsEmpty);
+        Assert.Equal(0, t.CountFor(3));
+    }
+
+    /// <summary>The totals count every segment.</summary>
+    [Fact]
+    public void TheTotalsCoverEverySegment()
+    {
+        TransferSet t = Two();
+        Assert.Equal(5, t.Total);
+        Assert.Equal(2, t.Max);
+        Assert.Equal(5, t.PatchCount);
+    }
+
+    /// <summary>The arena is the segments joined in order.</summary>
+    [Fact]
+    public void TheArenaJoinsTheSegmentsInOrder()
+    {
+        TransferSet t = Two();
+        Assert.Equal([5, 6, 7, 1, 2], t.Arena.ToArray().Select(x => x.Patch));
+    }
+
+    /// <summary>A set with no segments is empty.</summary>
+    [Fact]
+    public void NoSegmentsIsEmpty()
+    {
+        TransferSet t = new([], [0, 0], [0, 0], [0, 0], 0);
+        Assert.Equal(0, t.Total);
+        Assert.True(t.Arena.IsEmpty);
+        Assert.True(t.For(1).IsEmpty);
     }
 }
