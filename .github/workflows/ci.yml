@@ -94,6 +94,24 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then v="$GITHUB_REF_NAME"; else v="${GITHUB_SHA::7}"; fi
           echo "VERSION=$v" >> "$GITHUB_ENV"
 
+      - name: Restore diagnostics
+        if: matrix.rid == 'linux-x64'
+        continue-on-error: true
+        run: |
+          set +e
+          m=src/SourceSharp.MapCompile
+          echo "::group::a no rid"; dotnet restore $m -tl:off; echo "exit $?"; echo "::endgroup::"
+          git clean -fdxq src
+          echo "::group::b rid, no aot"; dotnet restore $m -r linux-x64 -tl:off; echo "exit $?"; echo "::endgroup::"
+          git clean -fdxq src
+          echo "::group::c rid+aot, WarningsAsErrors cleared"; dotnet restore $m -r linux-x64 -p:PublishAot=true -p:WarningsAsErrors= -tl:off; echo "exit $?"; echo "::endgroup::"
+          git clean -fdxq src
+          echo "::group::d rid+aot, disable-parallel"; dotnet restore $m -r linux-x64 -p:PublishAot=true --disable-parallel -tl:off; echo "exit $?"; echo "::endgroup::"
+          git clean -fdxq src
+          echo "::group::e diag"; dotnet restore $m -r linux-x64 -p:PublishAot=true -v:diag -tl:off > diag.log 2>&1; echo "exit $?"
+          grep -nE "NU[0-9]{4}|[Ee]rror|[Ww]arning|WarningsAsErrors|TreatWarnings" diag.log | grep -v "Property reassignment" | head -150; echo "::endgroup::"
+          git clean -fdxq src
+
       - name: Restore
         run: |
           dotnet restore src/SourceSharp.MapCompile -r ${{ matrix.rid }} -p:PublishAot=true -v:n -tl:off
