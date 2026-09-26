@@ -55,11 +55,14 @@ command-line rule:
     -compliance stock                         # every reference behaviour
     -compliance correct,+EdgeBevelNormalise   # one quirk on the stock side
 
-`-listcompliance` prints the catalogue: each entry names the tool whose
-output moves, the behaviour, and the managed methods that decide it. A
-build-time fact checks the built assembly: every method listed as deciding
-a quirk must actually pass that quirk to the compliance check, so the
-ledger cannot drift from the code.
+`-listcompliance` prints the catalogue: each entry gives the quirk's name
+and a short title, the tools whose output moves, what the reference does,
+what the correct side does instead, and how the difference was observed
+(measured against stock output, demonstrated by facts, or read from the
+reference only). A build-time fact checks the built assembly: every method
+listed as deciding a quirk must actually pass that quirk to the compliance
+check, and every fact an entry cites must still exist, so the ledger cannot
+drift from the code.
 
 ## Tests
 

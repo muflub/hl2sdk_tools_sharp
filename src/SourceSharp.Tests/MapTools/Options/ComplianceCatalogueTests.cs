@@ -36,9 +36,114 @@ public class ComplianceCatalogueTests
         ComplianceQuirkInfo info = ComplianceCatalogue.Describe(quirk);
 
         Assert.Equal(quirk, info.Quirk);
-        Assert.False(string.IsNullOrWhiteSpace(info.Summary));
+        Assert.False(string.IsNullOrWhiteSpace(info.Title));
+        Assert.False(string.IsNullOrWhiteSpace(info.Stock));
+        Assert.False(string.IsNullOrWhiteSpace(info.Correct));
+        Assert.False(string.IsNullOrWhiteSpace(info.Observed));
         Assert.NotEqual(CompileTools.None, info.Tools);
         Assert.NotEmpty(info.ManagedSites);
+    }
+
+    [Theory]
+    [MemberData(nameof(Quirks))]
+    public void TheStockAndCorrectSentencesSayDifferentThings(StockQuirk quirk)
+    {
+        ComplianceQuirkInfo info = ComplianceCatalogue.Describe(quirk);
+
+        Assert.NotEqual(info.Stock, info.Correct, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void EveryTitleIsShortAndNamesOneQuirk()
+    {
+        // The title is what a person scans the listing by, so it must fit a
+        // line beside the quirk's name and must not be shared.
+        IReadOnlyList<ComplianceQuirkInfo> all = ComplianceCatalogue.All;
+
+        Assert.All(all, q => Assert.InRange(q.Title.Length, 1, 60));
+        Assert.Equal(all.Count, all.Select(q => q.Title).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Theory]
+    [MemberData(nameof(Quirks))]
+    public void AQuirkCitesFactsExactlyWhenItWasNotOnlyReadFromTheReference(StockQuirk quirk)
+    {
+        ComplianceQuirkInfo info = ComplianceCatalogue.Describe(quirk);
+
+        Assert.Equal(info.Observation == QuirkObservation.ReadFromReference, info.Facts.IsEmpty);
+    }
+
+    [Theory]
+    [MemberData(nameof(Quirks))]
+    public void EveryCitedFactExistsInThisAssembly(StockQuirk quirk)
+    {
+        foreach (string cited in ComplianceCatalogue.Describe(quirk).Facts)
+        {
+            string[] parts = cited.Split('.');
+            Assert.Equal(2, parts.Length);
+
+            Type[] owners = [.. typeof(ComplianceCatalogueTests).Assembly.GetTypes().Where(t => t.Name == parts[0])];
+            Type owner = Assert.Single(owners);
+
+            MethodInfo? method = owner.GetMethod(parts[1], BindingFlags.Public | BindingFlags.Instance);
+            Assert.True(method is not null, $"{cited} does not exist");
+            Assert.True(method.IsDefined(typeof(FactAttribute), inherit: true), $"{cited} is not a fact");
+        }
+    }
+
+    [Fact]
+    public void TheFactResolverRefusesAMadeUpName()
+    {
+        // Known-answer check for the resolver above, so it cannot pass by
+        // accepting everything.
+        Assert.Null(typeof(ComplianceCatalogueTests).GetMethod("NoSuchFact"));
+        Assert.True(
+            typeof(ComplianceCatalogueTests).GetMethod(nameof(EveryCitedFactExistsInThisAssembly))!
+                .IsDefined(typeof(FactAttribute), inherit: true));
+    }
+
+    public static TheoryData<QuirkObservation> Observations => [.. Enum.GetValues<QuirkObservation>()];
+
+    [Theory]
+    [MemberData(nameof(Observations))]
+    public void EveryObservationKindHasItsOwnLabel(QuirkObservation observation)
+    {
+        string label = ComplianceCatalogue.ObservationLabel(observation);
+
+        Assert.False(string.IsNullOrWhiteSpace(label));
+        Assert.Single(Enum.GetValues<QuirkObservation>(), o => ComplianceCatalogue.ObservationLabel(o) == label);
+    }
+
+    [Theory]
+    [MemberData(nameof(Quirks))]
+    public void TheListingPrintsEveryFieldOfTheQuirk(StockQuirk quirk)
+    {
+        ComplianceQuirkInfo q = ComplianceCatalogue.Describe(quirk);
+        string text = ComplianceCatalogue.Format(CompileTools.Vbsp);
+
+        Assert.Contains($"  {q.Quirk} [", text, StringComparison.Ordinal);
+        Assert.Contains($"]: {q.Title}\n", text, StringComparison.Ordinal);
+        Assert.Contains($"      Stock: {q.Stock}\n", text, StringComparison.Ordinal);
+        Assert.Contains($"      Correct: {q.Correct}\n", text, StringComparison.Ordinal);
+        Assert.Contains(
+            $"      {ComplianceCatalogue.ObservationLabel(q.Observation)}: {q.Observed}\n",
+            text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheListingPrintsAQuirksFieldsInOrderUnderItsName()
+    {
+        ComplianceQuirkInfo q = ComplianceCatalogue.Describe(StockQuirk.KdZeroDirectionReachCut);
+
+        Assert.Contains(
+            $"  KdZeroDirectionReachCut [vrad]: {q.Title}\n"
+            + $"      Stock: {q.Stock}\n"
+            + $"      Correct: {q.Correct}\n"
+            + $"      Measured against stock: {q.Observed}\n"
+            + $"      Note: {q.Note}\n",
+            ComplianceCatalogue.Format(CompileTools.Vrad),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -112,7 +217,9 @@ public class ComplianceCatalogueTests
         int total = Enum.GetValues<StockQuirk>().Length;
 
         Assert.StartsWith(
-            $"-compliance correct|stock (default correct). 0 of {total} stock quirks affect vvis:\n  (none)\n",
+            $"-compliance correct|stock[,+Quirk|-Quirk...] (default correct). 0 of {total} stock quirks affect vvis:\n"
+            + "+Quirk takes the Stock side for that quirk alone, -Quirk the Correct side.\n"
+            + "  (none)\n",
             ComplianceCatalogue.Format(CompileTools.Vvis),
             StringComparison.Ordinal);
     }
