@@ -175,7 +175,7 @@ public sealed class KdRayTracerStockParityTests : IClassFixture<KdParityFixture>
     /// has two nearly equal components, and every edge equation after it would
     /// differ.
     /// </remarks>
-    [Fact]
+    [ReferenceRsqrtFact]
     public void EveryTriangleConvertsExactlyAsStockDoes()
     {
         int normalDiff = 0;
@@ -275,7 +275,7 @@ public sealed class KdRayTracerStockParityTests : IClassFixture<KdParityFixture>
     }
 
     /// <summary>Every hit is at the same distance as stock's, bit for bit.</summary>
-    [Fact]
+    [ReferenceRsqrtFact]
     public void EveryHitDistanceMatchesStockBitForBit()
     {
         int differing = 0;

@@ -41,14 +41,14 @@ public sealed class PropLightsTests
         l.Type, l.Style, l.Origin, l.Intensity, l.Normal, l.StopDot, l.StopDot2, l.Exponent,
         l.ConstantAttn, l.LinearAttn, l.QuadraticAttn);
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public async Task TheBuiltAndReconstructedLdrListsMatch()
     {
         (IReadOnlyList<PropLight> built, IReadOnlyList<PropLight> reconstructed) = await BothAsync(hdr: false);
         Assert.Equal(reconstructed.Select(Key), built.Select(Key));
     }
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public async Task TheBuiltAndReconstructedHdrListsMatch()
     {
         (IReadOnlyList<PropLight> built, IReadOnlyList<PropLight> reconstructed) = await BothAsync(hdr: true);

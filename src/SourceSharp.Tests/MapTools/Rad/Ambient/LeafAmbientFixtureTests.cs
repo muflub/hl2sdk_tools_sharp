@@ -21,7 +21,7 @@ public sealed class LeafAmbientFixtureTests : IClassFixture<AmbientFixture>
     /// <param name="fixture">The loaded map.</param>
     public LeafAmbientFixtureTests(AmbientFixture fixture) => _fixture = fixture;
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public async Task TheLdrLightingLumpIsStocksByteForByte()
     {
         LeafAmbientResult r = await _fixture.BuildAsync(_fixture.Ldr, LeafAmbientOptions.StockParity);
@@ -41,7 +41,7 @@ public sealed class LeafAmbientFixtureTests : IClassFixture<AmbientFixture>
             MemoryMarshal.AsBytes<DLeafAmbientIndex>(r.Index).ToArray());
     }
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public async Task TheHdrLightingLumpIsStocksByteForByte()
     {
         LeafAmbientResult r = await _fixture.BuildAsync(_fixture.Hdr, LeafAmbientOptions.StockParity);

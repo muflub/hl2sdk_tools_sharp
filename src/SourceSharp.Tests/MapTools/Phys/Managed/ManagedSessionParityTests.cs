@@ -182,7 +182,7 @@ public class ManagedSessionParityTests
 
     public static TheoryData<Kind> Kinds => [Kind.BrushModel, Kind.Polysoup, Kind.VirtualMesh];
 
-    [Theory]
+    [ReferenceRsqrtTheory]
     [MemberData(nameof(Kinds))]
     public void StockIsByteExactAgainstTheEarlierReferenceBuild(Kind kind) => AssertExact(kind, stock: true);
 

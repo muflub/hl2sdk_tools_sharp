@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # The stock-parity facts that compare an rsqrtss-normalised result against
+      # a committed golden run only on the vendor the goldens came from, so the
+      # log says which one this runner is.
+      - name: CPU
+        run: lscpu | grep -E 'Vendor ID|Model name'
+
+      - name: Restore
+        run: dotnet restore src/SourceSharp.MapTools.slnx
+
+      - name: Build
+        run: dotnet build src/SourceSharp.MapTools.slnx -c Release --no-restore
+
+      - name: Test
+        run: >-
+          dotnet test src/SourceSharp.MapTools.slnx -c Release --no-build
+          --logger "trx;LogFileName=results.trx"
+          --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults

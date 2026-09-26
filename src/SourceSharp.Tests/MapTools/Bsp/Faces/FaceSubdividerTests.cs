@@ -48,7 +48,7 @@ public class FaceSubdividerTests
         Assert.NotSame(face, head);
     }
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public void TheBackPieceIsOneLuxelShortOfTheLimit()
     {
         FaceBuildContext context = FaceStageFixture.Create();
@@ -67,7 +67,7 @@ public class FaceSubdividerTests
         Assert.Equal(31f, maxs.X);
     }
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public void TheFrontPieceIsTheFarSideOfTheCut()
     {
         FaceBuildContext context = FaceStageFixture.Create();
@@ -85,7 +85,7 @@ public class FaceSubdividerTests
         Assert.Equal(48f, maxs.X);
     }
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public void AFaceOverTheLimitOnBothAxesIsSplitOnXFirst()
     {
         FaceBuildContext context = FaceStageFixture.Create();

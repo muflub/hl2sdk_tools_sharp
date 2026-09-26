@@ -174,7 +174,7 @@ public sealed class KdRayTracerBoxSceneTests : IClassFixture<KdBoxSceneFixture>
     }
 
     /// <summary>Every hit distance matches stock's, bit for bit.</summary>
-    [Fact]
+    [ReferenceRsqrtFact]
     public void EveryHitDistanceMatchesStockBitForBit()
     {
         int differing = 0;

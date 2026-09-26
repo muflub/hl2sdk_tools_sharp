@@ -12,7 +12,7 @@ public class ManagedCookerParityTests
 {
     public static TheoryData<string> Groups => [.. CookerFixture.Groups];
 
-    [Theory]
+    [ReferenceRsqrtTheory]
     [MemberData(nameof(Groups))]
     public void StockIsByteExactAgainstTheEarlierReferenceBuild(string group)
     {
