@@ -35,6 +35,17 @@ namespace SourceSharp.MapTools.Tracing;
 /// and the comparison against stock can be exact rather than approximate.
 /// </para>
 /// <para>
+/// The code is written against <see cref="Vector128"/> rather than
+/// <c>Sse</c>, so it runs on arm64 as well; on x86 the JIT emits the same SSE
+/// instructions. Adds, multiplies, divides, compares and bit operations are
+/// exact IEEE operations with the same result on either instruction set.
+/// <c>minps</c>, <c>maxps</c> and <c>andnps</c> have x86-specific rules and
+/// are spelled out in <see cref="SseLanes"/>. The one inexact instruction,
+/// the reciprocal estimate, comes from <see cref="FloatEstimate"/>, so traversal on arm64
+/// uses ARM's estimate and its hit distances are arm64's own, as they are
+/// already per vendor on x86.
+/// </para>
+/// <para>
 /// FOUR RAYS AT A TIME, INCLUDING THE AWKWARD CASE. A packet can only be
 /// traversed together if all four directions agree in sign on all three axes,
 /// because the front-to-back child order is chosen from the sign. Stock's
@@ -132,9 +143,10 @@ public sealed class KdRayTracer : IRayTracer
     /// <returns>The tracer.</returns>
     /// <exception cref="ArgumentException"><paramref name="triangles"/> is empty.</exception>
     /// <exception cref="PlatformNotSupportedException">
-    /// The machine has no SSE. Refused rather than emulated: the traversal
-    /// reproduces stock's SSE arithmetic exactly, and a scalar fallback would
-    /// silently stop being the reference implementation it is here to be.
+    /// The machine has neither SSE nor AdvSimd, so no reciprocal estimate.
+    /// Refused rather than emulated: the traversal reproduces stock's
+    /// estimate-based arithmetic, and an exact fallback would silently stop
+    /// being the reference implementation it is here to be.
     /// </exception>
     /// <remarks>
     /// Under <see cref="ComplianceOptions.Correct"/>, the library's default.
@@ -153,11 +165,11 @@ public sealed class KdRayTracer : IRayTracer
     /// </param>
     /// <returns>The tracer.</returns>
     /// <exception cref="ArgumentException"><paramref name="triangles"/> is empty.</exception>
-    /// <exception cref="PlatformNotSupportedException">The machine has no SSE.</exception>
+    /// <exception cref="PlatformNotSupportedException">The machine has neither SSE nor AdvSimd.</exception>
     public static KdRayTracer Build(ReadOnlySpan<TracedTriangle> triangles, ComplianceOptions compliance)
     {
         ArgumentNullException.ThrowIfNull(compliance);
-        RequireSse();
+        RequireEstimate();
         return new KdRayTracer(KdTreeBuilder.Build(triangles), ZeroSubstitute(compliance));
     }
 
@@ -172,7 +184,7 @@ public sealed class KdRayTracer : IRayTracer
     /// <param name="cancellationToken">Cancels the build.</param>
     /// <returns>The tracer.</returns>
     /// <exception cref="ArgumentException"><paramref name="triangles"/> is empty.</exception>
-    /// <exception cref="PlatformNotSupportedException">The machine has no SSE.</exception>
+    /// <exception cref="PlatformNotSupportedException">The machine has neither SSE nor AdvSimd.</exception>
     public static async Task<KdRayTracer> BuildAsync(
         ReadOnlyMemory<TracedTriangle> triangles,
         ComplianceOptions compliance,
@@ -181,7 +193,7 @@ public sealed class KdRayTracer : IRayTracer
     {
         ArgumentNullException.ThrowIfNull(compliance);
         ArgumentNullException.ThrowIfNull(queue);
-        RequireSse();
+        RequireEstimate();
         KdBuildResult built = await KdTreeBuilder.BuildAsync(triangles, queue, cancellationToken).ConfigureAwait(false);
         return new KdRayTracer(built, ZeroSubstitute(compliance));
     }
@@ -191,13 +203,11 @@ public sealed class KdRayTracer : IRayTracer
             ? StockZeroSubstitute
             : CorrectZeroSubstitute;
 
-    private static void RequireSse()
+    private static void RequireEstimate()
     {
-        if (!Sse.IsSupported)
+        if (!FloatEstimate.IsSupported)
         {
-            throw new PlatformNotSupportedException(
-                "KdRayTracer reproduces stock's fltx4 arithmetic operation for operation and "
-                + "has no meaning without SSE.");
+            throw FloatEstimate.Unsupported();
         }
     }
 
@@ -401,11 +411,11 @@ public sealed class KdRayTracer : IRayTracer
             // FourVectors::length: SqrtSIMD( x*x + y*y + z*z ).
             float len = MathF.Sqrt((d.X * d.X) + (d.Y * d.Y) + (d.Z * d.Z));
             float inv;
-            if (stockReciprocal && Sse.IsSupported)
+            if (stockReciprocal && FloatEstimate.IsSupported)
             {
                 Vector128<float> a = Vector128.Create(len);
-                Vector128<float> est = Sse.Reciprocal(a);
-                inv = Sse.Subtract(Sse.Add(est, est), Sse.Multiply(a, Sse.Multiply(est, est))).ToScalar();
+                Vector128<float> est = FloatEstimate.Reciprocal(a);
+                inv = Vector128.Subtract(Vector128.Add(est, est), Vector128.Multiply(a, Vector128.Multiply(est, est))).ToScalar();
             }
             else
             {
@@ -485,10 +495,10 @@ public sealed class KdRayTracer : IRayTracer
             // a transfer when HitDistance >= ray_length.
             // i is a multiple of four, so the packet's four bits never straddle
             // a word.
-            Vector128<float> blockedLanes = Sse.And(
-                Sse2.CompareGreaterThan(ids, Vector128.Create(-1)).AsSingle(),
-                Sse.CompareLessThan(distance, reach));
-            int bits = Sse.MoveMask(blockedLanes);
+            Vector128<float> blockedLanes = Vector128.BitwiseAnd(
+                Vector128.GreaterThan(ids, Vector128.Create(-1)).AsSingle(),
+                Vector128.LessThan(distance, reach));
+            int bits = SseLanes.MoveMask(blockedLanes);
             int live = rays.Length - i;
             if (live < 4)
             {
@@ -514,13 +524,13 @@ public sealed class KdRayTracer : IRayTracer
             // transposes turn them into lanes. The last load ends exactly at
             // the fourth ray's last float.
             ref float f = ref Unsafe.As<Ray, float>(ref MemoryMarshal.GetReference(rays.Slice(first, 4)));
-            Transpose(
+            SseLanes.Transpose(
                 Vector128.LoadUnsafe(ref f, 0),
                 Vector128.LoadUnsafe(ref f, 7),
                 Vector128.LoadUnsafe(ref f, 14),
                 Vector128.LoadUnsafe(ref f, 21),
                 out packet.Ox, out packet.Oy, out packet.Oz, out _);
-            Transpose(
+            SseLanes.Transpose(
                 Vector128.LoadUnsafe(ref f, 3),
                 Vector128.LoadUnsafe(ref f, 10),
                 Vector128.LoadUnsafe(ref f, 17),
@@ -549,22 +559,6 @@ public sealed class KdRayTracer : IRayTracer
         packet.Dy = dy.AsVector();
         packet.Dz = dz.AsVector();
         reach = m.AsVector();
-    }
-
-    /// <summary><c>_MM_TRANSPOSE4_PS</c>: rows in, columns out. Moves bits only.</summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void Transpose(
-        Vector128<float> r0, Vector128<float> r1, Vector128<float> r2, Vector128<float> r3,
-        out Vector128<float> c0, out Vector128<float> c1, out Vector128<float> c2, out Vector128<float> c3)
-    {
-        Vector128<float> t0 = Sse.UnpackLow(r0, r1);
-        Vector128<float> t1 = Sse.UnpackLow(r2, r3);
-        Vector128<float> t2 = Sse.UnpackHigh(r0, r1);
-        Vector128<float> t3 = Sse.UnpackHigh(r2, r3);
-        c0 = Sse.MoveLowToHigh(t0, t1);
-        c1 = Sse.MoveHighToLow(t1, t0);
-        c2 = Sse.MoveLowToHigh(t2, t3);
-        c3 = Sse.MoveHighToLow(t3, t2);
     }
 
     /// <summary>
@@ -597,9 +591,9 @@ public sealed class KdRayTracer : IRayTracer
         out Vector128<float> hitDistance,
         out Vector128<int> hitIds)
     {
-        int sx = Sse.MoveMask(rays.Dx);
-        int sy = Sse.MoveMask(rays.Dy);
-        int sz = Sse.MoveMask(rays.Dz);
+        int sx = SseLanes.MoveMask(rays.Dx);
+        int sy = SseLanes.MoveMask(rays.Dy);
+        int sz = SseLanes.MoveMask(rays.Dz);
         if (IsUniform(sx) && IsUniform(sy) && IsUniform(sz))
         {
             int mask = (sx & 1) | ((sy & 1) << 1) | ((sz & 1) << 2);
@@ -658,8 +652,8 @@ public sealed class KdRayTracer : IRayTracer
     /// <summary>All-ones in the lanes whose bit is set in <paramref name="bits"/>.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector128<float> LaneMask(int bits) =>
-        Sse2.CompareEqual(
-            Sse2.And(Vector128.Create(bits), Vector128.Create(1, 2, 4, 8)),
+        Vector128.Equals(
+            Vector128.BitwiseAnd(Vector128.Create(bits), Vector128.Create(1, 2, 4, 8)),
             Vector128.Create(1, 2, 4, 8)).AsSingle();
 
     /// <summary>
@@ -667,7 +661,7 @@ public sealed class KdRayTracer : IRayTracer
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector128<float> Select(Vector128<float> mask, Vector128<float> a, Vector128<float> b) =>
-        Sse.Or(Sse.And(a, mask), Sse.AndNot(mask, b));
+        Vector128.BitwiseOr(Vector128.BitwiseAnd(a, mask), SseLanes.AndNot(mask, b));
 
     /// <summary>
     /// <c>Trace4Rays</c> with a known direction sign mask,
@@ -724,7 +718,7 @@ public sealed class KdRayTracer : IRayTracer
         ClipAxis(_min.Y, _max.Y, rays.Oy, inverse.Y, ref tmin, ref tmax);
         ClipAxis(_min.Z, _max.Z, rays.Oz, inverse.Z, ref tmin, ref tmax);
 
-        if (Sse.MoveMask(Sse.CompareLessThanOrEqual(tmin, tmax)) == 0)
+        if (SseLanes.MoveMask(Vector128.LessThanOrEqual(tmin, tmax)) == 0)
         {
             hitDistance = distance;
             hitIds = ids.AsInt32();
@@ -758,29 +752,29 @@ public sealed class KdRayTracer : IRayTracer
                 int leftChild = n.Children >> 2;
                 int front = (directionSignMask >> axis) & 1;
 
-                Vector128<float> distToPlane = Sse.Multiply(
-                    Sse.Subtract(Vector128.Create(n.Split), Unsafe.Add(ref origin0, axis)),
+                Vector128<float> distToPlane = Vector128.Multiply(
+                    Vector128.Subtract(Vector128.Create(n.Split), Unsafe.Add(ref origin0, axis)),
                     Unsafe.Add(ref inverse0, axis));
 
-                Vector128<float> active = Sse.CompareLessThanOrEqual(tmin, tmax);
-                Vector128<float> hitsFront = Sse.And(
-                    active, Sse.CompareGreaterThanOrEqual(distToPlane, tmin));
+                Vector128<float> active = Vector128.LessThanOrEqual(tmin, tmax);
+                Vector128<float> hitsFront = Vector128.BitwiseAnd(
+                    active, Vector128.GreaterThanOrEqual(distToPlane, tmin));
 
-                if (Sse.MoveMask(hitsFront) == 0)
+                if (SseLanes.MoveMask(hitsFront) == 0)
                 {
                     node = leftChild + (1 - front);
-                    tmin = Sse.Max(tmin, distToPlane);
+                    tmin = SseLanes.Max(tmin, distToPlane);
                     n = Unsafe.Add(ref nodes0, node);
                     continue;
                 }
 
-                Vector128<float> hitsBack = Sse.And(
-                    active, Sse.CompareLessThanOrEqual(distToPlane, tmax));
+                Vector128<float> hitsBack = Vector128.BitwiseAnd(
+                    active, Vector128.LessThanOrEqual(distToPlane, tmax));
 
-                if (Sse.MoveMask(hitsBack) == 0)
+                if (SseLanes.MoveMask(hitsBack) == 0)
                 {
                     node = leftChild + front;
-                    tmax = Sse.Min(tmax, distToPlane);
+                    tmax = SseLanes.Min(tmax, distToPlane);
                     n = Unsafe.Add(ref nodes0, node);
                     continue;
                 }
@@ -792,11 +786,11 @@ public sealed class KdRayTracer : IRayTracer
 
                 ref NodeToVisit entry = ref Unsafe.Add(ref stack0, sp++);
                 entry.Node = leftChild + (1 - front);
-                entry.TMin = Sse.Max(tmin, distToPlane);
+                entry.TMin = SseLanes.Max(tmin, distToPlane);
                 entry.TMax = tmax;
 
                 node = leftChild + front;
-                tmax = Sse.Min(tmax, distToPlane);
+                tmax = SseLanes.Min(tmax, distToPlane);
                 n = Unsafe.Add(ref nodes0, node);
             }
 
@@ -860,7 +854,7 @@ public sealed class KdRayTracer : IRayTracer
 
                 // If every lane's best hit is already nearer
                 // than this node's far edge, nothing further along can win.
-                if (Sse.MoveMask(Sse.CompareLessThanOrEqual(tmax, distance)) == 0)
+                if (SseLanes.MoveMask(Vector128.LessThanOrEqual(tmax, distance)) == 0)
                 {
                     break;
                 }
@@ -910,22 +904,22 @@ public sealed class KdRayTracer : IRayTracer
         // two-sided epsilon rather than a comparison against zero, so a
         // grazing ray is rejected instead of producing an enormous t.
         Vector128<float> epsilons = Vector128.Create(1.0e-10f);
-        Vector128<float> didHit = Sse.Or(
-            Sse.CompareGreaterThan(ddotn, epsilons),
-            Sse.CompareLessThan(ddotn, Vector128.Create(-1.0e-10f)));
+        Vector128<float> didHit = Vector128.BitwiseOr(
+            Vector128.GreaterThan(ddotn, epsilons),
+            Vector128.LessThan(ddotn, Vector128.Create(-1.0e-10f)));
 
         Vector128<float> numerator =
-            Sse.Subtract(Vector128.Create(tri.D), Dot(origin.X, origin.Y, origin.Z, nx, ny, nz));
-        Vector128<float> isectT = Sse.Divide(numerator, ddotn);
+            Vector128.Subtract(Vector128.Create(tri.D), Dot(origin.X, origin.Y, origin.Z, nx, ny, nz));
+        Vector128<float> isectT = Vector128.Divide(numerator, ddotn);
 
         // Compares against FourZeros, which in stock is
         // declared as {1e-10, 1e-10, 1e-10, 1e-10} and NOT as zeros. That is
         // reproduced rather than corrected: it is the tracer's near clip, and
         // "FourZeros" being 1e-10 is a name, not a value.
-        didHit = Sse.And(didHit, Sse.CompareGreaterThan(isectT, epsilons));
-        didHit = Sse.And(didHit, Sse.CompareLessThan(isectT, hitDistance));
+        didHit = Vector128.BitwiseAnd(didHit, Vector128.GreaterThan(isectT, epsilons));
+        didHit = Vector128.BitwiseAnd(didHit, Vector128.LessThan(isectT, hitDistance));
 
-        if (Sse.MoveMask(didHit) == 0)
+        if (SseLanes.MoveMask(didHit) == 0)
         {
             return;
         }
@@ -936,35 +930,35 @@ public sealed class KdRayTracer : IRayTracer
         // FourVectors here for the same reason.
         int cs0 = tri.CoordSelect0;
         int cs1 = tri.CoordSelect1;
-        Vector128<float> hitc1 = Sse.Add(
-            Unsafe.Add(ref origin.X, cs0), Sse.Multiply(isectT, Unsafe.Add(ref direction.X, cs0)));
-        Vector128<float> hitc2 = Sse.Add(
-            Unsafe.Add(ref origin.X, cs1), Sse.Multiply(isectT, Unsafe.Add(ref direction.X, cs1)));
+        Vector128<float> hitc1 = Vector128.Add(
+            Unsafe.Add(ref origin.X, cs0), Vector128.Multiply(isectT, Unsafe.Add(ref direction.X, cs0)));
+        Vector128<float> hitc2 = Vector128.Add(
+            Unsafe.Add(ref origin.X, cs1), Vector128.Multiply(isectT, Unsafe.Add(ref direction.X, cs1)));
 
-        Vector128<float> b0 = Sse.Multiply(Vector128.Create(tri.E0), hitc1);
-        b0 = Sse.Add(b0, Sse.Multiply(Vector128.Create(tri.E1), hitc2));
-        b0 = Sse.Add(b0, Vector128.Create(tri.E2));
-        didHit = Sse.And(didHit, Sse.CompareGreaterThanOrEqual(b0, epsilons));
+        Vector128<float> b0 = Vector128.Multiply(Vector128.Create(tri.E0), hitc1);
+        b0 = Vector128.Add(b0, Vector128.Multiply(Vector128.Create(tri.E1), hitc2));
+        b0 = Vector128.Add(b0, Vector128.Create(tri.E2));
+        didHit = Vector128.BitwiseAnd(didHit, Vector128.GreaterThanOrEqual(b0, epsilons));
 
-        Vector128<float> b1 = Sse.Multiply(Vector128.Create(tri.E3), hitc1);
-        b1 = Sse.Add(b1, Sse.Multiply(Vector128.Create(tri.E4), hitc2));
-        b1 = Sse.Add(b1, Vector128.Create(tri.E5));
-        didHit = Sse.And(didHit, Sse.CompareGreaterThanOrEqual(b1, epsilons));
+        Vector128<float> b1 = Vector128.Multiply(Vector128.Create(tri.E3), hitc1);
+        b1 = Vector128.Add(b1, Vector128.Multiply(Vector128.Create(tri.E4), hitc2));
+        b1 = Vector128.Add(b1, Vector128.Create(tri.E5));
+        didHit = Vector128.BitwiseAnd(didHit, Vector128.GreaterThanOrEqual(b1, epsilons));
 
         // The third edge, without a third equation and without a divide: the
         // two stored equations are pre-scaled to read 1 at the opposite
         // vertex, so inside means their sum is at most 1.
-        Vector128<float> b2 = Sse.Add(b1, b0);
-        didHit = Sse.And(didHit, Sse.CompareLessThanOrEqual(b2, Vector128.Create(1.0f)));
+        Vector128<float> b2 = Vector128.Add(b1, b0);
+        didHit = Vector128.BitwiseAnd(didHit, Vector128.LessThanOrEqual(b2, Vector128.Create(1.0f)));
 
-        if (Sse.MoveMask(didHit) == 0)
+        if (SseLanes.MoveMask(didHit) == 0)
         {
             return;
         }
 
         Vector128<float> replicated = Vector128.Create(tnum).AsSingle();
-        hitIds = Sse.Or(Sse.And(replicated, didHit), Sse.AndNot(didHit, hitIds));
-        hitDistance = Sse.Or(Sse.And(isectT, didHit), Sse.AndNot(didHit, hitDistance));
+        hitIds = Vector128.BitwiseOr(Vector128.BitwiseAnd(replicated, didHit), SseLanes.AndNot(didHit, hitIds));
+        hitDistance = Vector128.BitwiseOr(Vector128.BitwiseAnd(isectT, didHit), SseLanes.AndNot(didHit, hitDistance));
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1072,7 +1066,7 @@ public sealed class KdRayTracer : IRayTracer
 
         Vector128<float> distanceA = Select(hitA, tA, hitDistance);
         Vector128<float> idsA = Select(hitA, Vector128.Create(anum).AsSingle(), hitIds);
-        hitB = Sse.And(hitB, Sse.CompareLessThan(tB, distanceA));
+        hitB = Vector128.BitwiseAnd(hitB, Vector128.LessThan(tB, distanceA));
         hitDistance = Select(hitB, tB, distanceA);
         hitIds = Select(hitB, Vector128.Create(bnum).AsSingle(), idsA);
     }
@@ -1086,9 +1080,9 @@ public sealed class KdRayTracer : IRayTracer
         Vector128<float> ax, Vector128<float> ay, Vector128<float> az,
         Vector128<float> bx, Vector128<float> by, Vector128<float> bz)
     {
-        Vector128<float> dot = Sse.Multiply(ax, bx);
-        dot = Sse.Add(Sse.Multiply(ay, by), dot);
-        return Sse.Add(Sse.Multiply(az, bz), dot);
+        Vector128<float> dot = Vector128.Multiply(ax, bx);
+        dot = Vector128.Add(Vector128.Multiply(ay, by), dot);
+        return Vector128.Add(Vector128.Multiply(az, bz), dot);
     }
 
     /// <summary>
@@ -1115,13 +1109,13 @@ public sealed class KdRayTracer : IRayTracer
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector128<float> ReciprocalSaturate(Vector128<float> a, Vector128<float> zeroSubstitute)
     {
-        Vector128<float> zeroMask = Sse.CompareEqual(a, Vector128<float>.Zero);
-        Vector128<float> safe = Sse.Or(a, Sse.And(zeroSubstitute, zeroMask));
-        Vector128<float> est = Sse.Reciprocal(safe);
+        Vector128<float> zeroMask = Vector128.Equals(a, Vector128<float>.Zero);
+        Vector128<float> safe = Vector128.BitwiseOr(a, Vector128.BitwiseAnd(zeroSubstitute, zeroMask));
+        Vector128<float> est = FloatEstimate.Reciprocal(safe);
 
         // y(n+1) = 2*y(n) - a*y(n)^2
-        return Sse.Subtract(
-            Sse.Add(est, est), Sse.Multiply(safe, Sse.Multiply(est, est)));
+        return Vector128.Subtract(
+            Vector128.Add(est, est), Vector128.Multiply(safe, Vector128.Multiply(est, est)));
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1133,10 +1127,10 @@ public sealed class KdRayTracer : IRayTracer
         ref Vector128<float> tmin,
         ref Vector128<float> tmax)
     {
-        Vector128<float> isectMin = Sse.Multiply(Sse.Subtract(Vector128.Create(min), origin), inv);
-        Vector128<float> isectMax = Sse.Multiply(Sse.Subtract(Vector128.Create(max), origin), inv);
-        tmin = Sse.Max(tmin, Sse.Min(isectMin, isectMax));
-        tmax = Sse.Min(tmax, Sse.Max(isectMin, isectMax));
+        Vector128<float> isectMin = Vector128.Multiply(Vector128.Subtract(Vector128.Create(min), origin), inv);
+        Vector128<float> isectMax = Vector128.Multiply(Vector128.Subtract(Vector128.Create(max), origin), inv);
+        tmin = SseLanes.Max(tmin, SseLanes.Min(isectMin, isectMax));
+        tmax = SseLanes.Min(tmax, SseLanes.Max(isectMin, isectMax));
     }
 
     /// <summary>A suspended subtree, with the ray span it was suspended at.</summary>

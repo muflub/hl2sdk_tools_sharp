@@ -7,8 +7,6 @@
 
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
 
 namespace SourceSharp.MapFormats.Geometry;
 
@@ -200,8 +198,8 @@ public readonly struct Vec3 : IEquatable<Vec3>
     /// <c>sqrlen * invlen</c> and only approximately the length.
     /// </returns>
     /// <exception cref="PlatformNotSupportedException">
-    /// The CPU has no SSE. See the remarks: this deliberately throws rather
-    /// than falling back.
+    /// The CPU has neither SSE nor AdvSimd. See the remarks: this deliberately
+    /// throws rather than falling back.
     /// </exception>
     /// <remarks>
     /// <para>
@@ -236,39 +234,40 @@ public readonly struct Vec3 : IEquatable<Vec3>
     /// something measured in this tree.)
     /// </para>
     /// <para>
-    /// It THROWS rather than falling back to the exact path when SSE is
-    /// missing. A silent fallback would mean a differential comparison quietly
+    /// On arm64 the estimate is ARM's (see <see cref="FloatEstimate"/>), so the
+    /// method reproduces stock's algorithm there but not stock's bits; its
+    /// results are the same on every arm64 CPU.
+    /// </para>
+    /// <para>
+    /// It THROWS rather than falling back to the exact path when neither
+    /// instruction set is present. A silent fallback would mean a differential comparison quietly
     /// stopped matching stock while still reporting success, which is the exact
     /// shape of check this project has been bitten by before.
     /// </para>
     /// </remarks>
     public (Vec3 Normalised, float Returned) NormaliseLikeStock()
     {
-        if (!Sse.IsSupported)
+        if (!FloatEstimate.IsSupported)
         {
-            throw new PlatformNotSupportedException(
-                "NormaliseLikeStock reproduces stock's rsqrtss estimate and has no meaning "
-                + "without SSE. It refuses rather than falling back to the exact path, because a "
-                + "differential against stock that silently stopped matching would still report "
-                + "success.");
+            throw FloatEstimate.Unsupported();
         }
 
         // The +1e-10f is the reference's guard against a zero length and
         // is part of the answer, not a detail: it shifts the estimate's input.
         float sqrlen = ((X * X) + (Y * Y) + (Z * Z)) + 1.0e-10f;
 
-        // The reference's inline rsqrt helper: rsqrtss then one
-        // Newton-Raphson refinement. Written with scalar intrinsics in the same
-        // order as the reference so the instruction sequence matches.
-        Vector128<float> xx = Vector128.CreateScalarUnsafe(sqrlen);
-        Vector128<float> xr = Sse.ReciprocalSqrtScalar(xx);
-        Vector128<float> xt = Sse.MultiplyScalar(xr, xr);
-        xt = Sse.MultiplyScalar(xt, xx);
-        xt = Sse.SubtractScalar(Vector128.CreateScalarUnsafe(3f), xt);
-        xt = Sse.MultiplyScalar(xt, Vector128.CreateScalarUnsafe(0.5f));
-        xr = Sse.MultiplyScalar(xr, xt);
+        // The reference's inline rsqrt helper: the estimate, then one
+        // Newton-Raphson refinement in the reference's operand order. Scalar
+        // float arithmetic here is the same IEEE single-precision operation
+        // as the SSE scalar instruction it replaces.
+        float xr = FloatEstimate.ReciprocalSqrt(sqrlen);
+        float xt = xr * xr;
+        xt *= sqrlen;
+        xt = 3f - xt;
+        xt *= 0.5f;
+        xr *= xt;
 
-        float invlen = xr.ToScalar();
+        float invlen = xr;
         return (new Vec3(X * invlen, Y * invlen, Z * invlen), sqrlen * invlen);
     }
 

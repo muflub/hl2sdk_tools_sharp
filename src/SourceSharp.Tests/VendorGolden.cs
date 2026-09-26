@@ -1,3 +1,10 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 using System.Globalization;
 using System.Text;
 
@@ -17,7 +24,7 @@ namespace SourceSharp.Tests;
 /// DELTA applied: the lines where this port's own output on that vendor differs
 /// from them, captured with <see cref="CaptureVariable"/> set. Those captures are
 /// SELF-CAPTURED regression values, not reference output. The reference-vendor
-/// run is what shows the port reproduces stock given an <c>rsqrtss</c>; a
+/// run is what shows the port reproduces stock given its estimate; a
 /// capture only pins what the port produces on the other vendor, so a later
 /// change to it is caught. Replacing a capture with the reference tools' own
 /// output on that vendor turns it into a parity check without touching a fact.
@@ -69,7 +76,7 @@ internal static class VendorGolden
 
         string dir = (vendor is null ? null : Directory(vendor))
             ?? throw new InvalidOperationException(
-                "no vendor capture directory: this CPU is not x86 or the test is not in a checkout");
+                "no vendor capture directory: this CPU is neither x86 nor arm64, or the test is not in a checkout");
         string path = Path.Combine(dir, key + ".txt");
 
         if (Capturing)

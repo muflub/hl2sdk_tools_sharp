@@ -7,8 +7,8 @@
 
 using System.Numerics;
 using System.Runtime.CompilerServices;
-using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
+
+using SourceSharp.MapFormats.Geometry;
 
 namespace SourceSharp.MapTools.Phys.Managed;
 
@@ -118,17 +118,17 @@ internal readonly struct StockPrecision : IIvpPrecision<float>
     /// </summary>
     /// <param name="s">The squared length.</param>
     /// <returns>The refined reciprocal square root.</returns>
-    /// <exception cref="PlatformNotSupportedException">No SSE: stock has no meaning without it.</exception>
+    /// <remarks>On arm64 the estimate is ARM's; see <see cref="FloatEstimate"/>.</remarks>
+    /// <exception cref="PlatformNotSupportedException">Neither SSE nor AdvSimd: stock has no meaning without an estimate.</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static float RsqrtNewton(float s)
     {
-        if (!Sse.IsSupported)
+        if (!FloatEstimate.IsSupported)
         {
-            throw new PlatformNotSupportedException(
-                "The stock-precision cooker reproduces the reference build's rsqrtss estimate and has no meaning without SSE.");
+            throw FloatEstimate.Unsupported();
         }
 
-        float r = Sse.ReciprocalSqrtScalar(Vector128.CreateScalarUnsafe(s)).ToScalar();
+        float r = FloatEstimate.ReciprocalSqrt(s);
         return (((s * r) * r) + -3.0f) * (r * -0.5f);
     }
 }

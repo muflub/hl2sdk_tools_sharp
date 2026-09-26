@@ -5,9 +5,6 @@
 //
 //=============================================================================//
 
-using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
-
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Options;
@@ -81,7 +78,7 @@ public sealed class PropLightSampler
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(compliance);
         _environment = environment;
-        _estimate = compliance.Emulates(StockQuirk.GatherReciprocalEstimate) && Sse.IsSupported;
+        _estimate = compliance.Emulates(StockQuirk.GatherReciprocalEstimate) && FloatEstimate.IsSupported;
         _sunAngularExtent = sunAngularExtent;
         _fast = fast;
     }
@@ -357,11 +354,8 @@ public sealed class PropLightSampler
             return 1.0f / MathF.Sqrt(a);
         }
 
-        Vector128<float> va = Vector128.CreateScalarUnsafe(a);
-        Vector128<float> g = Sse.ReciprocalSqrtScalar(va);
-
         // y(n+1) = 1/2 (y(n) * (3 - a * y(n)^2))
-        float guess = g.ToScalar();
+        float guess = FloatEstimate.ReciprocalSqrt(a);
         guess *= 3.0f - (a * (guess * guess));
         return 0.5f * guess;
     }
@@ -374,7 +368,7 @@ public sealed class PropLightSampler
             return 1.0f / a;
         }
 
-        float est = Sse.ReciprocalScalar(Vector128.CreateScalarUnsafe(a)).ToScalar();
+        float est = FloatEstimate.Reciprocal(a);
         return (est + est) - (a * (est * est));
     }
 
