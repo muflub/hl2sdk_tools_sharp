@@ -76,6 +76,23 @@ if [[ -z "$dotnet" ]]; then
   if [[ -x "$HOME/.dotnet/dotnet" ]]; then dotnet="$HOME/.dotnet/dotnet"; else dotnet="$(command -v dotnet)"; fi
 fi
 
+# --trace needs dotnet-trace, and vrad to profile: both checked before any run.
+tracer=""
+if [[ $trace -eq 1 ]]; then
+  tracer="$(command -v dotnet-trace || true)"
+  [[ -z "$tracer" && -x "$HOME/.dotnet/tools/dotnet-trace" ]] && tracer="$HOME/.dotnet/tools/dotnet-trace"
+  if [[ -z "$tracer" ]]; then
+    echo "compile-perf: --trace needs dotnet-trace, which is not installed. Install it with:" >&2
+    echo "  dotnet tool install -g dotnet-trace" >&2
+    echo "then make sure ~/.dotnet/tools is on PATH, or run again without --trace." >&2
+    exit 1
+  fi
+  if [[ ",$stages," != *",vrad,"* ]]; then
+    echo "compile-perf: --trace profiles vrad, so --stages must include vrad" >&2
+    exit 2
+  fi
+fi
+
 out="${out:-$repo/perf-results/$(date +%Y%m%d-%H%M%S)}"
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
@@ -164,19 +181,11 @@ for t in "${thread_list[@]}"; do
 done
 
 if [[ $trace -eq 1 ]]; then
-  tracer="$(command -v dotnet-trace || true)"
-  [[ -z "$tracer" && -x "$HOME/.dotnet/tools/dotnet-trace" ]] && tracer="$HOME/.dotnet/tools/dotnet-trace"
-  if [[ -z "$tracer" ]]; then
-    echo "compile-perf: --trace needs dotnet-trace: dotnet tool install -g dotnet-trace" >&2
-  elif [[ ! -f "$work/vis.bsp.keep" ]]; then
-    echo "compile-perf: --trace profiles vrad, so it needs the vrad stage" >&2
-  else
-    echo "profiling vrad, $last_t threads..."
-    cp "$work/vis.bsp.keep" "$wbsp"
-    "$tracer" collect --profile dotnet-sampled-thread-time --format speedscope -o "$out/profile.nettrace" \
-      -- "$dotnet" "$dll" vrad --bench -threads "$last_t" "${game_s[@]}" "${vrad_a[@]}" "$wbsp" \
-      >"$out/profile.log" 2>&1 || echo "compile-perf: profiling failed, see $out/profile.log" >&2
-  fi
+  echo "profiling vrad, $last_t threads..."
+  cp "$work/vis.bsp.keep" "$wbsp"
+  "$tracer" collect --profile dotnet-sampled-thread-time --format speedscope -o "$out/profile.nettrace" \
+    -- "$dotnet" "$dll" vrad --bench -threads "$last_t" "${game_s[@]}" "${vrad_a[@]}" "$wbsp" \
+    >"$out/profile.log" 2>&1 || echo "compile-perf: profiling failed, see $out/profile.log" >&2
 fi
 
 rm -rf "$work"
