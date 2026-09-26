@@ -6,18 +6,6 @@
     <IsPackable>false</IsPackable>
 
     <!--
-      Built from the repo, NOT deployed into the mod's bin directory.
-
-      Directory.Build.props points OutputPath at game/mod_sharp/bin/managed
-      because everything that existed before this was loaded by the game. The
-      map compilers are not: they are a build-time tool, the game never sees
-      them, and putting them in the mod's bin would ship a compiler with the
-      mod and make `mapdrift`-style staleness checks answer about files that
-      have nothing to do with what the game loads.
-    -->
-    <OutputPath>bin\</OutputPath>
-
-    <!--
       A deliberate, documented public surface.
 
       This assembly is a LIBRARY first and a dependency of the CLI second, so

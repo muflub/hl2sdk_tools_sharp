@@ -9,6 +9,15 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
 
     <!--
+      One output folder for the whole solution: <repo>/bin/Release or
+      <repo>/bin/Debug. ssmap, the optional Gpu and Cache.Sqlite backends and
+      the tests all land side by side, so ssmap finds the backends it loads by
+      name without staging them by hand. obj/ stays per project.
+    -->
+    <OutputPath>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', 'bin', '$(Configuration)'))</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+
+    <!--
       Two warnings promoted to errors, and only two.
 
       CS0108 and CS0114 are the member-hiding pair: a member that shadows one it

@@ -19,7 +19,7 @@ public class ManagedCookerParityTests
 {
     public static TheoryData<string> Groups => [.. CookerFixture.Groups];
 
-    [Theory]
+    [ReferenceRsqrtTheory]
     [MemberData(nameof(Groups))]
     public void StockIsByteExactAgainstTheEarlierReferenceBuild(string group)
     {
@@ -111,11 +111,24 @@ public class ManagedCookerParityTests
         Assert.Equal(jobs.Count, answers.Count);
         var context = CookerFixture.Context(mode);
         var failures = new List<int>();
-        for (int i = 0; i < jobs.Count; i++)
+
+        if (mode == CookMode.Stock)
         {
-            if (!CookerFixture.Matches(answers[i], CookerFixture.Cook(jobs[i], mode, context)))
+            // Stock mode normalises with rsqrtss, so its answers are per vendor.
+            string[] ours = [.. jobs.Select(job => CookerFixture.Line(CookerFixture.Cook(job, mode, context)))];
+            IReadOnlyList<string> expected = VendorGolden.Expected(
+                $"cooker.{group}.{build}", [.. answers.Select(CookerFixture.Line)], ours);
+            Assert.Equal(expected.Count, ours.Length);
+            failures.AddRange(Enumerable.Range(0, ours.Length).Where(i => ours[i] != expected[i]));
+        }
+        else
+        {
+            for (int i = 0; i < jobs.Count; i++)
             {
-                failures.Add(i);
+                if (!CookerFixture.Matches(answers[i], CookerFixture.Cook(jobs[i], mode, context)))
+                {
+                    failures.Add(i);
+                }
             }
         }
 

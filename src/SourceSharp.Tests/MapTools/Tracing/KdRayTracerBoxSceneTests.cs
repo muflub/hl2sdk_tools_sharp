@@ -181,25 +181,14 @@ public sealed class KdRayTracerBoxSceneTests : IClassFixture<KdBoxSceneFixture>
     }
 
     /// <summary>Every hit distance matches stock's, bit for bit.</summary>
-    [Fact]
+    [ReferenceRsqrtFact]
     public void EveryHitDistanceMatchesStockBitForBit()
     {
-        int differing = 0;
-        for (int i = 0; i < _fixture.Scene.RayCount; i++)
-        {
-            if (_fixture.Scene.StockHitId[i] < 0)
-            {
-                continue;
-            }
+        (string[] stock, string[] ours) = KdVendorLines.HitDistances(_fixture.Scene, _fixture.Ours);
+        IReadOnlyList<string> expected = VendorGolden.Expected("kd-boxes.distances", stock, ours);
 
-            if (BitConverter.SingleToInt32Bits(_fixture.Ours[i].Fraction)
-                != BitConverter.SingleToInt32Bits(_fixture.Scene.StockDistance[i]))
-            {
-                differing++;
-            }
-        }
-
-        Assert.Equal(0, differing);
+        Assert.Equal(expected.Count, ours.Length);
+        Assert.Empty(ours.Where((line, i) => line != expected[i]));
     }
 
     /// <summary>Most rays hit, so the comparison is not vacuous.</summary>

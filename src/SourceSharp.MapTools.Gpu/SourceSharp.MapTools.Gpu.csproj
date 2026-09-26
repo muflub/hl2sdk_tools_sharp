@@ -6,9 +6,6 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <IsPackable>false</IsPackable>
 
-    <!-- Optional backend: builds next to the managed mod binaries like every
-         other MapTools assembly, but nothing references THIS one from core. -->
-    <OutputPath>bin\</OutputPath>
 
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>

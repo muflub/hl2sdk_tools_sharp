@@ -371,12 +371,33 @@ internal sealed unsafe class VulkanDevice : IDisposable
         CreateDescriptorSet();
     }
 
+    /// <summary>
+    /// Whether <paramref name="e"/> is the loader itself being absent, as
+    /// <c>Vk.GetApi</c> reports it: Silk.NET throws
+    /// <see cref="FileNotFoundException"/> when none of the loader's library
+    /// names resolves (a machine with no Vulkan runtime, such as a stock
+    /// macOS), and the runtime can raise <see cref="DllNotFoundException"/>.
+    /// </summary>
+    /// <param name="e">The exception from opening the API.</param>
+    /// <returns>True when it means "no loader here".</returns>
+    public static bool IsMissingLoader(Exception e) => e is FileNotFoundException or DllNotFoundException;
+
     /// <summary>Enumerated device inventory for diagnostics (creates no device).</summary>
     /// <returns>One row per physical device, ray-query flag included.</returns>
     public static List<VulkanDeviceInfo> ProbeDevices()
     {
         List<VulkanDeviceInfo> rows = [];
-        Vk vk = Vk.GetApi();
+        Vk vk;
+        try
+        {
+            vk = Vk.GetApi();
+        }
+        catch (Exception e) when (IsMissingLoader(e))
+        {
+            rows.Add(new VulkanDeviceInfo(-1, "(no Vulkan loader)", "loader not found: " + e.Message, false));
+            return rows;
+        }
+
         byte* appName = (byte*)SilkMarshal.StringToPtr("maptools-gpu-probe");
         ApplicationInfo app = new()
         {
