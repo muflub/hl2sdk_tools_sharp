@@ -438,7 +438,7 @@ public static class AllCommand
     public static string CacheReport(bool noCache, TimeSpan elapsed, bool incremental = false) =>
         string.Create(
             CultureInfo.InvariantCulture,
-            $"cache  {(noCache ? "off (-nocache)" : incremental ? "incremental (see the cache: line)" : "none (this build has no compile cache)")}: nothing reused, nothing saved; total {elapsed.TotalSeconds:F1} s this run");
+            $"cache  {(noCache ? "off (-nocache): nothing reused" : incremental ? "incremental: the cache: line says what was reused" : "off (-incremental not given): nothing reused")}; total {elapsed.TotalSeconds:F1} s this run");
 
     /// <summary>
     /// Fills the request's two host-owned members: the <c>-incremental</c>
