@@ -1,3 +1,10 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 namespace SourceSharp.MapGen;
 
 /// <summary>A point in map space. Source's units are inches and its Z is up.</summary>

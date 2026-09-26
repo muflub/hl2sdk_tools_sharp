@@ -1,3 +1,10 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 // Ported from Qhull 2.6 (1999/04/19), Copyright (c) 1993-1999 The Geometry Center,
 // University of Minnesota; modified 2026-09 by the SourceSharp port (Claude, lane p8a)
 // to C# for a managed collision cooker; original source: http://www.qhull.org
