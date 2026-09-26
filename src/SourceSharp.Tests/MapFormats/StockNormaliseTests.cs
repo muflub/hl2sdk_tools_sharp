@@ -7,6 +7,7 @@
 
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.Intrinsics.X86;
 using System.Text;
 
 using SourceSharp.MapFormats.Geometry;
@@ -90,6 +91,11 @@ public class StockNormaliseTests
         // It is vendor-independent despite testing a vendor-dependent
         // instruction, because both sides execute that instruction on the SAME
         // CPU. Whatever this machine's rsqrtss produces, both get it.
+        //
+        // On arm64 there is no stock code to compile: the reference is SSE.
+        // There the C++ is the same algorithm over ARM's estimate, written with
+        // NEON intrinsics as FloatEstimate documents it, so the fact checks
+        // that the managed ARM path computes what native code computes.
         string directory = Path.Combine(Path.GetTempPath(), "ss-rsqrt-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
 
@@ -97,11 +103,11 @@ public class StockNormaliseTests
         {
             string source = Path.Combine(directory, "rsqrt-reference.cpp");
             string binary = Path.Combine(directory, "stock");
-            File.WriteAllText(source, CppSource);
+            File.WriteAllText(source, X86Base.IsSupported ? CppSource : ArmCppSource);
 
             Assert.True(
                 NativeCompiler.Compile(source, binary, out string compileError),
-                $"g++ could not build the reference: {compileError}");
+                $"the C++ compiler could not build the reference: {compileError}");
 
             Vec3[] vectors = SeededVectors(20_000);
 
@@ -222,6 +228,66 @@ public class StockNormaliseTests
             return 0;
         }
         """;
+
+    /// <summary>
+    /// The same <c>VectorNormalize</c> on arm64, over ARM's estimate as
+    /// <see cref="FloatEstimate"/> takes it: <c>frsqrte</c> refined once with
+    /// <c>frsqrts</c>, kept raw where it is zero or infinite, then stock's own
+    /// Newton step.
+    /// </summary>
+    private const string ArmCppSource = """
+        #include <arm_neon.h>
+        #include <cmath>
+        #include <cstdio>
+        #include <cstdint>
+        #include <cstring>
+
+        static inline float Estimate(float a)
+        {
+            float32x4_t x = vdupq_n_f32(a);
+            float32x4_t e = vrsqrteq_f32(x);
+            float32x4_t refined = vmulq_f32(e, vrsqrtsq_f32(vmulq_f32(x, e), e));
+            float raw = vgetq_lane_f32(e, 0);
+            return (raw == 0.0f || std::isinf(raw)) ? raw : vgetq_lane_f32(refined, 0);
+        }
+
+        static inline void RSqrtInline(float a, float *out)
+        {
+            float xr = Estimate(a);
+            float xt = xr * xr;
+            xt = xt * a;
+            xt = 3.f - xt;
+            xt = xt * 0.5f;
+            *out = xr * xt;
+        }
+
+        struct Vec { float x, y, z; };
+
+        static inline float VectorNormalize(Vec &vec)
+        {
+            float sqrlen = (vec.x * vec.x + vec.y * vec.y + vec.z * vec.z) + 1.0e-10f, invlen;
+            RSqrtInline(sqrlen, &invlen);
+            vec.x *= invlen;
+            vec.y *= invlen;
+            vec.z *= invlen;
+            return sqrlen * invlen;
+        }
+
+        static uint32_t bits(float f) { uint32_t u; std::memcpy(&u, &f, 4); return u; }
+        static float fromBits(uint32_t u) { float f; std::memcpy(&f, &u, 4); return f; }
+
+        int main()
+        {
+            uint32_t bx, by, bz;
+            while (std::scanf("%u %u %u", &bx, &by, &bz) == 3)
+            {
+                Vec v{fromBits(bx), fromBits(by), fromBits(bz)};
+                float ret = VectorNormalize(v);
+                std::printf("%u %u %u %u\n", bits(v.x), bits(v.y), bits(v.z), bits(ret));
+            }
+            return 0;
+        }
+        """;
 }
 
 /// <summary>
@@ -262,7 +328,14 @@ internal static class NativeCompiler
             RedirectStandardOutput = true,
         };
         start.ArgumentList.Add("-O2");
-        start.ArgumentList.Add("-msse");
+
+        // No fused multiply-adds: the references are written one rounding per
+        // operation, as the managed code is.
+        start.ArgumentList.Add("-ffp-contract=off");
+        if (X86Base.IsSupported)
+        {
+            start.ArgumentList.Add("-msse");
+        }
         start.ArgumentList.Add("-o");
         start.ArgumentList.Add(binary);
         start.ArgumentList.Add(source);

@@ -321,8 +321,18 @@ public sealed class KdRayTracerStockParityTests : IClassFixture<KdParityFixture>
         Ray[] rays = _fixture.Scene.Rays;
         HitId[] hits = new HitId[rays.Length];
 
-        _fixture.Tracer.TraceClosest(rays, hits, RayTraceOptions.StockExact);
-        _fixture.Tracer.TraceClosest(rays, hits, RayTraceOptions.StockExact);
+        // Warm up for a stretch of wall time, not a fixed count of calls. The
+        // tiered JIT installs optimised code only after a quiet spell, and on a
+        // busy CI runner two calls can end while the tracer is still unoptimised
+        // code, which runs about ten times slower (a hosted runner measured
+        // 0.034 Mray/s that way; this container measures 0.018 with tiering
+        // held back and 0.22 without).
+        long warmUp = Stopwatch.GetTimestamp();
+        do
+        {
+            _fixture.Tracer.TraceClosest(rays, hits, RayTraceOptions.StockExact);
+        }
+        while (Stopwatch.GetElapsedTime(warmUp).TotalSeconds < 1.0);
 
         double best = double.MaxValue;
         for (int rep = 0; rep < 9; rep++)

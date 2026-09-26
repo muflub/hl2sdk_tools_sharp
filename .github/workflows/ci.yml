@@ -77,7 +77,7 @@ jobs:
           path: TestResults
 
       - name: Upload captured vendor goldens
-        if: inputs.capture
+        if: always() && inputs.capture
         uses: actions/upload-artifact@v4
         with:
           name: rsqrt-vendor-${{ matrix.os }}

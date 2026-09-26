@@ -297,13 +297,14 @@ internal static class IvpLedgeSolver<T, TP>
 
             // Stock divides 0 by 0 here when a ledge has two coincident points (the double policy
             // de-duplicates in double, then rounds the survivors to float), and the NaN reaches
-            // rotation_inertia. A zero-length edge contributes nothing to the integral.
+            // rotation_inertia. A zero-length edge contributes nothing to the integral. The divides
+            // take x86's NaN so the stored bits match stock's on arm64 too.
             if (skipZeroLengthEdges && len == T.Zero)
             {
                 continue;
             }
 
-            double s = double.CreateTruncating(Axis(d, b) / Axis(d, a));
+            double s = double.CreateTruncating(X86Nan.Divide(Axis(d, b), Axis(d, a)));
             double q0a = Axis(q0, a);
             double ib = Axis(q0, b) - (q0a * s);
             double p, q, r;
@@ -316,7 +317,7 @@ internal static class IvpLedgeSolver<T, TP>
             }
             else
             {
-                double sc = double.CreateTruncating(Axis(d, c) / Axis(d, a));
+                double sc = double.CreateTruncating(X86Nan.Divide(Axis(d, c), Axis(d, a)));
                 double ic = Axis(q0, c) - (q0a * sc);
                 double u = e * ic;
                 p = (u + ib) * ic;
