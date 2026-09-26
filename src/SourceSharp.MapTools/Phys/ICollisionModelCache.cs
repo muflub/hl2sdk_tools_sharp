@@ -38,6 +38,9 @@ public sealed record CachedCollisionModel(
     int[]? WorldPropList,
     byte[]? PhysDisp)
 {
+    /// <summary>How long the cook took, in milliseconds (0 for a replay): the report's saved estimate on a later hit.</summary>
+    public long CostMs { get; init; }
+
     /// <summary>Total cooked bytes, for the report.</summary>
     public long Bytes => Text.LongLength + Solids.Sum(s => (long)s.Length);
 }

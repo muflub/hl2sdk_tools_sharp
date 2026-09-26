@@ -13,13 +13,21 @@ namespace SourceSharp.MapTools.Compile.Cache;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Key.</b> <c>vbsp.collision.model/&lt;index&gt;</c> under the shared
+/// <b>Key.</b> <c>vbsp.collision.model/world</c> or <c>/brush</c> under the shared
 /// <see cref="CacheKey"/> fold: the tool identity with the cooker inside
 /// (two builds of <c>vphysics.so</c> cook one shape differently), the semantic
 /// digest of everything THIS model's cook reads
 /// (<see cref="CollisionModelKey.OfModel"/>), the option digest (compliance,
 /// no-virtual-mesh, merge/shrink constants), and the host's opaque context
-/// tags. Never mtimes, never paths.
+/// tags. Never mtimes, never paths, and for a brush model no model or brush
+/// number: an identical brush entity hits wherever the BSP numbered it.
+/// </para>
+/// <para>
+/// <b>Brush numbers.</b> The cook stores each convex's absolute brush index
+/// as its game data. A brush model's row keeps the lowest brush number it
+/// was cooked at (the <c>base</c> blob); a replay moves the game data by the
+/// difference (<see cref="CollisionGameData.Rebase"/>) and checks every
+/// moved number lands in the model's current brush set, else misses.
 /// </para>
 /// <para>
 /// <b>Poisoning.</b> Every blob read back is re-hashed against its
@@ -92,7 +100,7 @@ public sealed class CollisionModelCache : ICollisionModelCache
             return null;
         }
 
-        CachedCollisionModel? model = await ReplayAsync(record, modelIndex, key, cancellationToken)
+        CachedCollisionModel? model = await ReplayAsync(record, input, modelIndex, key, cancellationToken)
             .ConfigureAwait(false);
         if (model is null)
         {
@@ -123,6 +131,23 @@ public sealed class CollisionModelCache : ICollisionModelCache
 
         CacheKey key = KeyOf(input, modelIndex);
         Dictionary<string, string> blobs = [];
+        if (modelIndex != 0)
+        {
+            // A brush row is replayable only if its brush numbers can be moved.
+            SortedSet<int> brushes = CollisionModelKey.BrushesOf(input, modelIndex);
+            if (!GameDataWithin(model.Solids, brushes))
+            {
+                _counters.SkipWrite();
+                return;
+            }
+
+            byte[] baseBytes = new byte[4];
+            BinaryPrimitivesWrite32(baseBytes, 0, brushes.Count > 0 ? brushes.Min : 0);
+            string baseKey = CacheKey.HashBytes(baseBytes);
+            await StageBlobAsync(baseKey, baseBytes, cancellationToken).ConfigureAwait(false);
+            blobs["base"] = baseKey;
+        }
+
         for (int i = 0; i < model.Solids.Count; i++)
         {
             string blobKey = CacheKey.HashBytes(model.Solids[i]);
@@ -176,7 +201,7 @@ public sealed class CollisionModelCache : ICollisionModelCache
                 key.Parts,
                 blobs,
                 [],
-                CostMs: 0,
+                CostMs: model.CostMs,
                 CreatedAtMs: _createdAtMs),
             cancellationToken).ConfigureAwait(false);
 
@@ -208,13 +233,13 @@ public sealed class CollisionModelCache : ICollisionModelCache
     /// <summary>Folds one model's key from everything its cook reads.</summary>
     internal CacheKey KeyOf(PhysCollisionInput input, int modelIndex) => new()
     {
-        Stage = StageName + "/" + modelIndex.ToString(CultureInfo.InvariantCulture),
+        Stage = StageName + (modelIndex == 0 ? "/world" : "/brush"),
         ToolId = ToolIdentity.Of(_cookerIdentity),
         SemanticDigest = CollisionModelKey.OfModel(input, modelIndex),
         OptionsDigest = OptionsDigest.Of(new CollisionCookingOptions(
             input.Compliance,
             input.NoVirtualMesh,
-            modelIndex,
+            modelIndex == 0,
             PhysCollisionEmitter.VPhysicsMerge,
             PhysCollisionEmitter.VPhysicsShrink,
             PhysCollisionEmitter.MaxMass)),
@@ -226,13 +251,14 @@ public sealed class CollisionModelCache : ICollisionModelCache
     internal readonly record struct CollisionCookingOptions(
         ComplianceOptions Compliance,
         bool NoVirtualMesh,
-        int ModelIndex,
+        bool World,
         float MergeDistance,
         float ShrinkDistance,
         float MaxMass);
 
     private async ValueTask<CachedCollisionModel?> ReplayAsync(
         CacheRecord record,
+        PhysCollisionInput input,
         int modelNumber,
         CacheKey key,
         CancellationToken cancellationToken = default)
@@ -326,6 +352,41 @@ public sealed class CollisionModelCache : ICollisionModelCache
             return null;
         }
 
+        if (!world)
+        {
+            // Move the brush numbers to where this BSP put the model.
+            if (!record.Blobs.TryGetValue("base", out string? baseKey))
+            {
+                return null;
+            }
+
+            byte[]? baseBytes = await ReadCheckedAsync(baseKey, cancellationToken).ConfigureAwait(false);
+            if (baseBytes is not { Length: 4 })
+            {
+                return null;
+            }
+
+            SortedSet<int> brushes = CollisionModelKey.BrushesOf(input, modelNumber);
+            int delta = (brushes.Count > 0 ? brushes.Min : 0) - BinaryPrimitivesRead32(baseBytes, 0);
+            if (delta != 0)
+            {
+                for (int i = 0; i < solids.Count; i++)
+                {
+                    if (CollisionGameData.Rebase(solids[i], delta) is not { } moved)
+                    {
+                        return null;
+                    }
+
+                    solids[i] = moved;
+                }
+            }
+
+            if (!GameDataWithin(solids, brushes))
+            {
+                return null;
+            }
+        }
+
         return new CachedCollisionModel(modelNumber, solids, text, water, props, disp);
     }
 
@@ -353,6 +414,28 @@ public sealed class CollisionModelCache : ICollisionModelCache
             await _store.PutBlobAsync(blobKey, data, _cookerIdentity, _createdAtMs, cancellationToken)
                 .ConfigureAwait(false);
         }
+    }
+
+    // Whether every convex's game data names one of the model's brushes.
+    private static bool GameDataWithin(IReadOnlyList<byte[]> solids, SortedSet<int> brushes)
+    {
+        foreach (byte[] solid in solids)
+        {
+            if (!CollisionGameData.TryRead(solid, out List<uint>? gameData))
+            {
+                return false;
+            }
+
+            foreach (uint brush in gameData!)
+            {
+                if (brush > int.MaxValue || !brushes.Contains((int)brush))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     private static bool SequenceEquals<T>(IReadOnlyList<T> left, IReadOnlyList<T> right)
