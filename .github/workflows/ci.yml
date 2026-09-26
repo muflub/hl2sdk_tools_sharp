@@ -94,10 +94,15 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then v="$GITHUB_REF_NAME"; else v="${GITHUB_SHA::7}"; fi
           echo "VERSION=$v" >> "$GITHUB_ENV"
 
+      - name: Restore
+        run: |
+          dotnet restore src/SourceSharp.MapCompile -r ${{ matrix.rid }} -p:PublishAot=true -v:n -tl:off
+          dotnet restore src/SourceSharp.MapTools.Gpu -r ${{ matrix.rid }} -v:n -tl:off
+
       - name: Publish native AOT
         run: >-
           dotnet publish src/SourceSharp.MapCompile -c Release -r ${{ matrix.rid }}
-          -p:PublishAot=true -o out/aot
+          -p:PublishAot=true --no-restore -o out/aot
 
       - name: Publish framework-dependent
         run: |
