@@ -106,7 +106,8 @@ internal sealed class VbspCompilation
 
         // ---- ProcessModels ----------------------------------------------
 
-        using WorkQueue queue = new(CompileParallelism.Serial);
+        // Serial, but on the compile's shared pool when it has one.
+        using WorkQueue queue = new(CompileParallelism.Serial with { Pool = _compile.Parallelism.Pool });
 
         Stage("vbsp.begin");
         await OnWorkerAsync(queue, BeginProcessModels, Vbsp.ModelsStage, cancellationToken).ConfigureAwait(false);
@@ -452,9 +453,14 @@ internal sealed class VbspCompilation
     private void FinishModel(int entityNumber, TreeNode head)
     {
         Stage(entityNumber == 0 ? "vbsp.world.prtfile" : "vbsp.submodels");
-        if (entityNumber == 0 && !_worldLeaked)
+        if (entityNumber == 0)
         {
-            WritePortalFile();
+            if (!_worldLeaked)
+            {
+                WritePortalFile();
+            }
+
+            _compile.PortalFileReady?.Invoke(_portals);
         }
 
         // EndModel

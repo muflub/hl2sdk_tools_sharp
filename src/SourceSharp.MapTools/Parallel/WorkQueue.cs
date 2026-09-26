@@ -41,12 +41,17 @@ namespace SourceSharp.MapTools.Parallel;
 /// honoured exactly.
 /// </para>
 /// <para>
+/// The threads are a <see cref="CompilePool"/>'s: the one
+/// <see cref="CompileParallelism.Pool"/> names, shared with every other queue
+/// of the compile, or else one this queue creates and owns.
+/// </para>
+/// <para>
 /// One run at a time per queue. A second overlapping run throws rather than
 /// interleaving, because two stages sharing per-worker scratch would corrupt
 /// it.
 /// </para>
 /// <para>
-/// <see cref="Dispose"/> stops and joins the threads it owns. A queue that is
+/// <see cref="Dispose"/> stops and joins the threads it owns (never a shared pool's). A queue that is
 /// never disposed keeps them parked for the life of the process.
 /// </para>
 /// </remarks>
@@ -55,26 +60,15 @@ public sealed class WorkQueue : IDisposable
     private readonly CompileParallelism _parallelism;
     private readonly int _degree;
     private readonly object _sync = new();
-    // ONE SIGNAL PER WORKER, not one counting semaphore released N times.
+    // The pool the runs go to: the host's (CompileParallelism.Pool), or one
+    // this queue creates on its first run and owns.
     //
-    // A single semaphore released `_degree` times hands out the right NUMBER of
-    // permits and says nothing about WHO takes them: a worker that finishes its
-    // share, loops round and waits again can take a second permit before a
-    // slower thread has taken its first. That was not theoretical -- the fact
-    // that every worker sees its own index caught indices [0,1,3,4,4], with
-    // worker 4 running twice and worker 2 not at all.
-    //
-    // Work items were still claimed exactly once (that is Interlocked on the
-    // claim counter, and independent of this), so nothing computed a wrong
-    // answer. What broke is the contract this type advertises: per-worker
-    // scratch arenas indexed by worker number. Two runs writing slot 4 and none
-    // writing slot 2 is exactly the shape that corrupts a stage which trusts
-    // the index to be a partition.
-    private readonly List<SemaphoreSlim> _workerSignals = [];
-    private readonly List<Thread> _threads = [];
+    // Worker indices are the pool's job slots, not threads: a slot is lent to
+    // one thread for one chunk and every slot's scratch is built exactly once,
+    // so the indices are a partition by construction.
+    private CompilePool? _ownPool;
 
     private volatile Job? _currentJob;
-    private volatile bool _shutdown;
     private volatile bool _disposed;
     private int _busy;
 
@@ -96,6 +90,11 @@ public sealed class WorkQueue : IDisposable
         ArgumentNullException.ThrowIfNull(parallelism);
         _parallelism = parallelism;
         _degree = Math.Max(1, parallelism.MaxDegree);
+        if (parallelism.Pool is { } pool)
+        {
+            // A shared pool caps every job at its own size.
+            _degree = Math.Min(_degree, pool.Degree);
+        }
     }
 
     /// <summary>How many workers a run uses.</summary>
@@ -124,16 +123,7 @@ public sealed class WorkQueue : IDisposable
         {
             lock (_sync)
             {
-                int live = 0;
-                foreach (Thread thread in _threads)
-                {
-                    if (thread.IsAlive)
-                    {
-                        live++;
-                    }
-                }
-
-                return live;
+                return _ownPool?.LiveThreadCount ?? 0;
             }
         }
     }
@@ -241,8 +231,7 @@ public sealed class WorkQueue : IDisposable
     /// </remarks>
     public void Dispose()
     {
-        Thread[] threads;
-        SemaphoreSlim[] signals;
+        CompilePool? own;
         lock (_sync)
         {
             if (_disposed)
@@ -251,28 +240,11 @@ public sealed class WorkQueue : IDisposable
             }
 
             _disposed = true;
-            _shutdown = true;
-            threads = [.. _threads];
-            signals = [.. _workerSignals];
+            own = _ownPool;
         }
 
-        // Every worker gets its OWN release so each parked loop wakes, sees the
-        // shutdown flag and returns. Outside the lock, because a woken worker
-        // reads _threads through LiveWorkerCount.
-        foreach (SemaphoreSlim signal in signals)
-        {
-            signal.Release();
-        }
-
-        foreach (Thread thread in threads)
-        {
-            thread.Join();
-        }
-
-        foreach (SemaphoreSlim signal in signals)
-        {
-            signal.Dispose();
-        }
+        // Only the pool this queue created: a host's pool outlives its queues.
+        own?.Dispose();
     }
 
     private Task<TResult[]> RunCoreAsync<TScratch, TResult>(
@@ -328,7 +300,6 @@ public sealed class WorkQueue : IDisposable
                 KeepResults = keepResults,
             };
 
-            job.Begin(_degree);
             Dispatch(job);
             return job.Completion.Task;
         }
@@ -343,9 +314,12 @@ public sealed class WorkQueue : IDisposable
     {
         job.Finished = () => Interlocked.Exchange(ref _busy, 0);
 
-        TaskScheduler? scheduler = _parallelism.Scheduler;
+        // A shared pool wins over a lent scheduler: the pool is the one that
+        // can interleave stages chunk by chunk.
+        TaskScheduler? scheduler = _parallelism.Pool is null ? _parallelism.Scheduler : null;
         if (scheduler is not null)
         {
+            job.Begin(_degree);
             // The host lends its scheduler, so one task per worker per run.
             // NOT a persistent loop: a scheduler with a concurrency limit below
             // the degree would never start the later loops, and the run would
@@ -364,93 +338,18 @@ public sealed class WorkQueue : IDisposable
             return;
         }
 
-        EnsureThreads();
+        CompilePool pool = _parallelism.Pool ?? OwnPool();
         _currentJob = job;
-        for (int i = 0; i < _degree; i++)
-        {
-            _workerSignals[i].Release();
-        }
+        job.BeginPooled(pool);
+        pool.Submit(job);
     }
 
-    private void EnsureThreads()
+    private CompilePool OwnPool()
     {
         lock (_sync)
         {
-            if (_threads.Count == _degree)
-            {
-                return;
-            }
-
-            int first = _threads.Count;
-
-            // TWO PHASES, AND THE ORDER IS THE WHOLE POINT.
-            //
-            // Every signal must exist before any worker can index the list,
-            // because WorkerLoop reads `_workerSignals[workerIndex]` WITHOUT
-            // taking `_sync` -- it cannot take it, since it then parks. The
-            // first version of this started each thread inside the same loop
-            // that was still `Add`ing, so a running worker could index the list
-            // while `List<T>.Add` reallocated its backing array underneath it.
-            //
-            // This is a real race and the fix is correct, but BE CLEAR ABOUT
-            // WHAT IT DID NOT FIX. `ssmap vvis` on `l3_arena_144_pillars` dies
-            // with `Internal CLR error (0x80131506)` in roughly one run in
-            // eight, and it still does after this change: 8/50 before, 6/50
-            // after, which at that rate is the same number. The List-growth
-            // race was diagnosed from reading the code, looked sufficient, and
-            // was not. The probe is what said so.
-            //
-            // Three further things the probe established, each of which
-            // narrows the search and none of which is the answer:
-            //   - it is NOT Server GC (workstation GC still fails 2/25);
-            //   - it is NOT the degree -- `ssmap vvis` REPORTS that `-threads`
-            //     is accepted and ignored, so every "thread count" probe ran at
-            //     the same default degree and the earlier t1/t4 "clean" results
-            //     compared nothing;
-            //   - it dies in SETUP, right after the portal counts print and
-            //     entering the first parallel stage, on a 352-cluster map, so
-            //     it is not a large allocation.
-            // It produces no output at all, so it can never produce a WRONG
-            // answer -- only no answer.
-            //
-            // After this, nothing mutates `_workerSignals` while a worker can
-            // read it: the list is complete before the first `Start()`, and
-            // EnsureThreads returns early on every later call.
-            for (int i = first; i < _degree; i++)
-            {
-                _workerSignals.Add(new SemaphoreSlim(0));
-            }
-
-            for (int i = first; i < _degree; i++)
-            {
-                int workerIndex = i;
-                var thread = new Thread(() => WorkerLoop(workerIndex))
-                {
-                    IsBackground = true,
-                    Name = $"ssmap-work-{workerIndex}",
-                };
-                _threads.Add(thread);
-                thread.Start();
-            }
-        }
-    }
-
-    private void WorkerLoop(int workerIndex)
-    {
-        while (true)
-        {
-            _workerSignals[workerIndex].Wait();
-
-            if (_shutdown)
-            {
-                return;
-            }
-
-            Job? job = _currentJob;
-            if (job is not null)
-            {
-                RunJob(job, workerIndex);
-            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return _ownPool ??= new CompilePool(_degree);
         }
     }
 
@@ -462,35 +361,8 @@ public sealed class WorkQueue : IDisposable
         try
         {
             scratch = job.CreateScratch(workerIndex);
-
-            while (!job.Token.IsCancellationRequested)
+            while (job.RunChunk(scratch, context))
             {
-                int chunk = job.NextChunkSize();
-                int start = Interlocked.Add(ref job.Claimed, chunk) - chunk;
-                if (start >= job.ItemCount)
-                {
-                    break;
-                }
-
-                int end = Math.Min(start + chunk, job.ItemCount);
-                for (int slot = start; slot < end; slot++)
-                {
-                    if (job.Token.IsCancellationRequested)
-                    {
-                        break;
-                    }
-
-                    job.Execute(job.Order[slot], scratch, context);
-
-                    // Reported here, holding nothing. This is the line stock
-                    // has inside its critical section.
-                    IProgress<CompileProgress>? progress = job.Progress;
-                    if (progress is not null)
-                    {
-                        long done = Interlocked.Increment(ref job.Done);
-                        progress.Report(new CompileProgress(job.Stage, done, job.ItemCount));
-                    }
-                }
             }
         }
         catch (OperationCanceledException)
@@ -548,12 +420,23 @@ public sealed class WorkQueue : IDisposable
         return [.. Enumerable.Range(0, itemCount).OrderByDescending(i => costs[i])];
     }
 
-    private abstract class Job
+    private abstract class Job : CompilePool.PoolJob
     {
         private readonly CancellationTokenSource _cts = new();
         private CancellationTokenRegistration _registration;
         private Exception? _error;
         private int _remaining;
+
+        // The pooled run's slots: worker indices 0..Degree-1, each lent to one
+        // thread for one chunk. Guarded by _slotLock.
+        private readonly object _slotLock = new();
+        private readonly Stack<int> _unbuilt = new();
+        private readonly Stack<int> _free = new();
+        private object?[] _scratch = [];
+        private WorkerContext?[] _contexts = [];
+        private int _inFlight;
+        private bool _finished;
+        private CompilePool? _pool;
 
         public int Claimed;
         public long Done;
@@ -578,10 +461,37 @@ public sealed class WorkQueue : IDisposable
 
         public CancellationToken Token => _cts.Token;
 
+        public override bool IsFinished => Volatile.Read(ref _finished);
+
+        // The scheduler path: one worker loop per index, counted down.
         public void Begin(int degree)
         {
             _remaining = degree;
             _registration = CallerToken.Register(static state => ((CancellationTokenSource)state!).Cancel(), _cts);
+        }
+
+        // The pool path: every slot starts unbuilt, highest popped last so the
+        // first thread in gets index 0.
+        public void BeginPooled(CompilePool pool)
+        {
+            _pool = pool;
+            _scratch = new object?[Degree];
+            _contexts = new WorkerContext?[Degree];
+            for (int slot = Degree - 1; slot >= 0; slot--)
+            {
+                _unbuilt.Push(slot);
+            }
+
+            // A cancel with no thread inside the job still has to finish it,
+            // so it wakes the pool.
+            _registration = CallerToken.Register(
+                static state =>
+                {
+                    Job job = (Job)state!;
+                    job._cts.Cancel();
+                    job._pool?.Signal();
+                },
+                this);
         }
 
         public int NextChunkSize()
@@ -618,7 +528,180 @@ public sealed class WorkQueue : IDisposable
                 return;
             }
 
+            Complete();
+        }
+
+        public override bool Step()
+        {
+            int slot;
+            bool build;
+            lock (_slotLock)
+            {
+                if (_finished)
+                {
+                    return false;
+                }
+
+                bool stopping = _cts.IsCancellationRequested;
+                bool exhausted = Volatile.Read(ref Claimed) >= ItemCount;
+                if (!stopping && _unbuilt.Count > 0)
+                {
+                    slot = _unbuilt.Pop();
+                    build = true;
+                }
+                else if (!stopping && !exhausted && _free.Count > 0)
+                {
+                    slot = _free.Pop();
+                    build = false;
+                }
+                else
+                {
+                    // Nothing to hand out. A job nobody is inside that has run
+                    // out (or been stopped) finishes here, on this thread.
+                    if (_inFlight == 0 && (stopping || (exhausted && _unbuilt.Count == 0)))
+                    {
+                        _finished = true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+
+                    slot = -1;
+                    build = false;
+                }
+
+                if (slot >= 0)
+                {
+                    _inFlight++;
+                }
+            }
+
+            if (slot < 0)
+            {
+                Complete();
+                return true;
+            }
+
+            try
+            {
+                if (build)
+                {
+                    _scratch[slot] = CreateScratch(slot);
+                    _contexts[slot] = new WorkerContext(slot, PollInterval, Token);
+                }
+
+                RunChunk(_scratch[slot], _contexts[slot]!);
+            }
+            catch (OperationCanceledException)
+            {
+                Stop();
+            }
+            catch (Exception ex)
+            {
+                Fail(ex);
+            }
+
+            bool finish;
+            lock (_slotLock)
+            {
+                _inFlight--;
+                _free.Push(slot);
+                bool stopping = _cts.IsCancellationRequested;
+                bool exhausted = Volatile.Read(ref Claimed) >= ItemCount;
+                finish = !_finished
+                    && _inFlight == 0
+                    && (stopping || (exhausted && _unbuilt.Count == 0));
+                if (finish)
+                {
+                    _finished = true;
+                }
+            }
+
+            if (finish)
+            {
+                Complete();
+            }
+            else
+            {
+                // A slot came free: a thread that found this job full may take it.
+                _pool?.Signal();
+            }
+
+            return true;
+        }
+
+        // One claim, with the per-item checks; false when nothing was claimed.
+        public bool RunChunk(object? scratch, WorkerContext context)
+        {
+            if (Token.IsCancellationRequested)
+            {
+                return false;
+            }
+
+            int chunk = NextChunkSize();
+            int start = Interlocked.Add(ref Claimed, chunk) - chunk;
+            if (start >= ItemCount)
+            {
+                return false;
+            }
+
+            int end = Math.Min(start + chunk, ItemCount);
+            for (int slot = start; slot < end; slot++)
+            {
+                if (Token.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                Execute(Order[slot], scratch, context);
+
+                // Reported here, holding nothing. This is the line stock
+                // has inside its critical section.
+                IProgress<CompileProgress>? progress = Progress;
+                if (progress is not null)
+                {
+                    long done = Interlocked.Increment(ref Done);
+                    progress.Report(new CompileProgress(Stage, done, ItemCount));
+                }
+            }
+
+            return true;
+        }
+
+        // The pool was disposed with this job still in it: its threads are
+        // gone, so the job ends here rather than leaving its caller waiting.
+        public override void Abandon()
+        {
+            lock (_slotLock)
+            {
+                if (_finished)
+                {
+                    return;
+                }
+
+                _finished = true;
+            }
+
+            Fail(new ObjectDisposedException(nameof(CompilePool)));
+            Complete();
+        }
+
+        private void Complete()
+        {
             _registration.Dispose();
+
+            // The pooled run's scratch, all of it, before the result: the
+            // scheduler path disposes each worker's as that worker ends.
+            foreach (object? scratch in _scratch)
+            {
+                if (scratch is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
+            }
+
+            _scratch = [];
             Exception? error = Volatile.Read(ref _error);
             Finished?.Invoke();
 

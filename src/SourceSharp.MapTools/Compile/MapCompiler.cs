@@ -16,7 +16,9 @@ using SourceSharp.MapTools.Bsp.Driver;
 using SourceSharp.MapTools.Bsp.Portals;
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Io;
+using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Rad;
+using SourceSharp.MapTools.Rad.Final;
 using SourceSharp.MapTools.Vis;
 
 namespace SourceSharp.MapTools.Compile;
@@ -41,7 +43,7 @@ public static class MapCompilerCodes
 /// <para>
 /// Each stage is the same public entry point a host can call on its own --
 /// <see cref="Bsp.Driver.Vbsp.CompileAsync(MapFile, VbspContext, CancellationToken)"/>,
-/// <see cref="Vis.Vvis.ComputeAsync"/>, <see cref="Rad.Vrad.LightAsync"/> -- so
+/// <see cref="Vis.Vvis.ComputeAsync"/>, <see cref="Rad.Vrad.LightAsync(BspData, Rad.VradContext, CancellationToken)"/> -- so
 /// this adds sequencing and nothing else, and a chain's output is by
 /// construction what the three stages give when run one after another.
 /// </para>
@@ -107,8 +109,30 @@ public static class MapCompiler
         IProgress<CompileProgress>? progress,
         CancellationToken cancellationToken)
     {
+        // One thread pool for every stage of the run, unless the host lent one.
+        if (request.Parallel.Pool is not null)
+        {
+            return await RunChainAsync(request, progress, cancellationToken).ConfigureAwait(false);
+        }
+
+        using CompilePool pool = new(request.Parallel.MaxDegree);
+        return await RunChainAsync(
+            request with { Parallel = request.Parallel with { Pool = pool } }, progress, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<CompileResult> RunChainAsync(
+        CompileRequest request,
+        IProgress<CompileProgress>? progress,
+        CancellationToken cancellationToken)
+    {
         string name = request.Source.Name;
         Chain chain = new(request);
+
+        // Cancels whatever runs ahead of the chain (the early vvis flow, the
+        // early vrad load) when the chain itself stops.
+        using CancellationTokenSource ahead = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        TaskCompletionSource<PortalFile?> portalsReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         VbspContext vbspContext = new(request.Vbsp, request.Content)
         {
@@ -119,6 +143,7 @@ public static class MapCompiler
             CollisionCooker = request.CollisionCooker,
             Parallelism = request.Parallel,
             CollisionModelCache = chain.CollisionCache,
+            PortalFileReady = request.Overlap ? portals => portalsReady.TrySetResult(portals) : null,
         };
 
         progress?.Report(new CompileProgress(ChainStage, 0, 3));
@@ -136,7 +161,41 @@ public static class MapCompiler
             await chain.DeleteAsync(output.PathFor(name, ".lin"), cancellationToken).ConfigureAwait(false);
         }
 
-        VbspResult vbsp = await Vbsp.CompileAsync(map, vbspContext, cancellationToken).ConfigureAwait(false);
+        VisContext visContext = new()
+        {
+            Options = request.Vvis,
+            Parallelism = request.Parallel,
+            Progress = progress,
+        };
+
+        // Overlap: vvis's flow starts the moment vbsp's world portal file is
+        // final. Its radius is read from the loaded map now, before vbsp can
+        // touch the entity list; Vvis.FinishAsync flows again if the finished
+        // map's entity lump disagrees, so the guess costs time, never bytes.
+        Task<EarlyFlow?>? flowTask = null;
+        if (request.Overlap && request.Vvis.Trace is null)
+        {
+            VisRadius guess = VisRadius.FromEntities(
+                [.. map.Entities.Select(static e => (e.ValueForKey("classname"), (string?)e.ValueForKey("farz")))],
+                request.Vvis);
+            flowTask = FlowWhenReadyAsync(portalsReady.Task, guess, visContext, ahead.Token);
+        }
+
+        VbspResult vbsp;
+        try
+        {
+            vbsp = await Vbsp.CompileAsync(map, vbspContext, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await AbandonAsync(ahead, portalsReady, flowTask).ConfigureAwait(false);
+            throw;
+        }
+
+        // vbsp is done: a world with no model or a -leaktest stop never
+        // signalled, so the result is the portal file's last word.
+        portalsReady.TrySetResult(vbsp.Portals);
+
         mark = chain.Time("vbsp", mark);
         chain.Report(vbsp.Diagnostics);
         progress?.Report(new CompileProgress(ChainStage, 1, 3));
@@ -150,6 +209,8 @@ public static class MapCompiler
 
         if (vbsp.Bsp is not { } bsp)
         {
+            await AbandonAsync(ahead, portalsReady, flowTask).ConfigureAwait(false);
+
             // A run that produced no BSP produced no products worth keeping:
             // the staged collision rows go back uncommitted.
             chain.CollisionCache?.DiscardPending();
@@ -174,42 +235,6 @@ public static class MapCompiler
             }
         }
 
-        VisResult? vis = null;
-        if (vbsp.Portals is { } portalFile)
-        {
-            byte[] prt = portalFile.ToBytes(PortalLineEnding.CrLf);
-            await chain.WriteAsync(output.PathFor(name, ".prt"), prt, cancellationToken).ConfigureAwait(false);
-
-            // The .prt's text is what vvis reads; see the remarks.
-            PortalFile read = await PortalFile.ParseAsync(prt, cancellationToken).ConfigureAwait(false);
-            chain.Line($"{read.ClusterCount,4} portalclusters");
-            chain.Line($"{read.Portals.Count,4} numportals");
-
-            VisContext visContext = new()
-            {
-                Options = request.Vvis,
-                Parallelism = request.Parallel,
-                Progress = progress,
-            };
-
-            vis = await Vvis.ComputeAsync(bsp, PortalSet.FromPortalFile(read), visContext, cancellationToken)
-                .ConfigureAwait(false);
-            mark = chain.Time("vvis", mark);
-            chain.Line($"visdatasize:{vis.VisDataSize}");
-        }
-        else
-        {
-            chain.Report(
-            [
-                new CompileDiagnostic(
-                    MapCompilerCodes.VisSkipped,
-                    DiagnosticSeverity.Warning,
-                    "no portal file (the map leaked or has no sealed interior): vvis skipped, vrad lights the map unvised"),
-            ]);
-        }
-
-        progress?.Report(new CompileProgress(ChainStage, 2, 3));
-
         VradContext radContext = new()
         {
             Options = request.Vrad,
@@ -221,7 +246,49 @@ public static class MapCompiler
             GpuTracerFactory = request.TracerFactory,
         };
 
-        RadResult rad = await Vrad.LightAsync(bsp, radContext, cancellationToken).ConfigureAwait(false);
+        VisResult? vis = null;
+        VradPreparation? prepared = null;
+        if (vbsp.Portals is { } portalFile)
+        {
+            byte[] prt = portalFile.ToBytes(PortalLineEnding.CrLf);
+            await chain.WriteAsync(output.PathFor(name, ".prt"), prt, cancellationToken).ConfigureAwait(false);
+
+            if (flowTask is null)
+            {
+                // The .prt's text is what vvis reads; see the remarks.
+                PortalFile read = await PortalFile.ParseAsync(prt, cancellationToken).ConfigureAwait(false);
+                chain.Line($"{read.ClusterCount,4} portalclusters");
+                chain.Line($"{read.Portals.Count,4} numportals");
+
+                vis = await Vvis.ComputeAsync(bsp, PortalSet.FromPortalFile(read), visContext, cancellationToken)
+                    .ConfigureAwait(false);
+                mark = chain.Time("vvis", mark);
+            }
+            else
+            {
+                (vis, prepared, mark) = await FinishOverlappedAsync(
+                    chain, bsp, flowTask, visContext, radContext, ahead, mark, cancellationToken).ConfigureAwait(false);
+            }
+
+            chain.Line($"visdatasize:{vis.VisDataSize}");
+        }
+        else
+        {
+            await AbandonAsync(ahead, portalsReady, flowTask).ConfigureAwait(false);
+            chain.Report(
+            [
+                new CompileDiagnostic(
+                    MapCompilerCodes.VisSkipped,
+                    DiagnosticSeverity.Warning,
+                    "no portal file (the map leaked or has no sealed interior): vvis skipped, vrad lights the map unvised"),
+            ]);
+        }
+
+        progress?.Report(new CompileProgress(ChainStage, 2, 3));
+
+        RadResult rad = prepared is null
+            ? await Vrad.LightAsync(bsp, radContext, cancellationToken).ConfigureAwait(false)
+            : await Vrad.LightAsync(bsp, prepared, radContext, cancellationToken).ConfigureAwait(false);
         mark = chain.Time("vrad", mark);
         foreach (RadPassResult pass in rad.Passes)
         {
@@ -272,6 +339,106 @@ public static class MapCompiler
         chain.Line(Cache.CacheRunReport.Render(chain.CacheCounters, cacheStats));
         await chain.FlushLogAsync(output.PathFor(name, ".log"), cancellationToken).ConfigureAwait(false);
         return chain.Result(name, vbsp, vis, rad);
+    }
+
+    /// <summary>The early flow's products: the portal text vvis read and the flowed portals.</summary>
+    private sealed record EarlyFlow(PortalFile Read, VisFlow Flow);
+
+    // Waits for vbsp's world portal file, then reads its text and flows it,
+    // while vbsp goes on with the rest of the map. Null when there is none.
+    private static async Task<EarlyFlow?> FlowWhenReadyAsync(
+        Task<PortalFile?> portalsReady,
+        VisRadius radius,
+        VisContext context,
+        CancellationToken cancellationToken)
+    {
+        PortalFile? portals = await portalsReady.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (portals is null)
+        {
+            return null;
+        }
+
+        // The .prt's text is what vvis reads, exactly as the serial chain.
+        PortalFile read = await PortalFile.ParseAsync(portals.ToBytes(PortalLineEnding.CrLf), cancellationToken)
+            .ConfigureAwait(false);
+        VisFlow flow = await Vvis.FlowAsync(PortalSet.FromPortalFile(read), radius, context, cancellationToken)
+            .ConfigureAwait(false);
+        return new EarlyFlow(read, flow);
+    }
+
+    // The overlapped vvis tail: vrad's load starts beside vvis's finish, and
+    // vvis's lumps go into the map only once that load (which reads the map)
+    // is done. The vvis timing ends with vvis, not with the load.
+    private static async Task<(VisResult Vis, VradPreparation? Prepared, long Mark)> FinishOverlappedAsync(
+        Chain chain,
+        BspData bsp,
+        Task<EarlyFlow?> flowTask,
+        VisContext visContext,
+        VradContext radContext,
+        CancellationTokenSource ahead,
+        long mark,
+        CancellationToken cancellationToken)
+    {
+        // A -luxeldensity below one edits the map in the load: that one waits.
+        Task<VradPreparation>? prepareTask =
+            LuxelDensity.Effective(radContext.Options.LuxelDensity) >= 1.0f
+                ? Vrad.PrepareAsync(bsp, radContext, ahead.Token)
+                : null;
+
+        VisResult vis;
+        VisLumps lumps;
+        try
+        {
+            EarlyFlow early = await flowTask.ConfigureAwait(false)
+                ?? throw new InvalidOperationException("vbsp returned a portal file it never signalled");
+            chain.Line($"{early.Read.ClusterCount,4} portalclusters");
+            chain.Line($"{early.Read.Portals.Count,4} numportals");
+
+            (vis, lumps) = await Vvis.FinishCoreAsync(bsp, early.Flow, visContext, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            await ahead.CancelAsync().ConfigureAwait(false);
+            await ObserveAsync(prepareTask).ConfigureAwait(false);
+            throw;
+        }
+
+        mark = chain.Time("vvis", mark);
+
+        VradPreparation? prepared = prepareTask is null
+            ? null
+            : await prepareTask.ConfigureAwait(false);
+        lumps.WriteTo(bsp);
+        return (vis, prepared, mark);
+    }
+
+    // Stops whatever ran ahead and waits for it, so no work outlives the chain.
+    private static async Task AbandonAsync(
+        CancellationTokenSource ahead,
+        TaskCompletionSource<PortalFile?> portalsReady,
+        Task<EarlyFlow?>? flowTask)
+    {
+        await ahead.CancelAsync().ConfigureAwait(false);
+        portalsReady.TrySetResult(null);
+        await ObserveAsync(flowTask).ConfigureAwait(false);
+    }
+
+    private static async Task ObserveAsync(Task? task)
+    {
+        if (task is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch
+        {
+            // The chain is already failing, or never needed this branch's answer.
+        }
     }
 
     /// <summary>

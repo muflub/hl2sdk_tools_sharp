@@ -311,4 +311,16 @@ public sealed class ComplianceVerbCliTests
         Assert.Equal(ComplianceOptions.Correct, parsed.Vvis.Compliance);
         Assert.Equal(ComplianceOptions.Correct, parsed.Vrad.Compliance);
     }
+
+    [Theory]
+    [InlineData(new[] { "x.vmf" }, false)]
+    [InlineData(new[] { "-overlap", "x.vmf" }, true)]
+    [InlineData(new[] { "-OVERLAP", "x.vmf" }, true)]
+    public void OverlapIsAnAllSwitchOffByDefault(string[] args, bool overlap)
+    {
+        AllArgs parsed = AllCommand.Parse(args);
+
+        Assert.False(parsed.HasErrors);
+        Assert.Equal(overlap, parsed.Overlap);
+    }
 }

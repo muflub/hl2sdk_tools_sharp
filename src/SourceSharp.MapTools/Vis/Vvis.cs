@@ -6,7 +6,6 @@
 //=============================================================================//
 
 using System.Buffers.Binary;
-using System.Globalization;
 
 using SourceSharp.MapFormats;
 using SourceSharp.MapFormats.Bsp;
@@ -119,15 +118,117 @@ public static class Vvis
         return RunAsync(bsp, portals, context, cancellationToken);
     }
 
+    /// <summary>
+    /// The expensive half of <see cref="ComputeAsync"/> on its own: the base
+    /// flood and the portal flow, which need only the portals and the fog radius,
+    /// not the map.
+    /// </summary>
+    /// <param name="portals">The memory portals from the map's <c>.prt</c>.</param>
+    /// <param name="radius">
+    /// The <c>env_fog_controller</c> radius the flow culls with. A chain that
+    /// starts the flow before the map is assembled passes its best reading of the
+    /// map's entities; <see cref="FinishAsync"/> checks it against the map and
+    /// flows again if it was wrong, so a wrong guess costs time, never bytes.
+    /// </param>
+    /// <param name="context">What was asked for, and how much machine to use.</param>
+    /// <param name="cancellationToken">Cancels the compile.</param>
+    /// <returns>The flowed portals, for <see cref="FinishAsync"/>.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentException">The options ask for a <c>-trace</c>, which only <see cref="ComputeAsync"/> runs.</exception>
+    /// <exception cref="OperationCanceledException">The compile was cancelled.</exception>
+    public static Task<VisFlow> FlowAsync(
+        PortalSet portals,
+        VisRadius radius,
+        VisContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(portals);
+        ArgumentNullException.ThrowIfNull(context);
+        if (context.Options.Trace is not null)
+        {
+            throw new ArgumentException("-trace runs through ComputeAsync, not the split flow", nameof(context));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return FlowCoreAsync(portals, radius, context, cancellationToken);
+    }
+
+    /// <summary>
+    /// The rest of <see cref="ComputeAsync"/> once the map exists: the leaf
+    /// flags, the cluster rows, the PAS, the lump and the water passes.
+    /// </summary>
+    /// <param name="bsp">
+    /// The map, as vbsp left it. Its LUMP_VISIBILITY, LUMP_LEAFS and
+    /// LUMP_LEAFMINDISTTOWATER are replaced.
+    /// </param>
+    /// <param name="flow">What <see cref="FlowAsync"/> made of the map's portals.</param>
+    /// <param name="context">The same context the flow ran with.</param>
+    /// <param name="cancellationToken">Cancels the compile.</param>
+    /// <returns>Exactly what <see cref="ComputeAsync"/> returns for the same map and portals.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidBspException">As <see cref="ComputeAsync"/>.</exception>
+    /// <exception cref="OperationCanceledException">The compile was cancelled.</exception>
+    public static async Task<VisResult> FinishAsync(
+        BspData bsp,
+        VisFlow flow,
+        VisContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(bsp);
+        ArgumentNullException.ThrowIfNull(flow);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        (VisResult result, VisLumps lumps) = await FinishCoreAsync(bsp, flow, context, cancellationToken)
+            .ConfigureAwait(false);
+        lumps.WriteTo(bsp);
+        return result;
+    }
+
+    /// <summary>
+    /// <see cref="FinishAsync"/> without the write: the lumps come back for the
+    /// caller to commit when nothing else is reading the map.
+    /// </summary>
+    internal static async Task<(VisResult Result, VisLumps Lumps)> FinishCoreAsync(
+        BspData bsp,
+        VisFlow flow,
+        VisContext context,
+        CancellationToken cancellationToken)
+    {
+        using WorkQueue queue = new(context.Parallelism);
+
+        VisLeaves leaves = null!;
+        VisRadius radius = default;
+        Begin(context, BaseStage, flow.PortalCount);
+        await queue.RunAsync(
+            1,
+            (_, _) =>
+            {
+                CheckNotEmpty(bsp);
+                leaves = VisLeaves.From(bsp);
+                radius = DetermineRadius(bsp, context);
+                MarkRadial(leaves, radius);
+            },
+            new WorkQueueOptions { Stage = BaseStage, Progress = context.Progress },
+            cancellationToken).ConfigureAwait(false);
+
+        if (radius != flow.Radius)
+        {
+            // The guess the flow started from was not the map's radius: flow
+            // again with the right one, so the answer is ComputeAsync's.
+            flow = await FlowCoreAsync(flow.Portals, radius, context, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await TailAsync(queue, bsp, leaves, flow, context, cancellationToken).ConfigureAwait(false);
+    }
+
     private static async Task<VisResult> RunAsync(
         BspData bsp,
         PortalSet portals,
         VisContext context,
         CancellationToken cancellationToken)
     {
-        int clusters = portals.ClusterCount;
         int portalCount = portals.Count;
-        int rowBytes = (clusters + 7) >> 3;
 
         using WorkQueue queue = new(context.Parallelism);
 
@@ -140,38 +241,95 @@ public static class Vvis
         // thread should be doing.
         VisLeaves leaves = null!;
         VisPortalState state = null!;
-        bool useRadius = false;
-        double radiusSquared = 0.0;
+        VisRadius radius = default;
 
         Begin(context, BaseStage, portalCount);
         await queue.RunAsync(
             1,
             (_, _) =>
             {
-                // -- the emptiness check is on nodes and faces,
-                // before anything else is read.
-                if (bsp[BspLump.Nodes].IsEmpty || bsp[BspLump.Faces].IsEmpty)
-                {
-                    throw new InvalidBspException("Empty map");
-                }
-
+                CheckNotEmpty(bsp);
                 leaves = VisLeaves.From(bsp);
-                (useRadius, radiusSquared) = DetermineRadius(bsp, context);
-
-                if (useRadius)
-                {
-                    // MarkLeavesAsRadial. Every leaf, not just the
-                    // ones the radius actually culled.
-                    for (int leaf = 0; leaf < leaves.Count; leaf++)
-                    {
-                        leaves.AddFlags(leaf, LeafFlags.Radial);
-                    }
-                }
-
+                radius = DetermineRadius(bsp, context);
+                MarkRadial(leaves, radius);
                 state = new VisPortalState(portalCount);
             },
             new WorkQueueOptions { Stage = BaseStage, Progress = context.Progress },
             cancellationToken).ConfigureAwait(false);
+
+        long baseRays = await BaseFlowAsync(queue, portals, state, radius, context, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (context.Options.Trace is (int start, int stop))
+        {
+            return await TraceAsync(
+                queue, portals, state, context, portals.ClusterCount, portalCount, (portals.ClusterCount + 7) >> 3,
+                start, stop, radius.Use, radius.Squared, baseRays, cancellationToken).ConfigureAwait(false);
+        }
+
+        VisFlow flow = await PortalFlowAsync(queue, portals, state, radius, baseRays, context, cancellationToken)
+            .ConfigureAwait(false);
+        (VisResult result, VisLumps lumps) = await TailAsync(queue, bsp, leaves, flow, context, cancellationToken)
+            .ConfigureAwait(false);
+        lumps.WriteTo(bsp);
+        return result;
+    }
+
+    private static async Task<VisFlow> FlowCoreAsync(
+        PortalSet portals,
+        VisRadius radius,
+        VisContext context,
+        CancellationToken cancellationToken)
+    {
+        int portalCount = portals.Count;
+        using WorkQueue queue = new(context.Parallelism);
+
+        VisPortalState state = null!;
+        Begin(context, BaseStage, portalCount);
+        await queue.RunAsync(
+            1,
+            (_, _) => state = new VisPortalState(portalCount),
+            new WorkQueueOptions { Stage = BaseStage, Progress = context.Progress },
+            cancellationToken).ConfigureAwait(false);
+
+        long baseRays = await BaseFlowAsync(queue, portals, state, radius, context, cancellationToken)
+            .ConfigureAwait(false);
+        return await PortalFlowAsync(queue, portals, state, radius, baseRays, context, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    // -- the emptiness check is on nodes and faces, before anything else is read.
+    private static void CheckNotEmpty(BspData bsp)
+    {
+        if (bsp[BspLump.Nodes].IsEmpty || bsp[BspLump.Faces].IsEmpty)
+        {
+            throw new InvalidBspException("Empty map");
+        }
+    }
+
+    // MarkLeavesAsRadial. Every leaf, not just the ones the radius actually culled.
+    private static void MarkRadial(VisLeaves leaves, VisRadius radius)
+    {
+        if (!radius.Use)
+        {
+            return;
+        }
+
+        for (int leaf = 0; leaf < leaves.Count; leaf++)
+        {
+            leaves.AddFlags(leaf, LeafFlags.Radial);
+        }
+    }
+
+    private static async Task<long> BaseFlowAsync(
+        WorkQueue queue,
+        PortalSet portals,
+        VisPortalState state,
+        VisRadius radius,
+        VisContext context,
+        CancellationToken cancellationToken)
+    {
+        int portalCount = portals.Count;
 
         // One VisBaseFlow for every worker: it holds no per-item state, and its
         // only scratch is the flood stack, which IS per worker and is the
@@ -189,7 +347,7 @@ public static class Vvis
             },
             workerIndex =>
             {
-                VisBaseFlow flow = new(portals, state, useRadius, radiusSquared);
+                VisBaseFlow flow = new(portals, state, radius.Use, radius.Squared);
                 baseFlows[workerIndex] = flow;
                 return new VisFloodScratch(portalCount);
             },
@@ -205,13 +363,19 @@ public static class Vvis
             }
         }
 
-        if (context.Options.Trace is (int start, int stop))
-        {
-            return await TraceAsync(
-                queue, portals, state, context, clusters, portalCount, rowBytes, start, stop,
-                useRadius, radiusSquared, baseRays, cancellationToken).ConfigureAwait(false);
-        }
+        return baseRays;
+    }
 
+    private static async Task<VisFlow> PortalFlowAsync(
+        WorkQueue queue,
+        PortalSet portals,
+        VisPortalState state,
+        VisRadius radius,
+        long baseRays,
+        VisContext context,
+        CancellationToken cancellationToken)
+    {
+        int portalCount = portals.Count;
         int[] sorted = SortPortals(state, portalCount, context.Options.NoSort);
 
         Begin(context, FlowStage, portalCount);
@@ -291,6 +455,22 @@ public static class Vvis
             }
         }
 
+        return new VisFlow(portals, state, radius, deepest, work);
+    }
+
+    private static async Task<(VisResult Result, VisLumps Lumps)> TailAsync(
+        WorkQueue queue,
+        BspData bsp,
+        VisLeaves leaves,
+        VisFlow flow,
+        VisContext context,
+        CancellationToken cancellationToken)
+    {
+        PortalSet portals = flow.Portals;
+        VisPortalState state = flow.State;
+        int clusters = portals.ClusterCount;
+        int rowBytes = (clusters + 7) >> 3;
+
         byte[] pvs = new byte[clusters * rowBytes];
         byte[] pas = new byte[clusters * rowBytes];
         ushort[] minDistanceToWater = new ushort[leaves.Count];
@@ -350,13 +530,12 @@ public static class Vvis
             new WorkQueueOptions { Stage = WaterStage, Progress = context.Progress },
             cancellationToken).ConfigureAwait(false);
 
-        bsp.SetLump(BspLump.Visibility, visLump);
-        bsp[BspLump.Leafs] = new BspLumpData(leaves.Bytes, leaves.Version, 0);
-        bsp.SetLump(BspLump.LeafMinDistToWater, ToBytes(minDistanceToWater));
-
-        return new VisResult(
-            clusters, portalCount, rowBytes, pvs, pas, visLump.Length,
-            totalVis, optimized, totalAudible, useRadius, radiusSquared, deepest, work, trace: null);
+        VisLumps lumps = new(visLump, new BspLumpData(leaves.Bytes, leaves.Version, 0), ToBytes(minDistanceToWater));
+        VisResult result = new(
+            clusters, portals.Count, rowBytes, pvs, pas, visLump.Length,
+            totalVis, optimized, totalAudible, flow.Radius.Use, flow.Radius.Squared, flow.DeepestFlow, flow.Work,
+            trace: null);
+        return (result, lumps);
     }
 
     /// <summary>
@@ -443,40 +622,12 @@ public static class Vvis
     /// override as a float, so a command line whose radius is not exactly
     /// representable has already been rounded by the time it gets here.
     /// </remarks>
-    private static (bool UseRadius, double RadiusSquared) DetermineRadius(
+    private static VisRadius DetermineRadius(
         BspData bsp,
-        VisContext context)
-    {
-        if (context.Options.RadiusOverride is float given)
-        {
-            double wide = given;
-            return (true, wide * wide);
-        }
-
-        foreach (BspEntity entity in EntityLump.Parse(bsp[BspLump.Entities]))
-        {
-            if (!string.Equals(entity.ClassName, "env_fog_controller", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            // -- the FIRST one wins, and a farz of exactly zero
-            // means "no radius" rather than "a radius of zero".
-            float far = ParseFloat(entity.Get("farz"));
-            return far > 0f ? (true, (double)(far * far)) : (false, 0.0);
-        }
-
-        return (false, 0.0);
-    }
-
-    /// <summary>
-    /// <c>atof</c> as <c>FloatForKey</c> uses it: a missing key reads as the
-    /// empty string and the empty string reads as zero.
-    /// </summary>
-    private static float ParseFloat(string? value) =>
-        float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed)
-            ? parsed
-            : 0f;
+        VisContext context) =>
+        VisRadius.FromEntities(
+            EntityLump.Parse(bsp[BspLump.Entities]).Select(static e => (e.ClassName, e.Get("farz"))),
+            context.Options);
 
     /// <summary>
     /// <c>SortPortals</c>: cheapest first, or file order

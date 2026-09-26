@@ -105,9 +105,9 @@ public static class LeafAmbientBuilder
         int leafCount = scene.Leaves.Length;
         List<AmbientSample>[] perLeaf;
 
-        CompileParallelism parallelism = options.Parallelism > 0
+        CompileParallelism parallelism = (options.Parallelism > 0
             ? new CompileParallelism { MaxDegree = options.Parallelism }
-            : CompileParallelism.Default;
+            : CompileParallelism.Default) with { Pool = options.Pool };
 
         WorkQueueOptions queueOptions = new()
         {

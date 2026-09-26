@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using SourceSharp.MapTools.Options;
+using SourceSharp.MapTools.Parallel;
 
 namespace SourceSharp.MapTools.Rad.Ambient;
 
@@ -64,6 +65,9 @@ public sealed record LeafAmbientOptions
     /// of the result. <c>-threads 1</c> against <c>-threads N</c> is byte-exact.
     /// </remarks>
     public int Parallelism { get; init; }
+
+    /// <summary>The compile's shared thread pool, or null for threads of this stage's own.</summary>
+    public CompilePool? Pool { get; init; }
 
     /// <summary>Everything stock does, serially: what every byte-exact gate selects.</summary>
     public static LeafAmbientOptions StockParity { get; } =

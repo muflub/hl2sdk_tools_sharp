@@ -73,9 +73,16 @@ public sealed class ManagedCollisionCooker : ICollisionCooker
     /// <summary>True when this cooker computes in TF2's double precision.</summary>
     public bool IsDoublePrecision => _double;
 
+    /// <summary>
+    /// Where <see cref="RunAsync"/> runs its cooks: the thread pool by default,
+    /// or a compile's <see cref="SourceSharp.MapTools.Parallel.CompilePool.Scheduler"/> so that cooking
+    /// counts against the same <c>-threads</c> budget as every other stage.
+    /// </summary>
+    public TaskScheduler Scheduler { get; set; } = TaskScheduler.Default;
+
     /// <inheritdoc/>
     /// <remarks>
-    /// Runs <paramref name="work"/> on the thread pool against a fresh
+    /// Runs <paramref name="work"/> on <see cref="Scheduler"/> against a fresh
     /// <see cref="ManagedCollisionSession"/>; calls may run concurrently, each with its own
     /// handles and its thread's scratch.
     /// </remarks>
@@ -87,7 +94,12 @@ public sealed class ManagedCollisionCooker : ICollisionCooker
             return Task.FromCanceled<T>(cancellationToken);
         }
 
-        return Task.Run(() => work(OpenSession()), cancellationToken);
+        // Task.Run's own options, on the chosen scheduler.
+        return Task.Factory.StartNew(
+            () => work(OpenSession()),
+            cancellationToken,
+            TaskCreationOptions.DenyChildAttach,
+            Scheduler);
     }
 
     /// <summary>A session on the calling thread (what <see cref="RunAsync{T}"/> hands its work).</summary>

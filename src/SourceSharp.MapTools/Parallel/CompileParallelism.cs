@@ -50,6 +50,18 @@ public sealed record CompileParallelism
     public TaskScheduler? Scheduler { get; init; }
 
     /// <summary>
+    /// A thread pool every stage shares, or null for each queue to create its own.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Compile.MapCompiler"/> sets one for the whole chain, so that
+    /// <see cref="MaxDegree"/> is a ceiling for the run and overlapping stages
+    /// share cores chunk by chunk (<see cref="CompilePool"/>). When set, it wins
+    /// over <see cref="Scheduler"/> for <see cref="WorkQueue"/> runs; a queue's
+    /// degree is capped at the pool's.
+    /// </remarks>
+    public CompilePool? Pool { get; init; }
+
+    /// <summary>
     /// How often a long-running inner loop checks for cancellation, in
     /// iterations.
     /// </summary>
