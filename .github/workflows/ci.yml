@@ -154,6 +154,15 @@ jobs:
           name: ssmap-${{ matrix.rid }}
           path: dist/*
 
+  rsqrt-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          lscpu | grep -E 'Vendor ID|Model name'
+          gcc -O2 -o rsdump .github/probe/rsdump.c
+          ./rsdump
+
   release:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [test, package]
