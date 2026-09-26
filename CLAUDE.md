@@ -129,8 +129,12 @@ A build-time fact fails if a listed method does not actually consult its
 quirk, or if a cited fact no longer exists. Never change output bytes
 silently: a difference from stock that is not in the catalogue is a bug.
 
-`-compliance stock` reproduces SSE arithmetic (`rsqrtss` and the like) and
-refuses to run on arm64.
+`-compliance stock` reproduces stock's estimate-based arithmetic (`rsqrtss`
+and the like). Estimates come from `FloatEstimate`: SSE on x86, ARM's
+`frecpe`/`frsqrte` on arm64. Results that depend on them differ in the last
+bits between AMD, Intel and arm64; README.md's "Platform differences"
+section has the details. Never call `Sse.*` directly on a path that must also
+run on arm64: use `Vector128` and, for x86-specific lane rules, `SseLanes`.
 
 ## Writing comments and messages
 
@@ -170,7 +174,9 @@ any existing file.
     test binary.
 - Never skip, disable or delete a failing test to get green. Find the
   cause. If a golden value is CPU-dependent, make that explicit in the test
-  rather than loosening it.
+  rather than loosening it: use `[ReferenceRsqrtFact]` and
+  `VendorGolden.Expected`, which read per-CPU delta files from
+  `Fixtures/rsqrt-vendor/`.
 - Fixture data lives under `src/SourceSharp.Tests/Fixtures/` or in a
   `Fixtures/` folder next to the tests that use it.
 - `SourceSharp.MapGen` generates the feature catalogue and
@@ -215,7 +221,7 @@ any existing file.
 ## CI and releases
 
 `.github/workflows/ci.yml` builds and tests on Linux, Windows and macOS
-(Intel) for every push to `main` and every PR, and publishes AOT and
+(Intel and Apple Silicon) for every push to `main` and every PR, and publishes AOT and
 framework-dependent `ssmap` builds for linux-x64, win-x64, osx-arm64 and
 osx-x64. Pushing a tag attaches those archives to the GitHub release. Keep
 CI green: run the full suite locally before pushing.
