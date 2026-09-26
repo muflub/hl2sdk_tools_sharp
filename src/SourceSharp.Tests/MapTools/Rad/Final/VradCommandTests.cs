@@ -112,9 +112,9 @@ public sealed class VradCommandTests
     private static async Task<InMemoryFileSystem> SteamMapAsync()
     {
         InMemoryFileSystem fs = await MapAsync();
-        fs.AddFile("game/maps/box.bsp", fs.GetBytes(VPath.Create("maps/box.bsp"))!);
-        fs.AddFile("game/gameinfo.txt", System.Text.Encoding.UTF8.GetBytes(SteamGameInfo));
-        fs.AddFile("steam/common/Half-Life 2/hl2/readme.txt", [1]);
+        fs.AddFile(Rooted("/game/maps/box.bsp"), fs.GetBytes(VPath.Create(Rooted("/maps/box.bsp")))!);
+        fs.AddFile(Rooted("/game/gameinfo.txt"), System.Text.Encoding.UTF8.GetBytes(SteamGameInfo));
+        fs.AddFile(Rooted("/steam/common/Half-Life 2/hl2/readme.txt"), [1]);
         return fs;
     }
 
@@ -122,12 +122,12 @@ public sealed class VradCommandTests
     public async Task AGameThatMountsASteamAppIsFoundThroughTheLocator()
     {
         InMemoryFileSystem fs = await SteamMapAsync();
-        FixedSteam steam = new("/steam/common/Half-Life 2");
+        FixedSteam steam = new(Rooted("/steam/common/Half-Life 2"));
         using StringWriter output = new();
         int exit = await VradCommand.RunAsync(
             fs, ["-bounce", "0", "-threads", "2", "-game", "/game", "/game/maps/box"], steam, output);
 
-        Assert.Equal(Program.ExitSuccess, exit);
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
         Assert.Contains(243750, steam.Asked);
         Assert.DoesNotContain("cannot mount", output.ToString(), StringComparison.Ordinal);
     }
@@ -140,8 +140,8 @@ public sealed class VradCommandTests
         int exit = await VradCommand.RunAsync(
             fs, ["-bounce", "0", "-threads", "2", "-game", "/game", "/game/maps/box"], output);
 
-        Assert.Equal(Program.ExitSuccess, exit);
-        Assert.Contains("ssmap vrad: cannot mount /game", output.ToString(), StringComparison.Ordinal);
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.Contains($"ssmap vrad: cannot mount {Path.GetFullPath("/game")}:", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
