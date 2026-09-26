@@ -36,7 +36,7 @@ dotnet src/SourceSharp.MapCompile/bin/net10.0/ssmap.dll -h   # after a build
 Build output goes to `<project>/bin/`, not `bin/Release/`, because the
 projects set `OutputPath=bin\`.
 
-The full suite is large (4,600+ facts) and runs serially. While iterating,
+The full suite is large (4,600+ facts). While iterating,
 run the folder or class you touched with `--filter`, then the full suite
 before pushing.
 
@@ -141,9 +141,11 @@ any existing file.
 
 - xUnit 2.9. Folders mirror the libraries: `MapFormats/`, `MapTools/Bsp/`,
   `MapTools/Vis/`, `MapTools/Rad/...`, and so on.
-- Parallelism is off for the whole assembly
-  (`src/SourceSharp.Tests/AssemblyInfo.cs`) because some state under test
-  is process-wide. Do not turn it back on.
+- Test parallelism is currently switched off for the whole assembly
+  (`src/SourceSharp.Tests/AssemblyInfo.cs`). Only the tests that load a
+  native vphysics library need to run alone; the libraries themselves hold
+  no shared static state. Put tests that must not overlap in a shared
+  xUnit `[Collection]` rather than relying on the assembly-wide switch.
 - Facts that need something the machine may not have skip themselves with a
   reason instead of failing:
   - reference-output comparisons skip when the reference corpus is absent;

@@ -311,8 +311,7 @@ dotnet test SourceSharp.Tests/SourceSharp.Tests.csproj -c Release
 The suite has more than 4,600 xUnit facts. Its folders mirror the
 libraries (`MapFormats/`, `MapTools/Bsp`, `MapTools/Vis`, `MapTools/Rad`, and
 so on), with fixture data under `Fixtures/` and next to the tests that use
-it. Tests run serially (`DisableTestParallelization`), because some state
-under test is process-wide and two tests at once would race on it.
+it.
 
 Some facts depend on things that are not always present, and skip with a
 stated reason when they are missing:
