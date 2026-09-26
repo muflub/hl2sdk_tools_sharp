@@ -156,11 +156,11 @@ any existing file.
 
 - xUnit 2.9. Folders mirror the libraries: `MapFormats/`, `MapTools/Bsp/`,
   `MapTools/Vis/`, `MapTools/Rad/...`, and so on.
-- Test parallelism is currently switched off for the whole assembly
-  (`src/SourceSharp.Tests/AssemblyInfo.cs`). Only the tests that load a
-  native vphysics library need to run alone; the libraries themselves hold
-  no shared static state. Put tests that must not overlap in a shared
-  xUnit `[Collection]` rather than relying on the assembly-wide switch.
+- Test classes run in parallel (`src/SourceSharp.Tests/AssemblyInfo.cs`),
+  which also exercises the service's concurrent compiles. A test that
+  shares something process-wide (a loaded native library, a fixture file it
+  rewrites) goes in a named xUnit `[Collection]` with the tests it would
+  race; never switch parallelism off for the whole assembly.
 - Facts that need something the machine may not have skip themselves with a
   reason instead of failing:
   - reference-output comparisons skip when the reference corpus is absent;
