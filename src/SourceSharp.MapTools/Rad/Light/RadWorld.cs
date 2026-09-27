@@ -366,6 +366,10 @@ public sealed partial class RadWorld
         }
 
         LightRayLog rays = new() { StockRays = Geometry.StockEstimates };
+
+        // Every leaf records at most SkyProbeRaysPerLeaf first-stage rays, so
+        // the whole batch's storage is taken once instead of doubled into.
+        rays.ReserveSky(checked(leaves.Count * SkyProbeRaysPerLeaf));
         List<int> hits = [];
         WorkQueueOptions stage = new() { Stage = "RadWorld_Start" };
 
@@ -405,6 +409,14 @@ public sealed partial class RadWorld
             SkyLeaves.MarkSky(leaf);
         }
     }
+
+    /// <summary>
+    /// The most first-stage sky rays <see cref="CanLeafTraceToSky"/> records
+    /// for one leaf: the directions go four at a time, and with the tail
+    /// double-count the last group is padded to four.
+    /// </summary>
+    internal const int SkyProbeRaysPerLeaf =
+        (LightConstants.VertexNormalCount + SampleGroup.Lanes - 1) / SampleGroup.Lanes * SampleGroup.Lanes;
 
     /// <summary>
     /// <c>CanLeafTraceToSky</c>: does any of the 162

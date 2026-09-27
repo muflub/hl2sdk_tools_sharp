@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 
 namespace SourceSharp.MapTools.Io;
@@ -115,42 +116,75 @@ public readonly struct VPath : IEquatable<VPath>
             return true;
         }
 
-        List<string> segments = [];
-        int start = 0;
-        for (int i = 0; i <= path.Length; i++)
+        // The normalised text is written into a scratch buffer no longer than
+        // the input (normalising only ever removes characters), and the
+        // input string itself is kept when it was already normal, which is
+        // the common case for paths the content layer builds. Collecting the
+        // segments as strings and joining them cost a list, a string per
+        // segment and the joined string on every lookup, and path lookups run
+        // for every material, model and sound a compile touches.
+        char[]? rented = null;
+        Span<char> buffer = path.Length <= StackPathLength
+            ? stackalloc char[StackPathLength]
+            : (rented = ArrayPool<char>.Shared.Rent(path.Length));
+        try
         {
-            bool atEnd = i == path.Length;
-            if (!atEnd && path[i] != '/' && path[i] != '\\')
+            int length = 0;
+            int start = 0;
+            for (int i = 0; i <= path.Length; i++)
             {
-                continue;
-            }
-
-            ReadOnlySpan<char> segment = path.AsSpan(start, i - start);
-            start = i + 1;
-
-            if (segment.Length == 0 || segment is ".")
-            {
-                continue;
-            }
-
-            if (segment is "..")
-            {
-                if (segments.Count == 0)
+                bool atEnd = i == path.Length;
+                if (!atEnd && path[i] != '/' && path[i] != '\\')
                 {
-                    error = $"\"{path}\" walks above its own root";
-                    return false;
+                    continue;
                 }
 
-                segments.RemoveAt(segments.Count - 1);
-                continue;
+                ReadOnlySpan<char> segment = path.AsSpan(start, i - start);
+                start = i + 1;
+
+                if (segment.Length == 0 || segment is ".")
+                {
+                    continue;
+                }
+
+                if (segment is "..")
+                {
+                    if (length == 0)
+                    {
+                        error = $"\"{path}\" walks above its own root";
+                        return false;
+                    }
+
+                    // Drop the last segment and the separator before it.
+                    int slash = buffer[..length].LastIndexOf('/');
+                    length = slash < 0 ? 0 : slash;
+                    continue;
+                }
+
+                if (length > 0)
+                {
+                    buffer[length++] = '/';
+                }
+
+                segment.CopyTo(buffer[length..]);
+                length += segment.Length;
             }
 
-            segments.Add(segment.ToString());
+            ReadOnlySpan<char> normal = buffer[..length];
+            result = new VPath(normal.SequenceEqual(path) ? path : normal.ToString());
+            return true;
         }
-
-        result = new VPath(string.Join('/', segments));
-        return true;
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<char>.Shared.Return(rented);
+            }
+        }
     }
+
+    // Paths up to this long are normalised in a stack buffer.
+    private const int StackPathLength = 256;
 
     /// <summary>
     /// Appends <paramref name="relative"/> beneath this path.

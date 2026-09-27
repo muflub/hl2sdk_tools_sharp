@@ -76,6 +76,10 @@ public sealed class ChunkTokenReader
     private string _stuffedToken = string.Empty;
     private ChunkTokenType _stuffedType;
 
+    // Reused by every quoted string that is not one unbroken slice of the
+    // text (an escape, a '+' join, a chunk boundary); see GetString.
+    private StringBuilder? _builder;
+
     /// <summary>Creates a reader over already-decoded text.</summary>
     /// <param name="text">The whole file's text.</param>
     /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
@@ -221,12 +225,15 @@ public sealed class ChunkTokenReader
         // Note what is NOT here: no '.', no exponent, no leading '+'. "1.5"
         // lexes as INTEGER "1", OPERATOR ".", INTEGER "5" -- which is why every
         // float in a VMF lives inside a quoted string.
+        // The characters a number or an identifier is made of are consecutive
+        // in the text, so the token is cut out of it rather than built up.
+        int tokenStart = _position - 1;
         if (char.IsAsciiDigit((char)ch) || ch == '-')
         {
-            StringBuilder number = new();
+            int length = 0;
             do
             {
-                number.Append((char)ch);
+                length++;
                 ch = Get();
 
                 // A second minus sign anywhere in the number is an error, not a
@@ -247,7 +254,7 @@ public sealed class ChunkTokenReader
             }
 
             PutBack(ch);
-            token = number.ToString();
+            token = _text.Substring(tokenStart, length);
             return ChunkTokenType.Integer;
         }
 
@@ -255,15 +262,15 @@ public sealed class ChunkTokenReader
         // loop nor anything above, so it comes back as an EMPTY identifier
         // having been consumed. The reference does not treat that as an error,
         // and neither does this.
-        StringBuilder ident = new();
+        int identLength = 0;
         while (ch >= 0 && (char.IsAsciiLetterOrDigit((char)ch) || ch == '_'))
         {
-            ident.Append((char)ch);
+            identLength++;
             ch = Get();
         }
 
         PutBack(ch);
-        token = ident.ToString();
+        token = _text.Substring(tokenStart, identLength);
         return ChunkTokenType.Identifier;
     }
 
@@ -351,15 +358,31 @@ public sealed class ChunkTokenReader
     /// Reads the body of a quoted string, following the reference tokenizer's
     /// string pass. The opening quote has been consumed.
     /// </summary>
+    /// <remarks>
+    /// Almost every string in a VMF is one chunk with no escape and no
+    /// <c>'+'</c> join, and its value is then exactly one slice of the text,
+    /// which is cut out once. Only a string that is not -- which needs its
+    /// pieces joined or an escape rewritten -- goes through the reader's one
+    /// reused builder. Building every value in a fresh builder, from a chunk
+    /// that was itself a fresh string, cost three allocations and two copies
+    /// per value and made the tokenizer one of the largest allocators of a
+    /// whole compile.
+    /// </remarks>
     private ChunkTokenType GetString(out string token)
     {
-        StringBuilder result = new();
+        // The value so far is either the slice [sliceStart, +sliceLength) of
+        // the text (while `result` is null) or the builder's contents.
+        StringBuilder? result = null;
+        int sliceStart = 0;
+        int sliceLength = 0;
+        bool haveSlice = false;
 
         while (true)
         {
             // The reference's get(szBuf, 1024, '"') takes at most 1023
             // characters and stops BEFORE the quote without consuming it.
-            string chunk = GetUntil(StreamBufferSize - 1, '"');
+            (int chunkStart, int chunkLength) = GetUntil(StreamBufferSize - 1, '"');
+            ReadOnlySpan<char> chunk = _text.AsSpan(chunkStart, chunkLength);
 
             if (_eof)
             {
@@ -368,6 +391,24 @@ public sealed class ChunkTokenReader
                 // cases have different codes and callers act on the difference.
                 token = string.Empty;
                 return ChunkTokenType.EndOfFile;
+            }
+
+            if (result is null && !haveSlice && chunk.IndexOfAny('\r', '\\') < 0)
+            {
+                // Nothing to rewrite: the chunk is the value so far.
+                haveSlice = true;
+                sliceStart = chunkStart;
+                sliceLength = chunkLength;
+                chunk = [];
+            }
+            else if (result is null)
+            {
+                result = Builder();
+                if (haveSlice)
+                {
+                    result.Append(_text, sliceStart, sliceLength);
+                    haveSlice = false;
+                }
             }
 
             int index = 0;
@@ -381,13 +422,13 @@ public sealed class ChunkTokenReader
                     // across a line in a CRLF file is caught here; the same
                     // string in an LF-only file is NOT caught and the newline
                     // becomes part of the value.
-                    token = result.ToString();
+                    token = result!.ToString();
                     return ChunkTokenType.StringTooLong;
                 }
 
                 if (c != '\\')
                 {
-                    result.Append(c);
+                    result!.Append(c);
                     index++;
                     continue;
                 }
@@ -413,7 +454,7 @@ public sealed class ChunkTokenReader
                 index++;
                 if (index < chunk.Length)
                 {
-                    result.Append(chunk[index] == 'n' ? '\n' : chunk[index]);
+                    result!.Append(chunk[index] == 'n' ? '\n' : chunk[index]);
                     index++;
                 }
             }
@@ -432,7 +473,9 @@ public sealed class ChunkTokenReader
                     continue;
                 }
 
-                token = result.ToString();
+                token = result is not null ? result.ToString()
+                    : haveSlice ? _text.Substring(sliceStart, sliceLength)
+                    : string.Empty;
                 return ChunkTokenType.String;
             }
 
@@ -473,11 +516,13 @@ public sealed class ChunkTokenReader
     /// most <paramref name="maximum"/> characters, stopping before
     /// <paramref name="delimiter"/> without consuming it.
     /// </summary>
-    private string GetUntil(int maximum, char delimiter)
+    /// <returns>Where the extracted characters start in the text, and how many there are.</returns>
+    private (int Start, int Length) GetUntil(int maximum, char delimiter)
     {
-        StringBuilder chunk = new();
+        int start = _position;
+        int length = 0;
 
-        while (chunk.Length < maximum)
+        while (length < maximum)
         {
             int next = Peek();
             if (next < 0)
@@ -493,10 +538,18 @@ public sealed class ChunkTokenReader
                 break;
             }
 
-            chunk.Append((char)Get());
+            Get();
+            length++;
         }
 
-        return chunk.ToString();
+        return (start, length);
+    }
+
+    private StringBuilder Builder()
+    {
+        _builder ??= new StringBuilder();
+        _builder.Clear();
+        return _builder;
     }
 
     /// <summary>

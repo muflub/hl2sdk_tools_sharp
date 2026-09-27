@@ -31,10 +31,31 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// <c>ref</c>, which must not be held across an <see cref="Add"/>; every call
 /// site below re-fetches.
 /// </para>
+/// <para>
+/// <b>Stored in fixed-size segments, not one growing array.</b> How many
+/// patches a map ends up with is decided by the subdivision recursion itself,
+/// so there is no count to size one array from before it runs. Doubling a
+/// single array made every earlier array garbage on the large-object heap
+/// (on a map the size of 2fort, some 150 MB of patches were allocated and
+/// thrown away to keep the last array of about the same size) and left up to
+/// half of the kept array unused for the rest of the compile. Segments are
+/// never copied once full, so the storage allocated is the storage kept, give
+/// or take the unfilled tail of the last segment. The first segment still
+/// starts small and doubles up to the full segment length, so a small map (or
+/// a unit test) does not pay for a whole segment.
+/// </para>
 /// </remarks>
 public sealed class PatchSet
 {
-    private Patch[] _patches;
+    /// <summary>log2 of the patches in a full segment.</summary>
+    internal const int SegmentShift = 10;
+
+    /// <summary>The patches in a full segment.</summary>
+    internal const int SegmentLength = 1 << SegmentShift;
+
+    private const int SegmentMask = SegmentLength - 1;
+
+    private Patch[][] _segments;
     private int _count;
 
     /// <summary>Creates an empty set sized for a map.</summary>
@@ -46,7 +67,9 @@ public sealed class PatchSet
     {
         ArgumentNullException.ThrowIfNull(arena);
 
-        _patches = new Patch[Math.Max(faceCount * 2, 64)];
+        // The first segment is sized from the faces (one root patch each,
+        // plus room for their first splits), capped at a full segment.
+        _segments = [new Patch[Math.Min(Math.Max(faceCount * 2, 64), SegmentLength)]];
         Arena = arena;
         Centroids = new FaceCentroids(faceCount);
 
@@ -130,12 +153,43 @@ public sealed class PatchSet
     {
         ArgumentOutOfRangeException.ThrowIfNegative(index);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, _count);
-        return ref _patches[index];
+        return ref _segments[index >> SegmentShift][index & SegmentMask];
     }
 
-    /// <summary>Every patch, in creation order.</summary>
-    /// <returns>A span over the live prefix of the backing array.</returns>
-    public Span<Patch> AsSpan() => _patches.AsSpan(0, _count);
+    /// <summary>A copy of every patch, in creation order.</summary>
+    /// <returns>A new array of exactly <see cref="Count"/> patches.</returns>
+    /// <remarks>
+    /// For inspection (tests and diagnostics). The storage is segmented, so
+    /// there is no single span over it; the compile itself walks the patches
+    /// by index through <see cref="At"/>.
+    /// </remarks>
+    public Patch[] ToArray()
+    {
+        Patch[] result = new Patch[_count];
+        for (int copied = 0, segment = 0; copied < _count; segment++)
+        {
+            int n = Math.Min(_segments[segment].Length, _count - copied);
+            _segments[segment].AsSpan(0, n).CopyTo(result.AsSpan(copied));
+            copied += n;
+        }
+
+        return result;
+    }
+
+    /// <summary>How many patches the allocated segments can hold.</summary>
+    internal int Capacity
+    {
+        get
+        {
+            int capacity = 0;
+            foreach (Patch[]? segment in _segments)
+            {
+                capacity += segment?.Length ?? 0;
+            }
+
+            return capacity;
+        }
+    }
 
     /// <summary>
     /// Appends a patch: <c>g_Patches.AddToTail()</c>.
@@ -144,12 +198,28 @@ public sealed class PatchSet
     /// <returns>Its index.</returns>
     public int Add(Patch patch)
     {
-        if (_count == _patches.Length)
+        int segment = _count >> SegmentShift;
+        int slot = _count & SegmentMask;
+        if (segment == 0)
         {
-            Array.Resize(ref _patches, _patches.Length * 2);
+            // The first segment doubles up to a full segment's length; a ref
+            // into it is invalidated by that, as the remarks on At say.
+            if (slot == _segments[0].Length)
+            {
+                Array.Resize(ref _segments[0], Math.Min(_segments[0].Length * 2, SegmentLength));
+            }
+        }
+        else
+        {
+            if (segment == _segments.Length)
+            {
+                Array.Resize(ref _segments, _segments.Length * 2);
+            }
+
+            _segments[segment] ??= new Patch[SegmentLength];
         }
 
-        _patches[_count] = patch;
+        _segments[segment][slot] = patch;
         return _count++;
     }
 }

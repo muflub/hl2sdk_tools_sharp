@@ -97,7 +97,7 @@ public sealed class DispPatchBuilderTests
     {
         (VradDispSurface s, PatchSet p, int root) = Root();
         DispPatchBuilder.SubdividePatch(s, p, root, Settings);
-        float leafArea = p.AsSpan().ToArray().Where(x => !x.HasChildren).Sum(x => x.Area);
+        float leafArea = p.ToArray().Where(x => !x.HasChildren).Sum(x => x.Area);
         Assert.Equal(65536.0f, leafArea);
     }
 
@@ -179,6 +179,6 @@ public sealed class DispPatchBuilderTests
         PatchSet p = new(1, 0, new WindingArena());
         DispPatchBuilder.CreateParentPatch(s, p, Settings, false, Vec3.Zero, 0, Vec3.Zero);
         DispPatchBuilder.SubdividePatch(s, p, 0, Settings);
-        Assert.Contains(p.AsSpan().ToArray(), x => x.Index0 == -1 && x.Index1 == -1 && x.Index2 == -1);
+        Assert.Contains(p.ToArray(), x => x.Index0 == -1 && x.Index1 == -1 && x.Index2 == -1);
     }
 }
