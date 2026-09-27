@@ -291,7 +291,8 @@ public static class VradCommand
                 CultureInfo.InvariantCulture,
                 $"bench work {(pass.Hdr ? "hdr" : "ldr")} samples={pass.World.Samples} "
                 + $"visibilityrays={pass.World.VisibilityRays} skyrays={pass.World.SkyRays} "
-                + $"batches={pass.World.Batches}")).ConfigureAwait(false);
+                + $"batches={pass.World.Batches} lightrecords={pass.World.LightRecords} "
+                + $"culledlightrecords={pass.World.CulledLightRecords}")).ConfigureAwait(false);
         }
     }
 
