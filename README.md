@@ -215,7 +215,29 @@ Runs the three stages in one process with the BSP in memory. Each
 Chain options apply to every stage: `-game`, `-threads`, `-compliance`, `-v`,
 `-fast`, `-tighten`, `-loose`, `-cooker`, `-vphysics`, `-listcompliance`,
 `-nocache`, `-incremental`, `-cache-dir <dir>`, `-gpu <match>`,
-`-gpu_slabs <n>` and `--no-write` (compile without writing the map).
+`-gpu_slabs <n>`, `--no-write` (compile without writing the map) and
+`--record-content <zip>`.
+
+`--record-content <zip>` records every game file the compile looked up and
+writes the ones it found to a zip, whether the compile succeeds or fails part
+way. The zip is a game directory:
+
+- every file the compile read, or only checked the existence of, at its
+  content path (`materials/...`, `models/...`, `lights.rad`, ...), copied
+  from whichever search path won and checked against the bytes the compile
+  saw;
+- a `gameinfo.txt` that is the game's own with its `SearchPaths` replaced by
+  `game+mod |gameinfo_path|.`, so `SteamAppId` and the `Tools` block (which
+  pick the BSP format) are unchanged;
+- a `lights.rad` taken from beside the tool or a Steam `bin` folder when the
+  game's search paths had none; the map's `.rad` and a `-lights` file go
+  under `loose/`;
+- `content-manifest.txt`: the command line, then one line per path with its
+  kind (`read`, `resolved`, `missing` or `loose`), SHA-256, size and the
+  search path it came from. Lookups that found nothing are listed here only.
+
+Unzip it anywhere and compile against it with no Steam install:
+`ssmap all <map> -game <unzipped dir>`.
 
 ### `room` and `link`
 
@@ -520,6 +542,22 @@ real content would:
 
 Existing files are never overwritten, so `--synthetic` on an installed game
 only fills in what is missing.
+
+### Bundling a map's game content
+
+    tools/bundle-content.sh [--map maps/sdk_ctf_2fort.vmf] [--game game/mod_tf] [--out <zip>] [--threads <n>]
+
+runs `ssmap all --record-content` on the map once for each of a set of flag
+combinations (the default compile, and vrad's `-StaticPropLighting
+-StaticPropPolys` in `-ldr`, `-hdr` and `-both -final`, with
+`-textureshadows`), then merges the zips into one. It is how to hand someone
+the exact Steam content a compile reads, so they can reproduce it without the
+game. The compiles run with `--no-write`, so nothing is written beside the
+map or into the game; the per-run zips go to a temporary directory. The
+default output is `content-bundles/<map>-content.zip`. It builds ssmap in
+Release first when the build is missing or older than the sources, and needs
+only bash, python3 and dotnet. The combinations are `COMBOS` in
+`tools/bundle_content.py`.
 
 ## Tests
 
