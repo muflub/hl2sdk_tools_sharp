@@ -440,12 +440,12 @@ public sealed class WorkQueue : IDisposable
         return order;
     }
 
-    /// <summary>Whether a pooled step can decline without its job's lock.</summary>
+    /// <summary>Whether a pooled step can decline without entering its job.</summary>
     /// <remarks>
     /// True for a job that is not stopping, has every item claimed and every
     /// slot built, and still has a thread inside: nothing can be handed out,
-    /// and the thread inside finishes the job itself. A stopping job goes to
-    /// the lock instead, because a stopped job with nobody inside must be
+    /// and the thread inside finishes the job itself. A stopping job is
+    /// entered instead, because a stopped job with nobody inside must be
     /// finished by whichever thread looks next.
     /// </remarks>
     internal static bool IsDrainingWithoutMe(bool stopping, bool exhausted, int unbuiltLeft, int inFlight) =>
@@ -471,6 +471,13 @@ public sealed class WorkQueue : IDisposable
     /// away that then found other work still holds its entry), and that costs
     /// one spare wake, never a lost one.
     /// </para>
+    /// <para>
+    /// The count is decremented with a compare-exchange, never below zero,
+    /// because returns run concurrently with no lock (see
+    /// <see cref="JobSlots"/>): two returns answering one entry would owe
+    /// a wake that nobody was turned away for, and the count, once negative,
+    /// would swallow the next real entry.
+    /// </para>
     /// </remarks>
     /// <param name="finishing">This return finishes the job.</param>
     /// <param name="stopping">The job is cancelled or faulted.</param>
@@ -478,13 +485,24 @@ public sealed class WorkQueue : IDisposable
     /// <param name="turnedAway">Unanswered turned-away scans; decremented on a wake.</param>
     internal static bool TakeWakeForFreedSlot(bool finishing, bool stopping, bool exhausted, ref int turnedAway)
     {
-        if (finishing || stopping || exhausted || turnedAway <= 0)
+        if (finishing || stopping || exhausted)
         {
             return false;
         }
 
-        turnedAway--;
-        return true;
+        int count = Volatile.Read(ref turnedAway);
+        while (count > 0)
+        {
+            int seen = Interlocked.CompareExchange(ref turnedAway, count - 1, count);
+            if (seen == count)
+            {
+                return true;
+            }
+
+            count = seen;
+        }
+
+        return false;
     }
 
     private abstract class Job : CompilePool.PoolJob
@@ -495,18 +513,12 @@ public sealed class WorkQueue : IDisposable
         private int _remaining;
 
         // The pooled run's slots: worker indices 0..Degree-1, each lent to one
-        // thread for one chunk. Guarded by _slotLock.
-        private readonly object _slotLock = new();
-        private readonly Stack<int> _unbuilt = new();
-        private readonly Stack<int> _free = new();
+        // thread for one chunk, handed out with no lock (see JobSlots). The
+        // scheduler path never uses them; its placeholder is never finished,
+        // which is right because that path's job is never in a pool.
+        private JobSlots _slots = new(1);
         private object?[] _scratch = [];
         private WorkerContext?[] _contexts = [];
-        private int _inFlight;
-        private int _unbuiltLeft;
-        // How many scans found this job full (items left, every slot lent)
-        // that no returned slot has answered yet. Guarded by _slotLock.
-        private int _turnedAway;
-        private bool _finished;
         private CompilePool? _pool;
 
         public int Claimed;
@@ -533,7 +545,7 @@ public sealed class WorkQueue : IDisposable
 
         public CancellationToken Token => _cts.Token;
 
-        public override bool IsFinished => Volatile.Read(ref _finished);
+        public override bool IsFinished => _slots.IsFinished;
 
         // The scheduler path: one worker loop per index, counted down.
         public void Begin(int degree)
@@ -542,19 +554,14 @@ public sealed class WorkQueue : IDisposable
             _registration = CallerToken.Register(static state => ((CancellationTokenSource)state!).Cancel(), _cts);
         }
 
-        // The pool path: every slot starts unbuilt, highest popped last so the
-        // first thread in gets index 0.
+        // The pool path: every slot starts unbuilt, handed out lowest first so
+        // the first thread in gets index 0.
         public void BeginPooled(CompilePool pool)
         {
             _pool = pool;
             _scratch = new object?[Degree];
             _contexts = new WorkerContext?[Degree];
-            for (int slot = Degree - 1; slot >= 0; slot--)
-            {
-                _unbuilt.Push(slot);
-            }
-
-            _unbuiltLeft = Degree;
+            _slots = new JobSlots(Degree);
 
             // A cancel with no thread inside the job still has to finish it,
             // so it wakes the pool.
@@ -610,79 +617,67 @@ public sealed class WorkQueue : IDisposable
 
         public override bool Step()
         {
-            // The tail of a job, taken without the lock: every item claimed,
-            // every slot built, and a thread still inside. Nothing here can be
-            // handed out, and the thread inside finishes the job itself, so
-            // the answer is no. Every value read only ever moves one way
-            // (Claimed up, _unbuiltLeft down) except _inFlight, and a stale
-            // non-zero _inFlight means the last thread out has already seen
-            // the same run-out job and finished it. Without this, every idle
-            // thread's scan queued on this lock to be told no.
+            // The tail of a job, declined without entering it: every item
+            // claimed, every slot built, and a thread still inside. Nothing
+            // here can be handed out, and the thread inside finishes the job
+            // itself, so the answer is no. Every value read only ever moves
+            // one way (Claimed up, unbuilt slots down) except the count inside,
+            // and a stale non-zero count means the last thread out has already
+            // seen the same run-out job and finished it. Without this, every
+            // idle thread's scan would enter and leave the job to be told no,
+            // and each entry is a write to the job's one shared state word.
             if (IsDrainingWithoutMe(
                     _cts.IsCancellationRequested,
                     Volatile.Read(ref Claimed) >= ItemCount,
-                    Volatile.Read(ref _unbuiltLeft),
-                    Volatile.Read(ref _inFlight)))
+                    _slots.UnbuiltLeft,
+                    _slots.InFlight))
             {
                 return false;
             }
 
-            int slot;
-            bool build;
-            lock (_slotLock)
+            // Entered before a slot is looked for, so a thread holding a slot
+            // is always counted and the job cannot finish under it.
+            if (!_slots.TryEnter())
             {
-                if (_finished)
-                {
-                    return false;
-                }
+                return false;
+            }
 
-                bool stopping = _cts.IsCancellationRequested;
-                bool exhausted = Volatile.Read(ref Claimed) >= ItemCount;
-                if (!stopping && _unbuilt.Count > 0)
+            int slot = -1;
+            bool build = false;
+            if (!_cts.IsCancellationRequested)
+            {
+                // Unbuilt slots first, even when the items have run out:
+                // every slot's scratch is built once, on a pool thread,
+                // whether or not items remain for it.
+                slot = _slots.TryTakeUnbuilt();
+                build = slot >= 0;
+                if (slot < 0 && Volatile.Read(ref Claimed) < ItemCount)
                 {
-                    slot = _unbuilt.Pop();
-                    Volatile.Write(ref _unbuiltLeft, _unbuilt.Count);
-                    build = true;
-                }
-                else if (!stopping && !exhausted && _free.Count > 0)
-                {
-                    slot = _free.Pop();
-                    build = false;
-                }
-                else
-                {
-                    // Nothing to hand out. A job nobody is inside that has run
-                    // out (or been stopped) finishes here, on this thread.
-                    if (_inFlight == 0 && (stopping || (exhausted && _unbuilt.Count == 0)))
-                    {
-                        _finished = true;
-                    }
-                    else
+                    slot = _slots.TryTakeFree();
+                    if (slot < 0)
                     {
                         // Full: items are left but every slot is lent out.
-                        // Counted so a slot coming back wakes someone for it.
-                        if (!stopping && !exhausted)
-                        {
-                            _turnedAway++;
-                        }
-
-                        return false;
+                        // Counted so a slot coming back wakes someone for it,
+                        // then looked at once more in case one came back
+                        // before the count went up (JobSlots.TurnAway).
+                        _slots.TurnAway();
+                        slot = _slots.TryTakeFree();
                     }
-
-                    slot = -1;
-                    build = false;
-                }
-
-                if (slot >= 0)
-                {
-                    _inFlight++;
                 }
             }
 
             if (slot < 0)
             {
-                Complete();
-                return true;
+                // Nothing to hand out. A job this thread was last out of, that
+                // has run out (or been stopped), finishes here, on this thread.
+                // The state is read after the leave (JobSlots.Leave says why).
+                if (_slots.Leave() && IsDone() && _slots.TryFinishIdle())
+                {
+                    Complete();
+                    return true;
+                }
+
+                return false;
             }
 
             try
@@ -704,24 +699,18 @@ public sealed class WorkQueue : IDisposable
                 Fail(ex);
             }
 
-            bool finish;
-            bool wake;
-            lock (_slotLock)
-            {
-                _inFlight--;
-                _free.Push(slot);
-                bool stopping = _cts.IsCancellationRequested;
-                bool exhausted = Volatile.Read(ref Claimed) >= ItemCount;
-                finish = !_finished
-                    && _inFlight == 0
-                    && (stopping || (exhausted && _unbuilt.Count == 0));
-                if (finish)
-                {
-                    _finished = true;
-                }
-
-                wake = TakeWakeForFreedSlot(finish, stopping, exhausted, ref _turnedAway);
-            }
+            // Back before the leave, so the slot is never free while its
+            // borrower is uncounted, and so the job's last thread out finds
+            // every slot home when it disposes their scratch. The state that
+            // decides the finish is read after the leave (JobSlots.Leave).
+            _slots.Return(slot);
+            bool last = _slots.Leave();
+            bool stopping = _cts.IsCancellationRequested;
+            bool exhausted = Volatile.Read(ref Claimed) >= ItemCount;
+            bool finish = last
+                && (stopping || (exhausted && _slots.UnbuiltLeft == 0))
+                && _slots.TryFinishIdle();
+            bool wake = _slots.TakeWake(finish, stopping, exhausted);
 
             if (finish)
             {
@@ -736,6 +725,12 @@ public sealed class WorkQueue : IDisposable
 
             return true;
         }
+
+        // Stopped, or run out with every slot taken to build: nothing is left
+        // for a thread to do, so the last one out finishes the job.
+        private bool IsDone() =>
+            _cts.IsCancellationRequested
+            || (Volatile.Read(ref Claimed) >= ItemCount && _slots.UnbuiltLeft == 0);
 
         // One claim, with the per-item checks; false when nothing was claimed.
         public bool RunChunk(object? scratch, WorkerContext context)
@@ -779,14 +774,11 @@ public sealed class WorkQueue : IDisposable
         // gone, so the job ends here rather than leaving its caller waiting.
         public override void Abandon()
         {
-            lock (_slotLock)
+            // The pool's threads are joined, so nobody is left inside to
+            // finish it; ForceFinish still makes this the only finisher.
+            if (!_slots.ForceFinish())
             {
-                if (_finished)
-                {
-                    return;
-                }
-
-                _finished = true;
+                return;
             }
 
             Fail(new ObjectDisposedException(nameof(CompilePool)));
