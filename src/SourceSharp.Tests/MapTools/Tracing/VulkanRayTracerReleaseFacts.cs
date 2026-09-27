@@ -36,6 +36,7 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// <see cref="VulkanStageTheoryAttribute"/>.
 /// </para>
 /// </remarks>
+[Collection(VulkanDeviceCollection.Name)]
 public sealed class VulkanRayTracerReleaseFacts
 {
     /// <summary>What a fact throws from the observer.</summary>

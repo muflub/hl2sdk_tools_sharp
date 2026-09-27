@@ -44,6 +44,7 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// legitimately disagrees on (the spike's 19-vs-1,769-bytes lesson).
 /// </para>
 /// </remarks>
+[Collection(VulkanDeviceCollection.Name)]
 public sealed class VulkanRayTracerFacts
 {
     // ------------------------------------------------------------------

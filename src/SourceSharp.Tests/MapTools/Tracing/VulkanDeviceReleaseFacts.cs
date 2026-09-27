@@ -23,6 +23,7 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// <see cref="VulkanDevice.LiveBytes"/>, which a device that released
 /// everything brings back to zero when disposed.
 /// </remarks>
+[Collection(VulkanDeviceCollection.Name)]
 public sealed class VulkanDeviceReleaseFacts
 {
     private const int SmallSlab = 4096;
