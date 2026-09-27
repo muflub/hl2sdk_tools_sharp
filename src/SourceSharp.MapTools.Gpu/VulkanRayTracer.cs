@@ -246,8 +246,34 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     /// <param name="options">Device pin and sizing.</param>
     /// <param name="cancellationToken">Checked at each stage boundary.</param>
     /// <returns>The tracer or the reason it was not created.</returns>
+    /// <exception cref="OperationCanceledException">
+    /// The attempt was cancelled. Whatever device it had opened is released
+    /// first; cancellation is never reported as a decline.
+    /// </exception>
     public static VulkanTracerAttempt TryCreate(
         ReadOnlyMemory<TracedTriangle> triangles,
+        VulkanRayTracerOptions options = default,
+        CancellationToken cancellationToken = default) =>
+        TryCreate(triangles, observe: null, options, cancellationToken);
+
+    /// <summary>
+    /// <see cref="TryCreate(ReadOnlyMemory{TracedTriangle}, VulkanRayTracerOptions, CancellationToken)"/>
+    /// with an observer called at each stage boundary and when the device is released.
+    /// </summary>
+    /// <param name="triangles">The scene.</param>
+    /// <param name="observe">
+    /// Called with each <see cref="TryCreateStage"/> as the attempt reaches
+    /// it, or null. Facts throw from it to fail the attempt at a chosen
+    /// stage, and count <see cref="TryCreateStage.Released"/> to prove the
+    /// device is released exactly once on every path that does not hand it
+    /// to a tracer.
+    /// </param>
+    /// <param name="options">Device pin and sizing.</param>
+    /// <param name="cancellationToken">Checked at each stage boundary.</param>
+    /// <returns>The tracer or the reason it was not created.</returns>
+    internal static VulkanTracerAttempt TryCreate(
+        ReadOnlyMemory<TracedTriangle> triangles,
+        Action<TryCreateStage>? observe,
         VulkanRayTracerOptions options = default,
         CancellationToken cancellationToken = default)
     {
@@ -267,8 +293,16 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
                 null, new VulkanDeviceReport(inventory, null, "no Vulkan loader: " + e.Message), false);
         }
 
+        // Until a tracer owns the device, this method does: every way out
+        // that does not hand it over (a decline, a failed gate, cancellation,
+        // or an exception nobody expected) releases it in the finally below.
+        // A long-lived host runs many attempts in one process, and a device
+        // left open by any of them is native memory and a driver context it
+        // never gets back.
+        bool handedOver = false;
         try
         {
+            observe?.Invoke(TryCreateStage.Opened);
             cancellationToken.ThrowIfCancellationRequested();
             // The inventory comes first so even a total failure reports what
             // the box really has (the device-pin diagnostic the tools owe).
@@ -276,6 +310,7 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
             device.Construct(options.DeviceMatch, options.DeviceIndex, options.MaxRaysPerSlab);
             cancellationToken.ThrowIfCancellationRequested();
 
+            observe?.Invoke(TryCreateStage.Constructed);
             // The gate runs before real geometry: two triangles whose answer
             // is known by construction, through every kernel mode.
             (bool ready, SelfTestOutcome outcome) = device.RunSelfTest();
@@ -289,9 +324,9 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
                 outcome.Iters,
                 outcome.Candidates,
                 ReasonFor(ready, device, outcome));
+            observe?.Invoke(TryCreateStage.SelfTested);
             if (!ready)
             {
-                device.Dispose();
                 return new VulkanTracerAttempt(null, new VulkanDeviceReport(inventory, record, null), false);
             }
 
@@ -317,16 +352,17 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
             }
 
             device.LoadScene(vertices);
-            return new VulkanTracerAttempt(
-                new VulkanRayTracer(device, ids, record),
-                new VulkanDeviceReport(inventory, record, null),
-                true);
+            observe?.Invoke(TryCreateStage.SceneLoaded);
+            VulkanRayTracer tracer = new(device, ids, record);
+            handedOver = true;
+            return new VulkanTracerAttempt(tracer, new VulkanDeviceReport(inventory, record, null), true);
         }
         catch (Exception e) when (e is VulkanException or NotSupportedException or InvalidOperationException)
         {
             // A driver that refuses at open time gets the same treatment as
-            // one that fails the gate: a clear message, not a crash.
-            device.Dispose();
+            // one that fails the gate: a clear message, not a crash. Anything
+            // else (cancellation above all) is not a decline and propagates,
+            // after the finally has released the device.
             string why = e.Message;
             if (e.InnerException is { } inner)
             {
@@ -334,6 +370,14 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
             }
 
             return new VulkanTracerAttempt(null, new VulkanDeviceReport(inventory, null, why), false);
+        }
+        finally
+        {
+            if (!handedOver)
+            {
+                device.Dispose();
+                observe?.Invoke(TryCreateStage.Released);
+            }
         }
     }
 
