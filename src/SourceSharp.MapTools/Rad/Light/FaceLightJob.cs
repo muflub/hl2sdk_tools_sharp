@@ -49,6 +49,9 @@ public sealed class FaceLightJob
     private readonly List<(int State, int Sample)> _items = [];
     private readonly List<int> _lightScratch = [];
 
+    // The current group's bounding sphere, for the dead-record cull.
+    private SampleBounds _bounds;
+
     private StyleSupersample?[] _supersample = [];
     private int _round;
     private int _itemCount;
@@ -99,6 +102,12 @@ public sealed class FaceLightJob
 
     /// <summary>How many rounds have been replayed.</summary>
     public int RoundsCompleted => _round;
+
+    /// <summary>The (group, light) gather records this job has emitted.</summary>
+    public long LightRecords { get; private set; }
+
+    /// <summary>The (group, light) records it left out as dead (<see cref="DeadLightCull"/>).</summary>
+    public long CulledLightRecords { get; private set; }
 
     /// <summary>
     /// The per-face set-up of <c>BuildFacelights</c>:
@@ -346,6 +355,7 @@ public sealed class FaceLightJob
         GatherTape tape = rays.Tape;
         tape.Int(count);
         tape.Vector(_group.Points[0]);
+        _bounds = SampleBounds.Of(_group);
 
         IReadOnlyList<DirectLight> lights = _context.Gatherer.Lights;
 
@@ -367,6 +377,15 @@ public sealed class FaceLightJob
                 continue;
             }
 
+            // A record that provably lights nothing is left out: the resolve
+            // would skip it (every dot * falloff is zero) and it has no rays.
+            if (_context.Gatherer.CannotLight(li, _group, in _bounds, GatherFlags.None))
+            {
+                CulledLightRecords++;
+                continue;
+            }
+
+            LightRecords++;
             tape.Int(li);
             tape.Int(mask);
             _context.Gatherer.Emit(dl, _group, _laneNeeded, rays, _output, GatherFlags.None, 0.0f);
@@ -447,6 +466,7 @@ public sealed class FaceLightJob
         FaceLight fl = Result!;
         GatherTape tape = rays.Tape;
         IReadOnlyList<DirectLight> lights = _context.Gatherer.Lights;
+        _bounds = SampleBounds.Of(_group);
 
         foreach (int li in _context.Gatherer.LightsReaching(_group.Clusters, _lightScratch))
         {
@@ -479,6 +499,15 @@ public sealed class FaceLightJob
                 continue;
             }
 
+            // A dead record would add (+-0) * intensity to a sum that starts
+            // at +0, which leaves it unchanged (DeadLightCull remarks).
+            if (_context.Gatherer.CannotLight(li, _group, in _bounds, GatherFlags.None))
+            {
+                CulledLightRecords++;
+                continue;
+            }
+
+            LightRecords++;
             tape.Int(li);
             tape.Int(mask);
             _context.Gatherer.Emit(dl, _group, _laneNeeded, rays, _output, GatherFlags.None, 0.0f);

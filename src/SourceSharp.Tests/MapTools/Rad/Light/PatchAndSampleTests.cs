@@ -138,7 +138,7 @@ public sealed class PatchSubdividerTests
         // 127 per face stock prints for l1_sealed_room's 16 faces (2032).
         (PatchSet patches, SubdivisionReport r) = Run(Geometry.Floor());
         Assert.Equal((1, 127), (r.PatchesBefore, r.PatchesAfter));
-        Assert.Equal(64, patches.AsSpan().ToArray().Count(p => !p.HasChildren));
+        Assert.Equal(64, patches.ToArray().Count(p => !p.HasChildren));
     }
 
     [Fact]
@@ -732,7 +732,7 @@ public sealed class PatchLightingTests
     {
         (PatchSet patches, FaceLightContext context) = Setup();
         PatchLighting.BuildPatchLights(context, 0, UniformLight(10));
-        foreach (Patch p in patches.AsSpan())
+        foreach (Patch p in patches.ToArray())
         {
             Assert.Equal(10f, p.DirectLight.X, 4);
             Assert.Equal(p.DirectLight, p.TotalLight.Flat);
@@ -744,7 +744,7 @@ public sealed class PatchLightingTests
     {
         (PatchSet patches, FaceLightContext context) = Setup();
         PatchLighting.BuildPatchLights(context, 0, UniformLight(0.5f));
-        Assert.All(patches.AsSpan().ToArray(), p => Assert.Equal(0f, p.SampleArea));
+        Assert.All(patches.ToArray(), p => Assert.Equal(0f, p.SampleArea));
     }
 
     [Fact]
@@ -752,7 +752,7 @@ public sealed class PatchLightingTests
     {
         (PatchSet patches, FaceLightContext context) = Setup(bounces: 0);
         PatchLighting.BuildPatchLights(context, 0, UniformLight(10));
-        Assert.All(patches.AsSpan().ToArray(), p => Assert.Equal(Vec3.Zero, p.DirectLight));
+        Assert.All(patches.ToArray(), p => Assert.Equal(Vec3.Zero, p.DirectLight));
     }
 
     [Fact]
@@ -783,6 +783,6 @@ public sealed class PatchLightingTests
         (PatchSet patches, _) = Setup();
         LightSample far = new() { Position = new Vec3(5000, 5000, 0), Area = 1 };
         PatchLighting.AddSampleToPatch(patches, 100, far, new Vec3(10, 10, 10), 0);
-        Assert.All(patches.AsSpan().ToArray(), p => Assert.Equal(0f, p.SampleArea));
+        Assert.All(patches.ToArray(), p => Assert.Equal(0f, p.SampleArea));
     }
 }

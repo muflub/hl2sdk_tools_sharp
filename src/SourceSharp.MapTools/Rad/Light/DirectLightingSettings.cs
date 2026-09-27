@@ -115,6 +115,14 @@ public sealed record DirectLightingSettings
     /// </summary>
     public bool StockNormalise => Compliance.Emulates(StockQuirk.VradVectorNormalise);
 
+    /// <summary>
+    /// Emit every (group, light) record the PVS allows, even one that
+    /// <see cref="DeadLightCull"/> proves contributes nothing. The cull is
+    /// exact, so this changes no output; it exists for the facts that hold the
+    /// culled and uncut gathers to the same bits.
+    /// </summary>
+    internal bool KeepDeadLights { get; init; }
+
     /// <summary>Builds settings from the stage options.</summary>
     /// <param name="options">The vrad options.</param>
     /// <param name="hdr">Which pass: true for HDR.</param>

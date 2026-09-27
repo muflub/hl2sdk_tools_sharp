@@ -8,6 +8,7 @@
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Options;
+using SourceSharp.MapTools.Tracing;
 
 namespace SourceSharp.MapTools.Rad.Ambient;
 
@@ -35,6 +36,38 @@ public interface IAmbientLightVisibility
     /// answer must not depend on the others in the batch.
     /// </remarks>
     void FractionsVisible(Vec3 start, ReadOnlySpan<Vec3> ends, Span<float> fractions);
+
+    /// <summary>
+    /// <see cref="FractionsVisible(Vec3, ReadOnlySpan{Vec3}, Span{float})"/>
+    /// for several samples at once: every start against every end.
+    /// </summary>
+    /// <param name="starts">The samples.</param>
+    /// <param name="ends">The lights.</param>
+    /// <param name="fractions">
+    /// Receives <c>starts.Length * ends.Length</c> fractions, sample-major:
+    /// the fraction for start <c>s</c> and end <c>e</c> is at
+    /// <c>s * ends.Length + e</c>.
+    /// </param>
+    /// <remarks>
+    /// The whole leaf in one call, so a tracer that wants large batches (a
+    /// GPU) sees a leaf's samples together. The default asks the one-start
+    /// overload once per start, which is what an implementation that has no
+    /// use for the larger batch wants; each answer must be the one-start
+    /// answer either way.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="fractions"/> is too short.</exception>
+    void FractionsVisible(ReadOnlySpan<Vec3> starts, ReadOnlySpan<Vec3> ends, Span<float> fractions)
+    {
+        if (fractions.Length < starts.Length * ends.Length)
+        {
+            throw new ArgumentException("one fraction per start and end", nameof(fractions));
+        }
+
+        for (int s = 0; s < starts.Length; s++)
+        {
+            FractionsVisible(starts[s], ends, fractions.Slice(s * ends.Length, ends.Length));
+        }
+    }
 }
 
 /// <summary>
@@ -109,7 +142,7 @@ public sealed class AmbientSampler
 
     private readonly int[] _flagged;
     private readonly Vec3[] _flaggedOrigins;
-    private readonly float[] _fractions;
+    private float[] _fractions;
 
     /// <summary>This work item's displacement scratch.</summary>
     public DispTestedScratch Displacements { get; }
@@ -127,6 +160,21 @@ public sealed class AmbientSampler
     /// </remarks>
     public void ComputeCube(Vec3 start, Span<Vec3> cube)
     {
+        ComputeRayCube(start, cube);
+        AddSurfaceLights([start], cube);
+    }
+
+    /// <summary>How many world lights are baked into the cubes, each a segment per sample.</summary>
+    public int SurfaceLightCount => _flagged.Length;
+
+    /// <summary>
+    /// The first half of <see cref="ComputeCube"/>: the 162 rays into the
+    /// map, projected onto the cube.
+    /// </summary>
+    /// <param name="start">Where to sample.</param>
+    /// <param name="cube">Receives the six colours.</param>
+    public void ComputeRayCube(Vec3 start, Span<Vec3> cube)
+    {
         ArgumentOutOfRangeException.ThrowIfLessThan(cube.Length, AmbientCube.Sides);
 
         ReadOnlySpan<Vec3> anorms = VertexNormals.All;
@@ -141,19 +189,123 @@ public sealed class AmbientSampler
         }
 
         AmbientCube.Project(_radColor, cube);
+    }
 
-        if (_flagged.Length > 0)
+    /// <summary>
+    /// The second half of <see cref="ComputeCube"/> for several samples: the
+    /// baked surface lights each sample sees, added to its cube.
+    /// </summary>
+    /// <param name="starts">The samples.</param>
+    /// <param name="cubes">
+    /// Their cubes from <see cref="ComputeRayCube"/>, six colours per sample
+    /// in sample order.
+    /// </param>
+    /// <remarks>
+    /// Every sample's segments to every light go to the visibility as ONE
+    /// call, so a leaf's samples reach the tracer as one batch. Each sample's
+    /// cube then gets exactly what the one-sample call gave it: the segments
+    /// are answered one by one, and the lights are added in the same order.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="cubes"/> holds fewer than six colours per start.</exception>
+    public void AddSurfaceLights(ReadOnlySpan<Vec3> starts, Span<Vec3> cubes)
+    {
+        if (cubes.Length < starts.Length * AmbientCube.Sides)
         {
-            if (_visibility is null)
-            {
-                Array.Fill(_fractions, 1.0f);
-            }
-            else
-            {
-                _visibility.FractionsVisible(start, _flaggedOrigins, _fractions);
-            }
+            throw new ArgumentException("six colours per start", nameof(cubes));
+        }
 
-            AmbientCube.AddEmitSurfaceLights(_lights, _flagged, _fractions, start, cube, _compliance);
+        int lights = _flagged.Length;
+        if (lights == 0 || starts.IsEmpty)
+        {
+            return;
+        }
+
+        int count = starts.Length * lights;
+        if (_fractions.Length < count)
+        {
+            _fractions = new float[count];
+        }
+
+        Span<float> fractions = _fractions.AsSpan(0, count);
+        if (_visibility is null)
+        {
+            fractions.Fill(1.0f);
+        }
+        else
+        {
+            _visibility.FractionsVisible(starts, _flaggedOrigins, fractions);
+        }
+
+        ApplySurfaceLights(starts, cubes, fractions);
+    }
+
+    /// <summary>
+    /// <see cref="AddSurfaceLights"/> in two halves around a trace: the
+    /// segments from every sample to every baked light, sample-major, added
+    /// to a batch.
+    /// </summary>
+    /// <param name="starts">The samples.</param>
+    /// <param name="batch">The worker's batch.</param>
+    /// <param name="stockReciprocal">Whether the rays are normalised as stock does (<see cref="TracerLineVisibility.StockReciprocal"/>).</param>
+    /// <returns>The batch index of the first segment.</returns>
+    internal int PlanSurfaceLights(ReadOnlySpan<Vec3> starts, TestLineBatch batch, bool stockReciprocal)
+    {
+        int first = batch.Count;
+        RayTraceOptions options = RayTraceOptions.TestLine();
+        for (int s = 0; s < starts.Length; s++)
+        {
+            for (int e = 0; e < _flaggedOrigins.Length; e++)
+            {
+                batch.Add(Ray.Segment(starts[s], _flaggedOrigins[e], stockReciprocal), options);
+            }
+        }
+
+        return first;
+    }
+
+    /// <summary>
+    /// The second half of <see cref="PlanSurfaceLights"/>: each sample's
+    /// fractions read from the traced batch and its lights added to its cube,
+    /// exactly as <see cref="AddSurfaceLights"/> adds them.
+    /// </summary>
+    /// <param name="starts">The samples, as planned.</param>
+    /// <param name="cubes">Their ray cubes, six colours per sample.</param>
+    /// <param name="batch">The traced batch.</param>
+    /// <param name="first">What <see cref="PlanSurfaceLights"/> returned.</param>
+    internal void ResolveSurfaceLights(ReadOnlySpan<Vec3> starts, Span<Vec3> cubes, TestLineBatch batch, int first)
+    {
+        int count = starts.Length * _flagged.Length;
+        if (count == 0)
+        {
+            return;
+        }
+
+        if (_fractions.Length < count)
+        {
+            _fractions = new float[count];
+        }
+
+        Span<float> fractions = _fractions.AsSpan(0, count);
+        for (int i = 0; i < count; i++)
+        {
+            fractions[i] = batch.IsBlocked(first + i) ? 0.0f : 1.0f;
+        }
+
+        ApplySurfaceLights(starts, cubes, fractions);
+    }
+
+    private void ApplySurfaceLights(ReadOnlySpan<Vec3> starts, Span<Vec3> cubes, ReadOnlySpan<float> fractions)
+    {
+        int lights = _flagged.Length;
+        for (int s = 0; s < starts.Length; s++)
+        {
+            AmbientCube.AddEmitSurfaceLights(
+                _lights,
+                _flagged,
+                fractions.Slice(s * lights, lights),
+                starts[s],
+                cubes.Slice(s * AmbientCube.Sides, AmbientCube.Sides),
+                _compliance);
         }
     }
 }

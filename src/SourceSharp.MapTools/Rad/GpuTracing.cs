@@ -67,11 +67,9 @@ public interface IGpuTracerFactory
 }
 
 /// <summary>
-/// The GPU batch tracer with the CPU KD tracer riding along: batch
-/// visibility and closest-hit go to the GPU; the line-sampling stages
-/// (<see cref="RadPass"/>'s prop and leaf-ambient samplers, which call
-/// <c>KdRayTracer.TestLines</c> outside the <see cref="IRayTracer"/> seam)
-/// keep the KD tree they were built with.
+/// The GPU batch tracer with the CPU KD tracer riding along: every batch goes
+/// to the GPU when the GPU honours its options, and to the KD tracer when it
+/// does not.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -83,9 +81,20 @@ public interface IGpuTracerFactory
 /// 1e-3 band).
 /// </para>
 /// <para>
+/// THE FALLBACK RULE is <see cref="IRayTracer.Supports"/>, asked per batch.
+/// The prop and leaf-ambient samplers trace <c>TestLine</c> segments whose
+/// options a GPU kernel may not express — a skipped id so a static prop does
+/// not shadow itself, the sky passing rather than blocking — and a batch the
+/// GPU would have to answer differently is answered by the KD tracer instead.
+/// So correctness never rests on what a device can do: the most a device
+/// lacking an option costs is that batch's speed.
+/// </para>
+/// <para>
 /// <see cref="TracerIdentity"/> names both halves: it feeds the lighting
 /// cache key (plan 10a), and a product made through a hybrid must never be
-/// read by a pure-CPU or pure-GPU build.
+/// read by a pure-CPU or pure-GPU build. Its suffix changed when the samplers
+/// moved onto the seam, because their answers then started coming from the
+/// GPU, and a product cached before that must not be read after it.
 /// </para>
 /// </remarks>
 public sealed class HybridRayTracer : IRayTracer, IDisposable
@@ -101,11 +110,20 @@ public sealed class HybridRayTracer : IRayTracer, IDisposable
         CpuTracer = cpu ?? throw new ArgumentNullException(nameof(cpu));
     }
 
-    /// <summary>The KD tracer the line samplers use.</summary>
+    /// <summary>The KD tracer that answers the batches the GPU cannot.</summary>
     public KdRayTracer CpuTracer { get; }
 
     /// <inheritdoc/>
-    public string TracerIdentity => _gpu.TracerIdentity + "+kd-lines";
+    public string TracerIdentity => _gpu.TracerIdentity + "+kd-fallback";
+
+    /// <inheritdoc/>
+    /// <remarks>Every option: what the GPU lacks, the KD tracer has.</remarks>
+    public bool Supports(RayTraceOptions options) => true;
+
+    /// <summary>Which half answers a batch with these options.</summary>
+    /// <param name="options">The batch's options.</param>
+    /// <returns>The GPU when it honours them, else the KD tracer.</returns>
+    public IRayTracer TracerFor(RayTraceOptions options) => _gpu.Supports(options) ? _gpu : CpuTracer;
 
     /// <inheritdoc/>
     public ValueTask TraceVisibilityAsync(
@@ -113,7 +131,7 @@ public sealed class HybridRayTracer : IRayTracer, IDisposable
         Memory<ulong> hitBits,
         RayTraceOptions options,
         CancellationToken cancellationToken = default) =>
-        _gpu.TraceVisibilityAsync(rays, hitBits, options, cancellationToken);
+        TracerFor(options).TraceVisibilityAsync(rays, hitBits, options, cancellationToken);
 
     /// <inheritdoc/>
     public ValueTask TraceClosestAsync(
@@ -121,7 +139,7 @@ public sealed class HybridRayTracer : IRayTracer, IDisposable
         Memory<HitId> hits,
         RayTraceOptions options,
         CancellationToken cancellationToken = default) =>
-        _gpu.TraceClosestAsync(rays, hits, options, cancellationToken);
+        TracerFor(options).TraceClosestAsync(rays, hits, options, cancellationToken);
 
     /// <summary>Releases the GPU tracer this hybrid owns, if it is disposable; the KD tracer is vrad's.</summary>
     public void Dispose() => (_gpu as IDisposable)?.Dispose();

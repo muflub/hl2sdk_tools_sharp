@@ -44,7 +44,7 @@ public sealed class DispCorpusTests
     public async Task ThePatchHashHoldsEveryLeafPatchWhenLightBounces()
     {
         RadWorld world = await StockDispVrad.LightAsync("p3f_grid_mixed");
-        int leaves = world.Patches.AsSpan().ToArray().Count(p => !p.HasChildren);
+        int leaves = world.Patches.ToArray().Count(p => !p.HasChildren);
         Assert.Equal(leaves, world.DisplacementHash!.Patches.Entries);
     }
 

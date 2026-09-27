@@ -213,4 +213,135 @@ public class WindingArenaTests
     [Fact]
     public void MaxPointsOnWindingIsSixtyFour() =>
         Assert.Equal(64, WindingArena.MaxPointsOnWinding);
+
+    // Fills a winding's storage with points that name it and its slot.
+    private static Winding Stamped(WindingArena arena, int id, int capacity)
+    {
+        Winding w = arena.Alloc(capacity);
+        Span<Vec3> storage = arena.Storage(w);
+        for (int k = 0; k < capacity; k++)
+        {
+            storage[k] = new Vec3(id, k, -id);
+        }
+
+        return arena.SetCount(w, capacity);
+    }
+
+    [Fact]
+    public void WindingsPastTheFirstSegmentKeepTheirPoints()
+    {
+        // Enough 68-point windings to fill several segments; a segment is not
+        // a multiple of 68 points, so some reservations meet a segment's end
+        // and must move to the next rather than straddle it.
+        var arena = new WindingArena(16);
+        List<Winding> all = [];
+        int count = (3 * WindingArena.SegmentLength / 68) + 10;
+        for (int id = 0; id < count; id++)
+        {
+            all.Add(Stamped(arena, id, 68));
+        }
+
+        for (int id = 0; id < count; id++)
+        {
+            Span<Vec3> points = arena.Points(all[id]);
+            Assert.Equal(68, points.Length);
+            Assert.Equal(new Vec3(id, 0, -id), points[0]);
+            Assert.Equal(new Vec3(id, 67, -id), points[67]);
+        }
+
+        Assert.Equal(4 * WindingArena.SegmentLength, arena.SlabCapacity);
+    }
+
+    [Fact]
+    public void TheFirstSegmentDoublesAndStopsAtAFullSegment()
+    {
+        var arena = new WindingArena(4);
+        arena.Alloc(4);
+        Assert.Equal(4, arena.SlabCapacity);
+
+        arena.Alloc(4);
+        Assert.Equal(8, arena.SlabCapacity);
+
+        var big = new WindingArena(3 * WindingArena.SegmentLength);
+        Assert.Equal(WindingArena.SegmentLength, big.SlabCapacity);
+    }
+
+    [Fact]
+    public void AnArenaStartedEmptyGrowsToTheDefaultFirst()
+    {
+        var arena = new WindingArena(0);
+        Winding w = arena.Create([new Vec3(1f, 2f, 3f)]);
+        Assert.Equal(4096, arena.SlabCapacity);
+        Assert.Equal(new Vec3(1f, 2f, 3f), arena.Points(w)[0]);
+    }
+
+    [Fact]
+    public void AReservationLargerThanASegmentIsRefused()
+    {
+        var arena = new WindingArena();
+        Assert.Throws<ArgumentOutOfRangeException>(() => arena.Alloc(WindingArena.SegmentLength + 1));
+        Assert.False(arena.Alloc(WindingArena.SegmentLength).IsNull);
+    }
+
+    [Fact]
+    public void FreeAndRecycleWorkOnALaterSegment()
+    {
+        var arena = new WindingArena();
+        for (int i = 0; i < (WindingArena.SegmentLength / 64) + 1; i++)
+        {
+            arena.Alloc(64);
+        }
+
+        Winding late = Stamped(arena, 7, 64);
+        arena.Free(late);
+        Assert.Throws<InvalidWindingException>(() => arena.Free(late));
+
+        Winding again = arena.Alloc(64);
+        Assert.Equal(1, arena.RecycledAllocations);
+        Assert.Equal(new Vec3(7, 0, -7), arena.Storage(again)[0]);
+    }
+
+    [Fact]
+    public void AFullSegmentIsNeverCopiedSoItsSpansStayLive()
+    {
+        var arena = new WindingArena();
+        for (int i = 0; i < WindingArena.SegmentLength / 64; i++)
+        {
+            arena.Alloc(64);
+        }
+
+        Winding second = Stamped(arena, 3, 8);
+        Span<Vec3> view = arena.Storage(second);
+        for (int i = 0; i < 4 * WindingArena.SegmentLength / 64; i++)
+        {
+            arena.Alloc(64);
+        }
+
+        view[0] = new Vec3(9f, 9f, 9f);
+        Assert.Equal(new Vec3(9f, 9f, 9f), arena.Points(second)[0]);
+    }
+
+    [Fact]
+    public void KeepingManyWindingsAllocatesAboutTheKeptStorage()
+    {
+        // Sixteen segments of kept windings. Doubling one slab would allocate
+        // every slab it outgrew as well -- about twice the final one, copied.
+        var arena = new WindingArena();
+        int windings = 16 * WindingArena.SegmentLength / 64;
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < windings; i++)
+        {
+            arena.Alloc(64);
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        // 13 bytes a point (a Vec3 and a live flag). One segment of slack
+        // covers the first segment's doublings from its default size.
+        const long pointBytes = 13;
+        long kept = 16L * WindingArena.SegmentLength * pointBytes;
+        long slack = WindingArena.SegmentLength * pointBytes;
+        Assert.InRange(allocated, kept - slack, kept + slack);
+    }
 }

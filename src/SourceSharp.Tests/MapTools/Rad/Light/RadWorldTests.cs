@@ -255,6 +255,58 @@ public sealed class QuirkEffectTests
     public void CorrectCastsEachOfTheHundredAndSixtyTwoOnce() => Assert.Equal(162, ProbeRays(stock: false));
 
     [Fact]
+    public void TheProbeBoundIsTheStockCountWhichCoversBothSides()
+    {
+        // The radial probe reserves this many sky rays a leaf up front, so it
+        // must bound what either side records.
+        Assert.Equal(164, RadWorld.SkyProbeRaysPerLeaf);
+        Assert.InRange(ProbeRays(stock: false), 0, RadWorld.SkyProbeRaysPerLeaf);
+        Assert.InRange(ProbeRays(stock: true), 0, RadWorld.SkyProbeRaysPerLeaf);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ProbingIntoAReservedLogNeverGrowsIt(bool stock)
+    {
+        RadWorld world = LightBox.Build(LightBox.Map(), LightBox.Settings(stock: stock));
+        LightRayLog rays = new();
+        const int probes = 50;
+        rays.ReserveSky(probes * RadWorld.SkyProbeRaysPerLeaf);
+        int capacity = rays.SkyCapacity;
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < probes; i++)
+        {
+            world.CanLeafTraceToSky(0, rays);
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Assert.Equal(capacity, rays.SkyCapacity);
+        Assert.Equal(probes * (stock ? 164 : 162), rays.SkyCount);
+
+        // No sky camera in the box, so no recursion rays and no ray storage
+        // grown; only the tape may take a word or two.
+        Assert.Equal(0, rays.Sky2Count);
+        Assert.InRange(allocated, 0, 4096);
+    }
+
+    [Fact]
+    public void ReserveSkyKeepsTheRaysAlreadyRecordedAndNeverShrinks()
+    {
+        LightRayLog rays = new();
+        rays.EmitSky(new Vec3(1, 2, 3), new Vec3(4, 5, 6));
+        rays.ReserveSky(1000);
+        Assert.Equal(1000, rays.SkyCapacity);
+        Assert.Equal(1, rays.SkyCount);
+        Assert.Equal(1f, rays.SkyRays()[0].OriginX);
+
+        rays.ReserveSky(10);
+        Assert.Equal(1000, rays.SkyCapacity);
+        Assert.Throws<ArgumentOutOfRangeException>(() => rays.ReserveSky(-1));
+    }
+
+    [Fact]
     public void AProbeThatSeesSkyAnswersTrue()
     {
         RadWorld world = LightBox.Build(LightBox.Map());

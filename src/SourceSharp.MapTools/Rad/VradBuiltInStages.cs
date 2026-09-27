@@ -53,7 +53,7 @@ internal static class VradBuiltInStages
                 return;
             }
 
-            KdRayTracer environment = Environment(pass);
+            IRayTracer environment = pass.Tracer;
             Vec3[] centres = await DetailPropLighting.LoadModelCentresAsync(lump, pass.Content, cancellationToken)
                 .ConfigureAwait(false);
             PropLightSampler sampler = new(
@@ -93,7 +93,7 @@ internal static class VradBuiltInStages
                     Parallelism = pass.Parallelism.MaxDegree,
                     Pool = pass.Parallelism.Pool,
                 },
-                new TracerLineVisibility(Environment(pass), pass.Options.Compliance),
+                new TracerLineVisibility(pass.Tracer, pass.Options.Compliance),
                 cancellationToken).ConfigureAwait(false);
 
             // The index is version 0 and the samples version 1 in every stock
@@ -130,7 +130,7 @@ internal static class VradBuiltInStages
             IReadOnlyList<StaticPropModel> models = await new StaticPropModelLoader(pass.Content, pass.PropCollision)
                 .LoadDictionaryAsync(lump.ModelNames, cancellationToken).ConfigureAwait(false);
             PropLightSampler sampler = new(
-                Environment(pass), pass.Options.Compliance, pass.World.Lights.SunAngularExtent, pass.Options.Fast);
+                pass.Tracer, pass.Options.Compliance, pass.World.Lights.SunAngularExtent, pass.Options.Fast);
 
             StaticPropLightingResult result = await StaticPropLighting.ComputeAsync(
                 pass.Scene(bsp),
@@ -166,14 +166,4 @@ internal static class VradBuiltInStages
 
         return null;
     }
-
-    /// <summary>
-    /// 4g's samplers trace through <see cref="KdRayTracer.TestLines"/>, which
-    /// the batch <see cref="IRayTracer"/> seam does not have.
-    /// </summary>
-    private static KdRayTracer Environment(RadPass pass) =>
-        pass.Tracer as KdRayTracer
-            ?? (pass.Tracer as HybridRayTracer)?.CpuTracer
-            ?? throw new NotSupportedException(
-                $"prop and leaf-ambient lighting need the CPU KD tracer; the compile was given {pass.Tracer.TracerIdentity}");
 }

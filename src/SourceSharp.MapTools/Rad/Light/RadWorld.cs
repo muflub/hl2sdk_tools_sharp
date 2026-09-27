@@ -53,6 +53,20 @@ public sealed class RadWorldStatistics
 
     /// <summary>How many trace batches the face lighting issued.</summary>
     public int Batches { get; internal set; }
+
+    /// <summary>
+    /// (group, light) gather records the face lighting emitted, direct
+    /// gather and supersampling together: the lights that passed the PVS test
+    /// and were not culled.
+    /// </summary>
+    public long LightRecords { get; internal set; }
+
+    /// <summary>
+    /// (group, light) records left out because the light provably lit no lane
+    /// of the group (<see cref="DeadLightCull"/>); they would have added
+    /// nothing, so the output is the same with or without them.
+    /// </summary>
+    public long CulledLightRecords { get; internal set; }
 }
 
 /// <summary>
@@ -366,6 +380,10 @@ public sealed partial class RadWorld
         }
 
         LightRayLog rays = new() { StockRays = Geometry.StockEstimates };
+
+        // Every leaf records at most SkyProbeRaysPerLeaf first-stage rays, so
+        // the whole batch's storage is taken once instead of doubled into.
+        rays.ReserveSky(checked(leaves.Count * SkyProbeRaysPerLeaf));
         List<int> hits = [];
         WorkQueueOptions stage = new() { Stage = "RadWorld_Start" };
 
@@ -405,6 +423,14 @@ public sealed partial class RadWorld
             SkyLeaves.MarkSky(leaf);
         }
     }
+
+    /// <summary>
+    /// The most first-stage sky rays <see cref="CanLeafTraceToSky"/> records
+    /// for one leaf: the directions go four at a time, and with the tail
+    /// double-count the last group is padded to four.
+    /// </summary>
+    internal const int SkyProbeRaysPerLeaf =
+        (LightConstants.VertexNormalCount + SampleGroup.Lanes - 1) / SampleGroup.Lanes * SampleGroup.Lanes;
 
     /// <summary>
     /// <c>CanLeafTraceToSky</c>: does any of the 162
