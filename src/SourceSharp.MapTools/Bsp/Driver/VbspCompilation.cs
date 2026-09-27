@@ -64,7 +64,25 @@ internal sealed class VbspCompilation
 
     private ComplianceOptions Compliance => _compile.Options.Compliance;
 
+    /// <summary>The compile's CSG and tree state, once the load phase has made it.</summary>
+    internal BspBuildContext? Build => _build;
+
     internal async Task<VbspResult> RunAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await RunCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // The build's pooled brush side arrays go when the compile does,
+            // however it ended: a failed or cancelled compile must not leave
+            // them in a context the caller might still reference.
+            _build?.ReleaseBrushSidePool();
+        }
+    }
+
+    private async Task<VbspResult> RunCoreAsync(CancellationToken cancellationToken)
     {
         // ---- the async load phase: everything that reads content ----------
 

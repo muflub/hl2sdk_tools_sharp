@@ -63,6 +63,10 @@ public sealed class BspBuildContext
 
         Compile = compile;
         Map = map;
+
+        SidePool = compile.BrushSidePooling == BrushSidePooling.Off
+            ? null
+            : new BrushSidePool(checkReturns: compile.BrushSidePooling == BrushSidePooling.Checked);
     }
 
     /// <summary>The compile's shared state.</summary>
@@ -88,6 +92,17 @@ public sealed class BspBuildContext
 
     /// <summary>Everything the compile has to say.</summary>
     public IList<CompileDiagnostic> Diagnostics => Compile.Diagnostics;
+
+    /// <summary>
+    /// Where freed brushes' side arrays wait for the next brush, or null when
+    /// the compile turned pooling off.
+    /// </summary>
+    /// <remarks>
+    /// Owned by this context and by nothing else, so it lives exactly as long
+    /// as one compile; <see cref="ReleaseBrushSidePool"/> empties it at the
+    /// end. See <see cref="BrushSidePool"/> for which brushes feed it.
+    /// </remarks>
+    internal BrushSidePool? SidePool { get; }
 
     /// <summary>How many brushes have ever been allocated: <c>s_BrushId</c>.</summary>
     public int AllocatedBrushes { get; private set; }
@@ -160,9 +175,20 @@ public sealed class BspBuildContext
     /// </summary>
     /// <param name="sideCapacity">How many sides to reserve.</param>
     /// <returns>The brush.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="sideCapacity"/> is negative.</exception>
+    /// <remarks>
+    /// The side array comes from <see cref="SidePool"/> when there is one,
+    /// already cleared, so the brush starts exactly as a freshly allocated one
+    /// would.
+    /// </remarks>
     public BspBrush AllocBrush(int sideCapacity)
     {
-        BspBrush brush = new(sideCapacity) { Id = AllocatedBrushes };
+        ArgumentOutOfRangeException.ThrowIfNegative(sideCapacity);
+
+        BspBrush brush = SidePool is null
+            ? new BspBrush(sideCapacity)
+            : new BspBrush(SidePool.Rent(sideCapacity));
+        brush.Id = AllocatedBrushes;
         AllocatedBrushes++;
         ActiveBrushes++;
         return brush;
@@ -174,24 +200,45 @@ public sealed class BspBuildContext
     /// </summary>
     /// <param name="brush">The brush to free.</param>
     /// <exception cref="ArgumentNullException"><paramref name="brush"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">The brush was already freed.</exception>
     /// <remarks>
+    /// <para>
     /// The brush object itself is the GC's; what has to be returned by hand is
     /// the arena storage its side windings hold, which is exactly what stock's
-    /// <c>FreeWinding</c> loop does. Freeing a brush twice throws out of the
-    /// arena's double-free check rather than corrupting a free list.
+    /// <c>FreeWinding</c> loop does, and its side array, which goes back to
+    /// <see cref="SidePool"/> for the next brush of the same capacity.
+    /// </para>
+    /// <para>
+    /// The brush is left <see cref="BspBrush.IsFreed"/>: its sides are gone,
+    /// and reading them, or freeing it again, throws. Stock's double free
+    /// corrupts the heap; this one says so.
+    /// </para>
     /// </remarks>
     public void FreeBrush(BspBrush brush)
     {
         ArgumentNullException.ThrowIfNull(brush);
 
-        for (int i = 0; i < brush.SideCount; i++)
+        Span<BspBrushSide> sides = brush.Sides;
+        for (int i = 0; i < sides.Length; i++)
         {
-            Windings.Free(brush.Sides[i].Winding);
-            brush.Sides[i].Winding = Winding.Null;
+            Windings.Free(sides[i].Winding);
+            sides[i].Winding = Winding.Null;
         }
+
+        BspBrushSide[] storage = brush.DetachSides();
+        SidePool?.Return(storage);
 
         ActiveBrushes--;
     }
+
+    /// <summary>Drops every side array the build has pooled.</summary>
+    /// <remarks>
+    /// The vbsp driver calls it when the compile ends, in a <c>finally</c>, so
+    /// a finished, failed or cancelled compile leaves nothing behind in a
+    /// context a host might still be holding. The pool stays usable: a later
+    /// <see cref="AllocBrush"/> simply allocates.
+    /// </remarks>
+    public void ReleaseBrushSidePool() => SidePool?.Clear();
 
     /// <summary>
     /// Frees a whole list: <c>FreeBrushList</c>.
