@@ -160,7 +160,16 @@ public static class Program
             }
 
             case "vrad":
-                return await VradCommand.RunAsync(new PhysicalFileSystem("/"), args[1..], output, cancellationToken).ConfigureAwait(false);
+            {
+                // The game mount resolves |appid_N| search paths through the
+                // Steam library, as vbsp's does.
+                PhysicalFileSystem disk = new("/");
+                string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                IReadOnlyList<VPath> roots = [.. DefaultSteamRoots(home).Select(VPath.Create)];
+
+                return await VradCommand.RunAsync(disk, args[1..], VbspHost.SteamFor(disk, roots), output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             case "diff":
                 return await DiffCommand.RunAsync(new PhysicalFileSystem("/"), args[1..], output, cancellationToken)

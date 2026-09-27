@@ -1114,6 +1114,10 @@ public static class BenchCommand
             content.Add(lights, Path.GetFullPath(lights));
         }
 
+        await LightsRadLocator.AddFallbackAsync(
+            content, disk, mounted.Content, mounted.GameInfo, VbspHost.SteamFor(disk, searchRoots), logger, ct)
+            .ConfigureAwait(false);
+
         // The store's LIFECYCLE is the harness's (a fresh dir per cold run, the
         // plan's isolation rule); its OPENING is the product's, through the same
         // WithBackendsAsync seam the Phase 11 facts pin.
@@ -1205,7 +1209,9 @@ public static class BenchCommand
             {
                 rc = command == "vvis"
                     ? await VvisCommand.RunAsync(disk, [.. stageArgs], TextWriter.Null, ct).ConfigureAwait(false)
-                    : await VradCommand.RunAsync(disk, [.. stageArgs], TextWriter.Null, ct).ConfigureAwait(false);
+                    : await VradCommand.RunAsync(
+                        disk, [.. stageArgs], VbspHost.SteamFor(disk, DefaultRoots()), TextWriter.Null, ct)
+                        .ConfigureAwait(false);
                 if (File.Exists(paths.Bsp))
                 {
                     written.Add(VPath.Create(paths.Bsp));
