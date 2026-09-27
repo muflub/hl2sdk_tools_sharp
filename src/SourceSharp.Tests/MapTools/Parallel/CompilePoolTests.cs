@@ -385,6 +385,301 @@ public class CompilePoolTests
         await job.WaitAsync(Patience);
     }
 
+    // ---- Hand-out and wake-ups -----------------------------------------------
+
+    [Fact]
+    public async Task ManyJobsInterleavingClaimEveryItemExactlyOnce()
+    {
+        // The hand-out reads a published job list with no lock and each thread
+        // keeps its own cursor; jobs of different sizes and degrees join and
+        // leave the list while threads are scanning it.
+        using CompilePool pool = new(4);
+        WorkQueue[] queues = [.. Enumerable.Range(1, 6).Select(i => new WorkQueue(On(pool, 1 + (i % 4))))];
+        int[][] claims = [.. Enumerable.Range(0, queues.Length).Select(i => new int[5000 + (i * 3001)])];
+        try
+        {
+            await Task.WhenAll(queues.Select((queue, q) => queue.RunAsync(
+                claims[q].Length,
+                (index, _) => Interlocked.Increment(ref claims[q][index]),
+                new WorkQueueOptions { ChunkSize = q % 2 == 0 ? 1 : 0 },
+                CancellationToken.None))).WaitAsync(Patience);
+        }
+        finally
+        {
+            foreach (WorkQueue queue in queues)
+            {
+                queue.Dispose();
+            }
+        }
+
+        Assert.All(claims, perJob => Assert.All(perJob, c => Assert.Equal(1, c)));
+    }
+
+    [Fact]
+    public async Task FinishedJobsArePrunedFromTheHandOut()
+    {
+        // A long-lived pool runs many compiles: a finished job must not stay in
+        // the list the threads scan.
+        using CompilePool pool = new(2);
+        using WorkQueue queue = new(On(pool, 2));
+        for (int run = 0; run < 20; run++)
+        {
+            await queue.RunAsync(50, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
+        }
+
+        Assert.True(SpinWait.SpinUntil(() => pool.ActiveJobCount == 0, Patience));
+    }
+
+    [Fact]
+    public async Task ASlotBackOnARunOutJobWakesNobody()
+    {
+        // Every item is claimed before any finishes (the barrier), so each slot
+        // comes back to a job with nothing left to hand out: the only signal is
+        // the job's own arrival.
+        using CompilePool pool = new(4);
+        using WorkQueue queue = new(On(pool, 4));
+        await queue.RunAsync(4, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
+        using Barrier together = new(4);
+
+        long before = pool.SignalCount;
+        await queue.RunAsync(
+            4,
+            (_, _) => Assert.True(together.SignalAndWait(Patience)),
+            new WorkQueueOptions { ChunkSize = 1 },
+            CancellationToken.None).WaitAsync(Patience);
+
+        Assert.Equal(1, pool.SignalCount - before);
+    }
+
+    [Fact]
+    public async Task ANewJobWakesEveryParkedThread()
+    {
+        using CompilePool pool = new(4);
+        using WorkQueue queue = new(On(pool, 4));
+        await queue.RunAsync(4, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
+        Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == 4, Patience));
+        using Barrier together = new(4);
+
+        long before = pool.WakeAllCount;
+        await queue.RunAsync(
+            4,
+            (_, _) => Assert.True(together.SignalAndWait(Patience)),
+            new WorkQueueOptions { ChunkSize = 1 },
+            CancellationToken.None).WaitAsync(Patience);
+
+        Assert.Equal(1, pool.WakeAllCount - before);
+    }
+
+    [Fact]
+    public async Task ASlotBackOnAFullJobWakesOneThreadNotAll()
+    {
+        // A degree-one job on a four-thread pool: three threads are turned away
+        // and park, and a slot that comes back wakes one of them, not all.
+        using CompilePool pool = new(4);
+        using WorkQueue queue = new(On(pool, 1));
+        await queue.RunAsync(1, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
+        Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == 4, Patience));
+        int[] claims = new int[200];
+
+        long allBefore = pool.WakeAllCount;
+        long oneBefore = pool.WakeOneCount;
+        await queue.RunAsync(
+            claims.Length,
+            (index, _) =>
+            {
+                Interlocked.Increment(ref claims[index]);
+                Thread.Sleep(1);
+            },
+            new WorkQueueOptions { ChunkSize = 1 },
+            CancellationToken.None).WaitAsync(Patience);
+
+        Assert.All(claims, c => Assert.Equal(1, c));
+        Assert.Equal(1, pool.WakeAllCount - allBefore);
+        Assert.True(pool.WakeOneCount > oneBefore, "no slot coming back woke a turned-away thread");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AFullJobThatStopsEarlyLeavesThePoolFitForTheNext(bool fault)
+    {
+        // Threads are turned away from the degree-one job when it stops; the
+        // stop must still end the job, and the next job must get every thread.
+        using CompilePool pool = new(4);
+        using WorkQueue stopping = new(On(pool, 1));
+        using WorkQueue next = new(On(pool, 4));
+        using CancellationTokenSource cts = new();
+
+        Task stopped = stopping.RunAsync(
+            100_000,
+            (index, _) =>
+            {
+                if (index == 50)
+                {
+                    if (fault)
+                    {
+                        throw new InvalidOperationException("item 50");
+                    }
+
+                    cts.Cancel();
+                }
+
+                Thread.SpinWait(100);
+            },
+            new WorkQueueOptions { ChunkSize = 1 },
+            cts.Token);
+
+        if (fault)
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => stopped.WaitAsync(Patience));
+        }
+        else
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => stopped.WaitAsync(Patience));
+        }
+
+        using Barrier together = new(4);
+        int[] claims = new int[4];
+        await next.RunAsync(
+            claims.Length,
+            (index, _) =>
+            {
+                Interlocked.Increment(ref claims[index]);
+                Assert.True(together.SignalAndWait(Patience));
+            },
+            new WorkQueueOptions { ChunkSize = 1 },
+            CancellationToken.None).WaitAsync(Patience);
+        Assert.All(claims, c => Assert.Equal(1, c));
+    }
+
+    [Fact]
+    public async Task StepsReuseOneHandOutSnapshotUntilTheJobSetChanges()
+    {
+        // Every step used to copy the job list into a fresh array under the
+        // pool's lock; the list is now published once per change.
+        using CompilePool pool = new(2);
+        using WorkQueue queue = new(On(pool, 2));
+        object? first = null;
+        object? last = null;
+        await queue.RunAsync(
+            2000,
+            (index, _) =>
+            {
+                if (index == 0)
+                {
+                    Volatile.Write(ref first, pool.ActiveSnapshot);
+                }
+                else if (index == 1999)
+                {
+                    Volatile.Write(ref last, pool.ActiveSnapshot);
+                }
+            },
+            new WorkQueueOptions { ChunkSize = 1 },
+            CancellationToken.None).WaitAsync(Patience);
+
+        Assert.NotNull(first);
+        Assert.Same(first, last);
+
+        using WorkQueue other = new(On(pool, 1));
+        object? during = null;
+        await other.RunAsync(1, (_, _) => during = pool.ActiveSnapshot, null, CancellationToken.None)
+            .WaitAsync(Patience);
+        Assert.NotSame(first, during);
+    }
+
+    [Fact]
+    public async Task AStepAllocatesNothingOnThePoolThread()
+    {
+        // One thread, one job, one item per step: whatever the thread
+        // allocates between two items is the pool's per-step cost. The copy
+        // of the job list this replaced was one array per step.
+        const int steps = 2000;
+        using CompilePool pool = new(1);
+        using WorkQueue queue = new(On(pool, 1));
+        long at100 = 0;
+        long atEnd = 0;
+        await queue.RunAsync(
+            steps + 101,
+            (index, _) =>
+            {
+                if (index == 100)
+                {
+                    at100 = GC.GetAllocatedBytesForCurrentThread();
+                }
+                else if (index == steps + 100)
+                {
+                    atEnd = GC.GetAllocatedBytesForCurrentThread();
+                }
+            },
+            new WorkQueueOptions { ChunkSize = 1 },
+            CancellationToken.None).WaitAsync(Patience);
+
+        Assert.InRange(atEnd - at100, 0, steps);
+    }
+
+    [Fact]
+    public async Task ParkedThreadsThatTimeOutStayCountedOnceAndStillWake()
+    {
+        // A parked thread with no signal times out every so often, takes its
+        // own flag back and parks again; the count must not drift, and a job
+        // after several timeouts must still get every thread.
+        using CompilePool pool = new(4);
+        using WorkQueue queue = new(On(pool, 4));
+        await queue.RunAsync(4, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
+        Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == 4, Patience));
+
+        DateTime until = DateTime.UtcNow.AddMilliseconds(350);
+        while (DateTime.UtcNow < until)
+        {
+            Assert.InRange(pool.ParkedThreadCount, 0, 4);
+            Thread.Sleep(5);
+        }
+
+        Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == 4, Patience));
+        using Barrier together = new(4);
+        await queue.RunAsync(
+            4,
+            (_, _) => Assert.True(together.SignalAndWait(Patience)),
+            new WorkQueueOptions { ChunkSize = 1 },
+            CancellationToken.None).WaitAsync(Patience);
+    }
+
+    [Fact]
+    public async Task ManySmallJobsInARowRunEveryItemOnce()
+    {
+        // Each job ends with the threads parking and starts with them being
+        // woken: two thousand of those races, one after another.
+        using CompilePool pool = new(4);
+        using WorkQueue queue = new(On(pool, 4));
+        int[] claims = new int[64];
+        for (int run = 0; run < 2000; run++)
+        {
+            await queue.RunAsync(
+                claims.Length,
+                (index, _) => Interlocked.Increment(ref claims[index]),
+                new WorkQueueOptions { ChunkSize = 1 },
+                CancellationToken.None).WaitAsync(Patience);
+        }
+
+        Assert.All(claims, c => Assert.Equal(2000, c));
+    }
+
+    [Fact]
+    public async Task DisposingAPoolWhoseThreadsAreParkedEndsThemAll()
+    {
+        CompilePool pool = new(3);
+        using (WorkQueue queue = new(On(pool, 3)))
+        {
+            await queue.RunAsync(3, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
+        }
+
+        Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == 3, Patience));
+        pool.Dispose();
+
+        Assert.Equal(0, pool.LiveThreadCount);
+        Assert.Equal(0, pool.ParkedThreadCount);
+    }
+
     private static void InterlockedMax(ref int target, int value)
     {
         int seen = Volatile.Read(ref target);

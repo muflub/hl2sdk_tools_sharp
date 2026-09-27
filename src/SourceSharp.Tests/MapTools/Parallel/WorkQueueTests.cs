@@ -23,6 +23,101 @@ public class WorkQueueTests
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
 
+    // ---- Pooled hand-out decisions -------------------------------------------
+
+    [Theory]
+    [InlineData(false, true, 0, 1, true)]   // run out, all built, someone inside: decline unlocked
+    [InlineData(true, true, 0, 1, false)]   // stopping: the lock decides who finishes
+    [InlineData(false, false, 0, 1, false)] // items left: a slot may be free
+    [InlineData(false, true, 1, 1, false)]  // a slot still to build, even with nothing left
+    [InlineData(false, true, 0, 0, false)]  // nobody inside: this thread may have to finish it
+    public void APooledStepDeclinesWithoutTheLockOnlyWhileAJobDrains(
+        bool stopping, bool exhausted, int unbuiltLeft, int inFlight, bool expected) =>
+        Assert.Equal(expected, WorkQueue.IsDrainingWithoutMe(stopping, exhausted, unbuiltLeft, inFlight));
+
+    [Theory]
+    [InlineData(false, false, false, 1, true, 0)]  // turned away, items left: wake one, answer it
+    [InlineData(false, false, false, 0, false, 0)] // nobody was turned away
+    [InlineData(false, false, true, 1, false, 1)]  // run out: nothing to take
+    [InlineData(false, true, false, 1, false, 1)]  // stopping: the last thread out finishes
+    [InlineData(true, false, false, 1, false, 1)]  // this thread is finishing the job
+    public void ASlotBackWakesAThreadOnlyWhenOneWasTurnedAwayAndItemsRemain(
+        bool finishing, bool stopping, bool exhausted, int turnedAway, bool expected, int left)
+    {
+        Assert.Equal(expected, WorkQueue.TakeWakeForFreedSlot(finishing, stopping, exhausted, ref turnedAway));
+        Assert.Equal(left, turnedAway);
+    }
+
+    [Fact]
+    public void TwoTurnedAwayScansAreOwedTwoWakes()
+    {
+        // A flag would answer both with the first slot back and leave the
+        // second slot free while its thread slept.
+        int turnedAway = 2;
+        Assert.True(WorkQueue.TakeWakeForFreedSlot(false, false, false, ref turnedAway));
+        Assert.True(WorkQueue.TakeWakeForFreedSlot(false, false, false, ref turnedAway));
+        Assert.False(WorkQueue.TakeWakeForFreedSlot(false, false, false, ref turnedAway));
+        Assert.Equal(0, turnedAway);
+    }
+
+    // ---- Claim order --------------------------------------------------------
+
+    [Fact]
+    public void WithoutCostsTheClaimOrderIsNotMaterialised()
+    {
+        // Index order is applied in place; no identity table per run.
+        Assert.Null(WorkQueue.BuildOrder(1000, null));
+    }
+
+    [Fact]
+    public void WithCostsTheOrderIsDescendingCostWithTiesInIndexOrder()
+    {
+        // The sort is unstable, so the ties are broken by the comparison: the
+        // result must equal the stable descending sort item for item.
+        Random random = new(1234);
+        long[] costs = [.. Enumerable.Range(0, 5000).Select(_ => (long)random.Next(0, 40))];
+        costs[17] = long.MaxValue;
+        costs[18] = long.MinValue;
+
+        int[]? order = WorkQueue.BuildOrder(costs.Length, i => costs[i]);
+
+        int[] stable = [.. Enumerable.Range(0, costs.Length).OrderByDescending(i => costs[i])];
+        Assert.Equal(stable, order);
+    }
+
+    [Fact]
+    public void WithCostsTheOrderAllocatesOnlyTheCostsAndTheOrder()
+    {
+        // The LINQ sort this replaced also copied the indices into a buffer,
+        // built a key array and an index map, and copied the result out: over
+        // twice the memory of the costs and the order themselves.
+        const int count = 100_000;
+        _ = WorkQueue.BuildOrder(16, i => i);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        int[]? order = WorkQueue.BuildOrder(count, i => i % 7);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.NotNull(order);
+        Assert.InRange(allocated, 0, ((long)count * (sizeof(long) + sizeof(int))) + 4096);
+    }
+
+    [Fact]
+    public async Task WithoutCostsItemsAreClaimedInIndexOrder()
+    {
+        // The unmaterialised order still maps claim position n to item n.
+        var order = new List<int>();
+
+        using var queue = new WorkQueue(CompileParallelism.Serial);
+        await queue.RunAsync(
+            300,
+            (index, _) => order.Add(index),
+            null,
+            CancellationToken.None).WaitAsync(Patience, CancellationToken.None);
+
+        Assert.Equal(Enumerable.Range(0, 300), order);
+    }
+
     // ---- Claiming -----------------------------------------------------------
 
     [Fact]

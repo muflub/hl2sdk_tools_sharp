@@ -396,28 +396,95 @@ public sealed class WorkQueue : IDisposable
         return options.ItemCost is not null ? 1 : 0;
     }
 
-    private static int[] BuildOrder(int itemCount, Func<int, long>? cost)
+    /// <summary>The order items are claimed in, or null for index order.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b>No costs means no array.</b> Without costs the claim order is the
+    /// index order, and the only reader maps a claim position to an item, so
+    /// the identity is applied in place (<see cref="Job.ItemAt"/>) rather than
+    /// materialised: a stage over millions of items would otherwise allocate
+    /// a four-byte-per-item table on every run only to read <c>order[i] == i</c>
+    /// back out of it.
+    /// </para>
+    /// <para>
+    /// <b>With costs, one sort in place.</b> The order is most expensive
+    /// first, ties in ascending index order, which is exactly what a stable
+    /// descending sort by cost gives. <see cref="Array.Sort{T}(T[], Comparison{T})"/>
+    /// is not stable, so the comparison itself breaks ties on the index: with
+    /// a total order stability no longer matters and the result is identical
+    /// to the stable sort item for item. A LINQ <c>OrderByDescending</c> gave
+    /// the same order but copied the indices into a buffer, built a key array
+    /// and an index map beside it and then copied the result out again.
+    /// </para>
+    /// </remarks>
+    internal static int[]? BuildOrder(int itemCount, Func<int, long>? cost)
     {
         if (cost is null)
         {
-            int[] identity = new int[itemCount];
-            for (int i = 0; i < itemCount; i++)
-            {
-                identity[i] = i;
-            }
-
-            return identity;
+            return null;
         }
 
         long[] costs = new long[itemCount];
+        int[] order = new int[itemCount];
         for (int i = 0; i < itemCount; i++)
         {
             costs[i] = cost(i);
+            order[i] = i;
         }
 
-        // OrderByDescending is a stable sort, so equal costs keep ascending
-        // index order and the claim order is a pure function of the costs.
-        return [.. Enumerable.Range(0, itemCount).OrderByDescending(i => costs[i])];
+        Array.Sort(order, (a, b) =>
+        {
+            int byCost = costs[b].CompareTo(costs[a]);
+            return byCost != 0 ? byCost : a.CompareTo(b);
+        });
+        return order;
+    }
+
+    /// <summary>Whether a pooled step can decline without its job's lock.</summary>
+    /// <remarks>
+    /// True for a job that is not stopping, has every item claimed and every
+    /// slot built, and still has a thread inside: nothing can be handed out,
+    /// and the thread inside finishes the job itself. A stopping job goes to
+    /// the lock instead, because a stopped job with nobody inside must be
+    /// finished by whichever thread looks next.
+    /// </remarks>
+    internal static bool IsDrainingWithoutMe(bool stopping, bool exhausted, int unbuiltLeft, int inFlight) =>
+        !stopping && exhausted && unbuiltLeft == 0 && inFlight > 0;
+
+    /// <summary>
+    /// Whether a slot handed back to a pooled job should wake an idle pool
+    /// thread; a wake answers (and uncounts) one turned-away scan.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only when a thread was turned away from the job because it was full,
+    /// no earlier slot has answered it, and items are still left. A run-out or
+    /// stopped job has nothing a woken thread could take (its last thread out
+    /// finishes it). Waking on every slot regardless was the pool's worst
+    /// herd: at a job's tail every chunk is one item, and each one sent every
+    /// idle thread through the pool's lock and then the job's, to be told no.
+    /// </para>
+    /// <para>
+    /// A count rather than a flag: two threads turned away between two returns
+    /// are owed two wakes, or the second slot would sit free while its thread
+    /// slept out the pool's timeout. A count can overshoot (a thread turned
+    /// away that then found other work still holds its entry), and that costs
+    /// one spare wake, never a lost one.
+    /// </para>
+    /// </remarks>
+    /// <param name="finishing">This return finishes the job.</param>
+    /// <param name="stopping">The job is cancelled or faulted.</param>
+    /// <param name="exhausted">Every item has been claimed.</param>
+    /// <param name="turnedAway">Unanswered turned-away scans; decremented on a wake.</param>
+    internal static bool TakeWakeForFreedSlot(bool finishing, bool stopping, bool exhausted, ref int turnedAway)
+    {
+        if (finishing || stopping || exhausted || turnedAway <= 0)
+        {
+            return false;
+        }
+
+        turnedAway--;
+        return true;
     }
 
     private abstract class Job : CompilePool.PoolJob
@@ -435,6 +502,10 @@ public sealed class WorkQueue : IDisposable
         private object?[] _scratch = [];
         private WorkerContext?[] _contexts = [];
         private int _inFlight;
+        private int _unbuiltLeft;
+        // How many scans found this job full (items left, every slot lent)
+        // that no returned slot has answered yet. Guarded by _slotLock.
+        private int _turnedAway;
         private bool _finished;
         private CompilePool? _pool;
 
@@ -443,7 +514,8 @@ public sealed class WorkQueue : IDisposable
 
         public int ItemCount { get; init; }
 
-        public int[] Order { get; init; } = [];
+        /// <summary>The claim order, or null for index order (see <see cref="BuildOrder"/>).</summary>
+        public int[]? Order { get; init; }
 
         public int ChunkSize { get; init; }
 
@@ -482,6 +554,8 @@ public sealed class WorkQueue : IDisposable
                 _unbuilt.Push(slot);
             }
 
+            _unbuiltLeft = Degree;
+
             // A cancel with no thread inside the job still has to finish it,
             // so it wakes the pool.
             _registration = CallerToken.Register(
@@ -513,6 +587,9 @@ public sealed class WorkQueue : IDisposable
             return Math.Clamp(remaining / (Degree * 4), 1, 64);
         }
 
+        /// <summary>The item claimed at a position of the claim order.</summary>
+        public int ItemAt(int position) => Order is { } order ? order[position] : position;
+
         public void Stop() => _cts.Cancel();
 
         public void Fail(Exception error)
@@ -533,6 +610,23 @@ public sealed class WorkQueue : IDisposable
 
         public override bool Step()
         {
+            // The tail of a job, taken without the lock: every item claimed,
+            // every slot built, and a thread still inside. Nothing here can be
+            // handed out, and the thread inside finishes the job itself, so
+            // the answer is no. Every value read only ever moves one way
+            // (Claimed up, _unbuiltLeft down) except _inFlight, and a stale
+            // non-zero _inFlight means the last thread out has already seen
+            // the same run-out job and finished it. Without this, every idle
+            // thread's scan queued on this lock to be told no.
+            if (IsDrainingWithoutMe(
+                    _cts.IsCancellationRequested,
+                    Volatile.Read(ref Claimed) >= ItemCount,
+                    Volatile.Read(ref _unbuiltLeft),
+                    Volatile.Read(ref _inFlight)))
+            {
+                return false;
+            }
+
             int slot;
             bool build;
             lock (_slotLock)
@@ -547,6 +641,7 @@ public sealed class WorkQueue : IDisposable
                 if (!stopping && _unbuilt.Count > 0)
                 {
                     slot = _unbuilt.Pop();
+                    Volatile.Write(ref _unbuiltLeft, _unbuilt.Count);
                     build = true;
                 }
                 else if (!stopping && !exhausted && _free.Count > 0)
@@ -564,6 +659,13 @@ public sealed class WorkQueue : IDisposable
                     }
                     else
                     {
+                        // Full: items are left but every slot is lent out.
+                        // Counted so a slot coming back wakes someone for it.
+                        if (!stopping && !exhausted)
+                        {
+                            _turnedAway++;
+                        }
+
                         return false;
                     }
 
@@ -603,6 +705,7 @@ public sealed class WorkQueue : IDisposable
             }
 
             bool finish;
+            bool wake;
             lock (_slotLock)
             {
                 _inFlight--;
@@ -616,15 +719,18 @@ public sealed class WorkQueue : IDisposable
                 {
                     _finished = true;
                 }
+
+                wake = TakeWakeForFreedSlot(finish, stopping, exhausted, ref _turnedAway);
             }
 
             if (finish)
             {
                 Complete();
             }
-            else
+            else if (wake)
             {
-                // A slot came free: a thread that found this job full may take it.
+                // A slot came free and a thread found this job full: that
+                // thread (or any idle one) may take it.
                 _pool?.Signal();
             }
 
@@ -654,7 +760,7 @@ public sealed class WorkQueue : IDisposable
                     break;
                 }
 
-                Execute(Order[slot], scratch, context);
+                Execute(ItemAt(slot), scratch, context);
 
                 // Reported here, holding nothing. This is the line stock
                 // has inside its critical section.
