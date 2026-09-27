@@ -146,11 +146,12 @@ public sealed class Radiosity
     /// </summary>
     public void MoveDirectLightToEmission()
     {
-        Span<Patch> patches = _context.Patches.AsSpan();
-        for (int i = 0; i < patches.Length; i++)
+        PatchSet patches = _context.Patches;
+        for (int i = 0; i < patches.Count; i++)
         {
-            _emit[i] = patches[i].TotalLight.Flat;
-            patches[i].TotalLight.Flat = Vec3.Zero;
+            ref Patch patch = ref patches.At(i);
+            _emit[i] = patch.TotalLight.Flat;
+            patch.TotalLight.Flat = Vec3.Zero;
         }
     }
 
@@ -240,12 +241,12 @@ public sealed class Radiosity
     /// </remarks>
     public Vec3 CollectLight()
     {
-        Span<Patch> patches = _context.Patches.AsSpan();
+        PatchSet patches = _context.Patches;
         Vec3 total = Vec3.Zero;
 
-        for (int i = patches.Length - 1; i >= 0; i--)
+        for (int i = patches.Count - 1; i >= 0; i--)
         {
-            ref Patch patch = ref patches[i];
+            ref Patch patch = ref patches.At(i);
             int normalCount = patch.NeedsBumpmap ? BumpBasis.Count + 1 : 1;
 
             if (patch.Sky)
@@ -264,8 +265,8 @@ public sealed class Radiosity
             }
             else
             {
-                ref Patch child1 = ref patches[patch.Child1];
-                ref Patch child2 = ref patches[patch.Child2];
+                ref Patch child1 = ref patches.At(patch.Child1);
+                ref Patch child2 = ref patches.At(patch.Child2);
                 float s1 = child1.Area / (child1.Area + child2.Area);
                 float s2 = child2.Area / (child1.Area + child2.Area);
 
