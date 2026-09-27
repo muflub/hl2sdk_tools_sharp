@@ -156,7 +156,7 @@ public static class DetailPropLighting
     /// <param name="cancellationToken">Cancels the pass.</param>
     /// <returns>The lit props and this pass's style lump.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public static async Task<DetailPropLightingResult> ComputeAsync(
+    public static Task<DetailPropLightingResult> ComputeAsync(
         AmbientScene scene,
         DetailPropLump lump,
         IReadOnlyList<Vec3> modelCentres,
@@ -165,6 +165,26 @@ public static class DetailPropLighting
         ComplianceOptions compliance,
         int parallelism,
         CompilePool? pool,
+        CancellationToken cancellationToken) =>
+        ComputeAsync(
+            scene, lump, modelCentres, lights, sampler, compliance, parallelism, pool,
+            TestLineStage.DefaultBatchSegments, cancellationToken);
+
+    /// <summary>
+    /// Lights every detail prop for one pass, with a worker's batch closing
+    /// at <paramref name="batchSegments"/> segments; the facts use it to
+    /// trace each prop alone, and no answer depends on it.
+    /// </summary>
+    internal static async Task<DetailPropLightingResult> ComputeAsync(
+        AmbientScene scene,
+        DetailPropLump lump,
+        IReadOnlyList<Vec3> modelCentres,
+        IReadOnlyList<PropLight> lights,
+        PropLightSampler sampler,
+        ComplianceOptions compliance,
+        int parallelism,
+        CompilePool? pool,
+        int batchSegments,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(scene);
@@ -182,17 +202,18 @@ public static class DetailPropLighting
             ? new CompileParallelism { MaxDegree = parallelism }
             : CompileParallelism.Default) with { Pool = pool };
 
-        PropColours[] colours;
-        using (WorkQueue queue = new(degree))
-        {
-            colours = await queue.RunAsync(
-                    props.Length,
-                    (i, ambient, _) => Compute(scene, in props[i], modelCentres, spriteCentres, lights, sampler, ambient),
-                    _ => new PropAmbient(scene),
-                    new WorkQueueOptions { Stage = "detail prop lighting" },
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
+        // Each prop's direct-light segments go to the tracer in its worker's
+        // batch (TestLineStage): planned with the prop, traced with the
+        // batch, resolved into the prop's colours.
+        PropColours[] colours = await TestLineStage.RunAsync(
+            props.Length,
+            null,
+            degree,
+            () => new DetailWorker(scene, props, modelCentres, spriteCentres, lights, sampler),
+            batchSegments,
+            TestLineStage.DefaultBatchItems,
+            "detail prop lighting",
+            cancellationToken).ConfigureAwait(false);
 
         // ComputeLighting's commit, in prop order.
         List<DetailPropLightstylesLump> styles = [];
@@ -403,22 +424,26 @@ public static class DetailPropLighting
         BinaryPrimitives.ReadSingleLittleEndian(s[(at + 4)..]),
         BinaryPrimitives.ReadSingleLittleEndian(s[(at + 8)..]));
 
-    /// <summary>One prop's direct and ambient colours per style.</summary>
-    private static PropColours Compute(
+    /// <summary>
+    /// One prop up to its traces (<c>ComputeMaxDirectLighting</c>'s first
+    /// half): the debug colour for a bogus prop, else every light's sample
+    /// planned into the worker's batch in light order.
+    /// </summary>
+    private static DetailPlan Plan(
         AmbientScene scene,
         in DetailObjectLump prop,
         IReadOnlyList<Vec3> modelCentres,
         Vec3[] spriteCentres,
         IReadOnlyList<PropLight> lights,
         PropLightSampler sampler,
-        PropAmbient ambient)
+        TestLineBatch lines)
     {
-        PropColours c = new();
         (Vec3 origin, Vec3 normal) = WorldCentre(in prop, modelCentres, spriteCentres);
 
         if (!IsValid(origin) || !IsValid(normal))
         {
             // 168-183: fill with the debug colour.
+            PropColours c = new();
             for (int s = 0; s < RayAmbientLighting.MaxLightStyles; s++)
             {
                 c.Direct[s] = new Vec3(1, 0, 0);
@@ -426,10 +451,10 @@ public static class DetailPropLighting
             }
 
             c.Bogus = true;
-            return c;
+            return new DetailPlan(c, origin, []);
         }
 
-        // ComputeMaxDirectLighting.
+        List<(PendingPropSample Sample, PropLight Light)> planned = [];
         int cluster = ClusterFromPoint(scene, origin);
         for (int i = 0; i < lights.Count; i++)
         {
@@ -439,7 +464,27 @@ public static class DetailPropLighting
                 continue;
             }
 
-            PropLightSample s = sampler.Gather(dl, origin, normal);
+            planned.Add((sampler.Plan(dl, origin, normal, lines), dl));
+        }
+
+        return new DetailPlan(null, origin, planned);
+    }
+
+    /// <summary>
+    /// One prop after its traces: the direct sums in light order, then
+    /// <c>ComputeAmbientLightingAtPoint</c>.
+    /// </summary>
+    private static PropColours Resolve(DetailPlan plan, PropLightSampler sampler, PropAmbient ambient, TestLineBatch lines)
+    {
+        if (plan.Bogus is { } bogus)
+        {
+            return bogus;
+        }
+
+        PropColours c = new();
+        foreach ((PendingPropSample pending, PropLight dl) in plan.Planned)
+        {
+            PropLightSample s = sampler.Resolve(in pending, lines);
 
             // VectorMA( maxcolor[style], falloff * dot, intensity, maxcolor[style] ).
             float scale = s.Falloff * s.Dot;
@@ -447,8 +492,30 @@ public static class DetailPropLighting
         }
 
         // ComputeAmbientLightingAtPoint.
-        ambient.Compute(origin, c.Ambient);
+        ambient.Compute(plan.Origin, c.Ambient);
         return c;
+    }
+
+    /// <summary>A prop between plan and resolve: its debug colours, or its origin and planned samples.</summary>
+    private sealed record DetailPlan(PropColours? Bogus, Vec3 Origin, List<(PendingPropSample Sample, PropLight Light)> Planned);
+
+    /// <summary>A worker of the stage: its ambient computer and its segment batch.</summary>
+    private sealed class DetailWorker(
+        AmbientScene scene,
+        DetailObjectLump[] props,
+        IReadOnlyList<Vec3> modelCentres,
+        Vec3[] spriteCentres,
+        IReadOnlyList<PropLight> lights,
+        PropLightSampler sampler)
+        : TestLineWorker<DetailPlan, PropColours>(sampler.CreateBatch())
+    {
+        private readonly PropAmbient _ambient = new(scene);
+
+        public override DetailPlan Plan(int item, CancellationToken cancellationToken) =>
+            DetailPropLighting.Plan(scene, in props[item], modelCentres, spriteCentres, lights, sampler, Lines);
+
+        public override PropColours Resolve(int item, DetailPlan state) =>
+            DetailPropLighting.Resolve(state, sampler, _ambient, Lines);
     }
 
     private static bool IsValid(Vec3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);

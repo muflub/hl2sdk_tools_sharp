@@ -23,6 +23,10 @@ internal sealed class EmptySceneTracer : IRayTracer
 {
     public string TracerIdentity => "empty-scene";
 
+    // Nothing to skip and no sky to pass through: every option's answer is
+    // "not blocked".
+    public bool Supports(RayTraceOptions options) => true;
+
     public ValueTask TraceVisibilityAsync(
         ReadOnlyMemory<Ray> rays,
         Memory<ulong> hitBits,

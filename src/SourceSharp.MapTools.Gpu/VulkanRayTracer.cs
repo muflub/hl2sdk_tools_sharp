@@ -372,8 +372,78 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// Everything but a skipped id. The kernel takes no id to ignore, and
+    /// teaching it one is a kernel change with its own parity gate, so a batch
+    /// that skips an id (a static prop's self-shadow rule) is refused here and
+    /// answered by the CPU tracer: <see cref="Rad.HybridRayTracer"/> asks this
+    /// first and routes it there.
+    /// </para>
+    /// <para>
+    /// Sky pass-through needs no kernel change: it is a question about the
+    /// FIRST hit, which is exactly what the closest-hit mode returns, so the
+    /// batch is traced closest-hit and folded into bits on the host
+    /// (<see cref="FoldSkyPassing"/>). <see cref="RayTraceOptions.IsolatedRays"/>
+    /// is free: the kernel traces every ray on its own.
+    /// </para>
+    /// </remarks>
+    public bool Supports(RayTraceOptions options) => SupportsOptions(options);
+
+    /// <summary>The rule <see cref="Supports"/> applies, without a device.</summary>
+    /// <param name="options">The options.</param>
+    /// <returns>True unless an id is skipped.</returns>
+    internal static bool SupportsOptions(RayTraceOptions options) => options.SkipId is null;
+
+    /// <summary>
+    /// Turns closest hits into sky-passing visibility bits: a ray is blocked
+    /// when its first hit is short of its end and is not a sky triangle.
+    /// </summary>
+    /// <param name="hits">The closest hit of each ray, fractions in units of its reach.</param>
+    /// <param name="hitBits">Receives one bit per ray; every word the rays span is overwritten.</param>
+    /// <remarks>
+    /// "Short of its end" is the seam's visibility rule, <c>Fraction &lt; 1</c>
+    /// in the closest-hit units, and "sky" is <see cref="Rad.TraceId.Sky"/>
+    /// in the triangle's id, which the closest-hit readback already maps to.
+    /// </remarks>
+    internal static void FoldSkyPassing(ReadOnlySpan<HitId> hits, Span<ulong> hitBits)
+    {
+        hitBits[..((hits.Length + 63) >> 6)].Clear();
+        for (int i = 0; i < hits.Length; i++)
+        {
+            HitId hit = hits[i];
+            if (hit.Surface != HitId.Miss && hit.Fraction < 1.0f && (hit.Surface & Rad.TraceId.Sky) == 0)
+            {
+                hitBits[i >> 6] |= 1UL << (i & 63);
+            }
+        }
+    }
+
+    private async Task TraceSkyPassingAsync(
+        ReadOnlyMemory<Ray> rays, Memory<ulong> hitBits, uint tminBits, CancellationToken cancellationToken)
+    {
+        // Returned to the pool only once the batcher has completed the
+        // request, and it completes a request only when no slab of it is on
+        // the device (cancellation takes effect between slabs).
+        HitId[] hits = System.Buffers.ArrayPool<HitId>.Shared.Rent(rays.Length);
+        try
+        {
+            await _batcher.TraceClosestAsync(rays, hits.AsMemory(0, rays.Length), tminBits, cancellationToken)
+                .ConfigureAwait(false);
+            FoldSkyPassing(hits.AsSpan(0, rays.Length), hitBits.Span);
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<HitId>.Shared.Return(hits);
+        }
+    }
+
+    /// <inheritdoc />
     /// <exception cref="ArgumentException">
     /// <paramref name="hitBits"/> is shorter than the batch needs.
+    /// </exception>
+    /// <exception cref="NotSupportedException">
+    /// <paramref name="options"/> skips an id, which this kernel cannot (<see cref="Supports"/>).
     /// </exception>
     public ValueTask TraceVisibilityAsync(
         ReadOnlyMemory<Ray> rays,
@@ -382,6 +452,7 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        RequireSupported(options);
         int words = (rays.Length + 63) / 64;
         if (hitBits.Length < words)
         {
@@ -397,13 +468,29 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         }
 
         uint tminBits = (uint)BitConverter.SingleToInt32Bits(options.MinDistance);
-        return new ValueTask(_batcher.TraceVisibilityAsync(rays, hitBits, tminBits, cancellationToken));
+        return options.SkyDoesNotBlock
+            ? new ValueTask(TraceSkyPassingAsync(rays, hitBits, tminBits, cancellationToken))
+            : new ValueTask(_batcher.TraceVisibilityAsync(rays, hitBits, tminBits, cancellationToken));
+    }
+
+    /// <summary>Refuses options the kernel cannot honour, rather than tracing a different question.</summary>
+    /// <param name="options">The batch's options.</param>
+    /// <exception cref="NotSupportedException">An id is skipped.</exception>
+    internal static void RequireSupported(RayTraceOptions options)
+    {
+        if (!SupportsOptions(options))
+        {
+            throw new NotSupportedException(
+                $"the Vulkan kernel cannot skip triangle id {options.SkipId}; trace this batch on the CPU tracer");
+        }
     }
 
     /// <inheritdoc />
     /// <exception cref="ArgumentException">
-    /// <paramref name="hits"/> is shorter than the batch.
+    /// <paramref name="hits"/> is shorter than the batch, or <paramref name="options"/>
+    /// asks for sky pass-through, which is a visibility option.
     /// </exception>
+    /// <exception cref="NotSupportedException"><paramref name="options"/> skips an id.</exception>
     public ValueTask TraceClosestAsync(
         ReadOnlyMemory<Ray> rays,
         Memory<HitId> hits,
@@ -411,6 +498,14 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        RequireSupported(options);
+        if (options.SkyDoesNotBlock)
+        {
+            throw new ArgumentException(
+                "sky pass-through is a visibility option; a closest-hit trace reports the sky hit itself",
+                nameof(options));
+        }
+
         if (hits.Length < rays.Length)
         {
             throw new ArgumentException(

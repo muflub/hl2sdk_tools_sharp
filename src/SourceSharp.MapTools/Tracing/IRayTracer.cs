@@ -5,6 +5,10 @@
 //
 //=============================================================================//
 
+using System.Runtime.Intrinsics;
+
+using SourceSharp.MapFormats.Geometry;
+
 namespace SourceSharp.MapTools.Tracing;
 
 /// <summary>
@@ -32,7 +36,57 @@ public readonly record struct Ray(
     float DirectionX,
     float DirectionY,
     float DirectionZ,
-    float MaxDistance);
+    float MaxDistance)
+{
+    /// <summary>
+    /// The ray stock's <c>TestLine</c> traces for the segment from
+    /// <paramref name="start"/> to <paramref name="end"/>: the direction
+    /// normalised by the segment's length and the length as the reach.
+    /// </summary>
+    /// <param name="start">Where the segment starts.</param>
+    /// <param name="end">Where it ends.</param>
+    /// <param name="stockReciprocal">
+    /// Normalise with stock's reciprocal estimate plus one Newton step, as its
+    /// <c>ReciprocalSIMD</c> does; false divides exactly. Which one a caller
+    /// wants is that caller's compliance decision, so it is a parameter here.
+    /// </param>
+    /// <returns>The ray.</returns>
+    /// <remarks>
+    /// <para>
+    /// ONE PLACE FOR THE ARITHMETIC. <see cref="KdRayTracer.TestLines(ReadOnlySpan{Vec3}, ReadOnlySpan{Vec3}, Span{bool}, bool, bool, int)"/>
+    /// and every sampler that hands <c>TestLine</c> segments to an
+    /// <see cref="IRayTracer"/> build their rays here, so a batch traced
+    /// through the seam starts from the same floats as the direct call and
+    /// the answers can be the same bits.
+    /// </para>
+    /// <para>
+    /// The length is <c>sqrt(x*x + y*y + z*z)</c> in float, in that order,
+    /// which is stock's vector length. A zero-length segment divides by zero
+    /// and yields a NaN direction, which stock also traces; it hits nothing.
+    /// When the machine has no estimate instruction the exact reciprocal is
+    /// used whatever <paramref name="stockReciprocal"/> says, as everywhere
+    /// else <see cref="FloatEstimate"/> is consulted.
+    /// </para>
+    /// </remarks>
+    public static Ray Segment(Vec3 start, Vec3 end, bool stockReciprocal)
+    {
+        Vec3 d = end - start;
+        float len = MathF.Sqrt((d.X * d.X) + (d.Y * d.Y) + (d.Z * d.Z));
+        float inv;
+        if (stockReciprocal && FloatEstimate.IsSupported)
+        {
+            Vector128<float> a = Vector128.Create(len);
+            Vector128<float> est = FloatEstimate.Reciprocal(a);
+            inv = Vector128.Subtract(Vector128.Add(est, est), Vector128.Multiply(a, Vector128.Multiply(est, est))).ToScalar();
+        }
+        else
+        {
+            inv = 1.0f / len;
+        }
+
+        return new Ray(start.X, start.Y, start.Z, d.X * inv, d.Y * inv, d.Z * inv, len);
+    }
+}
 
 /// <summary>
 /// Answers batches of geometric questions about a fixed set of surfaces.
@@ -130,6 +184,34 @@ public interface IRayTracer
         Memory<HitId> hits,
         RayTraceOptions options,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Whether this tracer honours <paramref name="options"/> in
+    /// <see cref="TraceVisibilityAsync"/>.
+    /// </summary>
+    /// <param name="options">The options a batch would be traced with.</param>
+    /// <returns>
+    /// True when a visibility batch with these options gets the answer they
+    /// ask for; false when this tracer would have to ignore one of them.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// A DEFAULT, so a tracer written before <see cref="RayTraceOptions.SkipId"/>
+    /// and <see cref="RayTraceOptions.SkyDoesNotBlock"/> existed keeps
+    /// compiling and says, correctly, that it answers only the plain query.
+    /// <see cref="RayTraceOptions.IsolatedRays"/> needs nothing from a tracer
+    /// that traces rays one at a time and is not part of the answer.
+    /// </para>
+    /// <para>
+    /// Callers ask before they trace. A tracer handed options it does not
+    /// support may simply not look at them, and would then answer a different
+    /// question: a static prop that silently shadowed itself is a wrong
+    /// lightmap with nothing in the log to say why. The GPU tracer throws
+    /// instead, and the samplers that need these options refuse, up front, a
+    /// tracer that says no.
+    /// </para>
+    /// </remarks>
+    bool Supports(RayTraceOptions options) => options.IsPlain;
 
     /// <summary>
     /// Identifies which tracer produced a result, for the cache.

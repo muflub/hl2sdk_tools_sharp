@@ -464,9 +464,9 @@ public static class Vrad
         }
         catch (NotSupportedException exception)
         {
-            // A stage that cannot run on this compile (4g's samplers need the
-            // CPU KD tracer) is reported like a missing one, never skipped
-            // silently.
+            // A stage that cannot run on this compile (the prop samplers,
+            // handed a host's tracer that cannot skip an id or let the sky
+            // through) is reported like a missing one, never skipped silently.
             notYet(name, exception.Message);
         }
     }
@@ -567,9 +567,9 @@ public static class Vrad
 
         // The tree's subtrees are built on the queue's workers
         // (KdTreeBuilder.BuildAsync), node for node the serial tree.
-        // The KD tree is built even under -gpu: the prop and leaf-ambient
-        // samplers call KdRayTracer.TestLines, which the batch seam does not
-        // have, and the hybrid hands them this tree (HybridRayTracer.CpuTracer).
+        // The KD tree is built even under -gpu: the hybrid answers with it
+        // every batch whose options the GPU cannot express -- the prop
+        // samplers' skipped ids and sky pass-through (HybridRayTracer.TracerFor).
         using WorkQueue queue = new(context.Parallelism);
         KdRayTracer cpu = await casters.Set.BuildTracerAsync(options.Compliance, queue, cancellationToken)
             .ConfigureAwait(false);

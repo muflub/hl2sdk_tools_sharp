@@ -69,6 +69,14 @@ public sealed record LeafAmbientOptions
     /// <summary>The compile's shared thread pool, or null for threads of this stage's own.</summary>
     public CompilePool? Pool { get; init; }
 
+    /// <summary>
+    /// How many surface-light segments a worker's batch of leaves closes at
+    /// when they are traced through the seam; see
+    /// <see cref="TestLineStage.DefaultBatchSegments"/>. Internal so the facts
+    /// can trace each leaf alone; no answer depends on it.
+    /// </summary>
+    internal int BatchSegments { get; init; } = TestLineStage.DefaultBatchSegments;
+
     /// <summary>Everything stock does, serially: what every byte-exact gate selects.</summary>
     public static LeafAmbientOptions StockParity { get; } =
         new() { Compliance = ComplianceOptions.Stock, Parallelism = 1 };

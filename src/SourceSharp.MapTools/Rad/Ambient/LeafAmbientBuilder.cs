@@ -109,6 +109,28 @@ public static class LeafAmbientBuilder
             ? new CompileParallelism { MaxDegree = options.Parallelism }
             : CompileParallelism.Default) with { Pool = options.Pool };
 
+        if (visibility is TracerLineVisibility traced)
+        {
+            // The surface-light segments go to the tracer through the seam, a
+            // worker's batch of whole leaves at a time (TestLineStage), so a
+            // GPU tracer gets them and no worker ever waits on one. Largest
+            // leaves first, as the queue orders them; the order changes only
+            // who lights what.
+            int[] order = [.. Enumerable.Range(0, leafCount)
+                .OrderByDescending(leaf => CandidateSampleCount(scene, leaf, options))
+                .ThenBy(leaf => leaf)];
+            perLeaf = await TestLineStage.RunAsync(
+                leafCount,
+                order,
+                parallelism,
+                () => new LeafWorker(scene, worldLights, traced, options),
+                options.BatchSegments,
+                TestLineStage.DefaultBatchItems,
+                "leaf ambient",
+                cancellationToken).ConfigureAwait(false);
+            return Encode(scene, perLeaf, flagged, surfaceLights);
+        }
+
         WorkQueueOptions queueOptions = new()
         {
             Stage = "leaf ambient",
@@ -154,6 +176,14 @@ public static class LeafAmbientBuilder
     /// The boundary planes are gathered BEFORE the solid test, as stock does;
     /// the early return makes that wasted work unobservable.
     /// </para>
+    /// <para>
+    /// The leaf's surface-light visibility is ONE call for all its samples
+    /// (<see cref="AmbientSampler.AddSurfaceLights"/>), made once every
+    /// sample's position and ray cube exist. Positions and ray cubes are made
+    /// in stock's interleaved order (they share the displacement scratch);
+    /// only the visibility waits for the leaf, and the samples join the list
+    /// in order once it is answered.
+    /// </para>
     /// </remarks>
     public static List<AmbientSample> ComputeLeaf(
         AmbientScene scene,
@@ -166,8 +196,32 @@ public static class LeafAmbientBuilder
         ArgumentNullException.ThrowIfNull(sampler);
         ArgumentNullException.ThrowIfNull(options);
 
-        List<AmbientSample> list = [];
+        LeafPlan plan = PlanSamples(scene, sampler, leafIndex, options, cancellationToken);
+        if (plan.Count > 0)
+        {
+            sampler.AddSurfaceLights(plan.Positions.AsSpan(0, plan.Count), plan.Cubes.AsSpan(0, plan.Count * AmbientCube.Sides));
+        }
 
+        return Collect(plan, options);
+    }
+
+    /// <summary>
+    /// A leaf's samples before their surface lights: the positions and ray
+    /// cubes, and where the leaf's segments start in its worker's batch.
+    /// </summary>
+    private sealed record LeafPlan(Vec3[] Positions, Vec3[] Cubes, int Count, int FirstSegment);
+
+    /// <summary>
+    /// <see cref="ComputeLeaf"/> up to the visibility: the sample positions,
+    /// in stock's order, each with its ray cube.
+    /// </summary>
+    private static LeafPlan PlanSamples(
+        AmbientScene scene,
+        AmbientSampler sampler,
+        int leafIndex,
+        LeafAmbientOptions options,
+        CancellationToken cancellationToken)
+    {
         List<LeafPlane> leafPlanes = [];
         LeafSampler positions = new(scene, sampler.Displacements);
         LeafBoundaryPlanes.Gather(leafIndex, scene.Nodes, scene.Planes, scene.Parents, leafPlanes);
@@ -178,21 +232,61 @@ public static class LeafAmbientBuilder
         {
             // No samples in solid leaves; the encode step points them at the
             // nearest non-solid leaf instead.
-            return list;
+            return new LeafPlan([], [], 0, 0);
         }
 
-        Span<Vec3> cube = stackalloc Vec3[AmbientCube.Sides];
-
+        Vec3[] samplePositions = new Vec3[sampleCount];
+        Vec3[] cubes = new Vec3[sampleCount * AmbientCube.Sides];
         for (int i = 0; i < sampleCount; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Vec3 samplePosition = positions.Generate(leafIndex, leafPlanes);
-            sampler.ComputeCube(samplePosition, cube);
-            AmbientSampleList.Add(list, samplePosition, cube, options.Compliance);
+            samplePositions[i] = positions.Generate(leafIndex, leafPlanes);
+            sampler.ComputeRayCube(samplePositions[i], cubes.AsSpan(i * AmbientCube.Sides, AmbientCube.Sides));
+        }
+
+        return new LeafPlan(samplePositions, cubes, sampleCount, 0);
+    }
+
+    /// <summary>The leaf's finished cubes into its sample list, in sample order, then compressed.</summary>
+    private static List<AmbientSample> Collect(LeafPlan plan, LeafAmbientOptions options)
+    {
+        List<AmbientSample> list = [];
+        for (int i = 0; i < plan.Count; i++)
+        {
+            AmbientSampleList.Add(
+                list, plan.Positions[i], plan.Cubes.AsSpan(i * AmbientCube.Sides, AmbientCube.Sides), options.Compliance);
         }
 
         AmbientSampleList.Compress(list);
         return list;
+    }
+
+    /// <summary>
+    /// A worker of the traced path: its cube computer, and its batch over the
+    /// visibility's tracer.
+    /// </summary>
+    private sealed class LeafWorker(
+        AmbientScene scene, DWorldLight[] worldLights, TracerLineVisibility visibility, LeafAmbientOptions options)
+        : TestLineWorker<LeafPlan, List<AmbientSample>>(new TestLineBatch(visibility.Tracer))
+    {
+        private readonly AmbientSampler _sampler = new(scene, worldLights, visibility, options.Compliance);
+
+        public override LeafPlan Plan(int item, CancellationToken cancellationToken)
+        {
+            LeafPlan plan = PlanSamples(scene, _sampler, item, options, cancellationToken);
+            int first = _sampler.PlanSurfaceLights(plan.Positions.AsSpan(0, plan.Count), Lines, visibility.StockReciprocal);
+            return plan with { FirstSegment = first };
+        }
+
+        public override List<AmbientSample> Resolve(int item, LeafPlan state)
+        {
+            _sampler.ResolveSurfaceLights(
+                state.Positions.AsSpan(0, state.Count),
+                state.Cubes.AsSpan(0, state.Count * AmbientCube.Sides),
+                Lines,
+                state.FirstSegment);
+            return Collect(state, options);
+        }
     }
 
     /// <summary>
