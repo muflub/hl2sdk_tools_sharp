@@ -333,6 +333,41 @@ public sealed class BenchHarnessTests
     }
 
     [Fact]
+    public void StageCacheFieldsSurviveTheLedgerLineRoundTrip()
+    {
+        BenchSample sample = Sample(run: 1, reused: 189) with
+        {
+            CacheStagesReused = ["vvis", "vrad.transfers"],
+            CacheStagesComputed = ["vrad.direct"],
+            CacheSavedMs = 5800,
+            CacheBytesStored = 155L * 1024 * 1024,
+        };
+
+        BenchSample back = BenchSample.FromJsonLine(sample.ToJsonLine());
+
+        Assert.Equal(sample, back);
+        Assert.Equal(["vvis", "vrad.transfers"], back.CacheStagesReused);
+        Assert.Equal(["vrad.direct"], back.CacheStagesComputed);
+        Assert.Equal(5800, back.CacheSavedMs);
+        Assert.Equal(155L * 1024 * 1024, back.CacheBytesStored);
+    }
+
+    [Fact]
+    public void ALedgerLineWrittenBeforeStageCachesReadsAsNoStages()
+    {
+        string line = Sample(run: 0, reused: 3, cooked: 1).ToJsonLine();
+        string old = line[..line.IndexOf(",\"CacheStagesReused\"", StringComparison.Ordinal)] + "}";
+
+        BenchSample back = BenchSample.FromJsonLine(old);
+
+        Assert.Equal(3, back.CacheReused);
+        Assert.Empty(back.CacheStagesReused!);
+        Assert.Empty(back.CacheStagesComputed!);
+        Assert.Equal(0, back.CacheSavedMs);
+        Assert.Equal(0, back.CacheBytesStored);
+    }
+
+    [Fact]
     public async Task SummarizeWithoutAnInputIsUsageNotACrash()
     {
         int rc = await BenchCommand.RunAsync(

@@ -81,6 +81,115 @@ public sealed partial class RadWorld
     /// </summary>
     internal SharedTransfers? ReuseTransfers { get; set; }
 
+    /// <summary>
+    /// The cross-compile transfer cache, or null. Used only together with
+    /// <see cref="TransferTracerDigest"/>: without a digest of what the
+    /// tracer traces against, no key can be formed and nothing is cached.
+    /// </summary>
+    internal ITransferCache? TransferCache { get; set; }
+
+    /// <summary>
+    /// A digest of the tracer's scene (the shadow casters and which tracer
+    /// traces them), or null when the tracer came from the host and its
+    /// scene is unknown.
+    /// </summary>
+    internal string? TransferTracerDigest { get; set; }
+
+    /// <summary>True when <see cref="BounceAsync"/> replayed its transfers from <see cref="TransferCache"/>.</summary>
+    internal bool TransfersWereCached { get; private set; }
+
+    /// <summary>
+    /// The transfer cache key: everything the transfer build reads. The
+    /// patch tree (<see cref="WalkPatchTree"/>), the faces' sky and
+    /// displacement flags, the leaves' clusters and face lists, every
+    /// cluster's visibility row, the switches, and the tracer's scene.
+    /// No light, so a light edit keeps the key.
+    /// </summary>
+    /// <param name="tracerDigest">The tracer scene's digest.</param>
+    /// <returns>Lower-case hex SHA-256.</returns>
+    internal string TransferKey(string tracerDigest)
+    {
+        using System.Security.Cryptography.IncrementalHash sha =
+            System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        // Values are batched: one hash call per 64 KB, not per int.
+        byte[] buffer = new byte[1 << 16];
+        int used = 0;
+        void Flush()
+        {
+            sha.AppendData(buffer.AsSpan(0, used));
+            used = 0;
+        }
+
+        void Int(int v)
+        {
+            if (used + 4 > buffer.Length)
+            {
+                Flush();
+            }
+
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(buffer.AsSpan(used), v);
+            used += 4;
+        }
+
+        void Str(string text)
+        {
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(text);
+            Int(bytes.Length);
+            Flush();
+            sha.AppendData(bytes);
+        }
+
+        Str("vrad.transfers/1");
+        Str(tracerDigest);
+        Str(Compile.Cache.OptionsDigest.Of(Settings.Compliance));
+        Int(Settings.StockNormalise ? 1 : 0);
+
+        WalkPatchTree(Int);
+
+        Int(Geometry.Faces.Length);
+        for (int f = 0; f < Geometry.Faces.Length; f++)
+        {
+            Int(Geometry.Faces[f].DispInfo == -1 ? 0 : 1);
+            Int(IsSkyFace(f) ? 1 : 0);
+        }
+
+        Int(Geometry.Leaves.Length);
+        foreach (LeafInfo leaf in Geometry.Leaves)
+        {
+            Int(leaf.Cluster);
+            Int(leaf.FirstLeafFace);
+            Int(leaf.NumLeafFaces);
+        }
+
+        Int(Geometry.LeafFaces.Length);
+        foreach (ushort face in Geometry.LeafFaces)
+        {
+            Int(face);
+        }
+
+        int clusters = Visibility.ClusterCount;
+        Int(clusters);
+        Int(Visibility.RowBytes);
+        byte[] row = new byte[Math.Max(Visibility.RowBytes, 1)];
+        for (int c = 0; c < clusters; c++)
+        {
+            Array.Clear(row);
+            Visibility.GetVisCache(c, row);
+            Flush();
+            sha.AppendData(row);
+        }
+
+        Flush();
+        return Convert.ToHexStringLower(sha.GetHashAndReset());
+    }
+
+    // IsSky indexes the texinfo table; a face whose texinfo is out of range is folded as its own value.
+    private bool IsSkyFace(int face)
+    {
+        int texInfo = Geometry.Faces[face].TexInfo;
+        return (uint)texInfo < (uint)Geometry.TexInfos.Length && Geometry.IsSky(face);
+    }
+
     /// <summary>True when <see cref="BounceAsync"/> used <see cref="ReuseTransfers"/>.</summary>
     internal bool TransfersWereShared { get; private set; }
 
@@ -102,14 +211,26 @@ public sealed partial class RadWorld
     internal ulong PatchTreeDigest()
     {
         ulong h = 14695981039346656037UL;
-        void Int(int v)
+        WalkPatchTree(v =>
         {
             for (int i = 0; i < 4; i++)
             {
                 h = (h ^ (byte)(v >> (8 * i))) * 1099511628211UL;
             }
-        }
+        });
 
+        return h;
+    }
+
+    /// <summary>
+    /// Feeds every geometry value of the patch tree, in a fixed order, to
+    /// <paramref name="put"/>: the one walk both <see cref="PatchTreeDigest"/>
+    /// and the transfer cache key read.
+    /// </summary>
+    /// <param name="put">Receives each value (floats as their bits).</param>
+    internal void WalkPatchTree(Action<int> put)
+    {
+        void Int(int v) => put(v);
         void Float(float v) => Int(BitConverter.SingleToInt32Bits(v));
         void Vector(Vec3 v)
         {
@@ -166,8 +287,6 @@ public sealed partial class RadWorld
                 Int(v);
             }
         }
-
-        return h;
     }
 
     /// <summary>The bounce's view of this world.</summary>
@@ -232,9 +351,29 @@ public sealed partial class RadWorld
         }
         else
         {
-            VisMatrix matrix = new(context);
-            transfers = await matrix.BuildAsync(tracer, queue, cancellationToken).ConfigureAwait(false);
-            statistics = matrix.Statistics;
+            // Across compiles: the key reads no light, so a light-only edit hits.
+            string? key = TransferCache is not null && TransferTracerDigest is { } scene ? TransferKey(scene) : null;
+            TransferSet? cached = key is null
+                ? null
+                : await TransferCache!.TryGetAsync(key, Patches.Count, cancellationToken).ConfigureAwait(false);
+            if (cached is not null)
+            {
+                transfers = cached;
+                statistics = null;
+                TransfersWereCached = true;
+            }
+            else
+            {
+                long start = System.Diagnostics.Stopwatch.GetTimestamp();
+                VisMatrix matrix = new(context);
+                transfers = await matrix.BuildAsync(tracer, queue, cancellationToken).ConfigureAwait(false);
+                statistics = matrix.Statistics;
+                if (key is not null)
+                {
+                    long costMs = (long)System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+                    await TransferCache!.StoreAsync(key, transfers, costMs, cancellationToken).ConfigureAwait(false);
+                }
+            }
         }
 
         Radiosity radiosity = new(context, transfers);
