@@ -116,7 +116,10 @@ Ctrl-C to cancellation. It references the libraries with no
   warnings.
 - An x86-64 or arm64 CPU. Both modes run on both, including Apple Silicon,
   but some results differ in the last bits between CPU families; see
-  [Platform differences](#platform-differences).
+  [Platform differences](#platform-differences). The x86-64 native AOT
+  builds need AVX2 (x86-64-v3: Intel Haswell or AMD Zen and later); on an
+  older x86-64 CPU use the framework-dependent build, which writes the same
+  bytes.
 
 ## Building
 
@@ -135,6 +138,12 @@ To publish a self-contained native executable:
 ```sh
 dotnet publish src/SourceSharp.MapCompile -c Release -r linux-x64 -p:PublishAot=true -o out/aot
 ```
+
+An x64 AOT publish targets x86-64-v3 (AVX2, FMA, BMI). NativeAOT fixes the
+instruction set at compile time and its own default is x86-64-v2, which left
+vvis on a real map about 17% slower than on v3. The output is the same bytes
+either way. For a CPU without AVX2, publish with
+`-p:IlcInstructionSet=x86-64-v2`.
 
 Under AOT the GPU backend is linked in statically. Otherwise it is loaded
 by name at run time from the folder `ssmap` runs from. A solution build puts

@@ -128,6 +128,28 @@
   <PropertyGroup Condition="'$(PublishAot)' == 'true'">
     <DefineConstants>$(DefineConstants);AOT_LINKED_PACKAGES</DefineConstants>
     <!--
+      x86-64 AOT BUILDS TARGET x86-64-v3 (AVX2, FMA, BMI1/2, LZCNT, MOVBE).
+
+      NativeAOT compiles once, ahead of time, for a fixed instruction set, and
+      its default is x86-64-v2 (SSE4.2), so a default AOT build never used the
+      AVX2 the JIT build picks up from the CPU it runs on. vvis on 2fort, four
+      threads, with the separator test already inlined: 103 s on v2, 88 s on
+      v3, against 81 s for the JIT build.
+
+      The cost: the binary refuses to start on an x86-64 CPU without AVX2,
+      which means Intel before Haswell (2013) and AMD before Excavator/Zen.
+      The framework-dependent build still runs there, so that is the answer
+      for such a machine; nothing it computes differs. The output bytes are
+      the same as v2's: nothing contracts a multiply-add into an FMA on its
+      own, and no code path branches on the instruction set in a way that
+      changes a result (the -compliance stock estimates are rcpss/rsqrtss on
+      every x86 level).
+
+      Only x64 runtime identifiers get it; arm64 has its own baseline. Pass
+      -p:IlcInstructionSet=x86-64-v2 (or any other level) to override.
+    -->
+    <IlcInstructionSet Condition="'$(IlcInstructionSet)' == '' and $(RuntimeIdentifier.EndsWith('-x64'))">x86-64-v3</IlcInstructionSet>
+    <!--
       THE SIX WARNINGS THAT BELONG TO SILK.NET, NOT TO THIS PROJECT.
 
       All of them are raised inside the statically linked GPU package's own
