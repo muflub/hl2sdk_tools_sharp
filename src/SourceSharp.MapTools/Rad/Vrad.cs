@@ -185,20 +185,46 @@ public static class Vrad
         (RadLightFile texFile, IRayTracer tracer, string? tracerDigest) = await BeginPassAsync(
             bsp, context, content, radFiles, hdr, context.Tracer, Warn, cancellationToken).ConfigureAwait(false);
 
-        return new VradPreparation(radFiles, texFile, tracer, tracerDigest, diagnostics);
+        // A tracer vrad built is vrad's to release; one the host passed is not.
+        return new VradPreparation(radFiles, texFile, tracer, context.Tracer is null, tracerDigest, diagnostics);
     }
 
+    // Takes the preparation, and with it the tracer vrad built: from here the
+    // lighting releases that tracer when it ends, lit, failed or cancelled.
     private static async Task<RadResult> LightCoreAsync(
         BspData bsp,
         VradPreparation prepared,
         VradContext context,
         CancellationToken cancellationToken)
     {
-        if (!prepared.TryTake())
+        prepared.Take();
+        try
         {
-            throw new InvalidOperationException("a VradPreparation lights one map once");
+            return await LightTakenAsync(bsp, prepared, context, cancellationToken).ConfigureAwait(false);
         }
+        finally
+        {
+            if (prepared.OwnsTracer)
+            {
+                ReleaseTracer(prepared.Tracer);
+            }
+        }
+    }
 
+    /// <summary>
+    /// Releases a tracer vrad owns. Only a tracer that holds something
+    /// outside managed memory is disposable (a GPU tracer, or the hybrid
+    /// around one); the CPU KD tree is not, and nothing is done for it.
+    /// </summary>
+    /// <param name="tracer">The tracer vrad built.</param>
+    internal static void ReleaseTracer(IRayTracer tracer) => (tracer as IDisposable)?.Dispose();
+
+    private static async Task<RadResult> LightTakenAsync(
+        BspData bsp,
+        VradPreparation prepared,
+        VradContext context,
+        CancellationToken cancellationToken)
+    {
         List<CompileDiagnostic> diagnostics = [.. prepared.Diagnostics];
         List<string> notYet = [];
         List<RadPassResult> passes = [];
@@ -280,14 +306,27 @@ public static class Vrad
         // tracer built here has a digest; a host's or an earlier pass's
         // tracer returns none, and the caller keeps the one it already has.
         string? digest = null;
-        if (tracer is null)
+        if (tracer is not null)
         {
-            (tracer, digest) = await BuildTracerAsync(bsp, options, content, context, texFile, warn, cancellationToken)
-                .ConfigureAwait(false);
+            Report(context, LoadStage, 1);
+            return (texFile, tracer, digest);
         }
 
-        Report(context, LoadStage, 1);
-        return (texFile, tracer, digest);
+        (IRayTracer built, digest) = await BuildTracerAsync(bsp, options, content, context, texFile, warn, cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            // The host's progress sink runs here, with the new tracer not
+            // yet in any preparation that could release it.
+            Report(context, LoadStage, 1);
+        }
+        catch
+        {
+            ReleaseTracer(built);
+            throw;
+        }
+
+        return (texFile, built, digest);
     }
 
     private static async Task<(RadPassResult Pass, Light.SharedTransfers? Transfers)> RunPassAsync(
