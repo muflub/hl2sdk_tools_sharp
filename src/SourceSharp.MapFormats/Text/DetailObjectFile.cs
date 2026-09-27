@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using SourceSharp.MapFormats.Numerics;
+
 namespace SourceSharp.MapFormats.Text;
 
 /// <summary>
@@ -268,7 +270,7 @@ public sealed class DetailObjectFile
     private static float CosineOfDegrees(float degrees) =>
         // cos(angle * pi / 180). The default of
         // 180 degrees gives -1, which restricts nothing.
-        (float)Math.Cos(degrees * Math.PI / 180.0);
+        DetMath.CosToSingle(degrees * Math.PI / 180.0);
 
     private static void SortGroupsByAlpha(IList<DetailObjectGroup> groups)
     {

@@ -9,6 +9,7 @@ using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 
 namespace SourceSharp.MapTools.Rad.Ambient;
 
@@ -231,7 +232,7 @@ public static class StockLightColor
                 f = (float)(0.125 + (((f - G3) / (1.0 - G3)) * 0.875));
             }
 
-            int inf = (int)(255 * Math.Pow(f, g));
+            int inf = (int)(255 * DetMath.Pow(f, g));
             if (inf < 0)
             {
                 inf = 0;
@@ -347,7 +348,7 @@ public static class StockLightColor
         float[] table = new float[4096];
         for (int i = 0; i < table.Length; i++)
         {
-            float f = (float)Math.Pow(i / 1024.0, 1.0 / Gamma);
+            float f = DetMath.PowToSingle(i / 1024.0, 1.0 / Gamma);
             float v = f * OverbrightFactor;
             table[i] = v > 1 ? 1 : v;
         }

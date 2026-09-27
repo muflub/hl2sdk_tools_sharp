@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Geometry;
 
@@ -164,7 +165,7 @@ public static class AreaPortalGeometry
         while (true)
         {
             (float X, float Y) start = points[indices[count - 1]];
-            float edgeAngle = MathF.Atan2(currentEdge.Y, currentEdge.X);
+            float edgeAngle = DetMathF.Atan2(currentEdge.Y, currentEdge.X);
 
             int minAngleIndex = -1;
             float minAngle = 5000f;
@@ -180,7 +181,7 @@ public static class AreaPortalGeometry
                 }
 
                 // Get the angle from the edge to this point.
-                float angle = AngleOffset(edgeAngle, MathF.Atan2(to.Y, to.X));
+                float angle = AngleOffset(edgeAngle, DetMathF.Atan2(to.Y, to.X));
 
                 if (MathF.Abs(angle - minAngle) < 0.00001f)
                 {
@@ -438,7 +439,7 @@ public static class AreaPortalGeometry
         }
         else
         {
-            yaw = MathF.Atan2(forward.Y, forward.X) * 180f / MathF.PI;
+            yaw = DetMathF.Atan2(forward.Y, forward.X) * 180f / MathF.PI;
 
             if (yaw < 0f)
             {
@@ -446,7 +447,7 @@ public static class AreaPortalGeometry
             }
 
             float tmp = MathF.Sqrt((forward.X * forward.X) + (forward.Y * forward.Y));
-            pitch = MathF.Atan2(-forward.Z, tmp) * 180f / MathF.PI;
+            pitch = DetMathF.Atan2(-forward.Z, tmp) * 180f / MathF.PI;
 
             if (pitch < 0f)
             {
@@ -467,9 +468,9 @@ public static class AreaPortalGeometry
     {
         const float degToRad = MathF.PI / 180f;
 
-        (float sy, float cy) = MathF.SinCos(angles.Yaw * degToRad);
-        (float sp, float cp) = MathF.SinCos(angles.Pitch * degToRad);
-        (float sr, float cr) = MathF.SinCos(angles.Roll * degToRad);
+        (float sy, float cy) = DetMathF.SinCos(angles.Yaw * degToRad);
+        (float sp, float cp) = DetMathF.SinCos(angles.Pitch * degToRad);
+        (float sr, float cr) = DetMathF.SinCos(angles.Roll * degToRad);
 
         Vec3 forward = new(cp * cy, cp * sy, -sp);
         Vec3 right = new(

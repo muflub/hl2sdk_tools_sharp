@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 
 namespace SourceSharp.MapTools.Bsp;
 
@@ -71,12 +72,12 @@ public readonly struct InstanceTransform : IEquatable<InstanceTransform>
         float yaw = angles.Y * (MathF.PI / 180f);
         float roll = angles.Z * (MathF.PI / 180f);
 
-        float sy = MathF.Sin(yaw);
-        float cy = MathF.Cos(yaw);
-        float sp = MathF.Sin(pitch);
-        float cp = MathF.Cos(pitch);
-        float sr = MathF.Sin(roll);
-        float cr = MathF.Cos(roll);
+        float sy = DetMathF.Sin(yaw);
+        float cy = DetMathF.Cos(yaw);
+        float sp = DetMathF.Sin(pitch);
+        float cp = DetMathF.Cos(pitch);
+        float sr = DetMathF.Sin(roll);
+        float cr = DetMathF.Cos(roll);
 
         float crcy = cr * cy;
         float crsy = cr * sy;

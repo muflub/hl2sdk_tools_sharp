@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using System.Globalization;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapFormats.Text;
 using SourceSharp.MapTools.Bsp.MaterialPatch;
 using SourceSharp.MapTools.Diagnostics;
@@ -230,8 +231,8 @@ public sealed class DetailDictionary
             // double, stored as float.
             float minAngle = node.GetFloat("minAngle", 180f);
             float maxAngle = node.GetFloat("maxAngle", 180f);
-            model.MinCosAngle = (float)Math.Cos(minAngle * Math.PI / 180.0f);
-            model.MaxCosAngle = (float)Math.Cos(maxAngle * Math.PI / 180.0f);
+            model.MinCosAngle = DetMath.CosToSingle(minAngle * Math.PI / 180.0f);
+            model.MaxCosAngle = DetMath.CosToSingle(maxAngle * Math.PI / 180.0f);
             model.Orientation = node.GetInt("detailOrientation", 0);
 
             if (model.MinCosAngle < model.MaxCosAngle)

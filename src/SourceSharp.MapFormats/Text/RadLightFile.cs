@@ -8,6 +8,7 @@
 using System.Globalization;
 using System.Text;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 
 namespace SourceSharp.MapFormats.Text;
 
@@ -379,7 +380,7 @@ public sealed class RadLightFile
 
         // Gamma to linear, exponent 2.2, and computed BEFORE the
         // switch so it is set even on the error path.
-        float x = (float)(Math.Pow(r / 255.0, 2.2) * 255);
+        float x = (float)(DetMath.Pow(r / 255.0, 2.2) * 255);
 
         switch (count)
         {
@@ -391,8 +392,8 @@ public sealed class RadLightFile
             case 4:
             {
                 // Green and blue get the same gamma conversion.
-                float y = (float)(Math.Pow(g / 255.0, 2.2) * 255);
-                float z = (float)(Math.Pow(b / 255.0, 2.2) * 255);
+                float y = (float)(DetMath.Pow(g / 255.0, 2.2) * 255);
+                float z = (float)(DetMath.Pow(b / 255.0, 2.2) * 255);
                 Vec3 intensity = new(x, y, z);
 
                 if (count == 4)

@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapTools.Rad.Ambient;
 
 namespace SourceSharp.MapTools.Bsp.Detail;
@@ -104,7 +105,7 @@ public sealed class GaussianRandomStream
             }
             while (rsq > 1.0f || rsq == 0.0f);
 
-            float fac = (float)Math.Sqrt(-2.0 * Math.Log(rsq) / rsq);
+            float fac = (float)Math.Sqrt(-2.0 * DetMath.Log(rsq) / rsq);
             _value = v1 * fac;
             _haveValue = true;
             return (stdDev * (v2 * fac)) + mean;

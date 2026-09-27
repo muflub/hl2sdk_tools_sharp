@@ -9,6 +9,7 @@ using System.Buffers;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapFormats.Text;
 using SourceSharp.MapTools.Bsp.MaterialPatch;
 using SourceSharp.MapTools.Bsp.Props;
@@ -486,8 +487,8 @@ public sealed class DetailPropEmitter
     {
         const float ax = 0f, ay = 0f, az = 1f;
         float radians = (float)(degrees * (Math.PI / 180.0f));
-        float s = MathF.Sin(radians);
-        float c = MathF.Cos(radians);
+        float s = DetMathF.Sin(radians);
+        float c = DetMathF.Cos(radians);
         float t = 1.0f - c;
 
         float tx = t * ax, ty = t * ay, tz = t * az;
@@ -521,11 +522,13 @@ public sealed class DetailPropEmitter
     // RAD2DEG: (float)x * (float)(180.f / M_PI_F).
     private static float Rad2Deg(float x) => x * (180.0f / (float)Math.PI);
 
-    // atan2f. Stock's CRT float trig (sinf, cosf, atan2f) is not the
-    // correctly rounded one .NET reaches, and no reading of the reference source -- double
-    // or float evaluation, reciprocal or divide -- closes the last-bit gap: the
-    // detail gate holds angles to a MEASURED 2^-15 degrees for that reason.
-    private static float Atan2F(float y, float x) => MathF.Atan2(y, x);
+    // atan2f. Stock's float trig (sinf, cosf, atan2f) is its own C runtime's,
+    // which is not correctly rounded; this is the correctly rounded one, the
+    // same on every host. No reading of the reference source -- double or
+    // float evaluation, reciprocal or divide -- closes the last-bit gap to
+    // stock: the detail gate holds angles to a MEASURED 2^-15 degrees for
+    // that reason.
+    private static float Atan2F(float y, float x) => DetMathF.Atan2(y, x);
 
     // AddDetailToLump.
     private async Task AddModelAsync(

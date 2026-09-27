@@ -7,6 +7,7 @@
 
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Tracing;
 
@@ -117,7 +118,7 @@ public sealed class AmbientSampler
         _skyAmbient = RayAmbientLighting.FindSkyAmbient(scene);
 
         // Tan(DEG2RAD(7.275)), all float.
-        _tanTheta = MathF.Tan(VertexNormals.ConeInnerAngleRadians);
+        _tanTheta = DetMathF.Tan(VertexNormals.ConeInnerAngleRadians);
         Displacements = scene.Tracer.Displacements.CreateScratch();
 
         // The flagged set is fixed once the pass has classified its lights.

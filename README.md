@@ -66,6 +66,9 @@ Readers and writers for every file the chain touches, and nothing else.
   light files, portal files, detail-object files and the surface-properties
   manifest.
 - `Geometry/` holds the vector and plane types and the shared epsilons.
+- `Numerics/` holds `DetMath` and `DetMathF`, the correctly rounded
+  elementary functions every output-affecting computation uses in place of
+  `Math` and `MathF` (see [Elementary functions](#elementary-functions)).
 - `Assets/` reads studio models, `.phy` files and VTF textures.
 - `Zip/` reads and writes the pakfile zip, including LZMA entries.
 
@@ -295,7 +298,36 @@ What moves between the rows:
   another, which changes a shadow test at the edge of an occluder.
 
 Everything else is the same on every platform: file formats, the vbsp tree,
-vvis, and every exact computation.
+vvis, every exact computation, and every elementary function.
+
+### Elementary functions
+
+`sin`, `cos`, `tan`, `asin`, `acos`, `atan2`, `pow` and `log` do not come
+from the platform's C library, whose last bits differ between glibc, the
+Windows UCRT and macOS's libSystem. They come from
+`SourceSharp.MapFormats.Numerics`: `DetMath` for double, `DetMathF` for
+float. Each returns the correctly rounded result, the representable value
+nearest the true one (ties to even). That value is unique, so it is the same
+on every OS and CPU, and it matches any C library wherever that library is
+right.
+
+Each function first evaluates in double precision with a bounded error and
+rounds when the whole error band rounds to one value. For about one float
+result in a million, and for every double result, it falls back to
+arbitrary-precision interval arithmetic, which always decides. A float
+function costs a small multiple of `MathF`'s; a double function costs tens of
+microseconds, which is why the per-luxel gamma uses `DetMath.PowToSingle`
+(the bits of `(float)DetMath.Pow`, at float cost). A fact scans the built
+libraries and fails on any call to `Math.Sin`, `MathF.Pow` and the like.
+
+This holds under both policies. The reference tools took these functions from
+Microsoft's C runtime, which no other runtime reproduces bit for bit. Before
+this library the port used the host's C library in both policies, so its
+output depended on the OS wherever that library misrounds; glibc 2.39's
+`asinf`, for one, misrounds about one argument in ten in `[0.5, 1)`, and its
+`atan2f` one in five near 1. Stock mode now computes these correctly rounded
+too: it matches the reference wherever Microsoft's runtime is correctly
+rounded, and it is the same everywhere.
 
 The test suite reflects this. Facts that compare a stock-estimate result
 bit for bit take their expected values per CPU family. AMD compares against
@@ -503,8 +535,16 @@ stated reason when they are missing:
 
 The rest run everywhere.
 
-`LibraryRuleTests` and `FileSystemSeamTests` check the built assemblies
-against the [design rules](#design-rules), so breaking one fails the suite.
+`LibraryRuleTests`, `FileSystemSeamTests` and `DeterministicMathRuleTests`
+check the built assemblies against the [design rules](#design-rules), so
+breaking one fails the suite.
+
+The elementary-function facts under `MapFormats/Numerics` compare bit
+patterns, not tolerances, against a table of correctly rounded results that
+`tools/detmath_goldens.py` computes with mpmath; since those results are
+unique, the same table must pass on every CI runner. Others walk every float
+in chosen binades, measuring the fast tier's error bound and checking each
+result is correctly rounded.
 
 ## CI and releases
 
@@ -537,6 +577,19 @@ assemblies rather than by review.
   directory. Tests use `InMemoryFileSystem`.
 - **No mutable static state** in `MapFormats` or `MapTools`, so two compiles
   can share one process.
+- **Same output on every platform.** The same map, game content and
+  options produce the same bytes on Linux, Windows and macOS, on any .NET
+  runtime. The only differences allowed are the CPU-estimate ones listed
+  under [Platform differences](#platform-differences): stock's `rcpss` /
+  `rsqrtss` arithmetic under `-compliance stock`, and the KD-tree
+  traversal reciprocal. The opt-in paths that hand work to code outside
+  this repository, `-gpu` (the device's ray intersection) and
+  `-cooker native` (the game's vphysics library), are outside the rule.
+  Any other difference between platforms is a bug.
+- **No platform math.** This is how the rule above is kept. Elementary
+  functions go through `DetMath` and `DetMathF`, never `Math.Sin`,
+  `MathF.Pow` and the like, so output does not depend on the OS's C
+  library. A fact scans the built libraries and fails on any such call.
 - **No package references** in `MapFormats` or `MapTools`. SQLite and
   Silk.NET live only in the optional `Cache.Sqlite` and `Gpu` assemblies.
 - **Every public async method takes its `CancellationToken` last.**

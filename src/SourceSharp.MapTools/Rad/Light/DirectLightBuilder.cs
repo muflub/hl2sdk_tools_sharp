@@ -7,6 +7,7 @@
 
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapFormats.Text;
 using SourceSharp.MapTools.Options;
 
@@ -393,8 +394,8 @@ public static class DirectLightBuilder
             // only for readability here, but the conversion is float-cast
             // double cosine, which is what the BSP records.
             bool reciprocal = options.Compliance.Emulates(StockQuirk.DegreesToRadiansByReciprocal);
-            light.StopDot2 = (float)Math.Cos(LightNormals.Radians(light.StopDot2, reciprocal));
-            light.StopDot = (float)Math.Cos(LightNormals.Radians(light.StopDot, reciprocal));
+            light.StopDot2 = DetMath.CosToSingle(LightNormals.Radians(light.StopDot2, reciprocal));
+            light.StopDot = DetMath.CosToSingle(LightNormals.Radians(light.StopDot, reciprocal));
             light.Exponent = EntityKeys.FloatForKey(entity, "_exponent");
         }
 
@@ -429,7 +430,7 @@ public static class DirectLightBuilder
         if (spread is not null && spreadApplies)
         {
             float degrees = VmfValue.ParseFloat(spread);
-            lights.SunAngularExtent = (float)Math.Sin(Math.PI / 180.0 * degrees);
+            lights.SunAngularExtent = DetMath.SinToSingle(Math.PI / 180.0 * degrees);
         }
 
         if (lights.SkyLight is not null)
