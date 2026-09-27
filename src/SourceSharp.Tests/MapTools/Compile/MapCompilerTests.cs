@@ -32,11 +32,11 @@ namespace SourceSharp.Tests.MapTools.Compile;
 /// </summary>
 public sealed class MapCompilerTests
 {
-    private const string MapDirectory = "maps";
+    internal const string MapDirectory = "maps";
 
     // A sealed room of six 16-thick slabs around (0,0,0)-(256,256,256), a
     // player start and a light inside; without the +y slab it leaks.
-    private static VmfDocument Room(bool sealedRoom = true)
+    internal static VmfDocument Room(bool sealedRoom = true)
     {
         VmfDocument document = new();
         VmfChunk world = new(MapFileLoader.WorldChunk);
@@ -67,7 +67,7 @@ public sealed class MapCompilerTests
         return document;
     }
 
-    private static VmfChunk Entity(VmfDocument document, string className, string origin)
+    internal static VmfChunk Entity(VmfDocument document, string className, string origin)
     {
         VmfChunk e = new(MapFileLoader.EntityChunk);
         e.AddKey("id", (document.Chunks.Count + 100).ToString(CultureInfo.InvariantCulture));
@@ -78,7 +78,7 @@ public sealed class MapCompilerTests
     }
 
     // The unit materials plus the map at maps/<name>.vmf, on one in-memory disk.
-    private static async Task<(InMemoryFileSystem Files, IContentFileSystem Content)> DiskAsync(
+    internal static async Task<(InMemoryFileSystem Files, IContentFileSystem Content)> DiskAsync(
         VmfDocument document, string name = "room")
     {
         InMemoryFileSystem files = new();
@@ -90,7 +90,7 @@ public sealed class MapCompilerTests
         return (files, content);
     }
 
-    private static CompileRequest Request(
+    internal static CompileRequest Request(
         InMemoryFileSystem files,
         IContentFileSystem content,
         CompileOutput? output = null,
@@ -104,20 +104,20 @@ public sealed class MapCompilerTests
             Output = output ?? CompileOutput.ToDirectory(files, VPath.Create(MapDirectory)),
         };
 
-    private static async Task<byte[]> BytesAsync(BspData bsp)
+    internal static async Task<byte[]> BytesAsync(BspData bsp)
     {
         using MemoryStream stream = new();
         await BspFile.SaveAsync(bsp, stream, BspWriteMode.Canonical, CancellationToken.None);
         return stream.ToArray();
     }
 
-    private static async Task<byte[]> ReadAsync(InMemoryFileSystem files, string path)
+    internal static async Task<byte[]> ReadAsync(InMemoryFileSystem files, string path)
     {
         using System.Buffers.IMemoryOwner<byte> owner = await files.ReadAllAsync(VPath.Create(path));
         return owner.Memory.ToArray();
     }
 
-    private static async Task<List<string>> ListAsync(InMemoryFileSystem files)
+    internal static async Task<List<string>> ListAsync(InMemoryFileSystem files)
     {
         List<string> all = [];
         await foreach (VPath path in files.EnumerateAsync(VPath.Create(MapDirectory), "*"))
@@ -233,7 +233,7 @@ public sealed class MapCompilerTests
     // The sealed room with a slanted wedge on the floor: its sloped face
     // meets the axial split planes at fractional coordinates, so the.prt's
     // six-decimal text is not the floats vbsp held.
-    private static VmfDocument SlantedRoom()
+    internal static VmfDocument SlantedRoom()
     {
         VmfDocument document = Room();
         VmfChunk world = document.Chunks[0];

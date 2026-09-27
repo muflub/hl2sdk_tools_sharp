@@ -88,6 +88,64 @@ public static class Vrad
         return RunAsync(bsp, context, cancellationToken);
     }
 
+    /// <summary>
+    /// The half of <see cref="LightAsync(BspData, VradContext, CancellationToken)"/>
+    /// that needs only vbsp's map, not vvis's: the texlight files and, when the
+    /// context brings no tracer, the shadow casters and the KD-tree.
+    /// </summary>
+    /// <param name="bsp">
+    /// The map. Read only, unless <c>-luxeldensity</c> is below one: then the
+    /// first pass's density is applied here, as the whole compile would.
+    /// </param>
+    /// <param name="context">The same context the lighting will run with.</param>
+    /// <param name="cancellationToken">Cancels the load.</param>
+    /// <returns>What <see cref="LightAsync(BspData, VradPreparation, VradContext, CancellationToken)"/> continues from.</returns>
+    /// <remarks>
+    /// Nothing here reads LUMP_VISIBILITY or the leaf flags vvis writes (the
+    /// casters read only each leaf's brush range), so a chain can run it while
+    /// vvis finishes, as long as vvis's lumps are committed after it returns.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="OperationCanceledException">The load was cancelled.</exception>
+    public static Task<VradPreparation> PrepareAsync(
+        BspData bsp,
+        VradContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(bsp);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return PrepareCoreAsync(bsp, context, cancellationToken);
+    }
+
+    /// <summary>
+    /// Lights a map from a <see cref="PrepareAsync"/>: exactly what
+    /// <see cref="LightAsync(BspData, VradContext, CancellationToken)"/> gives
+    /// for the same map and context.
+    /// </summary>
+    /// <param name="bsp">The map, as vvis left it; changed in place as that overload says.</param>
+    /// <param name="prepared">The preparation, made from this map and context; used once.</param>
+    /// <param name="context">The context the preparation was made with.</param>
+    /// <param name="cancellationToken">Cancels the compile.</param>
+    /// <returns>The counts and diagnostics, the preparation's first.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="MapCompileException">An unrecoverable map error, as stock's <c>Error()</c>.</exception>
+    /// <exception cref="OperationCanceledException">The compile was cancelled.</exception>
+    public static Task<RadResult> LightAsync(
+        BspData bsp,
+        VradPreparation prepared,
+        VradContext context,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(bsp);
+        ArgumentNullException.ThrowIfNull(prepared);
+        ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return LightCoreAsync(bsp, prepared, context, cancellationToken);
+    }
+
     /// <summary>The ranges a compile lights, in stock's order.</summary>
     /// <param name="range">The option.</param>
     /// <returns>False for LDR, true for HDR; LDR first under <c>-both</c>.</returns>
@@ -100,12 +158,51 @@ public static class Vrad
 
     private static async Task<RadResult> RunAsync(BspData bsp, VradContext context, CancellationToken cancellationToken)
     {
+        VradPreparation prepared = await PrepareCoreAsync(bsp, context, cancellationToken).ConfigureAwait(false);
+        return await LightCoreAsync(bsp, prepared, context, cancellationToken).ConfigureAwait(false);
+    }
+
+    // VRAD_LoadBSP up to RadWorld_Start, for the first pass: the texlight
+    // files, the first pass's density and texlights, and the tracer.
+    private static async Task<VradPreparation> PrepareCoreAsync(
+        BspData bsp,
+        VradContext context,
+        CancellationToken cancellationToken)
+    {
         VradOptions options = context.Options;
         List<CompileDiagnostic> diagnostics = [];
+        IContentFileSystem content = context.Content ?? new ContentFileSystem([]);
+
+        void Warn(string code, string message) =>
+            diagnostics.Add(new CompileDiagnostic(code, DiagnosticSeverity.Warning, message));
+
+        // VRAD_LoadBSP's texlight half: read once, parsed per range.
+        Report(context, LoadStage, 0);
+        List<(string Name, byte[] Bytes)> radFiles = await LoadTexlightFilesAsync(
+            content, options, context.MapName, Warn, cancellationToken).ConfigureAwait(false);
+
+        bool hdr = Passes(options.Range)[0];
+        (RadLightFile texFile, IRayTracer? tracer) = await BeginPassAsync(
+            bsp, context, content, radFiles, hdr, context.Tracer, Warn, cancellationToken).ConfigureAwait(false);
+
+        return new VradPreparation(radFiles, texFile, tracer!, diagnostics);
+    }
+
+    private static async Task<RadResult> LightCoreAsync(
+        BspData bsp,
+        VradPreparation prepared,
+        VradContext context,
+        CancellationToken cancellationToken)
+    {
+        if (!prepared.TryTake())
+        {
+            throw new InvalidOperationException("a VradPreparation lights one map once");
+        }
+
+        List<CompileDiagnostic> diagnostics = [.. prepared.Diagnostics];
         List<string> notYet = [];
         List<RadPassResult> passes = [];
         IContentFileSystem content = context.Content ?? new ContentFileSystem([]);
-        string mapName = context.MapName;
 
         void Warn(string code, string message) =>
             diagnostics.Add(new CompileDiagnostic(code, DiagnosticSeverity.Warning, message));
@@ -119,45 +216,23 @@ public static class Vrad
             }
         }
 
-        // VRAD_LoadBSP's texlight half: read once, parsed per range.
-        Report(context, LoadStage, 0);
-        List<(string Name, byte[] Bytes)> radFiles = await LoadTexlightFilesAsync(
-            content, options, mapName, Warn, cancellationToken).ConfigureAwait(false);
-
-        IRayTracer? tracer = context.Tracer;
+        IRayTracer tracer = prepared.Tracer;
 
         // -both (plan 4p): the transfers are geometry; the second range reuses
         // the first's when its patch tree is the same (RadWorld.BounceAsync checks).
         Light.SharedTransfers? transfers = null;
-        foreach (bool hdr in Passes(options.Range))
+        IReadOnlyList<bool> ranges = Passes(context.Options.Range);
+        for (int p = 0; p < ranges.Count; p++)
         {
+            bool hdr = ranges[p];
             cancellationToken.ThrowIfCancellationRequested();
 
-            // RadWorld_Start's head: -luxeldensity edits the map.
-            float density = LuxelDensity.Effective(options.LuxelDensity);
-            if (density < 1.0f)
+            RadLightFile texFile = prepared.FirstTexlights;
+            if (p > 0)
             {
-                LuxelDensity.Apply(bsp, density, hdr, options.Compliance);
+                (texFile, _) = await BeginPassAsync(
+                    bsp, context, content, prepared.RadFiles, hdr, tracer, Warn, cancellationToken).ConfigureAwait(false);
             }
-
-            (RadLightFile texFile, IReadOnlyList<RadLightOverride> overrides) =
-                await ParseTexlightsAsync(radFiles, hdr, options.LightScale, cancellationToken).ConfigureAwait(false);
-            foreach (RadLightOverride o in overrides)
-            {
-                Warn(VradCodes.TexlightOverride, o.SameFile
-                    ? $"Duplication of '{o.Name}'"
-                    : o.Redundant ? $"Redundant '{o.Name}' def" : $"Overriding '{o.Name}'");
-            }
-
-            // Once for the whole compile: the casters and the KD-tree.
-            if (tracer is null)
-            {
-                tracer = await BuildTracerAsync(
-                    bsp, options, content, context, texFile, Warn, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-
-            Report(context, LoadStage, 1);
 
             (RadPassResult pass, transfers) = await RunPassAsync(
                 bsp, context, content, tracer, texFile, hdr, transfers, Warn, NotYet, cancellationToken).ConfigureAwait(false);
@@ -165,6 +240,44 @@ public static class Vrad
         }
 
         return new RadResult(passes, diagnostics, notYet);
+    }
+
+    // A pass's head: RadWorld_Start's -luxeldensity edit, the range's
+    // texlights, and (once for the whole compile) the casters and the KD-tree.
+    private static async Task<(RadLightFile TexFile, IRayTracer Tracer)> BeginPassAsync(
+        BspData bsp,
+        VradContext context,
+        IContentFileSystem content,
+        List<(string Name, byte[] Bytes)> radFiles,
+        bool hdr,
+        IRayTracer? tracer,
+        Action<string, string> warn,
+        CancellationToken cancellationToken)
+    {
+        VradOptions options = context.Options;
+
+        // RadWorld_Start's head: -luxeldensity edits the map.
+        float density = LuxelDensity.Effective(options.LuxelDensity);
+        if (density < 1.0f)
+        {
+            LuxelDensity.Apply(bsp, density, hdr, options.Compliance);
+        }
+
+        (RadLightFile texFile, IReadOnlyList<RadLightOverride> overrides) =
+            await ParseTexlightsAsync(radFiles, hdr, options.LightScale, cancellationToken).ConfigureAwait(false);
+        foreach (RadLightOverride o in overrides)
+        {
+            warn(VradCodes.TexlightOverride, o.SameFile
+                ? $"Duplication of '{o.Name}'"
+                : o.Redundant ? $"Redundant '{o.Name}' def" : $"Overriding '{o.Name}'");
+        }
+
+        // Once for the whole compile: the casters and the KD-tree.
+        tracer ??= await BuildTracerAsync(bsp, options, content, context, texFile, warn, cancellationToken)
+            .ConfigureAwait(false);
+
+        Report(context, LoadStage, 1);
+        return (texFile, tracer);
     }
 
     private static async Task<(RadPassResult Pass, Light.SharedTransfers? Transfers)> RunPassAsync(

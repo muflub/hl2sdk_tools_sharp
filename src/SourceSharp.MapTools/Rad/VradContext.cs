@@ -15,7 +15,7 @@ using SourceSharp.MapTools.Tracing;
 
 namespace SourceSharp.MapTools.Rad;
 
-/// <summary>What a <see cref="Vrad.LightAsync"/> compile reads, and how much machine it uses.</summary>
+/// <summary>What a <see cref="Vrad.LightAsync(SourceSharp.MapFormats.Bsp.BspData, VradContext, CancellationToken)"/> compile reads, and how much machine it uses.</summary>
 public sealed record VradContext
 {
     /// <summary>What was asked for.</summary>
@@ -89,7 +89,7 @@ public sealed record RadPassResult(
     FinalLightingStatistics? Final,
     int LightDataSize);
 
-/// <summary>What a <see cref="Vrad.LightAsync"/> compile did.</summary>
+/// <summary>What a <see cref="Vrad.LightAsync(SourceSharp.MapFormats.Bsp.BspData, VradContext, CancellationToken)"/> compile did.</summary>
 /// <param name="Passes">One per range, LDR first.</param>
 /// <param name="Diagnostics">Warnings and notes, in the order they arose.</param>
 /// <param name="StagesNotYetPorted">

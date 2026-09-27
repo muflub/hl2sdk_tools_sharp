@@ -133,6 +133,29 @@ public static class DetailPropLighting
     /// <param name="cancellationToken">Cancels the pass.</param>
     /// <returns>The lit props and this pass's style lump.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static Task<DetailPropLightingResult> ComputeAsync(
+        AmbientScene scene,
+        DetailPropLump lump,
+        IReadOnlyList<Vec3> modelCentres,
+        IReadOnlyList<PropLight> lights,
+        PropLightSampler sampler,
+        ComplianceOptions compliance,
+        int parallelism,
+        CancellationToken cancellationToken) =>
+        ComputeAsync(scene, lump, modelCentres, lights, sampler, compliance, parallelism, null, cancellationToken);
+
+    /// <summary>Lights every detail prop for one pass, on a compile's shared thread pool.</summary>
+    /// <param name="scene">The map, for this pass's mode.</param>
+    /// <param name="lump">The detail prop lump.</param>
+    /// <param name="modelCentres">From <see cref="LoadModelCentresAsync"/>.</param>
+    /// <param name="lights">This pass's <c>activelights</c>, in list order.</param>
+    /// <param name="sampler">Evaluates one light at one point.</param>
+    /// <param name="compliance">Which defects to reproduce.</param>
+    /// <param name="parallelism">How many props at once; 0 for every core.</param>
+    /// <param name="pool">The compile's shared thread pool, or null for threads of this stage's own.</param>
+    /// <param name="cancellationToken">Cancels the pass.</param>
+    /// <returns>The lit props and this pass's style lump.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static async Task<DetailPropLightingResult> ComputeAsync(
         AmbientScene scene,
         DetailPropLump lump,
@@ -141,6 +164,7 @@ public static class DetailPropLighting
         PropLightSampler sampler,
         ComplianceOptions compliance,
         int parallelism,
+        CompilePool? pool,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(scene);
@@ -154,9 +178,9 @@ public static class DetailPropLighting
         Vec3[] spriteCentres = SpriteCentres(lump);
         DetailObjectLump[] props = [.. lump.Props];
 
-        CompileParallelism degree = parallelism > 0
+        CompileParallelism degree = (parallelism > 0
             ? new CompileParallelism { MaxDegree = parallelism }
-            : CompileParallelism.Default;
+            : CompileParallelism.Default) with { Pool = pool };
 
         PropColours[] colours;
         using (WorkQueue queue = new(degree))

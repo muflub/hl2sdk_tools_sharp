@@ -67,6 +67,7 @@ internal static class VradBuiltInStages
                 sampler,
                 pass.Options.Compliance,
                 pass.Parallelism.MaxDegree,
+                pass.Parallelism.Pool,
                 cancellationToken).ConfigureAwait(false);
             DetailPropLighting.WriteInto(bsp, lump, result, pass.Hdr);
         }
@@ -90,6 +91,7 @@ internal static class VradBuiltInStages
                     Compliance = pass.Options.Compliance,
                     FastAmbient = pass.Options.FastAmbient,
                     Parallelism = pass.Parallelism.MaxDegree,
+                    Pool = pass.Parallelism.Pool,
                 },
                 new TracerLineVisibility(Environment(pass), pass.Options.Compliance),
                 cancellationToken).ConfigureAwait(false);
@@ -144,6 +146,7 @@ internal static class VradBuiltInStages
                     StaticPropIndirectMode = pass.Options.StaticPropIndirectMode,
                     Compliance = pass.Options.Compliance,
                     Parallelism = pass.Parallelism.MaxDegree,
+                    Pool = pass.Parallelism.Pool,
                 },
                 cancellationToken).ConfigureAwait(false);
             await StaticPropLighting.WriteIntoAsync(bsp, result, cancellationToken).ConfigureAwait(false);

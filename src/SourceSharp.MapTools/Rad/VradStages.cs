@@ -16,7 +16,7 @@ using SourceSharp.MapTools.Tracing;
 namespace SourceSharp.MapTools.Rad;
 
 /// <summary>
-/// One lighting pass of a <see cref="Vrad.LightAsync"/> compile, as the
+/// One lighting pass of a <see cref="Vrad.LightAsync(SourceSharp.MapFormats.Bsp.BspData, VradContext, CancellationToken)"/> compile, as the
 /// stages after direct lighting see it.
 /// </summary>
 /// <remarks>
@@ -128,7 +128,7 @@ public interface IVradOtherLightingStage
 /// <para>
 /// <see cref="Default"/> holds the ported stages (4d's bounce, 4g's detail
 /// props, leaf ambient and static props). A null member is a stage the compile
-/// runs without: <see cref="Vrad.LightAsync"/> never skips one silently -- when
+/// runs without: <see cref="Vrad.LightAsync(SourceSharp.MapFormats.Bsp.BspData, VradContext, CancellationToken)"/> never skips one silently -- when
 /// the compile needs a null stage it records a <c>VRAD0701</c> warning naming
 /// it, lists it in <see cref="RadResult.StagesNotYetPorted"/>, and carries on.
 /// Tests and hosts may pass their own (a fake, or a GPU implementation).

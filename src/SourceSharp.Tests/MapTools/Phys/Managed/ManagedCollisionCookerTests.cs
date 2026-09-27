@@ -57,6 +57,18 @@ public class ManagedCollisionCookerTests
     }
 
     [Fact]
+    public async Task CooksRunOnTheSchedulerTheyAreGiven()
+    {
+        // ssmap all hands the cooker the chain's pool, so prop cooks share its threads.
+        using SourceSharp.MapTools.Parallel.CompilePool pool = new(2);
+        await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Stock);
+        Assert.False(await cooker.RunAsync(_ => pool.IsPoolThread));
+
+        cooker.Scheduler = pool.Scheduler;
+        Assert.True(await cooker.RunAsync(_ => pool.IsPoolThread));
+    }
+
+    [Fact]
     public async Task ACancelledCookThrowsBeforeCooking()
     {
         await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);

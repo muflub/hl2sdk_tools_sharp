@@ -58,7 +58,25 @@ public sealed record CompileRequest
     public VradOptions Vrad { get; init; } = VradOptions.Default;
 
     /// <summary>How much of the machine vvis and vrad may use (vbsp is serial, as stock's is).</summary>
+    /// <remarks>
+    /// When it carries no <see cref="CompileParallelism.Pool"/>, the chain makes
+    /// one of <see cref="CompileParallelism.MaxDegree"/> threads for the run and
+    /// every stage shares it.
+    /// </remarks>
     public CompileParallelism Parallel { get; init; } = CompileParallelism.Default;
+
+    /// <summary>
+    /// Whether stages start as soon as their inputs exist instead of when the
+    /// stage before them ends: vvis's portal flow while vbsp finishes the map,
+    /// and vrad's casters and KD-tree while vvis finishes. Off by default.
+    /// </summary>
+    /// <remarks>
+    /// The output is the same bytes either way (facts compare the two); only
+    /// the wall time and the order of progress reports change. The
+    /// <c>.log</c>'s lines keep their order; its stage timings are each
+    /// stage's wall time from the end of the one before.
+    /// </remarks>
+    public bool Overlap { get; init; }
 
     /// <summary>The ray tracer vrad uses, or null for the managed CPU tracer.</summary>
     public IRayTracer? Tracer { get; init; }
