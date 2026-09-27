@@ -242,17 +242,39 @@ public sealed class SlabBatcherTests
         Task queued = batcher.TraceClosestAsync(Rays(10, 2), new HitId[10], 0, CancellationToken.None);
 
         Task closing = Task.Run(() => batcher.Close(() => released++));
-        await Task.Delay(50);
+
+        // Close has begun (and is waiting out the dispatch) before the device finishes.
+        Assert.True(SpinWait.SpinUntil(() => batcher.IsClosed, TimeSpan.FromSeconds(30)));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => queued);
         device.Gate.Set();
         await closing;
         batcher.Close(() => released++);
 
+        // The request on the device when Close began still gets its answers.
         await inFlight;
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => queued);
+        Assert.Equal([10], device.RaysPerDispatch);
         Assert.Equal(1, released);
         // Refused at the call, not through the task.
         Assert.Throws<ObjectDisposedException>(
             () => { _ = batcher.TraceClosestAsync(Rays(1, 3), new HitId[1], 0, CancellationToken.None); });
+    }
+
+    [Fact]
+    public async Task ARequestPartAnsweredWhenClosedFailsInsteadOfWaitingForever()
+    {
+        FakeDevice device = new(64);
+        device.Gate.Reset();
+        SlabBatcher batcher = new(device, Ids, 0);
+
+        Task big = batcher.TraceClosestAsync(Rays(200, 1), new HitId[200], 0, CancellationToken.None);
+        await device.FirstDispatchStarted.Task;
+        Task closing = Task.Run(() => batcher.Close(() => { }));
+        Assert.True(SpinWait.SpinUntil(() => batcher.IsClosed, TimeSpan.FromSeconds(30)));
+        device.Gate.Set();
+        await closing;
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => big);
+        Assert.Equal([64], device.RaysPerDispatch);
     }
 
     [Fact]

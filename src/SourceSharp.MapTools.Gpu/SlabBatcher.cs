@@ -99,6 +99,18 @@ internal sealed class SlabBatcher
         _words = new uint[device.MaxSlabRays * 2];
     }
 
+    /// <summary>Whether <see cref="Close"/> has begun; new requests are refused from then on.</summary>
+    public bool IsClosed
+    {
+        get
+        {
+            lock (_queueLock)
+            {
+                return _closed;
+            }
+        }
+    }
+
     /// <summary>Dispatches made so far, for facts and telemetry.</summary>
     public int Dispatches { get; private set; }
 
@@ -122,7 +134,8 @@ internal sealed class SlabBatcher
 
     /// <summary>
     /// Refuses new requests, fails queued ones, waits out a dispatch in
-    /// flight, then runs <paramref name="release"/> with the device idle.
+    /// flight (whose requests complete normally), then runs
+    /// <paramref name="release"/> with the device idle.
     /// </summary>
     /// <param name="release">Releases the device; called once, under the device lock.</param>
     public void Close(Action release)
@@ -136,18 +149,24 @@ internal sealed class SlabBatcher
             }
 
             _closed = true;
-            orphans = [.. _queue];
-            _queue.Clear();
+
+            // A request on the device is the drainer's to finish; the rest
+            // never reach it.
+            orphans = [.. _queue.Where(r => !r.InFlight)];
+            _queue.RemoveAll(r => !r.InFlight);
+        }
+
+        // Fail the queued requests before waiting out the dispatch: they will
+        // never run, and their callers should not wait on a slab that is not
+        // theirs. Continuations run asynchronously, so this cannot re-enter.
+        foreach (Request r in orphans)
+        {
+            r.Done.TrySetException(new ObjectDisposedException(nameof(VulkanRayTracer)));
         }
 
         lock (_deviceLock)
         {
             release();
-        }
-
-        foreach (Request r in orphans)
-        {
-            r.Done.TrySetException(new ObjectDisposedException(nameof(VulkanRayTracer)));
         }
     }
 
@@ -204,6 +223,10 @@ internal sealed class SlabBatcher
                 mode = _queue[0].Mode;
                 tminBits = _queue[0].TminBits;
                 total = Plan(_queue, mode, tminBits, _device.MaxSlabRays, slab);
+                foreach (Segment s in slab)
+                {
+                    s.Request.InFlight = true;
+                }
             }
 
             Exception? failure = null;
@@ -229,6 +252,7 @@ internal sealed class SlabBatcher
             {
                 foreach (Segment s in slab)
                 {
+                    s.Request.InFlight = false;
                     if (failure is not null)
                     {
                         s.Request.Done.TrySetException(failure);
@@ -240,6 +264,12 @@ internal sealed class SlabBatcher
                     if (s.Request.Next == s.Request.Rays.Length)
                     {
                         s.Request.Done.TrySetResult();
+                        _queue.Remove(s.Request);
+                    }
+                    else if (_closed)
+                    {
+                        // Part answered when the tracer closed: the rest never will be.
+                        s.Request.Done.TrySetException(new ObjectDisposedException(nameof(VulkanRayTracer)));
                         _queue.Remove(s.Request);
                     }
                 }
@@ -406,6 +436,9 @@ internal sealed class SlabBatcher
 
         /// <summary>Rays already answered; only the drainer moves it.</summary>
         public int Next { get; set; }
+
+        /// <summary>Whether a slab on the device carries part of it; guarded by the queue lock.</summary>
+        public bool InFlight { get; set; }
 
         // Continuations run off the drainer, which must get back to the device.
         public TaskCompletionSource Done { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
