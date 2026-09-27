@@ -390,6 +390,30 @@ public sealed class LightRayLog
         return ReadSkyOcclusion();
     }
 
+    /// <summary>
+    /// Makes room for at least <paramref name="count"/> first-stage sky rays
+    /// without growing.
+    /// </summary>
+    /// <param name="count">How many sky rays the caller is about to record, at most.</param>
+    /// <remarks>
+    /// For a caller that records one large batch whose size it can bound up
+    /// front, such as the radial sky-leaf probe: growing from the default by
+    /// doubling allocates about twice the final storage and copies it on the
+    /// way, all of it on the large-object heap for a map-sized batch. Rays
+    /// already recorded are kept.
+    /// </remarks>
+    internal void ReserveSky(int count)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        if (count > _sky.Length)
+        {
+            Array.Resize(ref _sky, count);
+        }
+    }
+
+    /// <summary>The storage the first-stage sky rays have without growing.</summary>
+    internal int SkyCapacity => _sky.Length;
+
     /// <summary>Records a visibility ray.</summary>
     /// <param name="start">The start.</param>
     /// <param name="stop">The end.</param>

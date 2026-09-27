@@ -25,9 +25,12 @@ namespace SourceSharp.MapTools.Gpu;
 /// index pin. Takes effect before <paramref name="DeviceMatch"/>.
 /// </param>
 /// <param name="MaxRaysPerSlab">
-/// Requested rays per dispatch; the device's buffer-binding limit can only
-/// lower it. 4,194,304 rays = 128 MB of ray bytes, the spec's minimum
-/// <c>maxStorageBufferBindingSize</c>, so every conformant device takes it.
+/// The ray budget for the slabs in flight together: each of the
+/// <see cref="SlabsInFlight"/> slabs holds an equal share, and the device's
+/// buffer-binding limit can only lower that. 4,194,304 rays = 128 MB of ray
+/// bytes, the spec's minimum <c>maxStorageBufferBindingSize</c> and what a
+/// single slab held before slabs were pipelined, so pipelining costs no
+/// extra memory.
 /// </param>
 /// <param name="DispatchTimeoutSeconds">
 /// How long a dispatched slab may leave its fence unsignalled before the
@@ -38,7 +41,22 @@ public readonly record struct VulkanRayTracerOptions(
     string? DeviceMatch = null,
     int DeviceIndex = -1,
     int MaxRaysPerSlab = 4_194_304,
-    int DispatchTimeoutSeconds = 120);
+    int DispatchTimeoutSeconds = 120)
+{
+    /// <summary>
+    /// How many slabs may be on the device at once, 1 to 8; 0 (what a
+    /// defaulted options value holds) means 3. With more than one, the
+    /// device traces one slab while the next waits queued behind it and the
+    /// tracer packs or unpacks another, instead of each waiting for the
+    /// other. 1 reproduces one slab at a time.
+    /// </summary>
+    /// <remarks>
+    /// An init property rather than a constructor parameter: hosts that
+    /// build the options by reflection over the four-argument constructor
+    /// keep working.
+    /// </remarks>
+    public int SlabsInFlight { get; init; }
+}
 
 /// <summary>
 /// What the capability self-test saw, kept verbatim for the caller's
@@ -179,8 +197,11 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     /// <summary>The self-test record this instance passed — kept for diagnostics.</summary>
     public SelfTestRecord SelfTest { get; }
 
-    /// <summary>Rays one dispatch carries at most on this device.</summary>
+    /// <summary>Rays one dispatch carries at most on this device: its share of the requested budget.</summary>
     public int MaxRaysPerSlab => _device.MaxSlabRays;
+
+    /// <summary>How many slabs this tracer keeps on the device at once.</summary>
+    public int SlabsInFlight => _device.SlotCount;
 
     /// <summary>Triangles in the loaded BLAS.</summary>
     public int TriangleCount => (int)_device.TriangleCount;
@@ -251,6 +272,9 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         VulkanRayTracerOptions options = default,
         CancellationToken cancellationToken = default)
     {
+        // Checked before anything native is opened, so a bad value cannot
+        // leave a device behind.
+        int slots = SlotsFor(options);
         TracedTriangle[] scene = triangles.ToArray();
         List<VulkanDeviceInfo> inventory = [];
         VulkanDevice device;
@@ -273,7 +297,7 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
             // The inventory comes first so even a total failure reports what
             // the box really has (the device-pin diagnostic the tools owe).
             inventory.AddRange(VulkanDevice.ProbeDevices());
-            device.Construct(options.DeviceMatch, options.DeviceIndex, options.MaxRaysPerSlab);
+            device.Construct(options.DeviceMatch, options.DeviceIndex, options.MaxRaysPerSlab, slots);
             cancellationToken.ThrowIfCancellationRequested();
 
             // The gate runs before real geometry: two triangles whose answer
@@ -335,6 +359,18 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
 
             return new VulkanTracerAttempt(null, new VulkanDeviceReport(inventory, null, why), false);
         }
+    }
+
+    /// <summary>The slot count <paramref name="options"/> asks for, 0 meaning the default.</summary>
+    /// <param name="options">The options.</param>
+    /// <returns>1 to <see cref="SlabMemory.MaxSlots"/>.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Negative, or more than the maximum.</exception>
+    internal static int SlotsFor(VulkanRayTracerOptions options)
+    {
+        int slots = options.SlabsInFlight == 0 ? SlabMemory.DefaultSlots : options.SlabsInFlight;
+        ArgumentOutOfRangeException.ThrowIfLessThan(slots, 1, nameof(options.SlabsInFlight));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(slots, SlabMemory.MaxSlots, nameof(options.SlabsInFlight));
+        return slots;
     }
 
     /// <summary>Names the failure signature the telemetry matches, for the report and the facts.</summary>

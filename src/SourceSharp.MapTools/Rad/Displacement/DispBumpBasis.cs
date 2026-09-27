@@ -49,7 +49,7 @@ public static class DispBumpBasis
         Vec3 lightU = VradDispSurface.Normalise(new Vec3(l[0], l[1], l[2]), stockNormalise);
         Vec3 lightV = VradDispSurface.Normalise(new Vec3(l[4], l[5], l[6]), stockNormalise);
 
-        // 1507-1515. fabs of a float -> the double fabs; the compare is in double.
+        // fabs of a float widens to double; the compare is in double.
         bool convert = Math.Abs(Vec3.Dot(texU, lightU)) < AxisDotEpsilon
             || Math.Abs(Vec3.Dot(texV, lightV)) < AxisDotEpsilon;
         if (!convert)
@@ -57,31 +57,29 @@ public static class DispBumpBasis
             return (texU, texV, normal);
         }
 
-        // matrix3x4_t(x, y, z, origin) puts the axes in COLUMNS; ConcatTransforms
-        // Is light * tex, each output row
-        // a0*B.row0 + (a1*B.row1 + a2*B.row2).
-        float[,] a = Columns(lightU, lightV, normal);
-        float[,] b = Columns(texU, texV, normal);
-        float[,] m = new float[3, 3];
-        for (int r = 0; r < 3; r++)
-        {
-            for (int c = 0; c < 3; c++)
-            {
-                m[r, c] = (a[r, 0] * b[0, c]) + ((a[r, 1] * b[1, c]) + (a[r, 2] * b[2, c]));
-            }
-        }
-
-        // MatrixGetColumn.
+        // The lightmap frame and the texture frame each hold the axes in
+        // COLUMNS (u, v, normal); the result is light * tex, each output row
+        // a0*B.row0 + (a1*B.row1 + a2*B.row2), and its columns are read back.
+        // Column c of the product is therefore
+        // lightU * B_c.X + (lightV * B_c.Y + normal * B_c.Z), where B_c is the
+        // texture frame's column c. It is written out per column rather than
+        // through 3x3 arrays because this runs once per displacement sample
+        // and the arrays were three heap allocations each time; the
+        // arithmetic and its association order are unchanged, so the result
+        // is bit-identical.
         return (
-            new Vec3(m[0, 0], m[1, 0], m[2, 0]),
-            new Vec3(m[0, 1], m[1, 1], m[2, 1]),
-            new Vec3(m[0, 2], m[1, 2], m[2, 2]));
+            ProductColumn(lightU, lightV, normal, texU),
+            ProductColumn(lightU, lightV, normal, texV),
+            ProductColumn(lightU, lightV, normal, normal));
     }
 
-    private static float[,] Columns(Vec3 x, Vec3 y, Vec3 z) => new float[,]
-    {
-        { x.X, y.X, z.X },
-        { x.Y, y.Y, z.Y },
-        { x.Z, y.Z, z.Z },
-    };
+    /// <summary>
+    /// One column of the frame product: <paramref name="b"/> is the texture
+    /// frame's column, <paramref name="a0"/>..<paramref name="a2"/> the
+    /// lightmap frame's columns.
+    /// </summary>
+    private static Vec3 ProductColumn(Vec3 a0, Vec3 a1, Vec3 a2, Vec3 b) => new(
+        (a0.X * b.X) + ((a1.X * b.Y) + (a2.X * b.Z)),
+        (a0.Y * b.X) + ((a1.Y * b.Y) + (a2.Y * b.Z)),
+        (a0.Z * b.X) + ((a1.Z * b.Y) + (a2.Z * b.Z)));
 }

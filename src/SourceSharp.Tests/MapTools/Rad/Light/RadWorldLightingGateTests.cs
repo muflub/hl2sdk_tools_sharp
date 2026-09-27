@@ -291,7 +291,7 @@ public sealed class RadWorldLightingGateTests(ITestOutputHelper output)
             }
         }
 
-        foreach (ref readonly var patch in world.Patches.AsSpan())
+        foreach (Patch patch in world.Patches.ToArray())
         {
             Vec3[] v = [patch.DirectLight, patch.TotalLight.Flat, patch.SampleLight];
             hash.AppendData(MemoryMarshal.AsBytes(v.AsSpan()));

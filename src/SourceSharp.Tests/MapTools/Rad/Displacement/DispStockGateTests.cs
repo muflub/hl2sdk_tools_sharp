@@ -381,7 +381,7 @@ public sealed class DispStockGateTests(ITestOutputHelper output)
             }
         }
 
-        foreach (ref readonly Patch patch in world.Patches.AsSpan())
+        foreach (Patch patch in world.Patches.ToArray())
         {
             Vec3[] v = [patch.Origin, patch.Normal, patch.DirectLight, patch.TotalLight.Flat, patch.SampleLight];
             hash.AppendData(MemoryMarshal.AsBytes(v.AsSpan()));

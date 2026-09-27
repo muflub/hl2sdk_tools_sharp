@@ -15,71 +15,158 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 
 /// <summary>
 /// <see cref="SlabBatcher"/> on a CPU stand-in for the device: concurrent
-/// requests share slabs, every ray still gets exactly its own answer, and
-/// cancellation, failure and closing touch only the requests they should.
+/// requests share slabs, several slabs are on the device at once, every ray
+/// still gets exactly its own answer, and cancellation, failure and closing
+/// touch only the requests they should.
 /// </summary>
 public sealed class SlabBatcherTests
 {
+    private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+
     // Answers each staged ray from its own fields, like a kernel whose lanes
     // are independent: any-hit when MaxDistance > 5; closest hits primitive
-    // (int)OriginX at t = OriginY, or misses when DirectionX < 0.
-    private sealed class FakeDevice(int maxSlabRays) : ISlabDevice
+    // (int)OriginX at t = OriginY, or misses when DirectionX < 0. Answers are
+    // computed from the slot's staging when the slab completes, not when it
+    // is submitted, so a batcher that restaged a slot in flight would give
+    // wrong answers as well as tripping the assertion in StageRays.
+    private sealed class FakeDevice : ISlabDevice
     {
-        private readonly float[] _staging = new float[maxSlabRays * 8];
+        private readonly float[][] _staging;
+        private readonly Submitted?[] _slots;
+        private readonly Random _jitter = new(5);
         private int _inside;
+        private int _inFlight;
+        private int _submits;
+        private int _completesEntered;
 
-        public int MaxSlabRays { get; } = maxSlabRays;
+        public FakeDevice(int maxSlabRays, int slots = 1)
+        {
+            MaxSlabRays = maxSlabRays;
+            SlotCount = slots;
+            _staging = [.. Enumerable.Range(0, slots).Select(_ => new float[maxSlabRays * 8])];
+            _slots = new Submitted?[slots];
+        }
 
+        public int MaxSlabRays { get; }
+
+        public int SlotCount { get; }
+
+        /// <summary>Rays per submitted slab, in submission order; read once the drainer is parked.</summary>
         public List<int> RaysPerDispatch { get; } = [];
 
+        /// <summary>Slabs submitted and not yet completed.</summary>
+        public int InFlight => Volatile.Read(ref _inFlight);
+
+        /// <summary>The most slabs that were ever in flight together.</summary>
+        public int MaxInFlight { get; private set; }
+
+        /// <summary>How many times the drainer has started waiting for a slab.</summary>
+        public int CompletesEntered => Volatile.Read(ref _completesEntered);
+
+        /// <summary>Closed to hold every completion until it is set.</summary>
         public ManualResetEventSlim Gate { get; } = new(true);
 
-        public TaskCompletionSource FirstDispatchStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>When set, each completion takes one permit, so a fact can land slabs one at a time.</summary>
+        public SemaphoreSlim? Steps { get; set; }
 
-        public Exception? FailNext { get; set; }
+        /// <summary>Signalled the first time the drainer waits for a slab.</summary>
+        public TaskCompletionSource DrainerWaiting { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public Span<float> StageRays(int rayCount) => _staging.AsSpan(0, rayCount * 8);
+        /// <summary>Fails the submit with this index (0-based, in submission order).</summary>
+        public (int Index, Exception Error)? FailSubmit { get; set; }
 
-        public void Dispatch(int mode, int rayCount, Span<uint> outWords, uint tminBits, uint tmaxScaleBits)
+        /// <summary>Fails the completion of the slab with this submission index.</summary>
+        public (int Index, Exception Error)? FailComplete { get; set; }
+
+        /// <summary>Sleeps a random 0-1 ms in each completion, to vary how the queue and the slots interleave.</summary>
+        public bool Jitter { get; set; }
+
+        public Span<float> StageRays(int slot, int rayCount)
+        {
+            using Call call = Enter();
+            Assert.Null(_slots[slot]); // a slot in flight must never be restaged
+            Assert.InRange(rayCount, 1, MaxSlabRays);
+            return _staging[slot].AsSpan(0, rayCount * 8);
+        }
+
+        public void Submit(int slot, int mode, int rayCount, int outWordCount, uint tminBits, uint tmaxScaleBits)
+        {
+            using Call call = Enter();
+            Assert.Null(_slots[slot]);
+            int index = _submits++;
+            RaysPerDispatch.Add(rayCount);
+            if (FailSubmit is { } f && f.Index == index)
+            {
+                throw f.Error;
+            }
+
+            _slots[slot] = new Submitted(mode, rayCount, outWordCount, index);
+            MaxInFlight = Math.Max(MaxInFlight, Interlocked.Increment(ref _inFlight));
+        }
+
+        public void Complete(int slot, Span<uint> outWords)
+        {
+            using Call call = Enter();
+            Submitted sub = _slots[slot] ?? throw new InvalidOperationException("completed a slot never submitted");
+            Assert.Equal(sub.Words, outWords.Length);
+            Interlocked.Increment(ref _completesEntered);
+            DrainerWaiting.TrySetResult();
+            Assert.True(Gate.Wait(Patience));
+            if (Steps is { } steps)
+            {
+                Assert.True(steps.Wait(Patience));
+            }
+
+            if (Jitter && _jitter.Next(3) == 0)
+            {
+                Thread.Sleep(_jitter.Next(2));
+            }
+
+            _slots[slot] = null;
+            Interlocked.Decrement(ref _inFlight);
+            if (FailComplete is { } f && f.Index == sub.Index)
+            {
+                throw f.Error;
+            }
+
+            float[] staging = _staging[slot];
+            outWords.Clear();
+            for (int i = 0; i < sub.Rays; i++)
+            {
+                int b = i * 8;
+                if (sub.Mode == 0)
+                {
+                    if (staging[b + 7] > 5)
+                    {
+                        outWords[(i / 64 * 2) + (i % 64 / 32)] |= 1u << (i % 32);
+                    }
+                }
+                else
+                {
+                    outWords[i * 2] = staging[b + 4] < 0 ? 0xFFFFFFFFu : (uint)staging[b];
+                    outWords[(i * 2) + 1] = (uint)BitConverter.SingleToInt32Bits(staging[b + 1]);
+                }
+            }
+        }
+
+        // The batcher promises one caller at a time; overlapping calls fail the fact.
+        private Call Enter()
         {
             Assert.Equal(1, Interlocked.Increment(ref _inside));
-            try
-            {
-                FirstDispatchStarted.TrySetResult();
-                Gate.Wait(TimeSpan.FromSeconds(30));
-                RaysPerDispatch.Add(rayCount);
-                if (FailNext is { } e)
-                {
-                    FailNext = null;
-                    throw e;
-                }
+            return new Call(this);
+        }
 
-                outWords.Clear();
-                for (int i = 0; i < rayCount; i++)
-                {
-                    int b = i * 8;
-                    if (mode == 0)
-                    {
-                        if (_staging[b + 7] > 5)
-                        {
-                            outWords[(i / 64 * 2) + (i % 64 / 32)] |= 1u << (i % 32);
-                        }
-                    }
-                    else
-                    {
-                        outWords[i * 2] = _staging[b + 4] < 0 ? 0xFFFFFFFFu : (uint)_staging[b];
-                        outWords[(i * 2) + 1] = (uint)BitConverter.SingleToInt32Bits(_staging[b + 1]);
-                    }
-                }
-            }
-            finally
-            {
-                Interlocked.Decrement(ref _inside);
-            }
+        private readonly record struct Submitted(int Mode, int Rays, int Words, int Index);
+
+        private readonly struct Call(FakeDevice device) : IDisposable
+        {
+            public void Dispose() => Interlocked.Decrement(ref device._inside);
         }
     }
 
     private static readonly int[] Ids = [100, 101, 102, 103];
+
+    private static readonly HitId Sentinel = new(-7, -7f);
 
     private static Ray[] Rays(int n, int seed)
     {
@@ -109,26 +196,44 @@ public sealed class SlabBatcherTests
         return new HitId(Ids[prim], r.MaxDistance == 1f ? r.OriginY : r.OriginY / r.MaxDistance);
     }
 
-    [Fact]
-    public async Task ConcurrentRequestsOfEverySizeGetExactlyTheirOwnAnswers()
+    private static HitId[] Sentinels(int n)
     {
-        FakeDevice device = new(256);
+        HitId[] hits = new HitId[n];
+        Array.Fill(hits, Sentinel);
+        return hits;
+    }
+
+    private static void WaitForCompletes(FakeDevice device, int count) =>
+        Assert.True(SpinWait.SpinUntil(() => device.CompletesEntered >= count, Patience),
+            $"the drainer never reached completion {count}");
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(3, true)]
+    [InlineData(8, true)]
+    public async Task ConcurrentRequestsOfEverySizeGetExactlyTheirOwnAnswers(int slots, bool jitter)
+    {
+        FakeDevice device = new(256, slots) { Jitter = jitter };
         SlabBatcher batcher = new(device, Ids, 0);
         int[] sizes = [1, 63, 64, 65, 127, 200, 256, 257, 700];
-        List<(Ray[] Rays, ulong[] Bits, HitId[] Hits, Task Vis, Task Closest)> calls = [];
-        for (int k = 0; k < sizes.Length; k++)
+        (Ray[] Rays, ulong[] Bits, HitId[] Hits, Task Vis, Task Closest)[] calls =
+            new (Ray[], ulong[], HitId[], Task, Task)[sizes.Length * 4];
+
+        // From many threads at once, so the queue grows while slabs are out.
+        System.Threading.Tasks.Parallel.For(0, calls.Length, k =>
         {
-            Ray[] rays = Rays(sizes[k], k);
+            Ray[] rays = Rays(sizes[k % sizes.Length], k);
             ulong[] bits = new ulong[((rays.Length + 63) / 64) + 1];
             bits[^1] = ulong.MaxValue; // past the request: must stay as it was
             Array.Fill(bits, ulong.MaxValue, 0, bits.Length - 1); // inside: every bit must be rewritten
-            HitId[] hits = new HitId[rays.Length];
-            calls.Add((rays, bits, hits,
+            HitId[] hits = Sentinels(rays.Length);
+            calls[k] = (rays, bits, hits,
                 batcher.TraceVisibilityAsync(rays, bits, 0, CancellationToken.None),
-                batcher.TraceClosestAsync(rays, hits, 0, CancellationToken.None)));
-        }
+                batcher.TraceClosestAsync(rays, hits, 0, CancellationToken.None));
+        });
 
-        await Task.WhenAll(calls.SelectMany(c => new[] { c.Vis, c.Closest }));
+        await Task.WhenAll(calls.SelectMany(c => new[] { c.Vis, c.Closest })).WaitAsync(Patience);
 
         foreach ((Ray[] rays, ulong[] bits, HitId[] hits, _, _) in calls)
         {
@@ -141,6 +246,73 @@ public sealed class SlabBatcherTests
             Assert.Equal(ulong.MaxValue, bits[^1]);
             Assert.Equal(rays.Select(Closest), hits);
         }
+
+        Assert.InRange(device.MaxInFlight, 1, slots);
+        Assert.Equal(0, device.InFlight);
+    }
+
+    [Fact]
+    public async Task SeveralSlabsAreOnTheDeviceAtOnce()
+    {
+        FakeDevice device = new(64, 3);
+        device.Gate.Reset();
+        SlabBatcher batcher = new(device, Ids, 0);
+        Ray[] rays = Rays(1000, 1);
+        HitId[] hits = new HitId[rays.Length];
+        Ray[] visRays = Rays(500, 2);
+        ulong[] bits = new ulong[8];
+
+        Task closest = batcher.TraceClosestAsync(rays, hits, 0, CancellationToken.None);
+        Task vis = batcher.TraceVisibilityAsync(visRays, bits, 0, CancellationToken.None);
+        await device.DrainerWaiting.Task.WaitAsync(Patience);
+
+        // Every slot was filled before the drainer waited for the first.
+        Assert.Equal(3, device.InFlight);
+        Assert.Equal([64, 64, 64], device.RaysPerDispatch);
+
+        device.Gate.Set();
+        await Task.WhenAll(closest, vis).WaitAsync(Patience);
+        Assert.Equal(rays.Select(Closest), hits);
+        for (int i = 0; i < visRays.Length; i++)
+        {
+            Assert.Equal(Hit(visRays[i]), (bits[i / 64] & (1UL << (i % 64))) != 0);
+        }
+
+        Assert.Equal(3, device.MaxInFlight);
+        Assert.Equal(16 + 8, batcher.Dispatches);
+    }
+
+    [Fact]
+    public async Task ASplitRequestCompletesOnlyWhenItsLastSlabLandsAndLaterRequestsFollowIt()
+    {
+        FakeDevice device = new(64, 2) { Steps = new SemaphoreSlim(0) };
+        SlabBatcher batcher = new(device, Ids, 0);
+        Ray[] big = Rays(200, 1);
+        Ray[] small = Rays(30, 2);
+        HitId[] bigHits = new HitId[big.Length];
+        HitId[] smallHits = new HitId[small.Length];
+
+        Task a = batcher.TraceClosestAsync(big, bigHits, 0, CancellationToken.None);
+        WaitForCompletes(device, 1);
+        Task b = batcher.TraceClosestAsync(small, smallHits, 0, CancellationToken.None);
+
+        // Slabs land one at a time; the big request's parts are answered, in
+        // order, while it stays pending.
+        for (int landed = 1; landed <= 3; landed++)
+        {
+            device.Steps.Release();
+            WaitForCompletes(device, landed + 1);
+            Assert.False(a.IsCompleted, $"completed after {landed} of its 4 slabs");
+            Assert.False(b.IsCompleted);
+        }
+
+        device.Steps.Release();
+        await Task.WhenAll(a, b).WaitAsync(Patience);
+
+        // Oldest first: the small request rides in the big one's last slab.
+        Assert.Equal([64, 64, 64, 8 + 30], device.RaysPerDispatch);
+        Assert.Equal(big.Select(Closest), bigHits);
+        Assert.Equal(small.Select(Closest), smallHits);
     }
 
     [Fact]
@@ -151,10 +323,10 @@ public sealed class SlabBatcherTests
         SlabBatcher batcher = new(device, Ids, 0);
 
         Task first = batcher.TraceClosestAsync(Rays(10, 1), new HitId[10], 0, CancellationToken.None);
-        await device.FirstDispatchStarted.Task;
+        await device.DrainerWaiting.Task.WaitAsync(Patience);
         Task[] queued = [.. Enumerable.Range(0, 20).Select(k => batcher.TraceClosestAsync(Rays(30, k), new HitId[30], 0, CancellationToken.None))];
         device.Gate.Set();
-        await Task.WhenAll([first, .. queued]);
+        await Task.WhenAll([first, .. queued]).WaitAsync(Patience);
 
         Assert.Equal([10, 600], device.RaysPerDispatch);
         Assert.Equal(2, batcher.Dispatches);
@@ -196,6 +368,20 @@ public sealed class SlabBatcherTests
     }
 
     [Fact]
+    public void ARequestWhoseRaysAreAllOnTheDeviceTakesNoRoomInTheNextSlab()
+    {
+        List<SlabBatcher.Segment> slab = [];
+        SlabBatcher.Request launched = new(0, Rays(10, 1), new ulong[1], default, 0, default) { Next = 10 };
+        SlabBatcher.Request waiting = new(0, Rays(10, 2), new ulong[1], default, 0, default);
+
+        int total = SlabBatcher.Plan([launched, waiting], 0, 0, 256, slab);
+
+        // Not even the 64-ray alignment a visibility segment would have cost.
+        Assert.Equal([new SlabBatcher.Segment(waiting, 0, 10, 0)], slab);
+        Assert.Equal(10, total);
+    }
+
+    [Fact]
     public async Task ACancelledRequestIsDroppedBeforeItsSlab()
     {
         FakeDevice device = new(256);
@@ -204,29 +390,116 @@ public sealed class SlabBatcherTests
         using CancellationTokenSource cancel = new();
 
         Task first = batcher.TraceClosestAsync(Rays(10, 1), new HitId[10], 0, CancellationToken.None);
-        await device.FirstDispatchStarted.Task;
+        await device.DrainerWaiting.Task.WaitAsync(Patience);
         Task doomed = batcher.TraceClosestAsync(Rays(10, 2), new HitId[10], 0, cancel.Token);
         await cancel.CancelAsync();
         device.Gate.Set();
 
-        await first;
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => doomed);
+        await first.WaitAsync(Patience);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => doomed.WaitAsync(Patience));
         Assert.Equal([10], device.RaysPerDispatch);
+    }
+
+    [Fact]
+    public async Task ARequestCancelledWithSlabsInFlightIsNeverWrittenAgain()
+    {
+        FakeDevice device = new(64, 2) { Steps = new SemaphoreSlim(0) };
+        SlabBatcher batcher = new(device, Ids, 0);
+        using CancellationTokenSource cancel = new();
+
+        Task blocker = batcher.TraceClosestAsync(Rays(64, 1), new HitId[64], 0, CancellationToken.None);
+        WaitForCompletes(device, 1);
+        Ray[] rays = Rays(300, 2);
+        HitId[] hits = Sentinels(rays.Length);
+        Task doomed = batcher.TraceClosestAsync(rays, hits, 0, cancel.Token);
+
+        // The blocker lands; the doomed request's first two slabs go out and
+        // the drainer waits on the first of them.
+        device.Steps.Release();
+        WaitForCompletes(device, 2);
+        await cancel.CancelAsync();
+        device.Steps.Release(10);
+
+        await blocker.WaitAsync(Patience);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => doomed.WaitAsync(Patience));
+        Assert.True(SpinWait.SpinUntil(() => device.InFlight == 0, Patience));
+
+        // The slab being waited on when the cancel came was still the
+        // request's, and was written; the one behind it landed after the
+        // task was cancelled and was not; nothing else was launched.
+        Assert.Equal([64, 64, 64], device.RaysPerDispatch);
+        Assert.Equal(rays.Take(64).Select(Closest), hits.Take(64));
+        Assert.All(hits.Skip(64), h => Assert.Equal(Sentinel, h));
     }
 
     [Fact]
     public async Task AFailedDispatchFaultsOnlyItsRequests()
     {
-        FakeDevice device = new(256) { FailNext = new InvalidOperationException("device lost") };
+        FakeDevice device = new(256) { FailComplete = (0, new InvalidOperationException("device lost")) };
         SlabBatcher batcher = new(device, Ids, 0);
 
         Task failed = batcher.TraceClosestAsync(Rays(10, 1), new HitId[10], 0, CancellationToken.None);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => failed);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => failed.WaitAsync(Patience));
 
         HitId[] hits = new HitId[10];
         Ray[] rays = Rays(10, 2);
-        await batcher.TraceClosestAsync(rays, hits, 0, CancellationToken.None);
+        await batcher.TraceClosestAsync(rays, hits, 0, CancellationToken.None).WaitAsync(Patience);
         Assert.Equal(rays.Select(Closest), hits);
+    }
+
+    [Fact]
+    public async Task AFailedSubmitFreesItsSlotAndFaultsOnlyItsRequests()
+    {
+        FakeDevice device = new(256) { FailSubmit = (0, new InvalidOperationException("submit refused")) };
+        SlabBatcher batcher = new(device, Ids, 0);
+
+        Task failed = batcher.TraceClosestAsync(Rays(10, 1), new HitId[10], 0, CancellationToken.None);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => failed.WaitAsync(Patience));
+
+        // The one slot is usable again: the submit never reached the device.
+        HitId[] hits = new HitId[10];
+        Ray[] rays = Rays(10, 2);
+        await batcher.TraceClosestAsync(rays, hits, 0, CancellationToken.None).WaitAsync(Patience);
+        Assert.Equal(rays.Select(Closest), hits);
+        Assert.Equal(0, device.InFlight);
+    }
+
+    [Fact]
+    public async Task AFailedSlabAmongSeveralInFlightFaultsOnlyItsRequestsAndStopsWritingThem()
+    {
+        FakeDevice device = new(64, 3) { Steps = new SemaphoreSlim(0) };
+        SlabBatcher batcher = new(device, Ids, 0);
+
+        Ray[] firstRays = Rays(64, 1);
+        HitId[] firstHits = new HitId[64];
+        Task first = batcher.TraceClosestAsync(firstRays, firstHits, 0, CancellationToken.None);
+        WaitForCompletes(device, 1);
+
+        // Queued while the first slab is out: the big request takes the next
+        // three slabs (submissions 1, 2, 3) and the last request waits for a
+        // slot. Submission 2, the big request's middle, fails.
+        Ray[] bigRays = Rays(192, 2);
+        HitId[] bigHits = Sentinels(192);
+        Ray[] lastRays = Rays(10, 3);
+        HitId[] lastHits = new HitId[10];
+        device.FailComplete = (2, new InvalidOperationException("device lost"));
+        Task big = batcher.TraceClosestAsync(bigRays, bigHits, 0, CancellationToken.None);
+        Task last = batcher.TraceClosestAsync(lastRays, lastHits, 0, CancellationToken.None);
+        device.Steps.Release(10);
+
+        await first.WaitAsync(Patience);
+        await last.WaitAsync(Patience);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => big.WaitAsync(Patience));
+        Assert.True(SpinWait.SpinUntil(() => device.InFlight == 0, Patience));
+
+        Assert.Equal([64, 64, 64, 64, 10], device.RaysPerDispatch);
+        Assert.Equal(3, device.MaxInFlight);
+        Assert.Equal(firstRays.Select(Closest), firstHits);
+        Assert.Equal(lastRays.Select(Closest), lastHits);
+
+        // The slab after the failed one landed on a faulted request, and
+        // wrote nothing into memory its caller already owns again.
+        Assert.All(bigHits.Skip(128), h => Assert.Equal(Sentinel, h));
     }
 
     [Fact]
@@ -238,25 +511,70 @@ public sealed class SlabBatcherTests
         int released = 0;
 
         Task inFlight = batcher.TraceClosestAsync(Rays(10, 1), new HitId[10], 0, CancellationToken.None);
-        await device.FirstDispatchStarted.Task;
+        await device.DrainerWaiting.Task.WaitAsync(Patience);
         Task queued = batcher.TraceClosestAsync(Rays(10, 2), new HitId[10], 0, CancellationToken.None);
 
         Task closing = Task.Run(() => batcher.Close(() => released++));
 
         // Close has begun (and is waiting out the dispatch) before the device finishes.
-        Assert.True(SpinWait.SpinUntil(() => batcher.IsClosed, TimeSpan.FromSeconds(30)));
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => queued);
+        Assert.True(SpinWait.SpinUntil(() => batcher.IsClosed, Patience));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => queued.WaitAsync(Patience));
         device.Gate.Set();
-        await closing;
+        await closing.WaitAsync(Patience);
         batcher.Close(() => released++);
 
         // The request on the device when Close began still gets its answers.
-        await inFlight;
+        await inFlight.WaitAsync(Patience);
         Assert.Equal([10], device.RaysPerDispatch);
         Assert.Equal(1, released);
         // Refused at the call, not through the task.
         Assert.Throws<ObjectDisposedException>(
             () => { _ = batcher.TraceClosestAsync(Rays(1, 3), new HitId[1], 0, CancellationToken.None); });
+    }
+
+    [Fact]
+    public async Task ClosingWithSeveralSlabsInFlightLandsThemAllBeforeReleasingTheDevice()
+    {
+        FakeDevice device = new(64, 3) { Steps = new SemaphoreSlim(0) };
+        SlabBatcher batcher = new(device, Ids, 0);
+        int released = 0;
+        int inFlightAtRelease = -1;
+
+        Task blocker = batcher.TraceClosestAsync(Rays(64, 1), new HitId[64], 0, CancellationToken.None);
+        WaitForCompletes(device, 1);
+
+        // Queued behind the blocker. Once it lands, three slabs go out:
+        // whole[0..64), whole[64..100) + part[0..28), part[28..92). The whole
+        // request is then entirely on the device, the part request is not,
+        // and the queued one never gets a slot.
+        Ray[] wholeRays = Rays(100, 2);
+        HitId[] wholeHits = new HitId[100];
+        Task whole = batcher.TraceClosestAsync(wholeRays, wholeHits, 0, CancellationToken.None);
+        Task part = batcher.TraceClosestAsync(Rays(200, 3), new HitId[200], 0, CancellationToken.None);
+        Task queued = batcher.TraceVisibilityAsync(Rays(10, 4), new ulong[1], 0, CancellationToken.None);
+        device.Steps.Release();
+        WaitForCompletes(device, 2);
+        Assert.Equal(3, device.InFlight);
+
+        Task closing = Task.Run(() => batcher.Close(() =>
+        {
+            released++;
+            inFlightAtRelease = device.InFlight;
+        }));
+        Assert.True(SpinWait.SpinUntil(() => batcher.IsClosed, Patience));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => queued.WaitAsync(Patience));
+        Assert.False(closing.IsCompleted, "the device was released with slabs still on it");
+
+        device.Steps.Release(10);
+        await closing.WaitAsync(Patience);
+
+        await blocker.WaitAsync(Patience);
+        await whole.WaitAsync(Patience);
+        Assert.Equal(wholeRays.Select(Closest), wholeHits);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => part.WaitAsync(Patience));
+        Assert.Equal([64, 64, 64, 64], device.RaysPerDispatch);
+        Assert.Equal(1, released);
+        Assert.Equal(0, inFlightAtRelease);
     }
 
     [Fact]
@@ -267,13 +585,13 @@ public sealed class SlabBatcherTests
         SlabBatcher batcher = new(device, Ids, 0);
 
         Task big = batcher.TraceClosestAsync(Rays(200, 1), new HitId[200], 0, CancellationToken.None);
-        await device.FirstDispatchStarted.Task;
+        await device.DrainerWaiting.Task.WaitAsync(Patience);
         Task closing = Task.Run(() => batcher.Close(() => { }));
-        Assert.True(SpinWait.SpinUntil(() => batcher.IsClosed, TimeSpan.FromSeconds(30)));
+        Assert.True(SpinWait.SpinUntil(() => batcher.IsClosed, Patience));
         device.Gate.Set();
-        await closing;
+        await closing.WaitAsync(Patience);
 
-        await Assert.ThrowsAsync<ObjectDisposedException>(() => big);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => big.WaitAsync(Patience));
         Assert.Equal([64], device.RaysPerDispatch);
     }
 
@@ -287,4 +605,8 @@ public sealed class SlabBatcherTests
 
         Assert.Empty(device.RaysPerDispatch);
     }
+
+    [Fact]
+    public void ADeviceWithNoSlotsIsRefused() =>
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SlabBatcher(new FakeDevice(64, 0), Ids, 0));
 }
