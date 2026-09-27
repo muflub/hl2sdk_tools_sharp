@@ -5,9 +5,6 @@
 //
 //=============================================================================//
 
-using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
-
 using SourceSharp.MapFormats.Geometry;
 
 namespace SourceSharp.MapTools.Rad.Light;
@@ -26,7 +23,8 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// instructions are architecturally allowed to differ between CPU models, so
 /// the stock form is machine-dependent
 /// (<see cref="Options.StockQuirk.GatherReciprocalEstimate"/>); the exact form
-/// is <c>1/x</c> and <c>1/sqrt(x)</c> in IEEE float.
+/// is <c>1/x</c> and <c>1/sqrt(x)</c> in IEEE float. On arm64 the estimate
+/// is ARM's own (see <see cref="FloatEstimate"/>).
 /// </para>
 /// <para>
 /// <c>rcpps(0)</c> is +infinity, and the Newton step then gives
@@ -41,7 +39,7 @@ public static class StockSimd
     /// <param name="a">The value.</param>
     /// <param name="estimate">True for <c>rcpss</c> plus one Newton step.</param>
     /// <returns>The reciprocal.</returns>
-    /// <exception cref="PlatformNotSupportedException">The estimate was asked for on a CPU without SSE.</exception>
+    /// <exception cref="PlatformNotSupportedException">The estimate was asked for on a CPU with neither SSE nor AdvSimd.</exception>
     public static float Reciprocal(float a, bool estimate)
     {
         if (!estimate)
@@ -49,18 +47,16 @@ public static class StockSimd
             return 1.0f / a;
         }
 
-        RequireSse();
-        Vector128<float> va = Vector128.CreateScalarUnsafe(a);
-        Vector128<float> ret = Sse.ReciprocalScalar(va);
-        ret = Sse.SubtractScalar(Sse.AddScalar(ret, ret), Sse.MultiplyScalar(va, Sse.MultiplyScalar(ret, ret)));
-        return ret.ToScalar();
+        RequireEstimate();
+        float ret = FloatEstimate.Reciprocal(a);
+        return (ret + ret) - (a * (ret * ret));
     }
 
     /// <summary><c>ReciprocalSqrtSIMD</c>: <c>1 / sqrt(a)</c>.</summary>
     /// <param name="a">The value.</param>
     /// <param name="estimate">True for <c>rsqrtss</c> plus one Newton step.</param>
     /// <returns>The reciprocal square root.</returns>
-    /// <exception cref="PlatformNotSupportedException">The estimate was asked for on a CPU without SSE.</exception>
+    /// <exception cref="PlatformNotSupportedException">The estimate was asked for on a CPU with neither SSE nor AdvSimd.</exception>
     public static float ReciprocalSqrt(float a, bool estimate)
     {
         if (!estimate)
@@ -68,14 +64,10 @@ public static class StockSimd
             return 1.0f / MathF.Sqrt(a);
         }
 
-        RequireSse();
-        Vector128<float> va = Vector128.CreateScalarUnsafe(a);
-        Vector128<float> guess = Sse.ReciprocalSqrtScalar(va);
-        guess = Sse.MultiplyScalar(
-            guess,
-            Sse.SubtractScalar(Vector128.CreateScalarUnsafe(3.0f), Sse.MultiplyScalar(va, Sse.MultiplyScalar(guess, guess))));
-        guess = Sse.MultiplyScalar(Vector128.CreateScalarUnsafe(0.5f), guess);
-        return guess.ToScalar();
+        RequireEstimate();
+        float guess = FloatEstimate.ReciprocalSqrt(a);
+        guess *= 3.0f - (a * (guess * guess));
+        return 0.5f * guess;
     }
 
     /// <summary>
@@ -151,21 +143,20 @@ public static class StockSimd
 
         if (fixedExponent < 0)
         {
-            RequireSse();
+            RequireEstimate();
             // Four_Epsilons is FLT_EPSILON, OR-ed into a zero.
             float saturated = result == 0.0f ? 1.1920929e-7f : result;
-            return Sse.ReciprocalScalar(Vector128.CreateScalarUnsafe(saturated)).ToScalar();
+            return FloatEstimate.Reciprocal(saturated);
         }
 
         return result;
     }
 
-    private static void RequireSse()
+    private static void RequireEstimate()
     {
-        if (!Sse.IsSupported)
+        if (!FloatEstimate.IsSupported)
         {
-            throw new PlatformNotSupportedException(
-                "stock's reciprocal estimates are SSE instructions and have no meaning without SSE");
+            throw FloatEstimate.Unsupported();
         }
     }
 }

@@ -1,4 +1,12 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
 using System.Buffers.Binary;
+using System.Runtime.Intrinsics.Arm;
 using System.Runtime.Intrinsics.X86;
 using System.Text;
 
@@ -31,7 +39,7 @@ public class ReferenceRsqrtTests
 
         Assert.NotNull(reason);
         Assert.Contains("GenuineIntel", reason, StringComparison.Ordinal);
-        Assert.Contains("rsqrtss", reason, StringComparison.Ordinal);
+        Assert.Contains("reciprocal estimate", reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -40,7 +48,7 @@ public class ReferenceRsqrtTests
         string? reason = ReferenceRsqrt.SkipReason(null, hasCaptures: true);
 
         Assert.NotNull(reason);
-        Assert.Contains("not x86", reason, StringComparison.Ordinal);
+        Assert.Contains("neither x86 nor arm64", reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -55,7 +63,7 @@ public class ReferenceRsqrtTests
     }
 
     [Fact]
-    public void ThisMachineReportsAVendorExactlyWhenItIsX86()
+    public void ThisMachineReportsItsCpuidVendorOnX86AndArm64OnArm()
     {
         string? vendor = ReferenceRsqrt.CpuVendor();
 
@@ -64,10 +72,20 @@ public class ReferenceRsqrtTests
             Assert.NotNull(vendor);
             Assert.Equal(12, vendor.Length);
         }
+        else if (AdvSimd.Arm64.IsSupported)
+        {
+            Assert.Equal(ReferenceRsqrt.Arm64, vendor);
+        }
         else
         {
             Assert.Null(vendor);
         }
+    }
+
+    [Fact]
+    public void Arm64WithCapturesRunsTheFact()
+    {
+        Assert.Null(ReferenceRsqrt.SkipReason(ReferenceRsqrt.Arm64, hasCaptures: true));
     }
 
     [Fact]
