@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Reads the .nettrace files tools/compile-perf.sh records and writes what a
+    reviewer needs from them as JSON: GC pauses by generation, allocations by
+    type and by the SourceSharp frame that made them, lock contention, thread
+    pool starvation, exceptions and JIT cost.
+
+    It lives under tools/, outside src/ and the solution, on purpose: it needs
+    the TraceEvent package, and the libraries under src/ take no packages (see
+    CLAUDE.md). Nothing in src/ references it; compile-perf.sh builds it on
+    first use, into this folder's own bin/.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.6" />
+  </ItemGroup>
+
+</Project>

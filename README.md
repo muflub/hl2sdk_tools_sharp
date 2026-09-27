@@ -350,15 +350,73 @@ of a GPU.
 
 ## Measuring performance
 
-    tools/compile-perf.sh --map maps/ss_sandbox.vmf --game game/mod_sharp --threads 1,max --trace
+    tools/compile-perf.sh --map maps/ss_sandbox.vmf --game game/mod_sharp
 
-times the whole chain (`ssmap all`), then vbsp, vvis and vrad each on
-their own, then one `ssmap vrad --bench` run for vrad's own stages and ray
-counts, and with `--trace` a sampled CPU profile of vrad (needs
-`dotnet tool install -g dotnet-trace`). Everything lands in
-`perf-results/<timestamp>/`, with `summary.md` on top and `env.txt`
-recording the machine, the revision and the .NET runtime. `tools/compile-perf.sh -h`
-lists the options.
+compiles the map across a matrix of the settings that change how fast the
+tools run, then profiles each combination. The axes are in
+`tools/compile-perf-matrix.json`:
+
+- the build (JIT or NativeAOT);
+- the GC and JIT runtime settings;
+- the thread count;
+- `-compliance`;
+- the collision cooker;
+- `-overlap`;
+- the incremental cache (off, cold, warm);
+- the ray tracer (CPU or GPU);
+- vbsp, vvis and vrad presets (for example `-fast`, `-final`, `-both`, `-bounce 0`).
+
+Each axis only applies to the stages it affects.
+
+The whole chain is one stage and vbsp, vvis and vrad are each timed on their
+own. vvis starts from the baseline vbsp's output and vrad from the baseline
+vvis's, so a tool's numbers do not depend on the other tools' settings.
+
+`--matrix` picks how many combinations run:
+
+- `pairwise` (the default) runs enough cells that every pair of setting
+  values meets in at least one of them.
+- `sweep` runs the baseline and each value on its own.
+- `full` runs every combination. That is thousands of chain cells, so
+  narrow it with `--set axis=v1,v2` first.
+- `--dry-run` lists the cells and stops.
+
+Each cell is timed with `ssmap bench`, then run again once per profiler so
+that no profiler's overhead lands in another's numbers:
+
+- vvis and vrad `--bench` stage times;
+- process resource usage, with `perf stat` hardware counters when `perf` is
+  installed;
+- a sampled CPU profile (speedscope);
+- runtime events: GC pauses by generation, allocations by type and by the
+  SourceSharp method that made them, lock contention, thread pool
+  starvation, exceptions and JIT, read by `tools/PerfTraceReport`;
+- `dotnet-counters` once a second;
+- periodic heap snapshots, keeping the largest;
+- optionally `perf record` with native and managed frames together.
+
+The profilers need `dotnet tool install -g dotnet-trace dotnet-counters dotnet-gcdump`.
+
+Everything lands in `perf-results/<timestamp>/`:
+
+- `summary.md`:
+  - every cell against its baseline;
+  - what each setting does;
+  - thread scaling;
+  - vvis and vrad stage breakdowns;
+  - the hot functions, allocation sites and GC costs across the matrix.
+- `cells/<cell>/report.md` and the raw captures beside it.
+- `cells.csv`.
+- `env.txt`, which records the machine, the revision and the .NET runtime.
+
+Other switches:
+
+- `--gpu <match>`, `--vphysics <game>` and `--aot` enable the values that need
+  a GPU, a native vphysics library or a NativeAOT build.
+- `--strip-steam` mounts a copy of the game without its Steam search paths.
+- `--resume` continues an interrupted run.
+
+`tools/compile-perf.sh --help` lists every option.
 
 ## Tests
 
