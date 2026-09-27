@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using System.Buffers;
+
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Tracing;
@@ -47,13 +49,32 @@ public sealed class TracerLineVisibility : IAmbientLightVisibility
             throw new ArgumentException("one fraction per end", nameof(fractions));
         }
 
-        Span<Vec3> starts = ends.Length <= 256 ? stackalloc Vec3[ends.Length] : new Vec3[ends.Length];
-        Span<bool> blocked = ends.Length <= 1024 ? stackalloc bool[ends.Length] : new bool[ends.Length];
-        starts.Fill(start);
-        _tracer.TestLines(starts, ends, blocked, _stockReciprocal);
-        for (int i = 0; i < ends.Length; i++)
+        // Every segment starts at `start`, so the tracer takes it once rather
+        // than as a copy per segment. The flags fit on the stack for a small
+        // batch; a large one (a full-size map's leaves are thousands of
+        // samples) borrows pooled storage and returns it, rather than
+        // allocating per call, which was most of what leaf ambient allocated.
+        bool[]? rented = null;
+        Span<bool> blocked = ends.Length <= MaxStackFlags
+            ? stackalloc bool[ends.Length]
+            : (rented = ArrayPool<bool>.Shared.Rent(ends.Length)).AsSpan(0, ends.Length);
+        try
         {
-            fractions[i] = blocked[i] ? 0.0f : 1.0f;
+            _tracer.TestLines(start, ends, blocked, _stockReciprocal);
+            for (int i = 0; i < ends.Length; i++)
+            {
+                fractions[i] = blocked[i] ? 0.0f : 1.0f;
+            }
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<bool>.Shared.Return(rented);
+            }
         }
     }
+
+    // The largest batch whose flags go on the stack.
+    private const int MaxStackFlags = 1024;
 }

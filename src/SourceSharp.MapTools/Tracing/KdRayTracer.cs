@@ -400,12 +400,55 @@ public sealed class KdRayTracer : IRayTracer
             throw new ArgumentException("one end and one result slot per start", nameof(ends));
         }
 
+        TestLinesCore(starts, default, ends, blocked, stockReciprocal, skyDoesNotBlock, skipId);
+    }
+
+    /// <summary>
+    /// <see cref="TestLines(ReadOnlySpan{Vec3}, ReadOnlySpan{Vec3}, Span{bool}, bool, bool, int)"/>
+    /// for segments that all start at one point.
+    /// </summary>
+    /// <param name="start">Where every segment starts.</param>
+    /// <param name="ends">Where each segment ends.</param>
+    /// <param name="blocked">Receives, per segment, whether it is blocked.</param>
+    /// <param name="stockReciprocal">As for the per-segment overload.</param>
+    /// <param name="skyDoesNotBlock">As for the per-segment overload.</param>
+    /// <param name="skipId">As for the per-segment overload.</param>
+    /// <remarks>
+    /// Leaf ambient tests every sample of a leaf against the same point, often
+    /// thousands of segments at once. Spelling that as the per-segment overload
+    /// means copying the start once per segment into an array of its own,
+    /// which on a full-size map was a third of everything a compile allocated.
+    /// Each segment is traced with exactly the arithmetic of the per-segment
+    /// overload, so the answers are the same bits.
+    /// </remarks>
+    /// <exception cref="ArgumentException"><paramref name="blocked"/> is shorter than <paramref name="ends"/>.</exception>
+    [SkipLocalsInit]
+    public void TestLines(
+        Vec3 start, ReadOnlySpan<Vec3> ends, Span<bool> blocked, bool stockReciprocal,
+        bool skyDoesNotBlock = false, int skipId = -1)
+    {
+        if (blocked.Length < ends.Length)
+        {
+            throw new ArgumentException("one result slot per end", nameof(blocked));
+        }
+
+        TestLinesCore([], start, ends, blocked, stockReciprocal, skyDoesNotBlock, skipId);
+    }
+
+    // Starts come from `starts` when it is not empty, else every segment
+    // starts at `oneStart`.
+    [SkipLocalsInit]
+    private void TestLinesCore(
+        ReadOnlySpan<Vec3> starts, Vec3 oneStart, ReadOnlySpan<Vec3> ends, Span<bool> blocked,
+        bool stockReciprocal, bool skyDoesNotBlock, int skipId)
+    {
         Scratch scratch = new(stackalloc NodeToVisit[MaxNodeStack], stackalloc long[MailboxSize]);
         Vector128<float> tmin = Vector128<float>.Zero;
+        bool perSegment = !starts.IsEmpty;
 
-        for (int i = 0; i < starts.Length; i++)
+        for (int i = 0; i < ends.Length; i++)
         {
-            Vec3 s = starts[i];
+            Vec3 s = perSegment ? starts[i] : oneStart;
             Vec3 d = ends[i] - s;
 
             // FourVectors::length: SqrtSIMD( x*x + y*y + z*z ).
