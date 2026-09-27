@@ -282,4 +282,15 @@ public sealed class VbspContext
     /// cancelled before the world model ends.
     /// </remarks>
     public Action<PortalFile?>? PortalFileReady { get; init; }
+
+    /// <summary>
+    /// Whether the CSG and tree build recycle the side arrays of freed brushes.
+    /// </summary>
+    /// <remarks>
+    /// On by default; it changes allocation and nothing else. The facts that
+    /// prove that compile each map with it off, on and checked and compare the
+    /// bytes, which is the only reason it is settable. See
+    /// <see cref="Csg.BrushSidePool"/>.
+    /// </remarks>
+    internal Csg.BrushSidePooling BrushSidePooling { get; set; } = Csg.BrushSidePooling.Pooled;
 }

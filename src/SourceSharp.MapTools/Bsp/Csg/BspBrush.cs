@@ -35,6 +35,15 @@ namespace SourceSharp.MapTools.Bsp.Csg;
 /// rather than silently grown.
 /// </para>
 /// <para>
+/// <b>The array is the build's, not the brush's.</b> CSG and the tree build
+/// make and discard brushes by the hundred thousand -- every split makes two
+/// and most are freed within a few calls -- so
+/// <see cref="BspBuildContext.AllocBrush"/> rents the side array from the
+/// build's <see cref="BrushSidePool"/> and
+/// <see cref="BspBuildContext.FreeBrush"/> gives it back. That is why a freed
+/// brush has no sides at all (<see cref="IsFreed"/>).
+/// </para>
+/// <para>
 /// Not a struct, because a brush's identity is what a list is made of and
 /// because <see cref="Tree.BrushBspTree.LeafNode"/> hands the same brush to a
 /// node's <c>brushlist</c> after the list has been walked.
@@ -58,6 +67,23 @@ public sealed class BspBrush
     {
         ArgumentOutOfRangeException.ThrowIfNegative(capacity);
         _sides = capacity == 0 ? [] : new BspBrushSide[capacity];
+    }
+
+    /// <summary>Creates a brush over side storage the caller rented.</summary>
+    /// <param name="storage">
+    /// The side array, whose length is the capacity. It must be all
+    /// <c>default</c>: a brush starts with no sides, and <see cref="AddSide"/>
+    /// relies on the slots past <see cref="SideCount"/> never being read, but
+    /// <see cref="BrushSidePool"/> clears on return so that a stale side from
+    /// an earlier brush cannot be seen even by a reader that breaks that rule.
+    /// </param>
+    /// <remarks>
+    /// How <see cref="BspBuildContext.AllocBrush"/> hands a brush an array out
+    /// of the build's pool rather than a fresh one.
+    /// </remarks>
+    internal BspBrush(BspBrushSide[] storage)
+    {
+        _sides = storage;
     }
 
     /// <summary>The brush's serial number: <c>bspbrush_t::id</c>.</summary>
@@ -105,16 +131,58 @@ public sealed class BspBrush
     public MapBrush? Original { get; set; }
 
     /// <summary>How many sides the brush has: <c>numsides</c>.</summary>
-    public int SideCount { get; private set; }
+    /// <exception cref="InvalidOperationException">The brush has been freed.</exception>
+    /// <remarks>
+    /// Reading it on a freed brush throws for the same reason
+    /// <see cref="Sides"/> does: see <see cref="IsFreed"/>.
+    /// </remarks>
+    public int SideCount
+    {
+        get
+        {
+            ThrowIfFreed();
+            return _sideCount;
+        }
+
+        private set => _sideCount = value;
+    }
+
+    private int _sideCount;
+
+    /// <summary>
+    /// Whether <see cref="BspBuildContext.FreeBrush"/> has released this brush.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A freed brush has given its side array back to the build's
+    /// <see cref="BrushSidePool"/>, and the next brush of the same capacity
+    /// will be carved in it. So its sides are gone rather than merely
+    /// windingless: <see cref="Sides"/> and <see cref="SideCount"/> throw
+    /// instead of showing another brush's planes. Stock's
+    /// <c>FreeBrush</c> hands the memory back to the heap and a read after it
+    /// is undefined; here it is loud.
+    /// </para>
+    /// <para>
+    /// The header fields (<see cref="Next"/>, <see cref="Original"/>, the
+    /// bounds) stay readable, because <c>FreeBrushList</c> and
+    /// <c>CullList</c> read <c>next</c> around the free and nothing about the
+    /// pool touches them.
+    /// </para>
+    /// </remarks>
+    public bool IsFreed { get; private set; }
 
     /// <summary>How many sides were reserved: <c>AllocBrush</c>'s argument.</summary>
     public int SideCapacity => _sides.Length;
+
+    /// <summary>The side array itself, capacity and all, for the pool's facts.</summary>
+    internal BspBrushSide[] SideStorage => _sides;
 
     /// <summary>The brush's live sides.</summary>
     /// <remarks>
     /// A span, so <c>brush.Sides[i].Tested = true</c> writes through to the
     /// array the way stock writes through <c>brush-&gt;sides[i].tested</c>.
     /// </remarks>
+    /// <exception cref="InvalidOperationException">The brush has been freed.</exception>
     public Span<BspBrushSide> Sides => _sides.AsSpan(0, SideCount);
 
     /// <summary>Appends a side, as stock writes into <c>sides[numsides++]</c>.</summary>
@@ -141,11 +209,44 @@ public sealed class BspBrush
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="count"/> is negative or above the capacity.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The brush has been freed.</exception>
     public void SetSideCount(int count)
     {
+        ThrowIfFreed();
         ArgumentOutOfRangeException.ThrowIfNegative(count);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(count, _sides.Length);
         SideCount = count;
+    }
+
+    /// <summary>
+    /// Marks the brush freed and hands back its side array, which the brush no
+    /// longer owns.
+    /// </summary>
+    /// <returns>The side array, with whatever it held; the caller clears it.</returns>
+    /// <exception cref="InvalidOperationException">The brush was already freed.</exception>
+    /// <remarks>
+    /// Detaching is what makes a double return impossible: the second
+    /// <c>FreeBrush</c> of a brush finds it freed and throws, instead of
+    /// putting one array into the pool twice and handing it to two brushes.
+    /// </remarks>
+    internal BspBrushSide[] DetachSides()
+    {
+        ThrowIfFreed();
+
+        BspBrushSide[] sides = _sides;
+        _sides = [];
+        _sideCount = 0;
+        IsFreed = true;
+        return sides;
+    }
+
+    private void ThrowIfFreed()
+    {
+        if (IsFreed)
+        {
+            throw new InvalidOperationException(
+                $"BspBrush {Id}: its sides were read after FreeBrush returned them to the pool");
+        }
     }
 
     /// <summary>
@@ -155,6 +256,7 @@ public sealed class BspBrush
     /// <param name="map">The map holding the sides.</param>
     /// <param name="brush">The map brush.</param>
     /// <exception cref="ArgumentNullException">Either argument is null.</exception>
+    /// <exception cref="InvalidOperationException">The brush has been freed.</exception>
     /// <remarks>
     /// <c>CreateClippedBrush</c>'s memcpy. The windings are
     /// the map sides' own handles at this point; the caller duplicates them, as
@@ -164,6 +266,7 @@ public sealed class BspBrush
     {
         ArgumentNullException.ThrowIfNull(map);
         ArgumentNullException.ThrowIfNull(brush);
+        ThrowIfFreed();
 
         if (_sides.Length < brush.SideCount)
         {
