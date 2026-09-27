@@ -52,6 +52,7 @@ src/
   SourceSharp.Tests/                      xUnit suite for the whole chain
 game/                                     test game directories with gameinfo.txt
 maps/ss_sandbox.vmf                       the generated sandbox map
+maps/sdk_ctf_2fort.vmf                    Valve's SDK 2fort, a full-size map for perf runs
 ```
 
 ### `SourceSharp.MapFormats`
@@ -367,6 +368,17 @@ tools run, then profiles each combination. The axes are in
 - vbsp, vvis and vrad presets (for example `-fast`, `-final`, `-both`, `-bounce 0`).
 
 Each axis only applies to the stages it affects.
+
+`maps/ss_sandbox.vmf` is small and exercises every feature; for numbers
+closer to a real map, use `maps/sdk_ctf_2fort.vmf`, Valve's SDK 2fort
+(18,000 faces, 2,500 vis clusters):
+
+    tools/compile-perf.sh --map maps/sdk_ctf_2fort.vmf --game game/mod_tf
+
+It needs Team Fortress 2 installed through Steam for its materials, models
+and `lights.rad`. `--synthetic` only makes stand-ins for the sandbox map's
+materials, so without Steam 2fort still compiles, but with its brushes
+unlit by texlights and thousands of missing-material warnings.
 
 The whole chain is one stage and vbsp, vvis and vrad are each timed on their
 own. vvis starts from the baseline vbsp's output and vrad from the baseline
