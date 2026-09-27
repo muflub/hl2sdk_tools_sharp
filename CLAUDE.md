@@ -232,6 +232,9 @@ any existing file.
 
 `.github/workflows/ci.yml` builds and tests on Linux, Windows and macOS
 (Intel and Apple Silicon) for every push to `main` and every PR, and publishes AOT and
-framework-dependent `ssmap` builds for linux-x64, win-x64, osx-arm64 and
-osx-x64. Pushing a tag attaches those archives to the GitHub release. Keep
-CI green: run the full suite locally before pushing.
+framework-dependent `ssmap` builds for linux-x64, win-x64 and osx-arm64
+(no osx-x64 archive). Pushing a tag attaches those archives to the GitHub
+release. Keep the Intel macOS test runner even though osx-x64 is not
+packaged: it is CI's only Intel CPU (Linux and Windows run on AMD), so it is
+the one place the `GenuineIntel` rsqrt-vendor deltas are checked. Keep CI
+green: run the full suite locally before pushing.

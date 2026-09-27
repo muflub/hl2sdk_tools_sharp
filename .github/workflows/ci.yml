@@ -34,6 +34,14 @@ jobs:
       fail-fast: false
       matrix:
         # macos-15-intel is x86 (Intel); macos-latest is Apple Silicon (arm64).
+        #
+        # KEEP macos-15-intel even though osx-x64 is no longer packaged: it is
+        # the only Intel CPU in this matrix (the ubuntu and windows runners are
+        # AMD EPYC). Under -compliance stock, results built on rcpss/rsqrtss
+        # estimates differ in the last bits between AMD and Intel, and the
+        # facts check Intel's against Fixtures/rsqrt-vendor/GenuineIntel.
+        # Without this runner those expected values are never exercised, and
+        # the capture run below could not re-record them.
         os: [ubuntu-latest, windows-latest, macos-15-intel, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -97,7 +105,6 @@ jobs:
           - { rid: linux-x64, os: ubuntu-latest }
           - { rid: win-x64, os: windows-latest }
           - { rid: osx-arm64, os: macos-latest }
-          - { rid: osx-x64, os: macos-latest }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -140,10 +147,10 @@ jobs:
           done
           ls -la dist
 
-      # The host can only run its own architecture; osx-x64 is cross-built on
-      # an arm64 runner and is not executed here.
+      # Every rid is built on a runner of its own architecture, so both
+      # builds can be run here. There is no osx-x64 package; Intel Macs are
+      # still tested (see the test job's matrix for why that runner stays).
       - name: Smoke
-        if: matrix.rid != 'osx-x64'
         run: |
           ./out/aot/ssmap --help | sed -n 1p
           ./out/dll/ssmap --help | sed -n 1p
