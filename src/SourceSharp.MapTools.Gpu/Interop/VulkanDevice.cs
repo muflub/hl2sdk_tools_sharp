@@ -33,11 +33,12 @@ namespace SourceSharp.MapTools.Gpu.Interop;
 /// </para>
 /// <para>
 /// Threading: not thread-safe by design. One tracer instance owns one of
-/// these, and <c>VulkanRayTracer</c> serialises every entry with an internal
-/// lock, which is also what makes a batch's bytes depend only on its rays.
+/// these, and its <c>SlabBatcher</c> makes every staging and dispatch from a
+/// single drainer at a time. A batch's bytes depend only on its rays because
+/// each lane of the kernel reads only its own ray.
 /// </para>
 /// </remarks>
-internal sealed unsafe class VulkanDevice : IDisposable
+internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
 {
     private const uint QueueFamilyIgnored = 0xFFFFFFFFu;
     private const nuint Vulkan13 = (1u << 22) | (13u << 12);
