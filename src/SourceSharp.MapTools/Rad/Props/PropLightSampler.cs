@@ -148,9 +148,10 @@ public sealed class PropLightSampler
     /// <returns>What <see cref="Resolve"/> finishes once the batch is traced.</returns>
     /// <remarks>
     /// <para>
-    /// SPLIT SO A PROP IS ONE BATCH. Nothing a sample computes before its
-    /// traces depends on their answers, and nothing after them depends on
-    /// another sample's, so the stages plan every sample of a prop, trace the
+    /// SPLIT SO MANY SAMPLES ARE ONE BATCH. Nothing a sample computes before
+    /// its traces depends on their answers, and nothing after them depends on
+    /// another sample's, so the stages plan every sample of a batch's items
+    /// (whole detail props, or chunks of a static prop's vertices), trace the
     /// batch once, and resolve in the same order. The arithmetic of each half
     /// is the one-call arithmetic in the one-call order -- including the sky
     /// and ambient-sky sums, which add their samples' answers in the order the

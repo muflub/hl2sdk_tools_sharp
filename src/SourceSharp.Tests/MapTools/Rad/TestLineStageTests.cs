@@ -83,6 +83,51 @@ public sealed class TestLineStageTests
         Assert.All(tracer.VisibilityCalls, c => Assert.Equal(10, c.Rays));
     }
 
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(3, true)]
+    public async Task AWorkerThatSaysItIsFullClosesTheBatchAfterThatItem(int degree, bool asynchronous)
+    {
+        CountingRayTracer tracer = new(Floor, asynchronous);
+        List<Counter> workers = [];
+
+        int[] results = await RunFullAtAsync(tracer, 50, degree, fullAtItems: 3, workers);
+
+        // The segment and item bounds are far off; the worker's own bound
+        // closes every batch at three items, and changes no answer.
+        Assert.Equal(Enumerable.Range(0, 50).Select(Expected), results);
+        Assert.All(workers, w => Assert.InRange(w.MostItemsInABatch, 0, 3));
+        Assert.Equal(3, workers.Max(w => w.MostItemsInABatch));
+        if (degree == 1)
+        {
+            // 17 batches of up to three items, and the fill that finds none.
+            Assert.Equal(18, workers[0].Batches);
+        }
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, true)]
+    public async Task AWorkerFullOnAnEmptyBatchStillTakesOneItemABatch(int degree, bool asynchronous)
+    {
+        CountingRayTracer tracer = new(Floor, asynchronous);
+        List<Counter> workers = [];
+
+        int[] results = await RunFullAtAsync(tracer, 20, degree, fullAtItems: 0, workers);
+
+        // Always full: a batch still takes its first item, so every item is
+        // lit, one a batch, rather than left unclaimed.
+        Assert.Equal(Enumerable.Range(0, 20).Select(Expected), results);
+        Assert.Equal(1, workers.Max(w => w.MostItemsInABatch));
+        Assert.Equal(20 + workers.Count, workers.Sum(w => w.Batches));
+    }
+
+    [Fact]
+    public void AWorkerIsNeverFullUnlessItSaysSo()
+    {
+        Assert.False(new Counter(new TestLineBatch(Floor)).IsBatchFull);
+    }
+
     [Fact]
     public async Task TheClaimOrderDoesNotChangeTheResults()
     {
@@ -129,14 +174,44 @@ public sealed class TestLineStageTests
             1, null, new CompileParallelism(), null!, 1, 1, "test", CancellationToken.None));
     }
 
-    private sealed class Counter(TestLineBatch lines) : TestLineWorker<(int First, int Count), int>(lines)
+    private static Task<int[]> RunFullAtAsync(IRayTracer tracer, int items, int degree, int fullAtItems, List<Counter> workers) =>
+        TestLineStage.RunAsync(
+            items,
+            null,
+            new CompileParallelism { MaxDegree = degree },
+            () =>
+            {
+                Counter c = new FullAt(new TestLineBatch(tracer), fullAtItems);
+                lock (workers)
+                {
+                    workers.Add(c);
+                }
+
+                return c;
+            },
+            1_000_000,
+            TestLineStage.DefaultBatchItems,
+            "test",
+            CancellationToken.None);
+
+    private class Counter(TestLineBatch lines) : TestLineWorker<(int First, int Count), int>(lines)
     {
         public int Batches { get; private set; }
 
-        public override void BeginBatch() => Batches++;
+        public int ItemsInBatch { get; private set; }
+
+        public int MostItemsInABatch { get; private set; }
+
+        public override void BeginBatch()
+        {
+            Batches++;
+            ItemsInBatch = 0;
+        }
 
         public override (int First, int Count) Plan(int item, CancellationToken cancellationToken)
         {
+            ItemsInBatch++;
+            MostItemsInABatch = Math.Max(MostItemsInABatch, ItemsInBatch);
             int first = Lines.Count;
             for (int k = 0; k < item % 5; k++)
             {
@@ -149,6 +224,12 @@ public sealed class TestLineStageTests
 
         public override int Resolve(int item, (int First, int Count) state) =>
             Enumerable.Range(state.First, state.Count).Count(Lines.IsBlocked);
+    }
+
+    // Full, by its own count, once it has planned this many items.
+    private sealed class FullAt(TestLineBatch lines, int items) : Counter(lines)
+    {
+        public override bool IsBatchFull => ItemsInBatch >= items;
     }
 
     private sealed class Failing : IRayTracer
