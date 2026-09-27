@@ -240,19 +240,21 @@ public sealed class PropLineBatchingTests : IClassFixture<AmbientFixture>, IClas
     {
         (StaticPropLump lump, IReadOnlyList<StaticPropModel> models) = await CratesAsync();
         CountingRayTracer alone = new(Scene);
-        StaticPropLightingResult expected = await LightAsync(alone, lump, models, batchSegments: 1);
+        StaticPropLightingResult expected = await LightAsync(alone, lump, models, batchSegments: 1, pointsPerChunk: int.MaxValue);
 
         CountingRayTracer batched = new(Scene, asynchronous: true);
-        StaticPropLightingResult actual = await LightAsync(batched, lump, models, TestLineStage.DefaultBatchSegments);
+        StaticPropLightingResult actual = await LightAsync(
+            batched, lump, models, TestLineStage.DefaultBatchSegments, StaticPropLighting.DefaultPointsPerChunk);
 
         Assert.Equal(expected.Files.Select(f => f.Data), actual.Files.Select(f => f.Data));
         Assert.Equal(expected.BadVertices, actual.BadVertices);
         Assert.Equal(2, actual.Files.Length);
 
-        // Prop 0 skips its own id, prop 1 does not. Alone, each prop is one
-        // call for its plain segments and one for its sky-passing ones,
-        // however many vertices it has; batched together, the same four
-        // kinds of segment are still four calls.
+        // Prop 0 skips its own id, prop 1 does not. Alone (a whole prop an
+        // item, a prop a batch), each prop is one call for its plain segments
+        // and one for its sky-passing ones, however many vertices it has;
+        // batched together, the same four kinds of segment are still four
+        // calls.
         (int Rays, RayTraceOptions Options)[] calls = [.. alone.VisibilityCalls];
         Assert.Equal(4, calls.Length);
         Assert.Equal([PropId, PropId], calls.Take(2).Select(c => c.Options.SkipId));
@@ -289,14 +291,17 @@ public sealed class PropLineBatchingTests : IClassFixture<AmbientFixture>, IClas
     }
 
     private Task<StaticPropLightingResult> LightAsync(
-        IRayTracer tracer, StaticPropLump lump, IReadOnlyList<StaticPropModel> models, int batchSegments) =>
+        IRayTracer tracer, StaticPropLump lump, IReadOnlyList<StaticPropModel> models, int batchSegments, int pointsPerChunk) =>
         StaticPropLighting.ComputeAsync(
             _ambient.Ldr,
             lump,
             models,
             Lights(),
             new PropLightSampler(tracer, ComplianceOptions.Correct, sunAngularExtent: 0.05f),
-            new StaticPropLightingOptions { Parallelism = 1, Indirect = false, BatchSegments = batchSegments },
+            new StaticPropLightingOptions
+            {
+                Parallelism = 1, Indirect = false, BatchSegments = batchSegments, PointsPerChunk = pointsPerChunk,
+            },
             CancellationToken.None);
 
     // Answers with the KD tracer and keeps every segment with its answer.

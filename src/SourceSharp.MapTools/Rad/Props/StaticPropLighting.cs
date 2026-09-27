@@ -43,7 +43,15 @@ public sealed record StaticPropLightingResult(
     ImmutableArray<StaticPropVhvFile> Files,
     int BadVertices,
     int SelfShadowingSkipped,
-    int TexelLightingNotComputed);
+    int TexelLightingNotComputed)
+{
+    /// <summary>
+    /// The most direct-light samples any one worker's batch held at once. Not
+    /// part of the output: it is here so the facts can check that a batch's
+    /// planned state stays bounded however large a prop is.
+    /// </summary>
+    internal int PeakBatchSamples { get; init; }
+}
 
 /// <summary>The switches static-prop lighting reads.</summary>
 public sealed record StaticPropLightingOptions
@@ -80,6 +88,21 @@ public sealed record StaticPropLightingOptions
     /// can trace each prop alone; no answer depends on it.
     /// </summary>
     internal int BatchSegments { get; init; } = TestLineStage.DefaultBatchSegments;
+
+    /// <summary>
+    /// How many light points one work item of the tracing stage plans; see
+    /// <see cref="StaticPropLighting.DefaultPointsPerChunk"/>. Internal so the
+    /// facts can force one point an item, or a whole prop an item; no answer
+    /// depends on it.
+    /// </summary>
+    internal int PointsPerChunk { get; init; } = StaticPropLighting.DefaultPointsPerChunk;
+
+    /// <summary>
+    /// How many planned direct-light samples a worker's batch closes at; see
+    /// <see cref="StaticPropLighting.DefaultBatchSamples"/>. Internal so the
+    /// facts can close a batch after every item; no answer depends on it.
+    /// </summary>
+    internal int BatchSamples { get; init; } = StaticPropLighting.DefaultBatchSamples;
 }
 
 /// <summary>
@@ -99,8 +122,50 @@ public sealed record StaticPropLightingOptions
 /// </para>
 /// <para>
 /// PARALLEL COMPUTE, SERIAL COMMIT: stock runs props on its thread pool with a
-/// per-thread displacement scratch; each prop here is one work item with its
-/// own, and the files come back in prop order.
+/// per-thread displacement scratch, one prop a work item. Here a pass is
+/// three parallel steps, and the files come back in prop order:
+/// </para>
+/// <list type="number">
+/// <item>
+/// PREPARE, one prop an item: every vertex transformed and tested for solid,
+/// every bad vertex's replacement point crawled out, and the result kept as
+/// a flat list of LIGHT POINTS (where to light, with which normal, flags and
+/// skip id, and which colour slot the answer goes to). Nothing here traces.
+/// </item>
+/// <item>
+/// LIGHT, a few points an item (<see cref="DefaultPointsPerChunk"/>): each
+/// point's direct samples planned into the worker's
+/// <see cref="TestLineBatch"/> and its indirect term gathered, the batch
+/// traced, each point's colour resolved into its slot.
+/// </item>
+/// <item>
+/// ENCODE, one prop an item: the colours spread over the LODs and the
+/// <c>.vhv</c> written.
+/// </item>
+/// </list>
+/// <para>
+/// WHY THE LIGHTING ITEM IS NOT A PROP. A point plans one pending sample for
+/// every style-0 light its cluster can see -- on a real map hundreds, most of
+/// them lights too far or facing away that plan no segment -- so a prop of a
+/// few thousand vertices is millions of samples and around a million
+/// segments. The stage only closes a batch between items, so with one prop
+/// an item a single prop filled one worker's batch alone, and every worker
+/// kept that capacity for the rest of the pass: gigabytes of sample lists
+/// and ray arrays, most of it on the large object heap. Chunks of points
+/// bound what one item adds, and the worker's own sample bound
+/// (<see cref="DefaultBatchSamples"/>, through
+/// <see cref="TestLineWorker{TState, TResult}.IsBatchFull"/>) bounds what a
+/// batch holds.
+/// </para>
+/// <para>
+/// NONE OF THIS CHANGES A BYTE. A point's arithmetic is the same whichever
+/// item it lands in: its samples are planned in light order and resolved in
+/// that order from segments traced alone, its indirect term reads nothing
+/// another point wrote, and its colour goes to its own slot. The prepare
+/// step keeps stock's per-model order for everything that is order
+/// dependent -- the nearest good vertex a bad one is relit from is chosen
+/// among the model's good vertices only, which the prepare step knows
+/// before any point is lit.
 /// </para>
 /// </remarks>
 public static class StaticPropLighting
@@ -123,6 +188,26 @@ public static class StaticPropLighting
     /// <summary><c>CONTENTS_SOLID</c>.</summary>
     private const int ContentsSolid = 1;
 
+    /// <summary>The light points one item of the lighting step plans, unless the options say otherwise.</summary>
+    /// <remarks>
+    /// Small, so one item never adds more than a few tens of thousands of
+    /// samples to a batch however many lights a point sees (32 points of
+    /// 1,740 lights is 56k samples at the very worst), and large enough that
+    /// the per-item overhead -- a claim, a state tuple -- is noise next to
+    /// the points' own work.
+    /// </remarks>
+    internal const int DefaultPointsPerChunk = 32;
+
+    /// <summary>The planned direct-light samples a worker's batch closes at, unless the options say otherwise.</summary>
+    /// <remarks>
+    /// A pending sample and its light's intensity are 40 bytes, so this is
+    /// about 2.5 MB a worker, the same order as the segment bound's rays.
+    /// Most samples plan no segment (the light is out of range or faces
+    /// away), so the segment bound alone would let the samples grow many
+    /// times larger than the rays.
+    /// </remarks>
+    internal const int DefaultBatchSamples = 1 << 16;
+
     /// <summary>The pak name stock gives a prop's file.</summary>
     /// <param name="prop">The prop index.</param>
     /// <param name="hdr">The HDR pass.</param>
@@ -144,6 +229,9 @@ public static class StaticPropLighting
     /// dereferences or aborts on.
     /// </exception>
     /// <exception cref="InvalidBspException">A prop names a model the dictionary does not have.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The options' chunk or sample bound (set only by the facts) is below one.
+    /// </exception>
     public static async Task<StaticPropLightingResult> ComputeAsync(
         AmbientScene scene,
         StaticPropLump lump,
@@ -171,21 +259,77 @@ public static class StaticPropLighting
             }
         }
 
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.PointsPerChunk, 1, nameof(options));
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.BatchSamples, 1, nameof(options));
+
         CompileParallelism degree = (options.Parallelism > 0
             ? new CompileParallelism { MaxDegree = options.Parallelism }
             : CompileParallelism.Default) with { Pool = options.Pool };
 
-        // Each prop's direct-light segments go to the tracer in its worker's
-        // batch (TestLineStage): planned with the prop, traced with the
-        // batch, resolved into the prop's colours.
-        PropOutcome[] outcomes = await TestLineStage.RunAsync(
+        // 1. Every prop's light points and colour arrays, nothing traced.
+        PreparedProp[] prepared = await ForEachPropAsync(
             props.Length,
+            degree,
+            "static prop lighting (prepare)",
+            i => PrepareProp(scene, i, props[i], models[props[i].PropType], options),
+            cancellationToken).ConfigureAwait(false);
+
+        // 2. The points, a chunk an item, through the worker's batch
+        // (TestLineStage): planned with the chunk, traced with the batch,
+        // resolved into their props' colours. A chunk never spans props, so
+        // a prop's points stay in the order the prepare step listed them.
+        List<(int Prop, int Start)> chunkList = [];
+        for (int p = 0; p < prepared.Length; p++)
+        {
+            for (int start = 0; start < prepared[p].Points.Length; start += options.PointsPerChunk)
+            {
+                chunkList.Add((p, start));
+            }
+        }
+
+        (int Prop, int Start)[] chunks = [.. chunkList];
+        chunkList.Clear();
+        List<PointWorker> workers = [];
+        await TestLineStage.RunAsync(
+            chunks.Length,
             null,
             degree,
-            () => new PropWorker(scene, props, models, lights, sampler, options),
+            () =>
+            {
+                PointWorker worker = new(scene, prepared, chunks, lights, sampler, options);
+                lock (workers)
+                {
+                    workers.Add(worker);
+                }
+
+                return worker;
+            },
             options.BatchSegments,
             TestLineStage.DefaultBatchItems,
             "static prop lighting",
+            cancellationToken).ConfigureAwait(false);
+
+        int peakSamples = 0;
+        foreach (PointWorker worker in workers)
+        {
+            peakSamples = Math.Max(peakSamples, worker.PeakSamples);
+        }
+
+        workers.Clear();
+
+        // 3. Each prop's colours spread over its LODs and encoded. A prop's
+        // points and colours are dropped as it is encoded, so they do not
+        // outlive their use by the rest of the pass.
+        PropOutcome[] outcomes = await ForEachPropAsync(
+            props.Length,
+            degree,
+            "static prop lighting (encode)",
+            i =>
+            {
+                PreparedProp prop = prepared[i];
+                prepared[i] = null!;
+                return FinishProp(models[props[i].PropType], prop);
+            },
             cancellationToken).ConfigureAwait(false);
 
         ImmutableArray<StaticPropVhvFile>.Builder files = ImmutableArray.CreateBuilder<StaticPropVhvFile>();
@@ -202,7 +346,7 @@ public static class StaticPropLighting
             texel += o.TexelLighting ? 1 : 0;
         }
 
-        return new StaticPropLightingResult(files.ToImmutable(), bad, selfShadow, texel);
+        return new StaticPropLightingResult(files.ToImmutable(), bad, selfShadow, texel) { PeakBatchSamples = peakSamples };
     }
 
     /// <summary>
@@ -331,29 +475,57 @@ public static class StaticPropLighting
     private static int Align(int x) => (x + (Alignment - 1)) & ~(Alignment - 1);
 
     /// <summary>
-    /// One prop up to its traces: every vertex's direct light planned into the
-    /// worker's batch, its indirect term computed, and what the resolve needs
-    /// to finish the file.
+    /// Runs one step of the pass over every prop on the compile's workers,
+    /// the results by prop index.
     /// </summary>
-    private static PropPlan PlanProp(
+    /// <remarks>
+    /// The queue observes the token between props; no step does enough for
+    /// one prop to need more (the heaviest, the bad-vertex search, is
+    /// quadratic in one studio model's vertices, not the map's).
+    /// </remarks>
+    private static async Task<T[]> ForEachPropAsync<T>(
+        int count,
+        CompileParallelism degree,
+        string stage,
+        Func<int, T> body,
+        CancellationToken cancellationToken)
+    {
+        using WorkQueue queue = new(degree);
+        return await queue.RunAsync<int, T>(
+            count,
+            (i, _, _) => body(i),
+            _ => 0,
+            new WorkQueueOptions { Stage = stage },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One prop up to its lighting: its outcome (with an empty file until
+    /// encoded), its models' colour arrays, and the points that fill them.
+    /// </summary>
+    /// <remarks>
+    /// The checks run in the order the one-step pass ran them, so a prop that
+    /// cannot be lit fails with the same exception it always did: no file for
+    /// <c>NO_PER_VERTEX_LIGHTING</c> before anything is read, then the missing
+    /// studio header, then no lighting (and a file with no meshes) without a
+    /// <c>.vtx</c>, then the missing <c>.vvd</c>.
+    /// </remarks>
+    private static PreparedProp PrepareProp(
         AmbientScene scene,
         int index,
         StaticProp prop,
         StaticPropModel model,
-        IReadOnlyList<PropLight> lights,
-        PropLightSampler sampler,
-        StaticPropLightingOptions options,
-        PropWorker scratch)
+        StaticPropLightingOptions options)
     {
         // SerializeLighting: no file, and ComputeLighting's work is thrown away.
         if ((prop.Flags & StaticPropFlags.NoPerVertexLighting) != 0)
         {
-            return new PropPlan(new PropOutcome(null, 0, false, false), null, 0, 0);
+            return new PreparedProp(new PropOutcome(null, 0, false, false), null, []);
         }
 
         if (model.Mdl is null)
         {
-            // 1565 reads m_pStudioHdr->checksum through a null pointer.
+            // Stock reads the studio header's checksum through a null pointer.
             throw new InvalidOperationException(
                 $"static prop {index}: model {model.Path} has no studio header, which stock dereferences");
         }
@@ -365,9 +537,9 @@ public static class StaticPropLighting
 
         int bad = 0;
         List<Vec3[]>? modelColors = null;
-        int firstVertex = scratch.Vertices.Count;
+        List<LightPoint> points = [];
 
-        // 1321: no VTX, no lighting; the file is written with no meshes.
+        // No VTX, no lighting; the file is written with no meshes.
         if (model.Vtx is not null)
         {
             if (model.Vvd is null)
@@ -384,59 +556,51 @@ public static class StaticPropLighting
                 ReadOnlySpan<StudioModel> studioModels = mdl.Models(b);
                 for (int m = 0; m < studioModels.Length; m++)
                 {
-                    modelColors.Add(LightModel(scene, prop, skipId, model, b, m, lights, sampler, options, scratch, ref bad));
+                    modelColors.Add(PrepareModel(scene, prop, skipId, model, b, m, options, points, ref bad));
                 }
             }
         }
 
         PropOutcome outcome = new(
             new StaticPropVhvFile(index, FileName(index, options.Hdr), []), bad, selfShadowSkip, texel);
-        return new PropPlan(outcome, modelColors, firstVertex, scratch.Vertices.Count - firstVertex);
+        return new PreparedProp(outcome, modelColors, [.. points]);
     }
 
     /// <summary>
-    /// One prop after its traces: each planned vertex's colour written, the
-    /// colours spread over the LODs, and the file encoded.
+    /// One studio model up to its lighting: its colour array, zeroed, and a
+    /// light point for every vertex that will be lit, added to
+    /// <paramref name="points"/>.
     /// </summary>
-    private static PropOutcome ResolveProp(StaticPropModel model, PropPlan plan, PropLightSampler sampler, PropWorker scratch)
-    {
-        if (plan.Outcome.File is null)
-        {
-            return plan.Outcome;
-        }
-
-        for (int v = plan.FirstVertex; v < plan.FirstVertex + plan.VertexCount; v++)
-        {
-            ResolveVertex(sampler, scratch, scratch.Vertices[v]);
-        }
-
-        List<(int Lod, Vec3[] Colors)> meshes = [];
-        if (plan.ModelColors is not null)
-        {
-            Apply(model, plan.ModelColors, meshes);
-        }
-
-        byte[] data = EncodeVhv(model.Mdl!.Checksum, meshes);
-        return plan.Outcome with { File = plan.Outcome.File with { Data = data } };
-    }
-
-    /// <summary>One studio model's colours, indexed like its vertices.</summary>
-    private static Vec3[] LightModel(
+    /// <remarks>
+    /// <para>
+    /// The points go in the order the one-step pass lit them: the good
+    /// vertices in mesh order, then the bad ones in the order they were
+    /// found. A good vertex's point carries the prop's flags and skip id and
+    /// gathers indirect light when the pass does; a bad vertex's is lit from
+    /// its crawled-out position with its own normal, always gathers indirect
+    /// light, and under <see cref="StockQuirk.StaticPropBadVertexDropsPropFlags"/>
+    /// loses the prop's flags and skip id.
+    /// </para>
+    /// <para>
+    /// Bad vertices are relit only when there is somewhere to crawl toward:
+    /// the prop's lighting origin, or at least one good vertex in the model.
+    /// A model wholly in solid without a lighting origin keeps zero colours.
+    /// The nearest good vertex is looked for among this model's good
+    /// vertices only, which are all known before any bad one is placed.
+    /// </para>
+    /// </remarks>
+    private static Vec3[] PrepareModel(
         AmbientScene scene,
         StaticProp prop,
         int skipId,
         StaticPropModel model,
         int bodyPart,
         int modelIndex,
-        IReadOnlyList<PropLight> lights,
-        PropLightSampler sampler,
         StaticPropLightingOptions options,
-        PropWorker scratch,
+        List<LightPoint> points,
         ref int badCount)
     {
-        ComplianceOptions compliance = options.Compliance;
-        bool dropFlags = compliance.Emulates(StockQuirk.StaticPropBadVertexDropsPropFlags);
-        bool stockNormalise = compliance.Emulates(StockQuirk.VradVectorNormalise);
+        bool dropFlags = options.Compliance.Emulates(StockQuirk.StaticPropBadVertexDropsPropFlags);
         bool ignoreNormals = (prop.Flags & StaticPropFlags.IgnoreNormals) != 0;
         PropGatherFlags flags = ignoreNormals ? PropGatherFlags.IgnoreNormals : PropGatherFlags.None;
 
@@ -477,20 +641,12 @@ public static class StaticPropLighting
                 }
                 else
                 {
-                    int firstSample = PlanDirect(scene, samplePosition, sampleNormal, flags, skipId, lights, sampler, stockNormalise, scratch);
-                    Vec3 indirect = Vec3.Zero;
-                    if (options.Indirect)
-                    {
-                        indirect = PropIndirectLighting.Compute(
-                            scene, samplePosition, sampleNormal, forceFast: true, ignoreNormals, scratch.Displacements,
-                            compliance, options.StaticPropIndirectMode);
-                    }
-
                     valid[numVertexes] = true;
                     positions[numVertexes] = samplePosition;
 
-                    // colors = direct + indirect, once the direct samples are traced.
-                    scratch.Vertices.Add(new PendingVertex(colors, numVertexes, indirect, firstSample, scratch.Samples.Count - firstSample));
+                    // colors = direct + indirect, once the point is lit.
+                    points.Add(new LightPoint(
+                        colors, numVertexes, samplePosition, sampleNormal, flags, skipId, ignoreNormals, options.Indirect));
                 }
 
                 numVertexes++;
@@ -549,14 +705,11 @@ public static class StaticPropLighting
                     bestPosition = mid;
                 }
 
-                int firstSample = PlanDirect(scene, bestPosition, badNormal, badFlags, badSkipId, lights, sampler, stockNormalise, scratch);
-                Vec3 indirect = PropIndirectLighting.Compute(
-                    scene, bestPosition, badNormal, forceFast: true, badIgnoreNormals, scratch.Displacements,
-                    compliance, options.StaticPropIndirectMode);
-
-                // Position saved, validity not.
+                // Position saved, validity not: a later bad vertex never
+                // crawls toward this one.
                 positions[badIndex] = bestPosition;
-                scratch.Vertices.Add(new PendingVertex(colors, badIndex, indirect, firstSample, scratch.Samples.Count - firstSample));
+                points.Add(new LightPoint(
+                    colors, badIndex, bestPosition, badNormal, badFlags, badSkipId, badIgnoreNormals, Indirect: true));
             }
         }
 
@@ -564,10 +717,39 @@ public static class StaticPropLighting
     }
 
     /// <summary>
+    /// One prop after its points are lit: the colours spread over the LODs
+    /// and the file encoded.
+    /// </summary>
+    private static PropOutcome FinishProp(StaticPropModel model, PreparedProp prop)
+    {
+        if (prop.Outcome.File is null)
+        {
+            return prop.Outcome;
+        }
+
+        List<(int Lod, Vec3[] Colors)> meshes = [];
+        if (prop.ModelColors is not null)
+        {
+            Apply(model, prop.ModelColors, meshes);
+        }
+
+        byte[] data = EncodeVhv(model.Mdl!.Checksum, meshes);
+        return prop.Outcome with { File = prop.Outcome.File with { Data = data } };
+    }
+
+    /// <summary>
+    /// Whether the direct samples' light directions are normalised as stock
+    /// does (<see cref="StockQuirk.VradVectorNormalise"/>). Read once a
+    /// worker, not once a light.
+    /// </summary>
+    private static bool StockNormalise(ComplianceOptions compliance) =>
+        compliance.Emulates(StockQuirk.VradVectorNormalise);
+
+    /// <summary>
     /// <c>ComputeDirectLightingAtPoint</c> up to its traces: each light's
     /// sample planned into the worker's batch, in light order.
     /// </summary>
-    /// <returns>The index of the point's first planned sample in <see cref="PropWorker.Samples"/>.</returns>
+    /// <returns>The index of the point's first planned sample in <see cref="PointWorker.Samples"/>.</returns>
     private static int PlanDirect(
         AmbientScene scene,
         Vec3 position,
@@ -577,7 +759,7 @@ public static class StaticPropLighting
         IReadOnlyList<PropLight> lights,
         PropLightSampler sampler,
         bool stockNormalise,
-        PropWorker scratch)
+        PointWorker scratch)
     {
         int first = scratch.Samples.Count;
         int cluster = DetailPropLighting.ClusterFromPoint(scene, position);
@@ -630,7 +812,7 @@ public static class StaticPropLighting
     /// <c>ComputeDirectLightingAtPoint</c>'s accumulation, in light order,
     /// plus the indirect term.
     /// </summary>
-    private static void ResolveVertex(PropLightSampler sampler, PropWorker scratch, PendingVertex v)
+    private static void ResolveVertex(PropLightSampler sampler, PointWorker scratch, PendingVertex v)
     {
         Vec3 outColor = Vec3.Zero;
         for (int k = 0; k < v.SampleCount; k++)
@@ -649,46 +831,113 @@ public static class StaticPropLighting
         v.Colors[v.Index] = outColor + v.Indirect;
     }
 
+    /// <summary>
+    /// Where one colour of a prop is lit from: everything the prepare step
+    /// decided, so the lighting step needs nothing but the point.
+    /// </summary>
+    /// <param name="Colors">The studio model's colour array the answer goes to.</param>
+    /// <param name="Index">The slot in <paramref name="Colors"/>.</param>
+    /// <param name="Position">Where to light: the vertex, or a bad vertex's crawled-out point.</param>
+    /// <param name="Normal">The vertex's normal.</param>
+    /// <param name="Flags">The gather flags for the direct samples.</param>
+    /// <param name="SkipId">The trace id the direct samples pass through, or -1.</param>
+    /// <param name="IgnoreNormals">Whether the indirect gather ignores the normal.</param>
+    /// <param name="Indirect">Whether the point gathers indirect light at all.</param>
+    private readonly record struct LightPoint(
+        Vec3[] Colors,
+        int Index,
+        Vec3 Position,
+        Vec3 Normal,
+        PropGatherFlags Flags,
+        int SkipId,
+        bool IgnoreNormals,
+        bool Indirect);
+
     /// <summary>A vertex whose colour waits on its traces.</summary>
     private readonly record struct PendingVertex(Vec3[] Colors, int Index, Vec3 Indirect, int FirstSample, int SampleCount);
 
     /// <summary>
-    /// A prop between its plan and its resolve: its outcome (with an empty
-    /// file until resolved), its models' colour arrays, and its vertices in
-    /// the worker's <see cref="PropWorker.Vertices"/>.
+    /// A prop between the prepare step and the encode step: its outcome (with
+    /// an empty file until encoded), its models' colour arrays (null without
+    /// a <c>.vtx</c>), and its light points.
     /// </summary>
-    private sealed record PropPlan(PropOutcome Outcome, List<Vec3[]>? ModelColors, int FirstVertex, int VertexCount);
+    private sealed record PreparedProp(PropOutcome Outcome, List<Vec3[]>? ModelColors, LightPoint[] Points);
 
     /// <summary>
-    /// One worker of the stage: its displacement marks, its segment batch,
-    /// and the samples and vertices that wait on the batch.
+    /// One worker of the lighting step: its displacement marks, its segment
+    /// batch, and the samples and vertices that wait on the batch.
     /// </summary>
-    private sealed class PropWorker(
+    /// <remarks>
+    /// An item is one chunk of one prop's light points. The worker closes its
+    /// batch once it holds <see cref="StaticPropLightingOptions.BatchSamples"/>
+    /// samples, which the stage's segment bound cannot see: most samples plan
+    /// no segment.
+    /// </remarks>
+    private sealed class PointWorker(
         AmbientScene scene,
-        StaticProp[] props,
-        IReadOnlyList<StaticPropModel> models,
+        PreparedProp[] prepared,
+        (int Prop, int Start)[] chunks,
         IReadOnlyList<PropLight> lights,
         PropLightSampler sampler,
         StaticPropLightingOptions options)
-        : TestLineWorker<PropPlan, PropOutcome>(sampler.CreateBatch())
+        : TestLineWorker<(int FirstVertex, int Count), bool>(sampler.CreateBatch())
     {
+        private readonly bool _stockNormalise = StockNormalise(options.Compliance);
+
         public DispTestedScratch Displacements { get; } = scene.Tracer.Displacements.CreateScratch();
 
         public List<(PendingPropSample Sample, Vec3 Intensity)> Samples { get; } = [];
 
         public List<PendingVertex> Vertices { get; } = [];
 
+        /// <summary>The most samples any of this worker's batches held.</summary>
+        public int PeakSamples { get; private set; }
+
+        public override bool IsBatchFull => Samples.Count >= options.BatchSamples;
+
         public override void BeginBatch()
         {
+            // The last batch's samples are all still here: BeginBatch runs
+            // before every fill, including the final one that finds no items.
+            PeakSamples = Math.Max(PeakSamples, Samples.Count);
             Samples.Clear();
             Vertices.Clear();
         }
 
-        public override PropPlan Plan(int item, CancellationToken cancellationToken) =>
-            PlanProp(scene, item, props[item], models[props[item].PropType], lights, sampler, options, this);
+        public override (int FirstVertex, int Count) Plan(int item, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            (int prop, int start) = chunks[item];
+            LightPoint[] points = prepared[prop].Points;
+            int end = start + Math.Min(options.PointsPerChunk, points.Length - start);
+            int firstVertex = Vertices.Count;
+            for (int i = start; i < end; i++)
+            {
+                ref readonly LightPoint p = ref points[i];
+                int firstSample = PlanDirect(scene, p.Position, p.Normal, p.Flags, p.SkipId, lights, sampler, _stockNormalise, this);
+                Vec3 indirect = Vec3.Zero;
+                if (p.Indirect)
+                {
+                    indirect = PropIndirectLighting.Compute(
+                        scene, p.Position, p.Normal, forceFast: true, p.IgnoreNormals, Displacements,
+                        options.Compliance, options.StaticPropIndirectMode);
+                }
 
-        public override PropOutcome Resolve(int item, PropPlan state) =>
-            ResolveProp(models[props[item].PropType], state, sampler, this);
+                Vertices.Add(new PendingVertex(p.Colors, p.Index, indirect, firstSample, Samples.Count - firstSample));
+            }
+
+            return (firstVertex, end - start);
+        }
+
+        public override bool Resolve(int item, (int FirstVertex, int Count) state)
+        {
+            for (int v = state.FirstVertex; v < state.FirstVertex + state.Count; v++)
+            {
+                ResolveVertex(sampler, this, Vertices[v]);
+            }
+
+            return true;
+        }
     }
 
     /// <summary>

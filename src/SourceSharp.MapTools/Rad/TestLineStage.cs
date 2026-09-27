@@ -48,6 +48,28 @@ internal abstract class TestLineWorker<TState, TResult>
     public virtual void BeginBatch()
     {
     }
+
+    /// <summary>
+    /// Whether the worker's own planned state is as large as it should grow:
+    /// once true, the batch closes before claiming another item.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The stage's two bounds count segments and items, which is all it can
+    /// see. A worker whose items keep state of their own besides segments --
+    /// a pending sample per light, most of which plan no segment at all --
+    /// can pile that state up far past what either bound notices; this is
+    /// the worker's own bound for it. It is read between items, like the
+    /// other two, and only once the batch holds an item: a batch always takes
+    /// at least one, so a worker that reports full on an empty batch still
+    /// makes progress (one item a batch) instead of stranding the rest.
+    /// </para>
+    /// <para>
+    /// Like the other bounds it only decides where one batch ends and the
+    /// next begins, so it changes no answer.
+    /// </para>
+    /// </remarks>
+    public virtual bool IsBatchFull => false;
 }
 
 /// <summary>
@@ -68,14 +90,20 @@ internal abstract class TestLineWorker<TState, TResult>
 /// </para>
 /// <para>
 /// A batch holds whole items: an item's segments are never split across
-/// traces, and a batch closes once it holds <c>batchSegments</c> segments or
+/// traces, and a batch closes once it holds <c>batchSegments</c> segments,
 /// <c>batchItems</c> items (the second bound keeps the planned state of
 /// items with few segments -- a leaf with no baked lights -- from piling
-/// up). Neither bound changes an answer: every segment is traced on its own
-/// (<see cref="RayTraceOptions.IsolatedRays"/>), and each item resolves from
-/// its own segments in the order it planned them. Results land by item
-/// index, so which worker lit what, and in which batch, is invisible in the
-/// output.
+/// up), or once the worker itself says it is full
+/// (<see cref="TestLineWorker{TState, TResult}.IsBatchFull"/>, for planned
+/// state the stage cannot count). The bounds are checked between items, so
+/// a batch passes them by at most one item; a stage whose items can be large
+/// keeps its items small instead (static-prop lighting plans a few vertices
+/// an item, not a whole prop), because every worker keeps the capacity its
+/// largest batch needed. No bound changes an answer: every segment is traced
+/// on its own (<see cref="RayTraceOptions.IsolatedRays"/>), and each item
+/// resolves from its own segments in the order it planned them. Results
+/// land by item index, so which worker lit what, and in which batch, is
+/// invisible in the output.
 /// </para>
 /// </remarks>
 internal static class TestLineStage
@@ -221,7 +249,10 @@ internal static class TestLineStage
                     worker.Lines.Clear();
                     worker.BeginBatch();
                     _planned.Clear();
-                    while (worker.Lines.Count < batchSegments && _planned.Count < batchItems && claims.TryClaim(out int item))
+                    while (worker.Lines.Count < batchSegments
+                        && _planned.Count < batchItems
+                        && (_planned.Count == 0 || !worker.IsBatchFull)
+                        && claims.TryClaim(out int item))
                     {
                         _planned.Add((item, worker.Plan(item, context.CancellationToken)));
                     }

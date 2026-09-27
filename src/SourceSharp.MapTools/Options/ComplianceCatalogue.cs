@@ -573,7 +573,7 @@ public static class ComplianceCatalogue
                 "SourceSharp.MapTools.Rad.Light.DirectLightingSettings.get_StockNormalise",
                 "SourceSharp.MapTools.Rad.Light.DirectLightBuilder.ParseGeneric",
                 "SourceSharp.MapTools.Rad.Final.LuxelDensity.Apply",
-                "SourceSharp.MapTools.Rad.Props.StaticPropLighting.LightModel",
+                "SourceSharp.MapTools.Rad.Props.StaticPropLighting.StockNormalise",
             ],
             QuirkObservation.Demonstrated,
             "A fact normalises the same vectors under both policies and shows the Stock side "
@@ -877,13 +877,14 @@ public static class ComplianceCatalogue
             + "flags.",
             CompileTools.Vrad,
             [
-                "SourceSharp.MapTools.Rad.Props.StaticPropLighting.LightModel",
+                "SourceSharp.MapTools.Rad.Props.StaticPropLighting.PrepareModel",
             ],
             QuirkObservation.Measured,
             "The fixture's stock .vhv files move off stock's bytes when this quirk alone is "
             + "corrected.",
             [
                 "StaticPropLightingTests.RelightingABadVertexWithThePropsFlagsMovesTheFilesOffStocks",
+                "StaticPropChunkingTests.RelightingABadVertexWithThePropsFlagsChangesOnlyAPropWithFlags",
             ]),
 
         StockQuirk.FormFactorSineAboveOne => new(
