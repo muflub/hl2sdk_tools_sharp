@@ -98,9 +98,14 @@ public sealed class LeafAmbientBatchingTests : IClassFixture<AmbientFixture>
     public async Task AnAsynchronousTracerIsRefusedByTheSynchronousCall()
     {
         KdRayTracer kd = await CastersAsync();
-        TracerLineVisibility visibility = new(new CountingRayTracer(kd, asynchronous: true), ComplianceOptions.Stock);
+        // Held until after the check: a batch that finished on its own
+        // thread first would leave nothing to refuse.
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TracerLineVisibility visibility = new(
+            new CountingRayTracer(kd, asynchronous: true, release: release.Task), ComplianceOptions.Stock);
 
         Assert.Throws<InvalidOperationException>(() => visibility.FractionsVisible(Vec3.Zero, [new Vec3(0, 0, 50)], new float[1]));
+        release.SetResult();
     }
 
     [Fact]

@@ -50,7 +50,11 @@ public sealed class TestLineBatchTests
     [InlineData(true)]
     public void MixedSegmentsAreOneCallPerKindAndAnswerAsAlone(bool asynchronous)
     {
-        CountingRayTracer counting = new(Tracer, asynchronous);
+        // Held until the calls in flight are counted: otherwise an
+        // asynchronous batch may already have finished, and rightly not be
+        // handed back as pending.
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        CountingRayTracer counting = new(Tracer, asynchronous, release: release.Task);
         TestLineBatch batch = new(counting);
         Random random = new(17);
         List<(int Index, Vec3 Start, Vec3 End, RayTraceOptions Options)> added = [];
@@ -65,6 +69,7 @@ public sealed class TestLineBatchTests
         List<Task> pending = [];
         batch.BeginTrace(pending, CancellationToken.None);
         Assert.Equal(asynchronous ? Kinds.Length : 0, pending.Count);
+        release.SetResult();
         Task.WaitAll([.. pending]);
         batch.EndTrace();
 
@@ -201,12 +206,16 @@ public sealed class TestLineBatchTests
     {
         // Trace refuses to block on a batch in flight; the staged driver
         // parks instead. The call it started still completes on its own.
-        CountingRayTracer counting = new(Tracer, asynchronous: true);
+        // Held until after the check: a batch that finished on its own
+        // thread first would leave nothing to refuse.
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        CountingRayTracer counting = new(Tracer, asynchronous: true, release: release.Task);
         TestLineBatch batch = new(counting);
         batch.Add(Ray.Segment(Vec3.Zero, new Vec3(1, 0, 0), false), RayTraceOptions.TestLine());
 
         Assert.Throws<InvalidOperationException>(() => batch.Trace(CancellationToken.None));
         Assert.Single(counting.VisibilityCalls);
+        release.SetResult();
         await Task.Yield();
     }
 

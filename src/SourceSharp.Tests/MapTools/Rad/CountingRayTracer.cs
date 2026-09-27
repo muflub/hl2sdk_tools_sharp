@@ -20,7 +20,14 @@ namespace SourceSharp.Tests.MapTools.Rad;
 /// <param name="inner">The tracer that answers.</param>
 /// <param name="asynchronous">Complete each batch on another thread, after the call returns.</param>
 /// <param name="plainOnly">Say no to a skipped id or sky pass-through, and throw if given one.</param>
-internal sealed class CountingRayTracer(IRayTracer inner, bool asynchronous = false, bool plainOnly = false) : IRayTracer
+/// <param name="release">
+/// With <paramref name="asynchronous"/>: no batch completes before this task
+/// does. Without it an asynchronous batch can finish on its own thread before
+/// the caller looks, so a fact that counts the calls still in flight would
+/// race the thread pool.
+/// </param>
+internal sealed class CountingRayTracer(
+    IRayTracer inner, bool asynchronous = false, bool plainOnly = false, Task? release = null) : IRayTracer
 {
     /// <summary>Every visibility batch: its size and options, in call order (per thread, then merged).</summary>
     public ConcurrentQueue<(int Rays, RayTraceOptions Options)> VisibilityCalls { get; } = new();
@@ -52,6 +59,11 @@ internal sealed class CountingRayTracer(IRayTracer inner, bool asynchronous = fa
             async () =>
             {
                 await Task.Yield();
+                if (release is not null)
+                {
+                    await release.ConfigureAwait(false);
+                }
+
                 await inner.TraceVisibilityAsync(rays, hitBits, options, cancellationToken);
             },
             cancellationToken));
