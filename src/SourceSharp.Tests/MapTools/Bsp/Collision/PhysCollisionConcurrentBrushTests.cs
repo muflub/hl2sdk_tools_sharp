@@ -247,7 +247,7 @@ public class PhysCollisionConcurrentBrushTests
         // at any degree.
         FakeCollisionCooker one = new();
         FakeCollisionCooker eight = new();
-        Assert.False(one.Session is IConcurrentConvexSession);
+        Assert.IsNotAssignableFrom<IConcurrentConvexSession>(one.Session);
 
         await PhysCollisionEmitter.EmitAsync(Many(ComplianceOptions.Correct, 1), one);
         await PhysCollisionEmitter.EmitAsync(Many(ComplianceOptions.Correct, 8), eight);
