@@ -393,6 +393,17 @@ vvis's, so a tool's numbers do not depend on the other tools' settings.
   narrow it with `--set axis=v1,v2` first.
 - `--dry-run` lists the cells and stops.
 
+`--quick` is for a full-size map, where the default matrix takes hours (on
+2fort, 86 cells at two to four minutes each). It still covers every stage:
+
+- each setting is run once on its own (`sweep`, 53 cells);
+- each cell gets one timed run and no warm-up;
+- only each stage's baseline is profiled, with the stage times, rusage, CPU
+  and GC profilers.
+
+That is about 70 tool runs instead of about 860. Any of those options given
+explicitly still wins, for example `--quick --runs 3`.
+
 Each cell is timed with `ssmap bench`, then run again once per profiler so
 that no profiler's overhead lands in another's numbers:
 

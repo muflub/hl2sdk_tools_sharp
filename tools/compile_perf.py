@@ -50,6 +50,10 @@ Options:
   --stages LIST         any of chain,vbsp,vvis,vrad (default all four)
   --set AXIS=V1,V2      keep only these values of an axis (repeatable)
   --matrix-file PATH    the axes (default tools/compile-perf-matrix.json)
+  --quick               a shorter run of every stage: --matrix sweep --runs 1
+                        --warmups 0 --profile stages,rusage,cpu,gc
+                        --profile-cells baseline; any of those given
+                        explicitly still wins
   --runs N              timed runs per cell (default 3), after --warmups (1)
   --profile LIST        any of stages,rusage,cpu,gc,counters,heap,perf, or
                         all / none (default all but perf)
@@ -776,6 +780,32 @@ def fold_perf_script(text):
 
 # ---------------------------------------------------------------------- main
 
+# What an unqualified run does: every pair of settings, three timed runs per
+# cell after a warm-up, and every profiler on every cell.
+FULL_DEFAULTS = {
+    "stages": ",".join(STAGES),
+    "matrix": "pairwise",
+    "runs": 3,
+    "warmups": 1,
+    "profile": "default",
+    "profile_cells": "all",
+}
+
+# --quick: still every stage, but each setting once on its own (sweep), one
+# timed run with no warm-up, and only each stage's baseline profiled, with
+# the profilers that cost one extra run each. On a full-size map the default
+# matrix takes hours; this takes a fraction of that and still shows each
+# setting's cost and where each stage spends its time.
+QUICK_DEFAULTS = {
+    "stages": ",".join(STAGES),
+    "matrix": "sweep",
+    "runs": 1,
+    "warmups": 0,
+    "profile": "stages,rusage,cpu,gc",
+    "profile_cells": "baseline",
+}
+
+
 def parse_args(argv):
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument("--map")
@@ -783,14 +813,15 @@ def parse_args(argv):
     p.add_argument("--strip-steam", action="store_true")
     p.add_argument("--synthetic", action="store_true")
     p.add_argument("--static-props", action="store_true")
-    p.add_argument("--stages", default=",".join(STAGES))
+    p.add_argument("--stages")
     p.add_argument("--set", action="append", default=[])
-    p.add_argument("--matrix", default="pairwise", choices=["pairwise", "sweep", "full", "baseline"])
+    p.add_argument("--matrix", choices=["pairwise", "sweep", "full", "baseline"])
     p.add_argument("--matrix-file", default=os.path.join(REPO, "tools", "compile-perf-matrix.json"))
-    p.add_argument("--runs", type=int, default=3)
-    p.add_argument("--warmups", type=int, default=1)
-    p.add_argument("--profile", default="default")
-    p.add_argument("--profile-cells", default="all", choices=["all", "baseline", "sweep"])
+    p.add_argument("--runs", type=int)
+    p.add_argument("--warmups", type=int)
+    p.add_argument("--profile")
+    p.add_argument("--profile-cells", choices=["all", "baseline", "sweep"])
+    p.add_argument("--quick", action="store_true")
     p.add_argument("--heap-interval", type=float, default=1)
     p.add_argument("--gpu")
     p.add_argument("--vphysics")
@@ -806,6 +837,11 @@ def parse_args(argv):
     if a.help:
         print(__doc__)
         sys.exit(0)
+    # --quick only changes defaults: anything given explicitly still wins.
+    defaults = QUICK_DEFAULTS if a.quick else FULL_DEFAULTS
+    for key, value in defaults.items():
+        if getattr(a, key) is None:
+            setattr(a, key, value)
     if not a.map or not a.map.endswith(".vmf") or not os.path.isfile(a.map):
         sys.exit("compile-perf: --map must name an existing .vmf (see --help)")
     if a.gpu is not None and not a.gpu.strip():
