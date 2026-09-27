@@ -485,6 +485,8 @@ public sealed class CollisionModelCache : ICollisionModelCache
 public sealed class CacheRunCounters
 {
     private readonly Dictionary<int, int> _missesByModel = [];
+    private readonly List<string> _stageHits = [];
+    private readonly List<string> _stageMisses = [];
 
     /// <summary>Models replayed from the store.</summary>
     public int Hits { get; private set; }
@@ -532,6 +534,38 @@ public sealed class CacheRunCounters
         ArgumentNullException.ThrowIfNull(this);
         Misses++;
         _missesByModel[modelIndex] = _missesByModel.GetValueOrDefault(modelIndex) + 1;
+    }
+
+    /// <summary>Whole stages (or sub-stages) replayed from the store, by name, in order.</summary>
+    public IReadOnlyList<string> StageHits => _stageHits;
+
+    /// <summary>Stages that asked the store and were computed instead.</summary>
+    public IReadOnlyList<string> StageMisses => _stageMisses;
+
+    /// <summary>Records a replayed stage product.</summary>
+    /// <param name="stage">The stage name.</param>
+    /// <param name="bytes">Bytes replayed.</param>
+    /// <param name="costMs">The producing run's measured cost.</param>
+    public void StageHit(string stage, long bytes, long costMs)
+    {
+        ArgumentNullException.ThrowIfNull(stage);
+        lock (_stageHits)
+        {
+            _stageHits.Add(stage);
+            BytesReused += bytes;
+            EstimatedSavedMs += Math.Max(0, costMs);
+        }
+    }
+
+    /// <summary>Records a stage that was computed after asking the store.</summary>
+    /// <param name="stage">The stage name.</param>
+    public void StageMiss(string stage)
+    {
+        ArgumentNullException.ThrowIfNull(stage);
+        lock (_stageHits)
+        {
+            _stageMisses.Add(stage);
+        }
     }
 
     /// <summary>Records a row that lied.</summary>
