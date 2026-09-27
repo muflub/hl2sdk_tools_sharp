@@ -8,6 +8,7 @@
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
 
+using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Geometry;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Vis;
@@ -929,5 +930,164 @@ public class VisSpeculationTests
         Assert.Equal(
             Enumerable.Range(0, grid.Portals.Count),
             tightening.DoneAt!.Select(d => d.Rank).Order());
+    }
+
+    [Fact]
+    public async Task SeventyWorkersSpanningTwoParkingWordsGiveTheOneThreadAnswer()
+    {
+        // More workers than one 64-bit word of parking bits: the schedule's
+        // wakes have to reach workers 64 and up, or those wait out their
+        // timeouts (slow, not wrong) -- and every portal must still be done
+        // exactly once with the one-thread vectors.
+        ulong[][] answer = OneThreadAnswer(new Grid(SlantedGrid(6, 4)));
+        for (int round = 0; round < 5; round++)
+        {
+            Grid grid = new(SlantedGrid(6, 4));
+            VisTightening tightening = new(grid.State) { DoneAt = [] };
+            using WorkQueue queue = new(new CompileParallelism { MaxDegree = 70 });
+            Assert.Equal(70, queue.Degree);
+            await tightening.RunAsync(
+                queue,
+                new VisPortalFlow?[queue.Degree],
+                () => new VisPortalFlow(grid.Portals, grid.State, BitVectorPath.Auto),
+                progress: null,
+                CancellationToken.None);
+
+            Assert.Equal(
+                Enumerable.Range(0, grid.Portals.Count),
+                tightening.DoneAt!.Select(d => d.Rank).Order());
+            for (int rank = 0; rank < answer.Length; rank++)
+            {
+                Assert.Equal(answer[rank], grid.VisOf(rank));
+            }
+        }
+    }
+
+    /// <summary>Cancels a token when the flow stage reports its first finished portal.</summary>
+    private sealed class CancelOnFirstReport(CancellationTokenSource source) : IProgress<CompileProgress>
+    {
+        public int Reports;
+
+        public void Report(CompileProgress value)
+        {
+            Interlocked.Increment(ref Reports);
+            source.Cancel();
+        }
+    }
+
+    [Theory]
+    [InlineData(4)]
+    [InlineData(32)]
+    public async Task CancellingMidRunStopsEveryWorkerAndTheQueueRunsTheNextCompile(int degree)
+    {
+        // Cancelled as the first portal is published: workers are then
+        // flowing, parked, or on their way to either. Every one of them has to
+        // notice -- a parked one through its wait's timeout -- or the run
+        // never completes. The same queue then runs a whole fresh schedule to
+        // the one-thread answer, which it cannot do if a worker of the first
+        // is still holding a slot.
+        //
+        // Several rounds, because one round cannot promise the cancel lands
+        // mid-run: the worker that publishes the first portal reports it only
+        // after leaving the gate, and a thread descheduled there on a loaded
+        // machine can find the other workers have finished the whole small
+        // grid meanwhile (seen once in about forty runs of the Vis tests).
+        // Every round must stop cleanly and leave the queue whole; at least
+        // one must have been cut short, which all but a freak schedule are.
+        const int Rounds = 6;
+        ulong[][] answer = OneThreadAnswer(new Grid(SlantedGrid(8, 6)));
+        using WorkQueue queue = new(new CompileParallelism { MaxDegree = degree, CancellationPollInterval = 1 });
+        int cutShort = 0;
+        for (int round = 0; round < Rounds; round++)
+        {
+            Grid cancelled = new(SlantedGrid(8, 6));
+            VisTightening first = new(cancelled.State) { Window = 4096, DoneAt = [] };
+            using CancellationTokenSource source = new();
+            CancelOnFirstReport progress = new(source);
+            Task run = first.RunAsync(
+                queue,
+                new VisPortalFlow?[queue.Degree],
+                () => new VisPortalFlow(cancelled.Portals, cancelled.State, BitVectorPath.Auto),
+                progress,
+                source.Token);
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(60)));
+            Assert.True(progress.Reports > 0);
+            if (first.DoneAt!.Count < cancelled.Portals.Count)
+            {
+                cutShort++;
+            }
+
+            Grid grid = new(SlantedGrid(8, 6));
+            VisTightening second = new(grid.State);
+            await second.RunAsync(
+                queue,
+                new VisPortalFlow?[queue.Degree],
+                () => new VisPortalFlow(grid.Portals, grid.State, BitVectorPath.Auto),
+                progress: null,
+                CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(60));
+
+            for (int rank = 0; rank < answer.Length; rank++)
+            {
+                Assert.Equal(answer[rank], grid.VisOf(rank));
+            }
+        }
+
+        Assert.True(cutShort > 0);
+    }
+
+    [Fact]
+    public void TheClaimHintSeesFreshPortalsInsideTheWindow()
+    {
+        Grid grid = new();
+        VisTightening tightening = new(grid.State) { Window = 3 };
+        int count = grid.Portals.Count;
+
+        Assert.True(tightening.MayClaim(count));
+        Assert.Equal(3, tightening.Offered(count));
+    }
+
+    [Fact]
+    public void TheClaimHintSeesNothingWhenTheWindowIsShut()
+    {
+        // A window of nothing offers no fresh portal and no run has been
+        // found inexact: an idle worker neither takes the gate nor is woken.
+        Grid grid = new();
+        VisTightening tightening = new(grid.State) { Window = 0 };
+        int count = grid.Portals.Count;
+
+        Assert.False(tightening.MayClaim(count));
+        Assert.Equal(0, tightening.Offered(count));
+    }
+
+    [Fact]
+    public void TheClaimHintNeverOffersMorePortalsThanThereAre()
+    {
+        Grid grid = new();
+        VisTightening tightening = new(grid.State) { Window = 1 << 20 };
+        int count = grid.Portals.Count;
+
+        Assert.Equal(count, tightening.Offered(count));
+    }
+
+    [Fact]
+    public async Task OnceEveryPortalIsDoneTheHintSendsEveryWorkerToTheEnd()
+    {
+        // The end is not an offer, but every idle worker has to take the gate
+        // once more to learn of it and return, so it counts as one -- and
+        // wakes everybody.
+        Grid grid = new();
+        VisTightening tightening = new(grid.State);
+        using WorkQueue queue = new(new CompileParallelism { MaxDegree = 4 });
+        await tightening.RunAsync(
+            queue,
+            new VisPortalFlow?[queue.Degree],
+            () => new VisPortalFlow(grid.Portals, grid.State, BitVectorPath.Auto),
+            progress: null,
+            CancellationToken.None);
+
+        int count = grid.Portals.Count;
+        Assert.True(tightening.MayClaim(count));
+        Assert.Equal(int.MaxValue, tightening.Offered(count));
     }
 }
