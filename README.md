@@ -344,10 +344,15 @@ silently compiling without a cache.
 `SourceSharp.MapTools.Gpu` is an optional Vulkan ray tracer (via Silk.NET)
 for vrad. It is off unless asked for: `-gpu <match>` turns it on and picks
 the first capable device whose name contains `<match>` (an empty match takes
-any capable device), and `-gpu_slabs <n>` sets how many rays go to the GPU
-per batch. When no usable device is found, vrad reports that it declined the
-GPU and falls back to the CPU KD-tree tracer, so a run never fails for lack
-of a GPU.
+any capable device), and `-gpu_slabs <n>` sets the ray budget for the
+batches ("slabs") on the GPU. The tracer keeps three slabs in flight, so the
+GPU traces one while the next waits behind it and the CPU packs or unpacks a
+third, and each slab holds a third of the budget (the default, 4,194,304
+rays, is 128 MB of rays in all). Where the device allows it (integrated
+GPUs, and discrete GPUs with resizable BAR), rays are written straight into
+memory the GPU reads, skipping the upload copy. When no usable device is
+found, vrad reports that it declined the GPU and falls back to the CPU
+KD-tree tracer, so a run never fails for lack of a GPU.
 
 ## Measuring performance
 

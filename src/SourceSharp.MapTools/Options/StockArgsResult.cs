@@ -237,8 +237,11 @@ public sealed record StockArgsResult<TOptions>(
     public string? GpuDeviceMatch { get; init; }
 
     /// <summary>
-    /// The rays-per-dispatch <c>-gpu_slabs</c> asked for, or null for the
-    /// backend's default. Only meaningful with <see cref="GpuDeviceMatch"/>.
+    /// The ray budget <c>-gpu_slabs</c> asked for, or null for the backend's
+    /// default. The GPU tracer keeps several slabs on the device at once and
+    /// splits this budget evenly between them, so it bounds the tracer's
+    /// slab memory rather than the size of each dispatch. Only meaningful
+    /// with <see cref="GpuDeviceMatch"/>.
     /// </summary>
     public int? GpuRaysPerSlab { get; init; }
 
