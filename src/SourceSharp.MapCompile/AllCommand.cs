@@ -640,6 +640,10 @@ public static class AllCommand
             content.Add(lights, Path.GetFullPath(lights));
         }
 
+        await LightsRadLocator.AddFallbackAsync(
+            content, disk, mounted.Content, mounted.GameInfo, VbspHost.SteamFor(disk, searchRoots), output, cancellationToken)
+            .ConfigureAwait(false);
+
         // One thread pool for the whole chain: -threads is its size, and the
         // managed cooker's cooks run on it too rather than on the .NET pool.
         CompileParallelism parallel = ChainParallelism(parsed);

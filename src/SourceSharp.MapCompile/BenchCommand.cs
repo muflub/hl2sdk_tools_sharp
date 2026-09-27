@@ -1154,6 +1154,10 @@ public static class BenchCommand
             content.Add(lights, Path.GetFullPath(lights));
         }
 
+        await LightsRadLocator.AddFallbackAsync(
+            content, disk, mounted.Content, mounted.GameInfo, VbspHost.SteamFor(disk, searchRoots), logger, ct)
+            .ConfigureAwait(false);
+
         // The chain's one pool, with the managed cooker's cooks on it, as
         // `ssmap all` runs them; without it -threads 1 is not one thread.
         CompileParallelism parallel = AllCommand.ChainParallelism(parsed);

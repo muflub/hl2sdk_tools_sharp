@@ -34,7 +34,9 @@ namespace SourceSharp.MapCompile;
 /// the library reads both through one <see cref="IContentFileSystem"/>, so this
 /// command layers the map's own <c>.rad</c> and the <c>-lights</c> file over
 /// the mounted game. Stock's last resort -- <c>lights.rad</c> beside
-/// <c>vrad.exe</c> -- has no meaning for a library and is not tried.
+/// <c>vrad.exe</c>, which for a Steam game is the app's <c>bin</c> folder -- is
+/// the host's to find (<see cref="LightsRadLocator"/>), and is added as one
+/// more loose file when the game has none.
 /// </para>
 /// </remarks>
 public static class VradCommand
@@ -135,14 +137,19 @@ public static class VradCommand
 
         Stopwatch clock = Stopwatch.StartNew();
 
-        IContentFileSystem? game = await MountGameAsync(fileSystem, parsed.GameDirectory, source, steam, output, cancellationToken)
-            .ConfigureAwait(false);
+        (IContentFileSystem? game, GameInfo? gameInfo) = await MountGameAsync(
+            fileSystem, parsed.GameDirectory, source, steam, output, cancellationToken).ConfigureAwait(false);
         LooseFileContent content = new(fileSystem, game);
         content.Add(mapName + ".rad", source + ".rad");
         if (parsed.Options.LightsFile is { Length: > 0 } lights)
         {
             content.Add(lights, Path.GetFullPath(lights));
         }
+
+        // Stock's last resort, lights.rad beside the tool: for a Steam game,
+        // the app's bin folder (LightsRadLocator).
+        await LightsRadLocator.AddFallbackAsync(content, fileSystem, game, gameInfo, steam, output, cancellationToken)
+            .ConfigureAwait(false);
 
         await output.WriteLineAsync($"Loading {bspPath}").ConfigureAwait(false);
         BspData map;
@@ -212,7 +219,9 @@ public static class VradCommand
     /// with a note, when there is none -- a map without props or macro
     /// textures lights the same without it.
     /// </summary>
-    private static async Task<IContentFileSystem?> MountGameAsync(
+    // The mounted content, and the parsed gameinfo.txt even when mounting it
+    // failed: the lights.rad fallback still needs to know which Steam apps it names.
+    private static async Task<(IContentFileSystem? Content, GameInfo? GameInfo)> MountGameAsync(
         IFileSystem fileSystem,
         string? gameDirectory,
         string source,
@@ -239,18 +248,32 @@ public static class VradCommand
                     .ConfigureAwait(false);
             }
 
-            return null;
+            return (null, null);
         }
 
         try
         {
             GameContentMounter.Result mounted = await VbspCommand.MountGameAsync(
                 fileSystem, directory, steam, cancellationToken).ConfigureAwait(false);
-            return mounted.Content;
+            return (mounted.Content, mounted.GameInfo);
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException)
         {
             await output.WriteLineAsync($"ssmap vrad: cannot mount {directory}: {exception.Message}").ConfigureAwait(false);
+            return (null, await ReadGameInfoAsync(fileSystem, info, cancellationToken).ConfigureAwait(false));
+        }
+    }
+
+    private static async Task<GameInfo?> ReadGameInfoAsync(IFileSystem fileSystem, VPath info, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using Stream stream = await fileSystem.OpenReadAsync(info, cancellationToken).ConfigureAwait(false);
+            using StreamReader reader = new(stream);
+            return GameInfo.Parse(await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false));
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException)
+        {
             return null;
         }
     }
