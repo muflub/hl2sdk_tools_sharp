@@ -48,7 +48,7 @@ public sealed class TestLineBatchTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void MixedSegmentsAreOneCallPerKindAndAnswerAsAlone(bool asynchronous)
+    public async Task MixedSegmentsAreOneCallPerKindAndAnswerAsAlone(bool asynchronous)
     {
         // Held until the calls in flight are counted: otherwise an
         // asynchronous batch may already have finished, and rightly not be
@@ -70,7 +70,7 @@ public sealed class TestLineBatchTests
         batch.BeginTrace(pending, CancellationToken.None);
         Assert.Equal(asynchronous ? Kinds.Length : 0, pending.Count);
         release.SetResult();
-        Task.WaitAll([.. pending]);
+        await Task.WhenAll(pending);
         batch.EndTrace();
 
         Assert.Equal(Kinds.Length, counting.VisibilityCalls.Count);

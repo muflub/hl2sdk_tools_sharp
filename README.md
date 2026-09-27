@@ -560,18 +560,21 @@ result is correctly rounded.
 `.github/workflows/ci.yml` has three jobs:
 
 - **test** builds the solution and runs the suite with .NET 10 on Linux and
-  Windows (both AMD runners), and on macOS on both Intel and Apple Silicon,
+  Windows (both AMD runners), and on macOS on both Intel and Apple Silicon.
+  The Intel Mac runner stays although osx-x64 is no longer packaged: it is
+  the only Intel CPU in CI, and so the only place the Intel delta files for
+  `-compliance stock` are checked and captured. Tests run
   on every push to `main` and every pull request. Test results are uploaded
   as artefacts. Running the workflow by hand with **capture** ticked
   re-records each runner's per-CPU delta files (see
   [Platform differences](#platform-differences)) and uploads them as
   `rsqrt-vendor-<os>` artefacts to review and commit.
-- **package** publishes `ssmap` for linux-x64, win-x64, osx-arm64 and
-  osx-x64 in two forms: a native AOT executable, and a framework-dependent
-  dll build (needs the .NET 10 runtime, with the GPU package staged beside
-  it). Both are smoke-run with `ssmap --help` wherever the runner can execute
-  them; osx-x64 is cross-built and not run.
-- **release** runs on tag pushes and attaches all eight archives
+- **package** publishes `ssmap` for linux-x64, win-x64 and osx-arm64 in
+  two forms: a native AOT executable, and a framework-dependent dll build
+  (needs the .NET 10 runtime, with the GPU package staged beside it). Both
+  are smoke-run with `ssmap --help`. There is no osx-x64 archive; Intel Macs
+  can build from source.
+- **release** runs on tag pushes and attaches all six archives
   (`ssmap-<tag>-<rid>-aot` and `-dll`) to that tag's GitHub release,
   creating the release if needed.
 

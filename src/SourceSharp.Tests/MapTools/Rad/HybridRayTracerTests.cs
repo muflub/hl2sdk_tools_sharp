@@ -30,14 +30,14 @@ public sealed class HybridRayTracerTests
     private static readonly Ray[] Through = [Ray.Segment(new Vec3(0, 0, 10), new Vec3(0, 0, -10), false)];
 
     [Fact]
-    public void PlainBatchesGoToTheGpu()
+    public async Task PlainBatchesGoToTheGpu()
     {
         CountingRayTracer gpu = new(Cpu, plainOnly: true);
         using HybridRayTracer hybrid = new(gpu, Cpu);
         ulong[] bits = new ulong[1];
 
-        hybrid.TraceVisibilityAsync(Through, bits, RayTraceOptions.TestLine()).AsTask().GetAwaiter().GetResult();
-        hybrid.TraceClosestAsync(Through, new HitId[1], RayTraceOptions.StockExact).AsTask().GetAwaiter().GetResult();
+        await hybrid.TraceVisibilityAsync(Through, bits, RayTraceOptions.TestLine());
+        await hybrid.TraceClosestAsync(Through, new HitId[1], RayTraceOptions.StockExact);
 
         Assert.Single(gpu.VisibilityCalls);
         Assert.Equal(1, gpu.ClosestCalls);
@@ -46,15 +46,15 @@ public sealed class HybridRayTracerTests
     }
 
     [Fact]
-    public void ASkippedIdTheGpuCannotHonourIsAnsweredByTheCpu()
+    public async Task ASkippedIdTheGpuCannotHonourIsAnsweredByTheCpu()
     {
         CountingRayTracer gpu = new(Cpu, plainOnly: true);
         using HybridRayTracer hybrid = new(gpu, Cpu);
         ulong[] bits = [ulong.MaxValue];
         HitId[] hits = new HitId[1];
 
-        hybrid.TraceVisibilityAsync(Through, bits, RayTraceOptions.TestLine(PropId)).AsTask().GetAwaiter().GetResult();
-        hybrid.TraceClosestAsync(Through, hits, RayTraceOptions.TestLine(PropId)).AsTask().GetAwaiter().GetResult();
+        await hybrid.TraceVisibilityAsync(Through, bits, RayTraceOptions.TestLine(PropId));
+        await hybrid.TraceClosestAsync(Through, hits, RayTraceOptions.TestLine(PropId));
 
         Assert.Empty(gpu.VisibilityCalls);
         Assert.Equal(0, gpu.ClosestCalls);
