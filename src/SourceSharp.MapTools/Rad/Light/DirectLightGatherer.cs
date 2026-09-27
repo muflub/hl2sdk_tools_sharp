@@ -136,6 +136,7 @@ public sealed class DirectLightGatherer
     private readonly bool _laneZeroRecursion;
     private readonly int[][] _lightsByCluster;
     private readonly int[] _allLights;
+    private readonly LightCullShape[] _cullShapes;
 
     /// <summary>Creates a gatherer.</summary>
     /// <param name="lights">The active lights, in list order.</param>
@@ -178,6 +179,15 @@ public sealed class DirectLightGatherer
         _estimates = settings.Compliance.Emulates(StockQuirk.GatherReciprocalEstimate);
         _quarterPow = settings.Compliance.Emulates(StockQuirk.SpotExponentQuarterSteps);
         _laneZeroRecursion = settings.Compliance.Emulates(StockQuirk.SkyboxRecursionFromLaneZero);
+
+        // What the dead-record cull needs of each light, snapshotted here as
+        // the cluster lists below snapshot the PVS: the lights are final by
+        // the time a gatherer is built.
+        _cullShapes = new LightCullShape[lights.Count];
+        for (int l = 0; l < lights.Count && !settings.KeepDeadLights; l++)
+        {
+            _cullShapes[l] = LightCullShape.Of(lights[l]);
+        }
 
         // Per cluster, the lights whose PVS reaches it, in list order: a
         // group whose four lanes share a cluster need not test the others.
@@ -270,6 +280,21 @@ public sealed class DirectLightGatherer
             }
         }
     }
+
+    /// <summary>
+    /// True when light <paramref name="lightIndex"/> provably lights no lane
+    /// of <paramref name="group"/> (<see cref="DeadLightCull"/>): its record
+    /// would emit no ray and add nothing, so the caller may leave it out.
+    /// Always false with <see cref="DirectLightingSettings.KeepDeadLights"/>.
+    /// </summary>
+    /// <param name="lightIndex">The light's index in <see cref="Lights"/>.</param>
+    /// <param name="group">The group, as it would be gathered.</param>
+    /// <param name="bounds">The group's bounds, <see cref="SampleBounds.Of"/>.</param>
+    /// <param name="flags">The gather flags it would be gathered with.</param>
+    /// <returns>True when the record is dead.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal bool CannotLight(int lightIndex, SampleGroup group, in SampleBounds bounds, GatherFlags flags) =>
+        DeadLightCull.IsDead(in _cullShapes[lightIndex], group, in bounds, flags);
 
     /// <summary>
     /// Light every lane of a point light on its own, never four at once --

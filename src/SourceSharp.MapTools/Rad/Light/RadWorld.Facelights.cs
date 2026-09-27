@@ -168,6 +168,8 @@ public sealed partial class RadWorld
 
             Statistics.LitFaces++;
             Statistics.Samples += job.Result.Samples.Length;
+            Statistics.LightRecords += job.LightRecords;
+            Statistics.CulledLightRecords += job.CulledLightRecords;
         }
 
         Layout = LightmapOffsets.Compute(Geometry, FaceLights, Settings.SeparateDirectLightmap);

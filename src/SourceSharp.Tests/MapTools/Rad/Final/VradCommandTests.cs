@@ -161,6 +161,10 @@ public sealed class VradCommandTests
 
         Assert.Contains("bench total ", text, StringComparison.Ordinal);
         Assert.Contains("bench work ldr samples=", text, StringComparison.Ordinal);
+
+        // How many (group, light) records were gathered and how many the
+        // dead-record cull left out.
+        Assert.Matches(@"bench work ldr .* lightrecords=\d+ culledlightrecords=\d+", text);
     }
 
     [Fact]

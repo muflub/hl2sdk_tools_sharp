@@ -53,6 +53,20 @@ public sealed class RadWorldStatistics
 
     /// <summary>How many trace batches the face lighting issued.</summary>
     public int Batches { get; internal set; }
+
+    /// <summary>
+    /// (group, light) gather records the face lighting emitted, direct
+    /// gather and supersampling together: the lights that passed the PVS test
+    /// and were not culled.
+    /// </summary>
+    public long LightRecords { get; internal set; }
+
+    /// <summary>
+    /// (group, light) records left out because the light provably lit no lane
+    /// of the group (<see cref="DeadLightCull"/>); they would have added
+    /// nothing, so the output is the same with or without them.
+    /// </summary>
+    public long CulledLightRecords { get; internal set; }
 }
 
 /// <summary>
