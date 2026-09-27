@@ -221,7 +221,7 @@ public class ManagedSessionParityTests
         Assert.Equal(40, jobs.Count(j => j.Kind == Kind.VirtualMesh));
     }
 
-    [Fact]
+    [ReferenceRsqrtFact]
     public void StockDragRaysUseThePointHullAndTwoSidedTriangles()
     {
         // drag.*: two random multi-convex brush models. Job 0 has rays that graze a ledge point

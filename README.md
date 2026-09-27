@@ -17,6 +17,7 @@ checker, a lump-by-lump diff, a benchmark harness and an incremental cache.
 - [Running](#running)
 - [Commands](#commands)
 - [The `correct` / `stock` rule](#the-correct--stock-rule)
+- [Platform differences](#platform-differences)
 - [Collision cooking](#collision-cooking)
 - [Incremental cache](#incremental-cache)
 - [GPU ray tracing](#gpu-ray-tracing)
@@ -109,8 +110,9 @@ Ctrl-C to cancellation. It references the libraries with no
   resolved through the Steam library folders on the machine. Without that
   content a compile still runs, but missing materials and models become
   warnings.
-- Stock mode (`-compliance stock`) reproduces SSE results and needs an x86-64
-  CPU; it refuses to run on arm64. The default `correct` mode runs anywhere.
+- An x86-64 or arm64 CPU. Both modes run on both, including Apple Silicon,
+  but some results differ in the last bits between CPU families; see
+  [Platform differences](#platform-differences).
 
 ## Building
 
@@ -261,6 +263,49 @@ listed as deciding a quirk must actually pass that quirk to the compliance
 check, and every fact an entry cites must still exist, so the ledger cannot
 drift from the code.
 
+## Platform differences
+
+Stock's arithmetic starts from hardware ESTIMATES of `1/x` and `1/sqrt(x)`
+rather than exact values, and refines them with a Newton step. The estimate
+instructions are not the same everywhere, so neither are the results that
+depend on them:
+
+| CPU | Estimate instructions | Results |
+| --- | --- | --- |
+| AMD x86-64 | SSE `rcpss` / `rsqrtss` | Stock's own. The committed stock goldens were cut from the reference tools on an AMD Ryzen 9 9950X. |
+| Intel x86-64 | SSE `rcpss` / `rsqrtss` | Intel's estimate differs from AMD's in the low bits, as it does for the stock tools. |
+| arm64 (Apple Silicon, Linux arm64) | ARM `frecpe` / `frsqrte`, each refined once with `frecps` / `frsqrts` | Stock's algorithm with ARM's estimate. The stock tools never ran on ARM, so there is nothing to match, only the same arithmetic. ARM defines these instructions exactly, so every arm64 CPU should give the same bits. |
+
+The ARM estimates are refined once before stock's own Newton step because
+they carry about 8 bits against x86's 12. Stock's step was written for a
+12-bit start; the extra refinement gives it at least that, so arm64 results
+are as accurate as x86's.
+
+What moves between the rows:
+
+- **`-compliance stock`**: every quantity downstream of a stock normalise or
+  reciprocal. This includes plane distances, displacement normals, cooked
+  collision data, leaf ambient and static-prop lighting. On one CPU family
+  the output is still deterministic from run to run.
+- **`-compliance correct`** (the default) uses exact IEEE arithmetic in
+  place of these estimates, with one exception: vrad's KD-tree ray tracer
+  keeps stock's estimated reciprocal in its traversal in both modes. A ray
+  that grazes a tree split can resolve differently from one CPU family to
+  another, which changes a shadow test at the edge of an occluder.
+
+Everything else is the same on every platform: file formats, the vbsp tree,
+vvis, and every exact computation.
+
+The test suite reflects this. Facts that compare a stock-estimate result
+bit for bit take their expected values per CPU family. AMD compares against
+the stock goldens themselves. Intel and arm64 compare against delta files
+under `src/SourceSharp.Tests/Fixtures/rsqrt-vendor/`. Those deltas were
+recorded from this port's own output on that hardware, so they catch
+regressions but are not evidence of parity with stock. On a CPU family with
+no delta files, those facts skip with a reason. CI records deltas with a
+manual run of the workflow with **capture** ticked; see
+[CI and releases](#ci-and-releases).
+
 ## Collision cooking
 
 vbsp writes collision models for the world and every brush entity. Two
@@ -345,9 +390,13 @@ against the [design rules](#design-rules), so breaking one fails the suite.
 
 `.github/workflows/ci.yml` has three jobs:
 
-- **test** builds the solution and runs the suite with .NET 10 on Linux,
-  Windows and macOS (Intel, since stock mode needs SSE), on every push to
-  `main` and every pull request. Test results are uploaded as artefacts.
+- **test** builds the solution and runs the suite with .NET 10 on Linux and
+  Windows (both AMD runners), and on macOS on both Intel and Apple Silicon,
+  on every push to `main` and every pull request. Test results are uploaded
+  as artefacts. Running the workflow by hand with **capture** ticked
+  re-records each runner's per-CPU delta files (see
+  [Platform differences](#platform-differences)) and uploads them as
+  `rsqrt-vendor-<os>` artefacts to review and commit.
 - **package** publishes `ssmap` for linux-x64, win-x64, osx-arm64 and
   osx-x64 in two forms: a native AOT executable, and a framework-dependent
   dll build (needs the .NET 10 runtime, with the GPU package staged beside

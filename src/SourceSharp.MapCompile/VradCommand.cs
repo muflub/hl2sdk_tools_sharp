@@ -25,7 +25,7 @@ namespace SourceSharp.MapCompile;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A thin client of <see cref="Vrad.LightAsync"/>; everything printed here is a
+/// A thin client of <see cref="Vrad.LightAsync(SourceSharp.MapFormats.Bsp.BspData, VradContext, CancellationToken)"/>; everything printed here is a
 /// property of the <see cref="RadResult"/> the library returned.
 /// </para>
 /// <para>

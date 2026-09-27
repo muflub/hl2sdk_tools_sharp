@@ -70,6 +70,9 @@ public sealed record StaticPropLightingOptions
 
     /// <summary>How many props at once; 0 for every core.</summary>
     public int Parallelism { get; init; }
+
+    /// <summary>The compile's shared thread pool, or null for threads of this stage's own.</summary>
+    public CompilePool? Pool { get; init; }
 }
 
 /// <summary>
@@ -161,9 +164,9 @@ public static class StaticPropLighting
             }
         }
 
-        CompileParallelism degree = options.Parallelism > 0
+        CompileParallelism degree = (options.Parallelism > 0
             ? new CompileParallelism { MaxDegree = options.Parallelism }
-            : CompileParallelism.Default;
+            : CompileParallelism.Default) with { Pool = options.Pool };
 
         PropOutcome[] outcomes;
         using (WorkQueue queue = new(degree))

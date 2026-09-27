@@ -14,6 +14,7 @@ using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Phys;
+using SourceSharp.MapTools.Phys.Managed;
 using SourceSharp.MapTools.Rad;
 
 namespace SourceSharp.MapCompile;
@@ -72,6 +73,12 @@ public sealed record AllArgs(
     /// <summary>The <c>-gpu_slabs</c> ray count, or null for the backend's default.</summary>
     public int? GpuRaysPerSlab { get; init; }
 
+    /// <summary>
+    /// Whether <c>-overlap</c> was given: each stage starts when its inputs exist
+    /// (<see cref="CompileRequest.Overlap"/>).
+    /// </summary>
+    public bool Overlap { get; init; }
+
     /// <summary>Whether any diagnostic is an error.</summary>
     public bool HasErrors => Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
 }
@@ -108,7 +115,8 @@ public sealed record AllArgs(
 /// error), <c>-cooker native|vphysics|managed|none</c>
 /// and <c>-vphysics</c> (vbsp's collision cooker, <see cref="VbspOptions.Cooker"/>;
 /// only the native cooker relaunches the process), <c>-listcompliance</c>,
-/// <c>-nocache</c>, and <see cref="NoWriteSwitch"/>. Anything else there is
+/// <c>-nocache</c>, <c>-overlap</c> (<see cref="CompileRequest.Overlap"/>),
+/// and <see cref="NoWriteSwitch"/>. Anything else there is
 /// an error that names the sections, never a silent guess at a stage. A
 /// section's own <c>-compliance</c> comes after the chain's and wins for that
 /// stage; the chain's <c>-threads</c> and any section's must agree.
@@ -174,6 +182,7 @@ public static class AllCommand
     string? cacheDir = null;
     string? gpuDeviceMatch = null;
     int? gpuRaysPerSlab = null;
+    bool overlap = false;
 
 
         for (int i = 0; i < shared.Count; i++)
@@ -274,6 +283,10 @@ public static class AllCommand
 
                 case "-INCREMENTAL":
                     incremental = true;
+                    break;
+
+                case "-OVERLAP":
+                    overlap = true;
                     break;
 
                 case "-CACHE-DIR":
@@ -422,6 +435,7 @@ public static class AllCommand
             CacheDir = vbsp.CachePath ?? cacheDir,
             GpuDeviceMatch = vrad.GpuDeviceMatch ?? gpuDeviceMatch,
             GpuRaysPerSlab = vrad.GpuRaysPerSlab ?? gpuRaysPerSlab,
+            Overlap = overlap,
         };
     }
 
@@ -626,6 +640,47 @@ public static class AllCommand
             content.Add(lights, Path.GetFullPath(lights));
         }
 
+        // One thread pool for the whole chain: -threads is its size, and the
+        // managed cooker's cooks run on it too rather than on the .NET pool.
+        CompileParallelism parallel = parsed.Threads is int degree
+            ? new CompileParallelism { MaxDegree = degree }
+            : CompileParallelism.Default;
+        using CompilePool pool = new(parallel.MaxDegree);
+        ManagedCollisionCooker? managed = cooker as ManagedCollisionCooker;
+        if (managed is not null)
+        {
+            managed.Scheduler = pool.Scheduler;
+        }
+
+        try
+        {
+            return await CompileOnPoolAsync(
+                disk, parsed, paths, mapFile, cooker, output, start, resolution, content, mapName,
+                parallel with { Pool = pool }, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (managed is not null)
+            {
+                managed.Scheduler = TaskScheduler.Default;
+            }
+        }
+    }
+
+    private static async Task<int> CompileOnPoolAsync(
+        PhysicalFileSystem disk,
+        AllArgs parsed,
+        VbspCommand.MapPaths paths,
+        string mapFile,
+        ICollisionCooker? cooker,
+        TextWriter output,
+        long start,
+        FormatResolution.Result resolution,
+        VradCommand.LooseFileContent content,
+        string mapName,
+        CompileParallelism parallel,
+        CancellationToken cancellationToken)
+    {
         // The -incremental store and the -gpu factory (plans 10a/10c), on the
         // same public seam the facts pin.
         CompileRequest request = await WithBackendsAsync(
@@ -636,7 +691,8 @@ public static class AllCommand
                 Vbsp = parsed.Vbsp with { Format = resolution.Resolved },
                 Vvis = parsed.Vvis,
                 Vrad = parsed.Vrad,
-                Parallel = parsed.Threads is int degree ? new CompileParallelism { MaxDegree = degree } : CompileParallelism.Default,
+                Parallel = parallel,
+                Overlap = parsed.Overlap,
                 CollisionCooker = cooker,
                 Output = parsed.NoWrite
                     ? CompileOutput.InMemory

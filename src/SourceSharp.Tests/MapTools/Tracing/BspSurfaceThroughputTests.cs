@@ -48,6 +48,7 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// reported figure came from instead of the 8,100-ray fixture.
 /// </para>
 /// </remarks>
+[Collection(ThroughputCollection.Name)]
 public sealed class BspSurfaceThroughputTests : IClassFixture<BspParityFixture>
 {
     /// <summary>

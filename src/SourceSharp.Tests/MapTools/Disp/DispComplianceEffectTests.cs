@@ -74,10 +74,18 @@ public sealed class DispComplianceEffectTests
     }
 
     /// <summary>Flipped, they reach the raised surface.</summary>
-    [Fact]
+    /// <remarks>
+    /// The rest of the options are stock's, so the surface's height comes
+    /// through stock's estimated normalise: exactly 300 on x86, a few ulps
+    /// short of it on arm64. The expected value is per CPU family
+    /// (<see cref="VendorGolden"/>).
+    /// </remarks>
+    [ReferenceRsqrtFact]
     public void CorrectingTheBoundsReachesTheRaisedSurface()
     {
-        Assert.Equal(300.0f, RaisedBounds(ComplianceOptions.Stock.Flipping(StockQuirk.DispWorldBoundsBaseQuad)).Max.Z);
+        float actual = RaisedBounds(ComplianceOptions.Stock.Flipping(StockQuirk.DispWorldBoundsBaseQuad)).Max.Z;
+
+        Assert.Equal(VendorGolden.Bits(VendorGolden.Expected("disp-compliance.raised-bounds", 300.0f, actual)), VendorGolden.Bits(actual));
     }
 
     /// <summary>Stock crease normals built by the lump builder are short.</summary>

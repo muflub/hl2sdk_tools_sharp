@@ -6,8 +6,6 @@
 //=============================================================================//
 
 using System.Collections.Immutable;
-using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Options;
@@ -266,23 +264,26 @@ public static class AmbientCube
     /// over <c>sqrlen = x*x + y*y + z*z + 1.0e-10f</c>.
     /// </para>
     /// <para>
-    /// It THROWS rather than falling back when SSE is missing: a silent fall
+    /// On arm64 the estimate is ARM's; see <see cref="FloatEstimate"/>.
+    /// </para>
+    /// <para>
+    /// It THROWS rather than falling back when neither SSE nor AdvSimd is
+    /// present: a silent fall
     /// back to the exact path would leave a differential against stock
     /// reporting success while no longer comparing the same thing.
     /// </para>
     /// </remarks>
     internal static float InvRSquaredStock(Vec3 v)
     {
-        if (!Sse.IsSupported)
+        if (!FloatEstimate.IsSupported)
         {
-            throw new PlatformNotSupportedException(
-                "InvRSquaredStock reproduces stock's rcpss estimate and has no meaning without SSE.");
+            throw FloatEstimate.Unsupported();
         }
 
         float sqrlen = ((v.X * v.X) + (v.Y * v.Y) + (v.Z * v.Z)) + 1.0e-10f;
 
-        Vector128<float> clamped = Sse.MaxScalar(
-            Vector128.CreateScalarUnsafe(1.0f), Vector128.CreateScalarUnsafe(sqrlen));
-        return Sse.ReciprocalScalar(clamped).ToScalar();
+        // maxss(1, sqrlen) is "1 > sqrlen ? 1 : sqrlen", which keeps a NaN.
+        float clamped = 1.0f > sqrlen ? 1.0f : sqrlen;
+        return FloatEstimate.Reciprocal(clamped);
     }
 }

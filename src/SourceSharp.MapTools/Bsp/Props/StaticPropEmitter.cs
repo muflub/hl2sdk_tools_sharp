@@ -449,7 +449,7 @@ public sealed class StaticPropEmitter
         ParallelOptions options = new()
         {
             MaxDegreeOfParallelism = Math.Max(1, _context.Parallelism.MaxDegree),
-            TaskScheduler = _context.Parallelism.Scheduler ?? TaskScheduler.Default,
+            TaskScheduler = _context.Parallelism.Pool?.Scheduler ?? _context.Parallelism.Scheduler ?? TaskScheduler.Default,
             CancellationToken = cancellationToken,
         };
         return System.Threading.Tasks.Parallel.ForAsync(0, count, options, body);

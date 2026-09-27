@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using SourceSharp.MapFormats.Text;
+
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Geometry;
 using SourceSharp.MapTools.Io;
@@ -266,4 +268,18 @@ public sealed class VbspContext
     /// bytes instead of cooking them.
     /// </summary>
     public ICollisionModelCache? CollisionModelCache { get; set; }
+
+    /// <summary>
+    /// Called once the world model's portal file is final, long before the
+    /// compile returns: with the portal file, or with null when the world
+    /// leaked and there is none.
+    /// </summary>
+    /// <remarks>
+    /// Everything vbsp does after the world model (the brush entities, the
+    /// collision, the props, the lumps) leaves the portal file as it is, so a
+    /// chain can start vvis's portal flow here. Called on the compile's worker;
+    /// a handler must return promptly. Not called when the compile fails or is
+    /// cancelled before the world model ends.
+    /// </remarks>
+    public Action<PortalFile?>? PortalFileReady { get; init; }
 }

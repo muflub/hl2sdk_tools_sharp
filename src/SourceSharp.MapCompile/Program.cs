@@ -404,7 +404,7 @@ public static class Program
                                                        -compliance -v -fast -tighten -loose -cooker -vphysics
                                                        -listcompliance -nocache -incremental
                                                        -cache-dir <dir> -gpu <match>
-                                                       -gpu_slabs <n> --no-write
+                                                       -gpu_slabs <n> -overlap --no-write
               room <in.vmf> [-out <dir>] [-def <roomdef.json>] [vbsp options]
                                                       one room's VMF -> <dir>/<name>.room;
                                                       the definition sidecar beside the

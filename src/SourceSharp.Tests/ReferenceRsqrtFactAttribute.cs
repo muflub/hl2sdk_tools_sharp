@@ -1,3 +1,11 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
+using System.Runtime.Intrinsics.Arm;
 using System.Runtime.Intrinsics.X86;
 using System.Text;
 
@@ -14,7 +22,8 @@ namespace SourceSharp.Tests;
 /// reciprocal-square-root ESTIMATE, and that estimate is implementation-defined
 /// within its error bound. The goldens those parity facts compare against were
 /// produced on an AMD Zen part. On an Intel part the estimate differs in the
-/// low bits (<c>rsqrtss(1.0f)</c> is <c>0x3F7FF000</c> there), so every
+/// low bits (<c>rsqrtss(1.0f)</c> is <c>0x3F7FF000</c> there), and on arm64
+/// the estimate is ARM's own instruction altogether, so every
 /// quantity downstream of a stock normalise moves: plane distances, hit
 /// distances, cooked collision blobs, lighting lumps. The implementation is
 /// not wrong on that machine; the golden is simply not that machine's answer.
@@ -33,16 +42,25 @@ internal static class ReferenceRsqrt
     /// <summary>The CPUID vendor string of the machine the goldens came from.</summary>
     public const string ReferenceVendor = "AuthenticAMD";
 
-    /// <summary>This CPU's CPUID vendor string, or null off x86.</summary>
+    /// <summary>
+    /// The key arm64 CPUs share. ARM defines its estimate instructions' results
+    /// exactly, so one capture serves every arm64 CPU, whoever made it.
+    /// </summary>
+    public const string Arm64 = "Arm64";
+
+    /// <summary>
+    /// Which estimate this CPU produces: its CPUID vendor string on x86,
+    /// <see cref="Arm64"/> on arm64, or null on anything else.
+    /// </summary>
     public static string? CpuVendor()
     {
-        if (!X86Base.IsSupported)
+        if (X86Base.IsSupported)
         {
-            return null;
+            (_, int ebx, int ecx, int edx) = X86Base.CpuId(0, 0);
+            return VendorFromRegisters(ebx, edx, ecx);
         }
 
-        (_, int ebx, int ecx, int edx) = X86Base.CpuId(0, 0);
-        return VendorFromRegisters(ebx, edx, ecx);
+        return AdvSimd.Arm64.IsSupported ? Arm64 : null;
     }
 
     /// <summary>
@@ -70,7 +88,7 @@ internal static class ReferenceRsqrt
         }
 
         return $"the stock goldens this fact compares against were measured on {ReferenceVendor}; "
-            + $"this CPU is {vendor ?? "not x86"}, whose rsqrtss estimate differs in the low bits, "
+            + $"this CPU is {vendor ?? "neither x86 nor arm64"}, whose reciprocal estimate differs in the low bits, "
             + "and it has no captured delta to compare against instead";
     }
 
