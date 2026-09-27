@@ -100,8 +100,8 @@ public sealed class TestLineStageTests
         Assert.Equal(3, workers.Max(w => w.MostItemsInABatch));
         if (degree == 1)
         {
-            // 17 batches of up to three items, and the fill that finds none.
-            Assert.Equal(18, workers[0].Batches);
+            // 50 items, three a batch: 16 full batches and one of two.
+            Assert.Equal(17, workers[0].BatchesWithItems);
         }
     }
 
@@ -119,7 +119,7 @@ public sealed class TestLineStageTests
         // lit, one a batch, rather than left unclaimed.
         Assert.Equal(Enumerable.Range(0, 20).Select(Expected), results);
         Assert.Equal(1, workers.Max(w => w.MostItemsInABatch));
-        Assert.Equal(20 + workers.Count, workers.Sum(w => w.Batches));
+        Assert.Equal(20, workers.Sum(w => w.BatchesWithItems));
     }
 
     [Fact]
@@ -196,21 +196,29 @@ public sealed class TestLineStageTests
 
     private class Counter(TestLineBatch lines) : TestLineWorker<(int First, int Count), int>(lines)
     {
-        public int Batches { get; private set; }
+        /// <summary>
+        /// Batches that planned at least one item. Not every
+        /// <see cref="BeginBatch"/>: a fill that finds no item left opens an
+        /// empty batch, and how many of those a worker opens depends on
+        /// timing -- with an asynchronous tracer the driver runs every worker
+        /// again after each wait for a parked batch, and a worker with
+        /// nothing left opens one more empty batch each time.
+        /// </summary>
+        public int BatchesWithItems { get; private set; }
 
         public int ItemsInBatch { get; private set; }
 
         public int MostItemsInABatch { get; private set; }
 
-        public override void BeginBatch()
-        {
-            Batches++;
-            ItemsInBatch = 0;
-        }
+        public override void BeginBatch() => ItemsInBatch = 0;
 
         public override (int First, int Count) Plan(int item, CancellationToken cancellationToken)
         {
-            ItemsInBatch++;
+            if (ItemsInBatch++ == 0)
+            {
+                BatchesWithItems++;
+            }
+
             MostItemsInABatch = Math.Max(MostItemsInABatch, ItemsInBatch);
             int first = Lines.Count;
             for (int k = 0; k < item % 5; k++)
