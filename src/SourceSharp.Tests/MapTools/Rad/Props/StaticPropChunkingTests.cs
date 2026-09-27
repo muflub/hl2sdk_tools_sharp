@@ -30,17 +30,21 @@ namespace SourceSharp.Tests.MapTools.Rad.Props;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The goldens are the digests of <see cref="StaticPropChunkingScene"/> lit
-/// by the pass as it was before chunking (one prop an item), under compliance
-/// correct. Correct arithmetic uses no estimate instructions, so the digests
-/// are the same on every CPU.
+/// The invariance facts compare every batching with the prop-at-a-time shape
+/// (one prop an item, as the pass was before chunking) on the machine that
+/// runs them, under both compliance policies. That is the property chunking
+/// must keep, and it holds on every CPU.
 /// </para>
 /// <para>
-/// Stock compliance normalises and divides through the CPU's estimate
-/// instructions, whose last bits differ between vendors, so its facts compare
-/// every batching with the prop-at-a-time shape on the machine that runs them
-/// instead of with a digest. The pre-chunking digests for stock on the machine
-/// the change was made on matched those, too.
+/// The digests themselves are pinned separately, per CPU family, by
+/// <see cref="TheCorrectDigestsArePinnedForThisCpu"/>. Even compliance correct
+/// is not the same bytes everywhere here: the KD tracer's traversal keeps the
+/// estimated reciprocal under both policies, so a ray grazing a split can
+/// resolve differently on arm64 than on x86 (README, "Platform differences").
+/// The base digests were recorded on x86 from the pass as it was before
+/// chunking, so they also pin that chunking changed no byte; AMD and Intel
+/// agree on them (both kinds of CI runner passed them), and arm64 has a
+/// captured delta.
 /// </para>
 /// </remarks>
 public sealed class StaticPropChunkingTests : IClassFixture<AmbientFixture>
@@ -76,17 +80,41 @@ public sealed class StaticPropChunkingTests : IClassFixture<AmbientFixture>
     {
         (StaticPropLump lump, IReadOnlyList<StaticPropModel> models) = await StaticPropChunkingScene.PropsAsync();
 
+        StaticPropLightingResult whole = await StaticPropChunkingScene.LightAsync(
+            _ambient, lump, models, ComplianceOptions.Correct, indirect, disableSelfShadowing, Batching.PropAtATime);
         StaticPropLightingResult r = await StaticPropChunkingScene.LightAsync(
             _ambient, lump, models, ComplianceOptions.Correct, indirect, disableSelfShadowing, Batching.Named(batching));
 
-        string expected = (indirect, disableSelfShadowing) switch
+        Assert.Equal(StaticPropChunkingScene.Digest(whole), StaticPropChunkingScene.Digest(r));
+    }
+
+    /// <summary>
+    /// The compliance-correct digests of the prop-at-a-time shape on x86, one
+    /// line per indirect / self-shadowing combination, in the order
+    /// <see cref="TheCorrectDigestsArePinnedForThisCpu"/> produces them.
+    /// </summary>
+    private static IReadOnlyList<string> PinnedCorrectDigests =>
+    [
+        "F0C198800BB393D6D4399142305C7CC05D553F734980F8198CB87AFD4688E304", // indirect, self-shadowing
+        "FFC6EAC288843090891D6BD4E43B3C2388CAF765D168BB13299F42E77CB20294", // indirect, self-shadowing disabled
+        "DBA68BECEBEEB9C56383F9793B49A72EB933444DA6BF65E0136E817090D056EE", // direct only, self-shadowing
+        "EA3C9E27546D81B9FD941B33982C598EA8A2EB518ADC3C76CD0197C8A595D1B3", // direct only, self-shadowing disabled
+    ];
+
+    [ReferenceRsqrtFact]
+    public async Task TheCorrectDigestsArePinnedForThisCpu()
+    {
+        (StaticPropLump lump, IReadOnlyList<StaticPropModel> models) = await StaticPropChunkingScene.PropsAsync();
+
+        List<string> actual = [];
+        foreach ((bool indirect, bool disableSelfShadowing) in new[] { (true, false), (true, true), (false, false), (false, true) })
         {
-            (true, false) => "F0C198800BB393D6D4399142305C7CC05D553F734980F8198CB87AFD4688E304",
-            (true, true) => "FFC6EAC288843090891D6BD4E43B3C2388CAF765D168BB13299F42E77CB20294",
-            (false, false) => "DBA68BECEBEEB9C56383F9793B49A72EB933444DA6BF65E0136E817090D056EE",
-            (false, true) => "EA3C9E27546D81B9FD941B33982C598EA8A2EB518ADC3C76CD0197C8A595D1B3",
-        };
-        Assert.Equal(expected, StaticPropChunkingScene.Digest(r));
+            StaticPropLightingResult r = await StaticPropChunkingScene.LightAsync(
+                _ambient, lump, models, ComplianceOptions.Correct, indirect, disableSelfShadowing, Batching.PropAtATime);
+            actual.Add(StaticPropChunkingScene.Digest(r));
+        }
+
+        Assert.Equal(VendorGolden.Expected("static-prop-chunking.correct", PinnedCorrectDigests, actual), actual);
     }
 
     [Theory]
