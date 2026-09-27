@@ -249,80 +249,91 @@ public static class MapCompiler
 
         VisResult? vis = null;
         VradPreparation? prepared = null;
-        if (vbsp.Portals is { } portalFile)
+        RadResult rad;
+        try
         {
-            byte[] prt = portalFile.ToBytes(PortalLineEnding.CrLf);
-            await chain.WriteAsync(output.PathFor(name, ".prt"), prt, cancellationToken).ConfigureAwait(false);
-
-            // A light or entity edit leaves everything vvis reads alone: a hit
-            // restores vvis's lumps and skips the stage, overlapped or not.
-            long visStart = mark;
-            Cache.VvisStageCache? visCache = chain.VisCache is { } vc && Cache.VvisStageCache.Applies(request.Vvis) ? vc : null;
-            string? visKey = visCache is null ? null : Cache.VvisStageCache.InputDigest(prt, bsp, request.Vvis);
-
-            // The .prt's text is what vvis reads; see the remarks.
-            PortalFile? read = null;
-            if (visCache is not null)
+            if (vbsp.Portals is { } portalFile)
             {
-                read = await PortalFile.ParseAsync(prt, cancellationToken).ConfigureAwait(false);
-                vis = await visCache.TryGetAsync(visKey!, bsp, PortalSet.FromPortalFile(read).Count, cancellationToken)
-                    .ConfigureAwait(false);
-                if (vis is not null)
-                {
-                    // The early flow, if one started, is no longer needed.
-                    await AbandonAsync(ahead, portalsReady, flowTask).ConfigureAwait(false);
-                    chain.Line($"{read.ClusterCount,4} portalclusters");
-                    chain.Line($"{read.Portals.Count,4} numportals");
-                    mark = chain.Time("vvis", mark);
-                }
-            }
+                byte[] prt = portalFile.ToBytes(PortalLineEnding.CrLf);
+                await chain.WriteAsync(output.PathFor(name, ".prt"), prt, cancellationToken).ConfigureAwait(false);
 
-            if (vis is null)
-            {
-                if (flowTask is null)
-                {
-                    read ??= await PortalFile.ParseAsync(prt, cancellationToken).ConfigureAwait(false);
-                    chain.Line($"{read.ClusterCount,4} portalclusters");
-                    chain.Line($"{read.Portals.Count,4} numportals");
+                // A light or entity edit leaves everything vvis reads alone: a hit
+                // restores vvis's lumps and skips the stage, overlapped or not.
+                long visStart = mark;
+                Cache.VvisStageCache? visCache = chain.VisCache is { } vc && Cache.VvisStageCache.Applies(request.Vvis) ? vc : null;
+                string? visKey = visCache is null ? null : Cache.VvisStageCache.InputDigest(prt, bsp, request.Vvis);
 
-                    vis = await Vvis.ComputeAsync(bsp, PortalSet.FromPortalFile(read), visContext, cancellationToken)
-                        .ConfigureAwait(false);
-                    mark = chain.Time("vvis", mark);
-                }
-                else
-                {
-                    (vis, prepared, mark) = await FinishOverlappedAsync(
-                        chain, bsp, flowTask, visContext, radContext, ahead, mark, cancellationToken).ConfigureAwait(false);
-                }
-
-                // Stored after the lumps are in the map: the overlapped path
-                // writes them only once vrad's early load has read the map.
+                // The .prt's text is what vvis reads; see the remarks.
+                PortalFile? read = null;
                 if (visCache is not null)
                 {
-                    long costMs = (long)request.Time.GetElapsedTime(visStart).TotalMilliseconds;
-                    await visCache.StoreAsync(visKey!, bsp, vis, costMs, cancellationToken).ConfigureAwait(false);
+                    read = await PortalFile.ParseAsync(prt, cancellationToken).ConfigureAwait(false);
+                    vis = await visCache.TryGetAsync(visKey!, bsp, PortalSet.FromPortalFile(read).Count, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (vis is not null)
+                    {
+                        // The early flow, if one started, is no longer needed.
+                        await AbandonAsync(ahead, portalsReady, flowTask).ConfigureAwait(false);
+                        chain.Line($"{read.ClusterCount,4} portalclusters");
+                        chain.Line($"{read.Portals.Count,4} numportals");
+                        mark = chain.Time("vvis", mark);
+                    }
                 }
+
+                if (vis is null)
+                {
+                    if (flowTask is null)
+                    {
+                        read ??= await PortalFile.ParseAsync(prt, cancellationToken).ConfigureAwait(false);
+                        chain.Line($"{read.ClusterCount,4} portalclusters");
+                        chain.Line($"{read.Portals.Count,4} numportals");
+
+                        vis = await Vvis.ComputeAsync(bsp, PortalSet.FromPortalFile(read), visContext, cancellationToken)
+                            .ConfigureAwait(false);
+                        mark = chain.Time("vvis", mark);
+                    }
+                    else
+                    {
+                        (vis, prepared, mark) = await FinishOverlappedAsync(
+                            chain, bsp, flowTask, visContext, radContext, ahead, mark, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    // Stored after the lumps are in the map: the overlapped path
+                    // writes them only once vrad's early load has read the map.
+                    if (visCache is not null)
+                    {
+                        long costMs = (long)request.Time.GetElapsedTime(visStart).TotalMilliseconds;
+                        await visCache.StoreAsync(visKey!, bsp, vis, costMs, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+
+                chain.Line($"visdatasize:{vis.VisDataSize}");
+            }
+            else
+            {
+                await AbandonAsync(ahead, portalsReady, flowTask).ConfigureAwait(false);
+                chain.Report(
+                [
+                    new CompileDiagnostic(
+                        MapCompilerCodes.VisSkipped,
+                        DiagnosticSeverity.Warning,
+                        "no portal file (the map leaked or has no sealed interior): vvis skipped, vrad lights the map unvised"),
+                ]);
             }
 
-            chain.Line($"visdatasize:{vis.VisDataSize}");
+            progress?.Report(new CompileProgress(ChainStage, 2, 3));
+
+            rad = prepared is null
+                ? await Vrad.LightAsync(bsp, radContext, cancellationToken).ConfigureAwait(false)
+                : await Vrad.LightAsync(bsp, prepared, radContext, cancellationToken).ConfigureAwait(false);
         }
-        else
+        finally
         {
-            await AbandonAsync(ahead, portalsReady, flowTask).ConfigureAwait(false);
-            chain.Report(
-            [
-                new CompileDiagnostic(
-                    MapCompilerCodes.VisSkipped,
-                    DiagnosticSeverity.Warning,
-                    "no portal file (the map leaked or has no sealed interior): vvis skipped, vrad lights the map unvised"),
-            ]);
+            // A preparation vrad's early load made owns the tracer it built;
+            // the lighting takes it over, and this releases it when the chain
+            // fails first (a no-op once the lighting has taken it).
+            prepared?.Dispose();
         }
-
-        progress?.Report(new CompileProgress(ChainStage, 2, 3));
-
-        RadResult rad = prepared is null
-            ? await Vrad.LightAsync(bsp, radContext, cancellationToken).ConfigureAwait(false)
-            : await Vrad.LightAsync(bsp, prepared, radContext, cancellationToken).ConfigureAwait(false);
         mark = chain.Time("vrad", mark);
         foreach (RadPassResult pass in rad.Passes)
         {
@@ -454,6 +465,15 @@ public static class MapCompiler
         {
             await ahead.CancelAsync().ConfigureAwait(false);
             await ObserveAsync(prepareTask).ConfigureAwait(false);
+
+            // The load may have finished before vvis failed (nothing in it
+            // observes the cancellation once its tracer is built): its
+            // preparation holds that tracer, and nobody else will light it.
+            if (prepareTask is { IsCompletedSuccessfully: true })
+            {
+                (await prepareTask.ConfigureAwait(false)).Dispose();
+            }
+
             throw;
         }
 
@@ -462,7 +482,17 @@ public static class MapCompiler
         VradPreparation? prepared = prepareTask is null
             ? null
             : await prepareTask.ConfigureAwait(false);
-        lumps.WriteTo(bsp);
+        try
+        {
+            lumps.WriteTo(bsp);
+        }
+        catch
+        {
+            // Not yet the caller's to release.
+            prepared?.Dispose();
+            throw;
+        }
+
         return (vis, prepared, mark);
     }
 

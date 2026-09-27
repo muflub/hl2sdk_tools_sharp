@@ -16,7 +16,9 @@ namespace SourceSharp.MapTools.Rad;
 /// <param name="Tracer">
 /// The GPU-ready tracer holding the casters, or null when the host declined
 /// the device. Null is a normal answer, not a failure: §10c's rule is that
-/// absence of a capable device is a clean fallback, never an error.
+/// absence of a capable device is a clean fallback, never an error. An
+/// offered tracer is handed over: vrad releases it when the compile ends
+/// (see <see cref="IGpuTracerFactory"/>'s remarks).
 /// </param>
 /// <param name="DeclineReason">
 /// Why <paramref name="Tracer"/> is null, in the backend's own words (the
@@ -44,6 +46,15 @@ public readonly record struct GpuTracerOffer(IRayTracer? Tracer, string? Decline
 /// factory that declines — no device, no package, a pin matching nothing, a
 /// self-test the driver failed — costs one warning and the run proceeds on
 /// the CPU tracer, byte-for-byte the flag-free build.
+/// </para>
+/// <para>
+/// <b>Ownership.</b> An offered tracer becomes the compile's: vrad releases
+/// it, through <see cref="IDisposable"/> when the tracer implements it, once
+/// the lighting ends, whether it finished, failed or was cancelled, and a
+/// <see cref="VradPreparation"/> that is disposed unlit releases it too. The
+/// factory and the host keep no reference and never dispose it themselves.
+/// That is what lets a long-lived host run compile after compile without a
+/// device staying open behind each one.
 /// </para>
 /// </remarks>
 public interface IGpuTracerFactory
