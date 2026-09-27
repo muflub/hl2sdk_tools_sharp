@@ -218,6 +218,39 @@ def find_perf():
     return None
 
 
+def perf_allows(perf, mode):
+    """Whether this machine lets perf run in mode ("stat" or "record").
+
+    A kernel with perf_event_paranoid above what the user may use refuses
+    both with an error and no compile at all, so each is probed once on
+    `true` before any cell rather than discovered as an empty capture.
+    """
+    if not perf:
+        return False
+    if mode == "stat":
+        cmd = [perf, "stat", "-x", ",", "-e", "task-clock", "--", "true"]
+    else:
+        import tempfile
+        data = os.path.join(tempfile.gettempdir(), f"compile-perf-probe-{os.getpid()}.data")
+        cmd = [perf, "record", "-F", "99", "-g", "-o", data, "--", "true"]
+    try:
+        return subprocess.run(cmd, capture_output=True, timeout=60).returncode == 0
+    finally:
+        if mode == "record":
+            try:
+                os.remove(data)
+            except OSError:
+                pass
+
+
+def perf_paranoid():
+    try:
+        with open("/proc/sys/kernel/perf_event_paranoid", encoding="ascii") as f:
+            return f.read().strip()
+    except OSError:
+        return "unknown"
+
+
 def thread_count(value, nproc):
     if value == "max":
         return nproc
@@ -535,9 +568,14 @@ def profile_cell(runner, inputs, cell, cdir, args, env, cache, opts, threads, bu
         if name not in args.profile:
             return
         try:
-            done[name] = fn()
+            result = fn()
         except Exception as e:  # a profiler's failure costs that profile, not the matrix
-            done[name] = {"error": f"{type(e).__name__}: {e}"}
+            result = {"error": f"{type(e).__name__}: {e}"}
+        # A profiler whose compile exited non-zero captured nothing worth
+        # reading; say so rather than leave an empty or partial file.
+        if isinstance(result, dict) and result.get("exit") not in (None, 0) and "error" not in result:
+            result["error"] = f"exited {result['exit']}, see cells/{os.path.basename(cdir)}/{name}.log"
+        done[name] = result
 
     def stages_():
         if stage not in ("vvis", "vrad"):
@@ -551,7 +589,7 @@ def profile_cell(runner, inputs, cell, cdir, args, env, cache, opts, threads, bu
     def rusage_():
         arg, store = fresh("rusage")
         cmd = direct_command(runner, stage, build_kind, arg, game_args, threads, opts, store)
-        perf = find_perf()
+        perf = args.perf_stat
         stat = os.path.join(cdir, "perf-stat.txt")
         if perf:
             cmd = [perf, "stat", "-x", ",", "-o", stat, "-e",
@@ -828,6 +866,20 @@ def main(argv):
         return 0
 
     runner = Runner(args)
+    # perf is checked on this machine before any cell: stat only wraps the
+    # rusage run when it works, and a requested perf record that cannot run
+    # stops here rather than leaving every cell's capture empty.
+    perf = find_perf()
+    args.perf_stat = perf if "rusage" in args.profile and perf_allows(perf, "stat") else None
+    if "rusage" in args.profile and perf and not args.perf_stat:
+        print(f"note: perf stat is not permitted here (kernel.perf_event_paranoid={perf_paranoid()}); "
+              "rusage runs without hardware counters. `sudo sysctl kernel.perf_event_paranoid=1` enables them.")
+    if "perf" in args.profile and not perf_allows(perf, "record"):
+        sys.exit("compile-perf: --perf-record needs perf record, which "
+                 + (f"is not permitted here (kernel.perf_event_paranoid={perf_paranoid()}); "
+                    "`sudo sysctl kernel.perf_event_paranoid=1` allows it" if perf else "is not installed")
+                 + ", or run without --perf-record.")
+
     missing = [t for t in ("dotnet-trace", "dotnet-counters", "dotnet-gcdump")
                if runner.tool(t) is None and any(p in args.profile for p in
                                                  {"dotnet-trace": ("cpu", "gc"), "dotnet-counters": ("counters",),

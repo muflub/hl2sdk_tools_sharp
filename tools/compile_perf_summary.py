@@ -230,7 +230,14 @@ def load_cell(folder, meta):
     rec = load_json(os.path.join(d, "cell.json")) or {"status": "not run"}
     cell = dict(meta)
     cell.update({"status": rec.get("status"), "failure": rec.get("failure"), "threads_n": rec.get("threads"),
-                 "options": rec.get("options"), "env": rec.get("env")})
+                 "options": rec.get("options"), "env": rec.get("env"),
+                 "profile_errors": {k: v["error"] for k, v in (rec.get("profiles") or {}).items()
+                                    if isinstance(v, dict) and v.get("error")}})
+    # A run from before profile errors were recorded: an exit code that is
+    # not 0 is the same failure.
+    for k, v in (rec.get("profiles") or {}).items():
+        if isinstance(v, dict) and v.get("exit") not in (None, 0) and k not in cell["profile_errors"]:
+            cell["profile_errors"][k] = f"exited {v['exit']}, see cells/{meta['id']}/{k}.log"
     cell["bench"] = summarise_ledger(read_ledger(os.path.join(d, "bench.jsonl")))
     cell["stages"] = read_stages(os.path.join(d, "stages.log"))
     cell["rusage"] = load_json(os.path.join(d, "rusage.json"))
@@ -378,7 +385,7 @@ def cell_report(folder, c):
         lines += [f"| {k} | {v:.3f} |" for k, v in c["stages"]["stages_s"].items()]
         lines += [""] + [f"- {w}" for w in c["stages"]["work"]] + [""]
     r = c.get("rusage")
-    if r:
+    if r and r.get("exit", 0) == 0:
         lines += ["## Process (one plain run)", "",
                   f"wall {f(r['wall_s'])} s, user {f(r['user_s'])} s, system {f(r['sys_s'])} s, max RSS "
                   f"{f(r['max_rss_mb'], '{:.0f}')} MB, page faults {r['minor_faults']} minor / {r['major_faults']} major, "
@@ -486,7 +493,7 @@ def summarise(folder):
                 continue
             g = c.get("gc") or {}
             gens = (g.get("gc") or {}).get("generations") or []
-            ipc = ((c.get("rusage") or {}).get("perf_stat") or {}).get("ipc")
+            ipc = ((c.get("rusage") or {}).get("perf_stat") or {}).get("ipc") if (c.get("rusage") or {}).get("exit", 0) == 0 else None
             md.append(
                 f"| {label(c, base)} | {f(b['wall_s'])} | {pct(b['wall_s'] / bw) if not math.isnan(bw) else ''} | "
                 f"{f(b['wall_min_s'])}–{f(b['wall_max_s'])} | {f(b['cpu_s'])} | "
@@ -580,6 +587,17 @@ def summarise(folder):
         md += [f"**Largest live heap**: {big['heap']['peak_mb']:.0f} MB in {big['id']} (`cells/{big['id']}/heap-peak.gcdump`)",
                "", "| type | MB | objects |", "|---|---:|---:|"]
         md += [f"| `{t['type']}` | {t['bytes'] / 1048576:.1f} | {t['count']:,} |" for t in big["heap"]["top_types"][:15]]
+        md.append("")
+
+    broken = [(c["id"], k, e) for c in cells for k, e in sorted((c.get("profile_errors") or {}).items())]
+    if broken:
+        by_profiler = defaultdict(list)
+        for cid, k, e in broken:
+            by_profiler[k].append((cid, e))
+        md += ["## Profiles that failed", "",
+               "These cells' timings stand; only the named capture is missing or partial.", ""]
+        for k, rows in sorted(by_profiler.items()):
+            md.append(f"- **{k}** failed in {len(rows)} cell(s), e.g. {rows[0][0]}: {rows[0][1]}")
         md.append("")
 
     failed = [c for c in cells if c["status"] != "ok"]

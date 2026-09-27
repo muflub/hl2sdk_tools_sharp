@@ -197,6 +197,24 @@ class GpuOptionTests(unittest.TestCase):
         self.assertIsNone(cp.gpu_decline("vrad 3.0 seconds elapsed\n"))
 
 
+class PerfProbeTests(unittest.TestCase):
+    def fake_perf(self, d, stat_rc, record_rc):
+        path = os.path.join(d, "perf")
+        with open(path, "w") as fh:
+            fh.write(f"#!/bin/sh\ncase \"$1\" in stat) exit {stat_rc};; record) exit {record_rc};; esac\nexit 0\n")
+        os.chmod(path, 0o755)
+        return path
+
+    def test_each_mode_is_probed_on_its_own(self):
+        with tempfile.TemporaryDirectory() as d:
+            perf = self.fake_perf(d, 0, 1)
+            self.assertTrue(cp.perf_allows(perf, "stat"))
+            self.assertFalse(cp.perf_allows(perf, "record"))
+
+    def test_no_perf_allows_nothing(self):
+        self.assertFalse(cp.perf_allows(None, "stat"))
+
+
 class ParserTests(unittest.TestCase):
     def test_a_heap_report_is_read_largest_first(self):
         report = "  1,024  2  System.Byte[]\n 4,096  1  Foo.Bar\nnot a row\n"
@@ -302,6 +320,26 @@ class SummaryTests(unittest.TestCase):
         hot = cs.hot_spots([a, b])
         self.assertEqual("Everywhere", hot["cpu_self"][0]["name"])
         self.assertEqual("a", hot["cpu_self"][1]["peak_cell"])
+
+    def test_a_profiler_that_exited_non_zero_is_reported_and_not_read(self):
+        with tempfile.TemporaryDirectory() as d:
+            meta = {"mode": "sweep", "axes": {}, "skipped": [],
+                    "cells": [{"id": "vrad__baseline", "stage": "vrad", "settings": {}}]}
+            write_json(os.path.join(d, "matrix.json"), meta)
+            cd = os.path.join(d, "cells", "vrad__baseline")
+            os.makedirs(cd)
+            write_json(os.path.join(cd, "cell.json"),
+                       {"status": "ok", "threads": 4, "profiles": {"rusage": {"exit": 1, "file": "rusage.json"}}})
+            write_json(os.path.join(cd, "rusage.json"), {"exit": 1, "wall_s": 0.01, "user_s": 0, "sys_s": 0,
+                                                          "max_rss_mb": 1, "minor_faults": 0, "major_faults": 0,
+                                                          "voluntary_switches": 0, "involuntary_switches": 0,
+                                                          "block_in": 0, "block_out": 0})
+            with open(os.path.join(cd, "bench.jsonl"), "w") as fh:
+                fh.write(json.dumps({"Timed": True, "Ok": True, "WallSeconds": 1.0, "CpuSeconds": 2.0,
+                                     "PeakRssBytes": 1048576, "GcPauseSeconds": 0.1, "Stages": []}) + "\n")
+            cs.summarise(d)
+            self.assertIn("**rusage** failed in 1 cell(s)", read_text(os.path.join(d, "summary.md")))
+            self.assertNotIn("## Process (one plain run)", read_text(os.path.join(cd, "report.md")))
 
     def test_a_folder_summarises_end_to_end(self):
         with tempfile.TemporaryDirectory() as d:
