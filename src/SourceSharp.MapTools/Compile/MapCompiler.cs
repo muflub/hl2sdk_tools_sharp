@@ -471,7 +471,7 @@ public static class MapCompiler
             // preparation holds that tracer, and nobody else will light it.
             if (prepareTask is { IsCompletedSuccessfully: true })
             {
-                prepareTask.Result.Dispose();
+                (await prepareTask.ConfigureAwait(false)).Dispose();
             }
 
             throw;

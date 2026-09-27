@@ -1676,7 +1676,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     }
 }
 
-/// <summary>One row of the device inventory <see cref="VulkanDevice.ProbeDevices"/> reports.</summary>
+/// <summary>One row of the device inventory <see cref="VulkanDevice.ProbeDevices()"/> reports.</summary>
 /// <param name="Index">Physical-device index.</param>
 /// <param name="Name">Device name.</param>
 /// <param name="DeviceType">What the device presents as.</param>
