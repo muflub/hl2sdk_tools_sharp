@@ -516,6 +516,39 @@ def direct_command(runner, stage, build, map_arg, game_args, threads, opts, stor
     return runner.ssmap(build) + [stage] + game_args + ["-threads", str(threads)] + opts + [map_arg]
 
 
+def bench_commands(runner, stage, build_kind, threads, cache, cid, cdir, args, opts, work, restore):
+    """The `ssmap bench` runs that time one cell: [(log name, command factory)].
+
+    A warm run reuses the store its cell's cold sibling built: bench looks
+    for it under the same --cache-base, at the cold run 0 of the same
+    --options label. This script gives every cell a store of its own and
+    labels it by cell, so no cold cell ever builds that store for a warm
+    one, and a warm cell used to find it missing and time a cold compile
+    instead. So a warm cell first primes it: one untimed cold run with the
+    warm cell's own label and store, writing its ledger aside.
+
+    Each factory restores the stage's input when called, so every run
+    starts from the same map.
+    """
+    store = os.path.join(cdir, "bench-store")
+    game = ["--game", args.game_dir] if args.game_dir else []
+
+    def command(mode, runs, warmups, out):
+        def build():
+            return runner.ssmap(build_kind) + [
+                "bench", "--map", restore(), "--stages", stage, "--threads", str(threads), "--runs", str(runs),
+                "--warmups", str(warmups), "--cache", mode, "--options", cid, "--arm", build_kind,
+                "--workdir", work, "--cache-base", store,
+                "--out", os.path.join(cdir, out)] + game + ["--"] + opts
+        return build
+
+    runs = []
+    if cache == "warm":
+        runs.append(("bench-prime", command("cold", 1, 0, "bench-prime.jsonl")))
+    runs.append(("bench", command(cache, args.runs, args.warmups, "bench.jsonl")))
+    return runs
+
+
 def run_cell(runner, inputs, cell, cid, cdir, args, matrix, subst, game_args, profile):
     stage, s = cell["stage"], cell["settings"]
     build_kind = s.get("build", "jit")
@@ -526,15 +559,13 @@ def run_cell(runner, inputs, cell, cid, cdir, args, matrix, subst, game_args, pr
     os.makedirs(cdir, exist_ok=True)
 
     # 1. timing
-    map_arg = inputs.restore(stage)
-    bench = runner.ssmap(build_kind) + [
-        "bench", "--map", map_arg, "--stages", stage, "--threads", str(threads), "--runs", str(args.runs),
-        "--warmups", str(args.warmups), "--cache", cache, "--options", cid, "--arm", build_kind,
-        "--workdir", inputs.work, "--cache-base", os.path.join(cdir, "bench-store"),
-        "--out", os.path.join(cdir, "bench.jsonl")] + (["--game", args.game_dir] if args.game_dir else []) + ["--"] + opts
-    code, wall, _ = runner.run(bench, os.path.join(cdir, "bench.log"), env=env, cwd=inputs.work)
+    for name, cmd in bench_commands(runner, stage, build_kind, threads, cache, cid, cdir, args, opts,
+                                    inputs.work, lambda: inputs.restore(stage)):
+        code, wall, _ = runner.run(cmd(), os.path.join(cdir, name + ".log"), env=env, cwd=inputs.work)
+        if name == "bench-prime" and code != 0:
+            break
     record["bench_exit"] = code
-    failed = code != 0 or "FAILED" in open(os.path.join(cdir, "bench.log"), encoding="utf-8", errors="replace").read()
+    failed = code != 0 or "FAILED" in open(os.path.join(cdir, name + ".log"), encoding="utf-8", errors="replace").read()
     shutil.rmtree(os.path.join(cdir, "bench-store"), ignore_errors=True)
     if failed:
         record["status"] = "failed"

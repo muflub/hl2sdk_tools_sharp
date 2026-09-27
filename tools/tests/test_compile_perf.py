@@ -400,3 +400,52 @@ class SummaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BenchCommandTests(unittest.TestCase):
+    class Runner:
+        def ssmap(self, build):
+            return ["ssmap"]
+
+    class Args:
+        runs, warmups, game_dir = 3, 1, "/g"
+
+    def commands(self, cache):
+        restored = []
+
+        def restore():
+            restored.append(1)
+            return "/work/m.vmf"
+
+        runs = cp.bench_commands(self.Runner(), "chain", "jit", 8, cache, "chain__x", "/cells/x",
+                                 self.Args(), ["-v"], "/work", restore)
+        return [(name, factory()) for name, factory in runs], restored
+
+    @staticmethod
+    def opt(cmd, flag):
+        return cmd[cmd.index(flag) + 1]
+
+    def test_off_and_cold_are_one_timed_bench(self):
+        for cache in ("off", "cold"):
+            runs, restored = self.commands(cache)
+            self.assertEqual(["bench"], [n for n, _ in runs])
+            cmd = runs[0][1]
+            self.assertEqual((cache, "3", "1"), (self.opt(cmd, "--cache"), self.opt(cmd, "--runs"), self.opt(cmd, "--warmups")))
+            self.assertEqual("/cells/x/bench.jsonl", self.opt(cmd, "--out"))
+            self.assertEqual(["-v"], cmd[cmd.index("--") + 1:])
+            self.assertEqual(1, len(restored))
+
+    def test_warm_first_builds_the_store_its_timed_run_reads(self):
+        runs, restored = self.commands("warm")
+        self.assertEqual(["bench-prime", "bench"], [n for n, _ in runs])
+        prime, timed = runs[0][1], runs[1][1]
+        # The prime is one untimed-for-us cold run under the same label and
+        # store, so bench's warm run finds the cold run 0 store it looks for.
+        self.assertEqual(("cold", "1", "0"), (self.opt(prime, "--cache"), self.opt(prime, "--runs"), self.opt(prime, "--warmups")))
+        self.assertEqual(("warm", "3", "1"), (self.opt(timed, "--cache"), self.opt(timed, "--runs"), self.opt(timed, "--warmups")))
+        for flag in ("--options", "--cache-base", "--stages", "--threads", "--arm", "--game", "--workdir"):
+            self.assertEqual(self.opt(prime, flag), self.opt(timed, flag), flag)
+        self.assertEqual("/cells/x/bench-prime.jsonl", self.opt(prime, "--out"))
+        self.assertEqual("/cells/x/bench.jsonl", self.opt(timed, "--out"))
+        # Each run starts from a freshly restored input.
+        self.assertEqual(2, len(restored))
