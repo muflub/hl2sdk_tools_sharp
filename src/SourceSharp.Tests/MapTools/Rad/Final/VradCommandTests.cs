@@ -174,13 +174,20 @@ public sealed class VradCommandTests
     }
 
     [Fact]
-    public async Task TheCommandReportsStagesThatAreNotPortedYet()
+    public async Task AMapWithNoCastersStillGetsItsLeafAmbient()
     {
+        // The box has no brushes, so the tracer is the empty scene's. Leaf
+        // ambient used to need the KD tracer itself and was reported as not
+        // ported (VRAD0701) here; through the tracer seam, an empty scene
+        // answers its segments (nothing blocks) and the stage runs.
         InMemoryFileSystem fs = await MapAsync();
         using StringWriter output = new();
-        _ = await VradCommand.RunAsync(fs, ["-bounce", "0", "/maps/box.bsp"], output);
+        int exit = await VradCommand.RunAsync(fs, ["-bounce", "0", "/maps/box.bsp"], output);
 
-        Assert.Contains("VRAD0701", output.ToString(), StringComparison.Ordinal);
+        BspData lit = await BspFile.LoadAsync(new MemoryStream(fs.GetBytes(VPath.Create(Rooted("/maps/box.bsp")))!));
+        Assert.Equal(Program.ExitSuccess, exit);
+        Assert.DoesNotContain("VRAD0701", output.ToString(), StringComparison.Ordinal);
+        Assert.False(lit[BspLump.LeafAmbientIndex].IsEmpty);
     }
 
     [Fact]

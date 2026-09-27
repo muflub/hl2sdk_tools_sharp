@@ -121,6 +121,14 @@ public sealed class KdRayTracer : IRayTracer
     public string TracerIdentity =>
         _zeroSubstitute == StockZeroSubstitute ? "cpu-kd-sse4-1-stock" : "cpu-kd-sse4-1";
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// Every option: the traversal takes stock's <c>skip_id</c> natively, the
+    /// sky test is one look at the first hit's id, and an isolated ray is a
+    /// packet of four copies of itself.
+    /// </remarks>
+    public bool Supports(RayTraceOptions options) => true;
+
     /// <summary>How many nodes the built tree has.</summary>
     public int NodeCount => _nodes.Length;
 
@@ -313,7 +321,17 @@ public sealed class KdRayTracer : IRayTracer
     /// <c>Fraction &lt; 1</c>, or uses <see cref="TraceVisibility"/>, which
     /// does.
     /// </para>
+    /// <para>
+    /// <see cref="RayTraceOptions.SkipId"/> and
+    /// <see cref="RayTraceOptions.IsolatedRays"/> are honoured as in
+    /// <see cref="TraceVisibility"/>. <see cref="RayTraceOptions.SkyDoesNotBlock"/>
+    /// is refused: "not blocked" is a visibility answer, and a closest-hit
+    /// caller already sees whether the surface it hit is sky.
+    /// </para>
     /// </remarks>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="options"/> asks for <see cref="RayTraceOptions.SkyDoesNotBlock"/>.
+    /// </exception>
     [SkipLocalsInit]
     public void TraceClosest(ReadOnlySpan<Ray> rays, Span<HitId> hits, RayTraceOptions options)
     {
@@ -324,10 +342,19 @@ public sealed class KdRayTracer : IRayTracer
                 nameof(hits));
         }
 
+        if (options.SkyDoesNotBlock)
+        {
+            throw new ArgumentException(
+                "sky pass-through is a visibility option; a closest-hit trace reports the sky hit itself",
+                nameof(options));
+        }
+
         Scratch scratch = new(stackalloc NodeToVisit[MaxNodeStack], stackalloc long[MailboxSize]);
         Vector128<float> tmin = Vector128.Create(options.MinDistance);
+        int skipId = options.SkipId ?? -1;
+        int step = options.IsolatedRays ? 1 : 4;
 
-        for (int i = 0; i < rays.Length; i += 4)
+        for (int i = 0; i < rays.Length; i += step)
         {
             // The segment is origin + t * Direction for t in [TMin, MaxDistance],
             // traced exactly as stock's Trace4Rays takes it: the direction as
@@ -335,11 +362,20 @@ public sealed class KdRayTracer : IRayTracer
             // segment as the direction and 1 as the length (every caller before
             // p4f) gets the same bits as the earlier Direction*MaxDistance form,
             // because multiplying by 1.0 is exact.
-            LoadPacket(rays, i, out RayPacket packet, out Vector128<float> tmax);
+            RayPacket packet;
+            Vector128<float> tmax;
+            if (options.IsolatedRays)
+            {
+                DuplicatePacket(in rays[i], out packet, out tmax);
+            }
+            else
+            {
+                LoadPacket(rays, i, out packet, out tmax);
+            }
 
-            Trace4Rays(in packet, tmin, tmax, -1, ref scratch, out Vector128<float> distance, out Vector128<int> ids);
+            Trace4Rays(in packet, tmin, tmax, skipId, ref scratch, out Vector128<float> distance, out Vector128<int> ids);
 
-            for (int lane = 0; lane < 4 && i + lane < rays.Length; lane++)
+            for (int lane = 0; lane < step && i + lane < rays.Length; lane++)
             {
                 int id = ids.GetElement(lane);
                 float length = tmax.GetElement(lane);
@@ -443,46 +479,50 @@ public sealed class KdRayTracer : IRayTracer
         bool stockReciprocal, bool skyDoesNotBlock, int skipId)
     {
         Scratch scratch = new(stackalloc NodeToVisit[MaxNodeStack], stackalloc long[MailboxSize]);
-        Vector128<float> tmin = Vector128<float>.Zero;
         bool perSegment = !starts.IsEmpty;
 
         for (int i = 0; i < ends.Length; i++)
         {
-            Vec3 s = perSegment ? starts[i] : oneStart;
-            Vec3 d = ends[i] - s;
-
-            // FourVectors::length: SqrtSIMD( x*x + y*y + z*z ).
-            float len = MathF.Sqrt((d.X * d.X) + (d.Y * d.Y) + (d.Z * d.Z));
-            float inv;
-            if (stockReciprocal && FloatEstimate.IsSupported)
-            {
-                Vector128<float> a = Vector128.Create(len);
-                Vector128<float> est = FloatEstimate.Reciprocal(a);
-                inv = Vector128.Subtract(Vector128.Add(est, est), Vector128.Multiply(a, Vector128.Multiply(est, est))).ToScalar();
-            }
-            else
-            {
-                inv = 1.0f / len;
-            }
-
-            RayPacket packet;
-            packet.Ox = Vector128.Create(s.X);
-            packet.Oy = Vector128.Create(s.Y);
-            packet.Oz = Vector128.Create(s.Z);
-            packet.Dx = Vector128.Create(d.X * inv);
-            packet.Dy = Vector128.Create(d.Y * inv);
-            packet.Dz = Vector128.Create(d.Z * inv);
-
-            Trace4Rays(
-                in packet, tmin, Vector128.Create(len), skipId, ref scratch,
-                out Vector128<float> distance, out Vector128<int> ids);
-
-            // TestLine_DoesHitSky differs from TestLine in one
-            // place: a hit on a TRACE_ID_SKY (0x01000000) triangle does not occlude.
-            int hitId = ids.ToScalar();
-            blocked[i] = hitId != -1 && distance.ToScalar() < len
-                && !(skyDoesNotBlock && (_triangles[hitId].Id & 0x01000000) != 0);
+            // The ray is built by Ray.Segment, the same code a sampler batching
+            // through IRayTracer uses, so the two routes trace the same floats.
+            Ray ray = Ray.Segment(perSegment ? starts[i] : oneStart, ends[i], stockReciprocal);
+            blocked[i] = TraceIsolated(in ray, Vector128<float>.Zero, skipId, skyDoesNotBlock, ref scratch);
         }
+    }
+
+    /// <summary>
+    /// One ray traced alone -- duplicated into all four lanes, as
+    /// <c>FourVectors::DuplicateVector</c> does for <c>TestLine</c> -- and
+    /// whether it is blocked short of its reach.
+    /// </summary>
+    /// <remarks>
+    /// <c>TestLine_DoesHitSky</c> differs from <c>TestLine</c> in one place: a
+    /// first hit on a sky triangle does not occlude.
+    /// </remarks>
+    private bool TraceIsolated(
+        in Ray ray, Vector128<float> tmin, int skipId, bool skyDoesNotBlock, ref Scratch scratch)
+    {
+        DuplicatePacket(in ray, out RayPacket packet, out Vector128<float> reach);
+        Trace4Rays(
+            in packet, tmin, reach, skipId, ref scratch,
+            out Vector128<float> distance, out Vector128<int> ids);
+
+        int hitId = ids.ToScalar();
+        return hitId != -1 && distance.ToScalar() < ray.MaxDistance
+            && !(skyDoesNotBlock && (_triangles[hitId].Id & Rad.TraceId.Sky) != 0);
+    }
+
+    /// <summary>One ray in all four lanes.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void DuplicatePacket(in Ray ray, out RayPacket packet, out Vector128<float> reach)
+    {
+        packet.Ox = Vector128.Create(ray.OriginX);
+        packet.Oy = Vector128.Create(ray.OriginY);
+        packet.Oz = Vector128.Create(ray.OriginZ);
+        packet.Dx = Vector128.Create(ray.DirectionX);
+        packet.Dy = Vector128.Create(ray.DirectionY);
+        packet.Dz = Vector128.Create(ray.DirectionZ);
+        reach = Vector128.Create(ray.MaxDistance);
     }
 
     /// <summary>
@@ -490,14 +530,25 @@ public sealed class KdRayTracer : IRayTracer
     /// from the origin to <c>Origin + MaxDistance * Direction</c>.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A hit at or beyond the segment's end does not set the bit, which is the
     /// test stock's callers make after an unclipped <c>Trace4Rays</c>
     /// <see cref="TraceClosest"/>
     /// does NOT clip, as stock does not, and can report a fraction above 1.
+    /// </para>
+    /// <para>
+    /// Every <see cref="RayTraceOptions"/> member is honoured. With
+    /// <see cref="RayTraceOptions.IsolatedRays"/> each ray is traced in a packet
+    /// of its own, which is exactly what
+    /// <see cref="TestLines(ReadOnlySpan{Vec3}, ReadOnlySpan{Vec3}, Span{bool}, bool, bool, int)"/>
+    /// does for the same ray, so a sampler that builds its rays with
+    /// <see cref="Ray.Segment"/> and traces them through the seam gets the
+    /// direct call's bits.
+    /// </para>
     /// </remarks>
     /// <param name="rays">The rays.</param>
     /// <param name="hitBits">Receives one bit per ray, least-significant first.</param>
-    /// <param name="options">The ray epsilon.</param>
+    /// <param name="options">The ray epsilon, and which ids and packets the trace sees.</param>
     /// <exception cref="ArgumentException">
     /// <paramref name="hitBits"/> is too short.
     /// </exception>
@@ -518,6 +569,20 @@ public sealed class KdRayTracer : IRayTracer
 
         Scratch scratch = new(stackalloc NodeToVisit[MaxNodeStack], stackalloc long[MailboxSize]);
         Vector128<float> tmin = Vector128.Create(options.MinDistance);
+        int skipId = options.SkipId ?? -1;
+
+        if (options.IsolatedRays)
+        {
+            for (int i = 0; i < rays.Length; i++)
+            {
+                if (TraceIsolated(in rays[i], tmin, skipId, options.SkyDoesNotBlock, ref scratch))
+                {
+                    hitBits[i >> 6] |= 1UL << (i & 63);
+                }
+            }
+
+            return;
+        }
 
         for (int i = 0; i < rays.Length; i += 4)
         {
@@ -529,7 +594,7 @@ public sealed class KdRayTracer : IRayTracer
             // did (x * 1 is x).
             LoadPacket(rays, i, out RayPacket packet, out Vector128<float> reach);
 
-            Trace4Rays(in packet, tmin, reach, -1, ref scratch, out Vector128<float> distance, out Vector128<int> ids);
+            Trace4Rays(in packet, tmin, reach, skipId, ref scratch, out Vector128<float> distance, out Vector128<int> ids);
 
             // The segment test stock's callers make themselves, because
             // Trace4Rays does not clip a hit to TMax (is
@@ -542,6 +607,11 @@ public sealed class KdRayTracer : IRayTracer
                 Vector128.GreaterThan(ids, Vector128.Create(-1)).AsSingle(),
                 Vector128.LessThan(distance, reach));
             int bits = SseLanes.MoveMask(blockedLanes);
+            if (options.SkyDoesNotBlock)
+            {
+                bits &= ~SkyLanes(ids);
+            }
+
             int live = rays.Length - i;
             if (live < 4)
             {
@@ -551,6 +621,23 @@ public sealed class KdRayTracer : IRayTracer
             hitBits[i >> 6] |= (ulong)(uint)bits << (i & 63);
         }
     }
+
+    /// <summary>The lanes whose first hit is a sky triangle, as a four-bit mask.</summary>
+    private int SkyLanes(Vector128<int> ids)
+    {
+        int sky = 0;
+        for (int lane = 0; lane < 4; lane++)
+        {
+            int id = ids.GetElement(lane);
+            if (id >= 0 && (_triangles[id].Id & Rad.TraceId.Sky) != 0)
+            {
+                sky |= 1 << lane;
+            }
+        }
+
+        return sky;
+    }
+
 
     /// <summary>
     /// Four rays starting at <paramref name="first"/>, transposed into lanes;
