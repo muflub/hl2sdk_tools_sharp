@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using System.Reflection;
+
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Vis;
 
@@ -537,5 +539,21 @@ public class VisClipTests
             VisClip.ClipToSeparatorPlanes(
                 [], [], UnitSquareAtZeroZ, false, result, out _);
         });
+    }
+
+    /// <summary>
+    /// The separator test is inlined by force. It is too big for the JIT to
+    /// inline without a profile, and without inlining NativeAOT and
+    /// non-PGO builds ran vvis on 2fort 1.6 to 1.9 times slower than the PGO
+    /// build (130 s and 151 s against 79 s at four threads). Nothing else would notice
+    /// the attribute going, so this fact does.
+    /// </summary>
+    [Fact]
+    public void TheSeparatorTestIsInlinedByForce()
+    {
+        MethodInfo trySeparator = typeof(VisClip).GetMethod(
+            "TrySeparator", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        Assert.True(trySeparator.MethodImplementationFlags.HasFlag(MethodImplAttributes.AggressiveInlining));
     }
 }
