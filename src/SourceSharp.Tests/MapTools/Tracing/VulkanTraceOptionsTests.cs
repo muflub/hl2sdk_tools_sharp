@@ -20,7 +20,6 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// Device-free: these are the rules the hybrid's fallback relies on, and they
 /// must hold on a machine with no capable GPU.
 /// </summary>
-[Collection(VulkanDeviceCollection.Name)]
 public sealed class VulkanTraceOptionsTests
 {
     [Fact]

@@ -76,7 +76,6 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     private SlabSlot[] _slots = [];
     private AccelerationStructureKHR _blasHandle;
     private uint _triangleCount;
-    private AccelerationStructureGeometryKHR _geometry;
 
     /// <summary>Selected device name, e.g. <c>AMD Radeon RX 9070 XT (RADV GFX1201)</c>.</summary>
     public string DeviceName { get; private set; } = "?";
@@ -991,7 +990,12 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             VertexStride = 12,
             MaxVertex = (_triangleCount * 3) - 1,
         };
-        _geometry = new AccelerationStructureGeometryKHR
+        // On the stack, not in a field: the driver reads it through the
+        // pointer below, and a field of this object moves whenever a
+        // compacting GC runs between taking the address and the call. The
+        // build then reads whatever lies there as its geometry, and the
+        // kernel later traverses a BLAS full of wild addresses.
+        AccelerationStructureGeometryKHR geometry = new()
         {
             SType = StructureType.AccelerationStructureGeometryKhr,
             GeometryType = GeometryTypeKHR.TrianglesKhr,
@@ -1000,7 +1004,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             // so), and the parity contract is against that behaviour.
             Flags = GeometryFlagsKHR.OpaqueBitKhr,
         };
-        _geometry.Geometry.Triangles = tris;
+        geometry.Geometry.Triangles = tris;
 
         AccelerationStructureBuildGeometryInfoKHR info = new()
         {
@@ -1009,7 +1013,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
             Mode = BuildAccelerationStructureModeKHR.BuildKhr,
             GeometryCount = 1,
-            PGeometries = (AccelerationStructureGeometryKHR*)Unsafe.AsPointer(ref _geometry),
+            PGeometries = &geometry,
         };
 
         uint primCount = _triangleCount;
