@@ -115,6 +115,10 @@ public sealed class VulkanRayTracerFacts
         Assert.True(narrow.MaxRaysPerSlab <= 128,
             $"the narrow arm ignored its cap (MaxRaysPerSlab={narrow.MaxRaysPerSlab})");
 
+        // Both arms pipeline their slabs: the default keeps three in flight.
+        Assert.Equal(3, wide.SlabsInFlight);
+        Assert.Equal(3, narrow.SlabsInFlight);
+
         int words = (rays.Length + 63) / 64;
         ulong[] bitsA = new ulong[words];
         ulong[] bitsB = new ulong[words];
@@ -354,6 +358,197 @@ public sealed class VulkanRayTracerFacts
             .AsTask().GetAwaiter().GetResult();
         t.TraceClosestAsync(Array.Empty<Ray>(), default, RayTraceOptions.SelfIntersectionSafe)
             .AsTask().GetAwaiter().GetResult();
+    }
+
+    // ------------------------------------------------------------------
+    // Pipelined slabs: slots and in-place buffers change no word
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// The raw kernel words for the lattice rays, through every kernel mode,
+    /// are identical whether a device has one slot with both copies (the
+    /// shape every slab had before slabs were pipelined), several slots all
+    /// in flight at once, or rays read and answers written in place. Runs on
+    /// any ray-query device, llvmpipe included: it drives the device below
+    /// the self-test gate, and the telemetry mode's per-ray traversal counts
+    /// make the comparison meaningful even on a device whose committed hits
+    /// are broken.
+    /// </summary>
+    [HwGpuFact]
+    public void SlotsAndInPlaceBuffersGiveTheWordsOfOneStagedSlot()
+    {
+        (TracedTriangle[] tris, Ray[] rays) = Lattice(rays: 4096, planes: 16, seed: 17);
+
+        // Every third ray turned away from the lattice: its telemetry reads
+        // no traversal where its neighbours' reads some, so the words depend
+        // on which ray sits in which lane even on llvmpipe, whose telemetry
+        // is otherwise the same for every ray that reaches the scene.
+        for (int i = 0; i < rays.Length; i += 3)
+        {
+            Ray r = rays[i];
+            rays[i] = new Ray(r.OriginX, r.OriginY, r.OriginZ, -r.DirectionX, r.DirectionY, r.DirectionZ, r.MaxDistance);
+        }
+
+        uint[][] reference = RawWords(tris, rays, slots: 1, forceStaged: true, out SlabMemoryLayout layout);
+        Assert.Equal(new SlabMemoryLayout(false, false), layout);
+        foreach ((int slots, bool staged) in new[] { (3, true), (3, false), (8, false) })
+        {
+            uint[][] words = RawWords(tris, rays, slots, staged, out _);
+            for (int m = 0; m < RawModes.Length; m++)
+            {
+                Assert.True(reference[m].AsSpan().SequenceEqual(words[m]),
+                    $"mode {RawModes[m]} differs with {slots} slots (staged: {staged})");
+            }
+        }
+
+        // Not vacuous: mode 4 wrote its all-ones, and the telemetry tells
+        // the turned rays from the rest.
+        Assert.All(reference[0], w => Assert.Equal(0xFFFFFFFFu, w));
+        Assert.Contains(reference[1], w => w != 0);
+        Assert.Contains(reference[1], w => w == 0);
+    }
+
+    /// <summary>
+    /// End to end through <see cref="SlabBatcher"/>: many concurrent callers
+    /// on a three-slot device with small slabs (so dozens of slabs go out,
+    /// several at a time) get the same bits and hits as on a one-slot
+    /// device with both copies. Runs on any ray-query device; on llvmpipe,
+    /// which commits no hit, both sides are all-miss and the fact proves
+    /// only the plumbing, so the raw-words fact above, whose telemetry mode
+    /// does vary per ray there, is the one that carries the answers.
+    /// </summary>
+    [HwGpuFact]
+    public async Task BatcherOverSeveralSlotsMatchesOneSlot()
+    {
+        (TracedTriangle[] tris, Ray[] rays) = Lattice(rays: 16_384, planes: 16, seed: 19);
+        (ulong[] Bits, HitId[] Hits) one = await TraceThroughBatcher(tris, rays, slots: 1, forceStaged: true);
+        (ulong[] Bits, HitId[] Hits) three = await TraceThroughBatcher(tris, rays, slots: 3, forceStaged: false);
+
+        Assert.Equal(one.Bits, three.Bits);
+        Assert.Equal(one.Hits, three.Hits);
+    }
+
+    private static readonly int[] RawModes = [4, 5, 0, 1];
+
+    private static float[] Vertices(TracedTriangle[] tris)
+    {
+        float[] v = new float[tris.Length * 9];
+        for (int i = 0; i < tris.Length; i++)
+        {
+            Vec3[] corners = [tris[i].V0, tris[i].V1, tris[i].V2];
+            for (int c = 0; c < 3; c++)
+            {
+                v[(i * 9) + (c * 3)] = corners[c].X;
+                v[(i * 9) + (c * 3) + 1] = corners[c].Y;
+                v[(i * 9) + (c * 3) + 2] = corners[c].Z;
+            }
+        }
+
+        return v;
+    }
+
+    private static VulkanDevice OpenRaw(TracedTriangle[] tris, int slots, bool forceStaged)
+    {
+        // 512 rays a slot: the lattice batches cross many slabs.
+        VulkanDevice device = new();
+        try
+        {
+            device.Construct(null, -1, 512 * slots, slots, forceStaged);
+            device.LoadScene(Vertices(tris));
+            Assert.Equal(512, device.MaxSlabRays);
+            Assert.Equal(slots, device.SlotCount);
+            return device;
+        }
+        catch
+        {
+            device.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Every raw mode over the rays, a wave of slots in flight at a time.</summary>
+    private static uint[][] RawWords(TracedTriangle[] tris, Ray[] rays, int slots, bool forceStaged, out SlabMemoryLayout layout)
+    {
+        using VulkanDevice device = OpenRaw(tris, slots, forceStaged);
+        layout = device.SlabLayout;
+        int slab = device.MaxSlabRays;
+        uint[][] result = new uint[RawModes.Length][];
+        for (int m = 0; m < RawModes.Length; m++)
+        {
+            int mode = RawModes[m];
+            bool perWorkgroup = mode is 0 or 4;
+            int WordsFor(int n) => perWorkgroup ? (n + 63) / 64 * 2 : n * 2;
+            uint[] words = new uint[WordsFor(rays.Length)];
+            for (int wave = 0; wave < rays.Length; wave += slab * slots)
+            {
+                List<(int Slot, int Start, int Count)> launched = [];
+                for (int s = 0; s < slots && wave + (s * slab) < rays.Length; s++)
+                {
+                    int start = wave + (s * slab);
+                    int count = Math.Min(slab, rays.Length - start);
+                    Span<float> staging = device.StageRays(s, count);
+                    for (int i = 0; i < count; i++)
+                    {
+                        Ray r = rays[start + i];
+                        staging[i * 8] = r.OriginX;
+                        staging[(i * 8) + 1] = r.OriginY;
+                        staging[(i * 8) + 2] = r.OriginZ;
+                        staging[(i * 8) + 3] = 0f;
+                        staging[(i * 8) + 4] = r.DirectionX;
+                        staging[(i * 8) + 5] = r.DirectionY;
+                        staging[(i * 8) + 6] = r.DirectionZ;
+                        staging[(i * 8) + 7] = r.MaxDistance;
+                    }
+
+                    device.Submit(s, mode, count, WordsFor(count), SelfIntersectionTminBits, VulkanDevice.TmaxScaleBits);
+                    launched.Add((s, start, count));
+                }
+
+                // Every slot of the wave is on the device before the first is waited for.
+                foreach ((int s, int start, int count) in launched)
+                {
+                    device.Complete(s, words.AsSpan(WordsFor(start), WordsFor(count)));
+                }
+            }
+
+            result[m] = words;
+        }
+
+        return result;
+    }
+
+    private const uint SelfIntersectionTminBits = 0x3A83126Fu; // 1e-3f
+
+    private static async Task<(ulong[] Bits, HitId[] Hits)> TraceThroughBatcher(
+        TracedTriangle[] tris, Ray[] rays, int slots, bool forceStaged)
+    {
+        VulkanDevice device = OpenRaw(tris, slots, forceStaged);
+        SlabBatcher batcher = new(device, [.. tris.Select(t => t.Id)], VulkanDevice.TmaxScaleBits);
+        try
+        {
+            ulong[] bits = new ulong[(rays.Length + 63) / 64];
+            HitId[] hits = new HitId[rays.Length];
+
+            // 64 callers of uneven sizes, all at once, like vrad's workers.
+            List<Task> calls = [];
+            int at = 0;
+            for (int k = 0; at < rays.Length; k++)
+            {
+                int n = Math.Min(rays.Length - at, 64 * (1 + (k % 7)));
+                calls.Add(batcher.TraceVisibilityAsync(
+                    rays.AsMemory(at, n), bits.AsMemory(at / 64), SelfIntersectionTminBits, CancellationToken.None));
+                calls.Add(batcher.TraceClosestAsync(
+                    rays.AsMemory(at, n), hits.AsMemory(at, n), SelfIntersectionTminBits, CancellationToken.None));
+                at += n;
+            }
+
+            await Task.WhenAll(calls).WaitAsync(TimeSpan.FromMinutes(5));
+            return (bits, hits);
+        }
+        finally
+        {
+            batcher.Close(device.Dispose);
+        }
     }
 
     // ------------------------------------------------------------------
