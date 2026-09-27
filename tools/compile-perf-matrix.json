@@ -8,6 +8,8 @@
     "{gpu} and {vphysics} are replaced by the --gpu and --vphysics options. Only settings that change",
     "the work done are here: the survey behind this file found -ao, -textureshadows and friends are",
     "accepted but have no effect, and vbsp -low and vvis -low are dropped with a warning.",
+    "-nosubdiv is left out on purpose: unsplit faces exceed vrad's per-face sample limit (2450), which",
+    "stock overflows and this port refuses, so no compile with it and lighting can succeed.",
     "'baseline' is the cell every other cell is compared against."
   ],
   "baseline": {
@@ -84,7 +86,7 @@
       "values": {
         "default": {},
         "nodetail": { "vbsp": ["-nodetail"] },
-        "noopt": { "vbsp": ["-noopt", "-notjunc", "-nosubdiv"] }
+        "noopt": { "vbsp": ["-noopt", "-notjunc"] }
       }
     },
     "vvis": {

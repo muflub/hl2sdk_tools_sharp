@@ -40,6 +40,14 @@ class MatrixTests(unittest.TestCase):
         for axis, spec in self.matrix["axes"].items():
             self.assertIn(self.matrix["baseline"][axis], spec["values"])
 
+    def test_no_value_splits_faces_past_vrads_sample_limit(self):
+        # -nosubdiv leaves faces too big for vrad's per-face sample buffer:
+        # every lit compile with it fails, so it can only waste a cell.
+        for axis, spec in self.matrix["axes"].items():
+            for value, v in spec["values"].items():
+                for opts in (v.get(k, []) for k in ("chain", "vbsp", "vvis", "vrad")):
+                    self.assertNotIn("-nosubdiv", opts, f"{axis}={value}")
+
     def test_a_missing_requirement_skips_the_value_and_says_why(self):
         kept, skipped = cp.narrow(self.matrix, {}, set())
         self.assertNotIn("gpu", kept["tracer"]["values"])
