@@ -8,6 +8,7 @@
 using System.Buffers.Binary;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Bsp;
+using SourceSharp.MapTools.Parallel;
 
 namespace SourceSharp.MapTools.Phys.Managed;
 
@@ -28,7 +29,7 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// geometric tests rather than a port of <c>CPhysicsTrace</c>; see <see cref="ManagedTrace"/>.
 /// </para>
 /// </remarks>
-internal sealed class ManagedCollisionSession : ICollisionSession
+internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentConvexSession
 {
     private readonly IIvpBuild _build;
     private readonly ISurfacePropertySession _surfaceProps;
@@ -62,6 +63,23 @@ internal sealed class ManagedCollisionSession : ICollisionSession
     /// the ledge (<see cref="Options.StockQuirk.CollisionPolysoupMaterialOverrun"/>).
     /// </summary>
     public bool FixPolysoupMaterialWalk { get; init; }
+
+    /// <summary>
+    /// Opens the builders a worker thread cooks with, called ON that thread; null when this
+    /// session has no cooker behind it, and <see cref="BuildConvexes"/> then runs on this session.
+    /// </summary>
+    /// <remarks>
+    /// A factory rather than this session's own builders because those carry the opening
+    /// thread's scratch (its qhull storage), which is not thread-safe: every worker has to cook
+    /// with its own thread's.
+    /// </remarks>
+    public Func<IIvpBuild>? WorkerBuilds { get; init; }
+
+    /// <summary>Where <see cref="BuildConvexes"/> queues its helpers: the cooker's scheduler when the session was opened.</summary>
+    public TaskScheduler WorkerScheduler { get; init; } = TaskScheduler.Default;
+
+    /// <summary>How many convexes this session holds, for the facts that check a failed build adopted nothing.</summary>
+    internal int LiveConvexCount => _convexes.Count;
 
     private nint NextHandle() => _next += 16;
 
@@ -108,6 +126,50 @@ internal sealed class ManagedCollisionSession : ICollisionSession
 
     private static InstanceTransform? Placement(Vec3 origin, Vec3 angles) =>
         origin == default && angles == default ? null : InstanceTransform.FromAngles(angles, origin);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Each participating thread cooks into a worker session of its own, over its own thread's
+    /// builders, and each finished ledge is taken out of that session at once; the ledges are
+    /// added to this session only when every item has succeeded, in index order. The managed
+    /// builders hold nothing between builds that reaches their output (the qhull storage they
+    /// reuse is handed out as if fresh), so which thread built a brush, and after what, makes no
+    /// difference to its bytes. A worker session holds only managed objects: dropping it, on
+    /// success or failure, is all the cleanup it needs.
+    /// </remarks>
+    public ConvexHandle[] BuildConvexes(
+        int count,
+        Func<ICollisionSession, int, ConvexHandle> build,
+        int maxDegree,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(build);
+        var ledges = new IvpCompactLedge?[Math.Max(count, 0)];
+        Func<IIvpBuild>? workerBuilds = WorkerBuilds;
+        CallerParallelFor.For(
+            ledges.Length,
+            workerBuilds is null ? 1 : maxDegree,
+            WorkerScheduler,
+            () => workerBuilds is null
+                ? this
+                : new ManagedCollisionSession(workerBuilds(), _surfaceProps) { FixPolysoupMaterialWalk = FixPolysoupMaterialWalk },
+            (i, worker) => ledges[i] = worker.TakeConvex(build(worker, i)),
+            cancellationToken);
+
+        var handles = new ConvexHandle[ledges.Length];
+        for (int i = 0; i < ledges.Length; i++)
+        {
+            handles[i] = Add(ledges[i]);
+        }
+
+        return handles;
+    }
+
+    /// <summary>Removes a convex from this session's table and returns its ledge; null for a null handle.</summary>
+    private IvpCompactLedge? TakeConvex(ConvexHandle convex) =>
+        convex.IsNull ? null
+        : _convexes.Remove(convex.Value, out IvpCompactLedge? ledge) ? ledge
+        : throw new ArgumentException("the build returned a convex that is not the worker session's", nameof(convex));
 
     /// <inheritdoc/>
     public ConvexHandle ConvexFromVerts(ReadOnlySpan<Vec3> points) => Add(_build.ConvexFromVerts(Points(points)));
