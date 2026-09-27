@@ -179,6 +179,43 @@ class GameCopyTests(unittest.TestCase):
             os.remove(vmf)
 
 
+class QuickTests(unittest.TestCase):
+    def setUp(self):
+        with tempfile.NamedTemporaryFile(suffix=".vmf", delete=False) as fh:
+            self.vmf = fh.name
+
+    def tearDown(self):
+        os.remove(self.vmf)
+
+    def test_without_quick_the_full_defaults_apply(self):
+        a = cp.parse_args(["--map", self.vmf])
+        self.assertEqual((list(cp.STAGES), "pairwise", 3, 1, "all"),
+                         (a.stages, a.matrix, a.runs, a.warmups, a.profile_cells))
+        self.assertEqual(list(cp.DEFAULT_PROFILERS), a.profile)
+
+    def test_quick_covers_every_stage_once_per_setting_with_one_run(self):
+        a = cp.parse_args(["--map", self.vmf, "--quick"])
+        self.assertEqual((list(cp.STAGES), "sweep", 1, 0, "baseline"),
+                         (a.stages, a.matrix, a.runs, a.warmups, a.profile_cells))
+        self.assertEqual(["stages", "rusage", "cpu", "gc"], a.profile)
+
+    def test_explicit_options_win_over_quick(self):
+        a = cp.parse_args(["--map", self.vmf, "--quick", "--runs", "2", "--stages", "vrad",
+                           "--profile", "cpu", "--matrix", "pairwise"])
+        self.assertEqual((["vrad"], "pairwise", 2, 0), (a.stages, a.matrix, a.runs, a.warmups))
+        self.assertEqual(["cpu"], a.profile)
+
+    def test_quick_plans_a_sweep_of_every_stage_and_profiles_only_the_baselines(self):
+        a = cp.parse_args(["--map", self.vmf, "--quick"])
+        _, _, _, cells = cp.plan(a)
+        full = cp.plan(cp.parse_args(["--map", self.vmf]))[3]
+        self.assertEqual(set(cp.STAGES), {c["stage"] for c in cells})
+        self.assertLess(len(cells), len(full))
+        profiled = [c for c in cells if c["profile"]]
+        self.assertEqual(sorted(cp.STAGES), sorted(c["stage"] for c in profiled))
+        self.assertTrue(all(c["id"].endswith("baseline") for c in profiled))
+
+
 class GpuOptionTests(unittest.TestCase):
     def test_an_empty_gpu_match_is_refused_at_once(self):
         with tempfile.NamedTemporaryFile(suffix=".vmf", delete=False) as fh:
