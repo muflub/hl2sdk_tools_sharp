@@ -506,6 +506,44 @@ public sealed class FaceSampleBuilderTests
     }
 
     [Fact]
+    public void PartialWindingsAreContiguousAndTheArrayIsExactlyTheirTotal()
+    {
+        // Enough partial samples that the pooled winding builder grows several
+        // times; the kept array must still hold exactly their points, in order.
+        FaceLight fl = Samples(offset: 8);
+        int expected = 0;
+        foreach (LightSample s in fl.Samples.Where(s => s.WindingCount > 0))
+        {
+            Assert.Equal(expected, s.WindingOffset);
+            expected += s.WindingCount;
+        }
+
+        Assert.True(expected > 16);
+        Assert.Equal(expected, fl.SampleWindingPoints.Length);
+    }
+
+    [Fact]
+    public void EverySampleGetsTheFaceNormalAndNoPoolSlack()
+    {
+        // The samples are built in rented storage larger than the result;
+        // the kept array is exactly the samples, each with the flat normal.
+        FaceLight fl = Samples(offset: 8);
+        Assert.Equal(289, fl.Samples.Length);
+        Assert.All(fl.Samples, s => Assert.Equal(new Vec3(0, 0, 1), s.Normal));
+    }
+
+    [Fact]
+    public void BuildingTheSameFaceTwiceGivesIdenticalSamples()
+    {
+        // The second build reuses pooled storage the first returned; nothing
+        // it left behind may leak into the result.
+        FaceLight first = Samples(offset: 8);
+        FaceLight second = Samples(offset: 8);
+        Assert.Equal(first.Samples, second.Samples);
+        Assert.Equal(first.SampleWindingPoints, second.SampleWindingPoints);
+    }
+
+    [Fact]
     public void PartialAreasSumToTheFaceArea()
     {
         FaceLight fl = Samples(offset: 8);
