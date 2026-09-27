@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 
 namespace SourceSharp.MapTools.Rad.Light;
 
@@ -104,9 +105,9 @@ public struct DirectionalSampler
     {
         float zvalue = _zdot.NextValue();
         zvalue = (float)((2 * zvalue) - 1.0);
-        float phi = MathF.Acos(zvalue);
+        float phi = DetMathF.Acos(zvalue);
         float theta = (float)(2.0 * Math.PI * _vrot.NextValue());
-        float sinP = MathF.Sin(phi);
-        return new Vec3(MathF.Cos(theta) * sinP, MathF.Sin(theta) * sinP, zvalue);
+        float sinP = DetMathF.Sin(phi);
+        return new Vec3(DetMathF.Cos(theta) * sinP, DetMathF.Sin(theta) * sinP, zvalue);
     }
 }

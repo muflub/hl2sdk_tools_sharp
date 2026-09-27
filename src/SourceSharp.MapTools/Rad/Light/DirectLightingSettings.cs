@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapTools.Options;
 
 namespace SourceSharp.MapTools.Rad.Light;
@@ -152,7 +153,7 @@ public sealed record DirectLightingSettings
         // of the argument. 45 is taken to mean "not given".
         float smoothing = options.SmoothingAngleDegrees == 45.0f
             ? LightConstants.DefaultSmoothingThreshold
-            : (float)Math.Cos(options.SmoothingAngleDegrees * (Math.PI / 180.0));
+            : DetMath.CosToSingle(options.SmoothingAngleDegrees * (Math.PI / 180.0));
 
         return new DirectLightingSettings
         {
@@ -174,7 +175,7 @@ public sealed record DirectLightingSettings
             // Sin((M_PI/180.0)*g), in double, narrowed.
             SunAngularExtent = options.SunAngularExtentDegrees == 0f
                 ? 0f
-                : (float)Math.Sin(Math.PI / 180.0 * options.SunAngularExtentDegrees),
+                : DetMath.SinToSingle(Math.PI / 180.0 * options.SunAngularExtentDegrees),
             NoSkyboxRecurse = options.NoSkyboxRecurse,
             SeparateDirectLightmap = options.SeparateDirectLightmap,
             DispChop = options.DispChop,

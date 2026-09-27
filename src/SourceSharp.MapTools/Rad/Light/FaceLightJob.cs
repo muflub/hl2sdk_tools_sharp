@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapTools.Geometry;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Materials;
@@ -1097,7 +1098,7 @@ public sealed class FaceLightJob
                 float intensity = _fl.LightFor(StyleIndex, n)![sampleIdx].Intensity();
 
                 // "convert to a linear perception space": pow in double.
-                _intensity[(n * _size) + destIdx] = (float)Math.Pow(intensity / 256.0, 1.0 / 2.2);
+                _intensity[(n * _size) + destIdx] = DetMath.PowToSingle(intensity / 256.0, 1.0 / 2.2);
             }
         }
 

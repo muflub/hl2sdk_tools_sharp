@@ -12,6 +12,7 @@ using System.Runtime.InteropServices;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
@@ -413,7 +414,7 @@ public static class DetailPropLighting
     }
 
     private static (float Sin, float Cos) SinCos(float radians) =>
-        ((float)Math.Sin(radians), (float)Math.Cos(radians));
+        (DetMath.SinToSingle(radians), DetMath.CosToSingle(radians));
 
     /// <summary><c>VectorMA</c>: <c>start + scale * dir</c>, per component.</summary>
     private static Vec3 Ma(Vec3 start, float scale, Vec3 dir) =>
@@ -600,7 +601,7 @@ public static class DetailPropLighting
             _scene = scene;
             _scratch = scene.Tracer.Displacements.CreateScratch();
             _sky = RayAmbientLighting.FindSkyAmbient(scene);
-            _tanTheta = MathF.Tan(VertexNormals.ConeInnerAngleRadians);
+            _tanTheta = DetMathF.Tan(VertexNormals.ConeInnerAngleRadians);
         }
 
         public void Compute(Vec3 origin, Vec3[] color)

@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Rad.Light;
 
@@ -92,7 +93,11 @@ public static class FormFactors
     /// </para>
     /// <para>
     /// <c>asin</c> is the <c>float</c> overload (the reference build maps
-    /// <c>asin(float)</c> to <c>asinf</c>), so <see cref="MathF.Asin"/>.
+    /// <c>asin(float)</c> to <c>asinf</c>), so the correctly rounded float
+    /// arcsine, <see cref="DetMathF.Asin"/>, under both policies. The
+    /// reference's <c>asinf</c> is its own C runtime's and cannot be
+    /// reproduced; the host's (glibc misrounds about one argument in ten in
+    /// <c>[0.5, 1)</c>) would only make the transfers depend on the OS.
     /// </para>
     /// </remarks>
     public static float PolyToDiff(
@@ -126,7 +131,7 @@ public static class FormFactors
                 sinAlpha = sinAlpha > 1.0f ? 1.0f : -1.0f;
             }
 
-            gamma *= MathF.Asin(sinAlpha);
+            gamma *= DetMathF.Asin(sinAlpha);
             formFactor += Vec3.Dot(gamma, diffNormal);
         }
 

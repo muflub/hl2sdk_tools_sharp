@@ -10,6 +10,7 @@ using System.Runtime.Intrinsics;
 
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Tracing;
 
@@ -114,7 +115,9 @@ public sealed class GatherOutput
 /// <see cref="StockQuirk.GatherReciprocalEstimate"/> and
 /// <see cref="StockQuirk.SpotExponentQuarterSteps"/> both are reproduced
 /// (the estimates machine-dependently, as the instructions are); by default
-/// this divides and takes square roots exactly and uses <see cref="MathF.Pow(float, float)"/>.
+/// this divides and takes square roots exactly and takes the power with
+/// <see cref="DetMathF.Pow"/>, which is correctly rounded, so nothing here
+/// depends on the CPU or on the platform's C library.
 /// </para>
 /// <para>
 /// <c>MaxSIMD</c>/<c>MinSIMD</c> are <c>maxps</c>/<c>minps</c>, which return
@@ -1233,7 +1236,7 @@ public sealed class DirectLightGatherer
                 // accurate, but it doesn't need to be"); exact pow here.
                 if (light.Exponent != 0.0f && light.Exponent != 1.0f)
                 {
-                    mult = _quarterPow ? StockSimd.FixedPointPow(mult, light.Exponent) : MathF.Pow(mult, light.Exponent);
+                    mult = _quarterPow ? StockSimd.FixedPointPow(mult, light.Exponent) : DetMathF.Pow(mult, light.Exponent);
                 }
 
                 mult = inFringe ? mult : 1.0f;

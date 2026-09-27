@@ -7,6 +7,7 @@
 
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Tracing;
 
@@ -598,10 +599,10 @@ public struct DirectionalSampler
     {
         float z = Element(2, ref _zSeed);
         z = (2 * z) - 1.0f;
-        float phi = MathF.Acos(z);
+        float phi = DetMathF.Acos(z);
         float theta = (float)(2.0 * Math.PI * Element(3, ref _rSeed));
-        float sinP = MathF.Sin(phi);
-        return new Vec3(MathF.Cos(theta) * sinP, MathF.Sin(theta) * sinP, z);
+        float sinP = DetMathF.Sin(phi);
+        return new Vec3(DetMathF.Cos(theta) * sinP, DetMathF.Sin(theta) * sinP, z);
     }
 
     private static float Element(int b, ref int seed)

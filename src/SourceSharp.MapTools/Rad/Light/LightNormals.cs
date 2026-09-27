@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 
 namespace SourceSharp.MapTools.Rad.Light;
 
@@ -89,7 +90,7 @@ public static class LightNormals
             }
 
             x = (float)Cosine(Radians(angle, reciprocalDegrees), crtCosine);
-            y = (float)Math.Sin(Radians(angle, reciprocalDegrees));
+            y = DetMath.SinToSingle(Radians(angle, reciprocalDegrees));
         }
 
         // Likewise, a zero pitch falls back to component 0.
@@ -100,7 +101,7 @@ public static class LightNormals
 
         // 44-46, and note z is ASSIGNED here rather than multiplied, which is
         // what erases the ANGLE_UP and ANGLE_DOWN sentinels above.
-        float z = (float)Math.Sin(Radians(pitch, reciprocalDegrees));
+        float z = DetMath.SinToSingle(Radians(pitch, reciprocalDegrees));
         float cosPitch = (float)Cosine(Radians(pitch, reciprocalDegrees), crtCosine);
 
         return new Vec3(x * cosPitch, y * cosPitch, z);
@@ -128,21 +129,22 @@ public static class LightNormals
     /// <remarks>
     /// At exactly <c>+/-(double)M_PI / 2</c> the correctly rounded cosine is
     /// 6.123233995736766e-17 (the distance from the double to the true pi/2),
-    /// and that is what <see cref="Math.Cos"/> returns. Stock's x64 binary
+    /// and that is what <see cref="DetMath.Cos"/> returns. Stock's x64 binary
     /// wrote 1.2246469e-16 -- the float of <c>sin((double)M_PI)</c>, twice as
     /// large -- for BOTH a yaw of 90 and a pitch of -90 on p4c's texlight
     /// fixture. That is the answer of a cosine taken as <c>sin(|x| + pi/2)</c>
     /// in double, which is what the observed pair fits. Only the observed
-    /// arguments are reproduced; every other angle is <see cref="Math.Cos"/>.
+    /// arguments are reproduced; every other angle is <see cref="DetMath.Cos"/>,
+    /// correctly rounded, so the same on every host.
     /// </remarks>
     public static double Cosine(double radians, bool crtCosine)
     {
         const double halfPi = Math.PI / 2;
         if (crtCosine && (radians == halfPi || radians == -halfPi))
         {
-            return Math.Sin(Math.PI);
+            return DetMath.Sin(Math.PI);
         }
 
-        return Math.Cos(radians);
+        return DetMath.Cos(radians);
     }
 }

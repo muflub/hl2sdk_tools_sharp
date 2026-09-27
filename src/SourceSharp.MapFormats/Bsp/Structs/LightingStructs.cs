@@ -49,12 +49,15 @@ public struct ColorRgbExp32
     /// The reference implementation converts
     /// <c>TexLightToLinear( c, exponent )</c> per channel, which is
     /// <c>mantissa * 2^exponent</c>. Written here as
-    /// <see cref="MathF.Pow(float, float)"/> of two, rather than as a table
-    /// lookup, so there is no static state and no initialisation order.
+    /// <see cref="MathF.ScaleB(float, int)"/>, rather than as a table lookup,
+    /// so there is no static state and no initialisation order. ScaleB is
+    /// exact (the power of two for a signed byte exponent is a float, normal
+    /// or subnormal) and computed in managed code, where a <c>pow</c> would
+    /// go to the platform's C library.
     /// </remarks>
     public readonly Vec3 ToLinear()
     {
-        float scale = MathF.Pow(2.0f, Exponent);
+        float scale = MathF.ScaleB(1.0f, Exponent);
         return new Vec3(R * scale, G * scale, B * scale);
     }
 }

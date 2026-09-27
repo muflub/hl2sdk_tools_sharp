@@ -118,6 +118,18 @@ public sealed record ComplianceQuirkInfo(
 /// No static state: <see cref="All"/> is rebuilt on every call, so the
 /// catalogue cannot be mutated by one compile under another.
 /// </para>
+/// <para>
+/// <b>Not a quirk: elementary functions.</b> The reference takes
+/// <c>sin</c>, <c>cos</c>, <c>pow</c>, <c>asin</c> and the rest from its
+/// own C runtime, whose last bits no other runtime reproduces. Both policies
+/// compute them correctly rounded
+/// (<see cref="MapFormats.Numerics.DetMath"/>,
+/// <see cref="MapFormats.Numerics.DetMathF"/>), which matches the reference
+/// wherever its runtime is correctly rounded and is the same on every OS and
+/// CPU. There is nothing for <see cref="CompliancePolicy.Stock"/> to switch
+/// to: the host's C library would reproduce neither the reference nor
+/// another host.
+/// </para>
 /// </remarks>
 public static class ComplianceCatalogue
 {
@@ -577,8 +589,8 @@ public static class ComplianceCatalogue
             "Direct-light gather uses rcp/rsqrt estimates",
             "The direct-light gather, the four-wide phong normal and the skybox recursion divide "
             + "with the rcpps/rsqrtps estimates plus one Newton step, so lightmaps depend on the CPU.",
-            "The gather divides and takes square roots exactly, so lightmaps do not depend on the "
-            + "CPU.",
+            "The gather divides and takes square roots exactly and takes the spot power correctly "
+            + "rounded, so lightmaps depend on neither the CPU nor the OS.",
             CompileTools.Vrad,
             [
                 "SourceSharp.MapTools.Rad.Light.DirectLightGatherer..ctor",
