@@ -18,7 +18,8 @@ another profiler's numbers:
             lock contention, thread pool, exceptions, JIT) -> gc.json via
             tools/PerfTraceReport
   counters  dotnet-counters, System.Runtime once a second -> counters.csv
-  heap      dotnet-gcdump every --heap-interval seconds; the largest snapshot
+  heap      dotnet-gcdump from 0.25 s in, then every --heap-interval seconds;
+            the largest snapshot
             is kept with its by-type report
   perf      with --perf-record: perf record -g with the runtime's perf map,
             native and managed frames together -> perf.folded
@@ -53,7 +54,8 @@ Options:
   --profile LIST        any of stages,rusage,cpu,gc,counters,heap,perf, or
                         all / none (default all but perf)
   --profile-cells MODE  all (default), baseline or sweep: which cells profile
-  --heap-interval S     seconds between heap snapshots (default 5)
+  --heap-interval S     seconds between heap snapshots (default 1; each one is
+                        a full blocking GC, in the heap profiler's own run)
   --gpu MATCH           enables the tracer=gpu value (-gpu MATCH): a
                         case-insensitive part of the Vulkan device's name,
                         e.g. RTX or 4090. Checked before any cell runs, with
@@ -649,7 +651,9 @@ def heap_snapshots(runner, cdir, fresh, done_with, env, inputs, stage, build_kin
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=dict(os.environ, **env), cwd=inputs.work)
     snaps, n = [], 0
     try:
-        time.sleep(min(interval, 2))
+        # A compile on a fast machine is over in a couple of seconds, so the
+        # first snapshot comes early; later ones follow every interval.
+        time.sleep(min(interval, 0.25))
         while proc.poll() is None:
             path = os.path.join(cdir, f"heap-{n}.gcdump")
             subprocess.run([gcdump, "collect", "-p", str(proc.pid), "-o", path], stdout=log, stderr=subprocess.STDOUT,
@@ -749,7 +753,7 @@ def parse_args(argv):
     p.add_argument("--warmups", type=int, default=1)
     p.add_argument("--profile", default="default")
     p.add_argument("--profile-cells", default="all", choices=["all", "baseline", "sweep"])
-    p.add_argument("--heap-interval", type=float, default=5)
+    p.add_argument("--heap-interval", type=float, default=1)
     p.add_argument("--gpu")
     p.add_argument("--vphysics")
     p.add_argument("--aot", action="store_true")
