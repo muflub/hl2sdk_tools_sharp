@@ -7,6 +7,7 @@
 
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapTools.Collections;
 using SourceSharp.MapTools.Geometry;
 
 namespace SourceSharp.MapTools.Rad.Light;
@@ -154,8 +155,12 @@ public static class FaceSampleBuilder
         float worldAreaPerLuxel = WorldAreaPerLuxel(geometry.TexInfos[face.TexInfo]);
         faceLight.WorldAreaPerLuxel = worldAreaPerLuxel;
 
-        List<LightSample> samples = new(Math.Min(width * height, SampleCapacity));
-        List<Vec3> windingPoints = [];
+        // Each (s, t) cell yields at most one sample and the capacity check
+        // stops at SampleCapacity, so the samples never outgrow this. Both
+        // builders' storage is pooled: the arrays the face keeps are the only
+        // allocations that outlive this call.
+        using PooledArrayBuilder<LightSample> samples = new(Math.Min(width * height, SampleCapacity));
+        using PooledArrayBuilder<Vec3> windingPoints = new();
 
         Winding lightmapWinding = info.LightmapCoordWinding(arena, geometry);
 
@@ -218,14 +223,13 @@ public static class FaceSampleBuilder
 
         // Every sample starts with the flat face normal; a smoothed
         // face's are replaced by BuildFacelights once the phong normals exist.
-        LightSample[] result = [.. samples];
-        for (int i = 0; i < result.Length; i++)
+        foreach (ref LightSample sample in samples.AsSpan())
         {
-            result[i].Normal = info.FaceNormal;
+            sample.Normal = info.FaceNormal;
         }
 
-        faceLight.Samples = result;
-        faceLight.SampleWindingPoints = [.. windingPoints];
+        faceLight.Samples = samples.ToArray();
+        faceLight.SampleWindingPoints = windingPoints.ToArray();
     }
 
     /// <summary>
@@ -326,7 +330,7 @@ public static class FaceSampleBuilder
         int t,
         float worldAreaPerLuxel,
         bool keepPartialWindings,
-        List<Vec3> windingPoints)
+        PooledArrayBuilder<Vec3> windingPoints)
     {
         float area = arena.AreaAndBalancePoint(cell, out Vec3 center) * worldAreaPerLuxel;
         arena.Bounds(cell, out Vec3 mins, out Vec3 maxs);

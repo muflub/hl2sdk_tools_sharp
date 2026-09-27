@@ -394,7 +394,11 @@ public static class DefaultCubemapBuilder
 
         try
         {
-            return VtfFile.Parse(owner.Memory.ToArray()).Header;
+            // Only the header, a value, leaves this method, so the parse can
+            // read the pooled bytes in place: nothing refers to them once the
+            // owner is disposed. Copying the whole texture out first cost a
+            // skybox face's worth of garbage per side, per compile.
+            return VtfFile.Parse(owner.Memory).Header;
         }
         catch (InvalidVtfException)
         {
