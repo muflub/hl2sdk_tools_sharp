@@ -18,11 +18,14 @@ namespace SourceSharp.Tests.MapFormats.Numerics;
 /// the arguments each public function hands to the exact tier.
 /// </summary>
 /// <remarks>
-/// For the special values themselves the platform functions are the
-/// reference: .NET documents IEEE 754 / C Annex F results for them on every
-/// platform, and they are exact (a zero, an infinity, one, NaN), so there is
-/// no last bit to disagree about. Every other result is checked against the
-/// exact tier.
+/// For the special values of pow, sin, cos, tan, asin and acos the platform
+/// functions are the reference: .NET documents IEEE 754 / C Annex F results
+/// for them on every platform, and they are exact (a zero, an infinity, one,
+/// NaN), so there is no last bit to disagree about. atan2's special results
+/// are not exact -- they are multiples of pi/4 -- and platforms round them
+/// differently (Apple's atan2f(+0, -1) is the float just below pi), so its
+/// table is written out here with the correctly rounded constants. Every
+/// other result is checked against the exact tier.
 /// </remarks>
 public class DetMathSpecialValueTests
 {
@@ -61,13 +64,59 @@ public class DetMathSpecialValueTests
             {
                 float ours = DetMathF.Atan2(y, x);
                 float expected = IsSpecial(x) || IsSpecial(y)
-                    ? MathF.Atan2(y, x)
+                    ? IeeeAtan2(y, x)
                     : (float)ExactMath.Atan2(y, x, RoundingTarget.Single);
                 Check(wrong, $"Atan2({y:R}, {x:R})", ours, expected);
             }
         }
 
         Assert.True(wrong.Count == 0, string.Join(Environment.NewLine, wrong));
+    }
+
+    // pi, pi/2, pi/4 and 3pi/4 rounded to the nearest float.
+    private static readonly float Pi = BitConverter.Int32BitsToSingle(0x40490FDB);
+    private static readonly float HalfPi = BitConverter.Int32BitsToSingle(0x3FC90FDB);
+    private static readonly float QuarterPi = BitConverter.Int32BitsToSingle(0x3F490FDB);
+    private static readonly float ThreeQuarterPi = BitConverter.Int32BitsToSingle(0x4016CBE4);
+
+    /// <summary>
+    /// atan2 where either argument is a zero, an infinity or NaN: IEEE 754's
+    /// table (C Annex F.10.1.4), with each multiple of pi correctly rounded.
+    /// </summary>
+    private static float IeeeAtan2(float y, float x)
+    {
+        if (float.IsNaN(y) || float.IsNaN(x))
+        {
+            return float.NaN;
+        }
+
+        float sign = float.IsNegative(y) ? -1f : 1f;
+        if (y == 0)
+        {
+            // atan2(+-0, x): +-0 for x > 0 or +0; +-pi for x < 0 or -0.
+            return float.IsNegative(x) ? sign * Pi : sign * 0f;
+        }
+
+        if (float.IsInfinity(y))
+        {
+            return float.IsPositiveInfinity(x) ? sign * QuarterPi
+                : float.IsNegativeInfinity(x) ? sign * ThreeQuarterPi
+                : sign * HalfPi;
+        }
+
+        // y finite and non-zero, so x is a zero or an infinity.
+        return x == 0 ? sign * HalfPi
+            : float.IsPositiveInfinity(x) ? sign * 0f
+            : sign * Pi;
+    }
+
+    [Fact]
+    public void TheAtan2ConstantsAreTheCorrectlyRoundedMultiplesOfPi()
+    {
+        Assert.Equal(Pi, (float)ExactMath.Atan2(1e-30f, -1f, RoundingTarget.Single));
+        Assert.Equal(HalfPi, (float)ExactMath.Atan2(1f, 1e-30f, RoundingTarget.Single));
+        Assert.Equal(QuarterPi, (float)ExactMath.Atan2(1f, 1f, RoundingTarget.Single));
+        Assert.Equal(ThreeQuarterPi, (float)ExactMath.Atan2(1f, -1f, RoundingTarget.Single));
     }
 
     [Fact]
