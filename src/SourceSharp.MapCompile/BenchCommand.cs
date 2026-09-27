@@ -49,6 +49,10 @@ namespace SourceSharp.MapCompile;
 /// <param name="CacheReused">Collision models the cache replayed (0 without a cache).</param>
 /// <param name="CacheCooked">Collision models cooked (0 without a cache).</param>
 /// <param name="Failure">The failure line, when <see cref="Ok"/> is false.</param>
+/// <param name="CacheStagesReused">Whole stages the cache replayed (e.g. <c>vvis</c>, <c>vrad.transfers</c>).</param>
+/// <param name="CacheStagesComputed">Cacheable stages that missed and were computed.</param>
+/// <param name="CacheSavedMs">The cache's own estimate of the time it saved (models and stages).</param>
+/// <param name="CacheBytesStored">Bytes the run staged into the store.</param>
 public sealed record BenchSample(
     string Cell,
     int Run,
@@ -62,7 +66,11 @@ public sealed record BenchSample(
     IReadOnlyList<string> Outputs,
     int CacheReused,
     int CacheCooked,
-    string? Failure)
+    string? Failure,
+    IReadOnlyList<string>? CacheStagesReused = null,
+    IReadOnlyList<string>? CacheStagesComputed = null,
+    long CacheSavedMs = 0,
+    long CacheBytesStored = 0)
 {
     /// <summary>Writes the sample as one JSON line (the harness's raw ledger).
     /// Hand-rolled: the AOT arm runs with reflection-based serialization
@@ -87,6 +95,12 @@ public sealed record BenchSample(
         j.Append(",\"CacheCooked\":").Append(CacheCooked.ToString(CultureInfo.InvariantCulture));
         j.Append(",\"Failure\":");
         Str(j, Failure ?? string.Empty);
+        j.Append(",\"CacheStagesReused\":[");
+        Strs(j, CacheStagesReused ?? []);
+        j.Append("],\"CacheStagesComputed\":[");
+        Strs(j, CacheStagesComputed ?? []);
+        j.Append("],\"CacheSavedMs\":").Append(CacheSavedMs.ToString(CultureInfo.InvariantCulture));
+        j.Append(",\"CacheBytesStored\":").Append(CacheBytesStored.ToString(CultureInfo.InvariantCulture));
         j.Append('}');
         return j.ToString();
     }
@@ -113,6 +127,11 @@ public sealed record BenchSample(
             e.TryGetProperty(name, out JsonElement v) && v.ValueKind == JsonValueKind.Array
                 ? [.. v.EnumerateArray().Select(x => x.GetString() ?? throw new InvalidDataException(name))]
                 : throw new InvalidDataException("bench field " + name);
+        // Ledgers written before the stage caches lack these; they read as none.
+        static string[] OptArr(JsonElement e, string name) =>
+            e.TryGetProperty(name, out _) ? Arr(e, name) : [];
+        static long OptLong(JsonElement e, string name) =>
+            e.TryGetProperty(name, out JsonElement v) && v.TryGetInt64(out long n) ? n : 0;
         bool ok = r.TryGetProperty("Ok", out JsonElement okv) && okv.ValueKind == JsonValueKind.True;
         bool timed = r.TryGetProperty("Timed", out JsonElement tv) && tv.ValueKind == JsonValueKind.True;
         string? failure = r.TryGetProperty("Failure", out JsonElement f) && f.ValueKind == JsonValueKind.String
@@ -122,7 +141,9 @@ public sealed record BenchSample(
             Real(r, "WallSeconds"), Real(r, "CpuSeconds"),
             r.TryGetProperty("PeakRssBytes", out JsonElement p) && p.TryGetInt64(out long rss) ? rss : 0,
             Real(r, "GcPauseSeconds"), Arr(r, "Stages"), Arr(r, "Outputs"),
-            Whole(r, "CacheReused"), Whole(r, "CacheCooked"), failure);
+            Whole(r, "CacheReused"), Whole(r, "CacheCooked"), failure,
+            OptArr(r, "CacheStagesReused"), OptArr(r, "CacheStagesComputed"),
+            OptLong(r, "CacheSavedMs"), OptLong(r, "CacheBytesStored"));
     }
 
     private static void Str(StringBuilder j, string value)
@@ -778,7 +799,11 @@ public static class BenchCommand
             Outputs: [.. outcome.Written.Select(p => "/" + p.Value + "|" + Sha256Of("/" + p.Value))],
             CacheReused: outcome.Cache?.Hits ?? 0,
             CacheCooked: outcome.Cache?.Misses ?? 0,
-            Failure: outcome.Failure);
+            Failure: outcome.Failure,
+            CacheStagesReused: [.. outcome.Cache?.StageHits ?? []],
+            CacheStagesComputed: [.. outcome.Cache?.StageMisses ?? []],
+            CacheSavedMs: outcome.Cache?.EstimatedSavedMs ?? 0,
+            CacheBytesStored: outcome.Cache?.BytesStored ?? 0);
         await Console.Out.WriteLineAsync(sample.ToJsonLine()).ConfigureAwait(false);
         return outcome.Ok ? Program.ExitSuccess : Program.ExitFailure;
     }
@@ -939,7 +964,11 @@ public static class BenchCommand
                 [.. outcome.Written.Select(p => p.Value + "|" + Sha256Of("/" + p.Value))],
                 outcome.Cache?.Hits ?? 0,
                 outcome.Cache?.Misses ?? 0,
-                outcome.Failure);
+                outcome.Failure,
+                [.. outcome.Cache?.StageHits ?? []],
+                [.. outcome.Cache?.StageMisses ?? []],
+                outcome.Cache?.EstimatedSavedMs ?? 0,
+                outcome.Cache?.BytesStored ?? 0);
             await ledger.WriteLineAsync(sample.ToJsonLine()).ConfigureAwait(false);
             await output.WriteLineAsync(string.Create(
                 CultureInfo.InvariantCulture,

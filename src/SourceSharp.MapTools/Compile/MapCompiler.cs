@@ -244,6 +244,7 @@ public static class MapCompiler
             Progress = progress,
             Tracer = request.Tracer,
             GpuTracerFactory = request.TracerFactory,
+            TransferCache = chain.TransferCache,
         };
 
         VisResult? vis = null;
@@ -253,21 +254,54 @@ public static class MapCompiler
             byte[] prt = portalFile.ToBytes(PortalLineEnding.CrLf);
             await chain.WriteAsync(output.PathFor(name, ".prt"), prt, cancellationToken).ConfigureAwait(false);
 
-            if (flowTask is null)
-            {
-                // The .prt's text is what vvis reads; see the remarks.
-                PortalFile read = await PortalFile.ParseAsync(prt, cancellationToken).ConfigureAwait(false);
-                chain.Line($"{read.ClusterCount,4} portalclusters");
-                chain.Line($"{read.Portals.Count,4} numportals");
+            // A light or entity edit leaves everything vvis reads alone: a hit
+            // restores vvis's lumps and skips the stage, overlapped or not.
+            long visStart = mark;
+            Cache.VvisStageCache? visCache = chain.VisCache is { } vc && Cache.VvisStageCache.Applies(request.Vvis) ? vc : null;
+            string? visKey = visCache is null ? null : Cache.VvisStageCache.InputDigest(prt, bsp, request.Vvis);
 
-                vis = await Vvis.ComputeAsync(bsp, PortalSet.FromPortalFile(read), visContext, cancellationToken)
-                    .ConfigureAwait(false);
-                mark = chain.Time("vvis", mark);
-            }
-            else
+            // The .prt's text is what vvis reads; see the remarks.
+            PortalFile? read = null;
+            if (visCache is not null)
             {
-                (vis, prepared, mark) = await FinishOverlappedAsync(
-                    chain, bsp, flowTask, visContext, radContext, ahead, mark, cancellationToken).ConfigureAwait(false);
+                read = await PortalFile.ParseAsync(prt, cancellationToken).ConfigureAwait(false);
+                vis = await visCache.TryGetAsync(visKey!, bsp, PortalSet.FromPortalFile(read).Count, cancellationToken)
+                    .ConfigureAwait(false);
+                if (vis is not null)
+                {
+                    // The early flow, if one started, is no longer needed.
+                    await AbandonAsync(ahead, portalsReady, flowTask).ConfigureAwait(false);
+                    chain.Line($"{read.ClusterCount,4} portalclusters");
+                    chain.Line($"{read.Portals.Count,4} numportals");
+                    mark = chain.Time("vvis", mark);
+                }
+            }
+
+            if (vis is null)
+            {
+                if (flowTask is null)
+                {
+                    read ??= await PortalFile.ParseAsync(prt, cancellationToken).ConfigureAwait(false);
+                    chain.Line($"{read.ClusterCount,4} portalclusters");
+                    chain.Line($"{read.Portals.Count,4} numportals");
+
+                    vis = await Vvis.ComputeAsync(bsp, PortalSet.FromPortalFile(read), visContext, cancellationToken)
+                        .ConfigureAwait(false);
+                    mark = chain.Time("vvis", mark);
+                }
+                else
+                {
+                    (vis, prepared, mark) = await FinishOverlappedAsync(
+                        chain, bsp, flowTask, visContext, radContext, ahead, mark, cancellationToken).ConfigureAwait(false);
+                }
+
+                // Stored after the lumps are in the map: the overlapped path
+                // writes them only once vrad's early load has read the map.
+                if (visCache is not null)
+                {
+                    long costMs = (long)request.Time.GetElapsedTime(visStart).TotalMilliseconds;
+                    await visCache.StoreAsync(visKey!, bsp, vis, costMs, cancellationToken).ConfigureAwait(false);
+                }
             }
 
             chain.Line($"visdatasize:{vis.VisDataSize}");
@@ -321,10 +355,29 @@ public static class MapCompiler
             chain.Time("write", mark);
         }
 
+        // The vvis row and vrad's transfer row (staged in the background while
+        // vrad finished), published once the map is written, like the collision rows.
+        if (chain.TransferCache is not null && request.Cache is { } transferStore)
+        {
+            try
+            {
+                await chain.TransferCache.FlushAsync(cancellationToken).ConfigureAwait(false);
+                if (transferStore.IsUsable)
+                {
+                    await transferStore.CommitAsync(cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                chain.Line($"cache: commit failed ({ex.Message}); this run's products were dropped");
+                transferStore.DiscardStaged();
+            }
+        }
+
         // The store figures ride the report; the read happens
         // here, on the async path — Render itself never blocks.
         Cache.CacheStats? cacheStats = null;
-        if (chain.CollisionCache is not null && request.Cache is { } cacheStore)
+        if (request.Cache is { } cacheStore)
         {
             try
             {
@@ -543,6 +596,24 @@ public static class MapCompiler
         /// <summary>The per-model collision seam, built once per run, or null.</summary>
         public SourceSharp.MapTools.Compile.Cache.CollisionModelCache? CollisionCache =>
             _collisionCache ??= NewCollisionCache(request, _cacheCounters);
+
+        private SourceSharp.MapTools.Compile.Cache.VvisStageCache? _visCache;
+
+        /// <summary>The vvis stage seam, built once per run when the request carries a store, or null.</summary>
+        public SourceSharp.MapTools.Compile.Cache.VvisStageCache? VisCache =>
+            _visCache ??= request.Cache is { } store
+                ? new SourceSharp.MapTools.Compile.Cache.VvisStageCache(
+                    store, request.CachePolicy ?? Cache.CachePolicy.Default, request.ContextTags, _cacheCounters)
+                : null;
+
+        private SourceSharp.MapTools.Compile.Cache.StoreTransferCache? _transferCache;
+
+        /// <summary>The bounce transfer seam, built once per run when the request carries a store, or null.</summary>
+        public SourceSharp.MapTools.Compile.Cache.StoreTransferCache? TransferCache =>
+            _transferCache ??= request.Cache is { } store
+                ? new SourceSharp.MapTools.Compile.Cache.StoreTransferCache(
+                    store, request.CachePolicy ?? Cache.CachePolicy.Default, request.ContextTags, _cacheCounters, request.Parallel.MaxDegree)
+                : null;
 
         /// <summary>The run's cache counters (report data, ruling Q12).</summary>
         public SourceSharp.MapTools.Compile.Cache.CacheRunCounters CacheCounters => _cacheCounters;

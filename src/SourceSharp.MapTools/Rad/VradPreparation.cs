@@ -24,8 +24,10 @@ public sealed class VradPreparation
         List<(string Name, byte[] Bytes)> radFiles,
         RadLightFile firstTexlights,
         IRayTracer tracer,
+        string? tracerDigest,
         IReadOnlyList<CompileDiagnostic> diagnostics)
     {
+        TracerDigest = tracerDigest;
         RadFiles = radFiles;
         FirstTexlights = firstTexlights;
         Tracer = tracer;
@@ -41,6 +43,10 @@ public sealed class VradPreparation
     internal List<(string Name, byte[] Bytes)> RadFiles { get; }
 
     internal RadLightFile FirstTexlights { get; }
+
+    // What the tracer traces against, for the transfer cache key: set only
+    // when vrad built the tracer and the context carries a transfer cache.
+    internal string? TracerDigest { get; }
 
     // One lighting per preparation: the first pass's density edit has already
     // been made to the map it was prepared from.
