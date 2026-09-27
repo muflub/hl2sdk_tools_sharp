@@ -561,11 +561,26 @@ public static class VisClip
     /// <param name="planeDist">The plane's distance, before <c>flipClip</c>.</param>
     /// <returns>False when this pair does not separate.</returns>
     /// <remarks>
+    /// <para>
     /// Extracted so the fused clip and <see cref="BuildSeparators"/> share ONE
     /// copy of the arithmetic. Two transcriptions of the same forty lines of
     /// float-exact geometry, kept in step by hand, is precisely the defect this
     /// file is written to avoid.
+    /// </para>
+    /// <para>
+    /// Inlined by force. It is the body of <see cref="BuildSeparators"/>'
+    /// inner loop, the hottest code in vvis, and at around 600 bytes of
+    /// machine code it is over the JIT's size limit for inlining on its own.
+    /// With dynamic PGO the JIT inlines it anyway because the profile says
+    /// the call is hot; without a profile (NativeAOT, or
+    /// <c>DOTNET_TieredPGO=0</c>) it stays a call, and the two out
+    /// parameters then go through memory on every candidate plane. Forcing
+    /// it gives every build the code the PGO build gets. Inlining does not
+    /// change the arithmetic: .NET neither contracts nor reorders float
+    /// operations, so the output is the same bytes.
+    /// </para>
     /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool TrySeparator(
         ReadOnlySpan<Vec3> source,
         ReadOnlySpan<Vec3> pass,
