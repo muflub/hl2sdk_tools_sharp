@@ -64,7 +64,10 @@ public static class PhysCollisionEmitter
     /// a model whose keyed inputs are unchanged is replayed instead of
     /// cooked, byte-identically to a fresh cook.
     /// </param>
-    /// <param name="cancellationToken">Cancels between models.</param>
+    /// <param name="cancellationToken">
+    /// Cancels between models, and between brushes where a model's convexes are built on
+    /// several threads.
+    /// </param>
     /// <returns>The lumps and the leaf fix-ups.</returns>
     /// <exception cref="MapCompileException">A displacement has degenerate triangles.</exception>
     public static async Task<PhysCollisionResult> EmitAsync(
@@ -76,7 +79,7 @@ public static class PhysCollisionEmitter
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(cooker);
 
-        Context context = new(input);
+        Context context = new(input, cancellationToken);
         context.ClearLeafWaterData();
 
         List<PhysCollideModel> records = [];
@@ -490,14 +493,18 @@ public static class PhysCollisionEmitter
     {
         private readonly PhysCollisionInput _in;
 
-        public Context(PhysCollisionInput input)
+        public Context(PhysCollisionInput input, CancellationToken cancellationToken)
         {
             _in = input;
+            CancellationToken = cancellationToken;
             LeafWaterDataIds = new short[input.Leafs.Count];
             LeafContents = new int[input.Leafs.Count];
         }
 
         public PhysCollisionInput Input => _in;
+
+        /// <summary>The compile's token, for the brush loops that run on several threads.</summary>
+        public CancellationToken CancellationToken { get; }
 
         public List<int> WorldPropList { get; } = [];
 
@@ -940,6 +947,13 @@ public static class PhysCollisionEmitter
         return gridX | (gridY << 8) | (gridZ << 16);
     }
 
+    /// <summary>
+    /// The fewest brushes a list builds on several threads: below it, queueing the helpers costs
+    /// more than the few convexes are worth, and a small brush model is already cooked beside
+    /// the others.
+    /// </summary>
+    internal const int MinConcurrentBrushes = 8;
+
     /// <summary><c>CPlaneList</c>.</summary>
     private sealed class PlaneList
     {
@@ -990,9 +1004,61 @@ public static class PhysCollisionEmitter
         public bool IsLeafReferenced(int leaf) => _leafList.Count == 0 || _leafList.Contains(leaf);
 
         /// <summary><c>AddBrushes</c>.</summary>
+        /// <remarks>
+        /// <para>
+        /// Two phases. Building a brush's convex (<see cref="BuildBrush"/>) reads only the
+        /// finished BSP and this list's settings, so on a session that offers it
+        /// (<see cref="IConcurrentConvexSession"/>, the managed cooker) and above one thread,
+        /// the brushes are built at once; the world holds nearly every brush of a map, and this
+        /// loop was most of vbsp's time on one core. Registering the convexes -- the brush number
+        /// as game data, the volume sum, the list the collide is made from -- then runs here, in
+        /// brush order, exactly as the one-at-a-time loop does: the float sum is accumulated in
+        /// the same order, and the convex list is in the same order, so the bytes are the same at
+        /// every degree.
+        /// </para>
+        /// <para>
+        /// Any other session (the native library's above all, which is not thread-safe) keeps the
+        /// original loop, building and registering one brush at a time on the cook's thread.
+        /// So does a list of fewer than <see cref="MinConcurrentBrushes"/> brushes, which is not
+        /// worth the helpers.
+        /// </para>
+        /// </remarks>
         public int AddBrushes()
         {
+            // Decided once for the list: whether a water brush reaching above its volume's
+            // surface is cut there -- stock's UNDONE -- or the stock defect is reproduced.
+            bool clipAtSurface = ClipPlane is not null
+                && !Compliance.Emulates(StockQuirk.WaterBrushNotClippedAtSurface);
+
             int count = 0;
+            int maxDegree = _context.Input.MaxDegree;
+            if (maxDegree > 1 && _s is IConcurrentConvexSession concurrent)
+            {
+                List<int> brushes = [];
+                for (int brush = 0; brush < _brushAdded.Length; brush++)
+                {
+                    if (_brushAdded[brush])
+                    {
+                        brushes.Add(brush);
+                    }
+                }
+
+                if (brushes.Count >= MinConcurrentBrushes)
+                {
+                    ConvexHandle[] built = concurrent.BuildConvexes(
+                        brushes.Count,
+                        (worker, k) => BuildBrush(worker, brushes[k], clipAtSurface),
+                        maxDegree,
+                        _context.CancellationToken);
+                    for (int k = 0; k < built.Length; k++)
+                    {
+                        count += Register(built[k], brushes[k]);
+                    }
+
+                    return count;
+                }
+            }
+
             for (int brush = 0; brush < _brushAdded.Length; brush++)
             {
                 if (!_brushAdded[brush])
@@ -1000,43 +1066,57 @@ public static class PhysCollisionEmitter
                     continue;
                 }
 
-                ConvexHandle convex;
-                if (Shrink != 0)
-                {
-                    // "Make sure shrinking won't swallow this brush."
-                    ConvexHandle unshrunk = BuildConvexForBrush(brush, 0, default, 0);
-                    CollideHandle test = _s.ConvertConvexToCollide([unshrunk]);
-                    convex = BuildConvexForBrush(brush, Shrink, test, Shrink * 3);
-                    _s.DestroyCollide(test);
-                }
-                else
-                {
-                    convex = BuildConvexForBrush(brush, Shrink, default, 1.0f);
-
-                    // A water brush reaching above its volume's surface is cut
-                    // there -- stock's UNDONE -- unless the
-                    // stock defect is being reproduced.
-                    if (ClipPlane is CollisionPlane clip && !convex.IsNull
-                        && !Compliance.Emulates(StockQuirk.WaterBrushNotClippedAtSurface))
-                    {
-                        CollideHandle test = _s.ConvertConvexToCollide([convex]);
-                        Vec3 top = _s.CollideGetExtent(test, Vec3.Zero, Vec3.Zero, clip.Normal);
-                        _s.DestroyCollide(test);
-                        bool crosses = Vec3.Dot(top, clip.Normal) > clip.Dist + Merge;
-                        convex = BuildConvexForBrush(brush, Shrink, default, 1.0f, crosses ? clip : null);
-                    }
-                }
-
-                if (!convex.IsNull)
-                {
-                    count++;
-                    _s.SetConvexGameData(convex, (uint)brush);
-                    TotalVolume += _s.ConvexVolume(convex);
-                    Convexes.Add(convex);
-                }
+                count += Register(BuildBrush(_s, brush, clipAtSurface), brush);
             }
 
             return count;
+        }
+
+        /// <summary>
+        /// One brush's convex, built against <paramref name="s"/> alone: the shrink test or the
+        /// water cut included, every collide it makes destroyed.
+        /// </summary>
+        /// <param name="s">The session to build in: the cook's own, or a worker's.</param>
+        /// <param name="brush">The brush.</param>
+        /// <param name="clipAtSurface">Whether a water brush crossing <see cref="ClipPlane"/> is cut there.</param>
+        /// <returns>The convex, or null when the brush bounds nothing.</returns>
+        private ConvexHandle BuildBrush(ICollisionSession s, int brush, bool clipAtSurface)
+        {
+            if (Shrink != 0)
+            {
+                // "Make sure shrinking won't swallow this brush."
+                ConvexHandle unshrunk = BuildConvexForBrush(s, brush, 0, default, 0);
+                CollideHandle test = s.ConvertConvexToCollide([unshrunk]);
+                ConvexHandle shrunk = BuildConvexForBrush(s, brush, Shrink, test, Shrink * 3);
+                s.DestroyCollide(test);
+                return shrunk;
+            }
+
+            ConvexHandle convex = BuildConvexForBrush(s, brush, Shrink, default, 1.0f);
+            if (clipAtSurface && ClipPlane is CollisionPlane clip && !convex.IsNull)
+            {
+                CollideHandle test = s.ConvertConvexToCollide([convex]);
+                Vec3 top = s.CollideGetExtent(test, Vec3.Zero, Vec3.Zero, clip.Normal);
+                s.DestroyCollide(test);
+                bool crosses = Vec3.Dot(top, clip.Normal) > clip.Dist + Merge;
+                convex = BuildConvexForBrush(s, brush, Shrink, default, 1.0f, crosses ? clip : null);
+            }
+
+            return convex;
+        }
+
+        /// <summary>One built convex into the list, in brush order: 1 when there was one, else 0.</summary>
+        private int Register(ConvexHandle convex, int brush)
+        {
+            if (convex.IsNull)
+            {
+                return 0;
+            }
+
+            _s.SetConvexGameData(convex, (uint)brush);
+            TotalVolume += _s.ConvexVolume(convex);
+            Convexes.Add(convex);
+            return 1;
         }
 
         /// <summary><c>GetFirstBrushSide</c>.</summary>
@@ -1064,7 +1144,7 @@ public static class PhysCollisionEmitter
         }
 
         /// <summary><c>BuildConvexForBrush</c>.</summary>
-        private ConvexHandle BuildConvexForBrush(int brush, float shrink, CollideHandle collideTest, float shrinkMinimum, CollisionPlane? extraPlane = null)
+        private ConvexHandle BuildConvexForBrush(ICollisionSession s, int brush, float shrink, CollideHandle collideTest, float shrinkMinimum, CollisionPlane? extraPlane = null)
         {
             DBrush b = In.Brushes[brush];
             List<CollisionPlane> planes = new(32);
@@ -1090,8 +1170,8 @@ public static class PhysCollisionEmitter
                 // "Make sure shrinking won't swallow geometry along this axis."
                 if (!collideTest.IsNull && shrinkThisPlane != 0)
                 {
-                    Vec3 start = _s.CollideGetExtent(collideTest, Vec3.Zero, Vec3.Zero, plane.Normal);
-                    Vec3 end = _s.CollideGetExtent(collideTest, Vec3.Zero, Vec3.Zero, -plane.Normal);
+                    Vec3 start = s.CollideGetExtent(collideTest, Vec3.Zero, Vec3.Zero, plane.Normal);
+                    Vec3 end = s.CollideGetExtent(collideTest, Vec3.Zero, Vec3.Zero, -plane.Normal);
                     float thick = Vec3.Dot(end - start, plane.Normal);
                     if (MathF.Abs(thick) < shrinkMinimum)
                     {
@@ -1107,7 +1187,7 @@ public static class PhysCollisionEmitter
                 planes.Add(extra);
             }
 
-            return _s.ConvexFromPlanes(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(planes), Merge);
+            return s.ConvexFromPlanes(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(planes), Merge);
         }
     }
 }

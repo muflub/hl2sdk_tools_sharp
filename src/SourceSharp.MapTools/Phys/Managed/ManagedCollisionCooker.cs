@@ -104,8 +104,19 @@ public sealed class ManagedCollisionCooker : ICollisionCooker
 
     /// <summary>A session on the calling thread (what <see cref="RunAsync{T}"/> hands its work).</summary>
     /// <returns>The session.</returns>
+    /// <remarks>
+    /// The session can also build brush convexes on several threads at once
+    /// (<see cref="IConcurrentConvexSession"/>): its workers take their builders from this
+    /// cooker's per-thread scratch and queue on <see cref="Scheduler"/>, so they count against the
+    /// same thread budget as the cooks themselves.
+    /// </remarks>
     public ICollisionSession OpenSession() =>
-        new ManagedCollisionSession(Build(), _surfaceProps) { FixPolysoupMaterialWalk = _fixPolysoupMaterialWalk };
+        new ManagedCollisionSession(Build(), _surfaceProps)
+        {
+            FixPolysoupMaterialWalk = _fixPolysoupMaterialWalk,
+            WorkerBuilds = Build,
+            WorkerScheduler = Scheduler,
+        };
 
     private IIvpBuild Build()
     {
