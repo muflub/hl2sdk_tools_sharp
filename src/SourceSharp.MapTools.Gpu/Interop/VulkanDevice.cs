@@ -90,6 +90,23 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// <summary>Bytes of Vulkan memory this device currently has allocated.</summary>
     private long _liveBytes;
 
+    /// <summary>Bytes of Vulkan memory this device holds now; facts compare it across failed and clean builds.</summary>
+    internal long LiveBytes => _liveBytes;
+
+    /// <summary>
+    /// Called at each <see cref="VulkanStep"/> this device reaches, or null.
+    /// Facts throw from it to fail a build at a point that holds a
+    /// temporary native object, and watch for its release.
+    /// </summary>
+    internal Action<VulkanStep>? Observe { get; set; }
+
+    /// <summary>
+    /// Temporary buffers (an upload's staging, a build's scratch) whose work
+    /// failed: a submit that timed out may still be reading them, so they are
+    /// not freed on the spot but with the device, once it is idle.
+    /// </summary>
+    private readonly List<GpuBuffer> _parked = [];
+
     /// <summary>Bytes of Vulkan memory this device has ever had allocated at once.</summary>
     public long PeakAllocationBytes { get; private set; }
 
@@ -413,7 +430,18 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
 
     /// <summary>Enumerated device inventory for diagnostics (creates no device).</summary>
     /// <returns>One row per physical device, ray-query flag included.</returns>
-    public static List<VulkanDeviceInfo> ProbeDevices()
+    public static List<VulkanDeviceInfo> ProbeDevices() => ProbeDevices([], null);
+
+    /// <summary>
+    /// <see cref="ProbeDevices()"/> with extra instance extensions to ask for
+    /// and an observer. Facts ask for an extension no loader has, to make
+    /// the instance fail for real, and throw from the observer to fail the
+    /// enumeration; either way the instance and the loaded API are released.
+    /// </summary>
+    /// <param name="instanceExtensions">Instance extensions to enable, usually none.</param>
+    /// <param name="observe">Called at each probe <see cref="VulkanStep"/>, or null.</param>
+    /// <returns>One row per physical device, ray-query flag included.</returns>
+    internal static List<VulkanDeviceInfo> ProbeDevices(string[] instanceExtensions, Action<VulkanStep>? observe)
     {
         List<VulkanDeviceInfo> rows = [];
         Vk vk;
@@ -427,60 +455,85 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             return rows;
         }
 
-        byte* appName = (byte*)SilkMarshal.StringToPtr("maptools-gpu-probe");
-        ApplicationInfo app = new()
+        // The API holds the loaded loader library; a probe runs per compile
+        // attempt in a long-lived host, so it goes back however the probe ends.
+        try
         {
-            PApplicationName = appName,
-            ApplicationVersion = 1,
-            PEngineName = appName,
-            EngineVersion = 1,
-            ApiVersion = (uint)Vulkan13,
-        };
-        InstanceCreateInfo ici = new()
-        {
-            SType = StructureType.InstanceCreateInfo,
-            PApplicationInfo = &app,
-        };
-        Result r = vk.CreateInstance(&ici, null, out Instance instance);
-        SilkMarshal.Free((nint)appName);
-        if (r != Result.Success)
-        {
-            rows.Add(new VulkanDeviceInfo(-1, "(no Vulkan loader)", "instance failed: " + r, false));
+            byte* appName = (byte*)SilkMarshal.StringToPtr("maptools-gpu-probe");
+            byte** extNames = instanceExtensions.Length == 0 ? null : AllocNames(instanceExtensions);
+            ApplicationInfo app = new()
+            {
+                PApplicationName = appName,
+                ApplicationVersion = 1,
+                PEngineName = appName,
+                EngineVersion = 1,
+                ApiVersion = (uint)Vulkan13,
+            };
+            InstanceCreateInfo ici = new()
+            {
+                SType = StructureType.InstanceCreateInfo,
+                PApplicationInfo = &app,
+                EnabledExtensionCount = (uint)instanceExtensions.Length,
+                PpEnabledExtensionNames = extNames,
+            };
+            Result r = vk.CreateInstance(&ici, null, out Instance instance);
+            if (extNames != null)
+            {
+                FreeNames(extNames, instanceExtensions.Length);
+            }
+
+            SilkMarshal.Free((nint)appName);
+            if (r != Result.Success)
+            {
+                rows.Add(new VulkanDeviceInfo(-1, "(no Vulkan loader)", "instance failed: " + r, false));
+                return rows;
+            }
+
+            try
+            {
+                observe?.Invoke(VulkanStep.ProbeInstanceCreated);
+                uint count = 0;
+                vk.EnumeratePhysicalDevices(instance, &count, null);
+                PhysicalDevice[] devices = new PhysicalDevice[count];
+                fixed (PhysicalDevice* p = devices)
+                {
+                    vk.EnumeratePhysicalDevices(instance, &count, p);
+                }
+
+                for (int i = 0; i < devices.Length; i++)
+                {
+                    PhysicalDeviceRayQueryFeaturesKHR rq = new()
+                    {
+                        SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr,
+                    };
+                    PhysicalDeviceFeatures2 f = new()
+                    {
+                        SType = StructureType.PhysicalDeviceFeatures2,
+                        PNext = &rq,
+                    };
+                    PhysicalDeviceProperties2 props = new() { SType = StructureType.PhysicalDeviceProperties2 };
+                    vk.GetPhysicalDeviceProperties2(devices[i], &props);
+                    vk.GetPhysicalDeviceFeatures2(devices[i], &f);
+                    rows.Add(new VulkanDeviceInfo(
+                        i,
+                        SilkMarshal.PtrToString((nint)props.Properties.DeviceName) ?? "unknown",
+                        props.Properties.DeviceType.ToString(),
+                        rq.RayQuery));
+                }
+            }
+            finally
+            {
+                vk.DestroyInstance(instance, null);
+                observe?.Invoke(VulkanStep.ProbeInstanceDestroyed);
+            }
+
             return rows;
         }
-
-        uint count = 0;
-        vk.EnumeratePhysicalDevices(instance, &count, null);
-        PhysicalDevice[] devices = new PhysicalDevice[count];
-        fixed (PhysicalDevice* p = devices)
+        finally
         {
-            vk.EnumeratePhysicalDevices(instance, &count, p);
+            vk.Dispose();
+            observe?.Invoke(VulkanStep.ProbeApiReleased);
         }
-
-        for (int i = 0; i < devices.Length; i++)
-        {
-            PhysicalDeviceRayQueryFeaturesKHR rq = new()
-            {
-                SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr,
-            };
-            PhysicalDeviceFeatures2 f = new()
-            {
-                SType = StructureType.PhysicalDeviceFeatures2,
-                PNext = &rq,
-            };
-            PhysicalDeviceProperties2 props = new() { SType = StructureType.PhysicalDeviceProperties2 };
-            vk.GetPhysicalDeviceProperties2(devices[i], &props);
-            vk.GetPhysicalDeviceFeatures2(devices[i], &f);
-            rows.Add(new VulkanDeviceInfo(
-                i,
-                SilkMarshal.PtrToString((nint)props.Properties.DeviceName) ?? "unknown",
-                props.Properties.DeviceType.ToString(),
-                rq.RayQuery));
-        }
-
-        vk.DestroyInstance(instance, null);
-        vk.Dispose();
-        return rows;
     }
 
     private void BuildPipeline(byte[] spirv)
@@ -495,61 +548,72 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             };
             ThrowOn(_vk.CreateShaderModule(_device, &smci, null, out ShaderModule module),
                 "vkCreateShaderModule");
+            // The pipeline keeps what it needs of the module and the entry
+            // name, so both go once it is built, and on every failure before
+            // that: the name is unmanaged memory no device teardown reclaims.
             byte* entry = (byte*)SilkMarshal.StringToPtr("main");
-            DescriptorSetLayoutBinding* bindings = stackalloc DescriptorSetLayoutBinding[3];
-            for (uint b = 0; b < 3; b++)
+            try
             {
-                bindings[b] = new DescriptorSetLayoutBinding
+                Observe?.Invoke(VulkanStep.ShaderModuleCreated);
+                DescriptorSetLayoutBinding* bindings = stackalloc DescriptorSetLayoutBinding[3];
+                for (uint b = 0; b < 3; b++)
                 {
-                    Binding = b,
-                    DescriptorType = b == 2 ? DescriptorType.AccelerationStructureKhr : DescriptorType.StorageBuffer,
-                    DescriptorCount = 1,
-                    StageFlags = ShaderStageFlags.ComputeBit,
-                };
-            }
+                    bindings[b] = new DescriptorSetLayoutBinding
+                    {
+                        Binding = b,
+                        DescriptorType = b == 2 ? DescriptorType.AccelerationStructureKhr : DescriptorType.StorageBuffer,
+                        DescriptorCount = 1,
+                        StageFlags = ShaderStageFlags.ComputeBit,
+                    };
+                }
 
-            DescriptorSetLayoutCreateInfo dslci = new()
+                DescriptorSetLayoutCreateInfo dslci = new()
+                {
+                    SType = StructureType.DescriptorSetLayoutCreateInfo,
+                    BindingCount = 3,
+                    PBindings = bindings,
+                };
+                ThrowOn(_vk.CreateDescriptorSetLayout(_device, &dslci, null, out _descriptorLayout),
+                    "vkCreateDescriptorSetLayout");
+                PushConstantRange pcRange = new()
+                {
+                    StageFlags = ShaderStageFlags.ComputeBit,
+                    Offset = 0,
+                    Size = 32,
+                };
+                DescriptorSetLayout* sets = stackalloc DescriptorSetLayout[1] { _descriptorLayout };
+                PipelineLayoutCreateInfo plci = new()
+                {
+                    SType = StructureType.PipelineLayoutCreateInfo,
+                    SetLayoutCount = 1,
+                    PSetLayouts = sets,
+                    PushConstantRangeCount = 1,
+                    PPushConstantRanges = &pcRange,
+                };
+                ThrowOn(_vk.CreatePipelineLayout(_device, &plci, null, out _pipelineLayout),
+                    "vkCreatePipelineLayout");
+                PipelineShaderStageCreateInfo stage = new()
+                {
+                    SType = StructureType.PipelineShaderStageCreateInfo,
+                    Stage = ShaderStageFlags.ComputeBit,
+                    Module = module,
+                    PName = entry,
+                };
+                ComputePipelineCreateInfo cpci = new()
+                {
+                    SType = StructureType.ComputePipelineCreateInfo,
+                    Stage = stage,
+                    Layout = _pipelineLayout,
+                };
+                ThrowOn(_vk.CreateComputePipelines(_device, default, 1, &cpci, null, out _pipeline),
+                    "vkCreateComputePipelines");
+            }
+            finally
             {
-                SType = StructureType.DescriptorSetLayoutCreateInfo,
-                BindingCount = 3,
-                PBindings = bindings,
-            };
-            ThrowOn(_vk.CreateDescriptorSetLayout(_device, &dslci, null, out _descriptorLayout),
-                "vkCreateDescriptorSetLayout");
-            PushConstantRange pcRange = new()
-            {
-                StageFlags = ShaderStageFlags.ComputeBit,
-                Offset = 0,
-                Size = 32,
-            };
-            DescriptorSetLayout* sets = stackalloc DescriptorSetLayout[1] { _descriptorLayout };
-            PipelineLayoutCreateInfo plci = new()
-            {
-                SType = StructureType.PipelineLayoutCreateInfo,
-                SetLayoutCount = 1,
-                PSetLayouts = sets,
-                PushConstantRangeCount = 1,
-                PPushConstantRanges = &pcRange,
-            };
-            ThrowOn(_vk.CreatePipelineLayout(_device, &plci, null, out _pipelineLayout),
-                "vkCreatePipelineLayout");
-            PipelineShaderStageCreateInfo stage = new()
-            {
-                SType = StructureType.PipelineShaderStageCreateInfo,
-                Stage = ShaderStageFlags.ComputeBit,
-                Module = module,
-                PName = entry,
-            };
-            ComputePipelineCreateInfo cpci = new()
-            {
-                SType = StructureType.ComputePipelineCreateInfo,
-                Stage = stage,
-                Layout = _pipelineLayout,
-            };
-            ThrowOn(_vk.CreateComputePipelines(_device, default, 1, &cpci, null, out _pipeline),
-                "vkCreateComputePipelines");
-            SilkMarshal.Free((nint)entry);
-            _vk.DestroyShaderModule(_device, module, null);
+                SilkMarshal.Free((nint)entry);
+                _vk.DestroyShaderModule(_device, module, null);
+                Observe?.Invoke(VulkanStep.ShaderModuleReleased);
+            }
         }
     }
 
@@ -655,6 +719,21 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             }
 
             throw;
+        }
+    }
+
+    /// <summary>Frees a temporary buffer whose work finished, or parks it until <see cref="Dispose"/> when it failed.</summary>
+    /// <param name="b">The buffer.</param>
+    /// <param name="finished">Whether the work that used it completed.</param>
+    private void FreeOrPark(GpuBuffer b, bool finished)
+    {
+        if (finished)
+        {
+            Free(b);
+        }
+        else
+        {
+            _parked.Add(b);
         }
     }
 
@@ -872,23 +951,32 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
             BufferUsageFlags.TransferSrcBit,
             deviceAddress: false);
-        vertices.CopyTo(new Span<float>((void*)staging.Mapped, vertices.Length));
+        bool uploaded = false;
+        try
+        {
+            Observe?.Invoke(VulkanStep.StagingAllocated);
+            vertices.CopyTo(new Span<float>((void*)staging.Mapped, vertices.Length));
 
-        // One command buffer: the upload's write, then the ordering that makes
-        // it visible to the AS build's read (same queue is not a
-        // synchronisation promise).
-        CommandBuffer upload = Begin();
-        BufferCopy region = new() { SrcOffset = 0, DstOffset = 0, Size = bytes };
-        _vk.CmdCopyBuffer(upload, staging.Vk, _vertexBuffer.Vk, 1, &region);
-        Barrier(
-            upload,
-            PipelineStageFlags.TransferBit,
-            AccessFlags.TransferWriteBit,
-            PipelineStageFlags.AccelerationStructureBuildBitKhr,
-            AccessFlags.AccelerationStructureReadBitKhr);
-        End(upload);
-        Submit(upload);
-        Free(staging);
+            // One command buffer: the upload's write, then the ordering that makes
+            // it visible to the AS build's read (same queue is not a
+            // synchronisation promise).
+            CommandBuffer upload = Begin();
+            BufferCopy region = new() { SrcOffset = 0, DstOffset = 0, Size = bytes };
+            _vk.CmdCopyBuffer(upload, staging.Vk, _vertexBuffer.Vk, 1, &region);
+            Barrier(
+                upload,
+                PipelineStageFlags.TransferBit,
+                AccessFlags.TransferWriteBit,
+                PipelineStageFlags.AccelerationStructureBuildBitKhr,
+                AccessFlags.AccelerationStructureReadBitKhr);
+            End(upload);
+            Submit(upload);
+            uploaded = true;
+        }
+        finally
+        {
+            FreeOrPark(staging, uploaded);
+        }
 
         BuildBlas();
     }
@@ -940,33 +1028,42 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         GpuBuffer scratch = Allocate(scratchSize, MemoryPropertyFlags.DeviceLocalBit,
             BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit,
             deviceAddress: true);
-        AccelerationStructureCreateInfoKHR asci = new()
+        bool built = false;
+        try
         {
-            SType = StructureType.AccelerationStructureCreateInfoKhr,
-            Buffer = _asBuffer.Vk,
-            Size = asSize,
-            Type = AccelerationStructureTypeKHR.BottomLevelKhr,
-        };
-        ThrowOn(_blasApi.CreateAccelerationStructure(_device, &asci, null, out _blasHandle),
-            "vkCreateAccelerationStructureKHR");
+            Observe?.Invoke(VulkanStep.ScratchAllocated);
+            AccelerationStructureCreateInfoKHR asci = new()
+            {
+                SType = StructureType.AccelerationStructureCreateInfoKhr,
+                Buffer = _asBuffer.Vk,
+                Size = asSize,
+                Type = AccelerationStructureTypeKHR.BottomLevelKhr,
+            };
+            ThrowOn(_blasApi.CreateAccelerationStructure(_device, &asci, null, out _blasHandle),
+                "vkCreateAccelerationStructureKHR");
 
-        AccelerationStructureBuildRangeInfoKHR range = new() { PrimitiveCount = _triangleCount };
-        AccelerationStructureBuildRangeInfoKHR* rangePtr = &range;
-        info.DstAccelerationStructure = _blasHandle;
-        info.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = scratch.DeviceAddress };
+            AccelerationStructureBuildRangeInfoKHR range = new() { PrimitiveCount = _triangleCount };
+            AccelerationStructureBuildRangeInfoKHR* rangePtr = &range;
+            info.DstAccelerationStructure = _blasHandle;
+            info.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = scratch.DeviceAddress };
 
-        CommandBuffer cmd = Begin();
-        _blasApi.CmdBuildAccelerationStructures(cmd, 1, &info, &rangePtr);
-        // The build's write must be visible to the kernel's AS reads.
-        Barrier(
-            cmd,
-            PipelineStageFlags.AccelerationStructureBuildBitKhr,
-            AccessFlags.AccelerationStructureWriteBitKhr,
-            PipelineStageFlags.ComputeShaderBit,
-            AccessFlags.ShaderReadBit);
-        End(cmd);
-        Submit(cmd);
-        Free(scratch);
+            CommandBuffer cmd = Begin();
+            _blasApi.CmdBuildAccelerationStructures(cmd, 1, &info, &rangePtr);
+            // The build's write must be visible to the kernel's AS reads.
+            Barrier(
+                cmd,
+                PipelineStageFlags.AccelerationStructureBuildBitKhr,
+                AccessFlags.AccelerationStructureWriteBitKhr,
+                PipelineStageFlags.ComputeShaderBit,
+                AccessFlags.ShaderReadBit);
+            End(cmd);
+            Submit(cmd);
+            built = true;
+        }
+        finally
+        {
+            FreeOrPark(scratch, built);
+        }
 
         UpdateBlasBinding();
     }
@@ -1527,6 +1624,12 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         // slab whose wait timed out, or a set-up submit that failed its
         // wait, can still be running.
         _vk.DeviceWaitIdle(_device);
+        foreach (GpuBuffer parked in _parked)
+        {
+            Free(parked);
+        }
+
+        _parked.Clear();
         _blasApi?.DestroyAccelerationStructure(_device, _blasHandle, null);
         Free(_asBuffer);
         FreeSlots();

@@ -32,9 +32,8 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// passes the self-test. Each skips with the probe's reason otherwise.
 /// </para>
 /// <para>
-/// The skip is decided when xUnit reads <c>Skip</c>, after the attribute's
-/// properties are set, not in the attribute's constructor, where a
-/// requirement given as a property would still be unset.
+/// The skips come from <see cref="VulkanStageFactAttribute"/> and
+/// <see cref="VulkanStageTheoryAttribute"/>.
 /// </para>
 /// </remarks>
 public sealed class VulkanRayTracerReleaseFacts
@@ -226,7 +225,7 @@ public sealed class VulkanRayTracerReleaseFacts
         Assert.Equal(TryCreateStage.Released, seen[^1]);
     }
 
-    private static TracedTriangle[] TwoTriangles() =>
+    internal static TracedTriangle[] TwoTriangles() =>
     [
         new(0, new Vec3(0, 0, 0), new Vec3(1, 0, 0), new Vec3(0, 1, 0), 0),
         new(1, new Vec3(0, 0, 0), new Vec3(0, 1, 0), new Vec3(0, 0, 1), 0),
@@ -234,78 +233,4 @@ public sealed class VulkanRayTracerReleaseFacts
 
     /// <summary>An exception type <c>TryCreate</c> has no reason to expect.</summary>
     private sealed class PlantedException() : Exception("planted unexpected failure");
-
-    /// <summary>How much Vulkan a fact's stage needs.</summary>
-    public enum VulkanNeed
-    {
-        /// <summary>A loader: the device object can be made, nothing selected.</summary>
-        Loader,
-
-        /// <summary>A device exposing ray query, which the attempt can open and self-test.</summary>
-        RayQueryDevice,
-
-        /// <summary>A device that passes the self-test, so the real scene is loaded.</summary>
-        PassingDevice,
-    }
-
-    /// <summary>
-    /// Why a fact needing <paramref name="need"/> cannot run here, or null.
-    /// Probed once per need and kept for the run.
-    /// </summary>
-    private static string? SkipFor(VulkanNeed need) => need switch
-    {
-        VulkanNeed.Loader => LoaderSkip.Value,
-        VulkanNeed.RayQueryDevice => LoaderSkip.Value ?? RayQuerySkip.Value,
-        _ => LoaderSkip.Value ?? RayQuerySkip.Value ?? PassingSkip.Value,
-    };
-
-    private static readonly Lazy<string?> LoaderSkip = new(() =>
-    {
-        IReadOnlyList<VulkanDeviceInfo> rows = VulkanRayTracer.ProbeDevices();
-        return rows.FirstOrDefault(r => r.Index < 0) is { Name: { } } missing && rows.Count == 1
-            ? $"no usable Vulkan loader: {missing.Name} {missing.DeviceType}"
-            : null;
-    });
-
-    private static readonly Lazy<string?> RayQuerySkip = new(() =>
-    {
-        IReadOnlyList<VulkanDeviceInfo> rows = VulkanRayTracer.ProbeDevices();
-        return rows.Any(r => r.RayQuery)
-            ? null
-            : "no Vulkan device exposes VK_KHR_ray_query (found: " + string.Join("; ", rows.Select(r => r.Name)) + ")";
-    });
-
-    private static readonly Lazy<string?> PassingSkip = new(() =>
-    {
-        VulkanTracerAttempt attempt = VulkanRayTracer.TryCreate(TwoTriangles());
-        using VulkanRayTracer? tracer = attempt.Tracer;
-        return attempt.Success
-            ? null
-            : "no Vulkan device here passes the self-test: "
-              + (attempt.Report.Selected?.Reason ?? attempt.Report.Failure);
-    });
-
-    /// <summary>A fact that skips unless the machine has <see cref="VulkanNeed"/>.</summary>
-    /// <param name="need">What the fact's stage needs.</param>
-    private sealed class VulkanStageFactAttribute(VulkanNeed need) : FactAttribute
-    {
-        /// <inheritdoc/>
-        public override string? Skip
-        {
-            get => base.Skip ?? (SkipFor(need) is { } why ? "skipped: " + why : null);
-            set => base.Skip = value;
-        }
-    }
-
-    /// <summary>A theory that skips unless the machine has <see cref="VulkanNeed"/>.</summary>
-    /// <param name="need">What the theory's stage needs.</param>
-    private sealed class VulkanStageTheoryAttribute(VulkanNeed need) : TheoryAttribute
-    {
-        /// <inheritdoc/>
-        public override string? Skip
-        {
-            get => base.Skip ?? (SkipFor(need) is { } why ? "skipped: " + why : null);
-            set => base.Skip = value;
-        }
-    }
 }
