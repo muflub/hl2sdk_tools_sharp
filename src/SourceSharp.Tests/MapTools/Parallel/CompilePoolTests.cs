@@ -103,12 +103,22 @@ public class CompilePoolTests
             new WorkQueueOptions { ChunkSize = 1 },
             CancellationToken.None);
 
+        // Measured inside the short job's own items, on the pool thread that
+        // runs them, not after awaiting it: RunAsync completes with
+        // RunContinuationsAsynchronously, so the await resumes on the test
+        // framework's threads, and on a busy CI runner that can be seconds
+        // later, after the long job has finished, however early the short
+        // job actually ran.
+        int doneWhenShortRan = -1;
         Assert.True(longStarted.Wait(Patience));
-        await shortQueue.RunAsync(10, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
-        int doneWhenShortFinished = Volatile.Read(ref longDone);
+        await shortQueue.RunAsync(
+            10,
+            (_, _) => Volatile.Write(ref doneWhenShortRan, Volatile.Read(ref longDone)),
+            null,
+            CancellationToken.None).WaitAsync(Patience);
         await longRun.WaitAsync(Patience);
 
-        Assert.True(doneWhenShortFinished < longItems, $"the short job waited for all {longItems} long items");
+        Assert.InRange(doneWhenShortRan, 0, longItems - 1);
     }
 
     // ---- Worker indices and scratch ----------------------------------------
