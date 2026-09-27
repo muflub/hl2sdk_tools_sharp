@@ -26,12 +26,12 @@ public class WorkQueueTests
     // ---- Pooled hand-out decisions -------------------------------------------
 
     [Theory]
-    [InlineData(false, true, 0, 1, true)]   // run out, all built, someone inside: decline unlocked
-    [InlineData(true, true, 0, 1, false)]   // stopping: the lock decides who finishes
+    [InlineData(false, true, 0, 1, true)]   // run out, all built, someone inside: decline without entering
+    [InlineData(true, true, 0, 1, false)]   // stopping: entering decides who finishes
     [InlineData(false, false, 0, 1, false)] // items left: a slot may be free
     [InlineData(false, true, 1, 1, false)]  // a slot still to build, even with nothing left
     [InlineData(false, true, 0, 0, false)]  // nobody inside: this thread may have to finish it
-    public void APooledStepDeclinesWithoutTheLockOnlyWhileAJobDrains(
+    public void APooledStepDeclinesWithoutEnteringOnlyWhileAJobDrains(
         bool stopping, bool exhausted, int unbuiltLeft, int inFlight, bool expected) =>
         Assert.Equal(expected, WorkQueue.IsDrainingWithoutMe(stopping, exhausted, unbuiltLeft, inFlight));
 
@@ -803,6 +803,214 @@ public class WorkQueueTests
             CancellationToken.None).WaitAsync(Patience, CancellationToken.None);
 
         Assert.Equal(items, claims.Count(c => c == 1));
+    }
+
+    // ---- Lock-free slot hand-out under contention ---------------------------
+    //
+    // A pool with more threads than the machine has cores, and one-item
+    // chunks of near-empty items: every step is then almost nothing but the
+    // hand-out, so threads are preempted inside it and collide on it as often
+    // as the machine allows.
+
+    private static int ContendedDegree => Math.Max(8, Environment.ProcessorCount * 2);
+
+    [Fact]
+    public async Task ManyTinyItemsOnAContendedPoolRunExactlyOnceWithNoScratchShared()
+    {
+        using CompilePool pool = new(ContendedDegree);
+        using var queue = new WorkQueue(new CompileParallelism { MaxDegree = ContendedDegree, Pool = pool });
+
+        for (int run = 0; run < 20; run++)
+        {
+            const int items = 20_000;
+            int[] claims = new int[items];
+            var built = new ConcurrentBag<(int Worker, GuardedScratch Scratch)>();
+
+            int[] results = await queue.RunAsync<GuardedScratch, int>(
+                items,
+                (index, scratch, context) =>
+                {
+                    scratch.Enter(context.WorkerIndex);
+                    Interlocked.Increment(ref claims[index]);
+                    scratch.Leave();
+                    return index * 3;
+                },
+                worker =>
+                {
+                    var scratch = new GuardedScratch(worker);
+                    built.Add((worker, scratch));
+                    return scratch;
+                },
+                new WorkQueueOptions { ChunkSize = 1 },
+                CancellationToken.None).WaitAsync(Patience, CancellationToken.None);
+
+            Assert.All(claims, c => Assert.Equal(1, c));
+            Assert.Equal(Enumerable.Range(0, items).Select(i => i * 3), results);
+
+            // Every slot built exactly once, each scratch only ever used by
+            // its own slot and by one thread at a time, and all of it disposed.
+            Assert.Equal(Enumerable.Range(0, ContendedDegree), built.Select(b => b.Worker).Order());
+            Assert.All(built, b => Assert.False(b.Scratch.Clashed));
+            Assert.All(built, b => Assert.True(b.Scratch.Disposed));
+        }
+    }
+
+    [Fact]
+    public async Task AFaultAmongManyTinyItemsEndsTheRunAndLeavesTheQueueFit()
+    {
+        using CompilePool pool = new(ContendedDegree);
+        using var queue = new WorkQueue(new CompileParallelism { MaxDegree = ContendedDegree, Pool = pool });
+
+        for (int run = 0; run < 10; run++)
+        {
+            var built = new ConcurrentBag<GuardedScratch>();
+            int failAt = 1_000 + (run * 997);
+            Task faulted = queue.RunAsync<GuardedScratch, int>(
+                50_000,
+                (index, scratch, context) =>
+                {
+                    scratch.Enter(context.WorkerIndex);
+                    scratch.Leave();
+                    return index == failAt ? throw new InvalidOperationException("item " + index) : index;
+                },
+                worker =>
+                {
+                    var scratch = new GuardedScratch(worker);
+                    built.Add(scratch);
+                    return scratch;
+                },
+                new WorkQueueOptions { ChunkSize = 1 },
+                CancellationToken.None);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => faulted.WaitAsync(Patience, CancellationToken.None));
+            Assert.Equal("item " + failAt, error.Message);
+            Assert.All(built, s => Assert.False(s.Clashed));
+            Assert.All(built, s => Assert.True(s.Disposed));
+
+            await AssertRunsEveryItemOnce(queue);
+        }
+    }
+
+    [Fact]
+    public async Task ACancelAmongManyTinyItemsEndsTheRunAndLeavesTheQueueFit()
+    {
+        using CompilePool pool = new(ContendedDegree);
+        using var queue = new WorkQueue(new CompileParallelism { MaxDegree = ContendedDegree, Pool = pool });
+
+        for (int run = 0; run < 10; run++)
+        {
+            using var cts = new CancellationTokenSource();
+            var built = new ConcurrentBag<GuardedScratch>();
+            int cancelAt = 1_000 + (run * 997);
+            int ran = 0;
+            Task cancelled = queue.RunAsync<GuardedScratch, int>(
+                1_000_000,
+                (index, scratch, context) =>
+                {
+                    scratch.Enter(context.WorkerIndex);
+                    Interlocked.Increment(ref ran);
+                    if (index == cancelAt)
+                    {
+                        cts.Cancel();
+                    }
+
+                    scratch.Leave();
+                    return index;
+                },
+                worker =>
+                {
+                    var scratch = new GuardedScratch(worker);
+                    built.Add(scratch);
+                    return scratch;
+                },
+                new WorkQueueOptions { ChunkSize = 1 },
+                cts.Token);
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => cancelled.WaitAsync(Patience, CancellationToken.None));
+            Assert.True(Volatile.Read(ref ran) < 1_000_000, "the cancel did not stop the run");
+            Assert.All(built, s => Assert.False(s.Clashed));
+            Assert.All(built, s => Assert.True(s.Disposed));
+
+            await AssertRunsEveryItemOnce(queue);
+        }
+    }
+
+    [Fact]
+    public async Task ADegreeOneJobOnAContendedPoolNeverLendsItsSlotTwice()
+    {
+        // Every thread but one is turned away from this job on every step, so
+        // the turned-away count and the free-slot count race on each return.
+        using CompilePool pool = new(ContendedDegree);
+        using var queue = new WorkQueue(new CompileParallelism { MaxDegree = 1, Pool = pool });
+        int inside = 0;
+        int clashes = 0;
+        int[] claims = new int[20_000];
+
+        await queue.RunAsync(
+            claims.Length,
+            (index, context) =>
+            {
+                if (Interlocked.Increment(ref inside) != 1 || context.WorkerIndex != 0)
+                {
+                    Interlocked.Increment(ref clashes);
+                }
+
+                claims[index]++;
+                Interlocked.Decrement(ref inside);
+            },
+            new WorkQueueOptions { ChunkSize = 1 },
+            CancellationToken.None).WaitAsync(Patience, CancellationToken.None);
+
+        Assert.Equal(0, clashes);
+        Assert.All(claims, c => Assert.Equal(1, c));
+    }
+
+    private static async Task AssertRunsEveryItemOnce(WorkQueue queue)
+    {
+        int[] claims = new int[5_000];
+        await queue.RunAsync(
+            claims.Length,
+            (index, _) => Interlocked.Increment(ref claims[index]),
+            new WorkQueueOptions { ChunkSize = 1 },
+            CancellationToken.None).WaitAsync(Patience, CancellationToken.None);
+        Assert.All(claims, c => Assert.Equal(1, c));
+    }
+
+    /// <summary>
+    /// Scratch that notices being used by two threads at once, or by a worker
+    /// other than the one it was built for, or after it was disposed.
+    /// </summary>
+    private sealed class GuardedScratch(int worker) : IDisposable
+    {
+        private int _inside;
+        private volatile bool _clashed;
+        private volatile bool _disposed;
+
+        public bool Clashed => _clashed;
+
+        public bool Disposed => _disposed;
+
+        public void Enter(int workerIndex)
+        {
+            if (Interlocked.Increment(ref _inside) != 1 || workerIndex != worker || _disposed)
+            {
+                _clashed = true;
+            }
+        }
+
+        public void Leave() => Interlocked.Decrement(ref _inside);
+
+        public void Dispose()
+        {
+            if (Volatile.Read(ref _inside) != 0)
+            {
+                _clashed = true;
+            }
+
+            _disposed = true;
+        }
     }
 
     private sealed class DisposableScratch : IDisposable
