@@ -16,7 +16,7 @@ namespace SourceSharp.MapTools.Gpu.Interop;
 
 /// <summary>
 /// One Vulkan compute device with the ray-query pipeline, the scene BLAS, and
-/// pinned staging buffers — everything the traced batches need.
+/// a ring of pinned slab slots — everything the traced batches need.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -33,9 +33,12 @@ namespace SourceSharp.MapTools.Gpu.Interop;
 /// </para>
 /// <para>
 /// Threading: not thread-safe by design. One tracer instance owns one of
-/// these, and its <c>SlabBatcher</c> makes every staging and dispatch from a
-/// single drainer at a time. A batch's bytes depend only on its rays because
-/// each lane of the kernel reads only its own ray.
+/// these, and its <c>SlabBatcher</c> makes every staging, submit and
+/// completion from a single drainer at a time. Several slots may be in
+/// flight on the one queue, each with its own buffers, descriptor set,
+/// command buffer and fence, so nothing one slab's commands touch is touched
+/// by another's. A batch's bytes depend only on its rays because each lane
+/// of the kernel reads only its own ray.
 /// </para>
 /// </remarks>
 internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
@@ -58,20 +61,19 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     private KhrAccelerationStructure _blasApi = null!;
     private KhrBufferDeviceAddress _bdaApi = null!;
     private PhysicalDeviceMemoryProperties _memory;
+    private uint[] _typeFlags = [];
+    private int[] _typeHeaps = [];
+    private ulong[] _heapSizes = [];
     private Pipeline _pipeline;
     private PipelineLayout _pipelineLayout;
     private DescriptorSetLayout _descriptorLayout;
-    private DescriptorSet _descriptorSet;
     private DescriptorPool _descriptorPool;
     private CommandPool _commandPool;
     private Fence _fence;
 
     private GpuBuffer? _vertexBuffer;
-    private GpuBuffer? _rayBuffer;
-    private GpuBuffer? _outBuffer;
     private GpuBuffer? _asBuffer;
-    private GpuBuffer? _hostRays;
-    private GpuBuffer? _hostOut;
+    private SlabSlot[] _slots = [];
     private AccelerationStructureKHR _blasHandle;
     private uint _triangleCount;
     private AccelerationStructureGeometryKHR _geometry;
@@ -91,23 +93,44 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// <summary>Bytes of Vulkan memory this device has ever had allocated at once.</summary>
     public long PeakAllocationBytes { get; private set; }
 
-    /// <summary>The largest ray batch one dispatch may hold, from the device's buffer-size limits.</summary>
+    /// <summary>The largest ray batch one slot's dispatch may hold, from the budget and the device's buffer-size limits.</summary>
     public int MaxSlabRays { get; private set; }
+
+    /// <summary>How many slabs may be on the device at once.</summary>
+    public int SlotCount => _slots.Length;
+
+    /// <summary>Where the slab buffers live; see <see cref="SlabMemory"/>.</summary>
+    public SlabMemoryLayout SlabLayout { get; private set; }
 
     /// <summary>How many triangles the BLAS was built from.</summary>
     public uint TriangleCount => _triangleCount;
 
     /// <summary>
     /// Creates the instance, selects and opens the device, builds the pipeline,
-    /// and pins the staging buffers.
+    /// and pins the slab slots.
     /// </summary>
     /// <param name="deviceMatch">Device-name substring, or null for the best-scoring device.</param>
     /// <param name="deviceIndex">Physical-device index pin (over ray-query-capable devices), or −1.</param>
-    /// <param name="maxRaysPerSlab">Requested slab cap; the device's limits can only lower it.</param>
+    /// <param name="maxRaysPerSlab">
+    /// Requested ray budget, shared by every slot (see <see cref="SlabMemory"/>);
+    /// the device's limits can only lower it.
+    /// </param>
+    /// <param name="slots">Slabs that may be in flight at once, 1 to <see cref="SlabMemory.MaxSlots"/>.</param>
+    /// <param name="forceStaged">
+    /// Keep the upload and download copies even where the device could read
+    /// rays and write answers in place; facts use it to compare the two paths.
+    /// </param>
     /// <exception cref="VulkanException">Any driver refusal, with the failing call and result.</exception>
     /// <exception cref="NotSupportedException">No device matches and exposes ray query.</exception>
-    public void Construct(string? deviceMatch, int deviceIndex, int maxRaysPerSlab)
+    public void Construct(
+        string? deviceMatch,
+        int deviceIndex,
+        int maxRaysPerSlab,
+        int slots = SlabMemory.DefaultSlots,
+        bool forceStaged = false)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(slots, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(slots, SlabMemory.MaxSlots);
         byte* appName = (byte*)SilkMarshal.StringToPtr("maptools-gpu");
         ApplicationInfo app = new()
         {
@@ -245,6 +268,19 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         ulong maxStorage = Math.Max(134_217_728UL, props.Properties.Limits.MaxStorageBufferRange);
 
         _memory = _vk.GetPhysicalDeviceMemoryProperties(_physical);
+        _typeFlags = new uint[_memory.MemoryTypeCount];
+        _typeHeaps = new int[_memory.MemoryTypeCount];
+        for (int i = 0; i < _typeFlags.Length; i++)
+        {
+            _typeFlags[i] = (uint)_memory.MemoryTypes[i].PropertyFlags;
+            _typeHeaps[i] = (int)_memory.MemoryTypes[i].HeapIndex;
+        }
+
+        _heapSizes = new ulong[_memory.MemoryHeapCount];
+        for (int i = 0; i < _heapSizes.Length; i++)
+        {
+            _heapSizes[i] = _memory.MemoryHeaps[i].Size;
+        }
 
         uint qc = 0;
         _vk.GetPhysicalDeviceQueueFamilyProperties(_physical, &qc, (QueueFamilyProperties*)null);
@@ -352,24 +388,16 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         FenceCreateInfo fci = new() { SType = StructureType.FenceCreateInfo };
         ThrowOn(_vk.CreateFence(_device, &fci, null, out _fence), "vkCreateFence");
 
-        // A dispatch's buffers all fit the slab: rays are 8 floats (32 B) and
-        // the largest out mode is 2 words (8 B)/ray, so the ray buffer is the
-        // binding limit. The cap can only come DOWN from the caller's
-        // request: a slab whose buffer exceeds MaxStorageBufferBindingSize is
-        // invalid usage (the spec floor is 128 MB, so the default
-        // 4,194,304-ray slab at 128 MB of ray bytes fits exactly).
-        ulong perRayBytes = 32UL;
-        ulong byBinding = maxStorage / perRayBytes;
-        ulong byBuffer = byBinding; // same limit governs both roles here
-        ulong byDispatch = (ulong)uint.MaxValue / Invocations * Invocations;
-        ulong cap = Math.Min((ulong)maxRaysPerSlab, Math.Min(byBinding, Math.Min(byBuffer, byDispatch)));
-        cap &= ~(ulong)(Invocations - 1); // whole workgroups; the bit-word layout needs it
-        MaxSlabRays = (int)Math.Max(Invocations, cap);
+        // The budget is split across the slots, and each slot's ray buffer
+        // (32 B a ray, the largest of its buffers) must fit one storage
+        // binding: the cap can only come DOWN from the caller's request, and
+        // a buffer past maxStorageBufferRange is invalid usage.
+        MaxSlabRays = SlabMemory.RaysPerSlot(maxRaysPerSlab, slots, maxStorage);
 
         byte[] spirv = ShadercCompiler.CompileGlsl(Kernels.RayGlsl, "vis.glsl");
         BuildPipeline(spirv);
-        AllocateSceneBuffers();
-        CreateDescriptorSet();
+        AllocateSlots(slots, forceStaged);
+        CreateDescriptorSets();
     }
 
     /// <summary>
@@ -539,7 +567,21 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         public ulong AllocationSize;
     }
 
-    private GpuBuffer Allocate(ulong size, MemoryPropertyFlags wanted, BufferUsageFlags usage, bool deviceAddress)
+    /// <summary>
+    /// Creates a buffer and binds it to fresh memory of the first type the
+    /// buffer may use that has <paramref name="required"/> (and
+    /// <paramref name="preferred"/> when some type has that too), or of
+    /// exactly <paramref name="forcedType"/>. Maps it when
+    /// <paramref name="required"/> asks for host visibility. Nothing is left
+    /// behind when a step fails.
+    /// </summary>
+    private GpuBuffer Allocate(
+        ulong size,
+        MemoryPropertyFlags required,
+        BufferUsageFlags usage,
+        bool deviceAddress,
+        MemoryPropertyFlags preferred = 0,
+        int forcedType = -1)
     {
         size = Math.Max(16UL, size);
         BufferCreateInfo bci = new()
@@ -550,62 +592,70 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             SharingMode = SharingMode.Exclusive,
         };
         ThrowOn(_vk.CreateBuffer(_device, &bci, null, out Silk.NET.Vulkan.Buffer buffer), "vkCreateBuffer");
-        MemoryRequirements req;
-        _vk.GetBufferMemoryRequirements(_device, buffer, &req);
-        int type = -1;
-        for (int i = 0; i < _memory.MemoryTypeCount; i++)
+        DeviceMemory memory = default;
+        try
         {
-            MemoryPropertyFlags have = _memory.MemoryTypes[i].PropertyFlags;
-            if ((req.MemoryTypeBits & (1u << i)) != 0 && (have & wanted) == wanted)
+            MemoryRequirements req;
+            _vk.GetBufferMemoryRequirements(_device, buffer, &req);
+            int type = forcedType >= 0
+                ? forcedType
+                : SlabMemory.FindType(_typeFlags, req.MemoryTypeBits, (uint)required, (uint)(required | preferred));
+            if (type < 0 || (req.MemoryTypeBits & (1u << type)) == 0)
             {
-                type = i;
-                break;
+                throw new NotSupportedException($"{DeviceName}: no memory type with {required}");
             }
-        }
 
-        if (type < 0)
-        {
-            throw new NotSupportedException($"{DeviceName}: no memory type with {wanted}");
-        }
-
-        MemoryAllocateInfo mai = new()
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = req.Size,
-            MemoryTypeIndex = (uint)type,
-        };
-        ThrowOn(_vk.AllocateMemory(_device, &mai, null, out DeviceMemory memory), "vkAllocateMemory");
-        ThrowOn(_vk.BindBufferMemory(_device, buffer, memory, 0), "vkBindBufferMemory");
-        nint mapped = 0;
-        if ((wanted & MemoryPropertyFlags.HostVisibleBit) != 0)
-        {
-            void* m = null;
-            ThrowOn(_vk.MapMemory(_device, memory, 0, req.Size, 0, &m), "vkMapMemory");
-            mapped = (nint)m;
-        }
-
-        ulong address = 0;
-        if (deviceAddress)
-        {
-            BufferDeviceAddressInfo bda = new()
+            MemoryAllocateInfo mai = new()
             {
-                SType = StructureType.BufferDeviceAddressInfo,
-                Buffer = buffer,
+                SType = StructureType.MemoryAllocateInfo,
+                AllocationSize = req.Size,
+                MemoryTypeIndex = (uint)type,
             };
-            address = _bdaApi.GetBufferDeviceAddress(_device, &bda);
-        }
+            ThrowOn(_vk.AllocateMemory(_device, &mai, null, out memory), "vkAllocateMemory");
+            ThrowOn(_vk.BindBufferMemory(_device, buffer, memory, 0), "vkBindBufferMemory");
+            nint mapped = 0;
+            if ((required & MemoryPropertyFlags.HostVisibleBit) != 0)
+            {
+                void* m = null;
+                ThrowOn(_vk.MapMemory(_device, memory, 0, req.Size, 0, &m), "vkMapMemory");
+                mapped = (nint)m;
+            }
 
-        _liveBytes += (long)req.Size;
-        PeakAllocationBytes = Math.Max(PeakAllocationBytes, _liveBytes);
-        return new GpuBuffer
+            ulong address = 0;
+            if (deviceAddress)
+            {
+                BufferDeviceAddressInfo bda = new()
+                {
+                    SType = StructureType.BufferDeviceAddressInfo,
+                    Buffer = buffer,
+                };
+                address = _bdaApi.GetBufferDeviceAddress(_device, &bda);
+            }
+
+            _liveBytes += (long)req.Size;
+            PeakAllocationBytes = Math.Max(PeakAllocationBytes, _liveBytes);
+            return new GpuBuffer
+            {
+                Vk = buffer,
+                Memory = memory,
+                DeviceAddress = address,
+                Mapped = mapped,
+                Size = size,
+                AllocationSize = req.Size,
+            };
+        }
+        catch
         {
-            Vk = buffer,
-            Memory = memory,
-            DeviceAddress = address,
-            Mapped = mapped,
-            Size = size,
-            AllocationSize = req.Size,
-        };
+            // Freeing memory unmaps it; the buffer goes first because it is
+            // bound to that memory.
+            _vk.DestroyBuffer(_device, buffer, null);
+            if (memory.Handle != 0)
+            {
+                _vk.FreeMemory(_device, memory, null);
+            }
+
+            throw;
+        }
     }
 
     private void Free(GpuBuffer? b)
@@ -626,30 +676,157 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     }
 
     /// <summary>
-    /// Pins the persistent scene/staging set: one ray buffer and one out
-    /// buffer at slab capacity, plus host-visible staging for both
-    /// directions, so a trace never allocates Vulkan memory per batch.
+    /// The <c>memoryTypeBits</c> of a buffer with <paramref name="usage"/>.
+    /// The spec makes them the same for every buffer created with the same
+    /// usage and flags, so a small probe buffer answers for the slab-sized
+    /// ones.
     /// </summary>
-    private void AllocateSceneBuffers()
+    private uint AllowedTypes(BufferUsageFlags usage)
+    {
+        BufferCreateInfo bci = new()
+        {
+            SType = StructureType.BufferCreateInfo,
+            Size = 256,
+            Usage = usage,
+            SharingMode = SharingMode.Exclusive,
+        };
+        ThrowOn(_vk.CreateBuffer(_device, &bci, null, out Silk.NET.Vulkan.Buffer probe), "vkCreateBuffer");
+        MemoryRequirements req;
+        _vk.GetBufferMemoryRequirements(_device, probe, &req);
+        _vk.DestroyBuffer(_device, probe, null);
+        return req.MemoryTypeBits;
+    }
+
+    /// <summary>
+    /// One slab's resources: what the host packs rays into and reads answers
+    /// from, what the kernel reads and writes (the same buffers when the
+    /// layout is direct), the descriptor set naming them, a command buffer
+    /// re-recorded per slab, and the fence that says the slab is done.
+    /// </summary>
+    private sealed class SlabSlot
+    {
+        public GpuBuffer? HostRays;
+        public GpuBuffer? KernelRays;
+        public GpuBuffer? KernelOut;
+        public GpuBuffer? HostOut;
+        public DescriptorSet Set;
+        public CommandBuffer Commands;
+        public Fence Fence;
+
+        /// <summary>Submitted and not yet waited for: the slot's buffers belong to the device.</summary>
+        public bool Pending;
+    }
+
+    /// <summary>
+    /// Pins every slot's buffers, command buffer and fence at slab
+    /// capacity, so a trace never allocates Vulkan memory per batch. Where
+    /// the buffers live is <see cref="SlabMemory.Choose"/>'s decision. A
+    /// failure part way leaves what was made in <see cref="_slots"/> for
+    /// <see cref="Dispose"/>.
+    /// </summary>
+    private void AllocateSlots(int slots, bool forceStaged)
     {
         ulong slabRayBytes = (ulong)MaxSlabRays * 32UL;
         ulong slabOutBytes = (ulong)MaxSlabRays * 8UL; // closest: 2 words/ray; bits: 1/8 of that
-        _rayBuffer = Allocate(slabRayBytes, MemoryPropertyFlags.DeviceLocalBit,
-            BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.StorageBufferBit
-            | BufferUsageFlags.TransferDstBit,
-            deviceAddress: true);
-        _outBuffer = Allocate(slabOutBytes, MemoryPropertyFlags.DeviceLocalBit,
-            BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferSrcBit,
-            deviceAddress: false);
-        _hostRays = Allocate(slabRayBytes,
-            MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
-            BufferUsageFlags.TransferSrcBit,
-            deviceAddress: false);
-        _hostOut = Allocate(slabOutBytes,
-            MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
-            BufferUsageFlags.TransferDstBit,
-            deviceAddress: false);
+        const BufferUsageFlags DirectRayUsage = BufferUsageFlags.StorageBufferBit;
+        const BufferUsageFlags DirectOutUsage = BufferUsageFlags.StorageBufferBit;
+        uint rayAllowed = AllowedTypes(DirectRayUsage);
+        uint outAllowed = AllowedTypes(DirectOutUsage);
+        SlabLayout = SlabMemory.Choose(
+            _typeFlags, _typeHeaps, _heapSizes, rayAllowed, outAllowed,
+            slabRayBytes * (ulong)slots, slabOutBytes * (ulong)slots, forceStaged);
+        const uint InPlace = SlabMemory.DeviceLocal | SlabMemory.HostVisible | SlabMemory.HostCoherent;
+        int directRayType = SlabLayout.DirectRays
+            ? SlabMemory.FindRoomyType(_typeFlags, _typeHeaps, _heapSizes, rayAllowed, InPlace,
+                slabRayBytes * (ulong)slots)
+            : -1;
+        int directOutType = SlabLayout.DirectOut
+            ? SlabMemory.FindRoomyType(_typeFlags, _typeHeaps, _heapSizes, outAllowed,
+                InPlace | SlabMemory.HostCached, slabOutBytes * (ulong)slots)
+            : -1;
+        const MemoryPropertyFlags HostCoherent = MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit;
+
+        _slots = new SlabSlot[slots];
+        for (int i = 0; i < slots; i++)
+        {
+            SlabSlot slot = new();
+            _slots[i] = slot;
+            if (SlabLayout.DirectRays)
+            {
+                slot.HostRays = Allocate(slabRayBytes, HostCoherent, DirectRayUsage, deviceAddress: false,
+                    forcedType: directRayType);
+                slot.KernelRays = slot.HostRays;
+            }
+            else
+            {
+                slot.KernelRays = Allocate(slabRayBytes, MemoryPropertyFlags.DeviceLocalBit,
+                    BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferDstBit, deviceAddress: false);
+                slot.HostRays = Allocate(slabRayBytes, HostCoherent, BufferUsageFlags.TransferSrcBit,
+                    deviceAddress: false);
+            }
+
+            if (SlabLayout.DirectOut)
+            {
+                slot.HostOut = Allocate(slabOutBytes, HostCoherent, DirectOutUsage, deviceAddress: false,
+                    forcedType: directOutType);
+                slot.KernelOut = slot.HostOut;
+            }
+            else
+            {
+                slot.KernelOut = Allocate(slabOutBytes, MemoryPropertyFlags.DeviceLocalBit,
+                    BufferUsageFlags.StorageBufferBit | BufferUsageFlags.TransferSrcBit, deviceAddress: false);
+
+                // The host reads every answer back: cached memory makes those
+                // reads ordinary loads instead of uncached bus reads.
+                slot.HostOut = Allocate(slabOutBytes, HostCoherent, BufferUsageFlags.TransferDstBit,
+                    deviceAddress: false, preferred: MemoryPropertyFlags.HostCachedBit);
+            }
+
+            CommandBufferAllocateInfo cbai = new()
+            {
+                SType = StructureType.CommandBufferAllocateInfo,
+                CommandPool = _commandPool,
+                Level = CommandBufferLevel.Primary,
+                CommandBufferCount = 1,
+            };
+            ThrowOn(_vk.AllocateCommandBuffers(_device, &cbai, out slot.Commands), "vkAllocateCommandBuffers");
+            FenceCreateInfo fci = new() { SType = StructureType.FenceCreateInfo };
+            ThrowOn(_vk.CreateFence(_device, &fci, null, out slot.Fence), "vkCreateFence");
+        }
     }
+
+    private void FreeSlots()
+    {
+        foreach (SlabSlot slot in _slots)
+        {
+            if (slot is null)
+            {
+                continue;
+            }
+
+            if (!ReferenceEquals(slot.KernelRays, slot.HostRays))
+            {
+                Free(slot.KernelRays);
+            }
+
+            Free(slot.HostRays);
+            if (!ReferenceEquals(slot.KernelOut, slot.HostOut))
+            {
+                Free(slot.KernelOut);
+            }
+
+            Free(slot.HostOut);
+            if (slot.Fence.Handle != 0)
+            {
+                _vk.DestroyFence(_device, slot.Fence, null);
+            }
+
+            // The command buffer goes with the pool.
+        }
+
+        _slots = [];
+    }
+
 
     /// <summary>
     /// Uploads the triangles and builds the opaque BLAS once, in
@@ -795,173 +972,207 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     }
 
     /// <summary>
-    /// Creates the one descriptor set and binds the pinned ray/out buffers.
-    /// Runs once at construction; the BLAS binding is refreshed by
-    /// <see cref="UpdateBlasBinding"/> on each build (self-test scene, then
-    /// the real scene). Updating only binding 2 is legal because every
-    /// dispatch's fence has signalled before the next build runs — the queue
-    /// is never in flight while its descriptors are rewritten.
+    /// Creates one descriptor set per slot, binding that slot's kernel ray
+    /// and output buffers. Runs once at construction. The BLAS binding is
+    /// written by <see cref="UpdateBlasBinding"/> on each build (self-test
+    /// scene, then the real scene), which always comes before the first
+    /// dispatch.
     /// </summary>
-    private void CreateDescriptorSet()
+    private void CreateDescriptorSets()
     {
+        uint slots = (uint)_slots.Length;
         DescriptorPoolSize* sizes = stackalloc DescriptorPoolSize[2]
         {
-            new DescriptorPoolSize { Type = DescriptorType.StorageBuffer, DescriptorCount = 2 },
-            new DescriptorPoolSize { Type = DescriptorType.AccelerationStructureKhr, DescriptorCount = 1 },
+            new DescriptorPoolSize { Type = DescriptorType.StorageBuffer, DescriptorCount = 2 * slots },
+            new DescriptorPoolSize { Type = DescriptorType.AccelerationStructureKhr, DescriptorCount = slots },
         };
         DescriptorPoolCreateInfo dpci = new()
         {
             SType = StructureType.DescriptorPoolCreateInfo,
             PoolSizeCount = 2,
             PPoolSizes = sizes,
-            MaxSets = 1,
+            MaxSets = slots,
         };
         ThrowOn(_vk.CreateDescriptorPool(_device, &dpci, null, out _descriptorPool),
             "vkCreateDescriptorPool");
-        DescriptorSetLayout layout = _descriptorLayout;
-        DescriptorSetAllocateInfo dsai = new()
-        {
-            SType = StructureType.DescriptorSetAllocateInfo,
-            DescriptorPool = _descriptorPool,
-            DescriptorSetCount = 1,
-            PSetLayouts = &layout,
-        };
-        ThrowOn(_vk.AllocateDescriptorSets(_device, &dsai, out _descriptorSet),
-            "vkAllocateDescriptorSets");
         Silk.NET.Vulkan.DescriptorBufferInfo* infos = stackalloc Silk.NET.Vulkan.DescriptorBufferInfo[2];
-        infos[0] = new Silk.NET.Vulkan.DescriptorBufferInfo
+        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[2];
+        foreach (SlabSlot slot in _slots)
         {
-            Buffer = _rayBuffer!.Vk,
-            Offset = 0,
-            Range = _rayBuffer.Size,
-        };
-        infos[1] = new Silk.NET.Vulkan.DescriptorBufferInfo
-        {
-            Buffer = _outBuffer!.Vk,
-            Offset = 0,
-            Range = _outBuffer.Size,
-        };
-        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[3];
-        for (int i = 0; i < 2; i++)
-        {
-            writes[i] = new WriteDescriptorSet
+            DescriptorSetLayout layout = _descriptorLayout;
+            DescriptorSetAllocateInfo dsai = new()
             {
-                SType = StructureType.WriteDescriptorSet,
-                DstSet = _descriptorSet,
-                DstBinding = (uint)i,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.StorageBuffer,
-                PBufferInfo = infos + i,
+                SType = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool = _descriptorPool,
+                DescriptorSetCount = 1,
+                PSetLayouts = &layout,
             };
-        }
+            ThrowOn(_vk.AllocateDescriptorSets(_device, &dsai, out slot.Set), "vkAllocateDescriptorSets");
+            infos[0] = new Silk.NET.Vulkan.DescriptorBufferInfo
+            {
+                Buffer = slot.KernelRays!.Vk,
+                Offset = 0,
+                Range = slot.KernelRays.Size,
+            };
+            infos[1] = new Silk.NET.Vulkan.DescriptorBufferInfo
+            {
+                Buffer = slot.KernelOut!.Vk,
+                Offset = 0,
+                Range = slot.KernelOut.Size,
+            };
+            for (int i = 0; i < 2; i++)
+            {
+                writes[i] = new WriteDescriptorSet
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    DstSet = slot.Set,
+                    DstBinding = (uint)i,
+                    DescriptorCount = 1,
+                    DescriptorType = DescriptorType.StorageBuffer,
+                    PBufferInfo = infos + i,
+                };
+            }
 
-        fixed (AccelerationStructureKHR* blasPtr = &_blasHandle)
-        {
-            WriteDescriptorSetAccelerationStructureKHR asWrite = new()
-            {
-                SType = StructureType.WriteDescriptorSetAccelerationStructureKhr,
-                AccelerationStructureCount = 1,
-                PAccelerationStructures = blasPtr,
-            };
-            writes[2] = new WriteDescriptorSet
-            {
-                SType = StructureType.WriteDescriptorSet,
-                PNext = &asWrite,
-                DstSet = _descriptorSet,
-                DstBinding = 2,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.AccelerationStructureKhr,
-            };
-            _vk.UpdateDescriptorSets(_device, 3, writes, 0, null);
-        }
-    }
-
-    /// <summary>Refreshes the BLAS binding of the pinned set after a rebuild.</summary>
-    private void UpdateBlasBinding()
-    {
-        fixed (AccelerationStructureKHR* blasPtr = &_blasHandle)
-        {
-            WriteDescriptorSetAccelerationStructureKHR asWrite = new()
-            {
-                SType = StructureType.WriteDescriptorSetAccelerationStructureKhr,
-                AccelerationStructureCount = 1,
-                PAccelerationStructures = blasPtr,
-            };
-            WriteDescriptorSet asBinding = new()
-            {
-                SType = StructureType.WriteDescriptorSet,
-                PNext = &asWrite,
-                DstSet = _descriptorSet,
-                DstBinding = 2,
-                DescriptorCount = 1,
-                DescriptorType = DescriptorType.AccelerationStructureKhr,
-            };
-            _vk.UpdateDescriptorSets(_device, 1, &asBinding, 0, null);
+            _vk.UpdateDescriptorSets(_device, 2, writes, 0, null);
         }
     }
 
     /// <summary>
-    /// Hands out the pinned host staging for <paramref name="rayCount"/> rays
-    /// in the 8-float wire layout — two vec4 per ray: <c>(ox,oy,oz,0)</c> and
-    /// <c>(dx,dy,dz,tmax)</c>. The caller packs straight into pinned memory,
-    /// so a batch is copied once, by the upload's <c>vkCmdCopyBuffer</c>.
+    /// Points every slot's set at the BLAS after a build. Legal because no
+    /// slot is in flight then: builds happen only while the device is being
+    /// set up, and every self-test dispatch has been waited for.
     /// </summary>
-    /// <param name="rayCount">Rays the following dispatch will carry; at most <see cref="MaxSlabRays"/>.</param>
-    /// <returns>A span of <c>8 * rayCount</c> floats to fill.</returns>
-    /// <exception cref="VulkanException">The slab exceeds the pinned buffers.</exception>
-    public Span<float> StageRays(int rayCount)
+    private void UpdateBlasBinding()
     {
+        fixed (AccelerationStructureKHR* blasPtr = &_blasHandle)
+        {
+            foreach (SlabSlot slot in _slots)
+            {
+                WriteDescriptorSetAccelerationStructureKHR asWrite = new()
+                {
+                    SType = StructureType.WriteDescriptorSetAccelerationStructureKhr,
+                    AccelerationStructureCount = 1,
+                    PAccelerationStructures = blasPtr,
+                };
+                WriteDescriptorSet asBinding = new()
+                {
+                    SType = StructureType.WriteDescriptorSet,
+                    PNext = &asWrite,
+                    DstSet = slot.Set,
+                    DstBinding = 2,
+                    DescriptorCount = 1,
+                    DescriptorType = DescriptorType.AccelerationStructureKhr,
+                };
+                _vk.UpdateDescriptorSets(_device, 1, &asBinding, 0, null);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Hands out a slot's pinned host memory for <paramref name="rayCount"/>
+    /// rays in the 8-float wire layout — two vec4 per ray:
+    /// <c>(ox,oy,oz,0)</c> and <c>(dx,dy,dz,tmax)</c>. The caller packs
+    /// straight into it, so a batch is copied at most once more, by the
+    /// upload copy, and not at all when the kernel reads it in place.
+    /// </summary>
+    /// <param name="slot">The slot; not in flight.</param>
+    /// <param name="rayCount">Rays the slot's next dispatch will carry; at most <see cref="MaxSlabRays"/>.</param>
+    /// <returns>A span of <c>8 * rayCount</c> floats to fill.</returns>
+    /// <exception cref="VulkanException">
+    /// The slab exceeds the pinned buffers, or the slot's last slab failed
+    /// its wait and still has not finished.
+    /// </exception>
+    public Span<float> StageRays(int slot, int rayCount)
+    {
+        SlabSlot s = _slots[slot];
+        Retire(s);
         ulong rayBytes = (ulong)rayCount * 32UL;
-        if (rayBytes > _hostRays!.Size)
+        if (rayBytes > s.HostRays!.Size)
         {
             throw new VulkanException(Result.ErrorFragmentation,
                 $"a {rayCount}-ray slab exceeds the pinned slab buffers ({MaxSlabRays} rays)", null);
         }
 
-        return new Span<float>((void*)_hostRays.Mapped, rayCount * 8);
+        return new Span<float>((void*)s.HostRays.Mapped, rayCount * 8);
     }
 
     /// <summary>
-    /// Uploads the staged rays, dispatches one kernel mode over them, and
-    /// downloads the raw out words. Every ordering between those three stages
-    /// is an explicit barrier in the command buffer.
+    /// Records and submits one slot's slab as a single command buffer and
+    /// returns without waiting: the upload copy, the dispatch and the
+    /// download copy, each ordering between them an explicit barrier.
     /// </summary>
+    /// <param name="slot">The slot staged last; not in flight.</param>
     /// <param name="mode">Kernel mode: 0 any-hit, 1 closest, 4 readback sanity, 5 telemetry.</param>
-    /// <param name="rayCount">Rays staged since the last call.</param>
-    /// <param name="outWords">Raw out words: 2/ray for modes 1/5, 2/workgroup for 0/4.</param>
+    /// <param name="rayCount">Rays staged.</param>
+    /// <param name="outWordCount">Raw out words: 2/ray for modes 1/5, 2/workgroup for 0/4.</param>
     /// <param name="tminBits">Ray epsilon as float bits.</param>
     /// <param name="tmaxScaleBits">Any-hit tmax scale (<c>1 - 2^-23</c>) as float bits.</param>
-    /// <exception cref="VulkanException">Dispatch, sync, or copy failure, including the driver-hang timeout.</exception>
-    public void Dispatch(int mode, int rayCount, Span<uint> outWords, uint tminBits, uint tmaxScaleBits)
+    /// <exception cref="VulkanException">
+    /// Recording or submission failed (the slot stays free), or the slot's
+    /// last slab failed its wait and still has not finished.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// One submit and one fence per slab, where there used to be two of
+    /// each: a submit is a kernel call and a fence wait a scheduler round
+    /// trip, so the second pair cost as much as a small slab's whole trace.
+    /// </para>
+    /// <para>
+    /// Barriers, in recording order: the upload copy's write before the
+    /// kernel's ray reads; the kernel's output writes before the download
+    /// copy's reads; the download's writes before the host's reads. When the
+    /// kernel reads rays in place, the host's writes need no barrier (a
+    /// queue submit makes every earlier host write to coherent memory
+    /// visible to the device); when it writes answers in place, its writes
+    /// go straight to the host barrier. A slot's buffers are never touched
+    /// by another slot's commands, and a slot is re-recorded only after its
+    /// fence has been waited on, so slabs in flight together need no
+    /// ordering between them.
+    /// </para>
+    /// </remarks>
+    public void Submit(int slot, int mode, int rayCount, int outWordCount, uint tminBits, uint tmaxScaleBits)
     {
+        SlabSlot s = _slots[slot];
+        Retire(s);
+
         // A partial tail workgroup is fine and normal: the kernel guards every
         // lane by index < rayCount, so the dispatch covers ceil(rays/64) and
         // the tail lanes run no query at all. Only the slab cap is a hard
         // bound.
         ulong rayBytes = (ulong)rayCount * 32UL;
-        ulong outBytes = (ulong)outWords.Length * sizeof(uint);
-        if (outBytes > _hostOut!.Size)
+        ulong outBytes = (ulong)outWordCount * sizeof(uint);
+        if (rayBytes > s.HostRays!.Size || outBytes > s.HostOut!.Size)
         {
             throw new VulkanException(Result.ErrorFragmentation,
-                $"a {rayCount}-ray slab's output exceeds the pinned output buffer", null);
+                $"a {rayCount}-ray slab exceeds the pinned slab buffers ({MaxSlabRays} rays)", null);
         }
-        CommandBuffer upload = Begin();
-        BufferCopy region = new() { SrcOffset = 0, DstOffset = 0, Size = rayBytes };
-        _vk.CmdCopyBuffer(upload, _hostRays!.Vk, _rayBuffer!.Vk, 1, &region);
-        // The upload's write must be visible to the kernel's ray reads.
-        Barrier(
-            upload,
-            PipelineStageFlags.TransferBit,
-            AccessFlags.TransferWriteBit,
-            PipelineStageFlags.ComputeShaderBit,
-            AccessFlags.ShaderReadBit);
-        End(upload);
-        Submit(upload);
 
-        CommandBuffer compute = Begin();
-        _vk.CmdBindPipeline(compute, PipelineBindPoint.Compute, _pipeline);
-        DescriptorSet set = _descriptorSet;
-        _vk.CmdBindDescriptorSets(compute, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
+        CommandBuffer cmd = s.Commands;
+
+        // The pool lets buffers reset one by one; an explicit reset also
+        // clears a recording an earlier failure left half done.
+        ThrowOn(_vk.ResetCommandBuffer(cmd, 0), "vkResetCommandBuffer");
+        CommandBufferBeginInfo cbbi = new()
+        {
+            SType = StructureType.CommandBufferBeginInfo,
+            Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
+        };
+        ThrowOn(_vk.BeginCommandBuffer(cmd, &cbbi), "vkBeginCommandBuffer");
+        if (!ReferenceEquals(s.HostRays, s.KernelRays))
+        {
+            BufferCopy upload = new() { SrcOffset = 0, DstOffset = 0, Size = rayBytes };
+            _vk.CmdCopyBuffer(cmd, s.HostRays.Vk, s.KernelRays!.Vk, 1, &upload);
+            Barrier(
+                cmd,
+                PipelineStageFlags.TransferBit,
+                AccessFlags.TransferWriteBit,
+                PipelineStageFlags.ComputeShaderBit,
+                AccessFlags.ShaderReadBit);
+        }
+
+        _vk.CmdBindPipeline(cmd, PipelineBindPoint.Compute, _pipeline);
+        DescriptorSet set = s.Set;
+        _vk.CmdBindDescriptorSets(cmd, PipelineBindPoint.Compute, _pipelineLayout, 0, 1, &set, 0, null);
         uint* pc = stackalloc uint[8];
         pc[0] = (uint)mode;
         pc[1] = (uint)rayCount;
@@ -969,22 +1180,85 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         pc[3] = 0;
         pc[4] = tminBits;
         pc[5] = tmaxScaleBits;
-        _vk.CmdPushConstants(compute, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, 32, pc);
-        _vk.CmdDispatch(compute, (uint)((rayCount + Invocations - 1) / Invocations), 1, 1);
-        // The kernel's writes to OUT must be visible to the download's reads:
-        // an explicit barrier inside the submit, not same-queue luck.
-        Barrier(
-            compute,
-            PipelineStageFlags.ComputeShaderBit,
-            AccessFlags.ShaderWriteBit,
-            PipelineStageFlags.TransferBit,
-            AccessFlags.TransferReadBit);
-        BufferCopy download = new() { SrcOffset = 0, DstOffset = 0, Size = outBytes };
-        _vk.CmdCopyBuffer(compute, _outBuffer!.Vk, _hostOut!.Vk, 1, &download);
-        End(compute);
-        Submit(compute);
+        pc[6] = 0;
+        pc[7] = 0;
+        _vk.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, 32, pc);
+        _vk.CmdDispatch(cmd, (uint)((rayCount + Invocations - 1) / Invocations), 1, 1);
+        if (!ReferenceEquals(s.HostOut, s.KernelOut))
+        {
+            Barrier(
+                cmd,
+                PipelineStageFlags.ComputeShaderBit,
+                AccessFlags.ShaderWriteBit,
+                PipelineStageFlags.TransferBit,
+                AccessFlags.TransferReadBit);
+            BufferCopy download = new() { SrcOffset = 0, DstOffset = 0, Size = outBytes };
+            _vk.CmdCopyBuffer(cmd, s.KernelOut!.Vk, s.HostOut.Vk, 1, &download);
+            Barrier(
+                cmd,
+                PipelineStageFlags.TransferBit,
+                AccessFlags.TransferWriteBit,
+                PipelineStageFlags.HostBit,
+                AccessFlags.HostReadBit);
+        }
+        else
+        {
+            Barrier(
+                cmd,
+                PipelineStageFlags.ComputeShaderBit,
+                AccessFlags.ShaderWriteBit,
+                PipelineStageFlags.HostBit,
+                AccessFlags.HostReadBit);
+        }
 
-        new ReadOnlySpan<uint>((void*)_hostOut.Mapped, outWords.Length).CopyTo(outWords);
+        End(cmd);
+        SubmitInfo si = new()
+        {
+            SType = StructureType.SubmitInfo,
+            CommandBufferCount = 1,
+            PCommandBuffers = &cmd,
+        };
+        ThrowOn(_vk.QueueSubmit(_queue, 1, &si, s.Fence), "vkQueueSubmit");
+        s.Pending = true;
+    }
+
+    /// <summary>
+    /// Waits for a slot's slab and copies its answers out of the slot's host
+    /// memory; the slot is free again afterwards.
+    /// </summary>
+    /// <param name="slot">A submitted slot.</param>
+    /// <param name="outWords">Receives the words the submit promised.</param>
+    /// <exception cref="VulkanException">
+    /// The wait failed or timed out. The slot then stays in flight, and is
+    /// refused until a later wait sees its fence signal, because the device
+    /// may still be using its buffers.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">The slot was not submitted.</exception>
+    public void Complete(int slot, Span<uint> outWords)
+    {
+        SlabSlot s = _slots[slot];
+        if (!s.Pending)
+        {
+            throw new InvalidOperationException($"slab slot {slot} is completed without a submit");
+        }
+
+        Retire(s);
+        new ReadOnlySpan<uint>((void*)s.HostOut!.Mapped, outWords.Length).CopyTo(outWords);
+    }
+
+    /// <summary>
+    /// Waits out a slot still in flight. The batcher only stages a slot
+    /// after completing it, so this waits only when that completion failed
+    /// (a timeout leaves the device possibly still using the buffers): the
+    /// slot is used again once its fence signals, and never before.
+    /// </summary>
+    private void Retire(SlabSlot s)
+    {
+        if (s.Pending)
+        {
+            WaitAndReset(s.Fence);
+            s.Pending = false;
+        }
     }
 
     /// <summary>Rays the known-hit micro-scene dispatches: 2 real, padded to one workgroup.</summary>
@@ -1100,7 +1374,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         rays[15] = 1f;
     }
 
-    /// <summary>Uploads pre-built wire rays and dispatches one mode (the self-test's path).</summary>
+    /// <summary>Stages pre-built wire rays in slot 0 and traces them to completion (the self-test's path).</summary>
     /// <param name="mode">Kernel mode.</param>
     /// <param name="rayCount">Rays in <paramref name="rays"/>.</param>
     /// <param name="rays">Wire-layout rays.</param>
@@ -1111,12 +1385,12 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         int mode, int rayCount, ReadOnlySpan<float> rays, Span<uint> outWords,
         uint tminBits, uint tmaxScaleBits)
     {
-        StageRays(rayCount);
-        rays.CopyTo(new Span<float>((void*)_hostRays!.Mapped, rays.Length));
-        Dispatch(mode, rayCount, outWords, tminBits, tmaxScaleBits);
+        rays.CopyTo(StageRays(0, rayCount));
+        Submit(0, mode, rayCount, outWords.Length, tminBits, tmaxScaleBits);
+        Complete(0, outWords);
     }
 
-
+    /// <summary>Submits a set-up command buffer (scene upload, BLAS build) and waits for it.</summary>
     private void Submit(CommandBuffer cmd)
     {
         SubmitInfo si = new()
@@ -1126,8 +1400,14 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             PCommandBuffers = &cmd,
         };
         ThrowOn(_vk.QueueSubmit(_queue, 1, &si, _fence), "vkQueueSubmit");
+        WaitAndReset(_fence);
+        _vk.FreeCommandBuffers(_device, _commandPool, 1, &cmd);
+    }
+
+    private void WaitAndReset(Fence fence)
+    {
         const ulong TimeoutNs = 120UL * 1_000_000_000;
-        Result r = _vk.WaitForFences(_device, 1, in _fence, true, TimeoutNs);
+        Result r = _vk.WaitForFences(_device, 1, in fence, true, TimeoutNs);
         if (r == Result.Timeout)
         {
             throw new VulkanException(
@@ -1138,9 +1418,9 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         }
 
         ThrowOn(r, "vkWaitForFences");
-        ThrowOn(_vk.ResetFences(_device, 1, in _fence), "vkResetFences");
-        _vk.FreeCommandBuffers(_device, _commandPool, 1, &cmd);
+        ThrowOn(_vk.ResetFences(_device, 1, in fence), "vkResetFences");
     }
+
     private void End(CommandBuffer cmd) => ThrowOn(_vk.EndCommandBuffer(cmd), "vkEndCommandBuffer");
 
 
@@ -1243,12 +1523,13 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             return;
         }
 
+        // Nothing may be destroyed while the device could still use it: a
+        // slab whose wait timed out, or a set-up submit that failed its
+        // wait, can still be running.
+        _vk.DeviceWaitIdle(_device);
         _blasApi?.DestroyAccelerationStructure(_device, _blasHandle, null);
         Free(_asBuffer);
-        Free(_outBuffer);
-        Free(_rayBuffer);
-        Free(_hostOut);
-        Free(_hostRays);
+        FreeSlots();
         Free(_vertexBuffer);
         if (_descriptorPool.Handle != 0)
         {
@@ -1280,7 +1561,6 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             _vk.DestroyCommandPool(_device, _commandPool, null);
         }
 
-        _vk.DeviceWaitIdle(_device);
         _vk.DestroyDevice(_device, null);
         _device = default;
         if (_instance.Handle != 0)
