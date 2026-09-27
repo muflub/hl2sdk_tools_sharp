@@ -114,7 +114,9 @@ internal sealed class VisTightening : IVisFlowSplitter
     private readonly int _levels;
     private readonly object _gate = new();
 
-    // Everything below is guarded by _gate.
+    // Everything below is guarded by _gate, except that _next, _againCount,
+    // _lowestNotDone and _completed are also READ without it, as a hint
+    // (MayClaim), and so are written with Volatile.Write.
     private readonly bool[] _done;
     private readonly bool[] _flowed;
     private readonly VisRepairTree?[] _trees;
@@ -127,7 +129,9 @@ internal sealed class VisTightening : IVisFlowSplitter
     private readonly List<int> _reads = [];
     private readonly ConcurrentStack<VisFrameTask> _frameTasks = new();
     private readonly ConcurrentStack<VisFrameTask> _spareFrameTasks = new();
-    private readonly SemaphoreSlim _wake = new(0);
+    // Where idle workers wait; RunAsync sizes it to the degree before any
+    // worker starts. Thread-safe on its own, not guarded by the gate.
+    private VisIdleWorkers _parked = new(1);
     private readonly object _timelineLock = new();
     private int _queuedFrames;
     private readonly int[] _outstanding;
@@ -137,6 +141,7 @@ internal sealed class VisTightening : IVisFlowSplitter
     private readonly VisHunger _hunger = new();
     private long _splits;
     private int _next;
+    private int _againCount;
     private int _lowestNotDone;
     private int _completed;
     private long _idleTicks;
@@ -258,6 +263,10 @@ internal sealed class VisTightening : IVisFlowSplitter
 
         // One worker has nobody to split for: its walks skip the ledger.
         _splits0 = loops == 1;
+
+        // One parking slot per worker index: the queue lends each index to
+        // one thread at a time, so no two concurrent drains share a slot.
+        _parked = new VisIdleWorkers(loops);
         return queue.RunAsync(
             loops,
             (_, flow, worker) =>
@@ -302,43 +311,77 @@ internal sealed class VisTightening : IVisFlowSplitter
             }
             else
             {
-                lock (_gate)
+                // The gate is taken only when there may be something to take
+                // or the run may be over. Most passes through here at high
+                // thread counts are idle workers finding nothing: every
+                // portal not done is being flowed or waits for a lower one.
+                // When each of those passes took the gate to learn that, the
+                // idle workers queued on it behind each other and behind the
+                // workers settling runs (measured on 2fort at 32 threads: the
+                // gate was the most contended lock of the whole chain, and at
+                // 32 threads on 4 cores 96 % of its acquisitions were such
+                // failed claims). The hint is read without the gate, so it
+                // can be stale either way: a stale "yes" costs one failed
+                // claim, as every pass did before; a stale "no" is closed by
+                // the idle path below, which reads it again after announcing
+                // itself idle.
+                if (MayClaim(count))
                 {
-                    rank = Claim();
-                    if (rank >= 0)
+                    lock (_gate)
                     {
-                        // A run whose every candidate below the limit has
-                        // finished cannot speculate and needs no tree; any
-                        // other records its reads in one.
-                        if (_trees[rank] is null && !IsReady(rank))
+                        rank = Claim();
+                        if (rank >= 0)
                         {
-                            _trees[rank] = SpareTree();
-                        }
+                            // A run whose every candidate below the limit has
+                            // finished cannot speculate and needs no tree; any
+                            // other records its reads in one.
+                            if (_trees[rank] is null && !IsReady(rank))
+                            {
+                                _trees[rank] = SpareTree();
+                            }
 
-                        _outstanding[rank] = 1;
-                        tree = _trees[rank];
-                    }
-                    else if (_completed >= count)
-                    {
-                        return;
+                            _outstanding[rank] = 1;
+                            tree = _trees[rank];
+                        }
+                        else if (_completed >= count)
+                        {
+                            return;
+                        }
                     }
                 }
 
                 if (rank < 0)
                 {
                     // Nothing on offer: every portal not done is being flowed
-                    // or is waiting for a lower one to finish. Finishing and
-                    // splitting wake the idle; the timeout covers a wake that
-                    // raced this worker going idle, and cancellation.
+                    // or is waiting for a lower one to finish. Settling and
+                    // splitting wake the parked. This worker announces itself
+                    // parked with a full fence BEFORE it reads the schedule
+                    // again, and a waker publishes its offer before it reads
+                    // who is parked (VisIdleWorkers.Wake), so one of the two
+                    // always sees the other: either this worker sees the
+                    // offer and does not wait, or the waker sees it parked
+                    // and wakes it. The timeout is a backstop, and the
+                    // cancellation poll.
                     worker.ThrowIfShouldStop();
                     Interlocked.Increment(ref _idleWorkers);
                     UpdateHunger();
                     long idle = Stopwatch.GetTimestamp();
-                    if (Volatile.Read(ref _queuedFrames) == 0)
+
+                    // Split-off frames are looked for on the stack itself, not
+                    // through _queuedFrames: that count goes up before the
+                    // push and down after the pop, so a worker descheduled
+                    // between the two leaves it positive over an empty stack,
+                    // and every idle worker that trusted it went round again
+                    // without waiting -- measured at 16 threads on 4 cores,
+                    // 1.2 million idle passes for 3,000 waits.
+                    int slot = worker.WorkerIndex;
+                    _parked.Announce(slot);
+                    if (_frameTasks.IsEmpty && !MayClaim(count))
                     {
-                        _wake.Wait(5);
+                        _parked.Wait(slot, 5);
                     }
 
+                    _parked.Withdraw(slot);
                     Interlocked.Add(ref _idleTicks, Stopwatch.GetTimestamp() - idle);
                     Interlocked.Decrement(ref _idleWorkers);
                     UpdateHunger();
@@ -384,12 +427,19 @@ internal sealed class VisTightening : IVisFlowSplitter
 
             int before;
             int after;
+            int offered;
             lock (_gate)
             {
                 before = _completed;
                 Settle(rank);
                 after = _completed;
+                offered = Offered(count);
             }
+
+            // Outside the gate: waking sets another worker's event, which can
+            // take that event's lock, and the woken worker's first act is to
+            // take the gate -- it should not find this worker still holding it.
+            Wake(offered);
 
             for (int done = before + 1; done <= after; done++)
             {
@@ -439,15 +489,13 @@ internal sealed class VisTightening : IVisFlowSplitter
     private void UpdateHunger() =>
         _hunger.Set(Volatile.Read(ref _idleWorkers) > Volatile.Read(ref _queuedFrames));
 
-    /// <summary>Wakes up to <paramref name="workers"/> idle workers.</summary>
-    private void Wake(int workers)
-    {
-        int want = Math.Min(workers, Volatile.Read(ref _idleWorkers)) - _wake.CurrentCount;
-        if (want > 0)
-        {
-            _wake.Release(want);
-        }
-    }
+    /// <summary>Wakes up to <paramref name="workers"/> parked workers.</summary>
+    /// <remarks>
+    /// Whatever the caller published (a split-off frame, a portal on offer)
+    /// is visible to the woken: <see cref="VisIdleWorkers.Wake"/> fences
+    /// before it reads who is parked.
+    /// </remarks>
+    private void Wake(int workers) => _parked.Wake(workers);
 
     /// <summary>
     /// Whether every candidate the portal at <paramref name="rank"/> could
@@ -518,11 +566,63 @@ internal sealed class VisTightening : IVisFlowSplitter
         if (again < fresh)
         {
             _again.Dequeue();
+            Volatile.Write(ref _againCount, _again.Count);
             return again;
         }
 
-        _next++;
+        Volatile.Write(ref _next, _next + 1);
         return fresh;
+    }
+
+    /// <summary>
+    /// Whether <see cref="Claim"/> might find something, or the run might be
+    /// over: read WITHOUT the gate, as a hint for whether to take it.
+    /// </summary>
+    /// <remarks>
+    /// Each field it reads is written only under the gate and read here as
+    /// it stands, so the answer can be stale; see the idle path of
+    /// <see cref="Drain"/> for why a stale answer costs at most a failed
+    /// claim or one worker's wait. It never decides WHAT is claimed --
+    /// <see cref="Claim"/> does, under the gate, lowest rank first -- so it
+    /// cannot change which run happens when, only whether an idle worker asks.
+    /// </remarks>
+    /// <param name="count">How many portals there are.</param>
+    internal bool MayClaim(int count)
+    {
+        if (Volatile.Read(ref _againCount) > 0 || Volatile.Read(ref _completed) >= count)
+        {
+            return true;
+        }
+
+        int next = Volatile.Read(ref _next);
+        return next < count && next < Volatile.Read(ref _lowestNotDone) + Window;
+    }
+
+    /// <summary>
+    /// How many claims <see cref="Claim"/> would grant now -- every run found
+    /// inexact plus every fresh portal inside the window -- or every worker
+    /// once the last portal is done, so that all of them see the end. Called
+    /// under the gate.
+    /// </summary>
+    /// <remarks>
+    /// A settled run used to wake EVERY idle worker. At 32 threads that was a
+    /// herd: all of them went for the gate at once to claim the one or two
+    /// portals the settlement had put on offer, and all but those went back
+    /// to waiting. Waking only as many as there are claims leaves the rest
+    /// asleep; a claim that one of the woken loses to a worker that was not
+    /// asleep leaves that worker to find the next offer, or its timeout.
+    /// </remarks>
+    /// <param name="count">How many portals there are.</param>
+    /// <returns>How many idle workers are worth waking.</returns>
+    internal int Offered(int count)
+    {
+        if (_completed >= count)
+        {
+            return int.MaxValue;
+        }
+
+        int fresh = Math.Max(0, Math.Min(count, _lowestNotDone + Window) - _next);
+        return _again.Count + fresh;
     }
 
     /// <summary>
@@ -582,7 +682,7 @@ internal sealed class VisTightening : IVisFlowSplitter
 
         _reruns++;
         _again.Enqueue(rank, rank);
-        Wake(int.MaxValue);
+        Volatile.Write(ref _againCount, _again.Count);
     }
 
     private bool MissedAnything(int portal, ulong[] missed) =>
@@ -603,11 +703,14 @@ internal sealed class VisTightening : IVisFlowSplitter
             _state.SetStatus(portal, VisPortalStatus.Done);
             _done[finished] = true;
             DoneAt?.Add((finished, System.Diagnostics.Stopwatch.GetTimestamp()));
-            _completed++;
-            while (_lowestNotDone < _done.Length && _done[_lowestNotDone])
+            Volatile.Write(ref _completed, _completed + 1);
+            int lowest = _lowestNotDone;
+            while (lowest < _done.Length && _done[lowest])
             {
-                _lowestNotDone++;
+                lowest++;
             }
+
+            Volatile.Write(ref _lowestNotDone, lowest);
 
             List<int>? waiting = _waiters[portal];
             _waiters[portal] = null;
@@ -622,8 +725,6 @@ internal sealed class VisTightening : IVisFlowSplitter
                 }
             }
         }
-
-        Wake(int.MaxValue);
     }
 
     private VisRepairTree SpareTree()
