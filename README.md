@@ -577,9 +577,19 @@ assemblies rather than by review.
   directory. Tests use `InMemoryFileSystem`.
 - **No mutable static state** in `MapFormats` or `MapTools`, so two compiles
   can share one process.
-- **No platform math.** Elementary functions go through `DetMath` and
-  `DetMathF`, never `Math.Sin`, `MathF.Pow` and the like, so output does
-  not depend on the OS's C library.
+- **Same output on every platform.** The same map, game content and
+  options produce the same bytes on Linux, Windows and macOS, on any .NET
+  runtime. The only differences allowed are the CPU-estimate ones listed
+  under [Platform differences](#platform-differences): stock's `rcpss` /
+  `rsqrtss` arithmetic under `-compliance stock`, and the KD-tree
+  traversal reciprocal. The opt-in paths that hand work to code outside
+  this repository, `-gpu` (the device's ray intersection) and
+  `-cooker native` (the game's vphysics library), are outside the rule.
+  Any other difference between platforms is a bug.
+- **No platform math.** This is how the rule above is kept. Elementary
+  functions go through `DetMath` and `DetMathF`, never `Math.Sin`,
+  `MathF.Pow` and the like, so output does not depend on the OS's C
+  library. A fact scans the built libraries and fails on any such call.
 - **No package references** in `MapFormats` or `MapTools`. SQLite and
   Silk.NET live only in the optional `Cache.Sqlite` and `Gpu` assemblies.
 - **Every public async method takes its `CancellationToken` last.**

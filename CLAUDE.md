@@ -75,7 +75,8 @@ These come from the project owner and apply to every change.
 
 ## Rules the tests enforce
 
-`src/SourceSharp.Tests/MapTools/LibraryRuleTests.cs` and
+`src/SourceSharp.Tests/MapTools/LibraryRuleTests.cs`,
+`MapTools/DeterministicMathRuleTests.cs` and
 `MapTools/Io/FileSystemSeamTests.cs` check these on the built assemblies, so
 breaking one fails the suite rather than a review.
 
@@ -89,6 +90,15 @@ breaking one fails the suite rather than a review.
   project references at all.
 - **Every public async method takes its `CancellationToken` last.**
   `DisposeAsync` is the only exemption.
+- **No platform math** in `SourceSharp.MapFormats` or `SourceSharp.MapTools`.
+  Elementary functions (`sin`, `atan2`, `pow`, `log`, ...) go through
+  `DetMath` / `DetMathF` (`src/SourceSharp.MapFormats/Numerics/`), never
+  `Math.Sin`, `MathF.Pow`, the generic-math statics or the vector types'
+  transcendentals. The platform's C library rounds differently on glibc,
+  the Windows UCRT and macOS, so any call to it makes output depend on the
+  OS. Only the IEEE-exact members (`Sqrt`, `Abs`, `Floor`, `Min`, ...) are
+  allowed; widening that allow-list is a deliberate decision, not a fix for
+  a failing build.
 
 Enforced by the compiler:
 
