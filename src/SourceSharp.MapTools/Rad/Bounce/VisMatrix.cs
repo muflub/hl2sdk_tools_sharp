@@ -5,6 +5,9 @@
 //
 //=============================================================================//
 
+using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
+
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
@@ -30,6 +33,12 @@ public sealed class VisMatrixStatistics
 
     /// <summary>The largest chunk, in rays: what the ray buffers were sized to.</summary>
     public int LargestChunk { get; internal set; }
+
+    /// <summary>
+    /// How many candidate enumerators the build made: one per worker slot
+    /// that ran, however many passes and chunks there were.
+    /// </summary>
+    internal int Enumerators { get; set; }
 }
 
 /// <summary>
@@ -65,7 +74,8 @@ public sealed class VisMatrixStatistics
 /// the unscaled transfers, because a patch's transfer count is
 /// unknown until its rays are traced. Here each patch already owns a disjoint
 /// range of the chunk -- its rays -- and a patch never has more transfers than
-/// rays, so its unscaled transfers are staged in that same range. Nothing is
+/// rays, so its unscaled transfers are staged in that same range -- of the
+/// ray buffer itself, whose rays are dead by then. Nothing is
 /// shared between workers, nothing is merged, and every result sits at an
 /// index fixed before the pass began: the output is byte-identical at any
 /// thread count by construction.
@@ -74,8 +84,8 @@ public sealed class VisMatrixStatistics
 public sealed class VisMatrix
 {
     /// <summary>
-    /// The most rays one chunk holds: 2M rays is 56 MB of rays, 8 MB of
-    /// receiver indices and 16 MB of staging.
+    /// The most rays one chunk holds: 2M rays is 56 MB of rays and 8 MB of
+    /// receiver indices, the transfers being staged over the rays.
     /// </summary>
     public const int RaysPerChunk = 2 * 1024 * 1024;
 
@@ -87,6 +97,19 @@ public sealed class VisMatrix
 
     /// <summary>Rays per tracer call. A multiple of 64, so a slab owns whole words of bits.</summary>
     public const int RaysPerTraceSlab = 16 * 1024;
+
+    /// <summary>
+    /// The slab <see cref="BuildAsync"/> traces in, <see cref="RaysPerTraceSlab"/>
+    /// unless a test asks for a smaller one to get several slabs out of a
+    /// small map. A multiple of 64.
+    /// </summary>
+    internal int TraceSlabRays { get; init; } = RaysPerTraceSlab;
+
+    /// <summary>
+    /// Where the build's scratch comes from and goes back to: the shared
+    /// <see cref="System.Buffers.ArrayPool{T}"/> unless a test counts it.
+    /// </summary>
+    internal IScratchArrayPool ScratchPool { get; init; } = new SharedScratchArrayPool();
 
     /// <summary><c>PLANE_TEST_EPSILON</c>, a double.</summary>
     public const double PlaneTestEpsilon = 0.01;
@@ -131,17 +154,31 @@ public sealed class VisMatrix
     /// <returns>Patch indices.</returns>
     public int[] ReceiverOrder()
     {
+        // Two walks of the child lists, one to count and one to fill, so the
+        // result is allocated once at its exact size: on a real map it is
+        // past the large-object threshold, and growing a list to it would
+        // leave a trail of discarded doublings on that heap.
         PatchSet patches = _context.Patches;
-        List<int> order = [];
+        int count = 0;
         for (int c = 0; c < patches.ClusterChildren.Length; c++)
         {
             for (int p = patches.ClusterChildren[c]; p != Patch.Invalid; p = patches.At(p).NextClusterChild)
             {
-                order.Add(p);
+                count++;
             }
         }
 
-        return [.. order];
+        int[] order = new int[count];
+        int at = 0;
+        for (int c = 0; c < patches.ClusterChildren.Length; c++)
+        {
+            for (int p = patches.ClusterChildren[c]; p != Patch.Invalid; p = patches.At(p).NextClusterChild)
+            {
+                order[at++] = p;
+            }
+        }
+
+        return order;
     }
 
     /// <summary>
@@ -161,7 +198,11 @@ public sealed class VisMatrix
 
         int patchCount = _context.Patches.Count;
         int[] receivers = ReceiverOrder();
-        int[] clusterOf = new int[receivers.Length];
+
+        // Everything below sized by the map and dropped when the build ends
+        // is rented, and goes back when this scope exits, however it exits.
+        using ScratchArrays scratch = new(ScratchPool);
+        int[] clusterOf = scratch.Rent<int>(receivers.Length);
         for (int k = 0; k < receivers.Length; k++)
         {
             clusterOf[k] = _context.Patches.At(receivers[k]).ClusterNumber;
@@ -170,11 +211,20 @@ public sealed class VisMatrix
         Statistics.Receivers = receivers.Length;
         WorkQueueOptions stage = new() { Stage = "BuildVisLeafs" };
 
+        // One enumerator per worker slot for the whole build: the count pass
+        // and every chunk's fill pass hand a slot the enumerator it had last
+        // time, instead of each pass building a fresh pair of face-sized
+        // stamp arrays per worker. A slot runs on one thread at a time and
+        // the passes run one after another, so no enumerator is ever used by
+        // two threads at once.
+        Enumerator?[] enumerators = new Enumerator?[queue.Degree];
+        Func<int, Enumerator> enumerator = slot => enumerators[slot] ??= new Enumerator(this);
+
         // Count.
         int[] counts = await queue.RunAsync<Enumerator, int>(
             receivers.Length,
             (k, e, _) => e.Run(receivers[k], clusterOf[k], []),
-            _ => new Enumerator(this),
+            enumerator,
             stage,
             cancellationToken).ConfigureAwait(false);
 
@@ -199,11 +249,13 @@ public sealed class VisMatrix
         Statistics.Chunks = chunks.Count;
         Statistics.LargestChunk = largest;
 
-        Ray[] rayBuffer = new Ray[largest];
-        int[] receiverBuffer = new int[largest];
-        Transfer[] staging = new Transfer[largest];
-        ulong[] bits = new ulong[(largest + 63) >> 6];
-        int[] localBase = new int[receivers.Length + 1];
+        // Sized to the largest chunk and reused by every chunk. The transfers
+        // are staged over the ray buffer (see StagingOver), not in an array
+        // of their own.
+        Ray[] rayBuffer = scratch.Rent<Ray>(largest);
+        int[] receiverBuffer = scratch.Rent<int>(largest);
+        ulong[] bits = scratch.Rent<ulong>((largest + 63) >> 6);
+        int[] localBase = scratch.Rent<int>(receivers.Length + 1);
 
         int[] transferCount = new int[patchCount];
         int[] segmentOf = new int[patchCount];
@@ -239,20 +291,26 @@ public sealed class VisMatrix
                     MakeRays(receivers[k], mine, rayBuffer.AsSpan(localBase[i], mine.Length));
                     return 0;
                 },
-                _ => new Enumerator(this),
+                enumerator,
                 stage,
                 cancellationToken).ConfigureAwait(false);
 
-            // 3b. Trace.
-            await TraceAsync(queue, tracer, rayBuffer.AsMemory(0, chunkRays), bits, cancellationToken)
+            // 3b. Trace. The chunk's words are cleared first: the tracer
+            // contract leaves the padding bits past the last ray of a slab
+            // unspecified, and a pooled array (or the previous chunk) may have
+            // left anything there, which the blocked count below would see.
+            int words = (chunkRays + 63) >> 6;
+            bits.AsSpan(0, words).Clear();
+            await TraceAsync(queue, tracer, rayBuffer.AsMemory(0, chunkRays), bits, TraceSlabRays, cancellationToken)
                 .ConfigureAwait(false);
             Statistics.Rays += chunkRays;
-            for (int w = 0; w < (chunkRays + 63) >> 6; w++)
+            for (int w = 0; w < words; w++)
             {
                 Statistics.Blocked += System.Numerics.BitOperations.PopCount(bits[w]);
             }
 
-            // 3c. Transfers, staged in each receiver's own ray range.
+            // 3c. Transfers, staged in each receiver's own range of the traced,
+            // and so dead, ray buffer.
             int[] made = await queue.RunAsync<int, int>(
                 n,
                 (i, _, _) => MakeTransfers(
@@ -260,7 +318,7 @@ public sealed class VisMatrix
                     receiverBuffer.AsSpan(localBase[i], counts[start + i]),
                     bits,
                     localBase[i],
-                    staging.AsSpan(localBase[i], counts[start + i])),
+                    StagingOver(rayBuffer).Slice(localBase[i], counts[start + i])),
                 _ => 0,
                 stage,
                 cancellationToken).ConfigureAwait(false);
@@ -276,14 +334,16 @@ public sealed class VisMatrix
                 max = Math.Max(max, made[i]);
             }
 
-            Transfer[] segment = new Transfer[segmentBase[n]];
+            // Uninitialised: the moves below write every element, so zeroing
+            // it first would only touch the memory twice.
+            Transfer[] segment = GC.AllocateUninitializedArray<Transfer>(segmentBase[n]);
             int chunk = c;
             await queue.RunAsync(
                 n,
                 (i, _) =>
                 {
                     int patch = receivers[start + i];
-                    staging.AsSpan(localBase[i], made[i]).CopyTo(segment.AsSpan(segmentBase[i]));
+                    StagingOver(rayBuffer).Slice(localBase[i], made[i]).CopyTo(segment.AsSpan(segmentBase[i]));
                     transferCount[patch] = made[i];
                     segmentOf[patch] = chunk;
                     offsets[patch] = segmentBase[i];
@@ -294,8 +354,32 @@ public sealed class VisMatrix
             segments[c] = segment;
         }
 
+        int built = 0;
+        foreach (Enumerator? e in enumerators)
+        {
+            built += e is null ? 0 : 1;
+        }
+
+        Statistics.Enumerators = built;
         return new TransferSet(segments, segmentOf, offsets, transferCount, max);
     }
+
+    /// <summary>
+    /// The chunk's transfer staging, laid over its ray buffer.
+    /// </summary>
+    /// <param name="rays">The chunk's ray buffer.</param>
+    /// <returns>The same memory, as transfers: 3.5 of them per ray.</returns>
+    /// <remarks>
+    /// A chunk's rays are dead once it is traced, which is before its first
+    /// transfer is made, and a transfer (8 bytes) is smaller than a ray (28).
+    /// Receiver <c>i</c> stages its transfers at the same element range
+    /// <c>[base, base + count)</c> it had in the ray buffer, so every
+    /// receiver's staging stays disjoint from every other's and inside the
+    /// buffer. That replaces a separate staging array as long as the largest
+    /// chunk: 16 MB more of large-object heap per build.
+    /// </remarks>
+    internal static Span<Transfer> StagingOver(Ray[] rays) =>
+        MemoryMarshal.Cast<Ray, Transfer>(rays.AsSpan());
 
     /// <summary>
     /// The patches one receiver tests, in stock's order: what
@@ -502,43 +586,72 @@ public sealed class VisMatrix
     }
 
     private static async Task TraceAsync(
-        WorkQueue queue, IRayTracer tracer, ReadOnlyMemory<Ray> rays, ulong[] bits, CancellationToken cancellationToken)
+        WorkQueue queue,
+        IRayTracer tracer,
+        ReadOnlyMemory<Ray> rays,
+        ulong[] bits,
+        int slabRays,
+        CancellationToken cancellationToken)
     {
-        int slabs = (rays.Length + RaysPerTraceSlab - 1) / RaysPerTraceSlab;
+        int slabs = (rays.Length + slabRays - 1) / slabRays;
         Task?[] pending = new Task?[slabs];
 
         // One slab per work item: a CPU tracer runs on every worker; an
         // asynchronous one (a GPU) returns an incomplete task, kept and awaited
         // here, outside the workers.
-        await queue.RunAsync<int, int>(
-            slabs,
-            (slab, _, _) =>
-            {
-                int start = slab * RaysPerTraceSlab;
-                int count = Math.Min(RaysPerTraceSlab, rays.Length - start);
-                ValueTask task = tracer.TraceVisibilityAsync(
-                    rays.Slice(start, count),
-                    bits.AsMemory(start >> 6, (count + 63) >> 6),
-                    RayTraceOptions.StockExact,
-                    cancellationToken);
-                if (!task.IsCompletedSuccessfully)
+        ExceptionDispatchInfo? failure = null;
+        try
+        {
+            await queue.RunAsync<int, int>(
+                slabs,
+                (slab, _, _) =>
                 {
-                    pending[slab] = task.AsTask();
-                }
+                    int start = slab * slabRays;
+                    int count = Math.Min(slabRays, rays.Length - start);
+                    ValueTask task = tracer.TraceVisibilityAsync(
+                        rays.Slice(start, count),
+                        bits.AsMemory(start >> 6, (count + 63) >> 6),
+                        RayTraceOptions.StockExact,
+                        cancellationToken);
+                    if (!task.IsCompletedSuccessfully)
+                    {
+                        pending[slab] = task.AsTask();
+                    }
 
-                return 0;
-            },
-            _ => 0,
-            new WorkQueueOptions { Stage = "BuildVisLeafs", ChunkSize = 1 },
-            cancellationToken).ConfigureAwait(false);
+                    return 0;
+                },
+                _ => 0,
+                new WorkQueueOptions { Stage = "BuildVisLeafs", ChunkSize = 1 },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            failure = ExceptionDispatchInfo.Capture(ex);
+        }
 
+        // Every slab still in flight is awaited, whatever the others ended
+        // in: they read these rays and write these bits, and both go back to
+        // the scratch pool once the build unwinds. A slab left running there
+        // would write into whatever compile rented the bits next. The first
+        // failure is the one reported.
         foreach (Task? task in pending)
         {
-            if (task is not null)
+            if (task is null)
+            {
+                continue;
+            }
+
+            try
             {
                 await task.ConfigureAwait(false);
             }
+            catch (Exception ex)
+            {
+                failure ??= ExceptionDispatchInfo.Capture(ex);
+            }
         }
+
+        failure?.Throw();
     }
 
     /// <summary>

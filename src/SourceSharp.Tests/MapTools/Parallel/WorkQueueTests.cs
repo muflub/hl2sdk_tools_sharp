@@ -381,9 +381,16 @@ public class WorkQueueTests
         using var started = new ManualResetEventSlim(false);
         using var queue = new WorkQueue(new CompileParallelism { MaxDegree = 2 });
 
+        // Each item holds its worker until the cancel lands, so the run cannot
+        // finish every item first: a trivial item let a fast machine complete
+        // the whole run before CancelAsync, and then nothing was thrown.
         Task run = queue.RunAsync(
             1_000_000,
-            (_, _) => started.Set(),
+            (_, _) =>
+            {
+                started.Set();
+                cts.Token.WaitHandle.WaitOne(Patience);
+            },
             null,
             cts.Token);
 
