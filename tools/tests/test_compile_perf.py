@@ -216,6 +216,20 @@ class ParserTests(unittest.TestCase):
         self.assertEqual("b", r["self"][0]["function"])
         self.assertEqual(0.75, r["self"][0]["share"])
 
+    def test_the_inclusive_ranking_skips_the_pool_plumbing(self):
+        frames = [{"name": n} for n in ("SourceSharp.MapTools!SourceSharp.MapTools.Parallel.CompilePool.Loop()",
+                                        "SourceSharp.MapTools!SourceSharp.MapTools.Tracing.KdRayTracer.Trace4Rays()",
+                                        "CPU_TIME")]
+        trace = {"shared": {"frames": frames}, "profiles": [{"events": [
+            {"type": "O", "frame": 0, "at": 0}, {"type": "O", "frame": 1, "at": 0}, {"type": "O", "frame": 2, "at": 0},
+            {"type": "C", "frame": 2, "at": 10}, {"type": "C", "frame": 1, "at": 10}, {"type": "C", "frame": 0, "at": 10}]}]}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump(trace, fh)
+        r = cs.read_speedscope(fh.name)
+        os.remove(fh.name)
+        self.assertEqual(["SourceSharp.MapTools.Tracing.KdRayTracer.Trace4Rays"], [x["function"] for x in r["inclusive"]])
+        self.assertEqual(1.0, r["self"][0]["share"])
+
     def test_counters_give_peaks_and_totals(self):
         rows = ["Timestamp,Provider,Counter Name,Counter Type,Mean/Increment",
                 "t,S,dotnet.process.memory.working_set (By),Metric,1048576",

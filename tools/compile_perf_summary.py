@@ -132,7 +132,8 @@ def read_speedscope(path, top=30):
     def rows(counter, ours_only):
         out = []
         for fr, ms in counter.most_common():
-            if ours_only and ("!SourceSharp" not in name(fr) or name(fr).startswith(("Process", "Thread"))):
+            if ours_only and ("!SourceSharp" not in name(fr) or name(fr).startswith(("Process", "Thread"))
+                              or is_plumbing(name(fr))):
                 continue
             out.append({"function": short(fr), "cpu_s": ms / 1000, "share": ms / total if total else 0})
             if len(out) == top:
@@ -140,6 +141,17 @@ def read_speedscope(path, top=30):
         return out
 
     return {"cpu_s": total / 1000, "self": rows(self_ms, False), "inclusive": rows(incl_ms, True)}
+
+
+# The worker loop every parallel stage runs under, and the generic job
+# wrappers of the work queue: inclusive time through them is "all parallel
+# work", which ranks them top in every cell and says nothing about what to
+# change. Self time in them (spinning, waiting) still shows in the self table.
+PLUMBING = ("SourceSharp.MapTools.Parallel.CompilePool", "SourceSharp.MapTools.Parallel.WorkQueue")
+
+
+def is_plumbing(frame_name):
+    return frame_name.split("!")[-1].startswith(PLUMBING)
 
 
 def read_counters(path):
