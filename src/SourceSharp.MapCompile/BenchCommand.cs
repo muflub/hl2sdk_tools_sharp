@@ -913,22 +913,7 @@ public static class BenchCommand
                 Directory.CreateDirectory(storeDir);
             }
 
-            List<string> stageArgs = [map];
-            if (game is not null)
-            {
-                stageArgs.Add("-game");
-                stageArgs.Add(game);
-            }
-
-            stageArgs.Add("-threads");
-            stageArgs.Add(threads.ToString(CultureInfo.InvariantCulture));
-            stageArgs.AddRange(extra);
-            if (storeDir is not null)
-            {
-                stageArgs.Add("-incremental");
-                stageArgs.Add("-cache-dir");
-                stageArgs.Add(storeDir);
-            }
+            IReadOnlyList<string> stageArgs = StageArgs(map, game, threads, extra, storeDir);
 
             Process proc = Process.GetCurrentProcess();
             TimeSpan cpu0 = proc.TotalProcessorTime;
@@ -981,6 +966,61 @@ public static class BenchCommand
 
         await ledger.FlushAsync(cancellationToken).ConfigureAwait(false);
         return Program.ExitSuccess;
+    }
+
+    /// <summary>The command line one run of a cell hands its stage.</summary>
+    /// <param name="map">The map argument.</param>
+    /// <param name="game">The <c>-game</c> directory, or null.</param>
+    /// <param name="threads">The <c>-threads</c> count.</param>
+    /// <param name="extra">The stage's own options, after <c>--</c> on the bench line.</param>
+    /// <param name="storeDir">The run's cache store, or null for none.</param>
+    /// <returns>
+    /// <c>map [-game g] -threads N extra... [-incremental -cache-dir X]</c>,
+    /// with the cache options moved before the first <c>--vbsp</c>,
+    /// <c>--vvis</c> or <c>--vrad</c> section when <paramref name="extra"/>
+    /// has one.
+    /// </returns>
+    /// <remarks>
+    /// <c>ssmap all</c> reads its chain options only before the first section
+    /// marker; appended after one, <c>-incremental</c> would land in that
+    /// section, which a <c>--vvis</c> or <c>--vrad</c> section refuses.
+    /// </remarks>
+    public static IReadOnlyList<string> StageArgs(
+        string map, string? game, int threads, IReadOnlyList<string> extra, string? storeDir)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        ArgumentNullException.ThrowIfNull(extra);
+
+        List<string> args = [map];
+        if (game is not null)
+        {
+            args.Add("-game");
+            args.Add(game);
+        }
+
+        args.Add("-threads");
+        args.Add(threads.ToString(CultureInfo.InvariantCulture));
+
+        int section = extra.Count;
+        for (int i = 0; i < extra.Count; i++)
+        {
+            if (extra[i] is AllCommand.VbspSection or AllCommand.VvisSection or AllCommand.VradSection)
+            {
+                section = i;
+                break;
+            }
+        }
+
+        args.AddRange(extra.Take(section));
+        if (storeDir is not null)
+        {
+            args.Add("-incremental");
+            args.Add("-cache-dir");
+            args.Add(storeDir);
+        }
+
+        args.AddRange(extra.Skip(section));
+        return args;
     }
 
     /// <summary>
@@ -1118,6 +1158,12 @@ public static class BenchCommand
             content, disk, mounted.Content, mounted.GameInfo, VbspHost.SteamFor(disk, searchRoots), logger, ct)
             .ConfigureAwait(false);
 
+        // The chain's one pool, with the managed cooker's cooks on it, as
+        // `ssmap all` runs them; without it -threads 1 is not one thread.
+        CompileParallelism parallel = AllCommand.ChainParallelism(parsed);
+        using CompilePool pool = new(parallel.MaxDegree);
+        using IDisposable onPool = AllCommand.CookOnPool(cooker, pool);
+
         // The store's LIFECYCLE is the harness's (a fresh dir per cold run, the
         // plan's isolation rule); its OPENING is the product's, through the same
         // WithBackendsAsync seam the Phase 11 facts pin.
@@ -1129,9 +1175,8 @@ public static class BenchCommand
                 Vbsp = parsed.Vbsp with { Format = resolution.Resolved },
                 Vvis = parsed.Vvis,
                 Vrad = parsed.Vrad,
-                Parallel = parsed.Threads is int degree
-                    ? new CompileParallelism { MaxDegree = degree }
-                    : CompileParallelism.Default,
+                Parallel = parallel with { Pool = pool },
+                Overlap = parsed.Overlap,
                 CollisionCooker = cooker,
                 Output = CompileOutput.ToDirectory(disk, VPath.Create(Path.GetDirectoryName(paths.Source)!), mapName),
             },

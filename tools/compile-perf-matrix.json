@@ -1,0 +1,113 @@
+{
+  "comment": [
+    "The settings tools/compile-perf.sh varies. Each axis lists the stages it applies to and its values;",
+    "a value gives the options it adds per stage ('chain' is ssmap all's chain part, before any section;",
+    "'vbsp'/'vvis'/'vrad' are that tool's own options, which a chain cell puts in that tool's --section",
+    "unless the value also gives 'chain'), environment variables, the bench cache mode, and what it",
+    "requires ('gpu', 'vphysics' or 'aot'; the script skips a value whose requirement it was not given).",
+    "{gpu} and {vphysics} are replaced by the --gpu and --vphysics options. Only settings that change",
+    "the work done are here: the survey behind this file found -ao, -textureshadows and friends are",
+    "accepted but have no effect, and vbsp -low and vvis -low are dropped with a warning.",
+    "-nosubdiv is left out on purpose: unsplit faces exceed vrad's per-face sample limit (2450), which",
+    "stock overflows and this port refuses, so no compile with it and lighting can succeed.",
+    "'baseline' is the cell every other cell is compared against."
+  ],
+  "baseline": {
+    "build": "jit",
+    "runtime": "default",
+    "threads": "max",
+    "compliance": "correct",
+    "cooker": "managed",
+    "overlap": "off",
+    "cache": "off",
+    "tracer": "cpu",
+    "vbsp": "default",
+    "vvis": "default",
+    "vrad": "default"
+  },
+  "axes": {
+    "build": {
+      "stages": ["chain", "vbsp", "vvis", "vrad"],
+      "values": {
+        "jit": {},
+        "aot": { "requires": "aot" }
+      }
+    },
+    "runtime": {
+      "stages": ["chain", "vbsp", "vvis", "vrad"],
+      "values": {
+        "default": {},
+        "workstation-gc": { "env": { "DOTNET_gcServer": "0", "DOTNET_gcConcurrent": "0" } },
+        "datas": { "env": { "DOTNET_GCDynamicAdaptationMode": "1" } },
+        "pgo-off": { "env": { "DOTNET_TieredPGO": "0" } }
+      }
+    },
+    "threads": {
+      "stages": ["chain", "vbsp", "vvis", "vrad"],
+      "values": { "1": {}, "half": {}, "max": {} }
+    },
+    "compliance": {
+      "stages": ["chain", "vbsp", "vvis", "vrad"],
+      "values": {
+        "correct": {},
+        "stock": {
+          "chain": ["-compliance", "stock"],
+          "vbsp": ["-compliance", "stock"],
+          "vvis": ["-compliance", "stock"],
+          "vrad": ["-compliance", "stock"]
+        }
+      }
+    },
+    "cooker": {
+      "stages": ["chain", "vbsp"],
+      "values": {
+        "managed": {},
+        "none": { "vbsp": ["-cooker", "none"] },
+        "native": { "vbsp": ["-cooker", "native", "-vphysics", "{vphysics}"], "requires": "vphysics" }
+      }
+    },
+    "overlap": {
+      "stages": ["chain"],
+      "values": { "off": {}, "on": { "chain": ["-overlap"] } }
+    },
+    "cache": {
+      "stages": ["chain"],
+      "values": { "off": {}, "cold": { "cache": "cold" }, "warm": { "cache": "warm" } }
+    },
+    "tracer": {
+      "stages": ["chain", "vrad"],
+      "values": {
+        "cpu": {},
+        "gpu": { "vrad": ["-gpu", "{gpu}"], "requires": "gpu" }
+      }
+    },
+    "vbsp": {
+      "stages": ["chain", "vbsp"],
+      "values": {
+        "default": {},
+        "nodetail": { "vbsp": ["-nodetail"] },
+        "noopt": { "vbsp": ["-noopt", "-notjunc"] }
+      }
+    },
+    "vvis": {
+      "stages": ["chain", "vvis"],
+      "values": {
+        "default": {},
+        "fast": { "vvis": ["-fast"] },
+        "loose": { "vvis": ["-loose"], "chain": ["-loose"] }
+      }
+    },
+    "vrad": {
+      "stages": ["chain", "vrad"],
+      "values": {
+        "fast": { "vrad": ["-fast"] },
+        "default": {},
+        "final": { "vrad": ["-final"] },
+        "both": { "vrad": ["-both"] },
+        "nobounce": { "vrad": ["-bounce", "0"] },
+        "staticprops": { "vrad": ["-StaticPropLighting", "-StaticPropPolys"] },
+        "fastambient": { "vrad": ["-fastambient"] }
+      }
+    }
+  }
+}

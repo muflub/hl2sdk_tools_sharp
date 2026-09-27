@@ -65,8 +65,8 @@ public sealed class VisMatrixStatistics
 /// patch's rays at its offset, the rays are traced in slabs, and a TRANSFER
 /// pass makes and scales each patch's transfers in place over its own ray
 /// range;</description></item>
-/// <item><description>each chunk is compacted, and the chunks are copied into
-/// the one flat arena of <see cref="TransferSet"/>.</description></item>
+/// <item><description>each chunk is compacted, on the workers, into its own
+/// segment, which <see cref="TransferSet"/> keeps as it is.</description></item>
 /// </list>
 /// <para>
 /// <b>Why no per-worker staging.</b> Stock gives each thread three
@@ -258,13 +258,15 @@ public sealed class VisMatrix
         int[] localBase = scratch.Rent<int>(receivers.Length + 1);
 
         int[] transferCount = new int[patchCount];
-        long[] offsets = new long[patchCount];
-        List<Transfer[]> segments = [];
-        long total = 0;
+        int[] segmentOf = new int[patchCount];
+        int[] offsets = new int[patchCount];
+        Transfer[][] segments = new Transfer[chunks.Count][];
+        int[] segmentBase = new int[receivers.Length + 1];
         int max = 0;
 
-        foreach ((int start, int end, int chunkRays) in chunks)
+        for (int c = 0; c < chunks.Count; c++)
         {
+            (int start, int end, int chunkRays) = chunks[c];
             int n = end - start;
             localBase[0] = 0;
             for (int i = 0; i < n; i++)
@@ -321,40 +323,35 @@ public sealed class VisMatrix
                 stage,
                 cancellationToken).ConfigureAwait(false);
 
-            // Compact the chunk.
-            long chunkTotal = 0;
-            foreach (int m in made)
-            {
-                chunkTotal += m;
-            }
-
-            // Uninitialised: the loop below writes every element, so zeroing
-            // it first would only touch the memory twice.
-            Transfer[] segment = GC.AllocateUninitializedArray<Transfer>(checked((int)chunkTotal));
-            int cursor = 0;
+            // Compact the chunk: every receiver's run moves from its staging
+            // range to its place in the chunk's segment, which is where the
+            // set keeps it. The placement is a prefix sum; the moves are
+            // independent, so they run on the workers.
+            segmentBase[0] = 0;
             for (int i = 0; i < n; i++)
             {
-                int patch = receivers[start + i];
-                StagingOver(rayBuffer).Slice(localBase[i], made[i]).CopyTo(segment.AsSpan(cursor));
-                transferCount[patch] = made[i];
-                offsets[patch] = total + cursor;
-                cursor += made[i];
+                segmentBase[i + 1] = segmentBase[i] + made[i];
                 max = Math.Max(max, made[i]);
             }
 
-            segments.Add(segment);
-            total += chunkTotal;
-        }
+            // Uninitialised: the moves below write every element, so zeroing
+            // it first would only touch the memory twice.
+            Transfer[] segment = GC.AllocateUninitializedArray<Transfer>(segmentBase[n]);
+            int chunk = c;
+            await queue.RunAsync(
+                n,
+                (i, _) =>
+                {
+                    int patch = receivers[start + i];
+                    StagingOver(rayBuffer).Slice(localBase[i], made[i]).CopyTo(segment.AsSpan(segmentBase[i]));
+                    transferCount[patch] = made[i];
+                    segmentOf[patch] = chunk;
+                    offsets[patch] = segmentBase[i];
+                },
+                stage,
+                cancellationToken).ConfigureAwait(false);
 
-        // The one allocation the set keeps, at its exact size. Uninitialised
-        // for the same reason as the segments: the copies fill all of it.
-        Transfer[] arena = GC.AllocateUninitializedArray<Transfer>(checked((int)total));
-        long at = 0;
-        for (int s = 0; s < segments.Count; s++)
-        {
-            segments[s].CopyTo(arena.AsSpan((int)at));
-            at += segments[s].Length;
-            segments[s] = [];
+            segments[c] = segment;
         }
 
         int built = 0;
@@ -364,7 +361,7 @@ public sealed class VisMatrix
         }
 
         Statistics.Enumerators = built;
-        return new TransferSet(arena, offsets, transferCount, max);
+        return new TransferSet(segments, segmentOf, offsets, transferCount, max);
     }
 
     /// <summary>

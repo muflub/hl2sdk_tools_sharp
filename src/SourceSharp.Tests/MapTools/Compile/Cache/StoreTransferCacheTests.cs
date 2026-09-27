@@ -67,7 +67,7 @@ public sealed class StoreTransferCacheTests
     {
         InMemoryCacheStore store = await StoreAsync();
         await StoreAndCommitAsync(store, "geometry-a", TransferSetCodecTests.Sample());
-        await StoreAndCommitAsync(store, "geometry-b", new TransferSet([new(0, 1f)], [0, 1], [1, 0], 1));
+        await StoreAndCommitAsync(store, "geometry-b", new TransferSet([[new(0, 1f)]], [0, 0], [0, 1], [1, 0], 1));
 
         StoreTransferCache cache = new(store, CachePolicy.Default, [], new CacheRunCounters());
         Assert.Null(await cache.TryGetAsync("geometry-a", 4, CancellationToken.None));

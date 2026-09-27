@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Writes SourceSharp.MapGen's stand-in game content (materials, textures,
+    models, lights.rad, surface properties, detail.vbsp) into a game folder,
+    and optionally a copy of a map with prop_static twins of its model
+    entities. For compiling ss_sandbox where the Steam content it mounts is
+    not installed; tools/compile-perf.sh uses it with - -synthetic.
+
+    The content itself is built in MapGen, where the tests read it back;
+    this is only the part that touches the disk.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SourceSharp.MapGen\SourceSharp.MapGen.csproj" />
+  </ItemGroup>
+
+</Project>

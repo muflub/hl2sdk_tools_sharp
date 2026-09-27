@@ -18,17 +18,19 @@ namespace SourceSharp.Tests.MapTools.Rad.Bounce;
 public sealed class TransferSetCodecTests
 {
     // Four patches: 3, 0, 5 and 2 transfers, patch numbers going up and down.
+    // Two segments, patch 3's list before patch 0's in the first, as a build's
+    // chunks can leave them: the codec reads through For, never the layout.
     internal static TransferSet Sample()
     {
         int[] counts = [3, 0, 5, 2];
-        long[] offsets = [0, 3, 3, 8];
-        Transfer[] arena =
+        int[] segmentOf = [0, 0, 1, 0];
+        int[] offsets = [2, 0, 0, 0];
+        Transfer[][] segments =
         [
-            new(1, 0.5f), new(2, 0.25f), new(3, 1e-7f),
-            new(0, 0.1f), new(3, 0.2f), new(1, 0.3f), new(2, float.Epsilon), new(0, 0.9f),
-            new(0, 0.75f), new(2, 0.125f),
+            [new(0, 0.75f), new(2, 0.125f), new(1, 0.5f), new(2, 0.25f), new(3, 1e-7f)],
+            [new(0, 0.1f), new(3, 0.2f), new(1, 0.3f), new(2, float.Epsilon), new(0, 0.9f)],
         ];
-        return new TransferSet(arena, offsets, counts, 5);
+        return new TransferSet(segments, segmentOf, offsets, counts, 5);
     }
 
     private static List<(int Patch, float Weight)[]> Lists(TransferSet set) =>
@@ -68,7 +70,7 @@ public sealed class TransferSetCodecTests
     [Fact]
     public void AnEmptySetRoundTrips()
     {
-        TransferSet empty = new([], [0, 0], [0, 0], 0);
+        TransferSet empty = new([], [0, 0], [0, 0], [0, 0], 0);
         TransferSet? back = TransferSetCodec.Read(TransferSetCodec.Index(empty), [.. TransferSetCodec.Chunks(empty, 64)], 2);
 
         Assert.NotNull(back);

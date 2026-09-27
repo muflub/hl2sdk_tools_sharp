@@ -646,28 +646,64 @@ public static class AllCommand
 
         // One thread pool for the whole chain: -threads is its size, and the
         // managed cooker's cooks run on it too rather than on the .NET pool.
-        CompileParallelism parallel = parsed.Threads is int degree
+        CompileParallelism parallel = ChainParallelism(parsed);
+        using CompilePool pool = new(parallel.MaxDegree);
+        using IDisposable onPool = CookOnPool(cooker, pool);
+        return await CompileOnPoolAsync(
+            disk, parsed, paths, mapFile, cooker, output, start, resolution, content, mapName,
+            parallel with { Pool = pool }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The chain's parallelism: <c>-threads</c> when given, else every processor.</summary>
+    /// <param name="parsed">The parsed chain arguments.</param>
+    /// <returns>The parallelism, with no pool yet.</returns>
+    /// <remarks>
+    /// Shared with <c>ssmap bench</c>, whose chain cells must run the compile
+    /// exactly as <c>ssmap all</c> does or they time something else.
+    /// </remarks>
+    public static CompileParallelism ChainParallelism(AllArgs parsed)
+    {
+        ArgumentNullException.ThrowIfNull(parsed);
+        return parsed.Threads is int degree
             ? new CompileParallelism { MaxDegree = degree }
             : CompileParallelism.Default;
-        using CompilePool pool = new(parallel.MaxDegree);
-        ManagedCollisionCooker? managed = cooker as ManagedCollisionCooker;
-        if (managed is not null)
+    }
+
+    /// <summary>
+    /// Runs a managed cooker's cooks on the chain's pool until the result is
+    /// disposed, then puts it back on the .NET pool.
+    /// </summary>
+    /// <param name="cooker">The chain's cooker; anything but the managed one is left alone.</param>
+    /// <param name="pool">The chain's pool.</param>
+    /// <returns>What restores the cooker's scheduler.</returns>
+    /// <remarks>
+    /// Without this the cooks run on the .NET thread pool, beside the
+    /// chain's own <c>-threads</c> workers rather than among them, so a
+    /// one-thread compile would not be one thread.
+    /// </remarks>
+    public static IDisposable CookOnPool(ICollisionCooker? cooker, CompilePool pool)
+    {
+        ArgumentNullException.ThrowIfNull(pool);
+        if (cooker is not ManagedCollisionCooker managed)
         {
-            managed.Scheduler = pool.Scheduler;
+            return NoLease.Instance;
         }
 
-        try
+        managed.Scheduler = pool.Scheduler;
+        return new SchedulerLease(managed);
+    }
+
+    private sealed class SchedulerLease(ManagedCollisionCooker cooker) : IDisposable
+    {
+        public void Dispose() => cooker.Scheduler = TaskScheduler.Default;
+    }
+
+    private sealed class NoLease : IDisposable
+    {
+        public static readonly NoLease Instance = new();
+
+        public void Dispose()
         {
-            return await CompileOnPoolAsync(
-                disk, parsed, paths, mapFile, cooker, output, start, resolution, content, mapName,
-                parallel with { Pool = pool }, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            if (managed is not null)
-            {
-                managed.Scheduler = TaskScheduler.Default;
-            }
         }
     }
 

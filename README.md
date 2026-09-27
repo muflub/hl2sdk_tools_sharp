@@ -52,6 +52,7 @@ src/
   SourceSharp.Tests/                      xUnit suite for the whole chain
 game/                                     test game directories with gameinfo.txt
 maps/ss_sandbox.vmf                       the generated sandbox map
+maps/sdk_ctf_2fort.vmf                    Valve's SDK 2fort, a full-size map for perf runs
 ```
 
 ### `SourceSharp.MapFormats`
@@ -347,6 +348,121 @@ any capable device), and `-gpu_slabs <n>` sets how many rays go to the GPU
 per batch. When no usable device is found, vrad reports that it declined the
 GPU and falls back to the CPU KD-tree tracer, so a run never fails for lack
 of a GPU.
+
+## Measuring performance
+
+    tools/compile-perf.sh --map maps/ss_sandbox.vmf --game game/mod_sharp
+
+compiles the map across a matrix of the settings that change how fast the
+tools run, then profiles each combination. The axes are in
+`tools/compile-perf-matrix.json`:
+
+- the build (JIT or NativeAOT);
+- the GC and JIT runtime settings;
+- the thread count;
+- `-compliance`;
+- the collision cooker;
+- `-overlap`;
+- the incremental cache (off, cold, warm);
+- the ray tracer (CPU or GPU);
+- vbsp, vvis and vrad presets (for example `-fast`, `-final`, `-both`, `-bounce 0`).
+
+Each axis only applies to the stages it affects.
+
+`maps/ss_sandbox.vmf` is small and exercises every feature; for numbers
+closer to a real map, use `maps/sdk_ctf_2fort.vmf`, Valve's SDK 2fort
+(18,000 faces, 2,500 vis clusters):
+
+    tools/compile-perf.sh --map maps/sdk_ctf_2fort.vmf --game game/mod_tf
+
+It needs Team Fortress 2 installed through Steam for its materials, models
+and `lights.rad`. `--synthetic` only makes stand-ins for the sandbox map's
+materials, so without Steam 2fort still compiles, but with its brushes
+unlit by texlights and thousands of missing-material warnings.
+
+The whole chain is one stage and vbsp, vvis and vrad are each timed on their
+own. vvis starts from the baseline vbsp's output and vrad from the baseline
+vvis's, so a tool's numbers do not depend on the other tools' settings.
+
+`--matrix` picks how many combinations run:
+
+- `pairwise` (the default) runs enough cells that every pair of setting
+  values meets in at least one of them.
+- `sweep` runs the baseline and each value on its own.
+- `full` runs every combination. That is thousands of chain cells, so
+  narrow it with `--set axis=v1,v2` first.
+- `--dry-run` lists the cells and stops.
+
+Each cell is timed with `ssmap bench`, then run again once per profiler so
+that no profiler's overhead lands in another's numbers:
+
+- vvis and vrad `--bench` stage times;
+- process resource usage, with `perf stat` hardware counters when `perf` is
+  installed;
+- a sampled CPU profile (speedscope);
+- runtime events: GC pauses by generation, allocations by type and by the
+  SourceSharp method that made them, lock contention, thread pool
+  starvation, exceptions and JIT, read by `tools/PerfTraceReport`;
+- `dotnet-counters` once a second;
+- periodic heap snapshots, keeping the largest;
+- optionally `perf record` with native and managed frames together.
+
+The profilers need `dotnet tool install -g dotnet-trace dotnet-counters dotnet-gcdump`.
+
+Everything lands in `perf-results/<timestamp>/`:
+
+- `summary.md`:
+  - every cell against its baseline;
+  - what each setting does;
+  - thread scaling;
+  - vvis and vrad stage breakdowns;
+  - the hot functions, allocation sites and GC costs across the matrix.
+- `cells/<cell>/report.md` and the raw captures beside it.
+- `cells.csv`.
+- `env.txt`, which records the machine, the revision and the .NET runtime.
+
+Other switches:
+
+- `--gpu <match>`, `--vphysics <game>` and `--aot` enable the values that need
+  a GPU, a native vphysics library or a NativeAOT build.
+- `--strip-steam` mounts a copy of the game without its Steam search paths.
+- `--resume` continues an interrupted run.
+
+`tools/compile-perf.sh --help` lists every option.
+
+### Without the Steam content
+
+`--synthetic` (with `--strip-steam` on a machine without the game) adds
+generated stand-ins for what ss_sandbox mounts from Steam. They go into the
+script's own copy of the game, never into `game/`. `--static-props` compiles
+a variant of the map with a `prop_static` beside each model entity, because
+the map itself has none. The same content can be written anywhere with:
+
+    dotnet run --project tools/SyntheticContent -c Release -- --content <game dir> [--props-map in.vmf out.vmf]
+
+The content is built by `SourceSharp.MapGen.Content.SyntheticContent`, with
+writers for VTF and studio models. It is chosen to exercise the branches the
+real content would:
+
+- **Materials:** every material the map's brushes use, with its compile keys.
+  - Tool textures: `%compilesky`, `%compiletrigger`, `%compilenodraw` and the like.
+  - Water, with a `$bottommaterial`.
+  - A translucent window.
+  - Bump-mapped and `$envmap` surfaces.
+  - An explicit `$reflectivity`.
+  - A `%detailtype` floor.
+- **Textures:** VTFs whose reflectivity comes from their pixels, and six
+  skybox faces the default cubemap is built from.
+- **Other files:** `lights.rad` with a texlight, a surface-properties table,
+  and `detail.vbsp`.
+- **Models:** the eight models the map names, with real MDL, VVD, VTX and PHY
+  geometry.
+  - Six are static props. One of them casts texture shadows and one has two LODs.
+  - One is not `$staticprop`.
+  - One is `allowstatic 0`.
+
+Existing files are never overwritten, so `--synthetic` on an installed game
+only fills in what is missing.
 
 ## Tests
 

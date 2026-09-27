@@ -44,6 +44,14 @@ public static class VradCommand
     /// <summary>The exit code for a map that could not be lit.</summary>
     public const int ExitFailed = 1;
 
+    /// <summary>
+    /// Prints a per-stage wall clock and the work counters after the compile
+    /// (<c>bench &lt;stage&gt; &lt;seconds&gt;s</c> lines, as <c>vvis --bench</c>
+    /// prints them). Not a stock option: it is taken out before the stock
+    /// arguments are parsed.
+    /// </summary>
+    public const string BenchSwitch = "--bench";
+
     /// <summary>Runs one <c>vrad</c> invocation.</summary>
     /// <param name="fileSystem">Where maps and game content are read and written.</param>
     /// <param name="args">The arguments after <c>vrad</c>.</param>
@@ -87,7 +95,9 @@ public static class VradCommand
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(output);
 
-        StockArgsResult<VradOptions> parsed = StockArgs.ParseVrad(args);
+        bool bench = args.Contains(BenchSwitch, StringComparer.Ordinal);
+        StockArgsResult<VradOptions> parsed = StockArgs.ParseVrad(
+            bench ? [.. args.Where(a => !string.Equals(a, BenchSwitch, StringComparison.Ordinal))] : args);
 
         if (parsed.ListCompliance && !parsed.HasErrors)
         {
@@ -148,11 +158,13 @@ public static class VradCommand
             map = await BspFile.LoadAsync(stream, cancellationToken).ConfigureAwait(false);
         }
 
+        VvisCommand.StageClock? stageClock = bench ? new VvisCommand.StageClock() : null;
         VradContext contextBase = new()
         {
             Options = parsed.Options,
             MapName = mapName,
             Content = content,
+            Progress = stageClock,
             Parallelism = parsed.Threads is int degree && degree > 0
                 ? new CompileParallelism { MaxDegree = degree }
                 : CompileParallelism.Default,
@@ -180,6 +192,10 @@ public static class VradCommand
         }
 
         await WriteResultAsync(result, output).ConfigureAwait(false);
+        if (stageClock is not null)
+        {
+            await WriteBenchAsync(stageClock, result, output).ConfigureAwait(false);
+        }
 
         await output.WriteLineAsync($"Writing {bspPath}").ConfigureAwait(false);
         using (MemoryStream buffer = new())
@@ -259,6 +275,23 @@ public static class VradCommand
         catch (Exception exception) when (exception is IOException or InvalidDataException)
         {
             return null;
+        }
+    }
+
+    private static async Task WriteBenchAsync(VvisCommand.StageClock clock, RadResult result, TextWriter output)
+    {
+        foreach (string line in clock.Report())
+        {
+            await output.WriteLineAsync(line).ConfigureAwait(false);
+        }
+
+        foreach (RadPassResult pass in result.Passes)
+        {
+            await output.WriteLineAsync(string.Create(
+                CultureInfo.InvariantCulture,
+                $"bench work {(pass.Hdr ? "hdr" : "ldr")} samples={pass.World.Samples} "
+                + $"visibilityrays={pass.World.VisibilityRays} skyrays={pass.World.SkyRays} "
+                + $"batches={pass.World.Batches}")).ConfigureAwait(false);
         }
     }
 

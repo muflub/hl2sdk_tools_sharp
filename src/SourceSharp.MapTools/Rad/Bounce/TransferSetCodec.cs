@@ -223,7 +223,7 @@ public static class TransferSetCodec
         }
 
         int[] counts = new int[patchCount];
-        long[] offsets = new long[patchCount];
+        int[] offsets = new int[patchCount];
         long at = 0;
         int longest = 0;
         for (int p = 0; p < patchCount; p++)
@@ -235,7 +235,7 @@ public static class TransferSetCodec
             }
 
             counts[p] = count;
-            offsets[p] = at;
+            offsets[p] = (int)Math.Min(at, int.MaxValue);
             at += count;
             longest = Math.Max(longest, count);
         }
@@ -265,6 +265,8 @@ public static class TransferSetCodec
             }
         }
 
-        return new TransferSet(arena, offsets, counts, max);
+        // One segment: a stored patch's list may straddle chunks, and total
+        // is at most Array.MaxLength, so every offset fits an int.
+        return new TransferSet([arena], new int[patchCount], offsets, counts, max);
     }
 }
