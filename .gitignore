@@ -5,3 +5,5 @@ perf-results/
 tools/PerfTraceReport/bin/
 tools/PerfTraceReport/obj/
 __pycache__/
+tools/SyntheticContent/bin/
+tools/SyntheticContent/obj/

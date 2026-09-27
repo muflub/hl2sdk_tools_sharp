@@ -40,6 +40,12 @@ Options:
   --game DIR            the game directory (-game)
   --strip-steam         mount a copy of --game with its |appid_N| search paths
                         removed, for a machine without that Steam app
+  --synthetic           add generated stand-ins for the map's materials,
+                        textures, models, lights.rad, surface properties and
+                        detail.vbsp (tools/SyntheticContent) to a copy of
+                        --game; files the game already has are kept
+  --static-props        compile a variant of the map with a prop_static beside
+                        each model entity, so static-prop work is measured
   --stages LIST         any of chain,vbsp,vvis,vrad (default all four)
   --set AXIS=V1,V2      keep only these values of an axis (repeatable)
   --matrix-file PATH    the axes (default tools/compile-perf-matrix.json)
@@ -48,7 +54,13 @@ Options:
                         all / none (default all but perf)
   --profile-cells MODE  all (default), baseline or sweep: which cells profile
   --heap-interval S     seconds between heap snapshots (default 5)
-  --gpu MATCH           enables the tracer=gpu value (-gpu MATCH)
+  --gpu MATCH           enables the tracer=gpu value (-gpu MATCH): a
+                        case-insensitive part of the Vulkan device's name,
+                        e.g. RTX or 4090. Checked before any cell runs, with
+                        one fast vrad on the prepared input: a device that
+                        does not match or fails vrad's self-test stops the run
+                        with vrad's reason, rather than letting the gpu cells
+                        fall back to the CPU tracer and time that
   --vphysics GAME       enables the cooker=native value (-vphysics GAME)
   --aot                 enables build=aot: publishes a NativeAOT ssmap first
   --perf-record         adds the perf profiler (needs perf)
@@ -249,6 +261,7 @@ class Runner:
         self.dll = os.path.join(REPO, "bin", "Release", "ssmap.dll")
         self.aot = os.path.join(REPO, "bin", "aot", "ssmap")
         self.report_dll = os.path.join(REPO, "tools", "PerfTraceReport", "bin", "Release", "net10.0", "PerfTraceReport.dll")
+        self.content_dll = os.path.join(REPO, "tools", "SyntheticContent", "bin", "Release", "net10.0", "SyntheticContent.dll")
         tools = os.path.expanduser("~/.dotnet/tools")
         self.tool = lambda name: shutil.which(name) or (os.path.join(tools, name) if os.access(os.path.join(tools, name), os.X_OK) else None)
 
@@ -280,10 +293,13 @@ class Runner:
         }
 
 
-def build(runner, out, with_aot):
+def build(runner, out, with_aot, with_content=False):
     log = os.path.join(out, "build.log")
     steps = [[runner.dotnet, "build", os.path.join(REPO, "src", "SourceSharp.MapTools.slnx"), "-c", "Release"],
              [runner.dotnet, "build", os.path.join(REPO, "tools", "PerfTraceReport", "PerfTraceReport.csproj"), "-c", "Release"]]
+    if with_content:
+        steps.append([runner.dotnet, "build", os.path.join(REPO, "tools", "SyntheticContent", "SyntheticContent.csproj"),
+                      "-c", "Release"])
     if with_aot:
         # The same publish CI makes for its AOT archives.
         rid = {"x86_64": "linux-x64", "aarch64": "linux-arm64", "arm64": "osx-arm64"}.get(os.uname().machine, "linux-x64")
@@ -310,7 +326,9 @@ def write_env(runner, out, args, map_path, game, cells, skipped):
         f"git: {sh(['git', '-C', REPO, 'rev-parse', 'HEAD'])} {'dirty' if sh(['git', '-C', REPO, 'status', '--porcelain']) else 'clean'}",
         f"branch: {sh(['git', '-C', REPO, 'rev-parse', '--abbrev-ref', 'HEAD'])}",
         f"map: {map_path} ({os.path.getsize(map_path)} bytes, sha256 {hashlib.sha256(open(map_path, 'rb').read()).hexdigest()})",
-        f"game: {game or 'none'}{' (steam paths stripped)' if args.strip_steam else ''}",
+        f"game: {game or 'none'}{' (steam paths stripped)' if args.strip_steam else ''}"
+        f"{' (+ synthetic content)' if args.synthetic else ''}",
+        f"static props: {'a prop_static beside every model entity' if args.static_props else 'as the map has them'}",
         f"matrix: {args.matrix}, {len(cells)} cells, runs {args.runs} + {args.warmups} warm-up",
         f"profilers: {', '.join(args.profile)}; profile cells: {args.profile_cells}",
         f"skipped values: {', '.join(skipped) or 'none'}",
@@ -338,17 +356,41 @@ def write_env(runner, out, args, map_path, game, cells, skipped):
         f.write("\n".join(lines) + "\n")
 
 
-def strip_steam(game, out):
-    """A copy of the game directory whose gameinfo.txt mounts no Steam app content."""
+def game_copy(game, out, strip):
+    """A copy of the game directory to compile against, so nothing is written into the original.
+
+    With strip, its gameinfo.txt mounts no Steam app content (the |appid_N|
+    search paths are removed), for a machine without those apps.
+    """
     copy = os.path.join(out, "game")
     shutil.rmtree(copy, ignore_errors=True)
     shutil.copytree(game, copy, symlinks=True)
-    info = os.path.join(copy, "gameinfo.txt")
-    with open(info, encoding="utf-8", errors="replace") as f:
-        kept = [l for l in f if "|appid_" not in l]
-    with open(info, "w", encoding="utf-8") as f:
-        f.writelines(kept)
+    if strip:
+        info = os.path.join(copy, "gameinfo.txt")
+        with open(info, encoding="utf-8", errors="replace") as f:
+            kept = [l for l in f if "|appid_" not in l]
+        with open(info, "w", encoding="utf-8") as f:
+            f.writelines(kept)
     return copy
+
+
+def synthesise(runner, out, game, map_path, static_props):
+    """Adds the generated stand-in content to the game copy and, for
+    static_props, writes the prop_static variant of the map; returns the map
+    to compile."""
+    cmd = [runner.dotnet, runner.content_dll]
+    if game:
+        cmd += ["--content", game]
+    variant = None
+    if static_props:
+        variant = os.path.join(out, "inputs", os.path.basename(map_path)[:-4] + "_props.vmf")
+        os.makedirs(os.path.dirname(variant), exist_ok=True)
+        cmd += ["--props-map", map_path, variant]
+    log = os.path.join(out, "synthetic.log")
+    code, _, _ = runner.run(cmd, log)
+    if code != 0:
+        sys.exit(f"compile-perf: generating content failed, see {log}")
+    return variant or map_path
 
 
 class Inputs:
@@ -374,7 +416,11 @@ class Inputs:
         os.makedirs(self.keep, exist_ok=True)
         self.log = os.path.join(self.keep, "prepare.log")
 
-    def prepare(self, stages):
+    def prepare(self, stages, vrad_input=False):
+        """Compiles the single-tool inputs the stages need; vrad_input asks
+        for the vvis output even when no vrad cell runs (the --gpu check)."""
+        if vrad_input and "vrad" not in stages:
+            stages = list(stages) + ["vrad"]
         need_vbsp = any(s in stages for s in ("vvis", "vrad"))
         if need_vbsp:
             self._tool("vbsp", self.vmf)
@@ -399,6 +445,27 @@ class Inputs:
             shutil.copy(os.path.join(self.keep, "vvis.bsp"), self.stem + ".bsp")
             return self.stem
         return self.vmf
+
+
+def gpu_decline(log_text):
+    """vrad's decline line (VRAD0707), or None when it used the GPU."""
+    for line in log_text.splitlines():
+        if "VRAD0707" in line or "gpu tracer declined" in line:
+            return line.strip()
+    return None
+
+
+def check_gpu(runner, inputs, game_args, match, log):
+    """One fast vrad with -gpu on the prepared input: the same device pick and
+    self-test every gpu cell will get, so a bad match stops the run here."""
+    stem = inputs.restore("vrad")
+    code, _, _ = runner.run(runner.ssmap("jit") + ["vrad"] + game_args + ["-fast", "-bounce", "0", "-gpu", match, stem],
+                            log, cwd=inputs.work)
+    with open(log, encoding="utf-8", errors="replace") as f:
+        reason = gpu_decline(f.read())
+    if code != 0 or reason:
+        sys.exit(f"compile-perf: --gpu {match} cannot be used: {reason or f'vrad exited {code}'}\n"
+                 f"(see {log}; `vulkaninfo --summary` lists device names)")
 
 
 def direct_command(runner, stage, build, map_arg, game_args, threads, opts, store=None):
@@ -672,6 +739,8 @@ def parse_args(argv):
     p.add_argument("--map")
     p.add_argument("--game")
     p.add_argument("--strip-steam", action="store_true")
+    p.add_argument("--synthetic", action="store_true")
+    p.add_argument("--static-props", action="store_true")
     p.add_argument("--stages", default=",".join(STAGES))
     p.add_argument("--set", action="append", default=[])
     p.add_argument("--matrix", default="pairwise", choices=["pairwise", "sweep", "full", "baseline"])
@@ -697,6 +766,10 @@ def parse_args(argv):
         sys.exit(0)
     if not a.map or not a.map.endswith(".vmf") or not os.path.isfile(a.map):
         sys.exit("compile-perf: --map must name an existing .vmf (see --help)")
+    if a.gpu is not None and not a.gpu.strip():
+        sys.exit("compile-perf: --gpu needs part of a device name (e.g. --gpu RTX); an empty match is refused")
+    if (a.synthetic or a.strip_steam) and not a.game:
+        sys.exit("compile-perf: --synthetic and --strip-steam work on a copy of --game, so they need --game")
     a.stages = [s for s in a.stages.split(",") if s]
     bad = [s for s in a.stages if s not in STAGES]
     if bad:
@@ -764,17 +837,22 @@ def main(argv):
     os.makedirs(os.path.join(out, "cells"), exist_ok=True)
     map_path = os.path.abspath(args.map)
     game = os.path.abspath(args.game) if args.game else None
-    if game and args.strip_steam:
-        game = strip_steam(game, out)
+    if game and (args.strip_steam or args.synthetic):
+        game = game_copy(game, out, args.strip_steam)
     args.game_dir = game
     game_args = ["-game", game] if game else []
 
+    wants_content = args.synthetic or args.static_props
     if not args.no_build:
         print("building...")
-        build(runner, out, args.aot)
-    for need in [runner.dll] + ([runner.aot] if args.aot else []) + ([runner.report_dll] if "gc" in args.profile else []):
+        build(runner, out, args.aot, wants_content)
+    for need in [runner.dll] + ([runner.aot] if args.aot else []) + ([runner.report_dll] if "gc" in args.profile else []) \
+            + ([runner.content_dll] if wants_content else []):
         if not os.path.exists(need):
             sys.exit(f"compile-perf: no build at {need}")
+    if wants_content:
+        print("generating content...")
+        map_path = synthesise(runner, out, game if args.synthetic else None, map_path, args.static_props)
 
     write_env(runner, out, args, map_path, game, cells, skipped)
     subst = {"gpu": args.gpu or "", "vphysics": args.vphysics or ""}
@@ -784,7 +862,11 @@ def main(argv):
 
     inputs = Inputs(runner, out, map_path, game_args)
     print("preparing inputs...")
-    inputs.prepare(args.stages)
+    gpu_cells = "gpu" in axes.get("tracer", {}).get("values", [])
+    inputs.prepare(args.stages, vrad_input=gpu_cells)
+    if gpu_cells:
+        print(f"checking -gpu {args.gpu}...")
+        check_gpu(runner, inputs, game_args, args.gpu, os.path.join(out, "gpu-check.log"))
 
     started = time.monotonic()
     for i, cell in enumerate(cells):

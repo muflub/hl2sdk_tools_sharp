@@ -418,6 +418,40 @@ Other switches:
 
 `tools/compile-perf.sh --help` lists every option.
 
+### Without the Steam content
+
+`--synthetic` (with `--strip-steam` on a machine without the game) adds
+generated stand-ins for what ss_sandbox mounts from Steam. They go into the
+script's own copy of the game, never into `game/`. `--static-props` compiles
+a variant of the map with a `prop_static` beside each model entity, because
+the map itself has none. The same content can be written anywhere with:
+
+    dotnet run --project tools/SyntheticContent -c Release -- --content <game dir> [--props-map in.vmf out.vmf]
+
+The content is built by `SourceSharp.MapGen.Content.SyntheticContent`, with
+writers for VTF and studio models. It is chosen to exercise the branches the
+real content would:
+
+- **Materials:** every material the map's brushes use, with its compile keys.
+  - Tool textures: `%compilesky`, `%compiletrigger`, `%compilenodraw` and the like.
+  - Water, with a `$bottommaterial`.
+  - A translucent window.
+  - Bump-mapped and `$envmap` surfaces.
+  - An explicit `$reflectivity`.
+  - A `%detailtype` floor.
+- **Textures:** VTFs whose reflectivity comes from their pixels, and six
+  skybox faces the default cubemap is built from.
+- **Other files:** `lights.rad` with a texlight, a surface-properties table,
+  and `detail.vbsp`.
+- **Models:** the eight models the map names, with real MDL, VVD, VTX and PHY
+  geometry.
+  - Six are static props. One of them casts texture shadows and one has two LODs.
+  - One is not `$staticprop`.
+  - One is `allowstatic 0`.
+
+Existing files are never overwritten, so `--synthetic` on an installed game
+only fills in what is missing.
+
 ## Tests
 
 ```sh

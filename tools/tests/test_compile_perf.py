@@ -142,6 +142,53 @@ class CommandTests(unittest.TestCase):
                          cp.direct_command(R(), "vrad", "jit", "m", [], 2, ["--bench", "-fast"]))
 
 
+class GameCopyTests(unittest.TestCase):
+    def test_the_copy_leaves_the_original_alone_and_strips_only_when_asked(self):
+        with tempfile.TemporaryDirectory() as d:
+            game = os.path.join(d, "mod")
+            os.makedirs(game)
+            info = "SearchPaths\n{\n\tgame |appid_1|x.vpk\n\tgame |gameinfo_path|.\n}\n"
+            with open(os.path.join(game, "gameinfo.txt"), "w") as fh:
+                fh.write(info)
+            out = os.path.join(d, "out")
+            os.makedirs(out)
+
+            copy = cp.game_copy(game, out, strip=False)
+            self.assertIn("appid_1", read_text(os.path.join(copy, "gameinfo.txt")))
+            copy = cp.game_copy(game, out, strip=True)
+            self.assertNotIn("appid_1", read_text(os.path.join(copy, "gameinfo.txt")))
+            self.assertIn("gameinfo_path", read_text(os.path.join(copy, "gameinfo.txt")))
+            self.assertEqual(info, read_text(os.path.join(game, "gameinfo.txt")))
+
+    def test_synthetic_content_needs_a_game_to_copy(self):
+        with tempfile.NamedTemporaryFile(suffix=".vmf", delete=False) as fh:
+            vmf = fh.name
+        try:
+            with self.assertRaises(SystemExit):
+                cp.parse_args(["--map", vmf, "--synthetic"])
+            self.assertTrue(cp.parse_args(["--map", vmf, "--synthetic", "--game", "g"]).synthetic)
+        finally:
+            os.remove(vmf)
+
+
+class GpuOptionTests(unittest.TestCase):
+    def test_an_empty_gpu_match_is_refused_at_once(self):
+        with tempfile.NamedTemporaryFile(suffix=".vmf", delete=False) as fh:
+            vmf = fh.name
+        try:
+            for bad in ("", "  "):
+                with self.assertRaises(SystemExit):
+                    cp.parse_args(["--map", vmf, "--gpu", bad])
+            self.assertEqual("RTX", cp.parse_args(["--map", vmf, "--gpu", "RTX"]).gpu)
+        finally:
+            os.remove(vmf)
+
+    def test_vrads_decline_line_is_found(self):
+        log = "lighting...\nWarning VRAD0707: gpu tracer declined: no device matches \"foo\" -- CPU KD tracer for this run\n"
+        self.assertIn("no device matches", cp.gpu_decline(log))
+        self.assertIsNone(cp.gpu_decline("vrad 3.0 seconds elapsed\n"))
+
+
 class ParserTests(unittest.TestCase):
     def test_a_heap_report_is_read_largest_first(self):
         report = "  1,024  2  System.Byte[]\n 4,096  1  Foo.Bar\nnot a row\n"
