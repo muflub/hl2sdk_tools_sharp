@@ -188,6 +188,103 @@ public class ChunkTokenReaderTests
     }
 
     [Fact]
+    public void AnEscapeInALaterChunkIsDecodedAndTheFirstChunkKept()
+    {
+        // The first chunk is plain (taken as a slice of the text); the second
+        // has an escape, so the value moves into the builder with the slice
+        // in front of it.
+        string head = new('a', ChunkTokenReader.StreamBufferSize - 1);
+        Assert.Equal((ChunkTokenType.String, head + "b\nc"), Next("\"" + head + "b\\nc\""));
+    }
+
+    [Fact]
+    public void AnEscapeSplitAcrossAChunkBoundaryMatchesTheChunkedReading()
+    {
+        // The backslash is the last character of the first 1023: the chunk
+        // ends there, the backslash has nothing after it in its chunk and is
+        // dropped, and the 'n' starts the next chunk as an ordinary 'n'.
+        string head = new('a', ChunkTokenReader.StreamBufferSize - 2);
+        Assert.Equal((ChunkTokenType.String, head + "nz"), Next("\"" + head + "\\nz\""));
+    }
+
+    [Fact]
+    public void ACombinedStringJoinsAPlainPieceToAnEscapedOne()
+    {
+        Assert.Equal((ChunkTokenType.String, "abcd\ne"), Next("\"abc\" + \"d\\ne\""));
+        Assert.Equal((ChunkTokenType.String, "a\nbcd"), Next("\"a\\nb\" + \"cd\""));
+        Assert.Equal((ChunkTokenType.String, "abc"), Next("\"a\" + \"b\" + \"c\""));
+    }
+
+    [Fact]
+    public void ACarriageReturnAfterACombinedPieceReturnsEverythingBeforeIt()
+    {
+        Assert.Equal((ChunkTokenType.StringTooLong, "abcde"), Next("\"abc\" + \"de\rf\""));
+        Assert.Equal((ChunkTokenType.StringTooLong, "broken"), Next("\"broken\r\nstring\""));
+    }
+
+    [Fact]
+    public void TheReusedBuilderCarriesNothingFromOneStringToTheNext()
+    {
+        ChunkTokenReader reader = new("\"a\\nb\" \"plain\" \"c\\td\" \"x\" + \"y\" \"\" \"q\\\\\"");
+        string[] expected = ["a\nb", "plain", "ctd", "xy", "", "q\\"];
+        foreach (string value in expected)
+        {
+            Assert.Equal(ChunkTokenType.String, reader.NextToken(out string token));
+            Assert.Equal(value, token);
+        }
+
+        Assert.Equal(ChunkTokenType.EndOfFile, reader.NextToken(out _));
+    }
+
+    [Fact]
+    public void NumbersAndIdentifiersAreCutFromTheTextAtEveryBoundary()
+    {
+        ChunkTokenReader reader = new("12 -7 abc_1{-;x9");
+        (ChunkTokenType, string)[] expected =
+        [
+            (ChunkTokenType.Integer, "12"),
+            (ChunkTokenType.Integer, "-7"),
+            (ChunkTokenType.Identifier, "abc_1"),
+            (ChunkTokenType.Operator, "{"),
+            (ChunkTokenType.Integer, "-"),
+        ];
+        foreach ((ChunkTokenType type, string text) in expected)
+        {
+            Assert.Equal(type, reader.NextToken(out string token));
+            Assert.Equal(text, token);
+        }
+
+        // ';' is an empty identifier that is put back, as before.
+        Assert.Equal(ChunkTokenType.Identifier, reader.NextToken(out string empty));
+        Assert.Equal(string.Empty, empty);
+
+        Assert.Equal((ChunkTokenType.Integer, "42"), Next("42"));
+        Assert.Equal((ChunkTokenType.Identifier, "end"), Next("end"));
+    }
+
+    [Fact]
+    public void APlainStringAllocatesOnlyItsValue()
+    {
+        // The common case: one chunk, no escape, no join. The value is cut
+        // out of the text once; building it in a fresh builder from a fresh
+        // chunk string cost about three times the value.
+        string body = new('v', 400);
+        ChunkTokenReader reader = new(string.Concat(Enumerable.Repeat("\"" + body + "\" ", 11)));
+        reader.NextToken(out _);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 10; i++)
+        {
+            reader.NextToken(out _);
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        // Ten 400-character strings: 2 bytes a character plus a header each.
+        Assert.InRange(allocated, 10 * 800, 10 * (800 + 64));
+    }
+
+    [Fact]
     public void DigitsAreAnIntegerToken()
     {
         Assert.Equal((ChunkTokenType.Integer, "512"), Next("512"));
