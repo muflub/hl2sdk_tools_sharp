@@ -195,6 +195,7 @@ public class CallerParallelForTests
     {
         using CancellationTokenSource cts = new();
         int runs = 0;
+        int runsAtCancel = -1;
 
         Assert.ThrowsAny<OperationCanceledException>(() =>
             CallerParallelFor.For(10_000, degree, TaskScheduler.Default, () => 0, (i, _) =>
@@ -203,19 +204,27 @@ public class CallerParallelForTests
                 if (i == 5)
                 {
                     cts.Cancel();
+                    Volatile.Write(ref runsAtCancel, Volatile.Read(ref runs));
                 }
             }, cts.Token));
 
-        // Serially exactly the six up to the cancelling one; in parallel an item
-        // claimed before the cancel may still check the token first and not run,
-        // and each other participant can be at most one item past it.
+        // Serially, exactly the six up to the cancelling one.
+        //
+        // In parallel the bound is relative to the moment of the cancel, not
+        // to item 5's index: whoever claimed item 5 can be preempted between
+        // the claim and the body while the others run hundreds of items (seen
+        // on a Windows runner: 832). What the loop promises is that once the
+        // token is cancelled, every item still to be started sees it, so each
+        // of the other participants finishes at most the one item it had
+        // already passed the check for. Counted after the Cancel call, so an
+        // item that ran in between is already in runsAtCancel.
         if (degree == 1)
         {
             Assert.Equal(6, runs);
         }
         else
         {
-            Assert.InRange(runs, 1, 6 + degree);
+            Assert.InRange(runs, runsAtCancel, runsAtCancel + (degree - 1));
         }
     }
 
