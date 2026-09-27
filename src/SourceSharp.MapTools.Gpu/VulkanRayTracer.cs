@@ -158,9 +158,8 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
 
     private readonly VulkanDevice _device;
     private readonly int[] _triangleIds;
-    private readonly object _gate = new();
-    private readonly uint[] _scratchWords;
-    private bool _disposed;
+    private readonly SlabBatcher _batcher;
+    private volatile bool _disposed;
 
     /// <inheritdoc />
     /// <remarks>
@@ -194,10 +193,9 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         _device = device;
         _triangleIds = triangleIds;
         SelfTest = selfTest;
-        // The closest-mode readback is 2 words/ray and any-hit is 2 words per
-        // 64 rays, so sizing for closest covers both; allocated once per
-        // instance, not per batch.
-        _scratchWords = new uint[device.MaxSlabRays * 2];
+        // Every batch goes through one drainer that packs concurrent callers'
+        // rays into shared slabs (SlabBatcher's remarks say why).
+        _batcher = new SlabBatcher(device, triangleIds, TmaxScaleBits);
         TracerIdentity = string.Concat(
             "gpu-vulkan-rayquery-",
             device.DeviceName.Replace(' ', '-'),
@@ -399,33 +397,7 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         }
 
         uint tminBits = (uint)BitConverter.SingleToInt32Bits(options.MinDistance);
-        Ray[] batch = rays.ToArray();
-        ulong[] bits = hitBits.ToArray();
-        return new ValueTask(Task.Run(() =>
-        {
-            lock (_gate)
-            {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                for (int start = 0; start < batch.Length; start += _device.MaxSlabRays)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    int count = Math.Min(_device.MaxSlabRays, batch.Length - start);
-                    int wordCount = (count + 63) / 64 * 2;
-                    Span<uint> written = TraceSlab(0, batch, start, count, tminBits, wordCount);
-                    // The kernel zeroes and writes each workgroup's two words
-                    // itself, sample-major, so this slab's words are a pure
-                    // function of its rays — copy them straight through.
-                    // Workgroup g's pair of uint words lands at uint index
-                    // start/32 + 2g in the batch's bit array (start is a slab
-                    // boundary, hence a multiple of 64 rays).
-                    written.CopyTo(
-                        MemoryMarshal.Cast<ulong, uint>(bits.AsSpan())
-                            .Slice(start / 32, wordCount));
-                }
-
-                bits.CopyTo(hitBits);
-            }
-        }, cancellationToken));
+        return new ValueTask(_batcher.TraceVisibilityAsync(rays, hitBits, tminBits, cancellationToken));
     }
 
     /// <inheritdoc />
@@ -452,85 +424,20 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         }
 
         uint tminBits = (uint)BitConverter.SingleToInt32Bits(options.MinDistance);
-        Ray[] batch = rays.ToArray();
-        HitId[] dst = hits.ToArray();
-        return new ValueTask(Task.Run(() =>
-        {
-            lock (_gate)
-            {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                for (int start = 0; start < batch.Length; start += _device.MaxSlabRays)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    int count = Math.Min(_device.MaxSlabRays, batch.Length - start);
-                    Span<uint> words = TraceSlab(1, batch, start, count, tminBits, count * 2);
-                    for (int i = 0; i < count; i++)
-                    {
-                        uint prim = words[i * 2];
-                        if (prim == 0xFFFFFFFFu || prim >= (uint)_triangleIds.Length)
-                        {
-                            dst[start + i] = HitId.Missed;
-                            continue;
-                        }
-
-                        float t = BitConverter.Int32BitsToSingle(unchecked((int)words[(i * 2) + 1]));
-                        float length = batch[start + i].MaxDistance;
-                        // KD's own fraction rule, reproduced exactly: the
-                        // divide-by-1 is skipped because it is exact, and the
-                        // t the kernel committed is in ray-parameter units
-                        // just like stock's m_HitDistance.
-                        dst[start + i] = new HitId(
-                            _triangleIds[prim],
-                            length == 1.0f ? t : t / length);
-                    }
-                }
-
-                dst.CopyTo(hits.Span);
-            }
-        }, cancellationToken));
-    }
-
-    /// <summary>
-    /// Packs one slab into the pinned staging in the wire layout — two vec4
-    /// per ray, <c>(ox,oy,oz,0)</c> and <c>(dx,dy,dz,tmax)</c> — and runs the
-    /// kernel. The direction is NOT normalised and tmax is the caller's
-    /// reach: the same parameterisation stock's callers hand
-    /// <c>Trace4Rays</c>, so t comes back in the same units.
-    /// </summary>
-    private Span<uint> TraceSlab(int mode, Ray[] batch, int start, int count, uint tminBits, int outWords)
-    {
-        Span<float> staging = _device.StageRays(count);
-        for (int i = 0; i < count; i++)
-        {
-            ref readonly Ray r = ref batch[start + i];
-            int b = i * 8;
-            staging[b] = r.OriginX;
-            staging[b + 1] = r.OriginY;
-            staging[b + 2] = r.OriginZ;
-            staging[b + 3] = 0f;
-            staging[b + 4] = r.DirectionX;
-            staging[b + 5] = r.DirectionY;
-            staging[b + 6] = r.DirectionZ;
-            staging[b + 7] = r.MaxDistance;
-        }
-
-        Span<uint> words = _scratchWords.AsSpan(0, outWords);
-        _device.Dispatch(mode, count, words, tminBits, TmaxScaleBits);
-        return words;
+        return new ValueTask(_batcher.TraceClosestAsync(rays, hits, tminBits, cancellationToken));
     }
 
     /// <summary>Releases the device (idle-flushed first) so the next tracer can open it.</summary>
     public void Dispose()
     {
-        lock (_gate)
+        if (_disposed)
         {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-            _device.Dispose();
+            return;
         }
+
+        _disposed = true;
+
+        // Queued batches fail, a dispatch in flight finishes, then the device goes.
+        _batcher.Close(_device.Dispose);
     }
 }
