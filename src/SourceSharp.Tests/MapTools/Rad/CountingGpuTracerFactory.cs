@@ -68,6 +68,14 @@ internal sealed class CountingTracer(KdRayTracer inner) : IRayTracer, IDisposabl
     public string TracerIdentity => "counting-" + inner.TracerIdentity;
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// What the KD tree answers, which is every option: the hybrid then
+    /// routes every batch here, the ones with a skip id or sky rule too, so
+    /// any stage that traced after the release would fail on this tracer.
+    /// </remarks>
+    public bool Supports(RayTraceOptions options) => inner.Supports(options);
+
+    /// <inheritdoc/>
     public ValueTask TraceVisibilityAsync(
         ReadOnlyMemory<Ray> rays, Memory<ulong> hitBits, RayTraceOptions options, CancellationToken cancellationToken = default)
     {

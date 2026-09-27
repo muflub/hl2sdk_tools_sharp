@@ -48,6 +48,23 @@ public sealed class GpuTracerOwnershipTests
     }
 
     [Fact]
+    public async Task TheOfferedTracerStaysOpenThroughOtherLightingAndIsReleasedAfter()
+    {
+        // The other-lighting stages (props, leaf ambient) trace through the
+        // pass's tracer, the offered one: the release must come after them.
+        CountingGpuTracerFactory factory = new();
+        List<int> seen = [];
+        VradContext context = await ContextAsync(
+            factory,
+            new ActAt(p => p.Stage == Vrad.OtherStage, () => seen.Add(Assert.Single(factory.Offered).Disposals)));
+
+        _ = await Vrad.LightAsync(await BspAsync(), context);
+
+        Assert.Equal([0, 0], seen);
+        Assert.Equal(1, Assert.Single(factory.Offered).Disposals);
+    }
+
+    [Fact]
     public async Task AFailureMidLightingReleasesTheOfferedTracerOnce()
     {
         CountingGpuTracerFactory factory = new();
