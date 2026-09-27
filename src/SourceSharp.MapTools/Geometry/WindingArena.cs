@@ -33,6 +33,19 @@ namespace SourceSharp.MapTools.Geometry;
 /// Take spans after the last allocation, as every method below does.
 /// </para>
 /// <para>
+/// <b>The slab is a list of segments.</b> An arena that keeps its windings --
+/// vbsp's, or the patch windings vrad keeps for the whole bounce -- can hold
+/// millions of points, and growing one array by doubling made every array it
+/// outgrew garbage on the large-object heap: about as much again as the final
+/// slab, copied point by point on the way. So the first segment starts at the
+/// requested capacity and doubles, as before, but only up to
+/// <see cref="SegmentLength"/> points; after that the arena adds whole new
+/// segments and never copies a full one. A winding never straddles two
+/// segments (the unused tail of a segment, at most a winding's worth, is
+/// skipped), so a winding's storage is still one span. Only the first
+/// segment's growth moves points, which is why the rule above still holds.
+/// </para>
+/// <para>
 /// The arithmetic is a faithful port. The operand order, the epsilons and the
 /// float-versus-double width of every comparison match the reference build;
 /// where they are surprising, the method's remarks cite the line. The one
@@ -63,8 +76,24 @@ public sealed class WindingArena
     // it, it refuses the input instead. See ClipEpsilon.
     private const int SideBufferLength = MaxPointsOnWinding + 16;
 
-    private Vec3[] _slab;
-    private bool[] _live;
+    /// <summary>log2 of the points in a full segment.</summary>
+    internal const int SegmentShift = 16;
+
+    /// <summary>
+    /// The points in a full segment, and so the most one winding may reserve.
+    /// </summary>
+    /// <remarks>
+    /// 65536 points is 768 KB, large enough that a segment is a rare
+    /// allocation and three orders of magnitude above the largest winding
+    /// the clipper can build (<see cref="MaxPointsOnWinding"/> plus its
+    /// reservation).
+    /// </remarks>
+    public const int SegmentLength = 1 << SegmentShift;
+
+    private const int SegmentMask = SegmentLength - 1;
+
+    private Vec3[][] _slab;
+    private bool[][] _live;
     private int _used;
     private Stack<int>[] _free;
 
@@ -106,8 +135,9 @@ public sealed class WindingArena
     {
         ArgumentOutOfRangeException.ThrowIfNegative(initialPointCapacity);
 
-        _slab = new Vec3[initialPointCapacity];
-        _live = new bool[initialPointCapacity];
+        int first = Math.Min(initialPointCapacity, SegmentLength);
+        _slab = [new Vec3[first]];
+        _live = [new bool[first]];
         _free = new Stack<int>[MaxPointsOnWinding + 8];
     }
 
@@ -140,13 +170,26 @@ public sealed class WindingArena
     public long RecycledAllocations { get; private set; }
 
     /// <summary>How many points the slab currently holds.</summary>
-    public int SlabCapacity => _slab.Length;
+    public int SlabCapacity
+    {
+        get
+        {
+            int capacity = 0;
+            foreach (Vec3[]? segment in _slab)
+            {
+                capacity += segment?.Length ?? 0;
+            }
+
+            return capacity;
+        }
+    }
 
     /// <summary>Reserves storage for a winding with no points in it yet.</summary>
     /// <param name="capacity">How many points to reserve.</param>
     /// <returns>A handle with <see cref="Winding.Count"/> zero.</returns>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// <paramref name="capacity"/> is not positive.
+    /// <paramref name="capacity"/> is not positive, or is more than
+    /// <see cref="SegmentLength"/>.
     /// </exception>
     /// <remarks>
     /// <c>AllocWinding</c>. Stock sets
@@ -157,6 +200,7 @@ public sealed class WindingArena
     public Winding Alloc(int capacity)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(capacity);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(capacity, SegmentLength);
 
         TotalAllocations++;
         ActiveWindings++;
@@ -172,15 +216,14 @@ public sealed class WindingArena
             {
                 RecycledAllocations++;
                 int recycled = bucket.Pop();
-                _live[recycled] = true;
+                Live(recycled) = true;
                 return new Winding(recycled, 0, capacity);
             }
         }
 
-        int offset = _used;
-        EnsureRoom(capacity);
-        _used += capacity;
-        _live[offset] = true;
+        int offset = EnsureRoom(capacity);
+        _used = offset + capacity;
+        Live(offset) = true;
         return new Winding(offset, 0, capacity);
     }
 
@@ -205,12 +248,13 @@ public sealed class WindingArena
             return;
         }
 
-        if (!_live[winding.Offset])
+        ref bool live = ref Live(winding.Offset);
+        if (!live)
         {
             throw new InvalidWindingException("FreeWinding: freed a freed winding");
         }
 
-        _live[winding.Offset] = false;
+        live = false;
         ActiveWindings--;
 
         int capacity = winding.Capacity;
@@ -228,7 +272,8 @@ public sealed class WindingArena
     /// <remarks>
     /// Invalidated by any allocation on this arena. See the type's remarks.
     /// </remarks>
-    public Span<Vec3> Points(Winding winding) => _slab.AsSpan(winding.Offset, winding.Count);
+    public Span<Vec3> Points(Winding winding) =>
+        _slab[winding.Offset >> SegmentShift].AsSpan(winding.Offset & SegmentMask, winding.Count);
 
     /// <summary>The winding's full reserved storage, live points and all.</summary>
     /// <param name="winding">The winding.</param>
@@ -237,7 +282,8 @@ public sealed class WindingArena
     /// For building a winding up point by point, the way the clipper does.
     /// Invalidated by any allocation on this arena.
     /// </remarks>
-    public Span<Vec3> Storage(Winding winding) => _slab.AsSpan(winding.Offset, winding.Capacity);
+    public Span<Vec3> Storage(Winding winding) =>
+        _slab[winding.Offset >> SegmentShift].AsSpan(winding.Offset & SegmentMask, winding.Capacity);
 
     /// <summary>The same handle with a different live point count.</summary>
     /// <param name="winding">The winding.</param>
@@ -1361,15 +1407,48 @@ public sealed class WindingArena
         }
     }
 
-    private void EnsureRoom(int capacity)
+    private ref bool Live(int offset) => ref _live[offset >> SegmentShift][offset & SegmentMask];
+
+    // Where a new reservation of `capacity` points goes: after the last one
+    // when it fits in that segment, else at the start of the next segment.
+    // Grows the first segment by doubling, or adds a whole segment.
+    private int EnsureRoom(int capacity)
     {
-        if (_used + capacity <= _slab.Length)
+        int segment = _used >> SegmentShift;
+        int local = _used & SegmentMask;
+        if (local + capacity > SegmentLength)
         {
-            return;
+            segment++;
+            local = 0;
         }
 
-        int want = Math.Max(_slab.Length == 0 ? 4096 : _slab.Length * 2, _used + capacity);
-        Array.Resize(ref _slab, want);
-        Array.Resize(ref _live, want);
+        if (segment == 0)
+        {
+            Vec3[] first = _slab[0];
+            if (local + capacity > first.Length)
+            {
+                int want = Math.Min(
+                    Math.Max(first.Length == 0 ? 4096 : first.Length * 2, local + capacity),
+                    SegmentLength);
+                Array.Resize(ref _slab[0], want);
+                Array.Resize(ref _live[0], want);
+            }
+        }
+        else
+        {
+            if (segment == _slab.Length)
+            {
+                Array.Resize(ref _slab, _slab.Length * 2);
+                Array.Resize(ref _live, _live.Length * 2);
+            }
+
+            if (_slab[segment] is null)
+            {
+                _slab[segment] = new Vec3[SegmentLength];
+                _live[segment] = new bool[SegmentLength];
+            }
+        }
+
+        return (segment << SegmentShift) | local;
     }
 }
