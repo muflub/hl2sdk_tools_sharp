@@ -306,6 +306,70 @@ public sealed class RoomCorrectnessFixTests
         Assert.NotEqual("72001", newId);
     }
 
+    // ---- 4. overlay basis ------------------------------------------------------
+
+    /// <summary>
+    /// A library room with an <c>info_overlay</c>, split and then flattened
+    /// at each rotation: vbsp places an overlay by <c>BasisOrigin</c> and
+    /// orients it by <c>BasisU</c>, <c>BasisV</c> and <c>BasisNormal</c>, not
+    /// by <c>origin</c>, so the split must move the origin into the room and
+    /// the flatten must move and turn all four. Before the fix only
+    /// <c>origin</c> moved and the overlay was built in library coordinates.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Rotations))]
+    public void OverlayBasesMoveWithTheSplitAndTheFlatten(int rotation)
+    {
+        // The hub second, so its cell's corner is not the library origin and
+        // the split's move is not the identity.
+        VmfDocument library = RoomHarness.LibraryVmf(RoomHarness.WalkableRoom("end", RoomFacing.PositiveX), Hub);
+        Vec3 corner = new(RoomHarness.Cell + RoomHarness.LibraryGap, 0, 0);
+        Vec3 local = new(100, 60, 16);
+        library.Chunks.Add(Entity(
+            "info_overlay", 700008,
+            ("origin", VmfPlacement.Format(corner + local)),
+            ("BasisOrigin", VmfPlacement.Format(corner + local)),
+            ("BasisU", "0 1 0"),
+            ("BasisV", "1 0 0"),
+            ("BasisNormal", "0 0 1"),
+            ("uv0", "-8 -8 0"),
+            ("material", RoomHarness.Plain)));
+
+        VmfChunk split = RoomLibraryVmf.Split(library).Single(r => r.Definition.Name == "hub").Document
+            .GetChunks(MapFileLoader.EntityChunk).Single(e => e.GetValue("classname") == "info_overlay");
+        Assert.Equal("100 60 16", split.GetValue("BasisOrigin"));
+        Assert.Equal("0 1 0", split.GetValue("BasisU"));
+
+        VmfDocument flat = LevelFlattener.Flatten(LevelYaml.Parse(RoomHarness.LevelText("rooms.vmf", $"end, hub@{rotation}"), "overlay"), library);
+        VmfChunk overlay = flat.GetChunks(MapFileLoader.EntityChunk).Single(e => e.GetValue("classname") == "info_overlay");
+        QuarterTurn turn = QuarterTurn.Of(new RoomTransform(new RoomPlacement("hub", 1, 0, rotation / 90), RoomHarness.Cell));
+        Assert.Equal(VmfPlacement.Format(turn.Apply(local)), overlay.GetValue("BasisOrigin"));
+        Assert.Equal(overlay.GetValue("origin"), overlay.GetValue("BasisOrigin"));
+        Assert.Equal(VmfPlacement.Format(turn.Rotate(new Vec3(0, 1, 0))), overlay.GetValue("BasisU"));
+        Assert.Equal(VmfPlacement.Format(turn.Rotate(new Vec3(1, 0, 0))), overlay.GetValue("BasisV"));
+        Assert.Equal("0 0 1", overlay.GetValue("BasisNormal"));
+        Assert.Equal("-8 -8 0", overlay.GetValue("uv0"));
+    }
+
+    /// <summary>
+    /// A wall overlay's normal turns with the room, and a basis key that is
+    /// not three numbers is refused naming the entity and key, as a bad
+    /// origin is.
+    /// </summary>
+    [Fact]
+    public void AWallOverlaysNormalTurnsAndABadBasisIsRefused()
+    {
+        VmfChunk overlay = Entity("info_overlay", 5, ("BasisNormal", "1 0 0"), ("BasisU", "0 1 0"));
+        VmfChunk moved = VmfPlacement.MoveEntity(overlay, new QuarterTurn(1, new Vec3(256, 0, 0)));
+        Assert.Equal("0 1 0", moved.GetValue("BasisNormal"));
+        Assert.Equal("-1 0 0", moved.GetValue("BasisU"));
+
+        VmfChunk bad = Entity("info_overlay", 6, ("BasisV", "0 1"));
+        RoomLibraryException refused = Assert.Throws<RoomLibraryException>(
+            () => VmfPlacement.MoveEntity(bad, new QuarterTurn(1, Vec3.Zero)));
+        Assert.Equal("entity 6 (info_overlay): BasisV \"0 1\" is not three numbers.", refused.Message);
+    }
+
     // ---- helpers ---------------------------------------------------------------
 
     /// <summary>A point or brush entity chunk with an id and a class.</summary>

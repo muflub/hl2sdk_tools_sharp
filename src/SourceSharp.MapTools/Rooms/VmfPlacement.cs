@@ -185,11 +185,26 @@ internal static class VmfPlacement
         return moved;
     }
 
-    /// <summary>An entity moved: its origin, its yaw and its brushes.</summary>
+    /// <summary>The key an <c>info_overlay</c> is placed by: the point its basis stands on.</summary>
+    private const string OverlayOriginKey = "BasisOrigin";
+
+    /// <summary>An entity moved: its origin, its yaw, its overlay basis and its brushes.</summary>
     /// <param name="entity">The <c>entity</c> chunk.</param>
     /// <param name="turn">The move.</param>
     /// <returns>The moved copy.</returns>
     /// <exception cref="RoomLibraryException">A placement key or a brush is malformed.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Overlays are placed by their basis, not their origin.</b> vbsp
+    /// builds an <c>info_overlay</c> at <c>BasisOrigin</c>, oriented by
+    /// <c>BasisU</c>, <c>BasisV</c> and <c>BasisNormal</c>; its <c>origin</c>
+    /// is only where the editor draws it. So <c>BasisOrigin</c> is moved as a
+    /// point and the three axes are turned as directions (a translation does
+    /// not change a direction). The <c>uv0</c> to <c>uv3</c> corners are in
+    /// the overlay's own basis and stay as written, and so does its handedness:
+    /// a quarter turn about +z is a proper rotation.
+    /// </para>
+    /// </remarks>
     public static VmfChunk MoveEntity(VmfChunk entity, QuarterTurn turn)
     {
         int turns = ((turn.Rotation % 4) + 4) % 4;
@@ -206,9 +221,13 @@ internal static class VmfPlacement
 
             VmfKey key = (VmfKey)node;
             string value = key.Value;
-            if (IsKey(key.Name, "origin"))
+            if (IsKey(key.Name, "origin") || IsKey(key.Name, OverlayOriginKey))
             {
-                value = Format(turn.Apply(Vector(value, "origin", entity)));
+                value = Format(turn.Apply(Vector(value, key.Name, entity)));
+            }
+            else if (turns != 0 && (IsKey(key.Name, "BasisU") || IsKey(key.Name, "BasisV") || IsKey(key.Name, "BasisNormal")))
+            {
+                value = Format(turn.Rotate(Vector(value, key.Name, entity)));
             }
             else if (turns != 0 && IsKey(key.Name, "angles"))
             {
