@@ -93,6 +93,7 @@ internal sealed class VisFrameStack
     internal const int MaxCachedSeparators = 256;
 
     private readonly List<ulong[]> _mightSee = [];
+    private readonly List<(int Lo, int Hi)> _mightDirty = [];
     private readonly List<Vec3[]> _windings = [];
     private readonly List<Vec3[]> _separatorNormals = [];
     private readonly List<float[]> _separatorDistances = [];
@@ -110,9 +111,102 @@ internal sealed class VisFrameStack
         while (_mightSee.Count <= depth)
         {
             _mightSee.Add(new ulong[_words]);
+            _mightDirty.Add((0, 0));
         }
 
         return _mightSee[depth];
+    }
+
+    /// <summary>
+    /// One frame's <c>mightsee</c>, made zero everywhere outside the words
+    /// the frame is about to write.
+    /// </summary>
+    /// <param name="depth">The recursion depth, from one.</param>
+    /// <param name="lo">The first word the frame will write.</param>
+    /// <param name="hi">One past the last word it will write.</param>
+    /// <returns>A vector of the map's portal width.</returns>
+    /// <remarks>
+    /// <para>
+    /// The flow writes a frame's vector only over the extent of its parent's
+    /// (see <see cref="Extent(ReadOnlySpan{ulong})"/>), because outside that
+    /// extent the intersection is zero. For the vector to still BE the
+    /// intersection, the words outside must hold zeros, and they may not: the
+    /// buffer is reused by every frame that reaches this depth, and an earlier
+    /// frame may have had a wider extent.
+    /// </para>
+    /// <para>
+    /// So each depth remembers the extent it last handed out, and this clears
+    /// only the part of that which falls outside the new one. Sibling frames
+    /// at one depth mostly have similar extents, so this is usually a pair of
+    /// integer compares; it is never more than the words an earlier frame
+    /// actually wrote.
+    /// </para>
+    /// </remarks>
+    internal ulong[] MightSee(int depth, int lo, int hi)
+    {
+        ulong[] buffer = MightSee(depth);
+        (int dirtyLo, int dirtyHi) = _mightDirty[depth];
+        if (dirtyLo < dirtyHi)
+        {
+            if (dirtyLo < lo)
+            {
+                buffer.AsSpan(dirtyLo, Math.Min(dirtyHi, lo) - dirtyLo).Clear();
+            }
+
+            if (dirtyHi > hi)
+            {
+                int from = Math.Max(dirtyLo, hi);
+                buffer.AsSpan(from, dirtyHi - from).Clear();
+            }
+        }
+
+        _mightDirty[depth] = lo < hi ? (lo, hi) : (0, 0);
+        return buffer;
+    }
+
+    /// <summary>
+    /// The block-aligned range of words that holds every set bit of a vector.
+    /// </summary>
+    /// <param name="bits">A block-aligned bit vector.</param>
+    /// <returns>
+    /// <c>(Lo, Hi)</c>, multiples of <see cref="BitVector.WordsPerBlock"/>,
+    /// with every word outside it zero; <c>(0, 0)</c> for an empty vector.
+    /// </returns>
+    internal static (int Lo, int Hi) Extent(ReadOnlySpan<ulong> bits) => Extent(bits, (0, bits.Length));
+
+    /// <summary>
+    /// <see cref="Extent(ReadOnlySpan{ulong})"/>, searching only a range the
+    /// caller already knows holds every set bit.
+    /// </summary>
+    /// <param name="bits">A block-aligned bit vector.</param>
+    /// <param name="within">A block-aligned range outside which every word is zero.</param>
+    /// <returns>The narrowed range, still block-aligned.</returns>
+    /// <remarks>
+    /// Block-aligned because the intersection runs on
+    /// <see cref="BitVectorOps.AndWithNewBits"/>, whose vector forms take
+    /// whole blocks. Rounding outwards only ever adds words that are zero.
+    /// </remarks>
+    internal static (int Lo, int Hi) Extent(ReadOnlySpan<ulong> bits, (int Lo, int Hi) within)
+    {
+        int lo = within.Lo;
+        int hi = within.Hi;
+        while (lo < hi && bits[lo] == 0)
+        {
+            lo++;
+        }
+
+        if (lo == hi)
+        {
+            return (0, 0);
+        }
+
+        while (bits[hi - 1] == 0)
+        {
+            hi--;
+        }
+
+        const int mask = BitVector.WordsPerBlock - 1;
+        return (lo & ~mask, Math.Min((hi + mask) & ~mask, within.Hi));
     }
 
     /// <summary>One frame's three winding buffers, end to end.</summary>
