@@ -832,7 +832,7 @@ offsets.
 | --- | --- |
 | `func_detail` | Fine (merged into the world, entity cleared). |
 | Hint / skip | Fine: shapes the room's own tree and vis. |
-| `func_viscluster` | The loader records it (`MapFile.VisClusterEntities`), but nothing in the repo sets `PortalFileBuilder.VisClusters`, so it has no effect on vis here, and the entity keeps its brushes, gets a model and makes the linker refuse the room (`models != 1`). Plan: wire the resolver (a vbsp matter), then strip the entity and its model at link (compile-only, 0 entities). |
+| `func_viscluster` | Fine: the loader builds its volume (`MapFile.VisClusters`), the portal file merges every leaf it covers into one cluster, and the entity is cleared, so it gets no model and no entity lump record (compile-only, 0 entities). |
 | `func_ladder` | Silently wrong (finding 1); move `mins.*` / `maxs.*` through `MoveBox`. **S.** |
 | `func_instance` inside a room | Merged at pack time (`MapInstanceMerger`; `MapFileReader.CheckForInstances` blanks every `func_instance`), no name fixup (`VBSP0107`); its contents are room entities and follow section 5. |
 | Cordons | Refuse a cordoned library (a room compile would cut the room). **S.** |
@@ -1223,7 +1223,7 @@ From this repository's code:
 | `func_ladder` | brushes to world, becomes `info_ladder` (kept) | `MapFileLoader` | certain it is kept |
 | `func_occluder` | loses brushes and model, kept with `occludernumber` | `OccluderEmitter`, `EntityStage.SetModelNumbers` | certain it is kept |
 | `func_areaportal` | brushes to world, kept with `portalnumber` | `MapFileLoader` | certain it is kept |
-| `func_viscluster` | kept, with a model | `MapFileLoader` | certain it is kept (see 4.14) |
+| `func_viscluster` | cleared, volume kept for the portal file | `MapFileLoader`, `VisClusterVolumes` | certain |
 | `light`, `light_spot`, `light_environment`, `light_dynamic` | kept; vrad reads them and does not strip them | `EntityStage`, `DirectLightBuilder` | certain they are kept |
 | default `water_lod_control` | added when water has none | `EntityStage` | certain |
 
@@ -1233,7 +1233,7 @@ From this repository's code:
 | --- | --- | --- |
 | `info_room` | already absent | certain |
 | `room_needs`, `room_socket`, `socket_priority` keys | always (keys, not entities) | certain |
-| `func_viscluster` (once wired) | yes: compile-only | certain it has no runtime use in the tools; **uncertain** whether a game defines the class |
+| `func_viscluster` | already absent: vbsp clears it | certain it has no runtime use in the tools; **uncertain** whether a game defines the class |
 | duplicate singletons (section 8) | yes, keep one | certain for identical copies |
 | socket furniture on the dropped side of a joint | yes (5.8 c) | certain |
 | unnamed `light`, `light_spot` after baking | recommended, as an opt-in until checked in game | **uncertain**: the baked lighting and `WorldLights` do not need the entity; game code is believed to remove unnamed lights at spawn anyway, so stripping saves the spawn peak, not steady state |
