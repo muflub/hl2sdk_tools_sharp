@@ -73,9 +73,7 @@ public readonly record struct SocketKit(float Width, float Height, float Depth)
     /// <exception cref="ArgumentException">The opening does not fit inside one face.</exception>
     /// <remarks>
     /// Every comparison against NaN is false, so a plain "not positive" check
-    /// lets a NaN through; the finite test is what refuses it. A NaN kit is
-    /// also what <see cref="LevelLayoutJson"/> leaves in a layout that did not
-    /// state its grid, and this is where such a layout must fail.
+    /// lets a NaN through; the finite test is what refuses it.
     /// </remarks>
     public void Validate()
     {
@@ -95,10 +93,11 @@ public readonly record struct SocketKit(float Width, float Height, float Depth)
 /// <param name="Facing">Which cell face the opening is in, room-local.</param>
 /// <param name="Name">The socket's name, unique in the room.</param>
 /// <remarks>
-/// A socket is declared by the room's author, not discovered: the geometry
-/// check (the opening is the kit rectangle at the face centre, and only the
-/// kit's plug hardware crosses the cell face there) is the linter's job, see
-/// <see cref="RoomLinter"/>.
+/// In a room library a socket is found from its door plug
+/// (<see cref="RoomLibraryVmf"/>): a world brush filling the kit's plug box
+/// on a wall makes that wall a socket. That the plug really is the kit's
+/// trigger-surfaced hardware, and that the room holds no other, is the
+/// linter's job, see <see cref="RoomLinter"/>.
 /// </remarks>
 public readonly record struct RoomSocket(RoomFacing Facing, string Name)
 {
@@ -242,10 +241,13 @@ public sealed record RoomInstance(RoomPlacement Placement, IReadOnlyList<(string
 /// <param name="Kit">The library's door kit.</param>
 /// <param name="Rooms">The placements, in link order.</param>
 /// <remarks>
-/// The layout is the <c>.sslayout</c> file <c>ssmap link</c> reads. Two instances may not share a cell, and
-/// every socket of every instance must be jointed to a neighbour's socket or
-/// explicitly capped — the linter's "matched or capped" rule (§10b first
-/// table), enforced at link time because only the layout knows its neighbours.
+/// The linker's view of a level, with every joint and cap spelled out. A
+/// level file (<see cref="LevelYaml"/>) never spells them: its
+/// <see cref="LevelGrid.ToLayout"/> derives them from the geometry. Two
+/// instances may not share a cell, and every socket of every instance must
+/// be jointed to a neighbour's socket or explicitly capped — the linter's
+/// "matched or capped" rule (§10b first table), enforced at link time
+/// because only the layout knows its neighbours.
 /// </remarks>
 public sealed record LevelLayout(string Name, float CellSize, SocketKit Kit, IReadOnlyList<RoomInstance> Rooms)
 {

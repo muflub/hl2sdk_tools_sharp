@@ -124,7 +124,8 @@ public static partial class LevelLinker
     /// </exception>
     /// <exception cref="RoomLintException">
     /// A layout rule is broken: a room the library lacks, a socket neither
-    /// jointed nor capped, a grid or kit that is not the library's.
+    /// jointed nor capped, a grid or kit that is not the library's, or a room
+    /// a player cannot reach from the others (<see cref="RoomLinter.CheckReachable"/>).
     /// </exception>
     /// <exception cref="LinkException">
     /// A joint is geometrically wrong (no neighbour in its direction, a socket
@@ -146,6 +147,7 @@ public static partial class LevelLinker
         // the joint geometry only the linker can check.
         RoomLinter.CheckLayout(layout, library);
         ValidateJoints(layout, library);
+        RoomLinter.CheckReachable(layout, name => library.Get(name).Definition);
 
         ResolvedPlacement[] resolved = [.. layout.Rooms.Select((p, i) => Resolve(p, i, library))];
 

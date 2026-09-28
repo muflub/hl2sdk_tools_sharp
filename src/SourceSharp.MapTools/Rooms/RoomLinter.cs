@@ -33,6 +33,9 @@ public enum RoomRule
 
     /// <summary>Placement is whole-cell translation and 90° rotation.</summary>
     PlacementIsQuarterTurnGrid = 5,
+
+    /// <summary>A player can reach every room of a level from every other, through joined doors.</summary>
+    EveryRoomReachable = 6,
 }
 
 /// <summary>
@@ -205,6 +208,121 @@ public static class RoomLinter
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// A player can reach every room of the level from every other: the
+    /// joint graph over the placed rooms is connected.
+    /// </summary>
+    /// <param name="layout">The level, its joints already checked to meet head-on.</param>
+    /// <param name="definitions">Each placed room's definition, by name.</param>
+    /// <exception cref="RoomLintException">Some room cannot be reached; the message names each such room and its cell.</exception>
+    /// <remarks>
+    /// <para>
+    /// A room level is not valid unless a player can get into every room.
+    /// Joints are the only way between rooms (the kit's doors admit a
+    /// standing player, <see cref="PlayerHull"/>), so the rule is that the
+    /// rooms and their joints form one connected graph. An empty level and a
+    /// one-room level satisfy it trivially.
+    /// </para>
+    /// <para>
+    /// When the rooms fall into several groups, the largest group is taken as
+    /// the level and every room outside it is named (between largest groups
+    /// of equal size, the one holding the earliest room in link order), so
+    /// the message points at the island rather than at the level around it.
+    /// </para>
+    /// </remarks>
+    public static void CheckReachable(LevelLayout layout, Func<string, RoomDefinition> definitions)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        ArgumentNullException.ThrowIfNull(definitions);
+
+        IReadOnlyList<RoomInstance> rooms = layout.Rooms;
+        if (rooms.Count < 2)
+        {
+            return;
+        }
+
+        Dictionary<(int, int), int> byCell = [];
+        for (int i = 0; i < rooms.Count; i++)
+        {
+            byCell[(rooms[i].Placement.CellX, rooms[i].Placement.CellY)] = i;
+        }
+
+        int[] parent = [.. Enumerable.Range(0, rooms.Count)];
+        int Find(int i)
+        {
+            while (parent[i] != i)
+            {
+                parent[i] = parent[parent[i]];
+                i = parent[i];
+            }
+
+            return i;
+        }
+
+        for (int i = 0; i < rooms.Count; i++)
+        {
+            RoomPlacement placement = rooms[i].Placement;
+            RoomTransform transform = new(placement, layout.CellSize);
+            IReadOnlyList<RoomSocket> sockets = definitions(placement.Room).Sockets;
+            foreach ((string socket, _) in rooms[i].Joints)
+            {
+                // The joint's own wall decides which neighbour it reaches. The
+                // linker has already refused a joint whose socket or neighbour
+                // does not exist, so a name not found here reaches nobody.
+                foreach (RoomSocket s in sockets)
+                {
+                    if (s.Name != socket)
+                    {
+                        continue;
+                    }
+
+                    (int axis, int sign) = transform.WorldNormal(s.Facing);
+                    (int, int) there = (placement.CellX + (axis == 0 ? sign : 0), placement.CellY + (axis == 1 ? sign : 0));
+                    if (byCell.TryGetValue(there, out int j))
+                    {
+                        parent[Find(i)] = Find(j);
+                    }
+                }
+            }
+        }
+
+        Dictionary<int, int> sizes = [];
+        for (int i = 0; i < rooms.Count; i++)
+        {
+            sizes[Find(i)] = sizes.GetValueOrDefault(Find(i)) + 1;
+        }
+
+        if (sizes.Count == 1)
+        {
+            return;
+        }
+
+        int main = Find(0);
+        for (int i = 0; i < rooms.Count; i++)
+        {
+            if (sizes[Find(i)] > sizes[main])
+            {
+                main = Find(i);
+            }
+        }
+
+        List<string> cut = [];
+        for (int i = 0; i < rooms.Count; i++)
+        {
+            if (Find(i) != main)
+            {
+                RoomPlacement p = rooms[i].Placement;
+                cut.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"room \"{p.Room}\" at cell ({p.CellX}, {p.CellY})"));
+            }
+        }
+
+        throw new RoomLintException(
+            $"rule {(int)RoomRule.EveryRoomReachable} ({nameof(RoomRule.EveryRoomReachable)}):"
+            + $" a player cannot reach every room: {string.Join(", ", cut)} {(cut.Count == 1 ? "is" : "are")} not"
+            + $" joined to the other {sizes[main]} room(s) of the level through any door.");
     }
 
     /// <summary>
