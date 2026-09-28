@@ -75,7 +75,7 @@ internal sealed partial class Qh
         Vertex vertex;
         maxoutdone = false;
         if (qh_pointid(furthest) == -1)
-            QSet<double[]>.Append(ref other_points, furthest);
+            QSet<double[]>.Append(ref other_points, furthest, pool);
         if (checkdist)
         {
             bool isoutside = false;
@@ -382,7 +382,7 @@ internal sealed partial class Qh
         Vertex? vertex;
         int size, point_i, point_n, point_end, remaining, id;
         double bestdist = -REALmax, dist, distoutside;
-        var pointset = new QSet<double[]>(numpoints);
+        var pointset = QSet<double[]>.New(numpoints, pool);
         num_outside = 0;
         for (int i = 0; i < numpoints; i++)
             pointset.e[i] = points[i];
@@ -404,7 +404,7 @@ internal sealed partial class Qh
             for (Facet? facet = facet_list; facet != null && facet.next != null; facet = facet.next)
             {
                 size = point_end / (remaining--) + 100;
-                facet.outsideset = new QSet<double[]>(size);
+                facet.outsideset = QSet<double[]>.New(size, pool);
                 bestpoint = null;
                 point_end = 0;
                 point_n = pointset.n;
@@ -426,18 +426,18 @@ internal sealed partial class Qh
                             }
                             else if (dist > bestdist)
                             {
-                                QSet<double[]>.Append(ref facet.outsideset, bestpoint);
+                                QSet<double[]>.Append(ref facet.outsideset, bestpoint, pool);
                                 bestpoint = point;
                                 bestdist = dist;
                             }
                             else
-                                QSet<double[]>.Append(ref facet.outsideset, point);
+                                QSet<double[]>.Append(ref facet.outsideset, point, pool);
                         }
                     }
                 }
                 if (bestpoint != null)
                 {
-                    QSet<double[]>.Append(ref facet.outsideset, bestpoint);
+                    QSet<double[]>.Append(ref facet.outsideset, bestpoint, pool);
                     facet.furthestdist = bestdist;
                 }
                 else
@@ -497,12 +497,12 @@ internal sealed partial class Qh
                 qh_distplane(oldfurthest, bestfacet, out dist2);
             if (oldfurthest == null || dist2 < bestdist)
             {
-                QSet<double[]>.Append(ref bestfacet.coplanarset, point);
+                QSet<double[]>.Append(ref bestfacet.coplanarset, point, pool);
                 if (bestdist > max_outside)
                     max_outside = bestdist;
             }
             else
-                QSet<double[]>.Append2ndLast(ref bestfacet.coplanarset, point);
+                QSet<double[]>.Append2ndLast(ref bestfacet.coplanarset, point, pool);
         }
         else
         {
@@ -537,7 +537,7 @@ internal sealed partial class Qh
             if (bestfacet.outsideset == null
                 || QSet<double[]>.Last(bestfacet.outsideset) == null)
             {
-                QSet<double[]>.Append(ref bestfacet.outsideset, point);
+                QSet<double[]>.Append(ref bestfacet.outsideset, point, pool);
                 if (!bestfacet.newfacet)
                 {
                     qh_removefacet(bestfacet);
@@ -549,11 +549,11 @@ internal sealed partial class Qh
             {
                 if (bestfacet.furthestdist < bestdist)
                 {
-                    QSet<double[]>.Append(ref bestfacet.outsideset, point);
+                    QSet<double[]>.Append(ref bestfacet.outsideset, point, pool);
                     bestfacet.furthestdist = bestdist;
                 }
                 else
-                    QSet<double[]>.Append2ndLast(ref bestfacet.outsideset, point);
+                    QSet<double[]>.Append2ndLast(ref bestfacet.outsideset, point, pool);
             }
             num_outside++;
         }

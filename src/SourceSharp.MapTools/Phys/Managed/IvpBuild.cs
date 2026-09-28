@@ -19,6 +19,9 @@ internal interface IIvpBuild
     /// <summary>True for TF2's double arithmetic.</summary>
     bool IsDouble { get; }
 
+    /// <summary>The thread scratch these builders cook with (its qhull storage included).</summary>
+    IvpCookContext Context { get; }
+
     /// <summary><c>ConvexFromPlanes</c>.</summary>
     IvpCompactLedge? ConvexFromPlanes(ReadOnlySpan<(float X, float Y, float Z, float Distance)> planes, float mergeDistance);
 
@@ -44,6 +47,9 @@ internal sealed class IvpBuild<T, TP>(IvpCookContext context) : IIvpBuild
 {
     /// <inheritdoc/>
     public bool IsDouble => TP.IsDouble;
+
+    /// <inheritdoc/>
+    public IvpCookContext Context => context;
 
     /// <inheritdoc/>
     public IvpCompactLedge? ConvexFromPlanes(ReadOnlySpan<(float X, float Y, float Z, float Distance)> planes, float mergeDistance) =>

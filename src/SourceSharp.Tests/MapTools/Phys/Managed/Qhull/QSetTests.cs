@@ -30,7 +30,7 @@ public class QSetTests
         for (int i = 0; i < n; i++)
         {
             items[i] = new E(i);
-            QSet<E>.Append(ref s, items[i]);
+            QSet<E>.Append(ref s, items[i], null);
         }
         return (s!, items);
     }
@@ -87,7 +87,7 @@ public class QSetTests
         // qset.c qh_setappend2ndlast: the last element stays the furthest point
         var (s, _) = Make(3);
         QSet<E>? r = s;
-        QSet<E>.Append2ndLast(ref r, new E(9));
+        QSet<E>.Append2ndLast(ref r, new E(9), null);
         Assert.Equal(new[] { 0, 1, 9, 2 }, Values(s));
     }
 
@@ -97,7 +97,7 @@ public class QSetTests
         // qset.c qh_setaddnth
         var (s, _) = Make(3);
         QSet<E>? r = s;
-        QSet<E>.AddNth(ref r, 0, new E(7));
+        QSet<E>.AddNth(ref r, 0, new E(7), null);
         Assert.Equal(new[] { 7, 0, 1, 2 }, Values(s));
     }
 
@@ -128,7 +128,7 @@ public class QSetTests
     {
         // qset.c qh_setnew_delnthsorted, as qh_facetintersect uses it (prepend 1)
         var (s, _) = Make(3);
-        QSet<E> n = s.NewDelNthSorted(3, 1, 1);
+        QSet<E> n = s.NewDelNthSorted(3, 1, 1, null);
         Assert.Equal(3, n.n);
         Assert.Null(n.e[0]);
         Assert.Equal(0, n.e[1]!.V);
@@ -142,9 +142,9 @@ public class QSetTests
         var (s, items) = Make(3);
         QSet<E>? t = new QSet<E>(3);
         var y = new E(8);
-        QSet<E>.Append(ref t, items[0]);
-        QSet<E>.Append(ref t, items[1]);
-        QSet<E>.Append(ref t, y);
+        QSet<E>.Append(ref t, items[0], null);
+        QSet<E>.Append(ref t, items[1], null);
+        QSet<E>.Append(ref t, y, null);
         Assert.True(QSet<E>.EqualExcept(s, items[2], t!, y));
         Assert.False(QSet<E>.EqualExcept(s, items[1], t!, y));
     }

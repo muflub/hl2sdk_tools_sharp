@@ -491,9 +491,9 @@ internal sealed partial class Qh
     internal void qh_initqhull_buffers()
     {
         TEMPsize = 8; // (qhmem.LASTsize - sizeof(setT))/SETelemsize is only a capacity
-        other_points = new QSet<double[]>(TEMPsize);
-        del_vertices = new QSet<Vertex>(TEMPsize);
-        searchset = new QSet<Facet>(TEMPsize);
+        other_points = QSet<double[]>.New(TEMPsize, pool);
+        del_vertices = QSet<Vertex>.New(TEMPsize, pool);
+        searchset = QSet<Facet>.New(TEMPsize, pool);
         NEARzero = new double[hull_dim];
         lower_threshold = new double[input_dim + 1];
         upper_threshold = new double[input_dim + 1];

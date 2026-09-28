@@ -51,7 +51,7 @@ public class BinaryOrderTests
         double s = H("-0x1.301dfda4533e4p+1");
         QSet<Vertex>? vs = new QSet<Vertex>(3);
         foreach (double x in new[] { s, 0.0, 0.0 })
-            QSet<Vertex>.Append(ref vs, new Vertex { point = new[] { x, 0.0, 0.0, -1 } });
+            QSet<Vertex>.Append(ref vs, new Vertex { point = new[] { x, 0.0, 0.0, -1 } }, null);
         double[] c = qh.qh_getcenter(vs!);
         Assert.Equal(H("-0x1.957d52306efdap-1"), c[0]);
         Assert.NotEqual(s / 3, c[0]); // the source's division

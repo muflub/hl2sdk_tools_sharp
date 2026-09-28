@@ -269,7 +269,7 @@ internal sealed partial class Qh
         {
             Vertex vertex = vertices.e[vertex_i]!;
             newfacet = qh_newfacet();
-            newfacet.vertices = vertices.NewDelNthSorted(vertex_n, vertex_i, 0);
+            newfacet.vertices = vertices.NewDelNthSorted(vertex_n, vertex_i, 0, pool);
             newfacet.toporient = toporient;
             qh_appendfacet(newfacet);
             newfacet.newfacet = true;
@@ -314,7 +314,7 @@ internal sealed partial class Qh
         Ridge? ridge, firstridge;
         int cntvertices, cntprojected = 0;
         cntvertices = QSet<Vertex>.Size(facet.vertices);
-        var vertices = new QSet<Vertex>(cntvertices);
+        var vertices = QSet<Vertex>.New(cntvertices, pool);
         if (facet.simplicial)
         {
             if (cntvertices != 3)
@@ -326,7 +326,7 @@ internal sealed partial class Qh
             else
             {
                 QSet<Vertex>? v = vertices;
-                QSet<Vertex>.AddNth(ref v, 0, fv.e[1]!);
+                QSet<Vertex>.AddNth(ref v, 0, fv.e[1]!, pool);
             }
             vertices.Append(fv.e[2]);
         }
@@ -394,7 +394,7 @@ internal sealed partial class Qh
             // NULL qh_setappend is ignored. Reproduced as written.
             point = null;
             QSet<double[]>.Del(facet.outsideset, point);
-            QSet<double[]>.Append(ref facet.outsideset, point);
+            QSet<double[]>.Append(ref facet.outsideset, point, pool);
             facet.furthestdist = bestdist;
         }
         facet.notfurthest = false;
@@ -486,8 +486,8 @@ internal sealed partial class Qh
     /// <summary>qh_initialvertices ('Qs' searches all points)</summary>
     internal QSet<Vertex> qh_initialvertices(int dim, QSet<double[]> maxpoints, double[][] points, int numpoints)
     {
-        QSet<Vertex>? vertices = new QSet<Vertex>(dim + 1);
-        QSet<double[]>? simplex = new QSet<double[]>(dim + 1);
+        QSet<Vertex>? vertices = QSet<Vertex>.New(dim + 1, pool);
+        QSet<double[]>? simplex = QSet<double[]>.New(dim + 1, pool);
         if (ALLpoints)
             qh_maxsimplex(dim, null, points, numpoints, ref simplex);
         else if (RANDOMoutside)
@@ -498,7 +498,7 @@ internal sealed partial class Qh
             qh_maxsimplex(dim, maxpoints, points, numpoints, ref simplex);
         double[]? point;
         for (int pi = 0; (point = simplex!.e[pi]) != null; pi++)
-            QSet<Vertex>.AddNth(ref vertices, 0, qh_newvertex(point));
+            QSet<Vertex>.AddNth(ref vertices, 0, qh_newvertex(point), pool);
         return vertices!;
     }
 
@@ -639,7 +639,7 @@ internal sealed partial class Qh
                 break;
             size += 2;
         }
-        hash_table = new QSet<Facet>(size);
+        hash_table = QSet<Facet>.New(size, pool);
         hash_table.Zero(0, size);
         return size;
     }
@@ -744,7 +744,7 @@ internal sealed partial class Qh
     internal QSet<Facet> qh_pointfacet()
     {
         int numpoints = num_points + QSet<double[]>.Size(other_points);
-        var facets = new QSet<Facet>(numpoints);
+        var facets = QSet<Facet>.New(numpoints, pool);
         facets.Zero(0, numpoints);
         vertex_visit++;
         Vertex? vertex;
@@ -780,7 +780,7 @@ internal sealed partial class Qh
     internal QSet<Vertex> qh_pointvertex()
     {
         int numpoints = num_points + QSet<double[]>.Size(other_points);
-        var vertices = new QSet<Vertex>(numpoints);
+        var vertices = QSet<Vertex>.New(numpoints, pool);
         vertices.Zero(0, numpoints);
         for (Vertex? vertex = vertex_list; vertex != null && vertex.next != null; vertex = vertex.next)
             qh_point_add(vertices, vertex.point!, vertex);
@@ -837,7 +837,7 @@ internal sealed partial class Qh
     /// <summary>qh_vertexintersect_new</summary>
     internal QSet<Vertex> qh_vertexintersect_new(QSet<Vertex> vertexsetA, QSet<Vertex> vertexsetB)
     {
-        var intersection = new QSet<Vertex>(hull_dim - 1);
+        var intersection = QSet<Vertex>.New(hull_dim - 1, pool);
         Vertex?[] A = vertexsetA.e, B = vertexsetB.e;
         int a = 0, b = 0;
         while (A[a] != null && B[b] != null)
@@ -876,9 +876,9 @@ internal sealed partial class Qh
                 if (vertex.visitid != vertex_visit)
                 {
                     vertex.visitid = vertex_visit;
-                    vertex.neighbors = new QSet<Facet>(hull_dim);
+                    vertex.neighbors = QSet<Facet>.New(hull_dim, pool);
                 }
-                QSet<Facet>.Append(ref vertex.neighbors, facet);
+                QSet<Facet>.Append(ref vertex.neighbors, facet, pool);
             }
         }
         VERTEXneighbors = true;

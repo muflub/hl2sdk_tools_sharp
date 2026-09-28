@@ -24,36 +24,107 @@ namespace SourceSharp.MapTools.Phys.Managed;
 internal static class ManagedTrace
 {
     /// <summary>One leaf convex as HL-space points and outward planes (double).</summary>
+    /// <remarks>
+    /// <para>
+    /// The planes are worked out the first time something asks for them, not when the convex is
+    /// made. Only the ray tests (<see cref="Clip"/>, and <see cref="Flat"/> which picks between
+    /// the plane clip and GJK) read them; the static-prop queries that dominate a compile
+    /// (<c>TraceCollide</c>'s overlap test, <c>CollideGetAABB</c>, <c>CollideGetExtent</c>)
+    /// look at the points alone. Building the planes eagerly cost one qhull hull per leaf per
+    /// query that nothing read, and on a prop-heavy map that was more qhull work than the
+    /// cooking itself. The planes are a pure function of the points and the ledge, so asking
+    /// later gives the same bits as asking at once.
+    /// </para>
+    /// <para>
+    /// A convex lives only inside the one query (or the one <see cref="LedgeTree"/>) that made
+    /// it, on the thread that made it, so the qhull storage it builds its hull with later is
+    /// still that thread's and still idle between builds.
+    /// </para>
+    /// </remarks>
     internal sealed class Convex
     {
-        public required double[][] Points { get; init; }
+        private readonly IvpCompactLedge _ledge;
+        private readonly Qhull.QhullSession _hulls;
+        private (double[] N, double D)[]? _planes;
+        private bool _flat;
 
-        public required (double[] N, double D)[] Planes { get; init; }
+        /// <summary>A leaf's convex over its (placed) points; the planes follow on demand.</summary>
+        /// <param name="points">The ledge's points in HL space, placed.</param>
+        /// <param name="ledge">The ledge, for its triangles when the points have no hull.</param>
+        /// <param name="hulls">The owning thread's qhull storage.</param>
+        public Convex(double[][] points, IvpCompactLedge ledge, Qhull.QhullSession hulls)
+        {
+            Points = points;
+            _ledge = ledge;
+            _hulls = hulls;
+        }
+
+        /// <summary>The ledge's points in HL space.</summary>
+        public double[][] Points { get; }
+
+        /// <summary>
+        /// The outward planes as (unit normal, offset along it): the facets of the points' hull,
+        /// or the ledge's own triangles when the points have no hull (<see cref="Flat"/>).
+        /// </summary>
+        public (double[] N, double D)[] Planes
+        {
+            get
+            {
+                EnsurePlanes();
+                return _planes!;
+            }
+        }
 
         /// <summary>No volume (a two-sided triangle, or coplanar points): tested by GJK, not planes.</summary>
-        public bool Flat { get; init; }
+        public bool Flat
+        {
+            get
+            {
+                EnsurePlanes();
+                return _flat;
+            }
+        }
+
+        /// <summary>Whether the planes have been worked out yet (for the facts that check they are not built unasked).</summary>
+        internal bool PlanesBuilt => _planes is not null;
+
+        private void EnsurePlanes()
+        {
+            if (_planes is not null)
+            {
+                return;
+            }
+
+            (double[] N, double D)[]? hull = HullPlanes(Points, _hulls);
+            _flat = hull is null;
+            _planes = hull ?? TrianglePlanes(Points, _ledge);
+        }
     }
 
     /// <summary>The leaf convexes of a surface, placed by a transform (null for identity).</summary>
     /// <param name="surface">The compact surface.</param>
     /// <param name="placement">Where the collide sits, or null.</param>
+    /// <param name="hulls">
+    /// The calling thread's qhull storage (its cook context's), which the hull of every leaf is
+    /// built with when its planes are asked for. Without it every leaf hull allocated a fresh
+    /// qhull object graph.
+    /// </param>
     /// <returns>The convexes.</returns>
-    public static List<Convex> Convexes(ReadOnlySpan<byte> surface, InstanceTransform? placement)
+    public static List<Convex> Convexes(ReadOnlySpan<byte> surface, InstanceTransform? placement, Qhull.QhullSession hulls)
     {
         var list = new List<Convex>();
         foreach (IvpCompactLedge ledge in IvpCollideQueries.Leaves(surface))
         {
-            list.Add(ConvexOf(ledge, placement));
+            list.Add(ConvexOf(ledge, placement, hulls));
         }
 
         return list;
     }
 
-    private static Convex ConvexOf(IvpCompactLedge ledge, InstanceTransform? placement)
+    private static Convex ConvexOf(IvpCompactLedge ledge, InstanceTransform? placement, Qhull.QhullSession hulls)
     {
         int n = ledge.PointCount;
         double[][] points = new double[n][];
-        double cx = 0, cy = 0, cz = 0;
         for (int i = 0; i < n; i++)
         {
             (float x, float y, float z) = IvpCollideQueries.HlPoint(ledge, i);
@@ -64,9 +135,24 @@ internal static class ManagedTrace
             }
 
             points[i] = [p.X, p.Y, p.Z];
-            cx += p.X;
-            cy += p.Y;
-            cz += p.Z;
+        }
+
+        return new Convex(points, ledge, hulls);
+    }
+
+    /// <summary>
+    /// The ledge's triangles as planes, each turned to face away from the points' centroid: the
+    /// fallback solid for a ledge whose points have no hull.
+    /// </summary>
+    private static (double[] N, double D)[] TrianglePlanes(double[][] points, IvpCompactLedge ledge)
+    {
+        int n = points.Length;
+        double cx = 0, cy = 0, cz = 0;
+        for (int i = 0; i < n; i++)
+        {
+            cx += points[i][0];
+            cy += points[i][1];
+            cz += points[i][2];
         }
 
         cx /= n;
@@ -100,8 +186,7 @@ internal static class ManagedTrace
             planes[t] = (nn, d);
         }
 
-        (double[] N, double D)[]? hull = HullPlanes(points);
-        return new Convex { Points = points, Planes = hull ?? planes, Flat = hull is null };
+        return planes;
     }
 
     /// <summary>
@@ -109,7 +194,7 @@ internal static class ManagedTrace
     /// IVP ledges are not exactly the intersection of their triangles' planes (a point may sit a
     /// little outside a face), and the native trace works on the points, so the hull is the solid.
     /// </summary>
-    private static (double[] N, double D)[]? HullPlanes(double[][] points)
+    private static (double[] N, double D)[]? HullPlanes(double[][] points, Qhull.QhullSession hulls)
     {
         if (points.Length < 4)
         {
@@ -124,7 +209,7 @@ internal static class ManagedTrace
             xyz[(3 * i) + 2] = points[i][2];
         }
 
-        Qhull.QhullResult hull = Qhull.QhullBuilder.Build(xyz, "qhull Pp");
+        Qhull.QhullResult hull = hulls.Build(xyz, "qhull Pp");
         if (hull.ExitCode != 0 || hull.Facets.Count < 4)
         {
             return null;
@@ -188,13 +273,13 @@ internal static class ManagedTrace
     }
 
     /// <summary>A ray (zero-extent <c>TraceBox</c>) against a surface's leaves.</summary>
-    public static CollisionTrace Ray(ReadOnlySpan<byte> surface, InstanceTransform? placement, Vec3 start, Vec3 end)
+    public static CollisionTrace Ray(ReadOnlySpan<byte> surface, InstanceTransform? placement, Vec3 start, Vec3 end, Qhull.QhullSession hulls)
     {
         double best = 1;
         double[]? bestNormal = null;
         bool startSolid = false, allSolid = false;
         double[][] segment = [[start.X, start.Y, start.Z], [end.X, end.Y, end.Z]];
-        foreach (Convex c in Convexes(surface, placement))
+        foreach (Convex c in Convexes(surface, placement, hulls))
         {
             if (c.Flat ? !ConvexGeometry.Intersect(segment, c.Points) : Clip(c, start, end) is null)
             {
@@ -266,7 +351,7 @@ internal static class ManagedTrace
     /// <c>CPhysCollideCompactSurface::ComputeOrthographicAreas</c>: the
     /// fraction of a grid of axis rays, <c>sqrt(epsilon)</c> apart, that hit the solid.
     /// </summary>
-    public static (float X, float Y, float Z) OrthographicAreas(ReadOnlySpan<byte> surface, float epsilon, bool doublePrecision)
+    public static (float X, float Y, float Z) OrthographicAreas(ReadOnlySpan<byte> surface, float epsilon, bool doublePrecision, Qhull.QhullSession hulls)
     {
         ((float X, float Y, float Z) mn, (float X, float Y, float Z) mx) = IvpCollideQueries.SurfaceAabb(surface);
         float[] mins = [mn.X, mn.Y, mn.Z];
@@ -277,7 +362,7 @@ internal static class ManagedTrace
             side = 1e-4f;
         }
 
-        var tree = new LedgeTree(surface, doublePrecision);
+        var tree = new LedgeTree(surface, doublePrecision, hulls);
         float[] areas = [1f, 1f, 1f];
         float halfSide = (float)(side * 0.5);
         for (int axis = 0; axis < 3; axis++)
@@ -333,13 +418,13 @@ internal static class ManagedTrace
         private readonly bool _double;
         private readonly Dictionary<int, Convex> _leaves = [];
 
-        public LedgeTree(ReadOnlySpan<byte> surface, bool doublePrecision)
+        public LedgeTree(ReadOnlySpan<byte> surface, bool doublePrecision, Qhull.QhullSession hulls)
         {
             _surface = surface.ToArray();
             _double = doublePrecision;
             foreach (int at in IvpCollideQueries.LeafOffsets(_surface))
             {
-                _leaves[at] = ConvexOf(IvpCollideQueries.LedgeAt(_surface, at), null);
+                _leaves[at] = ConvexOf(IvpCollideQueries.LedgeAt(_surface, at), null, hulls);
             }
         }
 

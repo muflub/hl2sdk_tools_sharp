@@ -171,6 +171,14 @@ public sealed class ManagedCollisionCooker : ICollisionCooker, IDisposable
         };
     }
 
+    /// <summary>
+    /// The calling thread's scratch context (created on first use), for the facts that check
+    /// what the cooker's reused qhull storage holds and that disposing the cooker lets it go.
+    /// </summary>
+    /// <returns>The context.</returns>
+    /// <exception cref="ObjectDisposedException">The cooker has been disposed.</exception>
+    internal IvpCookContext ContextOfCurrentThread() => _contexts.Value!;
+
     private IIvpBuild Build()
     {
         IvpCookContext context = _contexts.Value!;
@@ -233,6 +241,13 @@ public sealed class ManagedCollisionCooker : ICollisionCooker, IDisposable
     /// for, so a synchronous caller (the level linker) disposes it directly
     /// rather than blocking on <see cref="DisposeAsync"/>.
     /// </summary>
+    /// <remarks>
+    /// The contexts are where every thread's reused qhull storage lives (facets, vertices,
+    /// ridges, merges, sets and point buffers kept between hulls), so this is what hands that
+    /// storage back: disposing the <see cref="ThreadLocal{T}"/> drops its value on every thread
+    /// that ever cooked, not only the calling one, and nothing else refers to a context. The
+    /// storage is plain managed memory, so dropping the references is the whole release.
+    /// </remarks>
     public void Dispose() => _contexts.Dispose();
 
     /// <inheritdoc/>
