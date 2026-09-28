@@ -155,13 +155,7 @@ public static class AmbientCube
                 continue;
             }
 
-            Vec3 delta = wl.Origin - start;
-            float distanceScale = DistanceFalloff(in wl, delta, estimate);
-
-            (Vec3 deltaNorm, _) = estimate ? delta.NormaliseLikeStock() : delta.Normalise();
-            float angleScale = WorldLightAngle(wl.Normal, deltaNorm, deltaNorm);
-
-            float ratio = distanceScale * angleScale * visible;
+            float ratio = UnoccludedScale(in wl, start, estimate, out Vec3 deltaNorm) * visible;
             if (ratio == 0)
             {
                 continue;
@@ -177,6 +171,54 @@ public static class AmbientCube
             }
         }
     }
+
+    /// <summary>
+    /// A baked surface light's scale at a sample before visibility:
+    /// <c>distanceScale * angleScale</c>, which
+    /// <see cref="AddEmitSurfaceLights"/> multiplies by the fraction visible.
+    /// </summary>
+    /// <param name="wl">The light.</param>
+    /// <param name="start">The sample position.</param>
+    /// <param name="estimate">Whether to use stock's estimates (<see cref="StockQuirk.AmbientCubeReciprocalEstimate"/>).</param>
+    /// <param name="deltaNorm">Receives the unit direction from the sample to the light.</param>
+    /// <returns>The scale; zero when the sample is out of range or behind the emitter.</returns>
+    internal static float UnoccludedScale(ref readonly DWorldLight wl, Vec3 start, bool estimate, out Vec3 deltaNorm)
+    {
+        Vec3 delta = wl.Origin - start;
+        float distanceScale = DistanceFalloff(in wl, delta, estimate);
+
+        (deltaNorm, _) = estimate ? delta.NormaliseLikeStock() : delta.Normalise();
+        float angleScale = WorldLightAngle(wl.Normal, deltaNorm, deltaNorm);
+        return distanceScale * angleScale;
+    }
+
+    /// <summary>
+    /// Whether a sample's <c>TestLine</c> to a baked surface light can change
+    /// what <see cref="AddEmitSurfaceLights"/> adds.
+    /// </summary>
+    /// <param name="wl">The light.</param>
+    /// <param name="start">The sample position.</param>
+    /// <param name="estimate">As for <see cref="UnoccludedScale"/>.</param>
+    /// <returns>False when the light adds nothing whatever the line's answer.</returns>
+    /// <remarks>
+    /// <para>
+    /// The contribution is <c>(distanceScale * angleScale) * visible</c>, skipped
+    /// when that is zero and skipped when <c>visible</c> is not above zero.
+    /// The fraction is 0 or 1, and multiplying by 1 is exact, so when the
+    /// unoccluded scale is zero (plus or minus) both answers skip the light:
+    /// the line decides nothing and need not be traced. That is the case for
+    /// every sample behind the emitting surface and every one out of the
+    /// light's radius -- roughly half of all sample-light pairs, since a
+    /// surface light lights only its front half-space. A NaN scale is not
+    /// zero, and adds NaN only when visible, so its line is still traced.
+    /// </para>
+    /// <para>
+    /// Stock traces every pair; leaving these out changes which rays are
+    /// traced and nothing else, so it is not a compliance quirk.
+    /// </para>
+    /// </remarks>
+    internal static bool VisibilityMatters(ref readonly DWorldLight wl, Vec3 start, bool estimate) =>
+        UnoccludedScale(in wl, start, estimate, out _) != 0;
 
     /// <summary>
     /// <c>Engine_WorldLightDistanceFalloff</c>

@@ -62,7 +62,9 @@ public sealed class LeafAmbientBatchingTests : IClassFixture<AmbientFixture>
 
         // The old granularity: one visibility call per sample, straight to
         // the KD tracer's TestLines, on the queue path.
-        LeafAmbientResult perSample = await BuildAsync(new DirectPerSample(kd, stockReciprocal: true), options);
+        DirectPerSample direct = new(kd, stockReciprocal: true);
+        LeafAmbientResult perSample = await BuildAsync(direct, options);
+        int perSampleCalls = direct.Calls;
 
         CountingRayTracer alone = new(kd);
         LeafAmbientResult eachLeaf = await BuildAsync(
@@ -75,11 +77,14 @@ public sealed class LeafAmbientBatchingTests : IClassFixture<AmbientFixture>
         AssertSameLumps(perSample, together);
         Assert.True(together.LightsInAmbientCube > 0, "the fixture should bake some light into the cubes");
 
-        // Alone, a leaf is exactly one call: its samples times its lights.
+        // Alone, a leaf is exactly one call. The per-sample path asked about
+        // every sample and every light; the seam is asked only about the
+        // pairs whose answer can matter, so fewer, and the lumps are the same.
         int openLeaves = _fixture.Ldr.Leaves.ToArray().Count(l => (l.Contents & LeafAmbientBuilder.ContentsSolid) == 0);
         Assert.Equal(openLeaves, alone.VisibilityCalls.Count);
-        Assert.All(alone.VisibilityCalls, c => Assert.Equal(0, c.Rays % together.LightsInAmbientCube));
         Assert.All(alone.VisibilityCalls, c => Assert.Equal(RayTraceOptions.TestLine(), c.Options));
+        int everyPair = perSampleCalls * together.LightsInAmbientCube;
+        Assert.InRange(alone.VisibilityCalls.Sum(c => c.Rays), 1, everyPair - 1);
 
         // Batched, whole leaves share calls.
         Assert.True(batched.VisibilityCalls.Count < openLeaves);

@@ -294,6 +294,7 @@ public static class ComplianceCatalogue
                 "SourceSharp.MapTools.Rad.Ambient.LeafAmbientBuilder.BuildAsync",
                 "SourceSharp.MapTools.Rad.Ambient.TracerLineVisibility..ctor",
                 "SourceSharp.MapTools.Rad.Ambient.AmbientCube.AddEmitSurfaceLights",
+                "SourceSharp.MapTools.Rad.Ambient.AmbientSampler..ctor",
             ],
             QuirkObservation.Demonstrated,
             "A fact bakes one surface light into an ambient cube under both policies and shows "
