@@ -247,6 +247,26 @@ public sealed class VbspContext
     public string MapBase { get; set; } = string.Empty;
 
     /// <summary>
+    /// Whether the compile writes the default cubemaps into the pak: the
+    /// placeholder <c>materials/maps/&lt;mapbase&gt;/cubemapdefault.vtf</c>
+    /// (and its <c>.hdr.vtf</c>) and a copy per <c>env_cubemap</c> sample,
+    /// shaped after the skybox's textures. True, as vbsp does, for every map
+    /// compile.
+    /// </summary>
+    /// <remarks>
+    /// A room compile (<c>RoomCompiler</c>) turns it off. Those files are
+    /// named after the map, and a room is not the map the engine loads: in
+    /// a linked level they would sit under the room's name, where nothing
+    /// looks for them, and their presence made every room of a game whose
+    /// sky textures resolve unlinkable, since the link carries only an empty
+    /// pak. The level's own defaults, under the level's name, are the link's
+    /// to write once it carries cubemaps. Water depth and other patched
+    /// materials are unaffected: they are named after the room on purpose
+    /// and shared by its placements.
+    /// </remarks>
+    public bool WritesDefaultCubemaps { get; set; } = true;
+
+    /// <summary>
     /// The VMF's <c>mapversion</c>: <c>g_MapRevision</c>,
     /// </summary>
     /// <remarks>

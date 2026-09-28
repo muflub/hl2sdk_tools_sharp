@@ -291,6 +291,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
         RoomLinkCodec codec = (RoomLinkCodec)codecByte;
         RoomLinkData data = (await LevelLinker.TryPrecomputeAsync(fixture.Library.Get("hall"), CancellationToken.None))!;
         byte[][] once = [.. RoomLinkSections.Write(data, All, codec).Select(s => s.Bytes.ToArray())];
+        string[] tags = [.. RoomLinkSections.Write(data, All).Select(s => s.Tag)];
         byte[][] raw = [.. RoomLinkSections.Write(data, All).Select(s => s.Bytes.ToArray())];
         byte[][][] parallel = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => Task.Run(
             () => RoomLinkSections.Write(data, All, codec).Select(s => s.Bytes.ToArray()).ToArray())));
@@ -306,7 +307,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
         for (int s = 0; s < once.Length; s++)
         {
             Assert.Equal(raw[s].Length - 9, BinaryPrimitives.ReadInt64BigEndian(once[s].AsSpan(1)));
-            RoomLinkSections.Reader? reader = RoomLinkSections.Open(new ArraySegment<byte>(once[s]), "hall", "TEST");
+            RoomLinkSections.Reader? reader = RoomLinkSections.Open(new ArraySegment<byte>(once[s]), "hall", tags[s]);
             Assert.NotNull(reader);
         }
     }
@@ -831,6 +832,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
                 Assert.Equal(a.Key, b.Key);
                 Assert.Equal(a.Value, b.Value);
                 AssertBits(a.Origin, b.Origin);
+                Assert.Equal(a.Component, b.Component);
             }
         }
 

@@ -95,12 +95,15 @@ public static class LevelFlattener
 
         flat.Chunks.Add(flatWorld);
         List<VmfChunk> entities = [];
+        List<PlacedSides> placedSides = [];
         foreach (RoomInstance instance in layout.Rooms)
         {
             LibraryRoom room = byName[instance.Placement.Room];
             QuarterTurn turn = QuarterTurn.Of(new RoomTransform(instance.Placement, layout.CellSize));
             List<Box> opened = [.. instance.Joints.Select(j => RoomLinter.SealBox(
                 room.Definition, room.Definition.Sockets.First(s => s.Name == j.Socket), room.Definition.CellSize))];
+            PlacedSides placed = new();
+            placedSides.Add(placed);
 
             VmfChunk roomWorld = room.Document.GetChunk(MapFileLoader.WorldChunk)!;
             foreach (VmfChunk solid in roomWorld.GetChunks(MapFileLoader.SolidChunk))
@@ -111,12 +114,21 @@ public static class LevelFlattener
                     continue;
                 }
 
-                flatWorld.Children.Add(VmfPlacement.MoveSolid(solid, turn));
+                VmfChunk moved = VmfPlacement.MoveSolid(solid, turn);
+                placed.AddSides(moved);
+                flatWorld.Children.Add(moved);
             }
 
             foreach (VmfChunk entity in room.Document.GetChunks(MapFileLoader.EntityChunk))
             {
-                entities.Add(VmfPlacement.MoveEntity(entity, turn));
+                VmfChunk moved = VmfPlacement.MoveEntity(entity, turn);
+                foreach (VmfChunk solid in moved.GetChunks(MapFileLoader.SolidChunk))
+                {
+                    placed.AddSides(solid);
+                }
+
+                placed.Entities.Add(moved);
+                entities.Add(moved);
             }
         }
 
@@ -131,7 +143,98 @@ public static class LevelFlattener
             Renumber(chunk, ref next);
         }
 
+        foreach (PlacedSides placed in placedSides)
+        {
+            placed.RenameSideLists();
+        }
+
         return flat;
+    }
+
+    /// <summary>The key that lists brush sides by id: <c>env_cubemap</c>, <c>info_overlay</c>, <c>info_no_dynamic_shadow</c> and the like.</summary>
+    private const string SidesKey = "sides";
+
+    /// <summary>
+    /// One placement's brush sides by the id the library gave them, and its
+    /// entities: what a <c>sides</c> list of that placement is rewritten
+    /// through once every id has been renumbered.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why per placement.</b> <c>env_cubemap</c>, <c>info_overlay</c> and
+    /// <c>info_no_dynamic_shadow</c> name the sides they apply to by side
+    /// id, in a space-separated <c>sides</c> list that vbsp resolves against
+    /// the ids of the map it loads. <see cref="Renumber"/> gives every side
+    /// a new id, so a list left as the library wrote it names the wrong
+    /// sides or none. And a room placed twice repeats its library ids, so
+    /// the old id alone does not say which copy is meant: an entity's list
+    /// names sides of its own placement, the only ones it could name in the
+    /// room it was authored in.
+    /// </para>
+    /// <para>
+    /// <b>The side objects are the map.</b> Each moved side is recorded
+    /// under its library id before the renumber; the renumber changes the
+    /// id on that same object, so reading it back afterwards gives the new
+    /// id without a second walk. Where a room repeats a side id (hand-built
+    /// libraries can), the first side in document order wins, which is the
+    /// one vbsp's own lookup finds first.
+    /// </para>
+    /// <para>
+    /// <b>An id with no side in the placement is dropped</b>, as vbsp drops
+    /// an id no side has: a joined plug's sides are left out of the flatten,
+    /// and keeping their old number would let it name whichever side the
+    /// renumber gave that number to. A token that is not a number is kept
+    /// as written; vbsp ignores it either way.
+    /// </para>
+    /// </remarks>
+    private sealed class PlacedSides
+    {
+        private readonly Dictionary<string, VmfChunk> _sides = new(StringComparer.Ordinal);
+
+        /// <summary>The placement's moved entities, in document order.</summary>
+        public List<VmfChunk> Entities { get; } = [];
+
+        /// <summary>Records a moved brush's sides under their library ids.</summary>
+        public void AddSides(VmfChunk solid)
+        {
+            foreach (VmfChunk side in solid.GetChunks(MapFileLoader.SideChunk))
+            {
+                if (side.GetValue("id") is { } id)
+                {
+                    _sides.TryAdd(id.Trim(), side);
+                }
+            }
+        }
+
+        /// <summary>Rewrites every <c>sides</c> list of the placement's entities to the renumbered ids.</summary>
+        public void RenameSideLists()
+        {
+            foreach (VmfChunk entity in Entities)
+            {
+                foreach (VmfKey key in entity.Keys)
+                {
+                    if (!string.Equals(key.Name, SidesKey, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    List<string> renamed = [];
+                    foreach (string token in key.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (!int.TryParse(token, NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+                        {
+                            renamed.Add(token);
+                        }
+                        else if (_sides.TryGetValue(token, out VmfChunk? side))
+                        {
+                            renamed.Add(side.GetValue("id")!);
+                        }
+                    }
+
+                    key.Value = string.Join(' ', renamed);
+                }
+            }
+        }
     }
 
     /// <summary>Gives every chunk that has an <c>id</c> the next number, in document order.</summary>

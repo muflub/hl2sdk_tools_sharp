@@ -296,7 +296,7 @@ public static partial class LevelLinker
              faces = 0, origFaces = 0, brushes = 0, brushSides = 0, leafFaces = 0,
              leaves = 1, lighting = 0, stringTable = 0, stringData = 0,
              primVerts = 0, primIndices = 0, prims = 0, vertNormals = 0, vertNormalIndices = 0,
-             occluderPolys = 0, occluderVerts = 0;
+             occluders = 0, occluderPolys = 0, occluderVerts = 0;
         foreach (RoomPlan plan in plans)
         {
             plan.VertexBase = (int)vertices;
@@ -319,6 +319,7 @@ public static partial class LevelLinker
             plan.PrimVertBase = (int)primVerts;
             plan.VertNormalBase = (int)vertNormals;
             plan.VertexNormalIndexBase = (int)vertNormalIndices;
+            plan.OccluderBase = (int)occluders;
             plan.OccluderPolyBase = (int)occluderPolys;
             plan.OccluderVertexBase = (int)occluderVerts;
 
@@ -342,6 +343,7 @@ public static partial class LevelLinker
             primVerts += plan.PrimVertCount;
             vertNormals += plan.VertNormalCount;
             vertNormalIndices += plan.VertNormalIndexCount;
+            occluders += plan.Occlusion?.Occluders.Count ?? 0;
             occluderPolys += plan.Occlusion?.Polys.Count ?? 0;
             occluderVerts += plan.Occlusion?.VertexIndices.Count ?? 0;
 

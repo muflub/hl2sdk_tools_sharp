@@ -266,12 +266,7 @@ public static partial class LevelLinker
 
             try
             {
-                foreach (BspKeyValue pair in entity.Pairs)
-                {
-                    pairs.Add(TurnPair(pair, rotation, name));
-                }
-
-                items.Add(new RoomLinkEntity(false, pairs, null, null));
+                items.Add(new RoomLinkEntity(false, TurnEntity(entity, rotation, name), null, null));
             }
             catch (LinkException exception)
             {
@@ -284,9 +279,11 @@ public static partial class LevelLinker
 
     /// <summary>
     /// One key of a moved entity with its turn applied: the origin turned
-    /// (and moved at link), a yaw turned, anything else as written.
+    /// (and moved at link), a yaw turned by <paramref name="yawTurns"/> (the
+    /// room's turn, or 0 for the sun; <see cref="TurnEntity"/> decides),
+    /// anything else as written.
     /// </summary>
-    private static RoomLinkPair TurnPair(BspKeyValue pair, int turns, string room)
+    private static RoomLinkPair TurnPair(BspKeyValue pair, int turns, int yawTurns, string room)
     {
         if (IsKey(pair.Key, "origin"))
         {
@@ -294,15 +291,15 @@ public static partial class LevelLinker
         }
 
         string value = pair.Value;
-        if (turns != 0 && IsKey(pair.Key, "angles"))
+        if (yawTurns != 0 && IsKey(pair.Key, "angles"))
         {
             Vec3 angles = ParseVec(value, "angles", room);
-            value = FormatVec(new Vec3(angles.X, TurnYaw(angles.Y, turns), angles.Z));
+            value = FormatVec(new Vec3(angles.X, TurnYaw(angles.Y, yawTurns), angles.Z));
         }
-        else if (turns != 0 && IsKey(pair.Key, "angle"))
+        else if (yawTurns != 0 && IsKey(pair.Key, "angle"))
         {
             float yaw = ParseFloat(value, "angle", room);
-            value = yaw is -1f or -2f ? value : Format(TurnYaw(yaw, turns));
+            value = yaw is -1f or -2f ? value : Format(TurnYaw(yaw, yawTurns));
         }
 
         return new RoomLinkPair(pair.Key, value, default);

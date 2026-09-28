@@ -133,10 +133,12 @@ internal enum RoomLinkCodec : byte
 /// back to back (length, bytes).
 /// </description></item>
 /// <item><term><c>ENT</c><i>r</i></term><description>
+/// (its revision is <see cref="EntitiesRevision"/>, not <see cref="Revision"/>)
 /// the entity count, and per entity a worldspawn byte, its keys (count, then
 /// per key the key string, a kind byte, and for kind 0 the value string, for
-/// kind 1 the turned origin as three floats), and for a worldspawn a byte
-/// and, when it is 1, the turned extent box.
+/// kind 1 the turned origin as three floats, for kind 2 a component byte (0
+/// to 2) and the turned bound corner as three floats), and for a worldspawn
+/// a byte and, when it is 1, the turned extent box.
 /// </description></item>
 /// </list>
 /// <para>
@@ -154,6 +156,22 @@ internal static class RoomLinkSections
 
     /// <summary>The revision this build writes and reads.</summary>
     public const int Revision = 1;
+
+    /// <summary>
+    /// The revision of the <c>ENT</c><i>r</i> sections this build writes and
+    /// reads: 2 since the turn keeps the sun's angles and turns an
+    /// <c>info_ladder</c>'s bounds (key kind 2). A revision-1 section holds
+    /// entities turned the old way, so it reads as absent and the link turns
+    /// them afresh, rather than linking a turned sun or room-local ladder.
+    /// The other sections' bytes did not change and keep <see cref="Revision"/>.
+    /// </summary>
+    public const int EntitiesRevision = 2;
+
+    /// <summary>The revision a section of this tag is written with, and must carry to be read.</summary>
+    /// <param name="tag">The section's tag.</param>
+    /// <returns><see cref="EntitiesRevision"/> for an <c>ENT</c><i>r</i> section, else <see cref="Revision"/>.</returns>
+    internal static int RevisionFor(string tag) =>
+        tag.StartsWith("ENT", StringComparison.Ordinal) ? EntitiesRevision : Revision;
 
     /// <summary>The largest payload a compressed section may claim: a lying length fails before it allocates.</summary>
     private const int MaxPayloadBytes = 1 << 30;
@@ -381,7 +399,7 @@ internal static class RoomLinkSections
         }
 
         Reader reader = new(payload, room, tag);
-        return reader.Int() == Revision ? reader : null;
+        return reader.Int() == RevisionFor(tag) ? reader : null;
     }
 
     /// <summary>
@@ -582,7 +600,7 @@ internal static class RoomLinkSections
     private static byte[] WriteEntities(RoomLinkEntities entities)
     {
         Writer w = new();
-        w.Int(Revision);
+        w.Int(EntitiesRevision);
         w.Int(entities.Items.Count);
         foreach (RoomLinkEntity entity in entities.Items)
         {
@@ -601,9 +619,15 @@ internal static class RoomLinkSections
                     w.Byte(0);
                     w.String(value);
                 }
-                else
+                else if (pair.Component < 0)
                 {
                     w.Byte(1);
+                    w.Structs<Vec3>([pair.Origin], counted: false);
+                }
+                else
+                {
+                    w.Byte(2);
+                    w.Byte((byte)pair.Component);
                     w.Structs<Vec3>([pair.Origin], counted: false);
                 }
             }
@@ -621,6 +645,13 @@ internal static class RoomLinkSections
         return w.ToArray();
     }
 
+    /// <summary>A kind-2 key: the component index, then the turned corner it is read from.</summary>
+    private static RoomLinkPair ReadComponent(Reader r, string key)
+    {
+        int component = r.Small(2, "a position component of");
+        return new RoomLinkPair(key, null, r.Structs<Vec3>("bound", 1, counted: false)[0], component);
+    }
+
     private static RoomLinkEntities ReadEntities(Reader r)
     {
         RoomLinkEntity[] entities = new RoomLinkEntity[r.Count("entities")];
@@ -631,9 +662,12 @@ internal static class RoomLinkSections
             for (int p = 0; p < pairs.Length; p++)
             {
                 string key = r.String();
-                pairs[p] = r.Flag()
-                    ? new RoomLinkPair(key, null, r.Structs<Vec3>("origin", 1, counted: false)[0])
-                    : new RoomLinkPair(key, r.String(), default);
+                pairs[p] = r.Small(2, "a key kind of") switch
+                {
+                    0 => new RoomLinkPair(key, r.String(), default),
+                    1 => new RoomLinkPair(key, null, r.Structs<Vec3>("origin", 1, counted: false)[0]),
+                    _ => ReadComponent(r, key),
+                };
             }
 
             Box? extent = isWorld && r.Flag() ? r.Box() : null;
@@ -722,6 +756,13 @@ internal static class RoomLinkSections
             1 => true,
             byte other => throw Mismatch($"a flag byte of {other}"),
         };
+
+        /// <summary>A byte that must be at most <paramref name="max"/>: a kind or a component.</summary>
+        public int Small(int max, string what)
+        {
+            byte value = Take(1)[0];
+            return value <= max ? value : throw Mismatch($"{what} {value}");
+        }
 
         public bool[] Flags(string what, int expected)
         {

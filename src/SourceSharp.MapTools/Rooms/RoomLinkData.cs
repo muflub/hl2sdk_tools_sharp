@@ -266,4 +266,11 @@ internal sealed record RoomLinkEntity(bool IsWorld, IReadOnlyList<RoomLinkPair> 
 /// <param name="Key">The key as written.</param>
 /// <param name="Value">The final value, or null for a position key.</param>
 /// <param name="Origin">The turned position, for a position key.</param>
-internal readonly record struct RoomLinkPair(string Key, string? Value, Vec3 Origin);
+/// <param name="Component">
+/// -1 for a key whose value is the whole position (<c>origin</c>, written as
+/// three numbers); 0, 1 or 2 for a key that holds one component of it, with
+/// two decimals: an <c>info_ladder</c>'s <c>mins.x</c> ... <c>maxs.z</c>,
+/// whose <see cref="Origin"/> is the turned bound corner the component is
+/// read from once the link has moved it to the cell.
+/// </param>
+internal readonly record struct RoomLinkPair(string Key, string? Value, Vec3 Origin, int Component = -1);
