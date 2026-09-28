@@ -8,6 +8,7 @@
 using System.Runtime.CompilerServices;
 
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapTools.Rad.Bounce;
 
 namespace SourceSharp.MapTools.Rad.Light;
 
@@ -30,12 +31,26 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// owned by one worker (or one <see cref="LightRayLog"/>) and reused for every
 /// batch: after the first few batches it never allocates.
 /// </para>
+/// <para>
+/// With a <see cref="Pool"/> (its log's), the stream is rented: a
+/// face-lighting worker's tape grows to a quarter of a million words, and
+/// doubling there from 64 on every worker was a steady line of
+/// large-object allocations. The outgrown stream goes back as soon as it is
+/// copied, and <see cref="Dispose"/> returns the last one. A rented stream
+/// may hold an earlier renter's words past <see cref="Length"/>; nothing
+/// reads there (<see cref="ReadInt"/> stops at what was written).
+/// </para>
 /// </remarks>
-internal sealed class GatherTape
+internal sealed class GatherTape : IDisposable
 {
-    private int[] _data = new int[64];
+    private const int InitialWords = 64;
+
+    // Empty until first written, so that a non-empty stream is rented
+    // exactly when a pool is set.
+    private int[] _data = [];
     private int _write;
     private int _read;
+    private bool _disposed;
 
     // A four-entry memo of DirectLightGatherer.LaneRecurses, keyed by the
     // point's exact bits.
@@ -151,5 +166,44 @@ internal sealed class GatherTape
         return new Vec3(x, y, z);
     }
 
-    private void Grow() => Array.Resize(ref _data, _data.Length * 2);
+    /// <summary>
+    /// Where the stream is rented from, or null for plain allocations. Set by
+    /// the owning log before anything is written.
+    /// </summary>
+    public IScratchArrayPool? Pool { get; set; }
+
+    /// <summary>Returns the stream to <see cref="Pool"/>, once; the tape cannot be written again.</summary>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        if (Pool is not null && _data.Length > 0)
+        {
+            Pool.Return(_data);
+        }
+
+        _data = [];
+        _write = 0;
+        _read = 0;
+    }
+
+    /// <summary>Doubles the stream, keeping every word written; the outgrown one goes back to the pool.</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void Grow()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        int size = Math.Max(InitialWords, _data.Length * 2);
+        int[] grown = Pool is null ? new int[size] : Pool.Rent<int>(size);
+        _data.AsSpan(0, _write).CopyTo(grown);
+        if (Pool is not null && _data.Length > 0)
+        {
+            Pool.Return(_data);
+        }
+
+        _data = grown;
+    }
 }

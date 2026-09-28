@@ -10,7 +10,10 @@ using System.Buffers;
 namespace SourceSharp.MapTools.Rad.Bounce;
 
 /// <summary>
-/// Where a transfer build's scratch arrays come from and go back to.
+/// Where vrad's pooled scratch arrays come from and go back to: a transfer
+/// build's, and the per-worker batches, ray logs and sample arenas of the
+/// lighting stages (<see cref="TestLineBatch"/>,
+/// <see cref="Light.LightRayLog"/>, <see cref="Ambient.LeafSampleScratch"/>).
 /// </summary>
 /// <remarks>
 /// A seam rather than a direct call on <see cref="ArrayPool{T}.Shared"/> so a

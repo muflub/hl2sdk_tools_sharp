@@ -139,10 +139,12 @@ public sealed class AmbientSampler
         }
 
         _fractions = new float[_flagged.Length];
+        _sampleFractions = new float[_flagged.Length];
     }
 
     private readonly int[] _flagged;
     private readonly Vec3[] _flaggedOrigins;
+    private readonly float[] _sampleFractions;
     private float[] _fractions;
 
     /// <summary>This work item's displacement scratch.</summary>
@@ -273,26 +275,40 @@ public sealed class AmbientSampler
     /// <param name="cubes">Their ray cubes, six colours per sample.</param>
     /// <param name="batch">The traced batch.</param>
     /// <param name="first">What <see cref="PlanSurfaceLights"/> returned.</param>
+    /// <remarks>
+    /// ONE SAMPLE'S FRACTIONS AT A TIME, into a buffer of one fraction per
+    /// light made with the sampler. Adding a sample's lights reads only its
+    /// own fractions, so filling them just before they are added gives every
+    /// cube exactly what the whole-leaf array gave it -- and the buffer never
+    /// grows. The whole-leaf array it replaces grew with the largest leaf
+    /// (128 samples times every baked light) on every worker, which a
+    /// profile of vrad on ctf_2fort showed on the large-object heap.
+    /// </remarks>
     internal void ResolveSurfaceLights(ReadOnlySpan<Vec3> starts, Span<Vec3> cubes, TestLineBatch batch, int first)
     {
-        int count = starts.Length * _flagged.Length;
-        if (count == 0)
+        int lights = _flagged.Length;
+        if (lights == 0 || starts.IsEmpty)
         {
             return;
         }
 
-        if (_fractions.Length < count)
+        Span<float> fractions = _sampleFractions;
+        for (int s = 0; s < starts.Length; s++)
         {
-            _fractions = new float[count];
-        }
+            int at = first + (s * lights);
+            for (int e = 0; e < lights; e++)
+            {
+                fractions[e] = batch.IsBlocked(at + e) ? 0.0f : 1.0f;
+            }
 
-        Span<float> fractions = _fractions.AsSpan(0, count);
-        for (int i = 0; i < count; i++)
-        {
-            fractions[i] = batch.IsBlocked(first + i) ? 0.0f : 1.0f;
+            AmbientCube.AddEmitSurfaceLights(
+                _lights,
+                _flagged,
+                fractions,
+                starts[s],
+                cubes.Slice(s * AmbientCube.Sides, AmbientCube.Sides),
+                _compliance);
         }
-
-        ApplySurfaceLights(starts, cubes, fractions);
     }
 
     private void ApplySurfaceLights(ReadOnlySpan<Vec3> starts, Span<Vec3> cubes, ReadOnlySpan<float> fractions)

@@ -9,6 +9,7 @@ using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
+using SourceSharp.MapTools.Rad.Bounce;
 
 namespace SourceSharp.MapTools.Rad.Ambient;
 
@@ -119,11 +120,16 @@ public static class LeafAmbientBuilder
             int[] order = [.. Enumerable.Range(0, leafCount)
                 .OrderByDescending(leaf => CandidateSampleCount(scene, leaf, options))
                 .ThenBy(leaf => leaf)];
+
+            // Each worker's batch and sample scratch are rented from this
+            // pool and returned when TestLineStage disposes the workers.
+            IScratchArrayPool pool = options.ScratchPool ?? new SharedScratchArrayPool();
+            int reserve = BatchSegmentBound(scene, options, flagged, options.BatchSegments, TestLineStage.DefaultBatchItems);
             perLeaf = await TestLineStage.RunAsync(
                 leafCount,
                 order,
                 parallelism,
-                () => new LeafWorker(scene, worldLights, traced, options),
+                () => new LeafWorker(scene, worldLights, traced, options, pool, reserve),
                 options.BatchSegments,
                 TestLineStage.DefaultBatchItems,
                 "leaf ambient",
@@ -196,33 +202,44 @@ public static class LeafAmbientBuilder
         ArgumentNullException.ThrowIfNull(sampler);
         ArgumentNullException.ThrowIfNull(options);
 
-        LeafPlan plan = PlanSamples(scene, sampler, leafIndex, options, cancellationToken);
+        // One leaf's scratch, rented for this call and returned by the using
+        // however it ends; the traced path keeps one per worker instead.
+        using LeafSampleScratch scratch = new(options.ScratchPool ?? new SharedScratchArrayPool());
+        LeafPlan plan = PlanSamples(scene, sampler, leafIndex, options, scratch, cancellationToken);
         if (plan.Count > 0)
         {
-            sampler.AddSurfaceLights(plan.Positions.AsSpan(0, plan.Count), plan.Cubes.AsSpan(0, plan.Count * AmbientCube.Sides));
+            sampler.AddSurfaceLights(scratch.Positions(plan.Offset, plan.Count), scratch.Cubes(plan.Offset, plan.Count));
         }
 
-        return Collect(plan, options);
+        return Collect(plan, scratch, options);
     }
 
     /// <summary>
-    /// A leaf's samples before their surface lights: the positions and ray
-    /// cubes, and where the leaf's segments start in its worker's batch.
+    /// A leaf's samples before their surface lights: where its positions and
+    /// ray cubes sit in its worker's <see cref="LeafSampleScratch"/>, how many
+    /// there are, and where the leaf's segments start in its worker's batch.
     /// </summary>
-    private sealed record LeafPlan(Vec3[] Positions, Vec3[] Cubes, int Count, int FirstSegment);
+    /// <remarks>
+    /// Offsets rather than arrays, so a leaf's plan costs no allocation; the
+    /// offsets stay valid when the scratch grows, because growing copies
+    /// every sample already reserved.
+    /// </remarks>
+    private readonly record struct LeafPlan(int Offset, int Count, int FirstSegment);
 
     /// <summary>
     /// <see cref="ComputeLeaf"/> up to the visibility: the sample positions,
-    /// in stock's order, each with its ray cube.
+    /// in stock's order, each with its ray cube, written into
+    /// <paramref name="scratch"/>.
     /// </summary>
     private static LeafPlan PlanSamples(
         AmbientScene scene,
         AmbientSampler sampler,
         int leafIndex,
         LeafAmbientOptions options,
+        LeafSampleScratch scratch,
         CancellationToken cancellationToken)
     {
-        List<LeafPlane> leafPlanes = [];
+        List<LeafPlane> leafPlanes = scratch.Planes;
         LeafSampler positions = new(scene, sampler.Displacements);
         LeafBoundaryPlanes.Gather(leafIndex, scene.Nodes, scene.Planes, scene.Parents, leafPlanes);
 
@@ -232,61 +249,163 @@ public static class LeafAmbientBuilder
         {
             // No samples in solid leaves; the encode step points them at the
             // nearest non-solid leaf instead.
-            return new LeafPlan([], [], 0, 0);
+            return new LeafPlan(0, 0, 0);
         }
 
-        Vec3[] samplePositions = new Vec3[sampleCount];
-        Vec3[] cubes = new Vec3[sampleCount * AmbientCube.Sides];
+        int offset = scratch.Reserve(sampleCount);
         for (int i = 0; i < sampleCount; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            samplePositions[i] = positions.Generate(leafIndex, leafPlanes);
-            sampler.ComputeRayCube(samplePositions[i], cubes.AsSpan(i * AmbientCube.Sides, AmbientCube.Sides));
+            Vec3 position = positions.Generate(leafIndex, leafPlanes);
+            scratch.Positions(offset + i, 1)[0] = position;
+            sampler.ComputeRayCube(position, scratch.Cubes(offset + i, 1));
         }
 
-        return new LeafPlan(samplePositions, cubes, sampleCount, 0);
+        return new LeafPlan(offset, sampleCount, 0);
     }
 
     /// <summary>The leaf's finished cubes into its sample list, in sample order, then compressed.</summary>
-    private static List<AmbientSample> Collect(LeafPlan plan, LeafAmbientOptions options)
+    /// <remarks>
+    /// The list is built in the worker's reusable <see cref="LeafSampleScratch.Samples"/>
+    /// and copied out at its compressed length. A list built from empty grew
+    /// four, eight, sixteen... up to 128 samples for every leaf, and then kept
+    /// that capacity until the stage encoded it, though compression usually
+    /// leaves a handful.
+    /// </remarks>
+    private static List<AmbientSample> Collect(LeafPlan plan, LeafSampleScratch scratch, LeafAmbientOptions options)
     {
-        List<AmbientSample> list = [];
+        List<AmbientSample> list = scratch.Samples;
+        list.Clear();
+        ReadOnlySpan<Vec3> positions = scratch.Positions(plan.Offset, plan.Count);
+        ReadOnlySpan<Vec3> cubes = scratch.Cubes(plan.Offset, plan.Count);
         for (int i = 0; i < plan.Count; i++)
         {
             AmbientSampleList.Add(
-                list, plan.Positions[i], plan.Cubes.AsSpan(i * AmbientCube.Sides, AmbientCube.Sides), options.Compliance);
+                list, positions[i], cubes.Slice(i * AmbientCube.Sides, AmbientCube.Sides), options.Compliance);
         }
 
         AmbientSampleList.Compress(list);
-        return list;
+        List<AmbientSample> result = new(list);
+        list.Clear();
+        return result;
     }
 
     /// <summary>
-    /// A worker of the traced path: its cube computer, and its batch over the
-    /// visibility's tracer.
+    /// A worker of the traced path: its cube computer, its batch over the
+    /// visibility's tracer, and its sample scratch.
     /// </summary>
-    private sealed class LeafWorker(
-        AmbientScene scene, DWorldLight[] worldLights, TracerLineVisibility visibility, LeafAmbientOptions options)
-        : TestLineWorker<LeafPlan, List<AmbientSample>>(new TestLineBatch(visibility.Tracer))
+    /// <remarks>
+    /// The scratch holds every planned leaf of the worker's current batch, so
+    /// it is emptied only when a new batch begins (<see cref="BeginBatch"/>),
+    /// after the last batch's leaves have all resolved. It and the batch are
+    /// rented from the stage's pool and go back when the stage disposes the
+    /// worker.
+    /// </remarks>
+    private sealed class LeafWorker : TestLineWorker<LeafPlan, List<AmbientSample>>
     {
-        private readonly AmbientSampler _sampler = new(scene, worldLights, visibility, options.Compliance);
+        private readonly AmbientScene _scene;
+        private readonly TracerLineVisibility _visibility;
+        private readonly LeafAmbientOptions _options;
+        private readonly AmbientSampler _sampler;
+        private readonly LeafSampleScratch _scratch;
+        private readonly int _reserve;
+
+        public LeafWorker(
+            AmbientScene scene,
+            DWorldLight[] worldLights,
+            TracerLineVisibility visibility,
+            LeafAmbientOptions options,
+            IScratchArrayPool pool,
+            int reserve)
+            : base(new TestLineBatch(visibility.Tracer, pool))
+        {
+            _scene = scene;
+            _visibility = visibility;
+            _options = options;
+            _sampler = new(scene, worldLights, visibility, options.Compliance);
+            _scratch = new LeafSampleScratch(pool);
+            _reserve = reserve;
+        }
+
+        public override void BeginBatch() => _scratch.Reset();
 
         public override LeafPlan Plan(int item, CancellationToken cancellationToken)
         {
-            LeafPlan plan = PlanSamples(scene, _sampler, item, options, cancellationToken);
-            int first = _sampler.PlanSurfaceLights(plan.Positions.AsSpan(0, plan.Count), Lines, visibility.StockReciprocal);
+            LeafPlan plan = PlanSamples(_scene, _sampler, item, _options, _scratch, cancellationToken);
+
+            // The whole bound in one rental, the first time a leaf has
+            // segments to add: a worker that never gets one rents nothing.
+            if (plan.Count > 0)
+            {
+                Lines.Reserve(_reserve);
+            }
+
+            int first = _sampler.PlanSurfaceLights(
+                _scratch.Positions(plan.Offset, plan.Count), Lines, _visibility.StockReciprocal);
             return plan with { FirstSegment = first };
         }
 
         public override List<AmbientSample> Resolve(int item, LeafPlan state)
         {
             _sampler.ResolveSurfaceLights(
-                state.Positions.AsSpan(0, state.Count),
-                state.Cubes.AsSpan(0, state.Count * AmbientCube.Sides),
+                _scratch.Positions(state.Offset, state.Count),
+                _scratch.Cubes(state.Offset, state.Count),
                 Lines,
                 state.FirstSegment);
-            return Collect(state, options);
+            return Collect(state, _scratch, _options);
         }
+
+        public override void Dispose()
+        {
+            _scratch.Dispose();
+            base.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The most surface-light segments one worker's batch of leaves can hold,
+    /// which its batch reserves in one rental.
+    /// </summary>
+    /// <param name="scene">The map.</param>
+    /// <param name="options">What to reproduce (the sample counts depend on it).</param>
+    /// <param name="lights">How many lights are baked into the cubes: each sample's segments.</param>
+    /// <param name="batchSegments">The segments a batch closes at.</param>
+    /// <param name="batchItems">The leaves a batch closes at.</param>
+    /// <returns>The bound; 0 when no light is baked in.</returns>
+    /// <remarks>
+    /// A batch closes once it holds <paramref name="batchSegments"/> segments
+    /// or <paramref name="batchItems"/> leaves, checked between leaves, so it
+    /// can pass the segment bound by at most one leaf: the largest open leaf's
+    /// samples times the lights. Nor can it hold more than every open leaf's
+    /// segments together, which is what caps it on a small map. Leaves are
+    /// claimed largest first, so the first batch usually reaches the bound
+    /// and the reservation is the storage the worker would have grown to.
+    /// </remarks>
+    internal static int BatchSegmentBound(
+        AmbientScene scene, LeafAmbientOptions options, int lights, int batchSegments, int batchItems)
+    {
+        if (lights <= 0)
+        {
+            return 0;
+        }
+
+        long total = 0;
+        int largest = 0;
+        for (int leaf = 0; leaf < scene.Leaves.Length; leaf++)
+        {
+            if ((scene.Leaves[leaf].Contents & ContentsSolid) != 0)
+            {
+                continue;
+            }
+
+            int samples = CandidateSampleCount(scene, leaf, options);
+            total += samples;
+            largest = Math.Max(largest, samples);
+        }
+
+        long leafSegments = (long)largest * lights;
+        long bound = Math.Min(total * lights, Math.Min(batchSegments - 1 + leafSegments, batchItems * leafSegments));
+        return (int)Math.Min(bound, Array.MaxLength);
     }
 
     /// <summary>
@@ -414,6 +533,9 @@ public static class LeafAmbientBuilder
             }
         }
 
+        // One list for every empty leaf's neighbour query, cleared by each: a list
+        // per leaf was an allocation per empty leaf of the map.
+        List<int> neighbours = [];
         int badLeaves = 0;
         for (int i = 0; i < leafCount; i++)
         {
@@ -428,7 +550,7 @@ public static class LeafAmbientBuilder
             }
 
             index[i].AmbientSampleCount = 0;
-            index[i].FirstAmbientSample = (ushort)NearestNeighborWithLight(scene, index, i);
+            index[i].FirstAmbientSample = (ushort)NearestNeighborWithLight(scene, index, i, neighbours);
         }
 
         return new LeafAmbientResult(
@@ -442,6 +564,7 @@ public static class LeafAmbientBuilder
     /// <param name="scene">The map.</param>
     /// <param name="index">The index built so far.</param>
     /// <param name="leafId">The empty leaf.</param>
+    /// <param name="leaves">Scratch for the box query; cleared first, so its contents do not matter.</param>
     /// <returns>The neighbour's index, or <paramref name="leafId"/> itself.</returns>
     /// <remarks>
     /// <para>
@@ -460,12 +583,12 @@ public static class LeafAmbientBuilder
     /// </para>
     /// </remarks>
     private static int NearestNeighborWithLight(
-        AmbientScene scene, DLeafAmbientIndex[] index, int leafId)
+        AmbientScene scene, DLeafAmbientIndex[] index, int leafId, List<int> leaves)
     {
         (Vec3 mins, Vec3 maxs) = LeafBounds(scene, leafId);
         Vec3 size = maxs - mins;
 
-        List<int> leaves = [];
+        leaves.Clear();
         ToolBspTree.EnumerateLeavesInBox(scene.Nodes, scene.Planes, mins - size, maxs + size, leaves);
 
         float bestDist = float.MaxValue;

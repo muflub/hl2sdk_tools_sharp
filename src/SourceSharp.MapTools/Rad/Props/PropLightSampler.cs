@@ -100,7 +100,10 @@ public sealed class PropLightSampler
     }
 
     /// <summary>A batch over this sampler's tracer, for one worker's <see cref="Plan"/> calls.</summary>
-    /// <returns>An empty batch.</returns>
+    /// <returns>
+    /// An empty batch. Its storage is rented, so the caller disposes it: a
+    /// stage's worker does through <see cref="TestLineStage"/>.
+    /// </returns>
     public TestLineBatch CreateBatch() => new(_environment);
 
     /// <summary>One light at one point (<c>GatherSampleLightSSE</c>).</summary>
@@ -128,7 +131,7 @@ public sealed class PropLightSampler
         PropLight light, Vec3 pos, Vec3 normal, PropGatherFlags flags = PropGatherFlags.None, float epsilon = 0.0f, int skipId = -1)
     {
         ArgumentNullException.ThrowIfNull(light);
-        TestLineBatch batch = CreateBatch();
+        using TestLineBatch batch = CreateBatch();
         PendingPropSample pending = Plan(light, pos, normal, batch, flags, epsilon, skipId);
         batch.Trace(CancellationToken.None);
         return Resolve(in pending, batch);

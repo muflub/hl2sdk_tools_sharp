@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using System.Runtime.CompilerServices;
+
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Rad;
@@ -174,6 +176,153 @@ public sealed class TestLineStageTests
             1, null, new CompileParallelism(), null!, 1, 1, "test", CancellationToken.None));
     }
 
+    public enum Ending
+    {
+        Finished,
+        Faulted,
+        Cancelled,
+    }
+
+    /// <summary>
+    /// However the stage ends -- finished, a batch faulting mid-stage, or
+    /// cancelled mid-stage -- every worker is disposed exactly once, after
+    /// its last batch completed, and every array the workers rented is back
+    /// in the pool: nothing the stage acquired outlives it.
+    /// </summary>
+    [Theory]
+    [InlineData(Ending.Finished, false)]
+    [InlineData(Ending.Finished, true)]
+    [InlineData(Ending.Faulted, false)]
+    [InlineData(Ending.Faulted, true)]
+    [InlineData(Ending.Cancelled, false)]
+    [InlineData(Ending.Cancelled, true)]
+    public async Task EveryWorkerIsDisposedOnceAndReturnsItsScratchHoweverTheStageEnds(Ending ending, bool asynchronous)
+    {
+        RecyclingScratchPool pool = new();
+        using CancellationTokenSource source = new();
+        FaultAfter tracer = new(Floor, asynchronous, calls: 6, ending, source);
+        List<Disposing> workers = [];
+
+        Task<int[]> run = TestLineStage.RunAsync(
+            200,
+            null,
+            new CompileParallelism { MaxDegree = 3 },
+            () =>
+            {
+                Disposing w = new(new TestLineBatch(tracer, pool), tracer);
+                lock (workers)
+                {
+                    workers.Add(w);
+                }
+
+                return w;
+            },
+            batchSegments: 8,
+            TestLineStage.DefaultBatchItems,
+            "test",
+            source.Token);
+
+        switch (ending)
+        {
+            case Ending.Finished:
+                Assert.Equal(Enumerable.Range(0, 200).Select(Expected), await run);
+                break;
+            case Ending.Faulted:
+                await Assert.ThrowsAsync<IOException>(() => run);
+                break;
+            default:
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+                break;
+        }
+
+        Assert.Equal(3, workers.Count);
+        Assert.All(workers, w => Assert.Equal(1, w.Disposals));
+        Assert.All(workers, w => Assert.Equal(0, w.CallsInFlightAtDisposal));
+        Assert.True(pool.Rented > 0);
+        Assert.Equal(0, pool.Outstanding);
+        Assert.Equal(0, pool.BadReturns);
+    }
+
+    /// <summary>A worker factory that fails partway disposes the workers it had already made.</summary>
+    [Fact]
+    public async Task WorkersMadeBeforeAFactoryFailureAreDisposed()
+    {
+        RecyclingScratchPool pool = new();
+        List<Disposing> workers = [];
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => TestLineStage.RunAsync(
+            10,
+            null,
+            new CompileParallelism { MaxDegree = 3 },
+            () =>
+            {
+                if (workers.Count == 2)
+                {
+                    throw new InvalidOperationException("no third worker");
+                }
+
+                Disposing w = new(new TestLineBatch(Floor, pool), null);
+                workers.Add(w);
+                return w;
+            },
+            8,
+            TestLineStage.DefaultBatchItems,
+            "test",
+            CancellationToken.None));
+
+        Assert.Equal(2, workers.Count);
+        Assert.All(workers, w => Assert.Equal(1, w.Disposals));
+    }
+
+    /// <summary>
+    /// Once the stage has returned, it holds on to no worker: the workers,
+    /// their batches and their scratch are garbage for the collector.
+    /// </summary>
+    [Fact]
+    public async Task NoWorkerOutlivesTheStage()
+    {
+        List<WeakReference> workers = await RunAndForgetWorkersAsync();
+
+        // The queue's own threads wind down just after the stage returns, and
+        // one may still hold its last job's frame for a moment: collect until
+        // the workers are gone or a generous deadline passes.
+        for (int attempt = 0; attempt < 100 && workers.Any(w => w.IsAlive); attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            await Task.Delay(20);
+        }
+
+        Assert.Equal(2, workers.Count);
+        Assert.All(workers, w => Assert.False(w.IsAlive));
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static async Task<List<WeakReference>> RunAndForgetWorkersAsync()
+    {
+        List<WeakReference> workers = [];
+        await TestLineStage.RunAsync(
+            50,
+            null,
+            new CompileParallelism { MaxDegree = 2 },
+            () =>
+            {
+                Disposing w = new(new TestLineBatch(Floor, new RecyclingScratchPool()), null);
+                lock (workers)
+                {
+                    workers.Add(new WeakReference(w));
+                }
+
+                return w;
+            },
+            8,
+            TestLineStage.DefaultBatchItems,
+            "test",
+            CancellationToken.None);
+        return workers;
+    }
+
     private static Task<int[]> RunFullAtAsync(IRayTracer tracer, int items, int degree, int fullAtItems, List<Counter> workers) =>
         TestLineStage.RunAsync(
             items,
@@ -238,6 +387,80 @@ public sealed class TestLineStageTests
     private sealed class FullAt(TestLineBatch lines, int items) : Counter(lines)
     {
         public override bool IsBatchFull => ItemsInBatch >= items;
+    }
+
+    // Counts its disposals, and how many tracer calls were still running
+    // when the stage disposed it (none may be).
+    private sealed class Disposing(TestLineBatch lines, FaultAfter? tracer) : Counter(lines)
+    {
+        public int Disposals { get; private set; }
+
+        public int CallsInFlightAtDisposal { get; private set; }
+
+        public override void Dispose()
+        {
+            Disposals++;
+            CallsInFlightAtDisposal = tracer?.InFlight ?? 0;
+            base.Dispose();
+        }
+    }
+
+    // The floor, until the given number of calls have started; from then on
+    // each call faults, or cancels the stage's token and reports it.
+    private sealed class FaultAfter(IRayTracer inner, bool asynchronous, int calls, Ending ending, CancellationTokenSource source)
+        : IRayTracer
+    {
+        private int _calls;
+        private int _inFlight;
+
+        public int InFlight => Volatile.Read(ref _inFlight);
+
+        public string TracerIdentity => "fault-after";
+
+        public ValueTask TraceVisibilityAsync(
+            ReadOnlyMemory<Ray> rays, Memory<ulong> hitBits, RayTraceOptions options, CancellationToken cancellationToken = default)
+        {
+            bool fail = Interlocked.Increment(ref _calls) > calls && ending != Ending.Finished;
+            if (!asynchronous)
+            {
+                return Answer(fail, rays, hitBits, options, cancellationToken);
+            }
+
+            Interlocked.Increment(ref _inFlight);
+            return new ValueTask(Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(1);
+                    await Answer(fail, rays, hitBits, options, cancellationToken);
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _inFlight);
+                }
+            }));
+        }
+
+        public ValueTask TraceClosestAsync(
+            ReadOnlyMemory<Ray> rays, Memory<HitId> hits, RayTraceOptions options, CancellationToken cancellationToken = default) =>
+            inner.TraceClosestAsync(rays, hits, options, cancellationToken);
+
+        private ValueTask Answer(
+            bool fail, ReadOnlyMemory<Ray> rays, Memory<ulong> hitBits, RayTraceOptions options, CancellationToken cancellationToken)
+        {
+            if (!fail)
+            {
+                return inner.TraceVisibilityAsync(rays, hitBits, options, cancellationToken);
+            }
+
+            if (ending == Ending.Faulted)
+            {
+                return ValueTask.FromException(new IOException("device lost"));
+            }
+
+            source.Cancel();
+            return ValueTask.FromCanceled(source.Token);
+        }
     }
 
     private sealed class Failing : IRayTracer

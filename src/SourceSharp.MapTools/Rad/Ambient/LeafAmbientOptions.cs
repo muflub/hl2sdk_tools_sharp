@@ -7,6 +7,7 @@
 
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
+using SourceSharp.MapTools.Rad.Bounce;
 
 namespace SourceSharp.MapTools.Rad.Ambient;
 
@@ -76,6 +77,17 @@ public sealed record LeafAmbientOptions
     /// can trace each leaf alone; no answer depends on it.
     /// </summary>
     internal int BatchSegments { get; init; } = TestLineStage.DefaultBatchSegments;
+
+    /// <summary>
+    /// Where the stage's per-worker scratch arrays are rented from, or null for
+    /// the process's shared array pool. Internal so the facts can count what
+    /// was rented against what came back, and hand out arrays full of junk.
+    /// </summary>
+    /// <remarks>
+    /// Null rather than a default instance so that two options that say the
+    /// same thing stay equal as records. No answer depends on it.
+    /// </remarks>
+    internal IScratchArrayPool? ScratchPool { get; init; }
 
     /// <summary>Everything stock does, serially: what every byte-exact gate selects.</summary>
     public static LeafAmbientOptions StockParity { get; } =
