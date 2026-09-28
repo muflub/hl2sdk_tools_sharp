@@ -42,6 +42,18 @@ public sealed class RoomEntityCountsTests(RoomLinkDataFixture fixture) : IClassF
         Assert.Equal(5, counts.Entities);
     }
 
+    /// <summary>
+    /// A point of interest is compile-only: a lump that still held one (the
+    /// room compile takes them out before vbsp) would count it among the
+    /// stripped entities, never the listed ones.
+    /// </summary>
+    [Fact]
+    public void APointOfInterestCountsAsNoEntity()
+    {
+        RoomEntityCounts counts = RoomEntityCounts.Of(Bsp(["worldspawn"], [RoomPois.Entity], [RoomPois.Entity], ["light"]));
+        Assert.Equal(new EntityTally(1, 0, 2), counts.Tally(EntityClassTable.Default));
+    }
+
     /// <summary>A room with only its worldspawn, and one with an empty lump, count nothing.</summary>
     [Fact]
     public void ARoomWithOnlyItsWorldspawnCountsNothing()

@@ -145,8 +145,9 @@ public sealed class RoomCommandsTests
         byte[] pack = fs.GetBytes(VPath.Create(Rooted("/rooms.roompack")))!;
         using MemoryStream stream = new(pack);
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
-        RoomPackSection section = Assert.Single(index.LibrarySections);
-        Assert.Equal("LENT", section.Tag);
+        // Beside the pack's compile id, which every ssmap room pack carries.
+        Assert.Equal(["CMPL", "LENT"], index.LibrarySections.Select(s => s.Tag));
+        RoomPackSection section = index.LibrarySections.Single(s => s.Tag == "LENT");
         string text = Encoding.UTF8.GetString(pack, (int)section.Offset, (int)section.Length);
         Assert.Contains("\"light_environment\"", text, StringComparison.Ordinal);
         Assert.Contains("\"-64 -64 128\"", text, StringComparison.Ordinal);
@@ -158,9 +159,9 @@ public sealed class RoomCommandsTests
     }
 
     /// <summary>
-    /// A library with nothing library-wide in its gaps writes a pack with
-    /// no library section, byte for byte the pack it wrote before library
-    /// sections were written at all.
+    /// A library with nothing library-wide in its gaps writes no
+    /// library-wide entities section: its only library section is the
+    /// pack's compile id.
     /// </summary>
     [Fact]
     public async Task ALibraryWithoutLibraryWideEntitiesWritesNoLibrarySection()
@@ -175,7 +176,7 @@ public sealed class RoomCommandsTests
         Assert.True(exit == Program.ExitSuccess, output.ToString());
 
         using MemoryStream stream = new(fs.GetBytes(VPath.Create(Rooted("/rooms.roompack")))!);
-        Assert.Empty((await RoomPack.ReadIndexAsync(stream)).LibrarySections);
+        Assert.Equal(["CMPL"], (await RoomPack.ReadIndexAsync(stream)).LibrarySections.Select(s => s.Tag));
     }
 
     // ---- real game content ------------------------------------------------------
@@ -1224,10 +1225,13 @@ public sealed class RoomCommandsTests
         using StringWriter link = new();
         Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-out", "/out/level.bsp"], link));
 
+        // The headroom line, right before the map is reported written (the
+        // navigation's own line follows).
         string[] lines = link.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
-        Assert.Equal("ssmap link: map entities 3 / budget 1536 (reserve 512, cap 2048); 3 entities in the entity list", lines[0]);
-        Assert.StartsWith("ssmap link: wrote ", lines[1], StringComparison.Ordinal);
-        Assert.Equal(2, lines.Length);
+        int headroom = Array.IndexOf(lines, "ssmap link: map entities 3 / budget 1536 (reserve 512, cap 2048); 3 entities in the entity list");
+        Assert.True(headroom >= 0, link.ToString());
+        Assert.StartsWith($"ssmap link: wrote {HostPaths.Display(VPath.Create(Rooted("/out/level.bsp")))}", lines[headroom + 1], StringComparison.Ordinal);
+        Assert.DoesNotContain(lines, l => l.Contains("warning", StringComparison.Ordinal));
         Assert.Equal(3, EntityLump.Parse((await LoadMapAsync(fs, "/out/level.bsp"))[BspLump.Entities]).Count);
     }
 
@@ -1247,7 +1251,7 @@ public sealed class RoomCommandsTests
         fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
         using StringWriter output = new();
         Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
-        Assert.Equal([RoomLibraryOptions.SectionTag], (await ReadIndexAsync(fs, "/rooms.roompack")).LibrarySections.Select(s => s.Tag));
+        Assert.Equal(["CMPL", RoomLibraryOptions.SectionTag], (await ReadIndexAsync(fs, "/rooms.roompack")).LibrarySections.Select(s => s.Tag));
 
         AddLevel(fs, "/levels/level.yaml", "hub, hub");
         using StringWriter warned = new();
@@ -1268,14 +1272,14 @@ public sealed class RoomCommandsTests
         Assert.DoesNotContain(world.Pairs, p => RoomLibraryOptions.IsLibraryKey(p.Key));
     }
 
-    /// <summary>A library that sets nothing writes no settings section, as before.</summary>
+    /// <summary>A library that sets nothing writes no settings section: its pack's library sections are the compile id alone.</summary>
     [Fact]
     public async Task ALibraryThatSetsNothingWritesNoSettings()
     {
         InMemoryFileSystem fs = Game(Hub);
         using StringWriter output = new();
         Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
-        Assert.Empty((await ReadIndexAsync(fs, "/rooms.roompack")).LibrarySections);
+        Assert.Equal(["CMPL"], (await ReadIndexAsync(fs, "/rooms.roompack")).LibrarySections.Select(s => s.Tag));
     }
 
     /// <summary>

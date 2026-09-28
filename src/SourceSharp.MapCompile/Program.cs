@@ -219,6 +219,15 @@ public static class Program
                     .ConfigureAwait(false);
             }
 
+            case "nav":
+            {
+                // Inspection: reads a .nav3d, or a level and its room pack.
+                PhysicalFileSystem disk = new("/");
+
+                return await NavCommand.RunAsync(disk, args[1..], output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             case "layout":
             {
                 // A seeded level needs only the library's socket sets, which
@@ -431,12 +440,15 @@ public static class Program
                                                        --record-content <zip>: also write every
                                                        game file the compile read, as a game
                                                        directory with its own gameinfo.txt
-              room <library.vmf> [-out <pack.roompack>] [vbsp options]
+              room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <c>] [vbsp options]
                                                       every room of a library VMF (one
                                                       info_room each), -threads at once
-                                                      -> one <library>.roompack
+                                                      -> one <library>.roompack, with each
+                                                      room's 3D navigation and entity counts
               link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]
-                                                      the level's rooms -> one linked map;
+                   [-no-nav | -require-nav] [-nav-codec <c>]
+                                                      the level's rooms -> one linked map
+                                                      and its <map>.nav3d beside it;
                                                       reports its edicts against 2048 less
                                                       the reserve (512, or the library's);
                                                       joints are the sockets that face
@@ -451,6 +463,9 @@ public static class Program
                                                       a seeded level of the library's rooms,
                                                       within the entity budget when the
                                                       pack has the rooms' counts
+              nav <map.nav3d | level.yaml> [-rooms <pack>] [--obj <out.obj>] [--floor] [--agent N]
+                                                      a level navigation's cells, free volume,
+                                                      components and door links; OBJ export
               check | diff | bench                     the acceptance instruments
               cache stats|explain|gc|clear|check       the incremental-compile cache
               phys list | phys select <game>           which vphysics library to cook with

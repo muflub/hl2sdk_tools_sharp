@@ -372,8 +372,8 @@ public static class RoomObjectStore
         return null;
     }
 
-    /// <summary>The writing tool's identity, per the assembly's own stamp.</summary>
-    private static string ToolIdentityOf()
+    /// <summary>The writing tool's identity, per the assembly's own stamp; also an input of the pack's compile id (<see cref="RoomCompileIds"/>).</summary>
+    internal static string ToolIdentityOf()
     {
         Assembly assembly = typeof(RoomObjectStore).Assembly;
         return

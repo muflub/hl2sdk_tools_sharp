@@ -80,6 +80,15 @@ public sealed record RoomObject(
     /// <summary>The room's entity counts: the stored ones while they describe this compile, else counted now.</summary>
     internal RoomEntityCounts CountEntities() =>
         EntityCounts is { } stored && stored.IsFor(this) ? stored : RoomEntityCounts.Of(Bsp);
+
+    /// <summary>
+    /// The room's navigation, or null: built beside the link work by a
+    /// library compile whose library builds navigation, and read by a pack
+    /// load that asks for it (<see cref="RoomPackRequest.Navigation"/>), at
+    /// the turns asked for. It is not part of the room container; the pack
+    /// stores it in its own sections (<see cref="Nav.RoomNavSection"/>).
+    /// </summary>
+    public Nav.RoomNavTurns? Nav { get; init; }
 }
 
 /// <summary>

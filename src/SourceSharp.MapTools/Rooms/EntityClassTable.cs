@@ -95,9 +95,7 @@ public sealed record EntityClassRow(string ClassName, EntityCost Cost, EntityCla
 /// the tools (nothing reads it after vvis), but it carries a brush model,
 /// and a room with a second model is refused by the link until brush
 /// entities are linked; whether a game defines the class is also
-/// uncertain. It counts as an edict until then. The same goes for
-/// <c>info_poi</c> (the points of interest), which the navigation work
-/// strips at room compile.
+/// uncertain. It counts as an edict until then.
 /// </para>
 /// <para>
 /// A table is a value: two links in one process may use different tables,
@@ -174,6 +172,11 @@ public sealed class EntityClassTable
 
         // Into the detail prop game lump, then cleared (DetailPropEmitter). Certain.
         CompileOnly("prop_detail_sprite", "vbsp writes it to the detail prop lump and clears it"),
+
+        // A point of interest: the room compile takes it out of the room
+        // before vbsp and carries it in the navigation (RoomPois.Extract),
+        // so it costs no entity. Certain.
+        CompileOnly(RoomPois.Entity, "the room compile moves it into the navigation and out of the map"),
     ]);
 
     private readonly ImmutableDictionary<string, EntityClassRow> _rows;

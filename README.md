@@ -72,6 +72,10 @@ Readers and writers for every file the chain touches, and nothing else.
   `Math` and `MathF` (see [Elementary functions](#elementary-functions)).
 - `Assets/` reads studio models, `.phy` files and VTF textures.
 - `Zip/` reads and writes the pakfile zip, including LZMA entries.
+- `Nav/` reads and writes the `.nav3d` level navigation file
+  ([`docs/nav3d-format.md`](docs/nav3d-format.md)); the game mod references
+  this assembly for `Nav3dReader`, which answers from the file's bytes
+  without allocating.
 
 ### `SourceSharp.MapTools`
 
@@ -90,6 +94,7 @@ The compile passes, grouped by stage and by concern.
 | `Options/` | stock argument parsing (`StockArgs`), per-stage options, the compliance catalogue |
 | `Compile/` | `MapCompiler`, which runs one or more stages in process |
 | `Rooms/` | split a room library VMF into rooms, compile them side by side into one `.roompack`, read and generate level files, and link or flatten a level into one map |
+| `Nav/` | the 3D navigation: voxelise a room's free space per agent into a sparse voxel octree, store it in the pack, stitch a level's `.nav3d` at link, and report on it |
 | `Validation/` | `BspValidator`, the loader rules `ssmap check` reports |
 | `Compare/` | the lump-by-lump comparer behind `ssmap diff` |
 | `Parallel/`, `Diagnostics/`, `Geometry/`, `Vpk/` | work scheduling, warnings and error codes, geometry kernel, VPK reading |
@@ -255,12 +260,13 @@ Unzip it anywhere and compile against it with no Steam install:
 ### `room`, `rooms`, `link` and `layout`
 
 ```sh
-ssmap room <library.vmf> [-out <pack.roompack>] [vbsp options]
+ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <codec>] [vbsp options]
 ssmap rooms <library.vmf> [-rooms <pack.roompack>]
-ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]
+ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
 ssmap link <level.yaml> --flatten [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
              [-rooms <pack.roompack>] [-entity-budget <n>] [-out <level.yaml>]
+ssmap nav <map.nav3d | level.yaml> [-rooms <pack.roompack>] [--obj <out.obj>] [--floor] [--agent <index|name>]
 ```
 
 `ssmap rooms` lists a library without compiling it: each room's name, its
@@ -381,6 +387,37 @@ map entities 612 / budget 1536 (reserve 512, cap 2048); 931 entities in the enti
 `layout` keeps a generated level within the same budget when the pack has
 the rooms' counts, or within `-entity-budget N`; a budget no level of the
 library reaches changes nothing, so the same seed gives the same file.
+
+**Navigation.** `ssmap room` also builds each room's 3D navigation: for
+each agent size, a sparse voxel octree of the room's free space (where the
+agent's box fits, clips and grates included), each free leaf flagged by what
+it touches (floor, wall, ceiling, and which sides), every door's portal and
+what capping it changes. It is stored in the pack beside the room, under its
+own section tags, at all four turns, so the link stitches without
+voxelising anything. The library's worldspawn configures it: `nav 0` turns
+it off, `nav_voxel_size` (default 16), `nav_max_slope` (default: the game's
+0.7 floor normal) and `nav_agents` (default
+`standing 32 72 player; flyer 32 32 npc`). `info_poi` point entities mark
+points of interest (`poi_type`, `poi_tags`, `poi_radius`, `angles`,
+`poi_agents`, `targetname` with `cxry_` room-local names); they are checked
+against the agents they apply to, taken out of the map (they cost no
+entity), and carried in the navigation. An `info_room`'s `room_role`
+(`up`, `down`) marks a level-transition room, whose `arrival` point is where
+the player appears, and, for the up room, spawns.
+
+`link` writes `<map>.nav3d` beside the map: the placed rooms' octrees by
+cell, the doors joined across and capped shut, adjacency, connected
+components per agent, and the points of interest in level coordinates. The
+map's worldspawn and the file's header carry one level id
+(`ss_level_id`), so the game can tell they belong together. A pack without
+navigation links with one warning and no `.nav3d` (`-require-nav` makes it
+an error, `-no-nav` skips it), and a link without navigation writes no id
+keys, so its map is the one it always was. `ssmap nav` prints a navigation's cells, free
+volume, components and door links, from the file or straight from a level
+and its pack, and exports the free leaves or the floors as OBJ. The format
+is specified in [`docs/nav3d-format.md`](docs/nav3d-format.md), with a C++
+walk-through and the C# reader the mod uses (`Nav3dReader` in
+`SourceSharp.MapFormats`).
 
 `samples/rooms-3x3/` is a worked example: a library of five room kinds, a
 3x3 level, its turns and some seeded levels. Its README runs it through

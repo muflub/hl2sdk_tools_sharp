@@ -25,7 +25,7 @@ public sealed class EntityClassTableTests
     [
         "info_room", "func_detail", "env_cubemap", "info_overlay", "info_overlay_transition",
         "info_no_dynamic_shadow", "func_instance_parms", "func_instance", "prop_static",
-        "info_lighting", "prop_detail", "prop_detail_sprite",
+        "info_lighting", "prop_detail", "prop_detail_sprite", "info_poi",
     ];
 
     /// <summary>Each class the tools consume is compile-only, certain, and says where it is consumed.</summary>
