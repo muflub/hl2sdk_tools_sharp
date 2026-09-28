@@ -20,6 +20,20 @@ namespace SourceSharp.MapTools.Rooms;
 /// </param>
 public sealed record LevelGeneratorOptions(int Rows, int Columns, ulong Seed, double EmptyRatio = 0);
 
+/// <summary>An entity budget a generated level must keep within.</summary>
+/// <param name="Budget">
+/// The most edicts the level may have: its one worldspawn and every
+/// placement's edicts. <c>ssmap layout</c> uses the link's
+/// <c>cap - reserve</c> unless told otherwise, so a generated level never
+/// eats into the reserve.
+/// </param>
+/// <param name="RoomEdicts">
+/// What one placement of each room costs, in the library order of the rooms
+/// the generator is given (<see cref="EntityTally.Edicts"/> of the room's
+/// <see cref="RoomEntityCounts.Tally"/>).
+/// </param>
+public sealed record LayoutEntityBudget(int Budget, IReadOnlyList<int> RoomEdicts);
+
 /// <summary>
 /// Makes a valid level of a library's rooms from a seed: every shared wall
 /// between two rooms has a socket on both sides or on neither, and every
@@ -124,7 +138,7 @@ public static class LevelGenerator
     }
 
     /// <summary>
-    /// Refuses options <see cref="Generate"/> would refuse for their own
+    /// Refuses options <see cref="Generate(IReadOnlyList{RoomDefinition}, LevelGeneratorOptions, string, string, LayoutEntityBudget)"/> would refuse for their own
     /// sake, whatever the library: a grid under one row or column or over
     /// <see cref="LevelYaml.MaxCells"/> cells, or an empty share outside
     /// <c>[0, 1)</c>.
@@ -133,7 +147,7 @@ public static class LevelGenerator
     /// Public so a host can check what it was asked for before it spends
     /// anything on the library: <c>ssmap layout</c> used to read and split a
     /// 22 MB library (2.5 s, 384 MB) before refusing a 512 x 512 grid that
-    /// no library could fill. <see cref="Generate"/> runs the same check,
+    /// no library could fill. <see cref="Generate(IReadOnlyList{RoomDefinition}, LevelGeneratorOptions, string, string, LayoutEntityBudget)"/> runs the same check,
     /// with the same exceptions and messages, so a host that skips this call
     /// is refused all the same, only later.
     /// </remarks>
@@ -188,7 +202,46 @@ public static class LevelGenerator
     /// </para>
     /// </remarks>
     public static LevelGrid Generate(
-        IReadOnlyList<RoomDefinition> rooms, LevelGeneratorOptions options, string name, string library)
+        IReadOnlyList<RoomDefinition> rooms, LevelGeneratorOptions options, string name, string library) =>
+        Generate(rooms, options, name, library, budget: null);
+
+    /// <summary>Generates a level that keeps within an entity budget.</summary>
+    /// <param name="rooms">The library's rooms, in library order.</param>
+    /// <param name="options">The grid, the seed and the empty share.</param>
+    /// <param name="name">The level's name.</param>
+    /// <param name="library">The library as the level file should name it.</param>
+    /// <param name="budget">The entity budget, or null for none.</param>
+    /// <returns>The level.</returns>
+    /// <exception cref="ArgumentException">
+    /// As for the overload without a budget; or a budget below 0, or one
+    /// whose costs are not one per room, each 0 or more.
+    /// </exception>
+    /// <exception cref="LinkException">
+    /// No valid level within the budget could be made; or none could be,
+    /// because even the cheapest rooms pass the budget.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// <b>How.</b> The search skips a candidate whose edicts would take the
+    /// level past the budget, as it skips one whose sockets do not fit: the
+    /// edicts spent before a cell are the worldspawn's and those of the rooms
+    /// already placed, and a candidate is taken only if they and its own
+    /// cost stay within the budget. A skipped candidate is a step like any
+    /// other, and the draws are not touched.
+    /// </para>
+    /// <para>
+    /// <b>The same levels.</b> A budget that never turns a candidate away
+    /// changes nothing: the search visits exactly what it visits without
+    /// one, and the level is byte for byte the level of the overload without
+    /// a budget. Only a level that would have passed the budget comes out
+    /// different, and then it is the first level of the same draws that
+    /// keeps within it. The costs are the rooms' stock-mode edicts; the
+    /// conditional drops and folds that make a room cheaper in a given
+    /// level are not known yet, so this is the worst case.
+    /// </para>
+    /// </remarks>
+    public static LevelGrid Generate(
+        IReadOnlyList<RoomDefinition> rooms, LevelGeneratorOptions options, string name, string library, LayoutEntityBudget? budget)
     {
         ArgumentNullException.ThrowIfNull(rooms);
         ArgumentNullException.ThrowIfNull(options);
@@ -199,6 +252,13 @@ public static class LevelGenerator
         if (rooms.Count == 0)
         {
             throw new ArgumentException("a level needs at least one room to place", nameof(rooms));
+        }
+
+        if (budget is not null
+            && (budget.Budget < 0 || budget.RoomEdicts is null || budget.RoomEdicts.Count != rooms.Count || budget.RoomEdicts.Any(c => c < 0)))
+        {
+            throw new ArgumentException(
+                $"an entity budget is 0 or more, with one cost of 0 or more for each of the {rooms.Count} room(s)", nameof(budget));
         }
 
         int rows = options.Rows;
@@ -237,6 +297,28 @@ public static class LevelGenerator
 
         int[] candidates = [.. candidateList];
 
+        // Each candidate's edicts, by candidate, when there is a budget; and
+        // the refusal of a level whose cheapest rooms already pass it, which
+        // no search could make.
+        int[]? costOf = null;
+        if (budget is not null)
+        {
+            int[] costs = new int[maskOf.Length];
+            foreach (int candidate in candidates)
+            {
+                costs[candidate] = budget.RoomEdicts[candidate / 4];
+            }
+
+            costOf = costs;
+            long least = 1 + ((long)placed * candidates.Min(c => costs[c]));
+            if (least > budget.Budget)
+            {
+                throw new LinkException(string.Create(CultureInfo.InvariantCulture,
+                    $"no level of {rows}x{columns} cells keeps within the entity budget of {budget.Budget} edicts:"
+                    + $" its {placed} room(s) bring at least {least}, the worldspawn included."));
+            }
+        }
+
         // One order per occupied cell, reused by every tree.
         int[]?[] order = new int[]?[cellCount];
         for (int cell = 0; cell < cellCount; cell++)
@@ -250,6 +332,7 @@ public static class LevelGenerator
         int[] chosen = new int[cellCount];
         int[] masks = new int[cellCount];
         int[] next = new int[cellCount];
+        long[]? spent = costOf is null ? null : new long[cellCount];
         for (int attempt = 0; attempt < Attempts; attempt++)
         {
             int[] required = SpanningTree(random, rows, columns, occupied);
@@ -262,7 +345,7 @@ public static class LevelGenerator
                 }
             }
 
-            if (Fill(occupied, order, required, maskOf, columns, chosen, masks, next))
+            if (Fill(occupied, order, required, maskOf, columns, chosen, masks, next, costOf, budget?.Budget ?? 0, spent))
             {
                 LevelCell?[] cells = new LevelCell?[cellCount];
                 for (int cell = 0; cell < cellCount; cell++)
@@ -278,9 +361,14 @@ public static class LevelGenerator
             }
         }
 
-        throw new LinkException(string.Create(CultureInfo.InvariantCulture,
-            $"no level of {rows}x{columns} cells with every room reachable was found from the library's"
-            + $" {rooms.Count} room(s) with seed {options.Seed} after {Attempts} tries; the rooms' sockets may not allow one."));
+        throw new LinkException(budget is null
+            ? string.Create(CultureInfo.InvariantCulture,
+                $"no level of {rows}x{columns} cells with every room reachable was found from the library's"
+                + $" {rooms.Count} room(s) with seed {options.Seed} after {Attempts} tries; the rooms' sockets may not allow one.")
+            : string.Create(CultureInfo.InvariantCulture,
+                $"no level of {rows}x{columns} cells with every room reachable and at most {budget.Budget} edicts was found"
+                + $" from the library's {rooms.Count} room(s) with seed {options.Seed} after {Attempts} tries;"
+                + $" the rooms' sockets or the entity budget may not allow one."));
     }
 
     /// <summary>
@@ -307,9 +395,27 @@ public static class LevelGenerator
     /// never read.
     /// </para>
     /// </remarks>
+    /// <para>
+    /// With an entity budget (<paramref name="costOf"/>), a candidate must
+    /// also keep the edicts spent so far within <paramref name="budget"/>:
+    /// <paramref name="spent"/> holds, per cell, the edicts spent before it
+    /// (the worldspawn's 1 and the cells placed before it), set when the
+    /// search reaches the cell, and still right when it backs up to it,
+    /// since only the cells after it have changed since.
+    /// </para>
     /// <returns>Whether every occupied cell was filled; <paramref name="chosen"/> then holds each one's position in its order.</returns>
     internal static bool Fill(
-        bool[] occupied, int[]?[] order, int[] required, int[] maskOf, int columns, int[] chosen, int[] masks, int[] next)
+        bool[] occupied,
+        int[]?[] order,
+        int[] required,
+        int[] maskOf,
+        int columns,
+        int[] chosen,
+        int[] masks,
+        int[] next,
+        int[]? costOf = null,
+        long budget = 0,
+        long[]? spent = null)
     {
         int cellCount = occupied.Length;
         int steps = 0;
@@ -320,6 +426,11 @@ public static class LevelGenerator
         }
 
         next[cell] = 0;
+        if (spent is not null)
+        {
+            spent[cell] = 1;
+        }
+
         while (true)
         {
             int[] tries = order[cell]!;
@@ -332,7 +443,8 @@ public static class LevelGenerator
                 }
 
                 int mask = maskOf[tries[i]];
-                if (Fits(occupied, required, masks, columns, cell, mask))
+                if (Fits(occupied, required, masks, columns, cell, mask)
+                    && (costOf is null || spent![cell] + costOf[tries[i]] <= budget))
                 {
                     chosen[cell] = i;
                     masks[cell] = mask;
@@ -344,6 +456,7 @@ public static class LevelGenerator
 
             if (placed)
             {
+                int from = cell;
                 cell = NextOccupied(occupied, cell + 1);
                 if (cell == cellCount)
                 {
@@ -351,6 +464,11 @@ public static class LevelGenerator
                 }
 
                 next[cell] = 0;
+                if (spent is not null)
+                {
+                    spent[cell] = spent[from] + costOf![order[from]![chosen[from]]];
+                }
+
                 continue;
             }
 

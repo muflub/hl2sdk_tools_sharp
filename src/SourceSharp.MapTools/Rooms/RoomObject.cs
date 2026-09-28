@@ -63,6 +63,23 @@ public sealed record RoomObject(
     /// older pack, a room built in memory) links to the same bytes.
     /// </remarks>
     internal RoomLinkData? Link { get; init; }
+
+    /// <summary>
+    /// The room's entity counts as the pack stores them, or null: set by a
+    /// room pack that has them, and used by the link's entity budget in
+    /// place of parsing the room's entity lump.
+    /// </summary>
+    /// <remarks>
+    /// Only ever a shortcut, like <see cref="Link"/>: used only while it
+    /// still describes this room's own compile
+    /// (<see cref="RoomEntityCounts.IsFor"/>); otherwise the room is
+    /// counted afresh, to the same numbers.
+    /// </remarks>
+    internal RoomEntityCounts? EntityCounts { get; init; }
+
+    /// <summary>The room's entity counts: the stored ones while they describe this compile, else counted now.</summary>
+    internal RoomEntityCounts CountEntities() =>
+        EntityCounts is { } stored && stored.IsFor(this) ? stored : RoomEntityCounts.Of(Bsp);
 }
 
 /// <summary>
@@ -94,6 +111,13 @@ public sealed class RoomLibrary
         Kit = kit;
         CellSize = cellSize;
     }
+
+    /// <summary>
+    /// What the library sets for every level linked from it (its entity
+    /// reserve): read from the pack's library section by whoever loads the
+    /// rooms, <see cref="RoomLibraryOptions.None"/> until then.
+    /// </summary>
+    public RoomLibraryOptions Options { get; set; } = RoomLibraryOptions.None;
 
     /// <summary>The rooms, in insertion order.</summary>
     public IReadOnlyCollection<RoomObject> Rooms => _rooms.Values;

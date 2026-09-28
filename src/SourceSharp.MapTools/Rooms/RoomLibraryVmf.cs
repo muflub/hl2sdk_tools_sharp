@@ -37,7 +37,16 @@ public sealed record LibraryRoom(RoomDefinition Definition, Vec3 Corner, VmfDocu
 /// coordinates: what <c>ssmap room</c> keeps in the pack's library section
 /// (<see cref="RoomLibraryEntities.SectionTag"/>). Empty when there are none.
 /// </param>
-public sealed record RoomLibrarySplit(IReadOnlyList<LibraryRoom> Rooms, IReadOnlyList<VmfChunk> LibraryEntities);
+public sealed record RoomLibrarySplit(IReadOnlyList<LibraryRoom> Rooms, IReadOnlyList<VmfChunk> LibraryEntities)
+{
+    /// <summary>
+    /// What the library sets for every level linked from it, from its
+    /// worldspawn keys (<see cref="RoomLibraryOptions.FromWorld"/>): what
+    /// <c>ssmap room</c> keeps in the pack's library section
+    /// (<see cref="RoomLibraryOptions.SectionTag"/>).
+    /// </summary>
+    public RoomLibraryOptions Options { get; init; } = RoomLibraryOptions.None;
+}
 
 /// <summary>
 /// A room library that cannot be split into rooms: one problem, named.
@@ -160,6 +169,7 @@ public static class RoomLibraryVmf
 
         VmfChunk world = library.GetChunk(MapFileLoader.WorldChunk)
             ?? throw new RoomLibraryException("the library has no world chunk.");
+        RoomLibraryOptions options = RoomLibraryOptions.FromWorld(world);
 
         List<VmfChunk> entities = [.. library.GetChunks(MapFileLoader.EntityChunk)];
         List<Marker> markers = [.. entities.Where(IsRoomMarker).Select(ReadMarker)];
@@ -222,10 +232,15 @@ public static class RoomLibraryVmf
                 document.Chunks.Add(VmfPlacement.Clone(version));
             }
 
+            // The library's own settings stay out of the room: they are for
+            // the link, which reads them from the pack, not for the map.
             VmfChunk roomWorld = new(world.Name);
             foreach (VmfKey key in world.Keys)
             {
-                roomWorld.AddKey(key.Name, key.Value);
+                if (!RoomLibraryOptions.IsLibraryKey(key.Name))
+                {
+                    roomWorld.AddKey(key.Name, key.Value);
+                }
             }
 
             List<Box> localSolids = [];
@@ -247,7 +262,7 @@ public static class RoomLibraryVmf
             rooms.Add(new LibraryRoom(definition, marker.Corner, document));
         }
 
-        return new RoomLibrarySplit(rooms, libraryWide);
+        return new RoomLibrarySplit(rooms, libraryWide) { Options = options };
     }
 
     /// <summary>The plugs among a room's world brushes, as sockets in wall order.</summary>

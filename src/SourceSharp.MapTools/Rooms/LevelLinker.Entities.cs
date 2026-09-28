@@ -46,8 +46,18 @@ public static partial class LevelLinker
     /// are the keys every point entity reads its placement from; a key that
     /// holds a world position under another name is carried as written.
     /// </para>
+    /// <para>
+    /// An entity of a class the class table calls compile-only
+    /// (<see cref="EntityCost.CompileOnly"/>: one the tools consume, such as
+    /// <c>func_detail</c> or <c>prop_static</c>) is left out. vbsp already
+    /// clears every one of them, so a room it compiled has none and its
+    /// lump links exactly as before; a room built some other way that
+    /// still carries one would otherwise put an entity in the level that
+    /// the flattened level's compile drops, and that the entity budget
+    /// does not count.
+    /// </para>
     /// </remarks>
-    internal static BspLumpData MergeEntities(RoomPlan[] plans)
+    internal static BspLumpData MergeEntities(RoomPlan[] plans, EntityClassTable classes)
     {
         List<BspEntity> merged = [];
         BspEntity? world = null;
@@ -64,6 +74,11 @@ public static partial class LevelLinker
             {
                 if (!item.IsWorld)
                 {
+                    if (classes.Classify(ClassOf(item)) == EntityCost.CompileOnly)
+                    {
+                        continue;
+                    }
+
                     merged.Add(item.Error is null
                         ? TranslateEntity(item, plan.Transform, name, plan.OccluderBase)
                         : throw new LinkException(item.Error));
@@ -299,6 +314,25 @@ public static partial class LevelLinker
     {
         float turned = (yaw + (90f * turns)) % 360f;
         return turned < 0 ? turned + 360f : turned;
+    }
+
+    /// <summary>
+    /// A turned entity's class: its first <c>classname</c> key, matched
+    /// exactly, or an empty string; what <see cref="BspEntity.ClassName"/>
+    /// reads, so the link strips exactly what the entity counts call
+    /// compile-only.
+    /// </summary>
+    private static string ClassOf(RoomLinkEntity entity)
+    {
+        foreach (RoomLinkPair pair in entity.Pairs)
+        {
+            if (string.Equals(pair.Key, "classname", StringComparison.Ordinal))
+            {
+                return pair.Value ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
     }
 
     private static bool IsKey(string key, string name) => string.Equals(key, name, StringComparison.OrdinalIgnoreCase);

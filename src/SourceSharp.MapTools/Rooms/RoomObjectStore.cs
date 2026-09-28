@@ -44,7 +44,7 @@ namespace SourceSharp.MapTools.Rooms;
 /// </para>
 /// <para>
 /// Round-trip contract, and the reason the format exists at all: a room
-/// loaded back is what <see cref="LevelLinker.LinkAsync"/> consumes, and the
+/// loaded back is what <see cref="LevelLinker.LinkAsync(LevelLayout, RoomLibrary, Bsp.VbspContext, LevelLinkOptions, CancellationToken)"/> consumes, and the
 /// linker reads the room's BSP lumps byte-for-byte (its relocation refuses
 /// any lump it does not understand rather than dropping it), its vis rows,
 /// its cluster count, the definition, and the seal clusters. Every one of
@@ -142,7 +142,7 @@ public static class RoomObjectStore
     /// </summary>
     /// <param name="r">The stream to read from; the caller owns it.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
-    /// <returns>The room, ready for <see cref="LevelLinker.LinkAsync"/>.</returns>
+    /// <returns>The room, ready for <see cref="LevelLinker.LinkAsync(LevelLayout, RoomLibrary, Bsp.VbspContext, LevelLinkOptions, CancellationToken)"/>.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="LinkException">
     /// The container is not one this build reads: wrong magic, unknown

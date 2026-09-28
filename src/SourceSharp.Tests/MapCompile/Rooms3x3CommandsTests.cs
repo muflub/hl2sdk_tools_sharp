@@ -6,9 +6,11 @@
 //=============================================================================//
 
 using System.Globalization;
+using System.Text;
 
 using SourceSharp.MapCompile;
 using SourceSharp.MapFormats.Bsp;
+using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapGen.Rooms;
 using SourceSharp.MapTools.Io;
@@ -46,21 +48,42 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
         using StringWriter output = new();
         int exit = await RoomCommands.RunRoomAsync(fs, [], ["/sample/rooms.vmf", "-game", "/sample", "-out", "/sample/rooms.roompack"], output);
         Assert.True(exit == Program.ExitSuccess, output.ToString());
+        IReadOnlyDictionary<string, RoomEntityCounts> counts;
         using (MemoryStream pack = new(fs.GetBytes(VPath.Create(Rooted("/sample/rooms.roompack")))!))
         {
             RoomPackIndex index = await RoomPack.ReadIndexAsync(pack);
             Assert.Equal(Rooms3x3Kit.Kinds.Select(k => k.Name), index.Entries.Select(e => e.Name));
+
+            // The counts the pack stores are the counts of the rooms it holds.
+            IReadOnlyList<RoomObject> rooms = await RoomPack.LoadRoomsAsync(pack, index, [.. index.Entries.Select(e => e.Name)]);
+            Assert.All(rooms, room => Assert.Equal(RoomEntityCounts.Of(room.Bsp).Classes, room.EntityCounts!.Classes));
+            pack.Position = 0;
+            counts = await RoomPack.ReadEntityCountsAsync(pack, await RoomPack.ReadIndexAsync(pack));
         }
 
         foreach (string name in Levels())
         {
+            using StringWriter linkOutput = new();
             exit = await RoomCommands.RunLinkAsync(
                 fs,
                 [$"/sample/levels/{name}.yaml", "-rooms", "/sample/rooms.roompack", "-out", $"/sample/out/{name}.bsp"],
-                output);
-            Assert.True(exit == Program.ExitSuccess, output.ToString());
+                linkOutput);
+            Assert.True(exit == Program.ExitSuccess, linkOutput.ToString());
 
+            // The entity budget: the linked lump holds exactly what the pack's
+            // counts predict for the level, and the headroom line says so.
             byte[] written = fs.GetBytes(VPath.Create(Rooted($"/sample/out/{name}.bsp")))!;
+            LevelGrid level = LevelYaml.Parse(Encoding.UTF8.GetString(fs.GetBytes(VPath.Create(Rooted($"/sample/levels/{name}.yaml")))!), name);
+            long predicted = 1 + level.Placed.Sum(p => counts[p.Cell.Room].Tally(EntityClassTable.Default).Listed);
+            using (MemoryStream linkedMap = new(written))
+            {
+                Assert.Equal(predicted, EntityLump.Parse((await BspFile.LoadAsync(linkedMap))[BspLump.Entities]).Count);
+            }
+
+            Assert.StartsWith(
+                $"ssmap link: map entities {predicted} / budget 1536 (reserve 512, cap 2048); {predicted} entities in the entity list",
+                linkOutput.ToString(),
+                StringComparison.Ordinal);
             Rooms3x3Pair pair = await fixture.PairAsync(name);
             using MemoryStream api = new();
             await BspFile.SaveAsync(pair.Linked.Bsp, api, BspWriteMode.Canonical, CancellationToken.None);
@@ -74,6 +97,11 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
 
         Rooms3x3Pair sample = await fixture.PairAsync(Rooms3x3Permutations.LevelName);
         DoorGraphFacts.AssertDoorGraph(sample.Linked, sample.Layout, fixture.Library);
+
+        // With the pack beside the library, ssmap layout budgets every level
+        // (cap - reserve by default), and the sample's seeded levels, far
+        // under it, come out as they always did.
+        await AssertSeededLevelsAsync(fs);
     }
 
     /// <summary>
@@ -117,9 +145,14 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
     /// their seeds, run on the sample's own library.
     /// </summary>
     [Fact]
-    public async Task TheSampleSeededLevelsAreWhatSsmapLayoutWrites()
+    public async Task TheSampleSeededLevelsAreWhatSsmapLayoutWrites() => await AssertSeededLevelsAsync(Sample());
+
+    /// <summary>
+    /// Runs <c>ssmap layout</c> for each of the sample's seeds and holds the
+    /// level it writes to the checked-in one.
+    /// </summary>
+    private static async Task AssertSeededLevelsAsync(InMemoryFileSystem fs)
     {
-        InMemoryFileSystem fs = Sample();
         foreach (string name in Rooms3x3Permutations.SampleSeeds)
         {
             (_, ulong seed, double empty) = Rooms3x3Permutations.Seeds.Single(s => s.Name == name);

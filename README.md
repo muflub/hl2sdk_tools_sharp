@@ -256,16 +256,21 @@ Unzip it anywhere and compile against it with no Steam install:
 
 ```sh
 ssmap room <library.vmf> [-out <pack.roompack>] [vbsp options]
-ssmap rooms <library.vmf>
-ssmap link <level.yaml> [-rooms <pack.roompack>] [-out <map.bsp>]
+ssmap rooms <library.vmf> [-rooms <pack.roompack>]
+ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]
 ssmap link <level.yaml> --flatten [-out <map.vmf>]
-ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>] [-out <level.yaml>]
+ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
+             [-rooms <pack.roompack>] [-entity-budget <n>] [-out <level.yaml>]
 ```
 
 `ssmap rooms` lists a library without compiling it: each room's name, its
 cell's corner and size, and each door's wall, plug box (in library
 coordinates) and size. It reads and checks the library exactly as
-`ssmap room` does, so a library it lists is one the compile accepts.
+`ssmap room` does, so a library it lists is one the compile accepts. When
+the library's pack is there (`-rooms`, else `<library>.roompack` beside
+it), the listing opens with the library's entity budget and gives each
+room's entities as the room compile counted them: how many reach a linked
+map, and how many of those take an edict.
 
 A room pack is a function of its inputs: the same library and `ssmap`
 build write the same bytes at any `-threads` and on every run, and so does
@@ -355,6 +360,27 @@ of joined sockets left out and the capped ones kept. Compiled with
 library and seed always give the same file, sockets line up between rooms,
 and every room is reachable. `-empty` leaves that share of the cells
 without a room.
+
+**Entity budget.** The engine networks at most 2048 edicts, and at runtime
+the game's players, bots, weapons, projectiles and pickups take from the
+same cap, so a level may use `2048 - reserve` of them. The reserve is 512
+by default; a library sets its own with the worldspawn key
+`rooms_entity_reserve` (kept in the pack; it reaches neither the rooms nor
+the map), and `link -entity-reserve N` overrides both. `room` counts each
+room's entities by class and stores the counts in the pack; `link` totals
+them before it links anything (every class counts as an edict except the
+ones the tools consume, such as `func_detail` and `prop_static`, which the
+link strips), refuses a level over 2048, warns when one eats into the
+reserve, naming the rooms that cost the most, and always prints the
+headroom:
+
+```
+map entities 612 / budget 1536 (reserve 512, cap 2048); 931 entities in the entity list
+```
+
+`layout` keeps a generated level within the same budget when the pack has
+the rooms' counts, or within `-entity-budget N`; a budget no level of the
+library reaches changes nothing, so the same seed gives the same file.
 
 `samples/rooms-3x3/` is a worked example: a library of five room kinds, a
 3x3 level, its turns and some seeded levels. Its README runs it through

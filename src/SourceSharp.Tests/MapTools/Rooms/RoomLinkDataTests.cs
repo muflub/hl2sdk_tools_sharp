@@ -524,7 +524,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
         RoomObject hub = fixture.Library.Get("hub");
         RoomPackItem item = await RoomPackItem.CreateAsync(hub);
         Assert.Equal(
-            ["LNKA", "GEO0", "COL0", "GEO1", "COL1", "GEO2", "COL2", "GEO3", "COL3"],
+            ["ECNT", "LNKA", "GEO0", "COL0", "GEO1", "COL1", "GEO2", "COL2", "GEO3", "COL3"],
             item.Extra.Select(s => s.Tag));
         Assert.All(item.Extra, s => Assert.Equal((byte)RoomLinkCodec.None, s.Bytes.Span[0]));
 
@@ -534,7 +534,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
 
         RoomObject bare = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.PhysCollide, Array.Empty<byte>()));
         RoomPackItem uncooked = await RoomPackItem.CreateAsync(bare);
-        Assert.Equal(["LNKA", "GEO0", "GEO1", "GEO2", "GEO3"], uncooked.Extra.Select(s => s.Tag));
+        Assert.Equal(["ECNT", "LNKA", "GEO0", "GEO1", "GEO2", "GEO3"], uncooked.Extra.Select(s => s.Tag));
     }
 
     // ---- the link reads them --------------------------------------------------
@@ -603,7 +603,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
 
     /// <summary>
     /// A room the link refuses gets no link data and is packed with its
-    /// container alone, and a level placing it is refused at link with the
+    /// container and entity counts alone, and a level placing it is refused at link with the
     /// message the link always gave.
     /// </summary>
     [Fact]
@@ -613,7 +613,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
         RoomObject bad = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.DispInfo, new byte[176]));
         Assert.Null(await LevelLinker.TryPrecomputeAsync(bad, CancellationToken.None));
         RoomPackItem item = await RoomPackItem.CreateAsync(bad);
-        Assert.Empty(item.Extra);
+        Assert.Equal([RoomEntityCounts.SectionTag], item.Extra.Select(s => s.Tag));
 
         RoomLibrary library = RoomHarness.Library(bad, fixture.Library.Get("end"), fixture.Library.Get("hall"));
         LinkException refused = await Assert.ThrowsAsync<LinkException>(() => LinkBytesAsync(library, 1));
