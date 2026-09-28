@@ -114,9 +114,14 @@ public static class LevelFlattener
                 flatWorld.Children.Add(VmfPlacement.MoveSolid(solid, turn));
             }
 
+            // Points of interest are not entities of the map: the room
+            // compile takes them out (RoomPois), so the reference does too.
             foreach (VmfChunk entity in room.Document.GetChunks(MapFileLoader.EntityChunk))
             {
-                entities.Add(VmfPlacement.MoveEntity(entity, turn));
+                if (!RoomPois.IsPoi(entity))
+                {
+                    entities.Add(VmfPlacement.MoveEntity(entity, turn));
+                }
             }
         }
 

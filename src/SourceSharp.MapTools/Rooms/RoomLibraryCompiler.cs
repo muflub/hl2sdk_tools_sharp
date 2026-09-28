@@ -5,9 +5,12 @@
 //
 //=============================================================================//
 
+using SourceSharp.MapFormats.Text;
+
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Io;
+using SourceSharp.MapTools.Nav;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Phys;
@@ -18,13 +21,20 @@ namespace SourceSharp.MapTools.Rooms;
 /// <summary>How one room of a library compile ended.</summary>
 public sealed class RoomCompileOutcome
 {
-    internal RoomCompileOutcome(int index, LibraryRoom room, RoomObject? compiled, Exception? error)
+    internal RoomCompileOutcome(int index, LibraryRoom room, RoomObject? compiled, Exception? error, RoomNav? nav = null)
     {
         Index = index;
         Room = room;
         Compiled = compiled;
         Error = error;
+        Nav = nav;
     }
+
+    /// <summary>
+    /// The room's navigation at turn 0, or null when it failed or the
+    /// library builds none (<see cref="RoomLibraryCompileSettings.Nav"/>).
+    /// </summary>
+    public RoomNav? Nav { get; }
 
     /// <summary>The room's place in the library, from zero.</summary>
     public int Index { get; }
@@ -67,6 +77,16 @@ public sealed class RoomLibraryCompileSettings(VbspOptions options, IContentFile
     /// its one cooker thread, whoever asks.
     /// </remarks>
     public ICollisionCooker? CollisionCooker { get; init; }
+
+    /// <summary>
+    /// The library's navigation settings (<see cref="NavSettings.FromLibrary"/>),
+    /// or null to build none. With settings, each room's
+    /// <see cref="RoomPois"/> are taken out of its VMF before it compiles and
+    /// its navigation is built from its compile, on the room's own task;
+    /// without, the points are still taken out (they are never entities of
+    /// the map) and are dropped.
+    /// </summary>
+    public NavSettings? Nav { get; init; }
 
     /// <summary>
     /// How much of the machine the whole library may use: <c>-threads</c>.
@@ -187,6 +207,13 @@ public static class RoomLibraryCompiler
         cancellationToken.ThrowIfCancellationRequested();
 
         CompileParallelism parallelism = settings.Parallelism;
+        if (settings.Nav is { } nav && rooms.Count > 0)
+        {
+            // The library's grid and voxel either fit or every room would fail
+            // the same way: refused once, before any room compiles.
+            _ = nav.CellVoxels(rooms[0].Definition.CellSize);
+        }
+
         using SharedMaterialFacts materials = new(settings.Content);
         settings.MaterialsProbe?.Invoke(materials);
         CompilePool? owned = null;
@@ -290,9 +317,13 @@ public static class RoomLibraryCompiler
 
         try
         {
+            (VmfDocument document, IReadOnlyList<AuthoredPoi> pois) = RoomPois.Extract(room.Document);
             RoomObject compiled = await RoomCompiler
-                .CompileAsync(room.Document, room.Definition, context, cancellationToken).ConfigureAwait(false);
-            return new RoomCompileOutcome(index, room, compiled, null);
+                .CompileAsync(document, room.Definition, context, cancellationToken).ConfigureAwait(false);
+            RoomNav? nav = settings.Nav is { } navSettings
+                ? RoomNavBuilder.Build(room.Definition, compiled.Bsp, pois, room.Role, navSettings, cancellationToken)
+                : null;
+            return new RoomCompileOutcome(index, room, compiled, null, nav);
         }
         catch (Exception exception) when (IsRoomFailure(exception))
         {

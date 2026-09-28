@@ -25,10 +25,11 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
 {
     /// <summary>
     /// Further sections of the room, after its <see cref="RoomPack.RoomSection"/>:
-    /// none in this build. The room's precomputed data for the link goes here
-    /// as it is added (see <see cref="RoomPack"/>).
+    /// the room's precomputed data for the link, each under its own tag (the
+    /// navigation's <c>NVR0</c> to <c>NVR3</c>, <see cref="Nav.RoomNavSection"/>).
+    /// A reader that does not know a tag reads around it.
     /// </summary>
-    internal IReadOnlyList<RoomPackSectionData> Extra { get; init; } = [];
+    public IReadOnlyList<RoomPackSectionData> Extra { get; init; } = [];
 }
 
 /// <summary>Where one section sits in a pack.</summary>
@@ -91,7 +92,7 @@ public sealed class RoomPackIndex
         }
     }
 
-    /// <summary>The sections that belong to the whole library rather than to one room: none in this build.</summary>
+    /// <summary>The sections that belong to the whole library rather than to one room: the compile id (<see cref="RoomCompileIds.PackSection"/>) when <c>ssmap room</c> wrote the pack.</summary>
     public IReadOnlyList<RoomPackSection> LibrarySections { get; }
 
     /// <summary>The rooms, in the order the pack holds them (the library's).</summary>
@@ -133,7 +134,7 @@ public sealed class RoomPackIndex
 /// <listheader><term>Bytes</term><description>What</description></listheader>
 /// <item><term>8</term><description>The magic, <c>SSRPAK01</c> in ASCII (<see cref="Magic"/>).</description></item>
 /// <item><term>4</term><description><c>int32</c> format version (<see cref="Version"/>).</description></item>
-/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/> (0 in this build).</description></item>
+/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/>: <c>ssmap room</c> writes one, the compile id (<see cref="RoomCompileIds.PackSection"/>).</description></item>
 /// <item><term>4</term><description><c>int32</c> room count, 0 to <see cref="MaxRooms"/>.</description></item>
 /// <item><term>20 per library section</term><description>
 /// The library section table: tag, <c>int64</c> offset from the start of the pack, <c>int64</c> length.
@@ -145,7 +146,9 @@ public sealed class RoomPackIndex
 /// offset and <c>int64</c> length. The first section is the room's
 /// <see cref="RoomSection"/>, exactly the bytes
 /// <see cref="RoomObjectStore.SaveAsync"/> writes for it (the room container);
-/// it is the only one in this build.
+/// then, when the library builds navigation, the room's
+/// <see cref="Nav.RoomNavSection"/> sections (<c>NVR0</c>, and <c>NVR1</c> to
+/// <c>NVR3</c> when the turned copies are stored).
 /// </description></item>
 /// <item><term>the rest</term><description>
 /// Every section's bytes, back to back with nothing between: the library
@@ -248,11 +251,21 @@ public static class RoomPack
 
     /// <summary>
     /// <see cref="SaveAsync(IReadOnlyList{RoomPackItem}, Stream, CancellationToken)"/>
-    /// with library sections and the rooms' <see cref="RoomPackItem.Extra"/>
-    /// sections: what a later build writes, for the facts that prove this
-    /// one reads around them.
+    /// with library sections (the compile id, <see cref="RoomCompileIds.PackSection"/>)
+    /// and the rooms' <see cref="RoomPackItem.Extra"/> sections.
     /// </summary>
-    internal static async Task SaveAsync(
+    /// <param name="librarySections">The library's sections, in order.</param>
+    /// <param name="rooms">The rooms and their sections.</param>
+    /// <param name="w">The stream to write to, positioned where the pack starts; the caller owns it.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes once every byte is in the stream.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentException">
+    /// Too many rooms or sections, a tag that is not four printable
+    /// characters or repeats, a name that is not a room name or is too long,
+    /// or two names equal ignoring case.
+    /// </exception>
+    public static async Task SaveAsync(
         IReadOnlyList<RoomPackSectionData> librarySections,
         IReadOnlyList<RoomPackItem> rooms,
         Stream w,
@@ -571,6 +584,34 @@ public static class RoomPack
         }
 
         return rooms;
+    }
+
+    /// <summary>
+    /// Reads one section's bytes, a library's or a room's, from a pack whose
+    /// index was just read: the link's way to the sections beside a room's
+    /// container (its navigation) and the library's (its compile id), read
+    /// only when wanted.
+    /// </summary>
+    /// <param name="r">The pack; it must be able to seek.</param>
+    /// <param name="index">The pack's index, read from <paramref name="r"/>.</param>
+    /// <param name="section">The section, from <see cref="RoomPackIndex.LibrarySections"/> or an entry's <see cref="RoomPackEntry.Sections"/>.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The section's bytes.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="NotSupportedException">The stream cannot seek.</exception>
+    /// <exception cref="LinkException">The pack is cut short in the section.</exception>
+    public static async Task<byte[]> ReadSectionAsync(
+        Stream r, RoomPackIndex index, RoomPackSection section, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(r);
+        ArgumentNullException.ThrowIfNull(index);
+        if (index.Start is not long start)
+        {
+            throw new NotSupportedException("reading one section of a room pack needs a stream that can seek.");
+        }
+
+        r.Seek(start + section.Offset, SeekOrigin.Begin);
+        return await ReadSectionAsync(r, section, $"the \"{section.Tag}\" section", cancellationToken).ConfigureAwait(false);
     }
 
     private static void CheckSections(IReadOnlyList<RoomPackSectionData> sections, string owner)
