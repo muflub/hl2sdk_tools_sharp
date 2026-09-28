@@ -103,6 +103,12 @@ internal sealed class TapFileSystem(IFileSystem inner) : IFileSystem
         return inner.ReadAllAsync(path, cancellationToken);
     }
 
+    public ValueTask<FileRange> ReadRangeAsync(VPath path, long offset, int length, CancellationToken cancellationToken = default)
+    {
+        OnRead?.Invoke(path);
+        return inner.ReadRangeAsync(path, offset, length, cancellationToken);
+    }
+
     public ValueTask<Stream> OpenWriteAsync(VPath path, CancellationToken cancellationToken = default) =>
         inner.OpenWriteAsync(path, cancellationToken);
 
@@ -204,6 +210,17 @@ internal sealed class CountingContent(IContentFileSystem inner) : IContentFileSy
         }
 
         return await inner.ReadAsync(path, cancellationToken);
+    }
+
+    public async ValueTask<FileRange?> ReadRangeAsync(VPath path, long offset, int length, CancellationToken cancellationToken = default)
+    {
+        _reads.AddOrUpdate(ContentIndex.Fold(path), 1, (_, n) => n + 1);
+        if (BeforeRead is { } before)
+        {
+            await before(path, cancellationToken);
+        }
+
+        return await inner.ReadRangeAsync(path, offset, length, cancellationToken);
     }
 
     public IAsyncEnumerable<VPath> EnumerateAsync(

@@ -251,6 +251,12 @@ public sealed class SharedMaterialFacts : IDisposable
             return bytes is null ? null : PooledMemoryOwner.Copy(bytes);
         }
 
+        // Ranges are how the facts reader takes a texture's header: read
+        // through, like every other file that is not a VMT.
+        public ValueTask<FileRange?> ReadRangeAsync(
+            VPath path, long offset, int length, CancellationToken cancellationToken = default) =>
+            store.Content.ReadRangeAsync(path, offset, length, cancellationToken);
+
         public IAsyncEnumerable<VPath> EnumerateAsync(
             VPath directory, string searchPattern = "*", CancellationToken cancellationToken = default) =>
             store.Content.EnumerateAsync(directory, searchPattern, cancellationToken);
