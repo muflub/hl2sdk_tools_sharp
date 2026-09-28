@@ -8,3 +8,9 @@ tools/PerfTraceReport/obj/
 __pycache__/
 tools/SyntheticContent/bin/
 tools/SyntheticContent/obj/
+# Compile output beside the corpus maps: maps/ is test corpus, and a compile
+# run in place (ssmap all maps/ss_sandbox.vmf) writes these next to the .vmf.
+maps/*.bsp
+maps/*.prt
+maps/*.log
+maps/*.lin

@@ -427,7 +427,11 @@ public static class BenchCommand
     /// <param name="args">The arguments after <c>bench</c>.</param>
     /// <param name="output">Where the per-run summary lines go.</param>
     /// <param name="cancellationToken">Cancels the series.</param>
-    /// <returns>The process exit code.</returns>
+    /// <returns>
+    /// The process exit code: for a series, failure when any of its runs
+    /// (warm-up or timed) did not compile, even though the ledger records
+    /// every run either way.
+    /// </returns>
     public static async Task<int> RunAsync(
         PhysicalFileSystem disk,
         IReadOnlyList<VPath> searchRoots,
@@ -902,6 +906,13 @@ public static class BenchCommand
         (string[] snapFrom, string[] snapTo) = SnapshotStageInputs(map, stage);
 
         using StreamWriter ledger = new(outPath, append: false);
+        // Any run that did not compile, warm-up or timed, makes the series
+        // exit with failure. Every run is still in the ledger with its failure
+        // line, but a caller that reads only the exit code (a driver priming a
+        // warm-cache cell with one untimed run, say) must not take a failed
+        // series for a good one: that prime's store would be empty and the
+        // "warm" numbers would be a cold compile's.
+        bool anyFailed = false;
         for (int run = -warmups; run < runs; run++)
         {
             bool timed = run >= 0;
@@ -958,6 +969,7 @@ public static class BenchCommand
             await output.WriteLineAsync(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{cell} {(timed ? "run=" + run : "warmup")} wall={sample.WallSeconds:F3} cpu={sample.CpuSeconds:F3} rss={sample.PeakRssBytes / 1024}kB gc={sample.GcPauseSeconds * 1000:F0}ms{(outcome.Ok ? string.Empty : " FAILED " + outcome.Failure)}")).ConfigureAwait(false);
+            anyFailed |= !outcome.Ok;
             if (!outcome.Ok && !timed)
             {
                 break;
@@ -965,7 +977,7 @@ public static class BenchCommand
         }
 
         await ledger.FlushAsync(cancellationToken).ConfigureAwait(false);
-        return Program.ExitSuccess;
+        return anyFailed ? Program.ExitFailure : Program.ExitSuccess;
     }
 
     /// <summary>The command line one run of a cell hands its stage.</summary>

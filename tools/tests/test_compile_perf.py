@@ -6,8 +6,10 @@
 import itertools
 import json
 import os
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -159,7 +161,7 @@ class GameCopyTests(unittest.TestCase):
             with open(os.path.join(game, "gameinfo.txt"), "w") as fh:
                 fh.write(info)
             out = os.path.join(d, "out")
-            os.makedirs(out)
+            cp.claim_out(out)
 
             copy = cp.game_copy(game, out, strip=False)
             self.assertIn("appid_1", read_text(os.path.join(copy, "gameinfo.txt")))
@@ -398,10 +400,6 @@ class SummaryTests(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(d, "cells.csv")))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class BenchCommandTests(unittest.TestCase):
     class Runner:
         def ssmap(self, build):
@@ -449,3 +447,355 @@ class BenchCommandTests(unittest.TestCase):
         self.assertEqual("/cells/x/bench.jsonl", self.opt(timed, "--out"))
         # Each run starts from a freshly restored input.
         self.assertEqual(2, len(restored))
+
+
+def claimed(d, name="out"):
+    out = os.path.join(d, name)
+    cp.claim_out(out)
+    return out
+
+
+class OutFolderTests(unittest.TestCase):
+    """--out is deleted inside (game/, work/, a retried cell), so only a folder the tool made is used."""
+
+    def test_a_new_folder_is_made_and_marked(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "a", "b")
+            cp.claim_out(out)
+            self.assertTrue(os.path.isfile(os.path.join(out, cp.OUT_MARKER)))
+
+    def test_an_empty_existing_folder_is_taken(self):
+        with tempfile.TemporaryDirectory() as d:
+            cp.claim_out(d)
+            self.assertTrue(os.path.isfile(os.path.join(d, cp.OUT_MARKER)))
+
+    def test_a_folder_the_tool_made_is_taken_again_for_resume(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = claimed(d)
+            os.makedirs(os.path.join(out, "cells", "x"))
+            cp.claim_out(out)
+
+    def test_a_folder_with_someone_elses_files_is_refused_and_left_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "game", "mine"))
+            with self.assertRaises(SystemExit):
+                cp.claim_out(d)
+            self.assertTrue(os.path.isdir(os.path.join(d, "game", "mine")))
+            self.assertFalse(os.path.exists(os.path.join(d, cp.OUT_MARKER)))
+
+    def test_a_file_is_refused(self):
+        with tempfile.NamedTemporaryFile() as fh:
+            with self.assertRaises(SystemExit):
+                cp.claim_out(fh.name)
+
+    def test_the_game_copy_will_not_delete_a_game_folder_it_does_not_own(self):
+        # `--out .` from the repo root once meant deleting the repo's game/.
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "src")
+            os.makedirs(src)
+            theirs = os.path.join(d, "repo")
+            os.makedirs(os.path.join(theirs, "game"))
+            with open(os.path.join(theirs, "game", "keep.txt"), "w") as fh:
+                fh.write("x")
+            with self.assertRaises(RuntimeError):
+                cp.game_copy(src, theirs, strip=False)
+            self.assertTrue(os.path.exists(os.path.join(theirs, "game", "keep.txt")))
+
+    def test_the_work_folder_will_not_delete_a_folder_it_does_not_own(self):
+        with tempfile.TemporaryDirectory() as d:
+            theirs = os.path.join(d, "repo")
+            os.makedirs(os.path.join(theirs, "work"))
+            with open(os.path.join(theirs, "work", "keep.txt"), "w") as fh:
+                fh.write("x")
+            vmf = os.path.join(d, "m.vmf")
+            open(vmf, "w").close()
+            with self.assertRaises(RuntimeError):
+                cp.Inputs(None, theirs, vmf, [])
+            self.assertTrue(os.path.exists(os.path.join(theirs, "work", "keep.txt")))
+
+    def test_owned_rmtree_refuses_a_path_outside_the_folder(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = claimed(d)
+            outside = os.path.join(d, "elsewhere")
+            os.makedirs(outside)
+            for path in (outside, os.path.join(out, "..", "elsewhere"), out):
+                with self.assertRaises(RuntimeError):
+                    cp.owned_rmtree(out, path)
+            self.assertTrue(os.path.isdir(outside))
+            inside = os.path.join(out, "work")
+            os.makedirs(inside)
+            cp.owned_rmtree(out, inside)
+            self.assertFalse(os.path.exists(inside))
+            cp.owned_rmtree(out, inside)   # already gone is fine
+
+
+class FakeRunner:
+    """Stands in for Runner: each command's outcome comes from a script keyed by the log's name."""
+
+    def __init__(self, script):
+        self.script, self.calls = script, []
+
+    def ssmap(self, build):
+        return ["ssmap"]
+
+    def run(self, cmd, log, env=None, cwd=None, timeout=None):
+        name = os.path.basename(log)[:-4]
+        self.calls.append(name)
+        code, text, ledger = self.script[name]
+        with open(log, "ab") as fh:
+            fh.write(text.encode())
+        if ledger is not None:
+            with open(cmd[cmd.index("--out") + 1], "w") as fh:
+                fh.write("".join(json.dumps(s) + "\n" for s in ledger))
+        return code, 0.1, {}
+
+
+def sample(ok=True, timed=True, stored=0, cooked=0):
+    return {"Timed": timed, "Ok": ok, "WallSeconds": 1.0, "CacheBytesStored": stored, "CacheCooked": cooked}
+
+
+class RunCellTests(unittest.TestCase):
+    class Inputs:
+        work = "/nonexistent-work"
+
+        def restore(self, stage):
+            return "m.vmf"
+
+    class Args:
+        runs, warmups, game_dir, profile = 1, 0, None, []
+
+    def run_cell(self, d, script, cache="off"):
+        out = claimed(d)
+        matrix = cp.load_matrix(MATRIX)
+        settings = {a: v for a, v in matrix["baseline"].items() if "chain" in matrix["axes"][a]["stages"]}
+        settings["cache"] = cache
+        cid = "chain__cache-" + cache
+        cdir = os.path.join(out, "cells", cid)
+        runner = FakeRunner(script)
+        rec = cp.run_cell(runner, self.Inputs(), {"stage": "chain", "settings": settings}, cid, cdir, self.Args(),
+                          matrix, {"gpu": "", "vphysics": ""}, [], False)
+        return rec, runner, cdir
+
+    def test_a_retried_cell_is_judged_on_its_own_attempt_not_the_last_ones(self):
+        # --resume re-runs a cell whose cell.json is not ok; its old bench.log
+        # said FAILED, and appending to it once failed the cell forever.
+        with tempfile.TemporaryDirectory() as d:
+            cdir = os.path.join(claimed(d), "cells", "chain__cache-off")
+            os.makedirs(cdir)
+            with open(os.path.join(cdir, "bench.log"), "w") as fh:
+                fh.write("chain run=0 FAILED boom\n")
+            rec, _, cdir = self.run_cell(d, {"bench": (0, "chain run=0 wall=1.0\n", [sample()])})
+            self.assertEqual("ok", rec["status"], rec.get("failure"))
+            self.assertNotIn("FAILED", read_text(os.path.join(cdir, "bench.log")))
+
+    def test_a_failed_run_in_this_attempt_still_fails_the_cell(self):
+        with tempfile.TemporaryDirectory() as d:
+            rec, _, _ = self.run_cell(d, {"bench": (0, "chain run=0 FAILED boom\n", [sample(ok=False)])})
+            self.assertEqual("failed", rec["status"])
+            rec, _, _ = self.run_cell(d, {"bench": (1, "", [sample(ok=False)])})
+            self.assertEqual("failed", rec["status"])
+
+    def test_a_warm_cell_whose_prime_stored_nothing_fails_instead_of_timing_a_cold_compile(self):
+        with tempfile.TemporaryDirectory() as d:
+            rec, runner, _ = self.run_cell(d, {"bench-prime": (0, "", [sample(stored=0)]),
+                                               "bench": (0, "", [sample()])}, cache="warm")
+            self.assertEqual("failed", rec["status"])
+            self.assertIn("prime", rec["failure"])
+            self.assertEqual(["bench-prime"], runner.calls)
+
+    def test_a_warm_cell_whose_prime_exited_non_zero_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            rec, runner, _ = self.run_cell(d, {"bench-prime": (1, "", [sample(ok=False)]),
+                                               "bench": (0, "", [sample()])}, cache="warm")
+            self.assertEqual("failed", rec["status"])
+            self.assertIn("exited 1", rec["failure"])
+            self.assertEqual(["bench-prime"], runner.calls)
+
+    def test_a_warm_cell_whose_prime_filled_its_store_is_timed(self):
+        with tempfile.TemporaryDirectory() as d:
+            rec, runner, _ = self.run_cell(d, {"bench-prime": (0, "", [sample(stored=4096)]),
+                                               "bench": (0, "", [sample()])}, cache="warm")
+            self.assertEqual("ok", rec["status"], rec.get("failure"))
+            self.assertEqual(["bench-prime", "bench"], runner.calls)
+
+
+class PrimeLedgerTests(unittest.TestCase):
+    def problem(self, lines):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "bench-prime.jsonl")
+            if lines is not None:
+                with open(path, "w") as fh:
+                    fh.write("".join(json.dumps(s) + "\n" for s in lines))
+            return cp.prime_problem(path)
+
+    def test_each_way_a_prime_can_leave_no_store(self):
+        self.assertIn("no ledger", self.problem(None))
+        self.assertIn("no timed run", self.problem([sample(timed=False, stored=10)]))
+        self.assertIn("failed", self.problem([sample(ok=False, stored=10)]))
+        self.assertIn("stored nothing", self.problem([sample()]))
+
+    def test_a_prime_that_stored_rows_or_cooked_models_is_good(self):
+        self.assertIsNone(self.problem([sample(stored=1)]))
+        self.assertIsNone(self.problem([sample(cooked=2)]))
+
+
+class GpuCheckTests(unittest.TestCase):
+    class Inputs:
+        work = "/"
+
+        def restore(self, stage):
+            return "m"
+
+    def test_a_previous_attempts_decline_line_does_not_stop_a_corrected_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "gpu-check.log")
+            with open(log, "w") as fh:
+                fh.write("Warning VRAD0707: gpu tracer declined: no device matches \"foo\"\n")
+            runner = FakeRunner({"gpu-check": (0, "vrad done\n", None)})
+            cp.check_gpu(runner, self.Inputs(), [], "RTX", log)   # no SystemExit
+            self.assertNotIn("VRAD0707", read_text(log))
+
+    def test_a_decline_in_this_attempt_stops_the_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            runner = FakeRunner({"gpu-check": (0, "Warning VRAD0707: gpu tracer declined: nope\n", None)})
+            with self.assertRaises(SystemExit):
+                cp.check_gpu(runner, self.Inputs(), [], "RTX", os.path.join(d, "gpu-check.log"))
+
+    def plan(self, stages):
+        with tempfile.NamedTemporaryFile(suffix=".vmf", delete=False) as fh:
+            vmf = fh.name
+        try:
+            return cp.plan(cp.parse_args(["--map", vmf, "--gpu", "RTX", "--stages", stages]))[3]
+        finally:
+            os.remove(vmf)
+
+    def test_the_check_runs_only_when_a_chosen_stage_has_a_gpu_cell(self):
+        # The tracer axis has a gpu value whatever --stages says; only the
+        # cells tell whether any stage that runs will use it.
+        self.assertFalse(cp.needs_gpu_check(self.plan("vbsp,vvis")))
+        self.assertTrue(cp.needs_gpu_check(self.plan("vrad")))
+        self.assertTrue(cp.needs_gpu_check(self.plan("chain")))
+
+
+class RunnerTimeoutTests(unittest.TestCase):
+    class Args:
+        dotnet = "dotnet"
+
+    def test_a_command_past_its_timeout_is_stopped_and_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "t.log")
+            start = time.monotonic()
+            code, _, _ = cp.Runner(self.Args()).run(["sh", "-c", "sleep 30"], log, timeout=0.3)
+            self.assertLess(time.monotonic() - start, 10)
+            self.assertEqual(cp.TIMEOUT_EXIT, code)
+            self.assertIn("timed out after 0.3 s", read_text(log))
+
+    def test_a_timeout_stops_the_commands_children_too(self):
+        # dotnet-trace and perf run the compile as their child; stopping only
+        # the wrapper would leave the compile running.
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "t.log")
+            pid = os.path.join(d, "pid")
+            cp.Runner(self.Args()).run(["sh", "-c", f"sleep 30 & echo $! > {pid}; wait"], log, timeout=0.5)
+            child = int(read_text(pid))
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline and alive(child):
+                time.sleep(0.05)
+            self.assertFalse(alive(child))
+
+    def test_a_command_inside_its_timeout_keeps_its_own_exit_code(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "t.log")
+            code, _, ru = cp.Runner(self.Args()).run(["sh", "-c", "echo hi; exit 3"], log, timeout=30)
+            self.assertEqual(3, code)
+            self.assertIn("hi", read_text(log))
+            self.assertIn("user_s", ru)
+            code, _, _ = cp.Runner(self.Args()).run(["sh", "-c", "exit 0"], log)
+            self.assertEqual(0, code)
+
+
+def alive(pid):
+    """Whether pid is a live process (a zombie counts as gone)."""
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            return fh.read().split(")")[-1].split()[0] != "Z"
+    except OSError:
+        return False
+
+
+class HeapTimelineTests(unittest.TestCase):
+    """Each snapshot is labelled with when it was taken, not n * interval."""
+
+    def test_snapshot_times_are_measured(self):
+        with tempfile.TemporaryDirectory() as d:
+            gcdump = os.path.join(d, "dotnet-gcdump")
+            with open(gcdump, "w") as fh:
+                # collect -p PID -o PATH writes the dump; report PATH prints one type row.
+                fh.write('#!/bin/sh\nif [ "$1" = collect ]; then sleep 0.2; echo x > "$5"; '
+                         'else echo "  1,048,576  1  System.Byte[]"; fi\n')
+            os.chmod(gcdump, 0o755)
+
+            class R:
+                def tool(self, name):
+                    return gcdump
+
+                def ssmap(self, build):
+                    return ["sh", "-c", "sleep 1.6"]
+
+            class I:
+                work = d
+
+            result = cp.heap_snapshots(R(), d, lambda name: ("m", None), lambda name, store: None, {}, I(), "vrad",
+                                       "jit", [], 1, [], 0.5)
+            self.assertEqual(0, result["exit"])
+            with open(os.path.join(d, "heap.json")) as fh:
+                timeline = json.load(fh)["timeline"]
+            self.assertGreaterEqual(len(timeline), 2)
+            # The first is taken 0.25 s in, not at 0; each later one follows
+            # the previous one's collect (0.2 s here) plus the interval.
+            self.assertGreaterEqual(timeline[0]["at_s"], 0.2)
+            for a, b in zip(timeline, timeline[1:]):
+                self.assertGreaterEqual(b["at_s"] - a["at_s"], 0.5 + 0.2 - 0.05)
+            self.assertTrue(all(t["collect_s"] >= 0.15 for t in timeline))
+
+
+class PerfMapTests(unittest.TestCase):
+    def test_the_wrapper_records_the_pid_the_command_runs_as(self):
+        with tempfile.TemporaryDirectory() as d:
+            pidfile = os.path.join(d, "pid")
+            out = subprocess.run(cp.pid_wrapped(["sh", "-c", "echo $$"], pidfile), capture_output=True, text=True)
+            self.assertEqual(out.stdout.strip(), read_text(pidfile).strip())
+
+    def test_only_the_recorded_processs_map_files_are_removed(self):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = os.path.join(d, "tmp")
+            os.makedirs(tmp)
+            mine = ["perf-41.map", "perfinfo-41.map", "jit-41.dump"]
+            theirs = ["perf-4.map", "perf-411.map", "perfinfo-42.map"]
+            for n in mine + theirs:
+                open(os.path.join(tmp, n), "w").close()
+            pidfile = os.path.join(d, "pid")
+            with open(pidfile, "w") as fh:
+                fh.write("41\n")
+            self.assertEqual(sorted(mine), sorted(os.path.basename(p) for p in cp.remove_perf_maps(pidfile, tmp)))
+            self.assertEqual(sorted(theirs), sorted(os.listdir(tmp)))
+            self.assertFalse(os.path.exists(pidfile))
+
+    def test_no_pid_file_removes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            open(os.path.join(d, "perf-1.map"), "w").close()
+            self.assertEqual([], cp.remove_perf_maps(os.path.join(d, "missing"), d))
+            self.assertEqual(["perf-1.map"], os.listdir(d))
+
+
+class ScriptEntryTests(unittest.TestCase):
+    def test_running_the_file_as_a_script_runs_every_class(self):
+        # unittest.main() once sat above the last class, so running this file
+        # directly skipped it; it must stay the last statement.
+        with open(os.path.abspath(__file__), encoding="utf-8") as fh:
+            tail = [l for l in fh.read().splitlines() if l.strip()][-2:]
+        self.assertEqual(['if __name__ == "__main__":', "    unittest.main()"], tail)
+
+
+if __name__ == "__main__":
+    unittest.main()
