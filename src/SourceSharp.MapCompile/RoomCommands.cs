@@ -184,6 +184,8 @@ public static class RoomCommands
             return ExitFailed;
         }
 
+        await VbspCommand.WriteSkippedAsync(mounted, "ssmap room", output).ConfigureAwait(false);
+
         // The format pipeline, exactly where vbsp runs it: after the mount
         // (it reads the appid and Tools key off the mounted gameinfo), before
         // the compile.

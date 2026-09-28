@@ -62,7 +62,7 @@ public class WorkQueueLoopTests
         using CompilePool pool = new(4);
         using WorkQueue queue = new(hostScheduler ? OnScheduler(4) : On(pool, 4));
         LoopWaker waker = new();
-        Schedule schedule = new(total: 4000, offeredAtStart: 1) { OnRun = s => s.Offer(2, waker) };
+        Schedule schedule = new(total: 4000, offeredAtStart: 1) { OnRun = (s, _) => s.Offer(2, waker) };
 
         await queue.RunLoopAsync<object?>(
             (_, _) => schedule.Step(),
@@ -86,7 +86,7 @@ public class WorkQueueLoopTests
         LoopWaker waker = new();
         Schedule schedule = new(total: 4, offeredAtStart: 0);
         using Barrier together = new(4);
-        schedule.OnRun = _ => Assert.True(together.SignalAndWait(Patience));
+        schedule.OnRun = (_, _) => Assert.True(together.SignalAndWait(Patience));
 
         Task run = queue.RunLoopAsync<object?>(
             (_, _) => schedule.Step(),
@@ -123,7 +123,7 @@ public class WorkQueueLoopTests
         // holds it until the other three have found nothing and are waiting
         // again, so they are woken only by the finish.
         int idleBefore = schedule.IdleAnswers;
-        schedule.OnRun = s => Assert.True(SpinWait.SpinUntil(() => s.IdleAnswers >= idleBefore + 3, Patience));
+        schedule.OnRun = (s, _) => Assert.True(SpinWait.SpinUntil(() => s.IdleAnswers >= idleBefore + 3, Patience));
         schedule.Offer(1, waker);
         await run.WaitAsync(Stuck);
     }
@@ -231,13 +231,28 @@ public class WorkQueueLoopTests
     [MemberData(nameof(BothPaths))]
     public async Task AFaultInOneBodyFaultsTheRun(bool hostScheduler)
     {
-        using CompilePool pool = new(3);
-        using WorkQueue queue = new(hostScheduler ? OnScheduler(3) : On(pool, 3));
+        // Units 499 and 500 are held together, both taken and neither done, so
+        // the run has another unit in flight on another worker when 500
+        // throws. The fault must still be what the run reports.
+        //
+        // The unit that throws is named by its own index. This fact used to
+        // pick it by the count of units done so far ("throw when 500 are
+        // done"), and two units in flight at once read the same count: at 499
+        // both, then the count went to 501 and no unit ever saw 500, so
+        // nothing threw and the run rightly succeeded (a windows CI run).
+        using CompilePool pool = new(2);
+        using WorkQueue queue = new(hostScheduler ? OnScheduler(2) : On(pool, 2));
+        using Barrier together = new(2);
         Schedule schedule = new(total: 1000, offeredAtStart: 1000)
         {
-            OnRun = s =>
+            OnRun = (_, unit) =>
             {
-                if (s.Done == 500)
+                if (unit is 499 or 500)
+                {
+                    Assert.True(together.SignalAndWait(Patience));
+                }
+
+                if (unit == 500)
                 {
                     throw new InvalidTimeZoneException("unit 500");
                 }
@@ -248,6 +263,38 @@ public class WorkQueueLoopTests
             queue.RunLoopAsync<object?>((_, _) => schedule.Step(), _ => null, new LoopWaker(), null, CancellationToken.None)
                 .WaitAsync(Patience));
         Assert.Equal("unit 500", error.Message);
+    }
+
+    [Theory]
+    [MemberData(nameof(BothPaths))]
+    public async Task AFaultWinsOverAnotherWorkerFinishingTheRun(bool hostScheduler)
+    {
+        // Worker 0's body throws only after worker 1's has said the run is
+        // finished: the run's end and its fault race, and a failure must never
+        // be reported as success.
+        using CompilePool pool = new(2);
+        using WorkQueue queue = new(hostScheduler ? OnScheduler(2) : On(pool, 2));
+        int finished = 0;
+
+        Task run = queue.RunLoopAsync<object?>(
+            (_, worker) =>
+            {
+                if (worker.WorkerIndex != 0)
+                {
+                    Volatile.Write(ref finished, 1);
+                    return LoopStep.Finished;
+                }
+
+                Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref finished) == 1, Patience));
+                throw new InvalidTimeZoneException("after the finish");
+            },
+            _ => null,
+            new LoopWaker(),
+            null,
+            CancellationToken.None);
+
+        InvalidTimeZoneException error = await Assert.ThrowsAsync<InvalidTimeZoneException>(() => run.WaitAsync(Patience));
+        Assert.Equal("after the finish", error.Message);
     }
 
     [Theory]
@@ -378,7 +425,9 @@ public class WorkQueueLoopTests
 
         public int[] Runs { get; } = new int[total];
 
-        public Action<Schedule>? OnRun { get; set; }
+        // Runs inside each unit with the unit's own index (its place in the
+        // take order), before the unit counts as done.
+        public Action<Schedule, int>? OnRun { get; set; }
 
         public int Done => Volatile.Read(ref _done);
 
@@ -412,7 +461,7 @@ public class WorkQueueLoopTests
                 if (seen == taken)
                 {
                     Interlocked.Increment(ref Runs[taken]);
-                    OnRun?.Invoke(this);
+                    OnRun?.Invoke(this, taken);
                     return Interlocked.Increment(ref _done) >= total
                         ? LoopStep.Finished
                         : LoopStep.Worked;
