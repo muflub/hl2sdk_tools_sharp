@@ -48,6 +48,56 @@ public class VisSpeculationTests
 
     private static VisRepairTree NewTree(int levels = 3) => new(_ => { }, levels);
 
+    // ---- the record vectors' pool -----------------------------------------
+
+    [Fact]
+    public void ARecordVectorGivenBackDirtyIsRentedOutClean()
+    {
+        // Vectors are cleared when rented rather than when given back (the
+        // giving back happens under the schedule's gate), so a vector a run
+        // filled comes out of the pool empty all the same.
+        VisTightening ranking = new Grid().Ranking;
+        ulong[] first = ranking.RentVector();
+        Assert.All(first, w => Assert.Equal(0UL, w));
+        Array.Fill(first, ulong.MaxValue);
+        ranking.ReturnVector(first);
+
+        ulong[] again = ranking.RentVector();
+        Assert.Same(first, again);
+        Assert.All(again, w => Assert.Equal(0UL, w));
+        Assert.Equal(1, ranking.VectorsPeak);
+    }
+
+    [Fact]
+    public void MissedAnythingAgreesWithTheWordByWordTestOnEveryLengthAndBit()
+    {
+        // The four-word form against the definition: every length up to 21
+        // words (so the four-word loop ends on every remainder), a single
+        // shared bit at every position, and vectors that overlap nowhere.
+        for (int length = 0; length <= 21; length++)
+        {
+            ulong[] none = new ulong[length];
+            ulong[] all = new ulong[length];
+            Array.Fill(all, ulong.MaxValue);
+            Assert.False(VisRepairTree.MissedAnything(none, all));
+            Assert.False(VisRepairTree.MissedAnything(all, none));
+
+            for (int bit = 0; bit < length * 64; bit += 7)
+            {
+                ulong[] missed = new ulong[length];
+                ulong[] final = new ulong[length];
+                BitVectorOps.SetBit(missed, bit);
+                BitVectorOps.SetBit(final, bit);
+                Assert.True(VisRepairTree.MissedAnything(missed, final));
+
+                // The neighbouring bit instead: disjoint, so nothing missed.
+                BitVectorOps.ClearBit(final, bit);
+                BitVectorOps.SetBit(final, bit ^ 1);
+                Assert.False(VisRepairTree.MissedAnything(missed, final));
+            }
+        }
+    }
+
     // ---- VisSpeculativeReads ------------------------------------------------
 
     [Fact]

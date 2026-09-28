@@ -5,6 +5,9 @@
 //
 //=============================================================================//
 
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+
 namespace SourceSharp.MapTools.Vis;
 
 /// <summary>
@@ -360,7 +363,25 @@ internal sealed class VisRepairTree
     /// <returns>True when some read produced a smaller intersection than the exact one.</returns>
     internal static bool MissedAnything(ReadOnlySpan<ulong> missed, ReadOnlySpan<ulong> final)
     {
-        for (int j = 0; j < missed.Length; j++)
+        // Four words at a time where the CPU has 256-bit vectors: this runs
+        // under VisTightening's gate, once per record of every judged run,
+        // and a yes-or-no over the whole vector does not depend on the order
+        // or grouping of the words it looks at.
+        int j = 0;
+        if (Vector256.IsHardwareAccelerated && final.Length >= missed.Length)
+        {
+            ref ulong m = ref MemoryMarshal.GetReference(missed);
+            ref ulong f = ref MemoryMarshal.GetReference(final);
+            for (; j + 4 <= missed.Length; j += 4)
+            {
+                if ((Vector256.LoadUnsafe(ref m, (nuint)j) & Vector256.LoadUnsafe(ref f, (nuint)j)) != Vector256<ulong>.Zero)
+                {
+                    return true;
+                }
+            }
+        }
+
+        for (; j < missed.Length; j++)
         {
             if ((missed[j] & final[j]) != 0)
             {

@@ -462,6 +462,7 @@ internal sealed class VisPortalFlow
 
         ReadOnlySpan<int> candidates = _portals.ClusterPortals(cluster);
         int end = to < 0 ? candidates.Length : to;
+        PrefetchCandidates(candidates, from, end, prevMightSee, mightExtent);
         VisFrameLedger? ledger = _splitter is null ? null : _ledger;
         ledger?.Enter(depth, cluster, node, end);
         for (int i = from; i < (ledger is null ? end : ledger.End(depth)); i++)
@@ -777,6 +778,55 @@ internal sealed class VisPortalFlow
                 context);
             _chain?.RemoveAt(_chain.Count - 1);
         }
+    }
+
+    /// <summary>
+    /// Hints the words of every candidate vector a frame will intersect into
+    /// cache, before the frame tests the first of them.
+    /// </summary>
+    /// <param name="candidates">The frame's cluster's portals.</param>
+    /// <param name="from">The first candidate the frame walks.</param>
+    /// <param name="end">One past the last.</param>
+    /// <param name="prevMightSee">The frame's might-see mask: a candidate whose bit is clear is never tested.</param>
+    /// <param name="mightExtent">The words the intersection reads.</param>
+    /// <returns>How many lines were hinted, for the facts.</returns>
+    /// <remarks>
+    /// The vector hinted is the one the candidate loop will read: the
+    /// candidate's <c>portalvis</c> when its rank is below the limit (whether
+    /// that read is of the finished vector or a speculative one, it is that
+    /// array), its flood otherwise. Hinting a candidate the sphere tests then
+    /// reject costs a line fetched for nothing; that is cheaper than deciding
+    /// the sphere tests twice. See <see cref="VisPrefetch"/> for why none of
+    /// this can change what the flow computes.
+    /// </remarks>
+    internal int PrefetchCandidates(
+        ReadOnlySpan<int> candidates,
+        int from,
+        int end,
+        ReadOnlySpan<ulong> prevMightSee,
+        (int Lo, int Hi) mightExtent)
+    {
+        if (!System.Runtime.Intrinsics.X86.Sse.IsSupported || mightExtent.Hi <= mightExtent.Lo)
+        {
+            return 0;
+        }
+
+        int lines = 0;
+        for (int i = from; i < end; i++)
+        {
+            int pnum = candidates[i];
+            if (!BitVectorOps.GetBit(prevMightSee, pnum))
+            {
+                continue;
+            }
+
+            ReadOnlySpan<ulong> vector = _rank is not null && _rank[pnum] < _limit
+                ? _state.Vis(pnum)
+                : _state.Flood(pnum);
+            lines += VisPrefetch.Lines(vector[mightExtent.Lo..mightExtent.Hi]);
+        }
+
+        return lines;
     }
 
     /// <summary>
