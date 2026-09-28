@@ -402,8 +402,23 @@ internal static class IvpHalfspaceSoup<T, TP>
             }
         }
 
-        InsertMerged(new IvpPoint<T>(px, py, pz, T.Zero), points, merge2);
+        InsertMerged(new IvpPoint<T>(Canonical(px), Canonical(py), Canonical(pz), T.Zero), points, merge2);
     }
+
+    /// <summary>
+    /// A NaN coordinate as the one NaN every CPU agrees on, <c>T.NaN</c>; any other value as is.
+    /// </summary>
+    /// <remarks>
+    /// A soup with a NaN or infinite plane (a zero-area triangle's normal, say) yields corners
+    /// with NaN coordinates, and they reach the output: a NaN passes every inside test and is
+    /// never merged. IEEE 754 fixes no NaN's sign or payload. x86 generates one NaN,
+    /// sign set (<c>FFF8…</c> in double, the reference build's value too), so its corners were
+    /// always that; arm64 generates a positive one (<c>7FF8…</c>) but propagates an input NaN's
+    /// own sign, so its corner bits depended on which operation first made the NaN, and moved
+    /// with the order of the arithmetic. Every NaN is written as <c>T.NaN</c> instead, which
+    /// is x86's value: nothing changes there, and arm64 now writes the same bytes.
+    /// </remarks>
+    private static T Canonical(T value) => T.IsNaN(value) ? T.NaN : value;
 
     /// <summary>
     /// Append a point unless one is already within the merge distance. Whether any is within the

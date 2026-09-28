@@ -225,15 +225,51 @@ public class IvpCornerPointsTests(ITestOutputHelper output)
 
     private static void AssertSame(List<IvpPoint<double>> soup, double merge, string what) =>
         AssertBits(
-            IvpCornerPointsReference<double, CorrectPrecision>.CornerPoints(soup, merge),
+            Canonical(IvpCornerPointsReference<double, CorrectPrecision>.CornerPoints(soup, merge)),
             IvpHalfspaceSoup<double, CorrectPrecision>.CornerPoints(soup, merge),
             what);
 
     private static void AssertSame(List<IvpPoint<float>> soup, float merge, string what) =>
         AssertBits(
-            IvpCornerPointsReference<float, StockPrecision>.CornerPoints(soup, merge),
+            Canonical(IvpCornerPointsReference<float, StockPrecision>.CornerPoints(soup, merge)),
             IvpHalfspaceSoup<float, StockPrecision>.CornerPoints(soup, merge),
             what);
+
+    /// <summary>
+    /// The reference's corners with every NaN coordinate written as <c>T.NaN</c>, the one
+    /// difference the loop makes on purpose (see <c>IvpHalfspaceSoup.Canonical</c>). On x86 this
+    /// changes nothing, because x86's NaN already is <c>T.NaN</c>; on arm64 the reference's NaN
+    /// bits depend on which operation made the NaN, and are not something to match.
+    /// </summary>
+    private static List<IvpPoint<T>> Canonical<T>(List<IvpPoint<T>> points)
+        where T : unmanaged, IBinaryFloatingPointIeee754<T> =>
+        [.. points.Select(static p => new IvpPoint<T>(
+            T.IsNaN(p.X) ? T.NaN : p.X, T.IsNaN(p.Y) ? T.NaN : p.Y, T.IsNaN(p.Z) ? T.NaN : p.Z, p.W))];
+
+    /// <summary>
+    /// A NaN corner is written as <c>T.NaN</c>, whatever NaN the arithmetic made, so the
+    /// bytes are the same on x86 and arm64.
+    /// </summary>
+    [Fact]
+    public void ANaNCornerIsTheCanonicalNaN()
+    {
+        List<(double, double, double, double)> planes = [.. Box(1.0), (double.NaN, 0, 0, 1), (0, double.PositiveInfinity, 0, 1)];
+        foreach (IvpPoint<double> p in IvpHalfspaceSoup<double, CorrectPrecision>.CornerPoints(Soup<double>(planes), 0.01))
+        {
+            foreach (double c in new[] { p.X, p.Y, p.Z })
+            {
+                Assert.True(!double.IsNaN(c) || BitConverter.DoubleToInt64Bits(c) == BitConverter.DoubleToInt64Bits(double.NaN));
+            }
+        }
+
+        foreach (IvpPoint<float> p in IvpHalfspaceSoup<float, StockPrecision>.CornerPoints(Soup<float>(planes), 0.01f))
+        {
+            foreach (float c in new[] { p.X, p.Y, p.Z })
+            {
+                Assert.True(!float.IsNaN(c) || BitConverter.SingleToInt32Bits(c) == BitConverter.SingleToInt32Bits(float.NaN));
+            }
+        }
+    }
 
     private static void AssertBits<T>(List<IvpPoint<T>> expected, List<IvpPoint<T>> actual, string what)
         where T : unmanaged, IBinaryFloatingPointIeee754<T>
