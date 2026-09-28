@@ -49,18 +49,41 @@ public sealed class NavSettingsTests
         Assert.Equal(new Vec3(-16, -16, 0), settings.Agents[0].Mins);
         Assert.Equal(new Vec3(16, 16, 72), settings.Agents[0].Maxs);
         Assert.NotNull(NavSettings.FromLibrary(new VmfDocument()));
+        Assert.Equal((18f, 56f, 100f, 2f, 1.5f), (settings.StepHeight, settings.JumpHeight, settings.JumpDistance, settings.WaterCost, settings.LadderCost));
+        Assert.Equal((Nav3dClipClass.Player, Nav3dClipClass.Npc), (settings.Agents[0].ClipClass, settings.Agents[1].ClipClass));
     }
 
     [Fact]
     public void TheKeysSetTheVoxelTheSlopeAndTheAgents()
     {
         NavSettings settings = NavSettings.FromLibrary(Library(
-            ("nav_voxel_size", "8"), ("nav_max_slope", "60"), ("nav_agents", "big 48 96 npc;tiny 8 8 0x9")))!;
+            ("nav_voxel_size", "8"), ("nav_max_slope", "60"), ("nav_agents", "big 48 96 npc;tiny 8 8 0x0202400B"),
+            ("nav_step_height", "12"), ("nav_jump_height", "0"), ("nav_jump_distance", "64"), ("nav_cost_water", "4"), ("nav_cost_ladder", "0.5")))!;
         Assert.Equal(8f, settings.VoxelSize);
         Assert.Equal(0.5f, settings.FloorNormalZ, 6);
-        Assert.Equal([new NavAgentSpec("big", 48, 96, Nav3dFormat.NpcSolidMask), new NavAgentSpec("tiny", 8, 8, 9)], settings.Agents);
+        Assert.Equal([new NavAgentSpec("big", 48, 96, Nav3dFormat.NpcSolidMask), new NavAgentSpec("tiny", 8, 8, Nav3dFormat.NpcSolidMask)], settings.Agents);
         Assert.Equal(-1, settings.PlayerAgent);
         Assert.Equal(32, settings.CellVoxels(256));
+        Assert.Equal((12f, 0f, 64f, 4f, 0.5f), (settings.StepHeight, settings.JumpHeight, settings.JumpDistance, settings.WaterCost, settings.LadderCost));
+        Assert.Equal((256, 1024, 128, 512), (settings.Cost(false, false), settings.Cost(true, false), settings.Cost(false, true), settings.Cost(true, true)));
+    }
+
+    /// <summary>Presets are optional: the grid does not depend on them, so an empty list builds a library with none.</summary>
+    [Fact]
+    public void AnEmptyPresetListIsNoPresets()
+    {
+        Assert.Empty(NavSettings.FromLibrary(Library(("nav_agents", " ; ")))!.Agents);
+        Assert.Empty(NavSettings.ParseAgents(string.Empty));
+        Assert.Equal(-1, (NavSettings.Default with { Agents = [] }).PlayerAgent);
+    }
+
+    [Fact]
+    public void ACostIsTheFlagsMultipliersInFixedPointAndNeverZero()
+    {
+        NavSettings settings = NavSettings.Default;
+        Assert.Equal((256, 512, 384, 768), (settings.Cost(false, false), settings.Cost(true, false), settings.Cost(false, true), settings.Cost(true, true)));
+        Assert.Equal(1, (settings with { WaterCost = 0.0001f }).Cost(true, false));
+        Assert.Equal(ushort.MaxValue, (settings with { WaterCost = 255, LadderCost = 255 }).Cost(true, true));
     }
 
     [Fact]
@@ -71,13 +94,18 @@ public sealed class NavSettingsTests
     [InlineData("nav_voxel_size", "x", "not a positive number")]
     [InlineData("nav_max_slope", "90", "above 0 and below 90")]
     [InlineData("nav_max_slope", "0", "above 0 and below 90")]
-    [InlineData("nav_agents", "a 1", "not \"name width height [mask]\"")]
+    [InlineData("nav_agents", "a 1", "not \"name width height [class]\"")]
     [InlineData("nav_agents", "a-b 1 2", "letters, digits and _")]
     [InlineData("nav_agents", "a 1 2; a 3 4", "two nav agents are named \"a\"")]
     [InlineData("nav_agents", "a 0 2", "positive width and height")]
-    [InlineData("nav_agents", "a 1 2 wobble", "a mask is player, npc or a non-zero number")]
-    [InlineData("nav_agents", "a 1 2 0", "a mask is player, npc or a non-zero number")]
-    [InlineData("nav_agents", " ; ", "names 0 agents")]
+    [InlineData("nav_agents", "a 1 2 wobble", "a class is player, npc, or a number equal to one of their contents masks")]
+    [InlineData("nav_agents", "a 1 2 0", "a class is player, npc, or a number equal to one of their contents masks")]
+    [InlineData("nav_agents", "a 1 2 0x9", "a class is player, npc, or a number equal to one of their contents masks")]
+    [InlineData("nav_step_height", "-1", "not 0 or more units")]
+    [InlineData("nav_jump_height", "x", "not 0 or more units")]
+    [InlineData("nav_jump_distance", "NaN", "not 0 or more units")]
+    [InlineData("nav_cost_water", "0", "not a multiplier above 0 and at most 255")]
+    [InlineData("nav_cost_ladder", "300", "not a multiplier above 0 and at most 255")]
     public void AMalformedKeyIsRefusedNamingIt(string key, string value, string expected)
     {
         RoomLibraryException refused = Assert.Throws<RoomLibraryException>(() => NavSettings.FromLibrary(Library((key, value))));

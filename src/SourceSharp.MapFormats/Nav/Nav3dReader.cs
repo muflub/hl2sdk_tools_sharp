@@ -106,7 +106,7 @@ public sealed class Nav3dReader
         (_leafColumn, _blockCell) = DeriveColumns();
         (_adjacencyStart, _adjacency) = DeriveAdjacency();
         (_jumpStart, _jumpIndex) = DeriveJumps();
-        _poiLeaf = [.. Enumerable.Range(0, PoiCount).Select(p => FindLeaf(PoiPosition(p)))];
+        _poiLeaf = [.. Enumerable.Range(0, PoiCount).Select(PoiLeafOf)];
         (_obstacleStart, _obstacleLeaves) = DeriveObstacleLeaves();
         _components = new int[PresetCount][];
         _componentCounts = new int[PresetCount];
@@ -813,10 +813,36 @@ public sealed class Nav3dReader
     public ReadOnlySpan<byte> PoiTypeUtf8(int poi) =>
         StringUtf8(BinaryPrimitives.ReadUInt32LittleEndian(Record(_s.Pois, poi, Nav3dFormat.PoiRecordBytes)[20..]));
 
-    /// <summary>A point of interest's leaf: the leaf holding its position (derived at load).</summary>
+    /// <summary>A point of interest's leaf: the leaf of its own room's cell holding its position (derived at load).</summary>
     /// <param name="poi">The point.</param>
     /// <returns>The leaf, or -1 when the point is in solid (a capped doorway's door point).</returns>
+    /// <remarks>
+    /// Looked up in the cell the point belongs to, with its voxel clamped to
+    /// that cell, rather than by position alone: a door point stands on its
+    /// cell's face, and on a north or east face the half-open voxel rule
+    /// would put it in the neighbour's cell (or off the grid at the level's
+    /// edge). The point's own side of the doorway is the one its room means.
+    /// </remarks>
     public int PoiLeaf(int poi) => _poiLeaf[poi];
+
+    private int PoiLeafOf(int poi)
+    {
+        uint cell = BinaryPrimitives.ReadUInt32LittleEndian(Record(_s.Pois, poi, Nav3dFormat.PoiRecordBytes)[32..]);
+        if (cell >= (uint)CellCount)
+        {
+            return -1;
+        }
+
+        Vec3 p = PoiPosition(poi);
+        int column = (int)(cell % (uint)Columns);
+        int row = (int)(cell / (uint)Columns);
+        int Voxel(double at) => (int)Math.Clamp(Math.Floor(at / VoxelSize), 0, CellVoxels - 1);
+        return FindLeaf(
+            (int)cell,
+            Voxel(p.X - Origin.X - (column * (double)CellSize)),
+            Voxel(p.Y - Origin.Y - (row * (double)CellSize)),
+            Voxel(p.Z - Origin.Z));
+    }
 
     /// <summary>A whole point of interest, strings and all.</summary>
     /// <param name="poi">The point.</param>

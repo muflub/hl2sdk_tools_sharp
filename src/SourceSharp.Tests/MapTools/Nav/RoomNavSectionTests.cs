@@ -30,22 +30,30 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
             new AuthoredPoi("2", new Vec3(120, 100, 16), 0, false, 0, "custom", "", null, ["standing", "flyer"])],
         RoomRole.Down, NavRoomsFixture.Settings);
 
-    private static void AssertSame(RoomNav expected, RoomNav actual)
+    internal static void AssertSame(RoomNav expected, RoomNav actual)
     {
         Assert.Equal((expected.CellSize, expected.VoxelSize, expected.CellVoxels, expected.FloorNormalZ, expected.Turn, expected.Role),
             (actual.CellSize, actual.VoxelSize, actual.CellVoxels, actual.FloorNormalZ, actual.Turn, actual.Role));
+        Assert.Equal((expected.StepHeight, expected.JumpHeight, expected.JumpDistance, expected.WaterCost, expected.LadderCost),
+            (actual.StepHeight, actual.JumpHeight, actual.JumpDistance, actual.WaterCost, actual.LadderCost));
         Assert.Equal(expected.Agents, actual.Agents);
         Assert.Equal(expected.Sockets, actual.Sockets);
         Assert.Equal(expected.Pois, actual.Pois);
-        for (int a = 0; a < expected.AgentData.Count; a++)
+        Assert.Equal(expected.Records.Count, actual.Records.Count);
+        Assert.True(expected.Records.Zip(actual.Records).All(p => p.First.AsSpan().SequenceEqual(p.Second)));
+        Assert.Equal(expected.Columns.ColumnStarts, actual.Columns.ColumnStarts);
+        Assert.Equal(expected.Columns.Runs, actual.Columns.Runs);
+        for (int s = 0; s < expected.Sockets.Count; s++)
         {
-            Assert.Equal(expected.AgentData[a].Nodes, actual.AgentData[a].Nodes);
-            Assert.Equal(expected.AgentData[a].Leaves, actual.AgentData[a].Leaves);
-            for (int s = 0; s < expected.Sockets.Count; s++)
-            {
-                Assert.Equal(expected.AgentData[a].Sockets[s].Portal, actual.AgentData[a].Sockets[s].Portal);
-                Assert.Equal(expected.AgentData[a].Sockets[s].Capped, actual.AgentData[a].Sockets[s].Capped);
-            }
+            Assert.Equal(expected.SocketData[s].Capped, actual.SocketData[s].Capped);
+            Assert.Equal(expected.SocketData[s].DoorPoint, actual.SocketData[s].DoorPoint);
+        }
+
+        Assert.Equal(expected.Obstacles, actual.Obstacles);
+        Assert.Equal(expected.Brushes.Count, actual.Brushes.Count);
+        for (int b = 0; b < expected.Brushes.Count; b++)
+        {
+            Assert.Equal(expected.Brushes[b], actual.Brushes[b]);
         }
     }
 
@@ -74,9 +82,9 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
     /// section on every run, thread count and, CI proves, OS.
     /// </summary>
     [Theory]
-    [InlineData("none", 31139, "69c72cb6")]
-    [InlineData("deflate:6", 9662, "a1c1bded")]
-    [InlineData("brotli:9", 6608, "11c9ae1b")]
+    [InlineData("none", 9311, "15edd869")]
+    [InlineData("deflate:6", 694, "02f0fdf6")]
+    [InlineData("brotli:9", 499, "2ceeaba3")]
     public void ASectionsBytesArePinned(string codec, int length, string sha256Prefix)
     {
         Assert.True(NavCompression.TryParse(codec, out NavCompression compression));
@@ -98,10 +106,10 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
         { "turn", "at turn 7" },
         { "codec", "codec 9" },
         { "cut", "cut short" },
-        { "trailing", "after its last agent" },
+        { "trailing", "after its last brush" },
         { "cells", "voxels a side" },
         { "role", "with role 9" },
-        { "agents", "with 0 agents" },
+        { "agents", "with 40 presets" },
         { "facing", "socket facing 5" },
         { "count", "claims" },
     };
@@ -119,7 +127,8 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
             raw.CopyTo(section, 9);
         }
 
-        // The payload: revision (4), turn (1), cell (4), voxel (4), cells (4), floor (4), role (1), agent count (1).
+        // The payload: revision (4), turn (1), cell (4), voxel (4), cells (4), floor, step, jump height,
+        // jump distance, water and ladder cost (4 each), role (1), preset count (1).
         switch (fault)
         {
             case "short": section = section[..5]; break;
@@ -129,12 +138,12 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
             case "cut": raw = raw[..^3]; Rewrap(); break;
             case "trailing": raw = [.. raw, 0]; Rewrap(); break;
             case "cells": BinaryPrimitives.WriteInt32BigEndian(raw.AsSpan(13), 500); Rewrap(); break;
-            case "role": raw[21] = 9; Rewrap(); break;
-            case "agents": raw[22] = 0; Rewrap(); break;
+            case "role": raw[41] = 9; Rewrap(); break;
+            case "agents": raw[42] = 40; Rewrap(); break;
             case "facing":
                 {
-                    // After three agents of name, width, height and mask: the socket count, then its facing.
-                    int at = 23;
+                    // After three presets of name, width, height and mask: the socket count, then its facing.
+                    int at = 43;
                     for (int a = 0; a < 3; a++)
                     {
                         at += 2 + BinaryPrimitives.ReadUInt16BigEndian(raw.AsSpan(at)) + 12;
@@ -147,13 +156,14 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
 
             case "count":
                 {
-                    int at = 23;
+                    int at = 43;
                     for (int a = 0; a < 3; a++)
                     {
                         at += 2 + BinaryPrimitives.ReadUInt16BigEndian(raw.AsSpan(at)) + 12;
                     }
 
-                    at += 1 + 1 + 2 + BinaryPrimitives.ReadUInt16BigEndian(raw.AsSpan(at + 2));
+                    // One socket: count, facing, name, door point; then the point count.
+                    at += 1 + 1 + 2 + BinaryPrimitives.ReadUInt16BigEndian(raw.AsSpan(at + 2)) + 12;
                     BinaryPrimitives.WriteInt32BigEndian(raw.AsSpan(at), int.MaxValue);
                     Rewrap();
                     break;
@@ -167,17 +177,36 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
     }
 
     [Fact]
-    public void AVoxelOutsideTheCellOrATreeOutOfShapeIsRefused()
+    public void AVoxelOutsideTheCellARecordOutOfRangeOrRunsOutOfShapeAreRefused()
     {
         RoomNav nav = fixture.Nav("east");
-        RoomNav badPortal = nav with
-        {
-            AgentData = [.. nav.AgentData.Select(a => a with { Sockets = [new RoomNavSocket([new NavVoxel(16, 0, 0)], [])] })],
-        };
-        Assert.Contains("outside a cell", Assert.Throws<InvalidDataException>(() =>
-            RoomNavSection.Read(RoomNavSection.Write(badPortal, NavCompression.None))).Message, StringComparison.Ordinal);
-        RoomNav badTree = nav with { AgentData = [.. nav.AgentData.Select(a => a with { Nodes = [Nav3dFormat.Node(Nav3dNodeKind.Free, 999999)] })] };
-        Assert.Throws<InvalidDataException>(() => RoomNavSection.Read(RoomNavSection.Write(badTree, NavCompression.None)));
+        NavVoxelKey key = nav.Columns.Runs[0].Key;
+        RoomNav badVoxel = nav with { SocketData = [new RoomNavSocket([new NavCapChange(16 * 16 * 16, key)], nav.SocketData[0].DoorPoint)] };
+        Assert.Contains("outside a cell of 16", Assert.Throws<InvalidDataException>(() =>
+            RoomNavSection.Read(RoomNavSection.Write(badVoxel, NavCompression.None))).Message, StringComparison.Ordinal);
+
+        RoomNav badRecord = nav with { SocketData = [new RoomNavSocket([new NavCapChange(0, key with { NpcRecord = 99999 })], nav.SocketData[0].DoorPoint)] };
+        Assert.Contains("names records", Assert.Throws<InvalidDataException>(() =>
+            RoomNavSection.Read(RoomNavSection.Write(badRecord, NavCompression.None))).Message, StringComparison.Ordinal);
+
+        NavRun[] runs = [.. nav.Columns.Runs];
+        int column = Enumerable.Range(0, 256).First(c => nav.Columns.ColumnStarts[c + 1] - nav.Columns.ColumnStarts[c] >= 1);
+        runs[nav.Columns.ColumnStarts[column]] = runs[nav.Columns.ColumnStarts[column]] with { ZLo = 15, Height = 2 };
+        RoomNav badRuns = nav with { Columns = nav.Columns with { Runs = runs } };
+        Assert.Contains("leaves the cell", Assert.Throws<InvalidDataException>(() =>
+            RoomNavSection.Read(RoomNavSection.Write(badRuns, NavCompression.None))).Message, StringComparison.Ordinal);
+
+        RoomNav badFirst = nav with { Records = [.. nav.Records.Skip(1)] };
+        Assert.Contains("first record is not the one that blocks everything", Assert.Throws<InvalidDataException>(() =>
+            RoomNavSection.Read(RoomNavSection.Write(badFirst, NavCompression.None))).Message, StringComparison.Ordinal);
+
+        RoomNav badDynamic = nav with { Records = [.. nav.Records, Nav3dClearance.Encode([], [new(3, new Nav3dCorner(1, 1))], [])] };
+        Assert.Contains("names obstacle 3 of 0", Assert.Throws<InvalidDataException>(() =>
+            RoomNavSection.Read(RoomNavSection.Write(badDynamic, NavCompression.None))).Message, StringComparison.Ordinal);
+
+        RoomNav badBrush = nav with { Brushes = [[1, 0, 0, 1, -1, 0, 0, 5, 0, 1, 0, 1, 0, -1, 0, 5]] };
+        Assert.Contains("bounds no volume", Assert.Throws<InvalidDataException>(() =>
+            RoomNavSection.Read(RoomNavSection.Write(badBrush, NavCompression.None))).Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -202,6 +231,11 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
         byte[] section = RoomNavSection.Write(fixture.Nav("east"), NavCompression.None);
         BinaryPrimitives.WriteInt32BigEndian(section.AsSpan(9), RoomNavSection.Revision + 1);
         Assert.Null(RoomNavSection.Read(section));
+
+        // Version 1's octree sections are revision 1: absent to this build.
+        Assert.Equal(2, RoomNavSection.Revision);
+        BinaryPrimitives.WriteInt32BigEndian(section.AsSpan(9), 1);
+        Assert.Null(RoomNavSection.Read(section));
         Assert.Null(RoomNavPack.FromSections("east", tag => tag == "NVR0" ? new ArraySegment<byte>(section) : (ArraySegment<byte>?)null));
     }
 
@@ -220,6 +254,12 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
             ["LNKA", "GEO0", "COL0", "NVR0", "GEO1", "COL1", "NVR1", "GEO2", "COL2", "NVR2", "GEO3", "COL3", "NVR3"],
             RoomNavPack.Interleave(link, nav).Select(s => s.Tag));
         Assert.Equal(["NVR0", "NVR1"], RoomNavPack.Interleave([], [S("NVR0"), S("NVR1")]).Select(s => s.Tag));
+
+        // With the names per turn woven in first, as a pack writes them: GEO, COL, NAM, then NVR.
+        IReadOnlyList<RoomPackSectionData> named = RoomNavPack.Interleave(link, [S("NAM0"), S("NAM1"), S("NAM2"), S("NAM3")]);
+        Assert.Equal(
+            ["LNKA", "GEO0", "COL0", "NAM0", "NVR0", "GEO1", "COL1", "NAM1", "NVR1", "GEO2", "COL2", "NAM2", "NVR2", "GEO3", "COL3", "NAM3", "NVR3"],
+            RoomNavPack.Interleave(named, nav).Select(s => s.Tag));
         Assert.Same(link, RoomNavPack.Interleave(link, []));
     }
 

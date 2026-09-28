@@ -475,7 +475,14 @@ public static class Nav3dWriter
 
     private static byte[] Floats(IReadOnlyList<float[]> brushes)
     {
-        int count = brushes.Sum(b => b.Length);
+        // Loops rather than a lambda: a non-capturing lambda is cached in a
+        // static field, which the no-mutable-statics rule counts.
+        int count = 0;
+        foreach (float[] brush in brushes)
+        {
+            count += brush.Length;
+        }
+
         byte[] bytes = new byte[count * 4];
         int at = 0;
         foreach (float[] brush in brushes)

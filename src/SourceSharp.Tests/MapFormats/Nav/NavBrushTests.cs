@@ -89,6 +89,90 @@ public sealed class NavBrushTests
         Assert.Equal((10.0, 20.0, 30.0, 40.0), (back.MinX, back.MinY, back.MaxX, back.MaxY));
     }
 
+    /// <summary>
+    /// The growth threshold agrees with testing the grown box directly, for
+    /// every growth the navigation uses, on a box brush, the wedge and an
+    /// overhang: the grown box overlaps exactly past the threshold.
+    /// </summary>
+    [Fact]
+    public void TheGrowthThresholdIsWhereTheGrownBoxStartsToOverlap()
+    {
+        float r = MathF.Sqrt(0.5f);
+        NavBrush overhang = NavBrush.FromPlanes([
+            (new Vec3(1, 0, 0), 20f), (new Vec3(-1, 0, 0), 0f), (new Vec3(0, 1, 0), 10f), (new Vec3(0, -1, 0), 0f),
+            (new Vec3(0, 0, 1), 30f), (new Vec3(r, 0, -r), -10f * r)], 1)!;
+        NavBrush[] brushes = [NavBrush.Box(new Vec3(4, 4, 0), new Vec3(8, 8, 6), 1), Wedge(), overhang];
+        NavGrowth[] growths = [NavGrowth.Sideways, NavGrowth.Upward, NavGrowth.Downward, new(0.5, 0, 0, 2, 1, 0)];
+        NavBox[] boxes = [new(-6, 1, 7, -4, 3, 8), new(12, 1, 2, 13, 2, 3), new(1, 1, 11, 2, 2, 12), new(5, 5, 7, 6, 6, 8)];
+        foreach (NavBrush brush in brushes)
+        {
+            foreach (NavGrowth g in growths)
+            {
+                foreach (NavBox box in boxes)
+                {
+                    double t = brush.GrowthThreshold(box, g, out _);
+                    NavBox Grown(double by) => new(
+                        box.MinX - (g.MinX * by), box.MinY - (g.MinY * by), box.MinZ - (g.MinZ * by),
+                        box.MaxX + (g.MaxX * by), box.MaxY + (g.MaxY * by), box.MaxZ + (g.MaxZ * by));
+                    if (double.IsPositiveInfinity(t))
+                    {
+                        Assert.False(brush.Overlaps(Grown(1000)), $"{g} {box}");
+                        continue;
+                    }
+
+                    if (t > 0)
+                    {
+                        Assert.False(brush.Overlaps(Grown(t - 1e-6)), $"{g} {box} below {t}");
+                    }
+
+                    Assert.True(brush.Overlaps(Grown(Math.Max(0, t) + 1e-6)), $"{g} {box} above {t}");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void AFlatTopMetFromAboveIsContactOneAndABrushTheBoxNeverReachesIsInfinite()
+    {
+        NavBrush floor = NavBrush.Box(new Vec3(0, 0, 0), new Vec3(10, 10, 5), 1);
+        Assert.Equal(3 + NavBrush.Epsilon, floor.GrowthThreshold(new NavBox(1, 1, 8, 2, 2, 8), NavGrowth.Downward, out double contact), 12);
+        Assert.Equal(1.0, contact);
+        Assert.Equal(double.PositiveInfinity, floor.GrowthThreshold(new NavBox(20, 1, 8, 21, 2, 9), NavGrowth.Downward, out _));
+        // A box already inside overlaps at t = 0: its threshold is where shrinking its top would free it, below zero.
+        Assert.Equal(-2 + NavBrush.Epsilon, floor.GrowthThreshold(new NavBox(1, 1, 1, 2, 2, 2), NavGrowth.Upward, out _), 12);
+
+        // Down a 45° slope the contact is its normal.
+        NavBrush wedge = Wedge();
+        _ = wedge.GrowthThreshold(new NavBox(5, 1, 8, 6, 2, 9), NavGrowth.Downward, out double slope);
+        Assert.Equal(MathF.Sqrt(0.5f), slope, 5);
+    }
+
+    [Fact]
+    public void AnOverhangIsASlopedFaceTurnedDown()
+    {
+        float r = MathF.Sqrt(0.5f);
+        Assert.False(NavBrush.Box(new Vec3(0, 0, 0), new Vec3(1, 1, 1), 1).IsOverhang);
+        Assert.False(Wedge().IsOverhang);
+        Assert.True(NavBrush.FromPlanes([
+            (new Vec3(1, 0, 0), 20f), (new Vec3(-1, 0, 0), 0f), (new Vec3(0, 1, 0), 10f), (new Vec3(0, -1, 0), 0f),
+            (new Vec3(0, 0, 1), 30f), (new Vec3(r, 0, -r), -10f * r)], 1)!.IsOverhang);
+    }
+
+    [Fact]
+    public void ABrushMovesAndRoundTripsThroughFloatPlanes()
+    {
+        NavBrush wedge = Wedge();
+        NavBrush moved = wedge.Translated(new Vec3(100, -50, 8));
+        Assert.Equal((100.0, -50.0, 8.0, 110.0, -40.0, 18.0), (moved.MinX, moved.MinY, moved.MinZ, moved.MaxX, moved.MaxY, moved.MaxZ), new ToleranceComparer());
+        Assert.Equal(wedge.Overlaps(new NavBox(4, 1, 3, 6, 9, 5)), moved.Overlaps(new NavBox(104, -49, 11, 106, -41, 13)));
+        float[] floats = wedge.PlaneFloats();
+        Assert.Equal(20, floats.Length);
+        NavBrush again = NavBrush.FromPlaneFloats(floats, 7)!;
+        Assert.Equal((wedge.MinX, wedge.MaxZ, 7), (again.MinX, again.MaxZ, again.Contents));
+        Assert.Throws<ArgumentException>(() => NavBrush.FromPlaneFloats([1, 0, 0], 1));
+        Assert.Null(NavBrush.FromPlaneFloats([1, 0, 0, 1, -1, 0, 0, 5], 1));
+    }
+
     private sealed class ToleranceComparer : IEqualityComparer<(double, double, double, double, double, double)>
     {
         public bool Equals((double, double, double, double, double, double) a, (double, double, double, double, double, double) b) =>

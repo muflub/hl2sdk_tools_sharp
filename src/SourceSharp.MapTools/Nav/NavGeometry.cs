@@ -241,7 +241,7 @@ public sealed class NavGeometry
     {
         Vec3? Corner(string name)
         {
-            if (VmfValue.TryParseVector3(entity.Get(name), out Vec3 v))
+            if (TryVector(entity.Get(name), out Vec3 v))
             {
                 return v;
             }
@@ -270,7 +270,7 @@ public sealed class NavGeometry
     /// <summary>A <c>func_useableladder</c>'s climb: the box spanning its two points, widened by a player's half-width.</summary>
     internal static Box? UseableLadder(BspEntity entity)
     {
-        if (!VmfValue.TryParseVector3(entity.Get("point0"), out Vec3 a) || !VmfValue.TryParseVector3(entity.Get("point1"), out Vec3 b))
+        if (!TryVector(entity.Get("point0"), out Vec3 a) || !TryVector(entity.Get("point1"), out Vec3 b))
         {
             return null;
         }
@@ -282,12 +282,12 @@ public sealed class NavGeometry
     /// <summary>A prop's obstacle box: its model's hull turned by its angles and moved to its origin; the box of the turned corners.</summary>
     internal static Box? PropBox(BspEntity entity, (Vec3 Mins, Vec3 Maxs) hull)
     {
-        if (!VmfValue.TryParseVector3(entity.Get("origin"), out Vec3 origin))
+        if (!TryVector(entity.Get("origin"), out Vec3 origin))
         {
             return null;
         }
 
-        Vec3 angles = VmfValue.TryParseVector3(entity.Get("angles"), out Vec3 a) ? a : default;
+        Vec3 angles = TryVector(entity.Get("angles"), out Vec3 a) ? a : default;
         (double sp, double cp) = SinCos(angles.X);
         (double sy, double cy) = SinCos(angles.Y);
         (double sr, double cr) = SinCos(angles.Z);
@@ -317,6 +317,40 @@ public sealed class NavGeometry
         Vec3 mins = new((float)(origin.X + lo[0]), (float)(origin.Y + lo[1]), (float)(origin.Z + lo[2]));
         Vec3 maxs = new((float)(origin.X + hi[0]), (float)(origin.Y + hi[1]), (float)(origin.Z + hi[2]));
         return mins.X < maxs.X && mins.Y < maxs.Y && mins.Z < maxs.Z ? new Box(mins, maxs) : null;
+    }
+
+    /// <summary>
+    /// An entity key's vector: three numbers separated by spaces, as the
+    /// entity lump writes <c>origin</c>, <c>angles</c> and the ladder points.
+    /// Not the VMF parser's bracketed <c>[x y z]</c> form, which entity keys
+    /// never use; anything but exactly three numbers is no vector.
+    /// </summary>
+    internal static bool TryVector(string? text, out Vec3 vector)
+    {
+        vector = default;
+        if (text is null)
+        {
+            return false;
+        }
+
+        Span<Range> parts = stackalloc Range[4];
+        ReadOnlySpan<char> span = text.AsSpan();
+        if (span.Split(parts, ' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) != 3)
+        {
+            return false;
+        }
+
+        Span<float> v = stackalloc float[3];
+        for (int i = 0; i < 3; i++)
+        {
+            if (!float.TryParse(span[parts[i]], NumberStyles.Float, CultureInfo.InvariantCulture, out v[i]))
+            {
+                return false;
+            }
+        }
+
+        vector = new Vec3(v[0], v[1], v[2]);
+        return true;
     }
 
     private static Vec3 Min(Vec3 a, Vec3 b) => new(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Min(a.Z, b.Z));
