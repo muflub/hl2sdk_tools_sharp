@@ -81,7 +81,7 @@ def summarise_ledger(runs):
 
 
 def read_stages(path):
-    """`bench <stage> <seconds>s` and `bench work ...` lines from vvis/vrad --bench."""
+    """`bench <stage> <seconds>s` and `bench work ...` lines from vbsp/vvis/vrad --bench."""
     if not os.path.exists(path):
         return None
     stages, work = {}, []
@@ -93,6 +93,15 @@ def read_stages(path):
             elif line.startswith("bench work "):
                 work.append(line.strip()[len("bench work "):])
     return {"stages_s": stages, "work": work}
+
+
+def stage_column(tool, stage):
+    """A stage's column heading: the last part of its name, except for vbsp,
+    whose names repeat a last part under different parents (vbsp.world.write
+    and vbsp.write), so only the tool's own prefix is dropped."""
+    if tool == "vbsp":
+        return stage[len("vbsp."):] if stage.startswith("vbsp.") else stage
+    return stage.split(".")[-1]
 
 
 def read_speedscope(path, top=30):
@@ -525,12 +534,12 @@ def summarise(folder):
                       f"{r['speedup']:.2f}× | {r['efficiency']:.0%} |")
         md.append("")
 
-    for tool in ("vvis", "vrad"):
+    for tool in ("vbsp", "vvis", "vrad"):
         rows = [c for c in cells if c["stage"] == tool and c.get("stages") and c["stages"]["stages_s"]]
         if rows:
             names = list(dict.fromkeys(k for c in rows for k in c["stages"]["stages_s"]))
             md += [f"## {tool}'s own stages (s, one `--bench` run per cell)", "",
-                   "| cell | " + " | ".join(n.split(".")[-1] for n in names) + " |", "|---|" + "---:|" * len(names)]
+                   "| cell | " + " | ".join(stage_column(tool, n) for n in names) + " |", "|---|" + "---:|" * len(names)]
             md += [f"| {label(c, bases.get(tool))} | " + " | ".join(f(c['stages']['stages_s'].get(n)) for n in names) + " |"
                    for c in rows]
             md.append("")

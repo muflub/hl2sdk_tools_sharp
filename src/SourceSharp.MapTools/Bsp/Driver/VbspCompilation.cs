@@ -81,6 +81,9 @@ internal sealed class VbspCompilation
             // them in a context the caller might still reference.
             _build?.ReleaseBrushSidePool();
 
+            // And so must the arenas the tree build's forks handed back.
+            _build?.ReleaseWindingArenaPool();
+
             // As must the threads, if the compile made its own.
             _ownPool?.Dispose();
             _ownPool = null;

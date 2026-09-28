@@ -50,6 +50,30 @@ public static class VbspCommand
     public const int ExitFailed = 1;
 
     /// <summary>
+    /// Prints the wall time of every vbsp stage after the compile, as
+    /// <c>bench &lt;stage&gt; &lt;seconds&gt;s</c> lines and a total. Not a
+    /// stock option: it is taken out before the stock arguments are parsed.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same instrument as vvis's and vrad's <c>--bench</c>
+    /// (<see cref="VvisCommand.StageClock"/>): the compile already reports
+    /// each stage transition to <see cref="VbspContext.Progress"/>, so timing
+    /// it costs the library nothing and changes nothing it writes. Two stages
+    /// are the command's own and are reported here: <c>vbsp.load</c>, reading
+    /// and parsing the map, and <c>vbsp.write</c>, the portal and BSP files.
+    /// </para>
+    /// <para>
+    /// The rows are the main flow's wall time. Work that overlaps it on other
+    /// threads, such as the static-prop hulls cooked in the background while
+    /// the tree is built, is billed to whichever stage was running when it
+    /// was done, and only the wait for what is left of it shows up in its own
+    /// stage.
+    /// </para>
+    /// </remarks>
+    public const string BenchSwitch = "--bench";
+
+    /// <summary>
     /// Runs one compile.
     /// </summary>
     /// <param name="fileSystem">Where the map, the content and the outputs live.</param>
@@ -104,7 +128,9 @@ public static class VbspCommand
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(output);
 
-        StockArgsResult<VbspOptions> parsed = StockArgs.ParseVbsp(args);
+        bool bench = args.Contains(BenchSwitch, StringComparer.Ordinal);
+        StockArgsResult<VbspOptions> parsed = StockArgs.ParseVbsp(
+            bench ? [.. args.Where(a => !string.Equals(a, BenchSwitch, StringComparison.Ordinal))] : args);
 
         if (parsed.ListCompliance && !parsed.HasErrors)
         {
@@ -183,8 +209,11 @@ public static class VbspCommand
             + $"appid={resolution.Resolved.DetectedSteamAppId}")
             .ConfigureAwait(false);
 
+        VvisCommand.StageClock? stageClock = bench ? new VvisCommand.StageClock() : null;
+
         VbspContext context = new(options, mounted.Content)
         {
+            Progress = stageClock,
             // mapbase: the file's base name, lowercased
 #pragma warning disable CA1308 // strlwr
             MapBase = Path.GetFileName(paths.Source).ToLowerInvariant(),
@@ -199,6 +228,7 @@ public static class VbspCommand
 
         try
         {
+            stageClock?.Report(new CompileProgress("vbsp.load", 0, 0));
             MapFileReader reader = new(context, fileSystem);
             MapFile map = await reader.LoadAsync(VPath.Create(mapFile), cancellationToken).ConfigureAwait(false);
 
@@ -223,6 +253,7 @@ public static class VbspCommand
 
             VbspResult result = await Vbsp.CompileAsync(map, context, cancellationToken).ConfigureAwait(false);
 
+            stageClock?.Report(new CompileProgress("vbsp.write", 0, 0));
             await WriteDiagnosticsAsync(result.Diagnostics, output).ConfigureAwait(false);
 
             if (result.Leak is not null)
@@ -253,6 +284,14 @@ public static class VbspCommand
         {
             await output.WriteLineAsync($"Error: {exception.Message}").ConfigureAwait(false);
             return ExitFailed;
+        }
+
+        if (stageClock is not null)
+        {
+            foreach (string line in stageClock.Report())
+            {
+                await output.WriteLineAsync(line).ConfigureAwait(false);
+            }
         }
 
         await output.WriteLineAsync(string.Create(

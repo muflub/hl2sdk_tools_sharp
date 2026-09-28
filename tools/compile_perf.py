@@ -9,7 +9,8 @@ the stage's input before every run and discards a warm-up. Each cell is then
 run again, once per profiler, so no profiler's overhead is in the timings or in
 another profiler's numbers:
 
-  stages    vvis/vrad --bench: each tool's own stage times and work counts
+  stages    vbsp/vvis/vrad --bench: each tool's own stage times (and, for
+            vvis and vrad, work counts)
   rusage    a plain run: wall, user/system CPU, peak RSS, page faults, context
             switches, block IO; with `perf stat` when perf is installed
             (cycles, instructions, IPC, cache and branch misses)
@@ -774,8 +775,8 @@ def profile_cell(runner, inputs, cell, cdir, args, env, cache, opts, threads, bu
         done[name] = result
 
     def stages_():
-        if stage not in ("vvis", "vrad"):
-            return {"skipped": "only vvis and vrad have --bench"}
+        if stage not in ("vbsp", "vvis", "vrad"):
+            return {"skipped": "only vbsp, vvis and vrad have --bench"}
         arg, _ = fresh("stages")
         cmd = direct_command(runner, stage, build_kind, arg, game_args, threads, ["--bench"] + opts)
         log = os.path.join(cdir, "stages.log")

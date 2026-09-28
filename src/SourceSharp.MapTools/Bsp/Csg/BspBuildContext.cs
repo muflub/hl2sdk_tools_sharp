@@ -56,9 +56,14 @@ public sealed class BspBuildContext
     private readonly int[] _maxPlaneNumbers = [-1, -1, -1];
 
     // Set only on a fork. The root context reads the compile's own arena and
-    // diagnostics through Compile, as it always has.
-    private readonly WindingArena? _forkWindings;
+    // diagnostics through Compile, as it always has. The fork's arena comes
+    // from the root's pool and goes back to it (ReleaseForkWindings), after
+    // which this is null and the fork has no arena at all.
+    private WindingArena? _forkWindings;
     private readonly List<CompileDiagnostic>? _forkDiagnostics;
+
+    // The root's, shared by every fork of it, however deep: see ForkArenas.
+    private readonly WindingArenaPool _forkArenas;
 
     /// <summary>Creates a build context over a loaded map.</summary>
     /// <param name="compile">The compile this belongs to.</param>
@@ -71,6 +76,7 @@ public sealed class BspBuildContext
 
         Compile = compile;
         Map = map;
+        _forkArenas = new WindingArenaPool(compile.Windings.Compliance);
 
         SidePool = compile.BrushSidePooling == BrushSidePooling.Off
             ? null
@@ -84,9 +90,11 @@ public sealed class BspBuildContext
         Map = parent.Map;
         IsFork = true;
 
-        // The same compliance as the arena it stands in for: WindingIsTiny
-        // and BaseWindingForPlane read the policy off the arena.
-        _forkWindings = new WindingArena { Compliance = parent.Windings.Compliance };
+        // The same compliance as the arena it stands in for (WindingIsTiny
+        // and BaseWindingForPlane read the policy off the arena): the pool
+        // was made with the compile's.
+        _forkArenas = parent._forkArenas;
+        _forkWindings = _forkArenas.Rent();
         _forkDiagnostics = [];
 
         SidePool = parent.SidePool is null
@@ -117,9 +125,26 @@ public sealed class BspBuildContext
     /// <summary>The arena every winding in the compile lives in.</summary>
     /// <remarks>
     /// On a <see cref="Fork"/>, the fork's own arena instead: an arena is not
-    /// thread safe, and a fork runs beside the context it came from.
+    /// thread safe, and a fork runs beside the context it came from. A fork
+    /// whose arena has gone back to the pool (<see cref="ReleaseForkWindings"/>)
+    /// has none, and asking for it throws rather than quietly handing out
+    /// the compile's arena, which another thread may be using.
     /// </remarks>
-    public WindingArena Windings => _forkWindings ?? Compile.Windings;
+    /// <exception cref="InvalidOperationException">
+    /// This is a fork that has released its arena.
+    /// </exception>
+    public WindingArena Windings => _forkWindings ?? (IsFork ? throw ForkReleased() : Compile.Windings);
+
+    /// <summary>
+    /// Where this compile's forks get their arenas from, and give them back
+    /// to: one pool per compile, made by the root context and shared by
+    /// every fork of it.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="WindingArenaPool"/> for why. The vbsp driver releases
+    /// it with <see cref="ReleaseWindingArenaPool"/> when the compile ends.
+    /// </remarks>
+    internal WindingArenaPool ForkArenas => _forkArenas;
 
     /// <summary>The map's plane table: <c>g_MainMap-&gt;mapplanes</c>.</summary>
     public PlaneTable Planes => Map.Planes;
@@ -300,6 +325,46 @@ public sealed class BspBuildContext
     /// <see cref="AllocBrush"/> simply allocates.
     /// </remarks>
     public void ReleaseBrushSidePool() => SidePool?.Clear();
+
+    /// <summary>Drops every arena the compile's forks have given back.</summary>
+    /// <remarks>
+    /// The vbsp driver calls it when the compile ends, in the same
+    /// <c>finally</c> as <see cref="ReleaseBrushSidePool"/>, so the forks'
+    /// storage goes with the compile however it ended. A fork that returns
+    /// its arena afterwards, still unwinding from a failure, has it dropped.
+    /// </remarks>
+    internal void ReleaseWindingArenaPool() => _forkArenas.Release();
+
+    /// <summary>
+    /// Gives a fork's arena back to the compile's pool, once nothing reads
+    /// the windings in it: after <see cref="Join"/>, or after the fork's
+    /// subtree failed and will never be joined.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The tree build calls it in a <c>finally</c> around the fork's whole
+    /// life, so a subtree that throws, or a build that is cancelled, returns
+    /// its arena as a finished one does. By then every thread that used the
+    /// arena has stopped: the parallel loop that ran the fork waits for all
+    /// of its helpers before it returns or throws.
+    /// </para>
+    /// <para>
+    /// Afterwards the fork has no arena, so a use of it by mistake throws
+    /// rather than reading storage the next fork owns. Idempotent, and a
+    /// no-op on a context that is not a fork.
+    /// </para>
+    /// </remarks>
+    internal void ReleaseForkWindings()
+    {
+        if (_forkWindings is { } arena)
+        {
+            _forkWindings = null;
+            _forkArenas.Return(arena);
+        }
+    }
+
+    private static InvalidOperationException ForkReleased() =>
+        new("this fork has given its winding arena back; a released fork builds nothing more");
 
     /// <summary>
     /// Frees a whole list: <c>FreeBrushList</c>.

@@ -603,7 +603,7 @@ explicitly still wins, for example `--quick --runs 3`.
 Each cell is timed with `ssmap bench`, then run again once per profiler so
 that no profiler's overhead lands in another's numbers:
 
-- vvis and vrad `--bench` stage times;
+- vbsp, vvis and vrad `--bench` stage times;
 - process resource usage, with `perf stat` hardware counters when `perf` is
   installed;
 - a sampled CPU profile (speedscope);

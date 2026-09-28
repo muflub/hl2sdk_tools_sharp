@@ -184,6 +184,67 @@ public sealed class WindingArena
         }
     }
 
+    /// <summary>
+    /// Forgets every winding, keeping the storage, so the arena can be used
+    /// again as though it were new.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why an arena is reused at all.</b> The parallel tree build gives
+    /// every fork an arena of its own, a couple of hundred of them in a 2fort
+    /// compile, and a new arena grows its first segment by doubling: every
+    /// array it outgrows is garbage, and from 8192 points on each one is a
+    /// large-object-heap array. Those were the compile's largest source of
+    /// large-object garbage (about 145 MB of 345 MB on 2fort), and
+    /// large-object allocation is what triggers the gen2 collections that
+    /// park every compile thread. A <see cref="WindingArenaPool"/> hands a
+    /// finished fork's arena to the next fork instead, which finds its first
+    /// segment already grown.
+    /// </para>
+    /// <para>
+    /// <b>A reset arena is indistinguishable from a new one.</b> Every
+    /// handle it gives out afterwards has the offset a new arena would have
+    /// given: allocation starts again at offset zero, the free lists are
+    /// empty, and where the next reservation lands never depends on how
+    /// large the first segment already is, only on the points reserved
+    /// before it (see <see cref="EnsureRoom"/>). The counters start again
+    /// from zero too. So nothing a compile computes can tell a pooled arena
+    /// from a fresh one; only the allocations it no longer makes differ.
+    /// </para>
+    /// <para>
+    /// Every handle taken before the reset is dead afterwards, and freeing
+    /// one is caught as a double free only if its slot has not been handed
+    /// out again. The caller must hold none: the pool resets an arena only
+    /// when its fork has been joined and its windings copied home.
+    /// </para>
+    /// </remarks>
+    internal void Reset()
+    {
+        // Only the segments allocation has reached can hold a live flag. The
+        // one _used points into is cleared whole: that costs at most one
+        // segment's worth of bytes, and saves reasoning about a reservation
+        // that skipped a segment's tail.
+        int lastSegment = Math.Min(_used >> SegmentShift, _live.Length - 1);
+        for (int i = 0; i <= lastSegment; i++)
+        {
+            if (_live[i] is { } live)
+            {
+                Array.Clear(live);
+            }
+        }
+
+        foreach (Stack<int>? bucket in _free)
+        {
+            bucket?.Clear();
+        }
+
+        _used = 0;
+        ActiveWindings = 0;
+        PeakWindings = 0;
+        TotalAllocations = 0;
+        RecycledAllocations = 0;
+    }
+
     /// <summary>Reserves storage for a winding with no points in it yet.</summary>
     /// <param name="capacity">How many points to reserve.</param>
     /// <returns>A handle with <see cref="Winding.Count"/> zero.</returns>

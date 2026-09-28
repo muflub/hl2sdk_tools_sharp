@@ -365,6 +365,14 @@ internal static class ManagedTrace
         var tree = new LedgeTree(surface, doublePrecision, hulls);
         float[] areas = [1f, 1f, 1f];
         float halfSide = (float)(side * 0.5);
+
+        // The ray's two ends, reused for every ray of the grid: each ray sets
+        // all three of their components (axis, u and v are a permutation of
+        // 0, 1, 2), so nothing carries over from the ray before. Two arrays
+        // per ray was the largest allocation site in a 2fort vbsp, about
+        // 65 MB of garbage over the drag areas of all its collides.
+        Span<float> s = stackalloc float[3];
+        Span<float> e = stackalloc float[3];
         for (int axis = 0; axis < 3; axis++)
         {
             int u = (axis + 1) % 3;
@@ -375,8 +383,6 @@ internal static class ManagedTrace
             {
                 for (float v0 = mins[v] + halfSide; v0 < maxs[v]; v0 += side)
                 {
-                    float[] s = new float[3];
-                    float[] e = new float[3];
                     s[axis] = mins[axis] - 1;
                     e[axis] = maxs[axis] + 1;
                     s[u] = u0;
