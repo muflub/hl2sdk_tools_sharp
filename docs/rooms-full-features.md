@@ -97,7 +97,8 @@ feature's PR measures and states which. The expected outcome:
 - **×4 by necessity**: the base lighting and the outgoing door capture of a
   room that sun or sky light reaches, because the sun is fixed in the world;
   static prop, detail prop, displacement and leaf-ambient lighting follow
-  the same rule. Navigation data for a non-square agent hull (10.3).
+  the same rule. Navigation data for a non-square agent hull (10.3), in the
+  `.roomnav` rather than the pack (10.4).
 
 **How the pack marks it.** Every per-room section that could hold rotation
 variants starts with a rotation count, 1 or 4, followed by that many
@@ -106,8 +107,8 @@ For lighting, the count is 4 when the room is sunlit: any sky face
 (`SURF_SKY` or `SURF_SKY2D` in its texinfos) or any leaf that pass one of
 `SkyLeafVisibility` flags; else 1. `ssmap rooms` shows each room's counts.
 
-**Compression.** Every new pack section, and the navigation files
-(section 10), carries a **codec byte** ahead of its payload: 0 none,
+**Compression.** Every new pack section, and every section of the
+navigation files (`.roomnav`, `.nav3d`, 10.4), carries a **codec byte** ahead of its payload: 0 none,
 1 Deflate, 2 Brotli, then the uncompressed length (`int64`). Deflate and
 Brotli are built into .NET (`System.IO.Compression`: `ZLibStream` /
 `DeflateStream`, `BrotliEncoder`), so no package is added. The existing room
@@ -258,7 +259,7 @@ or research).
 | 2D sky | faces carried; no leaf sky flags (no vrad) | sky leaves per room | propagate sky flags across doors | 0 | S |
 | 3D skybox | not possible (areas collapsed) | the skybox as a library section | place it, its own area | 1 `sky_camera` per level | M |
 | Transition rooms and spawn | not possible | volume, arrival and spawn POIs per rotation | destinations, emission per mode, spawn | 2 per level (mod), 3 to 5 (stock) | M |
-| Navigation (3D) and points of interest | none | volumes, door portals and POIs per rotation | stitch at joined doors | 0 (POIs stripped) | L, blocked (section 10) |
+| Navigation (3D) and points of interest | none | in `<library>.roomnav`: volumes, door portals and POIs per rotation | stitch at joined doors into the `<map>.nav3d` sidecar | 0 (POIs stripped) | L, blocked (section 10) |
 | Lighting | none (no vrad at pack time) | base and capture ×1, or ×4 if sunlit; door response ×1 or ×4 by measurement | sum captures × responses | lights: see 6.3 | L |
 
 ---
@@ -1872,8 +1873,8 @@ sets `nodegraph 0` (`game/mod_tf/gameinfo.txt`).
 - **A per-room navigation volume, precomputed at pack time**, per rotation
   when that makes the link faster (1.1); a cell-aligned grid could also be
   turned at link as an index permutation.
-  Built at pack time from the room's compile, stored as a per-room section
-  like every other precompute (D1), so the link needs no game files and no
+  Built at pack time from the room's compile and stored in the companion
+  navigation file (10.4), so the link needs no game files and no
   navigation build.
 - **Doorway connections.** Each socket is a known rectangle on a known cell
   face (`RoomLinter.SealBox`, the kit). The room's navigation data records,
@@ -1912,20 +1913,31 @@ hulls must be square in x and y (as the player's is) for a turn to leave
 clearance unchanged; a non-square hull needs per-rotation data (×4)
 whatever the measurement says.
 
-### 10.4 How the link emits it
+### 10.4 Files (decided, D18)
 
-Two choices, for the owner:
+Navigation data lives in **separate files**, not in the pack or the map's
+pak, unless it is trivially small:
 
-- **Packed into the map's pak** (as `.vhv` files are, 4.13), under a fixed
-  name such as `maps/<level>.nav3d`: it ships with the `.bsp`, and servers
-  and clients that download the map get it. Recommended, unless the data is
-  large enough that the pak's size matters.
-- **A sidecar** next to the `.bsp` (`<level>.nav3d`): simpler to inspect,
-  but it must be distributed with the map.
-
-Either way, the file's sections carry the codec byte of 1.1, and the linked
-file is the rooms' data relocated (index bases, as
-for every other lump) plus the joined portals, written in one pass.
+- **`<library>.roomnav`**, written by `ssmap room` beside the `.roompack`:
+  the same indexed container conventions as the pack (`RoomPack`: magic,
+  version, an index of rooms with typed sections, sections back to back,
+  readers skipping unknown tags, one atomic replace on write), each section
+  with the codec byte and rotation count of 1.1. Its header **binds it to
+  the pack**: it records the pack's format version and a hash of the pack's
+  index and room containers (SHA-256, as the room container already hashes
+  the room's VMF), and `ssmap link` refuses a pair whose hash does not
+  match, naming both files. A pack without a `.roomnav` links without
+  navigation, with a warning when any room of the level had POIs.
+- **`<map>.nav3d`**, written by `ssmap link` as a sidecar next to the
+  `.bsp`, not into the pakfile: the rooms' navigation relocated (index
+  bases, as for every other lump) plus the joined portals, written in one
+  pass, with the same section and codec conventions. It must be
+  distributed with the map (servers and clients that download only the
+  `.bsp` do not get it); that is the mod's concern.
+- **Back into the pack** only if measured trivially small: the navigation
+  PR states a size threshold per room (and per level for the pak), and
+  below it the data may be a pack section and a pak entry instead. The
+  files are the default.
 
 ### 10.5 Open questions for the owner
 
@@ -1936,11 +1948,12 @@ for every other lump) plus the joined portals, written in one pass.
    dimensions; clearance is per agent size.
 3. **Movement model**: what counts as traversable (climbable surfaces,
    ladders, water, jump links), and whether traversal costs are baked.
-4. **File format and versioning**, and pak or sidecar.
+4. **File format and versioning** inside the `.roomnav` and `.nav3d`
+   containers (the files themselves are decided, 10.4).
 5. **Dynamic obstacles**: which entities the runtime treats as blockers
    (doors, `func_brush`, props), and how links are toggled.
-6. **Resolution against size**: the budget per room in the pack and per
-   level on disk.
+6. **Resolution against size**: the budget per room in the `.roomnav` and
+   per level in the `.nav3d`.
 
 Size once decided: **L**; risk high until the representation is chosen.
 
@@ -1950,22 +1963,22 @@ Cover, vantage, spawn, patrol and interaction points belong to the
 navigation data, not to runtime entities (D12). Authors place `info_poi`
 point entities (the class name and keys are part of the mod contract,
 section 7, once the AI design settles) in rooms; `ssmap room` compiles them
-into the room's navigation section and **strips them from the entity
+into the room's section of the `.roomnav` and **strips them from the entity
 lump**, so they cost zero runtime entities (6.9).
 
 Two POI types are defined now, for transition rooms (section 11):
 `arrival` (where a player from another level appears) and `spawn` (extra
 spawn points for a fresh start).
 
-Per POI the pack stores: its type, position and orientation (turned per
+Per POI the `.roomnav` stores: its type, position and orientation (turned per
 rotation like any point entity: `Apply` and yaw + 90 × turns), its keys,
 and its name through the placeholder grammar (section 5), so a room's POI
 can be named, and referenced by a neighbour, the same way as an entity. At
 link the POIs are relocated with the rest of the navigation data. Storing
 and stripping them does not depend on the navigation representation, so it
 can land before the rest of this section (it is part of PR 2 in section
-13); until navigation exists the link can write them to the same pak entry
-or sidecar the navigation data will use.
+13, which introduces the `.roomnav` file for them); until navigation exists
+the link writes them to the `.nav3d` sidecar on their own.
 
 ---
 
@@ -2205,7 +2218,7 @@ One PR per feature or small group. Already queued, and assumed:
 | # | PR | Size | Depends on | Why here | Lands with (section 15) |
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Correctness fixes**: `info_ladder` bounds, `occludernumber` rebase, flattener keeps side-id references, overlay basis keys moved by split and flatten, `light_environment` never turned, library-wide entities collected from the gaps, refusal of non-zero `angles` on unknown brush-entity classes in split and flatten. | S | none | Each fix is a fact that fails today; later work builds on correct transforms. | 15.3 facts 1–6 and 9, red first; D for split and flatten |
-| 2 | **Entity budget**: the class table (compile-only rows certain, default `edict`), per-room entity section, edict and entity totals in `CheckCapacity` with reserve, warnings, refusal and headroom report, `ssmap rooms` counts, `ssmap layout` budget, stripping of certain compile-only entities, the points-of-interest section (store and strip `info_poi`, 10.6), the section codec byte and rotation count (1.1) with the pack version raised. | M | Q1 | D7 makes it a top priority, and every later feature reports its cost through it. | 15.6; budget rows of 15.4; 15.5 for the new sections; the POI store and strip; 15.9 |
+| 2 | **Entity budget**: the class table (compile-only rows certain, default `edict`), per-room entity section, edict and entity totals in `CheckCapacity` with reserve, warnings, refusal and headroom report, `ssmap rooms` counts, `ssmap layout` budget, stripping of certain compile-only entities, the `.roomnav` file with its pack binding and the points of interest in it (store and strip `info_poi`, 10.4, 10.6), the section codec byte and rotation count (1.1) with the pack version raised. | M | Q1 | D7 makes it a top priority, and every later feature reports its cost through it. | 15.6; budget rows of 15.4; 15.5 for the new sections; the POI store and strip; 15.9 |
 | 3 | **Naming and neighbour logic, one feature**: `cxry_` resolution, the rotation table, (a), (b) injected only when referenced, (c) for point entities and static-prop conditions, folding (relays, constant branches, `logic_auto` merge, filters), `-mod-entities` with `logic_room` and its stock fallback, the `SourceSharp.RoomContracts` assembly (7.5), the `RoomLinter` rule, `ssmap rooms` listing, one resolver shared by link and flatten. Facts for each mechanism at all four rotations (5.11). | M-L | 2, Q1 | Pure text and immediately useful (repeated rooms with logic), and it is the main lever on the entity budget. (c) on a brush entity cannot arise until #7 links brush entities; #7 adds model omission. | 5.11; 15.2 naming, mod-contract rows in both modes; 15.3 facts 7 and 8 (names); 15.4 naming rows |
 | 4 | **Singletons and the library section** (section 8), with D3's refusal at pack time. | S-M | Q1, 1 | The sun section is Q4's input. | 15.2 singletons row; 15.4 sun and sky-camera rows |
 | 5 | **Packed files**. | M | Q1 | Unblocks real content (finding 10); prerequisite of 6, 11, 12. | 15.2 packed files row; real-content set; 15.4 conflict row |
@@ -2258,6 +2271,7 @@ hardest and their refusals are safe meanwhile.
 | D15 | A fresh start spawns the player at the up room's arrival point, facing its yaw: from the navigation data with `-mod-entities`, one emitted `info_player_start` in the stock fallback, with the rooms' own player starts stripped (replaces O12). |
 | D16 | Link speed decides storage: precompute and store per rotation (×4) whenever that makes the link faster, once only where the bytes do not change with rotation or the turn is measurably free next to reading the data; larger files are an accepted cost. Base lighting and door capture are ×4 when sun or sky light reaches the room, once otherwise; the door response once unless ×4 measures faster (1.1). |
 | D17 | Pack sections and navigation files carry a codec byte (none, Deflate, Brotli; built into .NET). The default is none; a codec only where it measurably beats raw reads at link with a warm page cache (by the mod's load time for the navigation file). Deterministic, with pinned-byte facts on every OS and an in-repo compressor as the fallback (1.1). |
+| D18 | Navigation data lives in separate files unless trivially small: `ssmap room` writes `<library>.roomnav` beside the `.roompack` (same container conventions, a header binding it to the pack; a mismatched pair is refused), and `ssmap link` writes `<map>.nav3d` as a sidecar next to the `.bsp`, not in the pakfile. Back into the pack only under a size threshold the navigation PR states (10.4). |
 
 ### Open, with recommended defaults
 
@@ -2351,7 +2365,7 @@ R = rotations, M = both modes, D = determinism, B = budget counts.
 | Sky (4.12) | pass two | leaf flags; skybox area | `end` sky opening, skybox room | leaf sky flags | yes | | yes | yes |
 | Transitions and spawn (11) | YAML keys, rule, layout second stream, landmark names | emission per mode, hallway fold, spawn | transit set (15.7) | entities per mode, spawn position and yaw | yes | yes | yes | yes |
 | Lighting (9) | sums, style renumber | base per rotation, door terms | 3x3 lit, stress | tolerances (9.8); byte equality not expected | yes | | yes | |
-| Navigation and POIs (10) | POI transform | POI store and strip | transit set | POI positions and facings; the rest blocked on the AI design | yes | | yes | yes (0) |
+| Navigation and POIs (10) | POI transform; `.roomnav` and `.nav3d` containers | POI store and strip into `.roomnav`; the pack binding | transit set | POI positions and facings in `.nav3d`; the rest blocked on the AI design | yes | | yes | yes (0) |
 
 ### 15.3 Correctness fixes, red first
 
@@ -2405,6 +2419,8 @@ then.
 | 4.9 plug | R | `room {room}: info_overlay {id} names brush side {side}, which is socket "{socket}"'s plug.` |
 | 4.11 socket | R | `room {room}: func_areaportal {id} lies in socket "{socket}"'s plug box.` |
 | 4.13 conflict | R | `rooms {a} and {b} both pack {file} with different bytes.` |
+| 10.4 binding | R | `{roomnav} was written for another pack than {roompack}; recompile the library with ssmap room.` |
+| 10.4 missing | W | `{roompack} has no {roomnav} beside it; the level links without navigation, and rooms {rooms} have points of interest.` |
 | 4.14 cordon | R | `the room library has a cordon; rooms are cut by their cells, not by cordons.` |
 | 11.1 count | R | `level {level}: {k} {up/down} rooms ({cells}); a level has exactly one unless it says "{up/down}: none".` |
 | 11.1 switched off | R | `level {level}: says "{role}: none" but places {role} room {room} at cell ({x}, {y}).` |
@@ -2426,6 +2442,8 @@ then.
   extends `RoomReproducibilityTests` and `RoomLibraryCompilerTests`.
 - **Links:** `ssmap link` at thread counts 1 and many, twice each, writes
   byte-identical maps in both modes; so does `--flatten` (the VMF).
+- **Navigation files:** the `.roomnav` and the `.nav3d` sidecar are
+  byte-identical across thread counts and runs, like the pack.
 - **Layout:** the same seed gives the same YAML with and without roles, and
   a role-less library's output equals today's (11.2).
 - **Lighting:** the base bake and door terms are the same bytes at any
@@ -2528,6 +2546,11 @@ default is relied on:
   codec on a warm page cache.
 - **Determinism:** packs with compressed sections are byte-identical at any
   thread count and run (15.5).
+- **Navigation files:** the same codec facts for `.roomnav` and `.nav3d`
+  sections; a `.roomnav` whose binding hash does not match its pack is
+  refused, and one that matches links; the `.nav3d` sidecar is written next
+  to the `.bsp` and nothing navigation-related is in the pak (unless below
+  the stated threshold).
 - **Refusals:** an unknown codec byte, a decoded length that differs from
   the stored one, and a truncated payload are refused, naming the room and
   section: `room {room}: section {tag} uses codec {n}, which this build does
