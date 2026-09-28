@@ -9,6 +9,7 @@ using System.Diagnostics;
 
 using SourceSharp.MapFormats.Geometry;
 
+using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Tracing;
 
 using Xunit;
@@ -25,7 +26,7 @@ public sealed class KdParityFixture
     public KdParityFixture()
     {
         Scene = StockKdScene.Load();
-        Tracer = KdRayTracer.Build(Scene.Triangles);
+        Tracer = KdRayTracer.Build(Scene.Triangles, ComplianceOptions.Stock);
         Ours = new HitId[Scene.RayCount];
         Tracer.TraceClosest(Scene.Rays, Ours, RayTraceOptions.StockExact);
     }

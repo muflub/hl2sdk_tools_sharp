@@ -307,7 +307,7 @@ public static class VbspCommand
     {
         for (int i = 0; i < mounted.Skipped.Count; i++)
         {
-            string where = i < mounted.SkippedPaths.Count ? mounted.SkippedPaths[i].Value : "(unknown)";
+            string where = i < mounted.SkippedPaths.Count ? HostPaths.Display(mounted.SkippedPaths[i]) : "(unknown)";
             await output.WriteLineAsync(
                 $"{tool}: warning: search path \"{mounted.Skipped[i]}\" mounted nothing (looked in {where})")
                 .ConfigureAwait(false);
@@ -370,7 +370,7 @@ public static class VbspCommand
         IFileSystem fileSystem, VPath path, BspData bsp, FormatOptions format, TextWriter output,
         CancellationToken cancellationToken)
     {
-        await output.WriteLineAsync($"Writing {fileSystem.GetType().Name}:{path}").ConfigureAwait(false);
+        await output.WriteLineAsync($"Writing {HostPaths.Display(path)}").ConfigureAwait(false);
         using MemoryStream buffer = new();
         // The T3 seam: a resolved format beyond today's default is handed the
         // writer's format overload; the default asks for null and so runs

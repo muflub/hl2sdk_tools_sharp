@@ -225,7 +225,7 @@ public static class RoomCommands
                     cancellationToken).ConfigureAwait(false);
 
                 await output.WriteLineAsync(
-                    $"ssmap room: wrote {roomFile.Value}"
+                    $"ssmap room: wrote {HostPaths.Display(roomFile)}"
                     + $" ({compiled.ClusterCount} clusters, {definition.Sockets.Count} sockets)")
                     .ConfigureAwait(false);
             }
@@ -508,7 +508,7 @@ public static class RoomCommands
             return ExitFailed;
         }
 
-        await output.WriteLineAsync($"ssmap layout: wrote {targetPath.Value}").ConfigureAwait(false);
+        await output.WriteLineAsync($"ssmap layout: wrote {HostPaths.Display(targetPath)}").ConfigureAwait(false);
         return Program.ExitSuccess;
     }
 
@@ -719,7 +719,7 @@ public static class RoomCommands
                 cancellationToken).ConfigureAwait(false);
 
             await output.WriteLineAsync(
-                $"ssmap link: wrote {mapPath.Value}"
+                $"ssmap link: wrote {HostPaths.Display(mapPath)}"
                 + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters)")
                 .ConfigureAwait(false);
             return Program.ExitSuccess;
@@ -787,7 +787,7 @@ public static class RoomCommands
             return ExitFailed;
         }
 
-        await output.WriteLineAsync($"ssmap link: wrote {vmfPath.Value} ({level.Placed.Count()} rooms, flattened)")
+        await output.WriteLineAsync($"ssmap link: wrote {HostPaths.Display(vmfPath)} ({level.Placed.Count()} rooms, flattened)")
             .ConfigureAwait(false);
         return Program.ExitSuccess;
     }

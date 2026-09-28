@@ -1358,6 +1358,72 @@ public enum StockQuirk
     /// </para>
     /// </remarks>
     VbspVectorNormalise,
+
+    /// <summary>
+    /// vrad's KD tracer takes the ray direction's reciprocal with the
+    /// <c>rcpps</c> estimate plus one Newton step, and normalises each
+    /// triangle's plane with the <c>rsqrtss</c> estimate, so which occluder a
+    /// shadow ray meets, and where, depends on the CPU.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two estimates in one tracer. Traversal scales every split-plane and
+    /// scene-box distance by <c>ReciprocalSaturateSIMD(direction)</c>, whose
+    /// last bits are the estimate's, so a ray grazing a split can be walked
+    /// into the other child. And the triangles are converted to their
+    /// intersection format with a <c>VectorNormalize</c> of the edge cross
+    /// product, so the plane every hit distance is measured against, and the
+    /// axis the edge tests project along, carry the estimate's bits too.
+    /// </para>
+    /// <para>
+    /// <b>Why this is a defect.</b> The estimates are architecturally allowed
+    /// to differ between CPU models and differ between x86 and arm64 by
+    /// design, so the same map lit on two machines casts different shadows at
+    /// the margins: the digests of static-prop lighting under the default
+    /// policy differed between x86 and arm64 before this quirk existed.
+    /// </para>
+    /// <para>
+    /// <see cref="CompliancePolicy.Correct"/> divides: an IEEE reciprocal in
+    /// traversal and an exact <c>Vec3.Normalise</c> for the planes, both the
+    /// same bits everywhere. <see cref="CompliancePolicy.Stock"/> issues the
+    /// estimate instructions, which reproduces stock on the same CPU family
+    /// and nowhere else. The zero-component substitute before the reciprocal
+    /// is <see cref="KdZeroDirectionReachCut"/>, decided separately.
+    /// </para>
+    /// </remarks>
+    KdTracerReciprocalEstimate,
+
+    /// <summary>
+    /// The leaf-ambient walk's sky test normalises with the <c>rsqrtss</c>
+    /// estimate, both where the sky face's colinear points are removed and
+    /// where a point is tested against the face.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>TestPointAgainstSkySurface</c> builds the sky face's winding,
+    /// removes colinear points (<c>RemoveColinearPoints</c>, which keeps a
+    /// point when the dot of its two normalised edges is under 0.999), and
+    /// then asks whether the ray's point lies inside it by normalising edge
+    /// crosses and comparing their dot products with zero. Every normalise
+    /// is <c>VectorNormalize</c>: the estimate plus one Newton step, over a
+    /// squared length biased by <c>1e-10</c>.
+    /// </para>
+    /// <para>
+    /// <b>Why this is a defect.</b> Both tests compare against a threshold,
+    /// so a point near 0.999 or near an edge is decided by the estimate's last
+    /// bits, which are the CPU's: whether a leaf-ambient, detail-prop or
+    /// static-prop ray sees the sky is then a property of the machine. The
+    /// bias makes it worse for short edges: two colinear edges under about
+    /// 1e-5 units come out shorter than unit length, their dot falls under
+    /// 0.999, and the colinear point is kept.
+    /// </para>
+    /// <para>
+    /// <see cref="CompliancePolicy.Correct"/> normalises with a divide
+    /// (<c>Vec3.Normalise</c>). <see cref="CompliancePolicy.Stock"/> routes
+    /// through <c>Vec3.NormaliseLikeStock</c>.
+    /// </para>
+    /// </remarks>
+    SkyWindingNormalise,
 }
 
 /// <summary>

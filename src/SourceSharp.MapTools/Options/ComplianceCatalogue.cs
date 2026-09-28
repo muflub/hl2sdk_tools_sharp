@@ -1216,6 +1216,64 @@ public static class ComplianceCatalogue
             + "displacement collision set builds the same surface but reads nothing the "
             + "normalise decides, and always divides exactly."),
 
+        StockQuirk.KdTracerReciprocalEstimate => new(
+            quirk,
+            "KD tracer uses the rcp and rsqrt estimates",
+            "The KD tracer takes each ray direction's reciprocal with the rcpps estimate plus a "
+            + "Newton step, and normalises each triangle's plane with the rsqrtss estimate, so "
+            + "which occluder a shadow ray meets depends on the CPU.",
+            "Traversal divides and the planes are normalised with a divide, so every hit is the "
+            + "same on every CPU.",
+            CompileTools.Vrad,
+            [
+                "SourceSharp.MapTools.Tracing.KdRayTracer.StockReciprocal",
+            ],
+            QuirkObservation.Measured,
+            "With the estimate in the KD tracer under the default policy, static-prop lighting "
+            + "of the leaf-ambient fixture gave four different digests on Apple Silicon than on "
+            + "x86, and on an AMD host this quirk alone moves ss_sandbox's Lighting and "
+            + "LeafAmbientLighting lumps (1,290 bytes with two bounces); with the divide, those digests hold "
+            + "whatever the estimate returns.",
+            [
+                "KdTracerReciprocalEstimateTests.StockTraversalTakesTheEstimatedReciprocal",
+                "KdTracerReciprocalEstimateTests.CorrectTraversalDivides",
+                "KdTracerReciprocalEstimateTests.StockTrianglePlanesTakeTheEstimatedNormal",
+                "KdTracerReciprocalEstimateTests.CorrectTrianglePlanesTakeTheExactNormal",
+                "KdTracerReciprocalEstimateTests.ThePoliciesTraceTheSameRaysToDifferentDistances",
+                "VradCpuIndependenceTests.TheCorrectKdSceneDistancesArePinnedOnEveryCpu",
+            ],
+            "The zero-component substitute taken before the reciprocal is "
+            + "KdZeroDirectionReachCut, decided separately. The GPU tracer never took either "
+            + "estimate. The Stock side still throws on a CPU with neither SSE nor AdvSimd; the "
+            + "Correct side runs anywhere."),
+
+        StockQuirk.SkyWindingNormalise => new(
+            quirk,
+            "Sky test normalises with the rsqrt estimate",
+            "The leaf-ambient walk's sky test normalises the sky face's edges and edge crosses "
+            + "with the rsqrtss estimate over a length biased by 1e-10, so whether a ray near a "
+            + "sky face's edge sees the sky depends on the CPU.",
+            "Those normalises divide, so the sky windings and the point-in-winding test are the "
+            + "same on every CPU.",
+            CompileTools.Vrad,
+            [
+                "SourceSharp.MapTools.Tracing.BspTraceGeometry.Build",
+            ],
+            QuirkObservation.Demonstrated,
+            "Three colinear points 1e-5 units apart: the biased estimate shortens both edges to "
+            + "about 0.71, their dot falls under 0.999 and the middle point is kept; divided, the "
+            + "dot is 1 and it is removed.",
+            [
+                "SkyWindingNormaliseTests.StockKeepsAColinearPointBetweenShortEdges",
+                "SkyWindingNormaliseTests.CorrectRemovesAColinearPointBetweenShortEdges",
+                "SkyWindingNormaliseTests.StockSkyTestNormalisesWithTheEstimate",
+                "SkyWindingNormaliseTests.CorrectSkyTestNormalisesWithADivide",
+                "VradCpuIndependenceTests.TheCorrectLeafAmbientIsPinnedOnEveryCpu",
+            ],
+            "Decided once, when the walk's geometry is built, and read by both the leaf-ambient "
+            + "walk and the generic surface tracer, so the windings and the test on them always "
+            + "follow the same side."),
+
         _ => throw new ArgumentOutOfRangeException(
             nameof(quirk), quirk, "no ComplianceCatalogue entry for this StockQuirk"),
     };

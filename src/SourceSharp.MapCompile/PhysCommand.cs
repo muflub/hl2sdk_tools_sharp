@@ -38,8 +38,9 @@ public static class PhysCommand
     /// <param name="args">The arguments after <c>phys</c>.</param>
     /// <param name="output">Where the table goes.</param>
     /// <param name="displayRoot">
-    /// What the filesystem's root is called on this machine, prepended to every
-    /// path in the output.
+    /// The host directory the filesystem is rooted at (the CLI passes
+    /// <see cref="PhysicalFileSystem.Root"/>), which every path in the output is
+    /// shown under; empty shows the paths as the filesystem names them.
     /// </param>
     /// <param name="cancellationToken">Cancels the search.</param>
     /// <returns>The process exit code.</returns>
@@ -232,7 +233,8 @@ public static class PhysCommand
     /// <param name="libraries">What discovery found.</param>
     /// <param name="output">Where the table goes.</param>
     /// <param name="displayRoot">
-    /// What the filesystem's root is called, prepended to every path shown.
+    /// The host directory the filesystem is rooted at, which every path shown is
+    /// under; empty shows the paths as the filesystem names them.
     /// </param>
     /// <returns>A task that completes when the table has been written.</returns>
     /// <remarks>
@@ -305,23 +307,18 @@ public static class PhysCommand
     /// A path as the user's shell would spell it.
     /// </summary>
     /// <param name="path">A path relative to the filesystem's root.</param>
-    /// <param name="displayRoot">What that root is called on this machine.</param>
+    /// <param name="displayRoot">The host directory that root is, or empty for none.</param>
     /// <returns>The path a user could paste.</returns>
     /// <remarks>
     /// A <see cref="VPath"/> is rooted at its filesystem and carries no leading
     /// separator, which is right for the library and wrong for a person: a
     /// discovery rooted at "/" would otherwise print
     /// <c>home/someone/.steam/...</c>, which looks like a path and is not one.
+    /// The composition is <see cref="HostPaths"/>'s, which uses the host's
+    /// separators and keeps a Windows path's own drive: a Steam library on
+    /// another drive is listed as <c>E:/SteamLibrary/...</c>, and gluing the
+    /// root on as text turned that into <c>C:\/E:/SteamLibrary/...</c>.
     /// </remarks>
-    private static string Display(VPath path, string displayRoot)
-    {
-        if (displayRoot.Length == 0)
-        {
-            return path.Value;
-        }
-
-        return displayRoot.EndsWith('/')
-            ? displayRoot + path.Value
-            : displayRoot + "/" + path.Value;
-    }
+    private static string Display(VPath path, string displayRoot) =>
+        displayRoot.Length == 0 ? path.Value : HostPaths.Display(path, displayRoot);
 }

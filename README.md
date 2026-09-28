@@ -116,7 +116,8 @@ Ctrl-C to cancellation. It references the libraries with no
   content a compile still runs, but missing materials and models become
   warnings.
 - An x86-64 or arm64 CPU. Both modes run on both, including Apple Silicon,
-  but some results differ in the last bits between CPU families; see
+  but under `-compliance stock` some results differ in the last bits between
+  CPU families; see
   [Platform differences](#platform-differences). The x86-64 native AOT
   builds need AVX2 (x86-64-v3: Intel Haswell or AMD Zen and later); on an
   older x86-64 CPU use the framework-dependent build, which writes the same
@@ -410,18 +411,29 @@ What moves between the rows:
   collision data, leaf ambient and static-prop lighting. On one CPU family
   the output is still deterministic from run to run.
 - **`-compliance correct`** (the default) uses exact IEEE arithmetic in
-  place of these estimates. vbsp and vvis take no estimate at all, so their
-  output is the same bytes on every CPU; CI pins vbsp's digests for the
-  sandbox map and several displacement maps, and runs them on AMD, Intel and
-  arm64. The exception is vrad's ray tracing, which keeps stock's estimates
-  in both modes: the reciprocal in the KD-tree traversal, the triangle
-  normals the KD tree is built from, the colinear-point cull of the trace
-  geometry's windings, and the point-in-sky-face tests. A ray that grazes a
-  tree split or an edge can resolve differently from one CPU family to
-  another, which changes a shadow or sky test at the edge of an occluder.
+  place of every one of these estimates, so vbsp and vvis write the same
+  bytes on every CPU, and so does vrad with one known exception below.
+  vrad's ray tracing used to be an exception and no longer is: the KD tracer's traversal reciprocal and triangle
+  normals (`KdTracerReciprocalEstimate`) and the leaf-ambient walk's sky
+  windings and point-in-sky-face test (`SkyWindingNormalise`) divide
+  exactly under the default policy, as the gather, transfer and ambient-cube
+  estimates already did. CI pins vbsp's digests for the sandbox map and
+  several displacement maps, and vrad's for the KD tracer on two committed
+  scenes, leaf ambient on its committed fixture, and the whole chain on the
+  sandbox map, and runs them on AMD, Intel and arm64. A digest that holds on
+  one of those runners and not another is a bug: a Correct path still taking
+  an estimate.
+
+  The known exception: static-prop lighting under the default policy still
+  gives different bytes on arm64 than on x86 (AMD and Intel agree). It is not
+  the KD tracer, whose Correct digests agree everywhere; its source in the
+  prop-lighting path is not yet identified. Until it is, that fact keeps a
+  captured arm64 delta (`Fixtures/rsqrt-vendor/Arm64/static-prop-chunking.correct.txt`)
+  so the difference stays declared.
 
 Everything else is the same on every platform: file formats, vbsp, vvis,
-every exact computation, and every elementary function.
+vrad under the default policy, every exact computation, and every
+elementary function.
 
 ### Elementary functions
 
@@ -436,11 +448,14 @@ right.
 
 Each function first evaluates in double precision with a bounded error and
 rounds when the whole error band rounds to one value. For about one float
-result in a million, and for every double result, it falls back to
-arbitrary-precision interval arithmetic, which always decides. A float
-function costs a small multiple of `MathF`'s; a double function costs tens of
-microseconds, which is why the per-luxel gamma uses `DetMath.PowToSingle`
-(the bits of `(float)DetMath.Pow`, at float cost). A fact scans the built
+result in a million it falls back to arbitrary-precision interval
+arithmetic, which always decides. Double `log`, which the detail-prop
+Gaussian takes once a sample, has a double-double evaluation good to 2^-64
+and falls back for about one argument in two thousand (about 0.15 µs a call
+on average, against the exact tier's 30). Double `sin`, `cos` and `pow`
+always take the exact tier, tens of microseconds a call, which is fine for
+their once-per-light uses; that is why the per-luxel gamma uses
+`DetMath.PowToSingle` (the bits of `(float)DetMath.Pow`, at float cost). A fact scans the built
 libraries and fails on any call to `Math.Sin`, `MathF.Pow` and the like.
 
 This holds under both policies. The reference tools took these functions from
@@ -723,8 +738,7 @@ assemblies rather than by review.
   options produce the same bytes on Linux, Windows and macOS, on any .NET
   runtime. The only differences allowed are the CPU-estimate ones listed
   under [Platform differences](#platform-differences): stock's `rcpss` /
-  `rsqrtss` arithmetic under `-compliance stock`, and vrad's ray
-  tracing under either policy. The opt-in paths that hand work to code outside
+  `rsqrtss` arithmetic under `-compliance stock`. The opt-in paths that hand work to code outside
   this repository, `-gpu` (the device's ray intersection) and
   `-cooker native` (the game's vphysics library), are outside the rule.
   Any other difference between platforms is a bug.

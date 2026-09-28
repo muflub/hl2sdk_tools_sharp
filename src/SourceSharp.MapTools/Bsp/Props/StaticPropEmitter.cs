@@ -382,8 +382,12 @@ public sealed class StaticPropEmitter
         }
     }
 
-    // GetCollisionModel's cook half, for many models at once,
-    // biggest first so that the longest cook starts first.
+    // GetCollisionModel's cook half, for many models at once, the most
+    // expensive first so that the longest cook starts first and the rest
+    // fill in around it: a heavy hull that started last would finish alone,
+    // after every other cook, and set the stage's wall time. Only the order
+    // the cooks START in depends on this; each writes its own model's slot,
+    // and the lump is committed in entity order, so the output does not.
     private Task CookAsync(ModelEntry[] models, CancellationToken cancellationToken)
     {
         foreach (ModelEntry model in models)
@@ -395,7 +399,7 @@ public sealed class StaticPropEmitter
         [
             .. models
                 .Select((m, index) => (Model: m, Index: index))
-                .OrderByDescending(m => m.Model.VertexCount)
+                .OrderByDescending(m => m.Model.CookCost)
                 .ThenBy(m => m.Index)
                 .Select(m => m.Model),
         ];
@@ -434,7 +438,28 @@ public sealed class StaticPropEmitter
 
         VvdFile vvd = await LoadVertexFileAsync(load.Mdl!, cancellationToken).ConfigureAwait(false);
         model.Meshes = StudioModelCheck.MeshHulls(load.Mdl!, vvd);
-        model.VertexCount = model.Meshes.Sum(m => (long)m.Length);
+        model.CookCost = CookCost(model.Meshes);
+    }
+
+    // A hull cook's cost, to order the cooks by: the sum over meshes of the
+    // vertex count cubed. Each mesh is one convex, and a convex's cook is
+    // dominated by the corner loop over its rebuilt planes, which is cubic in
+    // the plane count, and the plane count follows the mesh's vertex count;
+    // the qhull and ledge stages are near-linear and small beside it. So one
+    // 100-vertex mesh costs far more than ten 24-vertex boxes, although it
+    // has fewer vertices in all; a plain vertex total would cook the boxes
+    // first. The count is clamped so the cube cannot overflow; a mesh that
+    // large is the most expensive either way.
+    internal static long CookCost(IReadOnlyList<Vec3[]> meshes)
+    {
+        long cost = 0;
+        foreach (Vec3[] mesh in meshes)
+        {
+            long n = Math.Min(mesh.Length, 1 << 16);
+            cost += n * n * n;
+        }
+
+        return cost;
     }
 
     // An index-slot loop over the compile's degree: every body writes only
@@ -472,7 +497,7 @@ public sealed class StaticPropEmitter
 
         public List<Vec3[]>? Meshes { get; set; }
 
-        public long VertexCount { get; set; }
+        public long CookCost { get; set; }
 
         public IStaticPropHull? Hull { get; set; }
 

@@ -12,6 +12,7 @@ using SourceSharp.MapFormats;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapTools.Options;
 
 namespace SourceSharp.MapTools.Tracing;
 
@@ -217,7 +218,8 @@ public sealed class BspTraceGeometry
         Vec3[] skyPoints,
         int[] skyStart,
         int[] skyCount,
-        int skippedDisplacements)
+        int skippedDisplacements,
+        bool stockSkyNormalise)
     {
         _nodes = nodes;
         _surfaces = surfaces;
@@ -229,7 +231,20 @@ public sealed class BspTraceGeometry
         _skyStart = skyStart;
         _skyCount = skyCount;
         SkippedDisplacementFaces = skippedDisplacements;
+        StockSkyNormalise = stockSkyNormalise;
     }
+
+    /// <summary>
+    /// Whether the sky windings were built, and are to be tested, with stock's
+    /// reciprocal-square-root estimate rather than a divide
+    /// (<see cref="StockQuirk.SkyWindingNormalise"/>'s Stock side).
+    /// </summary>
+    /// <remarks>
+    /// Decided once, in <see cref="Build(BspData, ComplianceOptions)"/>, and
+    /// read by both walks' sky tests, so the windings and the test on them can
+    /// never be built under one policy and tested under the other.
+    /// </remarks>
+    public bool StockSkyNormalise { get; }
 
     /// <summary>How many nodes the tree has.</summary>
     public int NodeCount => _nodes.Length;
@@ -420,20 +435,48 @@ public sealed class BspTraceGeometry
     internal int[] SkyCount => _skyCount;
 
     /// <summary>
-    /// Flattens a loaded map's tree.
+    /// Flattens a loaded map's tree under <see cref="ComplianceOptions.Correct"/>,
+    /// the library's default.
     /// </summary>
     /// <param name="bsp">The map. Read only; nothing is written back.</param>
     /// <returns>The flattened tree.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="bsp"/> is null.</exception>
+    /// <exception cref="InvalidBspException">
+    /// A face, node or leaf names an index the map does not have.
+    /// </exception>
+    public static BspTraceGeometry Build(BspData bsp) => Build(bsp, ComplianceOptions.Correct);
+
+    /// <summary>
+    /// Flattens a loaded map's tree.
+    /// </summary>
+    /// <param name="bsp">The map. Read only; nothing is written back.</param>
+    /// <param name="compliance">
+    /// Decides <see cref="StockQuirk.SkyWindingNormalise"/>: how the sky
+    /// windings' colinear points are removed, and how the walks test a point
+    /// against them. Nothing else in the tree depends on it.
+    /// </param>
+    /// <returns>The flattened tree.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="bsp"/> or <paramref name="compliance"/> is null.</exception>
+    /// <exception cref="PlatformNotSupportedException">
+    /// <see cref="StockQuirk.SkyWindingNormalise"/> is emulated and the CPU has
+    /// neither SSE nor AdvSimd, so there is no estimate to reproduce.
+    /// </exception>
     /// <exception cref="InvalidBspException">
     /// A face, node or leaf names an index the map does not have. Thrown rather
     /// than clamped: an out-of-range index is a corrupt or misread lump, and a
     /// tracer that silently traced against face 0 instead would produce
     /// lighting that is wrong everywhere and looks plausible.
     /// </exception>
-    public static BspTraceGeometry Build(BspData bsp)
+    public static BspTraceGeometry Build(BspData bsp, ComplianceOptions compliance)
     {
         ArgumentNullException.ThrowIfNull(bsp);
+        ArgumentNullException.ThrowIfNull(compliance);
+
+        bool stockSkyNormalise = compliance.Emulates(StockQuirk.SkyWindingNormalise);
+        if (stockSkyNormalise && !FloatEstimate.IsSupported)
+        {
+            throw FloatEstimate.Unsupported();
+        }
 
         ReadOnlySpan<DPlane> planes = BspStructView.As<DPlane>(bsp[BspLump.Planes]);
         ReadOnlySpan<DNode> nodes = BspStructView.As<DNode>(bsp[BspLump.Nodes]);
@@ -451,7 +494,7 @@ public sealed class BspTraceGeometry
             BuildLeaves(bsp, faces, leafFaceList);
 
         (Vec3[] skyPoints, int[] skyStart, int[] skyCount) =
-            BuildSkyWindings(bsp, faces, faceFlags);
+            BuildSkyWindings(bsp, faces, faceFlags, stockSkyNormalise);
 
         int displacements = 0;
         for (int i = 0; i < faces.Length; i++)
@@ -472,11 +515,12 @@ public sealed class BspTraceGeometry
             skyPoints,
             skyStart,
             skyCount,
-            displacements);
+            displacements,
+            stockSkyNormalise);
     }
 
     private static (Vec3[] Points, int[] Start, int[] Count) BuildSkyWindings(
-        BspData bsp, ReadOnlySpan<DFace> faces, int[] faceFlags)
+        BspData bsp, ReadOnlySpan<DFace> faces, int[] faceFlags, bool stockNormalise)
     {
         ReadOnlySpan<Vec3> vertexes = BspStructView.As<Vec3>(bsp[BspLump.Vertexes]);
         ReadOnlySpan<DEdge> edges = BspStructView.As<DEdge>(bsp[BspLump.Edges]);
@@ -507,7 +551,7 @@ public sealed class BspTraceGeometry
             }
 
             start[f] = points.Count;
-            RemoveColinearPoints(raw, points);
+            RemoveColinearPoints(raw, points, stockNormalise);
             count[f] = points.Count - start[f];
         }
 
@@ -520,23 +564,27 @@ public sealed class BspTraceGeometry
     /// </summary>
     /// <param name="source">The winding's points, in file order.</param>
     /// <param name="sink">Receives the points that survive.</param>
+    /// <param name="stockNormalise">
+    /// Whether to normalise with stock's estimate
+    /// (<see cref="StockQuirk.SkyWindingNormalise"/>).
+    /// </param>
     /// <remarks>
-    /// The two normalisations go through <see cref="Vec3.NormaliseLikeStock"/>
-    /// rather than an exact one. That is not fussiness: the test is
-    /// <c>Dot(v1, v2) &lt; 0.999</c> against an estimate produced by
-    /// <c>rsqrtss</c> plus one Newton step, so a point sitting near the
-    /// threshold is kept or dropped by the estimate's last bits, and an exact
-    /// normalise would drop a different set of points on some faces.
+    /// The test is <c>Dot(v1, v2) &lt; 0.999</c> on two normalised edges, so a
+    /// point sitting near the threshold is kept or dropped by the
+    /// normalisation's last bits. Stock normalises with <c>rsqrtss</c> plus
+    /// one Newton step (<see cref="Vec3.NormaliseLikeStock"/>), whose last bits
+    /// are the CPU's, and reproducing it keeps stock's set of points; the
+    /// Correct side divides, and keeps the same set on every CPU.
     /// </remarks>
-    private static void RemoveColinearPoints(List<Vec3> source, List<Vec3> sink)
+    internal static void RemoveColinearPoints(List<Vec3> source, List<Vec3> sink, bool stockNormalise)
     {
         int nump = source.Count;
         for (int i = 0; i < nump; i++)
         {
             int j = (i + 1) % nump;
             int k = (i + nump - 1) % nump;
-            (Vec3 v1, _) = (source[j] - source[i]).NormaliseLikeStock();
-            (Vec3 v2, _) = (source[i] - source[k]).NormaliseLikeStock();
+            (Vec3 v1, _) = Normalise(source[j] - source[i], stockNormalise);
+            (Vec3 v2, _) = Normalise(source[i] - source[k], stockNormalise);
             if (Vec3.Dot(v1, v2) < 0.999f)
             {
                 sink.Add(source[i]);
@@ -547,6 +595,18 @@ public sealed class BspTraceGeometry
         // alone". Appending only the survivors reaches the same winding in both
         // cases, so there is nothing to undo here.
     }
+
+    /// <summary>
+    /// The one normalisation both the sky windings and the walks' sky tests
+    /// use, so the two sides of <see cref="StockQuirk.SkyWindingNormalise"/>
+    /// are spelled in one place.
+    /// </summary>
+    /// <param name="v">The vector.</param>
+    /// <param name="stock">Stock's estimate when true, a divide when false.</param>
+    /// <returns>The normalised vector and the length it reports.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static (Vec3 Normalised, float Length) Normalise(Vec3 v, bool stock) =>
+        stock ? v.NormaliseLikeStock() : v.Normalise();
 
     /// <summary>
     /// Whether a face is a <c>SURF_SKY</c> one, so a caller can tell

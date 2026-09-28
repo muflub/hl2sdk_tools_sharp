@@ -112,6 +112,76 @@ public sealed class RoomCommandsTests
         Assert.NotNull(fs.GetBytes(VPath.Create(Rooted("/game/levels/pair.bsp"))));
     }
 
+    // ---- what they say they wrote -------------------------------------------
+
+    /// <summary>
+    /// <c>ssmap room</c> names the file it wrote as the host spells it, where
+    /// it used to print the path with its root cut off
+    /// (<c>tmp/x/rooms/hub.room</c>).
+    /// </summary>
+    [Fact]
+    public async Task ARoomNamesTheFileItWroteByItsHostPath()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.Contains(
+            $"ssmap room: wrote {Path.GetFullPath("/rooms/hub.room")} (",
+            output.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    /// <summary><c>ssmap layout</c> names the level file it wrote as the host spells it.</summary>
+    [Fact]
+    public async Task ALayoutNamesTheFileItWroteByItsHostPath()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+
+        int exit = await RoomCommands.RunLayoutAsync(
+            fs, ["/game/maps/rooms.vmf", "-rows", "1", "-columns", "2", "-seed", "1", "-out", "/levels/l.yaml"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.Contains($"ssmap layout: wrote {Path.GetFullPath("/levels/l.yaml")}", output.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary><c>ssmap link --flatten</c> names the VMF it wrote as the host spells it.</summary>
+    [Fact]
+    public async Task AFlattenNamesTheVmfItWroteByItsHostPath()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        AddLevel(fs, "/levels/level.yaml", "hub, hub", library: "../game/maps/rooms.vmf");
+        using StringWriter output = new();
+
+        int exit = await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "--flatten", "-out", "/out/level.vmf"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.Contains($"ssmap link: wrote {Path.GetFullPath("/out/level.vmf")} (", output.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary><c>ssmap link</c> names the map it wrote as the host spells it.</summary>
+    [Fact]
+    public async Task ALinkNamesTheMapItWroteByItsHostPath()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+        Assert.Equal(
+            Program.ExitSuccess,
+            await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output));
+        AddLevel(fs, "/levels/level.yaml", "hub, hub");
+
+        int exit = await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms", "-out", "/out/level.bsp"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.Contains(
+            $"ssmap link: wrote {Path.GetFullPath("/out/level.bsp")} (2 rooms, ",
+            output.ToString(),
+            StringComparison.Ordinal);
+    }
+
     // ---- ssmap room: its inputs ---------------------------------------------
 
     /// <summary>Every room of the library becomes its own <c>.room</c>, named for its <c>info_room</c>.</summary>

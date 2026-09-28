@@ -46,6 +46,10 @@ public sealed class SkippedSearchPathReportTests
 
     // ---- the line itself ----------------------------------------------------
 
+    /// <summary>
+    /// Where it looked is spelled as the host spells it, root and all: the
+    /// line used to say <c>games/mod/gone</c> for <c>/games/mod/gone</c>.
+    /// </summary>
     [Fact]
     public async Task EachSkippedPathIsOneWarningLineNamingWhereItLooked()
     {
@@ -58,7 +62,8 @@ public sealed class SkippedSearchPathReportTests
         await VbspCommand.WriteSkippedAsync(mounted, "ssmap vbsp", output);
 
         Assert.Equal(
-            "ssmap vbsp: warning: search path \"|gameinfo_path|gone\" mounted nothing (looked in games/mod/gone)"
+            "ssmap vbsp: warning: search path \"|gameinfo_path|gone\" mounted nothing (looked in "
+            + Path.GetFullPath("/games/mod/gone") + ")"
             + Environment.NewLine,
             output.ToString());
     }
@@ -142,7 +147,7 @@ public sealed class SkippedSearchPathReportTests
                 new PhysicalFileSystem("/"), [], ["-game", mod, "-cooker", "none", vmf], output);
 
             string text = output.ToString();
-            string where = VPath.Create(Path.Combine(mod, "missing_dir")).Value;
+            string where = Path.Combine(mod, "missing_dir");
             Assert.Contains($"ssmap all: warning: search path \"|gameinfo_path|missing_dir\" mounted nothing (looked in {where})", text, StringComparison.Ordinal);
             Assert.Contains("ssmap all: warning: search path \"|gameinfo_path|missing.vpk\" mounted nothing", text, StringComparison.Ordinal);
         }
@@ -169,10 +174,10 @@ public sealed class SkippedSearchPathReportTests
     private static void AssertReported(string output, string tool)
     {
         Assert.Contains(
-            $"{tool}: warning: search path \"|gameinfo_path|missing_dir\" mounted nothing (looked in {Rooted("/game/missing_dir")})",
+            $"{tool}: warning: search path \"|gameinfo_path|missing_dir\" mounted nothing (looked in {Path.GetFullPath("/game/missing_dir")})",
             output, StringComparison.Ordinal);
         Assert.Contains(
-            $"{tool}: warning: search path \"|gameinfo_path|missing.vpk\" mounted nothing (looked in {Rooted("/game/missing.vpk")})",
+            $"{tool}: warning: search path \"|gameinfo_path|missing.vpk\" mounted nothing (looked in {Path.GetFullPath("/game/missing.vpk")})",
             output, StringComparison.Ordinal);
         Assert.DoesNotContain("\"|gameinfo_path|.\" mounted nothing", output, StringComparison.Ordinal);
     }

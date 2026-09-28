@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using System.Collections.Immutable;
+using System.Numerics;
 using System.Reflection;
 using System.Reflection.Metadata;
 
@@ -102,6 +103,48 @@ public class DeterministicMathRuleTests
         Assert.DoesNotContain(offenders, o => o.Contains("System.Math.Sqrt", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// A transcendental reached through a generic-math interface is a
+    /// <c>constrained.</c> call whose target's parent is a generic
+    /// instantiation of the interface (<c>ITrigonometricFunctions`1&lt;!!T&gt;</c>),
+    /// not a plain type reference. The scan must see through that, or a
+    /// generic helper in a library could call the platform's sine unseen.
+    /// </summary>
+    [Fact]
+    public void TheScanFindsATranscendentalCalledThroughAGenericMathInterface()
+    {
+        _ = GenericSine(1.0) + GenericPow(2f, 0.5f) + GenericLog(3.0);
+        IReadOnlyList<string> offenders = FileSystemSeamTests.ScanCalls(
+            typeof(DeterministicMathRuleTests).Assembly,
+            ImmutableHashSet<string>.Empty,
+            (m, h, _, _) => IsPlatformMathCall(m, h));
+
+        Assert.Contains(offenders, o => o.EndsWith(
+            "GenericSine calls System.Numerics.ITrigonometricFunctions`1.Sin", StringComparison.Ordinal));
+        Assert.Contains(offenders, o => o.EndsWith(
+            "GenericPow calls System.Numerics.IPowerFunctions`1.Pow", StringComparison.Ordinal));
+        Assert.Contains(offenders, o => o.EndsWith(
+            "GenericLog calls System.Numerics.ILogarithmicFunctions`1.Log", StringComparison.Ordinal));
+
+        // The exact members stay allowed however they are reached.
+        Assert.DoesNotContain(offenders, o => o.Contains("GenericRoot", StringComparison.Ordinal));
+        _ = GenericRoot(4.0);
+    }
+
+    // Fixtures for the fact above: each compiles to a constrained. call
+    // through the interface that declares the member.
+    private static T GenericSine<T>(T x)
+        where T : ITrigonometricFunctions<T> => T.Sin(x);
+
+    private static T GenericPow<T>(T x, T y)
+        where T : IPowerFunctions<T> => T.Pow(x, y);
+
+    private static T GenericLog<T>(T x)
+        where T : IFloatingPointIeee754<T> => T.Log(x);
+
+    private static T GenericRoot<T>(T x)
+        where T : IRootFunctions<T> => T.Sqrt(x);
+
     private static Assembly Load(string name) => name switch
     {
         "SourceSharp.MapFormats" => typeof(BspData).Assembly,
@@ -123,20 +166,63 @@ public class DeterministicMathRuleTests
         }
 
         MemberReference member = metadata.GetMemberReference((MemberReferenceHandle)handle);
-        if (member.Parent.Kind is not HandleKind.TypeReference)
+        EntityHandle parent = member.Parent;
+        if (parent.Kind is HandleKind.TypeSpecification)
+        {
+            // A member of a generic instantiation, such as
+            // ITrigonometricFunctions`1<!!T>::Sin reached by a constrained.
+            // call from generic code: judge the generic type it instantiates.
+            parent = GenericTypeDefinition(metadata, (TypeSpecificationHandle)parent);
+        }
+
+        if (parent.Kind is not HandleKind.TypeReference)
         {
             return null;
         }
 
-        TypeReference type = metadata.GetTypeReference((TypeReferenceHandle)member.Parent);
+        TypeReference type = metadata.GetTypeReference((TypeReferenceHandle)parent);
         string typeName = metadata.GetString(type.Namespace) + "." + metadata.GetString(type.Name);
         string name = metadata.GetString(member.Name);
         string generic = typeName.Contains('`', StringComparison.Ordinal) ? typeName[..typeName.IndexOf('`', StringComparison.Ordinal)] : typeName;
 
         bool forbidden = typeName is "System.Math" or "System.MathF"
             ? !ExactMathMembers.Contains(name) && member.GetKind() == MemberReferenceKind.Method
-            : NumericTypes.Contains(generic) && Transcendentals.Contains(name);
+            : (NumericTypes.Contains(generic) || GenericMathInterfaces.Contains(generic)) && Transcendentals.Contains(name);
 
         return forbidden ? typeName + "." + name : null;
+    }
+
+    /// <summary>
+    /// The generic-math interfaces that declare a transcendental. A
+    /// <c>T.Sin(x)</c> in generic code binds to the interface that declares
+    /// <c>Sin</c>, whatever constraint named it (<c>INumber</c> via
+    /// <c>IFloatingPointIeee754</c>, say), so these are the parents such a
+    /// call can have. <c>IRootFunctions</c> is here for <c>Cbrt</c>,
+    /// <c>Hypot</c> and <c>RootN</c>; its <c>Sqrt</c> is exact and stays allowed.
+    /// </summary>
+    private static readonly ImmutableHashSet<string> GenericMathInterfaces =
+    [
+        "System.Numerics.ITrigonometricFunctions", "System.Numerics.IHyperbolicFunctions",
+        "System.Numerics.IExponentialFunctions", "System.Numerics.ILogarithmicFunctions",
+        "System.Numerics.IPowerFunctions", "System.Numerics.IRootFunctions",
+        "System.Numerics.IFloatingPointIeee754", "System.Numerics.IFloatingPoint",
+    ];
+
+    /// <summary>
+    /// The generic type a <c>GenericInst</c> type specification instantiates,
+    /// or the specification itself when it is anything else (an array, a
+    /// pointer, a generic parameter), which the rule then ignores.
+    /// </summary>
+    private static EntityHandle GenericTypeDefinition(MetadataReader metadata, TypeSpecificationHandle handle)
+    {
+        BlobReader blob = metadata.GetBlobReader(metadata.GetTypeSpecification(handle).Signature);
+        if (blob.ReadSignatureTypeCode() != SignatureTypeCode.GenericTypeInstance)
+        {
+            return handle;
+        }
+
+        // CLASS or VALUETYPE, then the generic type as a coded token.
+        _ = blob.ReadSignatureTypeCode();
+        return blob.ReadTypeHandle();
     }
 }
