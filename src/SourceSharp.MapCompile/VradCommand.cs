@@ -287,6 +287,7 @@ public static class VradCommand
         {
             GameContentMounter.Result mounted = await VbspCommand.MountGameAsync(
                 fileSystem, directory, steam, cancellationToken).ConfigureAwait(false);
+            await VbspCommand.WriteSkippedAsync(mounted, "ssmap vrad", output).ConfigureAwait(false);
             return (true, mounted.Content, mounted.GameInfo);
         }
         catch (Exception exception) when (exception is IOException or InvalidDataException or InvalidOperationException)

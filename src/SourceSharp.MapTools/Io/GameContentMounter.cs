@@ -87,7 +87,35 @@ public static class GameContentMounter
     public readonly record struct Result(
         ContentFileSystem Content,
         IReadOnlyList<string> Skipped,
-        GameInfo? GameInfo = null);
+        GameInfo? GameInfo = null)
+    {
+        /// <summary>
+        /// Where each <see cref="Skipped"/> location was looked for, in the
+        /// same order: the expanded, rooted path the mount found nothing at.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Skipped"/> names the line a user can find in the file;
+        /// this names the place on disk. A <c>|appid_N|</c> line needs both:
+        /// the spelling alone cannot say which install the app resolved to,
+        /// which is the first thing to check when a game's materials are
+        /// missing.
+        /// </remarks>
+        public IReadOnlyList<VPath> SkippedPaths { get; init; } = [];
+    }
+
+    /// <summary>The skipped locations, as the file wrote them and where they were looked for.</summary>
+    private sealed class SkipLog
+    {
+        public List<string> Spellings { get; } = [];
+
+        public List<VPath> Paths { get; } = [];
+
+        public void Add(string reported, VPath where)
+        {
+            Spellings.Add(reported);
+            Paths.Add(where);
+        }
+    }
 
     /// <summary>Mounts a game's content in its search-path order.</summary>
     /// <param name="fileSystem">Where the content lives.</param>
@@ -110,7 +138,7 @@ public static class GameContentMounter
 
         IReadOnlyList<string> wanted = kinds ?? CompileKinds;
         List<IContentMount> mounts = [];
-        List<string> skipped = [];
+        SkipLog skipped = new();
 
         try
         {
@@ -188,7 +216,7 @@ public static class GameContentMounter
             throw;
         }
 
-        return new Result(new ContentFileSystem(mounts), skipped, gameInfo);
+        return new Result(new ContentFileSystem(mounts), skipped.Spellings, gameInfo) { SkippedPaths = skipped.Paths };
     }
 
     /// <summary>Reads a <c>gameinfo.txt</c> and mounts what it names.</summary>
@@ -272,7 +300,7 @@ public static class GameContentMounter
         IFileSystem fileSystem,
         GameContentRoots roots,
         List<IContentMount> mounts,
-        List<string> skipped,
+        SkipLog skipped,
         CancellationToken cancellationToken)
     {
         string gameDir = roots.GameInfoDirectory.Value;
@@ -389,7 +417,7 @@ public static class GameContentMounter
         string reported,
         bool rooted,
         List<IContentMount> mounts,
-        List<string> skipped,
+        SkipLog skipped,
         CancellationToken cancellationToken)
     {
         if (location.EndsWith("/*", StringComparison.Ordinal))
@@ -423,7 +451,7 @@ public static class GameContentMounter
 
         if (directory.Paths.Count == 0)
         {
-            skipped.Add(reported);
+            skipped.Add(reported, path);
             await directory.DisposeAsync().ConfigureAwait(false);
             return;
         }
@@ -436,7 +464,7 @@ public static class GameContentMounter
         VPath path,
         string reported,
         List<IContentMount> mounts,
-        List<string> skipped,
+        SkipLog skipped,
         CancellationToken cancellationToken)
     {
         VpkArchiveOrMiss opened = await TryOpenVpkAsync(fileSystem, path, cancellationToken)
@@ -444,7 +472,7 @@ public static class GameContentMounter
 
         if (opened.Archive is null)
         {
-            skipped.Add(reported);
+            skipped.Add(reported, path);
             return;
         }
 
@@ -458,7 +486,7 @@ public static class GameContentMounter
         string reported,
         bool rooted,
         List<IContentMount> mounts,
-        List<string> skipped,
+        SkipLog skipped,
         CancellationToken cancellationToken)
     {
         // "hl2mp/custom/*": every VPK and every subdirectory in there, in
@@ -490,7 +518,7 @@ public static class GameContentMounter
 
         if (archives.Count == 0 && subdirectories.Count == 0)
         {
-            skipped.Add(reported);
+            skipped.Add(reported, directory);
             return;
         }
 
@@ -557,7 +585,7 @@ public static class GameContentMounter
             // The stock engine's path is the same shape: MountArchive ->
             // VPKFileOpen fails -> Warning + false, the mount continues
             // without it. This mounter already has the channel for it — the
-            // skipped list, which the host prints. Failing the whole mount
+            // skipped list, which the hosts print. Failing the whole mount
             // over one unreadable sibling (or one corrupt custom/* pak) would
             // be louder than the tool the port models. A corrupt base pak
             // skips too, and the compile that follows fails loudly on its

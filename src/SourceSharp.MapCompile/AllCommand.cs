@@ -643,6 +643,8 @@ public static class AllCommand
             return VbspCommand.ExitFailed;
         }
 
+        await VbspCommand.WriteSkippedAsync(mounted, "ssmap all", output).ConfigureAwait(false);
+
         // The format pipeline, mounted-gameinfo first (defaults -> appid
         // preset -> Tools key -> CLI), same as `ssmap vbsp`.
         FormatResolution.Result resolution = FormatResolution.Resolve(
