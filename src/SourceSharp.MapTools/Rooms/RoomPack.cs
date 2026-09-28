@@ -91,7 +91,7 @@ public sealed class RoomPackIndex
         }
     }
 
-    /// <summary>The sections that belong to the whole library rather than to one room: none in this build.</summary>
+    /// <summary>The sections that belong to the whole library rather than to one room: the library-wide entities (<see cref="RoomLibraryEntities.SectionTag"/>) when the library has any, else none.</summary>
     public IReadOnlyList<RoomPackSection> LibrarySections { get; }
 
     /// <summary>The rooms, in the order the pack holds them (the library's).</summary>
@@ -133,7 +133,7 @@ public sealed class RoomPackIndex
 /// <listheader><term>Bytes</term><description>What</description></listheader>
 /// <item><term>8</term><description>The magic, <c>SSRPAK01</c> in ASCII (<see cref="Magic"/>).</description></item>
 /// <item><term>4</term><description><c>int32</c> format version (<see cref="Version"/>).</description></item>
-/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/> (0 in this build).</description></item>
+/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/> (1 when the library has library-wide entities, <see cref="RoomLibraryEntities.SectionTag"/>; else 0).</description></item>
 /// <item><term>4</term><description><c>int32</c> room count, 0 to <see cref="MaxRooms"/>.</description></item>
 /// <item><term>20 per library section</term><description>
 /// The library section table: tag, <c>int64</c> offset from the start of the pack, <c>int64</c> length.
@@ -161,8 +161,9 @@ public sealed class RoomPackIndex
 /// plane, texdata or texinfo table). The format has a place for each
 /// without a redesign: a room's further sections follow its container under
 /// their own tags, and the library's sections have a table of their own,
-/// empty today. A reader looks sections up by tag and ignores tags it does
-/// not know, so a pack that gains an optional section is still read by an
+/// which holds the library-wide entities when there are any
+/// (<see cref="RoomLibraryEntities"/>). A reader looks sections up by tag
+/// and ignores tags it does not know, so a pack that gains an optional section is still read by an
 /// older build; a change an older build must not read around (a different
 /// container, a section it cannot ignore) raises <see cref="Version"/>.
 /// </para>
@@ -249,10 +250,29 @@ public static class RoomPack
     /// <summary>
     /// <see cref="SaveAsync(IReadOnlyList{RoomPackItem}, Stream, CancellationToken)"/>
     /// with library sections and the rooms' <see cref="RoomPackItem.Extra"/>
-    /// sections: what a later build writes, for the facts that prove this
-    /// one reads around them.
+    /// sections.
     /// </summary>
-    internal static async Task SaveAsync(
+    /// <param name="librarySections">
+    /// The sections that belong to the whole library, in the order they are
+    /// written: <c>ssmap room</c> writes <see cref="RoomLibraryEntities.SectionTag"/>
+    /// when the library has library-wide entities, and none otherwise.
+    /// </param>
+    /// <param name="rooms">The rooms and their container bytes.</param>
+    /// <param name="w">The stream to write to, positioned where the pack starts; the caller owns it.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes once every byte is in the stream.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentException">
+    /// Too many rooms or sections, a tag that is not four printable ASCII
+    /// characters or appears twice, a name that is not a room name or is too
+    /// long, or two names equal ignoring case.
+    /// </exception>
+    /// <remarks>
+    /// Public so a host that packs a library itself can write what
+    /// <c>ssmap room</c> writes. Rooms' further sections stay internal until
+    /// a build writes one.
+    /// </remarks>
+    public static async Task SaveAsync(
         IReadOnlyList<RoomPackSectionData> librarySections,
         IReadOnlyList<RoomPackItem> rooms,
         Stream w,

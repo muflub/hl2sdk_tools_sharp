@@ -118,6 +118,79 @@ public sealed class RoomCommandsTests
         Assert.NotNull(fs.GetBytes(VPath.Create(Rooted("/game/levels/pair.bsp"))));
     }
 
+    // ---- library-wide entities ------------------------------------------------
+
+    /// <summary>
+    /// A library with a <c>light_environment</c> in the gap between its
+    /// rooms' cells, the natural place for the one sun every room shares:
+    /// <c>ssmap room</c> keeps it in the pack's library section, in library
+    /// coordinates, rather than dropping it with the gap's editor clutter (a
+    /// plain <c>light</c> there is still ignored). Before the fix the split
+    /// dropped it silently and the pack had no library section.
+    /// </summary>
+    [Fact]
+    public async Task ASunInTheGapsIsKeptInThePacksLibrarySection()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        library.Chunks.Add(GapEntity(900101, "light_environment", "-64 -64 128", ("angles", "-45 30 0"), ("_light", "255 255 255 200")));
+        library.Chunks.Add(GapEntity(900102, "light", "-64 -64 64", ("_light", "255 255 255 200")));
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter output = new();
+
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+
+        byte[] pack = fs.GetBytes(VPath.Create(Rooted("/rooms.roompack")))!;
+        using MemoryStream stream = new(pack);
+        RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+        RoomPackSection section = Assert.Single(index.LibrarySections);
+        Assert.Equal("LENT", section.Tag);
+        string text = Encoding.UTF8.GetString(pack, (int)section.Offset, (int)section.Length);
+        Assert.Contains("\"light_environment\"", text, StringComparison.Ordinal);
+        Assert.Contains("\"-64 -64 128\"", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"light\"", text, StringComparison.Ordinal);
+
+        IReadOnlyList<VmfChunk> kept = await RoomLibraryEntities.ReadAsync(pack.AsMemory((int)section.Offset, (int)section.Length));
+        Assert.Equal("light_environment", Assert.Single(kept).GetValue("classname"));
+        Assert.Equal("-45 30 0", kept[0].GetValue("angles"));
+    }
+
+    /// <summary>
+    /// A library with nothing library-wide in its gaps writes a pack with
+    /// no library section, byte for byte the pack it wrote before library
+    /// sections were written at all.
+    /// </summary>
+    [Fact]
+    public async Task ALibraryWithoutLibraryWideEntitiesWritesNoLibrarySection()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        library.Chunks.Add(GapEntity(900102, "light", "-64 -64 64", ("_light", "255 255 255 200")));
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter output = new();
+
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+
+        using MemoryStream stream = new(fs.GetBytes(VPath.Create(Rooted("/rooms.roompack")))!);
+        Assert.Empty((await RoomPack.ReadIndexAsync(stream)).LibrarySections);
+    }
+
+    private static VmfChunk GapEntity(int id, string classname, string origin, params (string Key, string Value)[] keys)
+    {
+        VmfChunk entity = new("entity");
+        entity.AddKey("id", id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        entity.AddKey("classname", classname);
+        entity.AddKey("origin", origin);
+        foreach ((string key, string value) in keys)
+        {
+            entity.AddKey(key, value);
+        }
+
+        return entity;
+    }
+
     // ---- what they say they wrote -------------------------------------------
 
     /// <summary>

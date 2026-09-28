@@ -150,9 +150,15 @@ public static class RoomCommands
         // The library first: a library that does not split into rooms is
         // refused before a game is mounted or a cooker loaded.
         IReadOnlyList<LibraryRoom> rooms;
+        IReadOnlyList<VmfChunk> libraryEntities;
         try
         {
-            rooms = RoomLibraryVmf.Split(await ReadVmfAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false));
+            // The library-wide entities in the gaps (the sun, fog and the
+            // like) go into the pack's library section, not away.
+            RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(
+                await ReadVmfAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false));
+            rooms = split.Rooms;
+            libraryEntities = split.LibraryEntities;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or ChunkFileException or RoomLibraryException)
@@ -241,11 +247,15 @@ public static class RoomCommands
 
         await RoomLibraryCompiler.CompileAsync(rooms, settings, ReportAsync, cancellationToken).ConfigureAwait(false);
 
+        // A section only when there is something in it, so a library with no
+        // library-wide entities writes the pack it always did.
+        RoomPackSectionData[] librarySections = libraryEntities.Count == 0 ? [] : [RoomLibraryEntities.ToSection(libraryEntities)];
+
         try
         {
             await disk.ReplaceAsync(
                 packPath,
-                async (stream, token) => await RoomPack.SaveAsync(packed, stream, token).ConfigureAwait(false),
+                async (stream, token) => await RoomPack.SaveAsync(librarySections, packed, stream, token).ConfigureAwait(false),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)

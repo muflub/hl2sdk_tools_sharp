@@ -423,6 +423,86 @@ public sealed class RoomCorrectnessFixTests
         }
     }
 
+    // ---- 6. library-wide entities in the gaps ----------------------------------
+
+    /// <summary>
+    /// The split collects the library-wide classes that stand in the gaps
+    /// (and one with no origin, which stands in no cell), in library order
+    /// and untouched; the same class inside a cell stays with its room; any
+    /// other class in the gaps is still ignored.
+    /// </summary>
+    [Fact]
+    public void TheSplitCollectsLibraryWideEntitiesFromTheGaps()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        library.Chunks.Add(Entity("env_fog_controller", 700010, ("origin", "-64 0 0"), ("fogenable", "1")));
+        library.Chunks.Add(Entity("light_environment", 700011, ("origin", "-64 -64 128"), ("angles", "-45 30 0")));
+        library.Chunks.Add(Entity("shadow_control", 700012));
+        library.Chunks.Add(Entity("light_environment", 700013, ("origin", "128 128 128")));
+        library.Chunks.Add(Entity("info_target", 700014, ("origin", "-64 0 0")));
+        library.Chunks.Add(Entity("Light_Environment", 700015, ("origin", "-64 0 0")));
+
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
+
+        Assert.Equal(["700010", "700011", "700012"], split.LibraryEntities.Select(e => e.GetValue("id")));
+        Assert.Equal("-64 -64 128", split.LibraryEntities[1].GetValue("origin"));
+        Assert.Contains(
+            split.Rooms.Single().Document.GetChunks(MapFileLoader.EntityChunk),
+            e => e.GetValue("id") == "700013");
+        Assert.Equal(split.Rooms.Single().Document.ToBytes(), RoomLibraryVmf.Split(library).Single().Document.ToBytes());
+        Assert.Empty(RoomLibraryVmf.SplitLibrary(RoomHarness.LibraryVmf(Hub)).LibraryEntities);
+
+        Assert.True(RoomLibraryEntities.IsLibraryWide("env_tonemap_controller"));
+        Assert.True(RoomLibraryEntities.IsLibraryWide("postprocess_controller"));
+        Assert.False(RoomLibraryEntities.IsLibraryWide(null));
+    }
+
+    /// <summary>
+    /// The library section reads back the entities it was written from, key
+    /// for key, with codec 0 and the payload's length in its header.
+    /// </summary>
+    [Fact]
+    public async Task TheLibrarySectionRoundTrips()
+    {
+        VmfChunk sun = Entity("light_environment", 7, ("origin", "-64 -64 128"), ("angles", "-45 30 0"));
+        VmfChunk fog = Entity("env_fog_controller", 8, ("fogcolor", "1 2 3"));
+        RoomPackSectionData section = RoomLibraryEntities.ToSection([sun, fog]);
+
+        Assert.Equal(RoomLibraryEntities.SectionTag, section.Tag);
+        Assert.Equal(RoomLibraryEntities.CodecNone, section.Bytes.Span[0]);
+        Assert.Equal(section.Bytes.Length - 9, System.Buffers.Binary.BinaryPrimitives.ReadInt64BigEndian(section.Bytes.Span[1..]));
+
+        IReadOnlyList<VmfChunk> read = await RoomLibraryEntities.ReadAsync(section.Bytes);
+        Assert.Equal(2, read.Count);
+        Assert.Equal(sun.Keys.Select(k => (k.Name, k.Value)), read[0].Keys.Select(k => (k.Name, k.Value)));
+        Assert.Equal(fog.Keys.Select(k => (k.Name, k.Value)), read[1].Keys.Select(k => (k.Name, k.Value)));
+        Assert.Empty(await RoomLibraryEntities.ReadAsync(RoomLibraryEntities.ToSection([]).Bytes));
+    }
+
+    /// <summary>A section the reader cannot trust is refused, each with its reason.</summary>
+    [Fact]
+    public async Task ABadLibrarySectionIsRefused()
+    {
+        byte[] good = RoomLibraryEntities.ToSection([Entity("light_environment", 7)]).Bytes.ToArray();
+
+        LinkException shortOne = await Assert.ThrowsAsync<LinkException>(async () => await RoomLibraryEntities.ReadAsync(good.AsMemory(0, 5)));
+        Assert.Equal("the room pack's LENT section is 5 bytes, shorter than its 9-byte header.", shortOne.Message);
+
+        byte[] brotli = (byte[])good.Clone();
+        brotli[0] = 2;
+        LinkException codec = await Assert.ThrowsAsync<LinkException>(async () => await RoomLibraryEntities.ReadAsync(brotli));
+        Assert.Equal("the room pack's LENT section has codec 2; this build reads codec 0 (none).", codec.Message);
+
+        LinkException length = await Assert.ThrowsAsync<LinkException>(async () => await RoomLibraryEntities.ReadAsync(good.AsMemory(0, good.Length - 1)));
+        Assert.Equal($"the room pack's LENT section says {good.Length - 9} bytes of entities but holds {good.Length - 10}.", length.Message);
+
+        byte[] text = [0, 0, 0, 0, 0, 0, 0, 0, 1, (byte)'}'];
+        LinkException notVmf = await Assert.ThrowsAsync<LinkException>(async () => await RoomLibraryEntities.ReadAsync(text));
+        Assert.StartsWith("the room pack's LENT section is not VMF text: ", notVmf.Message, StringComparison.Ordinal);
+
+        Assert.Throws<ArgumentNullException>(() => RoomLibraryEntities.ToSection(null!));
+    }
+
     // ---- helpers ---------------------------------------------------------------
 
     /// <summary>A point or brush entity chunk with an id and a class.</summary>
