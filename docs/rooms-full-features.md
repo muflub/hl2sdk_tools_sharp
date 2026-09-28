@@ -27,7 +27,8 @@ Contents:
 12. [Engine limits for `CheckCapacity`](#12-engine-limits-for-checkcapacity)
 13. [Implementation order](#13-implementation-order)
 14. [Owner decisions](#14-owner-decisions)
-15. [Growing the 3x3 sample](#15-growing-the-3x3-sample)
+15. [Testing](#15-testing)
+16. [Growing the 3x3 sample](#16-growing-the-3x3-sample)
 
 Terms used throughout:
 
@@ -803,23 +804,65 @@ proposal: **there is no `@` rule**.
 
 ### 5.2 Grammar
 
+The **reserved family** is every placeholder prefix and every prefix they
+resolve to. Three regular expressions (.NET syntax) define it; the
+contracts assembly (7.5) holds them as the single spelling.
+
 ```
-local-name = "c" "x" [ offset ] "r" "y" [ offset ] "_" rest
-offset     = ( "+" / "-" ) "1"
-rest       = one or more characters, kept as written
+LOCAL    = ^cx(?<dx>[+-]1)?ry(?<dy>[+-]1)?_(?<rest>.+)$
+RESOLVED = ^c(?<col>0|[1-9][0-9]*)r(?<row>0|[1-9][0-9]*)_
+SUSPECT  = (?i)^c(?:x|[0-9])[^_]*r
 ```
 
-- Only `+1` and `-1`; no spaces, no `+0`, no `+2`.
-- **Lower case only**: `cxry_`, `cx+1ry-1_`. The resolved prefix is lower
-  case too (`c3r5_`).
+- **`LOCAL`** (case-sensitive) is a placeholder name: `cxry_`, `cx+1ry_`,
+  `cx-1ry_`, `cxry+1_`, `cxry-1_`, and the diagonals `cx+1ry+1_`,
+  `cx+1ry-1_`, `cx-1ry+1_`, `cx-1ry-1_`, each followed by a non-empty rest.
+  Only `+1` and `-1`; no spaces, no `+0`, no `+2`; lower case only. `rest`
+  keeps its case.
+- **`RESOLVED`** is what the linker writes: `c3r5_`, lower case, no leading
+  zeros. When checking authored names it is applied case-insensitively.
+- **`SUSPECT`** (case-insensitive) is anything that starts like either: `c`,
+  then `x` or a digit, then an `r` before the first underscore.
+
+The pack's rules for every name it reads (a `targetname`, a name-valued key,
+an output's target or wholly-named parameter):
+
+1. matches `LOCAL`: a local name, resolved at link;
+2. else matches `RESOLVED` ignoring case: **refused** as reserved. A global
+   name may not begin with anything the linker can produce, so it can never
+   collide with a resolved local name;
+3. else matches `SUSPECT`: **refused** as malformed. This catches the near
+   misses: `cx+2ry_door` (offset beyond ±1), `cx+1r_door` and `cxr_door`
+   (missing `y`), `cx1ry_door` (missing sign), `cx+ 1ry_door` (space),
+   `CXRY_door` and `cXry_door` (case, O2), `cxrydoor` (missing underscore);
+   `cxry_` with an empty rest is refused by the same rule;
+4. else: a global name, left as written.
+
+The price of rule 3 is that a few ordinary global names are refused too
+(`c4rocket`, `cxr_panel`): a global name may not start with `c`, then `x`
+or a digit, then an `r` before its first underscore. The refusal says so
+and names the entity and key; the author renames. That is deliberate: a
+typo in a placeholder must never quietly become a global name.
+
 - **Case.** Engine and game name matching is widely case-insensitive
   (**uncertain** as a blanket rule: vbsp's own light-style grouping is
-  `strcmp`, case-sensitive, `EntityStage.SetLightStyles`). So a case variant
-  (`CXRY_door`, `cXry_door`) is not quietly global: the pack refuses it as
-  malformed (O2). `rest` keeps its case.
-- The placeholder counts only at the **start** of a name. `door_cxry` or
-  `my_cxry_door` is an ordinary global name; the pack warns (it looks like a
+  `strcmp`, case-sensitive, `EntityStage.SetLightStyles`), so rules 2 and 3
+  are case-insensitive and no case variant slips through as global.
+- **Placement.** The family counts only at the **start** of a name.
+  `door_cxry` or `my_cxry_door` is global; the pack warns (it looks like a
   misplaced placeholder) and leaves it.
+- **Linker-owned rests.** Some rests name what the linker fills in or emits,
+  and follow the same grammar: `cxry_has_<dir>` and `cxry_joined_<dir>`
+  (neighbour flags, 5.8 b; `<dir>` is `east`, `north`, `west`, `south`, and
+  for `has_` also `northeast`, `northwest`, `southeast`, `southwest`),
+  `cxry_room` (7.2) and `cxry_transition` (section 11). They take offsets
+  like any local name: `cx+1ry_has_north` is the east neighbour's north
+  flag; referencing it counts as a reference in that neighbour, so the flag
+  is injected there (and, when that cell is empty, the reference is dropped
+  with the (a) warning). An author entity with a linker-owned rest must be
+  of the expected class (`logic_branch`, `logic_room`,
+  `trigger_room_transition`); anything else is refused, and so is an
+  unknown direction.
 
 ### 5.3 Rotation table
 
@@ -877,10 +920,10 @@ warns on any `cxry` token after the start of a value.
 
 ### 5.6 Collisions and length
 
-- **Reserved form.** No global name may look like a resolved one
-  (`^c[0-9]+r[0-9]+_`, case-insensitive): the pack refuses it, naming the
-  entity and key. A resolved name then cannot equal a global one; the link
-  asserts it anyway.
+- **Reserved family.** No global name may begin with anything in the
+  reserved family, placeholder or resolved, in any case (5.2, rules 2 and
+  3): the pack refuses it, naming the entity and key. A resolved name then
+  cannot equal a global one; the link asserts it anyway (case-insensitive).
 - **One global name in a room placed twice** appears twice in the level:
   right for a broadcast target, a mistake otherwise. Default (O4): warn at
   link, naming the cells.
@@ -1002,9 +1045,10 @@ folding is checked against code that does not fold.
   names (`cxry_*`), neighbour references by authored direction, flags
   referenced, `room_needs` keys, and the entity and edict counts (6.7).
 - **`RoomLinter`** gains a rule (say `RoomRule.LocalNamesWellFormed`) at
-  pack time: malformed tokens (`cx+2ry_`, `cx+ ry_`, `cxr_`, case variants),
-  an offset beyond ±1, a global name in the reserved form, a placeholder
-  after the start of a value (warning), a local reference no entity defines
+  pack time, applying 5.2: names matching `SUSPECT` but not `LOCAL` (every
+  near miss listed there, case variants included), global names matching
+  `RESOLVED`, linker-owned rests on the wrong class or with an unknown
+  direction, a placeholder after the start of a value (warning), a local reference no entity defines
   (warning), an unknown `room_needs` direction, `room_needs` on a light or
   on a shadow-casting prop.
 
@@ -1012,7 +1056,10 @@ folding is checked against code that does not fold.
 
 One feature, one PR, with facts for each mechanism and every rotation:
 
-- Grammar: each malformed form refused with its message; case variants.
+- Grammar: every `LOCAL` form accepted; every near miss of 5.2 and every
+  case variant refused as malformed; `RESOLVED`-looking global names
+  refused as reserved; linker-owned rests on the wrong class refused; each
+  with its 15.4 message.
 - Rotation: one room with references in all eight directions, placed at the
   centre of a 3x3 grid at each of the four rotations, a distinct room in
   every neighbour cell; each reference resolves to the entity of the room
@@ -2078,24 +2125,24 @@ One PR per feature or small group. Already queued, and assumed:
   doorways, precomputed per room).
 - **Q4, option C lighting** (section 9).
 
-| # | PR | Size | Depends on | Why here |
-| --- | --- | --- | --- | --- |
-| 1 | **Correctness fixes**: `info_ladder` bounds, `occludernumber` rebase, flattener keeps side-id references, overlay basis keys moved by split and flatten, `light_environment` never turned, library-wide entities collected from the gaps, refusal of non-zero `angles` on unknown brush-entity classes in split and flatten. | S | none | Each fix is a fact that fails today; later work builds on correct transforms. |
-| 2 | **Entity budget**: the class table (compile-only rows certain, default `edict`), per-room entity section, edict and entity totals in `CheckCapacity` with reserve, warnings, refusal and headroom report, `ssmap rooms` counts, `ssmap layout` budget, stripping of certain compile-only entities, the points-of-interest section (store and strip `info_poi`, 10.6). | M | Q1 | D7 makes it a top priority, and every later feature reports its cost through it. |
-| 3 | **Naming and neighbour logic, one feature**: `cxry_` resolution, the rotation table, (a), (b) injected only when referenced, (c) for point entities and static-prop conditions, folding (relays, constant branches, `logic_auto` merge, filters), `-mod-entities` with `logic_room` and its stock fallback, the `SourceSharp.RoomContracts` assembly (7.5), the `RoomLinter` rule, `ssmap rooms` listing, one resolver shared by link and flatten. Facts for each mechanism at all four rotations (5.11). | M-L | 2, Q1 | Pure text and immediately useful (repeated rooms with logic), and it is the main lever on the entity budget. (c) on a brush entity cannot arise until #7 links brush entities; #7 adds model omission. |
-| 4 | **Singletons and the library section** (section 8), with D3's refusal at pack time. | S-M | Q1, 1 | The sun section is Q4's input. |
-| 5 | **Packed files**. | M | Q1 | Unblocks real content (finding 10); prerequisite of 6, 11, 12. |
-| 6 | **Static props** (zero-entity models). | M | 5 | High value, contained, and the cheap alternative to `prop_dynamic` under the budget. |
-| 7 | **Brush entities**, origin-relative models, per-model collision, socket furniture, (c) model omission. | L | Q2, 3 | Doors and triggers; the biggest structural change, after the cheaper wins. |
-| 8 | **Transition rooms and the level spawn** (section 11): `room_role`, the level rule and YAML keys, layout placement (second stream) and `-sequence`, the transition volume, `logic_level_transition` and the stock `trigger_changelevel` + `info_landmark` fallback with the hallway fold, arrival and spawn POIs, the spawn `info_player_start` and stripping of room starts. | M | 2 (POIs), 3, 7 | Needed for any playable run of levels; the stock fallback's changelevel needs brush entities. |
-| 9 | **Q4 base bake** and **2D sky** flags. | L | 4, 6, 7 | The base bake must include props and brush entities; exact for capped rooms. |
-| 10 | **Q4 capture and response**, driven by the prototype (9.7). | L | 9 | Research: choose the basis from measurements. |
-| 11 | **Overlays**. | M | 5, Q2 | Visual, contained. |
-| 12 | **Cubemaps**. | M-L | 5, Q2 | Needs the pak; Q2 eases texdata. |
-| 13 | **Area portals and areas**, then **3D skybox**. | L, M | Q3, 7 | Door visibility and portals both describe what a doorway lets through. |
-| 14 | **Water**, first without water sockets, then with. | M, L | 13, 7 | Hardest cross-room case; safe refusal meanwhile. |
-| 15 | **Displacements**, no cross-room stitching. | L | 9 | Many lumps; lighting is a large part. |
-| 16 | **Detail props**. | M | 15, 9 | Depends on both; statistical equivalence. |
+| # | PR | Size | Depends on | Why here | Lands with (section 15) |
+| --- | --- | --- | --- | --- | --- |
+| 1 | **Correctness fixes**: `info_ladder` bounds, `occludernumber` rebase, flattener keeps side-id references, overlay basis keys moved by split and flatten, `light_environment` never turned, library-wide entities collected from the gaps, refusal of non-zero `angles` on unknown brush-entity classes in split and flatten. | S | none | Each fix is a fact that fails today; later work builds on correct transforms. | 15.3 facts 1–6 and 9, red first; D for split and flatten |
+| 2 | **Entity budget**: the class table (compile-only rows certain, default `edict`), per-room entity section, edict and entity totals in `CheckCapacity` with reserve, warnings, refusal and headroom report, `ssmap rooms` counts, `ssmap layout` budget, stripping of certain compile-only entities, the points-of-interest section (store and strip `info_poi`, 10.6). | M | Q1 | D7 makes it a top priority, and every later feature reports its cost through it. | 15.6; budget rows of 15.4; 15.5 for the new sections; the POI store and strip |
+| 3 | **Naming and neighbour logic, one feature**: `cxry_` resolution, the rotation table, (a), (b) injected only when referenced, (c) for point entities and static-prop conditions, folding (relays, constant branches, `logic_auto` merge, filters), `-mod-entities` with `logic_room` and its stock fallback, the `SourceSharp.RoomContracts` assembly (7.5), the `RoomLinter` rule, `ssmap rooms` listing, one resolver shared by link and flatten. Facts for each mechanism at all four rotations (5.11). | M-L | 2, Q1 | Pure text and immediately useful (repeated rooms with logic), and it is the main lever on the entity budget. (c) on a brush entity cannot arise until #7 links brush entities; #7 adds model omission. | 5.11; 15.2 naming, mod-contract rows in both modes; 15.3 facts 7 and 8 (names); 15.4 naming rows |
+| 4 | **Singletons and the library section** (section 8), with D3's refusal at pack time. | S-M | Q1, 1 | The sun section is Q4's input. | 15.2 singletons row; 15.4 sun and sky-camera rows |
+| 5 | **Packed files**. | M | Q1 | Unblocks real content (finding 10); prerequisite of 6, 11, 12. | 15.2 packed files row; real-content set; 15.4 conflict row |
+| 6 | **Static props** (zero-entity models). | M | 5 | High value, contained, and the cheap alternative to `prop_dynamic` under the budget. | 15.2 static props row; 15.4 hull and texel rows |
+| 7 | **Brush entities**, origin-relative models, per-model collision, socket furniture, (c) model omission. | L | Q2, 3 | Doors and triggers; the biggest structural change, after the cheaper wins. | 15.2 brush entities row; (c) model omission; 15.4 angles row |
+| 8 | **Transition rooms and the level spawn** (section 11): `room_role`, the level rule and YAML keys, layout placement (second stream) and `-sequence`, the transition volume, `logic_level_transition` and the stock `trigger_changelevel` + `info_landmark` fallback with the hallway fold, arrival and spawn POIs, the spawn `info_player_start` and stripping of room starts. | M | 2 (POIs), 3, 7 | Needed for any playable run of levels; the stock fallback's changelevel needs brush entities. | 11.7; transit sibling; 15.4 transition and spawn rows; both modes |
+| 9 | **Q4 base bake** and **2D sky** flags. | L | 4, 6, 7 | The base bake must include props and brush entities; exact for capped rooms. | 9.7 checks; 15.3 fact 8 (lightmaps); 15.2 lighting row |
+| 10 | **Q4 capture and response**, driven by the prototype (9.7). | L | 9 | Research: choose the basis from measurements. | 9.7 sweep; lighting tolerances (9.8) |
+| 11 | **Overlays**. | M | 5, Q2 | Visual, contained. | 15.2 overlays row; 15.4 plug row |
+| 12 | **Cubemaps**. | M-L | 5, Q2 | Needs the pak; Q2 eases texdata. | 15.2 cubemaps row |
+| 13 | **Area portals and areas**, then **3D skybox**. | L, M | Q3, 7 | Door visibility and portals both describe what a doorway lets through. | 15.2 area portals and sky rows; 15.4 socket row |
+| 14 | **Water**, first without water sockets, then with. | M, L | 13, 7 | Hardest cross-room case; safe refusal meanwhile. | 15.2 water row; 15.4 socket row |
+| 15 | **Displacements**, no cross-room stitching. | L | 9 | Many lumps; lighting is a large part. | 15.2 displacements row; 15.4 socket row |
+| 16 | **Detail props**. | M | 15, 9 | Depends on both; statistical equivalence. | 15.2 detail props row |
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
@@ -2138,7 +2185,7 @@ hardest and their refusals are safe meanwhile.
 | # | Question | Recommended default |
 | --- | --- | --- |
 | O1 | Neighbour-flag diagonals and joined variants. | Offer both (`cxry_has_northeast`, `cxry_joined_east`), opt-in, so free unless used. |
-| O2 | Placeholder case variants (`CXRY_`). | Refuse as malformed at pack time. |
+| O2 | Placeholder case variants (`CXRY_`) and other near misses of the reserved family. | Refuse at pack time anything matching `SUSPECT` but not `LOCAL`, and any global name matching `RESOLVED`, case-insensitively (5.2). |
 | O3 | Which keys get placeholders resolved. | Built-in name-key table, every output target, output parameters wholly a placeholder, and any key whose whole value is a placeholder; the library may extend the table. |
 | O4 | A global `targetname` in a room placed more than once. | Warn at link, naming the cells. |
 | O5 | Socket furniture. | `room_socket` key; at a joint keep the earlier room's (link order), `socket_priority` overrides; drop at a cap. |
@@ -2163,7 +2210,235 @@ hardest and their refusals are safe meanwhile.
 
 ---
 
-## 15. Growing the 3x3 sample
+## 15. Testing
+
+One place for what every feature and rule must be tested with. Each PR in
+section 13 names the parts of this section it lands with. The repository's
+rules apply throughout (CLAUDE.md): every logic path gets a fact, a fix
+comes with a fact that fails without it, facts live in the folder that
+mirrors the code (`src/SourceSharp.Tests/MapTools/Rooms/` for the room
+pipeline), and a failing fact is never skipped to get green.
+
+### 15.1 Kinds of fact and the axes every one runs on
+
+- **Unit facts** test a pure function without a compile: the name grammar
+  and resolver, the rotation table, the fold, the key transforms, budget
+  arithmetic, YAML parsing, layout placement.
+- **Linker facts** build small rooms in memory (`RoomHarness`), compile and
+  link them, and read the linked lumps directly, in the style of
+  `LevelLinkerRelocationTests` and `LevelLinkerRefusalTests`.
+- **End-to-end facts** take a sample library through `ssmap room`, `ssmap
+  link` and `ssmap link --flatten` plus the whole-map compile, and compare
+  the two maps in game-observable terms, in the style of
+  `Rooms3x3EquivalenceTests` over `Rooms3x3Fixture`.
+
+The axes, applied wherever they are relevant:
+
+- **Rotation:** every placement-dependent fact is a theory over rotations
+  0, 90, 180 and 270.
+- **Mode:** every fact about emitted entities is a theory over
+  `-mod-entities` off and on; link and flatten must agree in each mode.
+- **Determinism** (15.5): the same bytes at any thread count and on every
+  run, for packs and for linked maps.
+- **Entity budget** (15.6): every feature's end-to-end fact also asserts the
+  linked entity and edict counts equal the pack's prediction.
+- **Messages:** every refusal and warning is asserted by its exact text
+  (15.4), not by type alone.
+
+### 15.2 Matrix
+
+"Unit / Linker / E2E" name the facts to write; "Equivalence" is what link
+and flatten must agree on, with the accepted difference after the semicolon;
+R = rotations, M = both modes, D = determinism, B = budget counts.
+
+| Feature or rule | Unit | Linker | E2E fixture | Equivalence | R | M | D | B |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Correctness fixes (15.3) | key transforms, side-id remap | each finding red first | 3x3 plus a ladder, occluders, overlays | entities, sides | yes | | yes | |
+| Naming and neighbours (5) | grammar (5.2), resolver, rotation table, (a)(b)(c) rules, fold | resolved lumps, dropped models | naming level (15.7) | resolved entities byte for byte; effective I/O against the unfolded monolithic map | yes | yes | yes | yes |
+| Entity budget (6) | class table, totals, reserve, headroom text | `CheckCapacity` refusal and warning | stress library | same counts both paths | | yes | yes | yes |
+| Mod entity contract (7) | FGD text against the C# constants | `logic_room`, `logic_level_transition` emission and fallback | naming level, transit set | same entities per mode | yes | yes | yes | yes |
+| Singletons (8) | agreement rules | one sun, one fog, `water_lod_control` dedupe | 3x3 with a library sun | entities | yes | | yes | yes |
+| Point entities (4.2) | key transform table | moved keys | 3x3 | every key after resolution | yes | yes | yes | yes |
+| Brush entities (4.1) | origin-class transforms, texinfo split | models, `*N`, subtrees, collision records, omission | `cross` door, trigger | models by class and bounds, per-model traces and convexes; model numbering | yes | | yes | yes |
+| Static props (4.3) | record transform, hull leaf walk | dictionary merge, leaf lists, `.vhv` names | `tee` prop | records; leaf lists cover the hull's leaves | yes | | yes | yes (0) |
+| Detail props (4.4) | transform, re-sort | leaf rebase, `dplt` runs | `end` floor | per-room distribution; the random draw differs | yes | | yes | yes (0) |
+| Displacements (4.5) | vector and start transform | index rebase, `PhysDisp` | `corner` patch | surfaces, collision, traces | yes | | yes | yes (0) |
+| Water (4.6) | min-distance recompute | water data, fog ids, fluids | `hall` pool | contents, surface z, fluids; doorway water only with water sockets | yes | | yes | yes |
+| Overlays (4.9) | basis transform, packed `BasisU` | face and id rebase, accessors | `tee` overlay | union polygons per overlay; face counts differ | yes | | yes | yes |
+| Cubemaps (4.10) | renaming | samples, patched VMTs, texdata names | `hall` cubemap | samples; in-room assignment; nearest-cubemap differences near doors | yes | | yes | yes (0) |
+| Area portals (4.11) | area union | areas, portals, `portalnumber` | portal room | area partition up to renaming | yes | | yes | yes |
+| Occluders (4.7) | | `occludernumber` rebase | `end` occluder | occluders and keys | yes | | yes | yes |
+| Packed files (4.13) | merge rules | dedupe, renames, conflict refusal | real-content room set | file set after renaming | | | yes | yes (0) |
+| Sky (4.12) | pass two | leaf flags; skybox area | `end` sky opening, skybox room | leaf sky flags | yes | | yes | yes |
+| Transitions and spawn (11) | YAML keys, rule, layout second stream, landmark names | emission per mode, hallway fold, spawn | transit set (15.7) | entities per mode, spawn position and yaw | yes | yes | yes | yes |
+| Lighting (9) | sums, style renumber | base per rotation, door terms | 3x3 lit, stress | tolerances (9.8); byte equality not expected | yes | | yes | |
+| Navigation and POIs (10) | POI transform | POI store and strip | transit set | POI positions and facings; the rest blocked on the AI design | yes | | yes | yes (0) |
+
+### 15.3 Correctness fixes, red first
+
+Each fact is written first, fails on the code as it is today (the expected
+failure is stated), and passes with its fix. Findings 7 to 9 are fixed by
+later PRs; their facts land with those PRs.
+
+| # | Fact | Fails today because |
+| --- | --- | --- |
+| 1 | A room with a `func_ladder`, linked at each rotation: `info_ladder`'s `mins.*` / `maxs.*` equal the flattened compile's. | `LevelLinker.MoveEntity` leaves them room-local. |
+| 2 | Two rooms with a `func_occluder` each: the second room's `occludernumber` is 1 and names its own occluder in the linked lump. | The key stays 0. |
+| 3 | A flattened level with an `env_cubemap`, an `info_overlay` and an `info_no_dynamic_shadow` naming sides: every `sides` id names the moved side. | `LevelFlattener.Renumber` renumbers side ids and not the lists. |
+| 4 | A library room with an `info_overlay`, split and flattened: `BasisOrigin`, `BasisU`, `BasisV`, `BasisNormal` are moved and turned. | `VmfPlacement.MoveEntity` moves `origin` only. |
+| 5 | A room with a `light_environment` at rotation 90: the sun's `angles` are unchanged. | Its yaw is turned. |
+| 6 | A library with a `light_environment` in the gaps: the pack's library section holds it. | `RoomLibraryVmf.Split` drops it silently. |
+| 7 | A room placed twice with a `cxry_` name: two distinct resolved names (PR 3). | No name fixup exists. |
+| 8 | Two rooms with a named switchable light each: two distinct styles (PR 3 for the names, PR 9 for the lightmaps). | Both get style 32. |
+| 9 | A brush entity with non-zero `angles` of an unknown class: refused by split and flatten with the 15.4 message. | It is turned silently. |
+
+### 15.4 Negative cases and their messages
+
+Every refusal (R) and warning (W) below is asserted by its exact text; the
+braces are filled from the case. Existing refusals keep their current text
+(`LevelLinker.Limit`, `LoaderLimit`, `PlanRoom`'s lump and model messages)
+until the feature that lifts them lands, and a fact asserts each is gone
+then.
+
+| Rule | Kind | Message |
+| --- | --- | --- |
+| 5.2 rule 3 | R | `room {room}: entity {id} ({class}) key "{key}": "{value}" is a malformed room-local name; a local name starts with cxry_, cx+1ry_, cx-1ry_, cxry+1_, cxry-1_ or a diagonal such as cx+1ry-1_, in lower case, followed by the name.` |
+| 5.2 rule 2 | R | `room {room}: entity {id} ({class}) key "{key}": the global name "{value}" begins like a room-local or resolved name (c<column>r<row>_); rename it.` |
+| 5.2 placement | W | `room {room}: entity {id} ({class}) key "{key}": "{value}" contains cxry after its start; it is a global name, since the placeholder is only read at the start of a name.` |
+| 5.2 linker-owned | R | `room {room}: entity {id} is a {class} named {value}; that name belongs to a {expected class}.` |
+| 5.10 undefined | W | `room {room}: entity {id} ({class}) key "{key}" names {value}, which no entity of the room defines.` |
+| 5.8 (a) | W | `room {room} at cell ({x}, {y}): entity {name} ({class}) key "{key}" names {value}, but cell ({nx}, {ny}) {holds no room / is off the grid}; the {output was removed / key was cleared}.` |
+| 5.8 (c) direction | R | `room {room}: entity {id} ({class}) room_needs "{value}": unknown direction "{dir}"; use east, west, north, south, a diagonal, or joined_ with a side, optionally negated with !.` |
+| 5.8 (c) light | R | `room {room}: entity {id} ({class}) has room_needs, but a light's contribution is in the room's baked lighting and cannot be dropped.` |
+| 5.8 (c) shadow | R | `room {room}: prop_static {id} has room_needs and casts shadows; set disableshadows or remove room_needs.` |
+| 5.6 length | R | `room {room} at cell ({x}, {y}): entity {name} ({class}) key "{key}" resolves to {n} bytes; the engine reads at most 1023.` |
+| 5.6 duplicate | W | `the global name "{value}" is defined by {k} placements of room {room}, at cells {cells}.` |
+| 6.7 headroom | info | `map entities {n} / budget {b} (reserve {r}, cap {c}); {m} entities in the entity list` |
+| 6.7 reserve | W | `map entities {n} / budget {b} (reserve {r}, cap {c}): the level uses {n − b} of the reserve; most expensive rooms: {room} x{k} = {e}, ...` |
+| 6.7 cap | R | `map entities {n} exceed the cap of {c} edicts; most expensive rooms: {room} x{k} = {e}, ...` |
+| 8 sun | R | `room {room}: its light_environment differs from the library's ({key}: "{a}" against "{b}"); the sun is library-wide.` |
+| 8 sky camera | R | `room {room}: sky_camera is allowed only in the library's skybox room.` |
+| 4.1 angles | R | `room {room}: brush entity {id} ({class}) has angles "{a}"; a turned room cannot tell whether {class} applies them to its model. Use 0 0 0, or add {class} to the known-direction table.` |
+| 4.3 hull | R | `room {room}: prop_static {id} ({model}) reaches {d} units outside the cell; props stay in their cell except as socket furniture.` |
+| 4.3 texel | R | `room {room}: prop_static {id} asks for texel lighting, which this vrad does not bake.` |
+| 4.5 socket | R | `room {room}: the displacement on brush side {side} has an edge on socket "{socket}"'s plug box; displacements may not meet at a joint.` |
+| 4.6 socket | R | `room {room}: water reaches socket "{socket}"; water may not touch a door plug.` |
+| 4.9 plug | R | `room {room}: info_overlay {id} names brush side {side}, which is socket "{socket}"'s plug.` |
+| 4.11 socket | R | `room {room}: func_areaportal {id} lies in socket "{socket}"'s plug box.` |
+| 4.13 conflict | R | `rooms {a} and {b} both pack {file} with different bytes.` |
+| 4.14 cordon | R | `the room library has a cordon; rooms are cut by their cells, not by cordons.` |
+| 11.1 count | R | `level {level}: {k} {up/down} rooms ({cells}); a level has exactly one unless it says "{up/down}: none".` |
+| 11.1 switched off | R | `level {level}: says "{role}: none" but places {role} room {room} at cell ({x}, {y}).` |
+| 11.1 map key | R | `level {level}: has a{n} {role} room but no {role}_map` / `says "{role}: none" and also names {role}_map.` |
+| 11.3 volume | R | `room {room}: a {role} room needs exactly one trigger_room_transition named cxry_transition; it has {k}.` |
+| 11.3 arrival | R | `room {room}: a {role} room needs exactly one arrival point; it has {k}.` |
+| 11.3 clearance | R | `room {room}: the arrival point at ({x}, {y}, {z}) has no room for a standing player (32 x 32 x 72).` |
+| 11.3 wiring | R | `room {room}: nothing fires Transition at cxry_transition.` |
+| 11.5 spawn | R | `level {level}: says "up: none" and no room has a spawn point; add an info_poi of type spawn or a spawn cell.` |
+| 11.5 count | R | `level {level}: spawn_count {k}, but up room {room} has {m} spawn points.` |
+| 11.2 distance | R | `layout: no level of {rows}x{columns} with seed {seed} places the up and down rooms at least {d} doors apart.` |
+| 9 styles | W | `face {face} of room {room} at cell ({x}, {y}) needs {k} light styles; the lightest door style {s} was dropped.` |
+
+### 15.5 Determinism
+
+- **Packs:** `ssmap room` at `-threads` 1, 2 and all cores, twice each,
+  writes byte-identical packs, including every new section (entity counts,
+  names, fold analysis, props, displacements, POIs, lighting layers). This
+  extends `RoomReproducibilityTests` and `RoomLibraryCompilerTests`.
+- **Links:** `ssmap link` at thread counts 1 and many, twice each, writes
+  byte-identical maps in both modes; so does `--flatten` (the VMF).
+- **Layout:** the same seed gives the same YAML with and without roles, and
+  a role-less library's output equals today's (11.2).
+- **Lighting:** the base bake and door terms are the same bytes at any
+  thread count on one machine; across CPUs, rsqrt-estimate differences are
+  handled as the rest of vrad is (`VendorGolden`), never by loosening.
+
+### 15.6 Entity-budget assertions
+
+Per end-to-end level, in both modes: the linked entity count and edict
+estimate equal the pack's prediction for that level; the headroom line is
+printed with those numbers; and per feature:
+
+| Feature | Asserted count |
+| --- | --- |
+| Static and detail props, displacements, cubemaps, packed files, POIs | 0 entities added |
+| Overlays | 1 per named overlay, 0 otherwise |
+| Brush entities, point entities | 1 each, minus (c) drops, socket-furniture drops and folds |
+| (b) flags | 1 per referenced flag per placement; 0 after folding |
+| `logic_room` | 1 per room that uses it, only with `-mod-entities` |
+| Transitions and spawn | 2 per level with `-mod-entities`; 5 stock (3 with both hallways folded); +K−1 for K spawns |
+| Singletons | exactly 1 each per level |
+| Stripping | none of the 6.3 compile-only classes in the linked lump |
+
+A level built past `cap − reserve` warns and one past the cap is refused,
+both naming the costliest rooms; `ssmap layout` with a budget never writes
+a level over it.
+
+### 15.7 Fixtures
+
+- **`samples/rooms-3x3`** keeps its five kinds, its levels and its seeds.
+  Features are added to the kinds off the centre and out of the doorways
+  (section 16); the sockets do not change, so the layouts (which read
+  sockets, not contents) stay the same and the seeded-level facts keep
+  holding.
+- **A naming sibling** (`samples/rooms-names`): one room with references in
+  all eight directions, its flags, a foldable and a stateful relay, and
+  `room_needs` entities; levels with it at the centre of a 3x3 grid at each
+  rotation, and in a corner for (a).
+- **A transit sibling** (`samples/rooms-transit`): an up room with a button
+  and spawn points, a down room with a hallway trigger, arrivals, and a
+  three-level `-sequence`; kept apart so the 3x3 library stays role-less
+  and its layouts unchanged.
+- **Real-content set:** a small library compiled against synthetic content
+  with sky VTFs (`SourceSharp.MapGen/Content`), so default cubemaps land in
+  the paks (finding 10).
+- **Stress:** `RoomsStressLibrary` varies the new features, for the
+  capacity and budget checks at 16×16.
+- Every generated sample stays checked by a fact against its generator, as
+  `Rooms3x3SampleTests.TheCheckedInSampleIsWhatTheGeneratorWrites` does.
+
+### 15.8 Only verifiable in game
+
+The uncertain engine and game behaviours, as a manual checklist to run in
+Source Sharp (and a stock game for the fallback) before the matching
+default is relied on:
+
+- [ ] Name matching is case-insensitive for targets and outputs (5.2).
+- [ ] An entity key value longer than 1023 bytes is refused or truncated
+      (5.6).
+- [ ] `logic_branch`, `logic_relay`, `logic_auto` and filters take no edict;
+      the entity handle limit (6.2).
+- [ ] Unnamed `light` and `light_spot` are removed at spawn; the level
+      lights identically with them stripped (6.4, O18).
+- [ ] `light_environment` is not read at runtime (6.4).
+- [ ] An unnamed `func_occluder` with its entity stripped still occludes;
+      occluder toggling by input after the rebase (4.7).
+- [ ] `infodecal` near a joined doorway lands on the right face, and is
+      removed after applying (4.8).
+- [ ] A relay without fast retrigger drops a second `Trigger` inside its
+      longest delay; same-tick event order after folding (6.5).
+- [ ] `func_door_rotating` and `func_rotating` axis flags read in the
+      entity's frame; which brush-entity classes apply `angles` to the
+      model (4.1).
+- [ ] An area portal whose entity has `StartOpen 1` and no target is open
+      (4.11).
+- [ ] The sky is drawn from leaves flagged by pass two (4.12).
+- [ ] Detail props render with a stable sort by leaf (4.4).
+- [ ] A static prop straddling leaves of two rooms is drawn from both
+      (4.3).
+- [ ] `buildcubemaps` on a linked map writes the names the patched VMTs
+      expect (4.10).
+- [ ] Fog, tonemap and shadow controllers: which one wins with several (8).
+- [ ] Unknown worldspawn keys (`ssmap_entities`) are ignored (7.1).
+- [ ] Stock `trigger_changelevel` with "disable touch" fires on
+      `ChangeLevel`; the landmark lands the player at the arrival;
+      facing is kept or not; multiplayer changelevel behaviour (11.4).
+- [ ] The runtime reserve: peak edicts with a full server and bots, to set
+      `rooms_entity_reserve` (6.7).
+
+---
+
+## 16. Growing the 3x3 sample
 
 The sample is generated (`SourceSharp.MapGen.Rooms`: `Rooms3x3Kit`,
 `Rooms3x3Sample`, `Rooms3x3Arrangement`, `Rooms3x3Permutations`;
