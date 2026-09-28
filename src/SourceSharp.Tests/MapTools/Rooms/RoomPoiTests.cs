@@ -144,18 +144,26 @@ public sealed class RoomPoiTests
     [InlineData("cx+ry_a", "placeholder")]
     [InlineData("cxry_", "nothing after")]
     [InlineData("C3R5_a", "resolved")]
-    [InlineData("c-1r0_a", "resolved")]
+    [InlineData("c-1r0_a", "placeholder")]
+    [InlineData("c1rx_a", "placeholder")]
+    [InlineData("cx+1ry_", "nothing after")]
     public void AMalformedOrReservedNameIsRefused(string name, string expected)
     {
         Assert.Contains(expected, RoomLocalNames.Problem(name), StringComparison.Ordinal);
         Assert.Throws<ArgumentException>(() => RoomLocalNames.Resolve(name, 0, 0, 0));
     }
 
+    /// <summary>
+    /// Names that begin with <c>c</c> but not like the reserved family: a
+    /// <c>c</c> then neither <c>x</c> nor a (signed) digit, or no <c>r</c>
+    /// before the first underscore (the grammar's suspect pattern).
+    /// </summary>
     [Theory]
     [InlineData("c")]
     [InlineData("cr_x")]
-    [InlineData("c1rx_a")]
+    [InlineData("c1_rx")]
     [InlineData("cx")]
+    [InlineData("c-r_a")]
     public void NamesThatOnlyStartLikeOneAreGlobal(string name) => Assert.Null(RoomLocalNames.Problem(name));
 
     [Fact]

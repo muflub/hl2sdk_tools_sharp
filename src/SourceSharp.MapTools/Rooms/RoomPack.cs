@@ -92,13 +92,22 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         IReadOnlyList<RoomPackSectionData> linkSections = link is null ? [] : RoomLinkSections.Write(link);
         IReadOnlyList<RoomPackSectionData> navSections = room.Nav is { } nav ? RoomNavPack.Sections(nav.Base, navigation) : [];
 
+        // The names per turn (NAMr), after each turn's link sections so a
+        // link placing the room at one turn still reads its sections in one
+        // run. Every room has them, as it has counts: ssmap rooms lists a
+        // room's names whatever the link will say of it.
+        RoomNameTables names = room.Names is { } stored2 && stored2.IsFor(room) && stored2.IsComplete
+            ? stored2
+            : new RoomNameTables(RoomNameAnalysis.Analyse(room.Definition.Name, room.Bsp, null), room.Bsp);
+        IReadOnlyList<RoomPackSectionData> turned = RoomNavPack.Interleave(linkSections, [.. names.Sections()]);
+
         // The counts first, straight after the container: every room has
         // them (the link's verdict does not matter to a count), and a link
         // reads them with the container and the link sections in one run.
         RoomPackSectionData counts = RoomEntityCounts.Of(room.Bsp).ToSection();
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. RoomNavPack.Interleave(linkSections, navSections)],
+            Extra = [counts, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -302,7 +311,7 @@ public sealed class RoomPackIndex
 /// </para>
 /// <para>
 /// <b>Names.</b> Unique ignoring case (the library's own rule,
-/// <see cref="RoomLibraryVmf"/>), valid by <see cref="RoomNames"/>, and
+/// <see cref="RoomLibraryVmf"/>), valid by <see cref="RoomNameTables"/>, and
 /// looked up exactly. An entry's container must hold the room its index
 /// entry names; a pack whose index and containers disagree is refused.
 /// </para>
@@ -769,6 +778,14 @@ public static class RoomPack
                 }
             }
 
+            for (int rotation = 0; rotation < 4; rotation++)
+            {
+                if (turns[rotation] && entry.Find(RoomNameTurn.Tag(rotation)) is { } names)
+                {
+                    wanted.Add((name, names));
+                }
+            }
+
             if (entry.Find(RoomLinkSections.SharedTag) is { } shared)
             {
                 wanted.Add((name, shared));
@@ -825,9 +842,11 @@ public static class RoomPack
             RoomLinkData? link = RoomLinkSections.Read(room, tag => Section(name, tag));
             RoomEntityCounts? counts = RoomEntityCounts.Read(Section(name, RoomEntityCounts.SectionTag), name)?.For(room.Bsp);
             RoomNavTurns? nav = navigation.Contains(name) ? RoomNavPack.FromSections(name, tag => Section(name, tag)) : null;
-            loaded[name] = link is null && nav is null && counts is null
+            RoomNameTurn?[] turned = [.. Enumerable.Range(0, 4).Select(t => RoomNameTurn.Read(Section(name, RoomNameTurn.Tag(t)), name, t))];
+            RoomNameTables? names = turned.Any(t => t is not null) ? new RoomNameTables(turned, room.Bsp) : null;
+            loaded[name] = link is null && nav is null && counts is null && names is null
                 ? room
-                : room with { Link = link, Nav = nav, EntityCounts = counts };
+                : room with { Link = link, Nav = nav, EntityCounts = counts, Names = names };
         }
 
         return [.. requests.Select(request => loaded[request.Name])];
@@ -932,6 +951,51 @@ public static class RoomPack
         }
 
         return counts;
+    }
+
+    /// <summary>
+    /// Reads every room's names as the room compile found them (its
+    /// <c>NAM0</c> section: turn 0 is the room's own frame), for
+    /// <c>ssmap rooms</c> to list.
+    /// </summary>
+    /// <param name="r">The pack; it must be able to seek.</param>
+    /// <param name="index">The pack's index, read from <paramref name="r"/>.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>
+    /// The names of every room with a readable section, by name; a room
+    /// packed before the names existed, or with a revision this build does
+    /// not read, is missing.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="LinkException">A section cut short or out of shape, naming its room.</exception>
+    public static async Task<IReadOnlyDictionary<string, RoomNameSummary>> ReadNameSummariesAsync(
+        Stream r, RoomPackIndex index, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(r);
+        ArgumentNullException.ThrowIfNull(index);
+        string tag = RoomNameTurn.Tag(0);
+        List<(string Name, RoomPackSection Section)> wanted = [];
+        foreach (RoomPackEntry entry in index.Entries)
+        {
+            if (entry.Find(tag) is { } section)
+            {
+                wanted.Add((entry.Name, section));
+            }
+        }
+
+        Dictionary<(string, string), ArraySegment<byte>> read = await ReadSectionsAsync(r, index, wanted, cancellationToken)
+            .ConfigureAwait(false);
+        Dictionary<string, RoomNameSummary> names = new(StringComparer.Ordinal);
+        foreach (RoomPackEntry entry in index.Entries)
+        {
+            if (read.TryGetValue((entry.Name, tag), out ArraySegment<byte> bytes)
+                && RoomNameTurn.Read(bytes, entry.Name, 0) is { } turn)
+            {
+                names[entry.Name] = RoomNameSummary.Of(turn);
+            }
+        }
+
+        return names;
     }
 
     /// <summary>
@@ -1062,6 +1126,7 @@ public static class RoomPack
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),
         ((byte)'N', (byte)'V', (byte)'R', >= (byte)'0' and <= (byte)'3') => RoomNavSection.Tag(tag[3] - '0'),
+        ((byte)'N', (byte)'A', (byte)'M', >= (byte)'0' and <= (byte)'3') => RoomNameTurn.Tag(tag[3] - '0'),
         _ => null,
     };
 

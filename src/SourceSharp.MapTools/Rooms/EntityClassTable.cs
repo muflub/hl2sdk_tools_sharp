@@ -177,6 +177,16 @@ public sealed class EntityClassTable
         // before vbsp and carries it in the navigation (RoomPois.Extract),
         // so it costs no entity. Certain.
         CompileOnly(RoomPois.Entity, "the room compile moves it into the navigation and out of the map"),
+
+        // The mod entity contract's classes, each declared networked or
+        // server-only by the contract itself (logic_room: server-only). The
+        // linker emits them only with -mod-entities; without it they never
+        // reach a map, so the row costs nothing in the stock mode.
+        .. RoomContracts.ModEntityContract.Classes.Select(c => new EntityClassRow(
+            c.ClassName,
+            c.Networked ? EntityCost.Edict : EntityCost.ServerOnly,
+            EntityClassCertainty.OwnerSupplied,
+            "the mod entity contract (SourceSharp.RoomContracts), which the Source Sharp mod implements")),
     ]);
 
     private readonly ImmutableDictionary<string, EntityClassRow> _rows;

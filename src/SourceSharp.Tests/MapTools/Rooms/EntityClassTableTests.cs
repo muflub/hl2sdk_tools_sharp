@@ -49,8 +49,28 @@ public sealed class EntityClassTableTests
     public void OnlyTheCompileOnlyRowsShip()
     {
         EntityClassTable table = EntityClassTable.Default;
-        Assert.Equal(CompileOnly.Order(StringComparer.Ordinal), table.Rows.Keys.Order(StringComparer.Ordinal));
-        Assert.All(table.Rows.Values, row => Assert.Equal(EntityCost.CompileOnly, row.Cost));
+        string[] contract = [.. RoomContracts.ModEntityContract.Classes.Select(c => c.ClassName)];
+        Assert.Equal(
+            CompileOnly.Concat(contract).Order(StringComparer.Ordinal),
+            table.Rows.Keys.Order(StringComparer.Ordinal));
+        Assert.All(table.Rows.Values.Where(r => !contract.Contains(r.ClassName)), row => Assert.Equal(EntityCost.CompileOnly, row.Cost));
+    }
+
+    /// <summary>
+    /// The mod entity contract's classes ship with the cost the contract
+    /// declares: <c>logic_room</c> is server-only, so it takes no edict, and
+    /// its row says where it comes from.
+    /// </summary>
+    [Fact]
+    public void TheModContractsClassesShipWithTheirDeclaredCost()
+    {
+        EntityClassTable table = EntityClassTable.Default;
+        Assert.Equal(EntityCost.ServerOnly, table.Classify(RoomContracts.LogicRoom.ClassName));
+        EntityClassRow row = table.Rows[RoomContracts.LogicRoom.ClassName];
+        Assert.Equal(EntityClassCertainty.OwnerSupplied, row.Certainty);
+        Assert.Contains("SourceSharp.RoomContracts", row.Source, StringComparison.Ordinal);
+        Assert.All(RoomContracts.ModEntityContract.Classes, c =>
+            Assert.Equal(c.Networked ? EntityCost.Edict : EntityCost.ServerOnly, table.Classify(c.ClassName)));
     }
 
     /// <summary>

@@ -251,6 +251,17 @@ public sealed record RoomInstance(RoomPlacement Placement, IReadOnlyList<(string
 /// </remarks>
 public sealed record LevelLayout(string Name, float CellSize, SocketKit Kit, IReadOnlyList<RoomInstance> Rooms)
 {
+    /// <summary>
+    /// The level grid's columns, or null when the layout was built without a
+    /// grid: what tells a reference to an empty cell from one off the grid
+    /// (the missing-neighbour warning says which). Without it only a
+    /// negative column is off the grid.
+    /// </summary>
+    public int? Columns { get; init; }
+
+    /// <summary>The level grid's rows, or null: as <see cref="Columns"/>.</summary>
+    public int? Rows { get; init; }
+
     /// <summary>Validates the layout's own shape.</summary>
     /// <exception cref="ArgumentException">The name is blank, the level places no room, or two rooms share a cell.</exception>
     /// <exception cref="ArgumentOutOfRangeException">The cell size is not a positive finite number.</exception>

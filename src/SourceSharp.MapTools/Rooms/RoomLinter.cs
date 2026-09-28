@@ -36,6 +36,14 @@ public enum RoomRule
 
     /// <summary>A player can reach every room of a level from every other, through joined doors.</summary>
     EveryRoomReachable = 6,
+
+    /// <summary>
+    /// Room-local names are well formed, no global name begins like one, a
+    /// linker-owned name sits on the class the linker expects, and every
+    /// <c>room_needs</c> key parses and sits on something that can be
+    /// dropped (the naming grammar; <c>RoomNameAnalysis</c>).
+    /// </summary>
+    LocalNamesWellFormed = 7,
 }
 
 /// <summary>

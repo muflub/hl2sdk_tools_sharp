@@ -128,6 +128,24 @@ public sealed class RoomEntityCounts
         return new RoomEntityCounts([.. classes.Select(c => new RoomEntityClassCount(c.Key, c.Value))], bsp);
     }
 
+    /// <summary>
+    /// Counts from a list of classes: what one placement brings once the
+    /// naming resolver has dropped, folded, merged and written entities, so
+    /// the link budgets the level it really writes. Bound to no BSP.
+    /// </summary>
+    /// <param name="classNames">Every entity's class, worldspawn left out.</param>
+    /// <returns>The counts.</returns>
+    internal static RoomEntityCounts FromClasses(IEnumerable<string> classNames)
+    {
+        SortedDictionary<string, int> classes = new(StringComparer.Ordinal);
+        foreach (string name in classNames)
+        {
+            classes[name] = classes.GetValueOrDefault(name) + 1;
+        }
+
+        return new RoomEntityCounts([.. classes.Select(c => new RoomEntityClassCount(c.Key, c.Value))], null);
+    }
+
     /// <summary>The room's entities sorted by what the table says each class costs.</summary>
     /// <param name="table">The class table.</param>
     /// <returns>The edicts, server-only and compile-only entities.</returns>

@@ -72,7 +72,7 @@ public class DeterministicMathRuleTests
         "System.Numerics.Complex",
     ];
 
-    public static TheoryData<string> LibraryAssemblies => ["SourceSharp.MapFormats", "SourceSharp.MapTools"];
+    public static TheoryData<string> LibraryAssemblies => ["SourceSharp.MapFormats", "SourceSharp.MapTools", "SourceSharp.RoomContracts"];
 
     [Theory]
     [MemberData(nameof(LibraryAssemblies))]
@@ -148,6 +148,7 @@ public class DeterministicMathRuleTests
     private static Assembly Load(string name) => name switch
     {
         "SourceSharp.MapFormats" => typeof(BspData).Assembly,
+        "SourceSharp.RoomContracts" => typeof(SourceSharp.RoomContracts.LogicRoom).Assembly,
         _ => typeof(VPath).Assembly,
     };
 
