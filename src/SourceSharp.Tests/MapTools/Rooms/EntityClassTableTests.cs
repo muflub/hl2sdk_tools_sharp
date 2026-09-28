@@ -49,7 +49,7 @@ public sealed class EntityClassTableTests
     public void OnlyTheCompileOnlyRowsShip()
     {
         EntityClassTable table = EntityClassTable.Default;
-        string[] contract = [.. RoomContracts.ModEntityContract.Classes.Select(c => c.ClassName)];
+        string[] contract = [.. SourceSharp.RoomContracts.ModEntityContract.Classes.Select(c => c.ClassName)];
         Assert.Equal(
             CompileOnly.Concat(contract).Order(StringComparer.Ordinal),
             table.Rows.Keys.Order(StringComparer.Ordinal));
@@ -65,11 +65,11 @@ public sealed class EntityClassTableTests
     public void TheModContractsClassesShipWithTheirDeclaredCost()
     {
         EntityClassTable table = EntityClassTable.Default;
-        Assert.Equal(EntityCost.ServerOnly, table.Classify(RoomContracts.LogicRoom.ClassName));
-        EntityClassRow row = table.Rows[RoomContracts.LogicRoom.ClassName];
+        Assert.Equal(EntityCost.ServerOnly, table.Classify(SourceSharp.RoomContracts.LogicRoom.ClassName));
+        EntityClassRow row = table.Rows[SourceSharp.RoomContracts.LogicRoom.ClassName];
         Assert.Equal(EntityClassCertainty.OwnerSupplied, row.Certainty);
         Assert.Contains("SourceSharp.RoomContracts", row.Source, StringComparison.Ordinal);
-        Assert.All(RoomContracts.ModEntityContract.Classes, c =>
+        Assert.All(SourceSharp.RoomContracts.ModEntityContract.Classes, c =>
             Assert.Equal(c.Networked ? EntityCost.Edict : EntityCost.ServerOnly, table.Classify(c.ClassName)));
     }
 

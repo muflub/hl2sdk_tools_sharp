@@ -175,15 +175,33 @@ internal sealed class LevelEntity
 
     /// <summary>
     /// A VMF entity's keys, then its <c>connections</c> keys, in the order
-    /// vbsp adds them to the compiled entity (its keys as they come, the
-    /// connections after); the chunk rides along as the payload.
+    /// vbsp gives them in the compiled entity; the chunk rides along as the
+    /// payload.
     /// </summary>
+    /// <remarks>
+    /// vbsp sets each key by putting it at the front of the entity's list
+    /// (a repeated key only changes the first one's value), and appends each
+    /// connection, so a compiled entity holds its keys in reverse and its
+    /// outputs in order. Reading the VMF in that order gives the flatten the
+    /// same key order the link reads from a compiled room, so the one
+    /// resolver edits and appends to the same lists on both paths;
+    /// <c>LevelFlattener</c> writes the keys back reversed, so vbsp's
+    /// reversal restores them.
+    /// </remarks>
     public static LevelEntity FromVmf(VmfChunk entity, int placement, int source)
     {
         List<LevelPair> pairs = [];
         foreach (VmfKey key in entity.Keys)
         {
-            pairs.Add(new LevelPair(key.Name, key.Value));
+            LevelPair? same = pairs.FirstOrDefault(p => string.Equals(p.Key, key.Name, StringComparison.OrdinalIgnoreCase));
+            if (same is not null)
+            {
+                same.Value = key.Value;
+            }
+            else
+            {
+                pairs.Insert(0, new LevelPair(key.Name, key.Value));
+            }
         }
 
         foreach (VmfChunk connections in entity.GetChunks(MapFileLoader.ConnectionsChunk))

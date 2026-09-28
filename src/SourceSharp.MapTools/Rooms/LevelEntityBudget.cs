@@ -137,7 +137,11 @@ public sealed class LevelEntityReport
 /// edict, which over-counts rather than under-counts). Its entity list is
 /// the one worldspawn plus every placement's entities that reach the lump
 /// (everything but the compile-only classes, which the link strips).
-/// Nothing the link adds is counted, because today it adds nothing.
+/// When the room-local naming resolver runs (a room uses names, or the
+/// link writes the mod's classes), the level is budgeted again from what it
+/// left: entities dropped by <c>room_needs</c>, folded or merged are gone, and
+/// what the linker wrote for a placement (flags, a <c>logic_room</c> or its
+/// stock fallback) is counted with it.
 /// </para>
 /// <para>
 /// <b>What it does.</b> Over the cap: refused, naming the most expensive

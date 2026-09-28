@@ -301,4 +301,74 @@ public sealed class RoomLibraryOptionsTests
         patch(bytes);
         return bytes;
     }
+
+    // ---- the naming settings -------------------------------------------------
+
+    /// <summary>
+    /// The fold switch and the library's name keys are read off the
+    /// worldspawn (first of a repeated key wins; entries trimmed, empty ones
+    /// dropped), are library keys, and travel in the section with the
+    /// reserve, keys in ordinal order; the fold is on unless the library
+    /// turns it off.
+    /// </summary>
+    [Fact]
+    public void TheNamingSettingsAreReadWrittenAndReadBack()
+    {
+        VmfChunk world = new(MapFileLoader.WorldChunk);
+        world.AddKey("classname", "worldspawn");
+        world.AddKey("ROOMS_FOLD_LOGIC", "0");
+        world.AddKey(RoomLibraryOptions.FoldLogicKey, "1");
+        world.AddKey(RoomLibraryOptions.NameKeysKey, " friend , ,enemy");
+        world.AddKey(RoomLibraryOptions.EntityReserveKey, "300");
+        RoomLibraryOptions options = RoomLibraryOptions.FromWorld(world);
+        Assert.Equal(new RoomLibraryOptions(300) { FoldLogic = false, NameKeys = "friend,enemy" }, options);
+        Assert.False(options.Folds);
+        Assert.True(options.NameKeySet!.Contains("FRIEND"));
+        Assert.True(RoomLibraryOptions.None.Folds);
+        Assert.Null(RoomLibraryOptions.None.NameKeySet);
+        Assert.True(RoomLibraryOptions.IsLibraryKey("Rooms_Name_Keys"));
+        Assert.True(RoomLibraryOptions.IsLibraryKey(RoomLibraryOptions.FoldLogicKey));
+
+        RoomPackSectionData section = options.ToSection()!.Value;
+        Assert.Equal(options, RoomLibraryOptions.Read(section.Bytes.Span));
+        string text = Encoding.UTF8.GetString(section.Bytes.Span);
+        Assert.True(text.IndexOf("rooms_entity_reserve", StringComparison.Ordinal) < text.IndexOf("rooms_fold_logic", StringComparison.Ordinal));
+        Assert.True(text.IndexOf("rooms_fold_logic", StringComparison.Ordinal) < text.IndexOf("rooms_name_keys", StringComparison.Ordinal));
+
+        RoomLibraryOptions foldOnly = new() { FoldLogic = true };
+        Assert.Equal(foldOnly, RoomLibraryOptions.Read(foldOnly.ToSection()!.Value.Bytes.Span));
+        RoomLibraryOptions namesOnly = new() { NameKeys = "a" };
+        Assert.Equal(namesOnly, RoomLibraryOptions.Read(namesOnly.ToSection()!.Value.Bytes.Span));
+
+        world.AddKey(RoomLibraryOptions.NameKeysKey, "ignored");
+        Assert.Equal("friend,enemy", RoomLibraryOptions.FromWorld(world).NameKeys);
+        VmfChunk empty = new(MapFileLoader.WorldChunk);
+        empty.AddKey(RoomLibraryOptions.NameKeysKey, " , ");
+        Assert.Equal(RoomLibraryOptions.None, RoomLibraryOptions.FromWorld(empty));
+    }
+
+    /// <summary>A fold switch other than 0 or 1 is refused, off the worldspawn and in the section.</summary>
+    [Theory]
+    [InlineData("yes")]
+    [InlineData("2")]
+    [InlineData("")]
+    public void ABadFoldSwitchIsRefused(string value)
+    {
+        VmfChunk world = new(MapFileLoader.WorldChunk);
+        world.AddKey(RoomLibraryOptions.FoldLogicKey, value);
+        RoomLibraryException refused = Assert.Throws<RoomLibraryException>(() => RoomLibraryOptions.FromWorld(world));
+        Assert.Equal($"the library's rooms_fold_logic \"{value}\" is not 0 or 1.", refused.Message);
+
+        byte[] payload = [.. Int(RoomLibraryOptions.Revision), .. Int(1), .. Text(RoomLibraryOptions.FoldLogicKey), .. Text(value)];
+        byte[] section = [RoomLibraryOptions.CodecNone, .. Long(payload.Length), .. payload];
+        Assert.Contains($"sets rooms_fold_logic to \"{value}\", not 0 or 1", Assert.Throws<LinkException>(() => RoomLibraryOptions.Read(section)).Message, StringComparison.Ordinal);
+        Assert.False(RoomLibraryOptions.TryParseFold(value, out _));
+    }
+
+    private static byte[] Long(long value)
+    {
+        byte[] bytes = new byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(bytes, value);
+        return bytes;
+    }
 }

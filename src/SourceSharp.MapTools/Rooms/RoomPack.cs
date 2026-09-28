@@ -46,7 +46,8 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
     /// What <c>ssmap room</c> packs. The link work is the room's own
     /// <c>Link</c> when the library compile already did it (it does, on the
     /// room's thread), or is done here. A room the link would refuse gets
-    /// none, and is packed with its container and its entity counts alone:
+    /// none, and is packed with its container, its entity counts and its
+    /// names alone:
     /// a level that places it is refused at link time with the message it
     /// always got. Every room gets its entity counts
     /// (<see cref="RoomEntityCounts"/>). See <see cref="RoomPack"/> for the
@@ -259,8 +260,11 @@ public sealed class RoomPackIndex
 /// gives their layout and why each is stored or not. They are optional: a
 /// room the link would refuse has none, and a pack written before them
 /// links to the same bytes, the link computing the same data on the fly.
-/// When the library builds navigation, each turn's link sections are followed
-/// by that turn's <see cref="RoomNavSection"/> (<c>NVR</c><i>r</i>; all four
+/// Each turn's link sections are followed by that turn's names
+/// (<c>NAM</c><i>r</i>, <see cref="RoomNameTurn"/>; every room has them, a
+/// room the link refuses too, since <c>ssmap rooms</c> lists them), and when
+/// the library builds navigation, by that turn's
+/// <see cref="RoomNavSection"/> (<c>NVR</c><i>r</i>; all four
 /// turns by default, <c>NVR0</c> alone with <c>-nav-turn0</c>).
 /// </description></item>
 /// <item><term>the rest</term><description>

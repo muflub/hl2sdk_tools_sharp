@@ -57,6 +57,15 @@ public static partial class LevelLinker
     /// the flattened level's compile drops, and that the entity budget
     /// does not count.
     /// </para>
+    /// <para>
+    /// <b>Names.</b> When a placed room uses room-local names (or the link
+    /// writes the mod's classes), every placement's entities go through the
+    /// one naming resolver the flatten also runs (<see cref="LevelEntityResolver"/>)
+    /// before they are moved: names filled in from the room's stored tables
+    /// for its turn, <c>room_needs</c> applied, flags and the hub written,
+    /// the logic folded. A level that uses none of it skips the resolver
+    /// entirely and links to the bytes it did before names existed.
+    /// </para>
     /// </remarks>
     internal static BspLumpData MergeEntities(RoomPlan[] plans, EntityClassTable classes, LevelNaming? naming = null)
     {

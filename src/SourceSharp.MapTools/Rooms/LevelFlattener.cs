@@ -247,8 +247,10 @@ public static class LevelFlattener
     /// A resolved entity as a VMF entity: the room's own chunk with its keys
     /// and <c>connections</c> rewritten (its brushes and editor data kept),
     /// or a new chunk for one the resolver wrote. Outputs go into
-    /// <c>connections</c> and every other key before them, the order vbsp
-    /// compiles them in.
+    /// <c>connections</c> in order; every other key is written in reverse,
+    /// because vbsp puts each key it reads at the front of the compiled
+    /// entity (<see cref="LevelEntity.FromVmf"/>), so the compiled entity
+    /// holds its keys in the order the resolver left them, as the link's does.
     /// </summary>
     private static VmfChunk Write(LevelEntity entity)
     {
@@ -265,7 +267,7 @@ public static class LevelFlattener
             }
             else
             {
-                chunk.AddKey(pair.Key, pair.Value!);
+                chunk.Children.Insert(0, new VmfKey(pair.Key, pair.Value!));
             }
         }
 

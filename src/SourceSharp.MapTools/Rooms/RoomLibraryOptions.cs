@@ -54,6 +54,15 @@ namespace SourceSharp.MapTools.Rooms;
 /// settings. It is written only when the library sets something, so a
 /// library that sets nothing writes the pack it always did.
 /// </para>
+/// <para>
+/// <b>The keys.</b> <see cref="EntityReserveKey"/> for the entity budget;
+/// <see cref="FoldLogicKey"/> and <see cref="NameKeysKey"/> for the
+/// room-local names (added without a revision raise, as the section allows:
+/// an older build skips them). The name keys matter at room compile time,
+/// where they widen what the naming rule reads as a name, so
+/// <c>ssmap room</c> hands them to the room compile too; the link reads them
+/// back for a room whose names it has to read from the room's lump.
+/// </para>
 /// </remarks>
 public sealed record RoomLibraryOptions(int? EntityReserve = null)
 {
