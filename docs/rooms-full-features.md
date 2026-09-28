@@ -68,7 +68,85 @@ positions go through `Apply`, directions through `ApplyNormal`, Euler angles
 add `90 × turns` to yaw (exact, because yaw is the outermost rotation), and
 nothing multiplies a rotation matrix.
 
-What `PlanRoom` refuses today, in the order it checks:
+### 1.1 Pack storage principles
+
+Two rules shape every "precompute" entry in this document (D16, D17).
+
+**Store once at rotation 0 where the turn is exact.** Placements turn only
+by quarter turns, and a quarter turn permutes and negates coordinates, so
+anything expressed in coordinates turns exactly and cheaply at link. Such
+data is stored **once, in the room's own frame (rotation 0)**, and the link
+turns it, as it already does for the whole compiled room:
+
+- geometry, planes and texture axes (`LevelLinker.TransformPlanes`,
+  `TransformTexInfos`, `RoomTransform.Apply`);
+- collision, where no re-cooking is needed: the ledges are moved exactly and
+  the per-level surface rebuilt at link (`LevelLinker.MergeCollision`);
+- entity origins, angles and every other position or direction key (4.2);
+- prop, detail prop, displacement, overlay, cubemap and occluder records;
+- navigation data on a grid aligned to the cell (a voxel grid or octree
+  turns as an index permutation), its door portals and its POIs;
+- baked data whose values do not depend on the turn: lightmaps and prop
+  vertex colours are stored per luxel or per vertex and do not move; leaf
+  ambient cubes permute their four horizontal faces and their sample
+  positions permute with the leaf box.
+
+**Store ×4 only where the transform is inexact or expensive.** The cases:
+
+- **Sunlit lighting.** The sun and the sky are fixed in the world, so a room
+  that sun or sky light reaches is baked once per rotation: its base
+  lighting (lightmaps, leaf ambient, displacement lightmaps, static prop and
+  detail prop lighting) and its outgoing door capture. A room with no sky
+  opening gets **one** bake: without the sun, its four bakes would have the
+  same inputs in the room's frame and the same bytes. The **door response**
+  never depends on the room's rotation (only the incoming light turns), so
+  it is stored once for every room (section 9).
+- **Navigation for non-square agent hulls**, whose clearance changes under a
+  quarter turn (10.3), if the AI design has any.
+- **Anything a measurement shows is too slow to turn at link** (a candidate
+  is a prebuilt per-level collision tree); stored ×4 only with the numbers
+  in the PR that adds it.
+
+**How the pack marks it.** Every per-room section that could hold rotation
+variants starts with a rotation count, 1 or 4, followed by that many
+payloads in rotation order; the link takes payload `rotation mod count`. For
+lighting the count is decided at pack time: 4 if the room has any sky face
+(`SURF_SKY` or `SURF_SKY2D` in its texinfos) or any leaf that pass one of
+`SkyLeafVisibility` flags, else 1. `ssmap rooms` shows each room's count.
+
+**Compression.** Every new pack section, and the navigation file
+(section 10), carries a **codec byte** ahead of its payload: 0 none,
+1 Deflate, 2 Brotli, followed by the uncompressed length (`int64`). Deflate
+and Brotli are built into .NET (`System.IO.Compression`: `ZLibStream` /
+`DeflateStream`, `BrotliEncoder`), so no package is added. The existing room
+container section stays uncompressed until the pack's format version is
+raised (the reader refuses unknown versions, `RoomPack`), which the first
+PR that adds a section does.
+
+- **Determinism.** A pack is a function of its rooms (`RoomPack` remarks),
+  so compression must be too: fixed parameters (Deflate at a fixed level;
+  Brotli at a fixed quality and window through `BrotliEncoder`, never the
+  `CompressionLevel` enum, whose mapping may change), one thread per
+  section, no timestamps. The same input gives the same bytes at any thread
+  count and on every run.
+- **Across platforms.** .NET ships its own zlib-ng and Brotli in the
+  runtime's native compression library rather than using the operating
+  system's, so the bytes should be the same on Linux, Windows and macOS.
+  That is an expectation, not a guarantee: **pinned-byte facts** compress
+  fixed inputs with each codec and compare against checked-in bytes, and run
+  in CI on every operating system (15.9). A runtime update that changes the
+  bytes fails them and is then a deliberate decision. If the bytes ever
+  diverge across platforms, the fallback is a small in-repo compressor
+  (a plain deterministic Deflate encoder is enough) under a new codec value;
+  decompression stays the framework's for every codec.
+- **Defaults** per section are chosen by measurement in each feature's PR
+  (size against link-time decode cost); small index sections will likely
+  stay uncompressed and the lighting response is the main candidate for
+  Brotli.
+
+### 1.2 What `PlanRoom` refuses today
+
+In the order it checks:
 
 1. any non-empty lump outside `LevelLinker.CarriedLumps`. Not in the set:
    `WorldLights(Hdr)`, `DispInfo`, `DispVerts`, `DispTris`,
@@ -166,8 +244,8 @@ order in [section 13](#13-implementation-order).
 
 ## 3. Feature matrix
 
-"Today" is what the link does. "Pack" is what can be precomputed per room
-and per rotation; "Link" is what has to wait for the level. "Entities" is
+"Today" is what the link does. "Pack" is what can be precomputed per room,
+stored at rotation 0 unless marked ×4 (1.1); "Link" is what has to wait for the level. "Entities" is
 the runtime entity cost ([section 6](#6-the-entity-budget)). Size is the
 work to carry the feature: S (days), M (a week or two), L (several weeks,
 or research).
@@ -176,22 +254,22 @@ or research).
 | --- | --- | --- | --- | --- | --- |
 | Point entities | carried (origin, yaw); names duplicated | name and I/O positions, parsed placeholders | resolve names, drop/keep, fold, singletons | 1 each; logic may fold to 0 | M |
 | Brush entities | refused (`models != 1`) | models, subtrees, per-model collision, origin class | rebase models, `model` keys, texinfo split for origin models | 1 each | L |
-| `func_ladder` | silently wrong (`info_ladder` bounds) | bounds per rotation | none | 1 (`info_ladder`) | S |
-| Static props | refused (game lump) | props per rotation, dictionary, hulls, lighting | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
-| Detail props | refused (game lump) | props per rotation, leaf-local runs, lighting | renumber leaves, re-sort, merge dictionaries | 0 | M |
-| Displacements | refused at split (`VmfPlacement.MoveSide`) | lumps per rotation, collision, sample positions | rebase; cross-room neighbours only if allowed | 0 | L |
+| `func_ladder` | silently wrong (`info_ladder` bounds) | bounds at rotation 0 | none | 1 (`info_ladder`) | S |
+| Static props | refused (game lump) | props at rotation 0, dictionary, hulls; lighting ×1, or ×4 if sunlit | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
+| Detail props | refused (game lump) | props at rotation 0, leaf-local runs; lighting ×1, or ×4 if sunlit | renumber leaves, re-sort, merge dictionaries | 0 | M |
+| Displacements | refused at split (`VmfPlacement.MoveSide`) | lumps and collision at rotation 0, sample positions | rebase; cross-room neighbours only if allowed | 0 | L |
 | Water | refused (water leaf, lump) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
-| Overlays | refused (`Overlays` lump); split misplaces them | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
+| Overlays | refused (`Overlays` lump); split misplaces them | overlays at rotation 0 | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
 | Decals (`infodecal`) | carried | nothing | nothing | 1 each (**uncertain** after spawn) | S |
-| `env_cubemap` | refused (`Cubemaps` lump, pak) | samples per rotation, patch list | rename VTFs and patched VMTs to the level | 0 | M-L |
+| `env_cubemap` | refused (`Cubemaps` lump, pak) | samples at rotation 0, patch list | rename VTFs and patched VMTs to the level | 0 | M-L |
 | Area portals | refused | areas, portals, clip verts | area union across joints, optional door portals | 1 per portal | L |
-| Occluders | carried; `occludernumber` wrong | occluders per rotation | rebase the key | 1 each (strip candidate) | S |
+| Occluders | carried; `occludernumber` wrong | occluders at rotation 0 | rebase the key | 1 each (strip candidate) | S |
 | Packed files | refused | the room's pak entries | merge, dedupe, rename | 0 | M |
 | 2D sky | faces carried; no leaf sky flags (no vrad) | sky leaves per room | propagate sky flags across doors | 0 | S |
 | 3D skybox | not possible (areas collapsed) | the skybox as a library section | place it, its own area | 1 `sky_camera` per level | M |
-| Transition rooms and spawn | not possible | volume, arrival and spawn POIs per rotation | destinations, emission per mode, spawn | 2 per level (mod), 3 to 5 (stock) | M |
-| Navigation (3D) and points of interest | none | volumes and door portals per rotation; POIs | stitch at joined doors | 0 (POIs stripped) | L, blocked (section 10) |
-| Lighting | none (no vrad at pack time) | base ×4, doorway capture, door response | sum captures × responses | lights: see 6.3 | L |
+| Transition rooms and spawn | not possible | volume, arrival and spawn POIs at rotation 0 | destinations, emission per mode, spawn | 2 per level (mod), 3 to 5 (stock) | M |
+| Navigation (3D) and points of interest | none | volumes, door portals and POIs at rotation 0 (index permutation) | stitch at joined doors | 0 (POIs stripped) | L, blocked (section 10) |
+| Lighting | none (no vrad at pack time) | base and capture ×1, or ×4 if sunlit; door response ×1 | sum captures × responses | lights: see 6.3 | L |
 
 ---
 
@@ -316,7 +394,7 @@ keeps one worldspawn (all rooms must agree, `RequireSameWorld`, except
 positions of its placement keys, name-valued keys and output fields, with
 parsed placeholders (section 5); its runtime class cost (section 6); its
 `room_needs` condition; and the fold analysis that does not depend on the
-level (6.5). Per rotation: the moved placement keys. At link: name
+level (6.5). The placement keys are stored at rotation 0 and turned at link. At link: name
 resolution, drops, folding, singletons, style renumbering.
 
 **Transforms.** A table of position and direction keys:
@@ -363,7 +441,7 @@ position. vrad lights each prop per vertex and writes `sp_N.vhv` /
 
 **Today.** Refused by `RefuseGameLumpContent`.
 
-**Pack vs link.** Per rotation: each prop's moved record; its hull (convex
+**Pack vs link.** At rotation 0: each prop's record; its hull (convex
 hull planes, or the prop-space box and hull) so the link can recompute leaf
 lists **without the model**; its base lighting and door response per vertex
 (section 9); its `room_needs` condition. Per room: the dictionary. At link:
@@ -382,7 +460,7 @@ the cell face is inside the plug or the void, so those vertices are black.
 Proposed (O6): refuse props whose hull leaves the cell, except socket
 furniture inside the plug box.
 
-**Lighting.** Base per-vertex lighting per rotation; no capture (props do
+**Lighting.** Base per-vertex lighting, ×4 only in a sunlit room (1.1); no capture (props do
 not emit); door response entries for vertices that receive light through a
 door (9.4). A conditional prop (`room_needs`) must not cast shadows in the
 bake (`disableshadows`), or dropping it would leave its shadow; the pack
@@ -414,7 +492,7 @@ the CRT's unstable `qsort` (`DetailPropEmitter` remarks). vrad writes
 
 **Today.** Refused by `RefuseGameLumpContent`.
 
-**Pack vs link.** Per rotation: the props, moved, with their room-local
+**Pack vs link.** At rotation 0: the props, with their room-local
 leaf and lighting. At link: merge dictionaries, rebase each prop's leaf by
 the room's leaf base, re-sort by leaf (**uncertain** whether the engine
 needs a strict order or only contiguity per leaf; a stable sort by linked
@@ -428,7 +506,7 @@ straddles. A doorway has no floor face (it faced the plug), so no detail
 props; the flattened compile has some there. Part of the doorway-face
 exception.
 
-**Lighting.** Per-prop base lighting per rotation; door response entries
+**Lighting.** Per-prop base lighting, ×4 only in a sunlit room; door response entries
 for props near doors (one sample point each, so cheap).
 
 **Entity cost.** Zero (`prop_detail` entities are consumed).
@@ -456,7 +534,7 @@ displacement face's `DFace.DispInfo`. Neighbours come from
 **Today.** Refused at the split: `VmfPlacement.MoveSide` throws on a
 `dispinfo` chunk; also by lump and by `RefuseDisplacementCollision`.
 
-**Pack vs link.** Per rotation: all displacement lumps, moved. At link:
+**Pack vs link.** At rotation 0: all displacement lumps and collision, turned at link. At link:
 rebase `DispInfo` indices (vertex, triangle, alpha and sample-position
 starts, map face, neighbour indices) and faces' `DispInfo`; merge
 `PhysDisp`; recompute `AllowedVerts` only where cross-room neighbours are
@@ -577,7 +655,7 @@ is cleared (`OverlaySet.AddFromEntity`, `EmitAsync`, `FillUv`).
 **Today.** Refused (`Overlays` lump), and misplaced at the split (finding 4)
 and in the flatten (findings 3 and 4).
 
-**Pack vs link.** Per rotation: the moved overlays. At link: rebase face
+**Pack vs link.** At rotation 0: the overlays, turned at link. At link: rebase face
 indices (dropping stripped plug faces), texinfo, ids, `OverlayID` keys,
 water overlay ids; append fades in order.
 
@@ -619,7 +697,7 @@ name `maps/<room>/c<local x>_<local y>_<local z>`, so after linking two
 placements share one texture name, it does not match what `buildcubemaps`
 writes, and default cubemaps are named after the room.
 
-**Pack vs link.** Per rotation: the samples, and the list of patched
+**Pack vs link.** At rotation 0: the samples, and the list of patched
 materials with their source VMT and sample index. At link, knowing the
 output map's name (it must be; renaming the `.bsp` afterwards breaks
 cubemaps as it does for stock maps): write each sample with its world
@@ -770,8 +848,8 @@ offsets.
 | `info_no_dynamic_shadow`, `%compile*` flags, surface props | Texinfo and contents: carried; the entity is consumed. |
 | Macro textures | `FaceMacroTextureInfo` carried (`Assemble`). |
 | Vertex normals, primitives | Carried; vrad rewrites vertex normals (`RadLumpWriter.Write`), so under option C they come from the base bake. |
-| `WorldLights(Hdr)` | Per room, the lights moved per rotation; at link concatenated with each `Cluster` rebased by the room's cluster base, and one sky light and sky ambient for the level (D3). `MAX_MAP_WORLDLIGHTS` 8192 (`WorldLightExporter`). **S.** |
-| Leaf ambient | Samples per leaf (a compressed cube and a position in the leaf box). Per rotation from the base bake, rebased by leaf, plus door response. Under a turn the position bytes permute with the box axes and the cube's horizontal faces permute. The carved doorway leaf copies its facing leaf's samples. `DLeafAmbientIndex.FirstAmbientSample` is `ushort`. **M**, with lighting. |
+| `WorldLights(Hdr)` | Per room, the lights at rotation 0; at link turned, concatenated with each `Cluster` rebased by the room's cluster base, and one sky light and sky ambient for the level (D3). `MAX_MAP_WORLDLIGHTS` 8192 (`WorldLightExporter`). **S.** |
+| Leaf ambient | Samples per leaf (a compressed cube and a position in the leaf box). From the base bake (×4 only for a sunlit room), rebased by leaf, plus door response. Under a turn the position bytes permute with the box axes and the cube's horizontal faces permute. The carved doorway leaf copies its facing leaf's samples. `DLeafAmbientIndex.FirstAmbientSample` is `ushort`. **M**, with lighting. |
 | `LightingHdr`, `FacesHdr` | Not carried; from the bake under option C. |
 | `MapFlags` | Must agree (`RequireAgreement`); vrad sets the baked-prop-lighting flag (`RadLumpWriter.WriteLevelFlags`). |
 | `LeafMinDistToWater` | Carried; recompute at link once water exists (4.6). |
@@ -1630,14 +1708,14 @@ file at link.
 
 ### 9.1 The four parts
 
-1. **Base lighting.** A doors-closed vrad bake per room and per rotation
-   (×4): lightmaps and bump pages, leaf ambient, static prop per-vertex
+1. **Base lighting.** A doors-closed vrad bake per room, per rotation (×4)
+   when sun or sky light reaches the room and once otherwise (1.1): lightmaps and bump pages, leaf ambient, static prop per-vertex
    lighting, displacement lightmaps, detail prop lighting, vertex normals,
    leaf sky flags (pass one), world lights. The room is sealed by its plugs
    exactly as compiled (`RoomCompiler`), so this is a normal vrad run of the
    room with the library's sun turned into the room's frame.
 2. **Doorway capture.** A doors-open bake of the room into a black, fully
-   absorbing box, one per rotation: plugs removed, the room surrounded by a
+   absorbing box, per rotation when sunlit and once otherwise: plugs removed, the room surrounded by a
    box that reflects nothing, so only the room's own light leaves. Recorded
    per door opening:
    - **direct:** which lights (and the sun through the room's own sky
@@ -1645,7 +1723,8 @@ file at link.
      visibility grid on the door plane per light;
    - **bounce:** directional radiance per door sample (an ambient cube per
      sample), per light style.
-3. **Door response** ("option b"). Per door and per rotation, the room's
+3. **Door response** ("option b"). Per door, **stored once** (it does not
+   depend on the room's rotation; only the incoming light turns), the room's
    response to light **entering** through that door: a coarse basis on the
    opening (for example 2×4 patches × 6 directions = 48 functions), each
    mapped to the change it makes in the room's lightmaps, leaf ambient,
@@ -1659,18 +1738,18 @@ file at link.
 **Reach** (D3): only the adjacent room. Light never crosses two doors.
 **Sun** (D3): one for the library; every room shares it.
 
-A note for the prototype, not a change to the decision: the response is
-geometry and reflectivity only and the sun does not enter it, so in the
-room's frame it should agree across the four rotations up to float noise;
-if the prototype confirms that, one response set per door serves all four
-(a quarter of the response storage). Likewise a room with no sky opening has
-no sun term, and its four base bakes should agree.
+Storage (D16): the response is geometry and reflectivity only, so it is
+stored once per door for every room. A room with no sky opening has no sun
+term, so its base bake and capture are stored once; only sunlit rooms store
+four (1.1). A fact checks both: a sunless room's four bakes are the same
+bytes, and a sunlit room's response computed at each rotation agrees (15.9).
 
-### 9.2 Why per rotation
+### 9.2 When per rotation
 
 The sun is fixed in the world, so in a turned room it comes from another
 direction; vrad's sky-ambient sampling directions are fixed in world space
-too. Point, spot and texture lights turn with the room. Baking in the room's
+too. Point, spot and texture lights turn with the room, so a room the sun
+and sky do not reach is the same at every rotation in its own frame. Baking in the room's
 frame with the sun turned by the inverse rotation keeps the lightmap layout
 (luxel axes come from texture axes, which turn with the room,
 `LevelLinker.TransformTexInfos`), so rotation *r*'s data drops into the same
@@ -1691,7 +1770,7 @@ that would need more drops its weakest door style, with a warning.
 
 ### 9.4 Per-feature lighting
 
-| Feature | Base (×4) | Capture | Response |
+| Feature | Base (×1, ×4 if sunlit) | Capture (×1, ×4 if sunlit) | Response (×1) |
 | --- | --- | --- | --- |
 | Brush faces (world and brush entities) | lightmaps and bump pages | emits nothing itself; the room's lights do | per-luxel deltas |
 | Displacements | displacement lightmaps (own sample positions) | as faces | per-luxel deltas |
@@ -1708,24 +1787,26 @@ do not exist (the known difference), so there is nothing to light there.
 ### 9.5 Storage per room
 
 Estimates, to be replaced by the prototype's measurements. With `L` luxels
-(bump pages ×4 on bumped faces), `S` styles, `D` doors, `B` basis functions
+(bump pages ×4 on bumped faces), `R` the stored rotations (1, or 4 if
+sunlit), `S` styles, `D` doors, `B` basis functions
 (48), `p` the fraction of receivers a basis function reaches after pruning,
 `V` prop vertices and `A` ambient samples:
 
-- base: `4 × (L + V) × S × 6 bytes` (half-float RGB) plus ambient
-  `4 × A × 6 faces × 6 bytes`;
-- capture: per door, per rotation, per style, `G` grid cells (8×16 = 128) ×
+- base: `R × (L + V) × S × 6 bytes` (half-float RGB) plus ambient
+  `R × A × 6 faces × 6 bytes`;
+- capture: per door, per stored rotation, per style, `G` grid cells (8×16 = 128) ×
   (a bit per light + a 36-byte cube) ≈ 5 KB;
 - response: per door `B × p × (L + V + 6A) × 10 bytes` (value plus receiver
-  index), ×4 if kept per rotation.
+  index), stored once.
 
-For `L = 20,000`, one style, four doors, `p = 0.3`, no props: base ≈ 0.5 MB,
-capture ≈ 80 KB, response ≈ 11.5 MB per rotation set (46 MB for four). The
-response dominates, so its basis size, pruning threshold and resolution
+For `L = 20,000`, one style, four doors, `p = 0.3`, no props: base ≈ 0.12 MB
+(0.5 MB if sunlit), capture ≈ 20 KB (80 KB if sunlit), response ≈ 11.5 MB,
+stored once; four rotation sets would have been 46 MB. Before compression
+(1.1). The response dominates, so its basis size, pruning threshold and resolution
 (it is smooth; half the luxel resolution may do) are what the prototype must
 choose.
 
-Pack-time cost: four base bakes, four capture bakes, `D × B` response solves.
+Pack-time cost: `R` base bakes, `R` capture bakes, `D × B` response solves.
 The responses reuse the room's transfers: vrad already hands transfers
 between passes (`Vrad.cs`, `world.ShareTransfers()`), so each basis function
 is an injection and a bounce, not a new form-factor pass.
@@ -1795,7 +1876,8 @@ sets `nodegraph 0` (`game/mod_tf/gameinfo.txt`).
 
 ### 10.1 What the pipeline can offer
 
-- **A per-room, per-rotation navigation volume, precomputed into the pack.**
+- **A per-room navigation volume, precomputed into the pack at rotation 0**
+  and turned at link as an index permutation (1.1).
   Built at pack time from the room's compile, stored as a per-room section
   like every other precompute (D1), so the link needs no game files and no
   navigation build.
@@ -1833,8 +1915,8 @@ cell and whose origin is the cell corner turns **exactly**: cells permute,
 none is resampled. Convex volumes and meshes turn through `Apply` and
 `ApplyNormal` like all other geometry. Vertical movement is untouched. Agent
 hulls must be square in x and y (as the player's is) for a turn to leave
-clearance unchanged; a non-square hull needs per-rotation data, which the
-pack stores anyway (×4).
+clearance unchanged, and the data is stored once; a non-square hull needs
+per-rotation data (×4), the one navigation case of 1.1's exceptions.
 
 ### 10.4 How the link emits it
 
@@ -1847,7 +1929,8 @@ Two choices, for the owner:
 - **A sidecar** next to the `.bsp` (`<level>.nav3d`): simpler to inspect,
   but it must be distributed with the map.
 
-Either way, the linked file is the rooms' data relocated (index bases, as
+Either way, the file's sections carry the codec byte of 1.1, and the linked
+file is the rooms' data relocated (index bases, as
 for every other lump) plus the joined portals, written in one pass.
 
 ### 10.5 Open questions for the owner
@@ -2118,8 +2201,8 @@ Source SDK 2013 values not yet in this repo's tables (`BspLimits.Caps`,
 One PR per feature or small group. Already queued, and assumed:
 
 - **Q1, link profile** (in progress in another agent): per-room and
-  per-rotation work moved into the pack. Every "per rotation" item above is a
-  Q1-style pack section.
+  per-rotation work moved into the pack. Every precompute item above is a
+  Q1-style pack section, stored at rotation 0 unless 1.1 says ×4.
 - **Q2, library-wide shared tables** for planes, texdata and texinfo.
 - **Q3, door-to-door visibility** for the linked PVS (line of sight through
   doorways, precomputed per room).
@@ -2128,7 +2211,7 @@ One PR per feature or small group. Already queued, and assumed:
 | # | PR | Size | Depends on | Why here | Lands with (section 15) |
 | --- | --- | --- | --- | --- | --- |
 | 1 | **Correctness fixes**: `info_ladder` bounds, `occludernumber` rebase, flattener keeps side-id references, overlay basis keys moved by split and flatten, `light_environment` never turned, library-wide entities collected from the gaps, refusal of non-zero `angles` on unknown brush-entity classes in split and flatten. | S | none | Each fix is a fact that fails today; later work builds on correct transforms. | 15.3 facts 1–6 and 9, red first; D for split and flatten |
-| 2 | **Entity budget**: the class table (compile-only rows certain, default `edict`), per-room entity section, edict and entity totals in `CheckCapacity` with reserve, warnings, refusal and headroom report, `ssmap rooms` counts, `ssmap layout` budget, stripping of certain compile-only entities, the points-of-interest section (store and strip `info_poi`, 10.6). | M | Q1 | D7 makes it a top priority, and every later feature reports its cost through it. | 15.6; budget rows of 15.4; 15.5 for the new sections; the POI store and strip |
+| 2 | **Entity budget**: the class table (compile-only rows certain, default `edict`), per-room entity section, edict and entity totals in `CheckCapacity` with reserve, warnings, refusal and headroom report, `ssmap rooms` counts, `ssmap layout` budget, stripping of certain compile-only entities, the points-of-interest section (store and strip `info_poi`, 10.6), the section codec byte and rotation count (1.1) with the pack version raised. | M | Q1 | D7 makes it a top priority, and every later feature reports its cost through it. | 15.6; budget rows of 15.4; 15.5 for the new sections; the POI store and strip; 15.9 |
 | 3 | **Naming and neighbour logic, one feature**: `cxry_` resolution, the rotation table, (a), (b) injected only when referenced, (c) for point entities and static-prop conditions, folding (relays, constant branches, `logic_auto` merge, filters), `-mod-entities` with `logic_room` and its stock fallback, the `SourceSharp.RoomContracts` assembly (7.5), the `RoomLinter` rule, `ssmap rooms` listing, one resolver shared by link and flatten. Facts for each mechanism at all four rotations (5.11). | M-L | 2, Q1 | Pure text and immediately useful (repeated rooms with logic), and it is the main lever on the entity budget. (c) on a brush entity cannot arise until #7 links brush entities; #7 adds model omission. | 5.11; 15.2 naming, mod-contract rows in both modes; 15.3 facts 7 and 8 (names); 15.4 naming rows |
 | 4 | **Singletons and the library section** (section 8), with D3's refusal at pack time. | S-M | Q1, 1 | The sun section is Q4's input. | 15.2 singletons row; 15.4 sun and sky-camera rows |
 | 5 | **Packed files**. | M | Q1 | Unblocks real content (finding 10); prerequisite of 6, 11, 12. | 15.2 packed files row; real-content set; 15.4 conflict row |
@@ -2164,7 +2247,7 @@ hardest and their refusals are safe meanwhile.
 
 | # | Decision |
 | --- | --- |
-| D1 | As much as possible at pack time, stored in the `.roompack`; link needs nothing but the pack, no game files. Per-rotation precompute (×4) is expected. |
+| D1 | As much as possible at pack time, stored in the `.roompack`; link needs nothing but the pack, no game files. Data is stored at rotation 0 and turned at link wherever the turn is exact (D16). |
 | D2 | Lighting is option C as in section 9: base bake per room ×4 rotations; doorway capture into a black absorbing box per rotation (direct visibility grid per light, bounce as directional radiance per door sample per style); precomputed door response per door (coarse basis to lightmaps, leaf ambient, prop lighting, pruned); at link each joined door adds neighbour capture × this room's response, both ways; no ray tracing at link. Replaces the link-time relight near doors. |
 | D3 | Reach is the adjacent room only. All rooms share one sun; `light_environment` and sky settings are library-wide, and a room that disagrees is refused when the pack is built. |
 | D4 | Local names use the placeholder `cxry_` with `±1` offsets; names without it are global and untouched; no `@` rule; resolved at link to `c<col>r<row>_`, 0-based from the south-west. |
@@ -2179,6 +2262,8 @@ hardest and their refusals are safe meanwhile.
 | D13 | Transition rooms: exactly one up room and one down room per level (no branching), marked by `room_role` on `info_room`; the level YAML may switch either off for the top or bottom level (section 11). |
 | D14 | Transitions are resolved at `ssmap link`: levels are linked ahead of time and each transition's destination map name, from the level YAML, is written into the transition entity or `trigger_changelevel`; the mod never invokes the linker at transition time. |
 | D15 | A fresh start spawns the player at the up room's arrival point, facing its yaw: from the navigation data with `-mod-entities`, one emitted `info_player_start` in the stock fallback, with the rooms' own player starts stripped (replaces O12). |
+| D16 | Rotations are quarter turns only: data that turns exactly and cheaply (geometry, planes, texture axes, collision without re-cooking, navigation grids, portals and POIs, entity keys) is stored once at rotation 0 and turned at link; the door response is stored once; base lighting, door capture and static prop lighting are ×4 only for rooms sun or sky light reaches; ×4 elsewhere only where the turn is inexact or measured expensive (1.1). |
+| D17 | Pack sections and the navigation file carry a codec byte (none, Deflate, Brotli; built into .NET), deterministic, with pinned-byte facts on every OS and an in-repo compressor as the fallback; defaults per section chosen by measurement (1.1). |
 
 ### Open, with recommended defaults
 
@@ -2435,6 +2520,31 @@ default is relied on:
       facing is kept or not; multiplayer changelevel behaviour (11.4).
 - [ ] The runtime reserve: peak edicts with a full server and bots, to set
       `rooms_entity_reserve` (6.7).
+
+### 15.9 Storage and compression
+
+- **Pinned bytes:** fixed inputs compressed with each codec (Deflate at the
+  chosen level, Brotli at the chosen quality and window) equal checked-in
+  bytes; the facts run in CI on Linux, Windows and macOS (Intel and Apple
+  Silicon). A failure is a runtime change to decide on, never a golden to
+  refresh silently.
+- **Round trip:** every section decodes to its input for each codec; each
+  section's chosen default is asserted.
+- **Determinism:** packs with compressed sections are byte-identical at any
+  thread count and run (15.5).
+- **Refusals:** an unknown codec byte, a decoded length that differs from
+  the stored one, and a truncated payload are refused, naming the room and
+  section: `room {room}: section {tag} uses codec {n}, which this build does
+  not read.`, `room {room}: section {tag} decodes to {a} bytes, not the {b}
+  it records.`
+- **Rotation count:** a sunless room's lighting section holds one payload
+  and a sunlit room's four; the four bakes of a sunless room, if computed,
+  are the same bytes; a sunlit room's door response computed at each of the
+  four rotations agrees to float noise; the link takes payload
+  `rotation mod count` at every rotation.
+- **Stored once, turned at link:** for each feature stored at rotation 0,
+  the linked result at each rotation equals turning the room first and
+  linking it unturned (the exactness claim of 1.1).
 
 ---
 
