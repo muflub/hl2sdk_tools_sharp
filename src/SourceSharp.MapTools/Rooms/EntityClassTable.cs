@@ -95,11 +95,11 @@ public sealed record EntityClassRow(string ClassName, EntityCost Cost, EntityCla
 /// shipped rows of the same class.
 /// </para>
 /// <para>
-/// <b>Not in the table yet.</b> <c>func_viscluster</c> is compile-only for
-/// the tools (nothing reads it after vvis), but it carries a brush model,
-/// and a room with a second model is refused by the link until brush
-/// entities are linked; whether a game defines the class is also
-/// uncertain. It counts as an edict until then.
+/// <b>Not in the table yet.</b> <c>func_viscluster</c> is compile-only:
+/// vbsp merges the leaves it covers into one cluster and then clears the
+/// entity, so it reaches neither the entity lump nor the model list. It is
+/// left out of the table only because whether a game defines the class is
+/// uncertain; it counts as an edict until that is settled.
 /// </para>
 /// <para>
 /// A table is a value: two links in one process may use different tables,

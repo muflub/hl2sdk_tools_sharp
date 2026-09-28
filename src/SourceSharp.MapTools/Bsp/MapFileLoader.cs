@@ -1190,7 +1190,14 @@ public static class MapFileLoader
 
         if (string.Equals(className, "func_viscluster", StringComparison.Ordinal))
         {
+            // The volume is built now, not at portal time: clipping it looks
+            // up the coordinate box's planes, and the first lookup appends
+            // them to the plane table at this point in the load. Then the
+            // entity goes, brushes and keys both: it is an instruction to vbsp
+            // and nothing in the game reads it.
             map.VisClusterEntities.Add(map.Entities.Count - 1);
+            map.VisClusters.Add(new Csg.BspBuildContext(context, map), entity.FirstBrush, entity.BrushCount);
+            entity.Clear();
             return;
         }
 
