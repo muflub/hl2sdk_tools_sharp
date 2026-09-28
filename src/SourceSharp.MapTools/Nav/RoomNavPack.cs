@@ -33,20 +33,21 @@ public sealed record RoomNavPackOptions
     /// </remarks>
     public bool StoreAllTurns { get; init; } = true;
 
-    /// <summary>How each section's payload is stored: Brotli at quality 5 by default.</summary>
+    /// <summary>How each section's payload is stored: raw by default (<c>-nav-codec</c> chooses otherwise).</summary>
     /// <remarks>
-    /// Measured on the same library's 1,024 navigation sections (256 rooms,
-    /// four turns): stored raw they are 16.2 MB, Deflate 6 1.44 MB, Brotli 5
-    /// 0.98 MB (94% smaller), Brotli 11 0.91 MB but 26 s to encode. Reading
-    /// every section back took 20 ms raw and 35 ms from Brotli 5 in a warm
-    /// process, so a link, which reads one turn per placed room, spends a
-    /// few milliseconds more decoding, and the five-run link medians were
-    /// 1.43 s raw and 1.47 s from Brotli 5: a tie inside the noise of a
-    /// 1.2-1.6 s link. With link time tied, the fifteenfold smaller pack
-    /// (27.1 MB to 11.9 MB whole) decides. Version 1's octree sections were
-    /// stored raw because they were then the fastest to link.
+    /// The owner's rule for the pack is that link speed beats disk size, so
+    /// its sections are stored uncompressed unless asked. Measured on the
+    /// 256-room stress library's 1,024 navigation sections (four turns):
+    /// raw they are 16.2 MB, Deflate 6 1.44 MB, Brotli 5 0.98 MB (94%
+    /// smaller), Brotli 11 0.91 MB but 26 s to encode. Reading every section
+    /// back took 21 ms raw against 35 ms from Brotli 5 in a warm process:
+    /// raw is the faster read, which the rule decides on, even though whole
+    /// cold links tied inside their noise (medians 1.43 s raw, 1.47 s Brotli
+    /// 5). A host that would rather have the fifteenfold smaller pack (27.1 MB
+    /// to 11.9 MB whole) passes a codec; the link gives the same file from
+    /// either apart from the ids, since the pack id covers the pack options.
     /// </remarks>
-    public NavCompression Compression { get; init; } = new(NavCodec.Brotli, 5);
+    public NavCompression Compression { get; init; } = NavCompression.None;
 }
 
 /// <summary>

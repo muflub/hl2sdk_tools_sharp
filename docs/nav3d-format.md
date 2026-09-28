@@ -788,7 +788,7 @@ navigation turned, at all four turns). Per turn a room's sections are
 one run of bytes per placed room.
 
 Framing, big-endian as the pack is: `uint8` codec (0 none, 1 Deflate, 2
-Brotli; **Brotli 5 by default**), `int64` decoded length, payload. The
+Brotli; **none by default**, `-nav-codec` for another), `int64` decoded length, payload. The
 payload: `int32` revision (2), `uint8` turn; `float32` cell size, voxel
 size, `int32` voxels per edge, `float32` floor normal z, step height, jump
 height, jump distance, water cost, ladder cost, `uint8` role; presets
@@ -870,7 +870,7 @@ level's `-no-nav` map is `2776687167…` with both.
 | | version 1 | version 2 |
 | --- | --- | --- |
 | `ssmap room` | 0.87 s | 1.00-1.09 s |
-| `.roompack` | 772 KB | 223 KB (Brotli 5 sections, the default); 517 KB raw |
+| `.roompack` | 772 KB | 517 KB (raw sections, the default); 223 KB with Brotli 5 |
 | `ssmap link` (8 levels) | 0.44-0.66 s | 0.44-0.64 s |
 | `.nav3d` | 717-941 KB (raw) | 3.5-4.5 KB (Brotli 5); 59.6 KB raw for rooms3x3 |
 
@@ -879,7 +879,7 @@ level's `-no-nav` map is `2776687167…` with both.
 | | version 1 | version 2 |
 | --- | --- | --- |
 | `ssmap room` (wall) | 7.9 s | 10.2-11.4 s (5.0-5.4 s with `nav 0`) |
-| `.roompack` | 40.3 MB | 27.1 MB with raw sections, 11.9 MB with Brotli 5 (the default) |
+| `.roompack` | 40.3 MB | 27.1 MB (raw sections, the default); 11.9 MB with Brotli 5 |
 | `ssmap link` (wall) | 1.43-1.59 s | 1.11-1.25 s (`-no-nav`: 0.71 s) |
 | `.nav3d` | 28.3 MB | 117 KB (Brotli 5), 1.85 MB raw: 62,602 leaves, 861 points, 1,300 jump links |
 
@@ -923,10 +923,13 @@ read is `RoomNavSection.Read` of all of them):
 | brotli:9 | 969,080 | 94.0% | 2,129 ms | 35 ms |
 | brotli:11 | 914,405 | 94.4% | 26,220 ms | 39 ms |
 
-Five interleaved links of the 16x16 level took a median 1.43 s from the
-raw pack, 1.47 s from the Brotli 5 pack and 1.50 s from a pack with turn 0
-only: a tie inside the noise, so the fifteenfold smaller pack decides, and
-the four turns stay stored. All three give the same `.nav3d` apart from
+The pack's sections stay **raw by default**: the owner's rule for the pack
+is that link speed beats disk size, and raw is the faster read (21 ms
+against 35 ms for every section). Whole cold links of the 16x16 level tied
+inside their noise (medians 1.43 s raw, 1.47 s from a Brotli 5 pack, 1.50 s
+from a turn-0-only pack), which does not override the rule;
+`ssmap room -nav-codec brotli` gives the fifteenfold smaller pack (27.1 MB
+to 11.9 MB) to a host that wants it. The four turns stay stored. All three give the same `.nav3d` apart from
 the ids (the pack id covers the pack options).
 
 `-nav-codec none|deflate[:0-9]|brotli[:0-11]` on `ssmap room` and
