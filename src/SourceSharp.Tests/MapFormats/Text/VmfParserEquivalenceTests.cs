@@ -169,18 +169,18 @@ public class VmfParserEquivalenceTests
     }
 
     [Fact]
-    public void AStreamThatCannotSeekReadsTheSame()
+    public async Task AStreamThatCannotSeekReadsTheSame()
     {
         byte[] bytes = "world\n{\n\t\"a\" \"b\"\n\tsolid\n\t{\n\t}\n}\n"u8.ToArray();
         using NonSeekableStream stream = new(bytes);
 
-        VmfDocument document = VmfDocument.ReadAsync(stream).GetAwaiter().GetResult();
+        VmfDocument document = await VmfDocument.ReadAsync(stream);
 
         AssertSameTree(LegacyVmfParser.Parse(bytes), document);
     }
 
     [Fact]
-    public void AStreamPartlyReadIsParsedFromWhereItStands()
+    public async Task AStreamPartlyReadIsParsedFromWhereItStands()
     {
         // The seekable path sizes its buffer from Length - Position; the
         // bytes before Position are not the caller's document.
@@ -189,23 +189,23 @@ public class VmfParserEquivalenceTests
         using MemoryStream stream = new(bytes);
         stream.Position = 4;
 
-        VmfDocument parsed = VmfDocument.ReadAsync(stream).GetAwaiter().GetResult();
+        VmfDocument parsed = await VmfDocument.ReadAsync(stream);
 
         AssertSameTree(LegacyVmfParser.Parse(document), parsed);
     }
 
     [Fact]
-    public void AnEmptyStreamIsAnEmptyDocument()
+    public async Task AnEmptyStreamIsAnEmptyDocument()
     {
         using MemoryStream stream = new();
 
-        VmfDocument parsed = VmfDocument.ReadAsync(stream).GetAwaiter().GetResult();
+        VmfDocument parsed = await VmfDocument.ReadAsync(stream);
 
         Assert.Empty(parsed.Chunks);
     }
 
     [RepoSourceFact("maps/ss_sandbox.vmf")]
-    public void EveryVmfInTheRepositoryParsesTheSameWay()
+    public async Task EveryVmfInTheRepositoryParsesTheSameWay()
     {
         string root = RepositoryRoot()!;
         List<string> relatives =
@@ -229,7 +229,7 @@ public class VmfParserEquivalenceTests
             AssertSameTokens(Encoding.Latin1.GetString(bytes));
 
             using MemoryStream stream = new(bytes);
-            AssertSameTree(LegacyVmfParser.Parse(bytes), VmfDocument.ReadAsync(stream).GetAwaiter().GetResult());
+            AssertSameTree(LegacyVmfParser.Parse(bytes), await VmfDocument.ReadAsync(stream));
         }
     }
 

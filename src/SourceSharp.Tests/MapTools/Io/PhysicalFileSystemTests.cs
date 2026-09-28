@@ -113,7 +113,7 @@ public class PhysicalFileSystemTests
     /// the task is already complete when it comes back.
     /// </summary>
     [Fact]
-    public void ASmallFileIsReadWithoutWaiting()
+    public async Task ASmallFileIsReadWithoutWaiting()
     {
         using TempTree tree = new();
         byte[] contents = RandomNumberGenerator.GetBytes(300);
@@ -122,7 +122,7 @@ public class PhysicalFileSystemTests
         ValueTask<IMemoryOwner<byte>> read = tree.CopyingFileSystem().ReadAllAsync(VPath.Create("a.vmt"));
 
         Assert.True(read.IsCompletedSuccessfully);
-        using IMemoryOwner<byte> owner = read.Result;
+        using IMemoryOwner<byte> owner = await read;
         Assert.Equal(contents, owner.Memory.ToArray());
     }
 
