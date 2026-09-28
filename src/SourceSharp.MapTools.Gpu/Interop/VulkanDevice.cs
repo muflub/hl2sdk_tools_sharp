@@ -106,6 +106,52 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// </summary>
     private readonly List<GpuBuffer> _parked = [];
 
+    /// <summary>
+    /// Whether a set-up submit (scene upload, BLAS build) is on the device
+    /// and its fence, <see cref="_fence"/>, has not been seen to signal: set
+    /// once the submit is accepted, cleared once its wait succeeds. A wait
+    /// that timed out leaves it set, and <see cref="Dispose"/> waits for it
+    /// with the slots' fences.
+    /// </summary>
+    private bool _setupPending;
+
+    private IFenceWaits? _fenceWaits;
+
+    /// <summary>How long a slab or set-up submit may leave its fence unsignalled before the device is called hung.</summary>
+    internal const ulong SubmitWaitNs = 120UL * 1_000_000_000;
+
+    /// <summary>
+    /// The fence calls this device makes; the driver's unless a fact has
+    /// replaced them (see <see cref="IFenceWaits"/>).
+    /// </summary>
+    internal IFenceWaits FenceWaits
+    {
+        get => _fenceWaits ??= new DriverFenceWaits(this);
+        set => _fenceWaits = value;
+    }
+
+    /// <summary>
+    /// How long <see cref="Dispose"/> waits for work still on the device
+    /// before it abandons the device instead of releasing it.
+    /// </summary>
+    /// <remarks>
+    /// Work is still on the device at dispose only after something already
+    /// went wrong: the batcher completes every slab it submits before the
+    /// device is released, so a pending fence means a slab's or a set-up
+    /// submit's own wait failed, usually after <see cref="SubmitWaitNs"/>.
+    /// A short second chance is enough to catch a device that was merely
+    /// slow; a hung one will not finish in any bound worth holding a
+    /// service thread for.
+    /// </remarks>
+    internal TimeSpan DisposeWait { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Whether the last <see cref="Dispose"/> gave up waiting and left the
+    /// device, its memory and the loader as they were. A later
+    /// <see cref="Dispose"/> tries again.
+    /// </summary>
+    internal bool Abandoned { get; private set; }
+
     /// <summary>Bytes of Vulkan memory this device has ever had allocated at once.</summary>
     public long PeakAllocationBytes { get; private set; }
 
@@ -860,6 +906,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                     deviceAddress: false, preferred: MemoryPropertyFlags.HostCachedBit);
             }
 
+            Observe?.Invoke(VulkanStep.SlotBuffersAllocated);
             CommandBufferAllocateInfo cbai = new()
             {
                 SType = StructureType.CommandBufferAllocateInfo,
@@ -1496,25 +1543,99 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             PCommandBuffers = &cmd,
         };
         ThrowOn(_vk.QueueSubmit(_queue, 1, &si, _fence), "vkQueueSubmit");
+        _setupPending = true;
         WaitAndReset(_fence);
+        _setupPending = false;
         _vk.FreeCommandBuffers(_device, _commandPool, 1, &cmd);
     }
 
+    /// <summary>
+    /// Waits up to <see cref="SubmitWaitNs"/> for <paramref name="fence"/>
+    /// and resets it. On any failure the fence is left as it was, so the
+    /// caller's pending flag stays set and the work is still waited for
+    /// before anything it uses is reused or freed.
+    /// </summary>
     private void WaitAndReset(Fence fence)
     {
-        const ulong TimeoutNs = 120UL * 1_000_000_000;
-        Result r = _vk.WaitForFences(_device, 1, in fence, true, TimeoutNs);
+        Result r = FenceWaits.Wait([fence], SubmitWaitNs);
         if (r == Result.Timeout)
         {
             throw new VulkanException(
                 Result.Timeout,
-                "driver hang: fence did not signal within 120 s (a compute-only device that never "
-                + "traverses ray queries shows this signature)",
+                "driver hang: a fence did not signal within 120 s; the work it guards may still be running",
                 null);
         }
 
         ThrowOn(r, "vkWaitForFences");
-        ThrowOn(_vk.ResetFences(_device, 1, in fence), "vkResetFences");
+        ThrowOn(FenceWaits.Reset(fence), "vkResetFences");
+    }
+
+    /// <summary>
+    /// The fences of work that is, or may still be, on the device: every
+    /// slot submitted and not yet waited out, and a set-up submit whose wait
+    /// failed.
+    /// </summary>
+    /// <returns>The fences; empty when nothing was left in flight.</returns>
+    private Fence[] PendingFences()
+    {
+        List<Fence> pending = [];
+        foreach (SlabSlot slot in _slots)
+        {
+            if (slot is { Pending: true })
+            {
+                pending.Add(slot.Fence);
+            }
+        }
+
+        if (_setupPending)
+        {
+            pending.Add(_fence);
+        }
+
+        return [.. pending];
+    }
+
+    /// <summary>
+    /// Whether the work behind <paramref name="pending"/> is over, waiting
+    /// at most <paramref name="bound"/>: true when there is none, when every
+    /// fence signalled, or when the device is lost.
+    /// </summary>
+    /// <param name="waits">The fence calls.</param>
+    /// <param name="pending">Fences of work that may still be on the device.</param>
+    /// <param name="bound">The longest wait; negative counts as zero.</param>
+    /// <returns>True when memory the work uses may be freed.</returns>
+    /// <remarks>
+    /// A lost device counts as finished: Vulkan keeps a lost device's child
+    /// objects valid and has the application destroy them, then the device,
+    /// to recover, so releasing is what a lost device calls for. Any other failure (a
+    /// timeout above all, or an error the driver gives for the wait itself)
+    /// says nothing about whether the GPU is still reading, so it counts as
+    /// not finished.
+    /// </remarks>
+    internal static bool DrainedWithin(IFenceWaits waits, ReadOnlySpan<Fence> pending, TimeSpan bound)
+    {
+        if (pending.IsEmpty)
+        {
+            return true;
+        }
+
+        ulong ns = (ulong)Math.Max(0L, bound.Ticks) * 100UL;
+        Result r = waits.Wait(pending, ns);
+        return r is Result.Success or Result.ErrorDeviceLost;
+    }
+
+    /// <summary>The driver's fence calls on this device.</summary>
+    private sealed class DriverFenceWaits(VulkanDevice owner) : IFenceWaits
+    {
+        public Result Wait(ReadOnlySpan<Fence> fences, ulong timeoutNs)
+        {
+            fixed (Fence* p = fences)
+            {
+                return owner._vk.WaitForFences(owner._device, (uint)fences.Length, p, true, timeoutNs);
+            }
+        }
+
+        public Result Reset(Fence fence) => owner._vk.ResetFences(owner._device, 1, in fence);
     }
 
     private void End(CommandBuffer cmd) => ThrowOn(_vk.EndCommandBuffer(cmd), "vkEndCommandBuffer");
@@ -1604,6 +1725,31 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// or uninitialized handle — that logs "vkDestroyPipelineLayout: Invalid device"
     /// under the loader's own validation and can abort the process.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Nothing may be destroyed while the device could still use it, and a
+    /// slab or set-up submit whose own wait failed may still be running. So
+    /// dispose first waits for exactly those fences (the device tracks
+    /// every submit it has not seen finish), for at most
+    /// <see cref="DisposeWait"/>. Every submit carries a fence, so when they
+    /// have all signalled the queue has nothing left and no
+    /// <c>vkDeviceWaitIdle</c> is needed. That call is what dispose used
+    /// before, and it has no timeout: after a GPU hang it can block
+    /// forever, and the thread disposing a failed or cancelled compile,
+    /// which in a long-lived service is one the service needs back, never
+    /// returned.
+    /// </para>
+    /// <para>
+    /// When the bound passes first, the device is ABANDONED: no buffer is
+    /// freed, nothing is destroyed and the loader stays loaded, because the
+    /// GPU may still read and write that memory, and freeing it would hand
+    /// it to the next allocation while a hung kernel scribbles on it.
+    /// <see cref="Abandoned"/> reports it. That leaks the device, which is
+    /// the lesser harm: a hung GPU needs an operator either way, and the
+    /// service keeps its thread. A later dispose tries again, and releases
+    /// everything if the fences have signalled by then.
+    /// </para>
+    /// </remarks>
     public void Dispose()
     {
         if (_device.Handle == 0)
@@ -1619,10 +1765,13 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             return;
         }
 
-        // Nothing may be destroyed while the device could still use it: a
-        // slab whose wait timed out, or a set-up submit that failed its
-        // wait, can still be running.
-        _vk.DeviceWaitIdle(_device);
+        if (!DrainedWithin(FenceWaits, PendingFences(), DisposeWait))
+        {
+            Abandoned = true;
+            return;
+        }
+
+        Abandoned = false;
         foreach (GpuBuffer parked in _parked)
         {
             Free(parked);

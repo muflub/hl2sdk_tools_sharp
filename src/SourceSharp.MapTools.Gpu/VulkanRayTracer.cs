@@ -299,7 +299,29 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         ReadOnlyMemory<TracedTriangle> triangles,
         Action<TryCreateStage>? observe,
         VulkanRayTracerOptions options = default,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        TryCreate(triangles, observe, static () => new VulkanDevice(), options, cancellationToken);
+
+    /// <summary>
+    /// <see cref="TryCreate(ReadOnlyMemory{TracedTriangle}, Action{TryCreateStage}, VulkanRayTracerOptions, CancellationToken)"/>
+    /// with the step that loads the Vulkan API replaced.
+    /// </summary>
+    /// <param name="triangles">The scene.</param>
+    /// <param name="observe">Called at each stage, or null.</param>
+    /// <param name="open">
+    /// Creates the device object, which loads the Vulkan loader. Facts pass
+    /// one that throws what a machine with no loader throws, which no
+    /// machine with a loader can otherwise show.
+    /// </param>
+    /// <param name="options">Device pin and sizing.</param>
+    /// <param name="cancellationToken">Checked at each stage boundary.</param>
+    /// <returns>The tracer or the reason it was not created.</returns>
+    internal static VulkanTracerAttempt TryCreate(
+        ReadOnlyMemory<TracedTriangle> triangles,
+        Action<TryCreateStage>? observe,
+        Func<VulkanDevice> open,
+        VulkanRayTracerOptions options,
+        CancellationToken cancellationToken)
     {
         // Checked before anything native is opened, so a bad value cannot
         // leave a device behind.
@@ -309,7 +331,7 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         VulkanDevice device;
         try
         {
-            device = new();
+            device = open();
         }
         catch (Exception e) when (VulkanDevice.IsMissingLoader(e))
         {
@@ -638,7 +660,12 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         return new ValueTask(_batcher.TraceClosestAsync(rays, hits, tminBits, cancellationToken));
     }
 
-    /// <summary>Releases the device (idle-flushed first) so the next tracer can open it.</summary>
+    /// <summary>
+    /// Releases the device, once the work still on it has finished, so the
+    /// next tracer can open it; if that work does not finish within a bound,
+    /// the device is abandoned rather than freed under a running kernel
+    /// (the device's own dispose says why).
+    /// </summary>
     public void Dispose()
     {
         if (_disposed)
