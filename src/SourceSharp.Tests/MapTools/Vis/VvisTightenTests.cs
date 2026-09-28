@@ -240,73 +240,58 @@ public class VvisTightenTests
     {
         // The flow used to hold every pool thread for its whole length: each
         // worker looped inside one queue item, parking on the thread when it
-        // had nothing to do. Here the flow's first progress report blocks its
-        // worker (and so one of the pool's two threads) until a one-item job
-        // queued on the same pool has run. Only the other thread can run it,
-        // and only if the flow lets that thread go between units.
+        // had nothing to do. Here worker A blocks at its first claimed run,
+        // before flowing it, so the flow cannot finish while A waits: that
+        // portal is neither flowed nor settled. A waits until the pool's other
+        // thread has claimed a run too (so it is inside the flow, not merely
+        // late to it), then queues a one-item job on the same two-thread pool
+        // and waits for it. Only the other thread can run it, and only if the
+        // flow gives that thread back between units; held by the flow, it
+        // would wait for A's portal forever and the job would never run.
         (BspData alone, _) = await RunAsync(Tight, degree: 2);
 
         using CompilePool pool = new(2);
         using WorkQueue beside = new(new CompileParallelism { MaxDegree = 1, Pool = pool });
-        int blocked = 0;
-        long reported = 0;
-        long total = 0;
-        long reportedWhenBesideQueued = -1;
-        long reportedWhenBesideRan = -1;
-        System.Collections.Concurrent.ConcurrentDictionary<int, bool> reporters = new();
+        int blocker = -1;
+        int otherClaims = 0;
+        bool besideInTime = false;
+        bool otherClaimed = false;
         (BspData map, PortalSet portals) = Grid();
         VisContext context = new()
         {
             Options = Tight,
             Parallelism = new CompileParallelism { MaxDegree = 2, Pool = pool },
-            Progress = new InlineProgress(p =>
+            TighteningClaimProbe = _ =>
             {
-                if (p.Stage != Vvis.FlowStage)
+                int self = Environment.CurrentManagedThreadId;
+                if (Interlocked.CompareExchange(ref blocker, self, -1) != -1)
+                {
+                    if (Volatile.Read(ref blocker) != self)
+                    {
+                        Interlocked.Increment(ref otherClaims);
+                    }
+
+                    return;
+                }
+
+                otherClaimed = SpinWait.SpinUntil(() => Volatile.Read(ref otherClaims) > 0, TimeSpan.FromSeconds(30));
+                if (!otherClaimed)
                 {
                     return;
                 }
 
-                Volatile.Write(ref total, p.Total);
-                InterlockedMax(ref reported, p.Done);
-                if (p.Done >= 1)
-                {
-                    reporters[Environment.CurrentManagedThreadId] = true;
-                }
-
-                // The first report of a settled portal, on the worker that
-                // settled it (the stage's opening report, done 0, comes from
-                // the caller's thread).
-                if (p.Done >= 1 && Interlocked.Exchange(ref blocked, 1) == 0)
-                {
-                    // Let the other thread show it is working on the flow
-                    // too, so it is not merely late to it: a thread the flow
-                    // never took would run the job whatever the flow does.
-                    SpinWait.SpinUntil(() => reporters.Count >= 2, TimeSpan.FromSeconds(2));
-                    Volatile.Write(ref reportedWhenBesideQueued, Volatile.Read(ref reported));
-                    Task side = beside.RunAsync(
-                        1,
-                        (_, _) => Volatile.Write(ref reportedWhenBesideRan, Volatile.Read(ref reported)),
-                        null,
-                        CancellationToken.None);
-                    Assert.True(side.Wait(TimeSpan.FromSeconds(10)), "the job beside the flow never got a thread");
-                }
-            }),
+                // Within the wait, while A still holds its run: a job that
+                // only runs once A gives up waiting ran after the flow, not
+                // beside it.
+                Task side = beside.RunAsync(1, (_, _) => { }, null, CancellationToken.None);
+                besideInTime = side.Wait(TimeSpan.FromSeconds(10));
+            },
         };
 
         await Vvis.ComputeAsync(map, portals, context, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(60));
 
-        // Beside the flow, not after it: when the pool's other thread was
-        // held by the flow until the end, the job ran only once every portal
-        // but the blocked worker's had been reported. The measure is what the
-        // flow got through between queueing the job and the job running, not
-        // where it stood when the job ran: the other thread's first report
-        // (the one the wait above watches for) can land anywhere, and on a
-        // loaded runner it landed past half the portals, so an absolute bound
-        // failed a flow that released its thread at once.
-        long queued = Volatile.Read(ref reportedWhenBesideQueued);
-        long remaining = Volatile.Read(ref total) - 1 - queued;
-        Assert.True(remaining >= 2, $"the flow had {remaining} portals left when the job was queued; the fact cannot tell beside from after");
-        Assert.InRange(Volatile.Read(ref reportedWhenBesideRan) - queued, 0, remaining / 2);
+        Assert.True(otherClaimed, "the pool's other thread never claimed a run of the flow");
+        Assert.True(besideInTime, "the job beside the flow never got a thread while a claimed run was held");
         Assert.Equal(alone[BspLump.Visibility].Data.ToArray(), map[BspLump.Visibility].Data.ToArray());
     }
 
@@ -467,26 +452,5 @@ public class VvisTightenTests
         // walk stays reachable by spelling Tighten = false.
         Assert.True(VvisOptions.Default.Tighten);
         Assert.False(new VvisOptions { Tighten = false }.Tighten);
-    }
-
-    // Reports on the reporting thread, as the flow's callers see it.
-    private sealed class InlineProgress(Action<CompileProgress> report) : IProgress<CompileProgress>
-    {
-        public void Report(CompileProgress value) => report(value);
-    }
-
-    private static void InterlockedMax(ref long target, long value)
-    {
-        long seen = Volatile.Read(ref target);
-        while (value > seen)
-        {
-            long was = Interlocked.CompareExchange(ref target, value, seen);
-            if (was == seen)
-            {
-                return;
-            }
-
-            seen = was;
-        }
     }
 }

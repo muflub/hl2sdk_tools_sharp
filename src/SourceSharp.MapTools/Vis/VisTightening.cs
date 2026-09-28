@@ -232,6 +232,9 @@ internal sealed class VisTightening : IVisFlowSplitter
     /// <summary>How far past the lowest portal not done a fresh portal may be taken.</summary>
     internal int Window { get; init; } = 128;
 
+    /// <summary>See <see cref="VisContext.TighteningClaimProbe"/>; null in every real compile.</summary>
+    internal Action<int>? ClaimProbe { get; init; }
+
     /// <summary>Seconds workers spent waiting for something to flow, summed over workers.</summary>
     internal double IdleSeconds => (double)_idleTicks / System.Diagnostics.Stopwatch.Frequency;
 
@@ -371,6 +374,11 @@ internal sealed class VisTightening : IVisFlowSplitter
                 GoIdle(worker.WorkerIndex);
                 return LoopStep.Idle;
             }
+        }
+
+        if (frame is null)
+        {
+            ClaimProbe?.Invoke(rank);
         }
 
         LeaveIdle(worker.WorkerIndex);
