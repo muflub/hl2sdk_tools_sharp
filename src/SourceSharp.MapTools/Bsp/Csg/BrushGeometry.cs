@@ -257,17 +257,44 @@ public static class BrushGeometry
             b.AddSide(default);
         }
 
-        for (int i = 0; i < 3; i++)
+        Span<int> planes = stackalloc int[6];
+        FindBoundsPlanes(context.Planes, mins, maxs, planes);
+        for (int i = 0; i < 6; i++)
         {
-            Vec3 positive = AxisVector(i, 1);
-            b.Sides[i].PlaneNumber = context.Planes.Find(positive, maxs[i]);
-
-            Vec3 negative = AxisVector(i, -1);
-            b.Sides[3 + i].PlaneNumber = context.Planes.Find(negative, -mins[i]);
+            b.Sides[i].PlaneNumber = planes[i];
         }
 
         CreateBrushWindings(context, b);
         return b;
+    }
+
+    /// <summary>
+    /// The six planes of <see cref="BrushFromBounds"/>'s box, found (and so
+    /// appended when new) in the order it finds them.
+    /// </summary>
+    /// <param name="table">The plane table.</param>
+    /// <param name="mins">The box's minimum.</param>
+    /// <param name="maxs">The box's maximum.</param>
+    /// <param name="planes">
+    /// Receives the plane numbers in side order, <c>+X +Y +Z -X -Y -Z</c>.
+    /// </param>
+    /// <remarks>
+    /// The finds interleave by axis, <c>+X -X +Y -Y +Z -Z</c>, and a find
+    /// that appends numbers its plane by that order, so this is the one
+    /// place the order is written down. The parallel world pass calls it on
+    /// its own to append a block's head-volume planes where the serial pass
+    /// would, before any block is built.
+    /// </remarks>
+    internal static void FindBoundsPlanes(PlaneTable table, Vec3 mins, Vec3 maxs, Span<int> planes)
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            Vec3 positive = AxisVector(i, 1);
+            planes[i] = table.Find(positive, maxs[i]);
+
+            Vec3 negative = AxisVector(i, -1);
+            planes[3 + i] = table.Find(negative, -mins[i]);
+        }
     }
 
     /// <summary>

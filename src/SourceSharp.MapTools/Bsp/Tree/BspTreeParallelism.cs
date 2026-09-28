@@ -73,6 +73,19 @@ internal sealed record BspTreeParallelism
     /// <summary>How many forks deep a build may go; zero never forks.</summary>
     public int MaxForkDepth { get; init; }
 
+    /// <summary>
+    /// How many threads the world pass may build blocks on at once, the
+    /// calling thread included (<see cref="BlockGrid.BuildWorldPass"/>).
+    /// </summary>
+    /// <remarks>
+    /// The compile's degree. A subtree fork needs no such number, as it only
+    /// ever splits in two; the world pass hands out tens of blocks, and
+    /// queueing a helper per block on a pool of a few threads would only
+    /// queue helpers that find nothing left to do. Two, when a caller does
+    /// not say, which is what a subtree fork uses.
+    /// </remarks>
+    public int MaxDegree { get; init; } = 2;
+
     /// <summary>See <see cref="DefaultMinBrushes"/>.</summary>
     public int MinBrushes { get; init; } = DefaultMinBrushes;
 

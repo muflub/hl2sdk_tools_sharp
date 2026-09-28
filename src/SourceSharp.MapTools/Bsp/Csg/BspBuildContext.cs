@@ -58,8 +58,10 @@ public sealed class BspBuildContext
     // Set only on a fork. The root context reads the compile's own arena and
     // diagnostics through Compile, as it always has. The fork's arena comes
     // from the root's pool and goes back to it (ReleaseForkWindings), after
-    // which this is null and the fork has no arena at all.
+    // which this is null and the fork has no arena at all. A block's fork
+    // (ForkForBlock) rents it only when it first allocates.
     private WindingArena? _forkWindings;
+    private bool _forkWindingsReleased;
     private readonly List<CompileDiagnostic>? _forkDiagnostics;
 
     // The root's, shared by every fork of it, however deep: see ForkArenas.
@@ -83,8 +85,8 @@ public sealed class BspBuildContext
             : new BrushSidePool(checkReturns: compile.BrushSidePooling == BrushSidePooling.Checked);
     }
 
-    // A fork of a context: see Fork.
-    private BspBuildContext(BspBuildContext parent)
+    // A fork of a context: see Fork and ForkForBlock.
+    private BspBuildContext(BspBuildContext parent, bool rentArenaNow)
     {
         Compile = parent.Compile;
         Map = parent.Map;
@@ -94,7 +96,7 @@ public sealed class BspBuildContext
         // and BaseWindingForPlane read the policy off the arena): the pool
         // was made with the compile's.
         _forkArenas = parent._forkArenas;
-        _forkWindings = _forkArenas.Rent();
+        _forkWindings = rentArenaNow ? _forkArenas.Rent() : null;
         _forkDiagnostics = [];
 
         SidePool = parent.SidePool is null
@@ -133,7 +135,7 @@ public sealed class BspBuildContext
     /// <exception cref="InvalidOperationException">
     /// This is a fork that has released its arena.
     /// </exception>
-    public WindingArena Windings => _forkWindings ?? (IsFork ? throw ForkReleased() : Compile.Windings);
+    public WindingArena Windings => _forkWindings ?? WindingsWithoutAnArena();
 
     /// <summary>
     /// Where this compile's forks get their arenas from, and give them back
@@ -177,6 +179,13 @@ public sealed class BspBuildContext
     /// fact that proves equality over a build that never forked proves nothing.
     /// </summary>
     internal int ForkedSubtrees { get; private set; }
+
+    /// <summary>
+    /// How many world blocks were built in a fork and joined here by
+    /// <see cref="JoinBlock"/>: zero when every world pass ran serially. A
+    /// measurement for the facts, as <see cref="ForkedSubtrees"/> is.
+    /// </summary>
+    internal int ForkedBlocks { get; private set; }
 
     /// <summary>
     /// Where freed brushes' side arrays wait for the next brush, or null when
@@ -356,6 +365,12 @@ public sealed class BspBuildContext
     /// </remarks>
     internal void ReleaseForkWindings()
     {
+        if (!IsFork)
+        {
+            return;
+        }
+
+        _forkWindingsReleased = true;
         if (_forkWindings is { } arena)
         {
             _forkWindings = null;
@@ -363,8 +378,24 @@ public sealed class BspBuildContext
         }
     }
 
-    private static InvalidOperationException ForkReleased() =>
-        new("this fork has given its winding arena back; a released fork builds nothing more");
+    // Windings when no fork arena is held: the compile's for the root; for a
+    // block's fork that has not allocated yet, a newly rented one; for a
+    // fork that has given its arena back, an error.
+    private WindingArena WindingsWithoutAnArena()
+    {
+        if (!IsFork)
+        {
+            return Compile.Windings;
+        }
+
+        if (_forkWindingsReleased)
+        {
+            throw new InvalidOperationException(
+                "this fork has given its winding arena back; a released fork builds nothing more");
+        }
+
+        return _forkWindings = _forkArenas.Rent();
+    }
 
     /// <summary>
     /// Frees a whole list: <c>FreeBrushList</c>.
@@ -412,7 +443,23 @@ public sealed class BspBuildContext
     /// first, on this thread, before either side of the fork starts.
     /// </para>
     /// </remarks>
-    internal BspBuildContext Fork() => new(this);
+    internal BspBuildContext Fork() => new(this, rentArenaNow: true);
+
+    /// <summary>
+    /// A context for building one whole block of the world on another thread:
+    /// a <see cref="Fork"/> whose arena is rented only when it first
+    /// allocates a winding, and which <see cref="JoinBlock"/> folds back.
+    /// </summary>
+    /// <returns>The fork.</returns>
+    /// <remarks>
+    /// The parallel world pass (<see cref="Tree.BlockGrid.BuildWorldPass"/>)
+    /// makes every block's fork up front, on the calling thread, so that none
+    /// of them reads this context while another thread is joining into it.
+    /// Renting their arenas then too would hold one arena per block for the
+    /// whole pass; renting on first use holds one per block being built or
+    /// waiting to be joined.
+    /// </remarks>
+    internal BspBuildContext ForkForBlock() => new(this, rentArenaNow: false);
 
     /// <summary>
     /// Moves the windings of a brush list and of one more brush out of another
@@ -489,6 +536,93 @@ public sealed class BspBuildContext
             throw new ArgumentException("only a fork can be joined", nameof(fork));
         }
 
+        Rebase(fork, subtree, rebaseRoot: false);
+
+        AllocatedNodes += fork.AllocatedNodes;
+        AllocatedBrushes += fork.AllocatedBrushes;
+        ActiveBrushes += fork.ActiveBrushes;
+        Nodes += fork.Nodes;
+        NonVisibleNodes += fork.NonVisibleNodes;
+        PrunedNodes += fork.PrunedNodes;
+        ForkedSubtrees += fork.ForkedSubtrees + 1;
+
+        foreach (CompileDiagnostic diagnostic in fork._forkDiagnostics!)
+        {
+            Diagnostics.Add(diagnostic);
+        }
+
+        fork.ReleaseBrushSidePool();
+    }
+
+    /// <summary>
+    /// Folds a block's fork, and the block tree it built, back into this
+    /// context, as though this context had built the block itself.
+    /// </summary>
+    /// <param name="fork">The block's fork, from <see cref="ForkForBlock"/>.</param>
+    /// <param name="head">
+    /// The block's head node, which the fork allocated; null for a block
+    /// whose brush list came out empty (the caller then allocates the block's
+    /// solid leaf here, as the serial build does).
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="fork"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="fork"/> is not a fork.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Call it where the serial build would have started the block</b>:
+    /// after every earlier block has been joined, in block order. The serial
+    /// pass numbers every node and brush of the world from one sequence each,
+    /// block after block, so the fork's ids, numbered from zero, are rebased
+    /// onto this context's counts at that moment, exactly as
+    /// <see cref="Join"/> rebases a subtree's. Unlike a subtree's root, the
+    /// block's head was allocated by the fork, so it is rebased too.
+    /// </para>
+    /// <para>
+    /// <b>The live-node counters are replaced, not added to.</b> Each block's
+    /// <see cref="Tree.BrushBspTree.BrushBsp"/> starts
+    /// <see cref="Nodes"/> and <see cref="NonVisibleNodes"/> again from zero,
+    /// so after a serial pass they hold the last built block's counts; a
+    /// block whose list was empty never reaches <c>BrushBsp</c> and leaves
+    /// them as they were. The bounding planes of the last block listed are
+    /// likewise what the serial pass leaves behind, and are copied home.
+    /// </para>
+    /// </remarks>
+    internal void JoinBlock(BspBuildContext fork, Tree.BspNode? head)
+    {
+        ArgumentNullException.ThrowIfNull(fork);
+        if (!fork.IsFork)
+        {
+            throw new ArgumentException("only a fork can be joined", nameof(fork));
+        }
+
+        if (head is not null)
+        {
+            Rebase(fork, head, rebaseRoot: true);
+            Nodes = fork.Nodes;
+            NonVisibleNodes = fork.NonVisibleNodes;
+        }
+
+        AllocatedNodes += fork.AllocatedNodes;
+        AllocatedBrushes += fork.AllocatedBrushes;
+        ActiveBrushes += fork.ActiveBrushes;
+        PrunedNodes += fork.PrunedNodes;
+        ForkedSubtrees += fork.ForkedSubtrees;
+        ForkedBlocks++;
+        fork._minPlaneNumbers.CopyTo(_minPlaneNumbers, 0);
+        fork._maxPlaneNumbers.CopyTo(_maxPlaneNumbers, 0);
+
+        foreach (CompileDiagnostic diagnostic in fork._forkDiagnostics!)
+        {
+            Diagnostics.Add(diagnostic);
+        }
+
+        fork.ReleaseBrushSidePool();
+    }
+
+    // Renumbers a fork's nodes and brushes onto this context's current counts
+    // and copies their live windings home: every node volume and every leaf
+    // brush. The subtree root keeps its id unless the fork allocated it too.
+    private void Rebase(BspBuildContext fork, Tree.BspNode subtree, bool rebaseRoot)
+    {
         int nodeBase = AllocatedNodes;
         int brushBase = AllocatedBrushes;
         object? scope = IsFork ? this : null;
@@ -498,7 +632,7 @@ public sealed class BspBuildContext
         while (pending.Count > 0)
         {
             Tree.BspNode node = pending.Pop();
-            if (!ReferenceEquals(node, subtree))
+            if (rebaseRoot || !ReferenceEquals(node, subtree))
             {
                 node.Id += nodeBase;
             }
@@ -521,21 +655,6 @@ public sealed class BspBuildContext
             pending.Push(node.Children[1]!);
             pending.Push(node.Children[0]!);
         }
-
-        AllocatedNodes += fork.AllocatedNodes;
-        AllocatedBrushes += fork.AllocatedBrushes;
-        ActiveBrushes += fork.ActiveBrushes;
-        Nodes += fork.Nodes;
-        NonVisibleNodes += fork.NonVisibleNodes;
-        PrunedNodes += fork.PrunedNodes;
-        ForkedSubtrees += fork.ForkedSubtrees + 1;
-
-        foreach (CompileDiagnostic diagnostic in fork._forkDiagnostics!)
-        {
-            Diagnostics.Add(diagnostic);
-        }
-
-        fork.ReleaseBrushSidePool();
 
         void Rehome(BspBrush brush)
         {

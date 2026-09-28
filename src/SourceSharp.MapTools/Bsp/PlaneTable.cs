@@ -70,8 +70,43 @@ public sealed class PlaneTable
     private readonly int[] _hashHead = new int[Plane.PlaneHashes];
     private readonly List<int> _hashNext = [];
 
+    // Nonzero while the table is read-only (Freeze). Read on every Create,
+    // written only by the thread that freezes and thaws it.
+    private int _frozen;
+
     /// <summary>Creates an empty table.</summary>
     public PlaneTable() => Array.Fill(_hashHead, -1);
+
+    /// <summary>Whether the table is read-only just now (<see cref="Freeze"/>).</summary>
+    internal bool IsFrozen => Volatile.Read(ref _frozen) != 0;
+
+    /// <summary>
+    /// Makes the table read-only until <see cref="Thaw"/>: a
+    /// <see cref="Create"/>, and so a <see cref="Find"/> that would append,
+    /// throws instead.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why.</b> The parallel world pass builds several blocks at once,
+    /// and they all look planes up here. A lookup that finds its plane only
+    /// reads, so many can run together; one that appends would both race the
+    /// readers and number its plane by which thread got there first, where
+    /// the serial pass numbers planes in block order. So the pass finds, in
+    /// block order and before any block is built, every plane the blocks
+    /// will add (a block's bounding planes and the head volume's), and then
+    /// freezes the table. The freeze is the proof that nothing else was
+    /// added: a plane the pass did not foresee fails the compile loudly
+    /// rather than being numbered by a race.
+    /// </para>
+    /// <para>
+    /// Not a lock: the table is no more thread safe than before, it only
+    /// refuses the one operation that would make concurrent lookups unsafe.
+    /// </para>
+    /// </remarks>
+    internal void Freeze() => Volatile.Write(ref _frozen, 1);
+
+    /// <summary>Makes the table writable again after <see cref="Freeze"/>.</summary>
+    internal void Thaw() => Volatile.Write(ref _frozen, 0);
 
     /// <summary>
     /// How many planes are in the table: stock's <c>nummapplanes</c>.
@@ -234,6 +269,13 @@ public sealed class PlaneTable
     /// </remarks>
     public int Create(Vec3 normal, float dist)
     {
+        if (Volatile.Read(ref _frozen) != 0)
+        {
+            throw new InvalidOperationException(
+                "a plane was added while the table was read-only: the parallel world pass found every "
+                + "plane its blocks add before building them, so this is a plane it did not expect");
+        }
+
         if (normal.Length() < 0.5f)
         {
             throw new MapCompileException("FloatPlane: bad normal");

@@ -129,6 +129,7 @@ internal sealed class VbspCompilation
         {
             Scheduler = scheduler,
             MaxForkDepth = scheduler is null ? 0 : BspTreeParallelism.ForkDepthFor(degree),
+            MaxDegree = Math.Max(1, degree),
             MinBrushes = _compile.TreeForkMinBrushes,
             CancellationToken = cancellationToken,
         };

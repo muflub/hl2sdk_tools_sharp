@@ -399,6 +399,43 @@ public sealed class WindingArena
     }
 
     /// <summary>
+    /// <see cref="Copy"/> of a winding that lives in another arena: a new
+    /// winding in this one, whose capacity is the source's point count.
+    /// </summary>
+    /// <param name="source">The arena the winding lives in; this arena itself is allowed.</param>
+    /// <param name="winding">The winding to copy.</param>
+    /// <returns>The copy.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
+    /// <remarks>
+    /// <para>
+    /// Exactly <see cref="Copy"/>, compaction and all, only reading the
+    /// points from <paramref name="source"/>: with <c>source == this</c> it
+    /// IS <see cref="Copy"/>. It exists for a block of the parallel world
+    /// pass, which carves copies of the map's brush sides into its own
+    /// arena while the sides' windings stay in the compile's.
+    /// </para>
+    /// <para>
+    /// <b>Reading another thread's arena.</b> The source is only read, and
+    /// only at windings that were written before the reading thread was
+    /// started, while the source's owner may be appending to it. That is
+    /// safe because appending never changes storage in place: a segment
+    /// that fills up is never touched again, and growing the first segment
+    /// or the segment table copies into a new array and then publishes it,
+    /// so a reader sees either the old array or the new one, and a winding
+    /// written before either was made is in both. An object reference store
+    /// is a release under the .NET memory model, so the copy is visible
+    /// before the reference to it is.
+    /// </para>
+    /// </remarks>
+    internal Winding CopyFrom(WindingArena source, Winding winding)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        Winding c = Alloc(winding.Count);
+        source.Points(winding).CopyTo(Storage(c));
+        return SetCount(c, winding.Count);
+    }
+
+    /// <summary>
     /// A copy, in this arena, of a winding that lives in another one, with the
     /// same points and the same capacity.
     /// </summary>

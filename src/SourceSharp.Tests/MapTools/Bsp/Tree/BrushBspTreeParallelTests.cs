@@ -295,10 +295,13 @@ public sealed class BrushBspTreeParallelTests
                 Scheduler = pool.Scheduler,
                 MaxForkDepth = Math.Max(3, BspTreeParallelism.ForkDepthFor(pool.Degree)),
                 MinBrushes = 1,
+                MaxDegree = Math.Max(2, pool.Degree),
             };
         }
 
         BspBlockGrid grid = BlockGrid.Clamp(build.Options.Blocks, map.Mins, map.Maxs);
+        bool blocksInParallel = pool is not null
+            && ParallelWorldPass.Applies(build, (grid.MaxX - grid.MinX + 1) * (grid.MaxY - grid.MinY + 1));
         BspTree tree = BlockGrid.BuildWorldPass(
             build, grid, map.Mins, map.Maxs, out IReadOnlyList<BlockBuildStatistics> blocks);
 
@@ -307,10 +310,14 @@ public sealed class BrushBspTreeParallelTests
             Assert.True(build.ForkedSubtrees > 0, "nothing forked, so the comparison proves nothing");
         }
 
+        // The blocks were built in parallel wherever the pass allows it, and
+        // then every block of the grid was.
+        Assert.Equal(blocksInParallel ? blocks.Count : 0, build.ForkedBlocks);
+
         return Dump(build, map, tree, blocks);
     }
 
-    private static string Dump(BspBuildContext build, MapFile map, BspTree tree, IReadOnlyList<BlockBuildStatistics> blocks)
+    internal static string Dump(BspBuildContext build, MapFile map, BspTree tree, IReadOnlyList<BlockBuildStatistics> blocks)
     {
         StringBuilder text = new();
         void Line(FormattableString line) => text.Append(line.ToString(CultureInfo.InvariantCulture)).Append('\n');
@@ -386,7 +393,7 @@ public sealed class BrushBspTreeParallelTests
 
     private static string Bits(Vec3 v) => $"{Bits(v.X)},{Bits(v.Y)},{Bits(v.Z)}";
 
-    private static void AssertSame(string expected, string actual, string what)
+    internal static void AssertSame(string expected, string actual, string what)
     {
         if (string.Equals(expected, actual, StringComparison.Ordinal))
         {

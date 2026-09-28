@@ -341,4 +341,34 @@ public class PlaneTableTests
 
         Assert.Equal(-1f, table[up].Normal.Z);
     }
+
+    // ---- read-only while the world's blocks are built in parallel ----------
+
+    [Fact]
+    public void AFrozenTableStillFindsWhatItHoldsButAppendsNothing()
+    {
+        PlaneTable table = new();
+        int up = table.Find(new Vec3(0f, 0f, 1f), 64f);
+
+        table.Freeze();
+
+        Assert.True(table.IsFrozen);
+        Assert.Equal(up, table.Find(new Vec3(0f, 0f, 1f), 64f));
+        Assert.Equal(up ^ 1, table.Find(new Vec3(0f, 0f, -1f), -64f));
+        Assert.Throws<InvalidOperationException>(() => table.Find(new Vec3(1f, 0f, 0f), 64f));
+        Assert.Throws<InvalidOperationException>(() => table.Create(new Vec3(1f, 0f, 0f), 64f));
+        Assert.Equal(2, table.Count);
+    }
+
+    [Fact]
+    public void AThawedTableAppendsAgain()
+    {
+        PlaneTable table = new();
+        table.Freeze();
+        table.Thaw();
+
+        Assert.False(table.IsFrozen);
+        Assert.Equal(0, table.Find(new Vec3(1f, 0f, 0f), 64f));
+        Assert.Equal(2, table.Count);
+    }
 }

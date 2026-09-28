@@ -112,6 +112,49 @@ public sealed class WindingArenaPoolTests
         Assert.Equal(new Vec3(1f, 2f, 3f), arena.Points(w)[0]);
     }
 
+    // ---- CopyFrom ---------------------------------------------------------------
+
+    /// <summary>
+    /// Copying out of another arena is <see cref="WindingArena.Copy"/>: the
+    /// same points, and a capacity compacted to the point count.
+    /// </summary>
+    [Fact]
+    public void CopyFromAnotherArenaCompactsAsCopyDoes()
+    {
+        WindingArena source = new();
+        Winding roomy = source.Alloc(8);
+        Span<Vec3> storage = source.Storage(roomy);
+        storage[0] = new Vec3(1f, 2f, 3f);
+        storage[1] = new Vec3(4f, 5f, 6f);
+        storage[2] = new Vec3(7f, 8f, 9f);
+        roomy = source.SetCount(roomy, 3);
+
+        WindingArena target = new();
+        target.Alloc(5);
+        Winding copied = target.CopyFrom(source, roomy);
+        Winding local = source.Copy(roomy);
+
+        Assert.Equal(3, copied.Count);
+        Assert.Equal(3, copied.Capacity);
+        Assert.Equal(local.Capacity, copied.Capacity);
+        Assert.Equal(source.Points(roomy).ToArray(), target.Points(copied).ToArray());
+    }
+
+    [Fact]
+    public void CopyFromItselfIsCopy()
+    {
+        WindingArena arena = new(4);
+        Winding w = arena.Create([new Vec3(1f, 0f, 0f), new Vec3(0f, 1f, 0f), new Vec3(0f, 0f, 1f)]);
+
+        // Enough to grow the first segment, so the source span must be taken
+        // after the reservation, as Copy takes it.
+        Winding copy = arena.CopyFrom(arena, w);
+
+        Assert.Equal(arena.Points(w).ToArray(), arena.Points(copy).ToArray());
+        Assert.NotEqual(w, copy);
+        Assert.Throws<ArgumentNullException>(() => arena.CopyFrom(null!, w));
+    }
+
     // ---- growth around a reset -------------------------------------------------
 
     /// <summary>
