@@ -130,6 +130,21 @@ public sealed class BspBrush
     /// </remarks>
     public MapBrush? Original { get; set; }
 
+    /// <summary>
+    /// Which build context's sequence <see cref="Id"/> counts in: null for
+    /// the compile's own context, or the <see cref="BspBuildContext.Fork"/>
+    /// that allocated it.
+    /// </summary>
+    /// <remarks>
+    /// A fork numbers its brushes from zero because it cannot know how many
+    /// the rest of the build will have allocated before it, in serial order,
+    /// and <see cref="BspBuildContext.Join"/> rebases exactly the brushes
+    /// whose scope is the fork being joined. It travels with the id through
+    /// <see cref="BrushGeometry.CopyBrush"/>, which copies both, so a copy of
+    /// a brush from before the fork keeps the id it already had.
+    /// </remarks>
+    internal object? IdScope { get; set; }
+
     /// <summary>How many sides the brush has: <c>numsides</c>.</summary>
     /// <exception cref="InvalidOperationException">The brush has been freed.</exception>
     /// <remarks>
