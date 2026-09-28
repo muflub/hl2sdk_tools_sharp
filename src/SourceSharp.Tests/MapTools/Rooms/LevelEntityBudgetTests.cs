@@ -293,6 +293,34 @@ public sealed class LevelEntityBudgetTests(RoomLinkDataFixture fixture) : IClass
         }
     }
 
+    /// <summary>
+    /// The link strips and counts by the class table it is given: a table
+    /// that makes <c>func_detail</c> an edict keeps it in the lump and
+    /// counts it, and the shipped table strips it.
+    /// </summary>
+    [Fact]
+    public async Task TheLinkStripsByTheTableItIsGiven()
+    {
+        RoomObject hub = fixture.Library.Get("hub");
+        List<BspEntity> entities = EntityLump.Parse(hub.Bsp[BspLump.Entities]);
+        entities.Add(Entity("func_detail", "16 16 16"));
+        RoomObject carrying = RoomHarness.WithLumps(hub, bsp => bsp[BspLump.Entities] = EntityLump.Write(entities));
+        RoomLibrary library = RoomHarness.Library(carrying);
+        LevelLayout layout = RoomHarness.AutoLayout("one", library, ("hub", 0, 0, 0));
+        EntityClassTable keeps = EntityClassTable.Default.With(
+            [new EntityClassRow("func_detail", EntityCost.Edict, EntityClassCertainty.OwnerSupplied, "a mod that keeps it")]);
+
+        LinkedLevel kept = await LevelLinker.LinkAsync(
+            layout, library, await RoomHarness.ContextAsync(), new LevelLinkOptions { EntityClasses = keeps });
+        List<BspEntity> lump = EntityLump.Parse(kept.Bsp[BspLump.Entities]);
+        Assert.Contains(lump, e => e.ClassName == "func_detail");
+        Assert.Equal(kept.EntityBudget!.Listed, lump.Count);
+
+        LinkedLevel stripped = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync());
+        Assert.DoesNotContain(EntityLump.Parse(stripped.Bsp[BspLump.Entities]), e => e.ClassName == "func_detail");
+        Assert.Equal(kept.EntityBudget.Listed - 1, stripped.EntityBudget!.Listed);
+    }
+
     /// <summary>The same level gives the same report every time, and the report does not depend on the thread count.</summary>
     [Fact]
     public async Task TheReportIsDeterministic()

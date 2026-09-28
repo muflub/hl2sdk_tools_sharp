@@ -172,6 +172,80 @@ public sealed class RoomLibraryOptionsTests
             Assert.Throws<RoomLibraryException>(() => RoomLibraryVmf.SplitLibrary(library)).Message);
     }
 
+    /// <summary>
+    /// The pack reader finds the settings among the library sections, after
+    /// the library-wide entities, on a stream that seeks and on one that
+    /// only reads forward; a pack without them reads as no settings.
+    /// </summary>
+    [Fact]
+    public async Task ThePackReaderFindsTheSettings()
+    {
+        RoomPackSectionData entities = RoomLibraryEntities.ToSection([]);
+        RoomPackSectionData options = new RoomLibraryOptions(333).ToSection()!.Value;
+        byte[] with = await PackAsync([entities, options]);
+        byte[] without = await PackAsync([entities]);
+
+        foreach (Func<byte[], Stream> open in new Func<byte[], Stream>[] { b => new MemoryStream(b), b => new ForwardOnly(b) })
+        {
+            await using (Stream stream = open(with))
+            {
+                RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+                Assert.Equal(new RoomLibraryOptions(333), await RoomPack.ReadLibraryOptionsAsync(stream, index));
+            }
+
+            await using (Stream stream = open(without))
+            {
+                RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+                Assert.Equal(RoomLibraryOptions.None, await RoomPack.ReadLibraryOptionsAsync(stream, index));
+            }
+        }
+    }
+
+    private static async Task<byte[]> PackAsync(RoomPackSectionData[] librarySections)
+    {
+        using MemoryStream stream = new();
+        await RoomPack.SaveAsync(librarySections, [], stream, CancellationToken.None);
+        return stream.ToArray();
+    }
+
+    /// <summary>A stream that reads forward and cannot seek or say its length, like a pipe.</summary>
+    private sealed class ForwardOnly(byte[] bytes) : Stream
+    {
+        private readonly MemoryStream _inner = new(bytes);
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
+
     private static RoomDefinition Hub => RoomHarness.WalkableRoom(
         "hub", RoomFacing.PositiveX, RoomFacing.NegativeX, RoomFacing.PositiveY, RoomFacing.NegativeY);
 
