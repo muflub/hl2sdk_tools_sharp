@@ -117,6 +117,151 @@ public sealed class StoreTransferCacheTests
         Assert.Equal(1, counters.CorruptRows);
     }
 
+    private static async Task StoreForAsync(ICacheStore store, string? map, IReadOnlyList<string> tags, string key, TransferSet set)
+    {
+        using StoreTransferCache cache = new(store, CachePolicy.Default, tags, new CacheRunCounters(), mapName: map);
+        await cache.StoreAsync(key, set, 1, CancellationToken.None);
+        await cache.FlushAsync();
+        await store.CommitAsync(CancellationToken.None);
+    }
+
+    private static async Task<TransferSet?> LookupForAsync(ICacheStore store, string? map, IReadOnlyList<string> tags, string key, int patches)
+    {
+        using StoreTransferCache cache = new(store, CachePolicy.Default, tags, new CacheRunCounters(), mapName: map);
+        return await cache.TryGetAsync(key, patches, CancellationToken.None);
+    }
+
+    private static TransferSet Small() => new([[new(0, 1f)]], [0, 0], [0, 1], [1, 0], 1);
+
+    [Fact]
+    public async Task StoringOneMapsTransfersKeepsAnotherMaps()
+    {
+        // One store, two maps compiled in turn: each keeps its own newest set,
+        // so alternating between them hits every time.
+        InMemoryCacheStore store = await StoreAsync();
+        await StoreForAsync(store, "map_a", [], "geometry-a", TransferSetCodecTests.Sample());
+        await StoreForAsync(store, "map_b", [], "geometry-b", Small());
+
+        Assert.NotNull(await LookupForAsync(store, "map_a", [], "geometry-a", 4));
+        Assert.NotNull(await LookupForAsync(store, "map_b", [], "geometry-b", 2));
+    }
+
+    [Fact]
+    public async Task StoringUnderOtherContextTagsKeepsTheOtherTagsSet()
+    {
+        InMemoryCacheStore store = await StoreAsync();
+        await StoreForAsync(store, "map_a", ["preset=fast"], "geometry-a", TransferSetCodecTests.Sample());
+        await StoreForAsync(store, "map_a", ["preset=final"], "geometry-b", Small());
+
+        Assert.NotNull(await LookupForAsync(store, "map_a", ["preset=fast"], "geometry-a", 4));
+        Assert.NotNull(await LookupForAsync(store, "map_a", ["preset=final"], "geometry-b", 2));
+    }
+
+    [Fact]
+    public async Task StoringAMapsNewSetEvictsItsOldOne()
+    {
+        InMemoryCacheStore store = await StoreAsync();
+        await StoreForAsync(store, "map_a", [], "geometry-a", TransferSetCodecTests.Sample());
+        await StoreForAsync(store, "map_b", [], "geometry-b", Small());
+
+        using StoreTransferCache cache = new(store, CachePolicy.Default, [], new CacheRunCounters(), mapName: "map_a");
+        await cache.StoreAsync("geometry-a2", Small(), 1, CancellationToken.None);
+        await cache.FlushAsync();
+        await store.CommitAsync(CancellationToken.None);
+
+        Assert.Equal(1, cache.EvictedRows);
+        Assert.Null(await LookupForAsync(store, "map_a", [], "geometry-a", 4));
+        Assert.NotNull(await LookupForAsync(store, "map_a", [], "geometry-a2", 2));
+        Assert.NotNull(await LookupForAsync(store, "map_b", [], "geometry-b", 2));
+        Assert.Equal(2, (await store.KeysAsync(CancellationToken.None)).Count);
+    }
+
+    [Fact]
+    public async Task EvictionLeavesOtherStagesAlone()
+    {
+        InMemoryCacheStore store = await StoreAsync();
+        string other = await CacheCollectorTests.PutRowAsync(store, "collision-row", DateTimeOffset.UnixEpoch, 10);
+
+        await StoreForAsync(store, "map_a", [], "geometry-a", Small());
+
+        Assert.NotNull(await store.LookupAsync(other, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AbandoningStopsARunningStagingAndWaitsForIt()
+    {
+        InMemoryCacheStore inner = await StoreAsync();
+        ProbeCacheStore store = new(inner);
+        TaskCompletionSource entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        store.BeforePutBlob = async (_, token) =>
+        {
+            entered.TrySetResult();
+            await Task.Delay(Timeout.Infinite, token);
+        };
+
+        using StoreTransferCache cache = new(store, CachePolicy.Default, [], new CacheRunCounters());
+        await cache.StoreAsync("geometry-a", TransferSetCodecTests.Sample(), 1, CancellationToken.None);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.False(cache.IsIdle);
+
+        await cache.AbandonAsync().WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.True(cache.IsIdle);
+        Assert.Equal(0, store.PutBlobsInFlight);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cache.FlushAsync());
+    }
+
+    [Fact]
+    public async Task AbandoningWithNothingStagedIsANoOp()
+    {
+        using StoreTransferCache cache = new(await StoreAsync(), CachePolicy.Default, [], new CacheRunCounters());
+
+        await cache.AbandonAsync();
+
+        Assert.True(cache.IsIdle);
+    }
+
+    [Fact]
+    public async Task AbandoningStopsWaitingWhenItsOwnTokenIsCancelled()
+    {
+        ProbeCacheStore store = new(await StoreAsync());
+        TaskCompletionSource never = new();
+        store.BeforePutBlob = (_, _) => never.Task;
+        using StoreTransferCache cache = new(store, CachePolicy.Default, [], new CacheRunCounters());
+        await cache.StoreAsync("geometry-a", Small(), 1, CancellationToken.None);
+        using CancellationTokenSource stop = new();
+        await stop.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cache.AbandonAsync(stop.Token));
+        never.TrySetResult();
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task VerifyOnHitDecidesWhetherADamagedBlobIsServed(bool verify, bool served)
+    {
+        // The chunk's bytes replaced, under its key, by the packed chunk of
+        // another set of the same shape (other weights): it decodes cleanly,
+        // so only the re-hash tells it from the stored one.
+        InMemoryCacheStore store = await StoreAsync();
+        await StoreAndCommitAsync(store, "geometry-a", TransferSetCodecTests.Sample());
+        string key = (await store.KeysAsync(CancellationToken.None)).Single();
+        CacheRecord record = (await store.LookupAsync(key, CancellationToken.None))!;
+        TransferSet other = new(
+            [[new(0, 2f), new(2, 2f), new(1, 2f), new(0, 2f), new(3, 2f), new(1, 2f), new(2, 2f), new(0, 2f), new(2, 2f), new(3, 2f)]],
+            [0, 0, 0, 0], [0, 3, 3, 8], [3, 0, 5, 2], 5);
+        byte[] forged = TransferSetCodec.Pack(TransferSetCodec.Chunks(other, 1 << 20).Single());
+        await store.PutBlobAsync(record.Blobs["chunk0"], forged, "test-tool", 0, CancellationToken.None);
+        await store.CommitAsync(CancellationToken.None);
+
+        CacheRunCounters counters = new();
+        TransferSet? hit = await new StoreTransferCache(store, CachePolicy.Default with { VerifyOnHit = verify }, [], counters)
+            .TryGetAsync("geometry-a", 4, CancellationToken.None);
+
+        Assert.Equal(served, hit is not null);
+    }
+
     [Fact]
     public void TheReportNamesReusedStages()
     {

@@ -16,7 +16,12 @@ namespace SourceSharp.Tests.MapTools.Rad;
 /// casters' own KD tree, so the lighting is the CPU run's, and records every
 /// tracer it handed out so a fact can count how often each was released.
 /// </summary>
-internal sealed class CountingGpuTracerFactory : IGpuTracerFactory
+/// <param name="identity">
+/// The identity every offered tracer reports, or null for the KD tree's own
+/// prefixed with <c>counting-</c>: two factories with two identities stand
+/// for one tracer type on two devices.
+/// </param>
+internal sealed class CountingGpuTracerFactory(string? identity = null) : IGpuTracerFactory
 {
     private readonly List<CountingTracer> _offered = [];
     private readonly TaskCompletionSource _firstOffer = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -40,7 +45,7 @@ internal sealed class CountingGpuTracerFactory : IGpuTracerFactory
     public ValueTask<GpuTracerOffer> TryCreateAsync(ShadowCasterSet casters, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        CountingTracer tracer = new(casters.BuildTracer());
+        CountingTracer tracer = new(casters.BuildTracer(), identity);
         lock (_offered)
         {
             _offered.Add(tracer);
@@ -57,7 +62,8 @@ internal sealed class CountingGpuTracerFactory : IGpuTracerFactory
 /// passing unnoticed.
 /// </summary>
 /// <param name="inner">The tracer that answers the rays.</param>
-internal sealed class CountingTracer(KdRayTracer inner) : IRayTracer, IDisposable
+/// <param name="identity">The identity to report, or null for the KD tree's own prefixed with <c>counting-</c>.</param>
+internal sealed class CountingTracer(KdRayTracer inner, string? identity = null) : IRayTracer, IDisposable
 {
     private int _disposals;
 
@@ -65,7 +71,7 @@ internal sealed class CountingTracer(KdRayTracer inner) : IRayTracer, IDisposabl
     public int Disposals => Volatile.Read(ref _disposals);
 
     /// <inheritdoc/>
-    public string TracerIdentity => "counting-" + inner.TracerIdentity;
+    public string TracerIdentity => identity ?? "counting-" + inner.TracerIdentity;
 
     /// <inheritdoc/>
     /// <remarks>

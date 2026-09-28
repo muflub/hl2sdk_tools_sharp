@@ -290,6 +290,35 @@ public sealed partial class SqliteCacheStore : ICacheStore
     }
 
     /// <inheritdoc/>
+    public async ValueTask<long?> BlobSizeAsync(string blobKey, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsUsable || !CacheKey.LooksLikeDigest(blobKey))
+        {
+            return null;
+        }
+
+        return await RunAsync(
+            async (connection, token) =>
+            {
+                using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = "SELECT LENGTH(data) FROM blobs WHERE key = $key;";
+                command.Parameters.AddWithValue("$key", blobKey);
+                object? length = await command.ExecuteScalarAsync(token).ConfigureAwait(false);
+                return length is long bytes ? bytes : (long?)null;
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public IDisposable BeginRun() => _runs.Begin();
+
+    /// <inheritdoc/>
+    public int RunsInFlight => _runs.Count;
+
+    private readonly CacheRunLeases _runs = new();
+
+    /// <inheritdoc/>
     public async ValueTask DeleteAsync(string key, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

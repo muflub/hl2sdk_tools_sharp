@@ -101,6 +101,106 @@ public sealed class TransferSetCodecTests
         Assert.Null(TransferSetCodec.Read(TransferSetCodec.Index(set), [chunk], 4));
     }
 
+    // ---- ReadPacked: the cache hit's reader, straight from packed chunks ----
+
+    private static readonly ParallelOptions Two = new() { MaxDegreeOfParallelism = 2 };
+
+    private static byte[]?[] Packed(TransferSet set, long chunkBytes) =>
+        [.. TransferSetCodec.Chunks(set, chunkBytes).Select(TransferSetCodec.Pack)];
+
+    [Theory]
+    [InlineData(24)]
+    [InlineData(8)]
+    [InlineData(1 << 20)]
+    public void APackedSetReadsAsTheUnpackedReaderReadsIt(long chunkBytes)
+    {
+        TransferSet set = Sample();
+        TransferSet? viaRaw = TransferSetCodec.Read(TransferSetCodec.Index(set), [.. TransferSetCodec.Chunks(set, chunkBytes)], 4);
+        TransferSet? viaPacked = TransferSetCodec.ReadPacked(TransferSetCodec.Index(set), Packed(set, chunkBytes), 4, Two);
+
+        Assert.NotNull(viaPacked);
+        Assert.Equal(Lists(viaRaw!), Lists(viaPacked));
+        Assert.Equal(viaRaw!.Max, viaPacked.Max);
+        Assert.Equal(viaRaw.Total, viaPacked.Total);
+        Assert.Equal(viaRaw.Arena.ToArray(), viaPacked.Arena.ToArray());
+    }
+
+    [Fact]
+    public void ReadingPackedChunksLetsGoOfEveryOne()
+    {
+        // The caller's array is emptied as the arena fills, so the packed
+        // bytes are not held beside the whole set once it is built.
+        TransferSet set = Sample();
+        byte[]?[] packed = Packed(set, 24);
+
+        _ = TransferSetCodec.ReadPacked(TransferSetCodec.Index(set), packed, 4, Two);
+
+        Assert.All(packed, Assert.Null);
+    }
+
+    [Fact]
+    public void ARefusedPackedSetStillLetsGoOfItsChunks()
+    {
+        TransferSet set = Sample();
+        byte[]?[] packed = Packed(set, 24);
+
+        Assert.Null(TransferSetCodec.ReadPacked(TransferSetCodec.Index(set), packed, 5, Two));
+        Assert.All(packed, Assert.Null);
+    }
+
+    [Fact]
+    public void AnEmptyPackedSetReads()
+    {
+        TransferSet empty = new([], [0, 0], [0, 0], [0, 0], 0);
+        TransferSet? back = TransferSetCodec.ReadPacked(TransferSetCodec.Index(empty), Packed(empty, 64), 2, Two);
+
+        Assert.NotNull(back);
+        Assert.Equal(0, back.Total);
+    }
+
+    [Fact]
+    public void AMissingPackedChunkIsRefused()
+    {
+        TransferSet set = Sample();
+        Assert.Null(TransferSetCodec.ReadPacked(TransferSetCodec.Index(set), Packed(set, 24)[..^1], 4, Two));
+    }
+
+    [Fact]
+    public void APackedChunkThatStatesTheWrongCountIsRefused()
+    {
+        TransferSet set = Sample();
+        byte[]?[] packed = Packed(set, 24);
+        byte[] first = packed[0]!;
+        byte[] second = packed[1]!;
+
+        // Counts that still add up to the total, but the deflated bytes of
+        // each hold another number of transfers.
+        first[0]++;
+        second[0]--;
+
+        Assert.Null(TransferSetCodec.ReadPacked(TransferSetCodec.Index(set), packed, 4, Two));
+    }
+
+    [Fact]
+    public void APackedPatchOutOfRangeIsRefused()
+    {
+        TransferSet set = Sample();
+        byte[] chunk = [.. TransferSetCodec.Chunks(set, 1 << 20).Single()];
+        chunk[0] = 9;
+
+        Assert.Null(TransferSetCodec.ReadPacked(TransferSetCodec.Index(set), [TransferSetCodec.Pack(chunk)], 4, Two));
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 1, 2 })]
+    [InlineData(new byte[] { 0xff, 0xff, 0xff, 0xff })]
+    [InlineData(new byte[] { 10, 0, 0, 0, 0xde, 0xad, 0xbe, 0xef })]
+    public void JunkPackedChunksAreRefused(byte[] junk)
+    {
+        TransferSet set = Sample();
+        Assert.Null(TransferSetCodec.ReadPacked(TransferSetCodec.Index(set), [junk], 4, Two));
+    }
+
     [Fact]
     public void JunkDoesNotUnpack()
     {

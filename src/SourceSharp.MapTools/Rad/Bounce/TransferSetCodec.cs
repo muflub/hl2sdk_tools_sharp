@@ -187,6 +187,181 @@ public static class TransferSetCodec
         return chunk;
     }
 
+    /// <summary>
+    /// Rebuilds a set from its index and its packed chunks, unpacking each
+    /// chunk straight into the set's arena and letting go of it once it is
+    /// in; null when they do not fit together. The set is the one
+    /// <see cref="Read"/> makes from the unpacked chunks.
+    /// </summary>
+    /// <param name="index">The index blob.</param>
+    /// <param name="packed">
+    /// The chunks as <see cref="Pack"/> left them, in order. Every entry is
+    /// set to null as it is consumed, so the caller's array is empty
+    /// afterwards, whatever the outcome.
+    /// </param>
+    /// <param name="patchCount">The patch count the caller expects.</param>
+    /// <param name="parallel">How many chunks unpack at once, and the cancellation.</param>
+    /// <returns>The set, or null.</returns>
+    /// <remarks>
+    /// <para>
+    /// A cache hit on a large map replays hundreds of megabytes. Unpacking
+    /// every chunk first and then copying them into the arena held three
+    /// copies at the peak (packed, raw, arena); this holds the packed bytes
+    /// and the arena, and the packed bytes shrink as the arena fills.
+    /// </para>
+    /// <para>
+    /// Each packed chunk states its transfer count in its first four bytes,
+    /// so every chunk's place in the arena is known before any is unpacked
+    /// and they unpack independently. The checks are <see cref="Read"/>'s:
+    /// the index must fit, the counts must add up to its total, every chunk
+    /// must inflate to exactly its count, and every patch must be in range.
+    /// </para>
+    /// </remarks>
+    public static TransferSet? ReadPacked(byte[] index, byte[]?[] packed, int patchCount, ParallelOptions parallel)
+    {
+        ArgumentNullException.ThrowIfNull(index);
+        ArgumentNullException.ThrowIfNull(packed);
+        ArgumentNullException.ThrowIfNull(parallel);
+        try
+        {
+            if (!TryReadIndex(index, patchCount, out int max, out long total, out int[] counts, out int[] offsets))
+            {
+                return null;
+            }
+
+            long[] starts = new long[packed.Length];
+            long at = 0;
+            for (int k = 0; k < packed.Length; k++)
+            {
+                if (packed[k] is not { Length: >= 4 } chunk)
+                {
+                    return null;
+                }
+
+                int n = BinaryPrimitives.ReadInt32LittleEndian(chunk);
+                if (n < 0 || n > Array.MaxLength / TransferBytes)
+                {
+                    return null;
+                }
+
+                starts[k] = at;
+                at += n;
+            }
+
+            if (at != total)
+            {
+                return null;
+            }
+
+            Transfer[] arena = new Transfer[total];
+            int failed = 0;
+            System.Threading.Tasks.Parallel.For(0, packed.Length, parallel, k =>
+            {
+                byte[] chunk = packed[k]!;
+                int n = BinaryPrimitives.ReadInt32LittleEndian(chunk);
+                if (!UnpackInto(chunk, n, arena.AsSpan((int)starts[k], n), patchCount))
+                {
+                    Interlocked.Exchange(ref failed, 1);
+                }
+
+                packed[k] = null;
+            });
+
+            return failed != 0 ? null : new TransferSet([arena], new int[patchCount], offsets, counts, max);
+        }
+        finally
+        {
+            Array.Clear(packed);
+        }
+    }
+
+    // Undoes Pack into the arena's slice for this chunk; false when the bytes
+    // do not inflate to exactly n transfers or name a patch out of range.
+    private static bool UnpackInto(byte[] packed, int n, Span<Transfer> into, int patchCount)
+    {
+        byte[] shuffled = new byte[(long)n * TransferBytes];
+        try
+        {
+            using ZLibStream inflate = new(new MemoryStream(packed, 4, packed.Length - 4), CompressionMode.Decompress);
+            inflate.ReadExactly(shuffled);
+            if (inflate.ReadByte() != -1)
+            {
+                return false;
+            }
+        }
+        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException)
+        {
+            return false;
+        }
+
+        int previous = 0;
+        for (int k = 0; k < n; k++)
+        {
+            uint delta = 0;
+            uint weight = 0;
+            for (int b = 0; b < 4; b++)
+            {
+                delta |= (uint)shuffled[(b * n) + k] << (8 * b);
+                weight |= (uint)shuffled[((4 + b) * n) + k] << (8 * b);
+            }
+
+            int patch = unchecked(previous + (int)delta);
+            previous = patch;
+            if ((uint)patch >= (uint)patchCount)
+            {
+                return false;
+            }
+
+            into[k] = new Transfer(patch, BitConverter.UInt32BitsToSingle(weight));
+        }
+
+        return true;
+    }
+
+    // The index blob's checks and contents, shared by both readers.
+    private static bool TryReadIndex(
+        byte[] index, int patchCount, out int max, out long total, out int[] counts, out int[] offsets)
+    {
+        max = 0;
+        total = 0;
+        counts = [];
+        offsets = [];
+        if (index.Length < 20
+            || BinaryPrimitives.ReadUInt32LittleEndian(index) != Magic
+            || BinaryPrimitives.ReadInt32LittleEndian(index.AsSpan(4)) != patchCount
+            || index.Length != 20 + (4L * patchCount))
+        {
+            return false;
+        }
+
+        max = BinaryPrimitives.ReadInt32LittleEndian(index.AsSpan(8));
+        total = BinaryPrimitives.ReadInt64LittleEndian(index.AsSpan(12));
+        if (total < 0 || total > Array.MaxLength)
+        {
+            return false;
+        }
+
+        counts = new int[patchCount];
+        offsets = new int[patchCount];
+        long at = 0;
+        int longest = 0;
+        for (int p = 0; p < patchCount; p++)
+        {
+            int count = BinaryPrimitives.ReadInt32LittleEndian(index.AsSpan(20 + (4 * p)));
+            if (count < 0)
+            {
+                return false;
+            }
+
+            counts[p] = count;
+            offsets[p] = (int)Math.Min(at, int.MaxValue);
+            at += count;
+            longest = Math.Max(longest, count);
+        }
+
+        return at == total && longest == max;
+    }
+
     /// <summary>Rebuilds a set from its index and chunks; null when they do not fit together.</summary>
     /// <param name="index">The index blob.</param>
     /// <param name="chunks">The chunks, in order.</param>

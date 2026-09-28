@@ -61,7 +61,8 @@ public sealed class OverlapTests
     public async Task OverlapUnderLeakTestWritesWhatTheSequentialChainWrites() =>
         await AssertSameAsync(
             () => Room(sealedRoom: false),
-            request => request with { Vbsp = VbspOptions.Default with { LeakTest = true } });
+            request => request with { Vbsp = VbspOptions.Default with { LeakTest = true } },
+            writesBsp: false);
 
     [Theory]
     [InlineData("200")]
@@ -86,24 +87,83 @@ public sealed class OverlapTests
         await AssertSameAsync(() => Room(), request => request with { Vvis = VvisOptions.Default with { Trace = (0, 1) } });
 
     [Fact]
-    public async Task ACancelledOverlappedCompileThrowsAndLeavesNoThreads()
+    public async Task ACancelledOverlappedCompileStopsItsFlowBeforeItReturns()
     {
         (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room());
-        using CompilePool pool = new(2);
+        using CompilePool pool = new(3);
         using CancellationTokenSource cancel = new();
         CompileRequest request = Request(files, content) with
         {
             Overlap = true,
-            Parallel = new CompileParallelism { MaxDegree = 2, Pool = pool },
+            Parallel = new CompileParallelism { MaxDegree = 3, Pool = pool },
         };
 
-        // Cancel as soon as vbsp's portals are handed on: the flow is running.
-        CancelAt progress = new(cancel, p => p.Stage == MapCompiler.ChainStage && p.Done == 1);
+        // Cancel as soon as vbsp's portals are handed on, once the flow is
+        // running: the chain leaves by the .lin/.prt writes, past vbsp.
+        FlowWatch flow = null!;
+        flow = new FlowWatch(p =>
+        {
+            if (p.Stage == MapCompiler.ChainStage && p.Done == 1)
+            {
+                Assert.True(flow.Entered.Wait(TimeSpan.FromSeconds(30)), "the early flow never reported");
+                cancel.Cancel();
+            }
+        });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => MapCompiler.CompileAsync(request, progress, cancel.Token));
+            () => MapCompiler.CompileAsync(request, flow, cancel.Token));
+        flow.MarkReturned();
+
+        // The flow ran on the lent pool, which outlives the compile: it must
+        // have ended before the compile returned, not be still running on it.
+        Assert.False(flow.FlowIsHeld, "the early flow was still running when the compile returned");
+        await Task.Delay(FlowWatch.Hold + TimeSpan.FromMilliseconds(500));
+        Assert.Equal(0, flow.ReportsAfterReturn);
 
         pool.Dispose();
         Assert.Equal(0, pool.LiveThreadCount);
+    }
+
+    [Fact]
+    public async Task AFailedWriteMidChainStopsTheFlowBeforeTheCompileReturns()
+    {
+        // The .prt write fails after vbsp, while the early flow is running on
+        // a pool the host lent: the compile must stop the flow and wait for
+        // it before it throws.
+        (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room());
+        using CompilePool pool = new(3);
+        FlowWatch flow = new();
+        IOException planted = new("planted .prt failure");
+        ProbeFileSystem output = new(files)
+        {
+            BeforeReplace = async path =>
+            {
+                if (path.FileName.EndsWith(".prt", StringComparison.Ordinal))
+                {
+                    await flow.Entered.WaitAsync(TimeSpan.FromSeconds(30));
+                    throw planted;
+                }
+            },
+        };
+        CompileRequest request = Request(files, content, CompileOutput.ToDirectory(output, VPath.Create(MapDirectory))) with
+        {
+            Overlap = true,
+            Parallel = new CompileParallelism { MaxDegree = 3, Pool = pool },
+        };
+
+        Exception thrown = await Assert.ThrowsAnyAsync<Exception>(() => MapCompiler.CompileAsync(request, flow));
+        flow.MarkReturned();
+
+        Assert.Same(planted, thrown);
+        Assert.False(flow.FlowIsHeld, "the early flow was still running when the compile returned");
+        await Task.Delay(FlowWatch.Hold + TimeSpan.FromMilliseconds(500));
+        Assert.Equal(0, flow.ReportsAfterReturn);
+
+        // The pool the host lent is fit for the next compile.
+        (InMemoryFileSystem again, IContentFileSystem againContent) = await DiskAsync(Room());
+        CompileResult next = await MapCompiler.CompileAsync(
+            Request(again, againContent) with { Overlap = true, Parallel = new CompileParallelism { MaxDegree = 3, Pool = pool } },
+            null);
+        Assert.True(next.Succeeded);
     }
 
     [Fact]
@@ -245,16 +305,31 @@ public sealed class OverlapTests
 
     // Runs the chain twice, sequential and overlapped, and compares every
     // file it wrote: bytes for the products, lines for the log less its timings.
-    private static async Task AssertSameAsync(Func<VmfDocument> map, Func<CompileRequest, CompileRequest> shape)
+    // Both sides must have made what the shape asks for -- a .bsp, or under
+    // -leaktest on a leak only the .lin -- so two compiles that failed alike,
+    // or wrote nothing alike, cannot pass for two that agree.
+    private static async Task AssertSameAsync(
+        Func<VmfDocument> map, Func<CompileRequest, CompileRequest> shape, bool writesBsp = true)
     {
         (InMemoryFileSystem a, IContentFileSystem ca) = await DiskAsync(map());
         (InMemoryFileSystem b, IContentFileSystem cb) = await DiskAsync(map());
         CompileResult sequential = await MapCompiler.CompileAsync(shape(Request(a, ca)) with { Overlap = false }, null);
         CompileResult overlapped = await MapCompiler.CompileAsync(shape(Request(b, cb)) with { Overlap = true }, null);
 
-        Assert.Equal(sequential.Succeeded, overlapped.Succeeded);
+        Assert.Equal(writesBsp, sequential.Succeeded);
+        Assert.Equal(writesBsp, overlapped.Succeeded);
         List<string> names = await ListAsync(a);
         Assert.Equal(names, await ListAsync(b));
+        if (writesBsp)
+        {
+            Assert.Contains("room.bsp", names);
+        }
+        else
+        {
+            Assert.DoesNotContain("room.bsp", names);
+            Assert.Contains("room.lin", names);
+        }
+
         foreach (string name in names)
         {
             string path = $"{MapDirectory}/{name}";

@@ -55,7 +55,20 @@ public sealed class CollisionModelCache : ICollisionModelCache
     private readonly string _cookerIdentity;
     private readonly IReadOnlyList<string> _contextTags;
     private readonly CacheRunCounters _counters;
-    private readonly long _createdAtMs;
+
+    /// <summary>
+    /// The run's generation stamp (Unix milliseconds) every row and blob this
+    /// seam stages carries; the time the seam was built unless the chain sets
+    /// it.
+    /// </summary>
+    /// <remarks>
+    /// The chain gives all of a compile's seams its one start stamp and
+    /// records it as the store's generation on commit, so the GC can tell
+    /// which rows the newest <see cref="CachePolicy.GenerationsKept"/>
+    /// compiles made (<see cref="CacheCollector"/>). Seams built each with
+    /// their own clock reading would scatter one compile over several stamps.
+    /// </remarks>
+    public long CreatedAtMs { get; init; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
     /// <summary>Builds the seam over one store for one run.</summary>
     /// <param name="store">The open store.</param>
@@ -82,7 +95,6 @@ public sealed class CollisionModelCache : ICollisionModelCache
         _cookerIdentity = cookerIdentity;
         _contextTags = contextTags;
         _counters = counters;
-        _createdAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     }
 
     /// <inheritdoc />
@@ -116,6 +128,7 @@ public sealed class CollisionModelCache : ICollisionModelCache
             return null;
         }
 
+        await CacheBlobReader.RenewAsync(_store, _policy, record, CreatedAtMs, cancellationToken).ConfigureAwait(false);
         _counters.Hit(modelIndex, model.Bytes, record.CostMs);
         return model;
     }
@@ -209,7 +222,7 @@ public sealed class CollisionModelCache : ICollisionModelCache
                 blobs,
                 [],
                 CostMs: model.CostMs,
-                CreatedAtMs: _createdAtMs),
+                CreatedAtMs: CreatedAtMs),
             cancellationToken).ConfigureAwait(false);
 
         _counters.Stored(model.Bytes);
@@ -398,27 +411,14 @@ public sealed class CollisionModelCache : ICollisionModelCache
     }
 
     /// <summary>Reads a blob and re-hashes it against its content-address key; null fails the read.</summary>
-    private async ValueTask<byte[]?> ReadCheckedAsync(string blobKey, CancellationToken cancellationToken = default)
-    {
-        if (!CacheKey.LooksLikeDigest(blobKey))
-        {
-            return null;
-        }
-
-        byte[]? data = await _store.GetBlobAsync(blobKey, cancellationToken).ConfigureAwait(false);
-        if (data is null)
-        {
-            return null;
-        }
-
-        return CacheKey.HashBytes(data) == blobKey ? data : null;
-    }
+    private ValueTask<byte[]?> ReadCheckedAsync(string blobKey, CancellationToken cancellationToken = default) =>
+        CacheBlobReader.ReadAsync(_store, _policy, blobKey, cancellationToken);
 
     private async ValueTask StageBlobAsync(string blobKey, byte[] data, CancellationToken cancellationToken = default)
     {
         if (!await _store.HasBlobAsync(blobKey, cancellationToken).ConfigureAwait(false))
         {
-            await _store.PutBlobAsync(blobKey, data, _cookerIdentity, _createdAtMs, cancellationToken)
+            await _store.PutBlobAsync(blobKey, data, _cookerIdentity, CreatedAtMs, cancellationToken)
                 .ConfigureAwait(false);
         }
     }
