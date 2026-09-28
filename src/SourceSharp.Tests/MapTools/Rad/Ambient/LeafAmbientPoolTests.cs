@@ -221,8 +221,16 @@ public sealed class LeafAmbientPoolTests : IClassFixture<AmbientFixture>
         Assert.All(counting.VisibilityCalls, c => Assert.InRange(c.Rays, 1, bound));
         if (batchSegments == 1)
         {
-            // One leaf a batch: the bound is the largest leaf exactly.
-            Assert.Equal(bound, counting.VisibilityCalls.Max(c => c.Rays));
+            // One leaf a batch: the largest call is the largest leaf's count
+            // of pairs whose line can matter, counted from its samples and
+            // the lights (SurfaceLightPairs). The bound -- every pair of the
+            // largest leaf -- stays the rented buffer's size.
+            SurfaceLightPairs.LeafRecorder recorder = new();
+            await LeafAmbientBuilder.BuildAsync(
+                _fixture.Ldr, _fixture.Ldr.WorldLights.ToArray(), options, recorder, CancellationToken.None);
+            int largest = recorder.TracedPerLeaf(_fixture.Ldr.WorldLights.ToArray(), options.Compliance).Max();
+            Assert.Equal(largest, counting.VisibilityCalls.Max(c => c.Rays));
+            Assert.True(largest < bound, $"largest leaf traces {largest} of {bound}");
         }
 
         Assert.Equal(1, pool.RentedOf<Ray>());
