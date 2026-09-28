@@ -63,8 +63,8 @@ public sealed class LeafAmbientBatchingTests : IClassFixture<AmbientFixture>
         // The old granularity: one visibility call per sample, straight to
         // the KD tracer's TestLines, on the queue path.
         DirectPerSample direct = new(kd, stockReciprocal: true);
-        LeafAmbientResult perSample = await BuildAsync(direct, options);
-        int perSampleCalls = direct.Calls;
+        SurfaceLightPairs.LeafRecorder recorder = new(direct);
+        LeafAmbientResult perSample = await BuildAsync(recorder, options);
 
         CountingRayTracer alone = new(kd);
         LeafAmbientResult eachLeaf = await BuildAsync(
@@ -77,14 +77,34 @@ public sealed class LeafAmbientBatchingTests : IClassFixture<AmbientFixture>
         AssertSameLumps(perSample, together);
         Assert.True(together.LightsInAmbientCube > 0, "the fixture should bake some light into the cubes");
 
-        // Alone, a leaf is exactly one call. The per-sample path asked about
-        // every sample and every light; the seam is asked only about the
-        // pairs whose answer can matter, so fewer, and the lumps are the same.
+        // The per-sample path asks about every sample and every baked light:
+        // one call per leaf, a segment from each sample to each light, so
+        // each leaf's pairs are a multiple of the light count.
+        int lights = together.LightsInAmbientCube;
         int openLeaves = _fixture.Ldr.Leaves.ToArray().Count(l => (l.Contents & LeafAmbientBuilder.ContentsSolid) == 0);
-        Assert.Equal(openLeaves, alone.VisibilityCalls.Count);
+        Assert.Equal(openLeaves, recorder.Leaves.Count);
+        Assert.All(recorder.Leaves, l => Assert.Equal(lights, l.Ends.Length));
+        Assert.All(recorder.Leaves, l => Assert.Equal(0, l.Starts.Length * l.Ends.Length % lights));
+        Assert.Equal(recorder.Leaves.Sum(l => l.Starts.Length), direct.Calls);
+
+        // Through the seam, alone, a leaf is exactly one call of exactly the
+        // pairs whose line can matter -- counted here from the leaf's samples
+        // and the lights (SurfaceLightPairs), not by the stage.
+        int[] expected = recorder.TracedPerLeaf(_fixture.Ldr.WorldLights.ToArray(), options.Compliance);
+        int[] actual = [.. alone.VisibilityCalls.Select(c => c.Rays)];
         Assert.All(alone.VisibilityCalls, c => Assert.Equal(RayTraceOptions.TestLine(), c.Options));
-        int everyPair = perSampleCalls * together.LightsInAmbientCube;
-        Assert.InRange(alone.VisibilityCalls.Sum(c => c.Rays), 1, everyPair - 1);
+        if (parallelism == 1)
+        {
+            Assert.Equal(expected, actual);
+        }
+        else
+        {
+            // Workers finish leaves in any order: the same counts, as a multiset.
+            Assert.Equal(expected.Order(), actual.Order());
+        }
+
+        // Neither count is the trivial one: some pairs are skipped.
+        Assert.True(expected.Sum() < direct.Calls * lights, "no pair was skipped");
 
         // Batched, whole leaves share calls.
         Assert.True(batched.VisibilityCalls.Count < openLeaves);
