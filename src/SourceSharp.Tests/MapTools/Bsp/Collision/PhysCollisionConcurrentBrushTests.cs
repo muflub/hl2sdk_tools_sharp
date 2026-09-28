@@ -89,12 +89,8 @@ public class PhysCollisionConcurrentBrushTests
     private static async Task<PhysCollisionResult> EmitAsync(PhysCollisionInput input, TaskScheduler? scheduler = null)
     {
         await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(input.Compliance);
-        if (scheduler is not null)
-        {
-            cooker.Scheduler = scheduler;
-        }
-
-        return await PhysCollisionEmitter.EmitAsync(input, cooker).WaitAsync(Patience);
+        ICollisionCooker compileCooker = scheduler is null ? cooker : cooker.On(scheduler);
+        return await PhysCollisionEmitter.EmitAsync(input, compileCooker).WaitAsync(Patience);
     }
 
     private static void AssertSame(PhysCollisionResult expected, PhysCollisionResult actual)
@@ -265,8 +261,8 @@ public class PhysCollisionConcurrentBrushTests
     public async Task CancellingMidCookStopsTheCompileAndLeavesTheCookerFit()
     {
         using CompilePool pool = new(4);
-        await using ManagedCollisionCooker managed = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
-        managed.Scheduler = pool.Scheduler;
+        await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+        ICollisionCooker managed = cooker.On(pool.Scheduler);
         using CancellationTokenSource cts = new();
         ConcurrentSpyCooker spy = new(managed)
         {
@@ -301,8 +297,8 @@ public class PhysCollisionConcurrentBrushTests
         sides[6 * 17] = broken;
 
         using CompilePool pool = new(4);
-        await using ManagedCollisionCooker managed = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
-        managed.Scheduler = pool.Scheduler;
+        await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+        ICollisionCooker managed = cooker.On(pool.Scheduler);
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => PhysCollisionEmitter.EmitAsync(good with { BrushSides = sides }, managed).WaitAsync(Patience));
