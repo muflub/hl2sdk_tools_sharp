@@ -103,6 +103,27 @@ public class FileSystemSeamTests
         Assert.NotEmpty(offenders);
     }
 
+    /// <summary>
+    /// A two-byte opcode (0xFE and a second byte) is stepped over whole
+    /// before its operand. Stepping one byte left the walker one byte short
+    /// of the next instruction: after <c>ldftn</c> of a generic method
+    /// instance, whose token's top byte 0x2B reads as <c>br.s</c>, it skipped
+    /// the call that followed; elsewhere it read a token out of the middle of
+    /// another and threw on it.
+    /// </summary>
+    [Fact]
+    public void ATwoByteOpcodeIsSteppedOverWhole()
+    {
+        byte[] il =
+        [
+            0xFE, 0x06, 0x01, 0x00, 0x00, 0x2B, // ldftn MethodSpec 1
+            0x28, 0x02, 0x00, 0x00, 0x0A,       // call MemberRef 2
+            0x2A,                               // ret
+        ];
+
+        Assert.Equal([MetadataTokens.EntityHandle(0x0A000002)], CallTargets(il));
+    }
+
     [Fact]
     public void TheScanNamesTheTypeItFound()
     {
@@ -297,11 +318,14 @@ public class FileSystemSeamTests
 
         while (at < il.Length)
         {
-            short value = il[at] == 0xFE && at + 1 < il.Length
-                ? (short)(0xFE00 | il[at + 1])
-                : il[at];
+            // A two-byte opcode's value is 0xFExx, which as a short is
+            // NEGATIVE, so its length is decided by the prefix byte and not
+            // by the value: `value > 0xFF` was never true for one, and the
+            // walker stepped one byte into it.
+            bool twoByte = il[at] == 0xFE && at + 1 < il.Length;
+            short value = twoByte ? (short)(0xFE00 | il[at + 1]) : il[at];
 
-            at += value > 0xFF ? 2 : 1;
+            at += twoByte ? 2 : 1;
 
             if (!OperandSizes.TryGetValue(value, out OperandType operand))
             {
