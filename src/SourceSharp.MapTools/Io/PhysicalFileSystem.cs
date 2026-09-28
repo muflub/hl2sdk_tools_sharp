@@ -113,7 +113,10 @@ public sealed class PhysicalFileSystem : IFileSystem
         path.IsEmpty ? Root : Path.Combine(Root, path.Value.Replace('/', Path.DirectorySeparatorChar));
 
     /// <summary>Maps an absolute host path into this file system.</summary>
-    /// <param name="hostPath">An absolute host path at or below <see cref="Root"/>.</param>
+    /// <param name="hostPath">
+    /// An absolute host path at or below <see cref="Root"/>, or on another
+    /// drive when <see cref="Root"/> is a drive root.
+    /// </param>
     /// <returns>The path as this file system sees it.</returns>
     /// <exception cref="ArgumentException">
     /// <paramref name="hostPath"/> is not below <see cref="Root"/>.
@@ -131,12 +134,63 @@ public sealed class PhysicalFileSystem : IFileSystem
         string prefix = Root.EndsWith(Path.DirectorySeparatorChar) ? Root : Root + Path.DirectorySeparatorChar;
         if (!full.StartsWith(prefix, StringComparison.Ordinal))
         {
+            if (TryMapAcrossDrives(Root, full, out VPath elsewhere))
+            {
+                return elsewhere;
+            }
+
             throw new ArgumentException(
                 $"\"{hostPath}\" is not below the root \"{Root}\"",
                 nameof(hostPath));
         }
 
         return VPath.Create(full[prefix.Length..]);
+    }
+
+    /// <summary>
+    /// Maps a host path on another Windows drive for a file system rooted at a
+    /// drive root, keeping the drive in the path.
+    /// </summary>
+    /// <param name="root">The file system's <see cref="Root"/>.</param>
+    /// <param name="full">A full host path that is not below it.</param>
+    /// <param name="path">The path with its drive (<c>C:/Users/…</c>), when mapped.</param>
+    /// <returns>True when <paramref name="root"/> is a bare drive root and <paramref name="full"/> is on another drive.</returns>
+    /// <remarks>
+    /// <para>
+    /// A file system rooted at <c>/</c> stands for the whole host: that is
+    /// what the CLI mounts games through. On Windows <c>/</c> is the current
+    /// drive's root, so a game on another drive (a Steam library on <c>E:</c>
+    /// while the command runs from <c>D:</c>) came back from a directory
+    /// listing as "not below the root" and the mount failed. A
+    /// <see cref="VPath"/> can carry a drive, and <see cref="ToHostPath"/>
+    /// already maps one back unchanged (a rooted second operand wins in
+    /// <see cref="Path.Combine(string, string)"/>), so the listing answers in
+    /// that form and the round trip holds.
+    /// </para>
+    /// <para>
+    /// Only a bare drive root answers for other drives. A file system rooted
+    /// at a directory still refuses anything outside it: containment is the
+    /// point of rooting one there. The test is on the strings alone, not on
+    /// the host's path rules, so it is the same decision on every OS.
+    /// </para>
+    /// </remarks>
+    internal static bool TryMapAcrossDrives(string root, string full, out VPath path)
+    {
+        path = VPath.Empty;
+        bool rootIsDrive = root.Length is 2 or 3
+            && char.IsAsciiLetter(root[0])
+            && root[1] == ':'
+            && (root.Length == 2 || root[2] is '\\' or '/');
+        bool fullHasDrive = full.Length >= 3
+            && char.IsAsciiLetter(full[0])
+            && full[1] == ':'
+            && full[2] is '\\' or '/';
+        if (!rootIsDrive || !fullHasDrive || char.ToUpperInvariant(root[0]) == char.ToUpperInvariant(full[0]))
+        {
+            return false;
+        }
+
+        return VPath.TryCreate(full.Replace('\\', '/'), out path);
     }
 
     /// <inheritdoc />
