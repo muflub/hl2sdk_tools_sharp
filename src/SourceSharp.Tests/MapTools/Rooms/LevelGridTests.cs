@@ -130,7 +130,7 @@ public sealed class LevelGridTests
     {
         RoomLinter.CheckReachable(new LevelLayout("empty", 256, Kit, []), n => Library(n)!);
         RoomLinter.CheckReachable(Layout("hub"), n => Library(n)!);
-        RoomLinter.CheckReachable(Layout("hub, hub", "hub, ~"), n => Library(n)!);
+        RoomLinter.CheckReachable(Layout("hub, hub", "hub, @"), n => Library(n)!);
     }
 
     /// <summary>
@@ -138,9 +138,9 @@ public sealed class LevelGridTests
     /// outside the largest joined group, whatever the group's size.
     /// </summary>
     [Theory]
-    [InlineData(new[] { "hub, ~, hub" }, "room \"hub\" at cell (2, 0) is not joined to the other 1 room(s)")]
-    [InlineData(new[] { "hub, ~, hub, hub" }, "room \"hub\" at cell (0, 0) is not joined to the other 2 room(s)")]
-    [InlineData(new[] { "hub, ~, hub", "~, ~, ~", "hub, ~, hub" }, "room \"hub\" at cell (2, 0), room \"hub\" at cell (0, 2), room \"hub\" at cell (2, 2) are not joined to the other 1 room(s)")]
+    [InlineData(new[] { "hub, @, hub" }, "room \"hub\" at cell (2, 0) is not joined to the other 1 room(s)")]
+    [InlineData(new[] { "hub, @, hub, hub" }, "room \"hub\" at cell (0, 0) is not joined to the other 2 room(s)")]
+    [InlineData(new[] { "hub, @, hub", "@, @, @", "hub, @, hub" }, "room \"hub\" at cell (2, 0), room \"hub\" at cell (0, 2), room \"hub\" at cell (2, 2) are not joined to the other 1 room(s)")]
     [InlineData(new[] { "end, end" }, "room \"end\" at cell (1, 0) is not joined")]
     public void UnreachableRoomsAreNamed(string[] rows, string expected)
     {

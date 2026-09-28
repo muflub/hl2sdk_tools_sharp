@@ -4,6 +4,6 @@ library: ../rooms.vmf
 rows: 3
 columns: 3
 grid:
-  - [corner,    cross@270, ~]
-  - [~,         tee@270,   cross@180]
+  - [corner,    cross@270, @]
+  - [@,         tee@270,   cross@180]
   - [cross@180, cross@270, cross]
