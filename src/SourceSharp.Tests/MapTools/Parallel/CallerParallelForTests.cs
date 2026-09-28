@@ -231,16 +231,29 @@ public class CallerParallelForTests
     [Fact]
     public void AHelperThatCannotBeQueuedFailsTheLoopAfterTheRunningOnesFinish()
     {
-        // A disposed pool refuses new tasks: the loop reports it and runs nothing
-        // further on the caller.
-        CompilePool pool = new(1);
-        pool.Dispose();
+        // A scheduler that refuses new tasks: the loop reports it and runs
+        // nothing further on the caller.
         int runs = 0;
 
         Assert.ThrowsAny<Exception>(() =>
-            CallerParallelFor.For(10, 3, pool.Scheduler, () => 0, (_, _) => Interlocked.Increment(ref runs), CancellationToken.None));
+            CallerParallelFor.For(10, 3, new RefusingScheduler(), () => 0, (_, _) => Interlocked.Increment(ref runs), CancellationToken.None));
 
         Assert.Equal(0, runs);
+    }
+
+    [Fact]
+    public void OnADisposedPoolTheLoopStillRunsEveryItemOnce()
+    {
+        // A disposed pool runs a task offered to it on the offering thread
+        // (CompilePool.Dispose), so the helpers run inline and the loop ends
+        // whole instead of failing a cook half done.
+        CompilePool pool = new(2);
+        pool.Dispose();
+        int[] runs = new int[10];
+
+        CallerParallelFor.For(runs.Length, 3, pool.Scheduler, () => 0, (i, _) => Interlocked.Increment(ref runs[i]), CancellationToken.None);
+
+        Assert.All(runs, r => Assert.Equal(1, r));
     }
 
     [Fact]
@@ -266,6 +279,16 @@ public class CallerParallelForTests
         Assert.Throws<ArgumentNullException>(() => CallerParallelFor.For(1, 1, null!, () => 0, (_, _) => { }, CancellationToken.None));
         Assert.Throws<ArgumentNullException>(() => CallerParallelFor.For<int>(1, 1, TaskScheduler.Default, null!, (_, _) => { }, CancellationToken.None));
         Assert.Throws<ArgumentNullException>(() => CallerParallelFor.For(1, 1, TaskScheduler.Default, () => 0, null!, CancellationToken.None));
+    }
+
+    /// <summary>Refuses every task, as a scheduler that has shut down would.</summary>
+    private sealed class RefusingScheduler : TaskScheduler
+    {
+        protected override IEnumerable<Task> GetScheduledTasks() => [];
+
+        protected override void QueueTask(Task task) => throw new ObjectDisposedException(nameof(RefusingScheduler));
+
+        protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued) => false;
     }
 
     /// <summary>Queues tasks and runs them only when asked.</summary>
