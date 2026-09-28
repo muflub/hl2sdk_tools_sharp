@@ -412,6 +412,54 @@ public sealed class RoomLibraryCompilerTests
         return (RoomLibraryVmf.Split(library), new CountingContent(new ContentFileSystem([mount])));
     }
 
+    /// <summary>
+    /// With navigation settings, every outcome carries its room's navigation,
+    /// built on the room's own task: the same sections at one thread and at
+    /// four as a build of each compiled room alone; without, none.
+    /// </summary>
+    [Fact]
+    public async Task EachRoomsNavigationIsBuiltBesideItsCompileAtAnyThreadCount()
+    {
+        (IReadOnlyList<LibraryRoom> rooms, CountingContent content) = await LibraryAsync();
+        List<List<byte[]>> runs = [];
+        foreach (int degree in new[] { 1, 4 })
+        {
+            List<RoomCompileOutcome> outcomes = await CompileAsync(rooms, new RoomLibraryCompileSettings(VbspOptions.Default, content)
+            {
+                Nav = SourceSharp.MapTools.Nav.NavSettings.Default,
+                Parallelism = new CompileParallelism { MaxDegree = degree },
+            });
+            runs.Add([.. outcomes.Select(o => SourceSharp.MapTools.Nav.RoomNavSection.Write(o.Nav!, SourceSharp.MapFormats.Nav.NavCompression.None))]);
+            for (int i = 0; i < outcomes.Count; i++)
+            {
+                SourceSharp.MapTools.Nav.RoomNav alone = SourceSharp.MapTools.Nav.RoomNavBuilder.Build(
+                    rooms[i].Definition, outcomes[i].Compiled!.Bsp, [], RoomRole.None, SourceSharp.MapTools.Nav.NavSettings.Default);
+                Assert.Equal(SourceSharp.MapTools.Nav.RoomNavSection.Write(alone, SourceSharp.MapFormats.Nav.NavCompression.None), runs[^1][i]);
+            }
+        }
+
+        Assert.Equal(runs[0], runs[1]);
+        Assert.All(await CompileAsync(rooms, new RoomLibraryCompileSettings(VbspOptions.Default, content)), o => Assert.Null(o.Nav));
+    }
+
+    /// <summary>A voxel that does not fit the library's cell is refused once, before any room compiles.</summary>
+    [Fact]
+    public async Task AVoxelThatDoesNotFitTheCellIsRefusedBeforeAnyRoom()
+    {
+        (IReadOnlyList<LibraryRoom> rooms, CountingContent content) = await LibraryAsync();
+        int started = 0;
+        await Assert.ThrowsAsync<RoomLibraryException>(() => CompileAsync(rooms, new RoomLibraryCompileSettings(VbspOptions.Default, content)
+        {
+            Nav = SourceSharp.MapTools.Nav.NavSettings.Default with { VoxelSize = 100 },
+            BeforeRoomProbe = (_, _) =>
+            {
+                Interlocked.Increment(ref started);
+                return ValueTask.CompletedTask;
+            },
+        }));
+        Assert.Equal(0, started);
+    }
+
     private static async Task<List<RoomCompileOutcome>> CompileAsync(
         IReadOnlyList<LibraryRoom> rooms, RoomLibraryCompileSettings settings)
     {
