@@ -365,6 +365,57 @@ public sealed class RoomLibraryOptionsTests
         Assert.False(RoomLibraryOptions.TryParseFold(value, out _));
     }
 
+    /// <summary>
+    /// The library worldspawn's first <c>mapversion</c> is kept as written,
+    /// in the section and back out of it; it is not a library-only key, so
+    /// the flattened level keeps it; a library without one keeps none.
+    /// </summary>
+    [Fact]
+    public void TheMapVersionIsKeptInTheSettings()
+    {
+        VmfChunk world = new(MapFileLoader.WorldChunk);
+        world.AddKey("MapVersion", "17");
+        world.AddKey("mapversion", "18");
+        RoomLibraryOptions options = RoomLibraryOptions.FromWorld(world);
+        Assert.Equal("17", options.MapVersion);
+        Assert.Equal("17", RoomLibraryOptions.Read(options.ToSection()!.Value.Bytes.Span).MapVersion);
+        Assert.False(RoomLibraryOptions.IsLibraryKey(RoomLibraryOptions.MapVersionKey));
+        Assert.Null(RoomLibraryOptions.FromWorld(new VmfChunk(MapFileLoader.WorldChunk)).MapVersion);
+        Assert.Null(RoomLibraryOptions.Read((options with { MapVersion = null, EntityReserve = 1 }).ToSection()!.Value.Bytes.Span).MapVersion);
+    }
+
+    /// <summary>
+    /// The split gives every room <c>mapversion</c> 0, in its worldspawn at
+    /// the library key's own place and in its <c>versioninfo</c>, and leaves
+    /// the library's document as it was.
+    /// </summary>
+    [Fact]
+    public void EveryRoomIsSplitWithMapVersionZero()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(RoomHarness.WalkableRoom("hub", RoomFacing.PositiveX));
+        VmfChunk info = new("versioninfo");
+        info.AddKey("mapversion", "9");
+        library.Chunks.Insert(0, info);
+        VmfChunk world = library.GetChunk(MapFileLoader.WorldChunk)!;
+        VmfChunk rebuilt = new(MapFileLoader.WorldChunk);
+        rebuilt.AddKey("id", "1");
+        rebuilt.AddKey("mapversion", "9");
+        foreach (VmfNode node in world.Children.Skip(1))
+        {
+            rebuilt.Children.Add(node);
+        }
+
+        library.Chunks[library.Chunks.IndexOf(world)] = rebuilt;
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
+        VmfChunk roomWorld = split.Rooms[0].Document.GetChunk(MapFileLoader.WorldChunk)!;
+        Assert.Equal(["id", "mapversion", "classname"], roomWorld.Keys.Select(k => k.Name));
+        Assert.Equal("0", roomWorld.GetValue("mapversion"));
+        Assert.Equal("0", split.Rooms[0].Document.GetChunk("versioninfo")!.GetValue("mapversion"));
+        Assert.Equal("9", split.Options.MapVersion);
+        Assert.Equal("9", rebuilt.GetValue("mapversion"));
+        Assert.Equal("9", info.GetValue("mapversion"));
+    }
+
     private static byte[] Long(long value)
     {
         byte[] bytes = new byte[8];

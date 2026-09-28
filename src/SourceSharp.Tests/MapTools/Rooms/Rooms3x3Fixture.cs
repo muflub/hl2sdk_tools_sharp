@@ -109,7 +109,13 @@ public sealed class Rooms3x3Fixture : IAsyncLifetime
         _library = new RoomLibrary(
             new SocketKit(Rooms3x3Kit.DoorWidth, Rooms3x3Kit.DoorHeight, Rooms3x3Kit.Wall), Rooms3x3Kit.CellSize);
         _libraryVmf = await VmfDocument.ParseAsync(files[Rooms3x3Kit.LibraryFile]);
-        foreach (LibraryRoom room in RoomLibraryVmf.Split(_libraryVmf))
+
+        // The library's settings, as ssmap link reads them from the pack:
+        // among them the library's mapversion, which the rooms do not carry
+        // and the link writes into the linked worldspawn.
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(_libraryVmf);
+        _library.Options = split.Options;
+        foreach (LibraryRoom room in split.Rooms)
         {
             _library.Add(await RoomCompiler.CompileAsync(room.Document, room.Definition, Context(room.Definition.Name)));
         }
