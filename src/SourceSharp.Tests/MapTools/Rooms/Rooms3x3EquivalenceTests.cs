@@ -26,10 +26,11 @@ using KitPoint = SourceSharp.MapGen.Point;
 namespace SourceSharp.Tests.MapTools.Rooms;
 
 /// <summary>
-/// The 3x3 rooms sample, rearranged: for every arrangement of the default
-/// subset (<see cref="Rooms3x3Permutations.DefaultCases"/>), the level linked
-/// from the compiled rooms is checked against the same level compiled whole
-/// from its monolithic VMF by the ordinary vbsp path.
+/// The 3x3 rooms sample, rearranged: for every level of the default subset
+/// (<see cref="Rooms3x3Permutations.DefaultCases"/>), the level file linked
+/// from the compiled rooms (<c>ssmap link level.yaml</c>) is checked against
+/// the same level file flattened into one VMF (<c>ssmap link --flatten</c>)
+/// and compiled whole by the ordinary vbsp path.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -53,7 +54,9 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// shot masks, and each map's tree gives the same answer as its bare brush
 /// list.</item>
 /// <item><b>Reachability</b>: every room reaches every other through open,
-/// player-passable space, as the layout's joints say, in both maps.</item>
+/// player-passable space, as the layout's joints say, in both maps; and a
+/// standing player's hull, not just a point, fits all the way from every
+/// room to every other.</item>
 /// <item><b>Visibility</b>: the linked PVS is exactly the door-graph replay,
 /// and a superset of what the real vvis sees in the monolithic map.</item>
 /// <item><b>Collision</b>: the world collision holds the same convexes, in the
@@ -65,8 +68,9 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// same way.</item>
 /// </list>
 /// <para>
-/// The default subset is 17 arrangements; each pair is built once and shared
-/// by every fact (<see cref="Rooms3x3Fixture"/>). The same checks run over
+/// The default subset is the sample level, its three turns and twelve seeded
+/// levels, some with empty cells; each pair is built once and shared by
+/// every fact (<see cref="Rooms3x3Fixture"/>). The same checks run over
 /// any number of arrangements, up to all of them, in the opt-in sweep
 /// (<see cref="Rooms3x3SweepFactAttribute"/>).
 /// </para>
@@ -104,15 +108,24 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
 
     // ---- the subset itself ---------------------------------------------------
 
-    /// <summary>The default subset is the documented 17, all valid, and the 4 turns come first.</summary>
+    /// <summary>
+    /// The default subset is the four turns, then the twelve seeded levels;
+    /// all are valid, some leave cells empty, and between them every kind of
+    /// room is placed.
+    /// </summary>
     [Fact]
-    public void TheDefaultSubsetIsSeventeenValidArrangements()
+    public void TheDefaultSubsetIsTheTurnsAndTheSeeds()
     {
-        Assert.Equal(17, Rooms3x3Fixture.Cases.Count);
+        Assert.Equal(16, Rooms3x3Fixture.Cases.Count);
         Assert.All(Rooms3x3Fixture.Cases, c => Assert.True(c.Arrangement.IsValid(), c.Name));
         Assert.Equal(
             ["rooms3x3", "rooms3x3_turn1", "rooms3x3_turn2", "rooms3x3_turn3"],
             Rooms3x3Fixture.Cases.Take(4).Select(c => c.Name));
+        Assert.Equal(Rooms3x3Permutations.Seeds.Select(s => s.Name), Rooms3x3Fixture.Cases.Skip(4).Select(c => c.Name));
+        Assert.Contains(Rooms3x3Fixture.Cases, c => c.Arrangement.Cells.Any(cell => cell is null));
+        Assert.Equal(
+            Rooms3x3Kit.Kinds.Select(k => k.Name).Order(),
+            Rooms3x3Fixture.Cases.SelectMany(c => c.Arrangement.Cells).OfType<Rooms3x3Cell>().Select(c => c.Kind).Distinct().Order());
     }
 
     /// <summary>
@@ -126,9 +139,10 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
     public async Task OneTurnedRoomIsSeenByThePointContents()
     {
         Rooms3x3Pair pair = await fixture.PairAsync(Rooms3x3Permutations.LevelName);
-        List<Rooms3x3Cell> cells = [.. Rooms3x3Permutations.Canonical.Cells];
-        Assert.Equal("cross", cells[4].Kind);
-        cells[4] = cells[4] with { Rotation = (cells[4].Rotation + 1) % 4 };
+        List<Rooms3x3Cell?> cells = [.. Rooms3x3Permutations.Canonical.Cells];
+        Rooms3x3Cell cross = cells[4]!.Value;
+        Assert.Equal("cross", cross.Kind);
+        cells[4] = cross with { Rotation = (cross.Rotation + 1) % 4 };
         Rooms3x3Arrangement turned = new(cells);
         Assert.True(turned.IsValid());
         LevelProbe other = new((await fixture.MonolithicAsync(turned, "turned_cross")).Bsp!);
@@ -256,10 +270,16 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
 
         Assert.True(differ.Count == 0, $"{name}: contents differ at {string.Join(", ", differ)}");
 
-        // Empty, solid and grate leaves are what a point can report here; the
-        // clip and detail brushes leave their leaves empty and are met by
-        // traces instead (KitFeaturesStopTheMasksTheyShould).
-        Assert.Equal([0, (int)BrushContents.Solid, (int)(BrushContents.Grate | BrushContents.Translucent)], kinds.Order());
+        // Empty, solid and grate leaves are what a point can report here, the
+        // grate only where a corner room stands; the clip and detail brushes
+        // leave their leaves empty and are met by traces instead
+        // (KitFeaturesStopTheMasksTheyShould).
+        bool corner = pair.Case.Arrangement.Placed.Any(c => pair.Case.Arrangement.KindAt(c.X, c.Y).Name == "corner");
+        Assert.Equal(
+            corner
+                ? [0, (int)BrushContents.Solid, (int)(BrushContents.Grate | BrushContents.Translucent)]
+                : [0, (int)BrushContents.Solid],
+            kinds.Order());
     }
 
     /// <summary>
@@ -292,11 +312,10 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
         };
 
         HashSet<string> seen = [];
-        for (int y = 0; y < Rooms3x3Arrangement.Size; y++)
+        foreach ((int x, int y) in arrangement.Placed)
         {
-            for (int x = 0; x < Rooms3x3Arrangement.Size; x++)
             {
-                RoomKind kind = Rooms3x3Kit.Kind(arrangement[x, y].Kind);
+                RoomKind kind = arrangement.KindAt(x, y);
                 Rooms3x3Placement placement = arrangement.Placement(x, y);
                 Bounds box = kind.Features[0].Box;
                 float cy = (box.Mins.Y + box.Maxs.Y) / 2, cz = (box.Mins.Z + box.Maxs.Z) / 2;
@@ -318,7 +337,8 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
             }
         }
 
-        Assert.Equal(expected.Keys.Order(), seen.Order());
+        // Every kind is met across the default subset (TheDefaultSubsetIsTheTurnsAndTheSeeds).
+        Assert.NotEmpty(seen);
     }
 
     /// <summary>
@@ -338,9 +358,8 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
         Rooms3x3Arrangement arrangement = pair.Case.Arrangement;
 
         int open = 0, capped = 0;
-        for (int y = 0; y < Rooms3x3Arrangement.Size; y++)
+        foreach ((int x, int y) in arrangement.Placed)
         {
-            for (int x = 0; x < Rooms3x3Arrangement.Size; x++)
             {
                 Rooms3x3Placement placement = arrangement.Placement(x, y);
                 foreach ((KitSide mine, _) in arrangement.Joints(x, y))
@@ -361,10 +380,11 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
             }
         }
 
-        // A lined-up 3x3 level that connects nine rooms has at least eight joints,
-        // counted once from each side.
-        Assert.True(open >= 16, $"{name}: {open} jointed socket(s)");
-        Assert.Equal(arrangement.Cells.Sum(c => Rooms3x3Kit.Kind(c.Kind).Sockets.Count), open + capped);
+        // A level that connects n rooms has at least n - 1 joints, counted
+        // once from each side.
+        int rooms = arrangement.Placed.Count();
+        Assert.True(open >= 2 * (rooms - 1), $"{name}: {open} jointed socket(s) for {rooms} rooms");
+        Assert.Equal(arrangement.Placed.Sum(c => arrangement.KindAt(c.X, c.Y).Sockets.Count), open + capped);
     }
 
     // ---- 3. traces ---------------------------------------------------------------
@@ -386,7 +406,7 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
         string name = pair.Case.Name;
 
         List<(Vec3, Vec3)> segments = [];
-        List<Vec3> eyes = [.. RoomEyes()];
+        List<Vec3> eyes = [.. RoomEyes(pair.Case.Arrangement)];
         for (int a = 0; a < eyes.Count; a++)
         {
             for (int b = a + 1; b < eyes.Count; b++)
@@ -433,7 +453,9 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
     /// <summary>
     /// Flooding the lattice's player-passable points from each room's centre
     /// reaches every room the layout's joints connect it to, and no other,
-    /// in both maps.
+    /// in both maps; and, since a level is only valid when a player can
+    /// reach every room, a standing player's hull flooded from any room's
+    /// centre reaches every placed room, in both maps.
     /// </summary>
     [Theory]
     [MemberData(nameof(Cases))]
@@ -444,25 +466,82 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
     internal static void EveryRoomReachesExactlyTheRoomsItsDoorsJoinCheck(Rooms3x3Pair pair)
     {
         string name = pair.Case.Name;
-        int[] expected = pair.Case.Arrangement.Components();
+        Rooms3x3Arrangement arrangement = pair.Case.Arrangement;
+        int[] components = arrangement.Components();
+        int[] expected = [.. arrangement.Placed.Select(c => components[(c.Y * Rooms3x3Arrangement.Size) + c.X])];
+        Assert.All(expected, c => Assert.Equal(0, c));
 
-        foreach (LevelProbe probe in new[] { pair.LinkedProbe, pair.MonolithicProbe })
+        foreach ((string map, LevelProbe probe) in new[] { ("linked", pair.LinkedProbe), ("monolithic", pair.MonolithicProbe) })
         {
-            int[] component = Flood(probe);
-            List<Vec3> eyes = [.. RoomEyes()];
+            bool[] blocked = Blocked(probe);
+            int[] component = Flood(blocked);
+            List<Vec3> eyes = [.. RoomEyes(arrangement)];
             for (int a = 0; a < eyes.Count; a++)
             {
                 for (int b = 0; b < eyes.Count; b++)
                 {
                     int ca = component[Index(eyes[a])];
                     int cb = component[Index(eyes[b])];
-                    Assert.True(ca >= 0, $"{name}: room {a}'s centre is not open");
+                    Assert.True(ca >= 0, $"{name} {map}: room {a}'s centre is not open");
                     Assert.True(
                         (ca == cb) == (expected[a] == expected[b]),
-                        $"{name}: rooms {a} and {b} reach each other: {ca == cb}; the joints say {expected[a] == expected[b]}");
+                        $"{name} {map}: rooms {a} and {b} reach each other: {ca == cb}; the joints say {expected[a] == expected[b]}");
                 }
             }
+
+            int[] hull = HullFlood(blocked);
+            List<(int I, int J, int K)> feet = [.. RoomFeet(arrangement)];
+            int first = hull[NodeIndex(feet[0])];
+            Assert.True(first >= 0, $"{name} {map}: a standing player does not fit at room 0's centre");
+            for (int a = 0; a < feet.Count; a++)
+            {
+                Assert.True(
+                    hull[NodeIndex(feet[a])] == first,
+                    $"{name} {map}: a standing player cannot walk from room 0 to room {a}");
+            }
         }
+    }
+
+    /// <summary>
+    /// The hull check can fail: on a lattice whose only way between two
+    /// rooms is a gap narrower than the player, points still flood through
+    /// but the hull does not.
+    /// </summary>
+    [Fact]
+    public void TheHullFloodStopsAtAGapNarrowerThanAPlayer()
+    {
+        // Everything blocked except two open boxes joined by a slot 3 points
+        // (24 units) wide, the full height.
+        bool[] blocked = new bool[Across * Across * Up];
+        for (int index = 0; index < blocked.Length; index++)
+        {
+            int i = index % Across, j = index / Across % Across, k = index / (Across * Across);
+            bool roomA = i is >= 10 and < 30 && j is >= 10 and < 30 && k is >= 2 and < 30;
+            bool roomB = i is >= 40 and < 60 && j is >= 10 and < 30 && k is >= 2 and < 30;
+            bool slot = i is >= 30 and < 40 && j is >= 18 and < 21 && k is >= 2 and < 30;
+            blocked[index] = !(roomA || roomB || slot);
+        }
+
+        int[] points = Flood(blocked);
+        int[] hull = HullFlood(blocked);
+        int PointAt(int i, int j, int k) => i + (Across * j) + (Across * Across * k);
+        Assert.Equal(points[PointAt(15, 15, 5)], points[PointAt(45, 15, 5)]);
+        Assert.True(hull[NodeIndex((15, 15, 3))] >= 0);
+        Assert.True(hull[NodeIndex((45, 15, 3))] >= 0);
+        Assert.NotEqual(hull[NodeIndex((15, 15, 3))], hull[NodeIndex((45, 15, 3))]);
+
+        // Widen the slot to exactly a player's width (5 points, 32 units) and it passes.
+        for (int index = 0; index < blocked.Length; index++)
+        {
+            int i = index % Across, j = index / Across % Across, k = index / (Across * Across);
+            if (i is >= 30 and < 40 && j is >= 18 and < 23 && k is >= 2 and < 30)
+            {
+                blocked[index] = false;
+            }
+        }
+
+        hull = HullFlood(blocked);
+        Assert.Equal(hull[NodeIndex((15, 15, 3))], hull[NodeIndex((45, 15, 3))]);
     }
 
     // ---- 5. visibility -----------------------------------------------------------
@@ -570,13 +649,10 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
             $"{name}: {linked.Count} linked convexes, {whole.Count} monolithic; only linked: "
             + $"{string.Join("; ", onlyLinked.Take(8))}; only monolithic: {string.Join("; ", onlyWhole.Take(8))}");
 
-        for (int y = 0; y < Rooms3x3Arrangement.Size; y++)
+        foreach ((int x, int y) in pair.Case.Arrangement.Placed)
         {
-            for (int x = 0; x < Rooms3x3Arrangement.Size; x++)
-            {
-                string cell = string.Create(CultureInfo.InvariantCulture, $"cell {x} {y}");
-                Assert.Contains(linked, c => c.EndsWith(cell, StringComparison.Ordinal));
-            }
+            string cell = string.Create(CultureInfo.InvariantCulture, $"cell {x} {y}");
+            Assert.Contains(linked, c => c.EndsWith(cell, StringComparison.Ordinal));
         }
     }
 
@@ -639,7 +715,11 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
 
         List<string> linked = Entities(pair.Linked.Bsp);
         List<string> whole = Entities(pair.Monolithic.Bsp!);
-        Assert.Equal(10, whole.Count); // nine lights and the one player start
+        // A light in every room, and a player start in every end room.
+        Rooms3x3Arrangement arrangement = pair.Case.Arrangement;
+        Assert.Equal(
+            arrangement.Placed.Count() + arrangement.Placed.Count(c => arrangement.KindAt(c.X, c.Y).Name == "end"),
+            whole.Count);
         Assert.Equal(whole, linked);
     }
 
@@ -667,33 +747,114 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
         + (Across * (int)((p.Y - LatticeStart) / Pitch))
         + (Across * Across * (int)((p.Z - LatticeStart) / Pitch));
 
-    /// <summary>The centre of each room at eye height, on the lattice, in row order.</summary>
-    private static IEnumerable<Vec3> RoomEyes()
+    /// <summary>The centre of each placed room at eye height, on the lattice, in row order.</summary>
+    private static IEnumerable<Vec3> RoomEyes(Rooms3x3Arrangement arrangement)
     {
-        for (int y = 0; y < Rooms3x3Arrangement.Size; y++)
+        foreach ((int x, int y) in arrangement.Placed)
         {
-            for (int x = 0; x < Rooms3x3Arrangement.Size; x++)
-            {
-                // 132 is the lattice point nearest the middle of a 256 cell.
-                yield return new Vec3((x * Rooms3x3Kit.CellSize) + 132, (y * Rooms3x3Kit.CellSize) + 132, 84);
-            }
+            // 132 is the lattice point nearest the middle of a 256 cell.
+            yield return new Vec3((x * Rooms3x3Kit.CellSize) + 132, (y * Rooms3x3Kit.CellSize) + 132, 84);
         }
     }
 
-    /// <summary>Components of the lattice's player-passable points, 6-connected; -1 where blocked.</summary>
-    private static int[] Flood(LevelProbe probe)
+    /// <summary>
+    /// Where a standing player's hull is placed in each placed room, as a
+    /// hull node: centred on the room's middle, feet on the first lattice
+    /// point above the floor (z 20, the floor's top being 16).
+    /// </summary>
+    private static IEnumerable<(int I, int J, int K)> RoomFeet(Rooms3x3Arrangement arrangement)
     {
-        int[] component = new int[Across * Across * Up];
+        int perCell = (int)(Rooms3x3Kit.CellSize / Pitch);
+        foreach ((int x, int y) in arrangement.Placed)
+        {
+            // The hull spans HullWide points from i: 116..148 around the middle 132.
+            yield return ((x * perCell) + 16, (y * perCell) + 16, 4);
+        }
+    }
+
+    /// <summary>Which lattice points a player cannot stand in: the leaf's contents, or a clip or detail brush the leaf lists.</summary>
+    private static bool[] Blocked(LevelProbe probe)
+    {
+        bool[] blocked = new bool[Across * Across * Up];
         for (int k = 0; k < Up; k++)
         {
             for (int j = 0; j < Across; j++)
             {
                 for (int i = 0; i < Across; i++)
                 {
-                    int index = i + (Across * j) + (Across * Across * k);
-                    component[index] = (probe.Contents(At(i, j, k)) & MaskPlayerSolid) == 0 ? int.MaxValue : -1;
+                    Vec3 p = At(i, j, k);
+                    blocked[i + (Across * j) + (Across * Across * k)] =
+                        (probe.Contents(p) & MaskPlayerSolid) != 0 || probe.InsideBrush(p, MaskPlayerSolid);
                 }
             }
+        }
+
+        return blocked;
+    }
+
+    /// <summary>The standing player's hull in lattice points: 32 units is 4 pitches, so 5 points across; 72 is 9, so 10 up.</summary>
+    private const int HullWide = (int)(PlayerHull.Width / Pitch) + 1;
+
+    private const int HullTall = (int)(PlayerHull.Height / Pitch) + 1;
+
+    private static int NodeIndex((int I, int J, int K) node) => node.I + (Across * node.J) + (Across * Across * node.K);
+
+    /// <summary>
+    /// Components of the positions a standing player's hull fits in,
+    /// 6-connected; -1 where it does not fit. A node is the hull's low
+    /// corner lattice point; the hull fits when none of the HullWide by
+    /// HullWide by HullTall points it covers is blocked. The lattice is
+    /// offset from the 16-unit grid every brush lies on, and no solid is
+    /// thinner than 16, so a brush inside a hull always covers one of its
+    /// points. A 3D prefix sum of the blocked points answers each node in
+    /// constant time.
+    /// </summary>
+    private static int[] HullFlood(bool[] blocked)
+    {
+        int sx = Across + 1, sy = Across + 1;
+        int[] sum = new int[sx * sy * (Up + 1)];
+        int S(int i, int j, int k) => sum[i + (sx * j) + (sx * sy * k)];
+        for (int k = 1; k <= Up; k++)
+        {
+            for (int j = 1; j <= Across; j++)
+            {
+                for (int i = 1; i <= Across; i++)
+                {
+                    int b = blocked[(i - 1) + (Across * (j - 1)) + (Across * Across * (k - 1))] ? 1 : 0;
+                    sum[i + (sx * j) + (sx * sy * k)] = b
+                        + S(i - 1, j, k) + S(i, j - 1, k) + S(i, j, k - 1)
+                        - S(i - 1, j - 1, k) - S(i - 1, j, k - 1) - S(i, j - 1, k - 1)
+                        + S(i - 1, j - 1, k - 1);
+                }
+            }
+        }
+
+        bool[] fits = new bool[Across * Across * Up];
+        for (int k = 0; k + HullTall <= Up; k++)
+        {
+            for (int j = 0; j + HullWide <= Across; j++)
+            {
+                for (int i = 0; i + HullWide <= Across; i++)
+                {
+                    int i1 = i + HullWide, j1 = j + HullWide, k1 = k + HullTall;
+                    int inside = S(i1, j1, k1) - S(i, j1, k1) - S(i1, j, k1) - S(i1, j1, k)
+                        + S(i, j, k1) + S(i, j1, k) + S(i1, j, k) - S(i, j, k);
+                    fits[i + (Across * j) + (Across * Across * k)] = inside == 0;
+                }
+            }
+        }
+
+        bool[] notFit = [.. fits.Select(f => !f)];
+        return Flood(notFit);
+    }
+
+    /// <summary>Components of the lattice's unblocked points, 6-connected; -1 where blocked.</summary>
+    private static int[] Flood(bool[] blocked)
+    {
+        int[] component = new int[Across * Across * Up];
+        for (int index = 0; index < component.Length; index++)
+        {
+            component[index] = blocked[index] ? -1 : int.MaxValue;
         }
 
         int next = 0;
@@ -771,7 +932,7 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
                 foreach ((KitSide mine, _) in arrangement.Joints(x, y))
                 {
                     // Each shared wall once: from the room west or south of it.
-                    KitSide world = Rooms3x3Kit.Turn(mine, arrangement[x, y].Rotation);
+                    KitSide world = Rooms3x3Kit.Turn(mine, arrangement[x, y]!.Value.Rotation);
                     if (world is not (KitSide.East or KitSide.North))
                     {
                         continue;

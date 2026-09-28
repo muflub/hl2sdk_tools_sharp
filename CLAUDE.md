@@ -85,9 +85,16 @@ breaking one fails the suite rather than a review.
   are fine; a `static readonly` array is not, because its elements are
   writable. Two compiles must be able to share one process.
 - **No package references** in `MapFormats` or `MapTools`, direct or
-  transitive. SQLite belongs in `Cache.Sqlite` and Silk.NET in `Gpu`, and
-  those reference the core, not the other way round. `MapFormats` has no
-  project references at all.
+  transitive, with one named exception. SQLite belongs in `Cache.Sqlite` and
+  Silk.NET in `Gpu`, and those reference the core, not the other way round.
+  `MapFormats` has no project references at all. The exception is
+  **YamlDotNet in `MapTools`**: the owner decided that room levels are YAML
+  files read with a standard YAML library rather than a hand-written parser.
+  It has no dependencies of its own, and the level reader uses only its
+  representation model, which keeps the NativeAOT build trim-clean. The test
+  holds an explicit allow-list with exactly that entry, and checks that the
+  allowed package itself references only the framework; any other package
+  still fails.
 - **Every public async method takes its `CancellationToken` last.**
   `DisposeAsync` is the only exemption.
 - **No platform math** in `SourceSharp.MapFormats` or `SourceSharp.MapTools`.

@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using System.Globalization;
+
 using SourceSharp.MapCompile;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Geometry;
@@ -21,36 +23,38 @@ namespace SourceSharp.Tests.MapCompile;
 
 /// <summary>
 /// The 3x3 rooms sample through the CLI, as its README runs it, on an
-/// in-memory disk: <c>ssmap room</c> on each room, <c>ssmap link</c> on the
-/// sample level and its turns, <c>ssmap vbsp</c> on the reference.
+/// in-memory disk: <c>ssmap room</c> on the library, <c>ssmap link</c> on
+/// the sample's level files, <c>ssmap link --flatten</c> and
+/// <c>ssmap vbsp</c> on the reference, <c>ssmap layout</c> for the seeded
+/// levels.
 /// </summary>
 public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixture<Rooms3x3Fixture>
 {
     /// <summary>
-    /// Every room compiles with <c>ssmap room</c> against the sample's own
-    /// game folder; <c>ssmap link</c> links the sample level and its three
-    /// turns from the same room files without recompiling them; each map it
-    /// writes is byte for byte the map the linker API makes from the rooms the
-    /// equivalence facts compile, passes the loader validation, and carries
-    /// the door graph's visibility.
+    /// <c>ssmap room</c> compiles every room of the library against the
+    /// sample's own game folder; <c>ssmap link</c> links every level file of
+    /// the sample from the same room files without recompiling them; each
+    /// map it writes is byte for byte the map the linker API makes from the
+    /// rooms the equivalence facts compile, passes the loader validation,
+    /// and carries the door graph's visibility.
     /// </summary>
     [Fact]
     public async Task RoomThenLinkWritesTheMapsTheEquivalenceFactsCheck()
     {
         InMemoryFileSystem fs = Sample();
         using StringWriter output = new();
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["/sample/rooms.vmf", "-game", "/sample", "-out", "/sample/rooms"], output);
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
         foreach (RoomKind kind in Rooms3x3Kit.Kinds)
         {
-            int exit = await RoomCommands.RunRoomAsync(fs, [], [$"/sample/maps/{kind.Name}.vmf", "-out", "/sample/rooms"], output);
-            Assert.True(exit == Program.ExitSuccess, output.ToString());
+            Assert.NotNull(fs.GetBytes(VPath.Create(Rooted($"/sample/rooms/{kind.Name}.room"))));
         }
 
-        for (int turns = 0; turns < 4; turns++)
+        foreach (string name in Levels())
         {
-            string name = Rooms3x3Permutations.TurnName(turns);
-            int exit = await RoomCommands.RunLinkAsync(
+            exit = await RoomCommands.RunLinkAsync(
                 fs,
-                [$"/sample/layouts/{name}.json", "-rooms", "/sample/rooms", "-out", $"/sample/out/{name}.bsp"],
+                [$"/sample/levels/{name}.yaml", "-rooms", "/sample/rooms", "-out", $"/sample/out/{name}.bsp"],
                 output);
             Assert.True(exit == Program.ExitSuccess, output.ToString());
 
@@ -66,22 +70,31 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
             Assert.True(report.ErrorCount == 0, string.Join("; ", report.Diagnostics));
         }
 
-        DoorGraphFacts.AssertDoorGraph((await fixture.PairAsync(Rooms3x3Permutations.LevelName)).Linked,
-            (await fixture.PairAsync(Rooms3x3Permutations.LevelName)).Layout, fixture.Library);
+        Rooms3x3Pair sample = await fixture.PairAsync(Rooms3x3Permutations.LevelName);
+        DoorGraphFacts.AssertDoorGraph(sample.Linked, sample.Layout, fixture.Library);
     }
 
     /// <summary>
-    /// <c>ssmap vbsp</c> compiles the reference VMF against the sample's game
-    /// folder without leaking, and the map it writes agrees with the linked
-    /// map at every point of the equivalence facts' lattice.
+    /// <c>ssmap link --flatten</c> writes the reference VMF the equivalence
+    /// facts compile, byte for byte; <c>ssmap vbsp</c> compiles it against
+    /// the sample's game folder without leaking; and the map it writes
+    /// agrees with the linked map at every point of the equivalence facts'
+    /// lattice.
     /// </summary>
     [Fact]
-    public async Task TheReferenceCompilesWithVbspAndAgreesWithTheLink()
+    public async Task TheFlattenedReferenceCompilesWithVbspAndAgreesWithTheLink()
     {
         InMemoryFileSystem fs = Sample();
         using StringWriter output = new();
+        int exit = await RoomCommands.RunLinkAsync(
+            fs, ["/sample/levels/rooms3x3.yaml", "--flatten", "-out", "/sample/maps/rooms3x3.vmf"], output);
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+
+        Rooms3x3Pair pair = await fixture.PairAsync(Rooms3x3Permutations.LevelName);
+        Assert.Equal(pair.Flattened.ToBytes(), fs.GetBytes(VPath.Create(Rooted("/sample/maps/rooms3x3.vmf"))));
+
         await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
-        int exit = await VbspCommand.RunAsync(fs, ["/sample/maps/rooms3x3.vmf"], cooker, output);
+        exit = await VbspCommand.RunAsync(fs, ["/sample/maps/rooms3x3.vmf"], cooker, output);
         Assert.True(exit == Program.ExitSuccess, output.ToString());
 
         using MemoryStream stream = new(fs.GetBytes(VPath.Create(Rooted("/sample/maps/rooms3x3.bsp")))!);
@@ -89,12 +102,48 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
         Assert.Equal(0, (await BspValidator.CheckAsync(reference, CancellationToken.None)).ErrorCount);
 
         LevelProbe whole = new(reference);
-        LevelProbe linked = (await fixture.PairAsync(Rooms3x3Permutations.LevelName)).LinkedProbe;
+        LevelProbe linked = pair.LinkedProbe;
         foreach (Vec3 p in Rooms3x3EquivalenceTests.Lattice())
         {
             Assert.True(whole.Contents(p) == linked.Contents(p), $"({p.X} {p.Y} {p.Z})");
         }
     }
+
+    /// <summary>
+    /// The sample's seeded level files are exactly what
+    /// <c>ssmap layout rooms.vmf -rows 3 -columns 3 -seed N</c> writes for
+    /// their seeds, run on the sample's own library.
+    /// </summary>
+    [Fact]
+    public async Task TheSampleSeededLevelsAreWhatSsmapLayoutWrites()
+    {
+        InMemoryFileSystem fs = Sample();
+        foreach (string name in Rooms3x3Permutations.SampleSeeds)
+        {
+            (_, ulong seed, double empty) = Rooms3x3Permutations.Seeds.Single(s => s.Name == name);
+            List<string> args =
+            [
+                "/sample/rooms.vmf", "-rows", "3", "-columns", "3", "-seed", seed.ToString(CultureInfo.InvariantCulture),
+                "-out", $"/sample/generated/{name}.yaml",
+            ];
+            if (empty > 0)
+            {
+                args.AddRange(["-empty", empty.ToString(CultureInfo.InvariantCulture)]);
+            }
+
+            using StringWriter output = new();
+            Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLayoutAsync(fs, args, output));
+            Assert.Equal(
+                fs.GetBytes(VPath.Create(Rooted($"/sample/levels/{name}.yaml"))),
+                fs.GetBytes(VPath.Create(Rooted($"/sample/generated/{name}.yaml"))));
+        }
+    }
+
+    /// <summary>The sample's level files, by base name.</summary>
+    private static IEnumerable<string> Levels() =>
+        Rooms3x3Sample.Build().Keys
+            .Where(k => k.StartsWith("levels/", StringComparison.Ordinal))
+            .Select(k => Path.GetFileNameWithoutExtension(k));
 
     /// <summary>The sample's generated files, under <c>/sample</c> as the host resolves it.</summary>
     private static InMemoryFileSystem Sample()

@@ -14,10 +14,21 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The only reference. MapTools stays package-free (plan ruling Q3); the
-         two permitted runtime packages live in the optional Cache.Sqlite and
-         Gpu assemblies, which reference THIS one and not the reverse, so a
-         host that wants neither a cache nor a GPU pulls in neither. -->
+    <!-- MapTools' project reference. The heavy runtime packages (SQLite,
+         Silk.NET) live in the optional Cache.Sqlite and Gpu assemblies, which
+         reference THIS one and not the reverse, so a host that wants neither a
+         cache nor a GPU pulls in neither. -->
     <ProjectReference Include="..\SourceSharp.MapFormats\SourceSharp.MapFormats.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The one package MapTools takes, by the owner's decision: room levels
+         are YAML files, and YAML is read with a standard library rather than a
+         hand-written parser. YamlDotNet has no dependencies of its own, and the
+         level reader uses only its representation model (YamlStream), which
+         needs no reflection, so the NativeAOT build stays trim-clean.
+         LibraryRuleTests.ReferencesNoPackages allows exactly this assembly,
+         for MapTools only, and still checks what it references in turn. -->
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 </Project>

@@ -5,6 +5,10 @@
 //
 //=============================================================================//
 
+using System.Globalization;
+
+using SourceSharp.MapTools.Rooms;
+
 namespace SourceSharp.MapGen.Rooms;
 
 /// <summary>Why an arrangement is in the verified set.</summary>
@@ -15,7 +19,8 @@ public sealed record Rooms3x3Case(string Name, string Reason, Rooms3x3Arrangemen
 
 /// <summary>
 /// The rearrangements of the sample level: every valid arrangement of its nine
-/// rooms, and the deterministic subset the default test run verifies.
+/// rooms, for the exhaustive sweep, and the seeded levels the default test
+/// run verifies.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -26,41 +31,34 @@ public sealed record Rooms3x3Case(string Name, string Reason, Rooms3x3Arrangemen
 /// opens onto its neighbour's wall is not a joint. The valid ones are those
 /// whose sockets line up on every shared wall and whose joints connect all
 /// nine rooms (<see cref="Rooms3x3Arrangement.IsValid"/>). There are
-/// <see cref="ValidCount"/> of them.
+/// <see cref="ValidCount"/> of them, and the opt-in sweep checks any number
+/// of them up to all.
 /// </para>
 /// <para>
 /// <b>The enumeration</b> is a backtracking search in a fixed order — cells row
 /// by row from (0, 0), kinds in <see cref="Rooms3x3Kit.Kinds"/> order,
 /// rotations 0 to 3 — that refuses a room as soon as it disagrees with its
 /// already-placed west or south neighbour. The order is part of the contract:
-/// the subset below names arrangements by their position in it.
+/// the sweep names arrangements by their position in it.
 /// </para>
 /// <para>
-/// <b>The default subset</b>, in this order, each arrangement once (a rule that
-/// picks one already chosen adds its reason to that case):
+/// <b>The default subset</b>, in this order:
 /// </para>
 /// <list type="number">
 /// <item>the sample level itself and its three whole-level quarter turns — the
 /// same level, every room moved to another cell and turned;</item>
-/// <item>for each kind and for each of two cell classes, the centre (1, 1) and
-/// the corner (0, 0), the first valid arrangement in enumeration order with
-/// that kind there — every kind in the most-connected cell and in a
-/// least-connected one;</item>
-/// <item><see cref="SampleCount"/> arrangements drawn from the whole
-/// enumeration by a fixed-seed generator, so the run reaches arrangements the
-/// rules above would never pick.</item>
+/// <item>the <see cref="Seeds"/>: 3x3 levels drawn by the seeded generator
+/// <c>ssmap layout</c> runs (<see cref="LevelGenerator"/>) from the sample
+/// library, with fixed seeds. These are not permutations of the nine rooms:
+/// the generator places any room of the library as often as it likes, and
+/// some of the seeds leave cells empty, so the run covers levels the sample
+/// level's rooms could never make.</item>
 /// </list>
 /// </remarks>
 public static class Rooms3x3Permutations
 {
     /// <summary>How many valid arrangements the sample level's rooms have.</summary>
     public const int ValidCount = 85_088;
-
-    /// <summary>The seed of the drawn sample.</summary>
-    public const ulong Seed = 0x5EED_3A3A_0000_0009UL;
-
-    /// <summary>How many arrangements the drawn sample adds.</summary>
-    public const int SampleCount = 4;
 
     /// <summary>The sample level's name, and its files' base name.</summary>
     public const string LevelName = "rooms3x3";
@@ -87,6 +85,7 @@ public static class Rooms3x3Permutations
 
     /// <summary>The sample level's rooms, kind by kind: what every arrangement rearranges.</summary>
     public static IReadOnlyDictionary<string, int> Multiset { get; } = Canonical.Cells
+        .Select(c => c!.Value)
         .GroupBy(c => c.Kind, StringComparer.Ordinal)
         .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
 
@@ -130,7 +129,7 @@ public static class Rooms3x3Permutations
             {
                 if (Connected(placed))
                 {
-                    Rooms3x3Cell[] cells = new Rooms3x3Cell[cellCount];
+                    Rooms3x3Cell?[] cells = new Rooms3x3Cell?[cellCount];
                     for (int i = 0; i < cellCount; i++)
                     {
                         cells[i] = new Rooms3x3Cell(kinds[kind[i]].Name, turns[i]);
@@ -216,56 +215,52 @@ public static class Rooms3x3Permutations
     }
 
     /// <summary>
-    /// The default subset, as named cases: see the type's remarks for the
-    /// three rules and their order.
+    /// The seeded levels of the default run: name, seed, and the share of
+    /// the nine cells left empty (a quarter leaves two).
     /// </summary>
-    /// <param name="all">The whole enumeration, as <see cref="All"/> returns it.</param>
-    public static IReadOnlyList<Rooms3x3Case> DefaultCases(IReadOnlyList<Rooms3x3Arrangement> all)
+    public static IReadOnlyList<(string Name, ulong Seed, double EmptyRatio)> Seeds { get; } =
+    [
+        ("seed_1", 1, 0), ("seed_2", 2, 0), ("seed_3", 3, 0), ("seed_4", 4, 0),
+        ("seed_5", 5, 0), ("seed_6", 6, 0), ("seed_7", 7, 0), ("seed_8", 8, 0),
+        ("seed_9", 9, 0.25), ("seed_10", 10, 0.25), ("seed_11", 11, 0.25), ("seed_12", 12, 0.25),
+    ];
+
+    /// <summary>The seeded levels checked into the sample folder, by name: two full grids, two with empty cells.</summary>
+    public static IReadOnlyList<string> SampleSeeds { get; } = ["seed_1", "seed_2", "seed_9", "seed_10"];
+
+    /// <summary>A seeded level of the sample library, as <c>ssmap layout rooms.vmf -rows 3 -columns 3</c> writes it.</summary>
+    /// <param name="name">The level's name: one of <see cref="Seeds"/>.</param>
+    /// <param name="library">The library as the level file names it.</param>
+    public static LevelGrid Seeded(string name, string library)
     {
-        ArgumentNullException.ThrowIfNull(all);
-        if (all.Count == 0)
-        {
-            throw new ArgumentException("the enumeration is empty, so there is nothing to draw from", nameof(all));
-        }
+        (string _, ulong seed, double empty) = Seeds.Single(s => s.Name == name);
+        return LevelGenerator.Generate(
+            [.. Rooms3x3Kit.Kinds.Select(Rooms3x3Kit.Definition)],
+            new LevelGeneratorOptions(Rooms3x3Arrangement.Size, Rooms3x3Arrangement.Size, seed, empty),
+            name,
+            library);
+    }
 
+    /// <summary>
+    /// The default subset, as named cases: see the type's remarks for the
+    /// two rules and their order.
+    /// </summary>
+    public static IReadOnlyList<Rooms3x3Case> DefaultCases()
+    {
         List<Rooms3x3Case> cases = [];
-        void Add(string name, string reason, Rooms3x3Arrangement arrangement)
-        {
-            int at = cases.FindIndex(c => c.Arrangement.Equals(arrangement));
-            if (at < 0)
-            {
-                cases.Add(new Rooms3x3Case(name, reason, arrangement));
-            }
-            else
-            {
-                cases[at] = cases[at] with { Reason = cases[at].Reason + "; " + reason };
-            }
-        }
-
         Rooms3x3Arrangement turned = Canonical;
         for (int turns = 0; turns < 4; turns++)
         {
-            Add(TurnName(turns), $"the sample level turned {turns} quarter(s)", turned);
+            cases.Add(new Rooms3x3Case(TurnName(turns), $"the sample level turned {turns} quarter(s)", turned));
             turned = turned.Turned();
         }
 
-        foreach ((string cell, int x, int y) in new[] { ("centre", 1, 1), ("corner", 0, 0) })
+        foreach ((string name, ulong seed, double empty) in Seeds)
         {
-            foreach (RoomKind kind in Rooms3x3Kit.Kinds)
-            {
-                Rooms3x3Arrangement? first = all.FirstOrDefault(a => a[x, y].Kind == kind.Name);
-                if (first is not null)
-                {
-                    Add($"{kind.Name}_in_{cell}", $"the first arrangement with the {kind.Name} in the {cell}", first);
-                }
-            }
-        }
-
-        ulong state = Seed;
-        for (int drawn = 0; drawn < SampleCount; drawn++)
-        {
-            int index = (int)(SplitMix(ref state) % (ulong)all.Count);
-            Add($"drawn_{index}", $"arrangement {index} of {all.Count}, drawn with seed {Seed:X}", all[index]);
+            cases.Add(new Rooms3x3Case(
+                name,
+                string.Create(CultureInfo.InvariantCulture, $"generated with seed {seed}, {empty:0.##} of the cells empty"),
+                Rooms3x3Arrangement.FromLevel(Seeded(name, Rooms3x3Kit.LibraryFile))));
         }
 
         return cases;
@@ -274,17 +269,4 @@ public static class Rooms3x3Permutations
     /// <summary>The file base name of the sample level turned a number of quarters.</summary>
     /// <param name="turns">0 to 3.</param>
     public static string TurnName(int turns) => turns == 0 ? LevelName : $"{LevelName}_turn{turns}";
-
-    /// <summary>
-    /// SplitMix64: a whole-integer generator, so the drawn sample is the same
-    /// on every runtime and CPU, which a floating-point or library generator
-    /// does not promise.
-    /// </summary>
-    private static ulong SplitMix(ref ulong state)
-    {
-        ulong z = state += 0x9E3779B97F4A7C15UL;
-        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
-        z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
-        return z ^ (z >> 31);
-    }
 }

@@ -121,12 +121,11 @@ public sealed class SkippedSearchPathReportTests
     public async Task RoomReportsTheSkippedSearchPaths()
     {
         InMemoryFileSystem fs = Game();
-        RoomDefinition hub = RoomHarness.Hub();
-        fs.AddFile(Rooted("/game/maps/hub.vmf"), RoomHarness.BuildRoomModel(hub).ToBytes());
-        fs.AddFile(Rooted("/game/maps/hub.vmf.roomdef.json"), Encoding.UTF8.GetBytes(RoomDefinitionJson.Write(hub)));
+        RoomDefinition hub = RoomHarness.WalkableRoom("hub", RoomFacing.PositiveX);
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), RoomHarness.LibraryVmf(hub).ToBytes());
         using StringWriter output = new();
 
-        await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/hub.vmf", "-out", "/rooms"], output);
+        await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output);
 
         AssertReported(output.ToString(), "ssmap room");
     }

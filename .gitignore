@@ -11,13 +11,15 @@ tools/SyntheticContent/obj/
 tools/RoomsSample/bin/
 tools/RoomsSample/obj/
 # What the 3x3 rooms sample's README commands write inside the sample folder:
-# the compiled rooms, the linked map, and the reference compile's outputs.
+# the compiled rooms, the linked maps, and the flattened reference and its
+# compile's outputs; and what the commands write by default, beside the
+# library and the level files.
 samples/rooms-3x3/rooms/
 samples/rooms-3x3/out/
-samples/rooms-3x3/maps/*.bsp
-samples/rooms-3x3/maps/*.prt
-samples/rooms-3x3/maps/*.log
-samples/rooms-3x3/maps/*.lin
+samples/rooms-3x3/maps/
+samples/rooms-3x3/*.room
+samples/rooms-3x3/levels/*.bsp
+samples/rooms-3x3/levels/*.vmf
 # Compile output beside the corpus maps: maps/ is test corpus, and a compile
 # run in place (ssmap all maps/ss_sandbox.vmf) writes these next to the .vmf.
 maps/*.bsp
