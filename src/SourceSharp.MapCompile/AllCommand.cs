@@ -79,6 +79,13 @@ public sealed record AllArgs(
     /// </summary>
     public bool Overlap { get; init; }
 
+    /// <summary>
+    /// The <see cref="AllCommand.RecordContentSwitch"/> zip path, or null: record
+    /// which game content the compile touched and write it out as a
+    /// self-contained game directory (<see cref="ContentRecording"/>).
+    /// </summary>
+    public string? RecordContent { get; init; }
+
     /// <summary>Whether any diagnostic is an error.</summary>
     public bool HasErrors => Diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error);
 }
@@ -116,7 +123,7 @@ public sealed record AllArgs(
 /// and <c>-vphysics</c> (vbsp's collision cooker, <see cref="VbspOptions.Cooker"/>;
 /// only the native cooker relaunches the process), <c>-listcompliance</c>,
 /// <c>-nocache</c>, <c>-overlap</c> (<see cref="CompileRequest.Overlap"/>),
-/// and <see cref="NoWriteSwitch"/>. Anything else there is
+/// <see cref="NoWriteSwitch"/> and <see cref="RecordContentSwitch"/>. Anything else there is
 /// an error that names the sections, never a silent guess at a stage. A
 /// section's own <c>-compliance</c> comes after the chain's and wins for that
 /// stage; the chain's <c>-threads</c> and any section's must agree.
@@ -135,6 +142,16 @@ public static class AllCommand
 
     /// <summary>Compiles in memory and writes nothing: no .bsp, .prt, .lin or .log.</summary>
     public const string NoWriteSwitch = "--no-write";
+
+    /// <summary>
+    /// Records the game content the compile touched and writes it to the zip
+    /// that follows (<see cref="ContentRecording"/>).
+    /// </summary>
+    /// <remarks>
+    /// Two dashes, like <see cref="NoWriteSwitch"/>: it is this tool's own
+    /// switch, not a stock one, and no stock spelling can be mistaken for it.
+    /// </remarks>
+    public const string RecordContentSwitch = "--record-content";
 
     /// <summary>The diagnostic code for a chain option the command line got wrong.</summary>
     public const string ChainArgument = "ALLARGS";
@@ -183,7 +200,7 @@ public static class AllCommand
     string? gpuDeviceMatch = null;
     int? gpuRaysPerSlab = null;
     bool overlap = false;
-
+    string? recordContent = null;
 
         for (int i = 0; i < shared.Count; i++)
         {
@@ -325,6 +342,20 @@ public static class AllCommand
                     {
                         noWrite = true;
                     }
+                    else if (string.Equals(arg, RecordContentSwitch, StringComparison.Ordinal))
+                    {
+                        // One zip per run: a second path would be a silent
+                        // choice of which recording the user meant.
+                        if (TakeValue(out string zip))
+                        {
+                            if (recordContent is not null)
+                            {
+                                Problem($"{RecordContentSwitch} \"{recordContent}\" and \"{zip}\": the chain writes one bundle, give it once");
+                            }
+
+                            recordContent = zip;
+                        }
+                    }
                     else if (arg.StartsWith('-'))
                     {
                         Problem(
@@ -436,6 +467,7 @@ public static class AllCommand
             GpuDeviceMatch = vrad.GpuDeviceMatch ?? gpuDeviceMatch,
             GpuRaysPerSlab = vrad.GpuRaysPerSlab ?? gpuRaysPerSlab,
             Overlap = overlap,
+            RecordContent = recordContent,
         };
     }
 
@@ -577,7 +609,8 @@ public static class AllCommand
         }
 
         await using ICollisionCooker? cooker = setup.Cooker;
-        return await CompileAsync(disk, searchRoots, parsed, paths, mapFile, cooker, output, cancellationToken)
+        return await CompileAsync(
+            disk, searchRoots, parsed, paths, mapFile, cooker, CommandLine(args), output, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -588,6 +621,7 @@ public static class AllCommand
         VbspCommand.MapPaths paths,
         string mapFile,
         ICollisionCooker? cooker,
+        string commandLine,
         TextWriter output,
         CancellationToken cancellationToken)
     {
@@ -630,19 +664,46 @@ public static class AllCommand
             + $"appid={resolution.Resolved.DetectedSteamAppId}")
             .ConfigureAwait(false);
 
+        // --record-content: the compile gets the recording wrapper in place
+        // of the mount, UNDER the loose files below, so what is recorded is
+        // game content at its content-relative path. Everything the chain
+        // reads from the game -- vbsp's materials and props, vrad's
+        // lights.rad, materials, models and textures -- goes through this one
+        // object; the loose files are added to the bundle by name.
+        ContentRecording? recording = parsed.RecordContent is null ? null : new(mounted.Content, disk);
+        IContentFileSystem game = recording is null ? mounted.Content : recording.Content;
+
         // vrad's <map>.rad beside the map and its -lights file, over the game,
         // as `ssmap vrad` layers them.
         string mapName = Path.GetFileName(paths.Source);
-        VradCommand.LooseFileContent content = new(disk, mounted.Content);
+        VradCommand.LooseFileContent content = new(disk, game);
         content.Add(mapName + ".rad", paths.Source + ".rad");
+        recording?.AddLoose(ContentRecording.LoosePath(paths.Source + ".rad"), VPath.Create(paths.Source + ".rad"), "map");
         if (parsed.LightsFile is { Length: > 0 } lights)
         {
             content.Add(lights, Path.GetFullPath(lights));
+            recording?.AddLoose(ContentRecording.LoosePath(lights), VPath.Create(Path.GetFullPath(lights)), "lights");
         }
 
-        await LightsRadLocator.AddFallbackAsync(
-            content, disk, mounted.Content, mounted.GameInfo, VbspHost.SteamFor(disk, searchRoots), output, cancellationToken)
+        // The fallback is asked of the recorded game, so the manifest shows
+        // the game's own lights.rad lookup missing; the bundle then carries
+        // the fallback at the root, where the replay's search paths find it.
+        string? fallback = await LightsRadLocator.AddFallbackAsync(
+            content, disk, game, mounted.GameInfo, VbspHost.SteamFor(disk, searchRoots), output, cancellationToken)
             .ConfigureAwait(false);
+        if (fallback is not null)
+        {
+            recording?.AddLoose(LightsRadLocator.FileName, VPath.Create(fallback), "fallback");
+        }
+
+        ContentRecordTarget? record = recording is null
+            ? null
+            : new ContentRecordTarget(
+                recording,
+                disk,
+                VPath.Create(Path.GetFullPath(parsed.RecordContent!)),
+                await ReadGameInfoTextAsync(disk, gameDirectory, cancellationToken).ConfigureAwait(false),
+                commandLine);
 
         // One thread pool for the whole chain: -threads is its size, and the
         // managed cooker's cooks run on it too rather than on the .NET pool.
@@ -651,7 +712,119 @@ public static class AllCommand
         using IDisposable onPool = CookOnPool(cooker, pool);
         return await CompileOnPoolAsync(
             disk, parsed, paths, mapFile, cooker, output, start, resolution, content, mapName,
-            parallel with { Pool = pool }, cancellationToken).ConfigureAwait(false);
+            parallel with { Pool = pool }, record, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The recorded game's own <c>gameinfo.txt</c>, which the bundle's is made from.</summary>
+    private static async Task<string?> ReadGameInfoTextAsync(
+        IFileSystem disk, string gameDirectory, CancellationToken cancellationToken)
+    {
+        VPath path = VPath.Create(Path.Combine(gameDirectory, "gameinfo.txt"));
+        if (!await disk.ExistsAsync(path, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        using System.Buffers.IMemoryOwner<byte> bytes = await disk.ReadAllAsync(path, cancellationToken).ConfigureAwait(false);
+        return System.Text.Encoding.UTF8.GetString(bytes.Memory.Span);
+    }
+
+    /// <summary>The command line as the manifest records it: <c>ssmap all</c> and each argument, quoted when it has a space.</summary>
+    /// <param name="args">The arguments after <c>all</c>.</param>
+    /// <returns>One line.</returns>
+    public static string CommandLine(IReadOnlyList<string> args)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+        return string.Join(
+            ' ',
+            new[] { "ssmap", "all" }.Concat(args.Select(static a => a.Length == 0 || a.Contains(' ', StringComparison.Ordinal) ? $"\"{a}\"" : a)));
+    }
+
+    /// <summary>
+    /// Runs the chain and, when <paramref name="record"/> is given, writes its
+    /// content bundle whatever the compile's outcome.
+    /// </summary>
+    /// <param name="request">The wired request.</param>
+    /// <param name="record">What <see cref="RecordContentSwitch"/> asked for, or null.</param>
+    /// <param name="output">Where the commentary goes.</param>
+    /// <param name="cancellationToken">Cancels the compile.</param>
+    /// <returns>The result, or null when the compile failed, and the exit code.</returns>
+    /// <remarks>
+    /// <para>
+    /// A compile that fails part way still writes the bundle: the files read
+    /// before the failure are exactly what is needed to reproduce it, which is
+    /// usually why the bundle was asked for. A <see cref="MapCompileException"/>
+    /// is the compile's own failure and exits <see cref="VbspCommand.ExitFailed"/>
+    /// after the bundle; anything else is written up the same way and then
+    /// rethrown, so the host's handler still reports it as it would have.
+    /// </para>
+    /// <para>
+    /// A cancelled compile writes nothing: the user stopped the run, and the
+    /// token that would write the zip is already cancelled.
+    /// </para>
+    /// <para>
+    /// A bundle that cannot be written (the content changed under the
+    /// compile, the disk is full) is reported and turns a successful compile's
+    /// exit code into a failure, since the run did not do what was asked; it
+    /// never hides the compile's own error.
+    /// </para>
+    /// <para>
+    /// Public because the CLI gets no <c>InternalsVisibleTo</c>: the facts run
+    /// this exact seam against in-memory content.
+    /// </para>
+    /// </remarks>
+    public static async Task<ChainOutcome> CompileRecordingAsync(
+        CompileRequest request,
+        ContentRecordTarget? record,
+        TextWriter output,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(output);
+
+        CompileResult? result = null;
+        int exit = Program.ExitSuccess;
+        try
+        {
+            result = await MapCompiler.CompileAsync(request, null, cancellationToken).ConfigureAwait(false);
+        }
+        catch (MapCompileException exception)
+        {
+            await output.WriteLineAsync($"Error: {exception.Message}").ConfigureAwait(false);
+            exit = VbspCommand.ExitFailed;
+        }
+        catch (Exception exception) when (record is not null && exception is not OperationCanceledException)
+        {
+            _ = await WriteRecordAsync(record, output, cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+
+        if (record is not null
+            && !await WriteRecordAsync(record, output, cancellationToken).ConfigureAwait(false)
+            && exit == Program.ExitSuccess)
+        {
+            exit = VbspCommand.ExitFailed;
+        }
+
+        return new ChainOutcome(result, exit);
+    }
+
+    private static async Task<bool> WriteRecordAsync(
+        ContentRecordTarget record, TextWriter output, CancellationToken cancellationToken)
+    {
+        try
+        {
+            ContentBundleSummary summary = await record.Recording.WriteAsync(
+                record.Files, record.ZipPath, record.GameInfoText, record.CommandLine, cancellationToken)
+                .ConfigureAwait(false);
+            await output.WriteLineAsync(summary.Line("/" + record.ZipPath)).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            await output.WriteLineAsync($"ssmap all: {RecordContentSwitch} failed: {exception.Message}").ConfigureAwait(false);
+            return false;
+        }
     }
 
     /// <summary>The chain's parallelism: <c>-threads</c> when given, else every processor.</summary>
@@ -719,6 +892,7 @@ public static class AllCommand
         VradCommand.LooseFileContent content,
         string mapName,
         CompileParallelism parallel,
+        ContentRecordTarget? record,
         CancellationToken cancellationToken)
     {
         // The -incremental store and the -gpu factory (plans 10a/10c), on the
@@ -745,16 +919,21 @@ public static class AllCommand
             resolution.Resolved.PresetName,
             cancellationToken).ConfigureAwait(false);
 
-        CompileResult result;
+        ChainOutcome outcome;
         try
         {
-            result = await MapCompiler.CompileAsync(request, null, cancellationToken).ConfigureAwait(false);
+            outcome = await CompileRecordingAsync(request, record, output, cancellationToken).ConfigureAwait(false);
         }
-        catch (MapCompileException exception)
+        catch
         {
-            await output.WriteLineAsync($"Error: {exception.Message}").ConfigureAwait(false);
             await DisposeCacheAsync(request).ConfigureAwait(false);
-            return VbspCommand.ExitFailed;
+            throw;
+        }
+
+        if (outcome.Result is not { } result)
+        {
+            await DisposeCacheAsync(request).ConfigureAwait(false);
+            return outcome.ExitCode;
         }
 
         // The Q12 line is already in the .log (MapCompiler flushed it with
@@ -793,7 +972,7 @@ public static class AllCommand
             }
         }
 
-        return Program.ExitSuccess;
+        return outcome.ExitCode;
     }
 
     /// <summary>Closes the run's cache store, if the line asked for one.</summary>
@@ -823,3 +1002,21 @@ public static class AllCommand
             output.WriteLine($"{diagnostic.Severity} {diagnostic.Code}: {diagnostic.Message}");
     }
 }
+
+/// <summary>What <see cref="AllCommand.CompileRecordingAsync"/> ended with.</summary>
+/// <param name="Result">The compile's result, or null when it failed.</param>
+/// <param name="ExitCode">The process exit code the chain ends with.</param>
+public sealed record ChainOutcome(CompileResult? Result, int ExitCode);
+
+/// <summary>What <see cref="AllCommand.RecordContentSwitch"/> needs once the compile ends.</summary>
+/// <param name="Recording">The recording the compile read through.</param>
+/// <param name="Files">Where the zip is written.</param>
+/// <param name="ZipPath">The zip's path.</param>
+/// <param name="GameInfoText">The recorded game's <c>gameinfo.txt</c>, or null.</param>
+/// <param name="CommandLine">The command line, for the manifest.</param>
+public sealed record ContentRecordTarget(
+    ContentRecording Recording,
+    IFileSystem Files,
+    VPath ZipPath,
+    string? GameInfoText,
+    string CommandLine);

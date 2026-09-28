@@ -405,6 +405,9 @@ public static class Program
                                                        -listcompliance -nocache -incremental
                                                        -cache-dir <dir> -gpu <match>
                                                        -gpu_slabs <n> -overlap --no-write
+                                                       --record-content <zip>: also write every
+                                                       game file the compile read, as a game
+                                                       directory with its own gameinfo.txt
               room <in.vmf> [-out <dir>] [-def <roomdef.json>] [vbsp options]
                                                       one room's VMF -> <dir>/<name>.room;
                                                       the definition sidecar beside the

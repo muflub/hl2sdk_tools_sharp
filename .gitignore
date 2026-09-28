@@ -2,6 +2,7 @@ bin/
 obj/
 *.user
 perf-results/
+content-bundles/
 tools/PerfTraceReport/bin/
 tools/PerfTraceReport/obj/
 __pycache__/

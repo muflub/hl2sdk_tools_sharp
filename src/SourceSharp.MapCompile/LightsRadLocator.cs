@@ -133,7 +133,11 @@ public static class LightsRadLocator
     /// Adds the fallback to a command's loose files when the game lacks
     /// <c>lights.rad</c>, and says which file it used, as stock does.
     /// </summary>
-    internal static async Task AddFallbackAsync(
+    /// <returns>
+    /// The file added, or null when none was: <c>ssmap all --record-content</c>
+    /// carries it in the bundle, where the replay's search paths find it.
+    /// </returns>
+    internal static async Task<string?> AddFallbackAsync(
         VradCommand.LooseFileContent content,
         IFileSystem disk,
         IContentFileSystem? game,
@@ -146,11 +150,12 @@ public static class LightsRadLocator
             .ConfigureAwait(false);
         if (path is null)
         {
-            return;
+            return null;
         }
 
         content.Add(FileName, path);
         await output.WriteLineAsync($"{FileName} is not in the game's search paths; using {path}").ConfigureAwait(false);
+        return path;
     }
 
     private static async ValueTask<bool> ExistsAsync(IFileSystem disk, string path, CancellationToken cancellationToken) =>
