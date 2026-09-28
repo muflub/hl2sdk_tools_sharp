@@ -64,21 +64,26 @@ public static class RoomCompiler
         RoomDefinition definition,
         VbspContext context,
         CancellationToken cancellationToken = default) =>
-        CompileAsync(document, definition, context, tighteningClaimProbe: null, cancellationToken);
+        CompileAsync(document, definition, context, tighteningClaimProbe: null, tighteningSettleProbe: null, cancellationToken);
 
     /// <summary>
     /// <see cref="CompileAsync(VmfDocument, RoomDefinition, VbspContext, CancellationToken)"/>
-    /// with the vvis half's <see cref="VisContext.TighteningClaimProbe"/> set.
+    /// with the vvis half's tightening probes set.
     /// </summary>
     /// <param name="document">The room's VMF, room-local.</param>
     /// <param name="definition">What the room claims to be.</param>
     /// <param name="context">The compile context.</param>
     /// <param name="tighteningClaimProbe">
     /// For the facts: see <see cref="VisContext.TighteningClaimProbe"/>. A fact
-    /// that holds the first claimed portal here while the other workers claim
-    /// the rest forces every one of those runs to speculate, which is the
-    /// schedule a busy machine produces by chance and a fact needs on demand.
-    /// Null in every real compile.
+    /// that holds the first claimed portal here until the other workers have
+    /// flowed the rest forces every one of those runs that reads it to
+    /// speculate, which is the schedule a busy machine produces by chance and
+    /// a fact needs on demand. Null in every real compile.
+    /// </param>
+    /// <param name="tighteningSettleProbe">
+    /// For the facts: see <see cref="VisContext.TighteningSettleProbe"/> --
+    /// how such a fact knows the other runs have flowed, and that one of them
+    /// speculated. Null in every real compile.
     /// </param>
     /// <param name="cancellationToken">Cancels the compile.</param>
     /// <returns>The linkable room object.</returns>
@@ -87,6 +92,7 @@ public static class RoomCompiler
         RoomDefinition definition,
         VbspContext context,
         Action<int>? tighteningClaimProbe,
+        Action<int, bool>? tighteningSettleProbe,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(document);
@@ -131,6 +137,7 @@ public static class RoomCompiler
         {
             Parallelism = context.Parallelism,
             TighteningClaimProbe = tighteningClaimProbe,
+            TighteningSettleProbe = tighteningSettleProbe,
         };
         VisResult vis = await Vvis
             .ComputeAsync(vbsp.Bsp, portals, visContext, cancellationToken).ConfigureAwait(false);

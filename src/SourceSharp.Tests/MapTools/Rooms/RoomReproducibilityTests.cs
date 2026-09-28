@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using System.Collections.Concurrent;
 using System.Text;
 
 using SourceSharp.MapFormats.Text;
@@ -43,11 +44,12 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// </para>
 /// <para>
 /// The facts force the schedule instead of hoping for one. The tightening's
-/// claim probe holds the first-ranked portal, claimed and unflowed, until the
-/// other worker has claimed every other portal: each of those runs then reads
-/// a neighbour that has not finished, speculates, and is judged and possibly
-/// walked again once it has. That is the busiest schedule the flow can have,
-/// and the one furthest from a single thread's.
+/// claim and settle probes let one run through at a time and hold one
+/// portal, claimed and unflowed, until every other portal's run has settled:
+/// each of those that reads it read a neighbour that had not finished,
+/// speculated, and is judged, and walked again if the read hid something,
+/// once it has. With nothing running beside anything else until the held
+/// portal is released, it is the same schedule on every run.
 /// </para>
 /// <para>
 /// The rooms are the 3x3 sample's, built from the generator's bytes on an
@@ -60,16 +62,50 @@ public sealed class RoomReproducibilityTests
 {
     /// <summary>
     /// The red-first fact for the bug: one room compiled at one thread and
-    /// again under the forced speculative schedule writes byte-identical
-    /// <c>.room</c> files. Its premise is checked too: the two compiles must
-    /// really have done different work, or the fact would pass on a schedule
-    /// that never raced.
+    /// again under a forced speculative schedule writes byte-identical
+    /// <c>.room</c> files, though the two compiles did different work.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The schedule, and why it is the same on every run.</b> Two workers,
+    /// and a baton: every run takes it at its claim and gives it back at its
+    /// settlement, so runs happen one at a time, lowest rank first -- except
+    /// the portal at <paramref name="held"/>, whose first claim takes no baton
+    /// and is held until every other portal's first run has settled. Each of
+    /// those runs that reads the held portal therefore reads it empty, every
+    /// time; nothing runs beside anything else until the held portal is
+    /// released, so which reads were speculative, what they recorded, and
+    /// which runs its final vector proves inexact are fixed by the map.
+    /// </para>
+    /// <para>
+    /// <b>Why these ranks.</b> Holding rank 0 -- what this fact did first --
+    /// does not work: rank 0 has the fewest candidates, and its final
+    /// <c>portalvis</c> adds nothing the other walks would use, so every read
+    /// of it empty is judged exact and nothing is walked again. The only work
+    /// it changed was one chain: the idle second worker takes a split-off
+    /// frame of rank 0's walk, and re-entering that frame counts it again.
+    /// Whether the worker had gone idle by then was a race, lost about half
+    /// the time on a loaded machine, and then the forced compile did exactly
+    /// the one-thread work and the premise failed. Rank 7 of <c>corner</c>
+    /// and of <c>end</c> is a portal whose empty vector DOES hide what later
+    /// portals would have pruned with, so runs are judged inexact and walked
+    /// again -- a difference of more than ten chains and candidates, not one.
+    /// </para>
+    /// <para>
+    /// <b>The premises</b>, so the fact cannot pass on a schedule that never
+    /// raced: the hold happened; at least one run read a neighbour that had
+    /// not finished (the settle probe's flag, not an inference from the
+    /// counters); at least one run was judged inexact and claimed again; and
+    /// the work differs from the one-thread compile's -- the difference
+    /// container version 2 wrote into the file.
+    /// </para>
+    /// </remarks>
     /// <param name="kind">A sample room kind.</param>
+    /// <param name="held">The rank whose claim is held.</param>
     [Theory]
-    [InlineData("corner")]
-    [InlineData("end")]
-    public async Task ARoomWritesTheSameBytesAtOneThreadAndUnderAForcedSpeculativeSchedule(string kind)
+    [InlineData("corner", 7)]
+    [InlineData("end", 7)]
+    public async Task ARoomWritesTheSameBytesAtOneThreadAndUnderAForcedSpeculativeSchedule(string kind, int held)
     {
         (VmfDocument vmf, RoomDefinition definition, ContentFileSystem content) = await SampleRoomAsync(kind);
         await using (content)
@@ -79,34 +115,67 @@ public sealed class RoomReproducibilityTests
 
             int portals = single.Vis.PortalCount;
 
-            // At least two runs to hold back, and all of them inside the
-            // tightening's claim window, so the other worker CAN claim them all.
-            Assert.InRange(portals, 3, 128);
+            // The held rank has portals ranked above it to speculate, and all
+            // of them are inside the tightening's claim window.
+            Assert.InRange(portals, held + 2, 128);
 
+            TimeSpan patience = TimeSpan.FromSeconds(30);
             using CompilePool pool = new(2);
-            int others = 0;
-            bool held = false;
+            using SemaphoreSlim baton = new(1);
+            int heldClaims = 0;
+            int heldSettles = 0;
+            int othersSettled = 0;
+            int speculated = 0;
+            bool heldInTime = false;
+            bool batonInTime = true;
+            ConcurrentDictionary<int, int> claims = new();
             RoomObject forced = await RoomCompiler.CompileAsync(
                 vmf,
                 definition,
                 Context(content, kind, new CompileParallelism { MaxDegree = 2, Pool = pool }),
-                rank =>
+                tighteningClaimProbe: rank =>
                 {
-                    if (rank != 0)
+                    claims.AddOrUpdate(rank, 1, (_, count) => count + 1);
+                    if (rank == held && Interlocked.Increment(ref heldClaims) == 1)
                     {
-                        Interlocked.Increment(ref others);
+                        // Only this worker is outside the baton; the other
+                        // flows every other portal, one at a time.
+                        heldInTime = SpinWait.SpinUntil(
+                            () => Volatile.Read(ref othersSettled) >= portals - 1, patience);
                         return;
                     }
 
-                    // Rank 0 is always the first claim, and it is claimed once:
-                    // nothing ranks below it, so it never speculates and is
-                    // never walked again.
-                    held = SpinWait.SpinUntil(
-                        () => Volatile.Read(ref others) >= portals - 1, TimeSpan.FromSeconds(30));
+                    if (!baton.Wait(patience))
+                    {
+                        batonInTime = false;
+                    }
+                },
+                tighteningSettleProbe: (rank, speculative) =>
+                {
+                    if (speculative)
+                    {
+                        Interlocked.Increment(ref speculated);
+                    }
+
+                    if (rank == held && Interlocked.Increment(ref heldSettles) == 1)
+                    {
+                        // The held run never took the baton. It is settled
+                        // once: every rank below it was done when it flowed,
+                        // so it cannot speculate and is never walked again.
+                        return;
+                    }
+
+                    Interlocked.Increment(ref othersSettled);
+                    baton.Release();
                 },
                 CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(120));
 
-            Assert.True(held, "the other worker never claimed every other portal while rank 0 was held");
+            Assert.True(heldInTime, $"rank {held} was released before every other portal had settled");
+            Assert.True(batonInTime, "a run waited too long for the baton");
+            Assert.True(speculated > 0, "no run read a neighbour that had not finished");
+            Assert.True(
+                claims.Any(c => c.Key != held && c.Value > 1),
+                $"no run was judged inexact and walked again (claims {string.Join(",", claims.OrderBy(c => c.Key))})");
             Assert.NotEqual(single.Vis.Work, forced.Vis.Work);
 
             // The answer never moved: the rows are the map's.
@@ -115,6 +184,31 @@ public sealed class RoomReproducibilityTests
 
             // And neither may the file.
             Assert.Equal(await SaveAsync(single), await SaveAsync(forced));
+        }
+    }
+
+    /// <summary>
+    /// The settle probe's flag, on the schedule where it must be false: at one
+    /// thread every neighbour a run reads has finished before it starts, so
+    /// every portal settles exactly once and none of them speculated.
+    /// </summary>
+    [Fact]
+    public async Task AtOneThreadEveryRunSettlesOnceWithoutSpeculating()
+    {
+        (VmfDocument vmf, RoomDefinition definition, ContentFileSystem content) = await SampleRoomAsync("corner");
+        await using (content)
+        {
+            System.Collections.Concurrent.ConcurrentBag<(int Rank, bool Speculated)> settled = [];
+            RoomObject room = await RoomCompiler.CompileAsync(
+                vmf,
+                definition,
+                Context(content, "corner", new CompileParallelism { MaxDegree = 1 }),
+                tighteningClaimProbe: null,
+                tighteningSettleProbe: (rank, speculative) => settled.Add((rank, speculative)),
+                CancellationToken.None);
+
+            Assert.Equal(Enumerable.Range(0, room.Vis.PortalCount), settled.Select(s => s.Rank).Order());
+            Assert.DoesNotContain(settled, s => s.Speculated);
         }
     }
 
@@ -136,7 +230,7 @@ public sealed class RoomReproducibilityTests
                 vmf,
                 definition,
                 Context(content, "corner", new CompileParallelism { MaxDegree = 1 }),
-                rank =>
+                tighteningClaimProbe: rank =>
                 {
                     Interlocked.Increment(ref claims);
                     if (Volatile.Read(ref holding) != 0)
@@ -156,6 +250,7 @@ public sealed class RoomReproducibilityTests
                     _ = SpinWait.SpinUntil(() => Volatile.Read(ref concurrent) > 0, TimeSpan.FromSeconds(2));
                     Volatile.Write(ref holding, 0);
                 },
+                tighteningSettleProbe: null,
                 CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(120));
 
             Assert.True(claims > 1, "the fixture room must have more than one portal to claim");
