@@ -98,5 +98,29 @@ public sealed class DirectoryContentMount : IContentMount
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Straight to <see cref="IFileSystem.ReadRangeAsync"/>, so a loose texture
+    /// on disk is opened for a positioned read of its header and never mapped
+    /// or copied whole. A file the index holds but the disk no longer does
+    /// fails as <see cref="ReadAsync"/> fails, with the file system's own
+    /// not-found error.
+    /// </remarks>
+    public async ValueTask<FileRange?> ReadRangeAsync(
+        VPath actual,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_index.TryResolve(actual, out VPath resolved))
+        {
+            return null;
+        }
+
+        return await _fileSystem
+            .ReadRangeAsync(_root.IsEmpty ? resolved : _root.Combine(resolved.Value), offset, length, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

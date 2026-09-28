@@ -439,6 +439,13 @@ public class ContentFileSystemTests
             CancellationToken cancellationToken = default) =>
             inner.ReadAsync(actual, cancellationToken);
 
+        public ValueTask<FileRange?> ReadRangeAsync(
+            VPath actual,
+            long offset,
+            int length,
+            CancellationToken cancellationToken = default) =>
+            inner.ReadRangeAsync(actual, offset, length, cancellationToken);
+
         public ValueTask DisposeAsync() => inner.DisposeAsync();
     }
 }

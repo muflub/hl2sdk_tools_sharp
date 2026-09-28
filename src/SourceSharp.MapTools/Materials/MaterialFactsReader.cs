@@ -325,28 +325,19 @@ public static class MaterialFactsReader
             return cached;
         }
 
-        VtfHeaderFacts? facts = null;
+        // Only the header: width, height and reflectivity are all in its first
+        // bytes, and reading whole textures for them was most of the bytes a
+        // compile's material load read. A file that is missing or is not a
+        // readable VTF comes back null either way -- the material system's
+        // "preview image bad" answer, which substitutes the fallback size
+        // rather than erroring, because the check that would have made it an
+        // error is compiled out in the reference.
+        VtfHeader? header = await VtfHeaderReader.TryReadAsync(content, path, cancellationToken)
+            .ConfigureAwait(false);
 
-        using (IMemoryOwner<byte>? owner =
-            await content.ReadAsync(path, cancellationToken).ConfigureAwait(false))
-        {
-            if (owner is not null)
-            {
-                try
-                {
-                    VtfFile vtf = VtfFile.Parse(owner.Memory);
-                    facts = new VtfHeaderFacts(vtf.Width, vtf.Height, vtf.Reflectivity);
-                }
-                catch (InvalidVtfException)
-                {
-                    // GetPreviewImageProperties' MATERIAL_PREVIEW_IMAGE_BAD:
-                    // Substitutes the fallback size
-                    // rather than erroring, because the #if 0 above it is
-                    // switched off.
-                    facts = null;
-                }
-            }
-        }
+        VtfHeaderFacts? facts = header is { } h
+            ? new VtfHeaderFacts(h.Width, h.Height, h.Reflectivity)
+            : null;
 
         cache[path] = facts;
         return facts;

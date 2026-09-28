@@ -206,6 +206,95 @@ public sealed class VpkArchive : IPackedArchive
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// A file is its preload bytes (kept in the directory, already in memory)
+    /// followed by its parts in order, and the range is cut out of that
+    /// concatenation: the preload is copied from memory and only the slice of
+    /// each archive part that overlaps the range is read from disk. A texture
+    /// header that lies entirely in the preload -- which is what the preload
+    /// is for -- touches no archive part at all.
+    /// </para>
+    /// <para>
+    /// A part that comes up short fails with the same
+    /// <see cref="InvalidVpkException"/> a whole read gives, but only when the
+    /// shortfall is inside the range: bytes past the range are not read, so
+    /// they cannot be found missing.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<FileRange?> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+
+        // Checked here and not left to the part reads: a range inside the
+        // preload reads no part, and a cancelled compile should still stop.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!_entries.TryGetValue(path, out VpkEntry? entry))
+        {
+            return null;
+        }
+
+        long fileLength = entry.Length;
+        FileRange range = FileRange.Rent(FileRange.Available(offset, length, fileLength), offset, fileLength);
+        try
+        {
+            Memory<byte> destination = range.Memory;
+
+            // Where the next piece of the file starts, in file coordinates.
+            long pieceStart = 0;
+
+            ReadOnlyMemory<byte> preload = entry.Preload;
+            if (!destination.IsEmpty && offset < preload.Length)
+            {
+                int take = (int)Math.Min(destination.Length, preload.Length - offset);
+                preload.Slice((int)offset, take).CopyTo(destination);
+                destination = destination[take..];
+            }
+
+            pieceStart += preload.Length;
+
+            foreach (VpkFilePart part in entry.Parts)
+            {
+                if (destination.IsEmpty)
+                {
+                    break;
+                }
+
+                long pieceEnd = pieceStart + part.Length;
+                long wantFrom = offset + (range.Memory.Length - destination.Length);
+                if (wantFrom < pieceEnd)
+                {
+                    long skip = wantFrom - pieceStart;
+                    int take = (int)Math.Min(destination.Length, part.Length - skip);
+                    await ReadPartAsync(
+                        path,
+                        part with { Offset = part.Offset + skip, Length = take },
+                        destination[..take],
+                        cancellationToken).ConfigureAwait(false);
+
+                    destination = destination[take..];
+                }
+
+                pieceStart = pieceEnd;
+            }
+
+            return range;
+        }
+        catch
+        {
+            range.Dispose();
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (_disposed)

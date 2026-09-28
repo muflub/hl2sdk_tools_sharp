@@ -588,6 +588,14 @@ public sealed class ContentRecordingTests
                 _files.TryGetValue(path.Value, out byte[]? bytes) ? new Owner(bytes) : null);
         }
 
+        public ValueTask<FileRange?> ReadRangeAsync(
+            VPath path, long offset, int length, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(
+                _files.TryGetValue(path.Value, out byte[]? bytes) ? FileRange.Copy(bytes, offset, length) : null);
+        }
+
         public async IAsyncEnumerable<VPath> EnumerateAsync(
             VPath directory,
             string searchPattern = "*",
@@ -606,6 +614,10 @@ public sealed class ContentRecordingTests
 
         public ValueTask<IMemoryOwner<byte>?> ReadAsync(VPath lookup, CancellationToken cancellationToken = default) =>
             Is(lookup) ? throw error() : inner.ReadAsync(lookup, cancellationToken);
+
+        public ValueTask<FileRange?> ReadRangeAsync(
+            VPath lookup, long offset, int length, CancellationToken cancellationToken = default) =>
+            Is(lookup) ? throw error() : inner.ReadRangeAsync(lookup, offset, length, cancellationToken);
 
         public IAsyncEnumerable<VPath> EnumerateAsync(
             VPath directory, string searchPattern = "*", CancellationToken cancellationToken = default) =>
@@ -635,6 +647,15 @@ public sealed class ContentRecordingTests
             byte[] changed = [.. owner.Memory.ToArray(), (byte)' '];
             owner.Dispose();
             return new Owner(changed);
+        }
+
+        // Through ReadAsync, so a range counts as a read and sees the changed
+        // bytes the same way a whole read does.
+        public async ValueTask<FileRange?> ReadRangeAsync(
+            VPath lookup, long offset, int length, CancellationToken cancellationToken = default)
+        {
+            using IMemoryOwner<byte>? owner = await ReadAsync(lookup, cancellationToken);
+            return owner is null ? null : FileRange.Copy(owner.Memory.Span, offset, length);
         }
 
         public IAsyncEnumerable<VPath> EnumerateAsync(

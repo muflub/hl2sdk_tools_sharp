@@ -107,6 +107,37 @@ public sealed class RecordingFileSystem : IFileSystem
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// Reads the WHOLE file through <see cref="ReadAllAsync"/>, records it, and
+    /// hands back the range. That gives up the saving a range read exists for,
+    /// on purpose: a <see cref="DependencyKind.Read"/> entry's hash is the
+    /// hash of the file's bytes, and it is compared against a whole-file hash
+    /// later. A hash of the range alone would be a different kind of entry
+    /// under the same name, and an edit past the range -- which the header
+    /// reader does not care about, but a later reader of the same path might
+    /// -- would not change it. Recording is the rare, deliberate mode (a
+    /// dependency capture, not a normal compile), so it pays for soundness.
+    /// </para>
+    /// <para>
+    /// A miss is recorded the same way <see cref="ReadAllAsync"/> records one,
+    /// because it goes through it.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<FileRange> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+
+        using IMemoryOwner<byte> owner = await ReadAllAsync(path, cancellationToken).ConfigureAwait(false);
+        return FileRange.Copy(owner.Memory.Span, offset, length);
+    }
+
+    /// <inheritdoc />
     public ValueTask<Stream> OpenWriteAsync(VPath path, CancellationToken cancellationToken = default) =>
         _inner.OpenWriteAsync(path, cancellationToken);
 

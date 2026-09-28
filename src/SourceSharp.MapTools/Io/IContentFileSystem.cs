@@ -62,6 +62,39 @@ public interface IContentFileSystem
     /// <returns>Its bytes, or null when nothing has it.</returns>
     ValueTask<IMemoryOwner<byte>?> ReadAsync(VPath path, CancellationToken cancellationToken = default);
 
+    /// <summary>Reads part of a content file.</summary>
+    /// <param name="path">A content-relative path, in any casing.</param>
+    /// <param name="offset">Where the range starts, in bytes from the start of the file.</param>
+    /// <param name="length">How many bytes to read.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>
+    /// The range and the whole file's length, or null when nothing has the
+    /// file -- the same answer <see cref="ReadAsync"/> gives. A range past the
+    /// end of the file comes back short or empty, as
+    /// <see cref="IFileSystem.ReadRangeAsync"/> describes.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="offset"/> or <paramref name="length"/> is negative.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// Resolution is the same first-match-wins lookup as
+    /// <see cref="ReadAsync"/>: a range comes from the file a whole read would
+    /// have returned, never from a shadowed copy in a later mount.
+    /// </para>
+    /// <para>
+    /// For the header readers: vbsp opens every texture a map's materials name
+    /// only for the width, height and reflectivity in its first few hundred
+    /// bytes. No default implementation, for the reason
+    /// <see cref="IFileSystem.ReadRangeAsync"/> gives.
+    /// </para>
+    /// </remarks>
+    ValueTask<FileRange?> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Lists content files under a directory across every mount.</summary>
     /// <param name="directory">A content-relative directory.</param>
     /// <param name="searchPattern">A glob matched against each file name.</param>

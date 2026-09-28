@@ -62,6 +62,15 @@ internal sealed class FakeFileSystem : IFileSystem
         VPath path, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("discovery does not read whole files");
 
+    public ValueTask<FileRange> ReadRangeAsync(
+        VPath path, long offset, int length, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return _files.TryGetValue(path.Value, out byte[]? bytes)
+            ? ValueTask.FromResult(FileRange.Copy(bytes, offset, length))
+            : throw new FileNotFoundException(path.Value);
+    }
+
     public ValueTask<Stream> OpenWriteAsync(VPath path, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("discovery never writes");
 

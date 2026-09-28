@@ -64,6 +64,47 @@ public interface IFileSystem
     /// <exception cref="FileNotFoundException">There is no such file.</exception>
     ValueTask<IMemoryOwner<byte>> ReadAllAsync(VPath path, CancellationToken cancellationToken = default);
 
+    /// <summary>Reads part of a file.</summary>
+    /// <param name="path">The file to read.</param>
+    /// <param name="offset">Where the range starts, in bytes from the start of the file.</param>
+    /// <param name="length">How many bytes to read.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>
+    /// The bytes of the range in memory the caller disposes, and the whole
+    /// file's length. A range that runs past the end of the file comes back
+    /// SHORT -- the bytes that exist, not an error -- and one that starts at or
+    /// past the end comes back empty, which is what a positioned read of a
+    /// real file does. See <see cref="FileRange"/>.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="offset"/> or <paramref name="length"/> is negative.
+    /// </exception>
+    /// <exception cref="FileNotFoundException">There is no such file.</exception>
+    /// <remarks>
+    /// <para>
+    /// Exists because a map compile reads hundreds of textures only to learn
+    /// what is in their first few hundred bytes -- a VTF's size, flags and
+    /// reflectivity -- and <see cref="ReadAllAsync"/> made that tens of
+    /// megabytes of reads, pooled buffers and memory maps per compile.
+    /// </para>
+    /// <para>
+    /// No default implementation, on purpose. The only default the interface
+    /// could give is "read everything, then copy the range", which is correct
+    /// and would silently keep every cost the method exists to remove for an
+    /// implementation that forgot to override it. A missing member is a build
+    /// error instead, and each implementation says how it reads a range.
+    /// </para>
+    /// <para>
+    /// A missing file fails exactly as it does for <see cref="ReadAllAsync"/>,
+    /// so a caller that already handles one handles both.
+    /// </para>
+    /// </remarks>
+    ValueTask<FileRange> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Opens a file for writing, replacing anything already there.</summary>
     /// <param name="path">The file to write.</param>
     /// <param name="cancellationToken">Cancels opening the file.</param>

@@ -343,6 +343,102 @@ public sealed class PhysicalFileSystem : IFileSystem
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// The length comes from <see cref="Resolved"/>, the same symlink-following
+    /// lookup <see cref="ReadAllAsync"/> and <see cref="GetInfoAsync"/> use, so a
+    /// linked file reports its target's length and a range read of it clips
+    /// against the target, not against the length of the link's own path.
+    /// Opening the handle follows the link too, so the bytes and the length
+    /// always describe one file.
+    /// </para>
+    /// <para>
+    /// Never memory-mapped, whatever the size: a range read is for a small
+    /// piece of a file, and mapping a whole texture to read its header is the
+    /// cost this method exists to avoid. The read is synchronous for the
+    /// reasons <see cref="ReadAllAsync"/> gives, and failures and cancellation
+    /// are still delivered through the returned task.
+    /// </para>
+    /// </remarks>
+    public ValueTask<FileRange> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return ValueTask.FromResult(ReadRange(path, offset, length, cancellationToken));
+        }
+        catch (OperationCanceledException exception)
+        {
+            return ValueTask.FromCanceled<FileRange>(
+                exception.CancellationToken.IsCancellationRequested
+                    ? exception.CancellationToken
+                    : cancellationToken.IsCancellationRequested ? cancellationToken : new CancellationToken(true));
+        }
+#pragma warning disable CA1031 // Every failure is handed to the caller through the task, as an async method would.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            return ValueTask.FromException<FileRange>(exception);
+        }
+    }
+
+    private FileRange ReadRange(VPath path, long offset, int length, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        string host = ToHostPath(path);
+        FileInfo info = Resolved(host);
+        if (!info.Exists)
+        {
+            throw new FileNotFoundException($"no such file: {path}", host);
+        }
+
+        long fileLength = info.Length;
+        FileRange range = FileRange.Rent(FileRange.Available(offset, length, fileLength), offset, fileLength);
+        try
+        {
+            Span<byte> destination = range.Memory.Span;
+            if (destination.IsEmpty)
+            {
+                // Nothing in range: the file exists and the answer is its
+                // length, which needs no handle.
+                return range;
+            }
+
+            using SafeFileHandle handle = File.OpenHandle(
+                host, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.None);
+
+            int filled = 0;
+            while (filled < destination.Length)
+            {
+                int read = RandomAccess.Read(handle, destination[filled..], offset + filled);
+                if (read == 0)
+                {
+                    // The file shrank between the length and the read: the
+                    // same failure a whole read reports, rather than a range
+                    // that claims bytes it does not hold.
+                    throw new EndOfStreamException(
+                        $"{path} ended at {offset + filled} of the {fileLength} bytes it had");
+                }
+
+                filled += read;
+            }
+
+            return range;
+        }
+        catch
+        {
+            range.Dispose();
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
     public ValueTask<Stream> OpenWriteAsync(VPath path, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

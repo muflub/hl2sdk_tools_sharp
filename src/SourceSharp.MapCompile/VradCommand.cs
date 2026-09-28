@@ -394,6 +394,25 @@ public static class VradCommand
             return inner is null ? null : await inner.ReadAsync(path, cancellationToken).ConfigureAwait(false);
         }
 
+        public async ValueTask<FileRange?> ReadRangeAsync(
+            VPath path,
+            long offset,
+            int length,
+            CancellationToken cancellationToken = default)
+        {
+            // The same precedence as ReadAsync: a named loose file that exists
+            // wins over the game's copy.
+            if (_files.TryGetValue(path.Value, out VPath file)
+                && await fileSystem.ExistsAsync(file, cancellationToken).ConfigureAwait(false))
+            {
+                return await fileSystem.ReadRangeAsync(file, offset, length, cancellationToken).ConfigureAwait(false);
+            }
+
+            return inner is null
+                ? null
+                : await inner.ReadRangeAsync(path, offset, length, cancellationToken).ConfigureAwait(false);
+        }
+
         public async IAsyncEnumerable<VPath> EnumerateAsync(
             VPath directory,
             string searchPattern = "*",

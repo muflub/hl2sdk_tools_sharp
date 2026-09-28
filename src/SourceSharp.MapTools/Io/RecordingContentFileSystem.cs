@@ -110,6 +110,35 @@ public sealed class RecordingContentFileSystem : IContentFileSystem
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// Reads the WHOLE file through <see cref="ReadAsync"/> -- recording it
+    /// exactly as a whole read would, hit or miss -- and copies the range out.
+    /// </para>
+    /// <para>
+    /// Deliberately not a range read underneath. What a recording is FOR is a
+    /// set of whole files: a <see cref="DependencyKind.Read"/> entry carries the
+    /// hash of the file's bytes, and a content bundle re-reads each recorded
+    /// file and refuses one whose hash differs. A hash of a header alone could
+    /// never match that check, and a bundle holding only the header bytes
+    /// would not be the file the game has. So a recorded compile pays for the
+    /// whole read, and an unrecorded one -- every normal compile -- does not.
+    /// </para>
+    /// </remarks>
+    public async ValueTask<FileRange?> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+
+        using IMemoryOwner<byte>? owner = await ReadAsync(path, cancellationToken).ConfigureAwait(false);
+        return owner is null ? null : FileRange.Copy(owner.Memory.Span, offset, length);
+    }
+
+    /// <inheritdoc />
     public IAsyncEnumerable<VPath> EnumerateAsync(
         VPath directory,
         string searchPattern = "*",

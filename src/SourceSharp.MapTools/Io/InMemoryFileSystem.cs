@@ -146,6 +146,27 @@ public sealed class InMemoryFileSystem : IFileSystem
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Copies only the range out of the stored array, so a fact that counts
+    /// what a reader asked for sees the same sizes a disk would serve.
+    /// </remarks>
+    public ValueTask<FileRange> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // The stored array is never written in place (Write swaps in a new
+        // one), so copying out of it after Read has returned it is safe.
+        byte[] contents = Read(path);
+        return ValueTask.FromResult(FileRange.Copy(contents, offset, length));
+    }
+
+    /// <inheritdoc />
     public ValueTask<Stream> OpenWriteAsync(VPath path, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

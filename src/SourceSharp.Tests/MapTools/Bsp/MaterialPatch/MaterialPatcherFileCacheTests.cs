@@ -193,6 +193,14 @@ public class MaterialPatcherFileCacheTests
             return _inner.ReadAsync(path, cancellationToken);
         }
 
+        public ValueTask<FileRange?> ReadRangeAsync(
+            VPath path, long offset, int length, CancellationToken cancellationToken = default)
+        {
+            _reads[path.Value] = ReadsOf(path.Value) + 1;
+            cancellationToken.ThrowIfCancellationRequested();
+            return _inner.ReadRangeAsync(path, offset, length, cancellationToken);
+        }
+
         public IAsyncEnumerable<VPath> EnumerateAsync(
             VPath directory,
             string searchPattern = "*",
