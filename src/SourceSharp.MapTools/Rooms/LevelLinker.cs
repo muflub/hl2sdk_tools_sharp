@@ -561,12 +561,28 @@ public static partial class LevelLinker
 
     /// <summary>The transitive closure of the rows, in place.</summary>
     /// <remarks>
-    /// Warshall over uint words: rows[i] |= rows[k] wherever i sees k. The
-    /// sweep order is the cluster numbering — never a schedule — so the
-    /// closure is the same byte on one thread or thirty-two (I4). It is cubic
-    /// in the cluster count, which for a large level is the link's longest
-    /// loop, so it observes the token once per pivot: a cancelled link stops
-    /// within one pass over the rows instead of finishing the closure first.
+    /// <para>
+    /// Row <c>i</c> becomes the union of the rows of every cluster <c>i</c>
+    /// reaches, itself included: exactly Warshall's pivot-by-pivot closure
+    /// (<c>rows[i] |= rows[k]</c> wherever <c>i</c> sees <c>k</c>), which is
+    /// what the linker first computed and what a fact still compares against.
+    /// Warshall is cubic in the clusters, though: ~2 s at 6,000 clusters and
+    /// minutes at the 32,767 the format allows, and it was the link's longest
+    /// loop. So the closure is built from the graph's strongly connected
+    /// components instead (Tarjan's, iterative so a long chain of clusters
+    /// cannot overflow the stack). Every cluster of a component reaches the
+    /// same clusters, so a component's row is the union of its members' own
+    /// rows and of the rows of the components it has an edge into, and Tarjan
+    /// completes a component only after every component it reaches. The cost
+    /// is the edges plus one row-width union per edge between components; a
+    /// linked level, whose rooms all join up, is one component.
+    /// </para>
+    /// <para>
+    /// The walk visits clusters, and each cluster's edges, in cluster order,
+    /// and the result is a function of the graph alone, so it is the same
+    /// byte on one thread or thirty-two (I4). It observes the token once per
+    /// cluster it starts from and once per component it completes.
+    /// </para>
     /// </remarks>
     internal static void CloseRows(byte[][] rows, int clusterCount, CancellationToken cancellationToken)
     {
@@ -582,26 +598,137 @@ public static partial class LevelLinker
             bits[i] = ToWords(rows[i], words);
         }
 
-        for (int k = 0; k < clusterCount; k++)
+        int[] order = new int[clusterCount];   // Tarjan's visit number, -1 until visited
+        int[] low = new int[clusterCount];
+        int[] component = new int[clusterCount];
+        bool[] onStack = new bool[clusterCount];
+        int[] stack = new int[clusterCount];
+        int[] frameNode = new int[clusterCount];
+        int[] frameWord = new int[clusterCount];
+        uint[] frameMask = new uint[clusterCount];
+        List<uint[]> reach = [];
+        List<int> lastUnion = [];               // per component: the last component that unioned it in
+        Array.Fill(order, -1);
+        int visited = 0, stackTop = 0;
+
+        for (int root = 0; root < clusterCount; root++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            for (int i = 0; i < clusterCount; i++)
+            if (order[root] >= 0)
             {
-                if ((bits[i][k >> 5] & (1u << (k & 31))) == 0)
+                continue;
+            }
+
+            int depth = 0;
+            Enter(root);
+            while (depth > 0)
+            {
+                int v = frameNode[depth - 1];
+                while (frameMask[depth - 1] == 0 && frameWord[depth - 1] + 1 < words)
                 {
+                    frameWord[depth - 1]++;
+                    frameMask[depth - 1] = bits[v][frameWord[depth - 1]];
+                }
+
+                if (frameMask[depth - 1] != 0)
+                {
+                    uint mask = frameMask[depth - 1];
+                    int w = (frameWord[depth - 1] << 5) + System.Numerics.BitOperations.TrailingZeroCount(mask);
+                    frameMask[depth - 1] = mask & (mask - 1);
+                    if (w >= clusterCount)
+                    {
+                        continue; // a bit past the clusters is carried by the unions, not walked
+                    }
+
+                    if (order[w] < 0)
+                    {
+                        Enter(w);
+                    }
+                    else if (onStack[w])
+                    {
+                        low[v] = Math.Min(low[v], order[w]);
+                    }
+
                     continue;
                 }
 
-                for (int w = 0; w < words; w++)
+                // Every edge of v is walked: close its component if it roots one.
+                if (low[v] == order[v])
                 {
-                    bits[i][w] |= bits[k][w];
+                    cancellationToken.ThrowIfCancellationRequested();
+                    int id = reach.Count;
+                    uint[] union = new uint[words];
+                    int first = stackTop;
+                    do
+                    {
+                        first--;
+                        component[stack[first]] = id;
+                        onStack[stack[first]] = false;
+                    }
+                    while (stack[first] != v);
+
+                    reach.Add(union);
+                    lastUnion.Add(-1);
+                    for (int m = first; m < stackTop; m++)
+                    {
+                        uint[] own = bits[stack[m]];
+                        for (int x = 0; x < words; x++)
+                        {
+                            union[x] |= own[x];
+                        }
+                    }
+
+                    // The components this one has an edge into, each once;
+                    // all of them are complete, so their unions are final.
+                    for (int m = first; m < stackTop; m++)
+                    {
+                        uint[] own = bits[stack[m]];
+                        for (int x = 0; x < words; x++)
+                        {
+                            for (uint e = own[x]; e != 0; e &= e - 1)
+                            {
+                                int w = (x << 5) + System.Numerics.BitOperations.TrailingZeroCount(e);
+                                if (w >= clusterCount || component[w] == id || lastUnion[component[w]] == id)
+                                {
+                                    continue;
+                                }
+
+                                lastUnion[component[w]] = id;
+                                uint[] theirs = reach[component[w]];
+                                for (int y = 0; y < words; y++)
+                                {
+                                    union[y] |= theirs[y];
+                                }
+                            }
+                        }
+                    }
+
+                    stackTop = first;
                 }
+
+                depth--;
+                if (depth > 0)
+                {
+                    int parent = frameNode[depth - 1];
+                    low[parent] = Math.Min(low[parent], low[v]);
+                }
+            }
+
+            void Enter(int node)
+            {
+                order[node] = low[node] = visited++;
+                stack[stackTop++] = node;
+                onStack[node] = true;
+                frameNode[depth] = node;
+                frameWord[depth] = 0;
+                frameMask[depth] = bits[node][0];
+                depth++;
             }
         }
 
         for (int i = 0; i < clusterCount; i++)
         {
-            rows[i] = ToBytes(bits[i], rows[i].Length);
+            rows[i] = ToBytes(reach[component[i]], rows[i].Length);
         }
     }
 
