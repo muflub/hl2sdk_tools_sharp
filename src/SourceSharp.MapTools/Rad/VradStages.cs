@@ -85,7 +85,8 @@ public sealed class RadPass
     /// <param name="bsp">The map, with this pass's lumps written.</param>
     /// <returns>The scene.</returns>
     public Ambient.AmbientScene Scene(BspData bsp) =>
-        _scene ??= Ambient.AmbientScene.Create(bsp, Hdr ? Ambient.LightingMode.Hdr : Ambient.LightingMode.Ldr);
+        _scene ??= Ambient.AmbientScene.Create(
+            bsp, Hdr ? Ambient.LightingMode.Hdr : Ambient.LightingMode.Ldr, Options.Compliance);
 
     /// <summary>Warnings the stages add, reported with the pass.</summary>
     public List<string> Warnings { get; } = [];

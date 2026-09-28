@@ -100,8 +100,14 @@ internal static class StaticPropChunkingScene
 
     /// <summary>The sampler's tracer: the world stand-ins and each prop's box under its own id.</summary>
     /// <param name="lump">The props.</param>
+    /// <returns>The tracer, under <see cref="ComplianceOptions.Correct"/>.</returns>
+    public static KdRayTracer Tracer(StaticPropLump lump) => Tracer(lump, ComplianceOptions.Correct);
+
+    /// <summary>The sampler's tracer under a compliance.</summary>
+    /// <param name="lump">The props.</param>
+    /// <param name="compliance">What the KD tracer reproduces of stock's traversal.</param>
     /// <returns>The tracer.</returns>
-    public static KdRayTracer Tracer(StaticPropLump lump)
+    public static KdRayTracer Tracer(StaticPropLump lump, ComplianceOptions compliance)
     {
         List<TracedTriangle> triangles =
         [
@@ -116,7 +122,7 @@ internal static class StaticPropChunkingScene
             Box(triangles, TraceId.StaticProp | i, o + new Vec3(-20, -20, 0), o + new Vec3(20, 20, 40));
         }
 
-        return KdRayTracer.Build(triangles.ToArray());
+        return KdRayTracer.Build(triangles.ToArray(), compliance);
     }
 
     /// <summary>The map's lights and three more over the props.</summary>
@@ -147,7 +153,10 @@ internal static class StaticPropChunkingScene
     /// <param name="indirect">Whether good vertices gather indirect light.</param>
     /// <param name="disableSelfShadowing"><c>-disablepropselfshadowing</c>.</param>
     /// <param name="batching">How the work is cut up.</param>
-    /// <param name="tracer">The sampler's tracer, or null for <see cref="Tracer"/>.</param>
+    /// <param name="tracer">
+    /// The sampler's tracer, or null for <see cref="Tracer(StaticPropLump, ComplianceOptions)"/>
+    /// under <paramref name="compliance"/>.
+    /// </param>
     /// <param name="cancellationToken">Cancels the pass.</param>
     /// <returns>The result.</returns>
     public static Task<StaticPropLightingResult> LightAsync(
@@ -161,11 +170,11 @@ internal static class StaticPropChunkingScene
         IRayTracer? tracer = null,
         CancellationToken cancellationToken = default) =>
         StaticPropLighting.ComputeAsync(
-            ambient.Ldr,
+            ambient.LdrFor(compliance),
             lump,
             models,
             Lights(ambient),
-            new PropLightSampler(tracer ?? Tracer(lump), compliance, sunAngularExtent: 0.05f),
+            new PropLightSampler(tracer ?? Tracer(lump, compliance), compliance, sunAngularExtent: 0.05f),
             new StaticPropLightingOptions
             {
                 Compliance = compliance,

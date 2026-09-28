@@ -99,10 +99,13 @@ public sealed class BspSurfaceTracer : IRayTracer
     private readonly int[] _skyStart;
     private readonly int[] _skyCount;
 
+    /// <summary><see cref="BspTraceGeometry.StockSkyNormalise"/>, copied like the arrays.</summary>
+    private readonly bool _stockSkyNormalise;
+
     /// <summary>
     /// Wraps a flattened tree.
     /// </summary>
-    /// <param name="geometry">The tree, from <see cref="BspTraceGeometry.Build"/>.</param>
+    /// <param name="geometry">The tree, from <see cref="BspTraceGeometry.Build(SourceSharp.MapFormats.Bsp.BspData, Options.ComplianceOptions)"/>.</param>
     /// <exception cref="ArgumentNullException"><paramref name="geometry"/> is null.</exception>
     /// <remarks>
     /// Every array is copied into a field of this object rather than reached
@@ -122,10 +125,17 @@ public sealed class BspSurfaceTracer : IRayTracer
         _skyPoints = geometry.SkyPoints;
         _skyStart = geometry.SkyStart;
         _skyCount = geometry.SkyCount;
+        _stockSkyNormalise = geometry.StockSkyNormalise;
     }
 
     /// <inheritdoc />
-    public string TracerIdentity => "cpu-bsp-surface-1";
+    /// <remarks>
+    /// The sky test's two sides of <see cref="Options.StockQuirk.SkyWindingNormalise"/>
+    /// can answer a near-edge point differently, so they are two identities;
+    /// the estimate's also names the estimate family whose bits it took.
+    /// </remarks>
+    public string TracerIdentity =>
+        _stockSkyNormalise ? "cpu-bsp-surface-1-stock-" + FloatEstimate.Family : "cpu-bsp-surface-2";
 
     /// <summary>The tree this tracer walks.</summary>
     public BspTraceGeometry Geometry => _geometry;
@@ -608,9 +618,11 @@ public sealed class BspSurfaceTracer : IRayTracer
     /// The <c>#else</c> branch, which is the one
     /// compiled: cross the first edge with the vector to the point, normalise,
     /// and require every other edge's cross to agree in sign with it. The
-    /// normalisations go through <see cref="Vec3.NormaliseLikeStock"/> because
-    /// the comparison is against zero and a near-edge point is decided by the
-    /// estimate's last bits.
+    /// comparison is against zero, so a near-edge point is decided by the
+    /// normalisation's last bits: stock's estimate
+    /// (<see cref="Vec3.NormaliseLikeStock"/>) under
+    /// <see cref="Options.StockQuirk.SkyWindingNormalise"/>, whose bits are the
+    /// CPU's, and a divide otherwise.
     /// </remarks>
     private bool TestPointAgainstSkySurface(int face, float px, float py, float pz)
     {
@@ -626,13 +638,13 @@ public sealed class BspSurfaceTracer : IRayTracer
 
         Vec3 toPt = pt - p[0];
         Vec3 edge = p[1] - p[0];
-        (Vec3 testCross, _) = Vec3.Cross(edge, toPt).NormaliseLikeStock();
+        (Vec3 testCross, _) = BspTraceGeometry.Normalise(Vec3.Cross(edge, toPt), _stockSkyNormalise);
 
         for (int i = 1; i < count; i++)
         {
             toPt = pt - p[i];
             edge = p[(i + 1) % count] - p[i];
-            (Vec3 cross, _) = Vec3.Cross(edge, toPt).NormaliseLikeStock();
+            (Vec3 cross, _) = BspTraceGeometry.Normalise(Vec3.Cross(edge, toPt), _stockSkyNormalise);
             if (Vec3.Dot(cross, testCross) < 0.0f)
             {
                 return false;

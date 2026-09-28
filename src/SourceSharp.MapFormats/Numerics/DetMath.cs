@@ -23,10 +23,16 @@ namespace SourceSharp.MapFormats.Numerics;
 /// library is right, which for glibc is nearly always.
 /// </para>
 /// <para>
-/// <b>Cost.</b> A double result has too few spare bits for a double-precision
-/// approximation to decide its rounding, so <see cref="Sin"/>, <see cref="Cos"/>,
-/// <see cref="Log"/> and <see cref="Pow"/> go straight to the exact tier
-/// (<see cref="ExactMath"/>): tens of microseconds a call. That is fine for the
+/// <b>Cost.</b> A double result has too few spare bits for a plain
+/// double-precision approximation to decide its rounding. <see cref="Log"/>,
+/// which the detail-prop Gaussian takes once a sample, has a double-double
+/// kernel good to 2^-64 (<see cref="FastKernels.LogAccurate"/>) and goes to
+/// the exact tier only for the arguments within that of a rounding
+/// boundary, about one in two thousand of a typical spread: a mean of about
+/// 0.15 microseconds a call against the exact tier's 30, measured by
+/// <c>DetMathThroughputTests</c>. <see cref="Sin"/>, <see cref="Cos"/> and
+/// <see cref="Pow"/> go straight to the exact tier (<see cref="ExactMath"/>):
+/// tens of microseconds a call, which is fine for the once-per-light and
 /// once-per-entity uses the compile has, and wrong for a per-sample loop. A
 /// caller that converts the result to float at once should use the
 /// <c>...ToSingle</c> forms, which give the same bits as the cast for a small
@@ -92,6 +98,17 @@ public static class DetMath
         if (double.IsPositiveInfinity(x) || x == 1)
         {
             return x == 1 ? 0.0 : x;
+        }
+
+        // The fast tier first: a double-double within 2^-64, rounded when
+        // its whole error band rounds to one double, which is all but about
+        // one argument in two thousand. The rest, those within 2^-64 of a
+        // rounding boundary, go to the exact tier, so the result is the same
+        // correctly rounded double either way.
+        (double hi, double lo) = FastKernels.LogAccurate(x);
+        if (FastKernels.TryRoundDouble(hi, lo, FastKernels.LogAccurateError, out double result))
+        {
+            return result;
         }
 
         return ExactMath.Log(x, RoundingTarget.Double);

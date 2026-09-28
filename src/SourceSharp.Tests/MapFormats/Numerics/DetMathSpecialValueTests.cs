@@ -18,14 +18,24 @@ namespace SourceSharp.Tests.MapFormats.Numerics;
 /// the arguments each public function hands to the exact tier.
 /// </summary>
 /// <remarks>
-/// For the special values of pow, sin, cos, tan, asin and acos the platform
-/// functions are the reference: .NET documents IEEE 754 / C Annex F results
-/// for them on every platform, and they are exact (a zero, an infinity, one,
-/// NaN), so there is no last bit to disagree about. atan2's special results
-/// are not exact -- they are multiples of pi/4 -- and platforms round them
-/// differently (Apple's atan2f(+0, -1) is the float just below pi), so its
-/// table is written out here with the correctly rounded constants. Every
-/// other result is checked against the exact tier.
+/// <para>
+/// Nothing here asks the platform's math library what the answer is. A fact
+/// that compared against <see cref="Math"/> or <see cref="MathF"/> would pass
+/// or fail with the C library underneath it, which is the very dependence
+/// <see cref="DetMath"/> exists to remove; <c>Math.Sin(1.0)</c> in particular
+/// is not exact and is not guaranteed to be correctly rounded anywhere.
+/// </para>
+/// <para>
+/// So every expected value is written out: the IEEE 754 / C Annex F tables
+/// for the special cases (<see cref="AnnexFPow"/>, <see cref="AnnexFUnary"/>),
+/// whose results are exact -- a zero, an infinity, one, NaN -- or a
+/// correctly rounded multiple of pi given as its bit pattern; hard-coded bit
+/// patterns for the few finite results that are not exact (sin 1 and cos 1,
+/// checked against mpmath at 300 bits); and the exact tier for everything
+/// else. atan2's special results are multiples of pi/4 and platforms round
+/// them differently (Apple's atan2f(+0, -1) is the float just below pi), which
+/// is why its table was already written out here.
+/// </para>
 /// </remarks>
 public class DetMathSpecialValueTests
 {
@@ -45,7 +55,7 @@ public class DetMathSpecialValueTests
             {
                 float ours = DetMathF.Pow(x, y);
                 float expected = IsSpecial(x) || IsSpecial(y) || Math.Abs(x) == 1
-                    ? MathF.Pow(x, y)
+                    ? (float)AnnexFPow(x, y)
                     : ExactPow(x, y);
                 Check(wrong, $"Pow({x:R}, {y:R})", ours, expected);
             }
@@ -127,24 +137,28 @@ public class DetMathSpecialValueTests
         {
             if (IsSpecial(x))
             {
-                Check(wrong, $"Sin({x:R})", DetMathF.Sin(x), MathF.Sin(x));
-                Check(wrong, $"Cos({x:R})", DetMathF.Cos(x), MathF.Cos(x));
-                Check(wrong, $"Tan({x:R})", DetMathF.Tan(x), MathF.Tan(x));
-                Check(wrong, $"SinCos({x:R}).Sin", DetMathF.SinCos(x).Sin, MathF.Sin(x));
-                Check(wrong, $"SinCos({x:R}).Cos", DetMathF.SinCos(x).Cos, MathF.Cos(x));
-                Check(wrong, $"SinToSingle({x:R})", DetMath.SinToSingle(x), MathF.Sin(x));
-                Check(wrong, $"CosToSingle({x:R})", DetMath.CosToSingle(x), MathF.Cos(x));
+                Check(wrong, $"Sin({x:R})", DetMathF.Sin(x), (float)AnnexFUnary("sin", x));
+                Check(wrong, $"Cos({x:R})", DetMathF.Cos(x), (float)AnnexFUnary("cos", x));
+                Check(wrong, $"Tan({x:R})", DetMathF.Tan(x), (float)AnnexFUnary("tan", x));
+                Check(wrong, $"SinCos({x:R}).Sin", DetMathF.SinCos(x).Sin, (float)AnnexFUnary("sin", x));
+                Check(wrong, $"SinCos({x:R}).Cos", DetMathF.SinCos(x).Cos, (float)AnnexFUnary("cos", x));
+                Check(wrong, $"SinToSingle({x:R})", DetMath.SinToSingle(x), (float)AnnexFUnary("sin", x));
+                Check(wrong, $"CosToSingle({x:R})", DetMath.CosToSingle(x), (float)AnnexFUnary("cos", x));
             }
 
             if (IsSpecial(x) || Math.Abs(x) >= 1)
             {
-                Check(wrong, $"Asin({x:R})", DetMathF.Asin(x), Math.Abs(x) == 1 ? (float)ExactMath.Asin(x, RoundingTarget.Single) : MathF.Asin(x));
-                Check(wrong, $"Acos({x:R})", DetMathF.Acos(x), x == -1 ? (float)ExactMath.Acos(x, RoundingTarget.Single) : MathF.Acos(x));
+                Check(wrong, $"Asin({x:R})", DetMathF.Asin(x), AnnexFAsin(x));
+                Check(wrong, $"Acos({x:R})", DetMathF.Acos(x), AnnexFAcos(x));
             }
         }
 
         Assert.True(wrong.Count == 0, string.Join(Environment.NewLine, wrong));
     }
+
+    /// <summary>sin 1 and cos 1, the double nearest each: the finite, inexact entries of the double table.</summary>
+    private const ulong SinOne = 0x3FEAED548F090CEE;
+    private const ulong CosOne = 0x3FE14A280FB5068C;
 
     [Fact]
     public void DoubleFunctionsFollowTheIeeeTable()
@@ -152,16 +166,136 @@ public class DetMathSpecialValueTests
         double[] specials = [0.0, -0.0, double.PositiveInfinity, double.NegativeInfinity, double.NaN, 1.0, -1.0];
         foreach (double x in specials)
         {
-            Assert.Equal(Bits(Math.Sin(x)), Bits(DetMath.Sin(x)), NaNAware);
-            Assert.Equal(Bits(Math.Cos(x)), Bits(DetMath.Cos(x)), NaNAware);
-            Assert.Equal(Bits(Math.Log(x)), Bits(DetMath.Log(x)), NaNAware);
+            Assert.Equal(Bits(Math.Abs(x) == 1 ? Math.CopySign(D(SinOne), x) : AnnexFUnary("sin", x)), Bits(DetMath.Sin(x)), NaNAware);
+            Assert.Equal(Bits(Math.Abs(x) == 1 ? D(CosOne) : AnnexFUnary("cos", x)), Bits(DetMath.Cos(x)), NaNAware);
+            Assert.Equal(Bits(AnnexFUnary("log", x)), Bits(DetMath.Log(x)), NaNAware);
             foreach (double y in specials)
             {
-                Assert.Equal(Bits(Math.Pow(x, y)), Bits(DetMath.Pow(x, y)), NaNAware);
-                Assert.Equal(Bits((float)Math.Pow(x, y)), Bits((double)DetMath.PowToSingle(x, y)), NaNAware);
+                Assert.Equal(Bits(AnnexFPow(x, y)), Bits(DetMath.Pow(x, y)), NaNAware);
+                Assert.Equal(Bits((float)AnnexFPow(x, y)), Bits((double)DetMath.PowToSingle(x, y)), NaNAware);
             }
         }
     }
+
+    /// <summary>
+    /// The written-out tables agree with what they are meant to encode, so a
+    /// slip in one cannot make a wrong result look right. The finite, inexact
+    /// constants are checked against the exact tier, which computes them
+    /// independently of the fast tier and of any C library.
+    /// </summary>
+    [Fact]
+    public void TheWrittenOutConstantsAreTheCorrectlyRoundedValues()
+    {
+        Assert.Equal(SinOne, Bits(ExactMath.Sin(1.0, RoundingTarget.Double)));
+        Assert.Equal(CosOne, Bits(ExactMath.Cos(1.0, RoundingTarget.Double)));
+        Assert.Equal(HalfPi, (float)ExactMath.Asin(1f, RoundingTarget.Single));
+        Assert.Equal(Pi, (float)ExactMath.Acos(-1f, RoundingTarget.Single));
+
+        // A few entries of the pow table that are easy to get backwards.
+        Assert.Equal(double.PositiveInfinity, AnnexFPow(-0.0, -2.0));
+        Assert.Equal(double.NegativeInfinity, AnnexFPow(-0.0, -1.0));
+        Assert.Equal(-0.0, AnnexFPow(double.NegativeInfinity, -1.0));
+        Assert.True(double.IsNegative(AnnexFPow(double.NegativeInfinity, -1.0)));
+        Assert.Equal(1.0, AnnexFPow(-1.0, double.NegativeInfinity));
+        Assert.Equal(1.0, AnnexFPow(double.NaN, 0.0));
+        Assert.Equal(1.0, AnnexFPow(1.0, double.NaN));
+        Assert.True(double.IsNaN(AnnexFPow(-1.0, 0.5)));
+        Assert.Equal(-1.0, AnnexFPow(-1.0, 3.0));
+    }
+
+    private static double D(ulong bits) => BitConverter.UInt64BitsToDouble(bits);
+
+    /// <summary>
+    /// <c>pow(x, y)</c> where x or y is a zero, an infinity or NaN, or
+    /// <c>|x|</c> is 1: C Annex F's table (F.10.4.4), every result exact.
+    /// </summary>
+    private static double AnnexFPow(double x, double y)
+    {
+        if (y == 0 || x == 1)
+        {
+            return 1;
+        }
+
+        if (double.IsNaN(x) || double.IsNaN(y))
+        {
+            return double.NaN;
+        }
+
+        bool integer = Math.Floor(y) == y;
+        bool oddInteger = integer && Math.Abs(y) < 9007199254740992.0 && Math.Abs(y % 2) == 1;
+
+        if (double.IsInfinity(y))
+        {
+            double ax = Math.Abs(x);
+            return ax == 1 ? 1
+                : (ax < 1) == (y < 0) ? double.PositiveInfinity
+                : 0.0;
+        }
+
+        if (x == 0)
+        {
+            return y < 0
+                ? (oddInteger ? Math.CopySign(double.PositiveInfinity, x) : double.PositiveInfinity)
+                : (oddInteger ? x : 0.0);
+        }
+
+        if (double.IsNegativeInfinity(x))
+        {
+            return y < 0
+                ? (oddInteger ? -0.0 : 0.0)
+                : (oddInteger ? double.NegativeInfinity : double.PositiveInfinity);
+        }
+
+        if (double.IsPositiveInfinity(x))
+        {
+            return y < 0 ? 0.0 : double.PositiveInfinity;
+        }
+
+        if (x == -1)
+        {
+            return !integer ? double.NaN : oddInteger ? -1.0 : 1.0;
+        }
+
+        throw new ArgumentException($"pow({x}, {y}) is not in the special table");
+    }
+
+    /// <summary>
+    /// sin, cos, tan and log at a zero, an infinity or NaN, and log at 1 and
+    /// at a negative: C Annex F's tables, every result exact.
+    /// </summary>
+    private static double AnnexFUnary(string function, double x)
+    {
+        if (double.IsNaN(x))
+        {
+            return double.NaN;
+        }
+
+        return function switch
+        {
+            "sin" or "tan" when x == 0 => x,
+            "cos" when x == 0 => 1.0,
+            "sin" or "cos" or "tan" when double.IsInfinity(x) => double.NaN,
+            "log" when x == 0 => double.NegativeInfinity,
+            "log" when x < 0 => double.NaN,
+            "log" when x == 1 => 0.0,
+            "log" when double.IsPositiveInfinity(x) => double.PositiveInfinity,
+            _ => throw new ArgumentException($"{function}({x}) is not in the special table"),
+        };
+    }
+
+    /// <summary>asin where <c>|x| &gt;= 1</c> or x is a zero, an infinity or NaN.</summary>
+    private static float AnnexFAsin(float x) =>
+        float.IsNaN(x) || Math.Abs(x) > 1 ? float.NaN
+        : x == 0 ? x
+        : x == 1 ? HalfPi
+        : -HalfPi;
+
+    /// <summary>acos where <c>|x| &gt;= 1</c> or x is a zero, an infinity or NaN.</summary>
+    private static float AnnexFAcos(float x) =>
+        float.IsNaN(x) || Math.Abs(x) > 1 ? float.NaN
+        : x == 0 ? HalfPi
+        : x == 1 ? 0f
+        : Pi;
 
     [Fact]
     public void ANaNArgumentIsReturnedAsItIs()

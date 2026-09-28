@@ -38,13 +38,17 @@ namespace SourceSharp.Tests.MapTools.Rad.Props;
 /// <para>
 /// The digests themselves are pinned separately, per CPU family, by
 /// <see cref="TheCorrectDigestsArePinnedForThisCpu"/>. Even compliance correct
-/// is not the same bytes everywhere here: the KD tracer's traversal keeps the
-/// estimated reciprocal under both policies, so a ray grazing a split can
-/// resolve differently on arm64 than on x86 (README, "Platform differences").
-/// The base digests were recorded on x86 from the pass as it was before
-/// chunking, so they also pin that chunking changed no byte; AMD and Intel
-/// agree on them (both kinds of CI runner passed them), and arm64 has a
-/// captured delta.
+/// is not yet the same bytes everywhere here: arm64 differs from x86. It was
+/// once put down to the KD tracer's estimated reciprocal, but with
+/// <see cref="StockQuirk.KdTracerReciprocalEstimate"/> and
+/// <see cref="StockQuirk.SkyWindingNormalise"/> taking no estimate on the
+/// Correct side, arm64 still produces exactly its captured delta, while the
+/// KD tracer's and the whole sandbox chain's Correct digests
+/// (VradCpuIndependenceTests) agree across CPUs. So the remaining arm64
+/// difference lies in the static-prop lighting path itself, not yet
+/// identified; the delta keeps it declared rather than hidden. The base
+/// digests were recorded on x86 from the pass as it was before chunking, so
+/// they also pin that chunking changed no byte; AMD and Intel agree on them.
 /// </para>
 /// </remarks>
 public sealed class StaticPropChunkingTests : IClassFixture<AmbientFixture>

@@ -465,6 +465,192 @@ internal static class FastKernels
         return FastTwoSum(hi, e + ((k * Ln2Lo) + lnLo));
     }
 
+    // ------------------------------------------------------------------
+    // Rounding to double
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// The relative error <see cref="LogAccurate"/> stays under, as
+    /// <see cref="TryRoundDouble"/> is told it: 2^-64, against a derived
+    /// 2^-67.4.
+    /// </summary>
+    internal const double LogAccurateError = 1.0 / (1L << 62) / 4;
+
+    /// <summary>
+    /// Rounds a double-double approximation to double when every value within
+    /// its error rounds to the same double.
+    /// </summary>
+    /// <param name="hi">The head, the double nearest <c>hi + lo</c>.</param>
+    /// <param name="lo">The tail.</param>
+    /// <param name="relativeError">
+    /// A power of two bounding <c>|approximation - true| / |true|</c>.
+    /// </param>
+    /// <param name="result"><paramref name="hi"/>, when decided.</param>
+    /// <returns>Whether the rounding is decided.</returns>
+    /// <remarks>
+    /// <para>
+    /// The true value lies within <c>|hi| relativeError</c> (and a factor of
+    /// <c>1 + 2^-52</c>, which the callers' margin over their derived bound
+    /// absorbs) of <c>hi + lo</c>. It rounds to <paramref name="hi"/> exactly
+    /// when it is strictly inside the half-ulp on each side of it, whose
+    /// widths differ at a power of two. Both comparisons are strict, so a
+    /// true value on a midpoint, where ties-to-even would have to decide, is
+    /// never claimed.
+    /// </para>
+    /// <para>
+    /// The two sums are rounded, but rounding is monotone and the half-ulps
+    /// are exact powers of two: a rounded <c>l + err</c> below <c>up</c>
+    /// means the exact one is below it too, and the same for the other side.
+    /// So the test can refuse a value it could have decided, never accept
+    /// one it could not.
+    /// </para>
+    /// </remarks>
+    internal static bool TryRoundDouble(double hi, double lo, double relativeError, out double result)
+    {
+        result = hi;
+        double a = Math.Abs(hi);
+        if (!(a >= MinNormalDouble) || double.IsInfinity(a))
+        {
+            // A subnormal or zero head has no relative ulp to reason in, and
+            // no caller of this produces one; let the exact tier decide.
+            return false;
+        }
+
+        double err = a * relativeError;
+        double up = (Math.BitIncrement(a) - a) * 0.5;
+        double down = (a - Math.BitDecrement(a)) * 0.5;
+        double l = hi < 0 ? -lo : lo;
+        return (l + err < up) && (l - err > -down);
+    }
+
+    /// <summary>The least positive normal double, 2^-1022.</summary>
+    private const double MinNormalDouble = 2.2250738585072014e-308;
+
+    /// <summary>
+    /// <c>ln x</c> as a double-double within <see cref="LogAccurateError"/>
+    /// relative, for finite positive x: accurate enough to round a double
+    /// result correctly for all but about one argument in two thousand, and
+    /// about one in twenty of those a few ulps from 1, whose logarithms have
+    /// few significant bits and so often sit near a midpoint.
+    /// </summary>
+    /// <param name="x">The argument.</param>
+    /// <returns>Head and tail, the head the double nearest their sum.</returns>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Log"/>'s reduction, with the series carried further and its
+    /// leading terms in double-double. <c>x = 2^k m</c>, m in
+    /// <c>[sqrt(1/2), sqrt 2)</c>; <c>s = (m - 1)/(m + 1)</c> as a double-double
+    /// within 2^-104 relative, <c>|s| &lt;= 0.1716</c>; and
+    /// <c>ln m = 2s (1 + T)</c> with <c>T = z/3 + z^2/5 + z^3 P(z)</c>,
+    /// <c>z = s^2 &lt;= 0.02945</c>.
+    /// </para>
+    /// <para>
+    /// Error, relative to <c>ln m</c> (each term's derivation beside it):
+    /// z is a double-double from an exact square of the head plus
+    /// <c>2 sh sl</c>, under 2^-103. <c>z/3</c> and <c>z^2/5</c> are
+    /// double-doubles whose remainders are recovered exactly from a
+    /// two-product, under 2^-102 each. <c>z^3 P(z)</c> is at most 2^-18 and
+    /// is plain double: at most eight roundings of 2^-53 relative, 2^-68
+    /// absolute in T. P runs to <c>z^11/29</c>, so the series leaves out
+    /// under 2^-81. The collecting additions of the small parts round
+    /// values under 2^-18, 2^-69.3 absolute in T. T's error reaches
+    /// <c>ln m</c> multiplied by <c>2s</c>, which is <c>ln m</c>'s own scale
+    /// since <c>1 + T &gt;= 1</c>: 2^-67.5 relative in all. The products
+    /// <c>s T</c> and the sum <c>s + s T</c> are error-free transformations
+    /// plus roundings of terms under 2^-100 relative.
+    /// </para>
+    /// <para>
+    /// For <c>k != 0</c>, <c>k ln 2</c> adds an exact head (40-bit
+    /// <c>Ln2Hi</c>, <c>|k| &lt;= 1074</c>), a tail within 2^-92 absolute
+    /// including the 2^-102 of the split constant, and two roundings of
+    /// terms under 2^-30, about 2^-83 absolute. With <c>|ln x| &gt;= ln 2 -
+    /// 0.3466 &gt;= |ln m|</c> there is no cancellation, so the relative
+    /// bound carries over: 2^-67.4 in all, claimed as 2^-64.
+    /// </para>
+    /// <para>
+    /// A fact compares this against the exact tier over millions of
+    /// arguments, and every double <see cref="DetMath.Log"/> rounds from here
+    /// must be the exact tier's double.
+    /// </para>
+    /// </remarks>
+    internal static (double Hi, double Lo) LogAccurate(double x)
+    {
+        long bits = BitConverter.DoubleToInt64Bits(x);
+        int k = (int)(bits >> 52) - 1023;
+        if (k == -1023)
+        {
+            bits = BitConverter.DoubleToInt64Bits(x * 18014398509481984.0);
+            k = (int)(bits >> 52) - 1023 - 54;
+        }
+
+        double m = BitConverter.Int64BitsToDouble((bits & 0xFFFFFFFFFFFFFL) | 0x3FF0000000000000L);
+        if (m > Sqrt2)
+        {
+            m *= 0.5;
+            k++;
+        }
+
+        // s = (m - 1)/(m + 1): m - 1 exact (Sterbenz), m + 1 exact as a
+        // two-sum, one Newton correction. Under 2^-104 relative.
+        double f = m - 1;
+        (double dh, double dl) = TwoSum(m, 1.0);
+        double sh = f / dh;
+        (double ph, double pl) = TwoProduct(sh, dh);
+        double sl = (((f - ph) - pl) - (sh * dl)) / dh;
+
+        // z = s^2: the head's square exactly, plus 2 sh sl; sl^2 is 2^-106 of z.
+        (double zh, double zl) = TwoProduct(sh, sh);
+        zl += 2 * sh * sl;
+
+        // z/3: the quotient's remainder zh - 3 ah is recovered exactly.
+        double ah = zh / 3;
+        (double qh, double ql) = TwoProduct(ah, 3.0);
+        double al = (((zh - qh) - ql) + zl) / 3;
+
+        // z^2/5 the same way, from z^2 = zh^2 + 2 zh zl.
+        (double z2h, double z2l) = TwoProduct(zh, zh);
+        z2l += 2 * zh * zl;
+        double bh = z2h / 5;
+        (double rh, double rl) = TwoProduct(bh, 5.0);
+        double bl = (((z2h - rh) - rl) + z2l) / 5;
+
+        // z^3 P(z), P = 1/7 + z/9 + ... + z^11/29, in plain double.
+        double p = 1.0 / 29;
+        p = (p * zh) + (1.0 / 27);
+        p = (p * zh) + (1.0 / 25);
+        p = (p * zh) + (1.0 / 23);
+        p = (p * zh) + (1.0 / 21);
+        p = (p * zh) + (1.0 / 19);
+        p = (p * zh) + (1.0 / 17);
+        p = (p * zh) + (1.0 / 15);
+        p = (p * zh) + (1.0 / 13);
+        p = (p * zh) + (1.0 / 11);
+        p = (p * zh) + (1.0 / 9);
+        p = (p * zh) + (1.0 / 7);
+        double c = z2h * zh * p;
+
+        // T = z/3 + z^2/5 + z^3 P, z/3 the larger head.
+        (double th, double te) = FastTwoSum(ah, bh);
+        (th, double tl) = FastTwoSum(th, te + ((al + bl) + c));
+
+        // s T, then v = s + s T = ln(m)/2; T < 0.011 so |sh| >= |s T|.
+        (double uh, double ue) = TwoProduct(sh, th);
+        double ul = ue + ((sh * tl) + (sl * th));
+        (double vh, double ve) = FastTwoSum(sh, uh);
+        double vl = ve + (sl + ul);
+
+        // ln m = 2v, exactly.
+        double lnHi = 2 * vh;
+        double lnLo = 2 * vl;
+        if (k == 0)
+        {
+            return FastTwoSum(lnHi, lnLo);
+        }
+
+        (double hi, double e) = TwoSum(k * Ln2Hi, lnHi);
+        return FastTwoSum(hi, e + ((k * Ln2Lo) + lnLo));
+    }
+
     /// <summary>
     /// <c>e^(zh + zl)</c> for <c>|zh| &lt;= 707</c> and <c>|zl|</c> a few ulps of zh.
     /// </summary>
