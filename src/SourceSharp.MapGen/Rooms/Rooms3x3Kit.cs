@@ -6,8 +6,6 @@
 //=============================================================================//
 
 using System.Globalization;
-using System.Text;
-using System.Text.Json;
 
 using SourceSharp.MapGen.Catalog;
 
@@ -17,12 +15,11 @@ namespace SourceSharp.MapGen.Rooms;
 /// A cell face of a room, room-local.
 /// </summary>
 /// <remarks>
-/// The numbering is the room definition format's own facing numbers
+/// The numbering is the room pipeline's own facing numbers
 /// (<c>PositiveX</c> 0, <c>NegativeX</c> 1, <c>PositiveY</c> 2,
-/// <c>NegativeY</c> 3), because the roomdef sidecar spells a socket's facing
-/// as that number. MapGen does not reference the linker, so the numbers are
-/// restated here, and the sidecar facts parse what this writes with the
-/// linker's own reader to hold the two together.
+/// <c>NegativeY</c> 3), so <see cref="Rooms3x3Kit.Definition"/> converts by
+/// value, and a fact splits the generated library with the pipeline's own
+/// reader to hold the two together.
 /// </remarks>
 public enum KitSide
 {
@@ -106,7 +103,7 @@ public sealed record RoomKind(
 /// whole depth between them, the north and south walls what is left. A socket
 /// replaces its wall with two jambs, which leave exactly the kit's opening;
 /// the plug brush fills the opening in the room's own compile. The plug is
-/// what the linker strips at a jointed socket, and what the monolithic
+/// what the linker strips at a jointed socket, and what the flattened
 /// reference simply leaves out there.
 /// </para>
 /// </remarks>
@@ -175,7 +172,7 @@ public static class Rooms3x3Kit
 
     /// <summary>
     /// A face turned by quarter turns counter-clockwise seen from above, the
-    /// layout format's rotation: east goes to north, north to west.
+    /// level format's rotation: east goes to north, north to west.
     /// </summary>
     /// <param name="side">The room-local face.</param>
     /// <param name="turns">Quarter turns, 0 to 3.</param>
@@ -335,16 +332,60 @@ public static class Rooms3x3Kit
         };
     }
 
-    /// <summary>The room's VMF, room-local, every socket plugged.</summary>
-    /// <param name="kind">The room.</param>
-    public static string RoomVmf(RoomKind kind)
-    {
-        ArgumentNullException.ThrowIfNull(kind);
+    /// <summary>The library's file name in the sample folder.</summary>
+    public const string LibraryFile = "rooms.vmf";
 
+    /// <summary>The gap between two rooms' cells in the library: half a cell of nothing.</summary>
+    public const float LibraryGap = 128f;
+
+    /// <summary>Where a kind's cell starts in the library: the kinds stand in a line along +x.</summary>
+    /// <param name="index">The kind's position in <see cref="Kinds"/>.</param>
+    public static Point LibraryCorner(int index) => new(index * (CellSize + LibraryGap), 0, 0);
+
+    /// <summary>
+    /// The room library: every kind in its own cell, every socket plugged,
+    /// the cells in a line along +x with <see cref="LibraryGap"/> between
+    /// them, and an <c>info_room</c> at each cell's low corner naming the
+    /// room and stating the grid and the kit.
+    /// </summary>
+    public static string LibraryVmf()
+    {
         VmfMap map = new();
-        Place(map, kind, Rooms3x3Placement.Identity, open: null);
+        for (int i = 0; i < Kinds.Count; i++)
+        {
+            RoomKind kind = Kinds[i];
+            Point corner = LibraryCorner(i);
+            Place(map, kind, Rooms3x3Placement.Identity, open: null, offset: corner);
+            VmfEntity marker = new() { ClassName = "info_room" };
+            marker.Set("origin", corner.ToString());
+            marker.Set("name", kind.Name);
+            marker.Set("cell_size", Number(CellSize));
+            marker.Set("door_width", Number(DoorWidth));
+            marker.Set("door_height", Number(DoorHeight));
+            marker.Set("wall_depth", Number(Wall));
+            map.Entities.Add(marker);
+        }
+
         return map.Write();
     }
+
+    /// <summary>
+    /// What the room pipeline reads a kind as: its name, the grid, the kit,
+    /// and a socket per door named for its wall, in wall order.
+    /// </summary>
+    /// <param name="kind">The room.</param>
+    public static SourceSharp.MapTools.Rooms.RoomDefinition Definition(RoomKind kind)
+    {
+        ArgumentNullException.ThrowIfNull(kind);
+        return new SourceSharp.MapTools.Rooms.RoomDefinition(
+            kind.Name,
+            CellSize,
+            new SourceSharp.MapTools.Rooms.SocketKit(DoorWidth, DoorHeight, Wall),
+            [.. kind.Sockets.Order().Select(side => new SourceSharp.MapTools.Rooms.RoomSocket(
+                (SourceSharp.MapTools.Rooms.RoomFacing)(int)side, SocketName(side)))]);
+    }
+
+    private static string Number(float value) => value.ToString(CultureInfo.InvariantCulture);
 
     /// <summary>
     /// Adds one room to a map at a placement: its world brushes, its detail
@@ -354,12 +395,14 @@ public static class Rooms3x3Kit
     /// <param name="kind">The room.</param>
     /// <param name="placement">Where it stands and how it is turned.</param>
     /// <param name="open">Room-local faces whose plug is left out.</param>
-    internal static void Place(VmfMap map, RoomKind kind, Rooms3x3Placement placement, IReadOnlySet<KitSide>? open)
+    /// <param name="offset">Added after the placement: where the library puts the room's cell.</param>
+    internal static void Place(VmfMap map, RoomKind kind, Rooms3x3Placement placement, IReadOnlySet<KitSide>? open, Point offset = default)
     {
         List<VmfSolid> detail = [];
         foreach (KitBrush brush in Brushes(kind, open))
         {
-            Bounds world = placement.Apply(brush.Box);
+            Bounds placed = placement.Apply(brush.Box);
+            Bounds world = new(placed.Mins + offset, placed.Maxs + offset);
             VmfSolid solid = VmfMap.Box(world.Mins, world.Maxs, brush.Material);
             if (brush.Role == KitBrushRole.Detail)
             {
@@ -381,7 +424,7 @@ public static class Rooms3x3Kit
         foreach (KitEntity entity in kind.Entities)
         {
             VmfEntity placed = new() { ClassName = entity.ClassName };
-            placed.Set("origin", placement.Apply(entity.Origin).ToString());
+            placed.Set("origin", (placement.Apply(entity.Origin) + offset).ToString());
             if (entity.Yaw is int yaw)
             {
                 placed.Set("angles", string.Create(
@@ -395,57 +438,6 @@ public static class Rooms3x3Kit
 
             map.Entities.Add(placed);
         }
-    }
-
-    /// <summary>
-    /// The room's definition sidecar: the JSON <c>ssmap room</c> reads beside
-    /// the VMF as <c>&lt;file&gt;.vmf.roomdef.json</c>.
-    /// </summary>
-    /// <param name="kind">The room.</param>
-    public static string RoomDefinitionJson(RoomKind kind)
-    {
-        ArgumentNullException.ThrowIfNull(kind);
-
-        return Json(writer =>
-        {
-            writer.WriteStartObject();
-            writer.WriteString("name", kind.Name);
-            WriteGrid(writer);
-            writer.WriteStartArray("sockets");
-            foreach (KitSide side in kind.Sockets)
-            {
-                writer.WriteStartObject();
-                writer.WriteNumber("facing", (int)side);
-                writer.WriteString("name", SocketName(side));
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
-            writer.WriteEndObject();
-        });
-    }
-
-    /// <summary>The cell size and the socket kit, as both JSON files spell them.</summary>
-    internal static void WriteGrid(Utf8JsonWriter writer)
-    {
-        writer.WriteNumber("cellSize", CellSize);
-        writer.WriteStartObject("kit");
-        writer.WriteNumber("width", DoorWidth);
-        writer.WriteNumber("height", DoorHeight);
-        writer.WriteNumber("depth", Wall);
-        writer.WriteEndObject();
-    }
-
-    /// <summary>Indented JSON with LF line ends and a final newline, whatever the host.</summary>
-    internal static string Json(Action<Utf8JsonWriter> write)
-    {
-        using MemoryStream buffer = new();
-        using (Utf8JsonWriter writer = new(buffer, new JsonWriterOptions { Indented = true, NewLine = "\n" }))
-        {
-            write(writer);
-        }
-
-        return Encoding.UTF8.GetString(buffer.ToArray()) + "\n";
     }
 
     /// <summary>
@@ -478,8 +470,8 @@ public static class Rooms3x3Kit
 
     /// <summary>
     /// The sample folder's <c>gameinfo.txt</c>: a game that mounts only
-    /// itself, so <c>ssmap room</c> run on <c>maps/*.vmf</c> finds the
-    /// materials beside it with no Steam install.
+    /// itself, so <c>ssmap room rooms.vmf -game .</c> finds the materials
+    /// beside it with no Steam install.
     /// </summary>
     public const string GameInfo =
         "\"GameInfo\"\n{\n\tgame\t\"Rooms 3x3 sample\"\n\tFileSystem\n\t{\n\t\tSearchPaths\n\t\t{\n"

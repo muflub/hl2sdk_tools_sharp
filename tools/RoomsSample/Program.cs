@@ -59,7 +59,7 @@ internal static class Program
         {
             IReadOnlyList<Rooms3x3Arrangement> all = Rooms3x3Permutations.All();
             Console.WriteLine($"{all.Count} valid arrangements of the rooms of {Rooms3x3Permutations.Canonical}");
-            foreach (Rooms3x3Case c in Rooms3x3Permutations.DefaultCases(all))
+            foreach (Rooms3x3Case c in Rooms3x3Permutations.DefaultCases())
             {
                 Console.WriteLine($"{c.Name,-18} {c.Arrangement}  ({c.Reason})");
             }

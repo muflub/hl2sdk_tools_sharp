@@ -42,9 +42,15 @@ internal static class RoomHarness
 
     public static SocketKit Kit { get; } = new(96f, 96f, 16f);
 
+    /// <summary>Player clip: <c>CONTENTS_PLAYERCLIP</c>, not solid.</summary>
+    public const string PlayerClip = "unit/playerclip";
+
     public static async Task<VbspContext> ContextAsync(VbspOptions? options = null, int degree = 1)
     {
         InMemoryFileSystem files = new();
+        files.AddText(
+            $"materials/{PlayerClip}.vmt",
+            "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%playerClip\" \"1\"\n}\n");
         files.AddText(
             $"materials/{Plain}.vmt",
             "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n}\n");
@@ -137,6 +143,101 @@ internal static class RoomHarness
             Parallelism = new CompileParallelism { MaxDegree = degree },
         };
         return await Vvis.ComputeAsync(bsp, portals, context, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// The kit a room library must use: the harness's door, but the full
+    /// interior height, so it stands on the floor and a player walks through
+    /// (<see cref="PlayerHull"/>). <see cref="Kit"/>'s centred 96-high door
+    /// has its sill 64 units above the floor, which a library refuses.
+    /// </summary>
+    public static SocketKit WalkableKit { get; } = new(96f, Cell - 32f, 16f);
+
+    /// <summary>
+    /// A room on the walkable kit, with the listed faces open, its sockets
+    /// named for their walls as a library names them (east, west, north,
+    /// south).
+    /// </summary>
+    public static RoomDefinition WalkableRoom(string name, params RoomFacing[] open) =>
+        new(name, Cell, WalkableKit, [.. open.Select(f => new RoomSocket(f, RoomLibraryVmf.WallName(f)))]);
+
+    /// <summary>The gap a harness library leaves between two rooms' cells.</summary>
+    public const float LibraryGap = 64f;
+
+    /// <summary>
+    /// A room library VMF of the given rooms: each room's model (<see cref="BuildRoomModel"/>)
+    /// moved into its own cell along +x, <see cref="LibraryGap"/> apart, with an
+    /// <c>info_room</c> at the cell's low corner stating the room's name,
+    /// grid and kit.
+    /// </summary>
+    public static VmfDocument LibraryVmf(params RoomDefinition[] rooms)
+    {
+        VmfDocument library = new();
+        VmfChunk world = new(MapFileLoader.WorldChunk);
+        world.AddKey("id", "1");
+        world.AddKey("classname", "worldspawn");
+        library.Chunks.Add(world);
+        List<VmfChunk> entities = [];
+        for (int i = 0; i < rooms.Length; i++)
+        {
+            RoomDefinition room = rooms[i];
+            Vec3 corner = new(i * (room.CellSize + LibraryGap), 0, 0);
+            QuarterTurn move = QuarterTurn.Translation(corner);
+            VmfDocument model = BuildRoomModel(room);
+            foreach (VmfChunk solid in model.GetChunk(MapFileLoader.WorldChunk)!.GetChunks(MapFileLoader.SolidChunk))
+            {
+                world.Children.Add(VmfPlacement.MoveSolid(solid, move));
+            }
+
+            foreach (VmfChunk entity in model.GetChunks(MapFileLoader.EntityChunk))
+            {
+                entities.Add(VmfPlacement.MoveEntity(entity, move));
+            }
+
+            entities.Add(InfoRoom(room, corner));
+        }
+
+        foreach (VmfChunk entity in entities)
+        {
+            library.Chunks.Add(entity);
+        }
+
+        return library;
+    }
+
+    /// <summary>The <c>info_room</c> entity that marks a room of a library.</summary>
+    public static VmfChunk InfoRoom(RoomDefinition room, Vec3 corner)
+    {
+        VmfChunk marker = new(MapFileLoader.EntityChunk);
+        marker.AddKey("id", "800000");
+        marker.AddKey("classname", RoomLibraryVmf.RoomEntity);
+        marker.AddKey("origin", VmfPlacement.Format(corner));
+        marker.AddKey(RoomLibraryVmf.NameKey, room.Name);
+        marker.AddKey(RoomLibraryVmf.CellSizeKey, VmfPlacement.Format(room.CellSize));
+        marker.AddKey(RoomLibraryVmf.DoorWidthKey, VmfPlacement.Format(room.Kit.Width));
+        marker.AddKey(RoomLibraryVmf.DoorHeightKey, VmfPlacement.Format(room.Kit.Height));
+        marker.AddKey(RoomLibraryVmf.WallDepthKey, VmfPlacement.Format(room.Kit.Depth));
+
+        // A socket named other than its wall is named on the marker, as an
+        // author would; the default name needs no key.
+        foreach (RoomSocket socket in room.Sockets)
+        {
+            string wall = RoomLibraryVmf.WallName(socket.Facing);
+            if (socket.Name != wall)
+            {
+                marker.AddKey(RoomLibraryVmf.SocketKeyPrefix + wall, socket.Name);
+            }
+        }
+
+        return marker;
+    }
+
+    /// <summary>A level file's text for a grid of rows, north row first, each a list of cells.</summary>
+    public static string LevelText(string library, params string[] rows)
+    {
+        int columns = rows[0].Split(',').Length;
+        return $"library: {library}\nrows: {rows.Length}\ncolumns: {columns}\ngrid:\n"
+            + string.Concat(rows.Select(r => $"  - [{r}]\n"));
     }
 
     /// <summary>The four-socket room every grid fact places.</summary>

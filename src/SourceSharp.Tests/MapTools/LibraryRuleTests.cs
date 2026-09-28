@@ -91,34 +91,38 @@ public class LibraryRuleTests
             + string.Join(Environment.NewLine, offenders));
     }
 
+    /// <summary>
+    /// The packages a library may reference, by library: an explicit
+    /// allow-list, so a package not named here fails.
+    /// </summary>
+    /// <remarks>
+    /// Exactly one entry, by the owner's decision: MapTools reads room levels
+    /// with YamlDotNet, a standard YAML library, rather than a hand-written
+    /// parser. MapFormats stays package-free.
+    /// </remarks>
+    private static IReadOnlyList<string> AllowedPackages(string assemblyName) =>
+        assemblyName == "SourceSharp.MapTools" ? ["YamlDotNet"] : [];
+
     [Theory]
     [MemberData(nameof(LibraryAssemblies))]
     public void ReferencesNoPackages(string assemblyName)
     {
-        // Plan ruling Q3: the format parsers are our own. The two permitted
-        // runtime packages live in the optional Cache.Sqlite and Gpu
-        // assemblies, which reference these and not the reverse, so a host that
-        // wants neither pulls in neither.
+        // Plan ruling Q3: the format parsers are our own. The heavy runtime
+        // packages live in the optional Cache.Sqlite and Gpu assemblies, which
+        // reference these and not the reverse, so a host that wants neither
+        // pulls in neither. The one exception is AllowedPackages.
         //
         // Read from the assembly's own reference table rather than from the
         // project file, so a package arriving INDIRECTLY through a project reference
         // cannot slip past by not being written in the project file.
         Assembly assembly = Load(assemblyName);
-
-        string[] allowed =
-        [
-            "System", "mscorlib", "netstandard", "SourceSharp.MapFormats", "SourceSharp.MapTools",
-        ];
+        IReadOnlyList<string> packages = AllowedPackages(assemblyName);
 
         List<string> offenders = [];
         foreach (AssemblyName reference in assembly.GetReferencedAssemblies())
         {
             string name = reference.Name ?? string.Empty;
-            bool ok = allowed.Any(a =>
-                name.Equals(a, StringComparison.Ordinal)
-                || name.StartsWith(a + ".", StringComparison.Ordinal));
-
-            if (!ok)
+            if (!IsFrameworkOrOurs(name) && !packages.Contains(name, StringComparer.Ordinal))
             {
                 offenders.Add(name);
             }
@@ -127,6 +131,49 @@ public class LibraryRuleTests
         Assert.True(
             offenders.Count == 0,
             $"{assemblyName} references non-framework assemblies: {string.Join(", ", offenders)}");
+    }
+
+    /// <summary>
+    /// An allowed package brings nothing further in: every assembly it
+    /// references is the framework's, so allowing it did not also allow its
+    /// dependencies by the back door. This is the transitive half of the
+    /// rule.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(LibraryAssemblies))]
+    public void AnAllowedPackageReferencesOnlyTheFramework(string assemblyName)
+    {
+        foreach (string package in AllowedPackages(assemblyName))
+        {
+            Assembly assembly = Assembly.Load(package);
+            List<string> offenders = [.. assembly.GetReferencedAssemblies()
+                .Select(r => r.Name ?? string.Empty)
+                .Where(n => !IsFrameworkOrOurs(n))];
+            Assert.True(
+                offenders.Count == 0,
+                $"{package}, which {assemblyName} may reference, itself references: {string.Join(", ", offenders)}");
+        }
+    }
+
+    /// <summary>The allow-list is YamlDotNet, for MapTools, and nothing else anywhere.</summary>
+    [Fact]
+    public void TheAllowListIsYamlDotNetInMapToolsAlone()
+    {
+        Assert.Equal(["YamlDotNet"], AllowedPackages("SourceSharp.MapTools"));
+        Assert.Empty(AllowedPackages("SourceSharp.MapFormats"));
+        Assert.Contains(Load("SourceSharp.MapTools").GetReferencedAssemblies(), r => r.Name == "YamlDotNet");
+    }
+
+    private static bool IsFrameworkOrOurs(string name)
+    {
+        string[] allowed =
+        [
+            "System", "mscorlib", "netstandard", "SourceSharp.MapFormats", "SourceSharp.MapTools",
+        ];
+
+        return allowed.Any(a =>
+            name.Equals(a, StringComparison.Ordinal)
+            || name.StartsWith(a + ".", StringComparison.Ordinal));
     }
 
     [Fact]

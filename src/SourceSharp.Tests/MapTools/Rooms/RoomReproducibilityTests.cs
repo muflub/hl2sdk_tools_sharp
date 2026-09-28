@@ -6,7 +6,6 @@
 //=============================================================================//
 
 using System.Collections.Concurrent;
-using System.Text;
 
 using SourceSharp.MapFormats.Text;
 using SourceSharp.MapGen.Rooms;
@@ -278,7 +277,7 @@ public sealed class RoomReproducibilityTests
         }
     }
 
-    /// <summary>One of the 3x3 sample's rooms: its VMF, its definition, and its materials mounted.</summary>
+    /// <summary>One of the 3x3 sample library's rooms: its VMF, its definition, and its materials mounted.</summary>
     private static async Task<(VmfDocument Vmf, RoomDefinition Definition, ContentFileSystem Content)> SampleRoomAsync(
         string kind)
     {
@@ -292,11 +291,11 @@ public sealed class RoomReproducibilityTests
             }
         }
 
-        VmfDocument vmf = await VmfDocument.ParseAsync(files[$"maps/{kind}.vmf"]);
-        RoomDefinition definition = RoomDefinitionJson.Parse(
-            Encoding.UTF8.GetString(files[$"maps/{kind}.vmf.roomdef.json"]));
+        // The room as `ssmap room` compiles it: split out of the library VMF.
+        VmfDocument library = await VmfDocument.ParseAsync(files[Rooms3x3Kit.LibraryFile]);
+        LibraryRoom room = RoomLibraryVmf.Split(library).Single(r => r.Definition.Name == kind);
         ContentFileSystem content = new([await DirectoryContentMount.MountAsync(disk, VPath.Empty)]);
-        return (vmf, definition, content);
+        return (room.Document, room.Definition, content);
     }
 
     private static VbspContext Context(ContentFileSystem content, string mapBase, CompileParallelism parallelism) =>

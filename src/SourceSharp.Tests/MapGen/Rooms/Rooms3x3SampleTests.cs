@@ -27,12 +27,13 @@ namespace SourceSharp.Tests.MapGen.Rooms;
 /// files, and the checked-in copy of them.
 /// </summary>
 /// <remarks>
-/// The generator does not reference the linker, so the facts that matter
-/// most here read what it writes with the linker's own readers and
-/// transforms: the sidecars through <see cref="RoomDefinitionJson"/>, the
-/// layouts through <see cref="LevelLayoutJson"/>, the placement against
-/// <see cref="RoomTransform"/>. Two independent spellings of one format, held
-/// together.
+/// The generator writes the files with its own geometry and placement, so
+/// the facts that matter most here read what it writes with the room
+/// pipeline's own readers and transforms: the library through
+/// <see cref="RoomLibraryVmf"/>, the levels through <see cref="LevelYaml"/>,
+/// the placement against <see cref="RoomTransform"/>, and the generator's
+/// independent monolithic map against the pipeline's flattened level. Two
+/// independent spellings of one thing, held together.
 /// </remarks>
 public sealed class Rooms3x3SampleTests
 {
@@ -50,15 +51,17 @@ public sealed class Rooms3x3SampleTests
         IReadOnlyDictionary<string, byte[]> expected = Rooms3x3Sample.Build();
 
         // What the README's commands write in place is ignored by git, and
-        // by this comparison: the compiled rooms, the linked map, the
-        // reference compile's outputs.
+        // by this comparison: the compiled rooms, the linked maps, the
+        // flattened references and their compile's outputs, and what the
+        // commands write by default beside the library and the levels.
         List<string> present = [.. Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(root, f).Replace('\\', '/'))
             .Where(f => f != "README.md"
                 && !f.StartsWith("rooms/", StringComparison.Ordinal)
                 && !f.StartsWith("out/", StringComparison.Ordinal)
-                && !(f.StartsWith("maps/", StringComparison.Ordinal)
-                    && Path.GetExtension(f) is ".bsp" or ".prt" or ".log" or ".lin"))
+                && !f.StartsWith("maps/", StringComparison.Ordinal)
+                && !(!f.Contains('/', StringComparison.Ordinal) && f.EndsWith(".room", StringComparison.Ordinal))
+                && !(f.StartsWith("levels/", StringComparison.Ordinal) && Path.GetExtension(f) is ".bsp" or ".vmf"))
             .Order(StringComparer.Ordinal)];
         Assert.Equal(expected.Keys.Order(StringComparer.Ordinal), present);
 
@@ -81,32 +84,44 @@ public sealed class Rooms3x3SampleTests
         Assert.Equal(first.Keys, second.Keys);
         Assert.All(first, f => Assert.True(f.Value.AsSpan().SequenceEqual(second[f.Key]), f.Key));
         Assert.All(first, f => Assert.DoesNotContain((byte)'\r', f.Value));
-        Assert.Equal(26, first.Count); // gameinfo, 7 materials, 5 rooms and 5 sidecars, 4 layouts and 4 references
+        Assert.Equal(17, first.Count); // gameinfo, 7 materials, the library, 4 turns and 4 seeded levels
+        Assert.Equal(
+            ["levels/rooms3x3.yaml", "levels/rooms3x3_turn1.yaml", "levels/rooms3x3_turn2.yaml", "levels/rooms3x3_turn3.yaml",
+             "levels/seed_1.yaml", "levels/seed_10.yaml", "levels/seed_2.yaml", "levels/seed_9.yaml"],
+            first.Keys.Where(k => k.StartsWith("levels/", StringComparison.Ordinal)));
     }
 
     // ---- the kit ---------------------------------------------------------------
 
     /// <summary>
-    /// Each sidecar reads, through the linker's own reader, as the room it
-    /// sits beside: the kind's name, the grid, the kit, and its sockets on
-    /// the faces the kind claims, facing numbers and all.
+    /// The library splits, through the pipeline's own reader, into the five
+    /// kinds in kit order: each named by its <c>info_room</c>, standing at its
+    /// cell's corner in the line, with the grid, the kit, and a socket on
+    /// every face the kind claims, found from its plugs and named for the
+    /// wall. That is exactly what <see cref="Rooms3x3Kit.Definition"/> says,
+    /// which the seeded levels are drawn from.
     /// </summary>
     [Fact]
-    public void EverySidecarReadsAsItsRoom()
+    public async Task TheLibrarySplitsIntoTheKinds()
     {
-        IReadOnlyDictionary<string, byte[]> files = Rooms3x3Sample.Build();
-        foreach (RoomKind kind in Rooms3x3Kit.Kinds)
-        {
-            RoomDefinition definition = RoomDefinitionJson.Parse(
-                Encoding.UTF8.GetString(files[$"maps/{kind.Name}.vmf.roomdef.json"]));
-            definition.Validate();
+        VmfDocument library = await VmfDocument.ParseAsync(Rooms3x3Sample.Build()[Rooms3x3Kit.LibraryFile]);
+        IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(library);
 
-            Assert.Equal(kind.Name, definition.Name);
+        Assert.Equal(Rooms3x3Kit.Kinds.Select(k => k.Name), rooms.Select(r => r.Definition.Name));
+        for (int i = 0; i < rooms.Count; i++)
+        {
+            RoomKind kind = Rooms3x3Kit.Kinds[i];
+            RoomDefinition definition = rooms[i].Definition;
+            RoomDefinition expected = Rooms3x3Kit.Definition(kind);
             Assert.Equal(256f, definition.CellSize);
             Assert.Equal(new SocketKit(96, 224, 16), definition.Kit);
+            Assert.Equal((expected.Name, expected.CellSize, expected.Kit), (definition.Name, definition.CellSize, definition.Kit));
+            Assert.Equal(expected.Sockets, definition.Sockets);
             Assert.Equal(
-                kind.Sockets.Select(s => ((RoomFacing)(int)s, Rooms3x3Kit.SocketName(s))),
+                kind.Sockets.Order().Select(s => ((RoomFacing)(int)s, Rooms3x3Kit.SocketName(s))),
                 definition.Sockets.Select(s => (s.Facing, s.Name)));
+            KitPoint corner = Rooms3x3Kit.LibraryCorner(i);
+            Assert.Equal(new Vec3(corner.X, corner.Y, corner.Z), rooms[i].Corner);
         }
 
         Assert.Equal(RoomFacing.PositiveX, (RoomFacing)(int)KitSide.East);
@@ -242,24 +257,32 @@ public sealed class Rooms3x3SampleTests
     }
 
     /// <summary>
-    /// A room VMF is the kind's brushes: world solids and, for a detail
-    /// feature, one <c>func_detail</c>; with its entities, the end room's
-    /// player start among them.
+    /// Each room split from the library is the kind's brushes, room-local:
+    /// world solids and, for a detail feature, one <c>func_detail</c>; with
+    /// its entities, the end room's player start among them, and no
+    /// <c>info_room</c>.
     /// </summary>
     [Fact]
-    public async Task ARoomVmfCarriesItsBrushesAndEntities()
+    public async Task EachSplitRoomCarriesItsBrushesAndEntities()
     {
-        foreach (RoomKind kind in Rooms3x3Kit.Kinds)
+        VmfDocument library = await VmfDocument.ParseAsync(Rooms3x3Sample.Build()[Rooms3x3Kit.LibraryFile]);
+        foreach (LibraryRoom room in RoomLibraryVmf.Split(library))
         {
-            VmfDocument document = await VmfDocument.ParseAsync(Rooms3x3Kit.RoomVmf(kind));
-            VmfChunk world = document.Chunks.Single(c => c.Name == "world");
-            List<VmfChunk> entities = [.. document.Chunks.Where(c => c.Name == "entity")];
+            RoomKind kind = Rooms3x3Kit.Kind(room.Definition.Name);
+            VmfChunk world = room.Document.Chunks.Single(c => c.Name == "world");
+            List<VmfChunk> entities = [.. room.Document.Chunks.Where(c => c.Name == "entity")];
             int detail = kind.Features.Count(f => f.Role == KitBrushRole.Detail);
 
             Assert.Equal(Rooms3x3Kit.Brushes(kind).Count - detail, world.Chunks.Count(c => c.Name == "solid"));
             Assert.Equal(detail > 0 ? 1 : 0, entities.Count(e => e.GetValue("classname") == "func_detail"));
             Assert.Equal(kind.Entities.Count + (detail > 0 ? 1 : 0), entities.Count);
             Assert.Equal(kind.Name == "end" ? 1 : 0, entities.Count(e => e.GetValue("classname") == "info_player_start"));
+            Assert.DoesNotContain(entities, e => e.GetValue("classname") == RoomLibraryVmf.RoomEntity);
+            foreach (VmfChunk solid in world.Chunks.Where(c => c.Name == "solid"))
+            {
+                Box box = VmfPlacement.Bounds(solid);
+                Assert.True(box.ContainsWithin(new Box(Vec3.Zero, new Vec3(256, 256, 256)), 0), $"{kind.Name}: a brush outside [0, 256]");
+            }
         }
     }
 
@@ -317,7 +340,7 @@ public sealed class Rooms3x3SampleTests
 
     // ---- arrangements ----------------------------------------------------------
 
-    /// <summary>An arrangement is nine known rooms with quarter-turn rotations.</summary>
+    /// <summary>An arrangement is nine cells of known rooms with quarter-turn rotations, or empty.</summary>
     [Fact]
     public void AnArrangementRefusesWhatIsNotALevel()
     {
@@ -326,6 +349,63 @@ public sealed class Rooms3x3SampleTests
         Assert.Throws<ArgumentNullException>(() => new Rooms3x3Arrangement(null!));
         Assert.Throws<ArgumentException>(() => new Rooms3x3Arrangement([.. Enumerable.Repeat(new Rooms3x3Cell("attic", 0), 9)]));
         Assert.Throws<ArgumentOutOfRangeException>(() => new Rooms3x3Arrangement([.. Enumerable.Repeat(new Rooms3x3Cell("cross", 4), 9)]));
+        Assert.Throws<InvalidOperationException>(() => new Rooms3x3Arrangement(new Rooms3x3Cell?[9]).Placement(0, 0));
+        Assert.Throws<InvalidOperationException>(() => new Rooms3x3Arrangement(new Rooms3x3Cell?[9]).KindAt(0, 0));
+    }
+
+    /// <summary>
+    /// Empty cells hold no room and cap what faces them: a socket onto an
+    /// empty cell is not a joint and need not line up, a level of no room is
+    /// not a level, and the rooms around the gaps must still all be joined.
+    /// </summary>
+    [Fact]
+    public void EmptyCellsCapWhatFacesThemAndLeaveTheRestJoined()
+    {
+        Rooms3x3Arrangement none = new(new Rooms3x3Cell?[9]);
+        Assert.False(none.IsValid());
+        Assert.Empty(none.Placed);
+        Assert.Equal(Enumerable.Repeat(-1, 9), none.Components());
+
+        // Two crosses side by side in the bottom row, the rest empty: one
+        // joint, and every other socket, onto the empty cells too, capped.
+        Rooms3x3Cell?[] cells = new Rooms3x3Cell?[9];
+        cells[0] = new Rooms3x3Cell("cross", 0);
+        cells[1] = new Rooms3x3Cell("cross", 0);
+        Rooms3x3Arrangement pair = new(cells);
+        Assert.True(pair.SocketsLineUp());
+        Assert.True(pair.IsValid());
+        Assert.Equal([(KitSide.East, KitSide.West)], pair.Joints(0, 0));
+        Assert.Equal(3, pair.Caps(1, 0).Count);
+        Assert.Empty(pair.Joints(2, 2));
+        Assert.Empty(pair.Caps(2, 2));
+        Assert.Empty(pair.WorldSockets(2, 2));
+        Assert.Equal("cross@0 cross@0 - / - - - / - - -", pair.ToString());
+
+        // Two crosses with an empty cell between them: two islands.
+        cells[1] = null;
+        cells[2] = new Rooms3x3Cell("cross", 0);
+        Assert.False(new Rooms3x3Arrangement(cells).IsValid());
+        Assert.Equal([0, -1, 1, -1, -1, -1, -1, -1, -1], new Rooms3x3Arrangement(cells).Components());
+
+        // Turning keeps the gaps where they turn to.
+        Assert.Equal("- - cross@1 / - - - / - - cross@1", new Rooms3x3Arrangement(cells).Turned().ToString());
+    }
+
+    /// <summary>
+    /// An arrangement and a 3x3 level grid are the same thing both ways, and
+    /// a grid of another size is not an arrangement.
+    /// </summary>
+    [Fact]
+    public void AnArrangementIsALevelGrid()
+    {
+        foreach (Rooms3x3Case found in Rooms3x3Permutations.DefaultCases())
+        {
+            LevelGrid level = found.Arrangement.Level(found.Name, "../rooms.vmf");
+            Assert.Equal(found.Arrangement, Rooms3x3Arrangement.FromLevel(level));
+            Assert.Equal("../rooms.vmf", level.Library);
+        }
+
+        Assert.Throws<ArgumentException>(() => Rooms3x3Arrangement.FromLevel(new LevelGrid("l", "x", 2, 3, new LevelCell?[6])));
     }
 
     /// <summary>
@@ -388,19 +468,22 @@ public sealed class Rooms3x3SampleTests
     }
 
     /// <summary>
-    /// A layout reads, through the linker's reader, as the arrangement: every
-    /// room in its cell and turn, and every joint met from the other side by
-    /// the neighbour the linker's own transform says the socket faces.
+    /// A level file reads, through the pipeline's reader, as the
+    /// arrangement: every room in its cell and turn, and its derived joints
+    /// met from the other side by the neighbour the pipeline's own transform
+    /// says the socket faces, and every joint the arrangement's own
+    /// derivation finds.
     /// </summary>
     [Fact]
-    public void ALayoutIsTheArrangementAsTheLinkerReadsIt()
+    public void ALevelFileIsTheArrangementAsTheLinkerReadsIt()
     {
-        foreach (Rooms3x3Arrangement arrangement in Rooms3x3Permutations.DefaultCases(Rooms3x3Permutations.All()).Select(c => c.Arrangement))
+        Dictionary<string, RoomDefinition> definitions = Rooms3x3Kit.Kinds.ToDictionary(k => k.Name, Rooms3x3Kit.Definition);
+        foreach (Rooms3x3Arrangement arrangement in Rooms3x3Permutations.DefaultCases().Select(c => c.Arrangement))
         {
-            LevelLayout layout = LevelLayoutJson.Parse(arrangement.LayoutJson("l"));
+            LevelGrid level = LevelYaml.Parse(arrangement.LevelYaml("l", "../rooms.vmf"), "l");
+            LevelLayout layout = level.ToLayout(n => definitions.GetValueOrDefault(n), 256, new SocketKit(96, 224, 16));
             layout.Validate();
-            Assert.True(LevelLayoutJson.HasGrid(layout));
-            Assert.Equal(9, layout.Rooms.Count);
+            Assert.Equal(arrangement.Placed.Count(), layout.Rooms.Count);
 
             foreach (RoomInstance room in layout.Rooms)
             {
@@ -410,6 +493,9 @@ public sealed class Rooms3x3SampleTests
                 Assert.Equal(
                     kind.Sockets.Select(Rooms3x3Kit.SocketName).Order(),
                     room.Joints.Select(j => j.Socket).Concat(room.Capped).Order());
+                Assert.Equal(
+                    arrangement.Joints(placement.CellX, placement.CellY).Select(j => (Rooms3x3Kit.SocketName(j.Mine), Rooms3x3Kit.SocketName(j.Theirs))).Order(),
+                    room.Joints.Order());
 
                 foreach ((string socket, string theirs) in room.Joints)
                 {
@@ -422,6 +508,49 @@ public sealed class Rooms3x3SampleTests
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// The flattened level (<c>ssmap link --flatten</c>, the reference every
+    /// link is compared with) is the generator's own monolithic map of the
+    /// same level: the same brushes, box for box and material for material,
+    /// and the same entities at the same places facing the same way, for
+    /// every level of the default subset. The two share no placement code,
+    /// so a turn both the linker and the flattener got wrong would show here.
+    /// </summary>
+    [Fact]
+    public async Task TheFlattenedLevelIsTheGeneratorsOwnMonolithicMap()
+    {
+        VmfDocument library = await VmfDocument.ParseAsync(Rooms3x3Sample.Build()[Rooms3x3Kit.LibraryFile]);
+        foreach (Rooms3x3Case found in Rooms3x3Permutations.DefaultCases())
+        {
+            LevelGrid level = LevelYaml.Parse(found.Arrangement.LevelYaml(found.Name, "../rooms.vmf"), found.Name);
+            VmfDocument flat = LevelFlattener.Flatten(level, library);
+            VmfDocument mine = await VmfDocument.ParseAsync(found.Arrangement.MonolithicVmf());
+
+            Assert.Equal(Brushes(mine), Brushes(flat));
+            Assert.Equal(Entities(mine), Entities(flat));
+        }
+
+        static List<string> Brushes(VmfDocument document) =>
+        [
+            .. document.Chunks.Where(c => c.Name is "world" or "entity")
+                .SelectMany(c => c.Chunks.Where(s => s.Name == "solid"))
+                .Select(solid =>
+                {
+                    Box box = VmfPlacement.Bounds(solid);
+                    string materials = string.Join(",", solid.Chunks.Select(side => side.GetValue("material")).Distinct().Order());
+                    return $"({box.Mins.X} {box.Mins.Y} {box.Mins.Z})-({box.Maxs.X} {box.Maxs.Y} {box.Maxs.Z}) {materials}";
+                })
+                .Order(StringComparer.Ordinal),
+        ];
+
+        static List<string> Entities(VmfDocument document) =>
+        [
+            .. document.Chunks.Where(c => c.Name == "entity")
+                .Select(e => $"{e.GetValue("classname")} at {e.GetValue("origin")} angles {e.GetValue("angles")} brushes {e.Chunks.Count(c => c.Name == "solid")}")
+                .Order(StringComparer.Ordinal),
+        ];
     }
 
     /// <summary>
@@ -484,25 +613,26 @@ public sealed class Rooms3x3SampleTests
 
     /// <summary>
     /// The default subset is the documented one, in order: the four turns,
-    /// the first arrangement with each kind in the centre and in the corner
-    /// (the cross's corner pick is the corner's centre pick, so it adds a
-    /// reason, not a case), and four drawn with the fixed seed.
+    /// then the twelve seeds, each the level the seeded generator draws from
+    /// the sample library, the last four with a quarter of the cells empty.
     /// </summary>
     [Fact]
-    public void TheDefaultSubsetIsTheDocumentedSeventeen()
+    public void TheDefaultSubsetIsTheTurnsThenTheSeeds()
     {
-        IReadOnlyList<Rooms3x3Case> cases = Rooms3x3Permutations.DefaultCases(Rooms3x3Permutations.All());
+        IReadOnlyList<Rooms3x3Case> cases = Rooms3x3Permutations.DefaultCases();
         Assert.Equal(
             [
                 "rooms3x3", "rooms3x3_turn1", "rooms3x3_turn2", "rooms3x3_turn3",
-                "cross_in_centre", "tee_in_centre", "corner_in_centre", "hall_in_centre", "end_in_centre",
-                "tee_in_corner", "corner_in_corner", "hall_in_corner", "end_in_corner",
-                "drawn_55536", "drawn_59973", "drawn_51431", "drawn_40074",
+                "seed_1", "seed_2", "seed_3", "seed_4", "seed_5", "seed_6", "seed_7", "seed_8",
+                "seed_9", "seed_10", "seed_11", "seed_12",
             ],
             cases.Select(c => c.Name));
-        Assert.Contains("the first arrangement with the cross in the corner", cases.Single(c => c.Name == "corner_in_centre").Reason);
-        Assert.Equal("cross", cases.Single(c => c.Name == "corner_in_centre").Arrangement[0, 0].Kind);
-        Assert.Throws<ArgumentException>(() => Rooms3x3Permutations.DefaultCases([]));
+        Assert.Equal("generated with seed 9, 0.25 of the cells empty", cases.Single(c => c.Name == "seed_9").Reason);
+        foreach (Rooms3x3Case seeded in cases.Skip(4))
+        {
+            Assert.Equal(Rooms3x3Arrangement.FromLevel(Rooms3x3Permutations.Seeded(seeded.Name, "x")), seeded.Arrangement);
+            Assert.Equal(seeded.Name is "seed_9" or "seed_10" or "seed_11" or "seed_12" ? 2 : 0, seeded.Arrangement.Cells.Count(c => c is null));
+        }
     }
 
     private static bool Overlaps(Bounds a, Bounds b) =>

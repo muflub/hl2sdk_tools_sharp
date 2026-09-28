@@ -204,12 +204,13 @@ public sealed class LevelLinkerTests
 
     /// <summary>
     /// Three rooms in a line, one door each. Capping the A–B joint (both sides
-    /// drop the joint and cap the socket; the plugs stay) must remove exactly
-    /// the pairs that travelled that bridge — A–B and A–C, both directions.
-    /// and change nothing else: B still sees C, every room still sees itself.
+    /// drop the joint and cap the socket; the plugs stay) strands room A: a
+    /// player could never walk into it, so the level is refused by the
+    /// reachability rule, naming A and its cell, where it used to link into
+    /// a map with a room nobody could reach.
     /// </summary>
     [Fact]
-    public async Task CappingTheOnlyBridgeRemovesExactlyItsPairs()
+    public async Task CappingTheOnlyBridgeIsRefusedForStrandingARoom()
     {
         RoomDefinition hub = RoomHarness.Room("hub",
             RoomFacing.PositiveX, RoomFacing.NegativeX, RoomFacing.PositiveY, RoomFacing.NegativeY);
@@ -221,45 +222,76 @@ public sealed class LevelLinkerTests
 
         LevelLayout line = LineLayout();
         LinkedLevel full = await LevelLinker.LinkAsync(line, library, context);
-
-        // Baseline: the open line sees through both doors.
         int per = room.ClusterCount;
-        Assert.True(full.Vis.CanSee(0, per), "the open line does not cross the A-B door");
         Assert.True(full.Vis.CanSee(0, 2 * per), "the open line does not cross both doors");
 
-        LinkedLevel capped = await LevelLinker.LinkAsync(CapBridgeLayout(line), library, context);
+        RoomLintException refused = await Assert.ThrowsAsync<RoomLintException>(
+            async () => await LevelLinker.LinkAsync(CapBridgeLayout(line), library, context));
+        Assert.Equal(
+            "rule 6 (EveryRoomReachable): a player cannot reach every room: room \"hub\" at cell (0, 0) is not"
+            + " joined to the other 2 room(s) of the level through any door.",
+            refused.Message);
+    }
 
-        bool[][] before = Matrix(full.Vis);
-        bool[][] after = Matrix(capped.Vis);
-        int total = full.Vis.ClusterCount;
-        Assert.Equal(total, capped.Vis.ClusterCount);
+    /// <summary>
+    /// The door graph is the only cross-room sight: on the linker's own
+    /// closure, three rooms of two clusters each in a line, dropping the A–B
+    /// door edge removes exactly the pairs that travelled that bridge — every
+    /// pair across the A|BC cut, both directions — and changes nothing else:
+    /// B still sees C, every room still sees itself. (A level cannot be
+    /// linked with that bridge capped any more, see
+    /// <see cref="CappingTheOnlyBridgeIsRefusedForStrandingARoom"/>, so the
+    /// mutation is made on the rows the link closes.)
+    /// </summary>
+    [Fact]
+    public void DroppingTheOnlyBridgeRemovesExactlyItsPairs()
+    {
+        const int per = 2, total = 3 * per;
+        byte[][] Rows(bool bridge)
+        {
+            byte[][] rows = [.. Enumerable.Range(0, total).Select(_ => new byte[1])];
+            for (int c = 0; c < total; c++)
+            {
+                // A room's own rows: its clusters see each other.
+                for (int d = (c / per) * per; d < ((c / per) + 1) * per; d++)
+                {
+                    LevelLinker.OrBit(rows[c], d);
+                }
+            }
 
-        // The A-B bridge is every pair crossing the A|BC cut. Capping it must
-        // disconnect exactly the pairs that were connected, in either
-        // direction, across that cut — and no pair outside the cut may move.
+            void Door(int a, int b)
+            {
+                LevelLinker.OrBit(rows[a], b);
+                LevelLinker.OrBit(rows[b], a);
+            }
+
+            if (bridge)
+            {
+                Door(1, 2); // A's second cluster faces B's first
+            }
+
+            Door(3, 4); // B's second faces C's first
+            LevelLinker.CloseRows(rows, total, CancellationToken.None);
+            return rows;
+        }
+
+        byte[][] before = Rows(bridge: true);
+        byte[][] after = Rows(bridge: false);
         int lost = 0;
         for (int from = 0; from < total; from++)
         {
             for (int to = 0; to < total; to++)
             {
+                bool was = (before[from][0] & (1 << to)) != 0;
+                bool now = (after[from][0] & (1 << to)) != 0;
                 bool acrossCut = (from < per) != (to < per);
-                Assert.True(
-                    before[from][to] == after[from][to] || acrossCut,
-                    $"pair {from}->{to} is not across the capped cut but changed "
-                    + $"(before {before[from][to]}, after {after[from][to]})");
-                if (acrossCut)
-                {
-                    // The bridge was A's only way out, so capping it must
-                    // remove every pair across the cut — a capping that
-                    // removed nothing would pass a "nothing else moved"
-                    // check alone.
-                    Assert.False(after[from][to], $"pair {from}->{to} still sees across the capped bridge");
-                    lost += before[from][to] ? 1 : 0;
-                }
+                Assert.True(was, $"the open line does not see {from}->{to}");
+                Assert.True(acrossCut ? !now : now, $"pair {from}->{to}: across the cut {acrossCut}, sees {now}");
+                lost += acrossCut ? 1 : 0;
             }
         }
 
-        Assert.True(lost > 0, "the open line had no pair across the bridge to lose");
+        Assert.Equal(2 * per * (total - per), lost);
     }
 
     // ---- refusals: one broken guarantee, named ---------------------------.
@@ -754,20 +786,6 @@ public sealed class LevelLinkerTests
     [
         new(1, 0, 0), new(-1, 0, 0), new(0, 1, 0), new(0, -1, 0), new(0, 0, 1), new(0, 0, -1),
     ];
-
-    private static bool[][] Matrix(VisResult vis)
-    {
-        bool[][] matrix = [.. Enumerable.Range(0, vis.ClusterCount).Select(_ => new bool[vis.ClusterCount])];
-        for (int from = 0; from < vis.ClusterCount; from++)
-        {
-            for (int to = 0; to < vis.ClusterCount; to++)
-            {
-                matrix[from][to] = vis.CanSee(from, to);
-            }
-        }
-
-        return matrix;
-    }
 
     private static ShortArray3 Short3(Vec3 v)
     {

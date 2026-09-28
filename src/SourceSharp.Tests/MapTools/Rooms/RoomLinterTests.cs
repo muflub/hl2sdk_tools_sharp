@@ -135,6 +135,63 @@ public class RoomLinterTests
             error.Message);
     }
 
+    /// <summary>
+    /// A door plug on a wall the room has no socket on is a trigger brush
+    /// that is not a declared plug: the model check names it and the kit it
+    /// should have been, before the compile is paid for, where the census
+    /// alone would have passed the room with an extra plug in a doorway.
+    /// </summary>
+    [Fact]
+    public async Task ATriggerBrushThatIsNotADeclaredPlugIsRefusedByTheModel()
+    {
+        RoomDefinition declared = RoomHarness.Room("extra", RoomFacing.PositiveX);
+        VmfDocument document = RoomHarness.BuildRoomModel(RoomHarness.Room("extra", RoomFacing.PositiveX, RoomFacing.NegativeX));
+
+        VbspContext context = await RoomHarness.ContextAsync();
+        RoomLintException error = await Assert.ThrowsAsync<RoomLintException>(
+            () => RoomCompiler.CompileAsync(document, declared, context, default));
+
+        Assert.Equal(
+            "rule 4 (SocketsFromFixedKit): room extra has a door-plug (trigger) brush at (0 80 80)-(16 176 176)"
+            + " that is not the kit's plug on any of its socket walls: a plug fills the 96 by 96 opening centred"
+            + " on its wall, 16 deep.",
+            error.Message);
+    }
+
+    /// <summary>
+    /// Only solid world brushes can be plugs: a player clip with one
+    /// trigger-surfaced side (a world brush with a trigger side that is not
+    /// solid) and a trigger brush of a brush entity are not checked against
+    /// the kit.
+    /// </summary>
+    [Fact]
+    public async Task OnlySolidWorldTriggerBrushesAreHeldToTheKit()
+    {
+        RoomDefinition room = RoomHarness.Room("volumes", RoomFacing.PositiveX);
+        VmfDocument document = RoomHarness.BuildRoomModel(room);
+        VmfChunk clip = RoomModel.Slab(RoomHarness.PlayerClip, new Vec3(64, 64, 16), new Vec3(96, 96, 48), 4243);
+        clip.Chunks.Last().Keys.Single(k => k.Name == "material").Value = RoomHarness.Trigger;
+        document.Chunks[0].Children.Add(clip);
+        VmfChunk trigger = new(MapFileLoader.EntityChunk);
+        trigger.AddKey("id", "4244");
+        trigger.AddKey("classname", "func_brush");
+        trigger.Children.Add(RoomModel.Slab(RoomHarness.Trigger, new Vec3(160, 160, 16), new Vec3(192, 192, 48), 4245));
+        document.Chunks.Add(trigger);
+
+        MapFile map = await MapFileLoader.LoadAsync(await RoomHarness.ContextAsync(), document, CancellationToken.None);
+        MapFileReader.TakeBounds(map);
+        Assert.True(map.Brushes.Count > map.Entities[0].BrushCount, "the func_brush's brush is not an entity brush");
+
+        RoomLinter.CheckModel(room, map);
+
+        // The same solid trigger brush in the world is held to the kit.
+        document.Chunks[0].Children.Add(RoomModel.Slab(RoomHarness.Trigger, new Vec3(160, 160, 16), new Vec3(192, 192, 48), 4246));
+        map = await MapFileLoader.LoadAsync(await RoomHarness.ContextAsync(), document, CancellationToken.None);
+        MapFileReader.TakeBounds(map);
+        RoomLintException world = Assert.Throws<RoomLintException>(() => RoomLinter.CheckModel(room, map));
+        Assert.Contains("(160 160 16)-(192 192 48)", world.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task ABrushCrossingACellFaceOutsideTheKitIsRefusedByTheModel()
     {
