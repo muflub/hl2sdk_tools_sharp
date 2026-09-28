@@ -292,7 +292,14 @@ public static class RoomLibraryCompiler
         {
             RoomObject compiled = await RoomCompiler
                 .CompileAsync(room.Document, room.Definition, context, cancellationToken).ConfigureAwait(false);
-            return new RoomCompileOutcome(index, room, compiled, null);
+
+            // The link work that depends only on the room and its turn,
+            // done here, on the room's own thread, so it runs side by side
+            // like the compiles and every later link of the room skips it
+            // (RoomLinkData). A room the link would refuse gets none and is
+            // delivered as before.
+            RoomLinkData? link = await LevelLinker.TryPrecomputeAsync(compiled, cancellationToken).ConfigureAwait(false);
+            return new RoomCompileOutcome(index, room, link is null ? compiled : compiled with { Link = link }, null);
         }
         catch (Exception exception) when (IsRoomFailure(exception))
         {

@@ -158,20 +158,44 @@ public static partial class LevelLinker
 
         // The pak is a zip: whether it holds a file is a parse, and the parse
         // is async, so it runs here rather than inside the planning workers.
+        // A room with stored link data passed this check when it was
+        // compiled (RoomLinkData), so only the others are parsed.
         foreach (ResolvedPlacement placement in resolved)
         {
-            await RefusePackedFilesAsync(placement.Room, cancellationToken).ConfigureAwait(false);
+            if (StoredLink(placement.Room) is null)
+            {
+                await RefusePackedFilesAsync(placement.Room, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         // Per-room work: validate the compile against the relocation set and
-        // parse + transform the structs. Each item writes only its own slot
-        // (disjoint ranges), and the thread count comes from the context's
-        // parallelism — degree 1 and degree 32 produce byte-identical output
-        // because the counts and bases are a sequential prefix sum below and
-        // no item reads another's result (invariant I4).
+        // move the turned structs to the cell. Each item writes only its own
+        // slot (disjoint ranges), and the thread count comes from the
+        // context's parallelism — degree 1 and degree 32 produce
+        // byte-identical output because the counts and bases are a
+        // sequential prefix sum below and no item reads another's result
+        // (invariant I4).
+        //
+        // When every room's checks and plug census were done at room compile
+        // time (its stored link data), what is left per placement is a
+        // translation pass and at most a quarter turn, microseconds each,
+        // and starting (and joining) a thread pool for it cost several times
+        // the work (10 to 20 ms a level on the stress library, against 2 to
+        // 7 ms of planning on one thread): the link runs it on this thread.
+        // Rooms without stored data are checked and censused here, the heavy
+        // work the pool is for.
         RoomPlan[] plans = new RoomPlan[resolved.Length];
-        using (WorkQueue queue = new(context.Parallelism))
+        if (resolved.All(p => StoredLink(p.Room) is not null))
         {
+            for (int index = 0; index < resolved.Length; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                plans[index] = PlanRoom(resolved[index]);
+            }
+        }
+        else
+        {
+            using WorkQueue queue = new(context.Parallelism);
             await queue.RunAsync(
                 resolved.Length,
                 (index, _) =>
@@ -272,7 +296,7 @@ public static partial class LevelLinker
              faces = 0, origFaces = 0, brushes = 0, brushSides = 0, leafFaces = 0,
              leaves = 1, lighting = 0, stringTable = 0, stringData = 0,
              primVerts = 0, primIndices = 0, prims = 0, vertNormals = 0, vertNormalIndices = 0,
-             occluderPolys = 0, occluderVerts = 0;
+             occluders = 0, occluderPolys = 0, occluderVerts = 0;
         foreach (RoomPlan plan in plans)
         {
             plan.VertexBase = (int)vertices;
@@ -295,6 +319,7 @@ public static partial class LevelLinker
             plan.PrimVertBase = (int)primVerts;
             plan.VertNormalBase = (int)vertNormals;
             plan.VertexNormalIndexBase = (int)vertNormalIndices;
+            plan.OccluderBase = (int)occluders;
             plan.OccluderPolyBase = (int)occluderPolys;
             plan.OccluderVertexBase = (int)occluderVerts;
 
@@ -318,6 +343,7 @@ public static partial class LevelLinker
             primVerts += plan.PrimVertCount;
             vertNormals += plan.VertNormalCount;
             vertNormalIndices += plan.VertNormalIndexCount;
+            occluders += plan.Occlusion?.Occluders.Count ?? 0;
             occluderPolys += plan.Occlusion?.Polys.Count ?? 0;
             occluderVerts += plan.Occlusion?.VertexIndices.Count ?? 0;
 
@@ -706,6 +732,41 @@ public static partial class LevelLinker
         Vec3 hi = corners[0];
         foreach (Vec3 c in corners)
         {
+            lo = new Vec3(Math.Min(lo.X, c.X), Math.Min(lo.Y, c.Y), Math.Min(lo.Z, c.Z));
+            hi = new Vec3(Math.Max(hi.X, c.X), Math.Max(hi.Y, c.Y), Math.Max(hi.Z, c.Z));
+        }
+
+        return new Box(lo, hi);
+    }
+
+    /// <summary>
+    /// A room-local box turned by a quarter-turn count and not moved: the
+    /// bounds of its eight turned corners, folded in the order
+    /// <see cref="MoveBox"/> folds them.
+    /// </summary>
+    /// <remarks>
+    /// What the room compile stores for every box the link moves (node and
+    /// leaf bounds, occluders, the world model, the plugs, the worldspawn
+    /// extent); the link then only adds the cell
+    /// (<see cref="RoomTransform.TranslateBox"/>).
+    /// </remarks>
+    internal static Box RotateBox(Vec3 mins, Vec3 maxs, int rotation)
+    {
+        Vec3 lo = default, hi = default;
+        for (int b = 0; b < 8; b++)
+        {
+            Vec3 c = RoomTransform.Rotate(
+                new Vec3(
+                    (b & 1) == 0 ? mins.X : maxs.X,
+                    (b & 2) == 0 ? mins.Y : maxs.Y,
+                    (b & 4) == 0 ? mins.Z : maxs.Z),
+                rotation);
+            if (b == 0)
+            {
+                lo = hi = c;
+                continue;
+            }
+
             lo = new Vec3(Math.Min(lo.X, c.X), Math.Min(lo.Y, c.Y), Math.Min(lo.Z, c.Z));
             hi = new Vec3(Math.Max(hi.X, c.X), Math.Max(hi.Y, c.Y), Math.Max(hi.Z, c.Z));
         }
