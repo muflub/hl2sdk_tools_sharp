@@ -679,14 +679,104 @@ public sealed class VisMatrix
     }
 
     /// <summary>
+    /// Stock's <c>BuildVisRow</c> walk over one PVS row, without the receiver:
+    /// the faces it tests, in the order it tests them, before the receiver's
+    /// own face is skipped.
+    /// </summary>
+    /// <param name="pvs">The row: bit <c>j</c> set when cluster <c>j</c> is visible.</param>
+    /// <param name="clusters">How many clusters the row covers.</param>
+    /// <param name="tables">Each cluster's leaves and displacement faces.</param>
+    /// <param name="leaves">The map's leaves.</param>
+    /// <param name="leafFaces">LUMP_LEAFFACES.</param>
+    /// <param name="faceStamp">Per face, the stamp of the walk that last took it from a leaf.</param>
+    /// <param name="dispStamp">Per face, the stamp of the walk that last took it as a displacement.</param>
+    /// <param name="stamp">This walk's stamp, never used by an earlier walk over these arrays.</param>
+    /// <param name="faces">Receives the faces; at least twice the face count long.</param>
+    /// <returns>How many faces were written.</returns>
+    /// <remarks>
+    /// Each visible cluster in order: its leaves' faces, each face the first
+    /// time the walk meets it, then its displacement faces, each the first
+    /// time it meets them as a displacement. The two "seen" sets are
+    /// separate, as stock's <c>face_tested</c> and <c>disp_tested</c> are, so
+    /// a face can come twice. The stamps stand in for stock's per-call
+    /// <c>memset</c> of both.
+    /// </remarks>
+    internal static int FacesInRow(
+        ReadOnlySpan<byte> pvs,
+        int clusters,
+        ClusterTables tables,
+        ReadOnlySpan<LeafInfo> leaves,
+        ReadOnlySpan<ushort> leafFaces,
+        int[] faceStamp,
+        int[] dispStamp,
+        int stamp,
+        Span<int> faces)
+    {
+        int count = 0;
+        for (int j = 0; j < clusters; j++)
+        {
+            if ((pvs[j >> 3] & (1 << (j & 7))) == 0)
+            {
+                continue;
+            }
+
+            foreach (int leafIndex in tables.Leaves(j))
+            {
+                LeafInfo leaf = leaves[leafIndex];
+                for (int k = 0; k < leaf.NumLeafFaces; k++)
+                {
+                    int l = leafFaces[leaf.FirstLeafFace + k];
+                    if (faceStamp[l] == stamp)
+                    {
+                        continue;
+                    }
+
+                    faceStamp[l] = stamp;
+                    faces[count++] = l;
+                }
+            }
+
+            foreach (int face in tables.DispFaces(j))
+            {
+                if (dispStamp[face] == stamp)
+                {
+                    continue;
+                }
+
+                dispStamp[face] = stamp;
+                faces[count++] = face;
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>
     /// <c>BuildVisRow</c>, <c>TestPatchToFace</c> and <c>TestPatchToPatch</c>
     /// For one worker: which patches one
     /// receiver tests, in stock's order.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// <c>face_tested</c>/<c>disp_tested</c> are stock's per-call
-    /// <c>memset</c> byte arrays; here they are stamps, bumped per receiver,
-    /// so nothing is cleared.
+    /// <c>memset</c> byte arrays; here they are stamps, so nothing is cleared.
+    /// </para>
+    /// <para>
+    /// THE FACE LIST IS THE CLUSTER'S, NOT THE RECEIVER'S. Stock walks the
+    /// receiver's PVS row for every receiver: each visible cluster's leaves,
+    /// each leaf's faces (skipping a face already seen), then the cluster's
+    /// displacement faces (skipping one already seen among those). Nothing in
+    /// that walk depends on the receiver except the row, which is its
+    /// cluster's, and the one face it then skips, its own -- and that skip
+    /// comes after the face is marked seen, so it changes nothing else. So the
+    /// walk is made once per cluster, into <see cref="_faces"/>, and every
+    /// receiver of the cluster runs down that list, skipping its own face:
+    /// the same faces in the same order. Receivers come in cluster order
+    /// (<see cref="ReceiverOrder"/>) and a worker takes consecutive ones, so
+    /// the list is rebuilt about once per cluster per worker instead of the
+    /// walk being made once per patch, twice over (the count pass and the
+    /// fill pass). On 2fort the walk was most of this class's time.
+    /// </para>
     /// </remarks>
     private sealed class Enumerator
     {
@@ -698,6 +788,15 @@ public sealed class VisMatrix
         private int _stamp;
         private int _pvsCluster = -1;
 
+        /// <summary>
+        /// The faces a receiver in <see cref="_pvsCluster"/> tests, in walk
+        /// order, before its own face is skipped. A face can be here twice,
+        /// once from the leaves and once as a displacement, exactly as the
+        /// walk tests it twice. At most every face from each source.
+        /// </summary>
+        private readonly int[] _faces;
+        private int _faceCount;
+
         public Enumerator(VisMatrix owner)
         {
             _owner = owner;
@@ -705,6 +804,7 @@ public sealed class VisMatrix
             int faces = owner._context.Geometry.Faces.Length;
             _faceStamp = new int[faces];
             _dispStamp = new int[faces];
+            _faces = new int[2 * faces];
             _pvs = new byte[Math.Max(owner._context.Visibility.RowBytes, 1)];
         }
 
@@ -716,68 +816,30 @@ public sealed class VisMatrix
                 // BuildVisLeafs_Cluster decompresses the cluster's own row
                 _owner._context.Visibility.GetVisCache(cluster, _pvs);
                 _pvsCluster = cluster;
+                CollectFaces();
             }
 
-            _stamp++;
             Sink sink = new(output);
-            BuildVisRow(receiver, ref sink);
+            int faceNumber = _owner._context.Patches.At(receiver).FaceNumber;
+            ReadOnlySpan<int> faces = _faces.AsSpan(0, _faceCount);
+            for (int i = 0; i < faces.Length; i++)
+            {
+                // "don't check patches on the same face".
+                if (faces[i] != faceNumber)
+                {
+                    TestPatchToFace(receiver, faces[i], ref sink);
+                }
+            }
+
             return sink.Count;
         }
 
-        private void BuildVisRow(int receiver, ref Sink sink)
+        private void CollectFaces()
         {
             BounceContext ctx = _owner._context;
-            ReadOnlySpan<LeafInfo> leaves = ctx.Geometry.Leaves;
-            ReadOnlySpan<ushort> leafFaces = ctx.Geometry.LeafFaces;
-            int faceNumber = ctx.Patches.At(receiver).FaceNumber;
-            int clusters = ctx.Visibility.ClusterCount;
-
-            for (int j = 0; j < clusters; j++)
-            {
-                if ((_pvs[j >> 3] & (1 << (j & 7))) == 0)
-                {
-                    continue;
-                }
-
-                foreach (int leafIndex in _owner._tables.Leaves(j))
-                {
-                    LeafInfo leaf = leaves[leafIndex];
-                    for (int k = 0; k < leaf.NumLeafFaces; k++)
-                    {
-                        int l = leafFaces[leaf.FirstLeafFace + k];
-                        if (_faceStamp[l] == _stamp)
-                        {
-                            continue;
-                        }
-
-                        _faceStamp[l] = _stamp;
-
-                        // "don't check patches on the same face".
-                        if (faceNumber == l)
-                        {
-                            continue;
-                        }
-
-                        TestPatchToFace(receiver, l, ref sink);
-                    }
-                }
-
-                foreach (int face in _owner._tables.DispFaces(j))
-                {
-                    if (_dispStamp[face] == _stamp)
-                    {
-                        continue;
-                    }
-
-                    _dispStamp[face] = _stamp;
-                    if (faceNumber == face)
-                    {
-                        continue;
-                    }
-
-                    TestPatchToFace(receiver, face, ref sink);
-                }
-            }
+            _faceCount = FacesInRow(
+                _pvs, ctx.Visibility.ClusterCount, _owner._tables, ctx.Geometry.Leaves, ctx.Geometry.LeafFaces,
+                _faceStamp, _dispStamp, ++_stamp, _faces);
         }
 
         private void TestPatchToFace(int receiver, int face, ref Sink sink)
