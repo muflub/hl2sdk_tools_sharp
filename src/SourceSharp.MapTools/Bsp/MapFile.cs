@@ -211,11 +211,29 @@ public sealed class MapFile
     /// The entity numbers of the map's <c>func_viscluster</c> entities.
     /// </summary>
     /// <remarks>
-    /// <c>AddVisCluster</c> keeps these for the portal
-    /// file rather than emitting them to the BSP. The visibility lane consumes
-    /// the list; the loader's job is to notice them and not blank them.
+    /// The entities themselves are cleared as they load, the way the
+    /// reference compiler clears them: a <c>func_viscluster</c> is a compile
+    /// instruction with no runtime meaning, so it gets no model and no entity
+    /// lump record. The numbers stay here so the incremental cache's digest
+    /// still sees where they were; their volumes are in
+    /// <see cref="VisClusters"/>.
     /// </remarks>
     public List<int> VisClusterEntities { get; } = [];
+
+    /// <summary>
+    /// The volumes of the map's <c>func_viscluster</c> entities, in load
+    /// order, which the portal file stage uses to merge the leaves each one
+    /// covers into a single vis cluster.
+    /// </summary>
+    /// <remarks>
+    /// Built while the map loads, for the plane-table reason given on
+    /// <see cref="Tree.VisClusterVolumes"/>. Only the map the entities were
+    /// loaded into has them: a <c>func_viscluster</c> inside a
+    /// <c>func_instance</c> is not carried into the main map, which is what
+    /// the reference does in effect too, since it builds the volume from the
+    /// main map's brushes at the instance's brush numbers.
+    /// </remarks>
+    public Tree.VisClusterVolumes VisClusters { get; } = new();
 
     /// <summary>
     /// The entity numbers of the map's <c>info_overlay</c> entities.

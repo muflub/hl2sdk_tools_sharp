@@ -44,6 +44,7 @@ src/
   SourceSharp.MapTools.slnx               the solution
   Directory.Build.props                   net10.0, nullable, CS0108/CS0114 as errors
   SourceSharp.MapFormats/                 file formats; no package or project references
+  SourceSharp.RoomContracts/              the Source Sharp mod entity contract (logic_room, cxry_ names); no references
   SourceSharp.MapTools/                   the compile passes (core library)
   SourceSharp.MapCompile/                 the ssmap CLI (assembly name: ssmap)
   SourceSharp.MapTools.Cache.Sqlite/      optional SQLite store for the incremental cache
@@ -72,6 +73,10 @@ Readers and writers for every file the chain touches, and nothing else.
   `Math` and `MathF` (see [Elementary functions](#elementary-functions)).
 - `Assets/` reads studio models, `.phy` files and VTF textures.
 - `Zip/` reads and writes the pakfile zip, including LZMA entries.
+- `Nav/` reads and writes the `.nav3d` level navigation file
+  ([`docs/nav3d-format.md`](docs/nav3d-format.md)); the game mod references
+  this assembly for `Nav3dReader`, which answers from the file's bytes
+  without allocating.
 
 ### `SourceSharp.MapTools`
 
@@ -90,6 +95,7 @@ The compile passes, grouped by stage and by concern.
 | `Options/` | stock argument parsing (`StockArgs`), per-stage options, the compliance catalogue |
 | `Compile/` | `MapCompiler`, which runs one or more stages in process |
 | `Rooms/` | split a room library VMF into rooms, compile them side by side into one `.roompack`, read and generate level files, and link or flatten a level into one map |
+| `Nav/` | the 3D navigation: voxelise a room's free space per agent into a sparse voxel octree, store it in the pack, stitch a level's `.nav3d` at link, and report on it |
 | `Validation/` | `BspValidator`, the loader rules `ssmap check` reports |
 | `Compare/` | the lump-by-lump comparer behind `ssmap diff` |
 | `Parallel/`, `Diagnostics/`, `Geometry/`, `Vpk/` | work scheduling, warnings and error codes, geometry kernel, VPK reading |
@@ -255,22 +261,71 @@ Unzip it anywhere and compile against it with no Steam install:
 ### `room`, `rooms`, `link` and `layout`
 
 ```sh
-ssmap room <library.vmf> [-out <pack.roompack>] [vbsp options]
-ssmap rooms <library.vmf>
-ssmap link <level.yaml> [-rooms <pack.roompack>] [-out <map.bsp>]
-ssmap link <level.yaml> --flatten [-out <map.vmf>]
-ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>] [-out <level.yaml>]
+ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <codec>]
+           [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
+ssmap rooms <library.vmf> [-rooms <pack.roompack>]
+ssmap rooms -rooms <pack.roompack>
+ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
+ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
+ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
+             [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
+ssmap nav <map.nav3d | level.yaml> [-rooms <pack.roompack>] [--obj <out.obj>] [--floor] [--agent <index|name>]
 ```
 
 `ssmap rooms` lists a library without compiling it: each room's name, its
 cell's corner and size, and each door's wall, plug box (in library
 coordinates) and size. It reads and checks the library exactly as
-`ssmap room` does, so a library it lists is one the compile accepts.
+`ssmap room` does, so a library it lists is one the compile accepts. When
+the library's pack is there (`-rooms`, else `<library>.roompack` beside
+it), the listing opens with the library's entity budget and gives each
+room's entities as the room compile counted them: how many reach a linked
+map, and how many of those take an edict.
 
 A room pack is a function of its inputs: the same library and `ssmap`
 build write the same bytes at any `-threads` and on every run, and so does
 each room inside it. (The work counters and deepest flow that `ssmap vvis`
 reports depend on the schedule, so a room does not store them.)
+
+**Incremental room compiles.** With `-incremental`, `ssmap room` keeps each
+room's finished pack sections in the same SQLite store `ssmap all
+-incremental` uses (`<library>.sscache.db` beside the library, or in
+`-cache-dir <dir>`; `-nocache` turns it off again for one run). A room whose
+inputs have not changed since a run that stored it is copied from the store
+instead of compiled, and the log says `reused` for it and ends with
+`N compiled, M reused`. The pack is byte for byte the pack a run without
+`-incremental` writes, pack id included (the id is derived from the library
+and the options, never from the rooms). A room's key holds:
+
+- the room as the split hands it to the compile: its room-local VMF (the
+  library's `versioninfo` and worldspawn keys, its own brushes and entities,
+  in its own order) written back out, and its `info_room` claims (name,
+  cell, door kit, sockets, `room_role`). Whitespace, editor chunks, other
+  rooms and the order of other rooms' entities do not count, and neither
+  does the library's `mapversion` (the editor's save counter): every room
+  is compiled with `mapversion` 0, the pack's `LOPT` section keeps the
+  library's value, and `ssmap link` writes it into the linked worldspawn,
+  so the linked map is what it was and a save that changes nothing else
+  recompiles no room;
+- the vbsp options after the format pipeline (every one but `-v` and
+  `-verboseentities`), the library's navigation keys, `-nav-turn0` and
+  `-nav-codec`, and `rooms_name_keys`;
+- the collision cooker and format preset, and the `ssmap` build;
+- the game content the room compile read, found or looked for and missed,
+  checked against the content as it is now each time a room is reused.
+
+The library-only settings (`rooms_entity_reserve`, `rooms_fold_logic`) and
+the library-wide entities are link inputs: editing them rewrites those
+sections and reuses every room. Rows are written only after the pack is, so
+a cancelled or failed run leaves the store as it was; several runs may
+share one store file. On the 256-room stress library (4 cores), a clean
+compile takes about 5 s, a recompile with nothing changed about 1.7 s, and
+one with one room edited about 2.1 s; the store holds about 44 MB beside
+the 40 MB pack.
+
+`ssmap rooms -rooms <pack>` without a library prints the pack's section
+table: each library and room section's tag, offset, stored length, codec,
+decoded length, revision and a SHA-256 prefix, so two packs can be compared
+section by section.
 
 A **room library** is one VMF holding every room of a set, each in its own
 cell with gaps between them, and each marked by an `info_room` point entity
@@ -355,6 +410,84 @@ of joined sockets left out and the capped ones kept. Compiled with
 library and seed always give the same file, sockets line up between rooms,
 and every room is reachable. `-empty` leaves that share of the cells
 without a room.
+
+**Entity budget.** The engine networks at most 2048 edicts, and at runtime
+the game's players, bots, weapons, projectiles and pickups take from the
+same cap, so a level may use `2048 - reserve` of them. The reserve is 512
+by default; a library sets its own with the worldspawn key
+`rooms_entity_reserve` (kept in the pack; it reaches neither the rooms nor
+the map), and `link -entity-reserve N` overrides both. `room` counts each
+room's entities by class and stores the counts in the pack; `link` totals
+them before it links anything (every class counts as an edict except the
+ones the tools consume, such as `func_detail` and `prop_static`, which the
+link strips), refuses a level over 2048, warns when one eats into the
+reserve, naming the rooms that cost the most, and always prints the
+headroom:
+
+```
+map entities 612 / budget 1536 (reserve 512, cap 2048); 931 entities in the entity list
+```
+
+`layout` keeps a generated level within the same budget when the pack has
+the rooms' counts, or within `-entity-budget N`; a budget no level of the
+library reaches changes nothing, so the same seed gives the same file.
+
+**Room-local names.** A name that starts with `cxry_` belongs to its room:
+`cxry_door` in the room at column 3, row 5 links as `c3r5_door`, so a room
+placed twice has two doors, not one name fired twice. `cx+1ry_door` names
+the room beyond this room's authored east wall (`cx-1`, `ry+1` and `ry-1`
+likewise, and the diagonals by both), and the offset turns with the room.
+Names without the prefix are global and left as written; a global name may
+not begin like one the linker writes (`c3r5_`, any case) or like a
+misspelt placeholder (`CXRY_`, `cx+2ry_`, `c4rocket`), and `ssmap room`
+refuses the room naming the entity and key. A reference to a cell with no
+room (or off the grid) is dropped with a warning; `cxry_has_east` and
+`cxry_joined_east` are `logic_branch` flags the link sets to whether that
+neighbour exists or that door is open (written only when a room names them,
+and folded away when only tested); and `room_needs` (`east`, `!west`,
+`joined_north`, a diagonal, comma-joined) keeps or drops an entity per
+placement. The link folds stateless local relays and constant branches into
+their callers, merges `logic_auto`s and dedupes identical filters
+(`rooms_fold_logic 0` on the library turns folding off; `rooms_name_keys`
+adds name-valued keys to the built-in table). A room may place or name a
+`logic_room` (`cxry_room`): with `-mod-entities` the link writes the Source
+Sharp mod's one server-only entity for its flags and eight relay channels
+(its contract is the `SourceSharp.RoomContracts` assembly) and records the
+mode on the worldspawn (`ssmap_entities mod`); without it the link writes
+stock branches and relays instead. `link --flatten` runs the same resolver,
+so both maps carry the same entities. `ssmap rooms` lists each room's names
+from the pack.
+
+**Navigation.** `ssmap room` also builds each room's 3D navigation: for
+each agent size, a sparse voxel octree of the room's free space (where the
+agent's box fits, clips and grates included), each free leaf flagged by what
+it touches (floor, wall, ceiling, and which sides), every door's portal and
+what capping it changes. It is stored in the pack beside the room, under its
+own section tags, at all four turns, so the link stitches without
+voxelising anything. The library's worldspawn configures it: `nav 0` turns
+it off, `nav_voxel_size` (default 16), `nav_max_slope` (default: the game's
+0.7 floor normal) and `nav_agents` (default
+`standing 32 72 player; flyer 32 32 npc`). `info_poi` point entities mark
+points of interest (`poi_type`, `poi_tags`, `poi_radius`, `angles`,
+`poi_agents`, `targetname` with `cxry_` room-local names); they are checked
+against the agents they apply to, taken out of the map (they cost no
+entity), and carried in the navigation. An `info_room`'s `room_role`
+(`up`, `down`) marks a level-transition room, whose `arrival` point is where
+the player appears, and, for the up room, spawns.
+
+`link` writes `<map>.nav3d` beside the map: the placed rooms' octrees by
+cell, the doors joined across and capped shut, adjacency, connected
+components per agent, and the points of interest in level coordinates. The
+map's worldspawn and the file's header carry one level id
+(`ss_level_id`), so the game can tell they belong together. A pack without
+navigation links with one warning and no `.nav3d` (`-require-nav` makes it
+an error, `-no-nav` skips it), and a link without navigation writes no id
+keys, so its map is the one it always was. `ssmap nav` prints a navigation's cells, free
+volume, components and door links, from the file or straight from a level
+and its pack, and exports the free leaves or the floors as OBJ. The format
+is specified in [`docs/nav3d-format.md`](docs/nav3d-format.md), with a C++
+walk-through and the C# reader the mod uses (`Nav3dReader` in
+`SourceSharp.MapFormats`).
 
 `samples/rooms-3x3/` is a worked example: a library of five room kinds, a
 3x3 level, its turns and some seeded levels. Its README runs it through
@@ -520,7 +653,9 @@ the map (`<map>.sscache.db`, or under `-cache-dir`). A later compile reuses
 every model whose inputs have not changed. Brush models are keyed by their
 content, so adding or moving one brush does not invalidate the others.
 `-nocache` turns the cache off for one run. The cache needs a cooker; with
-`-cooker none` there is nothing to store.
+`-cooker none` there is nothing to store. `ssmap room -incremental` uses
+the same store for a room library's finished rooms (see
+[`room`](#room-rooms-link-and-layout)); it needs no cooker.
 
 `ssmap cache` reads the same file: `stats` summarises it, `explain` shows
 what a key was built from, `gc` trims it, `clear` empties it and `check`
@@ -753,7 +888,7 @@ assemblies rather than by review.
   (and the memory-mapping helper it uses) may touch `System.IO.File`,
   `Directory`, `FileStream` and friends, the temp path or the current
   directory. Tests use `InMemoryFileSystem`.
-- **No mutable static state** in `MapFormats` or `MapTools`, so two compiles
+- **No mutable static state** in `MapFormats`, `MapTools` or `RoomContracts`, so two compiles
   can share one process.
 - **Same output on every platform.** The same map, game content and
   options produce the same bytes on Linux, Windows and macOS, on any .NET
@@ -767,7 +902,7 @@ assemblies rather than by review.
   functions go through `DetMath` and `DetMathF`, never `Math.Sin`,
   `MathF.Pow` and the like, so output does not depend on the OS's C
   library. A fact scans the built libraries and fails on any such call.
-- **No package references** in `MapFormats` or `MapTools`. SQLite and
+- **No package references** in `MapFormats`, `MapTools` or `RoomContracts`. SQLite and
   Silk.NET live only in the optional `Cache.Sqlite` and `Gpu` assemblies.
 - **Every public async method takes its `CancellationToken` last.**
 - **Libraries never touch the console or the environment.** They write no

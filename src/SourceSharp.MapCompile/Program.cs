@@ -219,6 +219,15 @@ public static class Program
                     .ConfigureAwait(false);
             }
 
+            case "nav":
+            {
+                // Inspection: reads a .nav3d, or a level and its room pack.
+                PhysicalFileSystem disk = new("/");
+
+                return await NavCommand.RunAsync(disk, args[1..], output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             case "layout":
             {
                 // A seeded level needs only the library's socket sets, which
@@ -431,19 +440,39 @@ public static class Program
                                                        --record-content <zip>: also write every
                                                        game file the compile read, as a game
                                                        directory with its own gameinfo.txt
-              room <library.vmf> [-out <pack.roompack>] [vbsp options]
+              room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <c>]
+                   [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
                                                       every room of a library VMF (one
                                                       info_room each), -threads at once
-                                                      -> one <library>.roompack
-              link <level.yaml> [-rooms <pack.roompack>] [-out <map.bsp>]
-                                                      the level's rooms -> one linked map;
-                                                      joints are the sockets that face
-              link <level.yaml> --flatten [-out <map.vmf>]
+                                                      -> one <library>.roompack, with each
+                                                      room's 3D navigation and entity counts;
+                                                      -incremental reuses unchanged rooms from
+                                                      <library>.sscache.db (the same pack)
+              link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]
+                   [-no-nav | -require-nav] [-nav-codec <c>] [-mod-entities]
+                                                      the level's rooms -> one linked map
+                                                      and its <map>.nav3d beside it;
+                                                      reports its edicts against 2048 less
+                                                      the reserve (512, or the library's);
+                                                      joints are the sockets that face;
+                                                      cxry_ names resolved to their cells,
+                                                      -mod-entities writes logic_room
+              link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
                                                       the same level as one VMF, for vbsp
-              rooms <library.vmf>                     list a library's rooms: name, cell,
-                                                      and each door's box and size
-              layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>] [-out <level.yaml>]
-                                                      a seeded level of the library's rooms
+              rooms <library.vmf> [-rooms <pack.roompack>]
+                                                      list a library's rooms: name, cell,
+                                                      each door's box and size, and with
+                                                      its pack each room's entities and names
+              rooms -rooms <pack.roompack>             a pack's section table: tag, offset,
+                                                      length, codec, revision, hash
+              layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
+                     [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
+                                                      a seeded level of the library's rooms,
+                                                      within the entity budget when the
+                                                      pack has the rooms' counts
+              nav <map.nav3d | level.yaml> [-rooms <pack>] [--obj <out.obj>] [--floor] [--agent N]
+                                                      a level navigation's cells, free volume,
+                                                      components and door links; OBJ export
               check | diff | bench                     the acceptance instruments
               cache stats|explain|gc|clear|check       the incremental-compile cache
               phys list | phys select <game>           which vphysics library to cook with

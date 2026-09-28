@@ -10,6 +10,7 @@ using System.Globalization;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.RoomContracts;
 
 namespace SourceSharp.MapTools.Rooms;
 
@@ -46,28 +47,77 @@ public static partial class LevelLinker
     /// are the keys every point entity reads its placement from; a key that
     /// holds a world position under another name is carried as written.
     /// </para>
+    /// <para>
+    /// An entity of a class the class table calls compile-only
+    /// (<see cref="EntityCost.CompileOnly"/>: one the tools consume, such as
+    /// <c>func_detail</c> or <c>prop_static</c>) is left out. vbsp already
+    /// clears every one of them, so a room it compiled has none and its
+    /// lump links exactly as before; a room built some other way that
+    /// still carries one would otherwise put an entity in the level that
+    /// the flattened level's compile drops, and that the entity budget
+    /// does not count.
+    /// </para>
+    /// <para>
+    /// <b>Names.</b> When a placed room uses room-local names (or the link
+    /// writes the mod's classes), every placement's entities go through the
+    /// one naming resolver the flatten also runs (<see cref="LevelEntityResolver"/>)
+    /// before they are moved: names filled in from the room's stored tables
+    /// for its turn, <c>room_needs</c> applied, flags and the hub written,
+    /// the logic folded. A level that uses none of it skips the resolver
+    /// entirely and links to the bytes it did before names existed.
+    /// </para>
     /// </remarks>
-    internal static BspLumpData MergeEntities(RoomPlan[] plans)
+    internal static BspLumpData MergeEntities(RoomPlan[] plans, EntityClassTable classes, LevelNaming? naming = null, string? mapVersion = null)
     {
         List<BspEntity> merged = [];
         BspEntity? world = null;
         string? worldOwner = null;
         Box? extent = null;
-        foreach (RoomPlan plan in plans)
+
+        // The naming resolver runs only when some placed room uses names
+        // (or the mod's classes are asked for): a level that uses nothing of
+        // it links exactly as it did before names existed.
+        bool resolving = naming is not null && naming.IsActive(plans);
+        List<ResolverRoom> resolverRooms = [];
+        for (int index = 0; index < plans.Length; index++)
         {
+            RoomPlan plan = plans[index];
             string name = plan.Placement.Room.Definition.Name;
+            List<LevelEntity> entities = [];
 
             // Parsed and turned at room compile time (or now, for a room
             // without stored link data); a key that could not be read is
             // reported here, where the walk reaches its entity.
-            foreach (RoomLinkEntity item in EntitiesFor(plan.Placement.Room, plan.Transform.Placement.NormalizedRotation).Items)
+            IReadOnlyList<RoomLinkEntity> items = EntitiesFor(plan.Placement.Room, plan.Transform.Placement.NormalizedRotation).Items;
+            for (int i = 0; i < items.Count; i++)
             {
+                RoomLinkEntity item = items[i];
                 if (!item.IsWorld)
                 {
-                    merged.Add(item.Error is null
-                        ? TranslateEntity(item, plan.Transform, name, plan.OccluderBase)
-                        : throw new LinkException(item.Error));
+                    bool compileOnly = classes.Classify(ClassOf(item)) == EntityCost.CompileOnly;
+                    if (!compileOnly && item.Error is not null)
+                    {
+                        throw new LinkException(item.Error);
+                    }
+
+                    if (resolving)
+                    {
+                        // Every entity keeps its place, so the room's
+                        // stored name tables index the list as they index
+                        // the room's lump; a compile-only one is removed.
+                        entities.Add(compileOnly ? Removed(LevelEntity.FromLink(item, index, i)) : LevelEntity.FromLink(item, index, i));
+                    }
+                    else if (!compileOnly)
+                    {
+                        merged.Add(TranslateEntity(item, plan.Transform, name, plan.OccluderBase));
+                    }
+
                     continue;
+                }
+
+                if (resolving)
+                {
+                    entities.Add(LevelEntity.FromLink(item, index, i));
                 }
 
                 BspEntity entity = new();
@@ -97,6 +147,27 @@ public static partial class LevelLinker
                     extent = extent is { } sofar ? Union(sofar, moved) : moved;
                 }
             }
+
+            if (resolving)
+            {
+                resolverRooms.Add(naming!.RoomFor(plan, index, entities));
+            }
+        }
+
+        LevelResolution? resolution = null;
+        if (resolving)
+        {
+            // One resolver for the whole level (a room's logic may reach its
+            // neighbours'), then every entity it leaves moved to its cell.
+            resolution = LevelEntityResolver.Resolve(resolverRooms, naming!.Options);
+            naming.Result = resolution;
+            foreach (LevelEntity entity in resolution.Entities)
+            {
+                RoomPlan plan = plans[entity.Placement];
+                List<RoomLinkPair> pairs = [.. entity.Pairs.Select(p => p.Position ?? new RoomLinkPair(p.Key, p.Value!, default))];
+                merged.Add(TranslateEntity(
+                    new RoomLinkEntity(false, pairs, null, null), plan.Transform, plan.Placement.Room.Definition.Name, plan.OccluderBase));
+            }
         }
 
         List<BspEntity> lump = [];
@@ -114,8 +185,21 @@ public static partial class LevelLinker
                 {
                     value = FormatVec(box2.Maxs);
                 }
+                else if (mapVersion is not null && IsKey(pair.Key, RoomLibraryOptions.MapVersionKey))
+                {
+                    // The rooms carry a fixed save counter; the level carries
+                    // the library's (RoomLibraryOptions.MapVersionKey).
+                    value = mapVersion;
+                }
 
                 linkedWorld.Pairs.Add(new BspKeyValue(pair.Key, value));
+            }
+
+            // The emission mode, with -mod-entities only (the contract's
+            // worldspawn keys; the flatten writes the same).
+            foreach ((string key, string value) in resolution?.WorldKeys ?? [])
+            {
+                linkedWorld.Pairs.Add(new BspKeyValue(key, value));
             }
 
             lump.Add(linkedWorld);
@@ -124,6 +208,105 @@ public static partial class LevelLinker
         lump.AddRange(merged);
         return EntityLump.Write(lump);
     }
+
+    private static LevelEntity Removed(LevelEntity entity)
+    {
+        entity.Removed = true;
+        return entity;
+    }
+
+    /// <summary>
+    /// What the link hands the naming resolver, and what it got back: the
+    /// options, the library's name keys, and the resolution, which the link
+    /// reads for its warnings and the entity budget.
+    /// </summary>
+    /// <param name="options">The resolver's options.</param>
+    /// <param name="nameKeys">The library's name keys, for rooms whose names are read at link.</param>
+    internal sealed class LevelNaming(LevelNamingOptions options, IReadOnlySet<string>? nameKeys)
+    {
+        private readonly Dictionary<int, RoomNameTurn> _names = [];
+
+        /// <summary>The resolver's options.</summary>
+        public LevelNamingOptions Options { get; } = options;
+
+        /// <summary>The resolution, once the entities are merged; null when the resolver did not run.</summary>
+        public LevelResolution? Result { get; set; }
+
+        /// <summary>Whether the resolver runs: some placed room uses names, or the mod's classes are asked for.</summary>
+        public bool IsActive(RoomPlan[] plans)
+        {
+            bool active = Options.ModEntities;
+            for (int i = 0; i < plans.Length; i++)
+            {
+                active |= !NamesFor(plans[i], i).IsEmpty;
+            }
+
+            return active;
+        }
+
+        /// <summary>A placement as the resolver takes it.</summary>
+        public ResolverRoom RoomFor(RoomPlan plan, int index, List<LevelEntity> entities)
+        {
+            ResolvedPlacement placement = plan.Placement;
+            RoomPlacement where = placement.Instance.Placement;
+            return new ResolverRoom
+            {
+                Room = placement.Room.Definition.Name,
+                Column = where.CellX,
+                Row = where.CellY,
+                Turns = where.NormalizedRotation,
+                Names = NamesFor(plan, index),
+                Entities = entities,
+                Joined = JoinedSides(placement.Room.Definition, placement.Instance),
+                CellCentre = CellCentre(plan.Transform, placement.Room.Definition.CellSize),
+            };
+        }
+
+        private RoomNameTurn NamesFor(RoomPlan plan, int index)
+        {
+            if (!_names.TryGetValue(index, out RoomNameTurn? names))
+            {
+                _names[index] = names = plan.Placement.Room.NamesFor(plan.Transform.Placement.NormalizedRotation, nameKeys);
+            }
+
+            return names;
+        }
+    }
+
+    /// <summary>
+    /// Where an entity the linker writes for a placement stands, as an
+    /// <c>origin</c> value: the cell's centre. One spelling for the link and
+    /// the flatten, so the two maps carry the same text.
+    /// </summary>
+    internal static string CellCentre(RoomTransform transform, float cellSize)
+    {
+        float half = cellSize / 2;
+        return FormatVec(transform.Apply(new Vec3(half, half, half)));
+    }
+
+    /// <summary>A placement's joined sockets by the side of the room they are on, in its authored frame.</summary>
+    internal static JoinedMask JoinedSides(RoomDefinition definition, RoomInstance instance)
+    {
+        JoinedMask joined = JoinedMask.None;
+        foreach ((string socket, _) in instance.Joints)
+        {
+            if (definition.Sockets.FirstOrDefault(s => s.Name == socket) is { Name: not null } found)
+            {
+                joined |= RoomDirections.JoinedBit(SideOf(found.Facing));
+            }
+        }
+
+        return joined;
+    }
+
+    /// <summary>The authored side a socket faces.</summary>
+    internal static RoomDirection SideOf(RoomFacing facing) => facing switch
+    {
+        RoomFacing.PositiveX => RoomDirection.East,
+        RoomFacing.PositiveY => RoomDirection.North,
+        RoomFacing.NegativeX => RoomDirection.West,
+        _ => RoomDirection.South,
+    };
 
     /// <summary>
     /// The six keys vbsp writes on an <c>info_ladder</c> (what a
@@ -299,6 +482,25 @@ public static partial class LevelLinker
     {
         float turned = (yaw + (90f * turns)) % 360f;
         return turned < 0 ? turned + 360f : turned;
+    }
+
+    /// <summary>
+    /// A turned entity's class: its first <c>classname</c> key, matched
+    /// exactly, or an empty string; what <see cref="BspEntity.ClassName"/>
+    /// reads, so the link strips exactly what the entity counts call
+    /// compile-only.
+    /// </summary>
+    private static string ClassOf(RoomLinkEntity entity)
+    {
+        foreach (RoomLinkPair pair in entity.Pairs)
+        {
+            if (string.Equals(pair.Key, "classname", StringComparison.Ordinal))
+            {
+                return pair.Value ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
     }
 
     private static bool IsKey(string key, string name) => string.Equals(key, name, StringComparison.OrdinalIgnoreCase);

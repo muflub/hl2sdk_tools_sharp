@@ -64,7 +64,26 @@ public static class RoomCompiler
         RoomDefinition definition,
         VbspContext context,
         CancellationToken cancellationToken = default) =>
-        CompileAsync(document, definition, context, tighteningClaimProbe: null, tighteningSettleProbe: null, cancellationToken);
+        CompileCoreAsync(document, definition, context, nameKeys: null, tighteningClaimProbe: null, tighteningSettleProbe: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="CompileAsync(VmfDocument, RoomDefinition, VbspContext, CancellationToken)"/>
+    /// with the library's own name-valued keys, which the naming rule reads
+    /// as names besides the built-in table.
+    /// </summary>
+    /// <param name="document">The room's VMF, room-local.</param>
+    /// <param name="definition">What the room claims to be.</param>
+    /// <param name="context">The compile context.</param>
+    /// <param name="nameKeys">Name-valued keys the library adds (its <c>rooms_name_keys</c>), or null.</param>
+    /// <param name="cancellationToken">Cancels the compile.</param>
+    /// <returns>The linkable room object.</returns>
+    internal static Task<RoomObject> CompileAsync(
+        VmfDocument document,
+        RoomDefinition definition,
+        VbspContext context,
+        IReadOnlySet<string>? nameKeys,
+        CancellationToken cancellationToken) =>
+        CompileCoreAsync(document, definition, context, nameKeys, tighteningClaimProbe: null, tighteningSettleProbe: null, cancellationToken);
 
     /// <summary>
     /// <see cref="CompileAsync(VmfDocument, RoomDefinition, VbspContext, CancellationToken)"/>
@@ -87,10 +106,21 @@ public static class RoomCompiler
     /// </param>
     /// <param name="cancellationToken">Cancels the compile.</param>
     /// <returns>The linkable room object.</returns>
-    internal static async Task<RoomObject> CompileAsync(
+    internal static Task<RoomObject> CompileAsync(
         VmfDocument document,
         RoomDefinition definition,
         VbspContext context,
+        Action<int>? tighteningClaimProbe,
+        Action<int, bool>? tighteningSettleProbe,
+        CancellationToken cancellationToken) =>
+        CompileCoreAsync(document, definition, context, null, tighteningClaimProbe, tighteningSettleProbe, cancellationToken);
+
+    /// <summary>The compile itself, with every setting the overloads pass.</summary>
+    private static async Task<RoomObject> CompileCoreAsync(
+        VmfDocument document,
+        RoomDefinition definition,
+        VbspContext context,
+        IReadOnlySet<string>? nameKeys,
         Action<int>? tighteningClaimProbe,
         Action<int, bool>? tighteningSettleProbe,
         CancellationToken cancellationToken)
@@ -100,6 +130,14 @@ public static class RoomCompiler
         ArgumentNullException.ThrowIfNull(context);
 
         definition.Validate();
+
+        // Rule 7 on the VMF, before any compile time is spent: the naming
+        // grammar and room_needs, which only the VMF shows on a static prop
+        // (vbsp turns it into a prop record).
+        RoomNameAnalysis.CheckVmf(
+            definition.Name,
+            [.. document.GetChunks(MapFileLoader.EntityChunk).Select((e, i) => LevelEntity.FromVmf(e, -1, i))],
+            nameKeys);
 
         // A room never packs the default cubemaps: they are named after the
         // map, which a room is not, and the link refuses any packed file
@@ -147,12 +185,20 @@ public static class RoomCompiler
         VisResult vis = await Vvis
             .ComputeAsync(vbsp.Bsp, portals, visContext, cancellationToken).ConfigureAwait(false);
 
+        // The names per turn, from the compile's own entity list (the one the
+        // link indexes), so every link of the room fills in cells and
+        // nothing more.
+        RoomNameTurn[] names = RoomNameAnalysis.Analyse(definition.Name, vbsp.Bsp, nameKeys);
+
         return new RoomObject(
             definition,
             vbsp.Bsp,
             vis,
             lint,
-            InputKeysOf(document, definition, context));
+            InputKeysOf(document, definition, context))
+        {
+            Names = new RoomNameTables(names, vbsp.Bsp),
+        };
     }
 
     /// <summary>The kit's plug boxes for every socket, room-local, in socket order.</summary>

@@ -30,7 +30,28 @@ public class LibraryRuleTests
 
     private static Assembly MapTools => typeof(VPath).Assembly;
 
-    public static TheoryData<string> LibraryAssemblies => ["SourceSharp.MapFormats", "SourceSharp.MapTools"];
+    /// <summary>
+    /// The mod entity contract: the Source Sharp mod references it, so it is
+    /// held to the libraries' rules (no mutable statics, no packages) and to
+    /// one more of its own (<see cref="RoomContractsReferenceOnlyTheFramework"/>).
+    /// </summary>
+    private static Assembly RoomContracts => typeof(SourceSharp.RoomContracts.LogicRoom).Assembly;
+
+    public static TheoryData<string> LibraryAssemblies => ["SourceSharp.MapFormats", "SourceSharp.MapTools", "SourceSharp.RoomContracts"];
+
+    /// <summary>
+    /// The contract assembly references the framework and nothing else, not
+    /// even this repository's other libraries: whatever it referenced, the
+    /// mod would have to carry.
+    /// </summary>
+    [Fact]
+    public void RoomContractsReferenceOnlyTheFramework()
+    {
+        List<string> offenders = [.. RoomContracts.GetReferencedAssemblies()
+            .Select(r => r.Name ?? string.Empty)
+            .Where(n => !(n is "System" or "mscorlib" or "netstandard" || n.StartsWith("System.", StringComparison.Ordinal)))];
+        Assert.True(offenders.Count == 0, $"SourceSharp.RoomContracts references: {string.Join(", ", offenders)}");
+    }
 
     [Theory]
     [MemberData(nameof(LibraryAssemblies))]
@@ -168,7 +189,7 @@ public class LibraryRuleTests
     {
         string[] allowed =
         [
-            "System", "mscorlib", "netstandard", "SourceSharp.MapFormats", "SourceSharp.MapTools",
+            "System", "mscorlib", "netstandard", "SourceSharp.MapFormats", "SourceSharp.MapTools", "SourceSharp.RoomContracts",
         ];
 
         return allowed.Any(a =>
@@ -185,7 +206,7 @@ public class LibraryRuleTests
         // the analyser, and states it where a reader of the tests can see it.
         List<string> offenders = [];
 
-        foreach (Assembly assembly in new[] { MapFormats, MapTools })
+        foreach (Assembly assembly in new[] { MapFormats, MapTools, RoomContracts })
         {
             foreach (Type type in assembly.GetExportedTypes())
             {
@@ -289,6 +310,7 @@ public class LibraryRuleTests
     {
         "SourceSharp.MapFormats" => MapFormats,
         "SourceSharp.MapTools" => MapTools,
+        "SourceSharp.RoomContracts" => RoomContracts,
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "not a map-tools library"),
     };
 }

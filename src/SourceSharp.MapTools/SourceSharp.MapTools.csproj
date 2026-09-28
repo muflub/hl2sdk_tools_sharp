@@ -19,6 +19,12 @@
          reference THIS one and not the reverse, so a host that wants neither a
          cache nor a GPU pulls in neither. -->
     <ProjectReference Include="..\SourceSharp.MapFormats\SourceSharp.MapFormats.csproj" />
+
+    <!-- The mod entity contract (logic_room and the room-local naming
+         grammar): its own dependency-free assembly so the Source Sharp mod can
+         reference it without MapTools, and MapTools reads its constants rather
+         than restating them, so the linker and the mod cannot drift apart. -->
+    <ProjectReference Include="..\SourceSharp.RoomContracts\SourceSharp.RoomContracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
