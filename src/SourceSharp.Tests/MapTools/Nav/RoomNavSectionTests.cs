@@ -64,6 +64,23 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
         Assert.Equal(bytes, RoomNavSection.Write(RoomNavSection.Read(bytes), compression));
     }
 
+    /// <summary>
+    /// A room's section bytes, raw and under each codec, pinned by hash (on
+    /// Microsoft's runtime, whose zlib-ng every OS shares; see
+    /// <c>Nav3dFileTests.TheBytesArePinned</c>): the same room gives the same
+    /// section on every run, thread count and, CI proves, OS.
+    /// </summary>
+    [Theory]
+    [InlineData("none", 31133, "4717fa11")]
+    [InlineData("deflate:6", 9659, "7e41a1d8")]
+    [InlineData("brotli:9", 6600, "e7856e22")]
+    public void ASectionsBytesArePinned(string codec, int length, string sha256Prefix)
+    {
+        Assert.True(NavCompression.TryParse(codec, out NavCompression compression));
+        byte[] bytes = RoomNavSection.Write(fixture.Nav("east"), compression);
+        Assert.Equal((length, sha256Prefix), (bytes.Length, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes))[..8]));
+    }
+
     [Fact]
     public void TheTagsNameTheTurns()
     {
