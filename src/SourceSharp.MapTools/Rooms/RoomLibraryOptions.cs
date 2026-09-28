@@ -92,6 +92,39 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
     public const string NameKeysKey = "rooms_name_keys";
 
     /// <summary>
+    /// The library worldspawn's <c>mapversion</c>: the editor's save counter,
+    /// which a map compile stamps into its BSP. Kept here, not in the rooms.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An editor bumps <c>mapversion</c> on every save. A room compiled with
+    /// it would carry it in its BSP header and its worldspawn, so every save
+    /// would change every room's bytes and an incremental <c>ssmap room</c>
+    /// would recompile the whole library. So the split writes a fixed
+    /// <see cref="RoomMapVersion"/> in its place in every room (the key stays
+    /// where it was, so the worldspawn's key order is the library's), the
+    /// library's own value is kept in this section, and the link puts it back
+    /// into the linked worldspawn's <c>mapversion</c> key, the one place a
+    /// linked map has ever carried it (the linked map's header revision was
+    /// and stays 0). A linked map is therefore byte for byte what it was when
+    /// the rooms carried the value themselves.
+    /// </para>
+    /// <para>
+    /// Unlike the other keys here it is not a library-only key
+    /// (<see cref="IsLibraryKey"/>): the flattened level keeps it in its
+    /// worldspawn as the library wrote it, so a vbsp compile of the flattened
+    /// level stamps the same value.
+    /// </para>
+    /// </remarks>
+    public const string MapVersionKey = "mapversion";
+
+    /// <summary>The <c>mapversion</c> every room is compiled with in place of the library's (<see cref="MapVersionKey"/>).</summary>
+    public const string RoomMapVersion = "0";
+
+    /// <summary>The library worldspawn's <c>mapversion</c> as written, or null when it has none (<see cref="MapVersionKey"/>).</summary>
+    public string? MapVersion { get; init; }
+
+    /// <summary>
     /// Whether the link folds stateless logic away (relays, constant
     /// branches, <c>logic_auto</c> merges, identical filters); null when the
     /// library does not say, which is on.
@@ -147,9 +180,19 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
         int? reserve = null;
         bool? fold = null;
         string? nameKeys = null;
+        string? mapVersion = null;
         bool seenReserve = false, seenFold = false, seenNames = false;
         foreach (VmfKey key in world.Keys)
         {
+            // The first one, as the compile reads it into the header; the
+            // key's value text is kept as written, since that is what the
+            // worldspawn carries.
+            if (mapVersion is null && string.Equals(key.Name, MapVersionKey, StringComparison.OrdinalIgnoreCase))
+            {
+                mapVersion = key.Value;
+                continue;
+            }
+
             if (!seenReserve && string.Equals(key.Name, EntityReserveKey, StringComparison.OrdinalIgnoreCase))
             {
                 seenReserve = true;
@@ -172,7 +215,7 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
             }
         }
 
-        return new RoomLibraryOptions(reserve) { FoldLogic = fold, NameKeys = nameKeys };
+        return new RoomLibraryOptions(reserve) { FoldLogic = fold, NameKeys = nameKeys, MapVersion = mapVersion };
     }
 
     /// <summary>Parses the fold switch: <c>0</c> or <c>1</c>, nothing else.</summary>
@@ -227,6 +270,11 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
         if (NameKeys is { } nameKeys)
         {
             keys.Add((NameKeysKey, nameKeys));
+        }
+
+        if (MapVersion is { } mapVersion)
+        {
+            keys.Add((MapVersionKey, mapVersion));
         }
 
         if (keys.Count == 0)
@@ -293,6 +341,7 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
         int? reserve = null;
         bool? fold = null;
         string? nameKeys = null;
+        string? mapVersion = null;
         for (int i = 0; i < count; i++)
         {
             string key = ReadText(payload, ref at);
@@ -311,6 +360,10 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
             {
                 nameKeys = NormalizeNameKeys(value);
             }
+            else if (string.Equals(key, MapVersionKey, StringComparison.Ordinal))
+            {
+                mapVersion = value;
+            }
         }
 
         if (at != payload.Length)
@@ -318,7 +371,7 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
             throw Bad($"has {payload.Length - at} bytes after its last setting");
         }
 
-        return new RoomLibraryOptions(reserve) { FoldLogic = fold, NameKeys = nameKeys };
+        return new RoomLibraryOptions(reserve) { FoldLogic = fold, NameKeys = nameKeys, MapVersion = mapVersion };
     }
 
     private static LinkException Bad(string what) => new($"the room pack's {SectionTag} section {what}.");

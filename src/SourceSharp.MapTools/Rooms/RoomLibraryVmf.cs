@@ -239,17 +239,19 @@ public static class RoomLibraryVmf
             VmfDocument document = new();
             if (version is not null)
             {
-                document.Chunks.Add(VmfPlacement.Clone(version));
+                document.Chunks.Add(WithRoomMapVersion(VmfPlacement.Clone(version)));
             }
 
             // The library's own settings stay out of the room: they are for
-            // the link, which reads them from the pack, not for the map.
+            // the link, which reads them from the pack, not for the map. The
+            // editor's save counter stays, at a fixed value, where it was
+            // (RoomLibraryOptions.MapVersionKey says why).
             VmfChunk roomWorld = new(world.Name);
             foreach (VmfKey key in world.Keys)
             {
                 if (!RoomLibraryOptions.IsLibraryKey(key.Name))
                 {
-                    roomWorld.AddKey(key.Name, key.Value);
+                    roomWorld.AddKey(key.Name, IsMapVersion(key) ? RoomLibraryOptions.RoomMapVersion : key.Value);
                 }
             }
 
@@ -273,6 +275,28 @@ public static class RoomLibraryVmf
         }
 
         return new RoomLibrarySplit(rooms, libraryWide) { Options = options };
+    }
+
+    private static bool IsMapVersion(VmfKey key) =>
+        string.Equals(key.Name, RoomLibraryOptions.MapVersionKey, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A room's copy of the library's <c>versioninfo</c> with its
+    /// <c>mapversion</c> fixed too: no compile reads the chunk, but it is
+    /// part of the room's document, which the room cache key folds, and a
+    /// save must not change that either.
+    /// </summary>
+    private static VmfChunk WithRoomMapVersion(VmfChunk version)
+    {
+        foreach (VmfKey key in version.Keys)
+        {
+            if (IsMapVersion(key))
+            {
+                key.Value = RoomLibraryOptions.RoomMapVersion;
+            }
+        }
+
+        return version;
     }
 
     /// <summary>The plugs among a room's world brushes, as sockets in wall order.</summary>

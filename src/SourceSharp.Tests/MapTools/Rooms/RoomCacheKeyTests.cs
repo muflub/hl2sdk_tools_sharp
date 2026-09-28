@@ -90,16 +90,19 @@ public sealed class RoomCacheKeyTests
     }
 
     /// <summary>
-    /// The library's <c>mapversion</c> is stamped into every room's BSP
-    /// header, so it is an input of every room.
+    /// The library's <c>mapversion</c> (the editor's save counter, in its
+    /// worldspawn and its <c>versioninfo</c>) is not an input: every room is
+    /// split with a fixed one, so a save that bumps it leaves every key.
     /// </summary>
     [Fact]
-    public void TheMapVersionChangesEveryKey()
+    public void TheMapVersionChangesNoKey()
     {
-        string[] one = Keys(WithVersion(Library(), "1"));
-        string[] two = Keys(WithVersion(Library(), "2"));
-        Assert.NotEqual(one[0], two[0]);
-        Assert.NotEqual(one[1], two[1]);
+        Assert.Equal(Keys(WithVersion(Library(), "1")), Keys(WithVersion(Library(), "2")));
+        foreach (LibraryRoom room in Split(WithVersion(Library(), "7")))
+        {
+            Assert.Equal("0", room.Document.GetChunk("world")!.GetValue("mapversion"));
+            Assert.Equal("0", room.Document.GetChunk("versioninfo")!.GetValue("mapversion"));
+        }
     }
 
     /// <summary>A worldspawn key the rooms keep (not a library-only one) is an input of every room.</summary>
@@ -419,6 +422,7 @@ public sealed class RoomCacheKeyTests
         info.AddKey("editorversion", "400");
         info.AddKey("mapversion", version);
         library.Chunks.Insert(0, info);
+        library.GetChunk("world")!.AddKey("mapversion", version);
         return library;
     }
 }

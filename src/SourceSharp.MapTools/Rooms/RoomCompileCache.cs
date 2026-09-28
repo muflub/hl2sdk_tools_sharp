@@ -93,11 +93,12 @@ public sealed record RoomCacheInputs(VbspOptions Options)
 /// Hammer's view and camera chunks), and another room's brushes and
 /// entities are simply not in the document, so an edit to another room, or a
 /// reorder of the library that interleaves another room's entities with
-/// this one's, leaves the key alone. What stays in is what the compile reads:
-/// the order of the room's own entities (the entity lump keeps it) and the
-/// library's <c>mapversion</c>, which the compile stamps into the room's
-/// BSP header, so a library saved by an editor that bumps it recompiles every
-/// room. That is the price of byte identity, not an oversight.
+/// this one's, leaves the key alone. What stays in is what the compile reads,
+/// such as the order of the room's own entities (the entity lump keeps it).
+/// The library's <c>mapversion</c>, which an editor bumps on every save, is
+/// not an input: the split gives every room a fixed one and the link stamps
+/// the library's (<see cref="RoomLibraryOptions.MapVersionKey"/>), so a save
+/// that changes nothing else recompiles nothing.
 /// </para>
 /// <para>
 /// <b>The fold.</b> The parts go through the shared <see cref="CacheKey"/>

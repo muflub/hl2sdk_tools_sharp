@@ -300,8 +300,12 @@ and the options, never from the rooms). A room's key holds:
   library's `versioninfo` and worldspawn keys, its own brushes and entities,
   in its own order) written back out, and its `info_room` claims (name,
   cell, door kit, sockets, `room_role`). Whitespace, editor chunks, other
-  rooms and the order of other rooms' entities do not count; the
-  library's `mapversion` does, because every room's BSP header carries it;
+  rooms and the order of other rooms' entities do not count, and neither
+  does the library's `mapversion` (the editor's save counter): every room
+  is compiled with `mapversion` 0, the pack's `LOPT` section keeps the
+  library's value, and `ssmap link` writes it into the linked worldspawn,
+  so the linked map is what it was and a save that changes nothing else
+  recompiles no room;
 - the vbsp options after the format pipeline (every one but `-v` and
   `-verboseentities`), the library's navigation keys, `-nav-turn0` and
   `-nav-codec`, and `rooms_name_keys`;

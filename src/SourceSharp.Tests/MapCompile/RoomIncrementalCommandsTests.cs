@@ -97,6 +97,65 @@ public sealed class RoomIncrementalCommandsTests
         await AssertSameAsClean(fs, tree, [], $"0 compiled, {count} reused", link: false);
     }
 
+    /// <summary>
+    /// An editor save that bumps only the library's <c>mapversion</c>
+    /// recompiles no room, and the pack is still the clean one. The rooms
+    /// carry <c>mapversion</c> 0 (header and worldspawn); the linked map's
+    /// worldspawn carries the library's value, and its header revision stays
+    /// 0 as it always was; the flattened level carries the library's value
+    /// in its worldspawn and <c>versioninfo</c>.
+    /// </summary>
+    [Fact]
+    public async Task AMapVersionBumpRecompilesNoRoomAndTheLinkStampsIt()
+    {
+        using TempTree tree = new();
+        InMemoryFileSystem fs = Sample();
+        int count = Rooms3x3Kit.Kinds.Count;
+        await AssertSameAsClean(fs, tree, [], $"{count} compiled, 0 reused", link: false);
+
+        VmfDocument library = await LibraryAsync(fs);
+        Assert.Equal("1", library.GetChunk("world")!.GetValue("mapversion"));
+        foreach (VmfKey key in library.Chunks.Where(c => c.Name is "world" or "versioninfo").SelectMany(c => c.Keys).Where(k => k.Name == "mapversion"))
+        {
+            key.Value = "42";
+        }
+
+        await SetLibraryAsync(fs, library);
+        await AssertSameAsClean(fs, tree, [], $"0 compiled, {count} reused", link: true);
+
+        using (MemoryStream pack = new(Bytes(fs, "/inc.roompack")))
+        {
+            RoomPackIndex index = await RoomPack.ReadIndexAsync(pack);
+            Assert.Equal("42", (await RoomPack.ReadLibraryOptionsAsync(pack, index)).MapVersion);
+            pack.Position = 0;
+            index = await RoomPack.ReadIndexAsync(pack);
+            foreach (RoomObject room in await RoomPack.LoadRoomsAsync(pack, index, [.. index.Entries.Select(e => e.Name)]))
+            {
+                Assert.Equal(0, room.Bsp.MapRevision);
+                Assert.Equal("0", WorldKey(room.Bsp, "mapversion"));
+            }
+        }
+
+        using (MemoryStream map = new(Bytes(fs, "/out/inc.bsp")))
+        {
+            SourceSharp.MapFormats.Bsp.BspData linked = await SourceSharp.MapFormats.Bsp.BspFile.LoadAsync(map);
+            Assert.Equal("42", WorldKey(linked, "mapversion"));
+            Assert.Equal(0, linked.MapRevision);
+        }
+
+        using StringWriter output = new();
+        Assert.Equal(
+            Program.ExitSuccess,
+            await RoomCommands.RunLinkAsync(fs, ["/sample/levels/rooms3x3.yaml", "--flatten", "-out", "/out/flat.vmf"], output));
+        VmfDocument flat = await VmfDocument.ParseAsync(Bytes(fs, "/out/flat.vmf"));
+        Assert.Equal("42", flat.GetChunk("world")!.GetValue("mapversion"));
+        Assert.Equal("42", flat.GetChunk("versioninfo")!.GetValue("mapversion"));
+    }
+
+    private static string? WorldKey(SourceSharp.MapFormats.Bsp.BspData bsp, string key) =>
+        SourceSharp.MapFormats.Bsp.Structs.EntityLump.Parse(bsp[SourceSharp.MapFormats.Bsp.BspLump.Entities])
+            .Single(e => e.ClassName == "worldspawn").Get(key);
+
     // ---- the flags ------------------------------------------------------------
 
     /// <summary>
