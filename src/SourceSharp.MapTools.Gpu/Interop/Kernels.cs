@@ -17,19 +17,38 @@ namespace SourceSharp.MapTools.Gpu.Interop;
 /// any-hit tmax scale come from push constants instead of hard-coded
 /// <c>1e-3</c>/<c>tmax</c>, and out-of-range tail lanes run no query at all.
 /// The SHAPE is the finding: initialize -&gt; <c>while (proceed) {}</c> to
-/// exhaustion -&gt; read the COMMITTED state only after convergence -&gt;
-/// exactly one terminate. The predecessor's first draft read the candidate
-/// state inside the proceed loop and terminated out of order; that is
-/// undefined behaviour which radv answered and lavapipe answered "None
-/// forever" — the whole llvmpipe all-miss blocker. Do not "tidy" the loop.
+/// exhaustion -&gt; read the COMMITTED state only after convergence. Do not
+/// "tidy" the loop.
+/// </para>
+/// <para>
+/// <b>No terminate after a finished loop.</b> <c>rayQueryTerminateEXT</c>
+/// (<c>OpRayQueryTerminateKHR</c>) is only defined when the last
+/// <c>rayQueryProceedEXT</c> on that query returned true: it is the way to
+/// stop a traversal that still has candidates to offer. After
+/// <c>while (proceed) {}</c> the last proceed returned false, so a terminate
+/// there is undefined behaviour, and a driver is free to do anything with
+/// it, including discarding the committed intersection the kernel is about
+/// to read. The committed state is readable without a terminate once
+/// proceed has returned false, so the closest and any-hit modes have none.
+/// The only terminate is in the telemetry mode, on the <c>break</c> that
+/// leaves the loop while proceed's last answer was true.
+/// <c>KernelRayQueryRuleTests</c> scans <see cref="RayGlsl"/> and fails on
+/// a terminate anywhere else, because nothing a device answers would show
+/// the mistake reliably: a driver that happens to ignore it gives right
+/// answers.
 /// </para>
 /// <para>
 /// Modes kept: 0 = any-hit (TerminateOnFirstHit), 1 = closest, 4 = output
 /// readback sanity (no traversal), 5 = traversal telemetry
 /// (proceed-iterations / candidates-seen). 4 and 5 exist only for the
-/// capability self-test's diagnosis; they are the lines between "the compute
-/// output path is broken", "the BLAS has no candidates", and "traversal finds
-/// candidates but the driver never commits them" (the Mesa lavapipe bug). The
+/// capability self-test's report. Mode 4 separates "the compute output path
+/// is broken" from everything else. Mode 5 can only add detail: with an
+/// opaque BLAS a conformant driver offers no candidates, so zero iterations
+/// is what a working device reports too, and the telemetry cannot tell a
+/// device that never traverses from one that traverses and commits the
+/// wrong answer. What it can show is a driver offering opaque triangles as
+/// candidates (llvmpipe does), which is worth naming beside a failed
+/// known-hit test. The
 /// spike's diagnostic modes 2 (no-TOFH) and 3 (in-kernel Möller–Trumbore)
 /// were probe scaffolding and are not productized.
 /// </para>
@@ -70,9 +89,9 @@ void trace_one(bool anyMode, out bool hit, out uint prim, out float t) {
 
     // SPEC USAGE (the finding this kernel exists for): the committed
     // intersection may only be read once the query is CONSISTENT, i.e. after
-    // rayQueryProceedEXT returned false — and exactly one rayQueryTerminateEXT
-    // per query, after that read. radv answers an out-of-order kernel;
-    // lavapipe and nvidia answer all-miss.
+    // rayQueryProceedEXT returned false. No rayQueryTerminateEXT follows the
+    // loop: terminate is only defined while proceed's last answer was true,
+    // and here it was false (the remarks on Kernels say why this matters).
     rayQueryEXT rq;
     float tmin = uintBitsToFloat(PC.tminBits);
     uint qflags = anyMode ? gl_RayFlagsTerminateOnFirstHitEXT : 0u;
@@ -84,7 +103,6 @@ void trace_one(bool anyMode, out bool hit, out uint prim, out float t) {
     rayQueryInitializeEXT(rq, BLAS, qflags, 0xFFu, origin, tmin, dir, tmaxEff);
     while (rayQueryProceedEXT(rq)) { }
     hit = rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionNoneEXT;
-    rayQueryTerminateEXT(rq);
     prim = 0xFFFFFFFFu;
     t = 0.0;
     if (hit && !anyMode) {
@@ -107,11 +125,14 @@ void main() {
         return;
     }
 
-    // Mode 5: per-ray (proceedIterations, candidateHits) telemetry, the
-    // self-test's attribution probe. Iters == 0 means the driver never
-    // traversed at all (the nvidia compute-only signature); candidates > 0
-    // with modes 0/1 committing nothing is the known Mesa lavapipe
-    // candidate->committed bug.
+    // Mode 5: per-ray (proceedIterations, candidateHits) telemetry, a
+    // diagnostic for the self-test's report. The BLAS is opaque, so a
+    // conformant driver commits every triangle inside traversal and proceed
+    // returns false at once: iters == 0 is the normal answer, not a fault.
+    // Candidates > 0 means the driver offered an opaque triangle as a
+    // candidate, which is worth reporting next to a failed known-hit test.
+    // The terminate stops the traversal on the break, while proceed's last
+    // answer was true, which is the one place terminate is defined.
     if (PC.mode == 5u) {
         uint iters = 0u;
         uint cands = 0u;
@@ -123,10 +144,12 @@ void main() {
                 RAYS.data[rb5 + 1u].xyz, RAYS.data[rb5 + 1u].w);
             while (rayQueryProceedEXT(rq5)) {
                 iters++;
-                if (rayQueryGetIntersectionTypeEXT(rq5, false) == gl_RayQueryCandidateIntersectionTriangleEXT) { cands++; break; }
+                if (rayQueryGetIntersectionTypeEXT(rq5, false) == gl_RayQueryCandidateIntersectionTriangleEXT) {
+                    cands++;
+                    rayQueryTerminateEXT(rq5);
+                    break;
+                }
             }
-
-            rayQueryTerminateEXT(rq5);
         }
 
         OUT.data[(index * 2u) + 0u] = iters;

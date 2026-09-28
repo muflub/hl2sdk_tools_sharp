@@ -224,7 +224,9 @@ public sealed class VulkanRayTracerFacts
     /// shipped self-test on a box that exposes it, with the root-caused
     /// candidate→committed signature named in the reason.
     /// Skips only where no such device exists; this box has one, so this is
-    /// the shipped-code proof the gate closes.
+    /// the shipped-code proof the gate closes. It still holds with the
+    /// kernel's undefined terminate after the proceed loop removed, so that
+    /// terminate was not what made llvmpipe commit nothing.
     /// </summary>
     [HwGpuFact(DeviceMatch = "llvmpipe")]
     public void SelfTestRejectsLlvmpeWithMesaSignature()
@@ -249,24 +251,120 @@ public sealed class VulkanRayTracerFacts
     }
 
     /// <summary>
-    /// §10d's gate, nvidia side: a device whose compute queue never traverses
-    /// (the in-box RTX 2070's signature: zero proceed iterations) must be
-    /// rejected, not hang. Skips where the inventory names no nvidia device.
-    /// this box's loader exposes AMD ICDs only, so it skips here with the
-    /// inventory quoted, and the Mesa fact is the arm that runs.
+    /// §10d's gate, nvidia side: the in-box RTX 2070 failed the known-hit
+    /// self-test, and must be rejected with a reason that says which answer
+    /// was wrong, not hang. Skips where the inventory names no nvidia device.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This fact used to be read as "the device never traverses", from its
+    /// zero proceed iterations. That was a guess: the BLAS is opaque, so
+    /// zero iterations is also what radv, which passes, reports. The fact
+    /// now asserts only what the self-test can observe: the device is
+    /// rejected, the readback leg worked (so the known-answer legs are what
+    /// failed), and the reason names the failed leg without claiming a
+    /// cause.
+    /// </para>
+    /// <para>
+    /// The kernel used to call terminate after its proceed loop had
+    /// finished, which is undefined behaviour and could itself explain a
+    /// wrong answer on one driver and not another. If the device passes now
+    /// that the terminate is gone, this fact fails with that news: the
+    /// rejection was the kernel's, and the device should get the parity
+    /// facts instead of this one.
+    /// </para>
+    /// </remarks>
     [HwGpuFact(DeviceMatch = "NVIDIA")]
     public void SelfTestRejectsNonTraversingDevice()
     {
         VulkanTracerAttempt a = VulkanRayTracer.TryCreate(
             TwoTriangles(), new VulkanRayTracerOptions(DeviceMatch: "NVIDIA"));
-        Assert.False(a.Success, "a never-traversing device passed the gate");
-        Assert.Null(a.Tracer);
         SelfTestRecord rec = a.Report.Selected
             ?? throw new Xunit.Sdk.XunitException(
-                "a never-traversing device was never opened: failure=" + a.Report.Failure);
+                "the NVIDIA device was never opened: failure=" + a.Report.Failure);
+        a.Tracer?.Dispose();
+        Assert.False(a.Success,
+            "the NVIDIA device passed the self-test now that the kernel no longer terminates a "
+            + "finished ray query: its old rejection was the kernel's undefined behaviour, not the "
+            + $"device (telemetry iters={rec.Iters}, candidates={rec.Candidates}). Run the parity "
+            + "facts pinned to it and replace this fact");
         Assert.False(rec.Passed);
+        Assert.True(rec.ReadbackOk, "the readback leg failed, which is a different failure: " + rec.Reason);
         Assert.NotNull(rec.Reason);
+        Assert.Contains(rec.AnyHitOk ? "closest-hit" : "any-hit", rec.Reason);
+        Assert.DoesNotContain("never traverses", rec.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ------------------------------------------------------------------
+    // The self-test's reason: observations, never a guessed cause
+    // ------------------------------------------------------------------
+
+    /// <summary>A device that passed has no reason.</summary>
+    [Fact]
+    public void APassedSelfTestHasNoReason()
+    {
+        Assert.Null(VulkanRayTracer.ReasonFor(true, "dev", new SelfTestOutcome(true, true, true, 0, 0)));
+    }
+
+    /// <summary>A broken readback leg is named as such, whatever the other legs said.</summary>
+    [Fact]
+    public void ABrokenReadbackIsNamedFirst()
+    {
+        string? why = VulkanRayTracer.ReasonFor(false, "dev", new SelfTestOutcome(false, false, false, 0, 0));
+
+        Assert.NotNull(why);
+        Assert.StartsWith("dev: the compute write/readback path itself is broken", why);
+    }
+
+    /// <summary>
+    /// The case the reason used to label with a vendor: known answers wrong,
+    /// zero iterations, no candidates. A working device reports the same
+    /// telemetry, so the reason names the failed legs and says the telemetry
+    /// cannot tell why, and claims no cause.
+    /// </summary>
+    [Fact]
+    public void WrongAnswersWithSilentTelemetryClaimNoCause()
+    {
+        string? why = VulkanRayTracer.ReasonFor(false, "dev", new SelfTestOutcome(true, false, false, 0, 0));
+
+        Assert.NotNull(why);
+        Assert.Contains("any-hit missed a known hit and closest-hit did not return", why);
+        Assert.Contains("cannot say where the answer went wrong", why);
+        Assert.DoesNotContain("never traverses", why, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("nvidia", why, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Candidates on an opaque BLAS are quoted as what they are, an unusual
+    /// observation, with the one leg that failed, and still no named bug.
+    /// </summary>
+    /// <param name="anyHitOk">Which leg passed: any-hit, or else closest-hit.</param>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CandidatesAreQuotedBesideTheOneFailedLeg(bool anyHitOk)
+    {
+        string? why = VulkanRayTracer.ReasonFor(
+            false, "dev", new SelfTestOutcome(true, anyHitOk, !anyHitOk, 1, 2));
+
+        Assert.NotNull(why);
+        Assert.Contains(anyHitOk ? "closest-hit did not return" : "any-hit missed", why);
+        Assert.DoesNotContain(anyHitOk ? "any-hit missed" : "closest-hit did not return", why);
+        Assert.Contains("offered candidates on 2 ray(s) of an opaque BLAS", why);
+        Assert.DoesNotContain("Mesa", why);
+    }
+
+    /// <summary>
+    /// Rejected with every known answer right cannot come from the self-test,
+    /// but the reason still says something rather than nothing.
+    /// </summary>
+    [Fact]
+    public void ARejectionWithNoFailedLegStillHasAReason()
+    {
+        string? why = VulkanRayTracer.ReasonFor(false, "dev", new SelfTestOutcome(true, true, true, 0, 0));
+
+        Assert.NotNull(why);
+        Assert.Contains("a known-answer leg failed", why);
     }
 
     /// <summary>
@@ -369,20 +467,28 @@ public sealed class VulkanRayTracerFacts
     /// are identical whether a device has one slot with both copies (the
     /// shape every slab had before slabs were pipelined), several slots all
     /// in flight at once, or rays read and answers written in place. Runs on
-    /// any ray-query device, llvmpipe included: it drives the device below
-    /// the self-test gate, and the telemetry mode's per-ray traversal counts
-    /// make the comparison meaningful even on a device whose committed hits
-    /// are broken.
+    /// the first ray-query device the loader offers, llvmpipe included: it
+    /// drives the device below the self-test gate.
     /// </summary>
+    /// <remarks>
+    /// The comparison only means something if the words depend on which ray
+    /// sits in which lane, and which mode shows that depends on the device.
+    /// A conformant driver (radv) commits every hit of the opaque BLAS inside
+    /// traversal, so its telemetry is zero on every ray, but its closest-hit
+    /// words tell the turned-away misses from the lattice hits. llvmpipe
+    /// commits nothing, so its closest-hit words are all misses, but it
+    /// offers the opaque triangles as candidates, so its telemetry tells the
+    /// turned-away rays from the rest. <see cref="WhyRawWordsAreVacuous"/>
+    /// accepts either and rejects words that neither mode varies in.
+    /// </remarks>
     [HwGpuFact]
     public void SlotsAndInPlaceBuffersGiveTheWordsOfOneStagedSlot()
     {
         (TracedTriangle[] tris, Ray[] rays) = Lattice(rays: 4096, planes: 16, seed: 17);
 
-        // Every third ray turned away from the lattice: its telemetry reads
-        // no traversal where its neighbours' reads some, so the words depend
-        // on which ray sits in which lane even on llvmpipe, whose telemetry
-        // is otherwise the same for every ray that reaches the scene.
+        // Every third ray turned away from the lattice: it misses where its
+        // neighbours hit, and on a device that reports candidates its
+        // telemetry reads no traversal where its neighbours' reads some.
         for (int i = 0; i < rays.Length; i += 3)
         {
             Ray r = rays[i];
@@ -401,11 +507,100 @@ public sealed class VulkanRayTracerFacts
             }
         }
 
-        // Not vacuous: mode 4 wrote its all-ones, and the telemetry tells
-        // the turned rays from the rest.
+        // Not vacuous: mode 4 wrote its all-ones, and the closest-hit words
+        // or the telemetry tell the turned rays from the rest.
         Assert.All(reference[0], w => Assert.Equal(0xFFFFFFFFu, w));
-        Assert.Contains(reference[1], w => w != 0);
-        Assert.Contains(reference[1], w => w == 0);
+        Assert.Null(WhyRawWordsAreVacuous(telemetry: reference[1], closest: reference[3]));
+    }
+
+    /// <summary>
+    /// The shape a conformant driver gives: telemetry zero on every ray (the
+    /// opaque BLAS is committed inside traversal) and closest-hit words that
+    /// mix hits and misses. The raw-words fact must accept it; while its
+    /// check asked for non-zero telemetry, it failed on radv every run.
+    /// </summary>
+    [Fact]
+    public void RawWordsWithSilentTelemetryButMixedHitsAreNotVacuous()
+    {
+        uint[] telemetry = new uint[8];
+        uint[] closest = [3u, 0x3F000000u, NoPrimitive, 0u, 5u, 0x3E800000u, NoPrimitive, 0u];
+
+        Assert.Null(WhyRawWordsAreVacuous(telemetry, closest));
+    }
+
+    /// <summary>
+    /// The shape llvmpipe gives: every closest-hit word a miss, telemetry
+    /// that differs between rays. Accepted.
+    /// </summary>
+    [Fact]
+    public void RawWordsWithAllMissesButVaryingTelemetryAreNotVacuous()
+    {
+        uint[] telemetry = [1u, 1u, 0u, 0u, 1u, 1u, 0u, 0u];
+        uint[] closest = [NoPrimitive, 0u, NoPrimitive, 0u, NoPrimitive, 0u, NoPrimitive, 0u];
+
+        Assert.Null(WhyRawWordsAreVacuous(telemetry, closest));
+    }
+
+    /// <summary>
+    /// Words that no ray's placement could change (the same telemetry on
+    /// every ray, and closest-hit all hits or all misses) are vacuous: a
+    /// lane mix-up would still compare equal.
+    /// </summary>
+    /// <param name="allHit">Whether every ray hits, rather than every ray missing.</param>
+    /// <param name="candidates">
+    /// Each ray's candidate count; with 0, a ray's two telemetry words differ
+    /// from each other while every ray still reads the same pair.
+    /// </param>
+    [Theory]
+    [InlineData(false, 1u)]
+    [InlineData(true, 1u)]
+    [InlineData(false, 0u)]
+    public void RawWordsThatNeitherModeVariesInAreVacuous(bool allHit, uint candidates)
+    {
+        uint[] telemetry = [1u, candidates, 1u, candidates];
+        uint prim = allHit ? 7u : NoPrimitive;
+        uint[] closest = [prim, 0u, prim, 0u];
+
+        Assert.NotNull(WhyRawWordsAreVacuous(telemetry, closest));
+    }
+
+    /// <summary>The primitive word the closest-hit mode writes for a miss.</summary>
+    private const uint NoPrimitive = 0xFFFFFFFFu;
+
+    /// <summary>
+    /// Why the raw words of <see cref="SlotsAndInPlaceBuffersGiveTheWordsOfOneStagedSlot"/>
+    /// would compare equal even with lanes mixed up, or null when they would
+    /// not: the closest-hit words hold both hits and misses, or the
+    /// telemetry words differ between rays.
+    /// </summary>
+    /// <param name="telemetry">Mode 5's words, two per ray.</param>
+    /// <param name="closest">Mode 1's words, two per ray, the primitive first.</param>
+    /// <returns>The reason, or null.</returns>
+    private static string? WhyRawWordsAreVacuous(uint[] telemetry, uint[] closest)
+    {
+        bool anyHit = false;
+        bool anyMiss = false;
+        for (int i = 0; i < closest.Length; i += 2)
+        {
+            anyHit |= closest[i] != NoPrimitive;
+            anyMiss |= closest[i] == NoPrimitive;
+        }
+
+        // Per ray, not per word: a ray's two telemetry words (iterations,
+        // candidates) may differ from each other while every ray reads the
+        // same pair, and that would still survive a lane mix-up.
+        bool telemetryVaries = Enumerable.Range(0, telemetry.Length / 2)
+            .Select(r => ((ulong)telemetry[2 * r] << 32) | telemetry[(2 * r) + 1])
+            .Distinct()
+            .Skip(1)
+            .Any();
+        if ((anyHit && anyMiss) || telemetryVaries)
+        {
+            return null;
+        }
+
+        return $"closest-hit words are all {(anyHit ? "hits" : "misses")} and every ray's telemetry "
+            + "is the same: no mode depends on which ray sits in which lane";
     }
 
     /// <summary>
@@ -597,18 +792,25 @@ public sealed class VulkanRayTracerFacts
         return null;
     }
 
-    /// <summary>Facts that need any ray-query device; skip with the probe's words otherwise.</summary>
+    /// <summary>
+    /// Facts that need any ray-query device, or the one <see cref="DeviceMatch"/>
+    /// names; skip with the probe's words otherwise.
+    /// </summary>
+    /// <remarks>
+    /// The skip is decided when xUnit reads <see cref="Skip"/>, not in the
+    /// constructor: <see cref="DeviceMatch"/> is set after the constructor
+    /// runs, so a constructor-time check saw no pin, and a fact pinned to a
+    /// device the machine lacks ran and failed instead of skipping.
+    /// </remarks>
     private sealed class HwGpuFactAttribute : FactAttribute
     {
         public string? DeviceMatch { get; init; }
 
-        public HwGpuFactAttribute()
+        /// <inheritdoc/>
+        public override string? Skip
         {
-            string? skip = SkipFor(DeviceMatch);
-            if (skip is not null)
-            {
-                Skip = "skipped: " + skip;
-            }
+            get => base.Skip ?? (SkipFor(DeviceMatch) is { } why ? "skipped: " + why : null);
+            set => base.Skip = value;
         }
     }
 

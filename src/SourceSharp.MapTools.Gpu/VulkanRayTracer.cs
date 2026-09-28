@@ -18,7 +18,7 @@ namespace SourceSharp.MapTools.Gpu;
 /// <param name="DeviceMatch">
 /// Device-name substring pin (case-insensitive), or null to prefer the most
 /// GPU-like ray-query-capable device. Diagnostics pin <c>"llvmpipe"</c> and
-/// <c>"NVIDIA"</c> to prove the self-test rejects them.
+/// <c>"NVIDIA"</c> to watch the self-test's verdict on those devices.
 /// </param>
 /// <param name="DeviceIndex">
 /// Physical-device index pin among ray-query-capable devices, or −1 for no
@@ -34,8 +34,9 @@ namespace SourceSharp.MapTools.Gpu;
 /// </param>
 /// <param name="DispatchTimeoutSeconds">
 /// How long a dispatched slab may leave its fence unsignalled before the
-/// tracer calls the driver hung. A device that never traverses (the nvidia
-/// signature) surfaces as a rejection rather than a wedge.
+/// tracer calls the driver hung, so a device that never finishes a
+/// dispatch surfaces as a failure rather than a wedge. The device currently
+/// waits a fixed 120 s per fence whatever this says.
 /// </param>
 public readonly record struct VulkanRayTracerOptions(
     string? DeviceMatch = null,
@@ -74,17 +75,19 @@ public readonly record struct VulkanRayTracerOptions(
 /// expected distance.
 /// </param>
 /// <param name="Iters">
-/// Maximum proceed-iterations any telemetry ray counted (kernel mode 5). Zero
-/// on every ray is the compute-only queue never traversing (the nvidia
-/// signature).
+/// Maximum proceed-iterations any telemetry ray counted (kernel mode 5). The
+/// BLAS is opaque, so zero is what a conformant driver reports: it commits
+/// the triangles inside traversal and offers no candidates. Zero on a device
+/// that failed says nothing about why it failed.
 /// </param>
 /// <param name="Candidates">
-/// Telemetry rays that reached a candidate intersection. Candidates with
-/// modes 0/1 committing nothing is the Mesa lavapipe candidate→committed bug.
+/// Telemetry rays that reached a candidate intersection. A conformant driver
+/// offers none for an opaque BLAS; llvmpipe offers them, and fails the
+/// known-answer legs.
 /// </param>
 /// <param name="Reason">
-/// Why the device was rejected, naming the signature it matches, or null when
-/// it passed.
+/// Why the device was rejected, in terms of the legs that failed and what the
+/// telemetry saw (never a guessed cause), or null when it passed.
 /// </param>
 public readonly record struct SelfTestRecord(
     bool Passed,
@@ -150,11 +153,11 @@ public readonly record struct VulkanTracerAttempt(
 /// <para>
 /// <b>THE GATE.</b> Construction traces a known-hit micro-scene (two
 /// triangles, two rays whose answers are exact by construction) through every
-/// kernel mode before the tracer is handed out. A driver that commits nothing
-/// (llvmpipe's Mesa candidate→committed bug: candidates found, committed
-/// never) or never traverses (nvidia from a compute-only queue: zero proceed
-/// iterations) is REJECTED with the telemetry that proves which signature it
-/// matched; <see cref="TryCreateAsync"/> never throws a driver failure — it
+/// kernel mode before the tracer is handed out. A driver that gets either
+/// known answer wrong (llvmpipe commits nothing) is REJECTED, with the legs
+/// that failed and the telemetry in the reason, but no cause the test cannot
+/// tell apart (<see cref="ReasonFor"/> says why);
+/// <see cref="TryCreateAsync"/> never throws a driver failure — it
 /// returns the report so callers fall back to the CPU tracer. What it does
 /// NOT do is optimistically trust a device because the extension list said
 /// yes: the extension list is exactly why this gate exists.
@@ -296,7 +299,29 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         ReadOnlyMemory<TracedTriangle> triangles,
         Action<TryCreateStage>? observe,
         VulkanRayTracerOptions options = default,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        TryCreate(triangles, observe, static () => new VulkanDevice(), options, cancellationToken);
+
+    /// <summary>
+    /// <see cref="TryCreate(ReadOnlyMemory{TracedTriangle}, Action{TryCreateStage}, VulkanRayTracerOptions, CancellationToken)"/>
+    /// with the step that loads the Vulkan API replaced.
+    /// </summary>
+    /// <param name="triangles">The scene.</param>
+    /// <param name="observe">Called at each stage, or null.</param>
+    /// <param name="open">
+    /// Creates the device object, which loads the Vulkan loader. Facts pass
+    /// one that throws what a machine with no loader throws, which no
+    /// machine with a loader can otherwise show.
+    /// </param>
+    /// <param name="options">Device pin and sizing.</param>
+    /// <param name="cancellationToken">Checked at each stage boundary.</param>
+    /// <returns>The tracer or the reason it was not created.</returns>
+    internal static VulkanTracerAttempt TryCreate(
+        ReadOnlyMemory<TracedTriangle> triangles,
+        Action<TryCreateStage>? observe,
+        Func<VulkanDevice> open,
+        VulkanRayTracerOptions options,
+        CancellationToken cancellationToken)
     {
         // Checked before anything native is opened, so a bad value cannot
         // leave a device behind.
@@ -306,7 +331,7 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         VulkanDevice device;
         try
         {
-            device = new();
+            device = open();
         }
         catch (Exception e) when (VulkanDevice.IsMissingLoader(e))
         {
@@ -347,7 +372,7 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
                 outcome.ClosestOk,
                 outcome.Iters,
                 outcome.Candidates,
-                ReasonFor(ready, device, outcome));
+                ReasonFor(ready, device.DeviceName, outcome));
             observe?.Invoke(TryCreateStage.SelfTested);
             if (!ready)
             {
@@ -417,8 +442,38 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         return slots;
     }
 
-    /// <summary>Names the failure signature the telemetry matches, for the report and the facts.</summary>
-    private static string? ReasonFor(bool ready, VulkanDevice device, SelfTestOutcome o)
+    /// <summary>
+    /// Says why a device failed the self-test, in terms of what the test
+    /// observed, for the report and the facts.
+    /// </summary>
+    /// <param name="ready">Whether the device passed.</param>
+    /// <param name="deviceName">The device's name, quoted first.</param>
+    /// <param name="o">What the kernel modes observed.</param>
+    /// <returns>Null when the device passed; otherwise the reason.</returns>
+    /// <remarks>
+    /// <para>
+    /// The reason names only what the test can tell apart, and no cause
+    /// beyond it. The readback leg is a real separation: if mode 4's
+    /// all-ones do not come back, nothing traced matters. Past that, the
+    /// known-answer legs say WHICH answer was wrong (any-hit missed a known
+    /// hit, or closest-hit gave the wrong triangle or distance), and the
+    /// telemetry adds one more observation, but it cannot say why.
+    /// </para>
+    /// <para>
+    /// The BLAS is built opaque, so a conformant driver commits every
+    /// triangle inside traversal and its first <c>rayQueryProceedEXT</c>
+    /// returns false: zero proceed iterations and zero candidates is what a
+    /// WORKING device reports (radv does, and passes). Zero iterations on a
+    /// failing device therefore cannot tell a driver that never traverses
+    /// from one that traverses and commits the wrong thing, or from a BLAS
+    /// that came out empty; an earlier version named a vendor for it, which
+    /// was a guess, and one that the kernel's own undefined terminate after
+    /// the proceed loop could have explained just as well. Candidates on an
+    /// opaque BLAS ARE unusual (llvmpipe reports them), so they are quoted
+    /// as an observation, again without a cause.
+    /// </para>
+    /// </remarks>
+    internal static string? ReasonFor(bool ready, string deviceName, SelfTestOutcome o)
     {
         if (ready)
         {
@@ -427,28 +482,31 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
 
         if (!o.ReadbackOk)
         {
-            return $"{device.DeviceName}: the compute write/readback path itself is broken "
+            return $"{deviceName}: the compute write/readback path itself is broken "
                 + "(mode 4 wrote all-ones and they did not read back) — no ray answer from this "
                 + "device can be trusted";
         }
 
-        if (o.Iters == 0)
+        List<string> wrong = [];
+        if (!o.AnyHitOk)
         {
-            return $"{device.DeviceName}: traversal telemetry is 0 proceed-iterations on every "
-                + "ray — the driver never traverses ray queries from a compute queue (the nvidia "
-                + "signature); rejecting the device";
+            wrong.Add("any-hit missed a known hit");
         }
 
-        if (o.Candidates > 0)
+        if (!o.ClosestOk)
         {
-            return $"{device.DeviceName}: traversal found candidates on {o.Candidates} of the "
-                + "known-hit rays yet modes 0/1 committed nothing — a known Mesa lavapipe "
-                + "candidate->committed bug; rejecting the device";
+            wrong.Add("closest-hit did not return the known triangle at the known distance");
         }
 
-        return $"{device.DeviceName}: traversal ran ({o.Iters} iterations) but the BLAS offered no "
-            + "candidates for the known-hit rays — the acceleration-structure build produced an "
-            + "empty BLAS; rejecting the device";
+        string legs = wrong.Count == 0 ? "a known-answer leg failed" : string.Join(" and ", wrong);
+        string telemetry = o.Candidates > 0
+            ? $"traversal offered candidates on {o.Candidates} ray(s) of an opaque BLAS "
+              + $"({o.Iters} proceed iteration(s) at most), which a conformant driver does not"
+            : $"the telemetry saw {o.Iters} proceed iteration(s) and no candidates, which is also "
+              + "what a working device reports for an opaque BLAS, so it cannot say where the "
+              + "answer went wrong";
+        return $"{deviceName}: {legs} on the two-triangle self-test scene; {telemetry}. "
+            + "Rejecting the device";
     }
 
     /// <inheritdoc />
@@ -602,7 +660,12 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         return new ValueTask(_batcher.TraceClosestAsync(rays, hits, tminBits, cancellationToken));
     }
 
-    /// <summary>Releases the device (idle-flushed first) so the next tracer can open it.</summary>
+    /// <summary>
+    /// Releases the device, once the work still on it has finished, so the
+    /// next tracer can open it; if that work does not finish within a bound,
+    /// the device is abandoned rather than freed under a running kernel
+    /// (the device's own dispose says why).
+    /// </summary>
     public void Dispose()
     {
         if (_disposed)

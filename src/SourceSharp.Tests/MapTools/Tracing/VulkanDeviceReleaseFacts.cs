@@ -127,7 +127,7 @@ public sealed class VulkanDeviceReleaseFacts
         Assert.Equal(0, device.LiveBytes);
     }
 
-    private static float[] Vertices()
+    internal static float[] Vertices()
     {
         float[] v = new float[VulkanRayTracerReleaseFacts.TwoTriangles().Length * 9];
         int b = 0;
