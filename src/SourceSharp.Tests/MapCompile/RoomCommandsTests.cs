@@ -90,6 +90,50 @@ public sealed class RoomCommandsTests
         Assert.Equal(0, (await LoadMapAsync(fs, "/out/level.bsp"))[BspLump.PhysCollide].Length);
     }
 
+    // ---- what they say they wrote -------------------------------------------
+
+    /// <summary>
+    /// <c>ssmap room</c> names the file it wrote as the host spells it, where
+    /// it used to print the path with its root cut off
+    /// (<c>tmp/x/rooms/hub.room</c>).
+    /// </summary>
+    [Fact]
+    public async Task ARoomNamesTheFileItWroteByItsHostPath()
+    {
+        InMemoryFileSystem fs = Game();
+        AddRoom(fs, RoomHarness.Hub());
+        using StringWriter output = new();
+
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/hub.vmf", "-out", "/rooms"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.Contains(
+            $"ssmap room: wrote {Path.GetFullPath("/rooms/hub.room")} (",
+            output.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    /// <summary><c>ssmap link</c> names the map it wrote as the host spells it.</summary>
+    [Fact]
+    public async Task ALinkNamesTheMapItWroteByItsHostPath()
+    {
+        InMemoryFileSystem fs = Game();
+        AddRoom(fs, RoomHarness.Hub());
+        using StringWriter output = new();
+        Assert.Equal(
+            Program.ExitSuccess,
+            await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/hub.vmf", "-out", "/rooms"], output));
+        AddPairLayout(fs);
+
+        int exit = await RoomCommands.RunLinkAsync(fs, ["/rooms/level.json", "-out", "/out/level.bsp"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.Contains(
+            $"ssmap link: wrote {Path.GetFullPath("/out/level.bsp")} (2 rooms, ",
+            output.ToString(),
+            StringComparison.Ordinal);
+    }
+
     // ---- ssmap room: its inputs ---------------------------------------------
 
     /// <summary>
