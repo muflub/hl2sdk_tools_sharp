@@ -763,13 +763,18 @@ public static class BenchCommand
         TimeSpan cpu0 = proc.TotalProcessorTime;
         TimeSpan gc0 = GC.GetTotalPauseDuration();
         Stopwatch clock = Stopwatch.StartNew();
+        // One rooted view serves both the compile and the output hashes, so a
+        // written path is mapped back to the host the same way it was mapped out
+        // (on Windows a VPath carries its drive, which a "/" prefix would turn
+        // into a drive-relative path under the current drive).
+        PhysicalFileSystem disk = new("/");
         BenchOutcome outcome;
         try
         {
             outcome = command switch
             {
                 "all" or "chain" => await ChainAsync(
-                    new PhysicalFileSystem("/"), DefaultRoots(), compileArgs, logger, cancellationToken)
+                    disk, DefaultRoots(), compileArgs, logger, cancellationToken)
                     .ConfigureAwait(false),
                 "vbsp" => await SingleAsync("vbsp", compileArgs, cancellationToken).ConfigureAwait(false),
                 "vvis" => await SingleAsync("vvis", compileArgs, cancellationToken).ConfigureAwait(false),
@@ -800,7 +805,7 @@ public static class BenchCommand
             GcPauseSeconds: Math.Max(0, (GC.GetTotalPauseDuration() - gc0).TotalSeconds),
             Stages: [.. outcome.Timings.Select(t =>
                 $"{t.Stage}|{t.Elapsed.TotalSeconds.ToString("0.####", CultureInfo.InvariantCulture)}")],
-            Outputs: [.. outcome.Written.Select(p => "/" + p.Value + "|" + Sha256Of("/" + p.Value))],
+            Outputs: [.. outcome.Written.Select(p => "/" + p.Value + "|" + Sha256Of(disk.ToHostPath(p)))],
             CacheReused: outcome.Cache?.Hits ?? 0,
             CacheCooked: outcome.Cache?.Misses ?? 0,
             Failure: outcome.Failure,
@@ -957,7 +962,7 @@ public static class BenchCommand
                 Math.Max(0, (GC.GetTotalPauseDuration() - gc0).TotalSeconds),
                 [.. outcome.Timings.Select(t =>
                     $"{t.Stage}|{t.Elapsed.TotalSeconds.ToString("0.####", CultureInfo.InvariantCulture)}")],
-                [.. outcome.Written.Select(p => p.Value + "|" + Sha256Of("/" + p.Value))],
+                [.. outcome.Written.Select(p => p.Value + "|" + Sha256Of(disk.ToHostPath(p)))],
                 outcome.Cache?.Hits ?? 0,
                 outcome.Cache?.Misses ?? 0,
                 outcome.Failure,
