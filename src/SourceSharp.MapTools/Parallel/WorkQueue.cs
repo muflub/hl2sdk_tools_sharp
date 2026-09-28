@@ -223,6 +223,120 @@ public sealed class WorkQueue : IDisposable
         CancellationToken cancellationToken) =>
         RunCoreAsync(itemCount, body, scratchFactory, options, keepResults: true, cancellationToken);
 
+    /// <summary>
+    /// Runs a body over and over, on every worker, until it says the work is
+    /// finished: for a stage whose work is not a fixed list of items but a
+    /// schedule the workers draw from as it unfolds.
+    /// </summary>
+    /// <typeparam name="TScratch">
+    /// The per-worker scratch type, built and disposed as for
+    /// <see cref="RunAsync{TScratch, TResult}"/>.
+    /// </typeparam>
+    /// <param name="body">
+    /// One unit of the work: take something from the schedule and do it
+    /// (<see cref="LoopStep.Worked"/>), find nothing to take yet
+    /// (<see cref="LoopStep.Idle"/>), or find the whole run done
+    /// (<see cref="LoopStep.Finished"/>).
+    /// </param>
+    /// <param name="scratchFactory">Builds a worker's scratch, on that worker.</param>
+    /// <param name="waker">
+    /// What the body calls, through <see cref="LoopWaker.Wake"/>, after it
+    /// puts something on offer that idle workers could take.
+    /// </param>
+    /// <param name="options">Scheduling options, or null; only the stage name is read.</param>
+    /// <param name="cancellationToken">Stops the run.</param>
+    /// <returns>A task that completes when a body has returned <see cref="LoopStep.Finished"/>.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Why not one <see cref="RunAsync(int, Action{int, WorkerContext}, WorkQueueOptions?, CancellationToken)"/>
+    /// item per worker.</b> That is how <c>-tighten</c> used to run: each item
+    /// looped over the shared schedule and, when nothing was on offer, parked
+    /// its thread on an event of its own until something was. On a pool of
+    /// its own that cost nothing. On a shared one (<c>-overlap</c>, or several
+    /// compiles in one service) it held every pool thread for the whole flow,
+    /// parked or not, and vbsp, the vrad preparation and the other compiles
+    /// waited behind it: the one thing the pool promises is that a job never
+    /// holds a thread for its whole length.
+    /// </para>
+    /// <para>
+    /// <b>Here idle means leaving.</b> On a pool, a body that finds nothing
+    /// ends the step, the thread gives the job's slot back and goes to the
+    /// pool's other jobs, or parks on the pool's own event.
+    /// <see cref="LoopWaker.Wake"/> then signals the pool once per worker it
+    /// asks for, and the thread that answers comes back into the job for its
+    /// next unit. That is exactly the pool's own hand-out and park protocol,
+    /// so it inherits its guarantee against lost wakes: a thread parks only
+    /// after a full scan with no signal since it began, and the body's read
+    /// of the schedule is part of that scan, so an offer published before the
+    /// wake is either seen by the scan or its signal keeps the thread from
+    /// sleeping.
+    /// </para>
+    /// <para>
+    /// On a host's <see cref="CompileParallelism.Scheduler"/> there is no pool
+    /// to go back to, and each worker is one task that runs until the end: a
+    /// worker whose body found nothing waits for the waker (or a short
+    /// timeout, which is also how it notices a cancel) and tries again. That
+    /// holds the host's threads for the run, as every stage on a host's
+    /// scheduler does.
+    /// </para>
+    /// <para>
+    /// A body that returns <see cref="LoopStep.Finished"/> ends the run for
+    /// every worker: none is handed another step, and on a host's scheduler
+    /// the waiting ones are woken to see it. It must keep answering
+    /// <see cref="LoopStep.Finished"/> if asked again, because a worker whose
+    /// slot is built after the end still runs the body once.
+    /// </para>
+    /// </remarks>
+    internal Task RunLoopAsync<TScratch>(
+        Func<TScratch, WorkerContext, LoopStep> body,
+        Func<int, TScratch> scratchFactory,
+        LoopWaker waker,
+        WorkQueueOptions? options,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(scratchFactory);
+        ArgumentNullException.ThrowIfNull(waker);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled(cancellationToken);
+        }
+
+        if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
+        {
+            throw new InvalidOperationException(
+                "This WorkQueue is already running a stage. Await it before starting another.");
+        }
+
+        try
+        {
+            var job = new LoopJob<TScratch>
+            {
+                ItemCount = 1,
+                Stage = options?.Stage ?? string.Empty,
+                IdleWaitMs = options?.LoopIdleWaitMs ?? WorkQueueOptions.DefaultLoopIdleWaitMs,
+                PollInterval = _parallelism.CancellationPollInterval,
+                Degree = _degree,
+                CallerToken = cancellationToken,
+                Body = body,
+                ScratchFactory = scratchFactory,
+            };
+
+            // Bound before any worker can run the body, so a wake from the
+            // very first unit already reaches the job.
+            waker.Attach(job.Wake);
+            Dispatch(job);
+            return job.Completion.Task;
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _busy, 0);
+            throw;
+        }
+    }
+
     /// <summary>Stops the threads this queue created and waits for them.</summary>
     /// <remarks>
     /// <para>
@@ -377,9 +491,7 @@ public sealed class WorkQueue : IDisposable
         try
         {
             scratch = job.CreateScratch(workerIndex);
-            while (job.RunChunk(scratch, context))
-            {
-            }
+            job.RunWorker(scratch, context);
         }
         catch (OperationCanceledException) when (job.CancelWasAskedFor)
         {
@@ -561,6 +673,9 @@ public sealed class WorkQueue : IDisposable
 
         public CancellationToken Token => _cts.Token;
 
+        /// <summary>The pool the run was submitted to; null on a host's scheduler.</summary>
+        protected CompilePool? Pool => _pool;
+
         public override bool IsFinished => _slots.IsFinished;
 
         // The scheduler path: one worker loop per index, counted down.
@@ -668,7 +783,7 @@ public sealed class WorkQueue : IDisposable
             // and each entry is a write to the job's one shared state word.
             if (IsDrainingWithoutMe(
                     _cts.IsCancellationRequested,
-                    Volatile.Read(ref Claimed) >= ItemCount,
+                    IsExhausted,
                     _slots.UnbuiltLeft,
                     _slots.InFlight))
             {
@@ -691,7 +806,7 @@ public sealed class WorkQueue : IDisposable
                 // whether or not items remain for it.
                 slot = _slots.TryTakeUnbuilt();
                 build = slot >= 0;
-                if (slot < 0 && Volatile.Read(ref Claimed) < ItemCount)
+                if (slot < 0 && !IsExhausted)
                 {
                     slot = _slots.TryTakeFree();
                     if (slot < 0)
@@ -721,6 +836,9 @@ public sealed class WorkQueue : IDisposable
                 return false;
             }
 
+            // Whether the step did anything: a stop or a fault counts, as the
+            // run's state changed, and so does a build.
+            bool ran = true;
             try
             {
                 if (build)
@@ -729,7 +847,7 @@ public sealed class WorkQueue : IDisposable
                     _contexts[slot] = new WorkerContext(slot, PollInterval, Token);
                 }
 
-                RunChunk(_scratch[slot], _contexts[slot]!);
+                ran = RunChunk(_scratch[slot], _contexts[slot]!);
             }
             catch (OperationCanceledException) when (CancelWasAskedFor)
             {
@@ -747,7 +865,7 @@ public sealed class WorkQueue : IDisposable
             _slots.Return(slot);
             bool last = _slots.Leave();
             bool stopping = _cts.IsCancellationRequested;
-            bool exhausted = Volatile.Read(ref Claimed) >= ItemCount;
+            bool exhausted = IsExhausted;
             bool finish = last
                 && (stopping || (exhausted && _slots.UnbuiltLeft == 0))
                 && _slots.TryFinishIdle();
@@ -765,17 +883,37 @@ public sealed class WorkQueue : IDisposable
             }
 
             _pool?.SlotReturnedProbe?.Invoke();
-            return true;
+
+            // An item job always answers yes here, as it always has: a claim
+            // that came up empty is the job's tail, and its last thread out
+            // finishes it. A loop job answers no when its body found nothing
+            // to do, so the pool thread moves on (to another job, or to park)
+            // instead of coming straight back; see RunLoopAsync.
+            return ran || build || !DeclinesWhenIdle;
         }
 
         // Stopped, or run out with every slot taken to build: nothing is left
         // for a thread to do, so the last one out finishes the job.
         private bool IsDone() =>
             _cts.IsCancellationRequested
-            || (Volatile.Read(ref Claimed) >= ItemCount && _slots.UnbuiltLeft == 0);
+            || (IsExhausted && _slots.UnbuiltLeft == 0);
+
+        /// <summary>Whether every item has been claimed (a loop job: whether its body said it is finished).</summary>
+        public virtual bool IsExhausted => Volatile.Read(ref Claimed) >= ItemCount;
+
+        /// <summary>Whether a pooled step whose chunk did nothing tells the pool it did nothing.</summary>
+        protected virtual bool DeclinesWhenIdle => false;
+
+        /// <summary>One worker's whole share of the run, on a host's scheduler.</summary>
+        public virtual void RunWorker(object? scratch, WorkerContext context)
+        {
+            while (RunChunk(scratch, context))
+            {
+            }
+        }
 
         // One claim, with the per-item checks; false when nothing was claimed.
-        public bool RunChunk(object? scratch, WorkerContext context)
+        public virtual bool RunChunk(object? scratch, WorkerContext context)
         {
             if (Token.IsCancellationRequested)
             {
@@ -908,5 +1046,132 @@ public sealed class WorkQueue : IDisposable
 
         protected override void SetCanceled(CancellationToken token) =>
             Completion.TrySetCanceled(token);
+    }
+
+    // The untyped half of a loop job: everything but the body's types.
+    private abstract class LoopJobBase : Job
+    {
+        private readonly object _idleGate = new();
+        private long _wakeVersion;
+        private int _waiting;
+        private int _finished;
+
+        // How long a worker on a host's scheduler waits for a wake before it
+        // looks again (WorkQueueOptions.LoopIdleWaitMs).
+        public int IdleWaitMs { get; init; } = WorkQueueOptions.DefaultLoopIdleWaitMs;
+
+        public override bool IsExhausted => Volatile.Read(ref _finished) != 0;
+
+        protected override bool DeclinesWhenIdle => true;
+
+        /// <summary>Wakes up to <paramref name="count"/> idle workers.</summary>
+        public void Wake(int count)
+        {
+            if (Pool is { } pool)
+            {
+                // One signal per worker asked for, capped at the job's degree:
+                // more threads than that could never be inside it at once.
+                int signals = Math.Min(count, Degree);
+                for (int i = 0; i < signals; i++)
+                {
+                    pool.Signal();
+                }
+
+                return;
+            }
+
+            // A host's scheduler: the version bump is a full fence, and a
+            // waiting worker counts itself (interlocked) before it re-reads
+            // the version under the gate, so either it sees the bump or this
+            // sees it waiting and pulses the gate, which it cannot enter until
+            // that worker is inside its wait.
+            Interlocked.Increment(ref _wakeVersion);
+            if (Volatile.Read(ref _waiting) > 0)
+            {
+                lock (_idleGate)
+                {
+                    Monitor.PulseAll(_idleGate);
+                }
+            }
+        }
+
+        public override bool RunChunk(object? scratch, WorkerContext context)
+        {
+            if (Token.IsCancellationRequested || IsExhausted)
+            {
+                return false;
+            }
+
+            LoopStep step = RunBody(scratch, context);
+            if (step == LoopStep.Finished)
+            {
+                Volatile.Write(ref _finished, 1);
+
+                // On a host's scheduler the other workers may be waiting; on
+                // a pool nothing outside the job needs to hear it (the last
+                // thread out finishes the job).
+                if (Pool is null)
+                {
+                    Wake(int.MaxValue);
+                }
+            }
+
+            return step != LoopStep.Idle;
+        }
+
+        public override void RunWorker(object? scratch, WorkerContext context)
+        {
+            while (!Token.IsCancellationRequested && !IsExhausted)
+            {
+                // Read before the body looks at the schedule: a wake after
+                // this read, for an offer the body missed, keeps the wait
+                // below from sleeping.
+                long seen = Interlocked.Read(ref _wakeVersion);
+                if (RunChunk(scratch, context))
+                {
+                    continue;
+                }
+
+                if (Token.IsCancellationRequested || IsExhausted)
+                {
+                    return;
+                }
+
+                Interlocked.Increment(ref _waiting);
+                lock (_idleGate)
+                {
+                    if (Interlocked.Read(ref _wakeVersion) == seen)
+                    {
+                        Monitor.Wait(_idleGate, IdleWaitMs);
+                    }
+                }
+
+                Interlocked.Decrement(ref _waiting);
+            }
+        }
+
+        public override void Execute(int index, object? scratch, WorkerContext context) =>
+            throw new InvalidOperationException("A loop job has no items.");
+
+        protected abstract LoopStep RunBody(object? scratch, WorkerContext context);
+    }
+
+    private sealed class LoopJob<TScratch> : LoopJobBase
+    {
+        public TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Func<TScratch, WorkerContext, LoopStep> Body { get; init; } = default!;
+
+        public Func<int, TScratch> ScratchFactory { get; init; } = default!;
+
+        public override object? CreateScratch(int workerIndex) => ScratchFactory(workerIndex);
+
+        protected override LoopStep RunBody(object? scratch, WorkerContext context) => Body((TScratch)scratch!, context);
+
+        protected override void SetResult() => Completion.TrySetResult();
+
+        protected override void SetException(Exception error) => Completion.TrySetException(error);
+
+        protected override void SetCanceled(CancellationToken token) => Completion.TrySetCanceled(token);
     }
 }

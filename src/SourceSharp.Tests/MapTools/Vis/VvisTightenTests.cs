@@ -12,6 +12,7 @@ using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
 
+using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
@@ -235,6 +236,71 @@ public class VvisTightenTests
     }
 
     [Fact]
+    public async Task ATightenedFlowOnASharedPoolLetsAnotherJobRunBesideIt()
+    {
+        // The flow used to hold every pool thread for its whole length: each
+        // worker looped inside one queue item, parking on the thread when it
+        // had nothing to do. Here the flow's first progress report blocks its
+        // worker (and so one of the pool's two threads) until a one-item job
+        // queued on the same pool has run. Only the other thread can run it,
+        // and only if the flow lets that thread go between units.
+        (BspData alone, _) = await RunAsync(Tight, degree: 2);
+
+        using CompilePool pool = new(2);
+        using WorkQueue beside = new(new CompileParallelism { MaxDegree = 1, Pool = pool });
+        int blocked = 0;
+        long reported = 0;
+        long total = 0;
+        long reportedWhenBesideRan = -1;
+        System.Collections.Concurrent.ConcurrentDictionary<int, bool> reporters = new();
+        (BspData map, PortalSet portals) = Grid();
+        VisContext context = new()
+        {
+            Options = Tight,
+            Parallelism = new CompileParallelism { MaxDegree = 2, Pool = pool },
+            Progress = new InlineProgress(p =>
+            {
+                if (p.Stage != Vvis.FlowStage)
+                {
+                    return;
+                }
+
+                Volatile.Write(ref total, p.Total);
+                InterlockedMax(ref reported, p.Done);
+                if (p.Done >= 1)
+                {
+                    reporters[Environment.CurrentManagedThreadId] = true;
+                }
+
+                // The first report of a settled portal, on the worker that
+                // settled it (the stage's opening report, done 0, comes from
+                // the caller's thread).
+                if (p.Done >= 1 && Interlocked.Exchange(ref blocked, 1) == 0)
+                {
+                    // Let the other thread show it is working on the flow
+                    // too, so it is not merely late to it: a thread the flow
+                    // never took would run the job whatever the flow does.
+                    SpinWait.SpinUntil(() => reporters.Count >= 2, TimeSpan.FromSeconds(2));
+                    Task side = beside.RunAsync(
+                        1,
+                        (_, _) => Volatile.Write(ref reportedWhenBesideRan, Volatile.Read(ref reported)),
+                        null,
+                        CancellationToken.None);
+                    Assert.True(side.Wait(TimeSpan.FromSeconds(10)), "the job beside the flow never got a thread");
+                }
+            }),
+        };
+
+        await Vvis.ComputeAsync(map, portals, context, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(60));
+
+        // Beside the flow, not after it: when the pool's other thread was
+        // held by the flow until the end, the job ran only once every portal
+        // but the blocked worker's had been reported.
+        Assert.InRange(Volatile.Read(ref reportedWhenBesideRan), 1, Volatile.Read(ref total) / 2);
+        Assert.Equal(alone[BspLump.Visibility].Data.ToArray(), map[BspLump.Visibility].Data.ToArray());
+    }
+
+    [Fact]
     public async Task TightenedWorkCountersAreTheSameRunAfterRunAtOneThread()
     {
         // At one thread every neighbour a flow reads has finished before the
@@ -391,5 +457,26 @@ public class VvisTightenTests
         // walk stays reachable by spelling Tighten = false.
         Assert.True(VvisOptions.Default.Tighten);
         Assert.False(new VvisOptions { Tighten = false }.Tighten);
+    }
+
+    // Reports on the reporting thread, as the flow's callers see it.
+    private sealed class InlineProgress(Action<CompileProgress> report) : IProgress<CompileProgress>
+    {
+        public void Report(CompileProgress value) => report(value);
+    }
+
+    private static void InterlockedMax(ref long target, long value)
+    {
+        long seen = Volatile.Read(ref target);
+        while (value > seen)
+        {
+            long was = Interlocked.CompareExchange(ref target, value, seen);
+            if (was == seen)
+            {
+                return;
+            }
+
+            seen = was;
+        }
     }
 }
