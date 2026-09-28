@@ -7,11 +7,11 @@
 
 using SourceSharp.MapFormats.Geometry;
 
-using SourceSharp.MapTools.Nav;
+using SourceSharp.MapFormats.Nav;
 
 using Xunit;
 
-namespace SourceSharp.Tests.MapTools.Nav;
+namespace SourceSharp.Tests.MapFormats.Nav;
 
 /// <summary>The brush's corners from its planes, and the exact overlap test on every family of axis.</summary>
 public sealed class NavBrushTests
