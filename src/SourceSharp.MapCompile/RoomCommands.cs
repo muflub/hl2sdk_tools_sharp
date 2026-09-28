@@ -239,7 +239,7 @@ public static class RoomCommands
                 cancellationToken).ConfigureAwait(false);
 
             await output.WriteLineAsync(
-                $"ssmap room: wrote {roomFile.Value}"
+                $"ssmap room: wrote {HostPaths.Display(roomFile)}"
                 + $" ({room.ClusterCount} clusters, {definition.Sockets.Count} sockets)")
                 .ConfigureAwait(false);
             return Program.ExitSuccess;
@@ -441,7 +441,7 @@ public static class RoomCommands
                 cancellationToken).ConfigureAwait(false);
 
             await output.WriteLineAsync(
-                $"ssmap link: wrote {mapPath.Value}"
+                $"ssmap link: wrote {HostPaths.Display(mapPath)}"
                 + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters)")
                 .ConfigureAwait(false);
             return Program.ExitSuccess;
