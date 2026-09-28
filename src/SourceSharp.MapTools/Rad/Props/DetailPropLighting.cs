@@ -445,11 +445,12 @@ public static class DetailPropLighting
     /// exactly the lights the full walk keeps, in the same order.
     /// </para>
     /// <para>
-    /// The planned samples go into the worker's <paramref name="planned"/>,
-    /// which holds every prop of the current batch; the plan keeps where its
-    /// run starts and how long it is. A list of its own per prop, grown from
-    /// empty to one entry per light in the cluster, was 31 MB of short-lived
-    /// garbage on 2fort's four-worker profile.
+    /// That list's length is the prop's sample count, so the planned samples
+    /// go into an array of exactly that length. A list grown from empty
+    /// allocated about twice as much, all of it garbage by the next batch:
+    /// 31 MB on 2fort. One list per worker for the whole batch was tried
+    /// and was worse: a batch of 256 props of a thousand lights each grows
+    /// it onto the large-object heap, which is what this work is removing.
     /// </para>
     /// </remarks>
     private static DetailPlan Plan(
@@ -460,8 +461,7 @@ public static class DetailPropLighting
         IReadOnlyList<PropLight> lights,
         PropClusterLights clusterLights,
         PropLightSampler sampler,
-        TestLineBatch lines,
-        List<(PendingPropSample Sample, PropLight Light)> planned)
+        TestLineBatch lines)
     {
         (Vec3 origin, Vec3 normal) = WorldCentre(in prop, modelCentres, spriteCentres);
 
@@ -476,30 +476,25 @@ public static class DetailPropLighting
             }
 
             c.Bogus = true;
-            return new DetailPlan(c, origin, 0, 0);
+            return new DetailPlan(c, origin, []);
         }
 
-        int first = planned.Count;
-        int cluster = ClusterFromPoint(scene, origin);
-        foreach (int i in clusterLights.For(cluster))
+        int[] kept = clusterLights.For(ClusterFromPoint(scene, origin));
+        (PendingPropSample Sample, PropLight Light)[] planned = new (PendingPropSample, PropLight)[kept.Length];
+        for (int k = 0; k < kept.Length; k++)
         {
-            PropLight dl = lights[i];
-            planned.Add((sampler.Plan(dl, origin, normal, lines), dl));
+            PropLight dl = lights[kept[k]];
+            planned[k] = (sampler.Plan(dl, origin, normal, lines), dl);
         }
 
-        return new DetailPlan(null, origin, first, planned.Count - first);
+        return new DetailPlan(null, origin, planned);
     }
 
     /// <summary>
     /// One prop after its traces: the direct sums in light order, then
     /// <c>ComputeAmbientLightingAtPoint</c>.
     /// </summary>
-    private static PropColours Resolve(
-        DetailPlan plan,
-        PropLightSampler sampler,
-        PropAmbient ambient,
-        TestLineBatch lines,
-        List<(PendingPropSample Sample, PropLight Light)> planned)
+    private static PropColours Resolve(DetailPlan plan, PropLightSampler sampler, PropAmbient ambient, TestLineBatch lines)
     {
         if (plan.Bogus is { } bogus)
         {
@@ -507,8 +502,7 @@ public static class DetailPropLighting
         }
 
         PropColours c = new();
-        foreach ((PendingPropSample pending, PropLight dl) in
-            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(planned).Slice(plan.First, plan.Count))
+        foreach ((PendingPropSample pending, PropLight dl) in plan.Planned)
         {
             PropLightSample s = sampler.Resolve(in pending, lines);
 
@@ -522,17 +516,10 @@ public static class DetailPropLighting
         return c;
     }
 
-    /// <summary>
-    /// A prop between plan and resolve: its debug colours, or its origin and
-    /// where its planned samples sit in the worker's list.
-    /// </summary>
-    private readonly record struct DetailPlan(PropColours? Bogus, Vec3 Origin, int First, int Count);
+    /// <summary>A prop between plan and resolve: its debug colours, or its origin and planned samples.</summary>
+    private sealed record DetailPlan(PropColours? Bogus, Vec3 Origin, (PendingPropSample Sample, PropLight Light)[] Planned);
 
-    /// <summary>
-    /// A worker of the stage: its ambient computer, its segment batch, and
-    /// the planned samples of every prop in the batch, emptied when the next
-    /// batch begins (every prop of the last one has resolved by then).
-    /// </summary>
+    /// <summary>A worker of the stage: its ambient computer and its segment batch.</summary>
     private sealed class DetailWorker(
         AmbientScene scene,
         DetailObjectLump[] props,
@@ -544,16 +531,12 @@ public static class DetailPropLighting
         : TestLineWorker<DetailPlan, PropColours>(sampler.CreateBatch())
     {
         private readonly PropAmbient _ambient = new(scene);
-        private readonly List<(PendingPropSample Sample, PropLight Light)> _planned = [];
-
-        public override void BeginBatch() => _planned.Clear();
 
         public override DetailPlan Plan(int item, CancellationToken cancellationToken) =>
-            DetailPropLighting.Plan(
-                scene, in props[item], modelCentres, spriteCentres, lights, clusterLights, sampler, Lines, _planned);
+            DetailPropLighting.Plan(scene, in props[item], modelCentres, spriteCentres, lights, clusterLights, sampler, Lines);
 
         public override PropColours Resolve(int item, DetailPlan state) =>
-            DetailPropLighting.Resolve(state, sampler, _ambient, Lines, _planned);
+            DetailPropLighting.Resolve(state, sampler, _ambient, Lines);
     }
 
     private static bool IsValid(Vec3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
