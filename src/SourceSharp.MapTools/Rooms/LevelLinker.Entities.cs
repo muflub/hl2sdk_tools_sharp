@@ -108,15 +108,42 @@ public static partial class LevelLinker
         return EntityLump.Write(lump);
     }
 
+    /// <summary>
+    /// The six keys vbsp writes on an <c>info_ladder</c> (what a
+    /// <c>func_ladder</c> becomes once its brushes join the world): the
+    /// ladder's bounds, one component per key, in mins-then-maxs order.
+    /// </summary>
+    /// <remarks>A property, not a static array: an array's elements are writable, and the libraries hold no mutable statics.</remarks>
+    private static string[] LadderKeys => ["mins.x", "mins.y", "mins.z", "maxs.x", "maxs.y", "maxs.z"];
+
     /// <summary>One entity with its placement keys moved.</summary>
+    /// <remarks>
+    /// Besides <c>origin</c> and the yaw, an <c>info_ladder</c>'s bounds are
+    /// a world-space box written as six separate keys (<see cref="LadderKeys"/>).
+    /// The room compile wrote them room-local; a whole-map compile of the
+    /// same level measures them from the moved brushes. So when all six are
+    /// present they are read as one box, put through the placement the way
+    /// an occluder's box is (<see cref="MoveBox"/>: every corner moved, then
+    /// the least and greatest taken again, because a quarter turn swaps
+    /// which corner is the least), and written back with two decimals, the
+    /// format vbsp writes them in. An entity with only some of the six keys
+    /// is not a ladder vbsp made, and its keys are carried as written.
+    /// </remarks>
     internal static BspEntity MoveEntity(BspEntity entity, RoomTransform transform, string room)
     {
         int turns = transform.Placement.NormalizedRotation;
+        string[] ladderKeys = LadderKeys;
+        string[]? ladder = MoveLadderBounds(entity, ladderKeys, transform, room);
         BspEntity moved = new();
         foreach (BspKeyValue pair in entity.Pairs)
         {
             string value = pair.Value;
-            if (IsKey(pair.Key, "origin"))
+            int ladderKey = ladder is null ? -1 : Array.FindIndex(ladderKeys, k => IsKey(pair.Key, k));
+            if (ladderKey >= 0)
+            {
+                value = ladder![ladderKey];
+            }
+            else if (IsKey(pair.Key, "origin"))
             {
                 value = FormatVec(transform.Apply(ParseVec(value, "origin", room)));
             }
@@ -135,6 +162,37 @@ public static partial class LevelLinker
         }
 
         return moved;
+    }
+
+    /// <summary>
+    /// An <c>info_ladder</c>'s six bound keys moved by the placement, in
+    /// <paramref name="keys"/> order, or null when the entity does not carry
+    /// all six.
+    /// </summary>
+    /// <remarks>
+    /// The values are read back from the two-decimal text the room compile
+    /// wrote, so a bound off the 0.01 grid is moved from its rounded value;
+    /// the whole-map compile rounds after moving. A quarter turn and a
+    /// whole-cell translation are exact, so on the grid (every bound a room
+    /// kit produces) the two agree to the digit.
+    /// </remarks>
+    private static string[]? MoveLadderBounds(BspEntity entity, string[] keys, RoomTransform transform, string room)
+    {
+        float[] bounds = new float[keys.Length];
+        for (int i = 0; i < keys.Length; i++)
+        {
+            if (entity.Get(keys[i]) is not { } text)
+            {
+                return null;
+            }
+
+            bounds[i] = ParseFloat(text, keys[i], room);
+        }
+
+        Box box = MoveBox(transform, new Vec3(bounds[0], bounds[1], bounds[2]), new Vec3(bounds[3], bounds[4], bounds[5]));
+        return [F2(box.Mins.X), F2(box.Mins.Y), F2(box.Mins.Z), F2(box.Maxs.X), F2(box.Maxs.Y), F2(box.Maxs.Z)];
+
+        static string F2(float value) => value.ToString("F2", CultureInfo.InvariantCulture);
     }
 
     private static void RequireSameWorld(BspEntity world, string owner, BspEntity other, string name)
