@@ -17,9 +17,10 @@ using SourceSharp.MapTools.Vis;
 namespace SourceSharp.MapTools.Rooms;
 
 /// <summary>
-/// The <c>.room</c> file format: one compiled <see cref="RoomObject"/> written
-/// to (and read back from) a stream, so <c>ssmap room</c> can produce rooms in
-/// one process and <c>ssmap link</c> consume them in another.
+/// The room container: one compiled <see cref="RoomObject"/> written to (and
+/// read back from) a stream, so <c>ssmap room</c> can produce rooms in one
+/// process and <c>ssmap link</c> consume them in another. Each room of a
+/// <see cref="RoomPack"/> is one of these, byte for byte.
 /// </summary>
 /// <remarks>
 /// <para>

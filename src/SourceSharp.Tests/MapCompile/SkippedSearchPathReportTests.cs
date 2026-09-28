@@ -125,7 +125,7 @@ public sealed class SkippedSearchPathReportTests
         fs.AddFile(Rooted("/game/maps/rooms.vmf"), RoomHarness.LibraryVmf(hub).ToBytes());
         using StringWriter output = new();
 
-        await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output);
+        await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
 
         AssertReported(output.ToString(), "ssmap room");
     }

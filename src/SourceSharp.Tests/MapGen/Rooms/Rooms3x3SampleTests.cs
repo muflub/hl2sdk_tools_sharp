@@ -51,16 +51,15 @@ public sealed class Rooms3x3SampleTests
         IReadOnlyDictionary<string, byte[]> expected = Rooms3x3Sample.Build();
 
         // What the README's commands write in place is ignored by git, and
-        // by this comparison: the compiled rooms, the linked maps, the
-        // flattened references and their compile's outputs, and what the
-        // commands write by default beside the library and the levels.
+        // by this comparison: the room pack, the linked maps, the flattened
+        // references and their compile's outputs, and what the commands
+        // write by default beside the library and the levels.
         List<string> present = [.. Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(root, f).Replace('\\', '/'))
             .Where(f => f != "README.md"
-                && !f.StartsWith("rooms/", StringComparison.Ordinal)
                 && !f.StartsWith("out/", StringComparison.Ordinal)
                 && !f.StartsWith("maps/", StringComparison.Ordinal)
-                && !(!f.Contains('/', StringComparison.Ordinal) && f.EndsWith(".room", StringComparison.Ordinal))
+                && !(!f.Contains('/', StringComparison.Ordinal) && f.EndsWith(".roompack", StringComparison.Ordinal))
                 && !(f.StartsWith("levels/", StringComparison.Ordinal) && Path.GetExtension(f) is ".bsp" or ".vmf"))
             .Order(StringComparer.Ordinal)];
         Assert.Equal(expected.Keys.Order(StringComparer.Ordinal), present);

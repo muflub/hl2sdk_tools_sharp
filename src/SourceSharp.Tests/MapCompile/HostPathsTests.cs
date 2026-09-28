@@ -16,7 +16,7 @@ namespace SourceSharp.Tests.MapCompile;
 /// <summary>
 /// A path the CLI prints names the file the user can open: the root a
 /// <see cref="VPath"/> drops is put back, where messages used to print
-/// <c>tmp/x/rooms/cross.room</c> for <c>/tmp/x/rooms/cross.room</c>.
+/// <c>tmp/x/rooms.roompack</c> for <c>/tmp/x/rooms.roompack</c>.
 /// </summary>
 public sealed class HostPathsTests
 {
@@ -24,7 +24,7 @@ public sealed class HostPathsTests
 
     [UnixFact]
     public void OnLinuxTheLeadingSlashIsRestored() =>
-        Assert.Equal("/tmp/x/rooms/cross.room", HostPaths.Display(VPath.Create("tmp/x/rooms/cross.room")));
+        Assert.Equal("/tmp/x/rooms.roompack", HostPaths.Display(VPath.Create("tmp/x/rooms.roompack")));
 
     /// <summary>Off Windows <c>C:</c> is a directory like any other, not a drive.</summary>
     [UnixFact]

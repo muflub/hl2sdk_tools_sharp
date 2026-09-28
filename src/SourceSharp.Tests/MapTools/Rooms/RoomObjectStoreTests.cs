@@ -17,7 +17,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rooms;
 
 /// <summary>
-/// The <c>.room</c> container: what <c>ssmap room</c> writes and <c>ssmap link</c>
+/// The room container: what <c>ssmap room</c> packs for each room and <c>ssmap link</c>
 /// reads. The round-trip claim is the format's whole reason to exist — a
 /// reloaded room must be what the linker consumes — so the facts compare every
 /// byte the linker reads, not the container's own plumbing.

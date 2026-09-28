@@ -22,7 +22,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rooms;
 
 /// <summary>
-/// A <c>.room</c> file is a function of the room: the same VMF and definition
+/// A room container is a function of the room: the same VMF and definition
 /// write the same bytes whatever the machine's schedule did, at any
 /// <c>-threads</c>, run after run.
 /// </summary>
@@ -62,7 +62,7 @@ public sealed class RoomReproducibilityTests
     /// <summary>
     /// The red-first fact for the bug: one room compiled at one thread and
     /// again under a forced speculative schedule writes byte-identical
-    /// <c>.room</c> files, though the two compiles did different work.
+    /// containers, though the two compiles did different work.
     /// </summary>
     /// <remarks>
     /// <para>

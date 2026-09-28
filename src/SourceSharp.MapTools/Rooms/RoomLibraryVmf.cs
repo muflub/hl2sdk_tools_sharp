@@ -54,7 +54,7 @@ public sealed class RoomLibraryException : Exception
 /// </para>
 /// <list type="table">
 /// <listheader><term>key</term><description>meaning</description></listheader>
-/// <item><term><c>name</c></term><description>The room's name (<see cref="RoomNames"/>): the <c>.room</c> file's name and what a level calls it.</description></item>
+/// <item><term><c>name</c></term><description>The room's name (<see cref="RoomNames"/>): its entry in the room pack and what a level calls it.</description></item>
 /// <item><term><c>cell_size</c></term><description>The cell's edge, in units; the cell is a cube.</description></item>
 /// <item><term><c>door_width</c></term><description>The door opening's width along its wall.</description></item>
 /// <item><term><c>door_height</c></term><description>The door opening's height.</description></item>
@@ -283,7 +283,7 @@ public static class RoomLibraryVmf
             {
                 throw new RoomLibraryException(
                     $"two rooms are named \"{other.Name}\" and \"{marker.Name}\"; room names are unique, ignoring case,"
-                    + " because each names a .room file.");
+                    + " because each names an entry of the room pack.");
             }
 
             byName[marker.Name] = marker;

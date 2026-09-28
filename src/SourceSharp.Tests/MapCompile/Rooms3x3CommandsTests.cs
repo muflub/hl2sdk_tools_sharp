@@ -14,6 +14,7 @@ using SourceSharp.MapGen.Rooms;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Phys.Managed;
+using SourceSharp.MapTools.Rooms;
 using SourceSharp.MapTools.Validation;
 using SourceSharp.Tests.MapTools.Rooms;
 
@@ -32,8 +33,8 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
 {
     /// <summary>
     /// <c>ssmap room</c> compiles every room of the library against the
-    /// sample's own game folder; <c>ssmap link</c> links every level file of
-    /// the sample from the same room files without recompiling them; each
+    /// sample's own game folder into one pack; <c>ssmap link</c> links every
+    /// level file of the sample from that pack without recompiling; each
     /// map it writes is byte for byte the map the linker API makes from the
     /// rooms the equivalence facts compile, passes the loader validation,
     /// and carries the door graph's visibility.
@@ -43,18 +44,19 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
     {
         InMemoryFileSystem fs = Sample();
         using StringWriter output = new();
-        int exit = await RoomCommands.RunRoomAsync(fs, [], ["/sample/rooms.vmf", "-game", "/sample", "-out", "/sample/rooms"], output);
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["/sample/rooms.vmf", "-game", "/sample", "-out", "/sample/rooms.roompack"], output);
         Assert.True(exit == Program.ExitSuccess, output.ToString());
-        foreach (RoomKind kind in Rooms3x3Kit.Kinds)
+        using (MemoryStream pack = new(fs.GetBytes(VPath.Create(Rooted("/sample/rooms.roompack")))!))
         {
-            Assert.NotNull(fs.GetBytes(VPath.Create(Rooted($"/sample/rooms/{kind.Name}.room"))));
+            RoomPackIndex index = await RoomPack.ReadIndexAsync(pack);
+            Assert.Equal(Rooms3x3Kit.Kinds.Select(k => k.Name), index.Entries.Select(e => e.Name));
         }
 
         foreach (string name in Levels())
         {
             exit = await RoomCommands.RunLinkAsync(
                 fs,
-                [$"/sample/levels/{name}.yaml", "-rooms", "/sample/rooms", "-out", $"/sample/out/{name}.bsp"],
+                [$"/sample/levels/{name}.yaml", "-rooms", "/sample/rooms.roompack", "-out", $"/sample/out/{name}.bsp"],
                 output);
             Assert.True(exit == Program.ExitSuccess, output.ToString());
 

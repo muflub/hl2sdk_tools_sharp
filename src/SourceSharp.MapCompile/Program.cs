@@ -189,7 +189,7 @@ public static class Program
             case "room":
             {
                 // vbsp's host half, in miniature: the game mount, the cooker,
-                // the Steam roots — and a .room container out the other end
+                // the Steam roots — and a room pack out the other end
                 // instead of a .bsp.
                 PhysicalFileSystem disk = new("/");
                 string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -431,10 +431,11 @@ public static class Program
                                                        --record-content <zip>: also write every
                                                        game file the compile read, as a game
                                                        directory with its own gameinfo.txt
-              room <library.vmf> [-out <dir>] [vbsp options]
+              room <library.vmf> [-out <pack.roompack>] [vbsp options]
                                                       every room of a library VMF (one
-                                                      info_room each) -> <dir>/<name>.room
-              link <level.yaml> [-rooms <dir>] [-out <map.bsp>]
+                                                      info_room each), -threads at once
+                                                      -> one <library>.roompack
+              link <level.yaml> [-rooms <pack.roompack>] [-out <map.bsp>]
                                                       the level's rooms -> one linked map;
                                                       joints are the sockets that face
               link <level.yaml> --flatten [-out <map.vmf>]

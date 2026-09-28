@@ -40,6 +40,7 @@ public sealed class MaterialFactsCache
     private readonly IContentFileSystem _content;
     private readonly MaterialFactsOptions _options;
     private readonly Dictionary<string, MaterialFacts> _facts = [];
+    private readonly SharedMaterialFacts? _shared;
 
     /// <summary>Creates a cache over a content filesystem.</summary>
     /// <param name="content">Where materials are read from.</param>
@@ -50,6 +51,28 @@ public sealed class MaterialFactsCache
         ArgumentNullException.ThrowIfNull(content);
         _content = content;
         _options = options ?? MaterialFactsOptions.Default;
+    }
+
+    /// <summary>
+    /// Creates a cache that asks a store shared with other compiles before it
+    /// reads anything itself.
+    /// </summary>
+    /// <param name="shared">The batch's store; its content and options are this cache's.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="shared"/> is null.</exception>
+    /// <remarks>
+    /// The cache's own memo stays: it is what this compile asked for, so
+    /// <see cref="Count"/> still counts this compile's materials, and a
+    /// material asked for twice by this compile does not go to the shared
+    /// store (and its dictionary) twice. The answer is the store's either
+    /// way, and the store's answer is the one a private read would give
+    /// (see <see cref="SharedMaterialFacts"/>).
+    /// </remarks>
+    public MaterialFactsCache(SharedMaterialFacts shared)
+    {
+        ArgumentNullException.ThrowIfNull(shared);
+        _content = shared.Content;
+        _options = shared.Options;
+        _shared = shared;
     }
 
     /// <summary>How many distinct materials have been read.</summary>
@@ -77,9 +100,11 @@ public sealed class MaterialFactsCache
             return cached;
         }
 
-        MaterialFacts facts = await MaterialFactsReader
-            .ReadAsync(key, _content, _options, cancellationToken)
-            .ConfigureAwait(false);
+        MaterialFacts facts = _shared is not null
+            ? await _shared.GetAsync(key, cancellationToken).ConfigureAwait(false)
+            : await MaterialFactsReader
+                .ReadAsync(key, _content, _options, cancellationToken)
+                .ConfigureAwait(false);
 
         _facts[key] = facts;
         return facts;

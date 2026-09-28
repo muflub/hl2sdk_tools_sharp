@@ -112,6 +112,18 @@ public sealed class MaterialPatcher
         Compliance = compliance ?? ComplianceOptions.Correct;
     }
 
+    /// <summary>
+    /// The store of material files shared with other compiles over the same
+    /// content, or null for this patcher's own reads only.
+    /// </summary>
+    /// <remarks>
+    /// Consulted after this patcher's own memo, for game files only (never
+    /// the pak, which is this compile's). A tree from it is shared across
+    /// compiles as the memo's trees are shared across this compile's callers,
+    /// and on the same terms: read-only, every public path hands out a copy.
+    /// </remarks>
+    internal SharedMaterialFacts? SharedFiles { get; init; }
+
     /// <summary>The compliance the patcher reads materials under.</summary>
     public ComplianceOptions Compliance { get; }
 
@@ -201,9 +213,13 @@ public sealed class MaterialPatcher
         }
 
         KeyValuesNode? parsed;
-        using (IMemoryOwner<byte>? owner =
-            await _content.ReadAsync(contentPath, cancellationToken).ConfigureAwait(false))
+        if (SharedFiles is { } shared)
         {
+            parsed = await shared.GetMaterialFileAsync(contentPath, ParseAsync, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            using IMemoryOwner<byte>? owner = await _content.ReadAsync(contentPath, cancellationToken).ConfigureAwait(false);
             parsed = owner is null ? null : await ParseAsync(owner.Memory, cancellationToken).ConfigureAwait(false);
         }
 

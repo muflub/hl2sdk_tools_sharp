@@ -53,13 +53,47 @@ public sealed class VbspContext
     /// <paramref name="options"/> or <paramref name="content"/> is null.
     /// </exception>
     public VbspContext(VbspOptions options, IContentFileSystem content)
+        : this(options, content, sharedMaterials: null)
+    {
+    }
+
+    /// <summary>
+    /// Creates a context for one of several compiles that share their
+    /// material reads.
+    /// </summary>
+    /// <param name="options">The compile's switches.</param>
+    /// <param name="content">Where materials and instances are read from.</param>
+    /// <param name="sharedMaterials">
+    /// The batch's material store, or null for a private one. Its content
+    /// must be <paramref name="content"/>: facts read from other content
+    /// would be another compile's answers.
+    /// </param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="options"/> or <paramref name="content"/> is null.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="sharedMaterials"/> reads from other content than <paramref name="content"/>.
+    /// </exception>
+    /// <remarks>
+    /// Only the material facts are shared: every table the compile fills
+    /// (texdata, texinfo, the pak) is still this context's own, so two
+    /// compiles sharing a store still share no mutable state. That is how
+    /// <see cref="Rooms.RoomLibraryCompiler"/> compiles a library's rooms
+    /// side by side while reading the kit's materials once.
+    /// </remarks>
+    public VbspContext(VbspOptions options, IContentFileSystem content, SharedMaterialFacts? sharedMaterials)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(content);
+        if (sharedMaterials is not null && !ReferenceEquals(sharedMaterials.Content, content))
+        {
+            throw new ArgumentException(
+                "the shared material store reads from other content than the compile's.", nameof(sharedMaterials));
+        }
 
         Options = options;
         Content = content;
-        Materials = new MaterialFactsCache(content);
+        Materials = sharedMaterials is null ? new MaterialFactsCache(content) : new MaterialFactsCache(sharedMaterials);
 
         // The subset of the switches FindMiptex reads: g_BumpAll (-bumpall),
         // g_bLightIfMissing (-lightifmissing), g_NodrawTriggers
@@ -79,8 +113,22 @@ public sealed class VbspContext
         // every stage takes its arena from this context.
         Windings = new WindingArena { Compliance = options.Compliance };
 
-        Patcher = new MaterialPatch.MaterialPatcher(content, new MaterialPatch.MapPakFile(), options.Compliance);
+        SharedMaterials = sharedMaterials;
+        Patcher = new MaterialPatch.MaterialPatcher(content, new MaterialPatch.MapPakFile(), options.Compliance)
+        {
+            SharedFiles = sharedMaterials,
+        };
     }
+
+    /// <summary>
+    /// The material store this compile shares with others over the same
+    /// content, or null when it reads its materials alone.
+    /// </summary>
+    /// <remarks>
+    /// Read through <see cref="Materials"/> and <see cref="Patcher"/> for the
+    /// material files, and by the map load for the surface property table.
+    /// </remarks>
+    public SharedMaterialFacts? SharedMaterials { get; }
 
     /// <summary>
     /// The compile's material patches and the pak they are written into:

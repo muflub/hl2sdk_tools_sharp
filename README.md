@@ -89,7 +89,7 @@ The compile passes, grouped by stage and by concern.
 | `Io/` | the `IFileSystem` seam, game mounting, VPK and pak archives, Steam library discovery |
 | `Options/` | stock argument parsing (`StockArgs`), per-stage options, the compliance catalogue |
 | `Compile/` | `MapCompiler`, which runs one or more stages in process |
-| `Rooms/` | split a room library VMF into reusable `.room` objects, read and generate level files, and link or flatten a level into one map |
+| `Rooms/` | split a room library VMF into rooms, compile them side by side into one `.roompack`, read and generate level files, and link or flatten a level into one map |
 | `Validation/` | `BspValidator`, the loader rules `ssmap check` reports |
 | `Compare/` | the lump-by-lump comparer behind `ssmap diff` |
 | `Parallel/`, `Diagnostics/`, `Geometry/`, `Vpk/` | work scheduling, warnings and error codes, geometry kernel, VPK reading |
@@ -255,9 +255,9 @@ Unzip it anywhere and compile against it with no Steam install:
 ### `room`, `rooms`, `link` and `layout`
 
 ```sh
-ssmap room <library.vmf> [-out <dir>] [vbsp options]
+ssmap room <library.vmf> [-out <pack.roompack>] [vbsp options]
 ssmap rooms <library.vmf>
-ssmap link <level.yaml> [-rooms <dir>] [-out <map.bsp>]
+ssmap link <level.yaml> [-rooms <pack.roompack>] [-out <map.bsp>]
 ssmap link <level.yaml> --flatten [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>] [-out <level.yaml>]
 ```
@@ -267,10 +267,10 @@ cell's corner and size, and each door's wall, plug box (in library
 coordinates) and size. It reads and checks the library exactly as
 `ssmap room` does, so a library it lists is one the compile accepts.
 
-A `.room` file is a function of its inputs: the same library room and
-`ssmap` build write the same bytes at any `-threads` and on every run. (The
-work counters and deepest flow that `ssmap vvis` reports depend on the
-schedule, so a `.room` file does not store them.)
+A room pack is a function of its inputs: the same library and `ssmap`
+build write the same bytes at any `-threads` and on every run, and so does
+each room inside it. (The work counters and deepest flow that `ssmap vvis`
+reports depend on the schedule, so a room does not store them.)
 
 A **room library** is one VMF holding every room of a set, each in its own
 cell with gaps between them, and each marked by an `info_room` point entity
@@ -278,7 +278,7 @@ at the cell's low corner (least x, y and z). Its keys:
 
 | Key | Meaning |
 | --- | --- |
-| `name` | The room's name: letters, digits, `_`, `-` and `.`, starting with a letter, digit or `_`. It names the `.room` file and is what a level calls the room. |
+| `name` | The room's name: letters, digits, `_`, `-` and `.`, starting with a letter, digit or `_`. It names the room in the pack and is what a level calls the room. |
 | `cell_size` | The cell's edge; the cell is a cube. |
 | `door_width`, `door_height` | The door opening, centred on a wall. |
 | `wall_depth` | The shell's thickness, and how deep a door plug reaches in from the cell face. |
@@ -293,10 +293,24 @@ the kit's opening on a wall, `wall_depth` deep, made of a `%compileTrigger`
 material (still solid, so the room compiles sealed); a trigger brush of any
 other size is refused.
 
-`room` splits the library, moves each room to the origin, and compiles it
-into `<dir>/<name>.room` (one file per room, beside the library by
-default). One room that fails does not stop the others; the exit code
-says whether any did.
+`room` splits the library, moves each room to the origin, compiles every
+room, and writes them all into one room pack, `<library>.roompack` beside
+the library by default (`-out` names another file). Rooms compile side by
+side: `-threads` (default: every core) is how many run at once, all on one
+shared set of threads, so it is also the most threads the whole run uses.
+The log has one line per room in library order, whatever order they
+finish in, and the pack holds the rooms in library order too, so neither
+depends on `-threads`. One room that fails does not stop the others: it is
+reported in its place, the pack holds every room that compiled, and the
+exit code says whether any failed. The pack is written once every room has
+ended, and replaces the previous one in one step, so a run that is
+cancelled or crashes leaves the old pack (or none), never a partial one.
+
+The pack starts with an index of its rooms, so `link` reads the index and
+the rooms its level places and nothing else of the file. Each room in it is
+the room container `ssmap` has always written for a room; the format
+(`RoomPack` in `Rooms/`) has room for more per room and per library, and
+a build that does not know a later section reads around it.
 
 A **level** is a YAML file:
 
@@ -315,8 +329,10 @@ Joints are implicit: two sockets facing each other across a shared wall are
 joined, and every other socket is capped. Every refusal of a level file
 names its line and column.
 
-`link` links the level's rooms (read from `-rooms`, by default the
-library's folder) into one map, beside the level file by default. It
+`link` links the level's rooms (read from the pack `-rooms` names, by
+default `<library>.roompack` beside the library the level names) into one
+map, beside the level file by default. A room the level places that the
+pack does not hold is refused, naming the room and the pack. It
 refuses a level in which a player could not walk from every room to every
 other, naming the rooms that cannot be reached. It needs no game directory.
 Every room is compiled sealed, with a plug brush in each socket; the link

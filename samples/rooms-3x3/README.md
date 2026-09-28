@@ -31,7 +31,7 @@ x, y and z) that names it and states the grid and the door kit:
 
 | Key | Here | Meaning |
 | --- | --- | --- |
-| `name` | `cross`, `tee`, ... | The room's name: its `.room` file and what a level calls it. |
+| `name` | `cross`, `tee`, ... | The room's name: its entry in the room pack and what a level calls it. |
 | `cell_size` | `256` | The cell's edge; the cell is a cube. |
 | `door_width` | `96` | The door opening's width. |
 | `door_height` | `224` | The door opening's height. |
@@ -108,11 +108,11 @@ at the repository root puts it in `bin/Release/ssmap.dll`):
 # list the library's rooms, their cells and their doors
 ssmap rooms rooms.vmf
 
-# compile every room of the library into rooms/<name>.room (the game is this folder)
-ssmap room rooms.vmf -game . -out rooms
+# compile every room of the library into rooms.roompack (the game is this folder)
+ssmap room rooms.vmf -game .
 
-# link a level from the compiled rooms, without recompiling them
-ssmap link levels/rooms3x3.yaml -rooms rooms -out out/rooms3x3.bsp
+# link a level from the packed rooms, without recompiling them
+ssmap link levels/rooms3x3.yaml -rooms rooms.roompack -out out/rooms3x3.bsp
 
 # the reference: the same level as one VMF, compiled whole
 ssmap link levels/rooms3x3.yaml --flatten -out maps/rooms3x3.vmf
@@ -126,10 +126,12 @@ ssmap layout rooms.vmf -rows 4 -columns 5 -seed 7 -empty 0.2 -out levels/mine.ya
 ```
 
 Swap in any other level file; the rooms do not need recompiling. Without
-`-out`, `ssmap room` writes the rooms beside the library and `ssmap link`
-looks for them there, writing the map (or the flattened VMF) beside the
-level file. The outputs (`rooms/`, `out/`, `maps/`, `*.room`, and maps
-beside the level files) are ignored by git.
+`-out`, `ssmap room` writes `rooms.roompack` beside the library, and
+without `-rooms`, `ssmap link` looks for it there, writing the map (or the
+flattened VMF) beside the level file. `ssmap room` compiles up to
+`-threads` rooms at once and writes the same pack at any thread count. The
+outputs (`rooms.roompack`, `out/`, `maps/`, and maps beside the level
+files) are ignored by git.
 
 ## Regenerate it
 
@@ -151,9 +153,9 @@ it is written to a scratch folder and never checked in:
 dotnet run --project tools/RoomsSample -c Release -- --stress /tmp/rooms-stress        # 1024 rooms
 dotnet run --project tools/RoomsSample -c Release -- --stress /tmp/rooms-stress 200    # a smaller one
 cd /tmp/rooms-stress
-ssmap room rooms.vmf -game . -out rooms
+ssmap room rooms.vmf -game . -threads 4
 ssmap layout rooms.vmf -rows 16 -columns 16 -seed 1 -out levels/l16.yaml
-ssmap link levels/l16.yaml -rooms rooms -out out/l16.bsp
+ssmap link levels/l16.yaml -out out/l16.bsp
 ```
 
 `Rooms3x3SampleTests.TheCheckedInSampleIsWhatTheGeneratorWrites` fails when

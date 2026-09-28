@@ -90,8 +90,13 @@ public static class MapFileLoader
 
         // LoadSurfaceProperties runs before LoadMapFile, so
         // every texdata the load creates resolves its $surfaceprop.
-        context.TexDatas.PropertyTable ??= await SurfacePropertyTable
-            .LoadAsync(context.Content, cancellationToken).ConfigureAwait(false);
+        //
+        // Loaded once for a batch of compiles that share their material
+        // reads (a room library): the table is a function of the content,
+        // and no compile changes it.
+        context.TexDatas.PropertyTable ??= context.SharedMaterials is { } shared
+            ? await shared.GetSurfacePropertiesAsync(cancellationToken).ConfigureAwait(false)
+            : await SurfacePropertyTable.LoadAsync(context.Content, cancellationToken).ConfigureAwait(false);
 
         MapFile map = new(context.Windings);
         context.Maps.Add(map);

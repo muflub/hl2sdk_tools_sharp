@@ -28,7 +28,7 @@ namespace SourceSharp.MapTools.Rooms;
 /// it aliases.
 /// </para>
 /// <para>
-/// Both the <c>.room</c> reader and the linker run the check: the reader
+/// Both the room container reader and the linker run the check: the reader
 /// because the file is untrusted input, and the linker because a
 /// <see cref="RoomObject"/> can be built in code without either.
 /// </para>
