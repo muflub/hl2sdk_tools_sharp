@@ -204,6 +204,7 @@ public sealed class LeafAmbientPoolTests : IClassFixture<AmbientFixture>
     /// </summary>
     [Theory]
     [InlineData(TestLineStage.DefaultBatchSegments)]
+    [InlineData(LeafAmbientOptions.DefaultBatchSegments)]
     [InlineData(1)]
     [InlineData(700)]
     public async Task TheBatchReservesItsBoundOnceAndEveryBatchFits(int batchSegments)
@@ -234,6 +235,31 @@ public sealed class LeafAmbientPoolTests : IClassFixture<AmbientFixture>
         }
 
         Assert.Equal(1, pool.RentedOf<Ray>());
+    }
+
+    /// <summary>
+    /// The stage closes its batches at its own, smaller bound, which is what
+    /// its workers' reservation is computed from: the reservation is no
+    /// larger than the other stages' bound would give (on a map this small
+    /// both are capped by the map's whole count), and the lumps are the same.
+    /// </summary>
+    [Fact]
+    public async Task TheStagesOwnBatchBoundShrinksTheReservationAndChangesNoAnswer()
+    {
+        KdRayTracer kd = await CastersAsync();
+        LeafAmbientOptions ours = LeafAmbientOptions.StockParity with { Parallelism = 2 };
+        LeafAmbientOptions stages = ours with { BatchSegments = TestLineStage.DefaultBatchSegments };
+        int lights = (await FreshAsync(kd, ours)).LightsInAmbientCube;
+
+        int reserved = LeafAmbientBuilder.BatchSegmentBound(
+            _fixture.Ldr, ours, lights, ours.BatchSegments, TestLineStage.DefaultBatchItems);
+        int wider = LeafAmbientBuilder.BatchSegmentBound(
+            _fixture.Ldr, stages, lights, stages.BatchSegments, TestLineStage.DefaultBatchItems);
+
+        Assert.Equal(LeafAmbientOptions.DefaultBatchSegments, ours.BatchSegments);
+        Assert.True(LeafAmbientOptions.DefaultBatchSegments < TestLineStage.DefaultBatchSegments);
+        Assert.True(reserved <= wider);
+        AssertSameLumps(await FreshAsync(kd, stages), await FreshAsync(kd, ours));
     }
 
     [Fact]
