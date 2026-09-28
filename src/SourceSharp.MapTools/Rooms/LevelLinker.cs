@@ -7,7 +7,6 @@
 
 using System.Buffers.Binary;
 using System.Collections.Immutable;
-using System.Runtime.InteropServices;
 
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
@@ -28,38 +27,51 @@ namespace SourceSharp.MapTools.Rooms;
 /// <para>
 /// The link is <b>relocation, not rebuild</b>: each
 /// room's compiled BSP — planes, vertices, faces, edges, its own node subtree,
-/// leaves, brushes — is carried in verbatim and moved by <see cref="RoomTransform"/>:
-/// a quarter turn about +z and a whole-cell translation, so every relocated
-/// coordinate is a sum of exactly representable values and no rotation matrix
-/// is ever multiplied (invariant I4: the same input byte-yields the same output
-/// on one thread or sixty-four). One top tree hangs the room subtrees in world
-/// order; its split planes are the grid's cell faces, so a point inside a cell
-/// descends to exactly that cell's room root and the room's own tree routes it
-/// to the leaf vvis assigned its cluster.
+/// leaves, brushes, texture axes, world collision — is carried in and moved by
+/// <see cref="RoomTransform"/>: a quarter turn about +z and a whole-cell
+/// translation, so every relocated coordinate is a permutation of the room's
+/// own plus an integer multiple of the cell, and no rotation matrix is ever
+/// multiplied (invariant I4: the same input byte-yields the same output on
+/// one thread or sixty-four). One top tree hangs the room subtrees in world
+/// order; its split planes are the grid's cell faces, so a point inside a
+/// cell descends to exactly that cell's room root and the room's own tree
+/// routes it to the leaf vvis assigned its cluster.
 /// </para>
 /// <para>
-/// The plug brushes <b>stay</b> in the linked map — they are what keeps each
-/// room's door-shut vis honest (the trigger-plug probes A/B are the evidence) —
-/// and the door graph rewrites the plug clusters' rows. A room's linked row
-/// starts as its own vvis row; the only thing that makes two rooms see each
-/// other is a <b>door edge</b>: every open cluster whose leaf boxes overlap a
-/// joint's plug box (with <see cref="DoorOverlapEpsilon"/>; the link geometry
-/// is integer and bevels are ±8, so a face-sharing leaf sits at gap 0 and the
-/// next space over is never closer than the wall's thickness) reaches every
-/// open cluster facing the joint on the other side, in both directions. Rows
-/// are the transitive closure of own-row steps plus door-edge steps, so a
-/// corridor that does not itself face an opening still inherits the door's
-/// vis. Solid leaves — the plugs' and the shared void leaf's — carry cluster
-/// <c>-1</c> and are in no row: that is what the door shut means in the PVS.
+/// <b>Doors.</b> Every room is compiled sealed: each socket carries a plug
+/// brush, so vbsp's flood fill stops at the doorway and the room's own vvis is
+/// its door-shut visibility. At a <em>jointed</em> socket the linker strips
+/// the plug (see <c>LevelLinker.Plugs</c>): the solid leaves the plug made are
+/// split so the doorway box becomes an empty leaf, the plug brush leaves every
+/// leaf's brush list and the world collision, and its faces are drawn as
+/// nodraw. A <em>capped</em> socket keeps its plug, so it stays a wall.
+/// Stripping at link time rather than compiling each room twice (sealed for
+/// vis, open for geometry) keeps one compile per room, at one cost: the
+/// doorway's jambs, lintel and sill have no faces, because in the room's
+/// compile they faced the solid plug and vbsp emits no face between two
+/// solids. The doorway is open to traces, physics and vis; it only draws as
+/// a gap at its edges unless something in the socket covers them.
+/// </para>
+/// <para>
+/// <b>Visibility</b> is composed from the door graph, never flooded. A room's
+/// linked row starts as its own vvis row; the only thing that makes two rooms
+/// see each other is a <b>door edge</b>: every open cluster whose leaf boxes
+/// overlap a joint's plug box (with <see cref="DoorOverlapEpsilon"/>; the link
+/// geometry is integer and bevels are ±8, so a face-sharing leaf sits at gap
+/// 0 and the next space over is never closer than the wall's thickness)
+/// reaches every open cluster facing the joint on the other side, in both
+/// directions. Rows are the transitive closure of own-row steps plus door-edge
+/// steps. The stripped doorway leaf joins the lowest of its own side's facing
+/// clusters, which after the closure sees everything that side sees.
 /// </para>
 /// <para>
 /// A room whose compile left anything outside the relocation set — a second
-/// model, a water leaf, game lump, clip portal, overlay, displacement — is
-/// refused rather than silently dropped: the linked map must be the rooms, not
-/// an approximation of them.
+/// model, a water leaf, a real area portal, displacements, static or detail
+/// props, packed files — is refused rather than silently dropped: the linked
+/// map must be the rooms, not an approximation of them.
 /// </para>
 /// </remarks>
-public static class LevelLinker
+public static partial class LevelLinker
 {
     /// <summary>
     /// How far past a shared face two leaf boxes must overlap to face a joint:
@@ -67,7 +79,18 @@ public static class LevelLinker
     /// </summary>
     public const float DoorOverlapEpsilon = -0.5f;
 
-    /// <summary>The lumps the relocation carries; anything else non-empty is refused.</summary>
+    /// <summary>
+    /// The lumps the relocation carries; anything else non-empty is refused.
+    /// </summary>
+    /// <remarks>
+    /// Several of these are carried only in their empty form, and
+    /// <see cref="PlanRoom"/> checks that: <see cref="BspLump.AreaPortals"/>
+    /// holds only the reserved portal 0, <see cref="BspLump.PhysDisp"/> counts
+    /// no displacement, <see cref="BspLump.PakFile"/> holds no file, and every
+    /// game lump is all zeros (no static or detail props).
+    /// <see cref="BspLump.ClipPortalVerts"/> is not in the set: its vertices
+    /// only exist for area portals, which are refused.
+    /// </remarks>
     private static readonly ImmutableHashSet<BspLump> CarriedLumps =
         ImmutableHashSet.CreateRange([
         BspLump.Entities, BspLump.Planes, BspLump.TexData, BspLump.Vertexes,
@@ -79,25 +102,35 @@ public static class LevelLinker
         BspLump.VertNormals, BspLump.VertNormalIndices,
         BspLump.Primitives, BspLump.PrimVerts, BspLump.PrimIndices,
         BspLump.FaceMacroTextureInfo,
-        BspLump.Areas, BspLump.AreaPortals, BspLump.ClipPortalVerts,
+        BspLump.Areas, BspLump.AreaPortals,
         BspLump.Occlusion, BspLump.PakFile, BspLump.MapFlags,
+        BspLump.PhysCollide, BspLump.PhysDisp,
         ]);
 
     /// <summary>Links <paramref name="layout"/>'s rooms into one map.</summary>
     /// <param name="layout">The level.</param>
     /// <param name="library">The rooms, by name.</param>
-    /// <param name="context">The compile context the rooms came from.</param>
+    /// <param name="context">
+    /// The compile context: its parallelism plans the rooms, and its
+    /// compliance chooses the precision the world collision is rebuilt at.
+    /// </param>
     /// <param name="cancellationToken">Cancels the link.</param>
     /// <returns>The linked BSP, its visibility, and the plan.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentException">
+    /// The layout's own shape is wrong (<see cref="LevelLayout.Validate"/>):
+    /// no rooms, a shared cell, a blank name, a grid that is not a positive
+    /// finite number.
+    /// </exception>
     /// <exception cref="RoomLintException">
     /// A layout rule is broken: a room the library lacks, a socket neither
-    /// jointed nor capped.
+    /// jointed nor capped, a grid or kit that is not the library's.
     /// </exception>
     /// <exception cref="LinkException">
     /// A joint is geometrically wrong (no neighbour in its direction, a socket
     /// that does not exist, sides that do not meet head-on, a cap naming no
-    /// socket), or a room's compile carries something the relocation refuses.
+    /// socket, a joint no open leaf faces), a room's compile carries something
+    /// the relocation refuses, or the level outgrows a field of the format.
     /// </exception>
     public static async Task<LinkedLevel> LinkAsync(
         LevelLayout layout,
@@ -115,6 +148,13 @@ public static class LevelLinker
         ValidateJoints(layout, library);
 
         ResolvedPlacement[] resolved = [.. layout.Rooms.Select((p, i) => Resolve(p, i, library))];
+
+        // The pak is a zip: whether it holds a file is a parse, and the parse
+        // is async, so it runs here rather than inside the planning workers.
+        foreach (ResolvedPlacement placement in resolved)
+        {
+            await RefusePackedFilesAsync(placement.Room, cancellationToken).ConfigureAwait(false);
+        }
 
         // Per-room work: validate the compile against the relocation set and
         // parse + transform the structs. Each item writes only its own slot
@@ -135,91 +175,7 @@ public static class LevelLinker
                 cancellationToken).ConfigureAwait(false);
         }
 
-        // Bases: a sequential prefix sum over the layout order.
-        long vertices = 0, edges = 0, surfEdges = 0, texInfos = 0, texDatas = 0, planes = 0,
-             faces = 0, origFaces = 0, brushes = 0, brushSides = 0, leafFaces = 0, leafBrushes = 0,
-             leaves = 1, lighting = 0, texDataBytes = 0, stringDataTable = 0, stringDataBytes = 0,
-             primVerts = 0, primIndices = 0, prims = 0, vertNormals = 0, vertNormalIndices = 0,
-             areas = 0, areaPortals = 0, clipPortalVerts = 0, occluderPolys = 0, occluderVerts = 0;
-        foreach (RoomPlan plan in plans)
-        {
-            plan.VertexBase = (int)vertices;
-            plan.EdgeBase = (int)edges;
-            plan.TexInfoBase = (int)texInfos;
-            plan.TexDataBase = (int)texDatas;
-            plan.PlaneBase = (int)planes;
-            plan.FaceBase = (int)faces;
-            plan.BrushBase = (int)brushes;
-            plan.BrushSideBase = (int)brushSides;
-            plan.LeafFaceBase = (int)leafFaces;
-            plan.LeafBrushBase = (int)leafBrushes;
-            plan.LeafBase = (int)leaves;
-            plan.LightBase = (int)lighting;
-            plan.StringTableBase = (int)stringDataTable;
-            plan.StringDataBase = (int)stringDataBytes;
-            plan.SurfEdgeBase = (int)surfEdges;
-            plan.OrigFaceBase = (int)origFaces;
-            plan.PrimBase = (int)prims;
-            plan.PrimIndexBase = (int)primIndices;
-            plan.PrimVertBase = (int)primVerts;
-            plan.VertNormalBase = (int)vertNormals;
-            plan.VertexNormalIndexBase = (int)vertNormalIndices;
-            plan.AreaBase = (int)areas;
-            plan.AreaPortalBase = (int)areaPortals;
-            plan.ClipPortalVertBase = (int)clipPortalVerts;
-            plan.OccluderPolyBase = (int)occluderPolys;
-            plan.OccluderVertexBase = (int)occluderVerts;
-            vertices += plan.Vertices.Length / SizeOf<Vec3>();
-            edges += plan.EdgeCount;
-            texInfos += plan.TexInfoCount;
-            texDatas += plan.TexDataCount;
-            planes += (2 + plan.TransformedPlanes.Length) + 2 * plan.TopPlaneCount;
-            faces += plan.FaceCount;
-            brushes += plan.BrushCount;
-            brushSides += plan.BrushSideCount;
-            leafFaces += plan.LeafFaceCount;
-            leafBrushes += plan.LeafBrushCount;
-            leaves += plan.LeafCount;
-            lighting += plan.LightingLength;
-            texDataBytes += plan.TexDataCount;
-            stringDataTable += plan.StringTableCount;
-            stringDataBytes += plan.StringDataLength;
-            surfEdges += plan.SurfEdgeCount;
-            origFaces += plan.OrigFaceCount;
-            prims += plan.PrimCount;
-            primIndices += plan.PrimIndexCount;
-            primVerts += plan.PrimVertCount;
-            vertNormals += plan.VertNormalCount;
-            vertNormalIndices += plan.VertNormalIndexCount;
-            areas += plan.AreaCount;
-            areaPortals += plan.AreaPortalCount;
-            clipPortalVerts += plan.ClipPortalVertCount;
-            occluderPolys += plan.Occlusion?.Polys.Count ?? 0;
-            occluderVerts += plan.Occlusion?.VertexIndices.Count ?? 0;
-            if (leaves > 65535 || faces > 65535 || brushes > 65535
-                || leafFaces > 65535 || leafBrushes > 65535)
-            {
-                throw new LinkException(
-                    $"room {plan.Placement.Instance.Placement.Room} pushes the link past the ushort leaf-face/leaf-brush ranges");
-            }
-
-            if (vertices > 65535)
-            {
-                throw new LinkException(
-                    $"room {plan.Placement.Instance.Placement.Room} pushes the link past the ushort edge-vertex range");
-            }
-        }
-
-        // The plane lump is [null pair][every room's transformed planes][top
-        // cell-face planes in pairs]; room planes start at 2.
-        int planeCursor = 2;
-        foreach (RoomPlan plan in plans)
-        {
-            plan.PlaneBase = planeCursor;
-            planeCursor += plan.TransformedPlanes.Length;
-        }
-
-        int topPlaneBase = planeCursor;
+        AssignBases(plans);
 
         // Cluster space: room r's room-local cluster c is clusterBase_r + c;
         // solid leaves (plugs, shared void) stay cluster -1 and get no row.
@@ -231,6 +187,7 @@ public static class LevelLinker
         }
 
         int clusterCount = clusterCursor;
+        Limit(plans[^1], "clusters", clusterCount, short.MaxValue);
         int rowBytes = (clusterCount + 7) >> 3;
 
         // Rows: own rows shifted into the global numbering, door edges from
@@ -257,7 +214,7 @@ public static class LevelLinker
             }
         }
 
-        CloseRows(rows, clusterCount);
+        CloseRows(rows, clusterCount, cancellationToken);
 
         byte[] pvs = new byte[clusterCount * rowBytes];
         int totalVisible = 0;
@@ -269,7 +226,7 @@ public static class LevelLinker
 
         byte[] visibilityLump = BuildVisibilityLump(clusterCount, rowBytes, pvs, pvs);
 
-        BspData linked = Assemble(resolved, plans, layout, topPlaneBase, visibilityLump, clusterCount);
+        BspData linked = Assemble(plans, layout, visibilityLump, context, cancellationToken);
 
         VisResult vis = new(
             clusterCount,
@@ -290,13 +247,119 @@ public static class LevelLinker
         return new LinkedLevel(linked, vis, new LevelPlan(layout, resolved, TopPlanes(layout, layout.CellSize)));
     }
 
+    /// <summary>
+    /// The prefix sums every index-bearing struct is shifted by, in layout
+    /// order, with a refusal the moment a sum outgrows the field that will
+    /// carry it.
+    /// </summary>
+    /// <remarks>
+    /// Each limit is the narrowest field that holds an index into (or a count
+    /// of) that lump: a face's plane number and a brush side's are
+    /// <c>ushort</c>, a face's and a brush side's texinfo is <c>short</c>, a
+    /// leaf's cluster is <c>short</c>, an edge's vertices, a leaf's face and
+    /// brush runs, a node's first face, a face's first primitive, a
+    /// primitive's first index and vertex, a vertex-normal index and a macro
+    /// texture's name id are <c>ushort</c>. A sum past its field would wrap
+    /// silently in the cast that writes it and point into some other room.
+    /// The planes, texinfos, leaves and leaf brushes the plug carve and the
+    /// nodraw copies add are checked where they are added.
+    /// </remarks>
+    private static void AssignBases(RoomPlan[] plans)
+    {
+        long vertices = 0, edges = 0, surfEdges = 0, texInfos = 0, texDatas = 0, planes = 2,
+             faces = 0, origFaces = 0, brushes = 0, brushSides = 0, leafFaces = 0,
+             leaves = 1, lighting = 0, stringTable = 0, stringData = 0,
+             primVerts = 0, primIndices = 0, prims = 0, vertNormals = 0, vertNormalIndices = 0,
+             occluderPolys = 0, occluderVerts = 0;
+        foreach (RoomPlan plan in plans)
+        {
+            plan.VertexBase = (int)vertices;
+            plan.EdgeBase = (int)edges;
+            plan.TexInfoBase = (int)texInfos;
+            plan.TexDataBase = (int)texDatas;
+            plan.PlaneBase = (int)planes;
+            plan.FaceBase = (int)faces;
+            plan.BrushBase = (int)brushes;
+            plan.BrushSideBase = (int)brushSides;
+            plan.LeafFaceBase = (int)leafFaces;
+            plan.LeafBase = (int)leaves;
+            plan.LightBase = (int)lighting;
+            plan.StringTableBase = (int)stringTable;
+            plan.StringDataBase = (int)stringData;
+            plan.SurfEdgeBase = (int)surfEdges;
+            plan.OrigFaceBase = (int)origFaces;
+            plan.PrimBase = (int)prims;
+            plan.PrimIndexBase = (int)primIndices;
+            plan.PrimVertBase = (int)primVerts;
+            plan.VertNormalBase = (int)vertNormals;
+            plan.VertexNormalIndexBase = (int)vertNormalIndices;
+            plan.OccluderPolyBase = (int)occluderPolys;
+            plan.OccluderVertexBase = (int)occluderVerts;
+
+            vertices += plan.Vertices.Length;
+            edges += plan.EdgeCount;
+            texInfos += plan.TexInfos.Length;
+            texDatas += plan.TexDataCount;
+            planes += plan.TransformedPlanes.Length;
+            faces += plan.FaceCount;
+            brushes += plan.BrushCount;
+            brushSides += plan.BrushSideCount;
+            leafFaces += plan.LeafFaceCount;
+            leaves += plan.Leafs.Length;
+            lighting += plan.LightingLength;
+            stringTable += plan.StringTableCount;
+            stringData += plan.StringDataLength;
+            surfEdges += plan.SurfEdgeCount;
+            origFaces += plan.OrigFaceCount;
+            prims += plan.PrimCount;
+            primIndices += plan.PrimIndexCount;
+            primVerts += plan.PrimVertCount;
+            vertNormals += plan.VertNormalCount;
+            vertNormalIndices += plan.VertNormalIndexCount;
+            occluderPolys += plan.Occlusion?.Polys.Count ?? 0;
+            occluderVerts += plan.Occlusion?.VertexIndices.Count ?? 0;
+
+            Limit(plan, "vertices", vertices, ushort.MaxValue + 1);
+            Limit(plan, "planes", planes, ushort.MaxValue + 1);
+            Limit(plan, "texinfos", texInfos, short.MaxValue + 1);
+            Limit(plan, "faces", faces, ushort.MaxValue + 1);
+            Limit(plan, "brushes", brushes, ushort.MaxValue + 1);
+            Limit(plan, "leaf faces", leafFaces, ushort.MaxValue + 1);
+            Limit(plan, "leaves", leaves, ushort.MaxValue + 1);
+            Limit(plan, "texdata string table entries", stringTable, ushort.MaxValue);
+            Limit(plan, "primitives", prims, ushort.MaxValue + 1);
+            Limit(plan, "primitive indices", primIndices, ushort.MaxValue + 1);
+            Limit(plan, "primitive vertices", primVerts, ushort.MaxValue + 1);
+            Limit(plan, "vertex normals", vertNormals, ushort.MaxValue + 1);
+        }
+    }
+
+    /// <summary>Refuses a count past what its field can carry.</summary>
+    /// <param name="plan">The room whose addition crossed it, for the message.</param>
+    /// <param name="what">The count's name.</param>
+    /// <param name="count">The running total.</param>
+    /// <param name="max">One past the largest total the field holds.</param>
+    /// <exception cref="LinkException">The total reaches <paramref name="max"/>.</exception>
+    internal static void Limit(RoomPlan plan, string what, long count, long max)
+    {
+        if (count > max)
+        {
+            throw new LinkException(
+                $"room {plan.Placement.Room.Definition.Name} at cell ({plan.Placement.Instance.Placement.CellX},"
+                + $" {plan.Placement.Instance.Placement.CellY}) pushes the link to {count} {what};"
+                + $" the format carries at most {max}.");
+        }
+    }
+
     /// <summary>The joint graph's door edges: per joint, the clusters facing each side.</summary>
     /// <remarks>
     /// A joint's two plug boxes meet inside the wall; the clusters joined are
     /// the open leaves whose boxes overlap each side's plug box within
     /// <see cref="DoorOverlapEpsilon"/> (touching counts: the integer link
-    /// geometry shares the face at gap 0). Deterministic: layout order,
-    /// cluster order.
+    /// geometry shares the face at gap 0). The comparison is room-local on
+    /// both sides — each room's plug box against that room's own compiled
+    /// leaves — and <see cref="ValidateJoints"/> already proved the two plugs
+    /// meet in world space. Deterministic: layout order, cluster order.
     /// </remarks>
     internal static IEnumerable<(RoomPlan A, RoomPlan B, int[] FacingA, int[] FacingB)> DoorEdges(
         ResolvedPlacement[] resolved, RoomPlan[] plans)
@@ -308,33 +371,29 @@ public static class LevelLinker
             {
                 RoomSocket aSocket = Socket(a.Room, socket);
                 (RoomPlan planB, RoomSocket bSocket, int _) = Neighbor(a, aSocket, neighborSocket, resolved, plans);
-                Box plugA = RoomLinter.SealBox(a.Room.Definition, aSocket, a.Room.Definition.CellSize);
-                Box plugB = RoomLinter.SealBox(planB.Placement.Room.Definition, bSocket, planB.Placement.Room.Definition.CellSize);
-                // Room-local comparisons: the seal boxes are room-local, and
-                // so are the leaf boxes as compiled — the transform is identity
-                // per room here because both sides' plugs live in their own
-                // rooms' coordinates and the joint's geometry is validated in
-                // world space by ValidateJoints.
-                yield return (plans[i], planB, Facing(plans[i], plugA), Facing(planB, plugB));
+                yield return (plans[i], planB, plans[i].JointFacing[aSocket.Name], planB.JointFacing[bSocket.Name]);
             }
         }
     }
 
     /// <summary>The open clusters whose leaf boxes overlap a plug box.</summary>
-    internal static int[] Facing(RoomPlan plan, Box plug)
+    internal static int[] Facing(RoomPlan plan, Box plug) => Facing(plan.Leafs, plug);
+
+    /// <summary>The open clusters whose leaf boxes overlap a plug box.</summary>
+    /// <param name="leafs">The room's own leaves, room-local.</param>
+    /// <param name="plug">The plug box, room-local.</param>
+    /// <returns>The clusters, sorted and distinct.</returns>
+    internal static int[] Facing(ReadOnlySpan<DLeaf> leafs, Box plug)
     {
         List<int> clusters = [];
-        foreach (DLeaf leaf in plan.Leafs)
+        foreach (DLeaf leaf in leafs)
         {
             if ((leaf.Contents & (int)BrushContents.Solid) != 0 || leaf.Cluster < 0)
             {
                 continue;
             }
 
-            Box box = new(
-                new Vec3(leaf.Mins[0], leaf.Mins[1], leaf.Mins[2]),
-                new Vec3(leaf.Maxs[0], leaf.Maxs[1], leaf.Maxs[2]));
-            if (box.Overlaps(plug, DoorOverlapEpsilon))
+            if (BoxOf(leaf).Overlaps(plug, DoorOverlapEpsilon))
             {
                 clusters.Add(leaf.Cluster);
             }
@@ -347,33 +406,39 @@ public static class LevelLinker
 
     /// <summary>Walks the finalized linked map to the leaf holding a point, as the engine does.</summary>
     /// <remarks>
-    /// The repo's own reader convention (<c>BspTreeView</c>: a point on the
-    /// plane's negative side takes <c>Children[1]</c>), and the room subtrees
-    /// are carried verbatim from the repo's vbsp, so the same walk routes them.
+    /// The engine's walk: for an axial plane (<see cref="DPlane.Type"/> 0..2)
+    /// it reads the one coordinate and subtracts the distance, assuming the
+    /// normal is the positive axis; otherwise the full dot. That shortcut is
+    /// why the relocation keeps every node on a positive axial plane (see
+    /// <c>TransformPlanes</c>): a node left on a -x plane would be walked as if
+    /// it were +x. A point on the plane's negative side takes
+    /// <c>Children[1]</c>.
     /// </remarks>
-    internal static int PointInLeafCluster(BspData bsp, Vec3 point)
+    internal static int PointInLeaf(BspData bsp, Vec3 point)
     {
         ReadOnlySpan<DNode> nodes = BspStructView.As<DNode>(bsp[BspLump.Nodes]);
         ReadOnlySpan<DPlane> planes = BspStructView.As<DPlane>(bsp[BspLump.Planes]);
-        ReadOnlySpan<DLeaf> leafs = BspStructView.As<DLeaf>(bsp[BspLump.Leafs]);
-        return PointInLeafCluster(nodes, planes, leafs, point);
-    }
-
-    internal static int PointInLeafCluster(
-        ReadOnlySpan<DNode> nodes, ReadOnlySpan<DPlane> planes, ReadOnlySpan<DLeaf> leafs, Vec3 point)
-    {
         int index = 0; // model 0's head node: the top tree's root
         while (index >= 0)
         {
             DNode node = nodes[index];
             DPlane plane = planes[node.PlaneNum];
-            index = Vec3.Dot(point, plane.Normal) < plane.Dist
-                ? node.Children[1]
-                : node.Children[0];
+            float d = plane.Type switch
+            {
+                0 => point.X - plane.Dist,
+                1 => point.Y - plane.Dist,
+                2 => point.Z - plane.Dist,
+                _ => Vec3.Dot(point, plane.Normal) - plane.Dist,
+            };
+            index = d < 0 ? node.Children[1] : node.Children[0];
         }
 
-        return leafs[~index].Cluster;
+        return ~index;
     }
+
+    /// <summary>The cluster of the leaf holding a point (<see cref="PointInLeaf"/>).</summary>
+    internal static int PointInLeafCluster(BspData bsp, Vec3 point) =>
+        BspStructView.As<DLeaf>(bsp[BspLump.Leafs])[PointInLeaf(bsp, point)].Cluster;
 
     /// <summary>The 8 transformed corners of a room-local box.</summary>
     internal static Vec3[] TakeCorners(RoomTransform transform, Vec3 mins, Vec3 maxs)
@@ -388,6 +453,26 @@ public static class LevelLinker
         }
 
         return corners;
+    }
+
+    /// <summary>A room-local box through the transform: the corners' bounds.</summary>
+    /// <remarks>
+    /// A quarter turn maps an axis-aligned box onto an axis-aligned box, so
+    /// the bounds of the eight moved corners are exactly the moved box —
+    /// integer in, integer out.
+    /// </remarks>
+    internal static Box MoveBox(RoomTransform transform, Vec3 mins, Vec3 maxs)
+    {
+        Vec3[] corners = TakeCorners(transform, mins, maxs);
+        Vec3 lo = corners[0];
+        Vec3 hi = corners[0];
+        foreach (Vec3 c in corners)
+        {
+            lo = new Vec3(Math.Min(lo.X, c.X), Math.Min(lo.Y, c.Y), Math.Min(lo.Z, c.Z));
+            hi = new Vec3(Math.Max(hi.X, c.X), Math.Max(hi.Y, c.Y), Math.Max(hi.Z, c.Z));
+        }
+
+        return new Box(lo, hi);
     }
 
     /// <summary>The grid's cell-face split planes, in the order the top tree emits them.</summary>
@@ -407,21 +492,20 @@ public static class LevelLinker
     /// <para>
     /// The region shrinks recursively: a multi-cell region splits at the
     /// longest axis's median cell face; the front side (the positive-normal
-    /// side, which the repo's reader takes with a non-negative dot) holds the
+    /// side, which the reader takes with a non-negative distance) holds the
     /// higher coordinates, the back the lower. A single occupied cell splits at
     /// its +x cell face: the cell interior falls back into that cell's room
     /// root, the outside falls to the shared solid leaf. An empty region is
     /// solid. A point inside a cell therefore descends to exactly that cell's
-    /// room root, and the room's own tree — carried verbatim from vbsp — does
-    /// the rest.
+    /// room root, and the room's own tree — carried from vbsp — does the rest.
     /// </para>
     /// <para>
     /// Every node bounds its region, planes are recorded in node order so the
     /// caller appends them to the plane lump as pairs (the format demands
     /// pairs: <c>(x &amp; ~1)</c> and <c>(x &amp; ~1) + 1</c> are each other's
-    /// flip), and child node indices name nodes already built (pre-order: a
-    /// parent's children have larger indices than it, and the root is node 0,
-    /// which is what makes <c>model0.HeadNode = 0</c>).
+    /// flip, positive normal first), and child node indices name nodes already
+    /// built (pre-order: a parent's children have larger indices than it, and
+    /// the root is node 0, which is what makes <c>model0.HeadNode = 0</c>).
     /// </para>
     /// </remarks>
     internal static List<DNode> BuildTopNodes(LevelLayout layout, float cellSize, List<Plane> planes, int topPlaneBase)
@@ -467,11 +551,22 @@ public static class LevelLinker
         return count;
     }
 
-    private static void CloseRows(byte[][] rows, int clusterCount)
+    /// <summary>The transitive closure of the rows, in place.</summary>
+    /// <remarks>
+    /// Warshall over uint words: rows[i] |= rows[k] wherever i sees k. The
+    /// sweep order is the cluster numbering — never a schedule — so the
+    /// closure is the same byte on one thread or thirty-two (I4). It is cubic
+    /// in the cluster count, which for a large level is the link's longest
+    /// loop, so it observes the token once per pivot: a cancelled link stops
+    /// within one pass over the rows instead of finishing the closure first.
+    /// </remarks>
+    internal static void CloseRows(byte[][] rows, int clusterCount, CancellationToken cancellationToken)
     {
-        // Warshall over uint words: rows[i] |= rows[k] wherever i sees k. The
-        // sweep order is the cluster numbering — never a schedule — so the
-        // closure is the same byte on one thread or thirty-two (I4).
+        if (clusterCount == 0)
+        {
+            return;
+        }
+
         int words = ((clusterCount - 1) >> 5) + 1;
         uint[][] bits = new uint[clusterCount][];
         for (int i = 0; i < clusterCount; i++)
@@ -481,6 +576,7 @@ public static class LevelLinker
 
         for (int k = 0; k < clusterCount; k++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             for (int i = 0; i < clusterCount; i++)
             {
                 if ((bits[i][k >> 5] & (1u << (k & 31))) == 0)
@@ -511,7 +607,6 @@ public static class LevelLinker
 
         return w;
     }
-
 
     private static byte[] ToBytes(uint[] words, int length)
     {
@@ -662,7 +757,7 @@ public static class LevelLinker
             room,
             index,
             transform.Apply(Vec3.Zero),
-            ((instance.Placement.Rotation % 4) + 4) % 4,
+            instance.Placement.NormalizedRotation,
             room.SealClusters);
     }
 
@@ -695,670 +790,16 @@ public static class LevelLinker
         throw new LinkException($"no room at cell ({nx}, {ny})"); // ValidateJoints refused this already
     }
 
+    // ---- the top tree --------------------------------------------------
 
-    // ---- per-room planning ---------------------------------------------
+    /// <summary>The child marker for a room-bearing cell (resolved at assembly).</summary>
+    private const int MarkerRoomLeaf = -1000;
 
-    /// <summary>
-    /// Validates one room's compile against the relocation set and reads the
-    /// structs the assembly patches. Pure: reads only this room, writes only
-    /// the returned plan, so any number of rooms plan concurrently.
-    /// </summary>
-    private static RoomPlan PlanRoom(ResolvedPlacement placement)
-    {
-        RoomObject room = placement.Room;
-        BspData bsp = room.Bsp;
-        RoomTransform transform = new(placement.Instance.Placement, room.Definition.CellSize);
-
-        for (int i = 0; i < BspData.HeaderLumps; i++)
-        {
-            BspLumpData lump = bsp[i];
-            if (lump.Length == 0)
-            {
-                continue;
-            }
-
-            if (!CarriedLumps.Contains((BspLump)i))
-            {
-                throw new LinkException(
-                    $"room {room.Definition.Name} carries lump {((BspLump)i)} ({i}), which the relocation does not understand");
-            }
-        }
-
-        ReadOnlySpan<DModel> models = BspStructView.As<DModel>(bsp[BspLump.Models]);
-        if (models.Length != 1)
-        {
-            throw new LinkException(
-                $"room {room.Definition.Name} has {models.Length} models; a linkable room is one world model");
-        }
-
-        if (models[0].HeadNode != 0)
-        {
-            throw new LinkException(
-                $"room {room.Definition.Name}'s world model starts at node {models[0].HeadNode}, not 0");
-        }
-
-        foreach (DLeaf leaf in BspStructView.As<DLeaf>(bsp[BspLump.Leafs]))
-        {
-            if (leaf.LeafWaterDataId != -1)
-            {
-                throw new LinkException(
-                    $"room {room.Definition.Name} has a water leaf, which the relocation refuses");
-            }
-        }
-
-        VisResult own = room.Vis;
-        if (own.Pvs(0).Length != own.RowBytes)
-        {
-            throw new LinkException($"room {room.Definition.Name}'s vis rows are inconsistent");
-        }
-
-        byte[][] ownRows = new byte[own.ClusterCount][];
-        for (int c = 0; c < own.ClusterCount; c++)
-        {
-            ownRows[c] = own.Pvs(c).ToArray();
-        }
-
-        // Vertices and planes are relocated here (they need no cross-room
-        // bases); everything index-bearing is patched at assembly.
-        Vec3[] vertexSource = [.. BspStructView.As<Vec3>(bsp[BspLump.Vertexes])];
-        Vec3[] vertices = new Vec3[vertexSource.Length];
-        for (int v = 0; v < vertexSource.Length; v++)
-        {
-            vertices[v] = transform.Apply(vertexSource[v]);
-        }
-
-        DPlane[] roomPlanes = TransformPlanes(
-            [.. BspStructView.As<DPlane>(bsp[BspLump.Planes])], transform);
-
-        // The room's model bounds, transformed corner-wise: integer
-        // coordinates under a quarter turn and whole-cell translation, so this
-        // is exact (I14).
-        Vec3[] corners = TakeCorners(transform, models[0].Mins, models[0].Maxs);
-        Vec3 mins = corners[0];
-        Vec3 maxs = corners[0];
-        foreach (Vec3 c in corners)
-        {
-            mins = new Vec3(Math.Min(mins.X, c.X), Math.Min(mins.Y, c.Y), Math.Min(mins.Z, c.Z));
-            maxs = new Vec3(Math.Max(maxs.X, c.X), Math.Max(maxs.Y, c.Y), Math.Max(maxs.Z, c.Z));
-        }
-
-        return new RoomPlan
-        {
-            Placement = placement,
-            Bsp = bsp,
-            OwnRows = ownRows,
-            ClusterCount = own.ClusterCount,
-            Vertices = MemoryMarshal.AsBytes(vertices.AsSpan()).ToArray(),
-            TransformedPlanes = roomPlanes,
-            Leafs = [.. BspStructView.As<DLeaf>(bsp[BspLump.Leafs])],
-            LeafCount = BspStructView.As<DLeaf>(bsp[BspLump.Leafs]).Length,
-            EdgeCount = BspStructView.As<DEdge>(bsp[BspLump.Edges]).Length,
-            TexInfoCount = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]).Length,
-            TexDataCount = BspStructView.As<DTexData>(bsp[BspLump.TexData]).Length,
-            FaceCount = BspStructView.As<DFace>(bsp[BspLump.Faces]).Length,
-            BrushCount = BspStructView.As<DBrush>(bsp[BspLump.Brushes]).Length,
-            BrushSideCount = BspStructView.As<DBrushSide>(bsp[BspLump.BrushSides]).Length,
-            LeafFaceCount = BspStructView.As<ushort>(bsp[BspLump.LeafFaces]).Length,
-            LeafBrushCount = BspStructView.As<ushort>(bsp[BspLump.LeafBrushes]).Length,
-            NodeCount = BspStructView.As<DNode>(bsp[BspLump.Nodes]).Length,
-            ModelMins = mins,
-            ModelMaxs = maxs,
-            SurfEdgeCount = BspStructView.As<int>(bsp[BspLump.SurfEdges]).Length,
-            OrigFaceCount = BspStructView.As<DFace>(bsp[BspLump.OriginalFaces]).Length,
-            VertNormalCount = BspStructView.As<Vec3>(bsp[BspLump.VertNormals]).Length,
-            VertNormalIndexCount = bsp[BspLump.VertNormalIndices].Length / sizeof(ushort),
-            PrimCount = BspStructView.As<DPrimitive>(bsp[BspLump.Primitives]).Length,
-            PrimIndexCount = BspStructView.As<ushort>(bsp[BspLump.PrimIndices]).Length,
-            PrimVertCount = BspStructView.As<Vec3>(bsp[BspLump.PrimVerts]).Length,
-            AreaCount = BspStructView.As<DArea>(bsp[BspLump.Areas]).Length,
-            AreaPortalCount = BspStructView.As<DAreaPortal>(bsp[BspLump.AreaPortals]).Length,
-            ClipPortalVertCount = BspStructView.As<Vec3>(bsp[BspLump.ClipPortalVerts]).Length,
-            Occlusion = bsp[BspLump.Occlusion].Length == 0
-                ? null
-                : OcclusionLump.Read(bsp[BspLump.Occlusion]),
-            FacesVersion = bsp[BspLump.Faces].Version,
-            LeafsVersion = bsp[BspLump.Leafs].Version,
-            LightingLength = bsp[BspLump.Lighting].Length,
-            StringTableCount = BspStructView.As<ushort>(bsp[BspLump.TexDataStringTable]).Length,
-            StringDataLength = bsp[BspLump.TexDataStringData].Length,
-            TopPlaneCount = 0,
-        };
-    }
-
-    /// <summary>The room's planes through the transform, flip pairs kept as pairs.</summary>
-    /// <remarks>
-    /// <c>n' = R·n, d' = d + n·t</c>: the permutation picks components and the
-    /// dot is an integer times an integer, so the relocated plane is exactly
-    /// representable — the same input byte-yields on any thread (I14). The
-    /// plane's flip entry is rebuilt as the exact negation of the transformed
-    /// non-flip, which is what the pair contract in the reference implementation asks
-    /// for and what survives a vbsp that stored either side non-canonical.
-    /// </remarks>
-    private static DPlane[] TransformPlanes(DPlane[] planes, RoomTransform transform)
-    {
-        if (planes.Length % 2 != 0)
-        {
-            throw new LinkException("the planes lump holds an odd number of planes, so a flip pair is missing");
-        }
-
-        Vec3 translation = transform.Apply(Vec3.Zero);
-        for (int i = 0; i < planes.Length; i += 2)
-        {
-            DPlane plane = planes[i];
-            Vec3 normal = ApplyNormal(plane.Normal, ((transform.Placement.Rotation % 4) + 4) % 4);
-            float dist = plane.Dist + Vec3.Dot(plane.Normal, translation);
-            planes[i] = new DPlane { Normal = normal, Dist = dist, Type = plane.Type };
-            planes[i + 1] = new DPlane { Normal = -normal, Dist = -dist, Type = planes[i + 1].Type };
-        }
-
-        return planes;
-    }
-
-    /// <summary>Quarter-turn of a normal about +z: 0 identity, 1 (-y,x,z), 2 (-x,-y,z), 3 (y,-x,z).</summary>
-    private static Vec3 ApplyNormal(Vec3 n, int rotation) => rotation switch
-    {
-        0 => n,
-        1 => new Vec3(-n.Y, n.X, n.Z),
-        2 => new Vec3(-n.X, -n.Y, n.Z),
-        _ => new Vec3(n.Y, -n.X, n.Z),
-    };
-
-    // ---- assembly ------------------------------------------------------
-
-    private static BspData Assemble(
-        ResolvedPlacement[] resolved,
-        RoomPlan[] plans,
-        LevelLayout layout,
-        int topPlaneBase,
-        byte[] visibilityLump,
-        int clusterCount)
-    {
-        float cell = layout.CellSize;
-        BspData linked = new();
-
-        // Planes: [0],[1] the null pair; every room's transformed planes in
-        // layout order; the top tree's cell-face planes as flip pairs.
-        List<DPlane> planes = [new(), new()];
-        foreach (RoomPlan plan in plans)
-        {
-            planes.AddRange(plan.TransformedPlanes);
-        }
-
-        List<Plane> topPlanes = [];
-        List<DNode> top = BuildTopNodes(layout, cell, topPlanes, topPlaneBase);
-        foreach (Plane p in topPlanes)
-        {
-            planes.Add(new DPlane { Normal = p.Normal, Dist = p.Dist, Type = (int)p.Type });
-            planes.Add(new DPlane { Normal = -p.Normal, Dist = -p.Dist, Type = (int)p.Type });
-        }
-
-        // Nodes: the top tree first (so model 0's head node is 0), then every
-        // room's subtree with its children rebased.
-        List<DNode> nodes = [];
-        nodes.AddRange(top);
-        foreach (RoomPlan plan in plans)
-        {
-            plan.NodeBase = nodes.Count;
-            foreach (DNode n in BspStructView.As<DNode>(plan.Bsp[BspLump.Nodes]).ToArray())
-            {
-                DNode shifted = n;
-                shifted.PlaneNum += plan.PlaneBase;
-                IntArray2 children = default;
-                for (int side = 0; side < 2; side++)
-                {
-                    int child = n.Children[side];
-                    children[side] = child >= 0
-                        ? child + plan.NodeBase
-                        : -(plan.LeafBase + ~child + 1);
-                }
-
-                shifted.Children = children;
-                shifted.FirstFace += (ushort)plan.FaceBase;
-                if (shifted.Area >= 0)
-                {
-                    shifted.Area += (short)plan.AreaBase;
-                }
-                nodes.Add(shifted);
-            }
-        }
-
-        // Top nodes reference room roots (their positive children) and the
-        // shared solid leaf (leaf 0, negative child -1); room bases are only
-        // known now, so the second pass fills them.
-        FillTopChildren(nodes, top, plans, layout, cell);
-
-        // Leafs: the shared solid at index 0 — the void outside every room,
-        // bounded by the grid — then every room's leaves with clusters, leaf
-        // faces and leaf brushes rebased.
-        (int minx, int miny, int maxx, int maxy) = Extent(layout);
-        List<DLeaf> leafs = [new DLeaf
-        {
-            Contents = (int)BrushContents.Solid,
-            Cluster = -1,
-            AreaFlags = 0,
-            Mins = Short3(new Vec3(minx * cell, miny * cell, 0)),
-            Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, cell)),
-            LeafWaterDataId = -1,
-        }];
-
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (DLeaf leaf in plan.Leafs)
-            {
-                DLeaf shifted = leaf;
-                if (shifted.Cluster >= 0)
-                {
-                    shifted.Cluster += (short)plan.ClusterBase;
-                }
-
-                shifted.FirstLeafFace += (ushort)plan.LeafFaceBase;
-                shifted.FirstLeafBrush += (ushort)plan.LeafBrushBase;
-                int area = leaf.GetArea();
-                shifted.SetAreaFlags(area + plan.AreaBase, leaf.GetFlags());
-                leafs.Add(shifted);
-            }
-        }
-
-        List<ushort> leafFaces = [];
-        List<ushort> leafBrushes = [];
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (ushort face in BspStructView.As<ushort>(plan.Bsp[BspLump.LeafFaces]).ToArray())
-            {
-                leafFaces.Add((ushort)(face + plan.FaceBase));
-            }
-
-            foreach (ushort brush in BspStructView.As<ushort>(plan.Bsp[BspLump.LeafBrushes]).ToArray())
-            {
-                leafBrushes.Add((ushort)(brush + plan.BrushBase));
-            }
-        }
-
-        List<DFace> faces = [];
-        List<byte> lighting = [];
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (DFace face in BspStructView.As<DFace>(plan.Bsp[BspLump.Faces]).ToArray())
-            {
-                DFace shifted = face;
-                shifted.PlaneNum += (ushort)plan.PlaneBase;
-                shifted.TexInfo += (short)plan.TexInfoBase;
-                shifted.FirstEdge = face.FirstEdge >= 0
-                    ? face.FirstEdge + plan.EdgeBase
-                    : -(Math.Abs(face.FirstEdge) + plan.EdgeBase);
-                shifted.LightOfs = face.LightOfs == 0 ? 0 : face.LightOfs + plan.LightBase;
-                shifted.OrigFace = face.OrigFace >= 0
-                    ? face.OrigFace + plan.OrigFaceBase
-                    : face.OrigFace;
-                shifted.FirstPrimId += (ushort)plan.PrimBase;
-                faces.Add(shifted);
-            }
-
-            lighting.AddRange(plan.Bsp[BspLump.Lighting].Data.Span.ToArray());
-        }
-
-        List<DEdge> edges = [];
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (DEdge edge in BspStructView.As<DEdge>(plan.Bsp[BspLump.Edges]).ToArray())
-            {
-                DEdge shifted = edge;
-                shifted.V[0] += (ushort)plan.VertexBase;
-                shifted.V[1] += (ushort)plan.VertexBase;
-                edges.Add(shifted);
-            }
-        }
-
-        List<DBrush> brushes = [];
-        List<DBrushSide> brushSides = [];
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (DBrushSide side in BspStructView.As<DBrushSide>(plan.Bsp[BspLump.BrushSides]).ToArray())
-            {
-                DBrushSide shifted = side;
-                shifted.PlaneNum += (ushort)plan.PlaneBase;
-                shifted.TexInfo += (short)plan.TexInfoBase;
-                brushSides.Add(shifted);
-            }
-
-            foreach (DBrush brush in BspStructView.As<DBrush>(plan.Bsp[BspLump.Brushes]).ToArray())
-            {
-                DBrush shifted = brush;
-                shifted.FirstSide += plan.BrushSideBase;
-                brushes.Add(shifted);
-            }
-        }
-
-        List<TexInfo> texInfos = [];
-        List<DTexData> texDatas = [];
-        List<ushort> stringTable = [];
-        List<byte> stringData = [];
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (TexInfo info in BspStructView.As<TexInfo>(plan.Bsp[BspLump.TexInfo]).ToArray())
-            {
-                TexInfo shifted = info;
-                shifted.TexData += plan.TexDataBase;
-                texInfos.Add(shifted);
-            }
-
-            foreach (DTexData data in BspStructView.As<DTexData>(plan.Bsp[BspLump.TexData]).ToArray())
-            {
-                DTexData shifted = data;
-                shifted.NameStringTableId += plan.StringTableBase;
-                texDatas.Add(shifted);
-            }
-
-            foreach (ushort entry in BspStructView.As<ushort>(plan.Bsp[BspLump.TexDataStringTable]).ToArray())
-            {
-                // The table is concatenated verbatim, but its entries are byte
-                // offsets into the room's OWN string-data lump; the data lump is
-                // concatenated too, so every entry shifts by the preceding rooms.
-                stringTable.Add((ushort)(entry + plan.StringDataBase));
-            }
-
-            stringData.AddRange(plan.Bsp[BspLump.TexDataStringData].Data.Span.ToArray());
-        }
-
-        // Surfedges: the signed edge indices the faces' runs point into.
-        List<int> surfEdges = [];
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (int se in BspStructView.As<int>(plan.Bsp[BspLump.SurfEdges]).ToArray())
-            {
-                surfEdges.Add(se >= 0 ? se + plan.EdgeBase : -(Math.Abs(se) + plan.EdgeBase));
-            }
-        }
-
-        // Face ids and macro textures: ids are opaque, macro names index the
-        // shared string table (0xFFFF is "none" and stays 0xFFFF).
-        List<DFaceId> faceIds = [];
-        List<FaceMacroTextureInfo> macroTextures = [];
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (DFaceId id in BspStructView.As<DFaceId>(plan.Bsp[BspLump.FaceIds]).ToArray())
-            {
-                faceIds.Add(id);
-            }
-
-            foreach (FaceMacroTextureInfo macro in
-                BspStructView.As<FaceMacroTextureInfo>(plan.Bsp[BspLump.FaceMacroTextureInfo]).ToArray())
-            {
-                FaceMacroTextureInfo shifted = macro;
-                if (macro.MacroTextureNameId != 0xFFFF)
-                {
-                    shifted.MacroTextureNameId += (ushort)plan.StringTableBase;
-                }
-
-                macroTextures.Add(shifted);
-            }
-        }
-
-        // Original faces: the face's own plane is the SAME planes-lump entry
-        // as the drawn face (vbsp emits them together), so its plane and
-        // texinfo shift by the room's bases; its surfedge run lives in this
-        // room's surfedge range, so FirstEdge shifts sign-preserving by the
-        // SURFEDGE base, not the edge base.
-        List<DFace> origFaces = [];
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (DFace face in BspStructView.As<DFace>(plan.Bsp[BspLump.OriginalFaces]).ToArray())
-            {
-                DFace shifted = face;
-                shifted.PlaneNum += (ushort)plan.PlaneBase;
-                shifted.TexInfo += (short)plan.TexInfoBase;
-                shifted.FirstEdge = face.FirstEdge >= 0
-                    ? face.FirstEdge + plan.SurfEdgeBase
-                    : -(Math.Abs(face.FirstEdge) + plan.SurfEdgeBase);
-                shifted.OrigFace = -1;
-                origFaces.Add(shifted);
-            }
-        }
-
-        // Vert normals: phong normals rotate with the room but never
-        // translate, so ApplyNormal and not Apply.
-        List<Vec3> vertNormals = [];
-        List<ushort> vertNormalIndices = [];
-        foreach (RoomPlan plan in plans)
-        {
-            int rotation = ((plan.Placement.Instance.Placement.Rotation % 4) + 4) % 4;
-            foreach (Vec3 normal in BspStructView.As<Vec3>(plan.Bsp[BspLump.VertNormals]).ToArray())
-            {
-                vertNormals.Add(ApplyNormal(normal, rotation));
-            }
-
-            foreach (ushort index in BspStructView.As<ushort>(plan.Bsp[BspLump.VertNormalIndices]).ToArray())
-            {
-                vertNormalIndices.Add((ushort)(index + plan.VertNormalBase));
-            }
-        }
-
-        // Primitives: indices are opaque within the lump, vertices are world
-        // geometry and go through the transform.
-        List<DPrimitive> prims = [];
-        List<ushort> primIndices = [];
-        List<Vec3> primVerts = [];
-        foreach (RoomPlan plan in plans)
-        {
-            RoomTransform roomTransform =
-                new(plan.Placement.Instance.Placement, plan.Placement.Room.Definition.CellSize);
-            foreach (DPrimitive prim in BspStructView.As<DPrimitive>(plan.Bsp[BspLump.Primitives]).ToArray())
-            {
-                DPrimitive shifted = prim;
-                shifted.FirstIndex += (ushort)plan.PrimIndexBase;
-                shifted.FirstVert += (ushort)plan.PrimVertBase;
-                prims.Add(shifted);
-            }
-
-            foreach (ushort index in BspStructView.As<ushort>(plan.Bsp[BspLump.PrimIndices]).ToArray())
-            {
-                primIndices.Add((ushort)(index + plan.PrimVertBase));
-            }
-
-            foreach (Vec3 vertex in BspStructView.As<Vec3>(plan.Bsp[BspLump.PrimVerts]).ToArray())
-            {
-                primVerts.Add(roomTransform.Apply(vertex));
-            }
-        }
-
-        // Areas and areaportals: every room carries a reserved error entry at
-        // index 0, so concatenation duplicates it harmlessly — nothing the
-        // engine walks references area 0 or portal 0.
-        List<DArea> areas = [];
-        List<DAreaPortal> areaPortals = [];
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (DArea area in BspStructView.As<DArea>(plan.Bsp[BspLump.Areas]).ToArray())
-            {
-                DArea shifted = area;
-                shifted.FirstAreaPortal += plan.AreaPortalBase;
-                areas.Add(shifted);
-            }
-
-            foreach (DAreaPortal portal in BspStructView.As<DAreaPortal>(plan.Bsp[BspLump.AreaPortals]).ToArray())
-            {
-                DAreaPortal shifted = portal;
-                shifted.OtherArea += (ushort)plan.AreaBase;
-                shifted.FirstClipPortalVert += (ushort)plan.ClipPortalVertBase;
-                shifted.PlaneNum += plan.PlaneBase;
-                areaPortals.Add(shifted);
-            }
-        }
-
-        List<Vec3> clipPortalVerts = [];
-        foreach (RoomPlan plan in plans)
-        {
-            RoomTransform roomTransform =
-                new(plan.Placement.Instance.Placement, plan.Placement.Room.Definition.CellSize);
-            foreach (Vec3 vertex in BspStructView.As<Vec3>(plan.Bsp[BspLump.ClipPortalVerts]).ToArray())
-            {
-                clipPortalVerts.Add(roomTransform.Apply(vertex));
-            }
-        }
-
-        // Occlusion: rebased polygons and vertex indices, corner-wise boxes
-        // (non-axis-aligned after a quarter turn, so no min/max shortcut).
-        OcclusionLump occlusion = new();
-        foreach (RoomPlan plan in plans)
-        {
-            if (plan.Occlusion is not { } roomOcclusion)
-            {
-                continue;
-            }
-
-            RoomTransform roomTransform =
-                new(plan.Placement.Instance.Placement, plan.Placement.Room.Definition.CellSize);
-            foreach (DOccluderData occluder in roomOcclusion.Occluders)
-            {
-                DOccluderData shifted = occluder;
-                shifted.FirstPoly += plan.OccluderPolyBase;
-                Vec3[] boxCorners = TakeCorners(roomTransform, occluder.Mins, occluder.Maxs);
-                Vec3 boxMins = boxCorners[0];
-                Vec3 boxMaxs = boxCorners[0];
-                foreach (Vec3 corner in boxCorners)
-                {
-                    boxMins = new Vec3(
-                        Math.Min(boxMins.X, corner.X), Math.Min(boxMins.Y, corner.Y), Math.Min(boxMins.Z, corner.Z));
-                    boxMaxs = new Vec3(
-                        Math.Max(boxMaxs.X, corner.X), Math.Max(boxMaxs.Y, corner.Y), Math.Max(boxMaxs.Z, corner.Z));
-                }
-
-                shifted.Mins = boxMins;
-                shifted.Maxs = boxMaxs;
-                if (shifted.Area >= 0)
-                {
-                    shifted.Area += plan.AreaBase;
-                }
-
-                occlusion.Occluders.Add(shifted);
-            }
-
-            foreach (DOccluderPolyData poly in roomOcclusion.Polys)
-            {
-                DOccluderPolyData shifted = poly;
-                shifted.FirstVertexIndex += plan.OccluderVertexBase;
-                shifted.PlaneNum += plan.PlaneBase;
-                occlusion.Polys.Add(shifted);
-            }
-
-            foreach (int vertexIndex in roomOcclusion.VertexIndices)
-            {
-                occlusion.VertexIndices.Add(vertexIndex + plan.VertexBase);
-            }
-        }
-
-        // LeafMinDistToWater: vvis rewrote it as one ushort per leaf
-        // (Vvis.cs ToBytes(ushort[])); the shared solid leaf gets 65535,
-        // which is VisWater.NoWater's ushort spelling.
-        List<byte> leafMinDist = [];
-        bool anyWaterLump = false;
-        foreach (RoomPlan plan in plans)
-        {
-            anyWaterLump |= plan.Bsp[BspLump.LeafMinDistToWater].Length > 0;
-        }
-
-        if (anyWaterLump)
-        {
-            leafMinDist.AddRange([0xFF, 0xFF]);
-            foreach (RoomPlan plan in plans)
-            {
-                BspLumpData dists = plan.Bsp[BspLump.LeafMinDistToWater];
-                if (dists.Length != plan.LeafCount * sizeof(ushort))
-                {
-                    throw new LinkException(
-                        $"room {plan.Placement.Room.Definition.Name}'s LeafMinDistToWater holds {dists.Length} bytes for {plan.LeafCount} leaves");
-                }
-
-                leafMinDist.AddRange(dists.Data.Span.ToArray());
-            }
-        }
-
-        // Entities: concatenated verbatim. Documented debt — entity relocation
-        // (info_player_start and friends back through RoomTransform) is the
-        // follow-up; nothing the room tests check reads this lump.
-        List<byte> entities = [];
-        foreach (RoomPlan plan in plans)
-        {
-            entities.AddRange(plan.Bsp[BspLump.Entities].Data.Span.ToArray());
-        }
-
-        // Models: one merged world model over the grid, hanging on the top root.
-        DModel[] models =
-        [
-            new DModel
-            {
-                Mins = new Vec3(minx * cell, miny * cell, 0),
-                Maxs = new Vec3((maxx + 1) * cell, (maxy + 1) * cell, cell),
-                Origin = new Vec3((minx * cell + (maxx + 1) * cell) / 2f, (miny * cell + (maxy + 1) * cell) / 2f, cell / 2f),
-                HeadNode = 0,
-                FirstFace = 0,
-                NumFaces = faces.Count,
-            },
-        ];
-
-        RoomPlan first = plans[0];
-        linked.FileVersion = first.Bsp.FileVersion;
-        foreach (RoomPlan plan in plans)
-        {
-            if (plan.FacesVersion != first.FacesVersion || plan.LeafsVersion != first.LeafsVersion)
-            {
-                throw new LinkException(
-                    $"room {plan.Placement.Room.Definition.Name}'s Faces/Leafs lump versions "
-                    + $"({plan.FacesVersion}/{plan.LeafsVersion}) disagree with "
-                    + $"{first.Placement.Room.Definition.Name}'s ({first.FacesVersion}/{first.LeafsVersion})");
-            }
-        }
-
-
-        linked.SetLump(BspLump.Entities, entities.ToArray());
-        linked.SetLump(BspLump.Planes, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(planes)).ToArray());
-        linked.SetLump(BspLump.TexData, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(texDatas)).ToArray());
-        linked.SetLump(BspLump.Vertexes, plans.SelectMany(p => p.Vertices).ToArray());
-        linked.SetLump(BspLump.Visibility, visibilityLump);
-        linked.SetLump(BspLump.Nodes, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(nodes)).ToArray());
-        linked.SetLump(BspLump.TexInfo, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(texInfos)).ToArray());
-        linked.SetLump(BspLump.Faces, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(faces)).ToArray(), first.FacesVersion);
-        linked.SetLump(BspLump.Lighting, lighting.ToArray());
-        linked.SetLump(BspLump.Leafs, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(leafs)).ToArray(), first.LeafsVersion);
-        linked.SetLump(BspLump.Edges, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(edges)).ToArray());
-        linked.SetLump(BspLump.Models, MemoryMarshal.AsBytes(models.AsSpan()).ToArray());
-        linked.SetLump(BspLump.LeafFaces, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(leafFaces)).ToArray());
-        linked.SetLump(BspLump.LeafBrushes, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(leafBrushes)).ToArray());
-        linked.SetLump(BspLump.Brushes, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(brushes)).ToArray());
-        linked.SetLump(BspLump.BrushSides, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(brushSides)).ToArray());
-        linked.SetLump(BspLump.TexDataStringData, stringData.ToArray());
-        linked.SetLump(BspLump.TexDataStringTable, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(stringTable)).ToArray());
-        linked.SetLump(BspLump.SurfEdges, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(surfEdges)).ToArray());
-        linked.SetLump(BspLump.FaceIds, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(faceIds)).ToArray());
-        linked.SetLump(BspLump.FaceMacroTextureInfo, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(macroTextures)).ToArray());
-        linked.SetLump(BspLump.OriginalFaces, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(origFaces)).ToArray());
-        linked.SetLump(BspLump.VertNormals, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(vertNormals)).ToArray());
-        linked.SetLump(BspLump.VertNormalIndices, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(vertNormalIndices)).ToArray());
-        linked.SetLump(BspLump.Primitives, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(prims)).ToArray());
-        linked.SetLump(BspLump.PrimIndices, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(primIndices)).ToArray());
-        linked.SetLump(BspLump.PrimVerts, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(primVerts)).ToArray());
-        linked.SetLump(BspLump.Areas, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(areas)).ToArray());
-        linked.SetLump(BspLump.AreaPortals, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(areaPortals)).ToArray());
-        linked.SetLump(BspLump.ClipPortalVerts, MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(clipPortalVerts)).ToArray());
-        linked[BspLump.Occlusion] = occlusion.Write();
-        linked.SetLump(BspLump.PakFile, first.Bsp[BspLump.PakFile].Data.ToArray());
-        linked.SetLump(BspLump.MapFlags, first.Bsp[BspLump.MapFlags].Data.ToArray());
-        foreach (GameLumpEntry entry in first.Bsp.GameLumps)
-        {
-            linked.GameLumps.Add(entry);
-        }
-
-        if (anyWaterLump)
-        {
-            linked.SetLump(BspLump.LeafMinDistToWater, leafMinDist.ToArray());
-        }
-
-        return linked;
-    }
+    /// <summary>The child marker for a solid region (resolved at assembly).</summary>
+    private const int MarkerSolidLeaf = -1001;
 
     /// <summary>Fills the top tree's children now that the room bases exist.</summary>
-    private static void FillTopChildren(
-        List<DNode> nodes, List<DNode> top, RoomPlan[] plans, LevelLayout layout, float cell)
+    private static void FillTopChildren(List<DNode> nodes, int topCount, RoomPlan[] plans, LevelLayout layout)
     {
         Dictionary<(int, int), RoomPlan> byCell = [];
         foreach (RoomPlan plan in plans)
@@ -1366,14 +807,10 @@ public static class LevelLinker
             byCell[(plan.Placement.Instance.Placement.CellX, plan.Placement.Instance.Placement.CellY)] = plan;
         }
 
-        (int minx, int miny, int maxx, int maxy) = Extent(layout);
-        _ = (minx, miny, maxx, maxy);
-        // The nodes list already holds the top tree built by BuildTopNodes in
-        // layout order; its positive children are region-node references and
+        // The nodes list already holds the top tree built by BuildTopNodes;
         // its room-bearing single-cell nodes carry a marker child that names
-        // no node yet. Rebuild the children with the same recursion the node
+        // no node yet. Rebuild the regions with the same recursion the node
         // list itself used — see BuildRegion — so both walks agree.
-        int index = 0;
         Dictionary<(int, int), int> occupants = [];
         foreach (RoomInstance room in layout.Rooms)
         {
@@ -1381,31 +818,23 @@ public static class LevelLinker
         }
 
         List<(int, int, int, int)> regions = [];
-        CollectRegions(occupants, (minx, miny, maxx, maxy), regions);
-        if (regions.Count != top.Count)
+        CollectRegions(occupants, Extent(layout), regions);
+        if (regions.Count != topCount)
         {
-            throw new LinkException(
-                "the top-tree region walk disagrees with the top node list");
+            throw new LinkException("the top-tree region walk disagrees with the top node list");
         }
-        foreach (ref DNode node in CollectionsMarshal.AsSpan(nodes).Slice(0, top.Count))
+
+        int index = 0;
+        foreach (ref DNode node in System.Runtime.InteropServices.CollectionsMarshal.AsSpan(nodes)[..topCount])
         {
-            (int rminx, int rminy, int rmaxx, int rmaxy) = regions[index];
-            DNode filled = node;
+            (int rminx, int rminy, _, _) = regions[index];
             IntArray2 children = node.Children;
             for (int side = 0; side < 2; side++)
             {
                 int child = node.Children[side];
-                if (child >= 0)
-                {
-                    continue; // a node index: already right (pre-order guarantees it)
-                }
-
-                // The markers are stored in the child encoding itself (negative
-                // = leaf side), so compare the raw child, not ~child.
                 if (child == MarkerRoomLeaf)
                 {
-                    RoomPlan room = byCell[(rminx, rminy)];
-                    children[side] = room.NodeBase;
+                    children[side] = byCell[(rminx, rminy)].NodeBase;
                 }
                 else if (child == MarkerSolidLeaf)
                 {
@@ -1413,17 +842,10 @@ public static class LevelLinker
                 }
             }
 
-            filled.Children = children;
-            node = filled;
+            node.Children = children;
             index++;
         }
     }
-
-    /// <summary>The child marker for a room-bearing cell (resolved at assembly).</summary>
-    private const int MarkerRoomLeaf = -1000;
-
-    /// <summary>The child marker for a solid region (resolved at assembly).</summary>
-    private const int MarkerSolidLeaf = -1001;
 
     private static void CollectRegions(
         Dictionary<(int, int), int> occupants,
@@ -1442,17 +864,7 @@ public static class LevelLinker
         // Mirror BuildRegion exactly, including its stop conditions: an empty
         // region is one solid node with no children, and a 1×1 occupied cell is
         // one room node with no children, so the walk stops at both.
-
-        bool hasOccupant = false;
-        for (int x = rect.minx; x <= rect.maxx; x++)
-        {
-            for (int y = rect.miny; y <= rect.maxy; y++)
-            {
-                hasOccupant |= occupants.ContainsKey((x, y));
-            }
-        }
-
-        if (!hasOccupant || (rect.minx == rect.maxx && rect.miny == rect.maxy))
+        if (!HasOccupant(occupants, rect) || (rect.minx == rect.maxx && rect.miny == rect.maxy))
         {
             return;
         }
@@ -1469,6 +881,22 @@ public static class LevelLinker
             CollectRegions(occupants, (rect.minx, split, rect.maxx, rect.maxy), regions);
             CollectRegions(occupants, (rect.minx, rect.miny, rect.maxx, split - 1), regions);
         }
+    }
+
+    private static bool HasOccupant(Dictionary<(int, int), int> occupants, (int minx, int miny, int maxx, int maxy) rect)
+    {
+        for (int x = rect.minx; x <= rect.maxx; x++)
+        {
+            for (int y = rect.miny; y <= rect.maxy; y++)
+            {
+                if (occupants.ContainsKey((x, y)))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static (int minx, int miny, int maxx, int maxy) Extent(LevelLayout layout)
@@ -1490,24 +918,16 @@ public static class LevelLinker
         Dictionary<(int, int), int> occupants,
         (int minx, int miny, int maxx, int maxy) rect,
         float cellSize,
-        List<Plane> planes, int topPlaneBase)
+        List<Plane> planes,
+        int topPlaneBase)
     {
         int index = nodes.Count;
         nodes.Add(default);
 
-        bool hasOccupant = false;
-        for (int x = rect.minx; x <= rect.maxx; x++)
-        {
-            for (int y = rect.miny; y <= rect.maxy; y++)
-            {
-                hasOccupant |= occupants.ContainsKey((x, y));
-            }
-        }
-
         Vec3 mins = new(rect.minx * cellSize, rect.miny * cellSize, 0);
         Vec3 maxs = new((rect.maxx + 1) * cellSize, (rect.maxy + 1) * cellSize, cellSize);
 
-        if (!hasOccupant)
+        if (!HasOccupant(occupants, rect))
         {
             // A solid region: split at an arbitrary cell face and send both
             // sides to the shared solid leaf.
@@ -1517,7 +937,7 @@ public static class LevelLinker
             solidChildren[1] = MarkerSolidLeaf;
             nodes[index] = new DNode
             {
-                PlaneNum = topPlaneNum(topPlaneBase, planes.Count - 1),
+                PlaneNum = TopPlaneNum(topPlaneBase, planes.Count - 1),
                 Children = solidChildren,
                 Mins = Short3(mins),
                 Maxs = Short3(maxs),
@@ -1537,7 +957,7 @@ public static class LevelLinker
             roomChildren[1] = MarkerRoomLeaf;  // back: this cell's room root
             nodes[index] = new DNode
             {
-                PlaneNum = topPlaneNum(topPlaneBase, planes.Count - 1),
+                PlaneNum = TopPlaneNum(topPlaneBase, planes.Count - 1),
                 Children = roomChildren,
                 Mins = Short3(mins),
                 Maxs = Short3(maxs),
@@ -1567,7 +987,7 @@ public static class LevelLinker
         }
 
         planes.Add(split);
-        int planeNumber = topPlaneNum(topPlaneBase, planes.Count - 1);
+        int planeNumber = TopPlaneNum(topPlaneBase, planes.Count - 1);
         int front = BuildRegion(nodes, occupants, frontRect, cellSize, planes, topPlaneBase);
         int back = BuildRegion(nodes, occupants, backRect, cellSize, planes, topPlaneBase);
         IntArray2 children = default;
@@ -1585,82 +1005,16 @@ public static class LevelLinker
         return index;
     }
 
-    private static int topPlaneNum(int topPlaneBase, int index) => topPlaneBase + (2 * index);
+    private static int TopPlaneNum(int topPlaneBase, int index) => topPlaneBase + (2 * index);
 
+    // ---- small helpers -------------------------------------------------
 
-    /// <summary>A room's link-time facts: its bytes, counts, and assigned bases.</summary>
-    internal sealed class RoomPlan
-    {
-        public required ResolvedPlacement Placement { get; init; }
-        public required BspData Bsp { get; init; }
-        public required byte[][] OwnRows { get; init; }
-        public required int ClusterCount { get; init; }
-        public required byte[] Vertices { get; init; }
-        public required DPlane[] TransformedPlanes { get; init; }
-        public required DLeaf[] Leafs { get; init; }
-        public required int LeafCount { get; init; }
-        public required int EdgeCount { get; init; }
-        public required int TexInfoCount { get; init; }
-        public required int TexDataCount { get; init; }
-        public required int FaceCount { get; init; }
-        public required int BrushCount { get; init; }
-        public required int BrushSideCount { get; init; }
-        public required int LeafFaceCount { get; init; }
-        public required int LeafBrushCount { get; init; }
-        public required int NodeCount { get; init; }
-        public required int LightingLength { get; init; }
-        public required int StringTableCount { get; init; }
-        public required int StringDataLength { get; init; }
-        public required int TopPlaneCount { get; init; }
-        public required Vec3 ModelMins { get; init; }
-        public required Vec3 ModelMaxs { get; init; }
-        public required int SurfEdgeCount { get; init; }
-        public required int OrigFaceCount { get; init; }
-        public required int VertNormalCount { get; init; }
-        public required int VertNormalIndexCount { get; init; }
-        public required int PrimCount { get; init; }
-        public required int PrimIndexCount { get; init; }
-        public required int PrimVertCount { get; init; }
-        public required int AreaCount { get; init; }
-        public required int AreaPortalCount { get; init; }
-        public required int ClipPortalVertCount { get; init; }
-        public required OcclusionLump? Occlusion { get; init; }
-        public required int FacesVersion { get; init; }
-        public required int LeafsVersion { get; init; }
+    internal static Box BoxOf(DLeaf leaf) =>
+        new(
+            new Vec3(leaf.Mins[0], leaf.Mins[1], leaf.Mins[2]),
+            new Vec3(leaf.Maxs[0], leaf.Maxs[1], leaf.Maxs[2]));
 
-        public int VertexBase;
-        public int EdgeBase;
-        public int TexInfoBase;
-        public int TexDataBase;
-        public int PlaneBase;
-        public int FaceBase;
-        public int BrushBase;
-        public int BrushSideBase;
-        public int LeafFaceBase;
-        public int LeafBrushBase;
-        public int NodeBase;
-        public int LeafBase;
-        public int LightBase;
-        public int StringTableBase;
-        public int StringDataBase;
-        public int ClusterBase;
-        public int SurfEdgeBase;
-        public int OrigFaceBase;
-        public int PrimBase;
-        public int PrimIndexBase;
-        public int PrimVertBase;
-        public int VertNormalBase;
-        public int AreaBase;
-        public int AreaPortalBase;
-        public int ClipPortalVertBase;
-        public int OccluderPolyBase;
-        public int OccluderVertexBase;
-        public int VertexNormalIndexBase;
-    }
-
-    private static int SizeOf<T>() where T : unmanaged => Marshal.SizeOf<T>();
-
-    private static ShortArray3 Short3(Vec3 v)
+    internal static ShortArray3 Short3(Vec3 v)
     {
         ShortArray3 s = default;
         s[0] = (short)Math.Clamp(MathF.Round(v.X), short.MinValue, short.MaxValue);
@@ -1671,6 +1025,11 @@ public static class LevelLinker
 
     private static void Dedupe(List<int> values)
     {
+        if (values.Count == 0)
+        {
+            return;
+        }
+
         int write = 0;
         for (int read = 1; read < values.Count; read++)
         {

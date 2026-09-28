@@ -10,6 +10,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
+using SourceSharp.MapFormats;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapTools.Vis;
 
@@ -23,7 +24,7 @@ namespace SourceSharp.MapTools.Rooms;
 /// <remarks>
 /// <para>
 /// The container is <c>SSROOM01</c>: the eight magic bytes, an
-/// <c>int32</c> big-endian version (currently 1), then three
+/// <c>int32</c> big-endian version (<see cref="ContainerVersion"/>), then three
 /// length-prefixed (<c>int32</c> big-endian) sections — a UTF-8 JSON
 /// manifest, the room's BSP lump bytes, and its vis blob. Every integer is
 /// big-endian so the file's bytes do not depend on the writer's host byte
@@ -119,13 +120,32 @@ public static class RoomObjectStore
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="LinkException">
     /// The container is not one this build reads: wrong magic, unknown
-    /// version, a truncated section, or a manifest with a missing, unknown or
-    /// mistyped field — each message names the observed bytes or field.
+    /// version, a truncated section, a manifest with a missing, unknown or
+    /// mistyped field, a definition that does not validate, a compile the
+    /// linter refuses, or vis rows that do not fit the compile's clusters —
+    /// each message names the observed bytes or field. Every refusal of the
+    /// file's content is this one type, so a caller that loads a directory of
+    /// rooms needs one catch for "this file is bad".
     /// </exception>
     public static async Task<RoomObject> LoadAsync(Stream r, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(r);
 
+        try
+        {
+            return await LoadCheckedAsync(r, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidBspException or RoomLintException)
+        {
+            // The definition's own validation, the struct views over the
+            // lumps and the linter all refuse in their own vocabulary; for a
+            // file, each of them means the same thing.
+            throw new LinkException($"room container content is not a linkable room: {exception.Message}");
+        }
+    }
+
+    private static async Task<RoomObject> LoadCheckedAsync(Stream r, CancellationToken cancellationToken)
+    {
         byte[] magic = await ReadFixedAsync(r, 8, "magic", cancellationToken).ConfigureAwait(false);
         if (!MatchesMagic(magic))
         {
@@ -173,7 +193,10 @@ public static class RoomObjectStore
                     socketClusters = ReadInt32Array(value, SocketClustersKey);
                     break;
                 case SourceHashKey:
-                    sourceHash = ReadString(value, SourceHashKey);
+                    // Omitted by this build's writer when the room has no
+                    // hash; an explicit null (what earlier writers put there)
+                    // means the same.
+                    sourceHash = value.ValueKind == JsonValueKind.Null ? null : ReadString(value, SourceHashKey);
                     break;
                 case ToolIdentityKey:
                     break; // provenance: recorded on write, read for nothing but the record itself.
@@ -219,6 +242,10 @@ public static class RoomObjectStore
         BspData bsp = ParseBspBlob(bspBlob);
         VisResult vis = ParseVisBlob(visBlob);
 
+        // The rows and the leaves must agree before anything slices a row:
+        // a cluster out of range would alias into the next room once linked.
+        RoomObjectChecks.CheckVis(roomName, bsp, vis);
+
         // The lint verdict is derived, not persisted: every claim the loaded
         // definition makes is checked against the loaded compile, which is
         // exactly what the compile-time lint checked — re-running it here is
@@ -227,10 +254,12 @@ public static class RoomObjectStore
             definition, bsp, RoomCompiler.SealBoxes(definition), leaked: false);
 
         // The manifest's socket clusters are the writing tool's claim about
-        // where each door's plug put its cluster; the lint above derives the
-        // same list from the blobs. A file whose two accounts disagree was
-        // edited, and the linker's door graph would walk the edited claim —
-        // so the claim must match the derivation, element for element.
+        // which sockets the compile sealed; the lint above derives the same
+        // list from the blobs. The lint only ever returns every socket index
+        // in order (it refuses a room with an unsealed socket), so for a file
+        // this store wrote the claim is always 0..n-1 and the comparison is a
+        // consistency check of the container, not a second source of truth:
+        // a manifest that says anything else was edited apart from its blobs.
         for (int socket = 0; socket < socketClusters.Length; socket++)
         {
             if (socketClusters[socket] != lint.SealClusters[socket])
@@ -283,7 +312,15 @@ public static class RoomObjectStore
             }
 
             writer.WriteEndArray();
-            writer.WriteString(SourceHashKey, SourceHashOf(room));
+
+            // A room built without a VMF (in code, or by a host with its own
+            // keys) has no hash; the field is left out rather than written as
+            // JSON null, which is what "omitted" in the format means.
+            if (SourceHashOf(room) is { } hash)
+            {
+                writer.WriteString(SourceHashKey, hash);
+            }
+
             writer.WriteString(ToolIdentityKey, ToolIdentityOf());
             writer.WriteEndObject();
         }
@@ -552,9 +589,53 @@ public static class RoomObjectStore
     private static async Task<byte[]> ReadBlobAsync(Stream r, string name, CancellationToken cancellationToken)
     {
         int length = await ReadInt32BEAsync(r, $"{name} length", cancellationToken).ConfigureAwait(false);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan((uint)length, 1u << 30);
-        return await ReadFixedAsync(r, length, name, cancellationToken).ConfigureAwait(false);
+        if ((uint)length > MaxSectionBytes)
+        {
+            throw new LinkException(
+                $"room container {name} section claims {(uint)length} bytes; a section holds at most {MaxSectionBytes}.");
+        }
+
+        // The length is four bytes of an untrusted file: allocating it up
+        // front would let a 20-byte file ask for a gigabyte. A seekable
+        // stream is checked against what it actually holds; any other stream
+        // is read in bounded chunks, so memory grows only with bytes that
+        // really arrive and a lying header fails as a truncation.
+        if (r.CanSeek && length > r.Length - r.Position)
+        {
+            throw new LinkException(
+                $"room container is truncated in {name}: wanted {length} bytes, got {Math.Max(0, r.Length - r.Position)}.");
+        }
+
+        if (length <= ReadChunkBytes)
+        {
+            return await ReadFixedAsync(r, length, name, cancellationToken).ConfigureAwait(false);
+        }
+
+        using MemoryStream collected = new();
+        byte[] chunk = new byte[ReadChunkBytes];
+        int remaining = length;
+        while (remaining > 0)
+        {
+            int want = Math.Min(remaining, chunk.Length);
+            int read = await r.ReadAsync(chunk.AsMemory(0, want), cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                throw new LinkException(
+                    $"room container is truncated in {name}: wanted {length} bytes, got {length - remaining}.");
+            }
+
+            collected.Write(chunk, 0, read);
+            remaining -= read;
+        }
+
+        return collected.ToArray();
     }
+
+    /// <summary>The largest section a container may declare.</summary>
+    private const uint MaxSectionBytes = 1u << 30;
+
+    /// <summary>How much of a section is read per step when the stream cannot say its length.</summary>
+    private const int ReadChunkBytes = 1 << 16;
 
     private static async Task<byte[]> ReadFixedAsync(
         Stream r, int count, string what, CancellationToken cancellationToken)
@@ -673,7 +754,7 @@ public static class RoomObjectStore
 
     private static float ReadSingle(JsonElement value, string name)
     {
-        if (!value.TryGetSingle(out float number))
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetSingle(out float number))
         {
             throw new LinkException($"room manifest field \"{name}\" is not a number.");
         }
@@ -741,7 +822,7 @@ public static class RoomObjectStore
                 switch (member.Name)
                 {
                     case FacingKey:
-                        if (!member.Value.TryGetInt32(out int raw) || !Enum.IsDefined((RoomFacing)raw))
+                        if (member.Value.ValueKind != JsonValueKind.Number || !member.Value.TryGetInt32(out int raw) || !Enum.IsDefined((RoomFacing)raw))
                         {
                             throw new LinkException(
                                 $"room manifest socket facing {member.Value} is not a facing.");
@@ -778,7 +859,7 @@ public static class RoomObjectStore
         List<int> values = [];
         foreach (JsonElement element in value.EnumerateArray())
         {
-            if (!element.TryGetInt32(out int number))
+            if (element.ValueKind != JsonValueKind.Number || !element.TryGetInt32(out int number))
             {
                 throw new LinkException($"room manifest field \"{name}\" has a non-integer element {element}.");
             }

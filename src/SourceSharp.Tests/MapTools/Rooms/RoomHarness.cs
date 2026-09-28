@@ -7,6 +7,7 @@
 
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
+using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp;
@@ -14,6 +15,7 @@ using SourceSharp.MapTools.Bsp.Driver;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
+using SourceSharp.MapTools.Phys.Managed;
 using SourceSharp.MapTools.Rooms;
 using SourceSharp.MapTools.Vis;
 
@@ -135,5 +137,141 @@ internal static class RoomHarness
             Parallelism = new CompileParallelism { MaxDegree = degree },
         };
         return await Vvis.ComputeAsync(bsp, portals, context, CancellationToken.None);
+    }
+
+    /// <summary>The four-socket room every grid fact places.</summary>
+    public static RoomDefinition Hub() =>
+        Room("hub", RoomFacing.PositiveX, RoomFacing.NegativeX, RoomFacing.PositiveY, RoomFacing.NegativeY);
+
+    /// <summary>
+    /// Compiles rooms into one library, with the managed cooker when
+    /// <paramref name="cook"/> is set (what <c>ssmap room</c> does by
+    /// default) and without one otherwise (<c>-cooker none</c>).
+    /// </summary>
+    public static async Task<RoomLibrary> LibraryAsync(bool cook, params RoomDefinition[] definitions)
+    {
+        VbspContext context = await ContextAsync();
+        await using ManagedCollisionCooker? cooker = cook ? ManagedCollisionCooker.Create(ComplianceOptions.Correct) : null;
+        context.CollisionCooker = cooker;
+        RoomLibrary library = new(Kit, Cell);
+        foreach (RoomDefinition definition in definitions)
+        {
+            library.Add(await RoomCompiler.CompileAsync(BuildRoomModel(definition), definition, context));
+        }
+
+        return library;
+    }
+
+    /// <summary>
+    /// A layout whose joints are derived from the placements: every socket
+    /// whose world direction (after the placement's turns) points at a
+    /// neighbour holding a socket that faces back is jointed to it, and every
+    /// other socket is capped.
+    /// </summary>
+    public static LevelLayout AutoLayout(string name, RoomLibrary library, params (string Room, int X, int Y, int Rotation)[] cells)
+    {
+        List<RoomInstance> rooms = [];
+        foreach ((string room, int x, int y, int rotation) in cells)
+        {
+            RoomPlacement placement = new(room, x, y, rotation);
+            RoomTransform transform = new(placement, Cell);
+            List<(string, string)> joints = [];
+            List<string> capped = [];
+            foreach (RoomSocket socket in library.Get(room).Definition.Sockets)
+            {
+                (int axis, int sign) = transform.WorldNormal(socket.Facing);
+                int nx = x + (axis == 0 ? sign : 0);
+                int ny = y + (axis == 1 ? sign : 0);
+                string? theirs = null;
+                foreach ((string otherRoom, int ox, int oy, int orot) in cells)
+                {
+                    if (ox != nx || oy != ny)
+                    {
+                        continue;
+                    }
+
+                    RoomTransform other = new(new RoomPlacement(otherRoom, ox, oy, orot), Cell);
+                    foreach (RoomSocket candidate in library.Get(otherRoom).Definition.Sockets)
+                    {
+                        if (other.WorldNormal(candidate.Facing) == (axis, -sign))
+                        {
+                            theirs = candidate.Name;
+                        }
+                    }
+                }
+
+                if (theirs is null)
+                {
+                    capped.Add(socket.Name);
+                }
+                else
+                {
+                    joints.Add((socket.Name, theirs));
+                }
+            }
+
+            rooms.Add(new RoomInstance(placement, joints, capped));
+        }
+
+        return new LevelLayout(name, Cell, Kit, rooms);
+    }
+
+    /// <summary>A face's vertices, walked through its surfedges and edges.</summary>
+    public static List<Vec3> FaceVertices(BspData bsp, DFace face)
+    {
+        ReadOnlySpan<int> surfEdges = BspStructView.As<int>(bsp[BspLump.SurfEdges]);
+        ReadOnlySpan<DEdge> edges = BspStructView.As<DEdge>(bsp[BspLump.Edges]);
+        ReadOnlySpan<Vec3> vertices = BspStructView.As<Vec3>(bsp[BspLump.Vertexes]);
+        List<Vec3> result = [];
+        for (int e = 0; e < face.NumEdges; e++)
+        {
+            int se = surfEdges[face.FirstEdge + e];
+            result.Add(vertices[se >= 0 ? edges[se].V[0] : edges[-se].V[1]]);
+        }
+
+        return result;
+    }
+
+    /// <summary>A placed room's cell, as a world box.</summary>
+    public static Box CellBox(RoomPlacement placement) =>
+        new(new Vec3(placement.CellX * Cell, placement.CellY * Cell, 0),
+            new Vec3((placement.CellX + 1) * Cell, (placement.CellY + 1) * Cell, Cell));
+
+    /// <summary>The centre of a socket's plug box, in world coordinates.</summary>
+    public static Vec3 PlugCentre(RoomDefinition definition, RoomPlacement placement, string socket)
+    {
+        Box plug = RoomLinter.SealBox(definition, definition.Sockets.First(s => s.Name == socket), definition.CellSize);
+        Vec3 centre = new((plug.Mins.X + plug.Maxs.X) / 2, (plug.Mins.Y + plug.Maxs.Y) / 2, (plug.Mins.Z + plug.Maxs.Z) / 2);
+        return new RoomTransform(placement, Cell).Apply(centre);
+    }
+
+    /// <summary>The leaf the engine's walk puts a point in.</summary>
+    public static DLeaf LeafAt(BspData bsp, Vec3 point) =>
+        BspStructView.As<DLeaf>(bsp[BspLump.Leafs])[LevelLinker.PointInLeaf(bsp, point)];
+
+    /// <summary>A copy of a room with some lumps of its compile replaced.</summary>
+    public static RoomObject WithLumps(RoomObject room, Action<BspData> edit)
+    {
+        BspData bsp = new() { FileVersion = room.Bsp.FileVersion, MapRevision = room.Bsp.MapRevision };
+        for (int i = 0; i < BspData.HeaderLumps; i++)
+        {
+            bsp[i] = room.Bsp[i];
+        }
+
+        bsp.GameLumps.AddRange(room.Bsp.GameLumps);
+        edit(bsp);
+        return room with { Bsp = bsp, Compiled = bsp };
+    }
+
+    /// <summary>A library of the given rooms, on the harness grid.</summary>
+    public static RoomLibrary Library(params RoomObject[] rooms)
+    {
+        RoomLibrary library = new(Kit, Cell);
+        foreach (RoomObject room in rooms)
+        {
+            library.Add(room);
+        }
+
+        return library;
     }
 }

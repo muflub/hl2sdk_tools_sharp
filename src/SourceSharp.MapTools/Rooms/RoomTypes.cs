@@ -68,14 +68,20 @@ public readonly record struct SocketKit(float Width, float Height, float Depth)
         return (0.5f - halfU, 0.5f - halfV, 0.5f + halfU, 0.5f + halfV);
     }
 
-    /// <summary>Validates the kit as a socket: positive, and it fits in a face.</summary>
-    /// <exception cref="ArgumentOutOfRangeException">A dimension is not positive.</exception>
+    /// <summary>Validates the kit as a socket: positive, finite, and it fits in a face.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">A dimension is not a positive finite number.</exception>
     /// <exception cref="ArgumentException">The opening does not fit inside one face.</exception>
+    /// <remarks>
+    /// Every comparison against NaN is false, so a plain "not positive" check
+    /// lets a NaN through; the finite test is what refuses it. A NaN kit is
+    /// also what <see cref="LevelLayoutJson"/> leaves in a layout that did not
+    /// state its grid, and this is where such a layout must fail.
+    /// </remarks>
     public void Validate()
     {
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(Width, 0f);
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(Height, 0f);
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(Depth, 0f);
+        RoomNumbers.RequirePositiveFinite(Width, nameof(Width));
+        RoomNumbers.RequirePositiveFinite(Height, nameof(Height));
+        RoomNumbers.RequirePositiveFinite(Depth, nameof(Depth));
         if (Width > 2_000_000f || Height > 2_000_000f)
         {
             throw new ArgumentException("The socket kit is larger than any cell can hold.", nameof(Width));
@@ -132,7 +138,7 @@ public sealed record RoomDefinition(string Name, float CellSize, SocketKit Kit, 
 {
     /// <summary>Validates the definition.</summary>
     /// <exception cref="ArgumentException">The name is blank or two sockets share a face.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">The cell size is not positive.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The cell size is not a positive finite number.</exception>
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(Name))
@@ -140,7 +146,7 @@ public sealed record RoomDefinition(string Name, float CellSize, SocketKit Kit, 
             throw new ArgumentException("A room needs a name.", nameof(Name));
         }
 
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(CellSize, 0f);
+        RoomNumbers.RequirePositiveFinite(CellSize, nameof(CellSize));
         Kit.Validate();
         HashSet<RoomFacing> seen = [];
         foreach (RoomSocket socket in Sockets)
@@ -162,7 +168,12 @@ public sealed record RoomDefinition(string Name, float CellSize, SocketKit Kit, 
 /// <param name="Room">The library name of the room to place.</param>
 /// <param name="CellX">The cell column; the placement's x translation is <c>CellX × cell size</c>.</param>
 /// <param name="CellY">The cell row.</param>
-/// <param name="Rotation">Quarter turns about +z; the only rotation the linker allows.</param>
+/// <param name="Rotation">
+/// Quarter turns about +z, counter-clockwise seen from above: 0, 1, 2 or 3.
+/// A count, not degrees; anything outside 0..3 is refused rather than
+/// reduced, because a layout that says 90 or 4 almost certainly meant
+/// something other than what the reduction would give it.
+/// </param>
 /// <remarks>
 /// Translations are whole cells and rotations are quarter turns, which is what
 /// makes the transforms exact — <see cref="RoomTransform"/> permutes and negates
@@ -176,7 +187,7 @@ public readonly record struct RoomPlacement(string Room, int CellX, int CellY, i
 
     /// <summary>Validates the placement.</summary>
     /// <exception cref="ArgumentException">The room name is blank.</exception>
-    /// <exception cref="LinkException">The rotation is not a quarter turn.</exception>
+    /// <exception cref="LinkException">The rotation is not a quarter-turn count 0..3.</exception>
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(Room))
@@ -184,15 +195,20 @@ public readonly record struct RoomPlacement(string Room, int CellX, int CellY, i
             throw new ArgumentException("A placement names a room.", nameof(Room));
         }
 
-        if (Rotation % 4 != 0)
+        if ((uint)Rotation > 3)
         {
             throw new LinkException(
                 string.Create(System.Globalization.CultureInfo.InvariantCulture,
-                    $"placement rotation {Rotation} is not a multiple of 90 degrees"));
+                    $"placement rotation {Rotation} is not a quarter-turn count (0, 1, 2 or 3)"));
         }
     }
 
     /// <summary>The rotation reduced to 0..3.</summary>
+    /// <remarks>
+    /// Equal to <see cref="Rotation"/> for every placement that passed
+    /// <see cref="Validate"/>; the reduction only keeps the transforms total
+    /// for a caller that builds a <see cref="RoomTransform"/> directly.
+    /// </remarks>
     public int NormalizedRotation => ((Rotation % 4) + 4) % 4;
 }
 
@@ -234,8 +250,8 @@ public sealed record RoomInstance(RoomPlacement Placement, IReadOnlyList<(string
 public sealed record LevelLayout(string Name, float CellSize, SocketKit Kit, IReadOnlyList<RoomInstance> Rooms)
 {
     /// <summary>Validates the layout's own shape.</summary>
-    /// <exception cref="ArgumentException">The name is blank or two rooms share a cell.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">The cell size is not positive.</exception>
+    /// <exception cref="ArgumentException">The name is blank, the level places no room, or two rooms share a cell.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The cell size is not a positive finite number.</exception>
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(Name))
@@ -243,8 +259,17 @@ public sealed record LevelLayout(string Name, float CellSize, SocketKit Kit, IRe
             throw new ArgumentException("A level needs a name.", nameof(Name));
         }
 
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(CellSize, 0f);
+        RoomNumbers.RequirePositiveFinite(CellSize, nameof(CellSize));
         Kit.Validate();
+
+        // A level of no rooms has no world model to hang anything on: every
+        // later step (the grid extent, the first room's lump versions) would
+        // index an empty list.
+        if (Rooms.Count == 0)
+        {
+            throw new ArgumentException("A level places at least one room.", nameof(Rooms));
+        }
+
         HashSet<(int, int)> cells = [];
         foreach (RoomInstance room in Rooms)
         {
@@ -294,6 +319,22 @@ public sealed record ResolvedPlacement(
 {
     /// <summary>The room's sockets, room order.</summary>
     public IReadOnlyList<RoomSocket> Sockets => Room.Definition.Sockets;
+}
+
+/// <summary>The numeric checks the room records share.</summary>
+internal static class RoomNumbers
+{
+    /// <summary>Refuses NaN, the infinities, zero and negatives.</summary>
+    /// <param name="value">The number.</param>
+    /// <param name="name">The parameter it came from.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The number is not positive and finite.</exception>
+    public static void RequirePositiveFinite(float value, string name)
+    {
+        if (!float.IsFinite(value) || value <= 0f)
+        {
+            throw new ArgumentOutOfRangeException(name, value, "Must be a positive finite number.");
+        }
+    }
 }
 
 /// <summary>

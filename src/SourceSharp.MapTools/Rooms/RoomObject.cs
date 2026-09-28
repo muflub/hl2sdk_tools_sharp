@@ -77,7 +77,7 @@ public sealed class RoomLibrary
     public RoomLibrary(SocketKit kit, float cellSize)
     {
         kit.Validate();
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(cellSize, 0f);
+        RoomNumbers.RequirePositiveFinite(cellSize, nameof(cellSize));
         Kit = kit;
         CellSize = cellSize;
     }
