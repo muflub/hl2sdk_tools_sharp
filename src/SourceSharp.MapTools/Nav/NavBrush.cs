@@ -373,7 +373,9 @@ public sealed class NavBrush
             }
         }
 
-        if (vertices.Count < 12)
+        // Fewer than four corners bound no volume; a corner as far out as the
+        // starting square means the planes leave the brush open on a side.
+        if (vertices.Count < 12 || vertices.Any(v => Math.Abs(v) >= Huge / 2))
         {
             return null;
         }
