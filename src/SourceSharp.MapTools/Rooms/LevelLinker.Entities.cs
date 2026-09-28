@@ -60,7 +60,7 @@ public static partial class LevelLinker
             {
                 if (!string.Equals(entity.ClassName, "worldspawn", StringComparison.Ordinal))
                 {
-                    merged.Add(MoveEntity(entity, plan.Transform, name));
+                    merged.Add(MoveEntity(entity, plan.Transform, name, plan.OccluderBase));
                     continue;
                 }
 
@@ -118,6 +118,7 @@ public static partial class LevelLinker
 
     /// <summary>One entity with its placement keys moved.</summary>
     /// <remarks>
+    /// <para>
     /// Besides <c>origin</c> and the yaw, an <c>info_ladder</c>'s bounds are
     /// a world-space box written as six separate keys (<see cref="LadderKeys"/>).
     /// The room compile wrote them room-local; a whole-map compile of the
@@ -128,8 +129,17 @@ public static partial class LevelLinker
     /// which corner is the least), and written back with two decimals, the
     /// format vbsp writes them in. An entity with only some of the six keys
     /// is not a ladder vbsp made, and its keys are carried as written.
+    /// </para>
+    /// <para>
+    /// A <c>func_occluder</c>'s <c>occludernumber</c> is an index into the
+    /// occlusion lump, which every room compile numbers from 0. The linker
+    /// appends the rooms' occluders in layout order
+    /// (<see cref="RoomPlan.OccluderBase"/>), so the key is shifted by the
+    /// same base, or the second room's occluder entity would name the first
+    /// room's occluder, and an input toggling it would reach the wrong one.
+    /// </para>
     /// </remarks>
-    internal static BspEntity MoveEntity(BspEntity entity, RoomTransform transform, string room)
+    internal static BspEntity MoveEntity(BspEntity entity, RoomTransform transform, string room, int occluderBase = 0)
     {
         int turns = transform.Placement.NormalizedRotation;
         string[] ladderKeys = LadderKeys;
@@ -146,6 +156,12 @@ public static partial class LevelLinker
             else if (IsKey(pair.Key, "origin"))
             {
                 value = FormatVec(transform.Apply(ParseVec(value, "origin", room)));
+            }
+            else if (occluderBase != 0 && IsKey(pair.Key, "occludernumber"))
+            {
+                value = int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int occluder)
+                    ? (occluder + occluderBase).ToString(CultureInfo.InvariantCulture)
+                    : throw new LinkException($"room {room} has an entity whose \"occludernumber\" holds \"{value}\", not an occluder index");
             }
             else if (turns != 0 && IsKey(pair.Key, "angles"))
             {

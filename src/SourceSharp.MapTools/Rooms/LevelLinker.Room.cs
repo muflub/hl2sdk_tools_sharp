@@ -584,6 +584,7 @@ public static partial class LevelLinker
         public int PrimIndexBase;
         public int PrimVertBase;
         public int VertNormalBase;
+        public int OccluderBase;
         public int OccluderPolyBase;
         public int OccluderVertexBase;
         public int VertexNormalIndexBase;

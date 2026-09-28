@@ -104,6 +104,73 @@ public sealed class RoomCorrectnessFixTests
         Assert.Equal("room attic has an entity whose \"maxs.z\" holds \"high\", not a number", refused.Message);
     }
 
+    // ---- 2. occludernumber -----------------------------------------------------
+
+    /// <summary>
+    /// Two placements with a <c>func_occluder</c> each, at each rotation:
+    /// every room compile numbers its occluders from 0, and the linker
+    /// appends the rooms' occluders one after another, so the second room's
+    /// entity must say 1 and name the occluder in its own cell, as the
+    /// flattened compile does. Before the fix the key stayed 0 and named the
+    /// first room's occluder.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Rotations))]
+    public async Task EachLinkedOccluderEntityNamesItsOwnRoomsOccluder(int rotation)
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        VmfChunk occluder = Entity("func_occluder", 700002, ("StartActive", "1"));
+        occluder.Children.Add(RoomModel.Slab(RoomHarness.Plain, new Vec3(40, 60, 16), new Vec3(56, 120, 120), 70002));
+        library.Chunks.Add(occluder);
+
+        (BspData linked, BspData whole) = await LinkAndCompileFlatAsync(library, $"hub@{rotation}, hub");
+
+        static List<int> Numbers(BspData bsp) =>
+            [.. EntityLump.Parse(bsp[BspLump.Entities]).Where(e => e.ClassName == "func_occluder")
+                .Select(e => int.Parse(e.Get("occludernumber")!, CultureInfo.InvariantCulture))];
+
+        Assert.Equal([0, 1], Numbers(whole));
+        Assert.Equal([0, 1], Numbers(linked));
+
+        // Entities come in layout order, so the k-th occluder entity is the
+        // k-th placement's: west cell first, then east.
+        OcclusionLump occlusion = OcclusionLump.Read(linked[BspLump.Occlusion]);
+        OcclusionLump reference = OcclusionLump.Read(whole[BspLump.Occlusion]);
+        for (int k = 0; k < 2; k++)
+        {
+            Box cell = new(new Vec3(k * RoomHarness.Cell, 0, 0), new Vec3((k + 1) * RoomHarness.Cell, RoomHarness.Cell, RoomHarness.Cell));
+            int named = Numbers(linked)[k];
+            Box box = new(occlusion.Occluders[named].Mins, occlusion.Occluders[named].Maxs);
+            Assert.True(box.ContainsWithin(cell, 0), $"occluder {named} at {box.Mins}-{box.Maxs} is not in cell {k}");
+            Assert.Equal(reference.Occluders[named].Mins, occlusion.Occluders[named].Mins);
+            Assert.Equal(reference.Occluders[named].Maxs, occlusion.Occluders[named].Maxs);
+        }
+    }
+
+    /// <summary>
+    /// The occluder base shifts <c>occludernumber</c> and nothing else; the
+    /// first room (base 0) keeps the key's text as written; a key that is
+    /// not an index is refused naming the room.
+    /// </summary>
+    [Fact]
+    public void OccluderNumbersShiftByTheRoomsBase()
+    {
+        RoomTransform moved = new(new RoomPlacement("r", 1, 0, 0), 256);
+        BspEntity occluder = new();
+        occluder.Pairs.Add(new BspKeyValue("classname", "func_occluder"));
+        occluder.Pairs.Add(new BspKeyValue("occludernumber", "2"));
+        occluder.Pairs.Add(new BspKeyValue("StartActive", "1"));
+
+        Assert.Equal("5", LevelLinker.MoveEntity(occluder, moved, "r", 3).Get("occludernumber"));
+        Assert.Equal("1", LevelLinker.MoveEntity(occluder, moved, "r", 3).Get("StartActive"));
+        Assert.Equal("2", LevelLinker.MoveEntity(occluder, moved, "r").Get("occludernumber"));
+
+        occluder.Pairs[1] = new BspKeyValue("occludernumber", "two");
+        Assert.Equal("two", LevelLinker.MoveEntity(occluder, moved, "r").Get("occludernumber"));
+        LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.MoveEntity(occluder, moved, "attic", 1));
+        Assert.Equal("room attic has an entity whose \"occludernumber\" holds \"two\", not an occluder index", refused.Message);
+    }
+
     // ---- helpers ---------------------------------------------------------------
 
     /// <summary>A point or brush entity chunk with an id and a class.</summary>
