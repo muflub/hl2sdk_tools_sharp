@@ -235,6 +235,9 @@ internal sealed class VisTightening : IVisFlowSplitter
     /// <summary>See <see cref="VisContext.TighteningClaimProbe"/>; null in every real compile.</summary>
     internal Action<int>? ClaimProbe { get; init; }
 
+    /// <summary>See <see cref="VisContext.TighteningSettleProbe"/>; null in every real compile.</summary>
+    internal Action<int, bool>? SettleProbe { get; init; }
+
     /// <summary>Seconds workers spent waiting for something to flow, summed over workers.</summary>
     internal double IdleSeconds => (double)_idleTicks / System.Diagnostics.Stopwatch.Frequency;
 
@@ -421,9 +424,13 @@ internal sealed class VisTightening : IVisFlowSplitter
         int before;
         int after;
         int offered;
+        bool speculated;
         lock (_gate)
         {
             before = _completed;
+
+            // Read before Settle, which releases the tree of a run it accepts.
+            speculated = _trees[rank] is { Speculated: true };
             Settle(rank);
             after = _completed;
             offered = Offered(count);
@@ -432,6 +439,10 @@ internal sealed class VisTightening : IVisFlowSplitter
         // Outside the gate: a woken worker's first act is to take the gate,
         // and it should not find this worker still holding it.
         Wake(offered);
+
+        // After the wake and outside the gate, so a fact that blocks here
+        // blocks only this worker, as the claim probe does.
+        SettleProbe?.Invoke(rank, speculated);
 
         for (int done = before + 1; done <= after; done++)
         {

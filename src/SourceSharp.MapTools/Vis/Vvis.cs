@@ -399,7 +399,11 @@ public static class Vvis
             // -nosort says), a subset of the untightened flow's and a superset
             // of stock's single-threaded one.
             VisPortalFlow?[] workers = new VisPortalFlow?[Math.Max(1, queue.Degree)];
-            VisTightening tightening = new(state) { ClaimProbe = context.TighteningClaimProbe };
+            VisTightening tightening = new(state)
+            {
+                ClaimProbe = context.TighteningClaimProbe,
+                SettleProbe = context.TighteningSettleProbe,
+            };
             await tightening.RunAsync(
                 queue,
                 workers,

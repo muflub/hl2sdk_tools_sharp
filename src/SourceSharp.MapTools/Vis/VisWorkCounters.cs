@@ -45,13 +45,31 @@ namespace SourceSharp.MapTools.Vis;
 /// Dividing by the counters below compares the same operation.
 /// </para>
 /// <para>
-/// Every one of these is a pure function of the map and the options, and in
-/// particular is the same at one thread and at thirty-two -- the same property
-/// the output has, from the same choice. So a change in one of them across a
-/// 2b optimisation is a change in the ANSWER, and is a defect. That makes them
-/// a second, independent check on the byte-identity gate: bytes can agree while
-/// the work behind them differs only if the extra work was wasted, which is
-/// worth knowing either way.
+/// <b>When they are a function of the map, and when they are not.</b>
+/// <see cref="BaseRays"/> always is: the base pass reads nothing another
+/// portal writes. The three flow counters are a function of the map and the
+/// options on the UNTIGHTENED walk (<c>-loose</c>) at any thread count, and
+/// on the tightened walk -- the default -- at ONE thread, where every
+/// neighbour a flow reads has finished before it starts and the walk is
+/// stock's own, read for read. On the tightened walk at more than one
+/// worker they are a property of the schedule: a flow may read a neighbour
+/// that is still being flowed, and <see cref="VisTightening"/> then judges
+/// the run once that neighbour finishes and walks it again if the read
+/// missed anything. How many chains the first walk took, whether a second
+/// one happens, and how much of the tree it may skip all depend on how far
+/// the neighbour had got. The ANSWER does not: that is what the tightening
+/// proves and what the byte-identity facts pin.
+/// </para>
+/// <para>
+/// So on the schedule-invariant arms a change in one of these across an
+/// optimisation is a change in the answer, and a defect -- a second,
+/// independent check on the byte-identity gate: bytes can agree while the
+/// work behind them differs only if the extra work was wasted. Elsewhere they
+/// are a diagnostic of one run: compare them only between runs of the same
+/// arm at one thread, and never write them into an artefact that must be a
+/// function of its input. The <c>.room</c> container used to, and a room
+/// compiled twice came out with different bytes; it no longer does (see
+/// <see cref="Rooms.RoomObjectStore"/>).
 /// </para>
 /// </remarks>
 public readonly record struct VisWorkCounters(long Chains, long Candidates, long SeparatorClips, long BaseRays)

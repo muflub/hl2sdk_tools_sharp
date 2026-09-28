@@ -267,6 +267,11 @@ cell's corner and size, and each door's wall, plug box (in library
 coordinates) and size. It reads and checks the library exactly as
 `ssmap room` does, so a library it lists is one the compile accepts.
 
+A `.room` file is a function of its inputs: the same library room and
+`ssmap` build write the same bytes at any `-threads` and on every run. (The
+work counters and deepest flow that `ssmap vvis` reports depend on the
+schedule, so a `.room` file does not store them.)
+
 A **room library** is one VMF holding every room of a set, each in its own
 cell with gaps between them, and each marked by an `info_room` point entity
 at the cell's low corner (least x, y and z). Its keys:
