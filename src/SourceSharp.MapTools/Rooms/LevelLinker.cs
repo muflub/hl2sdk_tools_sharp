@@ -15,6 +15,7 @@ using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Materials;
 using SourceSharp.MapTools.Parallel;
+using SourceSharp.MapTools.Validation;
 using SourceSharp.MapTools.Vis;
 
 namespace SourceSharp.MapTools.Rooms;
@@ -230,6 +231,8 @@ public static partial class LevelLinker
         }
 
         byte[] visibilityLump = BuildVisibilityLump(clusterCount, rowBytes, pvs, pvs);
+        RoomInstance lastRoom = plans[^1].Placement.Instance;
+        LimitVisibility(plans[^1].Placement.Room.Definition.Name, lastRoom.Placement.CellX, lastRoom.Placement.CellY, visibilityLump.Length);
 
         BspData linked = Assemble(plans, layout, visibilityLump, context, cancellationToken);
 
@@ -379,6 +382,10 @@ public static partial class LevelLinker
 
         public int Brushes { get; init; }
 
+        public int BrushSides { get; init; }
+
+        public int TexDatas { get; init; }
+
         public int LeafFaces { get; init; }
 
         public int Leaves { get; init; }
@@ -403,6 +410,8 @@ public static partial class LevelLinker
             TexInfos = BspStructView.Count<TexInfo>(bsp[BspLump.TexInfo]),
             Faces = BspStructView.Count<DFace>(bsp[BspLump.Faces]),
             Brushes = BspStructView.Count<DBrush>(bsp[BspLump.Brushes]),
+            BrushSides = BspStructView.Count<DBrushSide>(bsp[BspLump.BrushSides]),
+            TexDatas = BspStructView.Count<DTexData>(bsp[BspLump.TexData]),
             LeafFaces = BspStructView.Count<ushort>(bsp[BspLump.LeafFaces]),
             Leaves = BspStructView.Count<DLeaf>(bsp[BspLump.Leafs]),
             StringTable = BspStructView.Count<int>(bsp[BspLump.TexDataStringTable]),
@@ -419,21 +428,40 @@ public static partial class LevelLinker
     /// the moment it passes the narrowest field that carries it.
     /// </summary>
     /// <remarks>
-    /// Each limit is the narrowest field that holds an index into (or a count
-    /// of) that lump: a face's plane number and a brush side's are
+    /// <para>
+    /// Most limits are the narrowest field that holds an index into (or a
+    /// count of) that lump: a face's plane number and a brush side's are
     /// <c>ushort</c>, a face's and a brush side's texinfo is <c>short</c>, a
     /// leaf's cluster is <c>short</c>, an edge's vertices, a leaf's face and
     /// brush runs, a node's first face, a face's first primitive, a
     /// primitive's first index and vertex, a vertex-normal index and a macro
     /// texture's name id are <c>ushort</c>. A sum past its field would wrap
     /// silently in the cast that writes it and point into some other room.
+    /// </para>
+    /// <para>
+    /// Four totals the engine's loader caps below their field's width
+    /// (<see cref="BspLimits.Caps"/>, what <c>ssmap check</c> reports):
+    /// texdatas, brushes, brush sides and texinfos. Every room brings its own
+    /// texdata and brushes, so a level of a few hundred rooms passes
+    /// <c>MAX_MAP_TEXDATA</c> (2048) and <c>MAX_MAP_BRUSHES</c> (8192) long
+    /// before any field fills, and the engine would refuse to load the map.
+    /// </para>
+    /// <para>
     /// The planes start at 2 (the top tree's first pair) and the leaves at 1
     /// (the shared solid leaf), as the bases do.
+    /// </para>
     /// </remarks>
     internal sealed class LinkTotals
     {
-        private long _vertices, _planes = 2, _texInfos, _faces, _brushes, _leafFaces, _leaves = 1, _stringTable,
-            _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters;
+        private static int Cap(BspLump lump) => BspLimits.Caps.First(c => c.Lump == lump).Max;
+
+        private readonly int _texDataCap = Cap(BspLump.TexData);
+        private readonly int _brushCap = Cap(BspLump.Brushes);
+        private readonly int _brushSideCap = Cap(BspLump.BrushSides);
+        private readonly int _texInfoCap = Cap(BspLump.TexInfo);
+
+        private long _vertices, _planes = 2, _texInfos, _texDatas, _faces, _brushes, _brushSides, _leafFaces, _leaves = 1,
+            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters;
 
         /// <summary>Adds one room, refusing the first total it pushes past its limit.</summary>
         public void Add(LinkCounts counts, string room, int cellX, int cellY)
@@ -441,8 +469,10 @@ public static partial class LevelLinker
             _vertices += counts.Vertices;
             _planes += counts.Planes;
             _texInfos += counts.TexInfos;
+            _texDatas += counts.TexDatas;
             _faces += counts.Faces;
             _brushes += counts.Brushes;
+            _brushSides += counts.BrushSides;
             _leafFaces += counts.LeafFaces;
             _leaves += counts.Leaves;
             _stringTable += counts.StringTable;
@@ -454,9 +484,11 @@ public static partial class LevelLinker
 
             Limit(room, cellX, cellY, "vertices", _vertices, ushort.MaxValue + 1);
             Limit(room, cellX, cellY, "planes", _planes, ushort.MaxValue + 1);
-            Limit(room, cellX, cellY, "texinfos", _texInfos, short.MaxValue + 1);
+            LoaderLimit(room, cellX, cellY, "texinfos", _texInfos, _texInfoCap, "MAX_MAP_TEXINFO");
+            LoaderLimit(room, cellX, cellY, "texdatas", _texDatas, _texDataCap, "MAX_MAP_TEXDATA");
             Limit(room, cellX, cellY, "faces", _faces, ushort.MaxValue + 1);
-            Limit(room, cellX, cellY, "brushes", _brushes, ushort.MaxValue + 1);
+            LoaderLimit(room, cellX, cellY, "brushes", _brushes, _brushCap, "MAX_MAP_BRUSHES");
+            LoaderLimit(room, cellX, cellY, "brush sides", _brushSides, _brushSideCap, "MAX_MAP_BRUSHSIDES");
             Limit(room, cellX, cellY, "leaf faces", _leafFaces, ushort.MaxValue + 1);
             Limit(room, cellX, cellY, "leaves", _leaves, ushort.MaxValue + 1);
             Limit(room, cellX, cellY, "texdata string table entries", _stringTable, ushort.MaxValue);
@@ -488,6 +520,35 @@ public static partial class LevelLinker
             what,
             count,
             max);
+
+    /// <summary>
+    /// Refuses a count past what the engine's loader accepts
+    /// (<see cref="BspLimits.Caps"/>), naming the room and cell that crossed
+    /// it and the loader's constant.
+    /// </summary>
+    internal static void LoaderLimit(string room, int cellX, int cellY, string what, long count, long max, string constant)
+    {
+        if (count > max)
+        {
+            throw new LinkException(
+                $"room {room} at cell ({cellX}, {cellY}) pushes the link to {count} {what};"
+                + $" the engine loads at most {max} ({constant}).");
+        }
+    }
+
+    /// <summary>
+    /// Refuses a visibility lump past <c>MAX_MAP_VISIBILITY</c>, which the
+    /// loader caps on its bytes; names the last room, since every room's rows
+    /// are in it.
+    /// </summary>
+    /// <remarks>
+    /// A linked level's rows are the closure of its whole door graph, and
+    /// every room of a level is reachable, so the rows are close to full and
+    /// the lump grows with the square of the clusters: 8.9 MB at 6,000.
+    /// Run-length compression only shortens runs of zeros.
+    /// </remarks>
+    internal static void LimitVisibility(string room, int cellX, int cellY, int bytes) =>
+        LoaderLimit(room, cellX, cellY, "visibility bytes", bytes, BspLimits.MaxMapVisibilityBytes, "MAX_MAP_VISIBILITY");
 
     /// <summary>Refuses a count past what its field can carry, naming the room and cell that crossed it.</summary>
     private static void Limit(string room, int cellX, int cellY, string what, long count, long max)

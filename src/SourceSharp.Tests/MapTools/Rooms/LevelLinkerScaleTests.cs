@@ -76,7 +76,7 @@ public sealed class LevelLinkerScaleTests
 
         LinkException refused = await Assert.ThrowsAsync<LinkException>(
             async () => await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync()));
-        Assert.Contains("the format carries at most", refused.Message, StringComparison.Ordinal);
+        Assert.Contains(" pushes the link to ", refused.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("area portal", refused.Message, StringComparison.Ordinal);
     }
 
@@ -102,6 +102,10 @@ public sealed class LevelLinkerScaleTests
             ("leaves", counts.Leaves, 1, ushort.MaxValue + 1),
             ("leaf faces", counts.LeafFaces, 0, ushort.MaxValue + 1),
             ("primitive indices", counts.PrimitiveIndices, 0, ushort.MaxValue + 1),
+            ("texinfos", counts.TexInfos, 0, 12288),
+            ("texdatas", counts.TexDatas, 0, 2048),
+            ("brushes", counts.Brushes, 0, 8192),
+            ("brush sides", counts.BrushSides, 0, 65536),
         ];
         (string what, long crossing) = fields
             .Where(f => f.perRoom > 0)
@@ -114,7 +118,7 @@ public sealed class LevelLinkerScaleTests
         LevelLayout over = Line(library, (int)crossing);
         LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(over, library));
         Assert.StartsWith($"room hub at cell ({crossing - 1}, 0) pushes the link to ", refused.Message, StringComparison.Ordinal);
-        Assert.Contains($" {what}; the format carries at most ", refused.Message, StringComparison.Ordinal);
+        Assert.Contains($" {what}; the ", refused.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -133,6 +137,60 @@ public sealed class LevelLinkerScaleTests
         LinkException refused = Assert.Throws<LinkException>(() => totals.CheckClusters("c", 2, 0));
         Assert.Equal(
             $"room c at cell (2, 0) pushes the link to {short.MaxValue + 1} clusters; the format carries at most {short.MaxValue}.",
+            refused.Message);
+    }
+
+    /// <summary>
+    /// Totals the engine's loader caps below their field's width are refused
+    /// at the loader's cap, not the field's: a linked map past
+    /// <c>MAX_MAP_TEXDATA</c>, <c>MAX_MAP_BRUSHES</c>,
+    /// <c>MAX_MAP_BRUSHSIDES</c> or <c>MAX_MAP_TEXINFO</c> is one the engine
+    /// refuses to load (and <c>ssmap check</c> reports), so the link must not
+    /// write it.
+    /// </summary>
+    [Theory]
+    [InlineData("texdatas", 2048, "MAX_MAP_TEXDATA")]
+    [InlineData("brushes", 8192, "MAX_MAP_BRUSHES")]
+    [InlineData("brush sides", 65536, "MAX_MAP_BRUSHSIDES")]
+    [InlineData("texinfos", 12288, "MAX_MAP_TEXINFO")]
+    public void TotalsPastTheLoadersCapsAreRefused(string what, int cap, string constant)
+    {
+        LevelLinker.LinkCounts Half() => what switch
+        {
+            "texdatas" => new() { TexDatas = cap / 2 },
+            "brushes" => new() { Brushes = cap / 2 },
+            "brush sides" => new() { BrushSides = cap / 2 },
+            _ => new() { TexInfos = cap / 2 },
+        };
+
+        LevelLinker.LinkTotals totals = new();
+        totals.Add(Half(), "a", 0, 0);
+        totals.Add(Half(), "b", 1, 0); // exactly the cap: loads
+        LinkException refused = Assert.Throws<LinkException>(() => totals.Add(new LevelLinker.LinkCounts() with
+        {
+            TexDatas = what == "texdatas" ? 1 : 0,
+            Brushes = what == "brushes" ? 1 : 0,
+            BrushSides = what == "brush sides" ? 1 : 0,
+            TexInfos = what == "texinfos" ? 1 : 0,
+        }, "c", 2, 0));
+        Assert.Equal(
+            $"room c at cell (2, 0) pushes the link to {cap + 1} {what}; the engine loads at most {cap} ({constant}).",
+            refused.Message);
+    }
+
+    /// <summary>
+    /// The visibility lump is capped on its bytes (<c>MAX_MAP_VISIBILITY</c>,
+    /// 16 MB): a linked level's rows are its whole door graph's closure, so
+    /// they grow with the square of the clusters and can pass the cap before
+    /// any count does.
+    /// </summary>
+    [Fact]
+    public void AVisibilityLumpPastTheLoadersCapIsRefused()
+    {
+        LevelLinker.LimitVisibility("a", 3, 4, 0x1000000);
+        LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.LimitVisibility("a", 3, 4, 0x1000001));
+        Assert.Equal(
+            "room a at cell (3, 4) pushes the link to 16777217 visibility bytes; the engine loads at most 16777216 (MAX_MAP_VISIBILITY).",
             refused.Message);
     }
 
