@@ -8,6 +8,16 @@ tools/PerfTraceReport/obj/
 __pycache__/
 tools/SyntheticContent/bin/
 tools/SyntheticContent/obj/
+tools/RoomsSample/bin/
+tools/RoomsSample/obj/
+# What the 3x3 rooms sample's README commands write inside the sample folder:
+# the compiled rooms, the linked map, and the reference compile's outputs.
+samples/rooms-3x3/rooms/
+samples/rooms-3x3/out/
+samples/rooms-3x3/maps/*.bsp
+samples/rooms-3x3/maps/*.prt
+samples/rooms-3x3/maps/*.log
+samples/rooms-3x3/maps/*.lin
 # Compile output beside the corpus maps: maps/ is test corpus, and a compile
 # run in place (ssmap all maps/ss_sandbox.vmf) writes these next to the .vmf.
 maps/*.bsp

@@ -80,6 +80,15 @@ jobs:
       - name: Build
         run: dotnet build src/SourceSharp.MapTools.slnx -c Release --no-restore
 
+      # The tool that regenerates samples/rooms-3x3 is outside the solution,
+      # like SyntheticContent; building it here keeps it compiling, and its
+      # --check says which sample file is stale in the log, beside the fact
+      # (Rooms3x3SampleTests) that fails for the same reason.
+      - name: Rooms sample is current
+        run: |
+          dotnet build tools/RoomsSample/RoomsSample.csproj -c Release
+          dotnet tools/RoomsSample/bin/Release/net10.0/RoomsSample.dll --check samples/rooms-3x3
+
       - name: Test
         env:
           SS_CAPTURE_VENDOR_GOLDENS: ${{ inputs.capture && '1' || '' }}

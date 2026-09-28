@@ -417,8 +417,44 @@ public static partial class LevelLinker
                 }
             }
 
-            MarkPlugFaces(plan, plug, BspLump.Faces, plan.StrippedFaces);
-            MarkPlugFaces(plan, plug, BspLump.OriginalFaces, plan.StrippedOrigFaces);
+            MarkPlugFaces(plan, plug);
+        }
+
+        MarkPlugOriginalFaces(plan);
+    }
+
+    /// <summary>
+    /// The plug's original faces: the ones its stripped drawn faces were cut
+    /// from, each with the room-local texinfo of such a drawn face.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An original face's own texinfo cannot say whether it is a plug face,
+    /// because it is not a texinfo of the compile. vbsp compacts the texinfo
+    /// table after the faces are written, renumbering the drawn faces, the
+    /// brush sides and the water data but not the original faces; so a room
+    /// whose compaction dropped or folded
+    /// a texinfo (a player clip's or a grate's side, say) carries original
+    /// faces that name the old table, past the end of the new one or at an
+    /// unrelated entry. The drawn face's <c>OrigFace</c> link is kept by the
+    /// compile and is exact, so the plug's drawn faces name its original
+    /// faces, and lend them the texinfo the nodraw copy is made from.
+    /// </para>
+    /// <para>
+    /// A plug original face no drawn face came from is not found, and does
+    /// not need to be: it never drew in the room either.
+    /// </para>
+    /// </remarks>
+    private static void MarkPlugOriginalFaces(RoomPlan plan)
+    {
+        ReadOnlySpan<DFace> faces = BspStructView.As<DFace>(plan.Bsp[BspLump.Faces]);
+        foreach (int f in plan.StrippedFaces.Order())
+        {
+            DFace face = faces[f];
+            if (face.OrigFace >= 0)
+            {
+                plan.StrippedOrigFaces.TryAdd(face.OrigFace, face.TexInfo);
+            }
         }
     }
 
@@ -436,11 +472,12 @@ public static partial class LevelLinker
         return false;
     }
 
-    /// <summary>The trigger-surfaced faces of one lump whose every vertex lies in the plug box.</summary>
-    private static void MarkPlugFaces(RoomPlan plan, Box plug, BspLump lump, HashSet<int> into)
+    /// <summary>The trigger-surfaced drawn faces whose every vertex lies in the plug box.</summary>
+    private static void MarkPlugFaces(RoomPlan plan, Box plug)
     {
         BspData bsp = plan.Bsp;
-        ReadOnlySpan<DFace> faces = BspStructView.As<DFace>(bsp[lump]);
+        HashSet<int> into = plan.StrippedFaces;
+        ReadOnlySpan<DFace> faces = BspStructView.As<DFace>(bsp[BspLump.Faces]);
         ReadOnlySpan<TexInfo> texInfos = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]);
         ReadOnlySpan<int> surfEdges = BspStructView.As<int>(bsp[BspLump.SurfEdges]);
         ReadOnlySpan<DEdge> edges = BspStructView.As<DEdge>(bsp[BspLump.Edges]);
@@ -516,8 +553,12 @@ public static partial class LevelLinker
         /// <summary>The room-local drawn faces of jointed plugs.</summary>
         public HashSet<int> StrippedFaces { get; } = [];
 
-        /// <summary>The room-local original faces of jointed plugs.</summary>
-        public HashSet<int> StrippedOrigFaces { get; } = [];
+        /// <summary>
+        /// The room-local original faces of jointed plugs, each with the
+        /// room-local texinfo of a stripped drawn face cut from it (an
+        /// original face's own texinfo is not one of the compile's).
+        /// </summary>
+        public Dictionary<int, short> StrippedOrigFaces { get; } = [];
 
         /// <summary>The solid leaves jointed plugs made, with the doorway each yields.</summary>
         public List<PlugCarve> Carves { get; } = [];

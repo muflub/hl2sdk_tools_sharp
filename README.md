@@ -53,6 +53,7 @@ src/
 game/                                     test game directories with gameinfo.txt
 maps/ss_sandbox.vmf                       the generated sandbox map
 maps/sdk_ctf_2fort.vmf                    Valve's SDK 2fort, a full-size map for perf runs
+samples/rooms-3x3/                        the rooms sample: five rooms, a 3x3 level, its reference VMFs
 ```
 
 ### `SourceSharp.MapFormats`
@@ -259,8 +260,8 @@ ssmap link <layout.json> [-rooms <dir>] [-out <map.bsp>]
 ```
 
 `room` compiles one room's VMF into `<dir>/<name>.room`. The room definition
-is read from the sidecar next to the VMF (`<base>.roomdef.json`) unless
-`-def` names another. `link` joins every `*.room` in a directory into one
+is read from the sidecar next to the VMF (the VMF's file name plus
+`.roomdef.json`: `hub.vmf.roomdef.json`) unless `-def` names another. `link` joins every `*.room` in a directory into one
 map, following a `layout.json` that names the rooms, cells, joints and caps.
 Linking needs no game directory.
 
@@ -276,6 +277,11 @@ props, packed files, displacements, water, and a mix of cooked and
 because in the room's compile they faced the plug, so they draw as a gap
 unless something placed in the socket (a door frame model, say) covers
 them.
+
+`samples/rooms-3x3/` is a worked example: five room kinds, a 3x3 level and
+its turns as layouts, and each level as one monolithic VMF. Its README runs
+it through `room`, `link` and `vbsp`, and the test suite checks the linked
+map against the monolithic compile across rearrangements of the level.
 
 ### Instruments
 
