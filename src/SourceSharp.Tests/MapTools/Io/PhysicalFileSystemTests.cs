@@ -282,4 +282,35 @@ public class PhysicalFileSystemTests
             [VPath.Create("materials/a.vmt"), VPath.Create("materials/metal/b.vmt")],
             found);
     }
+
+    /// <summary>
+    /// A file system at a drive root answers for other drives too, keeping
+    /// the drive: on Windows a game on another drive than the one the command
+    /// runs from failed to mount, its directory listing refused as "not
+    /// below the root".
+    /// </summary>
+    [Theory]
+    [InlineData(@"D:\", @"C:\Users\me\mod\gameinfo.txt", "C:/Users/me/mod/gameinfo.txt")]
+    [InlineData(@"D:", @"e:\Steam\steamapps", "e:/Steam/steamapps")]
+    [InlineData("D:/", "C:/x/y.vmt", "C:/x/y.vmt")]
+    public void ADriveRootMapsAPathOnAnotherDriveWithItsDrive(string root, string full, string expected)
+    {
+        Assert.True(PhysicalFileSystem.TryMapAcrossDrives(root, full, out VPath path));
+        Assert.Equal(expected, path.Value);
+    }
+
+    /// <summary>
+    /// Everything else still refuses: the same drive (the prefix test's
+    /// case, not this one's), a root that is a directory rather than a drive
+    /// (containment is why a file system is rooted there), a host path with
+    /// no drive, and a POSIX root.
+    /// </summary>
+    [Theory]
+    [InlineData(@"D:\", @"d:\elsewhere\a.txt")]
+    [InlineData(@"D:\work", @"C:\Users\a.txt")]
+    [InlineData(@"D:\", @"\\server\share\a.txt")]
+    [InlineData("/", "/home/me/a.txt")]
+    [InlineData("/", @"C:\a.txt")]
+    public void AnythingElseIsNotMappedAcrossDrives(string root, string full) =>
+        Assert.False(PhysicalFileSystem.TryMapAcrossDrives(root, full, out _));
 }
