@@ -139,6 +139,23 @@ dotnet run --project tools/RoomsSample -c Release -- --check samples/rooms-3x3  
 dotnet run --project tools/RoomsSample -c Release -- --list                     # the levels the tests check
 ```
 
+### A large library for stress runs
+
+`--stress` writes a game folder like this one whose library holds many
+distinct rooms on the same kit (1024 by default, up to 2160): the five kinds,
+each varied by where its feature stands, its size, extra corner blocks and
+lights (`RoomsStressLibrary`). The library is about 22 MB for 1024 rooms, so
+it is written to a scratch folder and never checked in:
+
+```sh
+dotnet run --project tools/RoomsSample -c Release -- --stress /tmp/rooms-stress        # 1024 rooms
+dotnet run --project tools/RoomsSample -c Release -- --stress /tmp/rooms-stress 200    # a smaller one
+cd /tmp/rooms-stress
+ssmap room rooms.vmf -game . -out rooms
+ssmap layout rooms.vmf -rows 16 -columns 16 -seed 1 -out levels/l16.yaml
+ssmap link levels/l16.yaml -rooms rooms -out out/l16.bsp
+```
+
 `Rooms3x3SampleTests.TheCheckedInSampleIsWhatTheGeneratorWrites` fails when
 this folder and the generator disagree, and
 `Rooms3x3CommandsTests.TheSampleSeededLevelsAreWhatSsmapLayoutWrites` when
