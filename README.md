@@ -778,6 +778,96 @@ Other switches:
 
 `tools/compile-perf.sh --help` lists every option.
 
+### Against the stock tools and Tools++
+
+`tools/toolchain-bench.sh` compiles the same maps with the stock SDK 2013
+compilers, Tools++ and `ssmap`, and times each stage:
+
+    tools/toolchain-bench.sh                     # ss_sandbox and 2fort
+    tools/toolchain-bench.sh --map dustbowl=path/to/sdk_cp_dustbowl.vmf:game/mod_tf --runs 5
+
+Each toolset runs its own vbsp, vvis and vrad chain. The runs are
+interleaved, and every map starts with an untimed warm-up per toolset. The
+Windows tools run under wine: Proton Experimental's wine is used when it is
+installed, with the prefix `~/.local/share/source-sdk-wineprefix`. They
+cannot mount `|appid_N|` paths, so each game directory's search paths are
+rewritten into a gameinfo of the run's own, with absolute paths.
+
+- **Stock tools:** found through Steam, in app 243750's `bin/x64`.
+- **Tools++:** read from `~/Downloads/tools_plusplus` (its `tools/` and
+  `compatibility/` folders). Its vbsp always gets `-matsyscompat`. Without
+  it, Tools++ cannot load the SDK 2013 and TF2 textures, and it writes an
+  unlit map in a fraction of the time.
+
+Every output is checked as well as timed. A chain whose map has no lighting
+is reported as a failure, not a time. `summary.md` lists each toolset's
+visibility and lighting lump sizes and its "not found" log lines next to its
+numbers.
+
+The toolsets:
+
+- `stock`: the SDK 2013 compilers under wine.
+- `pp`: Tools++ under wine.
+- `ssmap`: the Release build on the JIT.
+- `ssmap-aot`: the same ssmap published with NativeAOT to `bin/aot/ssmap`.
+  The script publishes it unless `--no-build` is given. The chain runs
+  one process per stage, as the stock tools do, and AOT skips the .NET
+  start-up and JIT that each of those processes otherwise pays.
+
+`--toolsets` picks a subset.
+
+#### Results
+
+Measured with `tools/toolchain-bench.sh` at 0e907eb:
+
+- Machine: Ryzen 9 9950X (16 cores, 32 threads) on Linux.
+- Each tool's default options and thread count.
+- Median of 3 timed chains after one warm-up.
+- Wall seconds per stage.
+
+`ss_sandbox`:
+
+| toolset | vbsp | vvis | vrad | total | vs stock |
+|---|---:|---:|---:|---:|---:|
+| stock | 0.30 | 0.14 | 9.92 | 10.37 | 1.00× |
+| Tools++ | 0.24 | 0.05 | 8.95 | 9.24 | 0.89× |
+| ssmap (JIT) | 0.67 | 0.08 | 3.19 | 3.94 | 0.38× |
+| ssmap (AOT) | 0.15 | 0.01 | 1.45 | 1.61 | 0.16× |
+
+`sdk_ctf_2fort`:
+
+| toolset | vbsp | vvis | vrad | total | vs stock |
+|---|---:|---:|---:|---:|---:|
+| stock | 5.64 | 9.57 | 31.25 | 46.38 | 1.00× |
+| Tools++ | 4.80 | 2.59 | 7.92 | 15.30 | 0.33× |
+| ssmap (JIT) | 3.99 | 5.62 | 9.01 | 18.51 | 0.40× |
+| ssmap (AOT) | 1.62 | 5.67 | 7.39 | 14.77 | 0.32× |
+
+All four toolsets produced lit maps with the same lighting size, to within
+0.2%.
+
+What the numbers say:
+
+- **ssmap AOT is the fastest chain on both maps.** On the small sandbox the
+  JIT's start-up is most of ssmap's time: 3.94 s against 1.61 s. vrad is
+  where ssmap gains most over stock, and ssmap's vbsp is the fastest of the
+  four.
+- **Tools++'s vvis is about twice as fast as ssmap's on 2fort.** vvis is the
+  one stage ssmap does not lead. Tools++ keeps its visibility bit vectors per
+  cluster, where stock and ssmap keep them per portal. On 2fort that makes
+  each vector about a fifth of the size, and every step of the portal flow
+  reads and writes those vectors. Tools++ also vectorises those loops with
+  AVX2.
+- **ssmap's 2fort tree is not the same as stock's.** ssmap's vbsp writes
+  2680 clusters and 6760 portals, against stock's 2480 and 6339. That is
+  why ssmap's visibility lump is larger (765,671 bytes against 660,492), and
+  it adds to vvis's work. Stock vbsp and ssmap's differ there, and the
+  difference is not yet in the compliance catalogue, so it is a bug to find,
+  not a result.
+
+The sandbox numbers are small enough that process start-up dominates. 2fort
+is the one to compare compilers on.
+
 ### Without the Steam content
 
 `--synthetic` (with `--strip-steam` on a machine without the game) adds
