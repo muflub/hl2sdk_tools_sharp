@@ -68,9 +68,10 @@ public sealed class StageCacheChainTests
         return e;
     }
 
-    private static async Task<CompileResult> CompileAsync(VmfDocument document, ICacheStore? store, bool overlap = false)
+    private static async Task<CompileResult> CompileAsync(
+        VmfDocument document, ICacheStore? store, bool overlap = false, TimeProvider? fileClock = null)
     {
-        InMemoryFileSystem files = new();
+        InMemoryFileSystem files = new(fileClock ?? TimeProvider.System);
         files.AddText($"materials/{UnitMap.Plain}.vmt", "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n}\n");
         files.AddText("maps/room.vmf", Encoding.UTF8.GetString(document.ToBytes()));
         IContentFileSystem content = new ContentFileSystem([await DirectoryContentMount.MountAsync(files, VPath.Empty)]);
@@ -124,6 +125,40 @@ public sealed class StageCacheChainTests
         Assert.Equal(await BytesAsync(fresh.Bsp!), await BytesAsync(replayed.Bsp!));
         Assert.Equal(fresh.Vis!.VisDataSize, replayed.Vis!.VisDataSize);
         Assert.Equal(fresh.Vis.Pvs(0).ToArray(), replayed.Vis.Pvs(0).ToArray());
+    }
+
+    // Content, never mtimes: no key and no re-hash may read a modification
+    // time. The two facts below pin both directions of the rule, the files'
+    // times coming from a clock the fact sets.
+
+    [Fact]
+    public async Task TheSameFilesWithNewModificationTimesStillHit()
+    {
+        InMemoryCacheStore store = await StoreAsync();
+        DateTimeOffset then = new(2020, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        _ = await CompileAsync(Room(), store, fileClock: new CompileCacheLifecycleTests.FixedTime(then));
+
+        CompileResult touched = await CompileAsync(
+            Room(), store, fileClock: new CompileCacheLifecycleTests.FixedTime(then.AddYears(3)));
+
+        Assert.Equal(["vvis", "vrad.transfers"], touched.Cache!.StageHits);
+        Assert.Empty(touched.Cache.StageMisses);
+    }
+
+    [Fact]
+    public async Task ChangedFilesWithTheOldModificationTimesStillMiss()
+    {
+        // What a restore that keeps modification times does: new bytes under
+        // the old stamps. The edit must still be seen.
+        InMemoryCacheStore store = await StoreAsync();
+        TimeProvider stamp = new CompileCacheLifecycleTests.FixedTime(new(2020, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        _ = await CompileAsync(Room(), store, fileClock: stamp);
+
+        CompileResult edited = await CompileAsync(Room(extraBrush: true), store, fileClock: stamp);
+        CompileResult fresh = await CompileAsync(Room(extraBrush: true), null);
+
+        Assert.Empty(edited.Cache!.StageHits);
+        Assert.Equal(await BytesAsync(fresh.Bsp!), await BytesAsync(edited.Bsp!));
     }
 
     [Fact]

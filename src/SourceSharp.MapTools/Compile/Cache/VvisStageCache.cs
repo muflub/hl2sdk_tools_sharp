@@ -51,7 +51,20 @@ public sealed class VvisStageCache
     private readonly CachePolicy _policy;
     private readonly IReadOnlyList<string> _contextTags;
     private readonly CacheRunCounters _counters;
-    private readonly long _createdAtMs;
+
+    /// <summary>
+    /// The run's generation stamp (Unix milliseconds) every row and blob this
+    /// seam stages carries; the time the seam was built unless the chain sets
+    /// it.
+    /// </summary>
+    /// <remarks>
+    /// The chain gives all of a compile's seams its one start stamp and
+    /// records it as the store's generation on commit, so the GC can tell
+    /// which rows the newest <see cref="CachePolicy.GenerationsKept"/>
+    /// compiles made (<see cref="CacheCollector"/>). Seams built each with
+    /// their own clock reading would scatter one compile over several stamps.
+    /// </remarks>
+    public long CreatedAtMs { get; init; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
     /// <summary>Builds the seam over one store for one run.</summary>
     /// <param name="store">The open store.</param>
@@ -70,7 +83,6 @@ public sealed class VvisStageCache
         _policy = policy;
         _contextTags = contextTags;
         _counters = counters;
-        _createdAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     }
 
     /// <summary>Whether a run with these options may use the cache at all.</summary>
@@ -221,6 +233,7 @@ public sealed class VvisStageCache
         bsp[BspLump.Leafs] = new BspLumpData(blobs["leafs"], leafVersion, 0);
         bsp.SetLump(BspLump.LeafMinDistToWater, blobs["water"]);
 
+        await CacheBlobReader.RenewAsync(_store, _policy, record, CreatedAtMs, cancellationToken).ConfigureAwait(false);
         _counters.StageHit(StageName, blobs.Values.Sum(b => (long)b.Length), record.CostMs);
         return result;
     }
@@ -275,7 +288,7 @@ public sealed class VvisStageCache
             string blobKey = CacheKey.HashBytes(data);
             if (!await _store.HasBlobAsync(blobKey, cancellationToken).ConfigureAwait(false))
             {
-                await _store.PutBlobAsync(blobKey, data, ToolIdentity.Current, _createdAtMs, cancellationToken).ConfigureAwait(false);
+                await _store.PutBlobAsync(blobKey, data, ToolIdentity.Current, CreatedAtMs, cancellationToken).ConfigureAwait(false);
             }
 
             blobs[role] = blobKey;
@@ -283,7 +296,7 @@ public sealed class VvisStageCache
         }
 
         await _store.PutAsync(
-            new CacheRecord(key.Digest, key.Stage, key.ToolId, key.ContextTags, key.Parts, blobs, [], costMs, _createdAtMs),
+            new CacheRecord(key.Digest, key.Stage, key.ToolId, key.ContextTags, key.Parts, blobs, [], costMs, CreatedAtMs),
             cancellationToken).ConfigureAwait(false);
         _counters.Stored(bytes);
     }
@@ -331,14 +344,6 @@ public sealed class VvisStageCache
             Int(7) != 0, BinaryPrimitives.ReadDoubleLittleEndian(b.AsSpan(36)), Int(8), VisWorkCounters.Zero, trace: null);
     }
 
-    private async ValueTask<byte[]?> ReadCheckedAsync(string blobKey, CancellationToken cancellationToken)
-    {
-        if (!CacheKey.LooksLikeDigest(blobKey))
-        {
-            return null;
-        }
-
-        byte[]? data = await _store.GetBlobAsync(blobKey, cancellationToken).ConfigureAwait(false);
-        return data is not null && CacheKey.HashBytes(data) == blobKey ? data : null;
-    }
+    private ValueTask<byte[]?> ReadCheckedAsync(string blobKey, CancellationToken cancellationToken) =>
+        CacheBlobReader.ReadAsync(_store, _policy, blobKey, cancellationToken);
 }

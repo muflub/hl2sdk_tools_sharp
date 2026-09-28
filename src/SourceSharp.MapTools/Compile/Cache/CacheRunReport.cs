@@ -22,8 +22,14 @@ public static class CacheRunReport
     /// The store's size/GC figures, read by the caller while it is on an
     /// async path — rendering never blocks (the sync-over-async gate).
     /// </param>
+    /// <param name="storeUnusable">
+    /// True when the run had a store that was not usable (it failed to open,
+    /// or was found damaged): the run was cold, and the report says so rather
+    /// than showing the zero figures an unusable store reports, which read as
+    /// an empty store.
+    /// </param>
     /// <returns>The report text (no trailing newline).</returns>
-    public static string Render(CacheRunCounters? counters, CacheStats? stats = null)
+    public static string Render(CacheRunCounters? counters, CacheStats? stats = null, bool storeUnusable = false)
     {
         if (counters is null)
         {
@@ -66,7 +72,11 @@ public static class CacheRunReport
             text.Append($"; re-cooked: {which}");
         }
 
-        if (stats is not null)
+        if (storeUnusable)
+        {
+            text.Append("; store: unusable, the run was cold");
+        }
+        else if (stats is not null)
         {
             text.Append($"; store: {stats.KeyCount} row(s), {stats.BlobCount} blob(s), {FormatBytes(stats.SizeBytes)}"
                 + (stats.FileBytes != stats.SizeBytes ? $" on disk {FormatBytes(stats.FileBytes)}" : string.Empty)

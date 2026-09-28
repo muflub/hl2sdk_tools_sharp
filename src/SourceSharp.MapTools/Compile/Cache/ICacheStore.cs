@@ -89,6 +89,36 @@ public interface ICacheStore : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the check.</param>
     ValueTask<bool> HasBlobAsync(string blobKey, CancellationToken cancellationToken);
 
+    /// <summary>The size in bytes of a committed blob, or null when there is none (the GC's accounting).</summary>
+    /// <param name="blobKey">The content-hash key.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    ValueTask<long?> BlobSizeAsync(string blobKey, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Marks one compile as running against this store object until the
+    /// returned lease is disposed.
+    /// </summary>
+    /// <returns>The lease; disposing it more than once is harmless.</returns>
+    /// <remarks>
+    /// <para>
+    /// The store object is what concurrent compiles in one process share, so
+    /// it is where they can see each other. The GC (<see cref="CacheCollector"/>)
+    /// deletes rows and blobs, and a compile in flight may be about to read
+    /// a row or to commit a row that names a blob it found already stored; so
+    /// the GC runs only when the compile collecting is the only one in flight
+    /// (<see cref="RunsInFlight"/>), and is otherwise left to a later commit.
+    /// </para>
+    /// <para>
+    /// Compiles in other processes sharing one store file are not seen. What
+    /// they can meet is a row whose blob is gone, which every read treats as
+    /// a miss: never a wrong hit, because every blob is content-addressed.
+    /// </para>
+    /// </remarks>
+    IDisposable BeginRun();
+
+    /// <summary>How many <see cref="BeginRun"/> leases are open.</summary>
+    int RunsInFlight { get; }
+
     /// <summary>Reads a committed blob's bytes, or null.</summary>
     /// <param name="blobKey">The content-hash key.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
