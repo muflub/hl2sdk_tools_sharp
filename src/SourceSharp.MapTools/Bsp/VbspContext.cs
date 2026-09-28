@@ -293,4 +293,16 @@ public sealed class VbspContext
     /// <see cref="Csg.BrushSidePool"/>.
     /// </remarks>
     internal Csg.BrushSidePooling BrushSidePooling { get; set; } = Csg.BrushSidePooling.Pooled;
+
+    /// <summary>
+    /// The smallest brush list, on each side of a split, that the tree build
+    /// hands to another thread.
+    /// </summary>
+    /// <remarks>
+    /// Changes which thread builds what and nothing else. Settable only so
+    /// that the facts can force forks on maps too small to reach the default,
+    /// and prove the bytes do not move. See
+    /// <see cref="Tree.BspTreeParallelism.DefaultMinBrushes"/>.
+    /// </remarks>
+    internal int TreeForkMinBrushes { get; set; } = Tree.BspTreeParallelism.DefaultMinBrushes;
 }
