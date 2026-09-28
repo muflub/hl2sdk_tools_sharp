@@ -93,6 +93,71 @@ public sealed class RoomNavBuilderTests(NavRoomsFixture fixture) : IClassFixture
         Assert.Equal(capped.OrderBy(c => RoomNav.Index(c.Voxel, 16)), capped);
     }
 
+    /// <summary>
+    /// A cap is classified over the slab of voxels near its wall only; that
+    /// gives exactly the changes classifying the whole cell capped gives, for
+    /// every room, socket and agent (the wide one included, whose reach is
+    /// the largest).
+    /// </summary>
+    [Theory]
+    [InlineData("east")]
+    [InlineData("hall")]
+    [InlineData("corner")]
+    public void TheCapsSlabGivesTheWholeCellsChanges(string name)
+    {
+        RoomDefinition definition = fixture.Definition(name);
+        RoomNav nav = fixture.Nav(name);
+        List<NavBrush> all = NavBrush.FromBsp(fixture.Room(name).Bsp);
+        bool IsPlug(NavBrush b, int socket)
+        {
+            Box plug = RoomLinter.SealBox(definition, definition.Sockets[socket], 256);
+            return Math.Abs(b.MinX - plug.Mins.X) < 0.01 && Math.Abs(b.MaxX - plug.Maxs.X) < 0.01
+                && Math.Abs(b.MinY - plug.Mins.Y) < 0.01 && Math.Abs(b.MaxY - plug.Maxs.Y) < 0.01
+                && Math.Abs(b.MinZ - plug.Mins.Z) < 0.01 && Math.Abs(b.MaxZ - plug.Maxs.Z) < 0.01;
+        }
+
+        NavRegion cell = new(0, 0, 0, 16, 16, 16, 16);
+        for (int a = 0; a < NavRoomsFixture.Settings.Agents.Count; a++)
+        {
+            NavAgentSpec agent = NavRoomsFixture.Settings.Agents[a];
+            List<NavBrush> fixedBrushes = [.. all.Where(b => !Enumerable.Range(0, definition.Sockets.Count).Any(s => IsPlug(b, s)))];
+            NavVoxelGrid open = NavVoxeliser.Classify([.. fixedBrushes, .. RoomNavBuilder.Outside(definition, -1)], cell, agent, 0.7f);
+            for (int s = 0; s < definition.Sockets.Count; s++)
+            {
+                NavVoxelGrid closed = NavVoxeliser.Classify(
+                    [.. fixedBrushes, .. all.Where(b => IsPlug(b, s)), .. RoomNavBuilder.Outside(definition, s)], cell, agent, 0.7f);
+                List<NavCapChange> whole = [];
+                for (int i = 0; i < 4096; i++)
+                {
+                    ushort before = open.Cells[i];
+                    ushort after = closed.Cells[i];
+                    if (before != after)
+                    {
+                        NavVoxel v = new((byte)(i % 16), (byte)(i / 16 % 16), (byte)(i / 256));
+                        whole.Add((after & NavVoxelGrid.FreeBit) == 0
+                            ? new NavCapChange(v, true, Nav3dLeafFlags.None)
+                            : new NavCapChange(v, false, (Nav3dLeafFlags)(after & ~before & 0xFF)));
+                    }
+                }
+
+                Assert.True(whole.Count > 0 || nav.AgentData[a].Sockets[s].Portal.Count == 0);
+                Assert.Equal(whole, nav.AgentData[a].Sockets[s].Capped);
+            }
+        }
+    }
+
+    [Fact]
+    public void TheCapSlabIsTheLayersAnAgentCanReachFromTheWall()
+    {
+        NavRegion cell = new(0, 0, 0, 16, 16, 16, 16);
+        NavAgentSpec standing = NavRoomsFixture.Settings.Agents[NavRoomsFixture.StandingAgent];
+        Assert.Equal(cell with { OriginX = 192, SizeX = 4 }, RoomNavBuilder.CapRegion(cell, RoomFacing.PositiveX, 16, standing));
+        Assert.Equal(cell with { SizeX = 4 }, RoomNavBuilder.CapRegion(cell, RoomFacing.NegativeX, 16, standing));
+        Assert.Equal(cell with { OriginY = 192, SizeY = 4 }, RoomNavBuilder.CapRegion(cell, RoomFacing.PositiveY, 16, standing));
+        Assert.Equal(cell with { SizeY = 4 }, RoomNavBuilder.CapRegion(cell, RoomFacing.NegativeY, 16, standing));
+        Assert.Equal(cell with { SizeX = 16 }, RoomNavBuilder.CapRegion(cell, RoomFacing.NegativeX, 16, new NavAgentSpec("huge", 900, 10, 1)));
+    }
+
     [Fact]
     public void APointOfInterestIsStoredWithItsMaskAndFields()
     {

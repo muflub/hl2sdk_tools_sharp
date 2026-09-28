@@ -69,6 +69,16 @@ public sealed class NavBrushTests
     }
 
     [Fact]
+    public void ABoxIsAxialAndItsBoundsDecideAlone()
+    {
+        NavBrush box = NavBrush.Box(new Vec3(0, 0, 0), new Vec3(10, 10, 10), 1);
+        Assert.True(box.IsAxial);
+        Assert.False(Wedge().IsAxial);
+        Assert.True(box.Overlaps(new NavBox(9, 9, 9, 11, 11, 11)));
+        Assert.False(box.Overlaps(new NavBox(10, 0, 0, 11, 1, 1)));
+    }
+
+    [Fact]
     public void ABrushTurnsExactly()
     {
         NavBrush box = NavBrush.Box(new Vec3(10, 20, 0), new Vec3(30, 40, 5), 1).Turned(1, 100);

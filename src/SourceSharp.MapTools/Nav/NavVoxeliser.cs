@@ -141,7 +141,13 @@ public static class NavVoxeliser
         int ry = region.SizeY + 2;
         int rz = region.SizeZ + 2;
         bool[] ring = new bool[rx * ry * rz];
-        List<int>?[] blockers = new List<int>?[ring.Length];
+        // Which brushes block each voxel, as linked lists threaded through
+        // two flat arrays: one allocation for the lot rather than a list per
+        // blocked voxel, which dominated the collector's work.
+        int[] firstBlocker = new int[ring.Length];
+        Array.Fill(firstBlocker, -1);
+        List<int> blockerBrush = [];
+        List<int> nextBlocker = [];
         double s = region.VoxelSize;
         double minX = agent.Mins.X;
         double minY = agent.Mins.Y;
@@ -173,7 +179,9 @@ public static class NavVoxeliser
                         {
                             int at = ((((z + 1) * ry) + y + 1) * rx) + x + 1;
                             ring[at] = true;
-                            (blockers[at] ??= []).Add(b);
+                            blockerBrush.Add(b);
+                            nextBlocker.Add(firstBlocker[at]);
+                            firstBlocker[at] = blockerBrush.Count - 1;
                         }
                     }
                 }
@@ -209,9 +217,9 @@ public static class NavVoxeliser
                             flags |= (Nav3dLeafFlags)(1 << (3 + d));
                         }
 
-                        foreach (int b in blockers[next]!)
+                        for (int link = firstBlocker[next]; link >= 0; link = nextBlocker[link])
                         {
-                            flags |= Contact(brushes[b], swept, d, floorNormalZ);
+                            flags |= Contact(brushes[blockerBrush[link]], swept, d, floorNormalZ);
                         }
                     }
 

@@ -64,6 +64,12 @@ public sealed class NavBrush
         _vertices = vertices;
         _edges = edges;
         Contents = contents;
+        IsAxial = true;
+        for (int i = 0; i < planes.Length; i += 4)
+        {
+            int nonZero = (planes[i] != 0 ? 1 : 0) + (planes[i + 1] != 0 ? 1 : 0) + (planes[i + 2] != 0 ? 1 : 0);
+            IsAxial &= nonZero == 1;
+        }
         MinX = MinY = MinZ = double.MaxValue;
         MaxX = MaxY = MaxZ = double.MinValue;
         for (int i = 0; i < vertices.Length; i += 3)
@@ -79,6 +85,14 @@ public sealed class NavBrush
 
     /// <summary>The brush's <c>CONTENTS_*</c> bits.</summary>
     public int Contents { get; }
+
+    /// <summary>
+    /// Whether every plane is axial, so the brush is its bounding box: then
+    /// the box-axis test alone is exact, and the plane and edge axes (which
+    /// are the same three axes again) are skipped. Most of a room's brushes
+    /// are boxes, and this is most of the voxeliser's time saved.
+    /// </summary>
+    public bool IsAxial { get; }
 
     /// <summary>How many bounding planes the brush has.</summary>
     public int PlaneCount => _planes.Length / 4;
@@ -206,6 +220,11 @@ public sealed class NavBrush
             || MaxZ <= box.MinZ + e || MinZ >= box.MaxZ - e)
         {
             return false;
+        }
+
+        if (IsAxial)
+        {
+            return true;
         }
 
         for (int i = 0; i < PlaneCount; i++)

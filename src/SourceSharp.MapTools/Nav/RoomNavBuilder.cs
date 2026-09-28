@@ -140,7 +140,8 @@ public static class RoomNavBuilder
                     capped.Add(brushes[plugOf[s]]);
                 }
 
-                NavVoxelGrid closed = NavVoxeliser.Classify(capped, region, agent, settings.FloorNormalZ, cancellationToken);
+                NavRegion near = CapRegion(region, definition.Sockets[s].Facing, definition.Kit.Depth, agent);
+                NavVoxelGrid closed = NavVoxeliser.Classify(capped, near, agent, settings.FloorNormalZ, cancellationToken);
                 sockets.Add(new RoomNavSocket(Portal(grid, definition.Sockets[s].Facing), CapChanges(grid, closed)));
             }
 
@@ -280,24 +281,56 @@ public static class RoomNavBuilder
         return RoomNav.SortVoxels(portal);
     }
 
-    /// <summary>Every voxel whose class differs between the open and the capped grid, in voxel order.</summary>
+    /// <summary>
+    /// The part of the cell a cap on one wall can change: the layers of
+    /// voxels within the plug's depth plus the agent's reach (and two voxels
+    /// more, for a voxel whose neighbour's swept box reaches the plug) of
+    /// that wall. A voxel's class depends only on the solids its own and its
+    /// six neighbours' swept boxes overlap, so nothing beyond this can
+    /// change, and the capped state is classified over this slab alone
+    /// rather than the whole cell (a fact checks it against the whole cell).
+    /// </summary>
+    internal static NavRegion CapRegion(NavRegion cell, RoomFacing facing, float depth, NavAgentSpec agent)
+    {
+        double reach = Math.Max(Math.Max(-agent.Mins.X, agent.Maxs.X), Math.Max(-agent.Mins.Y, agent.Maxs.Y));
+        int layers = Math.Min(cell.SizeX, (int)Math.Ceiling((depth + reach) / cell.VoxelSize) + 2);
+        int far = cell.SizeX - layers;
+        return facing switch
+        {
+            RoomFacing.PositiveX => cell with { OriginX = cell.OriginX + (far * cell.VoxelSize), SizeX = layers },
+            RoomFacing.NegativeX => cell with { SizeX = layers },
+            RoomFacing.PositiveY => cell with { OriginY = cell.OriginY + (far * cell.VoxelSize), SizeY = layers },
+            _ => cell with { SizeY = layers },
+        };
+    }
+
+    /// <summary>Every voxel of the capped slab whose class differs from the open grid's, in voxel order.</summary>
     private static List<NavCapChange> CapChanges(NavVoxelGrid open, NavVoxelGrid capped)
     {
-        int n = open.Region.SizeX;
+        NavRegion whole = open.Region;
+        NavRegion part = capped.Region;
+        int ox = (int)Math.Round((part.OriginX - whole.OriginX) / whole.VoxelSize);
+        int oy = (int)Math.Round((part.OriginY - whole.OriginY) / whole.VoxelSize);
         List<NavCapChange> changes = [];
-        ReadOnlySpan<ushort> a = open.Cells;
-        ReadOnlySpan<ushort> b = capped.Cells;
-        for (int i = 0; i < a.Length; i++)
+        for (int z = 0; z < part.SizeZ; z++)
         {
-            if (a[i] == b[i])
+            for (int y = 0; y < part.SizeY; y++)
             {
-                continue;
-            }
+                for (int x = 0; x < part.SizeX; x++)
+                {
+                    ushort a = open[x + ox, y + oy, z];
+                    ushort b = capped[x, y, z];
+                    if (a == b)
+                    {
+                        continue;
+                    }
 
-            NavVoxel voxel = new((byte)(i % n), (byte)(i / n % n), (byte)(i / (n * n)));
-            changes.Add((b[i] & NavVoxelGrid.FreeBit) == 0
-                ? new NavCapChange(voxel, true, Nav3dLeafFlags.None)
-                : new NavCapChange(voxel, false, (Nav3dLeafFlags)(b[i] & ~a[i] & 0xFF)));
+                    NavVoxel voxel = new((byte)(x + ox), (byte)(y + oy), (byte)z);
+                    changes.Add((b & NavVoxelGrid.FreeBit) == 0
+                        ? new NavCapChange(voxel, true, Nav3dLeafFlags.None)
+                        : new NavCapChange(voxel, false, (Nav3dLeafFlags)(b & ~a & 0xFF)));
+                }
+            }
         }
 
         return changes;
