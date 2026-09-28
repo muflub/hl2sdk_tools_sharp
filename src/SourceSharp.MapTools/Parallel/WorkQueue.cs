@@ -700,6 +700,7 @@ public sealed class WorkQueue : IDisposable
                         // Counted so a slot coming back wakes someone for it,
                         // then looked at once more in case one came back
                         // before the count went up (JobSlots.TurnAway).
+                        _pool?.TurnAwayGapProbe?.Invoke();
                         _slots.TurnAway();
                         slot = _slots.TryTakeFree();
                     }
@@ -763,6 +764,7 @@ public sealed class WorkQueue : IDisposable
                 _pool?.Signal();
             }
 
+            _pool?.SlotReturnedProbe?.Invoke();
             return true;
         }
 

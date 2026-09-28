@@ -85,7 +85,7 @@ public sealed class CompilePool : IDisposable
     // How long a parked thread sleeps with no signal before it scans again.
     // A safety net only: every state change that can make work runnable
     // signals.
-    private const int IdleTimeoutMs = 100;
+    private const int DefaultIdleTimeoutMs = 100;
 
     private readonly object _sync = new();
     private readonly List<PoolJob> _jobs = [];
@@ -169,6 +169,58 @@ public sealed class CompilePool : IDisposable
     // Each started thread's parking place, index for index with _started and
     // published the same way.
     private Parker[] _parkers = [];
+
+    /// <summary>
+    /// How long a parked thread waits with no signal before it scans again;
+    /// <see cref="Timeout.Infinite"/> turns the backstop off.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The backstop is a safety net, not part of the protocol: every change
+    /// that can make work runnable signals, and the hand-out and park paths
+    /// are written so that no signal is lost (the version re-read in
+    /// <see cref="Park"/>, the retry after a turned-away scan in the queue's
+    /// step). With it on, a lost wake costs a thread its timeout, which no
+    /// test can tell from scheduling noise; with it off, a lost wake leaves
+    /// work sitting unclaimed for good. So the facts that pin those paths
+    /// turn it off, and deleting either one then turns them red.
+    /// </para>
+    /// <para>
+    /// Internal and init-only: a host has no reason to change it, and a
+    /// compile relying on it would hide exactly the bug it exists to survive.
+    /// </para>
+    /// </remarks>
+    internal int IdleTimeoutMs { get; init; } = DefaultIdleTimeoutMs;
+
+    /// <summary>
+    /// For the facts: runs on a pool thread that found nothing to do, before
+    /// it announces itself parked and re-reads the signal count.
+    /// </summary>
+    /// <remarks>
+    /// Null in every real pool. It widens the one window the version
+    /// re-read in <see cref="Park"/> exists for (a signal raised after the
+    /// scan and before the wait) to whatever the fact does in it.
+    /// </remarks>
+    internal Action? BeforeParkProbe { get; init; }
+
+    /// <summary>
+    /// For the facts: runs on a pool thread that found a queue's job full,
+    /// after the failed borrow and before the scan is counted as turned away.
+    /// </summary>
+    /// <remarks>Null in every real pool; see <see cref="SlotReturnedProbe"/>.</remarks>
+    internal Action? TurnAwayGapProbe { get; init; }
+
+    /// <summary>
+    /// For the facts: runs on a pool thread that has just handed a queue's
+    /// job slot back and left the job, before it looks for its next step.
+    /// </summary>
+    /// <remarks>
+    /// Null in every real pool. With <see cref="TurnAwayGapProbe"/> it forces
+    /// the interleaving the queue's retry after a turned-away scan exists
+    /// for: a slot handed back between the failed borrow and the count, by a
+    /// thread that then does not come back for it.
+    /// </remarks>
+    internal Action? SlotReturnedProbe { get; init; }
 
     /// <summary>Whether <see cref="Dispose"/> has begun: no thread starts another step.</summary>
     internal bool IsStopping => Volatile.Read(ref _shutdown);
@@ -457,6 +509,8 @@ public sealed class CompilePool : IDisposable
     // Waits for a signal newer than `seen`, or the timeout.
     private void Park(Parker parker, long seen)
     {
+        BeforeParkProbe?.Invoke();
+
         // Reset before the flag goes up: a waker sets the event only after it
         // has claimed the flag, so its set can never be undone by this reset.
         // A set left over from an earlier claim that landed after that park
