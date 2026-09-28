@@ -366,13 +366,19 @@ public static partial class LevelLinker
     internal static IEnumerable<(RoomPlan A, RoomPlan B, int[] FacingA, int[] FacingB)> DoorEdges(
         ResolvedPlacement[] resolved, RoomPlan[] plans)
     {
+        Dictionary<(int X, int Y), ResolvedPlacement> byCell = new(resolved.Length);
+        foreach (ResolvedPlacement placement in resolved)
+        {
+            byCell[(placement.Instance.Placement.CellX, placement.Instance.Placement.CellY)] = placement;
+        }
+
         for (int i = 0; i < resolved.Length; i++)
         {
             ResolvedPlacement a = resolved[i];
             foreach ((string socket, string neighborSocket) in a.Instance.Joints)
             {
                 RoomSocket aSocket = Socket(a.Room, socket);
-                (RoomPlan planB, RoomSocket bSocket, int _) = Neighbor(a, aSocket, neighborSocket, resolved, plans);
+                (RoomPlan planB, RoomSocket bSocket, int _) = Neighbor(a, aSocket, neighborSocket, byCell, plans);
                 yield return (plans[i], planB, plans[i].JointFacing[aSocket.Name], planB.JointFacing[bSocket.Name]);
             }
         }
@@ -671,6 +677,18 @@ public static partial class LevelLinker
     /// </remarks>
     internal static void ValidateJoints(LevelLayout layout, RoomLibrary library)
     {
+        // Each joint's neighbour is found by its cell. A scan of every room
+        // per joint made this pass quadratic in the rooms, and it runs before
+        // the level is measured against the format's limits, so a level far
+        // too big to link spent minutes here before being refused. The layout
+        // was validated first, so no two rooms share a cell and the lookup
+        // finds exactly the room the scan did.
+        Dictionary<(int X, int Y), RoomInstance> byCell = new(layout.Rooms.Count);
+        foreach (RoomInstance room in layout.Rooms)
+        {
+            byCell[(room.Placement.CellX, room.Placement.CellY)] = room;
+        }
+
         foreach (RoomInstance instance in layout.Rooms)
         {
             RoomObject room = library.Get(instance.Placement.Room);
@@ -695,17 +713,7 @@ public static partial class LevelLinker
                     ny += sign;
                 }
 
-                RoomInstance? neighbour = null;
-                foreach (RoomInstance other in layout.Rooms)
-                {
-                    if (other.Placement.CellX == nx && other.Placement.CellY == ny)
-                    {
-                        neighbour = other;
-                        break;
-                    }
-                }
-
-                if (neighbour is null)
+                if (!byCell.TryGetValue((nx, ny), out RoomInstance? neighbour))
                 {
                     throw new LinkException(
                         $"the joint at cell ({instance.Placement.CellX}, {instance.Placement.CellY})"
@@ -763,8 +771,13 @@ public static partial class LevelLinker
             room.SealClusters);
     }
 
+    /// <summary>The room across a joint, found by its cell (<paramref name="byCell"/>: every placement by cell).</summary>
     private static (RoomPlan Plan, RoomSocket Socket, int Index) Neighbor(
-        ResolvedPlacement a, RoomSocket mine, string neighborSocket, ResolvedPlacement[] resolved, RoomPlan[] plans)
+        ResolvedPlacement a,
+        RoomSocket mine,
+        string neighborSocket,
+        Dictionary<(int X, int Y), ResolvedPlacement> byCell,
+        RoomPlan[] plans)
     {
         RoomTransform transform = new(a.Instance.Placement, a.Room.Definition.CellSize);
         (int axis, int sign) = transform.WorldNormal(mine.Facing);
@@ -779,13 +792,8 @@ public static partial class LevelLinker
             ny += sign;
         }
 
-        foreach (ResolvedPlacement other in resolved)
+        if (byCell.TryGetValue((nx, ny), out ResolvedPlacement? other))
         {
-            if (other.Instance.Placement.CellX != nx || other.Instance.Placement.CellY != ny)
-            {
-                continue;
-            }
-
             return (plans[other.Index], Socket(other.Room, neighborSocket, other.Instance), other.Index);
         }
 
