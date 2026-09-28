@@ -68,11 +68,14 @@ public sealed class LevelFileException : Exception
 /// other socket is capped (<see cref="LevelGrid.ToLayout"/>).
 /// </para>
 /// <para>
-/// <b>Why <c>~</c> for an empty cell</b>: it is YAML's own spelling of
-/// "nothing", and it is a plain value inside a flow sequence. A bare
-/// <c>-</c>, which might read better, is not: YAML reads a <c>-</c> there as
-/// a sequence indicator, and a standard reader refuses the row. A file that
-/// tries it gets that refusal with a hint to write <c>~</c>.
+/// <b>Why <c>~</c> for an empty cell</b>: the owner's choice, YAML's own
+/// null. Any spelling of it the core schema allows reads the same (<c>~</c>,
+/// <c>null</c>, <c>Null</c>, <c>NULL</c>, unquoted); a quoted <c>'~'</c> is a
+/// string, as YAML says. The other marks that read well are not YAML values
+/// inside a row's brackets: a bare <c>-</c> is a sequence indicator and a
+/// bare <c>*</c> an alias, and YAML refuses the row; <c>@</c> is reserved.
+/// A file that writes any of them (bare or quoted) gets an error naming
+/// <c>~</c>.
 /// </para>
 /// <para>
 /// <b>Reading</b> uses YamlDotNet's representation model, a standard YAML
@@ -306,6 +309,15 @@ public static class LevelYaml
         return text.ToString();
     }
 
+    /// <summary>
+    /// Whether a cell is YAML's null: a plain (unquoted) <c>~</c>, <c>null</c>, <c>Null</c> or
+    /// <c>NULL</c>, the core schema's spellings of it. A quoted <c>'~'</c> is a string in YAML,
+    /// not null, and is read as a (bad) room name like any other string.
+    /// </summary>
+    private static bool IsNull(YamlScalarNode scalar) =>
+        scalar.Style == YamlDotNet.Core.ScalarStyle.Plain
+        && scalar.Value is "~" or "null" or "Null" or "NULL";
+
     private static LevelCell? Cell(YamlNode node)
     {
         if (node is not YamlScalarNode scalar)
@@ -314,9 +326,14 @@ public static class LevelYaml
         }
 
         string token = scalar.Value ?? string.Empty;
-        if (token == Empty)
+        if (IsNull(scalar))
         {
             return null;
+        }
+
+        if (token is "-" or "*" or "@")
+        {
+            throw At(scalar, $"{token} is not a cell; an empty cell is YAML's null, written {Empty}.");
         }
 
         int at = token.IndexOf('@', StringComparison.Ordinal);
@@ -397,8 +414,8 @@ public static class LevelYaml
     }
 
     /// <summary>
-    /// A hint for the likeliest mistake: a <c>-</c> written for an empty cell
-    /// inside a row's brackets, which YAML refuses.
+    /// A hint for the likeliest mistake: a <c>-</c> or <c>*</c> written for an
+    /// empty cell inside a row's brackets, which YAML refuses.
     /// </summary>
     internal static string DashHint(string text, int line)
     {
@@ -417,9 +434,9 @@ public static class LevelYaml
 
         foreach (string cell in at[(open + 1)..].Split(',', ']'))
         {
-            if (cell.Trim() == "-")
+            if (cell.Trim() is "-" or "*")
             {
-                return $" (an empty cell is written {Empty}, not -)";
+                return $" (an empty cell is written {Empty}, YAML's null, not {cell.Trim()})";
             }
         }
 

@@ -70,7 +70,7 @@ public sealed class LevelYamlTests
               -
                 - "end@270"
                 - 'hall@90'
-              - [tee, "~"]
+              - [tee, null]
               - [corner@180, salle-é]
             columns: 2
             rows: 3
@@ -84,6 +84,31 @@ public sealed class LevelYamlTests
         Assert.Null(level[1, 1]);
         Assert.Equal("salle-é", level[1, 0]!.Room);
         Assert.Equal("../rooms.vmf", level.Library);
+    }
+
+    /// <summary>Every core-schema spelling of YAML's null, unquoted, is an empty cell.</summary>
+    [Theory]
+    [InlineData("~")]
+    [InlineData("null")]
+    [InlineData("Null")]
+    [InlineData("NULL")]
+    public void EverySpellingOfNullIsAnEmptyCell(string nil)
+    {
+        LevelGrid level = LevelYaml.Parse($"library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [tee, {nil}]\n", "nil");
+        Assert.Equal("tee", level[0, 0]!.Room);
+        Assert.Null(level[1, 0]);
+    }
+
+    /// <summary>
+    /// A quoted <c>'~'</c> is a string in YAML, not null, so it is not an empty cell: it is
+    /// read as a room name and refused as one.
+    /// </summary>
+    [Fact]
+    public void AQuotedTildeIsNotAnEmptyCell()
+    {
+        LevelFileException error = Assert.Throws<LevelFileException>(
+            () => LevelYaml.Parse("library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [tee, '~']\n", "quoted"));
+        Assert.Contains("the room name \"~\"", error.Message, StringComparison.Ordinal);
     }
 
     // ---- writing ----------------------------------------------------------------
@@ -163,7 +188,11 @@ public sealed class LevelYamlTests
     [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - [a@ninety]\n", 5, 6, "the rotation \"ninety\"")]
     [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - [@90]\n", 5, 6, "the room name \"\" is empty")]
     [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - [my room]\n", 5, 6, "the room name \"my room\" contains 'U+0020'")]
-    [InlineData("library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [a, -]\n", 5, 9, "(an empty cell is written ~, not -)")]
+    [InlineData("library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [a, -]\n", 5, 9, "(an empty cell is written ~, YAML's null, not -)")]
+    [InlineData("library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [a, *]\n", 5, 9, "(an empty cell is written ~, YAML's null, not *)")]
+    [InlineData("library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [a, '*']\n", 5, 9, "* is not a cell; an empty cell is YAML's null, written ~")]
+    [InlineData("library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [a, '-']\n", 5, 9, "- is not a cell; an empty cell is YAML's null, written ~")]
+    [InlineData("library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [a, @]\n", 5, 9, "@ is not a cell; an empty cell is YAML's null, written ~")]
     public void ABadLevelIsRefusedWhereItIs(string text, int line, int column, string problem)
     {
         LevelFileException refused = Assert.Throws<LevelFileException>(() => LevelYaml.Parse(text, "l"));
@@ -192,7 +221,7 @@ public sealed class LevelYamlTests
     {
         Assert.Equal(string.Empty, LevelYaml.DashHint("a: [-]", 0));
         Assert.Equal(string.Empty, LevelYaml.DashHint("a: [-]", 2));
-        Assert.Equal(" (an empty cell is written ~, not -)", LevelYaml.DashHint("a: [-]", 1));
+        Assert.Equal(" (an empty cell is written ~, YAML's null, not -)", LevelYaml.DashHint("a: [-]", 1));
         Assert.Equal("plain words", LevelYaml.Plain(new YamlDotNet.Core.YamlException("plain words")));
         Assert.Equal("(Line: 1", LevelYaml.Plain(new YamlDotNet.Core.YamlException("(Line: 1")));
     }
