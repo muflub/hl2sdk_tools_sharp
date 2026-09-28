@@ -23,10 +23,11 @@ Contents:
 8. [Level-wide singletons](#8-level-wide-singletons)
 9. [Lighting (option C, as decided)](#9-lighting-option-c-as-decided)
 10. [Navigation](#10-navigation)
-11. [Engine limits for `CheckCapacity`](#11-engine-limits-for-checkcapacity)
-12. [Implementation order](#12-implementation-order)
-13. [Owner decisions](#13-owner-decisions)
-14. [Growing the 3x3 sample](#14-growing-the-3x3-sample)
+11. [Transition rooms and the level spawn](#11-transition-rooms-and-the-level-spawn)
+12. [Engine limits for `CheckCapacity`](#12-engine-limits-for-checkcapacity)
+13. [Implementation order](#13-implementation-order)
+14. [Owner decisions](#14-owner-decisions)
+15. [Growing the 3x3 sample](#15-growing-the-3x3-sample)
 
 Terms used throughout:
 
@@ -93,7 +94,7 @@ other room's are known to be empty or equal (`RequireAgreement`).
 Things the link or the flatten accepts and gets wrong now. None affects the
 3x3 sample, which has no such content, but each should be fixed or refused
 before the features that depend on it land. They are the first PR of the
-order in [section 12](#12-implementation-order).
+order in [section 13](#13-implementation-order).
 
 1. **`info_ladder` bounds are not moved.** vbsp turns a `func_ladder` into
    world brushes plus an `info_ladder` point entity whose `mins.x` ...
@@ -187,6 +188,7 @@ or research).
 | Packed files | refused | the room's pak entries | merge, dedupe, rename | 0 | M |
 | 2D sky | faces carried; no leaf sky flags (no vrad) | sky leaves per room | propagate sky flags across doors | 0 | S |
 | 3D skybox | not possible (areas collapsed) | the skybox as a library section | place it, its own area | 1 `sky_camera` per level | M |
+| Transition rooms and spawn | not possible | volume, arrival and spawn POIs per rotation | destinations, emission per mode, spawn | 2 per level (mod), 3 to 5 (stock) | M |
 | Navigation (3D) and points of interest | none | volumes and door portals per rotation; POIs | stitch at joined doors | 0 (POIs stripped) | L, blocked (section 10) |
 | Lighting | none (no vrad at pack time) | base ×4, doorway capture, door response | sum captures × responses | lights: see 6.3 | L |
 
@@ -1264,6 +1266,7 @@ The candidates the features produce:
 | Door area portals (opt-in) | 1 per joint |
 | Singletons | 1 per level (saves duplicates) |
 | 3D skybox | 1 `sky_camera` per level |
+| Transition rooms and spawn | 2 per level with `-mod-entities`; 3 to 5 stock (11.6) |
 
 ### 6.9 Authoring guidance
 
@@ -1273,7 +1276,8 @@ For the rooms README once this lands.
 `prop_static`; detail props and `%detailtype` materials; displacements;
 unnamed overlays; `env_cubemap`; `info_lighting`; water brushes (world);
 local names and neighbour references; `room_needs`; points of interest
-(`info_poi`, compiled into the navigation data and stripped, 10.6).
+(`info_poi`, compiled into the navigation data and stripped, 10.6), including
+transition arrivals and spawn points.
 
 **Costs one each, multiplied by placements:** brush entities (doors,
 buttons, `func_brush`, breakables, every trigger), `prop_dynamic` and
@@ -1494,6 +1498,66 @@ are its single spelling.
   constants agree, and that every class the linker can emit under
   `-mod-entities` is declared in the assembly.
 
+### 7.6 `logic_level_transition`
+
+One per transition room (section 11), emitted only with `-mod-entities`.
+Server-only; placed at the transition volume's centre.
+
+**Keys** (all linker-owned except `targetname`):
+
+| Key | Type | Meaning |
+| --- | --- | --- |
+| `targetname` | string | Authored `cxry_transition`, resolved to `c<col>r<row>_transition`. |
+| `direction` | string | `up` or `down`. |
+| `map` | string | The destination map's name, from the level YAML's `up_map` or `down_map`. |
+| `StartDisabled` | integer | 1 to start disabled; 0 by default. |
+
+**Inputs:** `Transition` (if enabled, fire `OnTransition`, then move the
+players to `map`), `Enable`, `Disable`. **Outputs:** `OnTransition`, fired
+with the activator before the level changes.
+
+**Behaviour.** On `Transition` the mod changes to `map` and places each
+arriving player at the destination level's arrival POI of the opposite
+role (from `down`: the destination's `up` arrival; from `up`: its `down`
+arrival), facing the POI's yaw. The arrival POIs and the level's spawn
+POIs are read from the destination map's navigation data (section 10); a
+fresh start uses the `up` arrival, or the `spawn` POIs (11.5). Which
+players move (the activator, or everyone) is the mod's game rule, not part
+of this contract.
+
+**FGD entry.**
+
+```
+@PointClass base(Targetname) = logic_level_transition :
+    "Level transition written by ssmap link. Keys other than the name are filled in by the linker."
+[
+    direction(choices) : "Direction" : "down" =
+    [
+        "up" : "Up"
+        "down" : "Down"
+    ]
+    map(string) : "Destination map" : ""
+    StartDisabled(choices) : "Start disabled" : 0 =
+    [
+        0 : "No"
+        1 : "Yes"
+    ]
+
+    input Transition(void) : "Move the players to the destination map"
+    input Enable(void) : "Enable the transition"
+    input Disable(void) : "Disable the transition"
+
+    output OnTransition(void) : "Fired just before the level changes"
+]
+```
+
+**Stock fallback:** `trigger_changelevel` and `info_landmark` (11.4).
+
+**C# types** (7.5): `LevelTransition.ClassName`, its key, input and output
+names; `enum TransitionDirection { Up, Down }` with its key spellings;
+`enum PoiType` with `Arrival` and `Spawn` (the other POI types come with the
+navigation design).
+
 ---
 
 ## 8. Level-wide singletons
@@ -1506,7 +1570,7 @@ are its single spelling.
 | `sky_camera` | Room-local if present. | Only in the library's skybox (4.12); refused in rooms. |
 | `env_fog_controller`, `env_tonemap_controller`, `shadow_control`, `postprocess_controller` | Carried, one per room that has one; the game takes the first or a master (**uncertain** per class). | Library-wide like the sun: collected from the gaps; a room copy refused unless equal. Per-room fog uses a trigger and a named controller, as a normal map does. |
 | `water_lod_control` | vbsp adds one per room with water. | Keep the first; drop equal duplicates; refuse different ones. |
-| `info_player_start` | Carried, one per room with one (the sample's end rooms). | Keep all by default, as a whole-map compile would (the game picks); a level YAML key may name the start room (O12). |
+| `info_player_start` | Carried, one per room with one (the sample's end rooms). | **Decided (D15):** rooms' own starts are stripped; the level spawn is the up room's arrival (11.5). |
 | Switched light styles | Collide (finding 8). | Renumber at link: each distinct resolved light name gets one style from 32 (a global name shares one across placements); face styles, detail prop styles, world lights and entity `style` keys remapped. ≤ 32 switched names (`WriteLimits.MaxSwitchedLights`), 64 styles in all (`RayAmbientLighting.MaxLightStyles`). |
 
 ---
@@ -1765,6 +1829,10 @@ section 7, once the AI design settles) in rooms; `ssmap room` compiles them
 into the room's navigation section and **strips them from the entity
 lump**, so they cost zero runtime entities (6.9).
 
+Two POI types are defined now, for transition rooms (section 11):
+`arrival` (where a player from another level appears) and `spawn` (extra
+spawn points for a fresh start).
+
 Per POI the pack stores: its type, position and orientation (turned per
 rotation like any point entity: `Apply` and yaw + 90 × turns), its keys,
 and its name through the placeholder grammar (section 5), so a room's POI
@@ -1772,12 +1840,209 @@ can be named, and referenced by a neighbour, the same way as an entity. At
 link the POIs are relocated with the rest of the navigation data. Storing
 and stripping them does not depend on the navigation representation, so it
 can land before the rest of this section (it is part of PR 2 in section
-12); until navigation exists the link can write them to the same pak entry
+13); until navigation exists the link can write them to the same pak entry
 or sidecar the navigation data will use.
 
 ---
 
-## 11. Engine limits for `CheckCapacity`
+## 11. Transition rooms and the level spawn
+
+A level has one **up** room and one **down** room. They move the player to
+the level above or below, triggered by a player action: pressing a button,
+opening a door, or walking down a hallway or staircase into a trigger. The
+up room is also where a fresh start puts the player. Decisions D13 to D15.
+
+### 11.1 Marking and the level rule
+
+- **Marking.** An `info_room` key `room_role` = `up` or `down`; blank (the
+  default) for an ordinary room. A library may hold several candidates of
+  each role. `RoomLibraryVmf` reads it with the other `info_room` keys and
+  `RoomDefinition` carries it; `ssmap rooms` lists it.
+- **Exactly one of each per level** (D13): one placement of an up-role room
+  and one of a down-role room, in different cells. No branching, no several
+  down rooms. The level YAML can switch either off for the top or bottom
+  level: `up: none`, `down: none`; then the level holds **no** room of that
+  role.
+- **Destinations** (D14) are level YAML keys, `up_map` and `down_map`: the
+  map names of the levels above and below. They are clearer than
+  `next_map`/`prev_map`, which say nothing about direction. A role that is
+  present needs its map key; a role switched off must not have one.
+- **Refusals.** The layout half of `RoomLinter` (`CheckLayout`) refuses a
+  level with zero or two rooms of a role that is not switched off, a role
+  room in a level that switched the role off, a missing or superfluous map
+  key, and an unreachable transition room (already covered by
+  `CheckReachable`). `ssmap link` and `--flatten` both run it.
+  `LevelYaml` refuses unknown keys today (its key check names `library`,
+  `rows`, `columns`, `grid`), so the new keys are a format extension that
+  old level files never contain.
+
+### 11.2 Layout
+
+`ssmap layout` places the two roles, with an optional minimum distance
+between them (`-transition-distance N`), measured as the number of doors on
+the shortest path through joined sockets, so the player crosses the level.
+
+**Unchanged output for libraries without roles.** `LevelGenerator` draws
+everything from one `SplitMix64` stream seeded by the level's seed. Role
+placement uses a **second** stream, seeded from the seed and a fixed
+constant, and runs only when the library has role rooms and the level has
+not switched both roles off. It picks the two role cells on the spanning
+tree (respecting the distance) before the fill, and the fill then offers
+only role candidates in those cells and only ordinary rooms elsewhere. For
+a library without roles the second stream is never created, the candidate
+lists are the ones the fill uses today, and the header lines
+(`LevelGenerator.Header`) are unchanged, so every draw of the main stream is
+the same and the YAML is byte-identical. The existing facts that hold the
+sample's seeded levels to what `ssmap layout` writes
+(`Rooms3x3CommandsTests.TheSampleSeededLevelsAreWhatSsmapLayoutWrites`)
+already check this; a new fact compares a role-less library's output with
+the generator's current output over many seeds and grid shapes.
+
+**A sequence of levels** (recommended yes, optional): `ssmap layout ...
+-sequence K -name <base>` writes `<base>_01.yaml` to `<base>_K.yaml` from
+seeds N, N+1, ..., with `down_map` and `up_map` chained (level *i*'s
+`down_map` is level *i+1*'s map name and the reverse), the first level
+`up: none` and the last `down: none`. It is cheap (the generator already
+produces one level from a seed) and it is the natural way to produce a
+pre-linked run of maps.
+
+### 11.3 Authoring the trigger
+
+The author wires the player's action with stock entities and names the
+transition with a local name:
+
+- The room holds one **transition volume**: a brush entity of the
+  compile-only class `trigger_room_transition`, named `cxry_transition`. In
+  the hallway case it is the volume the player walks into; in the button or
+  door case it can be a small volume anywhere in the room (it is only used
+  in the stock fallback, 11.4).
+- The action fires `Transition` at `cxry_transition`: a `func_button`'s
+  `OnPressed`, a `func_door`'s `OnFullyOpen`, or a `trigger_once` whose
+  volume is the hallway. The `cxry_` rules of section 5 apply as to any
+  name.
+- The room holds one **arrival** point: a navigation POI of type `arrival`
+  (10.6) with a position and a facing, where a player coming from the other
+  level appears. Zero runtime entities.
+- `RoomLinter` checks at pack time that a role room has exactly one
+  `cxry_transition` volume, exactly one `arrival` POI, the arrival in open
+  space with room for the player hull (`PlayerHull`), and that something
+  fires `Transition` at it.
+
+The volume is a brush entity, so a role room needs brush entities to link
+(PR 7 in section 13).
+
+### 11.4 What the link emits
+
+The destination is resolved at link and written into the map (D14): the
+mod never runs the linker when the player transitions. Both paths go
+through the one resolver (5.9), so `--flatten` emits the same.
+
+**With `-mod-entities`:** the volume's model is omitted (as for a dropped
+brush entity, 5.8 c) and one point entity `logic_level_transition` (7.6)
+is emitted at the volume's centre, named `c<col>r<row>_transition`, with
+`direction` = `up` or `down` and `map` = the level's `up_map` or
+`down_map`. The author's outputs already target it by name; `Transition`
+is its input. The mod moves the player to that map and places them at the
+destination level's arrival POI of the opposite role (down room → the next
+level's up-room arrival, and the reverse), facing its yaw.
+
+**Without it (stock fallback):** `trigger_changelevel` plus
+`info_landmark`.
+
+- The volume becomes the `trigger_changelevel` (classname rewritten, its
+  model kept), with `map` = the destination and `landmark` = the landmark's
+  name. For a button or door, `spawnflags` gets "disable touch" and the
+  author's `Transition` outputs are rewritten to the stock input
+  `ChangeLevel`.
+- **Hallway case, folded:** when the author's `trigger_once` has
+  `Transition` at `cxry_transition` as its only output and no filter, and
+  its volume contains the transition volume's, the linker turns the
+  `trigger_once` itself into the touch-enabled `trigger_changelevel` and
+  drops the transition volume. Feasible because both are brush trigger
+  volumes; the author's volume becomes the changelevel volume unchanged.
+  When the conditions fail, both stay (the `trigger_once` fires
+  `ChangeLevel` at the changelevel).
+- **Landmark.** One `info_landmark` per transition room. In level A with
+  `down_map` B, the down room's landmark is named `A__B` and stands at the
+  centre of the changelevel volume; in level B (whose `up_map` is A) the up
+  room's landmark is also named `A__B` and stands at the arrival point. The
+  engine carries the player's offset from the source landmark to the
+  destination landmark, so the player lands at the arrival plus their
+  offset from the volume's centre: exact for a player at the centre,
+  within the volume's half-size otherwise. Keeping transition volumes small
+  and arrival points clear by at least that much makes it land in open
+  space. The landmark carries no rotation, so the arrival's facing is not
+  applied: the player keeps their view angles (**uncertain** per game; the
+  mod mode applies the facing). In multiplayer games a changelevel is
+  commonly a plain map change with players respawning at spawn points
+  (**uncertain** per game): then every arrival is the level spawn (11.5),
+  right for going down and wrong for going up. The mod mode has no such
+  gap.
+
+Rotation: the transition volume and landmark turn with the room like all
+geometry and point entities; the arrival's facing takes yaw + 90 × turns.
+
+### 11.5 The level spawn
+
+A fresh start (not arriving from another level) puts the player at the up
+room's arrival point, facing its yaw (D15).
+
+- **With `-mod-entities`:** the mod reads the up-role arrival POI from the
+  navigation data and spawns the player there. No entity.
+- **Stock fallback:** the linker emits one `info_player_start` at the up
+  room's arrival point with its yaw turned, and **strips** every
+  `info_player_start` authored in the rooms (stripped rather than marked
+  as not the spawn: a marking key would still cost an entity each and games
+  do not agree on one). This replaces O12.
+- **Multiplayer.** Several players need several spawn points. The up room
+  may hold further POIs of type `spawn` around the arrival; the linker emits
+  one `info_player_start` per `spawn` POI of the up room in the stock
+  fallback (and the mod uses them directly). A level option
+  `spawn_count: K` refuses a level whose up room has fewer than K spawn
+  points, so a multiplayer library is checked, not guessed.
+- **A level with `up: none`** (the top level) still needs a spawn. Proposed
+  (O21): the level YAML key `spawn` names a cell; by default the linker
+  uses the `spawn` POIs of the room farthest (in doors) from the down room,
+  ties broken by link order, and refuses a level where no room has one. The
+  down room's arrival would be simpler but starts the player at the exit;
+  the first room is arbitrary.
+
+### 11.6 Entity cost
+
+| Per level | With `-mod-entities` | Stock fallback |
+| --- | --- | --- |
+| Up room transition | 1 `logic_level_transition` | 1 `trigger_changelevel` + 1 `info_landmark` |
+| Down room transition | 1 `logic_level_transition` | 1 `trigger_changelevel` + 1 `info_landmark` |
+| Hallway fold | n/a | saves 1 per room (the `trigger_once` becomes the changelevel) |
+| Arrival, spawn POIs | 0 | 0 |
+| Level spawn | 0 | 1 `info_player_start` (K in multiplayer), all room starts stripped |
+| **Total** | **2** | **5**, or 3 with both hallways folded; +K−1 for K spawns |
+
+The player's button, door or trigger is the author's and counted with the
+room. The transition volume costs nothing in either mode: it is consumed or
+becomes the changelevel.
+
+### 11.7 Tests
+
+- **Layout:** role rooms placed exactly once each, at at least the minimum
+  door distance, over many seeds and grids; `up: none` / `down: none`;
+  a sequence with chained map names; a role-less library's output
+  byte-identical to today's.
+- **Rule:** each refusal of 11.1 and 11.3 with its message.
+- **Rotation:** a role room at each of the four rotations: the volume,
+  landmark, arrival facing and spawn point turn with it.
+- **Both modes:** the emitted entities per mode (11.4), the hallway fold
+  and its failure cases, the landmark names and positions, the
+  `map` keys from the YAML.
+- **Spawn:** the spawn at the up arrival at all four rotations, in both
+  modes; room starts stripped; `spawn` POIs and `spawn_count`; the top-level
+  spawn default.
+- **Flatten:** link and `--flatten` emit identical entities in both modes,
+  with the monolithic map written by its own code.
+
+---
+
+## 12. Engine limits for `CheckCapacity`
 
 `LevelLinker.CheckCapacity` sums per-room counts before planning
 (`LinkCounts.Of`, `LinkTotals.Add`). What each feature adds; "SDK" marks
@@ -1801,7 +2066,7 @@ Source SDK 2013 values not yet in this repo's tables (`BspLimits.Caps`,
 
 ---
 
-## 12. Implementation order
+## 13. Implementation order
 
 One PR per feature or small group. Already queued, and assumed:
 
@@ -1819,23 +2084,26 @@ One PR per feature or small group. Already queued, and assumed:
 | 2 | **Entity budget**: the class table (compile-only rows certain, default `edict`), per-room entity section, edict and entity totals in `CheckCapacity` with reserve, warnings, refusal and headroom report, `ssmap rooms` counts, `ssmap layout` budget, stripping of certain compile-only entities, the points-of-interest section (store and strip `info_poi`, 10.6). | M | Q1 | D7 makes it a top priority, and every later feature reports its cost through it. |
 | 3 | **Naming and neighbour logic, one feature**: `cxry_` resolution, the rotation table, (a), (b) injected only when referenced, (c) for point entities and static-prop conditions, folding (relays, constant branches, `logic_auto` merge, filters), `-mod-entities` with `logic_room` and its stock fallback, the `SourceSharp.RoomContracts` assembly (7.5), the `RoomLinter` rule, `ssmap rooms` listing, one resolver shared by link and flatten. Facts for each mechanism at all four rotations (5.11). | M-L | 2, Q1 | Pure text and immediately useful (repeated rooms with logic), and it is the main lever on the entity budget. (c) on a brush entity cannot arise until #7 links brush entities; #7 adds model omission. |
 | 4 | **Singletons and the library section** (section 8), with D3's refusal at pack time. | S-M | Q1, 1 | The sun section is Q4's input. |
-| 5 | **Packed files**. | M | Q1 | Unblocks real content (finding 10); prerequisite of 6, 10, 11. |
+| 5 | **Packed files**. | M | Q1 | Unblocks real content (finding 10); prerequisite of 6, 11, 12. |
 | 6 | **Static props** (zero-entity models). | M | 5 | High value, contained, and the cheap alternative to `prop_dynamic` under the budget. |
 | 7 | **Brush entities**, origin-relative models, per-model collision, socket furniture, (c) model omission. | L | Q2, 3 | Doors and triggers; the biggest structural change, after the cheaper wins. |
-| 8 | **Q4 base bake** and **2D sky** flags. | L | 4, 6, 7 | The base bake must include props and brush entities; exact for capped rooms. |
-| 9 | **Q4 capture and response**, driven by the prototype (9.7). | L | 8 | Research: choose the basis from measurements. |
-| 10 | **Overlays**. | M | 5, Q2 | Visual, contained. |
-| 11 | **Cubemaps**. | M-L | 5, Q2 | Needs the pak; Q2 eases texdata. |
-| 12 | **Area portals and areas**, then **3D skybox**. | L, M | Q3, 7 | Door visibility and portals both describe what a doorway lets through. |
-| 13 | **Water**, first without water sockets, then with. | M, L | 12, 7 | Hardest cross-room case; safe refusal meanwhile. |
-| 14 | **Displacements**, no cross-room stitching. | L | 8 | Many lumps; lighting is a large part. |
-| 15 | **Detail props**. | M | 14, 8 | Depends on both; statistical equivalence. |
+| 8 | **Transition rooms and the level spawn** (section 11): `room_role`, the level rule and YAML keys, layout placement (second stream) and `-sequence`, the transition volume, `logic_level_transition` and the stock `trigger_changelevel` + `info_landmark` fallback with the hallway fold, arrival and spawn POIs, the spawn `info_player_start` and stripping of room starts. | M | 2 (POIs), 3, 7 | Needed for any playable run of levels; the stock fallback's changelevel needs brush entities. |
+| 9 | **Q4 base bake** and **2D sky** flags. | L | 4, 6, 7 | The base bake must include props and brush entities; exact for capped rooms. |
+| 10 | **Q4 capture and response**, driven by the prototype (9.7). | L | 9 | Research: choose the basis from measurements. |
+| 11 | **Overlays**. | M | 5, Q2 | Visual, contained. |
+| 12 | **Cubemaps**. | M-L | 5, Q2 | Needs the pak; Q2 eases texdata. |
+| 13 | **Area portals and areas**, then **3D skybox**. | L, M | Q3, 7 | Door visibility and portals both describe what a doorway lets through. |
+| 14 | **Water**, first without water sockets, then with. | M, L | 13, 7 | Hardest cross-room case; safe refusal meanwhile. |
+| 15 | **Displacements**, no cross-room stitching. | L | 9 | Many lumps; lighting is a large part. |
+| 16 | **Detail props**. | M | 15, 9 | Depends on both; statistical equivalence. |
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
 text-only work (singletons, pak); then features by value against risk.
 Brush entities before lighting because the base bake must include them.
+Transition rooms come right after brush entities: they make a run of
+levels playable, and their stock fallback needs brush models.
 Navigation (section 10) is not scheduled: it waits for the AI design; only
 its points-of-interest store (PR 2) is independent of it.
 Areas after Q3. Water and displacements late: their cross-room cases are the
@@ -1843,7 +2111,7 @@ hardest and their refusals are safe meanwhile.
 
 ---
 
-## 13. Owner decisions
+## 14. Owner decisions
 
 ### Decided
 
@@ -1861,6 +2129,9 @@ hardest and their refusals are safe meanwhile.
 | D10 | A command-line flag enables the mod's classes (`-mod-entities`, 7.1); without it the linker emits stock entities only. `--flatten` honours it identically, and the choice is recorded in the linked worldspawn. |
 | D11 | Navigation is required, for a new AI system not yet designed, and must be **3D** (agents fly and climb). Not the stock `.nav` or node graph. Blocked on the AI design (section 10). |
 | D12 | Points of interest (cover, vantage, spawn, patrol, interaction) belong to the navigation data: `info_poi`-style entities are compiled into the room's navigation section by `ssmap room` and stripped, costing zero runtime entities (10.6). |
+| D13 | Transition rooms: exactly one up room and one down room per level (no branching), marked by `room_role` on `info_room`; the level YAML may switch either off for the top or bottom level (section 11). |
+| D14 | Transitions are resolved at `ssmap link`: levels are linked ahead of time and each transition's destination map name, from the level YAML, is written into the transition entity or `trigger_changelevel`; the mod never invokes the linker at transition time. |
+| D15 | A fresh start spawns the player at the up room's arrival point, facing its yaw: from the navigation data with `-mod-entities`, one emitted `info_player_start` in the stock fallback, with the rooms' own player starts stripped (replaces O12). |
 
 ### Open, with recommended defaults
 
@@ -1877,24 +2148,28 @@ hardest and their refusals are safe meanwhile.
 | O9 | Cubemap assignment near doors. | Each room's faces use its own cubemaps; the map name is fixed at link. |
 | O10 | Area portals at joints. | Joints open, areas unioned; author portals only; door portals opt-in per kit (1 entity each). |
 | O11 | 3D skybox. | A library skybox room (`info_room_skybox`), placed below the grid, its own area. |
-| O12 | Several `info_player_start`. | Keep all; a level YAML key may name the start room. |
+| O12 | (Replaced by D15.) | |
 | O13 | Texel-lit static props. | Refuse until vrad supports them. |
 | O14 | Response storage. | Let the prototype choose; one response set per door if the rotations agree. |
 | O15 | Brush entities with non-zero `angles`. | Refuse unless the class is in a known-direction table. |
 | O16 | Where the shared C# contract types live (7.5). | A new dependency-free assembly, `SourceSharp.RoomContracts`, held to the library rules. |
 | O17 | Entity reserve. | 512 (budget 1536), library key `rooms_entity_reserve`, link option `-entity-reserve`; the mod should measure its peak and set it. |
 | O18 | Stripping unnamed lights after baking. | Opt-in until checked in game; then default on. |
+| O20 | Level YAML key names for destinations. | `up_map` and `down_map`. |
+| O21 | The spawn of a level with `up: none`. | A `spawn` cell key; by default the `spawn` POIs of the room farthest in doors from the down room; refuse if none. |
+| O22 | `ssmap layout -sequence K`: a chained run of levels from consecutive seeds. | Yes, optional. |
+| O23 | Multiplayer spawn points. | `spawn` POIs around the up arrival; `spawn_count: K` on the level refuses fewer. |
 | O19 | Relay folding. | On by default; a library option turns it off (same-tick event order can change). |
 
 ---
 
-## 14. Growing the 3x3 sample
+## 15. Growing the 3x3 sample
 
 The sample is generated (`SourceSharp.MapGen.Rooms`: `Rooms3x3Kit`,
 `Rooms3x3Sample`, `Rooms3x3Arrangement`, `Rooms3x3Permutations`;
 `tools/RoomsSample`) and checked in; `Rooms3x3EquivalenceTests` runs every
 criterion over 16 levels. It grows **one feature per PR**, in the order of
-section 12, each with its criterion added to `Rooms3x3EquivalenceTests` and
+section 13, each with its criterion added to `Rooms3x3EquivalenceTests` and
 to the independent monolithic map (`Rooms3x3Arrangement.MonolithicVmf`), so
 every feature is checked against code that shares none of the pipeline's
 placement.
@@ -1935,6 +2210,11 @@ placement.
   asserting exactly that difference and nothing else: missing doorway faces
   (today), no detail props in doorways, cubemap assignment near doors,
   lighting tolerances.
+- **Transition rooms.** A small separate library and level set (a role-less
+  3x3 library must keep generating exactly today's levels, 11.2): an up
+  room with a button and a down room with a hallway trigger, arrival and
+  spawn POIs, a three-level `-sequence`, each level checked in both modes,
+  at all four rotations of the role rooms, against `--flatten`.
 - **The naming rotation level** (5.11) is its own small level: one room with
   references in all eight directions at the centre, at each rotation, a
   distinct room in every neighbour cell, and a corner variant for (a).
