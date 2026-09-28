@@ -156,7 +156,7 @@ public class QhullUnitTests
         static string Dump(double[] xyz)
         {
             var r = QhullBuilder.BuildIvp(xyz);
-            return string.Join(";", r.Facets.Select(f => f.Id + ":" + f.NormalX.ToString("R") + ":" + string.Join(",", f.PointIds)));
+            return string.Join(";", r.Facets.Select(f => f.Id + ":" + f.NormalX.ToString("R") + ":" + string.Join(",", f.PointIds.ToArray())));
         }
     }
 }
