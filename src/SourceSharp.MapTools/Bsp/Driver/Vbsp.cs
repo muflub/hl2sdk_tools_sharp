@@ -70,12 +70,14 @@ public sealed class VbspResult
 /// <para>
 /// <b>Bounds first.</b> A host that builds a <see cref="MapFile"/> in code must
 /// call <see cref="MapFileReader.TakeBounds"/> before <see cref="CompileAsync(MapFile, VbspContext, CancellationToken)"/>:
-/// the world extents feed the vertex hash, so a map whose bounds were never
-/// taken dies in <c>HashVec</c> with stock's
-/// <c>"HashVec: point outside valid range"</c>
-/// (<see cref="Faces.VertexWeld.HashVec"/>, the repo's port of
-///) on the first welded point rather than compiling a
-/// wrong map.
+/// the world extents choose the block grid the world pass splits on and
+/// bound the detail merge, and a map whose bounds were never taken still
+/// holds the cleared sentinels (mins above maxs), so the grid it is built on
+/// is not its own. The vertex hash is not what catches this:
+/// <see cref="Faces.VertexWeld.HashVec"/> checks a point against the fixed
+/// coordinate range (<c>MaxCoordInteger</c>), not the world extents, and
+/// stock's <c>"HashVec: point outside valid range"</c> means a point outside
+/// that range.
 /// </para>
 /// </remarks>
 public static class Vbsp

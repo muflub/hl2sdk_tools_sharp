@@ -152,6 +152,26 @@ public sealed class ManagedCollisionCooker : ICollisionCooker
         return ledge is null ? null : Serialize(build.Compile([ledge], false));
     }
 
+    /// <summary>
+    /// <c>ConvertConvexToCollide</c> + <c>CollideWrite</c> over ledges that
+    /// already exist: one static compact surface built from convexes taken out
+    /// of other surfaces, synchronously on the calling thread.
+    /// </summary>
+    /// <param name="ledges">The convexes; the compile takes them, as stock's conversion frees its input.</param>
+    /// <returns>The VPHY blob, or null when IVP builds nothing.</returns>
+    /// <remarks>
+    /// The room linker's collision merge: every room's world ledges, moved to
+    /// their placement, rebuilt into one surface so the ledge tree, the
+    /// surface's bounding radius and its mass properties describe the level
+    /// rather than any one room. The ledges themselves are not re-cooked, so a
+    /// linked room collides with exactly the convexes its own compile made.
+    /// </remarks>
+    internal byte[]? CompileLedges(List<IvpCompactLedge> ledges)
+    {
+        ArgumentNullException.ThrowIfNull(ledges);
+        return ledges.Count == 0 ? null : Serialize(Build().Compile(ledges, false));
+    }
+
     private static byte[]? Serialize(byte[]? surface) =>
         surface is null ? null : VphyWriter.Serialize(surface, (1f, 1f, 1f));
 

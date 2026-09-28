@@ -90,15 +90,51 @@ public sealed class LevelLinkerTests
     }
 
     /// <summary>
+    /// The same replay over turned rooms of two kinds: a corner room and
+    /// three hubs, each hub turned differently, the joints derived from the
+    /// turned sockets. The door edges have to follow each socket to its world
+    /// direction, and the facing clusters are still each room's own.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task TurnedRoomsOfTwoKindsMatchTheDoorGraph(int turns)
+    {
+        RoomDefinition corner = RoomHarness.Room("corner", RoomFacing.PositiveX, RoomFacing.PositiveY);
+        RoomLibrary library = await RoomHarness.LibraryAsync(false, RoomHarness.Hub(), corner);
+        LevelLayout layout = RoomHarness.AutoLayout(
+            "mixed", library, ("corner", 0, 0, 0), ("hub", 1, 0, turns), ("hub", 1, 1, (turns + 1) % 4), ("hub", 0, 1, (turns + 2) % 4));
+        Assert.All(layout.Rooms, r => Assert.NotEmpty(r.Joints));
+
+        LinkedLevel link = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync());
+
+        bool[][] expected = ExpectedRows(layout, library);
+        Assert.Equal(expected.Length, link.Vis.ClusterCount);
+        for (int from = 0; from < link.Vis.ClusterCount; from++)
+        {
+            for (int to = 0; to < link.Vis.ClusterCount; to++)
+            {
+                Assert.True(
+                    expected[from][to] == link.Vis.CanSee(from, to),
+                    $"cluster {from} seeing {to}: the door-graph replay says {expected[from][to]}, the linked vis says {link.Vis.CanSee(from, to)}");
+            }
+        }
+    }
+
+    /// <summary>
     /// The superset gate (§10b's premise): compile the same ring as ONE map.
     /// <see cref="RoomModel.BuildMerged"/>, which drops the plugs at jointed
     /// sockets so the rooms merge — run the real vvis on it, and every pair
     /// the monolithic map's PVS can see must be visible in the linked map too.
     /// Clusters are matched to space by multi-sample point-in-leaf: each open
-    /// leaf's centre and eight inset points, walked down the linked tree.
+    /// leaf's centre and eight inset points, walked down the linked tree. The
+    /// ring is laid out unturned and with every room turned differently.
     /// </summary>
-    [Fact]
-    public async Task LinkedPvsIsASupersetOfTheMonolithicOracle()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LinkedPvsIsASupersetOfTheMonolithicOracle(bool turned)
     {
         RoomDefinition hub = RoomHarness.Room("hub",
             RoomFacing.PositiveX, RoomFacing.NegativeX, RoomFacing.PositiveY, RoomFacing.NegativeY);
@@ -107,7 +143,9 @@ public sealed class LevelLinkerTests
             .CompileAsync(RoomHarness.BuildRoomModel(hub), hub, context);
         RoomLibrary library = new(RoomHarness.Kit, RoomHarness.Cell);
         library.Add(room);
-        LevelLayout layout = RingLayout();
+        LevelLayout layout = turned
+            ? RoomHarness.AutoLayout("ring", library, ("hub", 0, 0, 1), ("hub", 1, 0, 2), ("hub", 1, 1, 3), ("hub", 0, 1, 0))
+            : RingLayout();
 
         LinkedLevel link = await LevelLinker.LinkAsync(layout, library, context);
 
@@ -199,6 +237,7 @@ public sealed class LevelLinkerTests
         // The A-B bridge is every pair crossing the A|BC cut. Capping it must
         // disconnect exactly the pairs that were connected, in either
         // direction, across that cut — and no pair outside the cut may move.
+        int lost = 0;
         for (int from = 0; from < total; from++)
         {
             for (int to = 0; to < total; to++)
@@ -210,15 +249,17 @@ public sealed class LevelLinkerTests
                     + $"(before {before[from][to]}, after {after[from][to]})");
                 if (acrossCut)
                 {
-                    Assert.True(
-                        !(before[from][to] && !after[from][to]) || before[to][from] && !after[to][from],
-                        $"pair {from}->{to} lost its bridge sight without {to}->{from} losing it too");
-                    Assert.False(
-                        !before[from][to] && after[from][to],
-                        $"capping the bridge created sight {from}->{to}");
+                    // The bridge was A's only way out, so capping it must
+                    // remove every pair across the cut — a capping that
+                    // removed nothing would pass a "nothing else moved"
+                    // check alone.
+                    Assert.False(after[from][to], $"pair {from}->{to} still sees across the capped bridge");
+                    lost += before[from][to] ? 1 : 0;
                 }
             }
         }
+
+        Assert.True(lost > 0, "the open line had no pair across the bridge to lose");
     }
 
     // ---- refusals: one broken guarantee, named ---------------------------.
@@ -344,14 +385,13 @@ public sealed class LevelLinkerTests
         }
     }
 
-    // ---- the heavy tier: gated, runs in the corpus measure window ---------.
+    // ---- the larger grids ------------------------------------------------.
 
     /// <summary>
-    /// The corpus tier, scaled between the unit grids and L4: a 3×3 of two
-    /// different room kinds, every joint real. Nothing stock is read — the
-    /// mount marks the measure window in which the tier is expected to run.
+    /// A 3×3 of two different room kinds, every joint real. Nothing external
+    /// is read: two room compiles and a link, so it runs with the suite.
     /// </summary>
-    [RoomLinkCorpusFact]
+    [Fact]
     public async Task CorpusKitNineRoomGridLinks()
     {
         RoomDefinition hub = RoomHarness.Room("hub",
@@ -412,11 +452,11 @@ public sealed class LevelLinkerTests
     }
 
     /// <summary>
-    /// L4: sixteen rooms on a 4×4 grid of one kit — the scale at which the
-    /// cluster numbering, the row width, and the closure are exercised. Gated
-    /// with the corpus tier so the default suite stays light.
+    /// Sixteen rooms on a 4×4 grid of one kit — the scale at which the
+    /// cluster numbering, the row width, and the closure are exercised. One
+    /// room compile and a link: light enough for the default suite.
     /// </summary>
-    [RoomLinkCorpusFact]
+    [Fact]
     public async Task L4SixteenRoomGridLinks()
     {
         RoomDefinition hub = RoomHarness.Room("hub",
@@ -570,7 +610,8 @@ public sealed class LevelLinkerTests
             foreach ((string socketName, string neighbourSocketName) in instance.Joints)
             {
                 RoomSocket socket = definition.Sockets.First(s => s.Name == socketName);
-                (int dx, int dy) = Offset(socket.Facing);
+                (int axis, int sign) = new RoomTransform(instance.Placement, layout.CellSize).WorldNormal(socket.Facing);
+                (int dx, int dy) = axis == 0 ? (sign, 0) : (0, sign);
                 int j = -1;
                 for (int k = 0; k < layout.Rooms.Count; k++)
                 {
@@ -735,31 +776,5 @@ public sealed class LevelLinkerTests
         s[1] = (short)Math.Round(v.Y);
         s[2] = (short)Math.Round(v.Z);
         return s;
-    }
-}
-
-/// <summary>
-/// A <see cref="FactAttribute"/> for the link tier's heavy grids. Skips,
-/// visibly, outside the corpus measure window: nothing stock is read — the
-/// mount marks the window in which the heavy compile/link rows are expected to
-/// run, so the default fleet suite stays at its baseline skip count without
-/// them. The recipe is the corpus mount itself:
-/// <code>PP_CATMAPS_DIR=&lt;catalogue directory&gt; dotnet test --filter SixteenRoomGridLinks</code>
-/// </summary>
-[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
-public sealed class RoomLinkCorpusFactAttribute : FactAttribute
-{
-    /// <summary>The environment variable naming the corpus mount.</summary>
-    public const string CorpusVariable = "PP_CATMAPS_DIR";
-
-    /// <summary>Decides at discovery whether the window is open.</summary>
-    public RoomLinkCorpusFactAttribute()
-    {
-        if (Environment.GetEnvironmentVariable(CorpusVariable) is not { Length: > 0 })
-        {
-            Skip = $"'{CorpusVariable}' is not set: the link tier's heavy grids run in the "
-                + "corpus measure window only (no stock bytes are read — the mount marks the "
-                + $"window). Set {CorpusVariable} to run them.";
-        }
     }
 }

@@ -393,7 +393,11 @@ public static class LevelLayoutJson
 
     private static float ReadSingle(JsonElement value, string name)
     {
-        if (!value.TryGetSingle(out float number))
+        // TryGetSingle and TryGetInt32 answer false only for a number that
+        // does not fit; on a string or an object they throw
+        // InvalidOperationException, so the kind is checked first and every
+        // wrong type is this reader's LinkException, naming the field.
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetSingle(out float number))
         {
             throw new LinkException($"layout.json field \"{name}\" is not a number.");
         }
@@ -403,7 +407,7 @@ public static class LevelLayoutJson
 
     private static int ReadInt32(JsonElement value, string name)
     {
-        if (!value.TryGetInt32(out int number))
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out int number))
         {
             throw new LinkException($"layout.json field \"{name}\" is not an integer.");
         }
@@ -561,7 +565,7 @@ public static class RoomDefinitionJson
                 switch (member.Name)
                 {
                     case FacingKey:
-                        if (!member.Value.TryGetInt32(out int raw) || !Enum.IsDefined((RoomFacing)raw))
+                        if (member.Value.ValueKind != JsonValueKind.Number || !member.Value.TryGetInt32(out int raw) || !Enum.IsDefined((RoomFacing)raw))
                         {
                             throw new LinkException($"roomdef socket facing {member.Value} is not a facing.");
                         }
@@ -637,7 +641,7 @@ public static class RoomDefinitionJson
 
     private static float ReadSingleValue(JsonElement value, string name)
     {
-        if (!value.TryGetSingle(out float number))
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetSingle(out float number))
         {
             throw new LinkException($"roomdef field \"{name}\" is not a number.");
         }

@@ -313,6 +313,30 @@ public static class RoomLinter
 
         layout.Validate();
 
+        // The grid the layout is placed on must be the grid the rooms were
+        // built for. The placements are translated by the layout's cell size
+        // and the top tree splits on it, while every room's own geometry and
+        // plug boxes are in the library's: a layout on a 512 grid over a
+        // 256 library would route every point to the wrong room root and
+        // leave the plugs half a cell from the walls they join. The kit is
+        // compared for the same reason — the door edges are built from the
+        // library's plug boxes, so a layout that believes in another kit is
+        // describing joints the rooms do not have.
+        if (layout.CellSize != library.CellSize)
+        {
+            throw new RoomLintException(string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"rule {(int)RoomRule.PlacementIsQuarterTurnGrid} ({nameof(RoomRule.PlacementIsQuarterTurnGrid)}):"
+                + $" the layout's cell size {layout.CellSize:0.###} is not the library's {library.CellSize:0.###}."));
+        }
+
+        if (layout.Kit != library.Kit)
+        {
+            throw new RoomLintException(
+                $"rule {(int)RoomRule.SocketsFromFixedKit} ({nameof(RoomRule.SocketsFromFixedKit)}):"
+                + $" the layout's kit {layout.Kit} is not the library's {library.Kit}.");
+        }
+
         foreach (RoomInstance room in layout.Rooms)
         {
             RoomPlacement placement = room.Placement;
@@ -323,10 +347,9 @@ public static class RoomLinter
                     + $" the layout places room \"{placement.Room}\", which the library does not have.");
             }
 
-            // G5's numeric half; RoomPlacement.Validate already refused a
-            // rotation that is not a quarter turn, and LevelLayout.Validate a
+            // G5's numeric half is already done: RoomPlacement.Validate
+            // refused a rotation outside 0..3, and LevelLayout.Validate a
             // shared cell.
-            _ = placement.NormalizedRotation;
 
             // G2's other half: only the layout knows its neighbours, so "matched
             // or capped" is a layout rule.
@@ -480,15 +503,40 @@ public static class RoomLinter
                 IReadOnlyList<DBrushSide> sides = BspStructView.As<DBrushSide>(bsp[BspLump.BrushSides]).ToArray();
                 IReadOnlyList<TexInfo> texInfos = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]).ToArray();
 
+                // The walk follows index chains out of the compile; a room
+                // read back from a file is untrusted, so every link in the
+                // chain is range-checked and a broken one is a lint refusal
+                // naming the link, not an IndexOutOfRangeException.
                 for (int i = 0; i < leaves.Count; i++)
                 {
                     DLeaf leaf = leaves[i];
+                    if (leaf.FirstLeafBrush + leaf.NumLeafBrushes > leafBrushes.Length)
+                    {
+                        throw Broken($"leaf {i}'s brush run {leaf.FirstLeafBrush}+{leaf.NumLeafBrushes} passes the {leafBrushes.Length} leaf brushes");
+                    }
+
                     for (int b = 0; b < leaf.NumLeafBrushes && !trigger[i]; b++)
                     {
-                        DBrush brush = brushes[leafBrushes[leaf.FirstLeafBrush + b]];
+                        int brushIndex = leafBrushes[leaf.FirstLeafBrush + b];
+                        if (brushIndex >= brushes.Count)
+                        {
+                            throw Broken($"leaf {i} names brush {brushIndex} of {brushes.Count}");
+                        }
+
+                        DBrush brush = brushes[brushIndex];
+                        if (brush.FirstSide < 0 || brush.NumSides < 0 || (long)brush.FirstSide + brush.NumSides > sides.Count)
+                        {
+                            throw Broken($"brush {brushIndex}'s side run {brush.FirstSide}+{brush.NumSides} passes the {sides.Count} sides");
+                        }
+
                         for (int s = 0; s < brush.NumSides; s++)
                         {
                             short texInfo = sides[brush.FirstSide + s].TexInfo;
+                            if (texInfo >= texInfos.Count)
+                            {
+                                throw Broken($"brush side {brush.FirstSide + s} names texinfo {texInfo} of {texInfos.Count}");
+                            }
+
                             if (texInfo >= 0
                                 && (texInfos[texInfo].Flags & (int)SurfaceFlags.Trigger) != 0)
                             {
@@ -501,6 +549,10 @@ public static class RoomLinter
             }
 
             return new LeafSurfaceTables(trigger);
+
+            static RoomLintException Broken(string what) =>
+                new($"rule {(int)RoomRule.SocketsFromFixedKit} ({nameof(RoomRule.SocketsFromFixedKit)}):"
+                    + $" the compile's plug census cannot be walked: {what}.");
         }
 
         /// <summary>Whether the leaf's brushes include a trigger-brushed side.</summary>

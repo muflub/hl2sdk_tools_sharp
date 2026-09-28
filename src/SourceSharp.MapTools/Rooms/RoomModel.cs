@@ -23,12 +23,17 @@ namespace SourceSharp.MapTools.Rooms;
 /// A room is authored as a sealed box and written to disk sealed, because an
 /// unsealed map is not a map — vbsp itself refuses to finish one. What makes
 /// it a ROOM rather than a box is what the plugs are: <c>%compileTrigger</c>
-/// brushes whose leaf contents stop vbsp's flood fill (so the compile is
-/// sealed and vis is computed with the door shut) but whose contents are
-/// non-blocking in the engine, so the joined level is walkable at the doorway
-/// and the door entity the game hangs there replaces a volume that was never
-/// collision-solid to the player anyway. The linker's visibility is composed
-/// from the door graph, never from a flood through these plugs.
+/// brushes. The material flag only marks their surfaces as trigger; the
+/// brushes stay <c>CONTENTS_SOLID</c>, so in the room's own compile they are
+/// walls — they stop vbsp's flood fill (the compile is sealed and vis is
+/// computed with the door shut), they are solid leaves, and they are cooked
+/// into the room's world collision. The trigger flag is how the linker finds
+/// them again: at a JOINTED socket it strips the plug from the linked map
+/// (the doorway is cut out of the solid leaves as an empty leaf, the brush
+/// leaves every leaf and the collision, its faces are drawn nodraw), and at a
+/// CAPPED socket it leaves the plug as the wall it is. The linker's
+/// visibility is composed from the door graph, never from a flood through
+/// these plugs.
 /// </para>
 /// <para>
 /// The wall thickness equals the kit's depth, so the plugs of two jointed
@@ -42,7 +47,10 @@ public static class RoomModel
     /// <summary>The material of every shell face.</summary>
     public const string ShellMaterial = "models/worldroom/concrete_room001";
 
-    /// <summary>The material of a socket's plug: a trigger, solid to vis, walkable in game.</summary>
+    /// <summary>
+    /// The material of a socket's plug: trigger-surfaced and solid, which the
+    /// linker strips at a jointed socket and keeps at a capped one.
+    /// </summary>
     public const string PlugMaterial = "engine/trigger";
 
     /// <summary>
