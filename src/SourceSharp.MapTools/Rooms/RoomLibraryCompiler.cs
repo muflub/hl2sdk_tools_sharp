@@ -117,6 +117,25 @@ public sealed class RoomLibraryCompileSettings(VbspOptions options, IContentFile
 
     /// <summary>For the facts: sees the thread pool the run made for itself, to check it is gone at the end. Null in every real compile.</summary>
     internal Action<CompilePool>? PoolProbe { get; init; }
+
+    /// <summary>
+    /// These settings over other content: what an incremental run compiles
+    /// its changed rooms with, the same switches read through the cache's
+    /// recording view of the content (<see cref="RoomCompileCache.Content"/>).
+    /// </summary>
+    /// <param name="content">The content the rooms read instead.</param>
+    /// <returns>A copy with every other member as it is here.</returns>
+    internal RoomLibraryCompileSettings WithContent(IContentFileSystem content) => new(Options, content)
+    {
+        CollisionCooker = CollisionCooker,
+        Nav = Nav,
+        NameKeys = NameKeys,
+        Parallelism = Parallelism,
+        BeforeRoomProbe = BeforeRoomProbe,
+        RoomCompiledProbe = RoomCompiledProbe,
+        MaterialsProbe = MaterialsProbe,
+        PoolProbe = PoolProbe,
+    };
 }
 
 /// <summary>
