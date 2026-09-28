@@ -65,7 +65,44 @@ public static class LevelGenerator
     public const int Attempts = 64;
 
     /// <summary>How many placements one tree's search may try.</summary>
+    /// <remarks>
+    /// <para>
+    /// A fixed number, not one that grows with the grid, and deliberately
+    /// so. A search that succeeds places every occupied cell at least once,
+    /// so it takes at least one step per cell: a budget below the cell count
+    /// could never succeed. The largest grid there is, though, is
+    /// <see cref="LevelYaml.MaxCells"/> (4,096) cells, which
+    /// <see cref="CheckOptions"/> enforces before any search, and 200,000 is
+    /// about 49 steps per cell even there. The relationship is pinned by
+    /// <see cref="StepBudgetCoversTheLargestGrid"/>, which stops the build if
+    /// <see cref="LevelYaml.MaxCells"/> is ever raised past this budget.
+    /// </para>
+    /// <para>
+    /// Scaling the budget with the cells was the alternative, and was not
+    /// taken: any scaled budget that is identical to this one for every grid
+    /// up to 4,096 cells differs from it only on grids the generator refuses
+    /// anyway, so it would be code no level can reach. And the budget is also
+    /// what bounds how long a hopeless tree is searched before the next is
+    /// drawn; scaling it silently with a raised cap would change which tree
+    /// a seed's level comes from, and so the level, for every grid near the
+    /// old cap. Raising <see cref="LevelYaml.MaxCells"/> past 200,000 is a
+    /// change to the generator's output, and should be made as one.
+    /// </para>
+    /// </remarks>
     public const int StepBudget = 200_000;
+
+    /// <summary>
+    /// <see cref="StepBudget"/> less <see cref="LevelYaml.MaxCells"/>: a
+    /// compile-time proof that the budget covers one step per cell of the
+    /// largest grid.
+    /// </summary>
+    /// <remarks>
+    /// A constant of an unsigned type: were the cap ever raised past the
+    /// budget, the difference would be negative, and a negative constant
+    /// does not convert to <c>uint</c> (CS0221), so the build stops at the
+    /// line that explains why, not at a level that quietly never succeeds.
+    /// </remarks>
+    internal const uint StepBudgetCoversTheLargestGrid = StepBudget - LevelYaml.MaxCells;
 
     private const int East = 1, West = 2, North = 4, South = 8;
 
@@ -86,21 +123,27 @@ public static class LevelGenerator
         ];
     }
 
-    /// <summary>Generates a level.</summary>
-    /// <param name="rooms">The library's rooms, in library order.</param>
+    /// <summary>
+    /// Refuses options <see cref="Generate"/> would refuse for their own
+    /// sake, whatever the library: a grid under one row or column or over
+    /// <see cref="LevelYaml.MaxCells"/> cells, or an empty share outside
+    /// <c>[0, 1)</c>.
+    /// </summary>
+    /// <remarks>
+    /// Public so a host can check what it was asked for before it spends
+    /// anything on the library: <c>ssmap layout</c> used to read and split a
+    /// 22 MB library (2.5 s, 384 MB) before refusing a 512 x 512 grid that
+    /// no library could fill. <see cref="Generate"/> runs the same check,
+    /// with the same exceptions and messages, so a host that skips this call
+    /// is refused all the same, only later.
+    /// </remarks>
     /// <param name="options">The grid, the seed and the empty share.</param>
-    /// <param name="name">The level's name.</param>
-    /// <param name="library">The library as the level file should name it.</param>
-    /// <returns>The level.</returns>
-    /// <exception cref="ArgumentException">The options are out of range, or there are no rooms.</exception>
-    /// <exception cref="LinkException">No valid level could be made from these rooms on this grid.</exception>
-    public static LevelGrid Generate(
-        IReadOnlyList<RoomDefinition> rooms, LevelGeneratorOptions options, string name, string library)
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The grid has no rows or no columns.</exception>
+    /// <exception cref="ArgumentException">The grid has too many cells, or the empty share is out of range.</exception>
+    public static void CheckOptions(LevelGeneratorOptions options)
     {
-        ArgumentNullException.ThrowIfNull(rooms);
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(name);
-        ArgumentNullException.ThrowIfNull(library);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.Rows, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.Columns, 1);
         if ((long)options.Rows * options.Columns > LevelYaml.MaxCells)
@@ -115,22 +158,62 @@ public static class LevelGenerator
                 string.Create(CultureInfo.InvariantCulture, $"the empty ratio {options.EmptyRatio} is not in [0, 1)"),
                 nameof(options));
         }
+    }
+
+    /// <summary>Generates a level.</summary>
+    /// <param name="rooms">The library's rooms, in library order.</param>
+    /// <param name="options">The grid, the seed and the empty share.</param>
+    /// <param name="name">The level's name.</param>
+    /// <param name="library">The library as the level file should name it.</param>
+    /// <returns>The level.</returns>
+    /// <exception cref="ArgumentException">The options are out of range (<see cref="CheckOptions"/>), or there are no rooms.</exception>
+    /// <exception cref="LinkException">No valid level could be made from these rooms on this grid.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Memory.</b> The per-cell shuffled candidate orders are the
+    /// generator's only large allocation: occupied cells × candidates. A
+    /// candidate is one <c>int</c>, its room's library index times four plus
+    /// its rotation, and its socket mask is looked up from that; it used to
+    /// be a (room, rotation, mask) tuple of 12 bytes, which at 64 x 64 cells
+    /// and 1,024 rooms (4,096 candidates) was about 200 MB, and is now a
+    /// third of that. The orders are allocated once and refilled for each
+    /// tree rather than allocated per tree.
+    /// </para>
+    /// <para>
+    /// The draws are untouched: each cell's order starts as the candidates in
+    /// library order and is shuffled by the same Fisher–Yates over the same
+    /// sequence, so each cell's order names the same (room, rotation) at
+    /// every position as before, and every seed gives the level it always
+    /// gave (the facts compare against a frozen copy of the old generator).
+    /// </para>
+    /// </remarks>
+    public static LevelGrid Generate(
+        IReadOnlyList<RoomDefinition> rooms, LevelGeneratorOptions options, string name, string library)
+    {
+        ArgumentNullException.ThrowIfNull(rooms);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(library);
+        CheckOptions(options);
 
         if (rooms.Count == 0)
         {
             throw new ArgumentException("a level needs at least one room to place", nameof(rooms));
         }
 
+        int rows = options.Rows;
         int columns = options.Columns;
-        int cellCount = options.Rows * columns;
+        int cellCount = rows * columns;
         SplitMix64 random = new(options.Seed);
 
-        bool[] occupied = EmptyCells(random, options.Rows, columns, (int)Math.Floor(options.EmptyRatio * cellCount));
+        bool[] occupied = EmptyCells(random, rows, columns, (int)Math.Floor(options.EmptyRatio * cellCount));
         int placed = occupied.Count(o => o);
 
-        // Every (room, rotation) and the world walls it has sockets on. A room
-        // with no socket can only stand alone.
-        List<(int Room, int Rotation, int Mask)> candidates = [];
+        // Every (room, rotation), as room * 4 + rotation, and the world walls
+        // it has sockets on, by that index. A room with no socket can only
+        // stand alone.
+        int[] maskOf = new int[checked(rooms.Count * 4)];
+        List<int> candidateList = [];
         for (int r = 0; r < rooms.Count; r++)
         {
             if (rooms[r].Sockets.Count == 0 && placed > 1)
@@ -140,121 +223,192 @@ public static class LevelGenerator
 
             for (int rotation = 0; rotation < 4; rotation++)
             {
-                candidates.Add((r, rotation, Mask(rooms[r], rotation)));
+                int candidate = (r * 4) + rotation;
+                maskOf[candidate] = Mask(rooms[r], rotation);
+                candidateList.Add(candidate);
             }
         }
 
-        if (candidates.Count == 0)
+        if (candidateList.Count == 0)
         {
             throw new LinkException(
                 $"none of the library's {rooms.Count} room(s) has a socket, so {placed} rooms cannot be joined.");
         }
 
+        int[] candidates = [.. candidateList];
+
+        // One order per occupied cell, reused by every tree.
+        int[]?[] order = new int[]?[cellCount];
+        for (int cell = 0; cell < cellCount; cell++)
+        {
+            if (occupied[cell])
+            {
+                order[cell] = new int[candidates.Length];
+            }
+        }
+
+        int[] chosen = new int[cellCount];
+        int[] masks = new int[cellCount];
+        int[] next = new int[cellCount];
         for (int attempt = 0; attempt < Attempts; attempt++)
         {
-            HashSet<(int, int)> tree = SpanningTree(random, options.Rows, columns, occupied);
-            (int Room, int Rotation, int Mask)[]?[] order = new (int, int, int)[]?[cellCount];
+            int[] required = SpanningTree(random, rows, columns, occupied);
             for (int cell = 0; cell < cellCount; cell++)
             {
-                if (occupied[cell])
+                if (order[cell] is int[] tries)
                 {
-                    List<(int, int, int)> shuffled = [.. candidates];
-                    random.Shuffle(shuffled);
-                    order[cell] = [.. shuffled];
+                    candidates.CopyTo(tries, 0);
+                    random.Shuffle(tries);
                 }
             }
 
-            int[] chosen = new int[cellCount];
-            int[] masks = new int[cellCount];
-            int steps = 0;
-            if (Fill(0))
+            if (Fill(occupied, order, required, maskOf, columns, chosen, masks, next))
             {
                 LevelCell?[] cells = new LevelCell?[cellCount];
                 for (int cell = 0; cell < cellCount; cell++)
                 {
                     if (occupied[cell])
                     {
-                        (int room, int rotation, _) = order[cell]![chosen[cell]];
-                        cells[cell] = new LevelCell(rooms[room].Name, rotation);
+                        int candidate = order[cell]![chosen[cell]];
+                        cells[cell] = new LevelCell(rooms[candidate / 4].Name, candidate % 4);
                     }
                 }
 
-                return new LevelGrid(name, library, options.Rows, columns, cells);
+                return new LevelGrid(name, library, rows, columns, cells);
+            }
+        }
+
+        throw new LinkException(string.Create(CultureInfo.InvariantCulture,
+            $"no level of {rows}x{columns} cells with every room reachable was found from the library's"
+            + $" {rooms.Count} room(s) with seed {options.Seed} after {Attempts} tries; the rooms' sockets may not allow one."));
+    }
+
+    /// <summary>
+    /// The backtracking search for one tree: fills the occupied cells in cell
+    /// order, each with the first candidate of its order that fits, backing
+    /// up to the previous occupied cell's next candidate when none does.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Iterative, with <paramref name="next"/> holding each cell's position in
+    /// its order, where it used to recurse one level per cell: at the
+    /// 4,096-cell cap that was a stack 4,096 frames deep, and a raised cap
+    /// would have overflowed the thread's stack, which no host can catch.
+    /// </para>
+    /// <para>
+    /// It visits exactly what the recursion visited, in the same order, and
+    /// counts steps the same way: one per candidate tried, fitting or not,
+    /// on any cell. The recursion gave up when a cell's try pushed the count
+    /// past <see cref="StepBudget"/>: that level returned failure, and every
+    /// level above it, on its own next try, found the count still past the
+    /// budget and returned failure too, so the whole search failed at the
+    /// first step past the budget. Returning at that step is the same
+    /// outcome, and the steps the unwinding recursion still counted were
+    /// never read.
+    /// </para>
+    /// </remarks>
+    /// <returns>Whether every occupied cell was filled; <paramref name="chosen"/> then holds each one's position in its order.</returns>
+    internal static bool Fill(
+        bool[] occupied, int[]?[] order, int[] required, int[] maskOf, int columns, int[] chosen, int[] masks, int[] next)
+    {
+        int cellCount = occupied.Length;
+        int steps = 0;
+        int cell = NextOccupied(occupied, 0);
+        if (cell == cellCount)
+        {
+            return true;
+        }
+
+        next[cell] = 0;
+        while (true)
+        {
+            int[] tries = order[cell]!;
+            bool placed = false;
+            for (int i = next[cell]; i < tries.Length; i++)
+            {
+                if (++steps > StepBudget)
+                {
+                    return false;
+                }
+
+                int mask = maskOf[tries[i]];
+                if (Fits(occupied, required, masks, columns, cell, mask))
+                {
+                    chosen[cell] = i;
+                    masks[cell] = mask;
+                    next[cell] = i + 1;
+                    placed = true;
+                    break;
+                }
             }
 
-            bool Fill(int cell)
+            if (placed)
             {
+                cell = NextOccupied(occupied, cell + 1);
                 if (cell == cellCount)
                 {
                     return true;
                 }
 
-                if (!occupied[cell])
-                {
-                    return Fill(cell + 1);
-                }
+                next[cell] = 0;
+                continue;
+            }
 
-                int x = cell % columns, y = cell / columns;
-                (int, int, int)[] tries = order[cell]!;
-                for (int i = 0; i < tries.Length; i++)
-                {
-                    if (++steps > StepBudget)
-                    {
-                        return false;
-                    }
+            // Every candidate of this cell failed: back up to the previous
+            // occupied cell, which resumes after the candidate it had.
+            do
+            {
+                cell--;
+            }
+            while (cell >= 0 && !occupied[cell]);
 
-                    int mask = tries[i].Item3;
-                    if (Fits(mask, x, y))
-                    {
-                        chosen[cell] = i;
-                        masks[cell] = mask;
-                        if (Fill(cell + 1))
-                        {
-                            return true;
-                        }
-                    }
-                }
-
+            if (cell < 0)
+            {
                 return false;
             }
-
-            bool Fits(int mask, int x, int y)
-            {
-                foreach ((int side, int dx, int dy, int back) in Sides())
-                {
-                    int nx = x + dx, ny = y + dy;
-                    if (nx < 0 || ny < 0 || nx >= columns || ny >= options.Rows || !occupied[(ny * columns) + nx])
-                    {
-                        continue;
-                    }
-
-                    int here = (y * columns) + x, there = (ny * columns) + nx;
-                    bool has = (mask & side) != 0;
-                    if (tree.Contains((Math.Min(here, there), Math.Max(here, there))) && !has)
-                    {
-                        return false;
-                    }
-
-                    // West and south neighbours are placed before this cell.
-                    if (there < here && has != ((masks[there] & back) != 0))
-                    {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
         }
-
-        throw new LinkException(string.Create(CultureInfo.InvariantCulture,
-            $"no level of {options.Rows}x{columns} cells with every room reachable was found from the library's"
-            + $" {rooms.Count} room(s) with seed {options.Seed} after {Attempts} tries; the rooms' sockets may not allow one."));
     }
 
-    /// <summary>The four walls: the socket bit, the step to the neighbour, and the neighbour's bit facing back.</summary>
-    /// <remarks>A fresh array per call rather than a static one: an array's elements are writable, and MapTools holds no mutable static state.</remarks>
-    private static (int Side, int Dx, int Dy, int Back)[] Sides() =>
-        [(East, 1, 0, West), (West, -1, 0, East), (North, 0, 1, South), (South, 0, -1, North)];
+    /// <summary>The first occupied cell at or after <paramref name="cell"/>, or the cell count when there is none.</summary>
+    private static int NextOccupied(bool[] occupied, int cell)
+    {
+        while (cell < occupied.Length && !occupied[cell])
+        {
+            cell++;
+        }
+
+        return cell;
+    }
+
+    /// <summary>
+    /// Whether a candidate's socket mask fits a cell: every tree wall has a
+    /// socket, and every wall shared with an already-placed neighbour has a
+    /// socket exactly when the neighbour does.
+    /// </summary>
+    /// <remarks>
+    /// The placed neighbours are the west and south ones, which come before
+    /// the cell in cell order; the east and north neighbours are not placed
+    /// yet, and a wall onto them only has to honour the tree. A wall on the
+    /// grid's edge or onto an empty cell is free. The tree walls are the
+    /// cell's <paramref name="required"/> bits, which only ever name walls
+    /// between two occupied cells.
+    /// </remarks>
+    private static bool Fits(bool[] occupied, int[] required, int[] masks, int columns, int cell, int mask)
+    {
+        if ((mask & required[cell]) != required[cell])
+        {
+            return false;
+        }
+
+        int x = cell % columns;
+        if (x > 0 && occupied[cell - 1] && ((mask & West) != 0) != ((masks[cell - 1] & East) != 0))
+        {
+            return false;
+        }
+
+        int south = cell - columns;
+        return south < 0 || !occupied[south] || ((mask & South) != 0) == ((masks[south] & North) != 0);
+    }
 
     /// <summary>The world walls a room has sockets on, turned.</summary>
     private static int Mask(RoomDefinition room, int rotation)
@@ -276,10 +430,27 @@ public static class LevelGenerator
     }
 
     /// <summary>Which cells hold a room: all but <paramref name="empty"/>, the rest kept joined.</summary>
-    private static bool[] EmptyCells(SplitMix64 random, int rows, int columns, int empty)
+    /// <remarks>
+    /// <para>
+    /// The cells are tried in one shuffled order, pass after pass, each
+    /// emptied unless that would split the rest, until enough are empty.
+    /// Whether a removal splits the rest used to be a flood fill of the whole
+    /// grid, once per cell tried, pass after pass: on a one-row grid, where
+    /// only the ends can go, that was thousands of passes of thousands of
+    /// fills, over a minute and a half for a 4,096-cell row half emptied.
+    /// </para>
+    /// <para>
+    /// It is now <see cref="OccupiedCells.CanEmpty"/>, which gives the same
+    /// answer from the cell's neighbourhood or from the cut cells, recomputed
+    /// only after a cell is actually emptied. The answer is a function of the
+    /// occupied cells alone, so the cells emptied, and the order they are
+    /// emptied in, are exactly what they were.
+    /// </para>
+    /// </remarks>
+    internal static bool[] EmptyCells(SplitMix64 random, int rows, int columns, int empty)
     {
         int count = rows * columns;
-        bool[] occupied = Enumerable.Repeat(true, count).ToArray();
+        OccupiedCells cells = new(rows, columns);
         empty = Math.Min(empty, count - 1);
         List<int> order = [.. Enumerable.Range(0, count)];
         random.Shuffle(order);
@@ -296,62 +467,244 @@ public static class LevelGenerator
                     break;
                 }
 
-                if (!occupied[cell])
+                if (!cells.Occupied[cell])
                 {
                     continue;
                 }
 
-                occupied[cell] = false;
-                if (Joined(occupied, rows, columns))
+                if (cells.CanEmpty(cell))
                 {
+                    cells.Empty(cell);
                     removed++;
                     progress = true;
                 }
-                else
-                {
-                    occupied[cell] = true;
-                }
             }
         }
 
-        return occupied;
+        return cells.Occupied;
     }
 
-    /// <summary>Whether the occupied cells are one group through shared walls.</summary>
-    private static bool Joined(bool[] occupied, int rows, int columns)
+    /// <summary>
+    /// A connected set of occupied grid cells that can say, cheaply, whether
+    /// one of them can be emptied without splitting the rest.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why the neighbours decide.</b> Every other cell has a path to the
+    /// cell being emptied; cut that path where it first reaches the cell and
+    /// it ends at one of the cell's occupied neighbours without passing
+    /// through it. So every group left holds one of those neighbours, and the
+    /// rest stay one group exactly when the neighbours do. With no occupied
+    /// neighbour the cell is the only one and nothing would remain, which is
+    /// not a group (the old whole-grid flood fill said the same of an empty
+    /// grid); with one, the cell is a leaf and the rest is untouched.
+    /// </para>
+    /// <para>
+    /// <b>The quick test.</b> Two neighbours on adjacent sides (north and
+    /// east, say) are joined if the diagonal cell between them is occupied:
+    /// north, north-east, east is a path of shared walls. When those corner
+    /// links join every occupied neighbour, the answer is yes without looking
+    /// further. That is the usual case while the grid is still mostly full.
+    /// </para>
+    /// <para>
+    /// <b>The cut cells.</b> Otherwise the answer is whether the cell is a
+    /// cut cell (an articulation point) of the occupied cells: one whose
+    /// removal splits them. All of them are found in one depth-first walk
+    /// (Tarjan's low-link rule), which is kept until a cell is emptied. A
+    /// cell that cannot be emptied changes nothing, so a whole pass of cells
+    /// refused costs one walk, not one per cell; the walk is iterative, so a
+    /// long thin set of cells cannot overflow the stack.
+    /// </para>
+    /// </remarks>
+    internal sealed class OccupiedCells
     {
-        int start = Array.IndexOf(occupied, true);
-        if (start < 0)
+        private readonly int _rows, _columns;
+        private readonly int[] _discovered, _low, _parent, _stackCell, _stackSide;
+        private readonly bool[] _cut;
+        private bool _cutsCurrent;
+
+        /// <summary>Every cell of a grid occupied.</summary>
+        public OccupiedCells(int rows, int columns)
         {
-            return false;
+            _rows = rows;
+            _columns = columns;
+            int count = rows * columns;
+            Occupied = new bool[count];
+            Array.Fill(Occupied, true);
+            _discovered = new int[count];
+            _low = new int[count];
+            _parent = new int[count];
+            _stackCell = new int[count];
+            _stackSide = new int[count];
+            _cut = new bool[count];
         }
 
-        bool[] seen = new bool[occupied.Length];
-        Stack<int> stack = new([start]);
-        seen[start] = true;
-        int reached = 1;
-        while (stack.Count > 0)
+        /// <summary>Which cells are occupied, by cell index. Change it only through <see cref="Empty"/>.</summary>
+        public bool[] Occupied { get; }
+
+        /// <summary>How many times the cut cells were found, for the facts that show they are kept between removals.</summary>
+        public int CutWalks { get; private set; }
+
+        /// <summary>Whether an occupied cell can be emptied and leave the other occupied cells one group.</summary>
+        public bool CanEmpty(int cell)
         {
-            int at = stack.Pop();
-            int x = at % columns, y = at / columns;
-            foreach ((_, int dx, int dy, _) in Sides())
+            int x = cell % _columns, y = cell / _columns;
+            Span<bool> present = stackalloc bool[4];
+            int presentCount = 0;
+            for (int side = 0; side < 4; side++)
             {
-                int nx = x + dx, ny = y + dy;
-                int next = (ny * columns) + nx;
-                if (nx >= 0 && ny >= 0 && nx < columns && ny < rows && occupied[next] && !seen[next])
+                present[side] = IsOccupied(x + Dx(side), y + Dy(side));
+                presentCount += present[side] ? 1 : 0;
+            }
+
+            if (presentCount <= 1)
+            {
+                return presentCount == 1;
+            }
+
+            // Union the present sides through their occupied corners; with
+            // four sides, a label per side is enough.
+            Span<int> group = [0, 1, 2, 3];
+            for (int side = 0; side < 4; side++)
+            {
+                int following = (side + 1) & 3;
+                if (present[side] && present[following]
+                    && IsOccupied(x + Dx(side) + Dx(following), y + Dy(side) + Dy(following)))
                 {
-                    seen[next] = true;
-                    reached++;
-                    stack.Push(next);
+                    int from = group[following], to = group[side];
+                    for (int s = 0; s < 4; s++)
+                    {
+                        if (group[s] == from)
+                        {
+                            group[s] = to;
+                        }
+                    }
                 }
             }
+
+            int label = -1;
+            bool locallyJoined = true;
+            for (int side = 0; side < 4; side++)
+            {
+                if (present[side])
+                {
+                    if (label < 0)
+                    {
+                        label = group[side];
+                    }
+                    else if (group[side] != label)
+                    {
+                        locallyJoined = false;
+                    }
+                }
+            }
+
+            if (locallyJoined)
+            {
+                return true;
+            }
+
+            if (!_cutsCurrent)
+            {
+                FindCuts(cell);
+                _cutsCurrent = true;
+            }
+
+            return !_cut[cell];
         }
 
-        return reached == occupied.Count(o => o);
+        /// <summary>Empties a cell; the cut cells are found again when next needed.</summary>
+        public void Empty(int cell)
+        {
+            Occupied[cell] = false;
+            _cutsCurrent = false;
+        }
+
+        /// <summary>North, east, south, west: the sides in ring order, each followed by the one its corner joins it to.</summary>
+        private static int Dx(int side) => side switch { 1 => 1, 3 => -1, _ => 0 };
+
+        private static int Dy(int side) => side switch { 0 => 1, 2 => -1, _ => 0 };
+
+        private bool IsOccupied(int x, int y) =>
+            x >= 0 && y >= 0 && x < _columns && y < _rows && Occupied[(y * _columns) + x];
+
+        /// <summary>
+        /// Marks every cut cell of the occupied cells: an iterative
+        /// depth-first walk from <paramref name="root"/>, where a cell other
+        /// than the root cuts when some child's subtree reaches no higher
+        /// than the cell itself, and the root cuts when it has two children.
+        /// </summary>
+        private void FindCuts(int root)
+        {
+            CutWalks++;
+            Array.Clear(_discovered);
+            Array.Clear(_cut);
+            int time = 0, depth = 0, rootChildren = 0;
+            _discovered[root] = _low[root] = ++time;
+            _parent[root] = -1;
+            _stackCell[depth] = root;
+            _stackSide[depth] = 0;
+            depth++;
+            while (depth > 0)
+            {
+                int at = _stackCell[depth - 1];
+                int side = _stackSide[depth - 1];
+                if (side < 4)
+                {
+                    _stackSide[depth - 1] = side + 1;
+                    int nx = (at % _columns) + Dx(side), ny = (at / _columns) + Dy(side);
+                    if (!IsOccupied(nx, ny))
+                    {
+                        continue;
+                    }
+
+                    int next = (ny * _columns) + nx;
+                    if (_discovered[next] == 0)
+                    {
+                        _parent[next] = at;
+                        _discovered[next] = _low[next] = ++time;
+                        _stackCell[depth] = next;
+                        _stackSide[depth] = 0;
+                        depth++;
+                        rootChildren += at == root ? 1 : 0;
+                    }
+                    else if (next != _parent[at])
+                    {
+                        _low[at] = Math.Min(_low[at], _discovered[next]);
+                    }
+
+                    continue;
+                }
+
+                depth--;
+                int parent = _parent[at];
+                if (parent >= 0)
+                {
+                    _low[parent] = Math.Min(_low[parent], _low[at]);
+                    if (parent != root && _low[at] >= _discovered[parent])
+                    {
+                        _cut[parent] = true;
+                    }
+                }
+            }
+
+            _cut[root] = rootChildren >= 2;
+        }
     }
 
-    /// <summary>A random spanning tree of the occupied cells: the walls that must be doorways, as cell pairs (low, high).</summary>
-    private static HashSet<(int, int)> SpanningTree(SplitMix64 random, int rows, int columns, bool[] occupied)
+    /// <summary>
+    /// A random spanning tree of the occupied cells, as the walls each cell
+    /// must have a doorway on: a tree wall between two cells sets the facing
+    /// bit on both.
+    /// </summary>
+    /// <remarks>
+    /// The draws are the shuffle of the shared walls, listed in cell order
+    /// (east wall, then north wall, per cell); the walls are then kept in
+    /// shuffled order when they join two groups not yet joined. A set of
+    /// wall pairs used to hold the result; per-cell masks are what the fill
+    /// reads, and hold the same walls.
+    /// </remarks>
+    private static int[] SpanningTree(SplitMix64 random, int rows, int columns, bool[] occupied)
     {
         List<(int, int)> walls = [];
         for (int y = 0; y < rows; y++)
@@ -389,17 +742,28 @@ public static class LevelGenerator
             return i;
         }
 
-        HashSet<(int, int)> tree = [];
+        int[] required = new int[occupied.Length];
         foreach ((int a, int b) in walls)
         {
             int ra = Find(a), rb = Find(b);
             if (ra != rb)
             {
                 parent[ra] = rb;
-                tree.Add((a, b));
+                // North first: on a one-column grid a north neighbour is
+                // also the next cell, and there are no east walls there.
+                if (b - a == columns)
+                {
+                    required[a] |= North;
+                    required[b] |= South;
+                }
+                else
+                {
+                    required[a] |= East;
+                    required[b] |= West;
+                }
             }
         }
 
-        return tree;
+        return required;
     }
 }

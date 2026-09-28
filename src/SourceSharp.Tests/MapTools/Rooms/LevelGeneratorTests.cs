@@ -206,6 +206,34 @@ public sealed class LevelGeneratorTests
         Assert.Throws<ArgumentNullException>(() => LevelGenerator.Generate(null!, new LevelGeneratorOptions(1, 1, 1), "l", "x"));
     }
 
+    /// <summary>
+    /// The options check a host runs before reading a library refuses what
+    /// <see cref="LevelGenerator.Generate"/> refuses, with the same messages,
+    /// and passes the largest grid and a share just under one.
+    /// </summary>
+    [Fact]
+    public void TheOptionsAreCheckedWithoutALibrary()
+    {
+        LevelGenerator.CheckOptions(new LevelGeneratorOptions(64, 64, 1, 0.999));
+        LevelGenerator.CheckOptions(new LevelGeneratorOptions(1, LevelYaml.MaxCells, 1));
+
+        Assert.Throws<ArgumentNullException>(() => LevelGenerator.CheckOptions(null!));
+        Assert.Throws<ArgumentOutOfRangeException>(() => LevelGenerator.CheckOptions(new LevelGeneratorOptions(0, 1, 1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => LevelGenerator.CheckOptions(new LevelGeneratorOptions(1, 0, 1)));
+
+        ArgumentException big = Assert.Throws<ArgumentException>(() => LevelGenerator.CheckOptions(new LevelGeneratorOptions(512, 512, 1)));
+        Assert.Equal("a 512x512 grid has more than 4096 cells (Parameter 'options')", big.Message);
+        ArgumentException generated = Assert.Throws<ArgumentException>(
+            () => LevelGenerator.Generate(Kinds, new LevelGeneratorOptions(512, 512, 1), "l", "x"));
+        Assert.Equal(big.Message, generated.Message);
+
+        // Rows times columns past int is still a grid too big, not an overflow.
+        Assert.Throws<ArgumentException>(() => LevelGenerator.CheckOptions(new LevelGeneratorOptions(int.MaxValue, int.MaxValue, 1)));
+
+        ArgumentException ratio = Assert.Throws<ArgumentException>(() => LevelGenerator.CheckOptions(new LevelGeneratorOptions(2, 2, 1, 1.5)));
+        Assert.Equal("the empty ratio 1.5 is not in [0, 1) (Parameter 'options')", ratio.Message);
+    }
+
     /// <summary>The header a generated file starts with says how it was made.</summary>
     [Fact]
     public void TheHeaderSaysHowTheLevelWasMade()
