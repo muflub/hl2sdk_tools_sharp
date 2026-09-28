@@ -524,7 +524,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
         RoomObject hub = fixture.Library.Get("hub");
         RoomPackItem item = await RoomPackItem.CreateAsync(hub);
         Assert.Equal(
-            ["ECNT", "LNKA", "GEO0", "COL0", "GEO1", "COL1", "GEO2", "COL2", "GEO3", "COL3"],
+            ["ECNT", "LNKA", "GEO0", "COL0", "NAM0", "GEO1", "COL1", "NAM1", "GEO2", "COL2", "NAM2", "GEO3", "COL3", "NAM3"],
             item.Extra.Select(s => s.Tag));
         Assert.All(item.Extra, s => Assert.Equal((byte)RoomLinkCodec.None, s.Bytes.Span[0]));
 
@@ -534,7 +534,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
 
         RoomObject bare = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.PhysCollide, Array.Empty<byte>()));
         RoomPackItem uncooked = await RoomPackItem.CreateAsync(bare);
-        Assert.Equal(["ECNT", "LNKA", "GEO0", "GEO1", "GEO2", "GEO3"], uncooked.Extra.Select(s => s.Tag));
+        Assert.Equal(["ECNT", "LNKA", "GEO0", "NAM0", "GEO1", "NAM1", "GEO2", "NAM2", "GEO3", "NAM3"], uncooked.Extra.Select(s => s.Tag));
     }
 
     // ---- the link reads them --------------------------------------------------
@@ -613,7 +613,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
         RoomObject bad = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.DispInfo, new byte[176]));
         Assert.Null(await LevelLinker.TryPrecomputeAsync(bad, CancellationToken.None));
         RoomPackItem item = await RoomPackItem.CreateAsync(bad);
-        Assert.Equal([RoomEntityCounts.SectionTag], item.Extra.Select(s => s.Tag));
+        Assert.Equal([RoomEntityCounts.SectionTag, "NAM0", "NAM1", "NAM2", "NAM3"], item.Extra.Select(s => s.Tag));
 
         RoomLibrary library = RoomHarness.Library(bad, fixture.Library.Get("end"), fixture.Library.Get("hall"));
         LinkException refused = await Assert.ThrowsAsync<LinkException>(() => LinkBytesAsync(library, 1));

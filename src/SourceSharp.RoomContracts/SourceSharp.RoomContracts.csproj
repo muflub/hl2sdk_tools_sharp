@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+
+    <!--
+      The contract between ssmap link and the Source Sharp mod: the class
+      names, keys, inputs and outputs of the entities the linker writes for
+      the mod, and the spelling of room-local names. Both sides reference
+      this assembly so the two cannot drift apart; the prose of the rooms
+      design (docs/rooms-full-features.md, section 7) stays the
+      specification and these types are its single spelling.
+
+      A library with a stricter promise than MapTools: it changes only with
+      the contract version (LogicRoom and WorldspawnContract say which), so
+      its public surface is documented member by member, like the other
+      libraries'.
+    -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <WarningsAsErrors>$(WarningsAsErrors);CS1591</WarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <WarningsAsErrors>$(WarningsAsErrors);CA1068;CA2016</WarningsAsErrors>
+  </PropertyGroup>
+
+  <!--
+    No ItemGroup, and that is the point, as for MapFormats: the mod references
+    this assembly, and whatever it referenced the mod would have to carry. It
+    takes no PackageReference and no ProjectReference; LibraryRuleTests holds
+    the built assembly to that, and to the no-mutable-statics rule, so the
+    rules are checked on what was built rather than on this file.
+  -->
+</Project>

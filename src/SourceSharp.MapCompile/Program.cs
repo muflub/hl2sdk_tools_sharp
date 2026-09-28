@@ -446,20 +446,22 @@ public static class Program
                                                       -> one <library>.roompack, with each
                                                       room's 3D navigation and entity counts
               link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]
-                   [-no-nav | -require-nav] [-nav-codec <c>]
+                   [-no-nav | -require-nav] [-nav-codec <c>] [-mod-entities]
                                                       the level's rooms -> one linked map
                                                       and its <map>.nav3d beside it;
                                                       reports its edicts against 2048 less
                                                       the reserve (512, or the library's);
-                                                      joints are the sockets that face
-              link <level.yaml> --flatten [-out <map.vmf>]
+                                                      joints are the sockets that face;
+                                                      cxry_ names resolved to their cells,
+                                                      -mod-entities writes logic_room
+              link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
                                                       the same level as one VMF, for vbsp
               rooms <library.vmf> [-rooms <pack.roompack>]
                                                       list a library's rooms: name, cell,
                                                       each door's box and size, and with
-                                                      its pack each room's entities
+                                                      its pack each room's entities and names
               layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
-                     [-rooms <pack.roompack>] [-entity-budget <n>] [-out <level.yaml>]
+                     [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
                                                       a seeded level of the library's rooms,
                                                       within the entity budget when the
                                                       pack has the rooms' counts

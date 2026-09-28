@@ -331,6 +331,30 @@ public sealed class LevelEntityBudgetTests(RoomLinkDataFixture fixture) : IClass
         Assert.Equal(one.EntityBudget.Rooms, four.EntityBudget.Rooms);
     }
 
+    /// <summary>
+    /// After the naming resolver, two placements of one room may bring
+    /// different entities (one keeps what <c>room_needs</c> drops in the
+    /// other, one gets a written flag): the room's share then sums them, and
+    /// the level's totals are every placement's own; a room whose placements
+    /// agree reads as before, with no sum.
+    /// </summary>
+    [Fact]
+    public void PlacementsOfOneRoomMayBringDifferentEntities()
+    {
+        RoomEntityCounts one = RoomEntityCounts.FromClasses(["light", "logic_branch"]);
+        RoomEntityCounts other = RoomEntityCounts.FromClasses(["light"]);
+        RoomEntityCounts same = RoomEntityCounts.FromClasses(["light"]);
+        LevelEntityReport report = LevelEntityBudget.Check([("a", one), ("a", other), ("b", other), ("b", same)], 512, EntityClassTable.Default);
+        Assert.Equal(1 + 2 + 1 + 1 + 1, report.Edicts);
+        RoomEntityShare a = report.Rooms.Single(r => r.Room == "a");
+        Assert.Equal(new EntityTally(3, 0, 0), a.Summed);
+        Assert.Equal((3L, 3L), (a.Edicts, a.Listed));
+        RoomEntityShare b = report.Rooms.Single(r => r.Room == "b");
+        Assert.Null(b.Summed);
+        Assert.Equal((2L, 2L), (b.Edicts, b.Listed));
+        Assert.Equal(["light", "logic_branch"], one.Classes.Select(c => c.ClassName));
+    }
+
     private static int Listed(RoomObject room) => RoomEntityCounts.Of(room.Bsp).Tally(EntityClassTable.Default).Listed;
 
     private static RoomEntityCounts Counts(params (string Class, int Count)[] classes) =>

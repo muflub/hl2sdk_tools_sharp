@@ -241,7 +241,7 @@ public sealed class RoomEntityCountsTests(RoomLinkDataFixture fixture) : IClassF
 
         RoomObject bad = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.DispInfo, new byte[176]));
         RoomPackItem refused = await RoomPackItem.CreateAsync(bad);
-        Assert.Equal([RoomEntityCounts.SectionTag], refused.Extra.Select(s => s.Tag));
+        Assert.Equal([RoomEntityCounts.SectionTag, "NAM0", "NAM1", "NAM2", "NAM3"], refused.Extra.Select(s => s.Tag));
     }
 
     /// <summary>

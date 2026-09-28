@@ -80,13 +80,17 @@ public sealed record EntityClassRow(string ClassName, EntityCost Cost, EntityCla
 /// every one <see cref="EntityClassCertainty.Certain"/>, each with the code
 /// that consumes it). vbsp clears them all, so a compiled room's entity
 /// lump never holds one; the link strips any that a hand-made BSP does
-/// carry, and never counts them. No <see cref="EntityCost.ServerOnly"/> or
+/// carry, and never counts them. Besides them only the mod entity
+/// contract's classes ship (<c>logic_room</c>), each with the cost the
+/// contract declares for it (<see cref="EntityClassCertainty.OwnerSupplied"/>,
+/// from <c>SourceSharp.RoomContracts</c>): the linker writes them only with
+/// <c>-mod-entities</c>, for the owner's mod, which implements them as the
+/// contract says. No stock <see cref="EntityCost.ServerOnly"/> or
 /// <see cref="EntityCost.SpawnTransient"/> row ships, although the logic and
 /// filter classes (believed server-only) and unnamed lights, AI nodes and
 /// decals (believed to remove themselves at spawn) are the usual examples:
 /// believing them would under-count if the game differs, and the rooms
-/// design leaves those rows to the library or the owner's mod, whose
-/// contract assembly declares each of its classes one way or the other.
+/// design leaves those rows to the library or the owner's mod.
 /// <see cref="With"/> is how such rows are added; they override the
 /// shipped rows of the same class.
 /// </para>
@@ -177,6 +181,16 @@ public sealed class EntityClassTable
         // before vbsp and carries it in the navigation (RoomPois.Extract),
         // so it costs no entity. Certain.
         CompileOnly(RoomPois.Entity, "the room compile moves it into the navigation and out of the map"),
+
+        // The mod entity contract's classes, each declared networked or
+        // server-only by the contract itself (logic_room: server-only). The
+        // linker emits them only with -mod-entities; without it they never
+        // reach a map, so the row costs nothing in the stock mode.
+        .. RoomContracts.ModEntityContract.Classes.Select(c => new EntityClassRow(
+            c.ClassName,
+            c.Networked ? EntityCost.Edict : EntityCost.ServerOnly,
+            EntityClassCertainty.OwnerSupplied,
+            "the mod entity contract (SourceSharp.RoomContracts), which the Source Sharp mod implements")),
     ]);
 
     private readonly ImmutableDictionary<string, EntityClassRow> _rows;

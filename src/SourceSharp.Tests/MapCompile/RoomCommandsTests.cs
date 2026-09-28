@@ -1315,7 +1315,7 @@ public sealed class RoomCommandsTests
     [InlineData("-1", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
     [InlineData("2049", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
     [InlineData("half", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
-    [InlineData("flatten", "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]")]
+    [InlineData("flatten", "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-out <map.bsp>]")]
     public async Task ABadEntityReserveIsAUsageError(string value, string expected)
     {
         string[] args = value == "flatten"
@@ -1482,6 +1482,159 @@ public sealed class RoomCommandsTests
         Assert.Equal(Program.ExitUsage, await RoomCommands.RunLayoutAsync(
             new InMemoryFileSystem(), ["/lib.vmf", "-rows", "1", "-columns", "1", "-seed", "1", "-entity-budget", value], output));
         Assert.Equal("ssmap layout: -entity-budget is a whole number of edicts from 0 to 2048" + Environment.NewLine, output.ToString());
+    }
+
+    // ---- names ------------------------------------------------------------
+
+    /// <summary>A game whose hub room carries the given entities (all point entities, inside its cell).</summary>
+    private static InMemoryFileSystem NamedGame(params (string Key, string Value)[][] entities)
+    {
+        InMemoryFileSystem fs = Game();
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        int id = 700;
+        foreach ((string Key, string Value)[] keys in entities)
+        {
+            VmfChunk entity = new(MapFileLoader.EntityChunk);
+            entity.AddKey("id", (id++).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            entity.AddKey("origin", "40 40 40");
+            VmfChunk? connections = null;
+            foreach ((string key, string value) in keys)
+            {
+                if (value.Contains('\u001b', StringComparison.Ordinal))
+                {
+                    connections ??= new VmfChunk(MapFileLoader.ConnectionsChunk);
+                    connections.AddKey(key, value);
+                }
+                else
+                {
+                    entity.AddKey(key, value);
+                }
+            }
+
+            if (connections is not null)
+            {
+                entity.Children.Add(connections);
+            }
+
+            library.Chunks.Add(entity);
+        }
+
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        return fs;
+    }
+
+    private static string Output(string target, string input) => string.Join('\u001b', target, input, "", "0", "-1");
+
+    /// <summary>
+    /// <c>ssmap link</c> prints what resolving the names warned of (a
+    /// reference to a cell off the grid, the output removed), before the
+    /// headroom line; <c>-mod-entities</c> writes the hub and records the mode
+    /// on the worldspawn, and without it the map carries neither.
+    /// </summary>
+    [Fact]
+    public async Task LinkPrintsNameWarningsAndHonoursModEntities()
+    {
+        InMemoryFileSystem fs = NamedGame(
+            [("classname", "logic_room"), ("targetname", "cxry_room"), ("OnTrigger1", Output("cxry_door", "Use"))],
+            [("classname", "info_target"), ("targetname", "cxry_door")],
+            [("classname", "logic_auto"), ("OnMapSpawn", Output("cxry_room", "Trigger1")), ("OnMapSpawn", Output("cx+1ry_door", "Use"))]);
+        using StringWriter compile = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], compile));
+        AddLevel(fs, "/levels/level.yaml", "hub, hub", "../game/maps/rooms.vmf");
+
+        foreach (bool mod in new[] { false, true })
+        {
+            using StringWriter link = new();
+            string[] args = ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-out", "/out/level.bsp", "-no-nav", .. mod ? ["-mod-entities"] : Array.Empty<string>()];
+            int exit = await RoomCommands.RunLinkAsync(fs, args, link);
+            Assert.True(exit == Program.ExitSuccess, link.ToString());
+            string[] lines = link.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+            int warning = Array.IndexOf(lines,
+                "ssmap link: warning: room hub at cell (1, 0): entity 702 (logic_auto) key \"OnMapSpawn\" names c2r0_door, but cell (2, 0) is off the grid; the output was removed.");
+            Assert.True(warning >= 0, link.ToString());
+            Assert.StartsWith("ssmap link: map entities", lines[warning + 1], StringComparison.Ordinal);
+
+            List<BspEntity> entities = EntityLump.Parse((await LoadMapAsync(fs, "/out/level.bsp"))[BspLump.Entities]);
+            Assert.Equal(mod ? "mod" : null, entities[0].Get("ssmap_entities"));
+            Assert.Equal(mod, entities.Any(e => e.ClassName == "logic_room"));
+            Assert.Equal(!mod, entities.Any(e => e.Get("targetname") == "c0r0_room_channel1"));
+        }
+
+        using StringWriter flatten = new();
+        int flattened = await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "--flatten", "-mod-entities", "-out", "/out/level.vmf"], flatten);
+        Assert.True(flattened == Program.ExitSuccess, flatten.ToString());
+        Assert.Contains("ssmap link: warning: room hub at cell (1, 0): entity 702 (logic_auto)", flatten.ToString(), StringComparison.Ordinal);
+        VmfDocument flat = await VmfDocument.ParseAsync(fs.GetBytes(VPath.Create(Rooted("/out/level.vmf")))!);
+        Assert.Equal("mod", flat.GetChunk(MapFileLoader.WorldChunk)!.GetValue("ssmap_entities"));
+    }
+
+    /// <summary>
+    /// <c>ssmap room</c> prints the naming rule's warnings after the room's
+    /// line, and refuses a malformed name as the room not being linkable,
+    /// with the design's message.
+    /// </summary>
+    [Fact]
+    public async Task RoomPrintsNameWarningsAndRefusesBadNames()
+    {
+        InMemoryFileSystem fs = NamedGame([("classname", "logic_auto"), ("OnMapSpawn", Output("cxry_nothing", "Use"))]);
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
+        string[] lines = output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        int compiled = Array.FindIndex(lines, l => l.StartsWith("ssmap room: compiled hub (", StringComparison.Ordinal));
+        Assert.True(compiled >= 0, output.ToString());
+        Assert.Equal(
+            "ssmap room: warning: room hub: entity 700 (logic_auto) key \"OnMapSpawn\" names cxry_nothing, which no entity of the room defines.",
+            lines[compiled + 1]);
+
+        InMemoryFileSystem bad = NamedGame([("classname", "info_target"), ("targetname", "cx+2ry_door")]);
+        using StringWriter refused = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunRoomAsync(bad, [], ["-cooker", "none", "/game/maps/rooms.vmf"], refused));
+        Assert.Contains(
+            "ssmap room: room \"hub\" is not linkable: room hub: entity 700 (info_target) key \"targetname\": \"cx+2ry_door\" is a malformed room-local name;",
+            refused.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary><c>ssmap rooms</c> lists each room's names from the pack after its entity line; a room without names lists none.</summary>
+    [Fact]
+    public async Task RoomsListsEachRoomsNames()
+    {
+        InMemoryFileSystem fs = NamedGame(
+            [("classname", "info_target"), ("targetname", "cxry_door"), ("room_needs", "!east")],
+            [("classname", "logic_auto"), ("OnMapSpawn", Output("cx-1ry+1_door", "Use")), ("OnMapSpawn", Output("cxry_has_south", "Test"))]);
+        using StringWriter compile = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], compile));
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/game/maps/rooms.vmf"], output));
+        string[] lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        int entities = Array.FindIndex(lines, l => l.StartsWith("  entities:", StringComparison.Ordinal));
+        Assert.Equal(
+            [
+                "  local names: cxry_door",
+                "  neighbour references: northwest (1); dropped with a warning where the level leaves that cell empty",
+                "  flags and hub: cxry_has_south",
+                "  room_needs: !east",
+            ],
+            lines[(entities + 1)..(entities + 5)]);
+    }
+
+    /// <summary>
+    /// <c>ssmap layout -mod-entities</c> budgets a room that names its hub at
+    /// what the mod mode writes for it (a server-only hub, no edicts), where
+    /// the stock mode counts the fallback's branches and relays too.
+    /// </summary>
+    [Fact]
+    public async Task LayoutBudgetsTheEmissionMode()
+    {
+        InMemoryFileSystem fs = NamedGame([("classname", "logic_auto"), ("OnMapSpawn", Output("cxry_room", "TestEast"))]);
+        using StringWriter compile = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], compile));
+        string[] args = ["/game/maps/rooms.vmf", "-rows", "1", "-columns", "2", "-seed", "1", "-entity-budget", "10"];
+
+        using StringWriter mod = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLayoutAsync(fs, [.. args, "-mod-entities"], mod));
+        using StringWriter stock = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLayoutAsync(fs, args, stock));
+        Assert.Contains("keeps within the entity budget of 10 edicts", stock.ToString(), StringComparison.Ordinal);
     }
 
     // ---- helpers -----------------------------------------------------------

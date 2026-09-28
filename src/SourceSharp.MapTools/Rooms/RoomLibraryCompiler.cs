@@ -86,6 +86,13 @@ public sealed class RoomLibraryCompileSettings(VbspOptions options, IContentFile
     public NavSettings? Nav { get; init; }
 
     /// <summary>
+    /// The name-valued keys the library adds to the naming rule's built-in
+    /// table (<see cref="RoomLibraryOptions.NameKeySet"/>, from the library's
+    /// <c>rooms_name_keys</c>), or null.
+    /// </summary>
+    public IReadOnlySet<string>? NameKeys { get; init; }
+
+    /// <summary>
     /// How much of the machine the whole library may use: <c>-threads</c>.
     /// </summary>
     /// <remarks>
@@ -316,7 +323,7 @@ public static class RoomLibraryCompiler
         {
             (VmfDocument document, IReadOnlyList<AuthoredPoi> pois) = RoomPois.Extract(room.Document);
             RoomObject compiled = await RoomCompiler
-                .CompileAsync(document, room.Definition, context, cancellationToken).ConfigureAwait(false);
+                .CompileAsync(document, room.Definition, context, settings.NameKeys, cancellationToken).ConfigureAwait(false);
 
             // The link work that depends only on the room and its turn,
             // done here, on the room's own thread, so it runs side by side
