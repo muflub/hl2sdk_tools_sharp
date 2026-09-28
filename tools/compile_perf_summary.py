@@ -438,8 +438,8 @@ def cell_report(folder, c):
     h = c.get("heap")
     if h:
         lines += ["## Live heap at its largest snapshot", "",
-                  f"{h['peak_mb']:.0f} MB live at {h['peak_at_s']:.0f} s (snapshots: "
-                  + ", ".join(f"{t['at_s']:.0f} s {t['total_mb']:.0f} MB" for t in h["timeline"])
+                  f"{h['peak_mb']:.0f} MB live at {h['peak_at_s']:.1f} s (snapshots: "
+                  + ", ".join(f"{t['at_s']:.1f} s {t['total_mb']:.0f} MB" for t in h["timeline"])
                   + "). `heap-peak.gcdump` opens in Visual Studio or PerfView.", "",
                   "| type | MB | objects |", "|---|---:|---:|"]
         lines += [f"| `{t['type']}` | {t['bytes'] / 1048576:.1f} | {t['count']:,} |" for t in h["top_types"][:25]] + [""]

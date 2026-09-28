@@ -66,6 +66,14 @@ jobs:
             Windows) powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).Name" ;;
           esac
 
+      # The facts for the Python tools (compile-perf, content bundling). The
+      # tools are POSIX-only (they wait4, signal process groups and read
+      # /proc), and Linux is the platform that decides, so this runner runs
+      # them. They need nothing built, so they go first and fail fast.
+      - name: Python tool tests
+        if: runner.os == 'Linux'
+        run: python3 -m unittest discover -s tools/tests -v
+
       - name: Restore
         run: dotnet restore src/SourceSharp.MapTools.slnx
 
@@ -157,6 +165,60 @@ jobs:
         run: |
           ./out/aot/ssmap --help | sed -n 1p
           ./out/dll/ssmap --help | sed -n 1p
+
+      # The AOT executable ships, so it must write the same bytes the JIT
+      # build writes. The two do not run the same machine code: NativeAOT
+      # targets a baseline CPU while the JIT uses what this one has (AVX2,
+      # AVX-512), so the Vector256/Vector<T> branches take different paths,
+      # and a lane rule that differs between them shows here as a cmp
+      # failure. Both builds compile the sandbox map, which exercises every
+      # feature, through the whole chain at the default thread count, against
+      # a copy of mod_sharp with its Steam paths removed and the generated
+      # stand-in content added (README, "Without the Steam content"), so no
+      # Steam install is needed. Full vbsp and vvis; vrad with -fast (and the
+      # default bounces) to keep the step short: -fast changes how much light
+      # work runs, not which code paths do (about 90 s a build on a loaded
+      # 4-core machine). Every rid runs it, on a runner of its own
+      # architecture, so x64 and arm64 are both checked. The inputs are
+      # copied out of game/ and maps/, which stay untouched; each build
+      # compiles its own copy of the map in out/aot-jit/<kind>/, so neither
+      # writes into the other's folder. Paths are relative so Windows' bash
+      # and ssmap read them the same way.
+      - name: AOT and JIT write the same bytes
+        run: |
+          dotnet build tools/SyntheticContent/SyntheticContent.csproj -c Release
+          work=out/aot-jit
+          rm -rf "$work"
+          mkdir -p "$work"
+          cp -R game/mod_sharp "$work/game"
+          grep -v '|appid_' game/mod_sharp/gameinfo.txt > "$work/game/gameinfo.txt"
+          dotnet tools/SyntheticContent/bin/Release/net10.0/SyntheticContent.dll --content "$work/game"
+          for kind in aot dll; do
+            mkdir -p "$work/$kind"
+            cp maps/ss_sandbox.vmf "$work/$kind/"
+            start=$SECONDS
+            if ! ./out/$kind/ssmap all "$work/$kind/ss_sandbox.vmf" -game "$work/game" --vrad -fast \
+                > "$work/$kind.log" 2>&1; then
+              cat "$work/$kind.log"
+              echo "::error::the $kind build failed to compile ss_sandbox"
+              exit 1
+            fi
+            echo "$kind: $((SECONDS - start)) s"
+          done
+          status=0
+          for ext in bsp prt lin; do
+            a="$work/aot/ss_sandbox.$ext" d="$work/dll/ss_sandbox.$ext"
+            if [[ ! -e "$a" && ! -e "$d" ]]; then continue; fi
+            if cmp "$a" "$d"; then
+              echo "ss_sandbox.$ext: identical ($(wc -c < "$a") bytes)"
+            else
+              echo "::error::ss_sandbox.$ext differs between the AOT and JIT builds"
+              status=1
+            fi
+          done
+          # The .bsp must have been written, or there was nothing to compare.
+          [[ -s "$work/aot/ss_sandbox.bsp" ]] || { echo "::error::no ss_sandbox.bsp was written"; exit 1; }
+          exit $status
 
       - uses: actions/upload-artifact@v7
         with:
