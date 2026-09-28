@@ -171,6 +171,141 @@ public sealed class RoomCorrectnessFixTests
         Assert.Equal("room attic has an entity whose \"occludernumber\" holds \"two\", not an occluder index", refused.Message);
     }
 
+    // ---- 3. side-id references in the flatten ------------------------------------
+
+    /// <summary>
+    /// A flattened level whose room holds an <c>env_cubemap</c>, an
+    /// <c>info_overlay</c> and an <c>info_no_dynamic_shadow</c> naming brush
+    /// sides, placed twice at each rotation: the flatten renumbers every
+    /// <c>id</c>, so every id in a <c>sides</c> list must be the new id of
+    /// the same side of the same placement, and a side the flatten left out
+    /// (a joined plug's) must be dropped rather than left to name whatever
+    /// took its number. Before the fix the lists kept the library's ids.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Rotations))]
+    public void FlattenedSideListsNameTheMovedSides(int rotation)
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        VmfChunk world = library.GetChunk(MapFileLoader.WorldChunk)!;
+        VmfChunk pillar = RoomModel.Slab(RoomHarness.Plain, new Vec3(100, 100, 16), new Vec3(132, 132, 64), 71000);
+        int next = 71001;
+        foreach (VmfChunk side in pillar.GetChunks("side"))
+        {
+            side.Keys.First(k => k.Name == "id").Value = (next++).ToString(CultureInfo.InvariantCulture);
+        }
+
+        world.Children.Add(pillar);
+
+        // The hub's east plug: the joint between the two placements leaves
+        // it out when the west hub is unturned; its sides are all one id.
+        string eastPlugSide = world.GetChunks(MapFileLoader.SolidChunk)
+            .Where(s => s.GetChunks("side").Any(side => side.GetValue("material") == RoomHarness.Trigger))
+            .Single(s => VmfPlacement.Bounds(s).Mins.X == RoomHarness.Cell - RoomHarness.WalkableKit.Depth)
+            .GetChunks("side").First().GetValue("id")!;
+
+        library.Chunks.Add(Entity("env_cubemap", 700003, ("origin", "120 120 100"), ("sides", "71001 71002")));
+        library.Chunks.Add(Entity("info_overlay", 700004, ("origin", "116 116 64"), ("material", RoomHarness.Plain), ("sides", $"71001 {eastPlugSide}")));
+        library.Chunks.Add(Entity("info_no_dynamic_shadow", 700005, ("origin", "110 110 20"), ("sides", "71003 71004 71005")));
+
+        LevelGrid level = LevelYaml.Parse(RoomHarness.LevelText("rooms.vmf", $"hub@{rotation}, hub"), "sides");
+        VmfDocument flat = LevelFlattener.Flatten(level, library);
+
+        Dictionary<string, VmfChunk> sidesById = [];
+        void Collect(VmfChunk chunk)
+        {
+            if (string.Equals(chunk.Name, "side", StringComparison.Ordinal))
+            {
+                Assert.True(sidesById.TryAdd(chunk.GetValue("id")!, chunk), "the flatten repeats a side id");
+            }
+
+            foreach (VmfChunk child in chunk.Chunks)
+            {
+                Collect(child);
+            }
+        }
+
+        foreach (VmfChunk chunk in flat.Chunks)
+        {
+            Collect(chunk);
+        }
+
+        // Each placement's plane of an original side, moved as the flatten moves it.
+        Dictionary<string, string> planes = pillar.GetChunks("side").ToDictionary(s => s.GetValue("id")!, s => s.GetValue("plane")!);
+        string Moved(string id, int placement)
+        {
+            RoomPlacement where = new("hub", placement, 0, placement == 0 ? rotation / 90 : 0);
+            QuarterTurn turn = QuarterTurn.Of(new RoomTransform(where, RoomHarness.Cell));
+            VmfChunk solid = new("solid");
+            VmfChunk side = solid.AddChunk("side");
+            side.AddKey("plane", planes[id]);
+            side.AddKey("uaxis", "[1 0 0 0] 0.25");
+            side.AddKey("vaxis", "[0 -1 0 0] 0.25");
+            return VmfPlacement.MoveSolid(solid, turn).GetChunks("side").Single().GetValue("plane")!;
+        }
+
+        foreach ((string classname, string[] expected) in new[]
+        {
+            ("env_cubemap", new[] { "71001", "71002" }),
+            ("info_overlay", new[] { "71001" }),
+            ("info_no_dynamic_shadow", new[] { "71003", "71004", "71005" }),
+        })
+        {
+            List<VmfChunk> placed = [.. flat.GetChunks(MapFileLoader.EntityChunk).Where(e => e.GetValue("classname") == classname)];
+            Assert.Equal(2, placed.Count);
+            for (int k = 0; k < 2; k++)
+            {
+                string[] ids = placed[k].GetValue("sides")!.Split(' ');
+                for (int i = 0; i < expected.Length; i++)
+                {
+                    Assert.Equal(Moved(expected[i], k), sidesById[ids[i]].GetValue("plane"));
+                }
+
+                if (classname != "info_overlay")
+                {
+                    Assert.Equal(expected.Length, ids.Length);
+                    continue;
+                }
+
+                // The west hub unturned joins through its east plug, which
+                // the flatten leaves out; at any other turn, and in the east
+                // hub, the east plug is capped and kept.
+                bool plugLeftOut = k == 0 && rotation == 0;
+                Assert.Equal(plugLeftOut ? 1 : 2, ids.Length);
+                if (!plugLeftOut)
+                {
+                    Assert.Equal(RoomHarness.Trigger, sidesById[ids[1]].GetValue("material"));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// A <c>sides</c> list may name a brush entity's sides too, which the
+    /// flatten renumbers like the world's; an id no side of the placement
+    /// has is dropped; a token that is not a number is kept as written; an
+    /// entity without a list is untouched.
+    /// </summary>
+    [Fact]
+    public void FlattenedSideListsCoverBrushEntitiesAndDropUnknownIds()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        VmfChunk detail = Entity("func_detail", 700006);
+        VmfChunk slab = RoomModel.Slab(RoomHarness.Plain, new Vec3(100, 100, 16), new Vec3(132, 132, 64), 72000);
+        slab.GetChunks("side").First().Keys.First(k => k.Name == "id").Value = "72001";
+        detail.Children.Add(slab);
+        library.Chunks.Add(detail);
+        library.Chunks.Add(Entity("info_no_dynamic_shadow", 700007, ("origin", "110 110 20"), ("SIDES", "x 72001 999999")));
+
+        VmfDocument flat = LevelFlattener.Flatten(LevelYaml.Parse(RoomHarness.LevelText("rooms.vmf", "hub"), "one"), library);
+
+        VmfChunk movedDetail = flat.GetChunks(MapFileLoader.EntityChunk).Single(e => e.GetValue("classname") == "func_detail");
+        string newId = movedDetail.GetChunks("solid").Single().GetChunks("side").First().GetValue("id")!;
+        VmfChunk shadow = flat.GetChunks(MapFileLoader.EntityChunk).Single(e => e.GetValue("classname") == "info_no_dynamic_shadow");
+        Assert.Equal($"x {newId}", shadow.GetValue("SIDES"));
+        Assert.NotEqual("72001", newId);
+    }
+
     // ---- helpers ---------------------------------------------------------------
 
     /// <summary>A point or brush entity chunk with an id and a class.</summary>
