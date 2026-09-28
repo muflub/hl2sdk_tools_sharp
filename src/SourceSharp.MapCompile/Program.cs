@@ -210,6 +210,16 @@ public static class Program
                     .ConfigureAwait(false);
             }
 
+            case "layout":
+            {
+                // A seeded level needs only the library's socket sets, which
+                // the library VMF's geometry gives without a game.
+                PhysicalFileSystem disk = new("/");
+
+                return await RoomCommands.RunLayoutAsync(disk, args[1..], output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             case "phys":
             {
                 // The exe is where host knowledge lives: which filesystem to
@@ -412,15 +422,16 @@ public static class Program
                                                        --record-content <zip>: also write every
                                                        game file the compile read, as a game
                                                        directory with its own gameinfo.txt
-              room <in.vmf> [-out <dir>] [-def <roomdef.json>] [vbsp options]
-                                                      one room's VMF -> <dir>/<name>.room;
-                                                      the definition sidecar beside the
-                                                      VMF (base + .roomdef.json) is read
-                                                      unless -def names it
-              link <layout.json> [-rooms <dir>] [-out <map.bsp>]
-                                                      every *.room in <dir> -> one linked
-                                                      map; layout.json names rooms, cells,
-                                                      joints, caps
+              room <library.vmf> [-out <dir>] [vbsp options]
+                                                      every room of a library VMF (one
+                                                      info_room each) -> <dir>/<name>.room
+              link <level.yaml> [-rooms <dir>] [-out <map.bsp>]
+                                                      the level's rooms -> one linked map;
+                                                      joints are the sockets that face
+              link <level.yaml> --flatten [-out <map.vmf>]
+                                                      the same level as one VMF, for vbsp
+              layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>] [-out <level.yaml>]
+                                                      a seeded level of the library's rooms
               check | diff | bench                     the acceptance instruments
               cache stats|explain|gc|clear|check       the incremental-compile cache
               phys list | phys select <game>           which vphysics library to cook with

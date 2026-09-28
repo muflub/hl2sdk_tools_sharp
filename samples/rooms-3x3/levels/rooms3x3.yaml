@@ -1,0 +1,9 @@
+# the 3x3 rooms sample level
+# the grid's first line is the north row; each line runs west to east
+library: ../rooms.vmf
+rows: 3
+columns: 3
+grid:
+  - [end@270,   hall@90, corner@270]
+  - [tee@270,   cross,   tee@90]
+  - [corner@90, corner,  corner@90]

@@ -1,0 +1,9 @@
+# the 3x3 rooms sample level turned 270 degrees
+# the grid's first line is the north row; each line runs west to east
+library: ../rooms.vmf
+rows: 3
+columns: 3
+grid:
+  - [corner,     tee@180,   end@180]
+  - [corner@270, cross@270, hall]
+  - [corner,     tee,       corner@180]

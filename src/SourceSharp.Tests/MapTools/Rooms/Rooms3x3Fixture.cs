@@ -25,16 +25,20 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 
 /// <summary>
 /// One arrangement, both ways: linked from the compiled rooms, and compiled
-/// whole from its monolithic VMF.
+/// whole from the VMF the level flattens to.
 /// </summary>
 /// <param name="Case">The arrangement and why it is tested.</param>
-/// <param name="Layout">The layout the linker read, parsed from the generator's JSON.</param>
+/// <param name="Level">The level file the link and the flatten both read, as parsed.</param>
+/// <param name="Layout">The layout the linker linked, derived from the level.</param>
+/// <param name="Flattened">The level flattened into one VMF (<see cref="LevelFlattener"/>).</param>
 /// <param name="Linked">The link.</param>
-/// <param name="Monolithic">The monolithic vbsp compile.</param>
+/// <param name="Monolithic">The vbsp compile of the flattened VMF.</param>
 /// <param name="MonolithicVis">The monolithic map's real vvis.</param>
 internal sealed record Rooms3x3Pair(
     Rooms3x3Case Case,
+    LevelGrid Level,
     LevelLayout Layout,
+    VmfDocument Flattened,
     LinkedLevel Linked,
     VbspResult Monolithic,
     VisResult MonolithicVis)
@@ -50,10 +54,14 @@ internal sealed record Rooms3x3Pair(
 /// </summary>
 /// <remarks>
 /// Everything is built from the generator's own file bytes
-/// (<see cref="Rooms3x3Sample.Build"/>): the room VMFs, their sidecars and
-/// the materials, on an in-memory disk. The rooms and the monolithic maps are
-/// cooked with the managed cooker, which is what <c>ssmap room</c> and
-/// <c>ssmap vbsp</c> use by default, so world collision is compared too.
+/// (<see cref="Rooms3x3Sample.Build"/>): the room library VMF, split into
+/// rooms as <c>ssmap room</c> splits it, and the materials, on an in-memory
+/// disk. Each case's level goes through the level file's text, as
+/// <c>ssmap link</c> reads it, and the reference is the same level file
+/// flattened, as <c>ssmap link --flatten</c> writes it. The rooms and the
+/// monolithic maps are cooked with the managed cooker, which is what
+/// <c>ssmap room</c> and <c>ssmap vbsp</c> use by default, so world
+/// collision is compared too.
 /// </remarks>
 public sealed class Rooms3x3Fixture : IAsyncLifetime
 {
@@ -71,12 +79,17 @@ public sealed class Rooms3x3Fixture : IAsyncLifetime
     private static readonly Lazy<IReadOnlyList<Rooms3x3Arrangement>> AllArrangements = new(Rooms3x3Permutations.All);
 
     private static readonly Lazy<IReadOnlyList<Rooms3x3Case>> DefaultCases =
-        new(() => Rooms3x3Permutations.DefaultCases(All));
+        new(Rooms3x3Permutations.DefaultCases);
 
     /// <summary>The case names, for a theory's member data.</summary>
     public static TheoryData<string> CaseNames => [.. Cases.Select(c => c.Name)];
 
     internal RoomLibrary Library => _library ?? throw new InvalidOperationException("the fixture is not initialised");
+
+    /// <summary>The sample's room library VMF, as parsed.</summary>
+    internal VmfDocument LibraryVmf => _libraryVmf ?? throw new InvalidOperationException("the fixture is not initialised");
+
+    private VmfDocument? _libraryVmf;
 
     /// <inheritdoc/>
     public async Task InitializeAsync()
@@ -95,12 +108,10 @@ public sealed class Rooms3x3Fixture : IAsyncLifetime
         _cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
         _library = new RoomLibrary(
             new SocketKit(Rooms3x3Kit.DoorWidth, Rooms3x3Kit.DoorHeight, Rooms3x3Kit.Wall), Rooms3x3Kit.CellSize);
-        foreach (RoomKind kind in Rooms3x3Kit.Kinds)
+        _libraryVmf = await VmfDocument.ParseAsync(files[Rooms3x3Kit.LibraryFile]);
+        foreach (LibraryRoom room in RoomLibraryVmf.Split(_libraryVmf))
         {
-            VmfDocument vmf = await VmfDocument.ParseAsync(files[$"maps/{kind.Name}.vmf"]);
-            RoomDefinition definition = RoomDefinitionJson.Parse(
-                Encoding.UTF8.GetString(files[$"maps/{kind.Name}.vmf.roomdef.json"]));
-            _library.Add(await RoomCompiler.CompileAsync(vmf, definition, Context(kind.Name)));
+            _library.Add(await RoomCompiler.CompileAsync(room.Document, room.Definition, Context(room.Definition.Name)));
         }
     }
 
@@ -132,23 +143,31 @@ public sealed class Rooms3x3Fixture : IAsyncLifetime
             () => BuildAsync(Cases.Single(c => c.Name == name)))).Value;
 
     /// <summary>
-    /// Any arrangement's pair of maps, not kept: the link from the library,
-    /// the monolithic compile, and the monolithic map's vvis.
+    /// Any arrangement's pair of maps, not kept: the level file's text read
+    /// back, the link from the library, the flattened level's vbsp compile,
+    /// and the monolithic map's vvis.
     /// </summary>
     internal async Task<Rooms3x3Pair> BuildAsync(Rooms3x3Case found)
     {
-        LevelLayout layout = LevelLayoutJson.Parse(found.Arrangement.LayoutJson(found.Name));
+        LevelGrid level = LevelYaml.Parse(found.Arrangement.LevelYaml(found.Name, Rooms3x3Sample.LibraryFromLevels), found.Name);
+        LevelLayout layout = level.ToLayout(name => Library.Find(name)?.Definition, Library.CellSize, Library.Kit);
         LinkedLevel linked = await LevelLinker.LinkAsync(layout, Library, Context(found.Name));
 
-        VbspResult monolithic = await MonolithicAsync(found.Arrangement, found.Name);
+        VmfDocument flattened = LevelFlattener.Flatten(level, LibraryVmf);
+        VbspResult monolithic = await CompileAsync(flattened, found.Name);
         VisResult vis = await RoomHarness.VisAsync(monolithic.Bsp!, PortalSet.FromPortalFile(monolithic.Portals!));
-        return new Rooms3x3Pair(found, layout, linked, monolithic, vis);
+        return new Rooms3x3Pair(found, level, layout, flattened, linked, monolithic, vis);
     }
 
-    /// <summary>An arrangement's monolithic VMF through the ordinary vbsp path; it must not leak.</summary>
+    /// <summary>An arrangement's flattened level through the ordinary vbsp path; it must not leak.</summary>
     internal async Task<VbspResult> MonolithicAsync(Rooms3x3Arrangement arrangement, string mapBase)
     {
-        VmfDocument whole = await VmfDocument.ParseAsync(arrangement.MonolithicVmf());
+        LevelGrid level = LevelYaml.Parse(arrangement.LevelYaml(mapBase, Rooms3x3Sample.LibraryFromLevels), mapBase);
+        return await CompileAsync(LevelFlattener.Flatten(level, LibraryVmf), mapBase);
+    }
+
+    private async Task<VbspResult> CompileAsync(VmfDocument whole, string mapBase)
+    {
         VbspResult monolithic = await RoomHarness.CompileAsync(whole, Context(mapBase));
         Assert.True(monolithic.Bsp is not null && monolithic.Portals is not null, $"{mapBase}: the monolithic map leaked");
         return monolithic;

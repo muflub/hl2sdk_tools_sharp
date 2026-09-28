@@ -6,5 +6,12 @@
     <!-- The catalog emits VMF text and reads BSP entity lumps; both formats
          live in MapFormats, which is where the shared readers are. -->
     <ProjectReference Include="..\SourceSharp.MapFormats\SourceSharp.MapFormats.csproj" />
+    <!-- The rooms sample writes its level files in the level format and draws
+         its seeded levels with the same generator `ssmap layout` runs, both of
+         which live with the room pipeline in MapTools. The sample's geometry,
+         its placement of rooms and its independent monolithic map stay
+         MapGen's own code, so the tests still compare the linker against
+         something that shares none of its arithmetic. -->
+    <ProjectReference Include="..\SourceSharp.MapTools\SourceSharp.MapTools.csproj" />
   </ItemGroup>
 </Project>

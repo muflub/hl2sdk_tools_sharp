@@ -120,6 +120,40 @@ internal sealed class LevelProbe
         return Clip(brushes, start, end, mask);
     }
 
+    /// <summary>
+    /// Whether a point is inside a brush whose contents are in
+    /// <paramref name="mask"/>, found through the tree: the brushes the
+    /// point's leaf lists. Unlike <see cref="Contents"/>, this sees a player
+    /// clip or a detail brush, which leave the leaf they are in empty.
+    /// </summary>
+    public bool InsideBrush(Vec3 p, int mask)
+    {
+        DLeaf leaf = _leafs[Leaf(p)];
+        for (int b = 0; b < leaf.NumLeafBrushes; b++)
+        {
+            DBrush brush = _brushes[_leafBrushes[leaf.FirstLeafBrush + b]];
+            if ((brush.Contents & mask) == 0)
+            {
+                continue;
+            }
+
+            bool inside = true;
+            for (int s = 0; s < brush.NumSides && inside; s++)
+            {
+                DBrushSide side = _sides[brush.FirstSide + s];
+                DPlane plane = _planes[side.PlaneNum];
+                inside = side.Bevel != 0 || Vec3.Dot(p, plane.Normal) - plane.Dist <= 0;
+            }
+
+            if (inside)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>The same trace against every brush of the map, with no tree.</summary>
     public float TraceAllBrushes(Vec3 start, Vec3 end, int mask) =>
         Clip(Enumerable.Range(0, _brushes.Length), start, end, mask);

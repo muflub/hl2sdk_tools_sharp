@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using System.Globalization;
 using System.Text;
 
 using SourceSharp.MapFormats.Bsp;
@@ -19,43 +20,58 @@ using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Phys;
 using SourceSharp.MapTools.Rooms;
-using SourceSharp.MapTools.Vis;
 
 namespace SourceSharp.MapCompile;
 
 /// <summary>
-/// <c>ssmap room</c> and <c>ssmap link</c>: the two
-/// verbs of the room pipeline. The room half is vbsp's host half — mount the
-/// game, parse the stock line, compile, write one file — with the write being
-/// a <see cref="RoomObjectStore"/> container instead of a .bsp. The link half
-/// needs no game at all: rooms arrive as objects, the layout as JSON, and the
-/// only host decision is where the files are.
+/// <c>ssmap room</c>, <c>ssmap link</c> and <c>ssmap layout</c>: the verbs of
+/// the room pipeline. <c>room</c> is vbsp's host half — mount the game, parse
+/// the stock line, compile — run once per room of a library VMF, each
+/// written as a <see cref="RoomObjectStore"/> container instead of a .bsp.
+/// <c>link</c> needs no game at all: the rooms arrive as objects, the level
+/// as a YAML grid, and the only host decision is where the files are; with
+/// <c>--flatten</c> it writes the level as one VMF for vbsp instead.
+/// <c>layout</c> writes a seeded level for a library.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Like every other verb, the host knowledge stays here: the filesystem, the
-/// Steam roots, the cooker. The room library reads no environment variable
-/// and touches no console; it takes a document, a definition, and a context,
+/// Steam roots, the cooker, the paths. The room library reads no environment
+/// variable and touches no console; it takes documents, text and a context,
 /// which is what lets a fact run the whole verb against an in-memory fixture
 /// (the <c>phys</c> precedent, <c>Program.cs</c>).
+/// </para>
+/// <para>
+/// <b>One <c>.room</c> file per room</b>, not one library container: a room
+/// object is the unit the linker loads, the unit the cache keys, and the
+/// unit that changes when one room of the library is edited, so writing
+/// each room as its own file keeps the <see cref="RoomObjectStore"/> format
+/// as it is, lets a link load exactly the rooms its level places, and lets a
+/// host skip rooms whose inputs did not change.
+/// </para>
 /// </remarks>
 public static class RoomCommands
 {
     /// <summary>The exit code for a compile, link, or file the run could not deliver.</summary>
     public const int ExitFailed = 1;
 
-    /// <summary>How many rooms one layout may place; a guard, not a limit the format has.</summary>
-    private const int MaxRooms = 4096;
-
     /// <summary>
-    /// <c>ssmap room &lt;in.vmf&gt; [-out &lt;roomdir&gt;] [-def &lt;file&gt;] [stock vbsp options]</c>:
-    /// compile one room's VMF into a <c>&lt;roomdir&gt;/&lt;roomname&gt;.room</c> object.
+    /// <c>ssmap room &lt;library.vmf&gt; [-out &lt;roomdir&gt;] [stock vbsp options]</c>:
+    /// compile every room of a library VMF into <c>&lt;roomdir&gt;/&lt;roomname&gt;.room</c>.
     /// </summary>
-    /// <param name="disk">Where the VMF, the game content and the output live.</param>
+    /// <param name="disk">Where the library, the game content and the output live.</param>
     /// <param name="searchRoots">Where game installs are, for the cooker's library discovery.</param>
     /// <param name="args">The arguments after <c>room</c>.</param>
     /// <param name="output">Where the log goes.</param>
-    /// <param name="cancellationToken">Cancels the compile.</param>
+    /// <param name="cancellationToken">Cancels the compiles.</param>
     /// <returns>The process exit code.</returns>
+    /// <remarks>
+    /// Every room is compiled even when one fails, so one run reports every
+    /// room that needs fixing; the exit code is failed if any did. The game
+    /// is found by vbsp's rule, <c>-game</c> or else the library's folder's
+    /// parent, and <c>-out</c> defaults to the library's own folder, which is
+    /// also where <c>ssmap link</c> looks for rooms by default.
+    /// </remarks>
     public static async Task<int> RunRoomAsync(
         IFileSystem disk,
         IReadOnlyList<VPath> searchRoots,
@@ -68,23 +84,16 @@ public static class RoomCommands
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(output);
 
-        // -out and -def are this verb's, not stock vbsp's: take them out of
-        // the line first so the stock parser never sees an option it would
-        // (correctly) refuse.
+        // -out is this verb's, not stock vbsp's: take it out of the line first
+        // so the stock parser never sees an option it would (correctly) refuse.
         List<string> stock = [];
         string? outDirectory = null;
-        string? defFile = null;
         for (int i = 0; i < args.Count; i++)
         {
-            if (Take(args, i, "-out", out string o, out int used))
+            if (Take(args, i, "out", out string o))
             {
                 outDirectory = o;
-                i += used - 1;
-            }
-            else if (Take(args, i, "-def", out string d, out used))
-            {
-                defFile = d;
-                i += used - 1;
+                i++;
             }
             else
             {
@@ -100,14 +109,13 @@ public static class RoomCommands
 
         if (parsed.HasErrors || parsed.MapPath is null)
         {
-            await output.WriteLineAsync(
-                "usage: ssmap room <in.vmf> [-out <roomdir>] [-def <roomdef.json>] [stock vbsp options]")
+            await output.WriteLineAsync("usage: ssmap room <library.vmf> [-out <roomdir>] [stock vbsp options]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
         }
 
         string source = Path.GetFullPath(parsed.MapPath);
-        if (!VPath.TryCreate(source, out VPath vmfPath))
+        if (!VPath.TryCreate(source, out VPath libraryPath))
         {
             await output.WriteLineAsync($"ssmap room: \"{source}\" is not a usable path").ConfigureAwait(false);
             return Program.ExitUsage;
@@ -125,43 +133,17 @@ public static class RoomCommands
             return Program.ExitUsage;
         }
 
-        // The definition's home: -def names it, else the sibling sidecar
-        // beside the VMF (base + ".roomdef.json") — the room's author writes
-        // both files, and a sidecar means the command line names one path.
-        string defPath = defFile is null
-            ? source + ".roomdef.json"
-            : Path.GetFullPath(defFile);
-        if (!VPath.TryCreate(defPath, out VPath defVPath))
-        {
-            await output.WriteLineAsync($"ssmap room: -def \"{defFile}\" is not a usable path")
-                .ConfigureAwait(false);
-            return Program.ExitUsage;
-        }
-
-        // The definition is JSON, and JSON is UTF-8: the same decoding the
-        // layout gets, so a room named in any script round-trips through
-        // both files and the .room it produces.
-        RoomDefinition definition;
+        // The library first: a library that does not split into rooms is
+        // refused before a game is mounted or a cooker loaded.
+        IReadOnlyList<LibraryRoom> rooms;
         try
         {
-            await using Stream stream = await disk.OpenReadAsync(defVPath, cancellationToken).ConfigureAwait(false);
-            definition = RoomDefinitionJson.Parse(await new StreamReader(stream, Encoding.UTF8)
-                .ReadToEndAsync(cancellationToken).ConfigureAwait(false));
-            definition.Validate();
+            rooms = RoomLibraryVmf.Split(await ReadVmfAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or InvalidDataException or LinkException or ArgumentException)
+            or ChunkFileException or RoomLibraryException)
         {
-            await output.WriteLineAsync($"ssmap room: cannot read the room definition {defPath}: {exception.Message}")
-                .ConfigureAwait(false);
-            return ExitFailed;
-        }
-
-        if (RoomFileNameProblem(definition.Name) is { } problem)
-        {
-            await output.WriteLineAsync(
-                $"ssmap room: the room name \"{definition.Name}\" cannot name a file in -out: {problem}")
-                .ConfigureAwait(false);
+            await output.WriteLineAsync($"ssmap room: {source}: {exception.Message}").ConfigureAwait(false);
             return ExitFailed;
         }
 
@@ -208,71 +190,88 @@ public static class RoomCommands
 
         await using ICollisionCooker? cooker = setup.Cooker;
 
-        VbspContext context = new(options, mounted.Content)
+        int failed = 0;
+        foreach (LibraryRoom room in rooms)
         {
-            // mapbase: the file's base name, lowercased
-#pragma warning disable CA1308 // strlwr
-            MapBase = Path.GetFileNameWithoutExtension(source).ToLowerInvariant(),
-#pragma warning restore CA1308
-            CollisionCooker = cooker,
-            Parallelism = parsed.Threads is int degree && degree > 0
-                ? new CompileParallelism { MaxDegree = degree }
-                : CompileParallelism.Default,
-        };
+            cancellationToken.ThrowIfCancellationRequested();
+            RoomDefinition definition = room.Definition;
 
-        try
-        {
-            VmfDocument document;
-            await using (Stream vmf = await disk.OpenReadAsync(vmfPath, cancellationToken).ConfigureAwait(false))
+            // A context per room: a context carries the tables one compile
+            // fills (texinfos, planes, the loading map), which two rooms must
+            // not share. The content mount and the cooker are read-only and are.
+            VbspContext context = new(options, mounted.Content)
             {
-                document = await VmfDocument.ReadAsync(vmf, cancellationToken).ConfigureAwait(false);
+                // mapbase: the room's name, lowercased
+#pragma warning disable CA1308 // strlwr
+                MapBase = definition.Name.ToLowerInvariant(),
+#pragma warning restore CA1308
+                CollisionCooker = cooker,
+                Parallelism = parsed.Threads is int degree && degree > 0
+                    ? new CompileParallelism { MaxDegree = degree }
+                    : CompileParallelism.Default,
+            };
+
+            try
+            {
+                RoomObject compiled = await RoomCompiler
+                    .CompileAsync(room.Document, definition, context, cancellationToken).ConfigureAwait(false);
+
+                VPath roomFile = outDir.Combine(definition.Name + ".room");
+                await disk.ReplaceAsync(
+                    roomFile,
+                    async (stream, token) => await RoomObjectStore
+                        .SaveAsync(compiled, stream, token).ConfigureAwait(false),
+                    cancellationToken).ConfigureAwait(false);
+
+                await output.WriteLineAsync(
+                    $"ssmap room: wrote {roomFile.Value}"
+                    + $" ({compiled.ClusterCount} clusters, {definition.Sockets.Count} sockets)")
+                    .ConfigureAwait(false);
             }
-
-            RoomObject room = await RoomCompiler
-                .CompileAsync(document, definition, context, cancellationToken).ConfigureAwait(false);
-
-            VPath roomFile = outDir.Combine(definition.Name + ".room");
-            await disk.ReplaceAsync(
-                roomFile,
-                async (stream, token) => await RoomObjectStore
-                    .SaveAsync(room, stream, token).ConfigureAwait(false),
-                cancellationToken).ConfigureAwait(false);
-
-            await output.WriteLineAsync(
-                $"ssmap room: wrote {roomFile.Value}"
-                + $" ({room.ClusterCount} clusters, {definition.Sockets.Count} sockets)")
-                .ConfigureAwait(false);
-            return Program.ExitSuccess;
+            catch (Exception exception) when (exception is MapCompileException or IOException
+                or UnauthorizedAccessException or LinkException)
+            {
+                await output.WriteLineAsync($"ssmap room: room \"{definition.Name}\": {exception.Message}")
+                    .ConfigureAwait(false);
+                failed++;
+            }
+            catch (RoomLintException exception)
+            {
+                await output.WriteLineAsync(
+                    $"ssmap room: room \"{definition.Name}\" is not linkable: {exception.Message}")
+                    .ConfigureAwait(false);
+                failed++;
+            }
         }
-        catch (Exception exception) when (exception is MapCompileException or IOException
-            or UnauthorizedAccessException)
+
+        if (failed > 0)
         {
-            await output.WriteLineAsync($"Error: {exception.Message}").ConfigureAwait(false);
+            await output.WriteLineAsync($"ssmap room: {failed} of {rooms.Count} room(s) failed").ConfigureAwait(false);
             return ExitFailed;
         }
-        catch (RoomLintException exception)
-        {
-            await output.WriteLineAsync($"ssmap room: the room is not linkable: {exception.Message}")
-                .ConfigureAwait(false);
-            return ExitFailed;
-        }
-        catch (LinkException exception)
-        {
-            await output.WriteLineAsync($"ssmap room: {exception.Message}").ConfigureAwait(false);
-            return ExitFailed;
-        }
+
+        return Program.ExitSuccess;
     }
 
     /// <summary>
-    /// <c>ssmap link &lt;layout.json&gt; [-rooms &lt;dir&gt;] [-out &lt;map.bsp&gt;]</c>:
-    /// load every <c>*.room</c> in the room directory, parse the layout, link
-    /// it, and write the map.
+    /// <c>ssmap link &lt;level.yaml&gt; [-rooms &lt;dir&gt;] [-out &lt;map.bsp&gt;]</c>:
+    /// link the level's rooms into one map; or, with <c>--flatten</c>,
+    /// write the same level as one VMF (<c>-out</c> then names the VMF) for
+    /// vbsp to compile as the reference.
     /// </summary>
-    /// <param name="disk">Where the layout, the room objects and the output live.</param>
+    /// <param name="disk">Where the level, the room objects, the library and the output live.</param>
     /// <param name="args">The arguments after <c>link</c>.</param>
     /// <param name="output">Where the log goes.</param>
     /// <param name="cancellationToken">Cancels the link.</param>
     /// <returns>The process exit code.</returns>
+    /// <remarks>
+    /// The level's <c>library</c> is resolved against the level file's
+    /// folder. The link loads <c>&lt;dir&gt;/&lt;room&gt;.room</c> for each
+    /// room the level places, and nothing else, with <c>-rooms</c> defaulting
+    /// to the library's folder (where <c>ssmap room</c> writes by default).
+    /// The map defaults to the level file with <c>.bsp</c>, the flattened VMF
+    /// to the level file with <c>.vmf</c>.
+    /// </remarks>
     public static async Task<int> RunLinkAsync(
         IFileSystem disk,
         IReadOnlyList<string> args,
@@ -286,17 +285,22 @@ public static class RoomCommands
         List<string> rest = [];
         string? roomsDirectory = null;
         string? outPath = null;
+        bool flatten = false;
         for (int i = 0; i < args.Count; i++)
         {
-            if (Take(args, i, "-rooms", out string r, out int used))
+            if (Take(args, i, "rooms", out string r))
             {
                 roomsDirectory = r;
-                i += used - 1;
+                i++;
             }
-            else if (Take(args, i, "-out", out string o, out used))
+            else if (Take(args, i, "out", out string o))
             {
                 outPath = o;
-                i += used - 1;
+                i++;
+            }
+            else if (IsFlag(args[i], "flatten"))
+            {
+                flatten = true;
             }
             else
             {
@@ -304,21 +308,220 @@ public static class RoomCommands
             }
         }
 
-        if (rest.Count != 1)
+        if (rest.Count != 1 || (flatten && roomsDirectory is not null))
         {
-            await output.WriteLineAsync("usage: ssmap link <layout.json> [-rooms <dir>] [-out <map.bsp>]")
+            await output.WriteLineAsync(
+                "usage: ssmap link <level.yaml> [-rooms <dir>] [-out <map.bsp>]\n"
+                + "       ssmap link <level.yaml> --flatten [-out <map.vmf>]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
         }
 
-        string layoutPath = Path.GetFullPath(rest[0]);
-        if (!VPath.TryCreate(layoutPath, out VPath layoutVPath))
+        string levelPath = Path.GetFullPath(rest[0]);
+        string target = outPath is null
+            ? Path.ChangeExtension(levelPath, flatten ? ".vmf" : ".bsp")
+            : Path.GetFullPath(outPath);
+        if (!VPath.TryCreate(levelPath, out VPath levelVPath) || !VPath.TryCreate(target, out VPath targetPath))
         {
-            await output.WriteLineAsync($"ssmap link: \"{layoutPath}\" is not a usable path").ConfigureAwait(false);
+            await output.WriteLineAsync($"ssmap link: \"{levelPath}\" or -out \"{target}\" is not a usable path")
+                .ConfigureAwait(false);
             return Program.ExitUsage;
         }
 
-        string roomsDir = Path.GetFullPath(roomsDirectory ?? Path.GetDirectoryName(layoutPath)!);
+        LevelGrid level;
+        try
+        {
+            await using Stream stream = await disk.OpenReadAsync(levelVPath, cancellationToken).ConfigureAwait(false);
+            string text = await new StreamReader(stream, Encoding.UTF8)
+                .ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            level = LevelYaml.Parse(text, Path.GetFileNameWithoutExtension(levelPath));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            await output.WriteLineAsync($"ssmap link: cannot read {levelPath}: {exception.Message}")
+                .ConfigureAwait(false);
+            return ExitFailed;
+        }
+        catch (LevelFileException exception)
+        {
+            await output.WriteLineAsync($"ssmap link: {levelPath}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
+
+        string libraryPath;
+        try
+        {
+            libraryPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(levelPath)!, level.Library));
+        }
+        catch (ArgumentException)
+        {
+            // A path the host cannot hold at all (a NUL, say): the level
+            // file's problem, reported as such rather than thrown.
+            await output.WriteLineAsync($"ssmap link: {levelPath}: the library \"{level.Library}\" is not a usable path")
+                .ConfigureAwait(false);
+            return ExitFailed;
+        }
+
+        return flatten
+            ? await FlattenAsync(disk, level, levelPath, libraryPath, targetPath, output, cancellationToken).ConfigureAwait(false)
+            : await LinkAsync(disk, level, levelPath, libraryPath, roomsDirectory, targetPath, output, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <c>ssmap layout &lt;library.vmf&gt; -rows R -columns C -seed N [-empty &lt;ratio&gt;] [-out &lt;level.yaml&gt;]</c>:
+    /// write a seeded level of the library's rooms.
+    /// </summary>
+    /// <param name="disk">Where the library and the level live.</param>
+    /// <param name="args">The arguments after <c>layout</c>.</param>
+    /// <param name="output">Where the log goes, and the level when there is no <c>-out</c>.</param>
+    /// <param name="cancellationToken">Cancels the reads and the write.</param>
+    /// <returns>The process exit code.</returns>
+    /// <remarks>
+    /// The level is valid by construction (<see cref="LevelGenerator"/>):
+    /// sockets line up and every room is reachable. The same library and
+    /// seed always write the same file. The level names the library relative
+    /// to where the level is written (or to the current folder, when it is
+    /// printed), so <c>ssmap link</c> finds it from the file. The options
+    /// take one dash or two.
+    /// </remarks>
+    public static async Task<int> RunLayoutAsync(
+        IFileSystem disk,
+        IReadOnlyList<string> args,
+        TextWriter output,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(args);
+        ArgumentNullException.ThrowIfNull(output);
+
+        const string Usage =
+            "usage: ssmap layout <library.vmf> -rows <n> -columns <n> -seed <n> [-empty <ratio>] [-out <level.yaml>]";
+        List<string> rest = [];
+        string? rows = null, columns = null, seed = null, empty = null, outPath = null;
+        for (int i = 0; i < args.Count; i++)
+        {
+            if (Take(args, i, "rows", out string value))
+            {
+                rows = value;
+            }
+            else if (Take(args, i, "columns", out value))
+            {
+                columns = value;
+            }
+            else if (Take(args, i, "seed", out value))
+            {
+                seed = value;
+            }
+            else if (Take(args, i, "empty", out value))
+            {
+                empty = value;
+            }
+            else if (Take(args, i, "out", out value))
+            {
+                outPath = value;
+            }
+            else
+            {
+                rest.Add(args[i]);
+                continue;
+            }
+
+            i++;
+        }
+
+        if (rest.Count != 1 || rows is null || columns is null || seed is null)
+        {
+            await output.WriteLineAsync(Usage).ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        if (!int.TryParse(rows, NumberStyles.None, CultureInfo.InvariantCulture, out int rowCount) || rowCount < 1
+            || !int.TryParse(columns, NumberStyles.None, CultureInfo.InvariantCulture, out int columnCount) || columnCount < 1
+            || !ulong.TryParse(seed, NumberStyles.None, CultureInfo.InvariantCulture, out ulong seedValue))
+        {
+            await output.WriteLineAsync("ssmap layout: -rows and -columns are whole numbers from 1, -seed a whole number from 0")
+                .ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        double ratio = 0;
+        if (empty is not null
+            && (!double.TryParse(empty, NumberStyles.Float, CultureInfo.InvariantCulture, out ratio) || !(ratio >= 0 && ratio < 1)))
+        {
+            await output.WriteLineAsync("ssmap layout: -empty is a share of the cells, at least 0 and below 1")
+                .ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        string libraryPath = Path.GetFullPath(rest[0]);
+        string? target = outPath is null ? null : Path.GetFullPath(outPath);
+        if (!VPath.TryCreate(libraryPath, out VPath libraryVPath))
+        {
+            await output.WriteLineAsync($"ssmap layout: \"{libraryPath}\" is not a usable path").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        VPath targetPath = default;
+        if (target is not null && !VPath.TryCreate(target, out targetPath))
+        {
+            await output.WriteLineAsync($"ssmap layout: -out \"{target}\" is not a usable path").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        string text;
+        try
+        {
+            IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(
+                await ReadVmfAsync(disk, libraryVPath, cancellationToken).ConfigureAwait(false));
+            string from = target is null ? Path.GetFullPath(".") : Path.GetDirectoryName(target)!;
+            string library = Path.GetRelativePath(from, libraryPath).Replace('\\', '/');
+            string name = target is null ? "level" : Path.GetFileNameWithoutExtension(target);
+            LevelGeneratorOptions options = new(rowCount, columnCount, seedValue, ratio);
+            LevelGrid level = LevelGenerator.Generate([.. rooms.Select(r => r.Definition)], options, name, library);
+            text = LevelYaml.Write(level, LevelGenerator.Header(options, level));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ChunkFileException or RoomLibraryException or LinkException or ArgumentException)
+        {
+            await output.WriteLineAsync($"ssmap layout: {libraryPath}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
+
+        if (target is null)
+        {
+            await output.WriteAsync(text).ConfigureAwait(false);
+            return Program.ExitSuccess;
+        }
+
+        byte[] bytes = new UTF8Encoding(false).GetBytes(text);
+        try
+        {
+            await disk.ReplaceAsync(
+                targetPath,
+                async (stream, token) => await stream.WriteAsync(bytes, token).ConfigureAwait(false),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            await output.WriteLineAsync($"ssmap layout: cannot write {target}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
+
+        await output.WriteLineAsync($"ssmap layout: wrote {targetPath.Value}").ConfigureAwait(false);
+        return Program.ExitSuccess;
+    }
+
+    private static async Task<int> LinkAsync(
+        IFileSystem disk,
+        LevelGrid level,
+        string levelPath,
+        string libraryPath,
+        string? roomsDirectory,
+        VPath mapPath,
+        TextWriter output,
+        CancellationToken cancellationToken)
+    {
+        string roomsDir = Path.GetFullPath(roomsDirectory ?? Path.GetDirectoryName(libraryPath)!);
         if (!VPath.TryCreate(roomsDir, out VPath roomsDirPath))
         {
             await output.WriteLineAsync($"ssmap link: -rooms \"{roomsDirectory}\" is not a usable path")
@@ -326,98 +529,63 @@ public static class RoomCommands
             return Program.ExitUsage;
         }
 
-        string mapName = outPath is null
-            ? Path.ChangeExtension(layoutPath, ".bsp")
-            : Path.GetFullPath(outPath);
-        if (!VPath.TryCreate(mapName, out VPath mapPath))
-        {
-            await output.WriteLineAsync($"ssmap link: -out \"{mapName}\" is not a usable path").ConfigureAwait(false);
-            return Program.ExitUsage;
-        }
-
-        string layoutJson;
+        // Exactly the rooms the level places, in the order it first places
+        // them: a stale .room file of a room no level names is never read.
+        RoomLibrary? library = null;
+        HashSet<string> loaded = new(StringComparer.Ordinal);
         try
         {
-            await using Stream stream = await disk.OpenReadAsync(layoutVPath, cancellationToken).ConfigureAwait(false);
-            layoutJson = await new StreamReader(stream, Encoding.UTF8)
-                .ReadToEndAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            await output.WriteLineAsync($"ssmap link: cannot read {layoutPath}: {exception.Message}")
-                .ConfigureAwait(false);
-            return ExitFailed;
-        }
-
-        // The room objects first: the library's grid is the rooms' grid, and a
-        // layout may restate it or trust it (LevelLayoutJson.HasGrid).
-        List<RoomObject> loaded = [];
-        try
-        {
-            await foreach (VPath file in disk
-                .EnumerateAsync(roomsDirPath, "*.room", false, cancellationToken).ConfigureAwait(false))
+            foreach ((_, _, LevelCell cell) in level.Placed)
             {
-                await using Stream stream = await disk.OpenReadAsync(file, cancellationToken).ConfigureAwait(false);
-                loaded.Add(await RoomObjectStore.LoadAsync(stream, cancellationToken).ConfigureAwait(false));
-            }
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            await output.WriteLineAsync($"ssmap link: cannot read the room library {roomsDir}: {exception.Message}")
-                .ConfigureAwait(false);
-            return ExitFailed;
-        }
-        catch (LinkException exception)
-        {
-            await output.WriteLineAsync($"ssmap link: {roomsDir}: {exception.Message}").ConfigureAwait(false);
-            return ExitFailed;
-        }
+                if (!loaded.Add(cell.Room))
+                {
+                    continue;
+                }
 
-        if (loaded.Count == 0)
-        {
-            await output.WriteLineAsync($"ssmap link: no .room files in {roomsDir}").ConfigureAwait(false);
-            return ExitFailed;
-        }
+                VPath file = roomsDirPath.Combine(cell.Room + ".room");
+                if (!await disk.ExistsAsync(file, cancellationToken).ConfigureAwait(false))
+                {
+                    await output.WriteLineAsync(
+                        $"ssmap link: {levelPath}: {cell.Where}room \"{cell.Room}\" has no compiled room {file.Value};"
+                        + " compile the library with ssmap room, or point -rooms at its rooms")
+                        .ConfigureAwait(false);
+                    return ExitFailed;
+                }
 
-        if (loaded.Count > MaxRooms)
-        {
-            await output.WriteLineAsync(
-                $"ssmap link: {roomsDir} holds {loaded.Count} room files; a level places at most {MaxRooms}")
-                .ConfigureAwait(false);
-            return ExitFailed;
-        }
+                RoomObject room;
+                await using (Stream stream = await disk.OpenReadAsync(file, cancellationToken).ConfigureAwait(false))
+                {
+                    room = await RoomObjectStore.LoadAsync(stream, cancellationToken).ConfigureAwait(false);
+                }
 
-        LevelLayout parsedLayout;
-        try
-        {
-            parsedLayout = LevelLayoutJson.Parse(layoutJson);
-        }
-        catch (LinkException exception)
-        {
-            await output.WriteLineAsync($"ssmap link: {layoutPath}: {exception.Message}").ConfigureAwait(false);
-            return ExitFailed;
-        }
+                if (room.Definition.Name != cell.Room)
+                {
+                    throw new LinkException($"{file.Value} holds room \"{room.Definition.Name}\", not \"{cell.Room}\"");
+                }
 
-        // The library's grid is the rooms' own (the first room's; Add refuses
-        // any other room built for a different one). A layout that restates
-        // the grid is then held to it by the linter, which names both.
-        RoomLibrary library = new(loaded[0].Definition.Kit, loaded[0].Definition.CellSize);
-        try
-        {
-            foreach (RoomObject room in loaded)
-            {
+                library ??= new RoomLibrary(room.Definition.Kit, room.Definition.CellSize);
                 library.Add(room);
             }
         }
-        catch (ArgumentException exception)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            await output.WriteLineAsync($"ssmap link: cannot read the rooms in {roomsDir}: {exception.Message}")
+                .ConfigureAwait(false);
+            return ExitFailed;
+        }
+        catch (Exception exception) when (exception is LinkException or ArgumentException)
+        {
+            // A file that is not a room container, or a room built for another
+            // grid than the rest (RoomLibrary.Add).
             await output.WriteLineAsync($"ssmap link: {roomsDir}: {exception.Message}").ConfigureAwait(false);
             return ExitFailed;
         }
 
-        LevelLayout layout = LevelLayoutJson.HasGrid(parsedLayout)
-            ? parsedLayout
-            : parsedLayout with { CellSize = library.CellSize, Kit = library.Kit };
+        if (library is null)
+        {
+            await output.WriteLineAsync($"ssmap link: {levelPath}: the level places no room").ConfigureAwait(false);
+            return ExitFailed;
+        }
 
         // The link reads no content — only the context's parallelism — so the
         // context needs mounts for none. A linked map carries no content lump
@@ -427,6 +595,7 @@ public static class RoomCommands
 
         try
         {
+            LevelLayout layout = level.ToLayout(name => library.Find(name)?.Definition, library.CellSize, library.Kit);
             LinkedLevel link = await LevelLinker
                 .LinkAsync(layout, library, context, cancellationToken).ConfigureAwait(false);
 
@@ -453,90 +622,98 @@ public static class RoomCommands
         }
         catch (RoomLintException exception)
         {
-            await output.WriteLineAsync($"ssmap link: the layout is not linkable: {exception.Message}")
+            await output.WriteLineAsync($"ssmap link: the level is not linkable: {exception.Message}")
                 .ConfigureAwait(false);
             return ExitFailed;
         }
-        catch (LinkException exception)
+        catch (Exception exception) when (exception is LinkException or ArgumentException or IOException
+            or UnauthorizedAccessException)
         {
-            await output.WriteLineAsync($"ssmap link: {exception.Message}").ConfigureAwait(false);
-            return ExitFailed;
-        }
-        catch (ArgumentException exception)
-        {
-            // The layout's own shape (LevelLayout.Validate): no rooms, a
-            // shared cell, a blank name.
-            await output.WriteLineAsync($"ssmap link: {layoutPath}: {exception.Message}").ConfigureAwait(false);
+            await output.WriteLineAsync($"ssmap link: {levelPath}: {exception.Message}").ConfigureAwait(false);
             return ExitFailed;
         }
     }
 
-    /// <summary>
-    /// Why a room name cannot be the file name <c>&lt;name&gt;.room</c>
-    /// directly inside <c>-out</c>, or null when it can.
-    /// </summary>
-    /// <param name="name">The definition's room name.</param>
-    /// <returns>The problem, or null.</returns>
-    /// <remarks>
-    /// The name comes from the definition file, which is input: joined onto
-    /// <c>-out</c> as it stands, <c>../x</c> or <c>/etc/x</c> would write
-    /// outside the directory the user named. A name is accepted only as one
-    /// path segment: no separator of either platform, no drive colon, no
-    /// control character, and not <c>.</c> or <c>..</c>. The rule is the same
-    /// on every host, so a library that compiles on Linux also compiles on
-    /// Windows.
-    /// </remarks>
-    public static string? RoomFileNameProblem(string name)
+    private static async Task<int> FlattenAsync(
+        IFileSystem disk,
+        LevelGrid level,
+        string levelPath,
+        string libraryPath,
+        VPath vmfPath,
+        TextWriter output,
+        CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(name);
-        if (name is "." or "..")
+        if (!VPath.TryCreate(libraryPath, out VPath libraryVPath))
         {
-            return "it is a relative directory name";
+            await output.WriteLineAsync($"ssmap link: the library \"{libraryPath}\" is not a usable path")
+                .ConfigureAwait(false);
+            return ExitFailed;
         }
 
-        foreach (char c in name)
+        try
         {
-            if (c is '/' or '\\')
-            {
-                return "it contains a path separator";
-            }
-
-            if (c == ':')
-            {
-                return "it contains a drive or stream colon";
-            }
-
-            if (char.IsControl(c))
-            {
-                return "it contains a control character";
-            }
+            VmfDocument library = await ReadVmfAsync(disk, libraryVPath, cancellationToken).ConfigureAwait(false);
+            VmfDocument flat = LevelFlattener.Flatten(level, library);
+            byte[] bytes = flat.ToBytes();
+            await disk.ReplaceAsync(
+                vmfPath,
+                async (stream, token) => await stream.WriteAsync(bytes, token).ConfigureAwait(false),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ChunkFileException or RoomLibraryException)
+        {
+            await output.WriteLineAsync($"ssmap link: {libraryPath}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
+        catch (RoomLintException exception)
+        {
+            await output.WriteLineAsync($"ssmap link: the level is not linkable: {exception.Message}")
+                .ConfigureAwait(false);
+            return ExitFailed;
+        }
+        catch (Exception exception) when (exception is LinkException or ArgumentException)
+        {
+            await output.WriteLineAsync($"ssmap link: {levelPath}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
         }
 
-        return null;
+        await output.WriteLineAsync($"ssmap link: wrote {vmfPath.Value} ({level.Placed.Count()} rooms, flattened)")
+            .ConfigureAwait(false);
+        return Program.ExitSuccess;
     }
 
-    /// <summary>
-    /// Whether <paramref name="args"/> at <paramref name="index"/> is <paramref name="flag"/>
-    /// with a value after it, consumed as a pair.
-    /// </summary>
-    private static bool Take(IReadOnlyList<string> args, int index, string flag, out string value, out int used)
+    private static async Task<VmfDocument> ReadVmfAsync(IFileSystem disk, VPath path, CancellationToken cancellationToken)
     {
-        used = 0;
+        await using Stream stream = await disk.OpenReadAsync(path, cancellationToken).ConfigureAwait(false);
+        return await VmfDocument.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether an argument is the named flag, spelt with one dash or two.</summary>
+    private static bool IsFlag(string arg, string name) =>
+        string.Equals(arg, "-" + name, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(arg, "--" + name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether <paramref name="args"/> at <paramref name="index"/> is the
+    /// named option with a value after it; the caller skips the value.
+    /// </summary>
+    private static bool Take(IReadOnlyList<string> args, int index, string name, out string value)
+    {
         value = string.Empty;
-        if (index >= args.Count || !string.Equals(args[index], flag, StringComparison.OrdinalIgnoreCase))
+        if (index >= args.Count || !IsFlag(args[index], name))
         {
             return false;
         }
 
         if (index + 1 >= args.Count)
         {
-            // Flag at the end of the line: leave it for the usage check to
+            // Option at the end of the line: leave it for the usage check to
             // report (a dangling -out is a usage problem, not a crash).
             return false;
         }
 
         value = args[index + 1];
-        used = 2;
         return true;
     }
 }
