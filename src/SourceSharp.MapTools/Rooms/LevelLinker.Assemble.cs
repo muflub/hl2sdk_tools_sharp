@@ -227,7 +227,18 @@ public static partial class LevelLinker
             ReadOnlySpan<DFace> roomFaces = BspStructView.As<DFace>(plan.Bsp[BspLump.OriginalFaces]);
             for (int f = 0; f < roomFaces.Length; f++)
             {
-                origFaces.Add(ShiftFace(plan, roomFaces[f], plan.StrippedOrigFaces.Contains(f), NoDraw, original: true));
+                // A stripped plug's original face takes the texinfo of a drawn
+                // face cut from it, so its nodraw copy is made from a texinfo
+                // that exists: its own is not the compile's (MarkPlugOriginalFaces).
+                // Every other original face's texinfo is relocated as it came.
+                DFace face = roomFaces[f];
+                bool stripped = plan.StrippedOrigFaces.TryGetValue(f, out short drawnTexInfo);
+                if (stripped)
+                {
+                    face.TexInfo = drawnTexInfo;
+                }
+
+                origFaces.Add(ShiftFace(plan, face, stripped, NoDraw, original: true));
             }
         }
 

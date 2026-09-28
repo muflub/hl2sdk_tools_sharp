@@ -1,0 +1,23 @@
+{
+  "name": "tee",
+  "cellSize": 256,
+  "kit": {
+    "width": 96,
+    "height": 224,
+    "depth": 16
+  },
+  "sockets": [
+    {
+      "facing": 0,
+      "name": "east"
+    },
+    {
+      "facing": 1,
+      "name": "west"
+    },
+    {
+      "facing": 2,
+      "name": "north"
+    }
+  ]
+}

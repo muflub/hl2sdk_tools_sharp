@@ -27,9 +27,13 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// </summary>
 /// <remarks>
 /// <see cref="LevelLinkerTests"/> carries its own private copy of this replay
-/// (its lane owns that file); the CLI link-verb facts call this one rather
-/// than re-deriving the gate a third way. The two copies are deliberately
-/// kept structurally identical — same shapes, same epsilon, same closure.
+/// (its lane owns that file); the 3x3 sample's facts, through the API and
+/// through the CLI verbs, call this one rather than re-deriving the gate a
+/// third way. The two copies are deliberately kept structurally identical —
+/// same shapes, same epsilon, same closure, and the same world-space step
+/// from a socket to its neighbour: a joint is followed through the placement's
+/// turn (<see cref="RoomTransform.WorldNormal"/>), so a turned room's
+/// room-local east socket finds the neighbour its turn faces.
 /// </remarks>
 internal static class DoorGraphFacts
 {
@@ -112,7 +116,9 @@ internal static class DoorGraphFacts
             foreach ((string socketName, string neighbourSocketName) in instance.Joints)
             {
                 RoomSocket socket = definition.Sockets.First(s => s.Name == socketName);
-                (int dx, int dy) = Offset(socket.Facing);
+                // The socket's WORLD face: a turned room's east socket may face north.
+                (int axis, int sign) = new RoomTransform(instance.Placement, layout.CellSize).WorldNormal(socket.Facing);
+                (int dx, int dy) = axis == 0 ? (sign, 0) : (0, sign);
                 int j = -1;
                 for (int k = 0; k < layout.Rooms.Count; k++)
                 {
@@ -177,12 +183,4 @@ internal static class DoorGraphFacts
 
         return [.. clusters.Order()];
     }
-
-    private static (int Dx, int Dy) Offset(RoomFacing facing) => facing switch
-    {
-        RoomFacing.PositiveX => (1, 0),
-        RoomFacing.NegativeX => (-1, 0),
-        RoomFacing.PositiveY => (0, 1),
-        _ => (0, -1),
-    };
 }
