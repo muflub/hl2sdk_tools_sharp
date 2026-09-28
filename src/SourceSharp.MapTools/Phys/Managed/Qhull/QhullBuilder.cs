@@ -183,6 +183,11 @@ internal static class QhullBuilder
 
     private static QhullFacet[] RunOnce(ReadOnlySpan<double> xyz, string options, QhPool? pool, out int exitcode)
     {
+        // The context itself is not pooled: it is one object per build (under 2% of what a
+        // build allocated before the pool took its facets, vertices, ridges, merges and sets),
+        // and it has well over a hundred fields that qh_initqhull_start relies on starting at
+        // zero. Resetting them by hand would be the one place a missed field could carry state
+        // from one hull into the next, which is the failure pooling must never have.
         var qh = new Qh();
         if (pool != null)
         {
