@@ -202,6 +202,29 @@ public class GameInfoTests
         Assert.NotNull(vmt);
     }
 
+    /// <summary>
+    /// A block that is never closed is a truncated file, and is refused:
+    /// parsed as far as it goes, it named no search paths, and the compile
+    /// that mounted it ran with no content and no word of why.
+    /// </summary>
+    [Theory]
+    [InlineData("\"GameInfo\"\n{\n\tgame\t\"SourceSharp\"\n\ttitle\t\"SOURCE#\"\n\ttitle2\t\"")]
+    [InlineData("\"GameInfo\" { game \"x\" FileSystem { SteamAppId 243750 SearchPaths { game |gameinfo_path|. } }")]
+    public void AnUnclosedBlockIsRefused(string text)
+    {
+        InvalidDataException error = Assert.Throws<InvalidDataException>(() => GameInfo.Parse(text));
+        Assert.Contains("never closed", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>The same file closed is read in full.</summary>
+    [Fact]
+    public void TheSameBlockClosedIsRead()
+    {
+        GameInfo info = GameInfo.Parse("\"GameInfo\" { game \"x\" FileSystem { SteamAppId 243750 SearchPaths { game |gameinfo_path|. } } }");
+        Assert.Equal(243750, info.SteamAppId);
+        Assert.Single(info.SearchPaths);
+    }
+
     [Fact]
     public void BackslashesBecomeForwardSlashes()
     {

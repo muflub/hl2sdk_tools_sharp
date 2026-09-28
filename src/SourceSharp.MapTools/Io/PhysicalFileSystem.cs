@@ -210,6 +210,32 @@ public sealed class PhysicalFileSystem : IFileSystem
         return ValueTask.FromResult(stream);
     }
 
+    /// <summary>
+    /// The file a host path names, with any symbolic link followed to its
+    /// final target.
+    /// </summary>
+    /// <param name="host">A host path.</param>
+    /// <returns>The target's info; one that does not exist for a dangling link.</returns>
+    /// <remarks>
+    /// <see cref="FileSystemInfo"/> describes the link itself, not what it
+    /// points to: on Linux its <see cref="FileInfo.Length"/> is the length of
+    /// the target PATH. Opening, reading and mapping the file all follow the
+    /// link, so the size was the one thing taken from the wrong file, and
+    /// <see cref="ReadAllAsync"/> read exactly that many bytes. A symlinked
+    /// <c>gameinfo.txt</c> (a mod folder linking its gameinfo from a source
+    /// tree) came back as its first 59 bytes, parsed as a gameinfo with no
+    /// search paths, and a whole compile then ran with no game content. Cache
+    /// stamps from <see cref="GetInfoAsync"/> described the link the same
+    /// way, so an edit to the target did not change them.
+    /// </remarks>
+    private static FileInfo Resolved(string host)
+    {
+        var info = new FileInfo(host);
+        return info.LinkTarget is null
+            ? info
+            : info.ResolveLinkTarget(returnFinalTarget: true) as FileInfo ?? info;
+    }
+
     /// <inheritdoc />
     public async ValueTask<IMemoryOwner<byte>> ReadAllAsync(
         VPath path,
@@ -218,7 +244,7 @@ public sealed class PhysicalFileSystem : IFileSystem
         cancellationToken.ThrowIfCancellationRequested();
 
         string host = ToHostPath(path);
-        var info = new FileInfo(host);
+        FileInfo info = Resolved(host);
         if (!info.Exists)
         {
             throw new FileNotFoundException($"no such file: {path}", host);
@@ -338,7 +364,7 @@ public sealed class PhysicalFileSystem : IFileSystem
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var info = new FileInfo(ToHostPath(path));
+        FileInfo info = Resolved(ToHostPath(path));
         FileInfoSnapshot? snapshot = info.Exists
             ? new FileInfoSnapshot(info.Length, info.LastWriteTimeUtc)
             : null;
