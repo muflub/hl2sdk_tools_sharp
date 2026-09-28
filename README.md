@@ -44,6 +44,7 @@ src/
   SourceSharp.MapTools.slnx               the solution
   Directory.Build.props                   net10.0, nullable, CS0108/CS0114 as errors
   SourceSharp.MapFormats/                 file formats; no package or project references
+  SourceSharp.RoomContracts/              the Source Sharp mod entity contract (logic_room, cxry_ names); no references
   SourceSharp.MapTools/                   the compile passes (core library)
   SourceSharp.MapCompile/                 the ssmap CLI (assembly name: ssmap)
   SourceSharp.MapTools.Cache.Sqlite/      optional SQLite store for the incremental cache
@@ -262,10 +263,10 @@ Unzip it anywhere and compile against it with no Steam install:
 ```sh
 ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <codec>] [vbsp options]
 ssmap rooms <library.vmf> [-rooms <pack.roompack>]
-ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
-ssmap link <level.yaml> --flatten [-out <map.vmf>]
+ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
+ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
-             [-rooms <pack.roompack>] [-entity-budget <n>] [-out <level.yaml>]
+             [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
 ssmap nav <map.nav3d | level.yaml> [-rooms <pack.roompack>] [--obj <out.obj>] [--floor] [--agent <index|name>]
 ```
 
@@ -387,6 +388,32 @@ map entities 612 / budget 1536 (reserve 512, cap 2048); 931 entities in the enti
 `layout` keeps a generated level within the same budget when the pack has
 the rooms' counts, or within `-entity-budget N`; a budget no level of the
 library reaches changes nothing, so the same seed gives the same file.
+
+**Room-local names.** A name that starts with `cxry_` belongs to its room:
+`cxry_door` in the room at column 3, row 5 links as `c3r5_door`, so a room
+placed twice has two doors, not one name fired twice. `cx+1ry_door` names
+the room beyond this room's authored east wall (`cx-1`, `ry+1` and `ry-1`
+likewise, and the diagonals by both), and the offset turns with the room.
+Names without the prefix are global and left as written; a global name may
+not begin like one the linker writes (`c3r5_`, any case) or like a
+misspelt placeholder (`CXRY_`, `cx+2ry_`, `c4rocket`), and `ssmap room`
+refuses the room naming the entity and key. A reference to a cell with no
+room (or off the grid) is dropped with a warning; `cxry_has_east` and
+`cxry_joined_east` are `logic_branch` flags the link sets to whether that
+neighbour exists or that door is open (written only when a room names them,
+and folded away when only tested); and `room_needs` (`east`, `!west`,
+`joined_north`, a diagonal, comma-joined) keeps or drops an entity per
+placement. The link folds stateless local relays and constant branches into
+their callers, merges `logic_auto`s and dedupes identical filters
+(`rooms_fold_logic 0` on the library turns folding off; `rooms_name_keys`
+adds name-valued keys to the built-in table). A room may place or name a
+`logic_room` (`cxry_room`): with `-mod-entities` the link writes the Source
+Sharp mod's one server-only entity for its flags and eight relay channels
+(its contract is the `SourceSharp.RoomContracts` assembly) and records the
+mode on the worldspawn (`ssmap_entities mod`); without it the link writes
+stock branches and relays instead. `link --flatten` runs the same resolver,
+so both maps carry the same entities. `ssmap rooms` lists each room's names
+from the pack.
 
 **Navigation.** `ssmap room` also builds each room's 3D navigation: for
 each agent size, a sparse voxel octree of the room's free space (where the
@@ -816,7 +843,7 @@ assemblies rather than by review.
   (and the memory-mapping helper it uses) may touch `System.IO.File`,
   `Directory`, `FileStream` and friends, the temp path or the current
   directory. Tests use `InMemoryFileSystem`.
-- **No mutable static state** in `MapFormats` or `MapTools`, so two compiles
+- **No mutable static state** in `MapFormats`, `MapTools` or `RoomContracts`, so two compiles
   can share one process.
 - **Same output on every platform.** The same map, game content and
   options produce the same bytes on Linux, Windows and macOS, on any .NET
@@ -830,7 +857,7 @@ assemblies rather than by review.
   functions go through `DetMath` and `DetMathF`, never `Math.Sin`,
   `MathF.Pow` and the like, so output does not depend on the OS's C
   library. A fact scans the built libraries and fails on any such call.
-- **No package references** in `MapFormats` or `MapTools`. SQLite and
+- **No package references** in `MapFormats`, `MapTools` or `RoomContracts`. SQLite and
   Silk.NET live only in the optional `Cache.Sqlite` and `Gpu` assemblies.
 - **Every public async method takes its `CancellationToken` last.**
 - **Libraries never touch the console or the environment.** They write no

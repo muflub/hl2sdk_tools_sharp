@@ -286,7 +286,20 @@ public static partial class LevelLinker
         RoomInstance lastRoom = plans[^1].Placement.Instance;
         LimitVisibility(plans[^1].Placement.Room.Definition.Name, lastRoom.Placement.CellX, lastRoom.Placement.CellY, visibilityLump.Length);
 
-        BspData linked = Assemble(plans, layout, visibilityLump, context, classes, cancellationToken);
+        LevelNaming naming = new(
+            new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows),
+            library.Options.NameKeySet);
+        BspData linked = Assemble(plans, layout, visibilityLump, context, classes, naming, cancellationToken);
+
+        // The budget checked before planning counted the rooms as compiled.
+        // When the naming resolver ran, what the level holds is what it left
+        // (dropped by room_needs, folded, merged, or written by the linker),
+        // so the level is budgeted again from that, and refused if that is
+        // over the cap; its report is the one the link returns.
+        if (naming.Result is { } resolution)
+        {
+            entities = BudgetResolved(layout, resolution, LevelEntityBudget.ReserveFor(options, library.Options), classes);
+        }
 
         VisResult vis = new(
             clusterCount,
@@ -307,7 +320,29 @@ public static partial class LevelLinker
         return new LinkedLevel(linked, vis, new LevelPlan(layout, resolved, TopPlanes(layout, layout.CellSize)))
         {
             EntityBudget = entities,
+            NameWarnings = naming.Result?.Warnings ?? [],
+            NameNotes = naming.Result?.Verbose ?? [],
         };
+    }
+
+    /// <summary>
+    /// The entity budget of a level the naming resolver changed: each
+    /// placement counted from the entities it left for it (its own kept, and
+    /// what the linker wrote), by class, then budgeted as the rooms' own
+    /// counts are.
+    /// </summary>
+    private static LevelEntityReport BudgetResolved(LevelLayout layout, LevelResolution resolution, int reserve, EntityClassTable classes)
+    {
+        List<string>[] byPlacement = [.. layout.Rooms.Select(_ => new List<string>())];
+        foreach (LevelEntity entity in resolution.Entities)
+        {
+            byPlacement[entity.Placement].Add(entity.ClassName);
+        }
+
+        return LevelEntityBudget.Check(
+            layout.Rooms.Select((r, i) => (r.Placement.Room, RoomEntityCounts.FromClasses(byPlacement[i]))),
+            reserve,
+            classes);
     }
 
     /// <summary>
@@ -1534,4 +1569,18 @@ public sealed record LinkedLevel(BspData Bsp, VisResult Vis, LevelPlan Plan)
     /// null only for a level made some other way than by the link.
     /// </summary>
     public LevelEntityReport? EntityBudget { get; init; }
+
+    /// <summary>
+    /// What resolving the rooms' names warned of, each a whole sentence: a
+    /// reference to an empty cell or off the grid, whose output was removed
+    /// or key cleared; a global name defined by several placements of a room.
+    /// </summary>
+    public IReadOnlyList<string> NameWarnings { get; init; } = [];
+
+    /// <summary>
+    /// What only verbose output reports: references to entities that
+    /// <c>room_needs</c> dropped on purpose, removed like the warnings' but
+    /// expected.
+    /// </summary>
+    public IReadOnlyList<string> NameNotes { get; init; } = [];
 }

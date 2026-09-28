@@ -91,6 +91,13 @@ public sealed class AmbientSampler
     private readonly DWorldLight[] _lights;
     private readonly IAmbientLightVisibility? _visibility;
     private readonly ComplianceOptions _compliance;
+
+    /// <summary>
+    /// <see cref="StockQuirk.AmbientCubeReciprocalEstimate"/>, as
+    /// <see cref="AmbientCube.AddEmitSurfaceLights"/> decides it from
+    /// <see cref="_compliance"/>: which arithmetic says whether a pair needs its line.
+    /// </summary>
+    private readonly bool _estimate;
     private readonly Vec3? _skyAmbient;
     private readonly float _tanTheta;
     private readonly Vec3[] _radColor = new Vec3[VertexNormals.Count];
@@ -115,6 +122,7 @@ public sealed class AmbientSampler
         _lights = lights;
         _visibility = visibility;
         _compliance = compliance;
+        _estimate = compliance.Emulates(StockQuirk.AmbientCubeReciprocalEstimate);
         _skyAmbient = RayAmbientLighting.FindSkyAmbient(scene);
 
         // Tan(DEG2RAD(7.275)), all float.
@@ -244,13 +252,22 @@ public sealed class AmbientSampler
 
     /// <summary>
     /// <see cref="AddSurfaceLights"/> in two halves around a trace: the
-    /// segments from every sample to every baked light, sample-major, added
-    /// to a batch.
+    /// segments from every sample to every baked light whose visibility can
+    /// matter, sample-major, added to a batch.
     /// </summary>
     /// <param name="starts">The samples.</param>
     /// <param name="batch">The worker's batch.</param>
     /// <param name="stockReciprocal">Whether the rays are normalised as stock does (<see cref="TracerLineVisibility.StockReciprocal"/>).</param>
     /// <returns>The batch index of the first segment.</returns>
+    /// <remarks>
+    /// A pair whose light adds nothing whatever the line's answer
+    /// (<see cref="AmbientCube.VisibilityMatters"/>: the sample is behind the
+    /// emitter or out of its radius) gets no segment. Stock traces those too;
+    /// the answer is thrown away, so leaving them out changes nothing but the
+    /// work. <see cref="ResolveSurfaceLights"/> asks the same question of the
+    /// same inputs to know which pairs have a segment, so the two halves need
+    /// no record between them.
+    /// </remarks>
     internal int PlanSurfaceLights(ReadOnlySpan<Vec3> starts, TestLineBatch batch, bool stockReciprocal)
     {
         int first = batch.Count;
@@ -259,7 +276,10 @@ public sealed class AmbientSampler
         {
             for (int e = 0; e < _flaggedOrigins.Length; e++)
             {
-                batch.Add(Ray.Segment(starts[s], _flaggedOrigins[e], stockReciprocal), options);
+                if (AmbientCube.VisibilityMatters(in _lights[_flagged[e]], starts[s], _estimate))
+                {
+                    batch.Add(Ray.Segment(starts[s], _flaggedOrigins[e], stockReciprocal), options);
+                }
             }
         }
 
@@ -293,12 +313,15 @@ public sealed class AmbientSampler
         }
 
         Span<float> fractions = _sampleFractions;
+        int at = first;
         for (int s = 0; s < starts.Length; s++)
         {
-            int at = first + (s * lights);
             for (int e = 0; e < lights; e++)
             {
-                fractions[e] = batch.IsBlocked(at + e) ? 0.0f : 1.0f;
+                // A pair the plan gave no segment adds nothing either way;
+                // 0 is as good an answer as 1 for it.
+                fractions[e] = AmbientCube.VisibilityMatters(in _lights[_flagged[e]], starts[s], _estimate)
+                    && !batch.IsBlocked(at++) ? 1.0f : 0.0f;
             }
 
             AmbientCube.AddEmitSurfaceLights(

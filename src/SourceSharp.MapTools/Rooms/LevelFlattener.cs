@@ -51,19 +51,52 @@ namespace SourceSharp.MapTools.Rooms;
 /// </remarks>
 public static class LevelFlattener
 {
-    /// <summary>Flattens a level into one VMF.</summary>
+    /// <summary>Flattens a level into one VMF, with stock entities.</summary>
     /// <param name="level">The level.</param>
     /// <param name="library">The room library VMF the level names.</param>
     /// <returns>The whole level as one map.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="RoomLibraryException">The library cannot be split into rooms.</exception>
-    /// <exception cref="LinkException">The level places a room the library does not have.</exception>
+    /// <exception cref="LinkException">The level places a room the library does not have, or a resolved name is refused.</exception>
     /// <exception cref="ArgumentException">The level places no room.</exception>
-    /// <exception cref="RoomLintException">A player could not reach every room.</exception>
-    public static VmfDocument Flatten(LevelGrid level, VmfDocument library)
+    /// <exception cref="RoomLintException">A player could not reach every room, or a room's names break the naming rule.</exception>
+    public static VmfDocument Flatten(LevelGrid level, VmfDocument library) => FlattenLevel(level, library, new LevelFlattenOptions()).Vmf;
+
+    /// <summary>
+    /// Flattens a level into one VMF, resolving the rooms' names with the
+    /// one resolver the link uses, in the emission mode asked for.
+    /// </summary>
+    /// <param name="level">The level.</param>
+    /// <param name="library">The room library VMF the level names.</param>
+    /// <param name="options">The emission mode (<c>-mod-entities</c>).</param>
+    /// <returns>The whole level as one map, and what resolving its names warned of.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="RoomLibraryException">The library cannot be split into rooms.</exception>
+    /// <exception cref="LinkException">The level places a room the library does not have, or a resolved name is refused.</exception>
+    /// <exception cref="ArgumentException">The level places no room.</exception>
+    /// <exception cref="RoomLintException">A player could not reach every room, or a room's names break the naming rule.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Names.</b> The placed rooms' entities go through the resolver the
+    /// link runs (<c>LevelEntityResolver</c>), on their VMF keys and
+    /// <c>connections</c>, before the VMF is written: local names resolved,
+    /// <c>room_needs</c> applied (an entity it drops is left out of the VMF
+    /// with its brushes, so vbsp never builds it), the flags and the
+    /// <c>logic_room</c> or its fallback written, the logic folded. vbsp
+    /// then compiles the same entities the link writes. An entity the
+    /// resolver writes has no <c>id</c> and so no <c>hammerid</c>, as in the
+    /// linked map.
+    /// </para>
+    /// <para>
+    /// A level whose rooms use no names, flattened without
+    /// <c>-mod-entities</c>, is written exactly as before names existed.
+    /// </para>
+    /// </remarks>
+    public static FlattenedLevel FlattenLevel(LevelGrid level, VmfDocument library, LevelFlattenOptions options)
     {
         ArgumentNullException.ThrowIfNull(level);
         ArgumentNullException.ThrowIfNull(library);
+        ArgumentNullException.ThrowIfNull(options);
 
         IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(library);
         Dictionary<string, LibraryRoom> byName = new(StringComparer.Ordinal);
@@ -102,6 +135,10 @@ public static class LevelFlattener
         flat.Chunks.Add(flatWorld);
         List<VmfChunk> entities = [];
         List<PlacedSides> placedSides = [];
+        RoomLibraryOptions libraryOptions = RoomLibraryOptions.FromWorld(world);
+        List<ResolverRoom> resolverRooms = [];
+        Dictionary<string, RoomNameTurn[]> names = new(StringComparer.Ordinal);
+        bool resolving = options.ModEntities;
         foreach (RoomInstance instance in layout.Rooms)
         {
             LibraryRoom room = byName[instance.Placement.Room];
@@ -127,6 +164,7 @@ public static class LevelFlattener
 
             // Points of interest are not entities of the map: the room
             // compile takes them out (RoomPois), so the reference does too.
+            List<LevelEntity> roomEntities = [];
             foreach (VmfChunk entity in room.Document.GetChunks(MapFileLoader.EntityChunk))
             {
                 if (RoomPois.IsPoi(entity))
@@ -142,6 +180,43 @@ public static class LevelFlattener
 
                 placed.Entities.Add(moved);
                 entities.Add(moved);
+                roomEntities.Add(LevelEntity.FromVmf(moved, resolverRooms.Count, roomEntities.Count));
+            }
+
+            // The room's names, read once per room from its entity list (a
+            // placement's list differs from another's only in positions).
+            string name = room.Definition.Name;
+            if (!names.TryGetValue(name, out RoomNameTurn[]? turns))
+            {
+                names[name] = turns = RoomNameAnalysis.Analyse(name, roomEntities, libraryOptions.NameKeySet);
+            }
+
+            RoomNameTurn named = turns[instance.Placement.NormalizedRotation];
+            resolving |= !named.IsEmpty;
+            RoomTransform transform = new(instance.Placement, layout.CellSize);
+            resolverRooms.Add(new ResolverRoom
+            {
+                Room = name,
+                Column = instance.Placement.CellX,
+                Row = instance.Placement.CellY,
+                Turns = instance.Placement.NormalizedRotation,
+                Names = named,
+                Entities = roomEntities,
+                Joined = LevelLinker.JoinedSides(room.Definition, instance),
+                CellCentre = LevelLinker.CellCentre(transform, layout.CellSize),
+            });
+        }
+
+        LevelResolution? resolution = null;
+        if (resolving)
+        {
+            resolution = LevelEntityResolver.Resolve(
+                resolverRooms,
+                new LevelNamingOptions(options.ModEntities, libraryOptions.Folds, level.Columns, level.Rows));
+            entities = [.. resolution.Entities.Select(Write)];
+            foreach ((string key, string value) in resolution.WorldKeys)
+            {
+                flatWorld.AddKey(key, value);
             }
         }
 
@@ -161,7 +236,52 @@ public static class LevelFlattener
             placed.RenameSideLists();
         }
 
-        return flat;
+        return new FlattenedLevel(flat)
+        {
+            Warnings = resolution?.Warnings ?? [],
+            Notes = resolution?.Verbose ?? [],
+        };
+    }
+
+    /// <summary>
+    /// A resolved entity as a VMF entity: the room's own chunk with its keys
+    /// and <c>connections</c> rewritten (its brushes and editor data kept),
+    /// or a new chunk for one the resolver wrote. Outputs go into
+    /// <c>connections</c> in order; every other key is written in reverse,
+    /// because vbsp puts each key it reads at the front of the compiled
+    /// entity (<see cref="LevelEntity.FromVmf"/>), so the compiled entity
+    /// holds its keys in the order the resolver left them, as the link's does.
+    /// </summary>
+    private static VmfChunk Write(LevelEntity entity)
+    {
+        VmfChunk chunk = entity.Payload as VmfChunk ?? new VmfChunk(MapFileLoader.EntityChunk);
+        List<VmfNode> kept = [.. chunk.Children.Where(n => n is VmfChunk c && !string.Equals(c.Name, MapFileLoader.ConnectionsChunk, StringComparison.OrdinalIgnoreCase))];
+        chunk.Children.Clear();
+        VmfChunk? connections = null;
+        foreach (LevelPair pair in entity.Pairs)
+        {
+            if (RoomOutput.TryParse(pair.Value, out _))
+            {
+                connections ??= new VmfChunk(MapFileLoader.ConnectionsChunk);
+                connections.AddKey(pair.Key, pair.Value!);
+            }
+            else
+            {
+                chunk.Children.Insert(0, new VmfKey(pair.Key, pair.Value!));
+            }
+        }
+
+        if (connections is not null)
+        {
+            chunk.Children.Add(connections);
+        }
+
+        foreach (VmfNode node in kept)
+        {
+            chunk.Children.Add(node);
+        }
+
+        return chunk;
     }
 
     /// <summary>The key that lists brush sides by id: <c>env_cubemap</c>, <c>info_overlay</c>, <c>info_no_dynamic_shadow</c> and the like.</summary>
@@ -267,4 +387,27 @@ public static class LevelFlattener
             Renumber(child, ref next);
         }
     }
+}
+
+/// <summary>What a flatten is asked to do beyond flattening.</summary>
+/// <remarks>A value, like every option of the libraries: nothing is kept between flattens.</remarks>
+public sealed record LevelFlattenOptions
+{
+    /// <summary>
+    /// Emit the Source Sharp mod's entity classes rather than their stock
+    /// fallbacks (<c>ssmap link --flatten -mod-entities</c>), exactly as the
+    /// link does with <see cref="LevelLinkOptions.ModEntities"/>.
+    /// </summary>
+    public bool ModEntities { get; init; }
+}
+
+/// <summary>A flattened level, and what resolving its names warned of.</summary>
+/// <param name="Vmf">The whole level as one map.</param>
+public sealed record FlattenedLevel(VmfDocument Vmf)
+{
+    /// <summary>The warnings, as the link gives them (<see cref="LinkedLevel.NameWarnings"/>).</summary>
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+
+    /// <summary>What only verbose output reports (<see cref="LinkedLevel.NameNotes"/>).</summary>
+    public IReadOnlyList<string> Notes { get; init; } = [];
 }

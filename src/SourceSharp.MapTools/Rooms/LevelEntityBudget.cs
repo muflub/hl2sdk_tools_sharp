@@ -30,6 +30,20 @@ public sealed record LevelLinkOptions
     /// <summary>The class table entities are counted with; null for <see cref="EntityClassTable.Default"/>.</summary>
     public EntityClassTable? EntityClasses { get; init; }
 
+    /// <summary>
+    /// Emit the Source Sharp mod's entity classes (<c>logic_room</c>) where
+    /// they apply, rather than their stock fallbacks: <c>ssmap link
+    /// -mod-entities</c>. Off by default, so a map runs on any Source game.
+    /// </summary>
+    /// <remarks>
+    /// A pack holds each room as authored, so one pack links in both modes.
+    /// With the flag the linked worldspawn records the mode and the
+    /// contract's version (<see cref="RoomContracts.ModEntityContract"/>);
+    /// without it the map carries neither key, and a level that uses no
+    /// room-local names links to the bytes it always did.
+    /// </remarks>
+    public bool ModEntities { get; init; }
+
     /// <summary>No override: the library's reserve and the shipped class table.</summary>
     public static LevelLinkOptions Default { get => new(); }
 }
@@ -40,11 +54,20 @@ public sealed record LevelLinkOptions
 /// <param name="Each">What one placement brings (<see cref="EntityTally"/>).</param>
 public readonly record struct RoomEntityShare(string Room, int Placements, EntityTally Each)
 {
+    /// <summary>
+    /// What all its placements bring together, when they do not all bring
+    /// <see cref="Each"/>: after the naming resolver, one placement of a room
+    /// may drop what another keeps (<c>room_needs</c>) or get entities the
+    /// other does not (a written flag). Null when every placement brings
+    /// <see cref="Each"/>, which is then the first placement's.
+    /// </summary>
+    public EntityTally? Summed { get; init; }
+
     /// <summary>The edicts all its placements bring.</summary>
-    public long Edicts => (long)Placements * Each.Edicts;
+    public long Edicts => Summed?.Edicts ?? (long)Placements * Each.Edicts;
 
     /// <summary>The entity-list entries all its placements bring.</summary>
-    public long Listed => (long)Placements * Each.Listed;
+    public long Listed => Summed?.Listed ?? (long)Placements * Each.Listed;
 }
 
 /// <summary>A level's entity budget, as the link found it: its totals, the budget, and what it warned of.</summary>
@@ -114,7 +137,11 @@ public sealed class LevelEntityReport
 /// edict, which over-counts rather than under-counts). Its entity list is
 /// the one worldspawn plus every placement's entities that reach the lump
 /// (everything but the compile-only classes, which the link strips).
-/// Nothing the link adds is counted, because today it adds nothing.
+/// When the room-local naming resolver runs (a room uses names, or the
+/// link writes the mod's classes), the level is budgeted again from what it
+/// left: entities dropped by <c>room_needs</c>, folded or merged are gone, and
+/// what the linker wrote for a placement (flags, a <c>logic_room</c> or its
+/// stock fallback) is counted with it.
 /// </para>
 /// <para>
 /// <b>What it does.</b> Over the cap: refused, naming the most expensive
@@ -172,25 +199,34 @@ public static class LevelEntityBudget
         ArgumentOutOfRangeException.ThrowIfNegative(reserve);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(reserve, EntityClassTable.EdictCap);
 
-        // Per room: how often it is placed and what one placement brings.
-        // A room's counts are the same object for every placement, so the
-        // tally is made once per room.
-        Dictionary<string, (int Placements, EntityTally Each)> rooms = new(StringComparer.Ordinal);
+        // Per room: how often it is placed, what the first placement brings,
+        // and what all of them bring. A room's compiled counts are the same
+        // object for every placement, so the tally is made once per counts
+        // object; the naming resolver's per-placement counts are tallied each.
+        Dictionary<string, (int Placements, EntityTally Each, EntityTally Sum, bool Uneven)> rooms = new(StringComparer.Ordinal);
+        Dictionary<RoomEntityCounts, EntityTally> tallies = new(ReferenceEqualityComparer.Instance);
         long edicts = 1, listed = 1; // the level's one worldspawn
         foreach ((string room, RoomEntityCounts counts) in placements)
         {
-            if (!rooms.TryGetValue(room, out (int Placements, EntityTally Each) share))
+            if (!tallies.TryGetValue(counts, out EntityTally tally))
             {
-                share = (0, counts.Tally(table));
+                tallies[counts] = tally = counts.Tally(table);
             }
 
-            rooms[room] = (share.Placements + 1, share.Each);
-            edicts += share.Each.Edicts;
-            listed += share.Each.Listed;
+            (int placed, EntityTally each, EntityTally sum, bool uneven) = rooms.TryGetValue(room, out var share)
+                ? share
+                : (0, tally, default, false);
+            rooms[room] = (
+                placed + 1,
+                each,
+                new EntityTally(sum.Edicts + tally.Edicts, sum.ServerOnly + tally.ServerOnly, sum.CompileOnly + tally.CompileOnly),
+                uneven || tally != each);
+            edicts += tally.Edicts;
+            listed += tally.Listed;
         }
 
         List<RoomEntityShare> shares = [.. rooms
-            .Select(r => new RoomEntityShare(r.Key, r.Value.Placements, r.Value.Each))
+            .Select(r => new RoomEntityShare(r.Key, r.Value.Placements, r.Value.Each) { Summed = r.Value.Uneven ? r.Value.Sum : null })
             .OrderByDescending(r => r.Edicts)
             .ThenBy(r => r.Room, StringComparer.Ordinal)];
 

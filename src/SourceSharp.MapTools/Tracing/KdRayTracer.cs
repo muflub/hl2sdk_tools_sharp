@@ -98,6 +98,18 @@ public sealed class KdRayTracer : IRayTracer
     /// </remarks>
     private readonly bool _stockReciprocal;
 
+    /// <summary>
+    /// Whether a visibility trace stops as soon as every lane it answers for
+    /// is known to be blocked, rather than walking on to each lane's nearest
+    /// hit.
+    /// </summary>
+    /// <remarks>
+    /// Always true in a compile. False only in the tracer
+    /// <see cref="WithFullVisibilityWalk"/> makes, which is there so tests can
+    /// hold the early stop against the walk it shortens, bit for bit.
+    /// </remarks>
+    private readonly bool _stopWhenBlocked;
+
     private KdRayTracer(KdBuildResult built, float zeroSubstitute, bool stockReciprocal)
     {
         _nodes = built.Nodes;
@@ -107,6 +119,56 @@ public sealed class KdRayTracer : IRayTracer
         _max = built.Max;
         _zeroSubstitute = zeroSubstitute;
         _stockReciprocal = stockReciprocal;
+        _stopWhenBlocked = true;
+    }
+
+    private KdRayTracer(KdRayTracer other, bool stopWhenBlocked)
+    {
+        _nodes = other._nodes;
+        _indices = other._indices;
+        _triangles = other._triangles;
+        _min = other._min;
+        _max = other._max;
+        _zeroSubstitute = other._zeroSubstitute;
+        _stockReciprocal = other._stockReciprocal;
+        _stopWhenBlocked = stopWhenBlocked;
+    }
+
+    /// <summary>
+    /// This tracer's tree, with visibility traces that walk on to every
+    /// lane's nearest hit, as stock's <c>Trace4Rays</c> does, instead of
+    /// stopping once every lane is blocked.
+    /// </summary>
+    /// <returns>A tracer sharing this one's tree.</returns>
+    /// <remarks>
+    /// For tests only: the answers are the same bits either way (see
+    /// <see cref="TraceSameSigns"/>), and this is the reference the early stop
+    /// is checked against.
+    /// </remarks>
+    internal KdRayTracer WithFullVisibilityWalk() => new(this, stopWhenBlocked: false);
+
+    /// <summary>
+    /// For tests: the distance and triangle an isolated visibility walk ends
+    /// with, which the public calls reduce to one blocked bit.
+    /// </summary>
+    /// <param name="ray">The ray.</param>
+    /// <param name="options">The options, as <see cref="TraceVisibility"/> takes them.</param>
+    /// <returns>The walk's last distance and triangle index (-1 for none).</returns>
+    /// <remarks>
+    /// Lets a test see that the early stop really cut a walk short -- the
+    /// nearest hit is not always the one it stopped on -- while the bits
+    /// stayed those of the full walk.
+    /// </remarks>
+    [SkipLocalsInit]
+    internal (float Distance, int Triangle) IsolatedVisibilityWalk(in Ray ray, RayTraceOptions options)
+    {
+        Scratch scratch = new(stackalloc NodeToVisit[MaxNodeStack], stackalloc long[MailboxSize]);
+        DuplicatePacket(in ray, out RayPacket packet, out Vector128<float> reach);
+        Trace4Rays(
+            in packet, Vector128.Create(options.MinDistance), reach, options.SkipId ?? -1,
+            settle: _stopWhenBlocked && !options.SkyDoesNotBlock, ref scratch,
+            out Vector128<float> distance, out Vector128<int> ids);
+        return (distance.ToScalar(), ids.ToScalar());
     }
 
     /// <summary>
@@ -423,7 +485,7 @@ public sealed class KdRayTracer : IRayTracer
                 LoadPacket(rays, i, out packet, out tmax);
             }
 
-            Trace4Rays(in packet, tmin, tmax, skipId, ref scratch, out Vector128<float> distance, out Vector128<int> ids);
+            Trace4Rays(in packet, tmin, tmax, skipId, settle: false, ref scratch, out Vector128<float> distance, out Vector128<int> ids);
 
             for (int lane = 0; lane < step && i + lane < rays.Length; lane++)
             {
@@ -554,7 +616,7 @@ public sealed class KdRayTracer : IRayTracer
     {
         DuplicatePacket(in ray, out RayPacket packet, out Vector128<float> reach);
         Trace4Rays(
-            in packet, tmin, reach, skipId, ref scratch,
+            in packet, tmin, reach, skipId, settle: _stopWhenBlocked && !skyDoesNotBlock, ref scratch,
             out Vector128<float> distance, out Vector128<int> ids);
 
         int hitId = ids.ToScalar();
@@ -644,7 +706,9 @@ public sealed class KdRayTracer : IRayTracer
             // did (x * 1 is x).
             LoadPacket(rays, i, out RayPacket packet, out Vector128<float> reach);
 
-            Trace4Rays(in packet, tmin, reach, skipId, ref scratch, out Vector128<float> distance, out Vector128<int> ids);
+            Trace4Rays(
+                in packet, tmin, reach, skipId, settle: _stopWhenBlocked && !options.SkyDoesNotBlock, ref scratch,
+                out Vector128<float> distance, out Vector128<int> ids);
 
             // The segment test stock's callers make themselves, because
             // Trace4Rays does not clip a hit to TMax (is
@@ -761,12 +825,22 @@ public sealed class KdRayTracer : IRayTracer
     /// stock's <c>SameSign</c> on all three axes (it compares bits, not values:
     /// -0 and +0 differ), and the pass's own sign mask is its code.
     /// </para>
+    /// <para>
+    /// <paramref name="settle"/> is true when the caller wants only whether
+    /// each ray is blocked short of its reach (<paramref name="tmax"/>), and
+    /// lets a walk stop once that is decided for every lane it answers for
+    /// (see <see cref="TraceSameSigns"/>). In a split pass the lanes carrying
+    /// the broadcast direction are thrown away afterwards, so only the pass's
+    /// own lanes have to be decided; the others still steer the walk for as
+    /// long as it goes on, exactly as they did before.
+    /// </para>
     /// </remarks>
     private void Trace4Rays(
         in RayPacket rays,
         Vector128<float> tmin,
         Vector128<float> tmax,
         int skipId,
+        bool settle,
         ref Scratch scratch,
         out Vector128<float> hitDistance,
         out Vector128<int> hitIds)
@@ -777,7 +851,7 @@ public sealed class KdRayTracer : IRayTracer
         if (IsUniform(sx) && IsUniform(sy) && IsUniform(sz))
         {
             int mask = (sx & 1) | ((sy & 1) << 1) | ((sz & 1) << 2);
-            TraceSameSigns(in rays, tmin, tmax, mask, skipId, ref scratch, out hitDistance, out hitIds);
+            TraceSameSigns(in rays, tmin, tmax, mask, skipId, settle ? 0 : -1, ref scratch, out hitDistance, out hitIds);
             return;
         }
 
@@ -814,7 +888,7 @@ public sealed class KdRayTracer : IRayTracer
             tmp.Dz = Select(keep, rays.Dz, Vector128.Create(rays.Dz.GetElement(tryTrace)));
 
             TraceSameSigns(
-                in tmp, tmin, tmax, code, skipId, ref scratch,
+                in tmp, tmin, tmax, code, skipId, settle ? ~own & 0b1111 : -1, ref scratch,
                 out Vector128<float> subDistance, out Vector128<int> subIds);
 
             hitDistance = Select(keep, subDistance, hitDistance);
@@ -863,6 +937,33 @@ public sealed class KdRayTracer : IRayTracer
     /// traversal's, which is exactly "cleared at the start". That is 2 KB of
     /// stores per packet not made.
     /// </para>
+    /// <para>
+    /// STOPPING ONCE EVERY LANE IS BLOCKED. Stock walks every packet on to
+    /// each lane's nearest hit, even for a shadow ray whose caller asks only
+    /// whether something lies short of the segment's end
+    /// (<c>HitIds != -1 &amp;&amp; HitDistance &lt; len</c>). When
+    /// <paramref name="settledLanes"/> is not negative, the walk stops after a
+    /// leaf once every lane not in that mask has such a hit. That answer
+    /// cannot change afterwards: a lane's distance only ever falls (a
+    /// triangle replaces it only when strictly nearer) and its id never goes
+    /// back to -1, so "a hit short of the reach" stays true, and nothing the
+    /// rest of the walk could do would make any lane's blocked bit different.
+    /// Everything up to the stop is the unshortened walk, step for step, so a
+    /// lane that is never blocked walks exactly as far as it did before. The
+    /// distances and ids handed back are then only good for that test -- not
+    /// necessarily the nearest hit -- which is why only the visibility paths
+    /// ask for it, and not the ones whose callers read the id: the
+    /// closest-hit trace, and a sky test, where a nearer sky triangle further
+    /// along the walk would unblock the lane.
+    /// </para>
+    /// <para>
+    /// It pays because a triangle is filed in every leaf it overlaps, so a
+    /// shadow ray often meets its blocker in a leaf before the one where it
+    /// crosses the blocker's plane; the unshortened walk then goes on through
+    /// the leaves in between, testing their triangles, to confirm a hit that
+    /// is already enough. On 2fort that is about an eighth of the visibility
+    /// traces' time.
+    /// </para>
     /// </remarks>
     [SkipLocalsInit]
     private void TraceSameSigns(
@@ -871,12 +972,14 @@ public sealed class KdRayTracer : IRayTracer
         Vector128<float> tmax,
         int directionSignMask,
         int skipId,
+        int settledLanes,
         ref Scratch scratch,
         out Vector128<float> hitDistance,
         out Vector128<int> hitIds)
     {
         Vector128<float> distance = Vector128.Create(1.0e23f);
         Vector128<float> ids = Vector128.Create(-1).AsSingle();
+        Vector128<float> reach = tmax;
 
         Axes origin;
         origin.X = rays.Ox;
@@ -1046,6 +1149,19 @@ public sealed class KdRayTracer : IRayTracer
                 if (SseLanes.MoveMask(Vector128.LessThanOrEqual(tmax, distance)) == 0)
                 {
                     break;
+                }
+
+                // Every lane the caller reads is blocked short of its reach,
+                // and nothing further along can unblock it (see remarks).
+                if (settledLanes >= 0)
+                {
+                    int blocked = SseLanes.MoveMask(Vector128.BitwiseAnd(
+                        Vector128.GreaterThan(ids.AsInt32(), Vector128.Create(-1)).AsSingle(),
+                        Vector128.LessThan(distance, reach)));
+                    if ((blocked | settledLanes) == 0b1111)
+                    {
+                        break;
+                    }
                 }
             }
 
