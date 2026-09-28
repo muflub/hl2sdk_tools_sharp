@@ -19,80 +19,63 @@ namespace SourceSharp.MapTools.Rooms;
 public static partial class LevelLinker
 {
     /// <summary>
-    /// Validates one room's compile against the relocation set and reads the
-    /// structs the assembly patches. Pure: reads only this room, writes only
-    /// the returned plan, so any number of rooms plan concurrently.
+    /// Plans one placement: the room's checked, turned data (stored with the
+    /// room, or computed now) moved to the placement's cell. Pure: reads only
+    /// this room, writes only the returned plan, so any number of rooms plan
+    /// concurrently.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What depends on the room alone (the checks, the plug census) and on
+    /// the room and its turn (the turned geometry) is
+    /// <see cref="RoomLinkData"/>, which the room compile stores in the pack;
+    /// a room without it (an older pack, a room built in memory) gets it
+    /// computed here, per placement, as the link always did, so the checks
+    /// throw the same messages in the same order. What is left is the
+    /// placement's: the translation of the vertices, the plane distances and
+    /// the texture offsets, and which sockets the level joints.
+    /// </para>
+    /// </remarks>
     private static RoomPlan PlanRoom(ResolvedPlacement placement)
     {
         RoomObject room = placement.Room;
         BspData bsp = room.Bsp;
-        string name = room.Definition.Name;
         RoomTransform transform = new(placement.Instance.Placement, room.Definition.CellSize);
+        int rotation = placement.Instance.Placement.NormalizedRotation;
+        RoomLinkData? stored = StoredLink(room);
 
-        for (int i = 0; i < BspData.HeaderLumps; i++)
-        {
-            if (bsp[i].Length != 0 && !CarriedLumps.Contains((BspLump)i))
-            {
-                throw new LinkException(
-                    $"room {name} carries lump {(BspLump)i} ({i}), which the relocation does not understand");
-            }
-        }
-
-        ReadOnlySpan<DModel> models = BspStructView.As<DModel>(bsp[BspLump.Models]);
-        if (models.Length != 1)
-        {
-            throw new LinkException($"room {name} has {models.Length} models; a linkable room is one world model");
-        }
-
-        if (models[0].HeadNode != 0)
-        {
-            throw new LinkException($"room {name}'s world model starts at node {models[0].HeadNode}, not 0");
-        }
-
+        RoomLinkShared shared = stored?.Shared ?? ComputeShared(room);
         DLeaf[] leafs = BspStructView.As<DLeaf>(bsp[BspLump.Leafs]).ToArray();
-        foreach (DLeaf leaf in leafs)
-        {
-            if (leaf.LeafWaterDataId != -1)
-            {
-                throw new LinkException($"room {name} has a water leaf, which the relocation refuses");
-            }
-        }
-
-        RefuseAreaPortals(name, bsp);
-        RefuseGameLumpContent(name, bsp);
-        RefuseDisplacementCollision(name, bsp);
-
-        // The vis has to number the compile's own leaves before its rows are
-        // shifted into anyone else's range.
-        RoomObjectChecks.CheckVis(name, bsp, room.Vis);
         byte[][] ownRows = new byte[room.Vis.ClusterCount][];
         for (int c = 0; c < ownRows.Length; c++)
         {
             ownRows[c] = room.Vis.Pvs(c).ToArray();
         }
 
-        // Geometry that needs no cross-room base is moved here.
-        Vec3[] vertexSource = BspStructView.As<Vec3>(bsp[BspLump.Vertexes]).ToArray();
-        Vec3[] vertices = new Vec3[vertexSource.Length];
-        for (int v = 0; v < vertexSource.Length; v++)
+        RoomLinkGeometry geometry = GeometryFor(room, rotation);
+
+        // Only the placement's translation is left to do to the geometry.
+        Vec3[] vertices = new Vec3[geometry.Vertices.Length];
+        for (int v = 0; v < vertices.Length; v++)
         {
-            vertices[v] = transform.Apply(vertexSource[v]);
+            vertices[v] = transform.Translate(geometry.Vertices[v]);
         }
 
-        (DPlane[] planes, bool[] swapped) = TransformPlanes(BspStructView.As<DPlane>(bsp[BspLump.Planes]).ToArray(), transform);
-        TexInfo[] texInfos = TransformTexInfos(BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]).ToArray(), transform);
+        Vec3 translation = transform.Apply(Vec3.Zero);
+        DPlane[] planes = TranslatePlanes(geometry.PlanePairs, geometry.PlaneSwapped, translation);
+        TexInfo[] texInfos = TranslateTexInfos((TexInfo[])geometry.TexInfos.Clone(), translation);
 
         RoomPlan plan = new()
         {
             Placement = placement,
             Bsp = bsp,
             Transform = transform,
+            Geometry = geometry,
             OwnRows = ownRows,
             ClusterCount = room.Vis.ClusterCount,
             Vertices = vertices,
             TransformedPlanes = planes,
-            PlaneSwapped = swapped,
+            PlaneSwapped = geometry.PlaneSwapped,
             TexInfos = texInfos,
             Leafs = leafs,
             EdgeCount = BspStructView.Count<DEdge>(bsp[BspLump.Edges]),
@@ -116,7 +99,7 @@ public static partial class LevelLinker
             StringDataLength = bsp[BspLump.TexDataStringData].Length,
         };
 
-        CensusPlugs(plan);
+        ApplyCensus(plan, shared);
         return plan;
     }
 
@@ -237,35 +220,8 @@ public static partial class LevelLinker
     /// </remarks>
     internal static (DPlane[] Planes, bool[] Swapped) TransformPlanes(DPlane[] planes, RoomTransform transform)
     {
-        if (planes.Length % 2 != 0)
-        {
-            throw new LinkException("the planes lump holds an odd number of planes, so a flip pair is missing");
-        }
-
-        Vec3 translation = transform.Apply(Vec3.Zero);
-        int rotation = transform.Placement.NormalizedRotation;
-        bool[] swapped = new bool[planes.Length / 2];
-        for (int i = 0; i < planes.Length; i += 2)
-        {
-            Vec3 normal = ApplyNormal(planes[i].Normal, rotation);
-            float dist = planes[i].Dist + Vec3.Dot(normal, translation);
-            Plane moved = new(normal, dist);
-            DPlane even = new() { Normal = normal, Dist = dist, Type = (int)moved.Type };
-            DPlane odd = new() { Normal = -normal, Dist = -dist, Type = (int)moved.Type };
-            bool negativeAxial = moved.Type switch
-            {
-                PlaneType.X => normal.X < 0,
-                PlaneType.Y => normal.Y < 0,
-                PlaneType.Z => normal.Z < 0,
-                _ => false,
-            };
-
-            swapped[i / 2] = negativeAxial;
-            planes[i] = negativeAxial ? odd : even;
-            planes[i + 1] = negativeAxial ? even : odd;
-        }
-
-        return (planes, swapped);
+        (DPlane[] pairs, bool[] swapped) = RotatePlanes(planes, transform.Placement.NormalizedRotation);
+        return (TranslatePlanes(pairs, swapped, transform.Apply(Vec3.Zero)), swapped);
     }
 
     /// <summary>
@@ -280,31 +236,8 @@ public static partial class LevelLinker
     /// (<c>LightmapTextureMinsInLuxels</c>), computed from the room-local
     /// axes, and they stay right only if every vertex keeps its s and t.
     /// </remarks>
-    internal static TexInfo[] TransformTexInfos(TexInfo[] infos, RoomTransform transform)
-    {
-        Vec3 t = transform.Apply(Vec3.Zero);
-        int rotation = transform.Placement.NormalizedRotation;
-        for (int i = 0; i < infos.Length; i++)
-        {
-            for (int row = 0; row < 2; row++)
-            {
-                MoveAxis(ref infos[i].TextureVecsTexelsPerWorldUnits, row, rotation, t);
-                MoveAxis(ref infos[i].LightmapVecsLuxelsPerWorldUnits, row, rotation, t);
-            }
-        }
-
-        return infos;
-    }
-
-    private static void MoveAxis(ref FloatArray8 vecs, int row, int rotation, Vec3 t)
-    {
-        int at = row * 4;
-        Vec3 axis = ApplyNormal(new Vec3(vecs[at], vecs[at + 1], vecs[at + 2]), rotation);
-        vecs[at] = axis.X;
-        vecs[at + 1] = axis.Y;
-        vecs[at + 2] = axis.Z;
-        vecs[at + 3] -= Vec3.Dot(axis, t);
-    }
+    internal static TexInfo[] TransformTexInfos(TexInfo[] infos, RoomTransform transform) =>
+        TranslateTexInfos(RotateTexInfos(infos, transform.Placement.NormalizedRotation), transform.Apply(Vec3.Zero));
 
     /// <summary>Quarter-turn of a normal about +z: 0 identity, 1 (-y,x,z), 2 (-x,-y,z), 3 (y,-x,z).</summary>
     internal static Vec3 ApplyNormal(Vec3 n, int rotation) => rotation switch
@@ -353,74 +286,69 @@ public static partial class LevelLinker
     };
 
     /// <summary>
-    /// Finds what stripping each jointed socket's plug touches: the plug
-    /// brushes, the solid leaves the plug made (to carve), the plug's drawn
-    /// faces, and the open clusters facing the joint.
+    /// Takes, for each jointed socket, what stripping its plug touches: the
+    /// plug brushes, the solid leaves the plug made (to carve), the plug's
+    /// drawn faces, and the open clusters facing the joint.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A plug brush is a brush with a trigger-surfaced side whose box lies in
-    /// the socket's kit plug box — the same two tests the linter's seal census
-    /// uses, applied per brush. A leaf to carve is any solid leaf whose box
-    /// overlaps the plug box's interior: vbsp does not give the plug a leaf of
-    /// its own (the solid space behind a wall is split only where a plane
-    /// needs it, so the plug usually shares one leaf with the wall bands and
-    /// the void beyond), which is why the doorway has to be cut out of those
-    /// leaves rather than one leaf flipped to empty.
+    /// The census itself is per socket and the room's alone
+    /// (<see cref="SocketCensus"/>, made by <c>CensusSocket</c> at room
+    /// compile time or on the fly): a plug brush is a brush with a
+    /// trigger-surfaced side whose box lies in the socket's kit plug box —
+    /// the same two tests the linter's seal census uses, applied per brush.
+    /// A leaf to carve is any solid leaf whose box overlaps the plug box's
+    /// interior: vbsp does not give the plug a leaf of its own (the solid
+    /// space behind a wall is split only where a plane needs it, so the plug
+    /// usually shares one leaf with the wall bands and the void beyond),
+    /// which is why the doorway has to be cut out of those leaves rather than
+    /// one leaf flipped to empty. The level only chooses the sockets, in its
+    /// joints' order, which is the order the carves are made in.
     /// </para>
     /// <para>
     /// A jointed socket no open leaf faces is refused: its door edge would be
     /// empty, and a joint that joins nothing is a broken room, not a door.
     /// </para>
     /// </remarks>
-    private static void CensusPlugs(RoomPlan plan)
+    private static void ApplyCensus(RoomPlan plan, RoomLinkShared shared)
     {
-        RoomObject room = plan.Placement.Room;
-        RoomDefinition definition = room.Definition;
-        BspData bsp = plan.Bsp;
-        ReadOnlySpan<DBrush> brushes = BspStructView.As<DBrush>(bsp[BspLump.Brushes]);
-        ReadOnlySpan<DBrushSide> sides = BspStructView.As<DBrushSide>(bsp[BspLump.BrushSides]);
-        ReadOnlySpan<DPlane> planes = BspStructView.As<DPlane>(bsp[BspLump.Planes]);
-        ReadOnlySpan<TexInfo> texInfos = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]);
-
+        RoomDefinition definition = plan.Placement.Room.Definition;
         foreach ((string socketName, _) in plan.Placement.Instance.Joints)
         {
-            RoomSocket socket = definition.Sockets.First(s => s.Name == socketName);
-            Box plug = RoomLinter.SealBox(definition, socket, definition.CellSize);
-
-            int[] facing = Facing(plan.Leafs, plug);
-            if (facing.Length == 0)
+            int socket = SocketIndex(definition, socketName);
+            SocketCensus census = shared.Sockets[socket];
+            if (census.Facing.Length == 0)
             {
                 throw new LinkException(
                     $"room {definition.Name}'s jointed socket \"{socketName}\" faces no open leaf of the room,"
                     + " so the joint would join nothing");
             }
 
-            plan.JointFacing[socketName] = facing;
-
-            for (int b = 0; b < brushes.Length; b++)
+            plan.JointFacing[socketName] = census.Facing;
+            plan.StrippedBrushes.UnionWith(census.StrippedBrushes);
+            foreach (int leaf in census.CarveLeaves)
             {
-                if (IsTriggerBrush(brushes[b], sides, texInfos)
-                    && BrushBox(brushes[b], sides, planes).ContainsWithin(plug, RoomLinter.CellEpsilon))
-                {
-                    plan.StrippedBrushes.Add(b);
-                }
+                plan.Carves.Add(new PlugCarve(leaf, socket, census.Facing[0]));
             }
 
-            for (int l = 0; l < plan.Leafs.Length; l++)
-            {
-                DLeaf leaf = plan.Leafs[l];
-                if ((leaf.Contents & (int)BrushContents.Solid) != 0
-                    && BoxOf(leaf).Overlaps(plug, RoomLinter.CellEpsilon))
-                {
-                    plan.Carves.Add(new PlugCarve(l, plug, facing[0]));
-                }
-            }
-
-            MarkPlugFaces(plan, plug);
+            plan.StrippedFaces.UnionWith(census.StrippedFaces);
         }
 
         MarkPlugOriginalFaces(plan);
+    }
+
+    /// <summary>The index of the first socket of that name, as the census has always looked it up.</summary>
+    private static int SocketIndex(RoomDefinition definition, string name)
+    {
+        for (int s = 0; s < definition.Sockets.Count; s++)
+        {
+            if (definition.Sockets[s].Name == name)
+            {
+                return s;
+            }
+        }
+
+        throw new InvalidOperationException($"room {definition.Name} has no socket \"{name}\"");
     }
 
     /// <summary>
@@ -473,10 +401,8 @@ public static partial class LevelLinker
     }
 
     /// <summary>The trigger-surfaced drawn faces whose every vertex lies in the plug box.</summary>
-    private static void MarkPlugFaces(RoomPlan plan, Box plug)
+    private static void MarkPlugFaces(BspData bsp, Box plug, HashSet<int> into)
     {
-        BspData bsp = plan.Bsp;
-        HashSet<int> into = plan.StrippedFaces;
         ReadOnlySpan<DFace> faces = BspStructView.As<DFace>(bsp[BspLump.Faces]);
         ReadOnlySpan<TexInfo> texInfos = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]);
         ReadOnlySpan<int> surfEdges = BspStructView.As<int>(bsp[BspLump.SurfEdges]);
@@ -507,9 +433,9 @@ public static partial class LevelLinker
 
     /// <summary>One solid leaf a jointed plug made, and the doorway to cut out of it.</summary>
     /// <param name="Leaf">The room-local leaf index.</param>
-    /// <param name="Plug">The plug box, room-local.</param>
+    /// <param name="Socket">The jointed socket's index in the definition, whose turned plug box (<see cref="RoomLinkGeometry.PlugBoxes"/>) the doorway is.</param>
     /// <param name="Cluster">The room-local cluster the doorway joins.</param>
-    internal readonly record struct PlugCarve(int Leaf, Box Plug, int Cluster);
+    internal readonly record struct PlugCarve(int Leaf, int Socket, int Cluster);
 
     /// <summary>A room's link-time facts: its moved structs, counts, and assigned bases.</summary>
     internal sealed class RoomPlan
@@ -517,6 +443,10 @@ public static partial class LevelLinker
         public required ResolvedPlacement Placement { get; init; }
         public required BspData Bsp { get; init; }
         public required RoomTransform Transform { get; init; }
+
+        /// <summary>The room's geometry turned for this placement, which the assembly moves to the cell.</summary>
+        public required RoomLinkGeometry Geometry { get; init; }
+
         public required byte[][] OwnRows { get; init; }
         public required int ClusterCount { get; init; }
         public required Vec3[] Vertices { get; init; }

@@ -83,6 +83,45 @@ public sealed class RoomLibraryCompilerTests
     }
 
     /// <summary>
+    /// The link work each room's compile does ahead is on the room it is for,
+    /// and the pack written from the rooms (containers and link sections) is
+    /// the same bytes at one thread and at four, and run after run.
+    /// </summary>
+    [Fact]
+    public async Task ThePackWithLinkDataIsTheSameAtAnyThreadCount()
+    {
+        (IReadOnlyList<LibraryRoom> rooms, CountingContent content) = await LibraryAsync();
+        await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+
+        List<byte[]> packs = [];
+        foreach (int degree in new[] { 1, 4, 1, 4 })
+        {
+            List<RoomCompileOutcome> outcomes = await CompileAsync(
+                rooms, new RoomLibraryCompileSettings(VbspOptions.Default, content)
+                {
+                    CollisionCooker = cooker,
+                    Parallelism = new CompileParallelism { MaxDegree = degree },
+                });
+
+            List<RoomPackItem> items = [];
+            foreach (RoomCompileOutcome outcome in outcomes)
+            {
+                RoomObject room = outcome.Compiled!;
+                Assert.NotNull(room.Link);
+                Assert.True(room.Link.IsFor(room));
+                items.Add(await RoomPackItem.CreateAsync(room));
+                Assert.Contains(items[^1].Extra, s => s.Tag == RoomLinkSections.SharedTag);
+            }
+
+            using MemoryStream pack = new();
+            await RoomPack.SaveAsync(items, pack);
+            packs.Add(pack.ToArray());
+        }
+
+        Assert.All(packs, p => Assert.Equal(packs[0], p));
+    }
+
+    /// <summary>
     /// On a scheduler the host lends instead of a pool, the rooms run on it
     /// (and so do the managed cooker's cooks), and write the same bytes.
     /// </summary>

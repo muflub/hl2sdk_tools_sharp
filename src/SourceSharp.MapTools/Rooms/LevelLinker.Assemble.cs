@@ -60,8 +60,9 @@ public static partial class LevelLinker
             plan.NodeBase = nodes.Count;
             ReadOnlySpan<DNode> roomNodes = BspStructView.As<DNode>(plan.Bsp[BspLump.Nodes]);
             roomNodeCounts[r] = roomNodes.Length;
-            foreach (DNode n in roomNodes)
+            for (int i = 0; i < roomNodes.Length; i++)
             {
+                DNode n = roomNodes[i];
                 DNode shifted = n;
                 (int planeNum, bool flip) = plan.NodePlane(n.PlaneNum);
                 shifted.PlaneNum = planeNum;
@@ -76,7 +77,7 @@ public static partial class LevelLinker
 
                 shifted.Children = children;
                 shifted.FirstFace = (ushort)(n.FirstFace + plan.FaceBase);
-                Box box = MoveBox(plan.Transform, ToVec(n.Mins), ToVec(n.Maxs));
+                Box box = plan.Transform.TranslateBox(plan.Geometry.NodeBoxes[i]);
                 shifted.Mins = Short3(box.Mins);
                 shifted.Maxs = Short3(box.Maxs);
                 nodes.Add(shifted);
@@ -108,8 +109,9 @@ public static partial class LevelLinker
         foreach (RoomPlan plan in plans)
         {
             ReadOnlySpan<ushort> roomLeafBrushes = BspStructView.As<ushort>(plan.Bsp[BspLump.LeafBrushes]);
-            foreach (DLeaf leaf in plan.Leafs)
+            for (int l = 0; l < plan.Leafs.Length; l++)
             {
+                DLeaf leaf = plan.Leafs[l];
                 DLeaf shifted = leaf;
                 if (shifted.Cluster >= 0)
                 {
@@ -130,7 +132,7 @@ public static partial class LevelLinker
                 Limit(plan, "leaf brushes", leafBrushes.Count, ushort.MaxValue + 1);
                 shifted.FirstLeafBrush = (ushort)(leafBrushes.Count == start ? 0 : start);
                 shifted.NumLeafBrushes = (ushort)(leafBrushes.Count - start);
-                Box box = MoveBox(plan.Transform, ToVec(leaf.Mins), ToVec(leaf.Maxs));
+                Box box = plan.Transform.TranslateBox(plan.Geometry.LeafBoxes[l]);
                 shifted.Mins = Short3(box.Mins);
                 shifted.Maxs = Short3(box.Maxs);
                 leafs.Add(shifted);
@@ -348,16 +350,12 @@ public static partial class LevelLinker
         }
 
         // Vert normals: phong normals rotate with the room but never
-        // translate, so ApplyNormal and not Apply.
+        // translate, so the turned normals are already final.
         List<Vec3> vertNormals = [];
         List<ushort> vertNormalIndices = [];
         foreach (RoomPlan plan in plans)
         {
-            int rotation = plan.Transform.Placement.NormalizedRotation;
-            foreach (Vec3 normal in BspStructView.As<Vec3>(plan.Bsp[BspLump.VertNormals]))
-            {
-                vertNormals.Add(ApplyNormal(normal, rotation));
-            }
+            vertNormals.AddRange(plan.Geometry.VertNormals);
 
             foreach (ushort index in BspStructView.As<ushort>(plan.Bsp[BspLump.VertNormalIndices]))
             {
@@ -382,9 +380,9 @@ public static partial class LevelLinker
             }
 
             primIndices.AddRange(BspStructView.As<ushort>(plan.Bsp[BspLump.PrimIndices]));
-            foreach (Vec3 vertex in BspStructView.As<Vec3>(plan.Bsp[BspLump.PrimVerts]))
+            foreach (Vec3 vertex in plan.Geometry.PrimVerts)
             {
-                primVerts.Add(plan.Transform.Apply(vertex));
+                primVerts.Add(plan.Transform.Translate(vertex));
             }
         }
 
@@ -403,11 +401,11 @@ public static partial class LevelLinker
                 continue;
             }
 
-            foreach (DOccluderData occluder in roomOcclusion.Occluders)
+            for (int o = 0; o < roomOcclusion.Occluders.Count; o++)
             {
-                DOccluderData shifted = occluder;
+                DOccluderData shifted = roomOcclusion.Occluders[o];
                 shifted.FirstPoly += plan.OccluderPolyBase;
-                Box box = MoveBox(plan.Transform, occluder.Mins, occluder.Maxs);
+                Box box = plan.Transform.TranslateBox(plan.Geometry.OccluderBoxes[o]);
                 shifted.Mins = box.Mins;
                 shifted.Maxs = box.Maxs;
                 occlusion.Occluders.Add(shifted);
@@ -429,11 +427,10 @@ public static partial class LevelLinker
 
         // Models: one merged world model hanging on the top root, bounded by
         // the rooms' own world bounds as placed.
-        Box world = MoveBox(first.Transform, WorldModel(first).Mins, WorldModel(first).Maxs);
+        Box world = first.Transform.TranslateBox(first.Geometry.ModelBox);
         foreach (RoomPlan plan in plans)
         {
-            DModel model = WorldModel(plan);
-            world = Union(world, MoveBox(plan.Transform, model.Mins, model.Maxs));
+            world = Union(world, plan.Transform.TranslateBox(plan.Geometry.ModelBox));
         }
 
         DModel[] models =
@@ -596,7 +593,7 @@ public static partial class LevelLinker
         Dictionary<int, List<(Box, int)>> byLeaf = [];
         foreach (PlugCarve carve in plan.Carves)
         {
-            Box plugWorld = MoveBox(plan.Transform, carve.Plug.Mins, carve.Plug.Maxs);
+            Box plugWorld = plan.Transform.TranslateBox(plan.Geometry.PlugBoxes[carve.Socket]);
             if (!byLeaf.TryGetValue(carve.Leaf, out List<(Box, int)>? list))
             {
                 byLeaf[carve.Leaf] = list = [];
@@ -789,8 +786,6 @@ public static partial class LevelLinker
         new(
             new Vec3(Math.Min(a.Mins.X, b.Mins.X), Math.Min(a.Mins.Y, b.Mins.Y), Math.Min(a.Mins.Z, b.Mins.Z)),
             new Vec3(Math.Max(a.Maxs.X, b.Maxs.X), Math.Max(a.Maxs.Y, b.Maxs.Y), Math.Max(a.Maxs.Z, b.Maxs.Z)));
-
-    private static DModel WorldModel(RoomPlan plan) => BspStructView.As<DModel>(plan.Bsp[BspLump.Models])[0];
 
     private static Vec3 ToVec(ShortArray3 s) => new(s[0], s[1], s[2]);
 
