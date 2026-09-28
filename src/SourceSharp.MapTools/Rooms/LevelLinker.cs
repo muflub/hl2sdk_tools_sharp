@@ -134,15 +134,43 @@ public static partial class LevelLinker
     /// socket, a joint no open leaf faces), a room's compile carries something
     /// the relocation refuses, or the level outgrows a field of the format.
     /// </exception>
+    public static Task<LinkedLevel> LinkAsync(
+        LevelLayout layout,
+        RoomLibrary library,
+        VbspContext context,
+        CancellationToken cancellationToken = default) =>
+        LinkAsync(layout, library, context, LevelLinkOptions.Default, cancellationToken);
+
+    /// <summary>Links <paramref name="layout"/>'s rooms into one map, with the entity budget's settings.</summary>
+    /// <param name="layout">The level.</param>
+    /// <param name="library">The rooms, by name, and the library's settings (<see cref="RoomLibrary.Options"/>).</param>
+    /// <param name="context">As for <see cref="LinkAsync(LevelLayout, RoomLibrary, VbspContext, CancellationToken)"/>.</param>
+    /// <param name="options">
+    /// The entity budget's settings: the reserve, overriding the library's,
+    /// and the class table (<see cref="LevelEntityBudget"/>).
+    /// </param>
+    /// <param name="cancellationToken">Cancels the link.</param>
+    /// <returns>The linked BSP, its visibility, the plan, and the entity budget's report.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentException">As for the overload without options.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The reserve is not from 0 to the edict cap.</exception>
+    /// <exception cref="RoomLintException">As for the overload without options.</exception>
+    /// <exception cref="LinkException">
+    /// As for the overload without options, and a level whose edicts pass
+    /// the cap or whose entity list passes what a map may hold.
+    /// </exception>
     public static async Task<LinkedLevel> LinkAsync(
         LevelLayout layout,
         RoomLibrary library,
         VbspContext context,
+        LevelLinkOptions options,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(options);
+        EntityClassTable classes = options.EntityClasses ?? EntityClassTable.Default;
 
         // Layout first (rule 5 / rule 2's layout halves, house messages), then
         // the format's limits, then the joint geometry only the linker can
@@ -150,7 +178,7 @@ public static partial class LevelLinker
         // level far past them is refused from the rooms' lump counts alone,
         // not after every room has been planned.
         RoomLinter.CheckLayout(layout, library);
-        CheckCapacity(layout, library);
+        LevelEntityReport entities = CheckCapacity(layout, library, options);
         ValidateJoints(layout, library);
         RoomLinter.CheckReachable(layout, name => library.Get(name).Definition);
 
@@ -258,7 +286,20 @@ public static partial class LevelLinker
         RoomInstance lastRoom = plans[^1].Placement.Instance;
         LimitVisibility(plans[^1].Placement.Room.Definition.Name, lastRoom.Placement.CellX, lastRoom.Placement.CellY, visibilityLump.Length);
 
-        BspData linked = Assemble(plans, layout, visibilityLump, context, cancellationToken);
+        LevelNaming naming = new(
+            new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows),
+            library.Options.NameKeySet);
+        BspData linked = Assemble(plans, layout, visibilityLump, context, classes, naming, library.Options.MapVersion, cancellationToken);
+
+        // The budget checked before planning counted the rooms as compiled.
+        // When the naming resolver ran, what the level holds is what it left
+        // (dropped by room_needs, folded, merged, or written by the linker),
+        // so the level is budgeted again from that, and refused if that is
+        // over the cap; its report is the one the link returns.
+        if (naming.Result is { } resolution)
+        {
+            entities = BudgetResolved(layout, resolution, LevelEntityBudget.ReserveFor(options, library.Options), classes);
+        }
 
         VisResult vis = new(
             clusterCount,
@@ -276,7 +317,32 @@ public static partial class LevelLinker
             work: VisWorkCounters.Zero,
             trace: null);
 
-        return new LinkedLevel(linked, vis, new LevelPlan(layout, resolved, TopPlanes(layout, layout.CellSize)));
+        return new LinkedLevel(linked, vis, new LevelPlan(layout, resolved, TopPlanes(layout, layout.CellSize)))
+        {
+            EntityBudget = entities,
+            NameWarnings = naming.Result?.Warnings ?? [],
+            NameNotes = naming.Result?.Verbose ?? [],
+        };
+    }
+
+    /// <summary>
+    /// The entity budget of a level the naming resolver changed: each
+    /// placement counted from the entities it left for it (its own kept, and
+    /// what the linker wrote), by class, then budgeted as the rooms' own
+    /// counts are.
+    /// </summary>
+    private static LevelEntityReport BudgetResolved(LevelLayout layout, LevelResolution resolution, int reserve, EntityClassTable classes)
+    {
+        List<string>[] byPlacement = [.. layout.Rooms.Select(_ => new List<string>())];
+        foreach (LevelEntity entity in resolution.Entities)
+        {
+            byPlacement[entity.Placement].Add(entity.ClassName);
+        }
+
+        return LevelEntityBudget.Check(
+            layout.Rooms.Select((r, i) => (r.Placement.Room, RoomEntityCounts.FromClasses(byPlacement[i]))),
+            reserve,
+            classes);
     }
 
     /// <summary>
@@ -371,26 +437,46 @@ public static partial class LevelLinker
     /// their floor, are not known until then, and are checked where they are
     /// added.
     /// </para>
+    /// <para>
+    /// The entity budget is checked here too, after the lump totals
+    /// (<see cref="LevelEntityBudget"/>): from each room's stored entity
+    /// counts when it has them, else from its entity lump, which the counts
+    /// equal.
+    /// </para>
     /// </remarks>
     /// <param name="layout">The level, its rooms already known to be in the library.</param>
-    /// <param name="library">The rooms.</param>
-    /// <exception cref="LinkException">A total passes its field's limit.</exception>
-    internal static void CheckCapacity(LevelLayout layout, RoomLibrary library)
+    /// <param name="library">The rooms, and the library's settings.</param>
+    /// <param name="options">The entity budget's settings; null for <see cref="LevelLinkOptions.Default"/>.</param>
+    /// <returns>The entity budget's report.</returns>
+    /// <exception cref="LinkException">A total passes its field's limit, or the level passes the edict cap or the entity list's.</exception>
+    internal static LevelEntityReport CheckCapacity(LevelLayout layout, RoomLibrary library, LevelLinkOptions? options = null)
     {
-        if (layout.Rooms.Count == 0)
+        options ??= LevelLinkOptions.Default;
+        int reserve = LevelEntityBudget.ReserveFor(options, library.Options);
+        EntityClassTable classes = options.EntityClasses ?? EntityClassTable.Default;
+        List<(string, RoomEntityCounts)> placements = new(layout.Rooms.Count);
+        if (layout.Rooms.Count > 0)
         {
-            return;
+            LinkTotals totals = new();
+            Dictionary<string, RoomEntityCounts> counted = new(StringComparer.Ordinal);
+            foreach (RoomInstance instance in layout.Rooms)
+            {
+                RoomObject room = library.Get(instance.Placement.Room);
+                string name = room.Definition.Name;
+                totals.Add(LinkCounts.Of(room.Bsp, room.ClusterCount), name, instance.Placement.CellX, instance.Placement.CellY);
+                if (!counted.TryGetValue(name, out RoomEntityCounts? counts))
+                {
+                    counted[name] = counts = room.CountEntities();
+                }
+
+                placements.Add((name, counts));
+            }
+
+            RoomInstance last = layout.Rooms[^1];
+            totals.CheckClusters(library.Get(last.Placement.Room).Definition.Name, last.Placement.CellX, last.Placement.CellY);
         }
 
-        LinkTotals totals = new();
-        foreach (RoomInstance instance in layout.Rooms)
-        {
-            RoomObject room = library.Get(instance.Placement.Room);
-            totals.Add(LinkCounts.Of(room.Bsp, room.ClusterCount), room.Definition.Name, instance.Placement.CellX, instance.Placement.CellY);
-        }
-
-        RoomInstance last = layout.Rooms[^1];
-        totals.CheckClusters(library.Get(last.Placement.Room).Definition.Name, last.Placement.CellX, last.Placement.CellY);
+        return LevelEntityBudget.Check(placements, reserve, classes);
     }
 
     /// <summary>
@@ -1471,8 +1557,30 @@ public static partial class LevelLinker
     }
 }
 
-/// <summary>What <see cref="LevelLinker.LinkAsync"/> produced: one map, one vis, one plan.</summary>
+/// <summary>What <see cref="LevelLinker.LinkAsync(LevelLayout, RoomLibrary, VbspContext, LevelLinkOptions, CancellationToken)"/> produced: one map, one vis, one plan, and the entity budget.</summary>
 /// <param name="Bsp">The linked BSP, visibility lump included.</param>
 /// <param name="Vis">The door-graph visibility the linked BSP's rows compress to.</param>
 /// <param name="Plan">What the linker knew: resolved placements and the cell-face planes.</param>
-public sealed record LinkedLevel(BspData Bsp, VisResult Vis, LevelPlan Plan);
+public sealed record LinkedLevel(BspData Bsp, VisResult Vis, LevelPlan Plan)
+{
+    /// <summary>
+    /// The level's entity budget as the link found it: its edicts and
+    /// entities, the budget, and any warning (<see cref="LevelEntityBudget"/>);
+    /// null only for a level made some other way than by the link.
+    /// </summary>
+    public LevelEntityReport? EntityBudget { get; init; }
+
+    /// <summary>
+    /// What resolving the rooms' names warned of, each a whole sentence: a
+    /// reference to an empty cell or off the grid, whose output was removed
+    /// or key cleared; a global name defined by several placements of a room.
+    /// </summary>
+    public IReadOnlyList<string> NameWarnings { get; init; } = [];
+
+    /// <summary>
+    /// What only verbose output reports: references to entities that
+    /// <c>room_needs</c> dropped on purpose, removed like the warnings' but
+    /// expected.
+    /// </summary>
+    public IReadOnlyList<string> NameNotes { get; init; } = [];
+}

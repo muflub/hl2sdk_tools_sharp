@@ -63,6 +63,61 @@ public sealed record RoomObject(
     /// older pack, a room built in memory) links to the same bytes.
     /// </remarks>
     internal RoomLinkData? Link { get; init; }
+
+    /// <summary>
+    /// The room's entity counts as the pack stores them, or null: set by a
+    /// room pack that has them, and used by the link's entity budget in
+    /// place of parsing the room's entity lump.
+    /// </summary>
+    /// <remarks>
+    /// Only ever a shortcut, like <see cref="Link"/>: used only while it
+    /// still describes this room's own compile
+    /// (<see cref="RoomEntityCounts.IsFor"/>); otherwise the room is
+    /// counted afresh, to the same numbers.
+    /// </remarks>
+    internal RoomEntityCounts? EntityCounts { get; init; }
+
+    /// <summary>The room's entity counts: the stored ones while they describe this compile, else counted now.</summary>
+    internal RoomEntityCounts CountEntities() =>
+        EntityCounts is { } stored && stored.IsFor(this) ? stored : RoomEntityCounts.Of(Bsp);
+
+    /// <summary>
+    /// The room's names per quarter turn (<see cref="RoomNameTurn"/>), or
+    /// null: made by the room compile and stored by the pack, and used by
+    /// the link in place of reading the room's entities for names again.
+    /// </summary>
+    /// <remarks>
+    /// Only ever a shortcut, like <see cref="Link"/>: used only while it still
+    /// describes this room's own compile (<see cref="RoomNameTables.IsFor"/>);
+    /// otherwise the names are read from the room's entity lump, to the same
+    /// tables.
+    /// </remarks>
+    internal RoomNameTables? Names { get; init; }
+
+    /// <summary>
+    /// What the naming rule warned of when the room was compiled (a
+    /// placeholder after the start of a value, a local name no entity of
+    /// the room defines), each a whole sentence; empty when the room has no
+    /// names from its compile.
+    /// </summary>
+    public IReadOnlyList<string> NameWarnings => Names?.Turn(0)?.Warnings ?? [];
+
+    /// <summary>A turn's names: the stored ones while they describe this compile, else read from the entity lump now.</summary>
+    /// <param name="turn">The quarter turn, 0 to 3.</param>
+    /// <param name="nameKeys">Name-valued keys the library adds, for a room whose names are read now.</param>
+    internal RoomNameTurn NamesFor(int turn, IReadOnlySet<string>? nameKeys) =>
+        Names is { } stored && stored.IsFor(this) && stored.Turn(turn) is { } names
+            ? names
+            : RoomNameAnalysis.Analyse(Definition.Name, Bsp, nameKeys)[turn];
+
+    /// <summary>
+    /// The room's navigation, or null: built beside the link work by a
+    /// library compile whose library builds navigation, and read by a pack
+    /// load that asks for it (<see cref="RoomPackRequest.Navigation"/>), at
+    /// the turns asked for. It is not part of the room container; the pack
+    /// stores it in its own sections (<see cref="Nav.RoomNavSection"/>).
+    /// </summary>
+    public Nav.RoomNavTurns? Nav { get; init; }
 }
 
 /// <summary>
@@ -94,6 +149,13 @@ public sealed class RoomLibrary
         Kit = kit;
         CellSize = cellSize;
     }
+
+    /// <summary>
+    /// What the library sets for every level linked from it (its entity
+    /// reserve): read from the pack's library section by whoever loads the
+    /// rooms, <see cref="RoomLibraryOptions.None"/> until then.
+    /// </summary>
+    public RoomLibraryOptions Options { get; set; } = RoomLibraryOptions.None;
 
     /// <summary>The rooms, in insertion order.</summary>
     public IReadOnlyCollection<RoomObject> Rooms => _rooms.Values;

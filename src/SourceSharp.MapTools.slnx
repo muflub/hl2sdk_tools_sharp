@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="SourceSharp.MapFormats/SourceSharp.MapFormats.csproj" />
+  <Project Path="SourceSharp.RoomContracts/SourceSharp.RoomContracts.csproj" />
   <Project Path="SourceSharp.MapTools/SourceSharp.MapTools.csproj" />
   <Project Path="SourceSharp.MapCompile/SourceSharp.MapCompile.csproj" />
   <Project Path="SourceSharp.MapTools.Cache.Sqlite/SourceSharp.MapTools.Cache.Sqlite.csproj" />

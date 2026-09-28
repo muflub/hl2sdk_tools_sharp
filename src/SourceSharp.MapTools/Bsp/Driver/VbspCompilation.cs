@@ -553,8 +553,13 @@ internal sealed class VbspCompilation
     /// </summary>
     private void WritePortalFile()
     {
+        // The carving is this compile's work, so it is counted in this
+        // compile's build context rather than the one the loader made.
+        _map.VisClusters.Context = _build;
+
         PortalFileBuilder builder = new(_worldPortals!, _compile.Windings)
         {
+            VisClusters = _map.VisClusters,
             SkyAreas = [.. _state.SkyAreas],
             SkyVis = Options.ForceSkyVis,
         };

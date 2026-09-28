@@ -5,9 +5,12 @@
 //
 //=============================================================================//
 
+using SourceSharp.MapFormats.Text;
+
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Io;
+using SourceSharp.MapTools.Nav;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Phys;
@@ -32,7 +35,11 @@ public sealed class RoomCompileOutcome
     /// <summary>The room as the library gave it.</summary>
     public LibraryRoom Room { get; }
 
-    /// <summary>The compiled room, or null when it failed.</summary>
+    /// <summary>
+    /// The compiled room, or null when it failed: with its link work done
+    /// ahead, and its navigation (<see cref="RoomObject.Nav"/>) when the
+    /// library builds it (<see cref="RoomLibraryCompileSettings.Nav"/>).
+    /// </summary>
     public RoomObject? Compiled { get; }
 
     /// <summary>
@@ -69,6 +76,23 @@ public sealed class RoomLibraryCompileSettings(VbspOptions options, IContentFile
     public ICollisionCooker? CollisionCooker { get; init; }
 
     /// <summary>
+    /// The library's navigation settings (<see cref="NavSettings.FromLibrary"/>),
+    /// or null to build none. With settings, each room's
+    /// <see cref="RoomPois"/> are taken out of its VMF before it compiles and
+    /// its navigation is built from its compile, on the room's own task;
+    /// without, the points are still taken out (they are never entities of
+    /// the map) and are dropped.
+    /// </summary>
+    public NavSettings? Nav { get; init; }
+
+    /// <summary>
+    /// The name-valued keys the library adds to the naming rule's built-in
+    /// table (<see cref="RoomLibraryOptions.NameKeySet"/>, from the library's
+    /// <c>rooms_name_keys</c>), or null.
+    /// </summary>
+    public IReadOnlySet<string>? NameKeys { get; init; }
+
+    /// <summary>
     /// How much of the machine the whole library may use: <c>-threads</c>.
     /// </summary>
     /// <remarks>
@@ -93,6 +117,25 @@ public sealed class RoomLibraryCompileSettings(VbspOptions options, IContentFile
 
     /// <summary>For the facts: sees the thread pool the run made for itself, to check it is gone at the end. Null in every real compile.</summary>
     internal Action<CompilePool>? PoolProbe { get; init; }
+
+    /// <summary>
+    /// These settings over other content: what an incremental run compiles
+    /// its changed rooms with, the same switches read through the cache's
+    /// recording view of the content (<see cref="RoomCompileCache.Content"/>).
+    /// </summary>
+    /// <param name="content">The content the rooms read instead.</param>
+    /// <returns>A copy with every other member as it is here.</returns>
+    internal RoomLibraryCompileSettings WithContent(IContentFileSystem content) => new(Options, content)
+    {
+        CollisionCooker = CollisionCooker,
+        Nav = Nav,
+        NameKeys = NameKeys,
+        Parallelism = Parallelism,
+        BeforeRoomProbe = BeforeRoomProbe,
+        RoomCompiledProbe = RoomCompiledProbe,
+        MaterialsProbe = MaterialsProbe,
+        PoolProbe = PoolProbe,
+    };
 }
 
 /// <summary>
@@ -187,6 +230,13 @@ public static class RoomLibraryCompiler
         cancellationToken.ThrowIfCancellationRequested();
 
         CompileParallelism parallelism = settings.Parallelism;
+        if (settings.Nav is { } nav && rooms.Count > 0)
+        {
+            // The library's grid and voxel either fit or every room would fail
+            // the same way: refused once, before any room compiles.
+            _ = nav.CellVoxels(rooms[0].Definition.CellSize);
+        }
+
         using SharedMaterialFacts materials = new(settings.Content);
         settings.MaterialsProbe?.Invoke(materials);
         CompilePool? owned = null;
@@ -290,16 +340,23 @@ public static class RoomLibraryCompiler
 
         try
         {
+            (VmfDocument document, IReadOnlyList<AuthoredPoi> pois) = RoomPois.Extract(room.Document);
             RoomObject compiled = await RoomCompiler
-                .CompileAsync(room.Document, room.Definition, context, cancellationToken).ConfigureAwait(false);
+                .CompileAsync(document, room.Definition, context, settings.NameKeys, cancellationToken).ConfigureAwait(false);
 
             // The link work that depends only on the room and its turn,
             // done here, on the room's own thread, so it runs side by side
             // like the compiles and every later link of the room skips it
             // (RoomLinkData). A room the link would refuse gets none and is
-            // delivered as before.
+            // delivered as before. Its navigation is the same kind of work
+            // (per room, per turn, read by the link instead of redone), so
+            // it is done here too, beside it.
             RoomLinkData? link = await LevelLinker.TryPrecomputeAsync(compiled, cancellationToken).ConfigureAwait(false);
-            return new RoomCompileOutcome(index, room, link is null ? compiled : compiled with { Link = link }, null);
+            RoomNav? nav = settings.Nav is { } navSettings
+                ? RoomNavBuilder.Build(room.Definition, compiled.Bsp, pois, room.Role, navSettings, cancellationToken)
+                : null;
+            RoomObject delivered = link is null ? compiled : compiled with { Link = link };
+            return new RoomCompileOutcome(index, room, nav is null ? delivered : delivered with { Nav = RoomNavTurns.Of(nav) }, null);
         }
         catch (Exception exception) when (IsRoomFailure(exception))
         {

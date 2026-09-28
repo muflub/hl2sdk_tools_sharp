@@ -172,7 +172,7 @@ public sealed class LevelGrid
             instances.Add(new RoomInstance(new RoomPlacement(cell.Room, x, y, cell.Rotation), joints, capped));
         }
 
-        return new LevelLayout(Name, cellSize, kit, instances);
+        return new LevelLayout(Name, cellSize, kit, instances) { Columns = Columns, Rows = Rows };
     }
 
     private static RoomDefinition Definition(Func<string, RoomDefinition?> rooms, LevelCell cell) =>
