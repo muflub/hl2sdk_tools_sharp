@@ -99,6 +99,34 @@ public sealed class ContentFileSystem : IContentFileSystem, IAsyncDisposable
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The same first-match walk as <see cref="ReadAsync"/>, handing the range
+    /// to the mount that wins; a later mount's copy of the file is never
+    /// consulted, even when the winner's is shorter than the range.
+    /// </remarks>
+    public async ValueTask<FileRange?> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+
+        foreach (IContentMount mount in _mounts)
+        {
+            if (!mount.TryResolve(path, out VPath actual))
+            {
+                continue;
+            }
+
+            return await mount.ReadRangeAsync(actual, offset, length, cancellationToken).ConfigureAwait(false);
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc />
     public async IAsyncEnumerable<VPath> EnumerateAsync(
         VPath directory,
         string searchPattern = "*",

@@ -31,6 +31,10 @@ internal sealed class ProbeFileSystem(InMemoryFileSystem inner) : IFileSystem
     public ValueTask<IMemoryOwner<byte>> ReadAllAsync(VPath path, CancellationToken cancellationToken = default) =>
         inner.ReadAllAsync(path, cancellationToken);
 
+    public ValueTask<FileRange> ReadRangeAsync(
+        VPath path, long offset, int length, CancellationToken cancellationToken = default) =>
+        inner.ReadRangeAsync(path, offset, length, cancellationToken);
+
     public ValueTask<Stream> OpenWriteAsync(VPath path, CancellationToken cancellationToken = default) =>
         inner.OpenWriteAsync(path, cancellationToken);
 

@@ -100,6 +100,82 @@ public sealed class PakArchive : IPackedArchive
             return ValueTask.FromResult<IMemoryOwner<byte>?>(null);
         }
 
+        return ValueTask.FromResult<IMemoryOwner<byte>?>(ReadEntry(path, entry));
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// A STORE entry -- which is every entry vbsp writes -- is sliced straight
+    /// out of the lump, so the range costs only its own bytes.
+    /// </para>
+    /// <para>
+    /// A deflated entry is inflated whole and the range copied out of it. A
+    /// deflate stream cannot seek, so the bytes before the range have to be
+    /// inflated anyway, and inflating the rest too keeps the one check a
+    /// whole read makes -- that the entry inflates to exactly the length its
+    /// directory entry declares -- rather than a ranged read accepting an
+    /// entry a whole read rejects. So does a STORE entry whose two lengths
+    /// disagree, for the same reason: it is malformed, and it fails or
+    /// succeeds exactly as a whole read of it would.
+    /// </para>
+    /// </remarks>
+    public ValueTask<FileRange?> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegative(length);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!_entries.TryGetValue(path, out Entry entry))
+        {
+            return ValueTask.FromResult<FileRange?>(null);
+        }
+
+        if (entry.Method == MethodStore && entry.CompressedLength == entry.Length)
+        {
+            ReadOnlySpan<byte> stored = DataOf(path, entry);
+            return ValueTask.FromResult<FileRange?>(FileRange.Copy(stored, offset, length));
+        }
+
+        using PooledMemoryOwner whole = ReadEntry(path, entry);
+        return ValueTask.FromResult<FileRange?>(FileRange.Copy(whole.Memory.Span, offset, length));
+    }
+
+    private PooledMemoryOwner ReadEntry(VPath path, Entry entry)
+    {
+        ReadOnlySpan<byte> compressed = DataOf(path, entry);
+        PooledMemoryOwner result = PooledMemoryOwner.Rent(entry.Length);
+
+        try
+        {
+            if (entry.Method == MethodStore)
+            {
+                compressed.CopyTo(result.Memory.Span);
+            }
+            else
+            {
+                Inflate(compressed, result.Memory.Span, path);
+            }
+
+            return result;
+        }
+        catch
+        {
+            result.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// An entry's stored bytes, after its local header, with every bound a
+    /// read depends on checked.
+    /// </summary>
+    private ReadOnlySpan<byte> DataOf(VPath path, Entry entry)
+    {
         ReadOnlySpan<byte> all = _bytes.Span;
 
         if (entry.LocalHeaderOffset + 30 > all.Length)
@@ -125,27 +201,7 @@ public sealed class PakArchive : IPackedArchive
                 $"{Name}: {path} claims {entry.CompressedLength} bytes at offset {dataOffset}, past the end of a {all.Length}-byte pak");
         }
 
-        ReadOnlySpan<byte> compressed = all.Slice(dataOffset, entry.CompressedLength);
-        PooledMemoryOwner result = PooledMemoryOwner.Rent(entry.Length);
-
-        try
-        {
-            if (entry.Method == MethodStore)
-            {
-                compressed.CopyTo(result.Memory.Span);
-            }
-            else
-            {
-                Inflate(compressed, result.Memory.Span, path);
-            }
-
-            return ValueTask.FromResult<IMemoryOwner<byte>?>(result);
-        }
-        catch
-        {
-            result.Dispose();
-            throw;
-        }
+        return all.Slice(dataOffset, entry.CompressedLength);
     }
 
     /// <inheritdoc />

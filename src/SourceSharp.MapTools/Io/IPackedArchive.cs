@@ -42,4 +42,20 @@ public interface IPackedArchive : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>Its bytes, or null when the archive does not hold it.</returns>
     ValueTask<IMemoryOwner<byte>?> ReadAsync(VPath path, CancellationToken cancellationToken = default);
+
+    /// <summary>Reads part of one file out of the archive.</summary>
+    /// <param name="path">A path, in the archive's own spelling.</param>
+    /// <param name="offset">Where the range starts, in the file (not the archive).</param>
+    /// <param name="length">How many bytes to read.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>
+    /// The range and the file's length, or null when the archive does not
+    /// hold the file. Short or empty past the end, as
+    /// <see cref="IFileSystem.ReadRangeAsync"/> describes.
+    /// </returns>
+    ValueTask<FileRange?> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default);
 }

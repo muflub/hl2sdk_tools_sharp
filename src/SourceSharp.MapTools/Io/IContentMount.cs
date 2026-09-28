@@ -55,4 +55,22 @@ public interface IContentMount : IAsyncDisposable
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>Its bytes, or null when this mount does not hold it.</returns>
     ValueTask<IMemoryOwner<byte>?> ReadAsync(VPath actual, CancellationToken cancellationToken = default);
+
+    /// <summary>Reads part of a file out of this mount.</summary>
+    /// <param name="actual">
+    /// A path in the mount's own spelling, as <see cref="TryResolve"/> returned it.
+    /// </param>
+    /// <param name="offset">Where the range starts.</param>
+    /// <param name="length">How many bytes to read.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>
+    /// The range and the file's length, or null when this mount does not hold
+    /// the file. Short or empty past the end, as
+    /// <see cref="IFileSystem.ReadRangeAsync"/> describes.
+    /// </returns>
+    ValueTask<FileRange?> ReadRangeAsync(
+        VPath actual,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default);
 }

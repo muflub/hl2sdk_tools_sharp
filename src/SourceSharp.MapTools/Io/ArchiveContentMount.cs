@@ -79,6 +79,21 @@ public sealed class ArchiveContentMount : IContentMount
     }
 
     /// <inheritdoc />
+    public async ValueTask<FileRange?> ReadRangeAsync(
+        VPath actual,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_index.TryResolve(actual, out VPath resolved))
+        {
+            return null;
+        }
+
+        return await _archive.ReadRangeAsync(resolved, offset, length, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (_ownsArchive)

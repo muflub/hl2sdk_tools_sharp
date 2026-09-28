@@ -357,6 +357,36 @@ public sealed class VtfFile
         return Parse(buffer.ToArray());
     }
 
+    /// <summary>
+    /// The most bytes, from the start of the file, that parsing a header can
+    /// ever look at: the 80-byte header and a resource table at its cap of
+    /// 32 entries.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What a reader that wants only the header -- vbsp wants a texture's
+    /// size, flags and reflectivity and nothing else -- reads instead of the
+    /// whole file. Everything <see cref="ParseHeader"/> checks is in these
+    /// bytes or is a comparison with the file's length: the version, the
+    /// header size, the resource table, and where the image data starts, which
+    /// is either named by the table or computed from the header's thumbnail
+    /// fields. None of those needs a byte of the thumbnail or the mip chain.
+    /// </para>
+    /// <para>
+    /// One fixed read rather than 80 bytes and then a second read sized from
+    /// the resource count: the second read would save at most 256 bytes and
+    /// cost a second lookup and positioned read, which on a VPK or a loose
+    /// file is far more than 256 bytes' worth of copying.
+    /// </para>
+    /// </remarks>
+    public const int HeaderReadLength = HeaderBytes + (MaxResources * ResourceEntryBytes);
+
+    private const int HeaderBytes = 80;
+    private const int ResourceEntryBytes = 8;
+
+    /// <summary>The format's cap on a resource dictionary.</summary>
+    private const int MaxResources = 32;
+
     /// <summary>Parses a VTF already in memory.</summary>
     /// <param name="bytes">The whole file.</param>
     /// <returns>The parsed file.</returns>
@@ -364,11 +394,91 @@ public sealed class VtfFile
     public static VtfFile Parse(ReadOnlyMemory<byte> bytes)
     {
         ReadOnlySpan<byte> span = bytes.Span;
+        List<VtfResourceEntry> resources = [];
+        VtfHeader header = ReadHeader(span, span.Length, resources, out int imageOffset);
+        return new VtfFile(bytes, header, resources, imageOffset);
+    }
+
+    /// <summary>
+    /// Parses and checks a VTF's header from the start of the file alone.
+    /// </summary>
+    /// <param name="prefix">
+    /// The first bytes of the file: at least <see cref="HeaderReadLength"/> of
+    /// them, or the whole file when it is shorter than that.
+    /// </param>
+    /// <param name="fileLength">The length of the WHOLE file.</param>
+    /// <returns>The header, exactly as <see cref="Parse"/> would have read it.</returns>
+    /// <exception cref="InvalidVtfException">
+    /// The file is not a VTF this port can read. Thrown for exactly the files,
+    /// and with exactly the messages, that <see cref="Parse"/> throws for.
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="prefix"/> is shorter than the header parse needs, or
+    /// longer than <paramref name="fileLength"/>: the caller read the wrong
+    /// bytes, which is a bug and not a bad texture.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// The same parse as <see cref="Parse"/>, sharing its code, with one
+    /// difference in what it is given: the checks that compare an offset with
+    /// the end of the file compare it with <paramref name="fileLength"/>
+    /// rather than with the bytes in hand. A header that claims more bytes
+    /// than the file has, a resource table that runs off the end, image data
+    /// that starts past it: all still rejected, because they are judged
+    /// against the real file and not against the prefix.
+    /// </para>
+    /// <para>
+    /// The prefix length is checked up front rather than trusted, because a
+    /// prefix too short for the fields the parse reads would otherwise surface
+    /// as an <see cref="InvalidVtfException"/> blaming a perfectly good
+    /// texture.
+    /// </para>
+    /// </remarks>
+    public static VtfHeader ParseHeader(ReadOnlySpan<byte> prefix, long fileLength)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(fileLength);
+        if (prefix.Length > fileLength)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(prefix),
+                $"{prefix.Length} bytes of prefix is more than the {fileLength}-byte file holds");
+        }
+
+        if (prefix.Length < Math.Min(fileLength, HeaderReadLength))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(prefix),
+                $"a header parse needs the first {Math.Min(fileLength, HeaderReadLength)} bytes "
+                + $"of a {fileLength}-byte file and was given {prefix.Length}");
+        }
+
+        return ReadHeader(prefix, fileLength, resources: null, out _);
+    }
+
+    /// <summary>
+    /// The one header parse, for a whole file or for its first
+    /// <see cref="HeaderReadLength"/> bytes.
+    /// </summary>
+    /// <param name="span">
+    /// The bytes in hand, from the start of the file. The caller guarantees
+    /// there are at least <c>min(fileLength, HeaderReadLength)</c> of them, and
+    /// every offset read below is under both bounds once the check before it
+    /// has passed.
+    /// </param>
+    /// <param name="fileLength">The whole file's length: what every bound is checked against.</param>
+    /// <param name="resources">Receives the resource table, or null when the caller does not keep it.</param>
+    /// <param name="imageOffset">Where the image data starts.</param>
+    private static VtfHeader ReadHeader(
+        ReadOnlySpan<byte> span,
+        long fileLength,
+        List<VtfResourceEntry>? resources,
+        out int imageOffset)
+    {
         int headerBytes = Unsafe.SizeOf<VtfHeader>();
-        if (span.Length < 16)
+        if (fileLength < 16)
         {
             throw new InvalidVtfException(
-                $"a VTF is at least 16 bytes of base header; this is {span.Length}");
+                $"a VTF is at least 16 bytes of base header; this is {fileLength}");
         }
 
         if (!span[..4].SequenceEqual(Signature))
@@ -396,45 +506,45 @@ public sealed class VtfFile
         // headerSize still says where the low-res image begins, so it is the
         // only field that has to be trusted.
         int headerSize = MemoryMarshal.Read<int>(span[12..]);
-        if (headerSize < 16 || headerSize > span.Length)
+        if (headerSize < 16 || headerSize > fileLength)
         {
             throw new InvalidVtfException(
-                $"the header claims to be {headerSize} bytes of a {span.Length}-byte file");
+                $"the header claims to be {headerSize} bytes of a {fileLength}-byte file");
         }
 
         VtfHeader header = default;
         Span<byte> headerSpan = MemoryMarshal.AsBytes(new Span<VtfHeader>(ref header));
         span[..Math.Min(headerBytes, headerSize)].CopyTo(headerSpan);
 
-        List<VtfResourceEntry> resources = [];
+        ReadOnlySpan<VtfResourceEntry> table = default;
         if (minor >= 3 && header.NumResources > 0)
         {
-            int table = headerBytes;
             int wanted = (int)header.NumResources * Unsafe.SizeOf<VtfResourceEntry>();
-            if (header.NumResources > 32 || table + wanted > span.Length)
+            if (header.NumResources > MaxResources || headerBytes + wanted > fileLength)
             {
                 throw new InvalidVtfException(
                     $"the header declares {header.NumResources} resources, which do not fit "
-                    + $"between offset {table} and the end of a {span.Length}-byte file "
+                    + $"between offset {headerBytes} and the end of a {fileLength}-byte file "
                     + "(the format caps a dictionary at 32 entries)");
             }
 
-            resources.AddRange(MemoryMarshal.Cast<byte, VtfResourceEntry>(span.Slice(table, wanted)));
+            table = MemoryMarshal.Cast<byte, VtfResourceEntry>(span.Slice(headerBytes, wanted));
+            resources?.AddRange(table);
         }
 
-        int imageOffset = ImageOffset(header, resources, minor, headerSize);
-        if (imageOffset > span.Length)
+        imageOffset = ImageOffset(header, table, minor, headerSize);
+        if (imageOffset > fileLength)
         {
             throw new InvalidVtfException(
-                $"the image data starts at {imageOffset} of a {span.Length}-byte file");
+                $"the image data starts at {imageOffset} of a {fileLength}-byte file");
         }
 
-        return new VtfFile(bytes, header, resources, imageOffset);
+        return header;
     }
 
     private static int ImageOffset(
         VtfHeader header,
-        List<VtfResourceEntry> resources,
+        ReadOnlySpan<VtfResourceEntry> resources,
         int minor,
         int headerSize)
     {
@@ -449,7 +559,7 @@ public sealed class VtfFile
             }
         }
 
-        if (minor >= 3 && resources.Count > 0)
+        if (minor >= 3 && resources.Length > 0)
         {
             throw new InvalidVtfException(
                 "the resource table names no image resource (VTF_LEGACY_RSRC_IMAGE)");

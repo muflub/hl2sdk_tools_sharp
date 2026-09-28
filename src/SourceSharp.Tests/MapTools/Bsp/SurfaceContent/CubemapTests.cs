@@ -224,6 +224,59 @@ public class CubemapTests
         Assert.Contains(loaded.Context.Diagnostics, d => d.Code == SurfaceContentDiagnostics.DefaultCubemapSkyboxMissing);
     }
 
+    /// <summary>
+    /// The default cubemap needs only each skybox face's header, and reads
+    /// only that: content that refuses every whole read of a VTF still builds
+    /// the same file.
+    /// </summary>
+    [Fact]
+    public async Task TheDefaultCubemapReadsOnlyTheSkyboxHeaders()
+    {
+        SurfaceUnit.Loaded loaded = await SurfaceUnit.LoadAsync(
+            SurfaceUnit.Room(SurfaceUnit.Plain),
+            extra: f => SurfaceUnit.AddSky(f, SurfaceUnit.SkyName, (int)ImageFormat.Bgr888, 0x0304));
+        var guarded = new SourceSharp.Tests.MapTools.Materials.VtfHeaderReaderTests.NoWholeTextureReads(
+            loaded.Context.Content);
+
+        byte[]? viaHeaders = await DefaultCubemapBuilder.BuildAsync(
+            SurfaceUnit.SkyName, false, loaded.Context.Materials, guarded, loaded.Context.Diagnostics);
+        byte[]? viaContent = await DefaultCubemapBuilder.BuildAsync(
+            SurfaceUnit.SkyName, false, loaded.Context.Materials, loaded.Context.Content, []);
+
+        Assert.NotNull(viaHeaders);
+        Assert.Equal(viaContent, viaHeaders);
+        Assert.Equal(6, guarded.RangeReads);
+    }
+
+    /// <summary>
+    /// A skybox face that exists but is not a readable VTF -- here cut off
+    /// inside its header -- is reported as unreadable AND as missing, the two
+    /// warnings stock prints, and no cubemap is written.
+    /// </summary>
+    [Fact]
+    public async Task AnUnreadableSkyboxFaceSaysSoAndWritesNothing()
+    {
+        SurfaceUnit.Loaded loaded = await SurfaceUnit.LoadAsync(
+            SurfaceUnit.Room(SurfaceUnit.Plain),
+            extra: f =>
+            {
+                SurfaceUnit.AddSky(f, SurfaceUnit.SkyName, (int)ImageFormat.Bgr888, 0x0304);
+                byte[] face = SurfaceUnit.Vtf(512, 512, (int)ImageFormat.Bgr888, 0x0304);
+                f.AddFile($"materials/skybox/{SurfaceUnit.SkyName}lf.vtf", face.AsSpan(0, 40));
+            });
+
+        byte[]? vtf = await DefaultCubemapBuilder.BuildAsync(
+            SurfaceUnit.SkyName, false, loaded.Context.Materials, loaded.Context.Content, loaded.Context.Diagnostics);
+
+        Assert.Null(vtf);
+        Assert.Contains(loaded.Context.Diagnostics, d =>
+            d.Code == SurfaceContentDiagnostics.DefaultCubemapSkyboxUnreadable
+            && d.Message == $"*** Error unserializing skybox texture: skybox/{SurfaceUnit.SkyName}");
+        Assert.Contains(loaded.Context.Diagnostics, d =>
+            d.Code == SurfaceContentDiagnostics.DefaultCubemapSkyboxMissing
+            && d.Message == $"Can't load skybox file skybox/{SurfaceUnit.SkyName} to build the default cubemap!");
+    }
+
     [Fact]
     public async Task SkyboxFacesWithDifferentFlagsWriteNothing()
     {

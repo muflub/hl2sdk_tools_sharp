@@ -49,6 +49,14 @@ public sealed class ReadOnlyFileSystem : IFileSystem
         _inner.ReadAllAsync(path, cancellationToken);
 
     /// <inheritdoc />
+    public ValueTask<FileRange> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default) =>
+        _inner.ReadRangeAsync(path, offset, length, cancellationToken);
+
+    /// <inheritdoc />
     public ValueTask<Stream> OpenWriteAsync(VPath path, CancellationToken cancellationToken = default) =>
         throw Refuse(path, "open for writing");
 

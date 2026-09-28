@@ -5,7 +5,6 @@
 //
 //=============================================================================//
 
-using System.Buffers;
 using System.Buffers.Binary;
 using SourceSharp.MapFormats.Assets;
 using SourceSharp.MapTools.Bsp.MaterialPatch;
@@ -386,24 +385,12 @@ public static class DefaultCubemapBuilder
             return null;
         }
 
-        using IMemoryOwner<byte>? owner = await content.ReadAsync(vpath, cancellationToken).ConfigureAwait(false);
-        if (owner is null)
-        {
-            return null;
-        }
-
-        try
-        {
-            // Only the header, a value, leaves this method, so the parse can
-            // read the pooled bytes in place: nothing refers to them once the
-            // owner is disposed. Copying the whole texture out first cost a
-            // skybox face's worth of garbage per side, per compile.
-            return VtfFile.Parse(owner.Memory).Header;
-        }
-        catch (InvalidVtfException)
-        {
-            return null;
-        }
+        // Only the header leaves this method, so only the header is read: a
+        // skybox face is a large texture, and reading it whole cost a face's
+        // worth of IO per side, per compile, for 80 bytes of answer. A missing
+        // file and an unreadable one are both null here; the caller tells
+        // them apart with a separate lookup.
+        return await VtfHeaderReader.TryReadAsync(content, vpath, cancellationToken).ConfigureAwait(false);
     }
 
     private static async ValueTask<bool> ExistsAsync(IContentFileSystem content, string path, CancellationToken cancellationToken) =>

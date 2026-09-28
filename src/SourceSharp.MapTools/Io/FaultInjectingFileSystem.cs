@@ -85,6 +85,52 @@ public sealed class FaultInjectingFileSystem : IFileSystem
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The plan's byte counts are positions in the FILE, as they are for a
+    /// whole read: a range that reaches past
+    /// <see cref="FaultPlan.CancelReadAfterBytes"/> is cancelled, and one that
+    /// reaches past <see cref="FaultPlan.ShortReadAfterBytes"/> comes back
+    /// holding only the bytes before it while <see cref="FileRange.FileLength"/>
+    /// still reports the length the file claims -- the same "holds less than
+    /// the file says" shape a truncated whole read has, so a header reader has
+    /// to notice it the same way.
+    /// </remarks>
+    public async ValueTask<FileRange> ReadRangeAsync(
+        VPath path,
+        long offset,
+        int length,
+        CancellationToken cancellationToken = default)
+    {
+        FileRange range = await _inner.ReadRangeAsync(path, offset, length, cancellationToken)
+            .ConfigureAwait(false);
+
+        long end = range.Offset + range.Memory.Length;
+
+        if (_plan.CancelReadAfterBytes is long cancelAfter && end > cancelAfter)
+        {
+            range.Dispose();
+            throw new OperationCanceledException($"the read of {path} was cancelled");
+        }
+
+        if (_plan.ShortReadAfterBytes is not long shortAfter || end <= shortAfter)
+        {
+            return range;
+        }
+
+        try
+        {
+            int kept = (int)Math.Max(0, shortAfter - range.Offset);
+            FileRange truncated = FileRange.Rent(kept, range.Offset, range.FileLength);
+            range.Memory.Span[..kept].CopyTo(truncated.Memory.Span);
+            return truncated;
+        }
+        finally
+        {
+            range.Dispose();
+        }
+    }
+
+    /// <inheritdoc />
     public async ValueTask<Stream> OpenWriteAsync(
         VPath path,
         CancellationToken cancellationToken = default)
