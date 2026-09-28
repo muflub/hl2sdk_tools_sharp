@@ -251,6 +251,7 @@ public class VvisTightenTests
         int blocked = 0;
         long reported = 0;
         long total = 0;
+        long reportedWhenBesideQueued = -1;
         long reportedWhenBesideRan = -1;
         System.Collections.Concurrent.ConcurrentDictionary<int, bool> reporters = new();
         (BspData map, PortalSet portals) = Grid();
@@ -281,6 +282,7 @@ public class VvisTightenTests
                     // too, so it is not merely late to it: a thread the flow
                     // never took would run the job whatever the flow does.
                     SpinWait.SpinUntil(() => reporters.Count >= 2, TimeSpan.FromSeconds(2));
+                    Volatile.Write(ref reportedWhenBesideQueued, Volatile.Read(ref reported));
                     Task side = beside.RunAsync(
                         1,
                         (_, _) => Volatile.Write(ref reportedWhenBesideRan, Volatile.Read(ref reported)),
@@ -295,8 +297,16 @@ public class VvisTightenTests
 
         // Beside the flow, not after it: when the pool's other thread was
         // held by the flow until the end, the job ran only once every portal
-        // but the blocked worker's had been reported.
-        Assert.InRange(Volatile.Read(ref reportedWhenBesideRan), 1, Volatile.Read(ref total) / 2);
+        // but the blocked worker's had been reported. The measure is what the
+        // flow got through between queueing the job and the job running, not
+        // where it stood when the job ran: the other thread's first report
+        // (the one the wait above watches for) can land anywhere, and on a
+        // loaded runner it landed past half the portals, so an absolute bound
+        // failed a flow that released its thread at once.
+        long queued = Volatile.Read(ref reportedWhenBesideQueued);
+        long remaining = Volatile.Read(ref total) - 1 - queued;
+        Assert.True(remaining >= 2, $"the flow had {remaining} portals left when the job was queued; the fact cannot tell beside from after");
+        Assert.InRange(Volatile.Read(ref reportedWhenBesideRan) - queued, 0, remaining / 2);
         Assert.Equal(alone[BspLump.Visibility].Data.ToArray(), map[BspLump.Visibility].Data.ToArray());
     }
 
