@@ -68,7 +68,6 @@ public sealed class WorkQueue : IDisposable
     // so the indices are a partition by construction.
     private CompilePool? _ownPool;
 
-    private volatile Job? _currentJob;
     private volatile bool _disposed;
     private int _busy;
 
@@ -224,10 +223,29 @@ public sealed class WorkQueue : IDisposable
         CancellationToken cancellationToken) =>
         RunCoreAsync(itemCount, body, scratchFactory, options, keepResults: true, cancellationToken);
 
-    /// <summary>Stops the queue's threads and waits for them.</summary>
+    /// <summary>Stops the threads this queue created and waits for them.</summary>
     /// <remarks>
-    /// Safe to call twice. A run still in flight is NOT cancelled by this —
-    /// cancel it with its token first, or this waits for it to finish.
+    /// <para>
+    /// Safe to call twice. What happens to a run still in flight depends on
+    /// whose threads it is on:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>On the pool this queue created (no
+    /// <see cref="CompileParallelism.Pool"/> and no
+    /// <see cref="CompileParallelism.Scheduler"/>), the pool is disposed: each
+    /// thread stops once the chunk it is running ends, the threads are
+    /// joined, and the run is then failed with an
+    /// <see cref="ObjectDisposedException"/>, its remaining items not run.
+    /// The body is not interrupted mid-chunk, so this waits for the chunks
+    /// already started, not for the run.</item>
+    /// <item>On a host's pool or scheduler, nothing here touches the run: the
+    /// threads are the host's, and the run goes on to completion (or to its
+    /// token).</item>
+    /// </list>
+    /// <para>
+    /// To stop a run cleanly in either case, cancel its token and await it
+    /// before disposing.
+    /// </para>
     /// </remarks>
     public void Dispose()
     {
@@ -324,7 +342,6 @@ public sealed class WorkQueue : IDisposable
             // NOT a persistent loop: a scheduler with a concurrency limit below
             // the degree would never start the later loops, and the run would
             // wait forever on workers that are queued behind each other.
-            _currentJob = job;
             for (int i = 0; i < _degree; i++)
             {
                 int workerIndex = i;
@@ -339,7 +356,6 @@ public sealed class WorkQueue : IDisposable
         }
 
         CompilePool pool = _parallelism.Pool ?? OwnPool();
-        _currentJob = job;
         job.BeginPooled(pool);
         pool.Submit(job);
     }
@@ -365,7 +381,7 @@ public sealed class WorkQueue : IDisposable
             {
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (job.CancelWasAskedFor)
         {
             job.Stop();
         }
@@ -599,6 +615,30 @@ public sealed class WorkQueue : IDisposable
 
         public void Stop() => _cts.Cancel();
 
+        /// <summary>
+        /// Whether an <see cref="OperationCanceledException"/> out of a body
+        /// is this run being stopped, rather than a failure of the body's own.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// True once the caller's token or the run's own (a fault elsewhere,
+        /// or the pool going away) has been cancelled. Only then is the
+        /// exception the answer to a stop somebody asked for. A body can also
+        /// throw one for reasons of its own: a timeout inside a library it
+        /// calls, or a token it made itself. Taken as a stop, that ended the
+        /// run with no error recorded and the caller's token untouched, so
+        /// <see cref="Complete"/> reported success with every item after it
+        /// missing from the results. It is a failure of the body like any
+        /// other exception, and faults the run with itself.
+        /// </para>
+        /// <para>
+        /// The caller's token is read as well as the run's because a body
+        /// that watches the caller's token directly can see it cancelled
+        /// before the registration that forwards it has cancelled the run's.
+        /// </para>
+        /// </remarks>
+        public bool CancelWasAskedFor => _cts.IsCancellationRequested || CallerToken.IsCancellationRequested;
+
         public void Fail(Exception error)
         {
             Interlocked.CompareExchange(ref _error, error, null);
@@ -690,7 +730,7 @@ public sealed class WorkQueue : IDisposable
 
                 RunChunk(_scratch[slot], _contexts[slot]!);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (CancelWasAskedFor)
             {
                 Stop();
             }

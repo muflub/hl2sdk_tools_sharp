@@ -436,6 +436,75 @@ public class WorkQueueTests
         Assert.Equal(new[] { 0, 1, 2, 3 }, results);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ACancellationNobodyAskedForFaultsTheRunInsteadOfEndingItShort(bool hostScheduler)
+    {
+        // A body can throw an OperationCanceledException of its own: a timeout
+        // inside a library it calls, a token it made itself. Neither the
+        // caller nor the queue cancelled anything, so the run did not finish
+        // and must not report success with the items after it missing.
+        CompileParallelism parallelism = hostScheduler
+            ? new CompileParallelism { MaxDegree = 2, Scheduler = new CountingScheduler() }
+            : new CompileParallelism { MaxDegree = 2 };
+        using var queue = new WorkQueue(parallelism);
+        using var unrelated = new CancellationTokenSource();
+        await unrelated.CancelAsync();
+
+        Task<int[]> run = queue.RunAsync<object?, int>(
+            1000,
+            (index, _, _) =>
+            {
+                if (index == 10)
+                {
+                    throw new OperationCanceledException("not the run's", unrelated.Token);
+                }
+
+                return index + 1;
+            },
+            _ => null,
+            new WorkQueueOptions { ChunkSize = 1 },
+            CancellationToken.None);
+
+        OperationCanceledException error = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => run.WaitAsync(Patience, CancellationToken.None));
+        Assert.Equal("not the run's", error.Message);
+        Assert.True(run.IsFaulted, $"the run ended {run.Status}, not faulted");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ABodyThatStopsForTheCallersCancelStillEndsTheRunCancelled(bool hostScheduler)
+    {
+        // The other side of the rule above: a body that watches the caller's
+        // token itself (not the worker's) and throws for it is a cancel.
+        CompileParallelism parallelism = hostScheduler
+            ? new CompileParallelism { MaxDegree = 2, Scheduler = new CountingScheduler() }
+            : new CompileParallelism { MaxDegree = 2 };
+        using var queue = new WorkQueue(parallelism);
+        using var cts = new CancellationTokenSource();
+
+        Task run = queue.RunAsync(
+            1000,
+            (index, _) =>
+            {
+                if (index == 10)
+                {
+                    cts.Cancel();
+                }
+
+                cts.Token.ThrowIfCancellationRequested();
+            },
+            new WorkQueueOptions { ChunkSize = 1 },
+            cts.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => run.WaitAsync(Patience, CancellationToken.None));
+        Assert.True(run.IsCanceled, $"the run ended {run.Status}, not cancelled");
+    }
+
     // ---- Cancellation -------------------------------------------------------
 
     [Fact]
@@ -587,6 +656,41 @@ public class WorkQueueTests
         queue.Dispose();
         queue.Dispose();
         Assert.Equal(0, queue.LiveWorkerCount);
+    }
+
+    [Fact]
+    public async Task AFinishedRunsResultsAreNotKeptAliveByTheQueue()
+    {
+        // A queue lives for a whole compile, and a host's for many: a run's
+        // results (and its body's closure) must be the caller's to drop, not
+        // held by the queue until the next run replaces them.
+        using CompilePool pool = new(2);
+        using var queue = new WorkQueue(new CompileParallelism { MaxDegree = 2, Pool = pool });
+
+        WeakReference results = await RunAndForgetAsync(queue);
+        Assert.True(SpinWait.SpinUntil(() => pool.ActiveJobCount == 0, Patience));
+
+        Assert.True(
+            SpinWait.SpinUntil(
+                () =>
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    return !results.IsAlive;
+                },
+                Patience),
+            "the queue still holds the last run's results");
+        GC.KeepAlive(queue);
+    }
+
+    // Out of line so no local of the caller's frame holds the results.
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static async Task<WeakReference> RunAndForgetAsync(WorkQueue queue)
+    {
+        int[] results = await queue.RunAsync<object?, int>(
+            64, (index, _, _) => index, _ => null, null,
+            CancellationToken.None).WaitAsync(Patience, CancellationToken.None);
+        return new WeakReference(results);
     }
 
     [Fact]
