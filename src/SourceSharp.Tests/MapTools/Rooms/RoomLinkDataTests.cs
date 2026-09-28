@@ -63,7 +63,16 @@ public sealed class RoomLinkDataFixture : IAsyncLifetime
 public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixture<RoomLinkDataFixture>
 {
     /// <summary>The pinned Deflate bytes of <see cref="TheCodecBytesArePinned"/>: length, then SHA-256.</summary>
-    private const string PinnedDeflate = "6105:359A1AF77B03FF2C47635B685B5B007C97911272FFEAA88511AA3593DADE51AA";
+    /// <remarks>
+    /// Microsoft's .NET 10 runtime, the one CI runs and CLAUDE.md asks for:
+    /// it ships its own zlib-ng, and Linux and Windows agree on these bytes.
+    /// A distribution-packaged runtime (Ubuntu's 10.0.12, for one) links the
+    /// system's zlib instead and writes different, equally valid, Deflate
+    /// bytes (6105 of them here), so this fact fails there by design: a pack
+    /// written with Deflate on such a runtime is not the pack CI's runtime
+    /// writes. Brotli's bytes agree on both.
+    /// </remarks>
+    private const string PinnedDeflate = "6093:081FA0B37B190BA6FBD607E181F54E3297A0A39215FC5F27564F57C996955C18";
 
     /// <summary>The pinned Brotli bytes of <see cref="TheCodecBytesArePinned"/>: length, then SHA-256.</summary>
     private const string PinnedBrotli = "2090:1E0323E3971086167CE7B6DD603D07D27D82D65371D634E684EB315CE343AAC8";
