@@ -283,7 +283,8 @@ internal static class IvpHalfspaceSoup<T, TP>
     /// A vector add, subtract, multiply or divide rounds each lane exactly as the scalar
     /// operation does (IEEE 754 on every instruction set .NET targets, and the JIT never fuses a
     /// multiply and an add it was not asked to), so the lanes hold <see cref="FindOne"/>'s values
-    /// to the bit. Which lanes survive the recent rejecters, and so which reach the full scan,
+    /// to the bit, except that a NaN's sign and payload may differ; such lanes are redone on
+    /// the scalar path. Which lanes survive the recent rejecters, and so which reach the full scan,
     /// depends on the rejecters tried, but the full scan decides every survivor on its own.
     /// </remarks>
     private static void FindBlock(RowScratch s, in Row r, int k, List<IvpPoint<T>> points, T merge2)
@@ -338,10 +339,26 @@ internal static class IvpHalfspaceSoup<T, TP>
 
         for (int lane = 0; lane < Vector<T>.Count; lane++)
         {
-            if (live[lane] != T.Zero)
+            if (live[lane] == T.Zero)
             {
-                Finish(s, px[lane], py[lane], pz[lane], points, merge2);
+                continue;
             }
+
+            // A NaN corner (a soup with NaN or infinite planes) is redone on the scalar path.
+            // IEEE 754 leaves a NaN's sign and payload to the instruction, and arm64's vector
+            // and scalar units propagate them differently: the vector lane came out 7FF8...
+            // where the scalar arithmetic gives FFF8..., and a NaN corner passes every plane
+            // test, so it reaches the output. Every finite and infinite lane is the scalar
+            // value to the bit; only NaN bits need the scalar instructions. FindOne takes the
+            // same decisions for this k as the original loop (no plane rejects a NaN), so the
+            // corner and its position in the list are unchanged.
+            if (T.IsNaN(px[lane]) || T.IsNaN(py[lane]) || T.IsNaN(pz[lane]))
+            {
+                FindOne(s, r, k + lane, points, merge2);
+                continue;
+            }
+
+            Finish(s, px[lane], py[lane], pz[lane], points, merge2);
         }
     }
 
