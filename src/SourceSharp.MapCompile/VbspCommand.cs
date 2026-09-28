@@ -159,6 +159,8 @@ public static class VbspCommand
             return ExitFailed;
         }
 
+        await WriteSkippedAsync(mounted, "ssmap vbsp", output).ConfigureAwait(false);
+
         // The format pipeline, AFTER the mount (it reads the appid and Tools
         // key off the gameinfo the content was mounted from) and BEFORE the
         // compile. The parse collected the raw CLI overlay; this is where it
@@ -283,6 +285,32 @@ public static class VbspCommand
                 : name;
 
             return new MapPaths(name, source, source + ".bsp", source + ".prt", source + ".lin");
+        }
+    }
+
+    /// <summary>
+    /// Names every search path the mount found nothing at, and where it looked.
+    /// </summary>
+    /// <remarks>
+    /// The engine skips a missing search path quietly, and so did every host
+    /// here, which left a compile whose materials never loaded looking like
+    /// one whose materials say "solid": water, glass and invisible-tool
+    /// brushes all came out as plain walls with nothing on the console to
+    /// say why. A <c>|appid_N|</c> line is the usual culprit, and its
+    /// spelling alone cannot say which install it resolved to, so the
+    /// location is printed beside it.
+    /// </remarks>
+    /// <param name="mounted">The mount to report on.</param>
+    /// <param name="tool">The prefix for each line (<c>ssmap vbsp</c>, ...).</param>
+    /// <param name="output">Where the lines go.</param>
+    public static async Task WriteSkippedAsync(GameContentMounter.Result mounted, string tool, TextWriter output)
+    {
+        for (int i = 0; i < mounted.Skipped.Count; i++)
+        {
+            string where = i < mounted.SkippedPaths.Count ? mounted.SkippedPaths[i].Value : "(unknown)";
+            await output.WriteLineAsync(
+                $"{tool}: warning: search path \"{mounted.Skipped[i]}\" mounted nothing (looked in {where})")
+                .ConfigureAwait(false);
         }
     }
 
