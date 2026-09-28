@@ -466,6 +466,18 @@ public sealed class GameInfo
                 pendingKey = null;
             }
 
+            // The first top-level section sits on the stack twice (as the root
+            // and as its own open block), so a balanced file ends at one. More
+            // means a block was never closed: a truncated file, whose leading
+            // part parses cleanly and names no search paths at all. Read that
+            // way, a compile mounted no game content, found no materials and
+            // said nothing about why; refusing names the problem instead.
+            if (stack.Count > 1)
+            {
+                throw new InvalidDataException(
+                    "the text ends inside a block: a '{' is never closed (is the file truncated?)");
+            }
+
             return root;
         }
     }
