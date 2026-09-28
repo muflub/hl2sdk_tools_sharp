@@ -21,6 +21,7 @@ using SourceSharp.MapTools.Parallel;
 
 using BlockGrid = SourceSharp.MapTools.Bsp.Tree.BlockGrid;
 using BrushBspTree = SourceSharp.MapTools.Bsp.Tree.BrushBspTree;
+using BspTreeParallelism = SourceSharp.MapTools.Bsp.Tree.BspTreeParallelism;
 using TreeNode = SourceSharp.MapTools.Bsp.Tree.BspNode;
 using TreeOperations = SourceSharp.MapTools.Bsp.Tree.TreeOperations;
 using TreeTree = SourceSharp.MapTools.Bsp.Tree.BspTree;
@@ -79,7 +80,55 @@ internal sealed class VbspCompilation
             // however it ended: a failed or cancelled compile must not leave
             // them in a context the caller might still reference.
             _build?.ReleaseBrushSidePool();
+
+            // As must the threads, if the compile made its own.
+            _ownPool?.Dispose();
+            _ownPool = null;
         }
+    }
+
+    // The compile's own threads, when the host lent neither a pool nor a
+    // scheduler and asked for more than one: what a WorkQueue with no pool
+    // makes for itself, made once here so that the serial model queue and
+    // the tree build's helpers share one set. Its threads start with the
+    // first job, so a compile that never forks starts none of them.
+    private CompilePool? _ownPool;
+
+    /// <summary>The pool this compile made for itself, while it has one.</summary>
+    internal CompilePool? OwnPool => _ownPool;
+
+    /// <summary>
+    /// How the tree builds may fork, from the compile's parallelism: never
+    /// at one thread, otherwise on the lent pool, the lent scheduler, or the
+    /// compile's own pool, in that order. Always carries the token, so even
+    /// a serial tree build stops at the next node when the compile is
+    /// cancelled.
+    /// </summary>
+    internal BspTreeParallelism TreeParallelism(CancellationToken cancellationToken)
+    {
+        CompileParallelism parallelism = _compile.Parallelism;
+        int degree = parallelism.Pool is { } pool
+            ? Math.Min(parallelism.MaxDegree, pool.Degree)
+            : parallelism.MaxDegree;
+
+        TaskScheduler? scheduler = null;
+        if (degree > 1)
+        {
+            scheduler = parallelism.Pool?.Scheduler ?? parallelism.Scheduler;
+            if (scheduler is null)
+            {
+                _ownPool ??= new CompilePool(degree);
+                scheduler = _ownPool.Scheduler;
+            }
+        }
+
+        return new BspTreeParallelism
+        {
+            Scheduler = scheduler,
+            MaxForkDepth = scheduler is null ? 0 : BspTreeParallelism.ForkDepthFor(degree),
+            MinBrushes = _compile.TreeForkMinBrushes,
+            CancellationToken = cancellationToken,
+        };
     }
 
     private async Task<VbspResult> RunCoreAsync(CancellationToken cancellationToken)
@@ -124,8 +173,14 @@ internal sealed class VbspCompilation
 
         // ---- ProcessModels ----------------------------------------------
 
-        // Serial, but on the compile's shared pool when it has one.
-        using WorkQueue queue = new(CompileParallelism.Serial with { Pool = _compile.Parallelism.Pool });
+        // Every tree this compile builds may fork its subtrees onto other
+        // threads; in practice only the world's blocks are large enough to.
+        _build.TreeParallelism = TreeParallelism(cancellationToken);
+
+        // Serial, but on the compile's shared pool when it has one, or on its
+        // own when it made one for the tree build.
+        using WorkQueue queue = new(
+            CompileParallelism.Serial with { Pool = _compile.Parallelism.Pool ?? _ownPool });
 
         Stage("vbsp.begin");
         await OnWorkerAsync(queue, BeginProcessModels, Vbsp.ModelsStage, cancellationToken).ConfigureAwait(false);

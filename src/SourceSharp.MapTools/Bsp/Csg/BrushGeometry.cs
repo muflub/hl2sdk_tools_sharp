@@ -494,6 +494,7 @@ public static class BrushGeometry
         BspBrush copy = context.AllocBrush(brush.SideCount);
 
         copy.Id = brush.Id;
+        copy.IdScope = brush.IdScope;
         copy.Next = brush.Next;
         copy.Mins = brush.Mins;
         copy.Maxs = brush.Maxs;

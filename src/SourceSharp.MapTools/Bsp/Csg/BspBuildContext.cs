@@ -43,14 +43,22 @@ namespace SourceSharp.MapTools.Bsp.Csg;
 /// makes this parallel is a worse bug than a contended increment.
 /// </para>
 /// <para>
-/// One context is one compile of one map on one thread. Phase 3p's fork/join
-/// over <c>BuildTree_r</c> gets per-worker state; it does not share this.
+/// One context is one compile of one map on one thread at a time. The
+/// parallel tree build does not share it between threads: a subtree built on
+/// another thread gets a <see cref="Fork"/> of it, with its own winding arena,
+/// diagnostics, counters and id sequences, and <see cref="Join"/> folds the
+/// fork back in the order the serial build would have produced it.
 /// </para>
 /// </remarks>
 public sealed class BspBuildContext
 {
     private readonly int[] _minPlaneNumbers = [-1, -1, -1];
     private readonly int[] _maxPlaneNumbers = [-1, -1, -1];
+
+    // Set only on a fork. The root context reads the compile's own arena and
+    // diagnostics through Compile, as it always has.
+    private readonly WindingArena? _forkWindings;
+    private readonly List<CompileDiagnostic>? _forkDiagnostics;
 
     /// <summary>Creates a build context over a loaded map.</summary>
     /// <param name="compile">The compile this belongs to.</param>
@@ -69,6 +77,28 @@ public sealed class BspBuildContext
             : new BrushSidePool(checkReturns: compile.BrushSidePooling == BrushSidePooling.Checked);
     }
 
+    // A fork of a context: see Fork.
+    private BspBuildContext(BspBuildContext parent)
+    {
+        Compile = parent.Compile;
+        Map = parent.Map;
+        IsFork = true;
+
+        // The same compliance as the arena it stands in for: WindingIsTiny
+        // and BaseWindingForPlane read the policy off the arena.
+        _forkWindings = new WindingArena { Compliance = parent.Windings.Compliance };
+        _forkDiagnostics = [];
+
+        SidePool = parent.SidePool is null
+            ? null
+            : new BrushSidePool(checkReturns: Compile.BrushSidePooling == BrushSidePooling.Checked);
+
+        BrushStart = parent.BrushStart;
+        BrushEnd = parent.BrushEnd;
+        parent._minPlaneNumbers.CopyTo(_minPlaneNumbers, 0);
+        parent._maxPlaneNumbers.CopyTo(_maxPlaneNumbers, 0);
+    }
+
     /// <summary>The compile's shared state.</summary>
     public VbspContext Compile { get; }
 
@@ -85,13 +115,43 @@ public sealed class BspBuildContext
     public VbspOptions Options => Compile.Options;
 
     /// <summary>The arena every winding in the compile lives in.</summary>
-    public WindingArena Windings => Compile.Windings;
+    /// <remarks>
+    /// On a <see cref="Fork"/>, the fork's own arena instead: an arena is not
+    /// thread safe, and a fork runs beside the context it came from.
+    /// </remarks>
+    public WindingArena Windings => _forkWindings ?? Compile.Windings;
 
     /// <summary>The map's plane table: <c>g_MainMap-&gt;mapplanes</c>.</summary>
     public PlaneTable Planes => Map.Planes;
 
     /// <summary>Everything the compile has to say.</summary>
-    public IList<CompileDiagnostic> Diagnostics => Compile.Diagnostics;
+    /// <remarks>
+    /// On a <see cref="Fork"/>, a list of the fork's own, which
+    /// <see cref="Join"/> appends to its parent's at the point where the
+    /// serial build would have said them.
+    /// </remarks>
+    public IList<CompileDiagnostic> Diagnostics =>
+        _forkDiagnostics ?? (IList<CompileDiagnostic>)Compile.Diagnostics;
+
+    /// <summary>Whether this context is a <see cref="Fork"/> of another.</summary>
+    internal bool IsFork { get; }
+
+    /// <summary>
+    /// How to build trees in parallel, or null to build them serially: set by
+    /// the vbsp driver, read by <see cref="Tree.BrushBspTree.BrushBsp"/>.
+    /// </summary>
+    /// <remarks>
+    /// A fork never carries it: the forking recursion hands its own, one level
+    /// deeper, down the tree.
+    /// </remarks>
+    internal Tree.BspTreeParallelism? TreeParallelism { get; set; }
+
+    /// <summary>
+    /// How many subtrees this context, and the forks joined into it, built in
+    /// a fork. A measurement for the facts: zero means nothing forked, and a
+    /// fact that proves equality over a build that never forked proves nothing.
+    /// </summary>
+    internal int ForkedSubtrees { get; private set; }
 
     /// <summary>
     /// Where freed brushes' side arrays wait for the next brush, or null when
@@ -189,6 +249,7 @@ public sealed class BspBuildContext
             ? new BspBrush(sideCapacity)
             : new BspBrush(SidePool.Rent(sideCapacity));
         brush.Id = AllocatedBrushes;
+        brush.IdScope = IsFork ? this : null;
         AllocatedBrushes++;
         ActiveBrushes++;
         return brush;
@@ -263,6 +324,184 @@ public sealed class BspBuildContext
         Tree.BspNode node = new() { Id = AllocatedNodes };
         AllocatedNodes++;
         return node;
+    }
+
+    /// <summary>
+    /// A context for building one subtree on another thread, beside this one.
+    /// </summary>
+    /// <returns>The fork.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>What a subtree build shares, and what the fork gives it instead.</b>
+    /// Splitting a node never creates a plane (only
+    /// <see cref="BrushGeometry.BrushFromBounds"/> does, once per tree, before
+    /// the recursion), so the plane table and the map are only read and are
+    /// shared as they are. Everything the recursion writes is private to the
+    /// fork: the winding arena, the diagnostics list, the brush side pool, the
+    /// node and brush id sequences and the counters. None of it is visible
+    /// to the context the fork came from until <see cref="Join"/>.
+    /// </para>
+    /// <para>
+    /// The fork starts with no windings. The brushes it is to build from live
+    /// in this context's arena, so <see cref="TakeWindings"/> moves them over
+    /// first, on this thread, before either side of the fork starts.
+    /// </para>
+    /// </remarks>
+    internal BspBuildContext Fork() => new(this);
+
+    /// <summary>
+    /// Moves the windings of a brush list and of one more brush out of another
+    /// context's arena into this one's, freeing them there.
+    /// </summary>
+    /// <param name="from">The context the brushes were built in.</param>
+    /// <param name="brushes">A brush list, or null.</param>
+    /// <param name="brush">One more brush (a node volume), or null.</param>
+    /// <remarks>
+    /// The points are copied exactly and each winding keeps its capacity, so
+    /// the brushes are the same brushes; only which arena slot holds them
+    /// changes, and no part of the output depends on a slot.
+    /// </remarks>
+    internal void TakeWindings(BspBuildContext from, BspBrush? brushes, BspBrush? brush)
+    {
+        ArgumentNullException.ThrowIfNull(from);
+
+        for (BspBrush? b = brushes; b is not null; b = b.Next)
+        {
+            MoveWindings(b, from.Windings, freeSource: true);
+        }
+
+        if (brush is not null)
+        {
+            MoveWindings(brush, from.Windings, freeSource: true);
+        }
+    }
+
+    /// <summary>
+    /// Folds a finished fork, and the subtree it built, back into this
+    /// context, as though this context had built the subtree itself.
+    /// </summary>
+    /// <param name="fork">The fork, from this context's <see cref="Fork"/>.</param>
+    /// <param name="subtree">
+    /// The subtree's root: a node this context allocated, whose descendants
+    /// the fork allocated.
+    /// </param>
+    /// <exception cref="ArgumentNullException">Either argument is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="fork"/> is not a fork.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Call it where the serial build would have started the subtree.</b>
+    /// The serial build numbers nodes and brushes from one sequence each, in
+    /// the order it allocates them: everything in the front subtree, then
+    /// everything in the back. A fork numbers its own from zero, so its ids
+    /// are offsets, and joining it after the front subtree has finished on
+    /// this context rebases them onto this context's counts at that moment,
+    /// which are exactly the counts the serial build had when it began the
+    /// back subtree. Diagnostics are appended at the same point for the same
+    /// reason.
+    /// </para>
+    /// <para>
+    /// A brush id is either the fork's own, from its
+    /// <see cref="AllocBrush"/>, or inherited through
+    /// <see cref="BrushGeometry.CopyBrush"/> from a brush made before the
+    /// fork. <see cref="BspBrush.IdScope"/> says which, and only the fork's
+    /// own are rebased. The subtree root keeps its id, as its parent
+    /// allocated it.
+    /// </para>
+    /// <para>
+    /// The live windings, every node volume's and every leaf brush's, are
+    /// copied into this context's arena. <see cref="Tree.BspNode.Side"/>
+    /// also carries a winding handle, a copy of the splitting side's taken
+    /// just before that side's brush was freed; it names freed storage in the
+    /// serial build too, nothing reads it, and it is left as it is.
+    /// </para>
+    /// </remarks>
+    internal void Join(BspBuildContext fork, Tree.BspNode subtree)
+    {
+        ArgumentNullException.ThrowIfNull(fork);
+        ArgumentNullException.ThrowIfNull(subtree);
+        if (!fork.IsFork)
+        {
+            throw new ArgumentException("only a fork can be joined", nameof(fork));
+        }
+
+        int nodeBase = AllocatedNodes;
+        int brushBase = AllocatedBrushes;
+        object? scope = IsFork ? this : null;
+
+        Stack<Tree.BspNode> pending = new();
+        pending.Push(subtree);
+        while (pending.Count > 0)
+        {
+            Tree.BspNode node = pending.Pop();
+            if (!ReferenceEquals(node, subtree))
+            {
+                node.Id += nodeBase;
+            }
+
+            if (node.Volume is not null)
+            {
+                Rehome(node.Volume);
+            }
+
+            if (node.IsLeaf)
+            {
+                for (BspBrush? b = node.BrushList; b is not null; b = b.Next)
+                {
+                    Rehome(b);
+                }
+
+                continue;
+            }
+
+            pending.Push(node.Children[1]!);
+            pending.Push(node.Children[0]!);
+        }
+
+        AllocatedNodes += fork.AllocatedNodes;
+        AllocatedBrushes += fork.AllocatedBrushes;
+        ActiveBrushes += fork.ActiveBrushes;
+        Nodes += fork.Nodes;
+        NonVisibleNodes += fork.NonVisibleNodes;
+        PrunedNodes += fork.PrunedNodes;
+        ForkedSubtrees += fork.ForkedSubtrees + 1;
+
+        foreach (CompileDiagnostic diagnostic in fork._forkDiagnostics!)
+        {
+            Diagnostics.Add(diagnostic);
+        }
+
+        fork.ReleaseBrushSidePool();
+
+        void Rehome(BspBrush brush)
+        {
+            if (ReferenceEquals(brush.IdScope, fork))
+            {
+                brush.Id += brushBase;
+                brush.IdScope = scope;
+            }
+
+            MoveWindings(brush, fork.Windings, freeSource: false);
+        }
+    }
+
+    // Copies a brush's side windings from another arena into this context's.
+    private void MoveWindings(BspBrush brush, WindingArena from, bool freeSource)
+    {
+        Span<BspBrushSide> sides = brush.Sides;
+        for (int i = 0; i < sides.Length; i++)
+        {
+            Winding w = sides[i].Winding;
+            if (w.IsNull)
+            {
+                continue;
+            }
+
+            sides[i].Winding = Windings.Adopt(from, w);
+            if (freeSource)
+            {
+                from.Free(w);
+            }
+        }
     }
 
     /// <summary>

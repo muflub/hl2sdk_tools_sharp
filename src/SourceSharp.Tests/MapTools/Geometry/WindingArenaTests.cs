@@ -344,4 +344,43 @@ public class WindingArenaTests
         long slack = WindingArena.SegmentLength * pointBytes;
         Assert.InRange(allocated, kept - slack, kept + slack);
     }
+
+    /// <summary>
+    /// Adopt moves a winding between arenas as the algorithm would not notice:
+    /// the same points, and the same CAPACITY, where Copy would compact a
+    /// 7-slot reservation holding 3 points down to 3.
+    /// </summary>
+    [Fact]
+    public void AdoptCopiesTheSameThreePointsAndKeepsTheSevenSlotReservation()
+    {
+        var source = new WindingArena();
+        Winding reserved = source.Alloc(7);
+        Vec3[] points = [new(1f, 2f, 3f), new(4f, 5f, 6f), new(7f, 8f, 9.5f)];
+        points.CopyTo(source.Storage(reserved));
+        reserved = source.SetCount(reserved, 3);
+
+        var target = new WindingArena();
+        target.Create([new Vec3(0f, 0f, 0f)]);
+        Winding adopted = target.Adopt(source, reserved);
+
+        Assert.Equal(3, adopted.Count);
+        Assert.Equal(7, adopted.Capacity);
+        Assert.Equal(points, target.Points(adopted).ToArray());
+        Assert.Equal(3, source.Copy(reserved).Capacity);
+
+        // The source is left as it was: adopting is not freeing.
+        Assert.Equal(points, source.Points(reserved).ToArray());
+        Assert.Equal(2, source.ActiveWindings);
+    }
+
+    [Fact]
+    public void AdoptingTheNullWindingIsTheNullWindingAndAllocatesNothing()
+    {
+        var source = new WindingArena();
+        var target = new WindingArena();
+
+        Assert.True(target.Adopt(source, Winding.Null).IsNull);
+        Assert.Equal(0, target.ActiveWindings);
+        Assert.Throws<ArgumentNullException>(() => target.Adopt(null!, Winding.Null));
+    }
 }

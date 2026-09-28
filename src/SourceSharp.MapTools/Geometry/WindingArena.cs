@@ -337,6 +337,34 @@ public sealed class WindingArena
         return SetCount(c, winding.Count);
     }
 
+    /// <summary>
+    /// A copy, in this arena, of a winding that lives in another one, with the
+    /// same points and the same capacity.
+    /// </summary>
+    /// <param name="source">The arena the winding lives in.</param>
+    /// <param name="winding">The winding.</param>
+    /// <returns>The copy, or <see cref="Winding.Null"/> for a null winding.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
+    /// <remarks>
+    /// Not <see cref="Copy"/>: that one compacts the capacity to the point
+    /// count, as stock's <c>CopyWinding</c> does, and so is an operation of the
+    /// algorithm. This one moves a winding between arenas without the
+    /// algorithm seeing a difference, which is what the parallel tree build
+    /// needs when a subtree built in a fork's arena comes home.
+    /// </remarks>
+    internal Winding Adopt(WindingArena source, Winding winding)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (winding.IsNull)
+        {
+            return Winding.Null;
+        }
+
+        Winding c = Alloc(winding.Capacity);
+        source.Points(winding).CopyTo(Storage(c));
+        return SetCount(c, winding.Count);
+    }
+
     /// <summary>A copy of a winding with its points in the opposite order.</summary>
     /// <param name="winding">The winding to reverse.</param>
     /// <returns>The reversed copy.</returns>

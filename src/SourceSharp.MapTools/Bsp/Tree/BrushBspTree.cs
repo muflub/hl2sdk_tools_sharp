@@ -11,6 +11,7 @@ using SourceSharp.MapTools.Bsp.Csg;
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Geometry;
 using SourceSharp.MapTools.Materials;
+using SourceSharp.MapTools.Parallel;
 
 namespace SourceSharp.MapTools.Bsp.Tree;
 
@@ -834,6 +835,48 @@ public static class BrushBspTree
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(node);
 
+        return BuildTree(context, node, brushes, parallel: null, forkDepth: 0);
+    }
+
+    /// <summary>
+    /// <see cref="BuildTree(BspBuildContext, BspNode, BspBrush?)"/>, building
+    /// large enough subtree pairs on two threads.
+    /// </summary>
+    /// <param name="context">The build context.</param>
+    /// <param name="node">The node to fill in.</param>
+    /// <param name="brushes">The brushes that reached it, consumed.</param>
+    /// <param name="parallel">How to fork, or null for the serial recursion.</param>
+    /// <param name="forkDepth">How many forks deep this node already is.</param>
+    /// <returns>The same node.</returns>
+    /// <remarks>
+    /// <para>
+    /// Up to the two recursive calls this is the serial function, statement
+    /// for statement: the plane choice, the list split, the free, the two
+    /// child allocations and the volume split all happen on this context
+    /// before anything forks, so the children's ids and everything above them
+    /// are the serial build's.
+    /// </para>
+    /// <para>
+    /// <b>The fork.</b> The back list and the back child's volume move into a
+    /// <see cref="BspBuildContext.Fork"/>; the front subtree is built on this
+    /// context and the back on the fork, on whichever threads
+    /// <see cref="CallerParallelFor"/> gives them; and only once both are done
+    /// is the fork joined, which rebases its ids and appends its diagnostics
+    /// as though the back subtree had been built here after the front one.
+    /// That is the serial order, so the result does not depend on which half
+    /// finished first. If either half throws, the front's failure wins, as it
+    /// would serially, and nothing is joined.
+    /// </para>
+    /// </remarks>
+    internal static BspNode BuildTree(
+        BspBuildContext context,
+        BspNode node,
+        BspBrush? brushes,
+        BspTreeParallelism? parallel,
+        int forkDepth)
+    {
+        parallel?.CancellationToken.ThrowIfCancellationRequested();
+
         context.Nodes++;
 
         if (!SelectSplitSide(context, brushes, node, out BspBrushSide bestSide))
@@ -866,10 +909,57 @@ public static class BrushBspTree
         node.Children[0]!.Volume = frontVolume;
         node.Children[1]!.Volume = backVolume;
 
-        node.Children[0] = BuildTree(context, node.Children[0]!, frontList);
-        node.Children[1] = BuildTree(context, node.Children[1]!, backList);
+        BspNode front = node.Children[0]!;
+        BspNode back = node.Children[1]!;
+
+        if (parallel?.Scheduler is { } scheduler
+            && forkDepth < parallel.MaxForkDepth
+            && HasAtLeast(frontList, parallel.MinBrushes)
+            && HasAtLeast(backList, parallel.MinBrushes))
+        {
+            BspBuildContext fork = context.Fork();
+            fork.TakeWindings(context, backList, backVolume);
+
+            CallerParallelFor.For(
+                2,
+                2,
+                scheduler,
+                static () => 0,
+                (half, _) =>
+                {
+                    if (half == 0)
+                    {
+                        BuildTree(context, front, frontList, parallel, forkDepth + 1);
+                    }
+                    else
+                    {
+                        BuildTree(fork, back, backList, parallel, forkDepth + 1);
+                    }
+                },
+                parallel.CancellationToken);
+
+            context.Join(fork, back);
+            return node;
+        }
+
+        node.Children[0] = BuildTree(context, front, frontList, parallel, forkDepth);
+        node.Children[1] = BuildTree(context, back, backList, parallel, forkDepth);
 
         return node;
+    }
+
+    /// <summary>Whether a brush list is at least <paramref name="count"/> long, without walking all of it.</summary>
+    /// <param name="brushes">The list, or null.</param>
+    /// <param name="count">The length to reach; zero or less is always reached.</param>
+    /// <returns>True when the list has that many brushes.</returns>
+    internal static bool HasAtLeast(BspBrush? brushes, int count)
+    {
+        for (BspBrush? b = brushes; b is not null && count > 0; b = b.Next)
+        {
+            count--;
+        }
+
+        return count <= 0;
     }
 
     /// <summary>
@@ -938,6 +1028,12 @@ public static class BrushBspTree
     /// it is a real <c>Warning()</c> rather than a <c>qprintf</c> — so it is
     /// the one diagnostic from this stage that a stock user sees without
     /// <c>-v</c>.
+    /// </para>
+    /// <para>
+    /// When the context carries a <see cref="BspBuildContext.TreeParallelism"/>
+    /// (the vbsp driver sets one), large subtree pairs are built on two
+    /// threads; the tree, the counters and the diagnostics are the serial
+    /// build's either way. See <see cref="BspTreeParallelism"/>.
     /// </para>
     /// </remarks>
     public static BspTree BrushBsp(
@@ -1015,7 +1111,7 @@ public static class BrushBspTree
         node.Volume = BrushGeometry.BrushFromBounds(context, mins, maxs);
 
         tree.HeadNode = node;
-        tree.HeadNode = BuildTree(context, node, brushList);
+        tree.HeadNode = BuildTree(context, node, brushList, context.TreeParallelism, forkDepth: 0);
 
         tree.Statistics = new BspTreeStatistics(
             brushCount,
