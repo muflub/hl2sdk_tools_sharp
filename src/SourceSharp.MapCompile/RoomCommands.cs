@@ -16,6 +16,7 @@ using SourceSharp.MapFormats.Text;
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Bsp.Driver;
 using SourceSharp.MapTools.Compile;
+using SourceSharp.MapTools.Compile.Cache;
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Nav;
@@ -90,22 +91,76 @@ public static class RoomCommands
     /// no temporary behind.
     /// </para>
     /// </remarks>
+    public static Task<int> RunRoomAsync(
+        IFileSystem disk,
+        IReadOnlyList<VPath> searchRoots,
+        IReadOnlyList<string> args,
+        TextWriter output,
+        CancellationToken cancellationToken = default) =>
+        RunRoomAsync(disk, searchRoots, args, output, OpenCacheStoreAsync, cancellationToken);
+
+    /// <summary>
+    /// <see cref="RunRoomAsync(IFileSystem, IReadOnlyList{VPath}, IReadOnlyList{string}, TextWriter, CancellationToken)"/>
+    /// with the cache store <c>-incremental</c> opens given by the host.
+    /// </summary>
+    /// <param name="disk">Where the library, the game content and the output live.</param>
+    /// <param name="searchRoots">Where game installs are, for the cooker's library discovery.</param>
+    /// <param name="args">The arguments after <c>room</c>.</param>
+    /// <param name="output">Where the log goes.</param>
+    /// <param name="openCache">
+    /// Opens the store at the path <c>-incremental</c> names
+    /// (<see cref="HostBackends.CachePathFor"/>: <c>&lt;library&gt;.sscache.db</c>
+    /// beside the library, or in <c>-cache-dir</c>), or returns null when it
+    /// cannot; the verb disposes what it returns. Called only under
+    /// <c>-incremental</c> without <c>-nocache</c>. The default opens the
+    /// SQLite store (<see cref="HostBackends.OpenCacheAsync"/>); a host or a
+    /// fact passes its own to put the store elsewhere.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the compiles.</param>
+    /// <returns>The process exit code.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Incremental.</b> With <c>-incremental</c>, each room is looked up
+    /// in the store by its key (<see cref="RoomCacheKey"/>: its own content
+    /// after the split, the options, the library's navigation and name keys,
+    /// the cooker, this build) and its game content is checked; a room that
+    /// hits is reused section for section, and only the others compile
+    /// (<see cref="RoomLibraryBuild"/>). The pack is byte for byte the pack a
+    /// run without the cache writes: the log says <c>reused</c> instead of
+    /// <c>compiled</c> for a reused room and adds one
+    /// <c>N compiled, M reused</c> line, and nothing else changes. The rows
+    /// are committed after the pack is written, so a run that is cancelled
+    /// or fails leaves the store as it was.
+    /// </para>
+    /// <para>
+    /// The cache flags are <c>ssmap all</c>'s: <c>-incremental</c> turns it
+    /// on, <c>-nocache</c> turns it off again (for a script that always
+    /// passes <c>-incremental</c>), and <c>-cache-dir &lt;dir&gt;</c> puts the
+    /// store in another folder. None of them is a stock vbsp option, and none
+    /// is an input of the pack's id, so the pack does not depend on them.
+    /// </para>
+    /// </remarks>
     public static async Task<int> RunRoomAsync(
         IFileSystem disk,
         IReadOnlyList<VPath> searchRoots,
         IReadOnlyList<string> args,
         TextWriter output,
+        Func<string, CancellationToken, Task<ICacheStore?>> openCache,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(disk);
         ArgumentNullException.ThrowIfNull(searchRoots);
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(openCache);
 
         // -out is this verb's, not stock vbsp's: take it out of the line first
         // so the stock parser never sees an option it would (correctly) refuse.
         List<string> stock = [];
         string? outDirectory = null;
+        string? cacheDirectory = null;
+        bool incremental = false;
+        bool noCache = false;
         RoomNavPackOptions navOptions = new();
         for (int i = 0; i < args.Count; i++)
         {
@@ -113,6 +168,19 @@ public static class RoomCommands
             {
                 outDirectory = o;
                 i++;
+            }
+            else if (Take(args, i, "cache-dir", out string c))
+            {
+                cacheDirectory = c;
+                i++;
+            }
+            else if (IsFlag(args[i], "incremental"))
+            {
+                incremental = true;
+            }
+            else if (IsFlag(args[i], "nocache"))
+            {
+                noCache = true;
             }
             else if (Take(args, i, "nav-codec", out string codec))
             {
@@ -145,7 +213,8 @@ public static class RoomCommands
         if (parsed.HasErrors || parsed.MapPath is null)
         {
             await output.WriteLineAsync(
-                "usage: ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <none|deflate[:n]|brotli[:n]>] [stock vbsp options]")
+                "usage: ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <none|deflate[:n]|brotli[:n]>]"
+                + " [-incremental [-cache-dir <dir>] | -nocache] [stock vbsp options]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
         }
@@ -255,28 +324,64 @@ public static class RoomCommands
                 : CompileParallelism.Default,
         };
 
+        // -incremental: the store beside the library (or in -cache-dir),
+        // opened only when asked. A store that will not open is said out
+        // loud and the run compiles everything, as ssmap all does.
+        ICacheStore? store = null;
+        if (incremental && !noCache)
+        {
+            string storePath = HostBackends.CachePathFor(
+                cacheDirectory, Path.GetDirectoryName(source)!, Path.GetFileNameWithoutExtension(source));
+            store = await openCache(storePath, cancellationToken).ConfigureAwait(false);
+            if (store is null)
+            {
+                await output.WriteLineAsync(
+                    "ssmap room: cache: -incremental opened no store ("
+                    + (HostBackends.MissingReason ?? "the store could not be opened")
+                    + "); every room compiles this run").ConfigureAwait(false);
+            }
+        }
+
+        await using ICacheStore? ownedStore = store;
+        using RoomCompileCache? cache = store is null
+            ? null
+            : new RoomCompileCache(
+                store,
+                CachePolicy.Default,
+                new RoomCacheInputs(options)
+                {
+                    Nav = navSettings,
+                    PackOptions = navOptions,
+                    NameKeys = libraryOptions.NameKeySet,
+                    ContextTags = HostBackends.ContextTagsFor(options.Format.PresetName, cooker),
+                },
+                mounted.Content);
+
         // Called in library order, one room at a time: the lines, the
         // failure count and the pack's room list come out the same whatever
-        // order the rooms finished in.
+        // order the rooms finished in, and whichever rooms were reused.
         int failed = 0;
+        int reused = 0;
         List<RoomPackItem> packed = [];
-        async ValueTask ReportAsync(RoomCompileOutcome outcome, CancellationToken token)
+        async ValueTask ReportAsync(RoomBuildOutcome outcome, CancellationToken token)
         {
             RoomDefinition definition = outcome.Room.Definition;
-            if (outcome.Compiled is { } compiled)
+            if (outcome.Item is { } item)
             {
                 // The container, the link work and the navigation the
-                // library compile did ahead for the room (RoomPackItem.CreateAsync).
-                packed.Add(await RoomPackItem.CreateAsync(compiled, navOptions, token).ConfigureAwait(false));
+                // library compile did ahead for the room (RoomPackItem.CreateAsync),
+                // or the same sections from the cache.
+                packed.Add(item);
+                reused += outcome.Reused ? 1 : 0;
                 await output.WriteLineAsync(
-                    $"ssmap room: compiled {definition.Name}"
-                    + $" ({compiled.ClusterCount} clusters, {definition.Sockets.Count} sockets)")
+                    $"ssmap room: {(outcome.Reused ? "reused" : "compiled")} {definition.Name}"
+                    + $" ({outcome.ClusterCount} clusters, {definition.Sockets.Count} sockets)")
                     .ConfigureAwait(false);
 
                 // What the naming rule warned of (a misplaced placeholder, a
                 // local name nothing defines): the room compiles, but the
                 // author should look.
-                foreach (string warning in compiled.NameWarnings)
+                foreach (string warning in outcome.NameWarnings)
                 {
                     await output.WriteLineAsync($"ssmap room: warning: {warning}").ConfigureAwait(false);
                 }
@@ -291,7 +396,7 @@ public static class RoomCommands
                 .ConfigureAwait(false);
         }
 
-        await RoomLibraryCompiler.CompileAsync(rooms, settings, ReportAsync, cancellationToken).ConfigureAwait(false);
+        await RoomLibraryBuild.BuildAsync(rooms, settings, navOptions, cache, ReportAsync, cancellationToken).ConfigureAwait(false);
 
         // The compile id always; the library-wide entities and the library's
         // settings only when there are some, so a library that sets nothing
@@ -326,6 +431,33 @@ public static class RoomCommands
         await output.WriteLineAsync(
             $"ssmap room: wrote {HostPaths.Display(packPath)} ({packed.Count} of {rooms.Count} room(s))")
             .ConfigureAwait(false);
+
+        if (incremental)
+        {
+            await output.WriteLineAsync(string.Create(
+                CultureInfo.InvariantCulture, $"ssmap room: {packed.Count - reused} compiled, {reused} reused")).ConfigureAwait(false);
+        }
+
+        // The rows go in once the pack is out: a run that stopped before
+        // here staged nothing. A commit that fails is a lost cache, not a
+        // lost pack.
+        if (cache is not null)
+        {
+            try
+            {
+                RoomCacheCommit commit = await cache.CommitAsync(cancellationToken).ConfigureAwait(false);
+                if (commit.GcFailure is { } why)
+                {
+                    await output.WriteLineAsync($"ssmap room: cache: gc failed ({why}); the store was left as it was")
+                        .ConfigureAwait(false);
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                await output.WriteLineAsync($"ssmap room: cache: commit failed ({exception.Message}); this run's rooms were not stored")
+                    .ConfigureAwait(false);
+            }
+        }
 
         if (failed > 0)
         {
@@ -789,6 +921,14 @@ public static class RoomCommands
     /// library's entity budget. Without a pack the listing is the library's
     /// alone, since entities are counted after the compile.
     /// </para>
+    /// <para>
+    /// <c>ssmap rooms -rooms &lt;pack&gt;</c> with no library prints the
+    /// pack's section table instead (<see cref="RoomPackSectionTable"/>):
+    /// every library and room section with its tag, offset, stored length,
+    /// codec, decoded length, revision and a hash prefix. Two packs that
+    /// should be the same (an incremental run and a clean one) can be
+    /// compared line by line, and a room whose sections changed shows which.
+    /// </para>
     /// </remarks>
     public static async Task<int> RunRoomsAsync(
         IFileSystem disk,
@@ -815,9 +955,16 @@ public static class RoomCommands
             }
         }
 
+        // A pack alone: its section table, which needs no library.
+        if (rest.Count == 0 && roomsPack is not null)
+        {
+            return await SectionTableAsync(disk, roomsPack, output, cancellationToken).ConfigureAwait(false);
+        }
+
         if (rest.Count != 1 || rest[0].StartsWith('-'))
         {
-            await output.WriteLineAsync("usage: ssmap rooms <library.vmf> [-rooms <pack.roompack>]").ConfigureAwait(false);
+            await output.WriteLineAsync("usage: ssmap rooms <library.vmf> [-rooms <pack.roompack>]\n       ssmap rooms -rooms <pack.roompack>")
+                .ConfigureAwait(false);
             return Program.ExitUsage;
         }
 
@@ -856,6 +1003,31 @@ public static class RoomCommands
         await output.WriteAsync(counts is null
             ? DescribeLibrary(rooms)
             : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default, counts.Names)).ConfigureAwait(false);
+        return Program.ExitSuccess;
+    }
+
+    /// <summary>Prints a pack's section table for <c>ssmap rooms -rooms &lt;pack&gt;</c>.</summary>
+    private static async Task<int> SectionTableAsync(IFileSystem disk, string pack, TextWriter output, CancellationToken cancellationToken)
+    {
+        if (!TryHostPath(pack, out VPath packPath))
+        {
+            await output.WriteLineAsync($"ssmap rooms: -rooms \"{pack}\" is not a usable path").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        IReadOnlyList<RoomPackSectionInfo> table;
+        try
+        {
+            await using Stream stream = await disk.OpenReadAsync(packPath, cancellationToken).ConfigureAwait(false);
+            table = await RoomPackSectionTable.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or LinkException)
+        {
+            await output.WriteLineAsync($"ssmap rooms: {HostPaths.Display(packPath)}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
+
+        await output.WriteAsync(RoomPackSectionTable.Format(table)).ConfigureAwait(false);
         return Program.ExitSuccess;
     }
 
@@ -1272,6 +1444,23 @@ public static class RoomCommands
     /// <returns>The navigation file's path.</returns>
     public static VPath NavPathOf(VPath mapPath) =>
         VPath.Create(Path.ChangeExtension(mapPath.ToString(), Nav3dFormat.Extension));
+
+    /// <summary>
+    /// The default store opener: the SQLite store at the path, or null when
+    /// it cannot open (<see cref="HostBackends.MissingReason"/> says why).
+    /// </summary>
+    /// <remarks>
+    /// The path is always <see cref="HostBackends.CachePathFor"/>'s, so it is
+    /// split back into the folder and the name that function joins, and the
+    /// store opens exactly where <c>ssmap all -incremental</c> would open one
+    /// for a map of the library's name.
+    /// </remarks>
+    private static Task<ICacheStore?> OpenCacheStoreAsync(string path, CancellationToken cancellationToken)
+    {
+        string folder = Path.GetDirectoryName(path)!;
+        string name = Path.GetFileName(path)[..^".sscache.db".Length];
+        return HostBackends.OpenCacheAsync(folder, folder, name, cancellationToken);
+    }
 
     /// <summary>The <c>ssmap room</c> options that shape a pack, for its id: the stock line without the library path and <c>-threads</c>.</summary>
     private static List<string> PackIdOptions(List<string> stock, string? mapPath)

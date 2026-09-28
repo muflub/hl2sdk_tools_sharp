@@ -289,7 +289,7 @@ public static partial class LevelLinker
         LevelNaming naming = new(
             new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows),
             library.Options.NameKeySet);
-        BspData linked = Assemble(plans, layout, visibilityLump, context, classes, naming, cancellationToken);
+        BspData linked = Assemble(plans, layout, visibilityLump, context, classes, naming, library.Options.MapVersion, cancellationToken);
 
         // The budget checked before planning counted the rooms as compiled.
         // When the naming resolver ran, what the level holds is what it left
