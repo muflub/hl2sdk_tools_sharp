@@ -98,8 +98,19 @@ public class WorkQueueTests
         int[]? order = WorkQueue.BuildOrder(count, i => i % 7);
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 
+        // The slack is one small-object allocation quantum (8 KB on x64) plus
+        // room for the closure and comparer. The per-thread counter is not
+        // exact to the byte around large-object allocations: it has been
+        // measured up to about 8.3 KB above the two arrays, varying from run
+        // to run with whatever the thread allocated before, even when no GC
+        // ran in between (GC.CollectionCount unchanged) -- consistent with
+        // the unused part of the thread's allocation context being counted
+        // when the arrays are allocated. The 4 KB slack this had was under
+        // one quantum and failed on a CI runner (8,336 bytes over the
+        // arrays). The regression this guards against, the LINQ sort, adds
+        // over a megabyte, so it is still caught.
         Assert.NotNull(order);
-        Assert.InRange(allocated, 0, ((long)count * (sizeof(long) + sizeof(int))) + 4096);
+        Assert.InRange(allocated, 0, ((long)count * (sizeof(long) + sizeof(int))) + (16 * 1024));
     }
 
     [Fact]
