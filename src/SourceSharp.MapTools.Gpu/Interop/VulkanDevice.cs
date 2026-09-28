@@ -1371,18 +1371,13 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// <summary>
     /// The capability gate: traces a two-triangle known-hit micro-scene
     /// through every kernel mode and decides whether THIS device answers
-    /// ray queries at all. Two known failure classes are named by their
-    /// telemetry, not guessed at:
-    /// <list type="bullet">
-    /// <item><description>
-    /// Mesa lavapipe: candidates found, committed never — proceed returns
-    /// true, iterations count up, candidates count up, yet modes 0/1 see no
-    /// committed intersection. A driver bug; the only mitigation is rejecting
-    /// the device.</description></item>
-    /// <item><description>
-    /// nvidia from a compute-only queue: proceed-iterations are zero on
-    /// every ray — the driver never traverses at all.</description></item>
-    /// </list>
+    /// ray queries correctly. The verdict rests on the known answers alone
+    /// (modes 4, 0 and 1). The telemetry (mode 5) is recorded for the report
+    /// and decides nothing: the BLAS is opaque, so a conformant driver offers
+    /// no candidates and reports zero proceed iterations, the same numbers a
+    /// device that never traversed would give. llvmpipe is the one device
+    /// seen to report candidates, and it fails the known answers (modes 0/1
+    /// commit nothing).
     /// </summary>
     /// <returns>Whether to trust the device, and the telemetry either way.</returns>
     /// <remarks>
