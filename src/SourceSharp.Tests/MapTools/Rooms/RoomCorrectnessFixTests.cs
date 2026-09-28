@@ -548,6 +548,115 @@ public sealed class RoomCorrectnessFixTests
         return new VbspContext(VbspOptions.Default, new ContentFileSystem([mount])) { MapBase = "hub" };
     }
 
+    // ---- the fixes through stored link data ------------------------------------
+
+    /// <summary>
+    /// The ladder's two steps (turned and stored with the room, moved to the
+    /// cell at link) give exactly the one-step <see cref="LevelLinker.MoveBox"/>
+    /// result at every turn, off the grid and around zero too.
+    /// </summary>
+    [Fact]
+    public void TheSplitLadderMoveIsTheOneStepMoveBox()
+    {
+        (Vec3 Mins, Vec3 Maxs)[] boxes =
+        [
+            (new Vec3(40, 60, 16), new Vec3(56, 72, 120)),
+            (new Vec3(-0f, 0f, -3.25f), new Vec3(0.1f, 255.99f, 1.5f)),
+            (new Vec3(-98765.43f, -1e-7f, 0), new Vec3(123456.78f, 1e-7f, 16777216f)),
+        ];
+        foreach ((Vec3 mins, Vec3 maxs) in boxes)
+        {
+            BspEntity ladder = new();
+            string[] keys = ["mins.x", "mins.y", "mins.z", "maxs.x", "maxs.y", "maxs.z"];
+            float[] values = [mins.X, mins.Y, mins.Z, maxs.X, maxs.Y, maxs.Z];
+            for (int i = 0; i < 6; i++)
+            {
+                ladder.Pairs.Add(new BspKeyValue(keys[i], values[i].ToString("R", CultureInfo.InvariantCulture)));
+            }
+
+            for (int rotation = 0; rotation < 4; rotation++)
+            {
+                RoomTransform transform = new(new RoomPlacement("r", 3, -2, rotation), 256f);
+                Box box = LevelLinker.MoveBox(transform, mins, maxs);
+                float[] moved = [box.Mins.X, box.Mins.Y, box.Mins.Z, box.Maxs.X, box.Maxs.Y, box.Maxs.Z];
+                BspEntity actual = LevelLinker.MoveEntity(ladder, transform, "r");
+                Assert.Equal(moved.Select(v => v.ToString("F2", CultureInfo.InvariantCulture)), keys.Select(k => actual.Get(k)));
+            }
+        }
+    }
+
+    /// <summary>
+    /// A room with a ladder, a sun and an occluder: what the room compile
+    /// stores for each turn, read back from its pack sections, equals what
+    /// the link computes then, and linking from the stored data gives the
+    /// same entity lump as linking without it, with the ladder moved, the
+    /// sun unturned and the occluder numbers rebased. An entities section of
+    /// the revision before these fixes reads as absent, so stored data
+    /// turned the old way is never linked.
+    /// </summary>
+    [Fact]
+    public async Task StoredEntitiesCarryTheFixes()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        VmfChunk ladder = Entity("func_ladder", 700001);
+        ladder.Children.Add(RoomModel.Slab(RoomHarness.Plain, new Vec3(40, 60, 16), new Vec3(56, 72, 120), 70001));
+        library.Chunks.Add(ladder);
+        VmfChunk occluder = Entity("func_occluder", 700002, ("StartActive", "1"));
+        occluder.Children.Add(RoomModel.Slab(RoomHarness.Plain, new Vec3(140, 160, 16), new Vec3(156, 220, 120), 70002));
+        library.Chunks.Add(occluder);
+        library.Chunks.Add(Entity("light_environment", 700009, ("origin", "64 64 128"), ("angles", "-45 30 0")));
+        LibraryRoom split = RoomLibraryVmf.Split(library).Single();
+        VbspContext context = await RoomHarness.ContextAsync();
+        context.MapBase = "hub";
+        RoomObject compiled = await RoomCompiler.CompileAsync(split.Document, split.Definition, context);
+
+        RoomLinkData data = (await LevelLinker.TryPrecomputeAsync(compiled, CancellationToken.None))!;
+        const RoomLinkParts all = RoomLinkParts.Geometry | RoomLinkParts.Collision | RoomLinkParts.Entities;
+        List<RoomPackSectionData> sections = [.. RoomLinkSections.Write(data, all)];
+        RoomLinkData read = Read(compiled, sections)!;
+        for (int rotation = 0; rotation < 4; rotation++)
+        {
+            RoomLinkEntities computed = LevelLinker.ComputeEntities(compiled, rotation);
+            RoomLinkEntities stored = read.Rotation(rotation)!.Entities!;
+            Assert.Equal(computed.Items.Count, stored.Items.Count);
+            for (int e = 0; e < computed.Items.Count; e++)
+            {
+                Assert.Equal(computed.Items[e].Pairs, stored.Items[e].Pairs);
+            }
+
+            Assert.Contains(stored.Items.SelectMany(i => i.Pairs), p => p.Component == 2);
+        }
+
+        RoomLibrary withData = new(split.Definition.Kit, split.Definition.CellSize);
+        withData.Add(compiled with { Link = read });
+        RoomLibrary without = new(split.Definition.Kit, split.Definition.CellSize);
+        without.Add(compiled with { Link = null });
+        LevelGrid level = LevelYaml.Parse(RoomHarness.LevelText("rooms.vmf", "hub@90, hub@270"), "stored");
+        BspData a = (await LevelLinker.LinkAsync(level.ToLayout(n => withData.Find(n)?.Definition, withData.CellSize, withData.Kit), withData, await RoomHarness.ContextAsync())).Bsp;
+        BspData b = (await LevelLinker.LinkAsync(level.ToLayout(n => without.Find(n)?.Definition, without.CellSize, without.Kit), without, await RoomHarness.ContextAsync())).Bsp;
+        Assert.Equal(b[BspLump.Entities].Data.ToArray(), a[BspLump.Entities].Data.ToArray());
+
+        List<BspEntity> entities = [.. EntityLump.Parse(a[BspLump.Entities])];
+        Assert.All(entities.Where(e => e.ClassName == "light_environment"), e => Assert.Equal("-45 30 0", e.Get("angles")));
+        Assert.Equal(["0", "1"], entities.Where(e => e.ClassName == "func_occluder").Select(e => e.Get("occludernumber")));
+        Assert.Equal(["184.00", "316.00"], entities.Where(e => e.ClassName == "info_ladder").Select(e => e.Get("mins.x")));
+
+        // An ENT section of revision 1 (entities turned before these fixes) is absent.
+        RoomPackSectionData ent1 = sections.Single(s => s.Tag == "ENT1");
+        byte[] old = ent1.Bytes.ToArray();
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(old.AsSpan(9), 1);
+        RoomLinkData? stale = Read(compiled, [.. sections.Select(s => s.Tag == "ENT1" ? s with { Bytes = old } : s)]);
+        Assert.Null(stale!.Rotation(1)!.Entities);
+        Assert.NotNull(stale.Rotation(1)!.Geometry);
+        Assert.Equal(2, RoomLinkSections.RevisionFor("ENT3"));
+        Assert.Equal(RoomLinkSections.Revision, RoomLinkSections.RevisionFor("GEO3"));
+
+        static RoomLinkData? Read(RoomObject room, IReadOnlyList<RoomPackSectionData> sections) =>
+            RoomLinkSections.Read(room, tag => sections.FirstOrDefault(s => s.Tag == tag) is { Tag: not null } found
+                ? new ArraySegment<byte>(found.Bytes.ToArray())
+                : (ArraySegment<byte>?)null);
+    }
+
     // ---- helpers ---------------------------------------------------------------
 
     /// <summary>A point or brush entity chunk with an id and a class.</summary>

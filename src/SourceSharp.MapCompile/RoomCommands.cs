@@ -228,9 +228,9 @@ public static class RoomCommands
             RoomDefinition definition = outcome.Room.Definition;
             if (outcome.Compiled is { } compiled)
             {
-                using MemoryStream container = new();
-                await RoomObjectStore.SaveAsync(compiled, container, token).ConfigureAwait(false);
-                packed.Add(new RoomPackItem(definition.Name, container.ToArray()));
+                // The container and the link work the library compile did
+                // ahead for the room (RoomPackItem.CreateAsync).
+                packed.Add(await RoomPackItem.CreateAsync(compiled, token).ConfigureAwait(false));
                 await output.WriteLineAsync(
                     $"ssmap room: compiled {definition.Name}"
                     + $" ({compiled.ClusterCount} clusters, {definition.Sockets.Count} sockets)")
@@ -679,16 +679,20 @@ public static class RoomCommands
         }
 
         // Exactly the rooms the level places, in the order it first places
-        // them: the pack's index is read, then those rooms and nothing else,
+        // them, and the turns it places each at: the pack's index is read,
+        // then those rooms and those turns' link sections and nothing else,
         // so a stale or broken room the level does not name is never read.
         List<LevelCell> first = [];
-        HashSet<string> named = new(StringComparer.Ordinal);
+        Dictionary<string, HashSet<int>> turns = new(StringComparer.Ordinal);
         foreach ((_, _, LevelCell cell) in level.Placed)
         {
-            if (named.Add(cell.Room))
+            if (!turns.TryGetValue(cell.Room, out HashSet<int>? placed))
             {
+                turns[cell.Room] = placed = [];
                 first.Add(cell);
             }
+
+            placed.Add(cell.Rotation);
         }
 
         if (first.Count == 0)
@@ -725,7 +729,8 @@ public static class RoomCommands
             }
 
             IReadOnlyList<RoomObject> rooms = await RoomPack
-                .LoadRoomsAsync(stream, index, [.. first.Select(c => c.Room)], cancellationToken).ConfigureAwait(false);
+                .LoadRoomsAsync(stream, index, [.. first.Select(c => new RoomPackRequest(c.Room, turns[c.Room]))], cancellationToken)
+                .ConfigureAwait(false);
             // The first room sets the grid; RoomLibrary.Add refuses any other.
             library = new RoomLibrary(rooms[0].Definition.Kit, rooms[0].Definition.CellSize);
             foreach (RoomObject room in rooms)
