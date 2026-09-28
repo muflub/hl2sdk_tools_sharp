@@ -111,6 +111,25 @@ public sealed class RoomCommandsTests
         Assert.DoesNotContain(fs.Paths, p => p.Value.EndsWith(".room", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// <c>-out</c> resolves against the current directory like every other
+    /// path on the line: a relative <c>-out rooms</c> writes beside where the
+    /// command ran, where it used to write to a root-level <c>/rooms</c> (and on
+    /// Windows a rooted <c>-out</c> lost its drive the same way).
+    /// </summary>
+    [Fact]
+    public async Task ARelativeOutDirectoryResolvesAgainstTheCurrentDirectory()
+    {
+        InMemoryFileSystem fs = Game();
+        AddRoom(fs, RoomHarness.Hub());
+        using StringWriter output = new();
+
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/hub.vmf", "-out", "relative-rooms"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.NotNull(fs.GetBytes(VPath.Create(Rooted("relative-rooms/hub.room"))));
+    }
+
     /// <summary>A room name is one path segment on every host.</summary>
     [Theory]
     [InlineData("hub", null)]

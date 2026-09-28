@@ -113,7 +113,12 @@ public static class RoomCommands
             return Program.ExitUsage;
         }
 
-        if (!VPath.TryCreate(outDirectory ?? Path.GetDirectoryName(source)!, out VPath outDir))
+        // -out resolves against the current directory like the map path does;
+        // taken raw, a relative -out landed under the disk root and a rooted
+        // one lost its Windows drive.
+        if (!VPath.TryCreate(
+            outDirectory is null ? Path.GetDirectoryName(source)! : Path.GetFullPath(outDirectory),
+            out VPath outDir))
         {
             await output.WriteLineAsync($"ssmap room: -out \"{outDirectory}\" is not a usable path")
                 .ConfigureAwait(false);
