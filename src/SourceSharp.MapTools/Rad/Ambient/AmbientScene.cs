@@ -8,6 +8,7 @@
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Tracing;
 
 namespace SourceSharp.MapTools.Rad.Ambient;
@@ -150,14 +151,34 @@ public sealed class AmbientScene
     /// <returns>The scene.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="bsp"/> is null.</exception>
     /// <remarks>
+    /// Under <see cref="ComplianceOptions.Correct"/>, the library's default.
+    /// </remarks>
+    public static AmbientScene Create(BspData bsp, LightingMode mode) =>
+        Create(bsp, mode, ComplianceOptions.Correct);
+
+    /// <summary>
+    /// Gathers a map with its own tracer: the BSP walk plus the map's
+    /// displacements.
+    /// </summary>
+    /// <param name="bsp">The compiled map.</param>
+    /// <param name="mode">Which pass this is.</param>
+    /// <param name="compliance">
+    /// What the walk reproduces of stock: its sky test
+    /// (<see cref="StockQuirk.SkyWindingNormalise"/>, through
+    /// <see cref="BspTraceGeometry.Build(BspData, ComplianceOptions)"/>).
+    /// </param>
+    /// <returns>The scene.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="bsp"/> or <paramref name="compliance"/> is null.</exception>
+    /// <remarks>
     /// The walk's geometry is read from <c>LUMP_FACES</c> in both modes: the
     /// HDR face lump differs only in <c>lightofs</c> and styles, which the walk
     /// never reads, and the scene reads those from the mode's own lump.
     /// </remarks>
-    public static AmbientScene Create(BspData bsp, LightingMode mode)
+    public static AmbientScene Create(BspData bsp, LightingMode mode, ComplianceOptions compliance)
     {
         ArgumentNullException.ThrowIfNull(bsp);
-        AmbientRayTracer tracer = new(BspTraceGeometry.Build(bsp), DispCollisionSet.Build(bsp));
+        ArgumentNullException.ThrowIfNull(compliance);
+        AmbientRayTracer tracer = new(BspTraceGeometry.Build(bsp, compliance), DispCollisionSet.Build(bsp));
         return new AmbientScene(bsp, mode, tracer);
     }
 

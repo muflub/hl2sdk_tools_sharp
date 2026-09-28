@@ -41,9 +41,13 @@ namespace SourceSharp.MapTools.Tracing;
 /// exact IEEE operations with the same result on either instruction set.
 /// <c>minps</c>, <c>maxps</c> and <c>andnps</c> have x86-specific rules and
 /// are spelled out in <see cref="SseLanes"/>. The one inexact instruction,
-/// the reciprocal estimate, comes from <see cref="FloatEstimate"/>, so traversal on arm64
-/// uses ARM's estimate and its hit distances are arm64's own, as they are
-/// already per vendor on x86.
+/// the reciprocal estimate, is taken only under
+/// <see cref="StockQuirk.KdTracerReciprocalEstimate"/>, from
+/// <see cref="FloatEstimate"/>: stock-mode traversal on arm64 uses ARM's
+/// estimate and its hit distances are arm64's own, as they are per vendor on
+/// x86. Under <see cref="CompliancePolicy.Correct"/> the traversal divides,
+/// and the triangles' planes are normalised with a divide, so every hit is
+/// the same bits on every CPU.
 /// </para>
 /// <para>
 /// FOUR RAYS AT A TIME, INCLUDING THE AWKWARD CASE. A packet can only be
@@ -82,7 +86,19 @@ public sealed class KdRayTracer : IRayTracer
     /// </remarks>
     private readonly float _zeroSubstitute;
 
-    private KdRayTracer(KdBuildResult built, float zeroSubstitute)
+    /// <summary>
+    /// Whether the traversal takes the reciprocal of the ray direction as
+    /// stock does, from the hardware estimate plus one Newton step, rather
+    /// than dividing.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="StockQuirk.KdTracerReciprocalEstimate"/>. The same decision
+    /// made the triangles' planes (<see cref="KdTreeBuilder"/>), so one flag
+    /// says what both halves of the tracer did.
+    /// </remarks>
+    private readonly bool _stockReciprocal;
+
+    private KdRayTracer(KdBuildResult built, float zeroSubstitute, bool stockReciprocal)
     {
         _nodes = built.Nodes;
         _indices = built.Indices;
@@ -90,6 +106,7 @@ public sealed class KdRayTracer : IRayTracer
         _min = built.Min;
         _max = built.Max;
         _zeroSubstitute = zeroSubstitute;
+        _stockReciprocal = stockReciprocal;
     }
 
     /// <summary>
@@ -115,11 +132,18 @@ public sealed class KdRayTracer : IRayTracer
 
     /// <inheritdoc />
     /// <remarks>
-    /// The two policies differ in <see cref="StockQuirk.KdZeroDirectionReachCut"/>,
-    /// which can change a hit, so they are two identities.
+    /// <see cref="StockQuirk.KdZeroDirectionReachCut"/> and
+    /// <see cref="StockQuirk.KdTracerReciprocalEstimate"/> can each change a
+    /// hit, so each side of each is its own identity. The estimate's side
+    /// also names the estimate family it took (<see cref="FloatEstimate.Family"/>),
+    /// since its hits are that family's: a result traced with the SSE estimate
+    /// is not one traced with ARM's. The all-correct tracer is
+    /// <c>cpu-kd-exact-1</c>, a new name because its hits are not the ones the
+    /// estimate-based <c>cpu-kd-sse4-1</c> gave before the divide replaced it.
     /// </remarks>
     public string TracerIdentity =>
-        _zeroSubstitute == StockZeroSubstitute ? "cpu-kd-sse4-1-stock" : "cpu-kd-sse4-1";
+        (_stockReciprocal ? "cpu-kd-sse4-1-rcp-" + FloatEstimate.Family : "cpu-kd-exact-1")
+        + (_zeroSubstitute == StockZeroSubstitute ? "-stock" : string.Empty);
 
     /// <inheritdoc />
     /// <remarks>
@@ -150,14 +174,9 @@ public sealed class KdRayTracer : IRayTracer
     /// <param name="triangles">The scene.</param>
     /// <returns>The tracer.</returns>
     /// <exception cref="ArgumentException"><paramref name="triangles"/> is empty.</exception>
-    /// <exception cref="PlatformNotSupportedException">
-    /// The machine has neither SSE nor AdvSimd, so no reciprocal estimate.
-    /// Refused rather than emulated: the traversal reproduces stock's
-    /// estimate-based arithmetic, and an exact fallback would silently stop
-    /// being the reference implementation it is here to be.
-    /// </exception>
     /// <remarks>
-    /// Under <see cref="ComplianceOptions.Correct"/>, the library's default.
+    /// Under <see cref="ComplianceOptions.Correct"/>, the library's default,
+    /// which takes no estimate and so runs on any CPU.
     /// </remarks>
     public static KdRayTracer Build(ReadOnlySpan<TracedTriangle> triangles) =>
         Build(triangles, ComplianceOptions.Correct);
@@ -168,17 +187,25 @@ public sealed class KdRayTracer : IRayTracer
     /// </summary>
     /// <param name="triangles">The scene.</param>
     /// <param name="compliance">
-    /// Decides <see cref="StockQuirk.KdZeroDirectionReachCut"/>. The tree is
-    /// the same either way.
+    /// Decides <see cref="StockQuirk.KdZeroDirectionReachCut"/> and
+    /// <see cref="StockQuirk.KdTracerReciprocalEstimate"/>. The tree's nodes
+    /// are the same either way; the second moves the triangles' planes.
     /// </param>
     /// <returns>The tracer.</returns>
     /// <exception cref="ArgumentException"><paramref name="triangles"/> is empty.</exception>
-    /// <exception cref="PlatformNotSupportedException">The machine has neither SSE nor AdvSimd.</exception>
+    /// <exception cref="PlatformNotSupportedException">
+    /// <see cref="StockQuirk.KdTracerReciprocalEstimate"/> is emulated and the
+    /// machine has neither SSE nor AdvSimd, so no reciprocal estimate.
+    /// Refused rather than emulated: that side reproduces stock's
+    /// estimate-based arithmetic, and an exact fallback would silently stop
+    /// being the reference implementation it is there to be.
+    /// </exception>
     public static KdRayTracer Build(ReadOnlySpan<TracedTriangle> triangles, ComplianceOptions compliance)
     {
         ArgumentNullException.ThrowIfNull(compliance);
-        RequireEstimate();
-        return new KdRayTracer(KdTreeBuilder.Build(triangles), ZeroSubstitute(compliance));
+        bool stockReciprocal = StockReciprocal(compliance);
+        return new KdRayTracer(
+            KdTreeBuilder.Build(triangles, stockReciprocal), ZeroSubstitute(compliance), stockReciprocal);
     }
 
     /// <summary>
@@ -187,12 +214,17 @@ public sealed class KdRayTracer : IRayTracer
     /// for node.
     /// </summary>
     /// <param name="triangles">The scene.</param>
-    /// <param name="compliance">Decides <see cref="StockQuirk.KdZeroDirectionReachCut"/>.</param>
+    /// <param name="compliance">
+    /// Decides <see cref="StockQuirk.KdZeroDirectionReachCut"/> and
+    /// <see cref="StockQuirk.KdTracerReciprocalEstimate"/>.
+    /// </param>
     /// <param name="queue">The workers to build on.</param>
     /// <param name="cancellationToken">Cancels the build.</param>
     /// <returns>The tracer.</returns>
     /// <exception cref="ArgumentException"><paramref name="triangles"/> is empty.</exception>
-    /// <exception cref="PlatformNotSupportedException">The machine has neither SSE nor AdvSimd.</exception>
+    /// <exception cref="PlatformNotSupportedException">
+    /// The estimate is emulated and the machine has neither SSE nor AdvSimd.
+    /// </exception>
     public static async Task<KdRayTracer> BuildAsync(
         ReadOnlyMemory<TracedTriangle> triangles,
         ComplianceOptions compliance,
@@ -201,9 +233,10 @@ public sealed class KdRayTracer : IRayTracer
     {
         ArgumentNullException.ThrowIfNull(compliance);
         ArgumentNullException.ThrowIfNull(queue);
-        RequireEstimate();
-        KdBuildResult built = await KdTreeBuilder.BuildAsync(triangles, queue, cancellationToken).ConfigureAwait(false);
-        return new KdRayTracer(built, ZeroSubstitute(compliance));
+        bool stockReciprocal = StockReciprocal(compliance);
+        KdBuildResult built = await KdTreeBuilder.BuildAsync(triangles, stockReciprocal, queue, cancellationToken)
+            .ConfigureAwait(false);
+        return new KdRayTracer(built, ZeroSubstitute(compliance), stockReciprocal);
     }
 
     private static float ZeroSubstitute(ComplianceOptions compliance) =>
@@ -211,13 +244,30 @@ public sealed class KdRayTracer : IRayTracer
             ? StockZeroSubstitute
             : CorrectZeroSubstitute;
 
-    private static void RequireEstimate()
+    /// <summary>
+    /// Decides <see cref="StockQuirk.KdTracerReciprocalEstimate"/>, and
+    /// refuses its Stock side on a CPU with no estimate to take.
+    /// </summary>
+    /// <remarks>
+    /// Checked before the tree is built rather than at the first ray, so a
+    /// compile that cannot run fails before it has spent anything.
+    /// </remarks>
+    private static bool StockReciprocal(ComplianceOptions compliance)
     {
-        if (!FloatEstimate.IsSupported)
+        bool stock = compliance.Emulates(StockQuirk.KdTracerReciprocalEstimate);
+        if (stock && !FloatEstimate.IsSupported)
         {
             throw FloatEstimate.Unsupported();
         }
+
+        return stock;
     }
+
+    /// <summary>
+    /// Whether this tracer takes the reciprocal estimate
+    /// (<see cref="StockQuirk.KdTracerReciprocalEstimate"/>'s Stock side).
+    /// </summary>
+    internal bool StockReciprocalEstimate => _stockReciprocal;
 
     /// <summary>One node, for a fact that compares the tree against stock's.</summary>
     /// <param name="index">Which node.</param>
@@ -838,9 +888,18 @@ public sealed class KdRayTracer : IRayTracer
         direction.Z = rays.Dz;
         Vector128<float> zeroSubstitute = Vector128.Create(_zeroSubstitute);
         Axes inverse;
-        inverse.X = ReciprocalSaturate(rays.Dx, zeroSubstitute);
-        inverse.Y = ReciprocalSaturate(rays.Dy, zeroSubstitute);
-        inverse.Z = ReciprocalSaturate(rays.Dz, zeroSubstitute);
+        if (_stockReciprocal)
+        {
+            inverse.X = ReciprocalSaturate(rays.Dx, zeroSubstitute);
+            inverse.Y = ReciprocalSaturate(rays.Dy, zeroSubstitute);
+            inverse.Z = ReciprocalSaturate(rays.Dz, zeroSubstitute);
+        }
+        else
+        {
+            inverse.X = ReciprocalSaturateExact(rays.Dx, zeroSubstitute);
+            inverse.Y = ReciprocalSaturateExact(rays.Dy, zeroSubstitute);
+            inverse.Z = ReciprocalSaturateExact(rays.Dz, zeroSubstitute);
+        }
 
         // Clip against the scene's bounding box first; if no
         // lane survives, nothing was hit and there is nothing to walk.
@@ -1237,7 +1296,7 @@ public sealed class KdRayTracer : IRayTracer
     /// </para>
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static Vector128<float> ReciprocalSaturate(Vector128<float> a, Vector128<float> zeroSubstitute)
+    internal static Vector128<float> ReciprocalSaturate(Vector128<float> a, Vector128<float> zeroSubstitute)
     {
         Vector128<float> zeroMask = Vector128.Equals(a, Vector128<float>.Zero);
         Vector128<float> safe = Vector128.BitwiseOr(a, Vector128.BitwiseAnd(zeroSubstitute, zeroMask));
@@ -1246,6 +1305,33 @@ public sealed class KdRayTracer : IRayTracer
         // y(n+1) = 2*y(n) - a*y(n)^2
         return Vector128.Subtract(
             Vector128.Add(est, est), Vector128.Multiply(safe, Vector128.Multiply(est, est)));
+    }
+
+    /// <summary>
+    /// <see cref="ReciprocalSaturate"/> with the estimate and its Newton step
+    /// replaced by an IEEE divide: the Correct side of
+    /// <see cref="StockQuirk.KdTracerReciprocalEstimate"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The zero substitution is unchanged, so
+    /// <see cref="StockQuirk.KdZeroDirectionReachCut"/> is decided
+    /// independently of this. With the Correct substitute of 2^-60 the divide
+    /// gives exactly 2^60, where the Newton step gave a value near it.
+    /// </para>
+    /// <para>
+    /// A divide is correctly rounded on every IEEE machine, so the node
+    /// distances it scales are the same bits on AMD, Intel and arm64. The
+    /// estimate plus one Newton step is within a few ulps of it, which is
+    /// enough to put a ray grazing a split plane on the other side.
+    /// </para>
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static Vector128<float> ReciprocalSaturateExact(Vector128<float> a, Vector128<float> zeroSubstitute)
+    {
+        Vector128<float> zeroMask = Vector128.Equals(a, Vector128<float>.Zero);
+        Vector128<float> safe = Vector128.BitwiseOr(a, Vector128.BitwiseAnd(zeroSubstitute, zeroMask));
+        return Vector128.Divide(Vector128<float>.One, safe);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

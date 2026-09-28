@@ -115,7 +115,8 @@ Ctrl-C to cancellation. It references the libraries with no
   content a compile still runs, but missing materials and models become
   warnings.
 - An x86-64 or arm64 CPU. Both modes run on both, including Apple Silicon,
-  but some results differ in the last bits between CPU families; see
+  but under `-compliance stock` some results differ in the last bits between
+  CPU families; see
   [Platform differences](#platform-differences). The x86-64 native AOT
   builds need AVX2 (x86-64-v3: Intel Haswell or AMD Zen and later); on an
   older x86-64 CPU use the framework-dependent build, which writes the same
@@ -323,18 +324,22 @@ What moves between the rows:
   collision data, leaf ambient and static-prop lighting. On one CPU family
   the output is still deterministic from run to run.
 - **`-compliance correct`** (the default) uses exact IEEE arithmetic in
-  place of these estimates. vbsp and vvis take no estimate at all, so their
-  output is the same bytes on every CPU; CI pins vbsp's digests for the
-  sandbox map and several displacement maps, and runs them on AMD, Intel and
-  arm64. The exception is vrad's ray tracing, which keeps stock's estimates
-  in both modes: the reciprocal in the KD-tree traversal, the triangle
-  normals the KD tree is built from, the colinear-point cull of the trace
-  geometry's windings, and the point-in-sky-face tests. A ray that grazes a
-  tree split or an edge can resolve differently from one CPU family to
-  another, which changes a shadow or sky test at the edge of an occluder.
+  place of every one of these estimates, so vbsp, vvis and vrad all write
+  the same bytes on every CPU. vrad's ray tracing used to be the exception
+  and no longer is: the KD tracer's traversal reciprocal and triangle
+  normals (`KdTracerReciprocalEstimate`) and the leaf-ambient walk's sky
+  windings and point-in-sky-face test (`SkyWindingNormalise`) divide
+  exactly under the default policy, as the gather, transfer and ambient-cube
+  estimates already did. CI pins vbsp's digests for the sandbox map and
+  several displacement maps, and vrad's for the KD tracer on two committed
+  scenes, leaf ambient on its committed fixture, static-prop lighting, and
+  the whole chain on the sandbox map, and runs them on AMD, Intel and arm64.
+  A digest that holds on one of those runners and not another is a bug: a
+  Correct path still taking an estimate.
 
 Everything else is the same on every platform: file formats, vbsp, vvis,
-every exact computation, and every elementary function.
+vrad under the default policy, every exact computation, and every
+elementary function.
 
 ### Elementary functions
 
@@ -636,8 +641,7 @@ assemblies rather than by review.
   options produce the same bytes on Linux, Windows and macOS, on any .NET
   runtime. The only differences allowed are the CPU-estimate ones listed
   under [Platform differences](#platform-differences): stock's `rcpss` /
-  `rsqrtss` arithmetic under `-compliance stock`, and vrad's ray
-  tracing under either policy. The opt-in paths that hand work to code outside
+  `rsqrtss` arithmetic under `-compliance stock`. The opt-in paths that hand work to code outside
   this repository, `-gpu` (the device's ray intersection) and
   `-cooker native` (the game's vphysics library), are outside the rule.
   Any other difference between platforms is a bug.

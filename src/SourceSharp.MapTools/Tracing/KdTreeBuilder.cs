@@ -69,9 +69,16 @@ public static class KdTreeBuilder
     /// Builds the tree.
     /// </summary>
     /// <param name="triangles">The scene. Order matters: it is the tree's index order.</param>
+    /// <param name="stockNormalise">
+    /// Whether the triangles' plane normals are normalised as stock does, with
+    /// the reciprocal-square-root estimate
+    /// (<see cref="Options.StockQuirk.KdTracerReciprocalEstimate"/>'s Stock
+    /// side), rather than with a divide. The caller decides it; the nodes are
+    /// the same either way.
+    /// </param>
     /// <returns>The nodes, the index list, the intersection triangles, and the bounds.</returns>
     /// <exception cref="ArgumentException"><paramref name="triangles"/> is empty.</exception>
-    internal static KdBuildResult Build(ReadOnlySpan<TracedTriangle> triangles)
+    internal static KdBuildResult Build(ReadOnlySpan<TracedTriangle> triangles, bool stockNormalise)
     {
         KdBuildTriangle[] build = Prepare(triangles, out int[] rootList, out Vec3 min, out Vec3 max);
 
@@ -79,7 +86,7 @@ public static class KdTreeBuilder
         List<int> indices = [];
         RefineNode(nodes, indices, build, 0, rootList, 0, rootList.Length, min, max, 0);
 
-        return Finish(build, nodes, indices, min, max);
+        return Finish(build, nodes, indices, min, max, stockNormalise);
     }
 
     /// <summary>
@@ -112,11 +119,12 @@ public static class KdTreeBuilder
     /// </para>
     /// </remarks>
     /// <param name="triangles">The scene. Order matters: it is the tree's index order.</param>
+    /// <param name="stockNormalise">As for <see cref="Build"/>.</param>
     /// <param name="queue">The workers.</param>
     /// <param name="cancellationToken">Cancels the build.</param>
     /// <returns>The same result as <see cref="Build"/>.</returns>
     internal static async Task<KdBuildResult> BuildAsync(
-        ReadOnlyMemory<TracedTriangle> triangles, WorkQueue queue, CancellationToken cancellationToken)
+        ReadOnlyMemory<TracedTriangle> triangles, bool stockNormalise, WorkQueue queue, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(queue);
 
@@ -163,7 +171,7 @@ public static class KdTreeBuilder
                     List<KdNode> nodes = [new KdNode()];
                     List<int> indices = [];
                     Emit(root, 0, nodes, indices, built);
-                    result = Finish(build, nodes, indices, min, max);
+                    result = Finish(build, nodes, indices, min, max, stockNormalise);
                 },
                 new WorkQueueOptions { Stage = "kd tree" },
                 cancellationToken)
@@ -207,12 +215,12 @@ public static class KdTreeBuilder
     }
 
     private static KdBuildResult Finish(
-        KdBuildTriangle[] build, List<KdNode> nodes, List<int> indices, Vec3 min, Vec3 max)
+        KdBuildTriangle[] build, List<KdNode> nodes, List<int> indices, Vec3 min, Vec3 max, bool stockNormalise)
     {
         KdTriangle[] intersect = new KdTriangle[build.Length];
         for (int i = 0; i < build.Length; i++)
         {
-            intersect[i] = ToIntersectionFormat(build[i]);
+            intersect[i] = ToIntersectionFormat(build[i], stockNormalise);
         }
 
         return new KdBuildResult(nodes.ToArray(), indices.ToArray(), intersect, min, max);
@@ -735,9 +743,18 @@ public static class KdTreeBuilder
     }
 
     /// <summary>
-    /// <c>CacheOptimizedTriangle::ChangeIntoIntersectionFormat</c>,
+    /// <c>CacheOptimizedTriangle::ChangeIntoIntersectionFormat</c>.
     /// </summary>
-    private static KdTriangle ToIntersectionFormat(in KdBuildTriangle src)
+    /// <remarks>
+    /// The plane normal is normalised with stock's reciprocal-square-root
+    /// estimate only when <paramref name="stockNormalise"/> says so
+    /// (<see cref="Options.StockQuirk.KdTracerReciprocalEstimate"/>);
+    /// otherwise with a divide. The normal and the plane distance taken from it
+    /// decide every hit distance, and the largest component decides the
+    /// projection axes, so an estimate's last bits would make both depend on
+    /// the CPU.
+    /// </remarks>
+    private static KdTriangle ToIntersectionFormat(in KdBuildTriangle src, bool stockNormalise)
     {
         Vec3 p1 = new(src.Get(0, 0), src.Get(0, 1), src.Get(0, 2));
         Vec3 p2 = new(src.Get(1, 0), src.Get(1, 1), src.Get(1, 2));
@@ -745,7 +762,8 @@ public static class KdTreeBuilder
 
         Vec3 e1 = p2 - p1;
         Vec3 e2 = p3 - p1;
-        (Vec3 n, _) = Vec3.Cross(e1, e2).NormaliseLikeStock();
+        Vec3 cross = Vec3.Cross(e1, e2);
+        (Vec3 n, _) = stockNormalise ? cross.NormaliseLikeStock() : cross.Normalise();
 
         int dropAxis = 0;
         for (int c = 1; c < 3; c++)

@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Tracing;
 
 using Xunit;
@@ -20,7 +21,7 @@ public sealed class KdBoxSceneFixture
     public KdBoxSceneFixture()
     {
         Scene = StockKdScene.Load("kd-boxes");
-        Tracer = KdRayTracer.Build(Scene.Triangles);
+        Tracer = KdRayTracer.Build(Scene.Triangles, ComplianceOptions.Stock);
         Ours = new HitId[Scene.RayCount];
         Tracer.TraceClosest(Scene.Rays, Ours, RayTraceOptions.StockExact);
     }

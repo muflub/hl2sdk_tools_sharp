@@ -36,15 +36,16 @@ namespace SourceSharp.Tests.MapTools.Rad.Props;
 /// must keep, and it holds on every CPU.
 /// </para>
 /// <para>
-/// The digests themselves are pinned separately, per CPU family, by
-/// <see cref="TheCorrectDigestsArePinnedForThisCpu"/>. Even compliance correct
-/// is not the same bytes everywhere here: the KD tracer's traversal keeps the
-/// estimated reciprocal under both policies, so a ray grazing a split can
-/// resolve differently on arm64 than on x86 (README, "Platform differences").
-/// The base digests were recorded on x86 from the pass as it was before
-/// chunking, so they also pin that chunking changed no byte; AMD and Intel
-/// agree on them (both kinds of CI runner passed them), and arm64 has a
-/// captured delta.
+/// The Correct digests themselves are pinned separately, once for every CPU,
+/// by <see cref="TheCorrectDigestsArePinnedOnEveryCpu"/>. They were per CPU
+/// family while the KD tracer took the estimated reciprocal under both
+/// policies: a ray grazing a split resolved differently on arm64 than on x86,
+/// and arm64 carried a captured delta. Under
+/// <see cref="StockQuirk.KdTracerReciprocalEstimate"/> and
+/// <see cref="StockQuirk.SkyWindingNormalise"/> the Correct side takes no
+/// estimate, so one set of digests is the answer everywhere. They are the
+/// digests recorded on x86 from the pass as it was before chunking, unchanged
+/// by the divide on AMD, so they still pin that chunking changed no byte.
 /// </para>
 /// </remarks>
 public sealed class StaticPropChunkingTests : IClassFixture<AmbientFixture>
@@ -89,9 +90,9 @@ public sealed class StaticPropChunkingTests : IClassFixture<AmbientFixture>
     }
 
     /// <summary>
-    /// The compliance-correct digests of the prop-at-a-time shape on x86, one
-    /// line per indirect / self-shadowing combination, in the order
-    /// <see cref="TheCorrectDigestsArePinnedForThisCpu"/> produces them.
+    /// The compliance-correct digests of the prop-at-a-time shape, one line per
+    /// indirect / self-shadowing combination, in the order
+    /// <see cref="TheCorrectDigestsArePinnedOnEveryCpu"/> produces them.
     /// </summary>
     private static IReadOnlyList<string> PinnedCorrectDigests =>
     [
@@ -101,8 +102,13 @@ public sealed class StaticPropChunkingTests : IClassFixture<AmbientFixture>
         "EA3C9E27546D81B9FD941B33982C598EA8A2EB518ADC3C76CD0197C8A595D1B3", // direct only, self-shadowing disabled
     ];
 
-    [ReferenceRsqrtFact]
-    public async Task TheCorrectDigestsArePinnedForThisCpu()
+    /// <summary>
+    /// The Correct digests are the same on every CPU. Deliberately not a
+    /// <c>VendorGolden</c>: a runner that disagrees has found a Correct path
+    /// that still takes an estimate.
+    /// </summary>
+    [Fact]
+    public async Task TheCorrectDigestsArePinnedOnEveryCpu()
     {
         (StaticPropLump lump, IReadOnlyList<StaticPropModel> models) = await StaticPropChunkingScene.PropsAsync();
 
@@ -114,7 +120,7 @@ public sealed class StaticPropChunkingTests : IClassFixture<AmbientFixture>
             actual.Add(StaticPropChunkingScene.Digest(r));
         }
 
-        Assert.Equal(VendorGolden.Expected("static-prop-chunking.correct", PinnedCorrectDigests, actual), actual);
+        Assert.Equal(PinnedCorrectDigests, actual);
     }
 
     [Theory]

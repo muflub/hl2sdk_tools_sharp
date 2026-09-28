@@ -66,6 +66,9 @@ public sealed class AmbientRayTracer
     private readonly int[] _skyStart;
     private readonly int[] _skyCount;
 
+    /// <summary><see cref="BspTraceGeometry.StockSkyNormalise"/>, copied like the arrays.</summary>
+    private readonly bool _stockSkyNormalise;
+
     /// <summary>Wraps a flattened tree and the map's displacements.</summary>
     /// <param name="geometry">The tree.</param>
     /// <param name="displacements">The displacements, or an empty set.</param>
@@ -85,6 +88,7 @@ public sealed class AmbientRayTracer
         _skyPoints = geometry.SkyPoints;
         _skyStart = geometry.SkyStart;
         _skyCount = geometry.SkyCount;
+        _stockSkyNormalise = geometry.StockSkyNormalise;
     }
 
     /// <summary>The tree.</summary>
@@ -418,6 +422,10 @@ public sealed class AmbientRayTracer
     /// <c>TestPointAgainstSkySurface</c>:
     /// <c>PointInWinding</c>.
     /// </summary>
+    /// <remarks>
+    /// As <see cref="BspSurfaceTracer"/>'s: the crosses are normalised with
+    /// stock's estimate only under <see cref="Options.StockQuirk.SkyWindingNormalise"/>.
+    /// </remarks>
     private bool TestPointAgainstSkySurface(int face, float px, float py, float pz)
     {
         int start = _skyStart[face];
@@ -432,13 +440,13 @@ public sealed class AmbientRayTracer
 
         Vec3 toPt = pt - p[0];
         Vec3 edge = p[1] - p[0];
-        (Vec3 testCross, _) = Vec3.Cross(edge, toPt).NormaliseLikeStock();
+        (Vec3 testCross, _) = BspTraceGeometry.Normalise(Vec3.Cross(edge, toPt), _stockSkyNormalise);
 
         for (int i = 1; i < count; i++)
         {
             toPt = pt - p[i];
             edge = p[(i + 1) % count] - p[i];
-            (Vec3 cross, _) = Vec3.Cross(edge, toPt).NormaliseLikeStock();
+            (Vec3 cross, _) = BspTraceGeometry.Normalise(Vec3.Cross(edge, toPt), _stockSkyNormalise);
             if (Vec3.Dot(cross, testCross) < 0.0f)
             {
                 return false;
@@ -450,7 +458,7 @@ public sealed class AmbientRayTracer
 
     /// <summary>
     /// An unchecked element reference. Every index the walk uses comes from the
-    /// BSP itself and was validated once by <see cref="BspTraceGeometry.Build"/>
+    /// BSP itself and was validated once by <see cref="BspTraceGeometry.Build(SourceSharp.MapFormats.Bsp.BspData, Options.ComplianceOptions)"/>
     /// (which throws on any index the map does not have), so the per-access
     /// bounds check re-answers a settled question on the hottest path in vrad.
     /// </summary>
