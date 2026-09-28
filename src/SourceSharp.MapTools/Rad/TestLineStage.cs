@@ -20,10 +20,20 @@ namespace SourceSharp.MapTools.Rad;
 /// <typeparam name="TState">What an item keeps between its plan and its resolve.</typeparam>
 /// <typeparam name="TResult">What an item produces.</typeparam>
 /// <remarks>
+/// <para>
 /// One per worker, used by one thread at a time; it owns its scratch
 /// (displacement marks and the like) as well as the batch.
+/// </para>
+/// <para>
+/// DISPOSABLE because that scratch is rented: the batch's arrays, and
+/// whatever pooled buffers a stage's worker adds, go back to their pool when
+/// <see cref="TestLineStage"/> disposes the worker at the end of the stage --
+/// finished, failed or cancelled, and only once no trace of its batch is in
+/// flight. A worker that overrides <see cref="Dispose"/> calls the base, which
+/// disposes the batch.
+/// </para>
 /// </remarks>
-internal abstract class TestLineWorker<TState, TResult>
+internal abstract class TestLineWorker<TState, TResult> : IDisposable
 {
     /// <summary>Makes a worker over its batch.</summary>
     /// <param name="lines">The worker's own batch.</param>
@@ -70,6 +80,9 @@ internal abstract class TestLineWorker<TState, TResult>
     /// </para>
     /// </remarks>
     public virtual bool IsBatchFull => false;
+
+    /// <summary>Returns the worker's rented scratch, the batch's included. Called once, by the stage.</summary>
+    public virtual void Dispose() => Lines.Dispose();
 }
 
 /// <summary>
@@ -156,11 +169,37 @@ internal static class TestLineStage
         using WorkQueue queue = new(parallelism);
         Claims claims = new(itemCount, order);
         Runner<TState, TResult>[] runners = new Runner<TState, TResult>[queue.Degree];
-        for (int w = 0; w < runners.Length; w++)
+        int made = 0;
+        try
         {
-            runners[w] = new Runner<TState, TResult>(workerFactory(), claims, results, batchSegments, batchItems);
-        }
+            for (; made < runners.Length; made++)
+            {
+                runners[made] = new Runner<TState, TResult>(workerFactory(), claims, results, batchSegments, batchItems);
+            }
 
+            return await DriveAsync(queue, runners, results, stage, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Every worker's rented scratch goes back however the stage ends.
+            // DriveAsync returns or throws only once every batch it started
+            // has completed, so no tracer call still reads a worker's rays or
+            // writes its bits here.
+            for (int w = 0; w < made; w++)
+            {
+                runners[w].Worker.Dispose();
+            }
+        }
+    }
+
+    /// <summary>Runs the workers until every item is resolved, awaiting their batches between runs.</summary>
+    private static async Task<TResult[]> DriveAsync<TState, TResult>(
+        WorkQueue queue,
+        Runner<TState, TResult>[] runners,
+        TResult[] results,
+        string stage,
+        CancellationToken cancellationToken)
+    {
         WorkQueueOptions options = new() { Stage = stage, ChunkSize = 1 };
         List<Task> pending = [];
         while (true)
@@ -235,6 +274,9 @@ internal static class TestLineStage
     {
         private readonly List<(int Item, TState State)> _planned = [];
         private bool _parked;
+
+        /// <summary>The worker this runner drives; the stage disposes it.</summary>
+        public TestLineWorker<TState, TResult> Worker => worker;
 
         /// <summary>The batches this worker left in flight; the driver awaits and clears them.</summary>
         public List<Task> Pending { get; } = [];

@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 
 using SourceSharp.MapTools.Geometry;
 using SourceSharp.MapTools.Parallel;
+using SourceSharp.MapTools.Rad.Bounce;
 using SourceSharp.MapTools.Tracing;
 
 namespace SourceSharp.MapTools.Rad.Light;
@@ -30,6 +31,14 @@ public sealed partial class RadWorld
     /// a test asks for another: the output must not depend on it.
     /// </summary>
     internal int FacelightBatchRays { get; set; } = RaysPerBatch;
+
+    /// <summary>
+    /// Where the face-lighting workers rent their ray logs' storage, or null
+    /// for the process's shared array pool. Internal so the facts can count
+    /// what was rented against what came back, and hand out arrays full of
+    /// junk; the output must not depend on it.
+    /// </summary>
+    internal IScratchArrayPool? FacelightScratchPool { get; set; }
 
     /// <summary>
     /// How many tape words one worker's batch may hold, whatever its ray
@@ -111,35 +120,68 @@ public sealed partial class RadWorld
             .ThenBy(f => f)];
 
         FacelightShared shared = new(jobs, order, Gatherer, tracer, FacelightBatchRays);
+        IScratchArrayPool pool = FacelightScratchPool ?? new SharedScratchArrayPool();
         FacelightWorker[] workers = new FacelightWorker[queue.Degree];
-        for (int w = 0; w < workers.Length; w++)
+        int made = 0;
+        try
         {
-            workers[w] = new FacelightWorker(shared, Geometry.StockEstimates);
+            for (; made < workers.Length; made++)
+            {
+                workers[made] = new FacelightWorker(shared, Geometry.StockEstimates, pool);
+            }
+
+            List<Task> pending = [];
+            while (true)
+            {
+                await queue.RunAsync(
+                    workers.Length,
+                    (w, worker) => workers[w].Run(worker),
+                    stage with { ChunkSize = 1 },
+                    cancellationToken).ConfigureAwait(false);
+
+                pending.Clear();
+                foreach (FacelightWorker worker in workers)
+                {
+                    pending.AddRange(worker.TakePending());
+                }
+
+                if (pending.Count == 0)
+                {
+                    break;
+                }
+
+                foreach (Task task in pending)
+                {
+                    await task.ConfigureAwait(false);
+                }
+            }
         }
-
-        List<Task> pending = [];
-        while (true)
+        finally
         {
-            await queue.RunAsync(
-                workers.Length,
-                (w, worker) => workers[w].Run(worker),
-                stage with { ChunkSize = 1 },
-                cancellationToken).ConfigureAwait(false);
-
-            pending.Clear();
-            foreach (FacelightWorker worker in workers)
+            // Every worker's rented ray log goes back however the stage ends.
+            // A stage that failed or was cancelled may leave slabs in flight
+            // (another worker's, or ones the failing await never reached):
+            // each is awaited first, because it still reads its worker's rays
+            // and writes its answers. Their own failures are not reported --
+            // the stage's first failure already is.
+            for (int w = 0; w < made; w++)
             {
-                pending.AddRange(worker.TakePending());
+                foreach (Task call in workers[w].Started)
+                {
+                    try
+                    {
+                        await call.ConfigureAwait(false);
+                    }
+                    catch (Exception)
+                    {
+                        // Already failing; see above.
+                    }
+                }
             }
 
-            if (pending.Count == 0)
+            for (int w = 0; w < made; w++)
             {
-                break;
-            }
-
-            foreach (Task task in pending)
-            {
-                await task.ConfigureAwait(false);
+                workers[w].Dispose();
             }
         }
 
@@ -199,19 +241,40 @@ public sealed partial class RadWorld
     /// One worker's face-lighting pipeline and its pooled buffers: a ray log
     /// (rays, tape, answers), the faces it holds, and where it parked.
     /// </summary>
-    private sealed class FacelightWorker
+    private sealed class FacelightWorker : IDisposable
     {
         private readonly FacelightShared _shared;
         private readonly LightRayLog _rays;
         private readonly List<FaceLightJob> _active = [];
         private readonly List<(FaceLightJob Job, int Items)> _batch = [];
         private readonly List<Task> _pending = [];
+
+        // Every call the current batch started that had not finished inside
+        // the call. Unlike _pending, which the driver takes, these are kept
+        // until the next batch begins, so Dispose can tell whether a call may
+        // still be reading the log's rays or writing its answers.
+        private readonly List<Task> _started = [];
         private Step _step = Step.Fill;
 
-        public FacelightWorker(FacelightShared shared, bool stockRays)
+        public FacelightWorker(FacelightShared shared, bool stockRays, IScratchArrayPool pool)
         {
             _shared = shared;
-            _rays = new LightRayLog { StockRays = stockRays, DeferRecursion = true, PadCalls = true };
+            _rays = new LightRayLog { StockRays = stockRays, DeferRecursion = true, PadCalls = true, Pool = pool };
+        }
+
+        /// <summary>The calls the current batch started that did not finish inside the call.</summary>
+        public IReadOnlyList<Task> Started => _started;
+
+        /// <summary>
+        /// Returns the log's rented storage. Only once every call in
+        /// <see cref="Started"/> has completed -- the driver awaits them
+        /// first -- because the pool would lend the storage out while a call
+        /// still read the rays or wrote the answers.
+        /// </summary>
+        public void Dispose()
+        {
+            _started.Clear();
+            _rays.Dispose();
         }
 
         private enum Step
@@ -281,6 +344,9 @@ public sealed partial class RadWorld
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         private bool Fill()
         {
+            // The last batch's calls were all awaited before this worker ran
+            // again, so none can still be using the log.
+            _started.Clear();
             _rays.Reset();
             _batch.Clear();
 
@@ -363,7 +429,9 @@ public sealed partial class RadWorld
         {
             if (!task.IsCompletedSuccessfully)
             {
-                _pending.Add(task.AsTask());
+                Task call = task.AsTask();
+                _pending.Add(call);
+                _started.Add(call);
             }
         }
 
