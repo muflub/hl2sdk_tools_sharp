@@ -145,6 +145,66 @@ public static class RoomLinter
             Box box = new(brush.Mins, brush.Maxs);
             CheckBrush(definition, box, cellBox, cell, "brush");
         }
+
+        CheckTriggerBrushesArePlugs(definition, map, cell);
+    }
+
+    /// <summary>
+    /// Every solid, trigger-surfaced world brush is the plug of a declared
+    /// socket: exactly the kit's plug box on that socket's wall.
+    /// </summary>
+    /// <remarks>
+    /// A plug is what the linker strips at a joint, found again in the
+    /// compile by its trigger surfaces. A trigger brush that is not the kit's
+    /// plug is therefore a door plug cut to the wrong size, or on a wall the
+    /// room has no socket on, and without this check the compile's census
+    /// would report it only as a socket left unsealed, or not at all. Brush
+    /// entities are not world brushes and are not plugs: a trigger volume
+    /// stays allowed.
+    /// </remarks>
+    private static void CheckTriggerBrushesArePlugs(RoomDefinition definition, MapFile map, float cell)
+    {
+        int worldBrushes = map.Entities.Count > 0 ? map.Entities[0].BrushCount : 0;
+        for (int i = 0; i < worldBrushes && i < map.Brushes.Count; i++)
+        {
+            MapBrush brush = map.Brushes[i];
+            if ((brush.Contents & (int)BrushContents.Solid) == 0 || !HasTriggerSide(map, brush))
+            {
+                continue;
+            }
+
+            Box box = new(brush.Mins, brush.Maxs);
+            bool plug = false;
+            foreach (RoomSocket socket in definition.Sockets)
+            {
+                plug |= Within(box, SealBox(definition, socket, cell), 0.01f);
+            }
+
+            if (!plug)
+            {
+                throw new RoomLintException(
+                    $"rule {(int)RoomRule.SocketsFromFixedKit} ({nameof(RoomRule.SocketsFromFixedKit)}):"
+                    + $" room {definition.Name} has a door-plug (trigger) brush at ({Fmt(box.Mins)})-({Fmt(box.Maxs)})"
+                    + " that is not the kit's plug on any of its socket walls: a plug fills the"
+                    + $" {Fmt1(definition.Kit.Width)} by {Fmt1(definition.Kit.Height)} opening centred on its wall,"
+                    + $" {Fmt1(definition.Kit.Depth)} deep.");
+            }
+        }
+    }
+
+    private static bool HasTriggerSide(MapFile map, MapBrush brush)
+    {
+        for (int s = 0; s < brush.SideCount; s++)
+        {
+            int index = brush.FirstSide + s;
+            if (index >= 0 && index < map.BrushSides.Count
+                && (map.BrushSides[index].Surface & (int)SurfaceFlags.Trigger) != 0)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -599,4 +659,7 @@ public static class RoomLinter
 
     private static string Fmt(Vec3 v) =>
         string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{v.X:0.###} {v.Y:0.###} {v.Z:0.###}");
+
+    private static string Fmt1(float value) =>
+        value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
 }
