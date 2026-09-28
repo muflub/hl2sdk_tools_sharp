@@ -55,14 +55,27 @@ public sealed class BspSurfaceThroughputTests : IClassFixture<BspParityFixture>
     /// The floor, in millions of rays per second, single-threaded.
     /// </summary>
     /// <remarks>
-    /// One fiftieth of what this tracer does on the box it was written on.
-    /// It was one tenth (0.5), until a hosted CI runner (a virtualised
-    /// i7-8700B on macOS) measured 0.39 and an Intel Xeon container 0.82: a
-    /// shared CI machine is more than ten times slower than that box, which is
-    /// not a catastrophe. A tracer that has lost its structure is slower by
-    /// orders of magnitude, not by a factor, so it still does not clear this.
+    /// <para>
+    /// About one sixteenth of what this tracer does on the box it was written
+    /// on. It was one tenth (0.5) until a hosted CI runner (a virtualised
+    /// i7-8700B on macOS) measured 0.39, and was then cut to 0.1. That 0.39
+    /// was taken while the other test classes ran in parallel beside it; the
+    /// throughput facts have since moved into the serial
+    /// <see cref="ThroughputCollection"/>, so the stopwatch no longer shares the
+    /// machine with the rest of the suite, and 0.1 was more slack than the
+    /// cause called for.
+    /// </para>
+    /// <para>
+    /// 0.3 keeps margin under the worst figures seen: the CI runner's 0.39
+    /// under the old contention, and 0.46 to 0.88 (three runs, both facts) on
+    /// a 4-core Intel Xeon container whose load average was about 40 from
+    /// other builds at the time. A shared CI machine several times slower than
+    /// the development box is not a catastrophe; a tracer that has lost its
+    /// structure is slower by orders of magnitude, not by a factor, so it
+    /// still does not clear this.
+    /// </para>
     /// </remarks>
-    private const double FloorMraysPerSecond = 0.1;
+    private const double FloorMraysPerSecond = 0.3;
 
     private readonly BspParityFixture _fixture;
     private readonly ITestOutputHelper _output;
