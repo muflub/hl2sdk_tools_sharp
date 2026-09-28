@@ -139,4 +139,24 @@ public sealed class ClusterTables
 
         return new ClusterTables(leafStart, leaves, dispStart, dispFaces);
     }
+
+    /// <summary>
+    /// Tables given list by list, for tests that need a shape no small map
+    /// makes: faces shared between clusters, displacements filed in several.
+    /// </summary>
+    /// <param name="leaves">Per cluster, its leaves.</param>
+    /// <param name="dispFaces">Per cluster, its displacement faces.</param>
+    /// <returns>The tables.</returns>
+    internal static ClusterTables FromLists(IReadOnlyList<int[]> leaves, IReadOnlyList<int[]> dispFaces)
+    {
+        int[] leafStart = new int[leaves.Count + 1];
+        int[] dispStart = new int[leaves.Count + 1];
+        for (int c = 0; c < leaves.Count; c++)
+        {
+            leafStart[c + 1] = leafStart[c] + leaves[c].Length;
+            dispStart[c + 1] = dispStart[c] + dispFaces[c].Length;
+        }
+
+        return new ClusterTables(leafStart, [.. leaves.SelectMany(l => l)], dispStart, [.. dispFaces.SelectMany(d => d)]);
+    }
 }
