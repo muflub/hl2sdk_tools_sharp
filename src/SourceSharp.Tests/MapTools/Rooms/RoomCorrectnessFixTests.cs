@@ -370,6 +370,59 @@ public sealed class RoomCorrectnessFixTests
         Assert.Equal("entity 6 (info_overlay): BasisV \"0 1\" is not three numbers.", refused.Message);
     }
 
+    // ---- 5. the sun is not turned ----------------------------------------------
+
+    /// <summary>
+    /// A room with a <c>light_environment</c>, linked and flattened at each
+    /// rotation: the sun is library-wide (every room shares one sun, however
+    /// it is placed), so its <c>angles</c>, <c>angle</c> and <c>pitch</c> stay
+    /// as authored in both maps while its origin moves. Before the fix both
+    /// the linker and the flatten turned its yaw with the room.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Rotations))]
+    public async Task ARoomsSunIsNotTurnedWithTheRoom(int rotation)
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        library.Chunks.Add(Entity(
+            "light_environment", 700009,
+            ("origin", "64 64 128"), ("angles", "-45 30 0"), ("angle", "30"), ("pitch", "-45"), ("_light", "255 255 255 200")));
+
+        (BspData linked, BspData whole) = await LinkAndCompileFlatAsync(library, $"hub@{rotation}");
+
+        foreach (BspData bsp in new[] { linked, whole })
+        {
+            BspEntity sun = EntityLump.Parse(bsp[BspLump.Entities]).Single(e => e.ClassName == "light_environment");
+            Assert.Equal("-45 30 0", sun.Get("angles"));
+            Assert.Equal("30", sun.Get("angle"));
+            Assert.Equal("-45", sun.Get("pitch"));
+        }
+
+        BspEntity linkedSun = EntityLump.Parse(linked[BspLump.Entities]).Single(e => e.ClassName == "light_environment");
+        BspEntity wholeSun = EntityLump.Parse(whole[BspLump.Entities]).Single(e => e.ClassName == "light_environment");
+        Assert.Equal(wholeSun.Get("origin"), linkedSun.Get("origin"));
+    }
+
+    /// <summary>
+    /// Only the sun keeps its angles: any other entity's yaw still turns
+    /// with the room, in the link and in the flatten, and the sun's class is
+    /// matched as vbsp matches classes, exactly.
+    /// </summary>
+    [Fact]
+    public void OnlyTheSunKeepsItsAngles()
+    {
+        RoomTransform linkTurn = new(new RoomPlacement("r", 0, 0, 1), 256);
+        QuarterTurn flattenTurn = QuarterTurn.Of(linkTurn);
+        foreach ((string classname, string expected) in new[] { ("light_environment", "-45 30 0"), ("light_spot", "-45 120 0") })
+        {
+            BspEntity entity = new();
+            entity.Pairs.Add(new BspKeyValue("classname", classname));
+            entity.Pairs.Add(new BspKeyValue("angles", "-45 30 0"));
+            Assert.Equal(expected, LevelLinker.MoveEntity(entity, linkTurn, "r").Get("angles"));
+            Assert.Equal(expected, VmfPlacement.MoveEntity(Entity(classname, 1, ("angles", "-45 30 0")), flattenTurn).GetValue("angles"));
+        }
+    }
+
     // ---- helpers ---------------------------------------------------------------
 
     /// <summary>A point or brush entity chunk with an id and a class.</summary>

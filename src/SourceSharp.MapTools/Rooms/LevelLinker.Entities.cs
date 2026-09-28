@@ -141,7 +141,8 @@ public static partial class LevelLinker
     /// </remarks>
     internal static BspEntity MoveEntity(BspEntity entity, RoomTransform transform, string room, int occluderBase = 0)
     {
-        int turns = transform.Placement.NormalizedRotation;
+        // The sun keeps its world direction (VmfPlacement.KeepsWorldAngles).
+        int turns = VmfPlacement.KeepsWorldAngles(entity.ClassName) ? 0 : transform.Placement.NormalizedRotation;
         string[] ladderKeys = LadderKeys;
         string[]? ladder = MoveLadderBounds(entity, ladderKeys, transform, room);
         BspEntity moved = new();

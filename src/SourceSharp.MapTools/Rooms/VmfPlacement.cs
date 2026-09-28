@@ -185,6 +185,30 @@ internal static class VmfPlacement
         return moved;
     }
 
+    /// <summary>The class of the sun: the one light whose direction is the library's, not the room's.</summary>
+    internal const string SunClass = "light_environment";
+
+    /// <summary>
+    /// Whether an entity's angles are a world direction that a placement's
+    /// turn must leave alone: the sun's.
+    /// </summary>
+    /// <param name="classname">The entity's class, or null when it has none.</param>
+    /// <returns>True for <see cref="SunClass"/>, matched exactly as vbsp matches classes.</returns>
+    /// <remarks>
+    /// All rooms of a library share one sun (the owner's decision D3 in the
+    /// rooms design): the sun is fixed in the world, and a room turned by a
+    /// quarter turn is lit by the same sun from the same side of the sky as
+    /// every other room. Turning a room's <c>light_environment</c> with the
+    /// room would give each turned placement its own sun, which a whole map
+    /// cannot have. So its <c>angles</c> and <c>angle</c> are carried as
+    /// written (its <c>pitch</c> never turns, being no yaw), by the linker
+    /// (<c>LevelLinker.MoveEntity</c>), the split and the flatten alike; its
+    /// origin still moves, since it says only where the entity stands.
+    /// Whether a room may carry its own sun at all, rather than the library
+    /// holding the one, is a pack-time rule of its own.
+    /// </remarks>
+    internal static bool KeepsWorldAngles(string? classname) => string.Equals(classname, SunClass, StringComparison.Ordinal);
+
     /// <summary>The key an <c>info_overlay</c> is placed by: the point its basis stands on.</summary>
     private const string OverlayOriginKey = "BasisOrigin";
 
@@ -207,7 +231,7 @@ internal static class VmfPlacement
     /// </remarks>
     public static VmfChunk MoveEntity(VmfChunk entity, QuarterTurn turn)
     {
-        int turns = ((turn.Rotation % 4) + 4) % 4;
+        int turns = KeepsWorldAngles(entity.GetValue("classname")) ? 0 : ((turn.Rotation % 4) + 4) % 4;
         VmfChunk moved = new(entity.Name);
         foreach (VmfNode node in entity.Children)
         {
