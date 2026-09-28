@@ -64,6 +64,12 @@ public sealed class TextureReferenceTable
     // will keep it.
     private readonly List<TextureReference> _slots = [default];
 
+    // Each committed name's first index, so FindMiptex's "is it already
+    // here" is a lookup and not a scan of up to 1024 names per brush side.
+    // Committed entries never change once Count has passed them, so the
+    // first index recorded is the one the scan would have found.
+    private readonly Dictionary<string, int> _committed = new(StringComparer.Ordinal);
+
     /// <summary>How many materials are committed: stock's <c>nummiptex</c>.</summary>
     public int Count { get; private set; }
 
@@ -122,12 +128,9 @@ public sealed class TextureReferenceTable
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(materials);
 
-        for (int i = 0; i < Count; i++)
+        if (_committed.TryGetValue(name, out int known))
         {
-            if (string.Equals(_slots[i].Name, name, StringComparison.Ordinal))
-            {
-                return i;
-            }
+            return known;
         }
 
         if (Count == MaxMapTextures)
@@ -160,6 +163,7 @@ public sealed class TextureReferenceTable
         _slots[index] = new TextureReference(name, (int)surface.Flags, (int)surface.Contents, 0f);
         Count++;
         _slots.Add(default);
+        _committed.TryAdd(name, index);
 
         // g_bHasWater is set inside the "rendered normally" branch only
         //So a material that is BOTH %compileWater

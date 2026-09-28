@@ -80,6 +80,33 @@ public sealed class ChunkTokenReader
     // text (an escape, a '+' join, a chunk boundary); see GetString.
     private StringBuilder? _builder;
 
+    // The recently cut short tokens, one per slot, found by hash; see Slice.
+    // Allocated on the first short token, owned by this reader, and dropped
+    // with it: nothing outlives one document.
+    private string?[]? _recent;
+
+    /// <summary>
+    /// How many slots <see cref="Slice"/>'s cache of recent short tokens has.
+    /// </summary>
+    /// <remarks>
+    /// A power of two, so a hash picks a slot with a mask. Large enough that
+    /// the few hundred distinct key names of a real map and its common values
+    /// ("0", "1", material names, the usual texture axes) mostly keep their
+    /// slots while the unique ids and coordinates stream past.
+    /// </remarks>
+    internal const int RecentTokenSlots = 4096;
+
+    /// <summary>
+    /// The longest token <see cref="Slice"/> looks for in its cache; longer
+    /// ones are cut out fresh every time.
+    /// </summary>
+    /// <remarks>
+    /// A side's <c>plane</c> value, the longest common token at about fifty
+    /// characters, is unique to its side, so hashing it would be pure cost.
+    /// Key names and the values that repeat are well under this.
+    /// </remarks>
+    internal const int RecentTokenMaxLength = 32;
+
     /// <summary>Creates a reader over already-decoded text.</summary>
     /// <param name="text">The whole file's text.</param>
     /// <exception cref="ArgumentNullException"><paramref name="text"/> is null.</exception>
@@ -211,9 +238,9 @@ public sealed class ChunkTokenReader
             return ChunkTokenType.EndOfFile;
         }
 
-        if (OperatorCharacters.Contains((char)ch, StringComparison.Ordinal))
+        if (OperatorText((char)ch) is string operatorText)
         {
-            token = ((char)ch).ToString();
+            token = operatorText;
             return ChunkTokenType.Operator;
         }
 
@@ -254,7 +281,7 @@ public sealed class ChunkTokenReader
             }
 
             PutBack(ch);
-            token = _text.Substring(tokenStart, length);
+            token = Slice(tokenStart, length);
             return ChunkTokenType.Integer;
         }
 
@@ -270,7 +297,7 @@ public sealed class ChunkTokenReader
         }
 
         PutBack(ch);
-        token = _text.Substring(tokenStart, identLength);
+        token = Slice(tokenStart, identLength);
         return ChunkTokenType.Identifier;
     }
 
@@ -474,7 +501,7 @@ public sealed class ChunkTokenReader
                 }
 
                 token = result is not null ? result.ToString()
-                    : haveSlice ? _text.Substring(sliceStart, sliceLength)
+                    : haveSlice ? Slice(sliceStart, sliceLength)
                     : string.Empty;
                 return ChunkTokenType.String;
             }
@@ -517,33 +544,124 @@ public sealed class ChunkTokenReader
     /// <paramref name="delimiter"/> without consuming it.
     /// </summary>
     /// <returns>Where the extracted characters start in the text, and how many there are.</returns>
+    /// <remarks>
+    /// One vectorised search over the window rather than a peek and a get per
+    /// character: a VMF is mostly quoted strings, so this is the loop the
+    /// whole file goes through. The stream semantics are unchanged. The
+    /// window is <paramref name="maximum"/> characters or what is left,
+    /// whichever is less; the delimiter inside it ends the extraction without
+    /// being consumed; and eofbit is set exactly when the text ran out before
+    /// either the delimiter or the maximum was reached -- so a window that
+    /// ends precisely at the end of the text, full, does NOT set it, as the
+    /// stream's extraction stops on the count without looking further.
+    /// </remarks>
     private (int Start, int Length) GetUntil(int maximum, char delimiter)
     {
         int start = _position;
-        int length = 0;
+        int window = Math.Min(maximum, _text.Length - start);
+        int length = _text.AsSpan(start, window).IndexOf(delimiter);
 
-        while (length < maximum)
+        if (length < 0)
         {
-            int next = Peek();
-            if (next < 0)
+            length = window;
+
+            // Reaching the end sets eofbit, which is exactly what the
+            // reference relies on to report an unterminated string.
+            if (window < maximum)
             {
-                // Reaching the end sets eofbit, which is exactly what the
-                // reference relies on to report an unterminated string.
                 _eof = true;
-                break;
             }
-
-            if (next == delimiter)
-            {
-                break;
-            }
-
-            Get();
-            length++;
         }
 
+        _position = start + length;
         return (start, length);
     }
+
+    /// <summary>
+    /// The token text <c>[start, start + length)</c> as a string, shared with
+    /// an equal token cut recently when there is one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A map is hundreds of thousands of key/value pairs over a few hundred
+    /// distinct key names, and most values repeat too: a side's
+    /// <c>rotation</c>, <c>lightmapscale</c> and <c>smoothing_groups</c>, its
+    /// material, often its texture axes. Cutting a fresh string for each was
+    /// most of what parsing a document allocated. A token is a string either
+    /// way and strings are immutable, so handing back an equal string cut
+    /// earlier changes nothing for anything that reads the text -- only
+    /// reference identity could tell, and nothing about a token's meaning
+    /// hangs on that.
+    /// </para>
+    /// <para>
+    /// The cache is direct-mapped, not a growing set: a slot per hash, the
+    /// newest token wins its slot. Its size is fixed however large or
+    /// strange the input, and the unique tokens a map is also full of (ids,
+    /// origins) only evict and never accumulate. The hash is the runtime's
+    /// randomised string hash, which only decides which slot is tried --
+    /// never what the token is -- so it cannot change a parse.
+    /// </para>
+    /// </remarks>
+    private string Slice(int start, int length)
+    {
+        if (length == 0)
+        {
+            return string.Empty;
+        }
+
+        if (length > RecentTokenMaxLength)
+        {
+            return _text.Substring(start, length);
+        }
+
+        ReadOnlySpan<char> text = _text.AsSpan(start, length);
+        _recent ??= new string?[RecentTokenSlots];
+        int slot = string.GetHashCode(text) & (RecentTokenSlots - 1);
+
+        string? known = _recent[slot];
+        if (known is not null && text.SequenceEqual(known))
+        {
+            return known;
+        }
+
+        string cut = text.ToString();
+        _recent[slot] = cut;
+        return cut;
+    }
+
+    /// <summary>
+    /// The one-character string for an operator character, or null when the
+    /// character is not one of <see cref="OperatorCharacters"/>.
+    /// </summary>
+    /// <param name="ch">The character just read.</param>
+    /// <returns>The operator's text, or null.</returns>
+    /// <remarks>
+    /// Literals, so every <c>{</c> and <c>}</c> of a document -- two per chunk
+    /// -- is the same interned string rather than a new one-character string
+    /// each time. Same set, same answers as testing
+    /// <see cref="OperatorCharacters"/>; a fact checks the two agree.
+    /// </remarks>
+    internal static string? OperatorText(char ch) => ch switch
+    {
+        '@' => "@",
+        ',' => ",",
+        '!' => "!",
+        '+' => "+",
+        '&' => "&",
+        '*' => "*",
+        '$' => "$",
+        '.' => ".",
+        '=' => "=",
+        ':' => ":",
+        '[' => "[",
+        ']' => "]",
+        '(' => "(",
+        ')' => ")",
+        '{' => "{",
+        '}' => "}",
+        '\\' => "\\",
+        _ => null,
+    };
 
     private StringBuilder Builder()
     {

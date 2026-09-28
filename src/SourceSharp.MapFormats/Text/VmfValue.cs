@@ -69,6 +69,14 @@ public static class VmfValue
     public static float ParseFloat(string? value) => (float)CFormat.Atof(value ?? string.Empty);
 
     /// <summary>
+    /// <see cref="ParseFloat(string)"/> over a slice of a larger string: the
+    /// same <c>atof</c>, narrowed to float the same way, with no substring.
+    /// </summary>
+    /// <param name="value">The characters to parse.</param>
+    /// <returns>The value, or zero.</returns>
+    public static float ParseFloat(ReadOnlySpan<char> value) => (float)CFormat.Atof(value);
+
+    /// <summary>
     /// <c>ReadKeyValueColor</c>: three integers separated by whitespace.
     /// </summary>
     /// <param name="value">The value text.</param>
@@ -82,7 +90,8 @@ public static class VmfValue
     {
         colour = default;
 
-        if (value is null || !TryScanNumbers(value, '\0', '\0', 3, out double[] parts))
+        Span<double> parts = stackalloc double[3];
+        if (value is null || !TryScanNumbers(value, '\0', '\0', parts))
         {
             return false;
         }
@@ -101,7 +110,8 @@ public static class VmfValue
     {
         point = default;
 
-        if (value is null || !TryScanNumbers(value, '(', ')', 3, out double[] parts))
+        Span<double> parts = stackalloc double[3];
+        if (value is null || !TryScanNumbers(value, '(', ')', parts))
         {
             return false;
         }
@@ -120,7 +130,8 @@ public static class VmfValue
     {
         vector = default;
 
-        if (value is null || !TryScanNumbers(value, '[', ']', 3, out double[] parts))
+        Span<double> parts = stackalloc double[3];
+        if (value is null || !TryScanNumbers(value, '[', ']', parts))
         {
             return false;
         }
@@ -139,7 +150,8 @@ public static class VmfValue
     {
         vector = default;
 
-        if (value is null || !TryScanNumbers(value, '[', ']', 2, out double[] parts))
+        Span<double> parts = stackalloc double[2];
+        if (value is null || !TryScanNumbers(value, '[', ']', parts))
         {
             return false;
         }
@@ -159,8 +171,31 @@ public static class VmfValue
         out (float X, float Y, float Z, float W) vector)
     {
         vector = default;
+        return value is not null && TryParseVector4(value.AsSpan(), out vector);
+    }
 
-        if (value is null || !TryScanNumbers(value, '[', ']', 4, out double[] parts))
+    /// <summary>
+    /// <see cref="TryParseVector4(string, out ValueTuple{float, float, float, float})"/>
+    /// over a slice of a larger string.
+    /// </summary>
+    /// <param name="value">The characters to parse.</param>
+    /// <param name="vector">The four components, when they parse.</param>
+    /// <returns>True when all four components were read.</returns>
+    /// <remarks>
+    /// The loader reads both texture axes of every side through this. The
+    /// string overload used to allocate the four-element result array and a
+    /// substring per component; this one scans into a stack buffer and
+    /// converts each component in place, with the same scan and the same
+    /// rounding, so the two overloads agree on every input.
+    /// </remarks>
+    public static bool TryParseVector4(
+        ReadOnlySpan<char> value,
+        out (float X, float Y, float Z, float W) vector)
+    {
+        vector = default;
+
+        Span<double> parts = stackalloc double[4];
+        if (!TryScanNumbers(value, '[', ']', parts))
         {
             return false;
         }
@@ -227,13 +262,12 @@ public static class VmfValue
     /// three assignments happened before the <c>]</c> failed to match.
     /// </remarks>
     private static bool TryScanNumbers(
-        string text,
+        ReadOnlySpan<char> text,
         char open,
         char close,
-        int count,
-        out double[] values)
+        Span<double> values)
     {
-        values = new double[count];
+        int count = values.Length;
         int index = 0;
 
         if (open != '\0')
@@ -258,8 +292,7 @@ public static class VmfValue
                 return false;
             }
 
-            values[i] = double.Parse(
-                text[start..end], NumberStyles.Float, CultureInfo.InvariantCulture);
+            values[i] = CFormat.ParseScannedNumber(text[start..end]);
             index = end;
         }
 
@@ -268,7 +301,7 @@ public static class VmfValue
         return true;
     }
 
-    private static int SkipWhitespace(string text, int index)
+    private static int SkipWhitespace(ReadOnlySpan<char> text, int index)
     {
         while (index < text.Length && char.IsWhiteSpace(text[index]))
         {
@@ -278,7 +311,7 @@ public static class VmfValue
         return index;
     }
 
-    private static int ScanFloat(string text, int index)
+    private static int ScanFloat(ReadOnlySpan<char> text, int index)
     {
         int start = index;
 

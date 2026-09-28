@@ -108,6 +108,86 @@ public class PhysicalFileSystemTests
         Assert.Equal(1234, owner.Memory.Length);
     }
 
+    /// <summary>
+    /// A small file is read where the caller is (see ReadAllAsync's remarks):
+    /// the task is already complete when it comes back.
+    /// </summary>
+    [Fact]
+    public async Task ASmallFileIsReadWithoutWaiting()
+    {
+        using TempTree tree = new();
+        byte[] contents = RandomNumberGenerator.GetBytes(300);
+        tree.Write("a.vmt", contents);
+
+        ValueTask<IMemoryOwner<byte>> read = tree.CopyingFileSystem().ReadAllAsync(VPath.Create("a.vmt"));
+
+        Assert.True(read.IsCompletedSuccessfully);
+        using IMemoryOwner<byte> owner = await read;
+        Assert.Equal(contents, owner.Memory.ToArray());
+    }
+
+    [Fact]
+    public async Task ALargeFileReadWithoutMappingComesBackWhole()
+    {
+        // Larger than any single positioned read is promised to return.
+        using TempTree tree = new();
+        byte[] contents = RandomNumberGenerator.GetBytes(5 * 1024 * 1024 + 17);
+        tree.Write("big.bin", contents);
+
+        using IMemoryOwner<byte> owner = await tree.CopyingFileSystem().ReadAllAsync(VPath.Create("big.bin"));
+
+        Assert.True(owner.Memory.Span.SequenceEqual(contents));
+    }
+
+    [Fact]
+    public async Task AnEmptyFileReadsAsNoBytes()
+    {
+        using TempTree tree = new();
+        tree.Write("empty.vmt", []);
+
+        using IMemoryOwner<byte> owner = await tree.FileSystem().ReadAllAsync(VPath.Create("empty.vmt"));
+
+        Assert.Equal(0, owner.Memory.Length);
+    }
+
+    [Fact]
+    public void AnAbsentFileFaultsTheTaskRatherThanThrowing()
+    {
+        // As an async method would: the failure travels in the task, so a
+        // caller that starts several reads and awaits them later sees it
+        // where it awaits.
+        using TempTree tree = new();
+
+        ValueTask<IMemoryOwner<byte>> read = tree.FileSystem().ReadAllAsync(VPath.Create("nope.bin"));
+
+        Assert.True(read.IsFaulted);
+        Assert.IsType<FileNotFoundException>(read.AsTask().Exception!.InnerException);
+    }
+
+    [Fact]
+    public void ACancelledTokenCancelsTheTask()
+    {
+        using TempTree tree = new();
+        tree.Write("a.bin", [1, 2, 3]);
+        using CancellationTokenSource cancelled = new();
+        cancelled.Cancel();
+
+        ValueTask<IMemoryOwner<byte>> read = tree.FileSystem().ReadAllAsync(VPath.Create("a.bin"), cancelled.Token);
+
+        Assert.True(read.IsCanceled);
+    }
+
+    [ShortReadFileFact]
+    public async Task AFileShorterThanItsSizeIsAnEndOfStream()
+    {
+        // The exact-length read the stream used to do reported a file that
+        // ended early as EndOfStreamException; the positioned reads do too.
+        PhysicalFileSystem sysfs = new(ShortReadFileFactAttribute.Root, long.MaxValue);
+
+        await Assert.ThrowsAsync<EndOfStreamException>(async () =>
+            await sysfs.ReadAllAsync(VPath.Create(ShortReadFileFactAttribute.Relative)));
+    }
+
     [Fact]
     public async Task ReadAllOfAnAbsentFileThrowsFileNotFound()
     {

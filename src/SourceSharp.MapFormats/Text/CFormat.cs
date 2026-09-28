@@ -133,11 +133,142 @@ internal static class CFormat
     public static double Atof(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        int end = ScanNumberEnd(text, allowFraction: true);
-        return end == 0
-            ? 0.0
-            : double.Parse(text[..end], NumberStyles.Float, CultureInfo.InvariantCulture);
+        return Atof(text.AsSpan());
     }
+
+    /// <summary>
+    /// <c>atof</c> over a slice of a larger string: the same conversion as
+    /// <see cref="Atof(string)"/>, without first cutting the slice out.
+    /// </summary>
+    /// <param name="text">The characters to parse.</param>
+    /// <returns>The value, or zero.</returns>
+    /// <remarks>
+    /// The VMF loader reads nine coordinates out of every side's <c>plane</c>
+    /// and eight numbers out of its two texture axes. Cutting each one out as
+    /// a string before converting it was a substring allocation per number,
+    /// hundreds of thousands per map, for text that is discarded the moment
+    /// it is converted. The conversion itself is unchanged: the same prefix
+    /// scan picks the same characters, and <see cref="double.Parse(ReadOnlySpan{char}, NumberStyles, IFormatProvider)"/>
+    /// rounds a span exactly as it rounds the equal string.
+    /// </remarks>
+    public static double Atof(ReadOnlySpan<char> text)
+    {
+        int end = ScanNumberEnd(text, allowFraction: true);
+        return end == 0 ? 0.0 : ParseScannedNumber(text[..end]);
+    }
+
+    /// <summary>
+    /// Converts text a number scan has already accepted -- optional leading C
+    /// whitespace, then a C floating-point literal -- to the nearest double,
+    /// exactly as <see cref="double.Parse(ReadOnlySpan{char}, NumberStyles, IFormatProvider)"/>
+    /// with <see cref="NumberStyles.Float"/> and the invariant culture does.
+    /// </summary>
+    /// <param name="number">The accepted text.</param>
+    /// <returns>The correctly rounded value.</returns>
+    /// <remarks>
+    /// <para>
+    /// A VMF is hundreds of thousands of short decimals -- <c>-1024</c>,
+    /// <c>0.25</c>, <c>128.5</c> -- and the general parser's set-up per call
+    /// (style checks, the format provider, its digit buffer) cost more than
+    /// the conversion. The short ones take a direct route instead: at most
+    /// fifteen digits, no exponent. Fifteen decimal digits always fit in a
+    /// double's 53-bit significand exactly, and so does every power of ten up
+    /// to 10^22, so the value is one exact integer divided by one exact power
+    /// of ten -- a single IEEE division, which rounds correctly by
+    /// definition. The general parser rounds correctly too, and the correctly
+    /// rounded result is unique, so the two cannot differ. Anything else --
+    /// more digits, an exponent, anything unexpected -- goes to the general
+    /// parser as before.
+    /// </para>
+    /// <para>
+    /// A negative zero stays negative, as the general parser keeps it.
+    /// </para>
+    /// </remarks>
+    internal static double ParseScannedNumber(ReadOnlySpan<char> number)
+    {
+        return TryParseShortDecimal(number, out double value)
+            ? value
+            : double.Parse(number, NumberStyles.Float, CultureInfo.InvariantCulture);
+    }
+
+    // The direct route of ParseScannedNumber, or false to send the text to
+    // the general parser.
+    internal static bool TryParseShortDecimal(ReadOnlySpan<char> number, out double value)
+    {
+        value = 0.0;
+        int index = 0;
+
+        // The leading whitespace atoi/atof skip, all of which NumberStyles.Float
+        // also allows.
+        while (index < number.Length && number[index] is ' ' or '\t' or '\n' or '\r' or '\v' or '\f')
+        {
+            index++;
+        }
+
+        bool negative = false;
+        if (index < number.Length && number[index] is '+' or '-')
+        {
+            negative = number[index] == '-';
+            index++;
+        }
+
+        long mantissa = 0;
+        int digits = 0;
+        int fractionDigits = 0;
+        bool seenPoint = false;
+
+        for (; index < number.Length; index++)
+        {
+            char c = number[index];
+            if (char.IsAsciiDigit(c))
+            {
+                if (++digits > MaxShortDecimalDigits)
+                {
+                    return false;
+                }
+
+                mantissa = (mantissa * 10) + (c - '0');
+                if (seenPoint)
+                {
+                    fractionDigits++;
+                }
+            }
+            else if (c == '.' && !seenPoint)
+            {
+                seenPoint = true;
+            }
+            else
+            {
+                // An exponent, or anything the scan should not have let in.
+                return false;
+            }
+        }
+
+        if (digits == 0)
+        {
+            return false;
+        }
+
+        double magnitude = mantissa;
+        if (fractionDigits > 0)
+        {
+            magnitude /= PowersOfTen[fractionDigits];
+        }
+
+        value = negative ? -magnitude : magnitude;
+        return true;
+    }
+
+    // Fifteen digits: 10^15 - 1 is below 2^53, so every such integer is a
+    // double exactly.
+    private const int MaxShortDecimalDigits = 15;
+
+    // 10^0 .. 10^15, each exactly representable (every power of ten to 10^22 is).
+    private static ReadOnlySpan<double> PowersOfTen =>
+    [
+        1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7,
+        1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+    ];
 
     /// <summary>
     /// <c>atoi</c>: parse a leading base-10 integer, and yield zero when there
@@ -148,6 +279,17 @@ internal static class CFormat
     public static int Atoi(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
+        return Atoi(text.AsSpan());
+    }
+
+    /// <summary>
+    /// <c>atoi</c> over a slice of a larger string, for the same reason
+    /// <see cref="Atof(ReadOnlySpan{char})"/> exists: no substring per number.
+    /// </summary>
+    /// <param name="text">The characters to parse.</param>
+    /// <returns>The value, or zero.</returns>
+    public static int Atoi(ReadOnlySpan<char> text)
+    {
         int end = ScanNumberEnd(text, allowFraction: false);
         if (end == 0)
         {
@@ -160,7 +302,7 @@ internal static class CFormat
             : 0;
     }
 
-    private static int ScanNumberEnd(string text, bool allowFraction)
+    private static int ScanNumberEnd(ReadOnlySpan<char> text, bool allowFraction)
     {
         int index = 0;
 

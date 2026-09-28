@@ -55,6 +55,11 @@ public sealed class TexDataStringTable
     // asserts the two agree rather than the invariant being assumed.
     private readonly List<string> _names = [];
 
+    // Each name's first id under AddOrFind's case-insensitive comparison, so
+    // an add is a lookup rather than a scan of every name so far (a cubemap
+    // pass adds one patched name per material and sample).
+    private readonly Dictionary<string, int> _firstByName = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>How many strings the table holds.</summary>
     public int Count => _offsets.Count;
 
@@ -87,12 +92,9 @@ public sealed class TexDataStringTable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        for (int i = 0; i < _names.Count; i++)
+        if (_firstByName.TryGetValue(name, out int known))
         {
-            if (string.Equals(_names[i], name, StringComparison.OrdinalIgnoreCase))
-            {
-                return i;
-            }
+            return known;
         }
 
         int offset = _data.Count;
@@ -100,6 +102,7 @@ public sealed class TexDataStringTable
         _data.Add(0);
         _offsets.Add(offset);
         _names.Add(name);
+        _firstByName.Add(name, _offsets.Count - 1);
         return _offsets.Count - 1;
     }
 

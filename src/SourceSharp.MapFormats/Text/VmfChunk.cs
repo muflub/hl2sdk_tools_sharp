@@ -79,7 +79,29 @@ public sealed class VmfChunk : VmfNode
     /// <summary>The first nested chunk with this name, or null.</summary>
     /// <param name="name">The chunk name.</param>
     /// <returns>The chunk, or null.</returns>
-    public VmfChunk? GetChunk(string name) => GetChunks(name).FirstOrDefault();
+    /// <remarks>
+    /// A plain loop rather than <c>GetChunks(name).FirstOrDefault()</c>: the
+    /// map loader asks every side for its <c>dispinfo</c>, and the LINQ
+    /// spelling built a closure, two iterators and a boxed enumerator per
+    /// question -- tens of thousands of small objects for a question whose
+    /// answer is almost always "none". The answer is the same: the first child
+    /// that is a chunk with the name, compared case-insensitively.
+    /// </remarks>
+    public VmfChunk? GetChunk(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        IList<VmfNode> children = Children;
+        for (int i = 0; i < children.Count; i++)
+        {
+            if (children[i] is VmfChunk chunk && string.Equals(chunk.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return chunk;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>Appends a key/value pair.</summary>
     /// <param name="name">The key name.</param>
