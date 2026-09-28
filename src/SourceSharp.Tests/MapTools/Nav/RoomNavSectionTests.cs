@@ -157,8 +157,8 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
     public void PackSectionsAreTurnZeroOrAllFourTurns()
     {
         RoomNav nav = fixture.Nav("corner");
-        Assert.Equal(["NVR0"], RoomNavPack.Sections(nav, new RoomNavPackOptions()).Select(s => s.Tag));
-        IReadOnlyList<RoomPackSectionData> all = RoomNavPack.Sections(nav, new RoomNavPackOptions { StoreAllTurns = true });
+        Assert.Equal(["NVR0"], RoomNavPack.Sections(nav, new RoomNavPackOptions { StoreAllTurns = false }).Select(s => s.Tag));
+        IReadOnlyList<RoomPackSectionData> all = RoomNavPack.Sections(nav, new RoomNavPackOptions());
         Assert.Equal(["NVR0", "NVR1", "NVR2", "NVR3"], all.Select(s => s.Tag));
         for (int t = 0; t < 4; t++)
         {

@@ -52,9 +52,9 @@ namespace SourceSharp.MapTools.Nav;
 /// <b>Why one section per turn.</b> The link reads only the section for the
 /// turn a placement uses, when the pack has it, and turns the <c>NVR0</c>
 /// copy itself otherwise. Whether the pack carries the turned copies is the
-/// writer's choice (<see cref="RoomNavPackOptions.StoreAllTurns"/>): the
-/// link is correct either way, and the measured trade is in
-/// <c>docs/nav3d-format.md</c>.
+/// writer's choice (<see cref="RoomNavPackOptions.StoreAllTurns"/>, on by
+/// default because it links faster): the link gives the same file either
+/// way, and the measured trade is in <c>docs/nav3d-format.md</c>.
 /// </para>
 /// </remarks>
 public static class RoomNavSection

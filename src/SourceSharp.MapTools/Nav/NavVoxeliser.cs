@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using System.Runtime.CompilerServices;
+
 using SourceSharp.MapFormats.Nav;
 
 namespace SourceSharp.MapTools.Nav;
@@ -120,6 +122,7 @@ public static class NavVoxeliser
     /// <param name="floorNormalZ">The least normal z of a floor.</param>
     /// <param name="cancellationToken">Cancels the classification between slices.</param>
     /// <returns>The grid.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static NavVoxelGrid Classify(
         IReadOnlyList<NavBrush> brushes,
         NavRegion region,

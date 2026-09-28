@@ -157,7 +157,7 @@ public sealed class NavCommandsTests
             Assert.DoesNotContain(EntityLump.Parse(room.Bsp[BspLump.Entities]), e => e.ClassName == RoomPois.Entity);
         }
 
-        Assert.All(index.Entries, e => Assert.Equal(["ROOM", "NVR0"], e.Sections.Select(s => s.Tag)));
+        Assert.All(index.Entries, e => Assert.Equal(["ROOM", "NVR0", "NVR1", "NVR2", "NVR3"], e.Sections.Select(s => s.Tag)));
         Assert.Equal(["CMPL"], index.LibrarySections.Select(s => s.Tag));
     }
 
@@ -232,8 +232,8 @@ public sealed class NavCommandsTests
     public async Task ALinkReadsOnlyTheIndexThePlacedRoomsAndTheirNavigation()
     {
         InMemoryFileSystem fs = Game();
-        Assert.Equal(Program.ExitSuccess, (await RoomAsync(fs, "-nav-turns")).Exit);
-        fs.AddText(Rooted("/levels/level.yaml"), RoomHarness.LevelText("../game/maps/rooms.vmf", "up, down"));
+        Assert.Equal(Program.ExitSuccess, (await RoomAsync(fs)).Exit);
+        fs.AddText(Rooted("/levels/level.yaml"), RoomHarness.LevelText("../game/maps/rooms.vmf", "up, hall@180"));
         TapFileSystem tap = new(fs);
         (int exit, string log) = await LinkAsync(tap);
         Assert.True(exit == Program.ExitSuccess, log);
@@ -241,10 +241,10 @@ public sealed class NavCommandsTests
         using MemoryStream stream = new(fs.GetBytes(At("/rooms.roompack"))!);
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
         long expected = index.IndexEnd + index.LibrarySections.Sum(s => s.Length);
-        foreach (string room in new[] { "up", "down" })
+        foreach (string room in new[] { "up", "hall" })
         {
             RoomPackEntry entry = index.Find(room)!;
-            expected += entry.Room.Length + entry.Find("NVR0")!.Value.Length;
+            expected += entry.Room.Length + entry.Find(room == "hall" ? "NVR2" : "NVR0")!.Value.Length;
             Assert.Equal(["ROOM", "NVR0", "NVR1", "NVR2", "NVR3"], entry.Sections.Select(s => s.Tag));
         }
 

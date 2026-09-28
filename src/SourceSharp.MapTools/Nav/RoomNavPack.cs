@@ -17,10 +17,20 @@ public sealed record RoomNavPackOptions
     /// <summary>
     /// Whether the pack also carries each room turned by one, two and three
     /// quarter turns (<c>NVR1</c> to <c>NVR3</c>), so the link reads a
-    /// placement's turn instead of turning turn 0 itself. Off by default:
-    /// see <c>docs/nav3d-format.md</c> for the measured trade.
+    /// placement's turn instead of turning turn 0 itself. On by default.
     /// </summary>
-    public bool StoreAllTurns { get; init; }
+    /// <remarks>
+    /// Turning is a lossless permutation and cheap, but not free: on the
+    /// 256-room stress library's 16x16 level, <c>ssmap link</c> took a median
+    /// 1.32 s from a pack with the four turns and 1.74 s from one with turn 0
+    /// alone (user CPU 0.86 s against 1.0 s, a cold process on a loaded
+    /// 4-core machine); in a warm process the read-and-turn step was 41-44 ms
+    /// against 43-55 ms. The owner's rule is that disk is cheap and link time
+    /// decides, so the four turns are stored: the pack's navigation grows
+    /// fourfold (7.3 MB to 29.4 MB for those 256 rooms). The link gives the
+    /// same file either way, which a fact checks.
+    /// </remarks>
+    public bool StoreAllTurns { get; init; } = true;
 
     /// <summary>How each section's payload is stored; none by default (the measured fastest to link).</summary>
     public NavCompression Compression { get; init; } = NavCompression.None;

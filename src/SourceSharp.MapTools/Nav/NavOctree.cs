@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using System.Runtime.CompilerServices;
+
 using SourceSharp.MapFormats.Nav;
 
 namespace SourceSharp.MapTools.Nav;
@@ -54,6 +56,7 @@ public static class NavOctree
     /// <param name="dense">The voxel codes (<see cref="NavVoxelGrid.Blocked"/> or <see cref="NavVoxelGrid.FreeBit"/> with flags), x fastest; <c>n³</c> of them.</param>
     /// <param name="n">Voxels along the cell's edge, 1 to <see cref="NavSettings.MaxCellVoxels"/>.</param>
     /// <returns>The node words and the free leaves.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static (uint[] Nodes, RoomNavLeaf[] Leaves) Build(ReadOnlySpan<ushort> dense, int n)
     {
         CheckSize(n, dense.Length);
@@ -121,6 +124,7 @@ public static class NavOctree
     /// <param name="n">Voxels along the cell's edge.</param>
     /// <returns>The voxel codes, x fastest.</returns>
     /// <exception cref="InvalidDataException">A node points outside the nodes or leaves, or the tree is deeper than the cell allows.</exception>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static ushort[] Expand(ReadOnlySpan<uint> nodes, ReadOnlySpan<RoomNavLeaf> leaves, int n)
     {
         CheckSize(n, n * n * n);
@@ -165,6 +169,7 @@ public static class NavOctree
     /// Only the side bits change meaning: the east side becomes the north,
     /// and so on round.
     /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static ushort[] Turn(ReadOnlySpan<ushort> dense, int n, int quarterTurns)
     {
         CheckSize(n, dense.Length);
@@ -257,6 +262,7 @@ public static class NavOctree
         return Nav3dFormat.Node(Nav3dNodeKind.Free, (uint)index);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Fill(ReadOnlySpan<uint> nodes, int leafCount, int n, int node, int size, int x0, int y0, int z0, int[] map)
     {
         uint word = nodes[node];

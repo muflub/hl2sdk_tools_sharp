@@ -126,9 +126,9 @@ public static class RoomCommands
                 navOptions = navOptions with { Compression = compression };
                 i++;
             }
-            else if (IsFlag(args[i], "nav-turns"))
+            else if (IsFlag(args[i], "nav-turn0"))
             {
-                navOptions = navOptions with { StoreAllTurns = true };
+                navOptions = navOptions with { StoreAllTurns = false };
             }
             else
             {
@@ -145,7 +145,7 @@ public static class RoomCommands
         if (parsed.HasErrors || parsed.MapPath is null)
         {
             await output.WriteLineAsync(
-                "usage: ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turns] [-nav-codec <none|deflate[:n]|brotli[:n]>] [stock vbsp options]")
+                "usage: ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <none|deflate[:n]|brotli[:n]>] [stock vbsp options]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
         }

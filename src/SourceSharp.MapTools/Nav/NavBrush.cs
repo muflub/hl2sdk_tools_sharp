@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using System.Runtime.CompilerServices;
+
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
@@ -212,6 +214,7 @@ public sealed class NavBrush
     /// <summary>Whether a box's interior overlaps the brush's, by more than <see cref="Epsilon"/>.</summary>
     /// <param name="box">The box.</param>
     /// <returns>True when no separating axis exists.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public bool Overlaps(in NavBox box)
     {
         const double e = Epsilon;

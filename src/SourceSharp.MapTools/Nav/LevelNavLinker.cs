@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using System.Runtime.CompilerServices;
+
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Nav;
 
@@ -332,18 +334,20 @@ public static class LevelNavLinker
         return new Doors(records, index);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static (Nav3dAgent Agent, int[][] LeafMaps, int[] LeafBase) LinkAgent(
         Placed[] placed, Doors doors, int agent, int columns, int rows, RoomNav first, CancellationToken cancellationToken)
     {
         int n = first.CellVoxels;
-        int n3 = n * n * n;
-        List<uint> nodes = [];
-        List<Nav3dLeaf> leaves = [];
         int[] roots = new int[columns * rows];
         Array.Fill(roots, -1);
         int[] leafBase = new int[placed.Length];
         int[][] leafMaps = new int[placed.Length][];
-        List<(int A, int B, bool Door, int DoorIndex)> edges = [];
+        int[] stamp = [];
+        int expectedLeaves = placed.Sum(p => p.Nav.AgentData[agent].Leaves.Length);
+        List<(int A, int B, bool Door, int DoorIndex)> edges = new(expectedLeaves * 3);
+        List<uint> nodes = new(placed.Sum(p => p.Nav.AgentData[agent].Nodes.Length));
+        List<Nav3dLeaf> leaves = new(expectedLeaves);
 
         for (int i = 0; i < placed.Length; i++)
         {
@@ -404,47 +408,53 @@ public static class LevelNavLinker
                     (ushort)(leaf.X + ox), (ushort)(leaf.Y + oy), leaf.Z, leaf.SizeLog2, leaf.Flags, 0, (uint)p.Cell));
             }
 
-            // Face adjacency inside the room: every voxel pair across a face
-            // whose voxels lie in two different leaves.
-            List<long> pairs = [];
-            for (int z = 0; z < n; z++)
+            // Face adjacency inside the room. Two leaves (cubes) that touch
+            // share part of exactly one face, on one axis, so each pair is
+            // found once by scanning the +x, +y and +z faces of the lower
+            // leaf; a stamp per neighbour drops the repeats along one face.
+            // No sort, and no pair list larger than the room's edges.
+            Array.Fill(stamp, -1, 0, Math.Min(stamp.Length, roomLeaves.Length));
+            if (stamp.Length < roomLeaves.Length)
             {
-                for (int y = 0; y < n; y++)
-                {
-                    for (int x = 0; x < n; x++)
-                    {
-                        int here = map[(((z * n) + y) * n) + x];
-                        if (here < 0)
-                        {
-                            continue;
-                        }
-
-                        if (x + 1 < n)
-                        {
-                            AddPair(pairs, here, map[(((z * n) + y) * n) + x + 1]);
-                        }
-
-                        if (y + 1 < n)
-                        {
-                            AddPair(pairs, here, map[(((z * n) + y + 1) * n) + x]);
-                        }
-
-                        if (z + 1 < n)
-                        {
-                            AddPair(pairs, here, map[((((z + 1) * n) + y) * n) + x]);
-                        }
-                    }
-                }
+                stamp = new int[roomLeaves.Length];
+                Array.Fill(stamp, -1);
             }
 
-            pairs.Sort();
-            long previous = -1;
-            foreach (long pair in pairs)
+            for (int l = 0; l < roomLeaves.Length; l++)
             {
-                if (pair != previous)
+                RoomNavLeaf leaf = roomLeaves[l];
+                int size = 1 << leaf.SizeLog2;
+                for (int axis = 0; axis < 3; axis++)
                 {
-                    edges.Add((leafBase[i] + (int)(pair >> 32), leafBase[i] + (int)(pair & 0xFFFFFFFF), false, -1));
-                    previous = pair;
+                    int beyond = (axis == 0 ? leaf.X : axis == 1 ? leaf.Y : leaf.Z) + size;
+                    if (beyond >= n)
+                    {
+                        continue;
+                    }
+
+                    for (int a = 0; a < size; a++)
+                    {
+                        for (int b = 0; b < size; b++)
+                        {
+                            (int x, int y, int z) = axis switch
+                            {
+                                0 => (beyond, leaf.Y + a, leaf.Z + b),
+                                1 => (leaf.X + a, beyond, leaf.Z + b),
+                                _ => (leaf.X + a, leaf.Y + b, beyond),
+                            };
+                            if (x >= n || y >= n || z >= n)
+                            {
+                                continue;
+                            }
+
+                            int other = map[(((z * n) + y) * n) + x];
+                            if (other >= 0 && stamp[other] != l)
+                            {
+                                stamp[other] = l;
+                                edges.Add((leafBase[i] + l, leafBase[i] + other, false, -1));
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -532,20 +542,20 @@ public static class LevelNavLinker
             }
         }
 
-        int[] componentOf = new int[leafArray.Length];
-        Dictionary<int, int> number = [];
+        // A root is its component's smallest leaf, so walking leaves in
+        // order meets each component first at its root.
+        int[] number = new int[leafArray.Length];
         List<(uint Leaves, ulong Voxels)> components = [];
         for (int l = 0; l < leafArray.Length; l++)
         {
             int root = Find(l);
-            if (!number.TryGetValue(root, out int c))
+            if (root == l)
             {
-                c = components.Count;
-                number[root] = c;
+                number[l] = components.Count;
                 components.Add((0, 0));
             }
 
-            componentOf[l] = c;
+            int c = number[root];
             components[c] = (components[c].Leaves + 1, components[c].Voxels + (ulong)leafArray[l].Voxels);
             leafArray[l] = leafArray[l] with { Component = (uint)c };
         }
@@ -564,18 +574,26 @@ public static class LevelNavLinker
             start[l + 1] = start[l] + (uint)degree[l];
         }
 
+        // Filled as (leaf << 1 | door) so a plain sort orders each list by
+        // leaf, then turned into the file's (leaf | door bit << 31).
         uint[] adjacency = new uint[start[^1]];
         int[] fill = new int[leafArray.Length];
         foreach ((int a, int b, bool throughDoor, _) in edges)
         {
-            uint bit = throughDoor ? Nav3dFormat.ThroughDoorBit : 0;
-            adjacency[start[a] + fill[a]++] = (uint)b | bit;
-            adjacency[start[b] + fill[b]++] = (uint)a | bit;
+            uint bit = throughDoor ? 1u : 0u;
+            adjacency[start[a] + fill[a]++] = ((uint)b << 1) | bit;
+            adjacency[start[b] + fill[b]++] = ((uint)a << 1) | bit;
         }
 
         for (int l = 0; l < leafArray.Length; l++)
         {
-            Array.Sort(adjacency, (int)start[l], degree[l], LeafOrder.Instance);
+            adjacency.AsSpan((int)start[l], degree[l]).Sort();
+        }
+
+        for (int e = 0; e < adjacency.Length; e++)
+        {
+            uint entry = adjacency[e];
+            adjacency[e] = (entry >> 1) | ((entry & 1) != 0 ? Nav3dFormat.ThroughDoorBit : 0);
         }
 
         Nav3dAgent linked = new(first.Agents[agent].Name, first.Agents[agent].Mins, first.Agents[agent].Maxs, first.Agents[agent].ContentsMask)
@@ -641,28 +659,9 @@ public static class LevelNavLinker
         throw new InvalidOperationException($"door {door} belongs to no placement.");
     }
 
-    private static void AddPair(List<long> pairs, int a, int b)
-    {
-        if (b < 0 || a == b)
-        {
-            return;
-        }
-
-        (int lo, int hi) = a < b ? (a, b) : (b, a);
-        pairs.Add(((long)lo << 32) | (uint)hi);
-    }
-
     private static long Key(int x, int y, int z) => ((long)x << 40) | ((long)y << 20) | (uint)z;
 
     private sealed record Placed(RoomInstance Instance, RoomNav Nav, int Cell, RoomTransform Transform);
 
     private sealed record Doors(List<Nav3dDoor> Records, int[][] Index);
-
-    /// <summary>Orders adjacency entries by leaf, ignoring the door bit.</summary>
-    private sealed class LeafOrder : IComparer<uint>
-    {
-        public static LeafOrder Instance { get; } = new();
-
-        public int Compare(uint x, uint y) => (x & ~Nav3dFormat.ThroughDoorBit).CompareTo(y & ~Nav3dFormat.ThroughDoorBit);
-    }
 }

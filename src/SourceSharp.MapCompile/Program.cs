@@ -440,7 +440,7 @@ public static class Program
                                                        --record-content <zip>: also write every
                                                        game file the compile read, as a game
                                                        directory with its own gameinfo.txt
-              room <library.vmf> [-out <pack.roompack>] [-nav-turns] [-nav-codec <c>] [vbsp options]
+              room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <c>] [vbsp options]
                                                       every room of a library VMF (one
                                                       info_room each), -threads at once
                                                       -> one <library>.roompack, with each

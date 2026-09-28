@@ -101,12 +101,15 @@ public sealed class Nav3dFileTests
     /// <summary>
     /// The exact bytes, raw and under each codec, pinned by hash: the file is
     /// the same on every run and thread count by construction, and the pins
-    /// make CI's Windows and macOS runners prove the bundled codecs agree
-    /// across operating systems too.
+    /// make CI's Windows and macOS runners prove the codecs agree across
+    /// operating systems too. The Deflate pin is Microsoft's runtime's, which
+    /// carries its own zlib-ng on every OS: a distribution's packaged runtime
+    /// that links the system zlib writes other (equally valid) Deflate bytes,
+    /// so this one row fails there, as it should, while Brotli and raw agree.
     /// </summary>
     [Theory]
     [InlineData("none", 724, "a5aba52b")]
-    [InlineData("deflate:6", 388, "efa60ad6")]
+    [InlineData("deflate:6", 394, "53243cd0")]
     [InlineData("brotli:9", 375, "6a550f96")]
     public void TheBytesArePinned(string codec, int length, string sha256Prefix)
     {
