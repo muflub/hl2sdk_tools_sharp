@@ -55,8 +55,19 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// </remarks>
 public sealed partial class RadWorld
 {
-    /// <summary>The transfers, after <see cref="BounceAsync"/>; null before, and with no bounce.</summary>
+    /// <summary>
+    /// The transfers, after <see cref="BounceAsync"/>; null before, with no
+    /// bounce, and once the compile has let them go (<see cref="ReleaseTransfers"/>).
+    /// </summary>
     public TransferSet? Transfers { get; private set; }
+
+    /// <summary>
+    /// Lets go of <see cref="Transfers"/>: nothing after the bounce reads
+    /// them except the next pass of <c>-both</c> (<see cref="ShareTransfers"/>),
+    /// so the driver calls this on a compile's last pass only. The counts in
+    /// <see cref="VisMatrixStatistics"/> and the bounce's energies are kept.
+    /// </summary>
+    internal void ReleaseTransfers() => Transfers = null;
 
     /// <summary>
     /// Each bounce's added light, in order: stock's
@@ -365,7 +376,7 @@ public sealed partial class RadWorld
             else
             {
                 long start = System.Diagnostics.Stopwatch.GetTimestamp();
-                VisMatrix matrix = new(context);
+                VisMatrix matrix = new(context) { ScratchPool = ScratchPool };
                 transfers = await matrix.BuildAsync(tracer, queue, cancellationToken).ConfigureAwait(false);
                 statistics = matrix.Statistics;
                 if (key is not null)

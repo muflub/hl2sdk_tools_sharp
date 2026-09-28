@@ -172,7 +172,7 @@ public sealed partial class RadWorld
     /// <summary>The 3D skyboxes.</summary>
     public SkyCameras SkyCameras { get; private set; } = SkyCameras.None;
 
-    /// <summary>The gatherer the face lighting used; valid after <see cref="StartAsync"/>.</summary>
+    /// <summary>The gatherer the face lighting used; valid after <see cref="StartAsync(BspData, DirectLightingSettings, TextureLightTable, IRayTracer, CompileParallelism, CancellationToken)"/>.</summary>
     public DirectLightGatherer Gatherer { get; private set; } = null!;
 
     /// <summary>The <c>LUMP_WORLDLIGHTS</c> (or <c>_HDR</c>) records.</summary>
@@ -209,12 +209,36 @@ public sealed partial class RadWorld
     /// <param name="cancellationToken">Cancels the stage.</param>
     /// <returns>The model, ready for <see cref="LightFacesAsync"/>.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public static async Task<RadWorld> StartAsync(
+    public static Task<RadWorld> StartAsync(
         BspData bsp,
         DirectLightingSettings settings,
         TextureLightTable texLights,
         IRayTracer tracer,
         CompileParallelism parallelism,
+        CancellationToken cancellationToken) =>
+        StartAsync(bsp, settings, texLights, tracer, parallelism, scratchPool: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="StartAsync(BspData, DirectLightingSettings, TextureLightTable, IRayTracer, CompileParallelism, CancellationToken)"/>
+    /// inside a compile: the world rents its scratch from the compile's pool
+    /// (<see cref="ScratchPool"/>), from the radial sky probe on.
+    /// </summary>
+    /// <param name="bsp">The map, as vvis left it.</param>
+    /// <param name="settings">The switches.</param>
+    /// <param name="texLights">The texlights from the <c>.rad</c> files.</param>
+    /// <param name="tracer">The tracer.</param>
+    /// <param name="parallelism">How many workers.</param>
+    /// <param name="scratchPool">The compile's scratch pool, or null for none.</param>
+    /// <param name="cancellationToken">Cancels the stage.</param>
+    /// <returns>The model, ready for <see cref="LightFacesAsync"/>.</returns>
+    /// <exception cref="ArgumentNullException">An argument other than the pool is null.</exception>
+    internal static async Task<RadWorld> StartAsync(
+        BspData bsp,
+        DirectLightingSettings settings,
+        TextureLightTable texLights,
+        IRayTracer tracer,
+        CompileParallelism parallelism,
+        Bounce.IScratchArrayPool? scratchPool,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(bsp);
@@ -233,13 +257,14 @@ public sealed partial class RadWorld
             (_, _) => world = Build(bsp, settings, texLights),
             new WorkQueueOptions { Stage = "RadWorld_Start" },
             cancellationToken).ConfigureAwait(false);
+        world.ScratchPool = scratchPool;
 
         await world.ProbeRadialSkyLeavesAsync(queue, tracer, cancellationToken).ConfigureAwait(false);
         return world;
     }
 
     /// <summary>
-    /// The synchronous body of <see cref="StartAsync"/>, for callers already
+    /// The synchronous body of <see cref="StartAsync(BspData, DirectLightingSettings, TextureLightTable, IRayTracer, CompileParallelism, CancellationToken)"/>, for callers already
     /// on a worker.
     /// </summary>
     /// <param name="bsp">The map.</param>
@@ -379,7 +404,14 @@ public sealed partial class RadWorld
             return;
         }
 
-        LightRayLog rays = new() { StockRays = Geometry.StockEstimates };
+        // Rented from the compile's pool when there is one: the probe is one
+        // map-sized batch (tens of megabytes of rays on a large map) recorded
+        // just before the face lighting, whose workers' logs then grow into
+        // the same arrays instead of allocating their own. Disposed however
+        // the probe ends: every trace below is awaited before the next is
+        // started, so once an await has returned or thrown no call is left
+        // reading the rays.
+        using LightRayLog rays = new() { StockRays = Geometry.StockEstimates, Pool = ScratchPool };
 
         // Every leaf records at most SkyProbeRaysPerLeaf first-stage rays, so
         // the whole batch's storage is taken once instead of doubled into.

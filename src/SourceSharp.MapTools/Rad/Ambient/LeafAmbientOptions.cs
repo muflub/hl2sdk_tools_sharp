@@ -79,9 +79,10 @@ public sealed record LeafAmbientOptions
     internal int BatchSegments { get; init; } = TestLineStage.DefaultBatchSegments;
 
     /// <summary>
-    /// Where the stage's per-worker scratch arrays are rented from, or null for
-    /// the process's shared array pool. Internal so the facts can count what
-    /// was rented against what came back, and hand out arrays full of junk.
+    /// Where the stage's per-worker scratch arrays are rented from: the
+    /// compile's pool, or a fact's that counts what was rented against what
+    /// came back and hands out arrays full of junk. Null makes the stage a
+    /// pool of its own, dropped when it ends.
     /// </summary>
     /// <remarks>
     /// Null rather than a default instance so that two options that say the
