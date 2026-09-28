@@ -20,20 +20,33 @@ public sealed record RoomNavPackOptions
     /// placement's turn instead of turning turn 0 itself. On by default.
     /// </summary>
     /// <remarks>
-    /// Turning is a lossless permutation and cheap, but not free: on the
-    /// 256-room stress library's 16x16 level, <c>ssmap link</c> took a median
-    /// 1.32 s from a pack with the four turns and 1.74 s from one with turn 0
-    /// alone (user CPU 0.86 s against 1.0 s, a cold process on a loaded
-    /// 4-core machine); in a warm process the read-and-turn step was 41-44 ms
-    /// against 43-55 ms. The owner's rule is that disk is cheap and link time
-    /// decides, so the four turns are stored: the pack's navigation grows
-    /// fourfold (7.3 MB to 29.4 MB for those 256 rooms). The link gives the
-    /// same file either way, which a fact checks.
+    /// Turning is a lossless permutation and cheap, but not free, and the
+    /// owner's rule is that disk is cheap and link time decides, so the four
+    /// turns are stored. With the clearance grid the difference is inside
+    /// the noise: on the 256-room stress library's 16x16 level, five
+    /// interleaved cold <c>ssmap link</c> runs took a median 1.43 s from a
+    /// pack with the four turns and 1.50 s from one with turn 0 alone (4-core
+    /// machine, other work running), and the navigation sections are 16.2 MB
+    /// against 4.1 MB raw. The link gives the same file either way apart
+    /// from the ids (the pack id covers the pack options), which a fact
+    /// checks.
     /// </remarks>
     public bool StoreAllTurns { get; init; } = true;
 
-    /// <summary>How each section's payload is stored; none by default (the measured fastest to link).</summary>
-    public NavCompression Compression { get; init; } = NavCompression.None;
+    /// <summary>How each section's payload is stored: Brotli at quality 5 by default.</summary>
+    /// <remarks>
+    /// Measured on the same library's 1,024 navigation sections (256 rooms,
+    /// four turns): stored raw they are 16.2 MB, Deflate 6 1.44 MB, Brotli 5
+    /// 0.98 MB (94% smaller), Brotli 11 0.91 MB but 26 s to encode. Reading
+    /// every section back took 20 ms raw and 35 ms from Brotli 5 in a warm
+    /// process, so a link, which reads one turn per placed room, spends a
+    /// few milliseconds more decoding, and the five-run link medians were
+    /// 1.43 s raw and 1.47 s from Brotli 5: a tie inside the noise of a
+    /// 1.2-1.6 s link. With link time tied, the fifteenfold smaller pack
+    /// (27.1 MB to 11.9 MB whole) decides. Version 1's octree sections were
+    /// stored raw because they were then the fastest to link.
+    /// </remarks>
+    public NavCompression Compression { get; init; } = new(NavCodec.Brotli, 5);
 }
 
 /// <summary>

@@ -222,6 +222,11 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
         }
 
         Assert.Throws<ArgumentException>(() => RoomNavPack.Sections(nav.Turned(1), new RoomNavPackOptions()));
+
+        // Stored with Brotli 5 unless told otherwise: a fraction of the raw section.
+        Assert.Equal(new NavCompression(NavCodec.Brotli, 5), new RoomNavPackOptions().Compression);
+        Assert.Equal(RoomNavSection.Write(nav, new NavCompression(NavCodec.Brotli, 5)), all[0].Bytes.ToArray());
+        Assert.True(all[0].Bytes.Length * 5 < RoomNavSection.Write(nav, NavCompression.None).Length);
     }
 
     /// <summary>A section of a revision this build does not know reads as absent, as a link section's does.</summary>
