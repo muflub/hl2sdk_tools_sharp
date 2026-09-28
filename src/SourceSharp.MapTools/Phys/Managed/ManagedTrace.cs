@@ -36,9 +36,11 @@ internal static class ManagedTrace
     /// later gives the same bits as asking at once.
     /// </para>
     /// <para>
-    /// A convex lives only inside the one query (or the one <see cref="LedgeTree"/>) that made
+    /// A convex lives only inside the session (or the one <see cref="LedgeTree"/>) that made
     /// it, on the thread that made it, so the qhull storage it builds its hull with later is
-    /// still that thread's and still idle between builds.
+    /// still that thread's and still idle between builds. A session reuses a collide's placed
+    /// convexes across its queries (<c>ManagedCollisionSession.PlacedConvexes</c>), which is
+    /// safe because nothing a query does changes a convex other than building its planes once.
     /// </para>
     /// </remarks>
     internal sealed class Convex

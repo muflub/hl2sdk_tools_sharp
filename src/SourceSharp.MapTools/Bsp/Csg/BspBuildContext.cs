@@ -536,7 +536,7 @@ public sealed class BspBuildContext
             throw new ArgumentException("only a fork can be joined", nameof(fork));
         }
 
-        Rebase(fork, subtree, rebaseRoot: false);
+        Rebase(fork, subtree, rebaseRoot: false, bringWindings: true);
 
         AllocatedNodes += fork.AllocatedNodes;
         AllocatedBrushes += fork.AllocatedBrushes;
@@ -585,6 +585,11 @@ public sealed class BspBuildContext
     /// them as they were. The bounding planes of the last block listed are
     /// likewise what the serial pass leaves behind, and are copied home.
     /// </para>
+    /// <para>
+    /// The block's windings must already be home
+    /// (<see cref="TakeBlockWindings"/>), which may happen in any order and
+    /// as soon as the block is built; only the numbering waits for its turn.
+    /// </para>
     /// </remarks>
     internal void JoinBlock(BspBuildContext fork, Tree.BspNode? head)
     {
@@ -596,7 +601,7 @@ public sealed class BspBuildContext
 
         if (head is not null)
         {
-            Rebase(fork, head, rebaseRoot: true);
+            Rebase(fork, head, rebaseRoot: true, bringWindings: false);
             Nodes = fork.Nodes;
             NonVisibleNodes = fork.NonVisibleNodes;
         }
@@ -618,10 +623,73 @@ public sealed class BspBuildContext
         fork.ReleaseBrushSidePool();
     }
 
+    /// <summary>
+    /// Copies the live windings of a block built in a fork into this
+    /// context's arena, and gives the fork's arena back to the pool.
+    /// </summary>
+    /// <param name="fork">The block's fork.</param>
+    /// <param name="head">The block tree's head node.</param>
+    /// <exception cref="ArgumentNullException">Either argument is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="fork"/> is not a fork.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Why this is separate from <see cref="JoinBlock"/>.</b> A block's
+    /// ids can only be numbered once every earlier block is joined, but its
+    /// windings can come home the moment it is built: no output depends on
+    /// which arena slot a winding sits in. Holding each finished block's
+    /// arena until its turn kept, on four threads, some thirty block arenas
+    /// alive at once behind one slow early block, and most of the ninety on
+    /// thirty-two; each is a chain of segments that is large-object memory.
+    /// Bringing the windings home at once keeps only the blocks still being
+    /// built holding an arena.
+    /// </para>
+    /// <para>
+    /// The same walk as a join's (every node volume and every leaf brush),
+    /// ids untouched. The caller serialises it with the joins, as both write
+    /// this context's arena.
+    /// </para>
+    /// </remarks>
+    internal void TakeBlockWindings(BspBuildContext fork, Tree.BspNode head)
+    {
+        ArgumentNullException.ThrowIfNull(fork);
+        ArgumentNullException.ThrowIfNull(head);
+        if (!fork.IsFork)
+        {
+            throw new ArgumentException("only a fork's windings can be taken home", nameof(fork));
+        }
+
+        Stack<Tree.BspNode> pending = new();
+        pending.Push(head);
+        while (pending.Count > 0)
+        {
+            Tree.BspNode node = pending.Pop();
+            if (node.Volume is not null)
+            {
+                MoveWindings(node.Volume, fork.Windings, freeSource: false);
+            }
+
+            if (node.IsLeaf)
+            {
+                for (BspBrush? b = node.BrushList; b is not null; b = b.Next)
+                {
+                    MoveWindings(b, fork.Windings, freeSource: false);
+                }
+
+                continue;
+            }
+
+            pending.Push(node.Children[1]!);
+            pending.Push(node.Children[0]!);
+        }
+
+        fork.ReleaseForkWindings();
+    }
+
     // Renumbers a fork's nodes and brushes onto this context's current counts
-    // and copies their live windings home: every node volume and every leaf
-    // brush. The subtree root keeps its id unless the fork allocated it too.
-    private void Rebase(BspBuildContext fork, Tree.BspNode subtree, bool rebaseRoot)
+    // and, when asked, copies their live windings home: every node volume and
+    // every leaf brush. The subtree root keeps its id unless the fork
+    // allocated it too.
+    private void Rebase(BspBuildContext fork, Tree.BspNode subtree, bool rebaseRoot, bool bringWindings)
     {
         int nodeBase = AllocatedNodes;
         int brushBase = AllocatedBrushes;
@@ -664,7 +732,10 @@ public sealed class BspBuildContext
                 brush.IdScope = scope;
             }
 
-            MoveWindings(brush, fork.Windings, freeSource: false);
+            if (bringWindings)
+            {
+                MoveWindings(brush, fork.Windings, freeSource: false);
+            }
         }
     }
 

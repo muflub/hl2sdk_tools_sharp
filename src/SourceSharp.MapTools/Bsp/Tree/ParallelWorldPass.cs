@@ -51,8 +51,10 @@ namespace SourceSharp.MapTools.Bsp.Tree;
 /// (<see cref="BspBuildContext.JoinBlock"/>), each rebased onto the counts the
 /// serial pass had when it began that block. A block is joined as soon as
 /// it and every block before it are done, by whichever thread finished last,
-/// so the joins overlap the blocks still being built and a joined block's
-/// arena goes back to the pool at once.</item>
+/// so the joins overlap the blocks still being built. A block's windings do
+/// not wait for its turn: they are copied home, and its arena given back,
+/// as soon as it is built (<see cref="BspBuildContext.TakeBlockWindings"/>),
+/// so only the blocks being built hold arenas.</item>
 /// <item><b>Diagnostics</b> go to the fork and are appended at its join, so
 /// they come out in block order.</item>
 /// <item><b>The map.</b> Building a block reads map brushes and sides and
@@ -207,6 +209,13 @@ internal static class ParallelWorldPass
                         Build(jobs[b]);
                         lock (gate)
                         {
+                            // Home at once, whatever its turn: see TakeBlockWindings.
+                            if (jobs[b].Head is { } head)
+                            {
+                                context.TakeBlockWindings(jobs[b].Fork, head);
+                            }
+
+                            jobs[b].Fork.ReleaseForkWindings();
                             jobs[b].Done = true;
                             while (next < count && jobs[next].Done)
                             {
@@ -254,12 +263,12 @@ internal static class ParallelWorldPass
         job.Record = record;
     }
 
-    // Folds one finished block into the root, in block order.
+    // Folds one finished block, its windings already home, into the root, in
+    // block order.
     private static void Join(BspBuildContext context, Block job, BspNode?[,] blocks, BlockBuildStatistics[] records, int index)
     {
         context.JoinBlock(job.Fork, job.Head);
         BspNode head = job.Head ?? BlockGrid.SolidBlock(context);
-        job.Fork.ReleaseForkWindings();
 
         blocks[job.X - BlockGrid.BlockMin + 1, job.Y - BlockGrid.BlockMin + 1] = head;
         records[index] = job.Record;

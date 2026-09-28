@@ -235,7 +235,43 @@ public sealed class ParallelWorldPassTests
         Assert.Throws<ArgumentNullException>(() => build.JoinBlock(null!, null));
     }
 
+    /// <summary>
+    /// A block's windings come home before its turn to be joined: every
+    /// volume and leaf brush then reads, point for point, what the fork held,
+    /// out of the root's arena, and the fork's arena is back in the pool.
+    /// </summary>
     [Fact]
+    public async Task TakingABlocksWindingsHomeCopiesThemAndGivesTheArenaBack()
+    {
+        (BspBuildContext build, MapFile map) = await Scattered();
+        BlockGrid.BlockBounds(0, 0, out Vec3 mins, out Vec3 maxs);
+        BspBuildContext fork = build.ForkForBlock();
+        BspBrush brushes = BrushCsg.MakeBspBrushList(fork, fork.BrushStart, fork.BrushEnd, mins, maxs, DetailScreen.NoDetail)!;
+        BspNode head = BlockGrid.CarveBlock(fork, 0, 0, brushes, mins, maxs, out _);
+        List<Vec3[]> before = Windings(fork, head);
+        int nodes = fork.AllocatedNodes;
+
+        build.TakeBlockWindings(fork, head);
+
+        Assert.Equal(before.Count, Windings(build, head).Count);
+        for (int i = 0; i < before.Count; i++)
+        {
+            Assert.Equal(before[i], Windings(build, head)[i]);
+        }
+
+        Assert.Throws<InvalidOperationException>(() => fork.Windings);
+        Assert.Equal(0, build.ForkArenas.Rented);
+        Assert.Equal(0, head.Id);
+        Assert.Equal(0, build.AllocatedNodes);
+
+        build.JoinBlock(fork, head);
+        Assert.Equal(nodes, build.AllocatedNodes);
+        Assert.Throws<ArgumentException>(() => build.TakeBlockWindings(build, head));
+        Assert.Throws<ArgumentNullException>(() => build.TakeBlockWindings(fork, null!));
+        _ = map;
+    }
+
+        [Fact]
     public async Task ABlocksForkRentsItsArenaOnlyWhenItFirstAllocates()
     {
         (BspBuildContext build, _) = await Scattered();
@@ -292,6 +328,44 @@ public sealed class ParallelWorldPassTests
         MinBrushes = 1,
         MaxDegree = degree,
     };
+
+    // Every live winding of a block tree, in walk order, read through a context's arena.
+    private static List<Vec3[]> Windings(BspBuildContext context, BspNode head)
+    {
+        List<Vec3[]> all = [];
+        Stack<BspNode> pending = new();
+        pending.Push(head);
+        while (pending.Count > 0)
+        {
+            BspNode node = pending.Pop();
+            IEnumerable<BspBrush> brushes = node.Volume is null ? [] : [node.Volume];
+            if (node.IsLeaf)
+            {
+                for (BspBrush? b = node.BrushList; b is not null; b = b.Next)
+                {
+                    brushes = brushes.Append(b);
+                }
+            }
+            else
+            {
+                pending.Push(node.Children[1]!);
+                pending.Push(node.Children[0]!);
+            }
+
+            foreach (BspBrush brush in brushes)
+            {
+                foreach (BspBrushSide side in brush.Sides)
+                {
+                    if (!side.Winding.IsNull)
+                    {
+                        all.Add(context.Windings.Points(side.Winding).ToArray());
+                    }
+                }
+            }
+        }
+
+        return all;
+    }
 
     private static CompileDiagnostic Diagnostic(string message) =>
         new("TEST0001", DiagnosticSeverity.Warning, message);

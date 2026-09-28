@@ -152,15 +152,37 @@ internal static class ConvexGeometry
     }
 
     /// <summary>GJK on two point sets: whether their convex hulls meet.</summary>
+    /// <remarks>
+    /// <para>
+    /// Every static prop's leaf test and every ray against a flat ledge comes
+    /// through here, and it used to allocate a three-element array for every
+    /// vector operation, some thirty per iteration: on 2fort that was the
+    /// busiest allocation site of the prop leaf traces. The vectors are now
+    /// values (<see cref="D3"/>) and the simplex a fixed four slots.
+    /// </para>
+    /// <para>
+    /// <b>The arithmetic is unchanged, operation for operation.</b> Each
+    /// helper evaluates the same expression, operands and grouping included,
+    /// that the array version did (<c>0 - x</c> stays a subtraction, not a
+    /// negation, where the array code subtracted from a zero vector), and the
+    /// search visits the simplex's points, edges and faces in the same order
+    /// with the same strict comparisons. A double is a double whether it sits
+    /// in an array or a struct, so every intermediate has the same bits and
+    /// every branch goes the same way. A test-only copy of the array version
+    /// is compared against this one over random, degenerate and touching
+    /// point sets.
+    /// </para>
+    /// </remarks>
     public static bool Intersect(double[][] a, double[][] b)
     {
-        double[] direction = Sub(Centre(a), Centre(b));
+        D3 direction = Sub(Centre(a), Centre(b));
         if (Dot(direction, direction) < 1e-18)
         {
-            direction = [1, 0, 0];
+            direction = new D3(1, 0, 0);
         }
 
-        List<double[]> simplex = [Support(a, b, direction)];
+        Simplex simplex = default;
+        simplex.Add(Support(a, b, direction));
         direction = Neg(simplex[0]);
 
         for (int iteration = 0; iteration < 128; iteration++)
@@ -170,20 +192,255 @@ internal static class ConvexGeometry
                 return true;
             }
 
-            double[] point = Support(a, b, direction);
+            D3 point = Support(a, b, direction);
             if (Dot(point, direction) < -1e-9)
             {
                 return false;
             }
 
             simplex.Add(point);
-            if (DoSimplex(simplex, ref direction))
+            if (DoSimplex(ref simplex, ref direction))
             {
                 return true;
             }
         }
 
         return true;
+    }
+
+    // Distance subalgorithm by brute force over the simplex's faces:
+    // replace the simplex with the closest feature to the origin.
+    private static bool DoSimplex(ref Simplex s, ref D3 direction)
+    {
+        (D3 closest, Simplex feature) = ClosestToOrigin(s);
+        if (Dot(closest, closest) < 1e-18)
+        {
+            return true;
+        }
+
+        s = feature;
+        direction = Neg(closest);
+        return false;
+    }
+
+    private static (D3 Point, Simplex Feature) ClosestToOrigin(in Simplex s)
+    {
+        if (s.Count == 4 && OriginInTetrahedron(s[0], s[1], s[2], s[3]))
+        {
+            return (new D3(0, 0, 0), s);
+        }
+
+        D3 best = s[0];
+        Simplex bestFeature = Simplex.Of(s[0]);
+        double bestDistance = Dot(s[0], s[0]);
+
+        for (int i = 0; i < s.Count; i++)
+        {
+            Consider(s[i], Simplex.Of(s[i]), ref best, ref bestFeature, ref bestDistance);
+            for (int j = i + 1; j < s.Count; j++)
+            {
+                Consider(ClosestOnSegment(s[i], s[j]), Simplex.Of(s[i], s[j]), ref best, ref bestFeature, ref bestDistance);
+                for (int k = j + 1; k < s.Count; k++)
+                {
+                    Consider(
+                        ClosestOnTriangle(s[i], s[j], s[k]),
+                        Simplex.Of(s[i], s[j], s[k]),
+                        ref best,
+                        ref bestFeature,
+                        ref bestDistance);
+                }
+            }
+        }
+
+        return (best, bestFeature);
+    }
+
+    private static void Consider(D3 point, Simplex feature, ref D3 best, ref Simplex bestFeature, ref double bestDistance)
+    {
+        double distance = Dot(point, point);
+        if (distance < bestDistance)
+        {
+            bestDistance = distance;
+            best = point;
+            bestFeature = feature;
+        }
+    }
+
+    private static bool OriginInTetrahedron(D3 a, D3 b, D3 c, D3 d)
+    {
+        static bool SameSide(D3 p, D3 q, D3 r, D3 s)
+        {
+            D3 n = Cross(Sub(q, p), Sub(r, p));
+            double ds = Dot(n, Sub(s, p));
+            double d0 = Dot(n, Neg(p));
+            return ds * d0 >= 0;
+        }
+
+        return SameSide(a, b, c, d) && SameSide(b, c, d, a) && SameSide(c, d, a, b) && SameSide(d, a, b, c);
+    }
+
+    private static D3 ClosestOnSegment(D3 a, D3 b)
+    {
+        D3 ab = Sub(b, a);
+        double length = Dot(ab, ab);
+        if (length < 1e-30)
+        {
+            return a;
+        }
+
+        double t = Math.Clamp(-Dot(a, ab) / length, 0, 1);
+        return Add(a, Scale(ab, t));
+    }
+
+    // Ericson, Real-Time Collision Detection 5.1.5, for the point (origin).
+    private static D3 ClosestOnTriangle(D3 a, D3 b, D3 c)
+    {
+        D3 p = new(0, 0, 0);
+        D3 ab = Sub(b, a), ac = Sub(c, a), ap = Sub(p, a);
+        double d1 = Dot(ab, ap), d2 = Dot(ac, ap);
+        if (d1 <= 0 && d2 <= 0)
+        {
+            return a;
+        }
+
+        D3 bp = Sub(p, b);
+        double d3 = Dot(ab, bp), d4 = Dot(ac, bp);
+        if (d3 >= 0 && d4 <= d3)
+        {
+            return b;
+        }
+
+        double vc = (d1 * d4) - (d3 * d2);
+        if (vc <= 0 && d1 >= 0 && d3 <= 0)
+        {
+            return Add(a, Scale(ab, d1 / (d1 - d3)));
+        }
+
+        D3 cp = Sub(p, c);
+        double d5 = Dot(ab, cp), d6 = Dot(ac, cp);
+        if (d6 >= 0 && d5 <= d6)
+        {
+            return c;
+        }
+
+        double vb = (d5 * d2) - (d1 * d6);
+        if (vb <= 0 && d2 >= 0 && d6 <= 0)
+        {
+            return Add(a, Scale(ac, d2 / (d2 - d6)));
+        }
+
+        double va = (d3 * d6) - (d5 * d4);
+        if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0)
+        {
+            return Add(b, Scale(Sub(c, b), (d4 - d3) / ((d4 - d3) + (d5 - d6))));
+        }
+
+        double denominator = 1 / (va + vb + vc);
+        return Add(a, Add(Scale(ab, vb * denominator), Scale(ac, vc * denominator)));
+    }
+
+    private static D3 Support(double[][] a, double[][] b, D3 d) =>
+        Sub(Farthest(a, d), Farthest(b, Neg(d)));
+
+    private static D3 Farthest(double[][] points, D3 d)
+    {
+        double[] best = points[0];
+        double bestDot = Dot(best, d);
+        foreach (double[] p in points)
+        {
+            double dot = Dot(p, d);
+            if (dot > bestDot)
+            {
+                bestDot = dot;
+                best = p;
+            }
+        }
+
+        return new D3(best[0], best[1], best[2]);
+    }
+
+    private static D3 Centre(double[][] points)
+    {
+        D3 c = new(0, 0, 0);
+        foreach (double[] p in points)
+        {
+            c = new D3(c.X + p[0], c.Y + p[1], c.Z + p[2]);
+        }
+
+        return Scale(c, 1.0 / points.Length);
+    }
+
+    private static double Dot(D3 a, D3 b) => (a.X * b.X) + (a.Y * b.Y) + (a.Z * b.Z);
+
+    private static double Dot(double[] a, D3 b) => (a[0] * b.X) + (a[1] * b.Y) + (a[2] * b.Z);
+
+    private static D3 Add(D3 a, D3 b) => new(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
+
+    private static D3 Sub(D3 a, D3 b) => new(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
+
+    private static D3 Neg(D3 a) => new(-a.X, -a.Y, -a.Z);
+
+    private static D3 Scale(D3 a, double s) => new(a.X * s, a.Y * s, a.Z * s);
+
+    private static D3 Cross(D3 a, D3 b) =>
+        new((a.Y * b.Z) - (a.Z * b.Y), (a.Z * b.X) - (a.X * b.Z), (a.X * b.Y) - (a.Y * b.X));
+
+    /// <summary>A vector of three doubles, by value.</summary>
+    private readonly record struct D3(double X, double Y, double Z);
+
+    /// <summary>Up to four points of a GJK simplex, in the order they were added.</summary>
+    private struct Simplex
+    {
+        private D3 _p0;
+        private D3 _p1;
+        private D3 _p2;
+        private D3 _p3;
+
+        public int Count { get; private set; }
+
+        public readonly D3 this[int index] => index switch
+        {
+            0 => _p0,
+            1 => _p1,
+            2 => _p2,
+            3 => _p3,
+            _ => throw new ArgumentOutOfRangeException(nameof(index)),
+        };
+
+        public static Simplex Of(D3 a)
+        {
+            Simplex s = default;
+            s.Add(a);
+            return s;
+        }
+
+        public static Simplex Of(D3 a, D3 b)
+        {
+            Simplex s = Of(a);
+            s.Add(b);
+            return s;
+        }
+
+        public static Simplex Of(D3 a, D3 b, D3 c)
+        {
+            Simplex s = Of(a, b);
+            s.Add(c);
+            return s;
+        }
+
+        public void Add(D3 point)
+        {
+            switch (Count)
+            {
+                case 0: _p0 = point; break;
+                case 1: _p1 = point; break;
+                case 2: _p2 = point; break;
+                case 3: _p3 = point; break;
+                default: throw new InvalidOperationException("a GJK simplex has at most four points");
+            }
+
+            Count++;
+        }
     }
 
     private static List<double[]> BasePolygon(double[] n, double d)
@@ -233,171 +490,11 @@ internal static class ConvexGeometry
         return result;
     }
 
-    private static bool DoSimplex(List<double[]> s, ref double[] direction)
-    {
-        // Distance subalgorithm by brute force over the simplex's faces:
-        // replace the simplex with the closest feature to the origin.
-        (double[] closest, List<double[]> feature) = ClosestToOrigin(s);
-        if (Dot(closest, closest) < 1e-18)
-        {
-            return true;
-        }
-
-        s.Clear();
-        s.AddRange(feature);
-        direction = Neg(closest);
-        return false;
-    }
-
-    private static (double[] Point, List<double[]> Feature) ClosestToOrigin(List<double[]> s)
-    {
-        if (s.Count == 4 && OriginInTetrahedron(s[0], s[1], s[2], s[3]))
-        {
-            return ([0, 0, 0], s);
-        }
-
-        double[] best = s[0];
-        List<double[]> bestFeature = [s[0]];
-        double bestDistance = Dot(s[0], s[0]);
-
-        void Consider(double[] point, List<double[]> feature)
-        {
-            double distance = Dot(point, point);
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                best = point;
-                bestFeature = feature;
-            }
-        }
-
-        for (int i = 0; i < s.Count; i++)
-        {
-            Consider(s[i], [s[i]]);
-            for (int j = i + 1; j < s.Count; j++)
-            {
-                Consider(ClosestOnSegment(s[i], s[j]), [s[i], s[j]]);
-                for (int k = j + 1; k < s.Count; k++)
-                {
-                    Consider(ClosestOnTriangle(s[i], s[j], s[k]), [s[i], s[j], s[k]]);
-                }
-            }
-        }
-
-        return (best, bestFeature);
-    }
-
-    private static bool OriginInTetrahedron(double[] a, double[] b, double[] c, double[] d)
-    {
-        static bool SameSide(double[] p, double[] q, double[] r, double[] s)
-        {
-            double[] n = Cross(Sub(q, p), Sub(r, p));
-            double ds = Dot(n, Sub(s, p));
-            double d0 = Dot(n, Neg(p));
-            return ds * d0 >= 0;
-        }
-
-        return SameSide(a, b, c, d) && SameSide(b, c, d, a) && SameSide(c, d, a, b) && SameSide(d, a, b, c);
-    }
-
-    private static double[] ClosestOnSegment(double[] a, double[] b)
-    {
-        double[] ab = Sub(b, a);
-        double length = Dot(ab, ab);
-        if (length < 1e-30)
-        {
-            return a;
-        }
-
-        double t = Math.Clamp(-Dot(a, ab) / length, 0, 1);
-        return Add(a, Scale(ab, t));
-    }
-
-    // Ericson, Real-Time Collision Detection 5.1.5, for the point (origin).
-    private static double[] ClosestOnTriangle(double[] a, double[] b, double[] c)
-    {
-        double[] p = [0, 0, 0];
-        double[] ab = Sub(b, a), ac = Sub(c, a), ap = Sub(p, a);
-        double d1 = Dot(ab, ap), d2 = Dot(ac, ap);
-        if (d1 <= 0 && d2 <= 0)
-        {
-            return a;
-        }
-
-        double[] bp = Sub(p, b);
-        double d3 = Dot(ab, bp), d4 = Dot(ac, bp);
-        if (d3 >= 0 && d4 <= d3)
-        {
-            return b;
-        }
-
-        double vc = (d1 * d4) - (d3 * d2);
-        if (vc <= 0 && d1 >= 0 && d3 <= 0)
-        {
-            return Add(a, Scale(ab, d1 / (d1 - d3)));
-        }
-
-        double[] cp = Sub(p, c);
-        double d5 = Dot(ab, cp), d6 = Dot(ac, cp);
-        if (d6 >= 0 && d5 <= d6)
-        {
-            return c;
-        }
-
-        double vb = (d5 * d2) - (d1 * d6);
-        if (vb <= 0 && d2 >= 0 && d6 <= 0)
-        {
-            return Add(a, Scale(ac, d2 / (d2 - d6)));
-        }
-
-        double va = (d3 * d6) - (d5 * d4);
-        if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0)
-        {
-            return Add(b, Scale(Sub(c, b), (d4 - d3) / ((d4 - d3) + (d5 - d6))));
-        }
-
-        double denominator = 1 / (va + vb + vc);
-        return Add(a, Add(Scale(ab, vb * denominator), Scale(ac, vc * denominator)));
-    }
-
-    private static double[] Support(double[][] a, double[][] b, double[] d) =>
-        Sub(Farthest(a, d), Farthest(b, Neg(d)));
-
-    private static double[] Farthest(double[][] points, double[] d)
-    {
-        double[] best = points[0];
-        double bestDot = Dot(best, d);
-        foreach (double[] p in points)
-        {
-            double dot = Dot(p, d);
-            if (dot > bestDot)
-            {
-                bestDot = dot;
-                best = p;
-            }
-        }
-
-        return best;
-    }
-
-    private static double[] Centre(double[][] points)
-    {
-        double[] c = [0, 0, 0];
-        foreach (double[] p in points)
-        {
-            c = Add(c, p);
-        }
-
-        return Scale(c, 1.0 / points.Length);
-    }
-
     private static double Dot(double[] a, double[] b) => (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
 
     private static double[] Add(double[] a, double[] b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 
     private static double[] Sub(double[] a, double[] b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-
-    private static double[] Neg(double[] a) => [-a[0], -a[1], -a[2]];
 
     private static double[] Scale(double[] a, double s) => [a[0] * s, a[1] * s, a[2] * s];
 

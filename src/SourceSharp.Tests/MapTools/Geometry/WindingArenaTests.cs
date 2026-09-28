@@ -249,21 +249,73 @@ public class WindingArenaTests
             Assert.Equal(new Vec3(id, 67, -id), points[67]);
         }
 
-        Assert.Equal(4 * WindingArena.SegmentLength, arena.SlabCapacity);
+        // The first segment (16 points), then segments of 32 and 64 that a
+        // 68-point winding cannot use and that are therefore never
+        // allocated, then 128, 256, ..., 32768 (together one segment less
+        // 128 points), then three full segments.
+        Assert.Equal(16 + (WindingArena.SegmentLength - 128) + (3 * WindingArena.SegmentLength), arena.SlabCapacity);
     }
 
     [Fact]
-    public void TheFirstSegmentDoublesAndStopsAtAFullSegment()
+    public void TheSlabGrowsBySegmentsThatDoubleUpToAFullOne()
     {
         var arena = new WindingArena(4);
-        arena.Alloc(4);
+        Winding first = Stamped(arena, 1, 4);
         Assert.Equal(4, arena.SlabCapacity);
 
+        // A second segment of twice the first, and the first is kept as it
+        // is rather than copied into a larger one.
+        Span<Vec3> view = arena.Storage(first);
         arena.Alloc(4);
-        Assert.Equal(8, arena.SlabCapacity);
+        Assert.Equal(4 + 8, arena.SlabCapacity);
+
+        // Eight more do not fit beside the four in the second segment: a
+        // third, of sixteen.
+        arena.Alloc(8);
+        Assert.Equal(4 + 8 + 16, arena.SlabCapacity);
+
+        view[0] = new Vec3(9f, 9f, 9f);
+        Assert.Equal(new Vec3(9f, 9f, 9f), arena.Points(first)[0]);
 
         var big = new WindingArena(3 * WindingArena.SegmentLength);
         Assert.Equal(WindingArena.SegmentLength, big.SlabCapacity);
+    }
+
+    [Fact]
+    public void GrowingNeverAllocatesMoreThanTheSegmentsItKeeps()
+    {
+        // The old first segment doubled in place, so an arena on its way to
+        // a full segment had also allocated, and thrown away, nearly as much
+        // again. Segments are never replaced now: what the arena allocated
+        // is what it holds.
+        var arena = new WindingArena();
+        int startCapacity = arena.SlabCapacity;
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 2 * WindingArena.SegmentLength / 64; i++)
+        {
+            arena.Alloc(64);
+        }
+
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        // 13 bytes a point added (a Vec3 and a live flag), plus the small
+        // table of segments and the array headers.
+        long added = (long)(arena.SlabCapacity - startCapacity) * 13;
+        Assert.InRange(allocated, added, added + (16 * 1024));
+    }
+
+    [Fact]
+    public void AReservationLargerThanTheNextSegmentSkipsToTheFirstThatHoldsIt()
+    {
+        var arena = new WindingArena(4);
+        arena.Alloc(1);
+
+        // 4 points of the first segment hold one; the next segments hold 8,
+        // 16 and 32, and only the one of 32 takes 20 in one piece.
+        Winding w = Stamped(arena, 3, 20);
+
+        Assert.Equal(4 + 32, arena.SlabCapacity);
+        Assert.Equal(new Vec3(3, 19, -3), arena.Points(w)[19]);
     }
 
     [Fact]

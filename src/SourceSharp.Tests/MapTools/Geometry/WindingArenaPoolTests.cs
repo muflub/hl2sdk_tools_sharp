@@ -158,8 +158,9 @@ public sealed class WindingArenaPoolTests
     // ---- growth around a reset -------------------------------------------------
 
     /// <summary>
-    /// A reservation that ends exactly at the end of the grown first segment
-    /// fits without growing it, and the next one grows it.
+    /// A reservation that ends exactly at the end of the first segment fits
+    /// without growing the slab, and the next one adds a segment of twice its
+    /// length.
     /// </summary>
     [Fact]
     public void AReservationExactlyFillingTheFirstSegmentDoesNotGrowItAndOnePastDoes()
@@ -173,7 +174,7 @@ public sealed class WindingArenaPoolTests
         Assert.Equal(64, arena.SlabCapacity);
 
         arena.Alloc(1);
-        Assert.Equal(128, arena.SlabCapacity);
+        Assert.Equal(64 + 128, arena.SlabCapacity);
     }
 
     /// <summary>
