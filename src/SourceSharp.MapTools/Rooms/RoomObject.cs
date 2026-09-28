@@ -50,6 +50,19 @@ public sealed record RoomObject(
 
     /// <summary>The number of clusters the room's own vis produced.</summary>
     public int ClusterCount => Vis.ClusterCount;
+
+    /// <summary>
+    /// The link work done ahead for this room, or null: set by the library
+    /// compile and by a room pack that stores it, and used by
+    /// <see cref="LevelLinker"/> in place of computing it per placement.
+    /// </summary>
+    /// <remarks>
+    /// Only ever a shortcut: the linker uses it only when it still describes
+    /// this room's own compile (<see cref="RoomLinkData.IsFor"/>), and
+    /// computes the same data on the fly otherwise, so a room without it (an
+    /// older pack, a room built in memory) links to the same bytes.
+    /// </remarks>
+    internal RoomLinkData? Link { get; init; }
 }
 
 /// <summary>

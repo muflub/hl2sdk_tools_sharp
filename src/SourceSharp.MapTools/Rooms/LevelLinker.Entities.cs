@@ -56,12 +56,22 @@ public static partial class LevelLinker
         foreach (RoomPlan plan in plans)
         {
             string name = plan.Placement.Room.Definition.Name;
-            foreach (BspEntity entity in EntityLump.Parse(plan.Bsp[BspLump.Entities]))
+
+            // Parsed and turned at room compile time (or now, for a room
+            // without stored link data); a key that could not be read is
+            // reported here, where the walk reaches its entity.
+            foreach (RoomLinkEntity item in EntitiesFor(plan.Placement.Room, plan.Transform.Placement.NormalizedRotation).Items)
             {
-                if (!string.Equals(entity.ClassName, "worldspawn", StringComparison.Ordinal))
+                if (!item.IsWorld)
                 {
-                    merged.Add(MoveEntity(entity, plan.Transform, name));
+                    merged.Add(item.Error is null ? TranslateEntity(item, plan.Transform) : throw new LinkException(item.Error));
                     continue;
+                }
+
+                BspEntity entity = new();
+                foreach (RoomLinkPair pair in item.Pairs)
+                {
+                    entity.Pairs.Add(new BspKeyValue(pair.Key, pair.Value!));
                 }
 
                 if (world is null)
@@ -74,9 +84,14 @@ public static partial class LevelLinker
                     RequireSameWorld(world, worldOwner!, entity, name);
                 }
 
-                if (entity.Get(WorldMinsKey) is { } mins && entity.Get(WorldMaxsKey) is { } maxs)
+                if (item.Error is { } error)
                 {
-                    Box moved = MoveBox(plan.Transform, ParseVec(mins, WorldMinsKey, name), ParseVec(maxs, WorldMaxsKey, name));
+                    throw new LinkException(error);
+                }
+
+                if (item.Extent is { } turned)
+                {
+                    Box moved = plan.Transform.TranslateBox(turned);
                     extent = extent is { } sofar ? Union(sofar, moved) : moved;
                 }
             }
@@ -109,29 +124,32 @@ public static partial class LevelLinker
     }
 
     /// <summary>One entity with its placement keys moved.</summary>
+    /// <remarks>
+    /// The turn (<c>TurnPair</c>, which the room compile stores) and then
+    /// the cell (<see cref="TranslateEntity"/>, the link's share).
+    /// </remarks>
     internal static BspEntity MoveEntity(BspEntity entity, RoomTransform transform, string room)
     {
         int turns = transform.Placement.NormalizedRotation;
-        BspEntity moved = new();
+        List<RoomLinkPair> pairs = new(entity.Pairs.Count);
         foreach (BspKeyValue pair in entity.Pairs)
         {
-            string value = pair.Value;
-            if (IsKey(pair.Key, "origin"))
-            {
-                value = FormatVec(transform.Apply(ParseVec(value, "origin", room)));
-            }
-            else if (turns != 0 && IsKey(pair.Key, "angles"))
-            {
-                Vec3 angles = ParseVec(value, "angles", room);
-                value = FormatVec(new Vec3(angles.X, TurnYaw(angles.Y, turns), angles.Z));
-            }
-            else if (turns != 0 && IsKey(pair.Key, "angle"))
-            {
-                float yaw = ParseFloat(value, "angle", room);
-                value = yaw is -1f or -2f ? value : Format(TurnYaw(yaw, turns));
-            }
+            pairs.Add(TurnPair(pair, turns, room));
+        }
 
-            moved.Pairs.Add(new BspKeyValue(pair.Key, value));
+        return TranslateEntity(new RoomLinkEntity(false, pairs, null, null), transform);
+    }
+
+    /// <summary>
+    /// A turned entity moved to the placement's cell: its origin through
+    /// <see cref="RoomTransform.Translate"/>, every other key as the turn left it.
+    /// </summary>
+    private static BspEntity TranslateEntity(RoomLinkEntity entity, RoomTransform transform)
+    {
+        BspEntity moved = new();
+        foreach (RoomLinkPair pair in entity.Pairs)
+        {
+            moved.Pairs.Add(new BspKeyValue(pair.Key, pair.Value ?? FormatVec(transform.Translate(pair.Origin))));
         }
 
         return moved;
