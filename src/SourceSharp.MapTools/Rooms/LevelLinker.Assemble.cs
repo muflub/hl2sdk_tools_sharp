@@ -13,6 +13,7 @@ using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Materials;
+using SourceSharp.MapTools.Validation;
 
 namespace SourceSharp.MapTools.Rooms;
 
@@ -201,7 +202,14 @@ public static partial class LevelLinker
                 hidden.Flags |= (int)SurfaceFlags.NoDraw;
                 copy = texInfos.Count;
                 texInfos.Add(hidden);
-                Limit(plan, "texinfos", texInfos.Count, short.MaxValue + 1);
+                LoaderLimit(
+                    plan.Placement.Room.Definition.Name,
+                    plan.Placement.Instance.Placement.CellX,
+                    plan.Placement.Instance.Placement.CellY,
+                    "texinfos",
+                    texInfos.Count,
+                    BspLimits.Caps.First(c => c.Lump == BspLump.TexInfo).Max,
+                    "MAX_MAP_TEXINFO");
                 nodrawOf[linkedTexInfo] = copy;
             }
 

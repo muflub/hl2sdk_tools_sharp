@@ -15,6 +15,7 @@ using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Materials;
 using SourceSharp.MapTools.Parallel;
+using SourceSharp.MapTools.Validation;
 using SourceSharp.MapTools.Vis;
 
 namespace SourceSharp.MapTools.Rooms;
@@ -144,8 +145,12 @@ public static partial class LevelLinker
         ArgumentNullException.ThrowIfNull(context);
 
         // Layout first (rule 5 / rule 2's layout halves, house messages), then
-        // the joint geometry only the linker can check.
+        // the format's limits, then the joint geometry only the linker can
+        // check. The limits come before anything that costs in the rooms: a
+        // level far past them is refused from the rooms' lump counts alone,
+        // not after every room has been planned.
         RoomLinter.CheckLayout(layout, library);
+        CheckCapacity(layout, library);
         ValidateJoints(layout, library);
         RoomLinter.CheckReachable(layout, name => library.Get(name).Definition);
 
@@ -188,8 +193,7 @@ public static partial class LevelLinker
             clusterCursor += plan.ClusterCount;
         }
 
-        int clusterCount = clusterCursor;
-        Limit(plans[^1], "clusters", clusterCount, short.MaxValue);
+        int clusterCount = clusterCursor; // at most short.MaxValue: CheckCapacity
         int rowBytes = (clusterCount + 7) >> 3;
 
         // Rows: own rows shifted into the global numbering, door edges from
@@ -227,6 +231,8 @@ public static partial class LevelLinker
         }
 
         byte[] visibilityLump = BuildVisibilityLump(clusterCount, rowBytes, pvs, pvs);
+        RoomInstance lastRoom = plans[^1].Placement.Instance;
+        LimitVisibility(plans[^1].Placement.Room.Definition.Name, lastRoom.Placement.CellX, lastRoom.Placement.CellY, visibilityLump.Length);
 
         BspData linked = Assemble(plans, layout, visibilityLump, context, cancellationToken);
 
@@ -251,19 +257,13 @@ public static partial class LevelLinker
 
     /// <summary>
     /// The prefix sums every index-bearing struct is shifted by, in layout
-    /// order, with a refusal the moment a sum outgrows the field that will
-    /// carry it.
+    /// order.
     /// </summary>
     /// <remarks>
-    /// Each limit is the narrowest field that holds an index into (or a count
-    /// of) that lump: a face's plane number and a brush side's are
-    /// <c>ushort</c>, a face's and a brush side's texinfo is <c>short</c>, a
-    /// leaf's cluster is <c>short</c>, an edge's vertices, a leaf's face and
-    /// brush runs, a node's first face, a face's first primitive, a
-    /// primitive's first index and vertex, a vertex-normal index and a macro
-    /// texture's name id are <c>ushort</c>. A sum past its field would wrap
-    /// silently in the cast that writes it and point into some other room.
-    /// The planes, texinfos, leaves and leaf brushes the plug carve and the
+    /// The totals were measured against the format's fields before any room
+    /// was planned (<see cref="CheckCapacity"/>, over the same counts in the
+    /// same order), so every base here fits the field that carries it. The
+    /// planes, texinfos, leaves and leaf brushes the plug carve and the
     /// nodraw copies add are checked where they are added.
     /// </remarks>
     private static void AssignBases(RoomPlan[] plans)
@@ -321,19 +321,189 @@ public static partial class LevelLinker
             occluderPolys += plan.Occlusion?.Polys.Count ?? 0;
             occluderVerts += plan.Occlusion?.VertexIndices.Count ?? 0;
 
-            Limit(plan, "vertices", vertices, ushort.MaxValue + 1);
-            Limit(plan, "planes", planes, ushort.MaxValue + 1);
-            Limit(plan, "texinfos", texInfos, short.MaxValue + 1);
-            Limit(plan, "faces", faces, ushort.MaxValue + 1);
-            Limit(plan, "brushes", brushes, ushort.MaxValue + 1);
-            Limit(plan, "leaf faces", leafFaces, ushort.MaxValue + 1);
-            Limit(plan, "leaves", leaves, ushort.MaxValue + 1);
-            Limit(plan, "texdata string table entries", stringTable, ushort.MaxValue);
-            Limit(plan, "primitives", prims, ushort.MaxValue + 1);
-            Limit(plan, "primitive indices", primIndices, ushort.MaxValue + 1);
-            Limit(plan, "primitive vertices", primVerts, ushort.MaxValue + 1);
-            Limit(plan, "vertex normals", vertNormals, ushort.MaxValue + 1);
         }
+    }
+
+    /// <summary>
+    /// Refuses a level whose running totals outgrow a field of the format,
+    /// before any room is planned.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The totals are the ones <see cref="AssignBases"/> shifts by, summed in
+    /// the same layout order from the same lumps each room's plan reads
+    /// (<see cref="LinkCounts.Of"/>), so the refusal names the same room at
+    /// the same total as a check made while assigning the bases would. It
+    /// runs first because everything after it costs in the rooms: planning
+    /// reads and transforms every room's structs, and a level hundreds of
+    /// times too big spent minutes and gigabytes on that before being
+    /// refused. This pass reads a handful of lump lengths per room.
+    /// </para>
+    /// <para>
+    /// What the plug carve and the nodraw copies add during assembly (planes,
+    /// texinfos, leaves, leaf brushes) is not known until then, and is checked
+    /// where it is added.
+    /// </para>
+    /// </remarks>
+    /// <param name="layout">The level, its rooms already known to be in the library.</param>
+    /// <param name="library">The rooms.</param>
+    /// <exception cref="LinkException">A total passes its field's limit.</exception>
+    internal static void CheckCapacity(LevelLayout layout, RoomLibrary library)
+    {
+        if (layout.Rooms.Count == 0)
+        {
+            return;
+        }
+
+        LinkTotals totals = new();
+        foreach (RoomInstance instance in layout.Rooms)
+        {
+            RoomObject room = library.Get(instance.Placement.Room);
+            totals.Add(LinkCounts.Of(room.Bsp, room.ClusterCount), room.Definition.Name, instance.Placement.CellX, instance.Placement.CellY);
+        }
+
+        RoomInstance last = layout.Rooms[^1];
+        totals.CheckClusters(library.Get(last.Placement.Room).Definition.Name, last.Placement.CellX, last.Placement.CellY);
+    }
+
+    /// <summary>
+    /// What one room adds to each total the format limits: the lengths of the
+    /// lumps its plan carries, and its clusters.
+    /// </summary>
+    internal readonly record struct LinkCounts
+    {
+        public int Vertices { get; init; }
+
+        public int Planes { get; init; }
+
+        public int TexInfos { get; init; }
+
+        public int Faces { get; init; }
+
+        public int Brushes { get; init; }
+
+        public int BrushSides { get; init; }
+
+        public int TexDatas { get; init; }
+
+        public int LeafFaces { get; init; }
+
+        public int Leaves { get; init; }
+
+        public int StringTable { get; init; }
+
+        public int Primitives { get; init; }
+
+        public int PrimitiveIndices { get; init; }
+
+        public int PrimitiveVertices { get; init; }
+
+        public int VertexNormals { get; init; }
+
+        public int Clusters { get; init; }
+
+        /// <summary>A compiled room's counts, read as <see cref="PlanRoom"/> reads them.</summary>
+        public static LinkCounts Of(BspData bsp, int clusters) => new()
+        {
+            Vertices = BspStructView.Count<Vec3>(bsp[BspLump.Vertexes]),
+            Planes = BspStructView.Count<DPlane>(bsp[BspLump.Planes]),
+            TexInfos = BspStructView.Count<TexInfo>(bsp[BspLump.TexInfo]),
+            Faces = BspStructView.Count<DFace>(bsp[BspLump.Faces]),
+            Brushes = BspStructView.Count<DBrush>(bsp[BspLump.Brushes]),
+            BrushSides = BspStructView.Count<DBrushSide>(bsp[BspLump.BrushSides]),
+            TexDatas = BspStructView.Count<DTexData>(bsp[BspLump.TexData]),
+            LeafFaces = BspStructView.Count<ushort>(bsp[BspLump.LeafFaces]),
+            Leaves = BspStructView.Count<DLeaf>(bsp[BspLump.Leafs]),
+            StringTable = BspStructView.Count<int>(bsp[BspLump.TexDataStringTable]),
+            Primitives = BspStructView.Count<DPrimitive>(bsp[BspLump.Primitives]),
+            PrimitiveIndices = BspStructView.Count<ushort>(bsp[BspLump.PrimIndices]),
+            PrimitiveVertices = BspStructView.Count<Vec3>(bsp[BspLump.PrimVerts]),
+            VertexNormals = BspStructView.Count<Vec3>(bsp[BspLump.VertNormals]),
+            Clusters = clusters,
+        };
+    }
+
+    /// <summary>
+    /// The level's running totals, room by room in layout order, each refused
+    /// the moment it passes the narrowest field that carries it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Most limits are the narrowest field that holds an index into (or a
+    /// count of) that lump: a face's plane number and a brush side's are
+    /// <c>ushort</c>, a face's and a brush side's texinfo is <c>short</c>, a
+    /// leaf's cluster is <c>short</c>, an edge's vertices, a leaf's face and
+    /// brush runs, a node's first face, a face's first primitive, a
+    /// primitive's first index and vertex, a vertex-normal index and a macro
+    /// texture's name id are <c>ushort</c>. A sum past its field would wrap
+    /// silently in the cast that writes it and point into some other room.
+    /// </para>
+    /// <para>
+    /// Four totals the engine's loader caps below their field's width
+    /// (<see cref="BspLimits.Caps"/>, what <c>ssmap check</c> reports):
+    /// texdatas, brushes, brush sides and texinfos. Every room brings its own
+    /// texdata and brushes, so a level of a few hundred rooms passes
+    /// <c>MAX_MAP_TEXDATA</c> (2048) and <c>MAX_MAP_BRUSHES</c> (8192) long
+    /// before any field fills, and the engine would refuse to load the map.
+    /// </para>
+    /// <para>
+    /// The planes start at 2 (the top tree's first pair) and the leaves at 1
+    /// (the shared solid leaf), as the bases do.
+    /// </para>
+    /// </remarks>
+    internal sealed class LinkTotals
+    {
+        private static int Cap(BspLump lump) => BspLimits.Caps.First(c => c.Lump == lump).Max;
+
+        private readonly int _texDataCap = Cap(BspLump.TexData);
+        private readonly int _brushCap = Cap(BspLump.Brushes);
+        private readonly int _brushSideCap = Cap(BspLump.BrushSides);
+        private readonly int _texInfoCap = Cap(BspLump.TexInfo);
+
+        private long _vertices, _planes = 2, _texInfos, _texDatas, _faces, _brushes, _brushSides, _leafFaces, _leaves = 1,
+            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters;
+
+        /// <summary>Adds one room, refusing the first total it pushes past its limit.</summary>
+        public void Add(LinkCounts counts, string room, int cellX, int cellY)
+        {
+            _vertices += counts.Vertices;
+            _planes += counts.Planes;
+            _texInfos += counts.TexInfos;
+            _texDatas += counts.TexDatas;
+            _faces += counts.Faces;
+            _brushes += counts.Brushes;
+            _brushSides += counts.BrushSides;
+            _leafFaces += counts.LeafFaces;
+            _leaves += counts.Leaves;
+            _stringTable += counts.StringTable;
+            _primitives += counts.Primitives;
+            _primitiveIndices += counts.PrimitiveIndices;
+            _primitiveVertices += counts.PrimitiveVertices;
+            _vertexNormals += counts.VertexNormals;
+            _clusters += counts.Clusters;
+
+            Limit(room, cellX, cellY, "vertices", _vertices, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "planes", _planes, ushort.MaxValue + 1);
+            LoaderLimit(room, cellX, cellY, "texinfos", _texInfos, _texInfoCap, "MAX_MAP_TEXINFO");
+            LoaderLimit(room, cellX, cellY, "texdatas", _texDatas, _texDataCap, "MAX_MAP_TEXDATA");
+            Limit(room, cellX, cellY, "faces", _faces, ushort.MaxValue + 1);
+            LoaderLimit(room, cellX, cellY, "brushes", _brushes, _brushCap, "MAX_MAP_BRUSHES");
+            LoaderLimit(room, cellX, cellY, "brush sides", _brushSides, _brushSideCap, "MAX_MAP_BRUSHSIDES");
+            Limit(room, cellX, cellY, "leaf faces", _leafFaces, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "leaves", _leaves, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "texdata string table entries", _stringTable, ushort.MaxValue);
+            Limit(room, cellX, cellY, "primitives", _primitives, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "primitive indices", _primitiveIndices, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "primitive vertices", _primitiveVertices, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "vertex normals", _vertexNormals, ushort.MaxValue + 1);
+        }
+
+        /// <summary>
+        /// Refuses a cluster total past a leaf's <c>short</c> cluster field;
+        /// checked once, after the last room, which the refusal names.
+        /// </summary>
+        public void CheckClusters(string room, int cellX, int cellY) =>
+            Limit(room, cellX, cellY, "clusters", _clusters, short.MaxValue);
     }
 
     /// <summary>Refuses a count past what its field can carry.</summary>
@@ -342,13 +512,51 @@ public static partial class LevelLinker
     /// <param name="count">The running total.</param>
     /// <param name="max">One past the largest total the field holds.</param>
     /// <exception cref="LinkException">The total reaches <paramref name="max"/>.</exception>
-    internal static void Limit(RoomPlan plan, string what, long count, long max)
+    internal static void Limit(RoomPlan plan, string what, long count, long max) =>
+        Limit(
+            plan.Placement.Room.Definition.Name,
+            plan.Placement.Instance.Placement.CellX,
+            plan.Placement.Instance.Placement.CellY,
+            what,
+            count,
+            max);
+
+    /// <summary>
+    /// Refuses a count past what the engine's loader accepts
+    /// (<see cref="BspLimits.Caps"/>), naming the room and cell that crossed
+    /// it and the loader's constant.
+    /// </summary>
+    internal static void LoaderLimit(string room, int cellX, int cellY, string what, long count, long max, string constant)
     {
         if (count > max)
         {
             throw new LinkException(
-                $"room {plan.Placement.Room.Definition.Name} at cell ({plan.Placement.Instance.Placement.CellX},"
-                + $" {plan.Placement.Instance.Placement.CellY}) pushes the link to {count} {what};"
+                $"room {room} at cell ({cellX}, {cellY}) pushes the link to {count} {what};"
+                + $" the engine loads at most {max} ({constant}).");
+        }
+    }
+
+    /// <summary>
+    /// Refuses a visibility lump past <c>MAX_MAP_VISIBILITY</c>, which the
+    /// loader caps on its bytes; names the last room, since every room's rows
+    /// are in it.
+    /// </summary>
+    /// <remarks>
+    /// A linked level's rows are the closure of its whole door graph, and
+    /// every room of a level is reachable, so the rows are close to full and
+    /// the lump grows with the square of the clusters: 8.9 MB at 6,000.
+    /// Run-length compression only shortens runs of zeros.
+    /// </remarks>
+    internal static void LimitVisibility(string room, int cellX, int cellY, int bytes) =>
+        LoaderLimit(room, cellX, cellY, "visibility bytes", bytes, BspLimits.MaxMapVisibilityBytes, "MAX_MAP_VISIBILITY");
+
+    /// <summary>Refuses a count past what its field can carry, naming the room and cell that crossed it.</summary>
+    private static void Limit(string room, int cellX, int cellY, string what, long count, long max)
+    {
+        if (count > max)
+        {
+            throw new LinkException(
+                $"room {room} at cell ({cellX}, {cellY}) pushes the link to {count} {what};"
                 + $" the format carries at most {max}.");
         }
     }
@@ -366,13 +574,19 @@ public static partial class LevelLinker
     internal static IEnumerable<(RoomPlan A, RoomPlan B, int[] FacingA, int[] FacingB)> DoorEdges(
         ResolvedPlacement[] resolved, RoomPlan[] plans)
     {
+        Dictionary<(int X, int Y), ResolvedPlacement> byCell = new(resolved.Length);
+        foreach (ResolvedPlacement placement in resolved)
+        {
+            byCell[(placement.Instance.Placement.CellX, placement.Instance.Placement.CellY)] = placement;
+        }
+
         for (int i = 0; i < resolved.Length; i++)
         {
             ResolvedPlacement a = resolved[i];
             foreach ((string socket, string neighborSocket) in a.Instance.Joints)
             {
                 RoomSocket aSocket = Socket(a.Room, socket);
-                (RoomPlan planB, RoomSocket bSocket, int _) = Neighbor(a, aSocket, neighborSocket, resolved, plans);
+                (RoomPlan planB, RoomSocket bSocket, int _) = Neighbor(a, aSocket, neighborSocket, byCell, plans);
                 yield return (plans[i], planB, plans[i].JointFacing[aSocket.Name], planB.JointFacing[bSocket.Name]);
             }
         }
@@ -555,12 +769,28 @@ public static partial class LevelLinker
 
     /// <summary>The transitive closure of the rows, in place.</summary>
     /// <remarks>
-    /// Warshall over uint words: rows[i] |= rows[k] wherever i sees k. The
-    /// sweep order is the cluster numbering — never a schedule — so the
-    /// closure is the same byte on one thread or thirty-two (I4). It is cubic
-    /// in the cluster count, which for a large level is the link's longest
-    /// loop, so it observes the token once per pivot: a cancelled link stops
-    /// within one pass over the rows instead of finishing the closure first.
+    /// <para>
+    /// Row <c>i</c> becomes the union of the rows of every cluster <c>i</c>
+    /// reaches, itself included: exactly Warshall's pivot-by-pivot closure
+    /// (<c>rows[i] |= rows[k]</c> wherever <c>i</c> sees <c>k</c>), which is
+    /// what the linker first computed and what a fact still compares against.
+    /// Warshall is cubic in the clusters, though: ~2 s at 6,000 clusters and
+    /// minutes at the 32,767 the format allows, and it was the link's longest
+    /// loop. So the closure is built from the graph's strongly connected
+    /// components instead (Tarjan's, iterative so a long chain of clusters
+    /// cannot overflow the stack). Every cluster of a component reaches the
+    /// same clusters, so a component's row is the union of its members' own
+    /// rows and of the rows of the components it has an edge into, and Tarjan
+    /// completes a component only after every component it reaches. The cost
+    /// is the edges plus one row-width union per edge between components; a
+    /// linked level, whose rooms all join up, is one component.
+    /// </para>
+    /// <para>
+    /// The walk visits clusters, and each cluster's edges, in cluster order,
+    /// and the result is a function of the graph alone, so it is the same
+    /// byte on one thread or thirty-two (I4). It observes the token once per
+    /// cluster it starts from and once per component it completes.
+    /// </para>
     /// </remarks>
     internal static void CloseRows(byte[][] rows, int clusterCount, CancellationToken cancellationToken)
     {
@@ -576,26 +806,137 @@ public static partial class LevelLinker
             bits[i] = ToWords(rows[i], words);
         }
 
-        for (int k = 0; k < clusterCount; k++)
+        int[] order = new int[clusterCount];   // Tarjan's visit number, -1 until visited
+        int[] low = new int[clusterCount];
+        int[] component = new int[clusterCount];
+        bool[] onStack = new bool[clusterCount];
+        int[] stack = new int[clusterCount];
+        int[] frameNode = new int[clusterCount];
+        int[] frameWord = new int[clusterCount];
+        uint[] frameMask = new uint[clusterCount];
+        List<uint[]> reach = [];
+        List<int> lastUnion = [];               // per component: the last component that unioned it in
+        Array.Fill(order, -1);
+        int visited = 0, stackTop = 0;
+
+        for (int root = 0; root < clusterCount; root++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            for (int i = 0; i < clusterCount; i++)
+            if (order[root] >= 0)
             {
-                if ((bits[i][k >> 5] & (1u << (k & 31))) == 0)
+                continue;
+            }
+
+            int depth = 0;
+            Enter(root);
+            while (depth > 0)
+            {
+                int v = frameNode[depth - 1];
+                while (frameMask[depth - 1] == 0 && frameWord[depth - 1] + 1 < words)
                 {
+                    frameWord[depth - 1]++;
+                    frameMask[depth - 1] = bits[v][frameWord[depth - 1]];
+                }
+
+                if (frameMask[depth - 1] != 0)
+                {
+                    uint mask = frameMask[depth - 1];
+                    int w = (frameWord[depth - 1] << 5) + System.Numerics.BitOperations.TrailingZeroCount(mask);
+                    frameMask[depth - 1] = mask & (mask - 1);
+                    if (w >= clusterCount)
+                    {
+                        continue; // a bit past the clusters is carried by the unions, not walked
+                    }
+
+                    if (order[w] < 0)
+                    {
+                        Enter(w);
+                    }
+                    else if (onStack[w])
+                    {
+                        low[v] = Math.Min(low[v], order[w]);
+                    }
+
                     continue;
                 }
 
-                for (int w = 0; w < words; w++)
+                // Every edge of v is walked: close its component if it roots one.
+                if (low[v] == order[v])
                 {
-                    bits[i][w] |= bits[k][w];
+                    cancellationToken.ThrowIfCancellationRequested();
+                    int id = reach.Count;
+                    uint[] union = new uint[words];
+                    int first = stackTop;
+                    do
+                    {
+                        first--;
+                        component[stack[first]] = id;
+                        onStack[stack[first]] = false;
+                    }
+                    while (stack[first] != v);
+
+                    reach.Add(union);
+                    lastUnion.Add(-1);
+                    for (int m = first; m < stackTop; m++)
+                    {
+                        uint[] own = bits[stack[m]];
+                        for (int x = 0; x < words; x++)
+                        {
+                            union[x] |= own[x];
+                        }
+                    }
+
+                    // The components this one has an edge into, each once;
+                    // all of them are complete, so their unions are final.
+                    for (int m = first; m < stackTop; m++)
+                    {
+                        uint[] own = bits[stack[m]];
+                        for (int x = 0; x < words; x++)
+                        {
+                            for (uint e = own[x]; e != 0; e &= e - 1)
+                            {
+                                int w = (x << 5) + System.Numerics.BitOperations.TrailingZeroCount(e);
+                                if (w >= clusterCount || component[w] == id || lastUnion[component[w]] == id)
+                                {
+                                    continue;
+                                }
+
+                                lastUnion[component[w]] = id;
+                                uint[] theirs = reach[component[w]];
+                                for (int y = 0; y < words; y++)
+                                {
+                                    union[y] |= theirs[y];
+                                }
+                            }
+                        }
+                    }
+
+                    stackTop = first;
                 }
+
+                depth--;
+                if (depth > 0)
+                {
+                    int parent = frameNode[depth - 1];
+                    low[parent] = Math.Min(low[parent], low[v]);
+                }
+            }
+
+            void Enter(int node)
+            {
+                order[node] = low[node] = visited++;
+                stack[stackTop++] = node;
+                onStack[node] = true;
+                frameNode[depth] = node;
+                frameWord[depth] = 0;
+                frameMask[depth] = bits[node][0];
+                depth++;
             }
         }
 
         for (int i = 0; i < clusterCount; i++)
         {
-            rows[i] = ToBytes(bits[i], rows[i].Length);
+            rows[i] = ToBytes(reach[component[i]], rows[i].Length);
         }
     }
 
@@ -671,6 +1012,18 @@ public static partial class LevelLinker
     /// </remarks>
     internal static void ValidateJoints(LevelLayout layout, RoomLibrary library)
     {
+        // Each joint's neighbour is found by its cell. A scan of every room
+        // per joint made this pass quadratic in the rooms, and it runs before
+        // the level is measured against the format's limits, so a level far
+        // too big to link spent minutes here before being refused. The layout
+        // was validated first, so no two rooms share a cell and the lookup
+        // finds exactly the room the scan did.
+        Dictionary<(int X, int Y), RoomInstance> byCell = new(layout.Rooms.Count);
+        foreach (RoomInstance room in layout.Rooms)
+        {
+            byCell[(room.Placement.CellX, room.Placement.CellY)] = room;
+        }
+
         foreach (RoomInstance instance in layout.Rooms)
         {
             RoomObject room = library.Get(instance.Placement.Room);
@@ -695,17 +1048,7 @@ public static partial class LevelLinker
                     ny += sign;
                 }
 
-                RoomInstance? neighbour = null;
-                foreach (RoomInstance other in layout.Rooms)
-                {
-                    if (other.Placement.CellX == nx && other.Placement.CellY == ny)
-                    {
-                        neighbour = other;
-                        break;
-                    }
-                }
-
-                if (neighbour is null)
+                if (!byCell.TryGetValue((nx, ny), out RoomInstance? neighbour))
                 {
                     throw new LinkException(
                         $"the joint at cell ({instance.Placement.CellX}, {instance.Placement.CellY})"
@@ -763,8 +1106,13 @@ public static partial class LevelLinker
             room.SealClusters);
     }
 
+    /// <summary>The room across a joint, found by its cell (<paramref name="byCell"/>: every placement by cell).</summary>
     private static (RoomPlan Plan, RoomSocket Socket, int Index) Neighbor(
-        ResolvedPlacement a, RoomSocket mine, string neighborSocket, ResolvedPlacement[] resolved, RoomPlan[] plans)
+        ResolvedPlacement a,
+        RoomSocket mine,
+        string neighborSocket,
+        Dictionary<(int X, int Y), ResolvedPlacement> byCell,
+        RoomPlan[] plans)
     {
         RoomTransform transform = new(a.Instance.Placement, a.Room.Definition.CellSize);
         (int axis, int sign) = transform.WorldNormal(mine.Facing);
@@ -779,13 +1127,8 @@ public static partial class LevelLinker
             ny += sign;
         }
 
-        foreach (ResolvedPlacement other in resolved)
+        if (byCell.TryGetValue((nx, ny), out ResolvedPlacement? other))
         {
-            if (other.Instance.Placement.CellX != nx || other.Instance.Placement.CellY != ny)
-            {
-                continue;
-            }
-
             return (plans[other.Index], Socket(other.Room, neighborSocket, other.Instance), other.Index);
         }
 
