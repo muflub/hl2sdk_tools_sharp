@@ -95,7 +95,7 @@ The compile passes, grouped by stage and by concern.
 | `Options/` | stock argument parsing (`StockArgs`), per-stage options, the compliance catalogue |
 | `Compile/` | `MapCompiler`, which runs one or more stages in process |
 | `Rooms/` | split a room library VMF into rooms, compile them side by side into one `.roompack`, read and generate level files, and link or flatten a level into one map |
-| `Nav/` | the 3D navigation: voxelise a room's free space per agent into a sparse voxel octree, store it in the pack, stitch a level's `.nav3d` at link, and report on it |
+| `Nav/` | the 3D navigation: build a room's clearance grid (exact for any agent box), store it in the pack, stitch a level's `.nav3d` at link, and report on it |
 | `Validation/` | `BspValidator`, the loader rules `ssmap check` reports |
 | `Compare/` | the lump-by-lump comparer behind `ssmap diff` |
 | `Parallel/`, `Diagnostics/`, `Geometry/`, `Vpk/` | work scheduling, warnings and error codes, geometry kernel, VPK reading |
@@ -415,32 +415,38 @@ stock branches and relays instead. `link --flatten` runs the same resolver,
 so both maps carry the same entities. `ssmap rooms` lists each room's names
 from the pack.
 
-**Navigation.** `ssmap room` also builds each room's 3D navigation: for
-each agent size, a sparse voxel octree of the room's free space (where the
-agent's box fits, clips and grates included), each free leaf flagged by what
-it touches (floor, wall, ceiling, and which sides), every door's portal and
-what capping it changes. It is stored in the pack beside the room, under its
-own section tags, at all four turns, so the link stitches without
-voxelising anything. The library's worldspawn configures it: `nav 0` turns
-it off, `nav_voxel_size` (default 16), `nav_max_slope` (default: the game's
-0.7 floor normal) and `nav_agents` (default
+**Navigation.** `ssmap room` also builds each room's 3D navigation: one
+clearance grid of the room's free space (16-unit voxels in runs per
+column), whose records answer exactly, for any axis-aligned agent box,
+whether it fits (player clip and monster clip kept apart), with each run's
+floor height, walkability, water and ladder flags and cost, the doors,
+movers, breakables and props as tagged dynamic obstacles, and what capping
+each door changes. It is stored in the pack beside the room, under its own
+section tags, at all four turns. The library's worldspawn configures it:
+`nav 0` turns it off, `nav_voxel_size` (default 16), `nav_max_slope`
+(default: the game's 0.7 floor normal), `nav_step_height` (18),
+`nav_jump_height` (56), `nav_jump_distance` (100), `nav_cost_water` (2),
+`nav_cost_ladder` (1.5) and `nav_agents`, optional named presets (default
 `standing 32 72 player; flyer 32 32 npc`). `info_poi` point entities mark
 points of interest (`poi_type`, `poi_tags`, `poi_radius`, `angles`,
 `poi_agents`, `targetname` with `cxry_` room-local names); they are checked
-against the agents they apply to, taken out of the map (they cost no
+against the presets they apply to, taken out of the map (they cost no
 entity), and carried in the navigation. An `info_room`'s `room_role`
 (`up`, `down`) marks a level-transition room, whose `arrival` point is where
 the player appears, and, for the up room, spawns.
 
-`link` writes `<map>.nav3d` beside the map: the placed rooms' octrees by
-cell, the doors joined across and capped shut, adjacency, connected
-components per agent, and the points of interest in level coordinates. The
+`link` writes the map first, then `<map>.nav3d` beside it (Brotli
+compressed by default): the placed rooms' grids by cell with the level's
+caps merged in, the doors, jump links between floors, the dynamic
+obstacles under the names the map gives them, and the points of interest
+in level coordinates; a reader derives neighbours and components at load.
+A point of interest standing in a doorway the level caps is refused. The
 map's worldspawn and the file's header carry one level id
 (`ss_level_id`), so the game can tell they belong together. A pack without
-navigation links with one warning and no `.nav3d` (`-require-nav` makes it
+navigation (or with an older build's) links with one warning and no `.nav3d` (`-require-nav` makes it
 an error, `-no-nav` skips it), and a link without navigation writes no id
-keys, so its map is the one it always was. `ssmap nav` prints a navigation's cells, free
-volume, components and door links, from the file or straight from a level
+keys, so its map is the one it always was. `ssmap nav` prints a navigation's cells, leaves,
+jump links and each preset's free volume and components, from the file or straight from a level
 and its pack, and exports the free leaves or the floors as OBJ. The format
 is specified in [`docs/nav3d-format.md`](docs/nav3d-format.md), with a C++
 walk-through and the C# reader the mod uses (`Nav3dReader` in
