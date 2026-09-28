@@ -199,6 +199,11 @@ public static class DetailPropLighting
         Vec3[] spriteCentres = SpriteCentres(lump);
         DetailObjectLump[] props = [.. lump.Props];
 
+        // Each cluster's lights (every style but the ambient sky) in its
+        // PVS, built as the first prop in the cluster asks and dropped with
+        // the pass.
+        PropClusterLights clusterLights = PropClusterLights.ForDetailProps(scene, lights);
+
         CompileParallelism degree = (parallelism > 0
             ? new CompileParallelism { MaxDegree = parallelism }
             : CompileParallelism.Default) with { Pool = pool };
@@ -210,7 +215,7 @@ public static class DetailPropLighting
             props.Length,
             null,
             degree,
-            () => new DetailWorker(scene, props, modelCentres, spriteCentres, lights, sampler),
+            () => new DetailWorker(scene, props, modelCentres, spriteCentres, lights, clusterLights, sampler),
             batchSegments,
             TestLineStage.DefaultBatchItems,
             "detail prop lighting",
@@ -430,12 +435,21 @@ public static class DetailPropLighting
     /// half): the debug colour for a bogus prop, else every light's sample
     /// planned into the worker's batch in light order.
     /// </summary>
+    /// <remarks>
+    /// The reference implementation walks the whole light list for every
+    /// prop, skipping the ambient sky and lights whose PVS does not hold the
+    /// prop's cluster (none, for a negative cluster). Both tests depend on
+    /// the prop only through its cluster, so the walk here is over
+    /// <paramref name="clusterLights"/>' list for that cluster, which holds
+    /// exactly the lights the full walk keeps, in the same order.
+    /// </remarks>
     private static DetailPlan Plan(
         AmbientScene scene,
         in DetailObjectLump prop,
         IReadOnlyList<Vec3> modelCentres,
         Vec3[] spriteCentres,
         IReadOnlyList<PropLight> lights,
+        PropClusterLights clusterLights,
         PropLightSampler sampler,
         TestLineBatch lines)
     {
@@ -457,14 +471,9 @@ public static class DetailPropLighting
 
         List<(PendingPropSample Sample, PropLight Light)> planned = [];
         int cluster = ClusterFromPoint(scene, origin);
-        for (int i = 0; i < lights.Count; i++)
+        foreach (int i in clusterLights.For(cluster))
         {
             PropLight dl = lights[i];
-            if (dl.Type == EmitType.SkyAmbient || !PvsCheck(dl.Pvs, cluster))
-            {
-                continue;
-            }
-
             planned.Add((sampler.Plan(dl, origin, normal, lines), dl));
         }
 
@@ -507,23 +516,20 @@ public static class DetailPropLighting
         IReadOnlyList<Vec3> modelCentres,
         Vec3[] spriteCentres,
         IReadOnlyList<PropLight> lights,
+        PropClusterLights clusterLights,
         PropLightSampler sampler)
         : TestLineWorker<DetailPlan, PropColours>(sampler.CreateBatch())
     {
         private readonly PropAmbient _ambient = new(scene);
 
         public override DetailPlan Plan(int item, CancellationToken cancellationToken) =>
-            DetailPropLighting.Plan(scene, in props[item], modelCentres, spriteCentres, lights, sampler, Lines);
+            DetailPropLighting.Plan(scene, in props[item], modelCentres, spriteCentres, lights, clusterLights, sampler, Lines);
 
         public override PropColours Resolve(int item, DetailPlan state) =>
             DetailPropLighting.Resolve(state, sampler, _ambient, Lines);
     }
 
     private static bool IsValid(Vec3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
-
-    /// <summary><c>PVSCheck</c>: a negative cluster is always visible.</summary>
-    private static bool PvsCheck(byte[] pvs, int cluster) =>
-        cluster < 0 || (pvs[cluster >> 3] & (1 << (cluster & 7))) != 0;
 
     /// <summary>
     /// <c>ClusterFromPoint</c> over <c>PointInLeaf</c>
