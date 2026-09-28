@@ -138,7 +138,7 @@ public sealed class VradScratchPoolTests
     /// The sealed room with its pillar, through vbsp and vvis, so it has
     /// clusters and the bounce runs, and a real tree for the leaf ambient.
     /// </summary>
-    private static async Task<(BspData Bsp, IContentFileSystem Content)> RoomAsync()
+    internal static async Task<(BspData Bsp, IContentFileSystem Content)> RoomAsync()
     {
         (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room());
         VbspContext context = new(VbspOptions.Default, content) { MapBase = "room" };
