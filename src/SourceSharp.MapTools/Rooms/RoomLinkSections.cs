@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using System.Buffers;
 using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
@@ -33,16 +34,19 @@ internal enum RoomLinkParts
     Entities = 4,
 }
 
-/// <summary>How a link section's payload is stored: the byte every link section starts with.</summary>
+/// <summary>
+/// How a link section's payload is stored: the byte every link section
+/// starts with, before the payload's decoded length (<c>int64</c>, big-endian).
+/// </summary>
 internal enum RoomLinkCodec : byte
 {
     /// <summary>The payload as it is.</summary>
     None = 0,
 
-    /// <summary>An <c>int32</c> big-endian payload length, then the payload in raw Deflate (RFC 1951).</summary>
+    /// <summary>The payload in raw Deflate (RFC 1951) at zlib level 9.</summary>
     Deflate = 1,
 
-    /// <summary>An <c>int32</c> big-endian payload length, then the payload in Brotli (RFC 7932).</summary>
+    /// <summary>The payload in Brotli (RFC 7932) at quality 11, window 22.</summary>
     Brotli = 2,
 }
 
@@ -84,20 +88,23 @@ internal enum RoomLinkCodec : byte
 /// </para>
 /// <para>
 /// <b>Codec.</b> Every link section starts with a <see cref="RoomLinkCodec"/>
-/// byte, so any section can be stored compressed without a format change: a
-/// reader that meets a codec it does not know treats the section as absent
-/// and computes the part. The default is <see cref="RoomLinkCodec.None"/>,
+/// byte and the payload's decoded length (<c>int64</c>), so any section can
+/// be stored compressed without a format change; a codec this build does
+/// not read, or a payload that decodes to another length than recorded, is
+/// refused naming the room and section. The default is <see cref="RoomLinkCodec.None"/>,
 /// by measurement: on the stress library Deflate shrinks the per-turn
 /// sections about six times and Brotli about seven, but decompressing the
 /// 261 rooms a 19×19 level places costs 5 to 11 ms where copying the raw
 /// bytes out of a pack in the page cache costs under 1.5 ms, which is
 /// more than the link saves by storing them. Compression stays
-/// deterministic (fixed level, window and quality; the runtime's own zlib
-/// and Brotli), so a compressed pack is still a function of its rooms.
+/// deterministic (a fixed zlib level, and a fixed Brotli quality and window,
+/// set by number rather than through a level enum whose mapping the runtime
+/// may change; the runtime's own zlib-ng and Brotli on every OS, which facts
+/// pin), so a compressed pack is still a function of its rooms.
 /// </para>
 /// <para>
-/// <b>Layout.</b> After the codec byte (and, compressed, the payload length)
-/// the payload starts with an <c>int32</c> revision (<see cref="Revision"/>);
+/// <b>Layout.</b> After the codec byte and the decoded length, the payload
+/// (decoded) starts with an <c>int32</c> revision (<see cref="Revision"/>);
 /// a reader skips a section of a revision it does not know, as it skips an
 /// unknown tag. Counts, lengths and scalars are big-endian <c>int32</c>, as
 /// in the rest of the pack. Arrays of the BSP's own structs
@@ -150,6 +157,12 @@ internal static class RoomLinkSections
 
     /// <summary>The largest payload a compressed section may claim: a lying length fails before it allocates.</summary>
     private const int MaxPayloadBytes = 1 << 30;
+
+    /// <summary>The codec byte and the <c>int64</c> decoded length every link section starts with.</summary>
+    private const int HeaderBytes = 1 + 8;
+
+    /// <summary>The zlib level Deflate sections are written at (0 to 9): fixed, so the bytes are.</summary>
+    private const int DeflateLevel = 9;
 
     /// <summary>The Brotli quality compressed sections are written at: fixed, so the bytes are.</summary>
     private const int BrotliQuality = 11;
@@ -288,119 +301,135 @@ internal static class RoomLinkSections
     /// <summary>A section's payload with its codec byte in front.</summary>
     internal static byte[] Encode(byte[] payload, RoomLinkCodec codec)
     {
-        switch (codec)
+        byte[] body = codec switch
         {
-            case RoomLinkCodec.None:
-                return [(byte)codec, .. payload];
-            case RoomLinkCodec.Deflate:
-            {
-                using MemoryStream packed = new();
-                packed.WriteByte((byte)codec);
-                WriteLength(packed, payload.Length);
-                using (DeflateStream deflate = new(packed, CompressionLevel.SmallestSize, leaveOpen: true))
-                {
-                    deflate.Write(payload);
-                }
+            RoomLinkCodec.None => payload,
+            RoomLinkCodec.Deflate => DeflateBytes(payload),
+            RoomLinkCodec.Brotli => BrotliBytes(payload),
+            _ => throw new ArgumentOutOfRangeException(nameof(codec), codec, "not a link section codec"),
+        };
 
-                return packed.ToArray();
-            }
-
-            case RoomLinkCodec.Brotli:
-            {
-                byte[] packed = new byte[5 + BrotliEncoder.GetMaxCompressedLength(payload.Length)];
-                packed[0] = (byte)codec;
-                BinaryPrimitives.WriteInt32BigEndian(packed.AsSpan(1), payload.Length);
-                if (!BrotliEncoder.TryCompress(payload, packed.AsSpan(5), out int written, BrotliQuality, BrotliWindow))
-                {
-                    throw new InvalidOperationException("Brotli could not compress a link section into its own bound");
-                }
-
-                return packed[..(5 + written)];
-            }
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(codec), codec, "not a link section codec");
-        }
+        byte[] section = new byte[HeaderBytes + body.Length];
+        section[0] = (byte)codec;
+        BinaryPrimitives.WriteInt64BigEndian(section.AsSpan(1), payload.Length);
+        body.CopyTo(section, HeaderBytes);
+        return section;
     }
 
     /// <summary>
-    /// A section's payload, uncompressed, behind its revision: or null when
-    /// the section is absent, or has a codec or revision this build does not
-    /// read (the part is then computed at link, as for an absent section).
+    /// Deflate (RFC 1951, no zlib wrapper) at a fixed zlib level: set by
+    /// number rather than through <see cref="CompressionLevel"/>, whose
+    /// mapping to a zlib level is the runtime's to change.
     /// </summary>
+    internal static byte[] DeflateBytes(ReadOnlySpan<byte> payload)
+    {
+        using MemoryStream packed = new();
+        using (DeflateStream deflate = new(packed, new ZLibCompressionOptions { CompressionLevel = DeflateLevel }, leaveOpen: true))
+        {
+            deflate.Write(payload);
+        }
+
+        return packed.ToArray();
+    }
+
+    /// <summary>Brotli (RFC 7932) at a fixed quality and window, through the encoder rather than a level enum.</summary>
+    internal static byte[] BrotliBytes(ReadOnlySpan<byte> payload)
+    {
+        byte[] packed = new byte[BrotliEncoder.GetMaxCompressedLength(payload.Length)];
+        if (!BrotliEncoder.TryCompress(payload, packed, out int written, BrotliQuality, BrotliWindow))
+        {
+            throw new InvalidOperationException("Brotli could not compress a link section into its own bound");
+        }
+
+        return packed[..written];
+    }
+
+    /// <summary>
+    /// A section's payload, decoded, behind its revision: or null when the
+    /// section is absent or has a revision this build does not read (the
+    /// part is then computed at link, as for an absent section).
+    /// </summary>
+    /// <exception cref="LinkException">
+    /// A codec this build does not read, a payload cut short, or one that
+    /// decodes to another length than the section records.
+    /// </exception>
     internal static Reader? Open(ArraySegment<byte>? section, string room, string tag)
     {
-        if (section is not { Count: > 0 } bytes)
+        if (section is not { } bytes)
         {
             return null;
         }
 
-        ArraySegment<byte> payload;
-        switch ((RoomLinkCodec)bytes[0])
+        if (bytes.Count < HeaderBytes)
         {
-            case RoomLinkCodec.None:
-                payload = bytes[1..];
-                break;
-            case RoomLinkCodec.Deflate:
-            case RoomLinkCodec.Brotli:
-                payload = Decompress((RoomLinkCodec)bytes[0], bytes[1..], room, tag);
-                break;
-            default:
-                return null;
+            throw new LinkException($"room pack entry \"{room}\": its \"{tag}\" section is truncated.");
+        }
+
+        byte codec = bytes[0];
+        long length = BinaryPrimitives.ReadInt64BigEndian(bytes.AsSpan(1));
+        ArraySegment<byte> body = bytes[HeaderBytes..];
+        ArraySegment<byte> payload = (RoomLinkCodec)codec switch
+        {
+            RoomLinkCodec.None => body,
+            RoomLinkCodec.Deflate or RoomLinkCodec.Brotli => Decompress((RoomLinkCodec)codec, body, length, room, tag),
+            _ => throw new LinkException($"room {room}: section {tag} uses codec {codec}, which this build does not read."),
+        };
+
+        if (payload.Count != length)
+        {
+            throw new LinkException($"room {room}: section {tag} decodes to {payload.Count} bytes, not the {length} it records.");
         }
 
         Reader reader = new(payload, room, tag);
         return reader.Int() == Revision ? reader : null;
     }
 
-    private static byte[] Decompress(RoomLinkCodec codec, ArraySegment<byte> packed, string room, string tag)
+    /// <summary>
+    /// A compressed payload, decoded into at most <paramref name="length"/>
+    /// bytes (the length the section records, which also bounds what a
+    /// lying section can make the reader allocate); what it decodes to is
+    /// returned, whatever its length, for the caller to hold against the
+    /// record.
+    /// </summary>
+    private static ArraySegment<byte> Decompress(RoomLinkCodec codec, ArraySegment<byte> packed, long length, string room, string tag)
     {
-        LinkException Damaged() => new($"room pack entry \"{room}\": its \"{tag}\" section does not decompress.");
-        if (packed.Count < 4)
+        if (length is < 0 or > MaxPayloadBytes)
         {
-            throw Damaged();
+            throw new LinkException($"room {room}: section {tag} records {length} bytes; a section decodes to 0 to {MaxPayloadBytes}.");
         }
 
-        int length = BinaryPrimitives.ReadInt32BigEndian(packed);
-        if (length < 0 || length > MaxPayloadBytes)
-        {
-            throw Damaged();
-        }
-
-        byte[] payload = new byte[length];
+        // One byte of room past the record, so a payload that decodes long
+        // is seen as long rather than cut to fit.
+        byte[] payload = new byte[length + 1];
+        int written = 0;
         try
         {
             if (codec == RoomLinkCodec.Brotli)
             {
-                if (!BrotliDecoder.TryDecompress(packed[4..], payload, out int written) || written != length)
+                using BrotliDecoder decoder = new();
+                OperationStatus status = decoder.Decompress(packed, payload, out _, out written);
+                if (status is OperationStatus.InvalidData)
                 {
-                    throw Damaged();
+                    throw new InvalidDataException();
                 }
             }
             else
             {
-                using MemoryStream source = new(packed.Array!, packed.Offset + 4, packed.Count - 4, writable: false);
+                using MemoryStream source = new(packed.Array!, packed.Offset, packed.Count, writable: false);
                 using DeflateStream inflate = new(source, CompressionMode.Decompress);
-                inflate.ReadExactly(payload);
-                if (inflate.ReadByte() != -1)
+                int got;
+                while (written < payload.Length && (got = inflate.Read(payload, written, payload.Length - written)) > 0)
                 {
-                    throw Damaged();
+                    written += got;
                 }
             }
         }
-        catch (Exception exception) when (exception is InvalidDataException or EndOfStreamException)
+        catch (InvalidDataException)
         {
-            throw Damaged();
+            throw new LinkException($"room {room}: section {tag} is not valid {codec} data.");
         }
 
-        return payload;
-    }
-
-    private static void WriteLength(Stream w, int length)
-    {
-        Span<byte> b = stackalloc byte[4];
-        BinaryPrimitives.WriteInt32BigEndian(b, length);
-        w.Write(b);
+        return new ArraySegment<byte>(payload, 0, written);
     }
 
     private static T Held<T>(T? part, RoomLinkData data)

@@ -62,6 +62,12 @@ public sealed class RoomLinkDataFixture : IAsyncLifetime
 /// </summary>
 public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixture<RoomLinkDataFixture>
 {
+    /// <summary>The pinned Deflate bytes of <see cref="TheCodecBytesArePinned"/>: length, then SHA-256.</summary>
+    private const string PinnedDeflate = "6105:359A1AF77B03FF2C47635B685B5B007C97911272FFEAA88511AA3593DADE51AA";
+
+    /// <summary>The pinned Brotli bytes of <see cref="TheCodecBytesArePinned"/>: length, then SHA-256.</summary>
+    private const string PinnedBrotli = "2090:1E0323E3971086167CE7B6DD603D07D27D82D65371D634E684EB315CE343AAC8";
+
     /// <summary>Every per-turn part, stored or not by default.</summary>
     private const RoomLinkParts All = RoomLinkParts.Geometry | RoomLinkParts.Collision | RoomLinkParts.Entities;
 
@@ -290,34 +296,66 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
 
         for (int s = 0; s < once.Length; s++)
         {
-            Assert.Equal(raw[s].Length - 1, BinaryPrimitives.ReadInt32BigEndian(once[s].AsSpan(1)));
+            Assert.Equal(raw[s].Length - 9, BinaryPrimitives.ReadInt64BigEndian(once[s].AsSpan(1)));
             RoomLinkSections.Reader? reader = RoomLinkSections.Open(new ArraySegment<byte>(once[s]), "hall", "TEST");
             Assert.NotNull(reader);
         }
     }
 
     /// <summary>
-    /// A section this build cannot read (a codec it does not know, a revision
-    /// it does not know) is taken as absent: the part is computed at link. An
-    /// unreadable <c>LNKA</c> leaves the room with no link data at all.
+    /// The codecs' bytes are pinned: a fixed input compressed with Deflate at
+    /// zlib level 9 and with Brotli at quality 11, window 22 hashes to the
+    /// checked-in value, on every operating system CI runs. The runtime
+    /// ships its own zlib-ng and Brotli, so the bytes are expected to agree
+    /// everywhere; if they ever differ, that is a runtime change to decide
+    /// on, not a golden to refresh.
     /// </summary>
     [Fact]
-    public async Task AnUnknownCodecOrRevisionReadsAsAbsent()
+    public void TheCodecBytesArePinned()
+    {
+        byte[] input = new byte[8192];
+        uint x = 0x12345678;
+        for (int i = 0; i < input.Length; i++)
+        {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            input[i] = (byte)(i % 3 == 0 ? (int)(x & 0x0f) : i & 0xff);
+        }
+
+        byte[] deflate = RoomLinkSections.DeflateBytes(input);
+        byte[] brotli = RoomLinkSections.BrotliBytes(input);
+        Assert.Equal(PinnedDeflate, $"{deflate.Length}:{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(deflate))}");
+        Assert.Equal(PinnedBrotli, $"{brotli.Length}:{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(brotli))}");
+
+        byte[] section = RoomLinkSections.Encode(input, RoomLinkCodec.Deflate);
+        Assert.Equal((byte)RoomLinkCodec.Deflate, section[0]);
+        Assert.Equal(input.Length, BinaryPrimitives.ReadInt64BigEndian(section.AsSpan(1)));
+        Assert.Equal(deflate, section[9..]);
+    }
+
+    /// <summary>
+    /// A section of a revision this build does not know is taken as absent:
+    /// the part is computed at link, and an unreadable <c>LNKA</c> leaves the
+    /// room with no link data at all. A codec this build does not know is
+    /// refused, naming the room, the section and the codec.
+    /// </summary>
+    [Fact]
+    public async Task AnUnknownRevisionReadsAsAbsentAndAnUnknownCodecIsRefused()
     {
         RoomObject hub = fixture.Library.Get("hub");
         RoomLinkData data = (await LevelLinker.TryPrecomputeAsync(hub, CancellationToken.None))!;
         List<RoomPackSectionData> sections = [.. RoomLinkSections.Write(data, All)];
 
-        RoomLinkData? read = ReadBack(hub, [.. sections.Select(s => s.Tag == "GEO1" ? s with { Bytes = With(s.Bytes, 0, 9) } : s)]);
-        Assert.Null(read!.Rotation(1)!.Geometry);
-        Assert.NotNull(read.Rotation(1)!.Collision);
-        Assert.NotNull(read.Rotation(0)!.Geometry);
+        LinkException refused = Assert.Throws<LinkException>(
+            () => ReadBack(hub, [.. sections.Select(s => s.Tag == "GEO1" ? s with { Bytes = With(s.Bytes, 0, 9) } : s)]));
+        Assert.Equal("room hub: section GEO1 uses codec 9, which this build does not read.", refused.Message);
 
-        read = ReadBack(hub, [.. sections.Select(s => s.Tag == "ENT2" ? s with { Bytes = WithInt(s.Bytes, 1, 99) } : s)]);
+        RoomLinkData? read = ReadBack(hub, [.. sections.Select(s => s.Tag == "ENT2" ? s with { Bytes = WithInt(s.Bytes, 9, 99) } : s)]);
         Assert.Null(read!.Rotation(2)!.Entities);
         Assert.NotNull(read.Rotation(2)!.Geometry);
 
-        Assert.Null(ReadBack(hub, [.. sections.Select(s => s.Tag == "LNKA" ? s with { Bytes = WithInt(s.Bytes, 1, 2) } : s)]));
+        Assert.Null(ReadBack(hub, [.. sections.Select(s => s.Tag == "LNKA" ? s with { Bytes = WithInt(s.Bytes, 9, 2) } : s)]));
         Assert.Null(ReadBack(hub, [.. sections.Where(s => s.Tag != "LNKA")]));
         Assert.Null(ReadBack(hub, [.. sections.Where(s => s.Tag == "LNKA")])!.Rotation(0));
     }
@@ -340,6 +378,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
     [InlineData("GEO1", "brotli")]
     [InlineData("GEO1", "length")]
     [InlineData("GEO1", "short")]
+    [InlineData("GEO3", "raw-length")]
     [InlineData("COL0", "terrain")]
     [InlineData("COL0", "utf8")]
     [InlineData("COL0", "solids")]
@@ -361,34 +400,34 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
         bytes = damage switch
         {
             "cut" => bytes[..(bytes.Length - 3)],
-            "sockets" => WithInt(bytes, 5, 9),                                     // socket count
-            "index" => WithInt(bytes, 13, 1 << 20),                              // socket 0's first facing cluster
-            "count" => WithInt(bytes, 5, vertices + 1),                           // vertex count
-            "flag" => With(bytes, 5 + 4 + (12 * vertices) + 4 + (20 * planePairs) + 4, 2), // first swap byte
+            "sockets" => WithInt(bytes, 13, 9),                                    // socket count
+            "index" => WithInt(bytes, 21, 1 << 20),                              // socket 0's first facing cluster
+            "count" => WithInt(bytes, 13, vertices + 1),                          // vertex count
+            "flag" => With(bytes, 13 + 4 + (12 * vertices) + 4 + (20 * planePairs) + 4, 2), // first swap byte
             "trailing" => [.. bytes, 0],
             "ledge" => WithInt(bytes, MaterialsEnd(bytes) + 17 + 8, 0x7fffff04),  // first ledge's size word
-            "deflate" => [.. bytes[..5], .. Enumerable.Repeat((byte)0xff, bytes.Length - 5)],
-            "deflate-trailing" => WithInt(bytes, 1, BinaryPrimitives.ReadInt32BigEndian(bytes.AsSpan(1)) - 1), // one byte left over
-            "brotli" => [.. bytes[..5], .. Enumerable.Repeat((byte)0x5a, bytes.Length - 5)],
-            "length" => WithInt(bytes, 1, -1),
-            "short" => bytes[..3],
+            "deflate" => [.. bytes[..9], .. Enumerable.Repeat((byte)0xff, bytes.Length - 9)],
+            "deflate-trailing" => WithLong(bytes, 1, BinaryPrimitives.ReadInt64BigEndian(bytes.AsSpan(1)) - 1), // decodes one byte long
+            "brotli" => [.. bytes[..9], .. Enumerable.Repeat((byte)0x5a, bytes.Length - 9)],
+            "length" => WithLong(bytes, 1, -1),
+            "short" => bytes[..7],
+            "raw-length" => WithLong(bytes, 1, BinaryPrimitives.ReadInt64BigEndian(bytes.AsSpan(1)) + 1),
             "terrain" => With(bytes, MaterialsEnd(bytes), 7),                     // the virtual-terrain flag
-            "utf8" => With(bytes, 5 + 4 + 4, 0xff),                               // the first material name's first byte
+            "utf8" => With(bytes, 13 + 4 + 4, 0xff),                              // the first material name's first byte
             "solids" => WithInt(bytes, MaterialsEnd(bytes) + 1, -1),              // the solid count
             _ => throw new ArgumentOutOfRangeException(nameof(damage)),
         };
         sections[at] = sections[at] with { Bytes = bytes };
 
         LinkException refused = Assert.Throws<LinkException>(() => ReadBack(hub, sections));
-        Assert.Contains("\"hub\"", refused.Message, StringComparison.Ordinal);
-        Assert.Contains($"\"{tag}\"", refused.Message, StringComparison.Ordinal);
+        Assert.Matches($"^room (pack entry \"hub\": its \"{tag}\" section|hub: section {tag}) ", refused.Message);
 
         // Where a collision section's material names end: its virtual-terrain
         // flag; the solid count, the first solid's contents, ledge count and
         // byte length follow, then the first ledge (17 bytes on).
         static int MaterialsEnd(byte[] section)
         {
-            int p = 5;
+            int p = 13;
             int materials = BinaryPrimitives.ReadInt32BigEndian(section.AsSpan(p));
             Assert.True(materials > 0);
             p += 4;
@@ -695,6 +734,13 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
     {
         byte[] copy = bytes.ToArray();
         copy[offset] = value;
+        return copy;
+    }
+
+    private static byte[] WithLong(ReadOnlyMemory<byte> bytes, int offset, long value)
+    {
+        byte[] copy = bytes.ToArray();
+        BinaryPrimitives.WriteInt64BigEndian(copy.AsSpan(offset), value);
         return copy;
     }
 
