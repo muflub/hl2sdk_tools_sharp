@@ -113,7 +113,12 @@ public static class RoomCommands
             return Program.ExitUsage;
         }
 
-        if (!VPath.TryCreate(outDirectory ?? Path.GetDirectoryName(source)!, out VPath outDir))
+        // -out resolves against the current directory like the map path does;
+        // taken raw, a relative -out landed under the disk root and a rooted
+        // one lost its Windows drive.
+        if (!VPath.TryCreate(
+            outDirectory is null ? Path.GetDirectoryName(source)! : Path.GetFullPath(outDirectory),
+            out VPath outDir))
         {
             await output.WriteLineAsync($"ssmap room: -out \"{outDirectory}\" is not a usable path")
                 .ConfigureAwait(false);
@@ -133,17 +138,29 @@ public static class RoomCommands
             return Program.ExitUsage;
         }
 
+        // The definition is JSON, and JSON is UTF-8: the same decoding the
+        // layout gets, so a room named in any script round-trips through
+        // both files and the .room it produces.
         RoomDefinition definition;
         try
         {
             await using Stream stream = await disk.OpenReadAsync(defVPath, cancellationToken).ConfigureAwait(false);
-            definition = RoomDefinitionJson.Parse(await new StreamReader(stream, Encoding.Latin1)
+            definition = RoomDefinitionJson.Parse(await new StreamReader(stream, Encoding.UTF8)
                 .ReadToEndAsync(cancellationToken).ConfigureAwait(false));
+            definition.Validate();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or InvalidDataException or LinkException)
+            or InvalidDataException or LinkException or ArgumentException)
         {
             await output.WriteLineAsync($"ssmap room: cannot read the room definition {defPath}: {exception.Message}")
+                .ConfigureAwait(false);
+            return ExitFailed;
+        }
+
+        if (RoomFileNameProblem(definition.Name) is { } problem)
+        {
+            await output.WriteLineAsync(
+                $"ssmap room: the room name \"{definition.Name}\" cannot name a file in -out: {problem}")
                 .ConfigureAwait(false);
             return ExitFailed;
         }
@@ -166,6 +183,8 @@ public static class RoomCommands
                 .ConfigureAwait(false);
             return ExitFailed;
         }
+
+        await VbspCommand.WriteSkippedAsync(mounted, "ssmap room", output).ConfigureAwait(false);
 
         // The format pipeline, exactly where vbsp runs it: after the mount
         // (it reads the appid and Tools key off the mounted gameinfo), before
@@ -379,11 +398,10 @@ public static class RoomCommands
             return ExitFailed;
         }
 
-        RoomLibrary library = new(
-            parsedLayout.Rooms.Count > 0 && LevelLayoutJson.HasGrid(parsedLayout)
-                ? parsedLayout.Kit
-                : loaded[0].Definition.Kit,
-            LevelLayoutJson.HasGrid(parsedLayout) ? parsedLayout.CellSize : loaded[0].Definition.CellSize);
+        // The library's grid is the rooms' own (the first room's; Add refuses
+        // any other room built for a different one). A layout that restates
+        // the grid is then held to it by the linter, which names both.
+        RoomLibrary library = new(loaded[0].Definition.Kit, loaded[0].Definition.CellSize);
         try
         {
             foreach (RoomObject room in loaded)
@@ -391,7 +409,7 @@ public static class RoomCommands
                 library.Add(room);
             }
         }
-        catch (LinkException exception)
+        catch (ArgumentException exception)
         {
             await output.WriteLineAsync($"ssmap link: {roomsDir}: {exception.Message}").ConfigureAwait(false);
             return ExitFailed;
@@ -444,6 +462,57 @@ public static class RoomCommands
             await output.WriteLineAsync($"ssmap link: {exception.Message}").ConfigureAwait(false);
             return ExitFailed;
         }
+        catch (ArgumentException exception)
+        {
+            // The layout's own shape (LevelLayout.Validate): no rooms, a
+            // shared cell, a blank name.
+            await output.WriteLineAsync($"ssmap link: {layoutPath}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
+    }
+
+    /// <summary>
+    /// Why a room name cannot be the file name <c>&lt;name&gt;.room</c>
+    /// directly inside <c>-out</c>, or null when it can.
+    /// </summary>
+    /// <param name="name">The definition's room name.</param>
+    /// <returns>The problem, or null.</returns>
+    /// <remarks>
+    /// The name comes from the definition file, which is input: joined onto
+    /// <c>-out</c> as it stands, <c>../x</c> or <c>/etc/x</c> would write
+    /// outside the directory the user named. A name is accepted only as one
+    /// path segment: no separator of either platform, no drive colon, no
+    /// control character, and not <c>.</c> or <c>..</c>. The rule is the same
+    /// on every host, so a library that compiles on Linux also compiles on
+    /// Windows.
+    /// </remarks>
+    public static string? RoomFileNameProblem(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (name is "." or "..")
+        {
+            return "it is a relative directory name";
+        }
+
+        foreach (char c in name)
+        {
+            if (c is '/' or '\\')
+            {
+                return "it contains a path separator";
+            }
+
+            if (c == ':')
+            {
+                return "it contains a drive or stream colon";
+            }
+
+            if (char.IsControl(c))
+            {
+                return "it contains a control character";
+            }
+        }
+
+        return null;
     }
 
     /// <summary>

@@ -427,7 +427,11 @@ public static class BenchCommand
     /// <param name="args">The arguments after <c>bench</c>.</param>
     /// <param name="output">Where the per-run summary lines go.</param>
     /// <param name="cancellationToken">Cancels the series.</param>
-    /// <returns>The process exit code.</returns>
+    /// <returns>
+    /// The process exit code: for a series, failure when any of its runs
+    /// (warm-up or timed) did not compile, even though the ledger records
+    /// every run either way.
+    /// </returns>
     public static async Task<int> RunAsync(
         PhysicalFileSystem disk,
         IReadOnlyList<VPath> searchRoots,
@@ -759,13 +763,18 @@ public static class BenchCommand
         TimeSpan cpu0 = proc.TotalProcessorTime;
         TimeSpan gc0 = GC.GetTotalPauseDuration();
         Stopwatch clock = Stopwatch.StartNew();
+        // One rooted view serves both the compile and the output hashes, so a
+        // written path is mapped back to the host the same way it was mapped out
+        // (on Windows a VPath carries its drive, which a "/" prefix would turn
+        // into a drive-relative path under the current drive).
+        PhysicalFileSystem disk = new("/");
         BenchOutcome outcome;
         try
         {
             outcome = command switch
             {
                 "all" or "chain" => await ChainAsync(
-                    new PhysicalFileSystem("/"), DefaultRoots(), compileArgs, logger, cancellationToken)
+                    disk, DefaultRoots(), compileArgs, logger, cancellationToken)
                     .ConfigureAwait(false),
                 "vbsp" => await SingleAsync("vbsp", compileArgs, cancellationToken).ConfigureAwait(false),
                 "vvis" => await SingleAsync("vvis", compileArgs, cancellationToken).ConfigureAwait(false),
@@ -796,7 +805,7 @@ public static class BenchCommand
             GcPauseSeconds: Math.Max(0, (GC.GetTotalPauseDuration() - gc0).TotalSeconds),
             Stages: [.. outcome.Timings.Select(t =>
                 $"{t.Stage}|{t.Elapsed.TotalSeconds.ToString("0.####", CultureInfo.InvariantCulture)}")],
-            Outputs: [.. outcome.Written.Select(p => "/" + p.Value + "|" + Sha256Of("/" + p.Value))],
+            Outputs: [.. outcome.Written.Select(p => "/" + p.Value + "|" + Sha256Of(disk.ToHostPath(p)))],
             CacheReused: outcome.Cache?.Hits ?? 0,
             CacheCooked: outcome.Cache?.Misses ?? 0,
             Failure: outcome.Failure,
@@ -902,6 +911,13 @@ public static class BenchCommand
         (string[] snapFrom, string[] snapTo) = SnapshotStageInputs(map, stage);
 
         using StreamWriter ledger = new(outPath, append: false);
+        // Any run that did not compile, warm-up or timed, makes the series
+        // exit with failure. Every run is still in the ledger with its failure
+        // line, but a caller that reads only the exit code (a driver priming a
+        // warm-cache cell with one untimed run, say) must not take a failed
+        // series for a good one: that prime's store would be empty and the
+        // "warm" numbers would be a cold compile's.
+        bool anyFailed = false;
         for (int run = -warmups; run < runs; run++)
         {
             bool timed = run >= 0;
@@ -946,7 +962,7 @@ public static class BenchCommand
                 Math.Max(0, (GC.GetTotalPauseDuration() - gc0).TotalSeconds),
                 [.. outcome.Timings.Select(t =>
                     $"{t.Stage}|{t.Elapsed.TotalSeconds.ToString("0.####", CultureInfo.InvariantCulture)}")],
-                [.. outcome.Written.Select(p => p.Value + "|" + Sha256Of("/" + p.Value))],
+                [.. outcome.Written.Select(p => p.Value + "|" + Sha256Of(disk.ToHostPath(p)))],
                 outcome.Cache?.Hits ?? 0,
                 outcome.Cache?.Misses ?? 0,
                 outcome.Failure,
@@ -958,6 +974,7 @@ public static class BenchCommand
             await output.WriteLineAsync(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{cell} {(timed ? "run=" + run : "warmup")} wall={sample.WallSeconds:F3} cpu={sample.CpuSeconds:F3} rss={sample.PeakRssBytes / 1024}kB gc={sample.GcPauseSeconds * 1000:F0}ms{(outcome.Ok ? string.Empty : " FAILED " + outcome.Failure)}")).ConfigureAwait(false);
+            anyFailed |= !outcome.Ok;
             if (!outcome.Ok && !timed)
             {
                 break;
@@ -965,7 +982,7 @@ public static class BenchCommand
         }
 
         await ledger.FlushAsync(cancellationToken).ConfigureAwait(false);
-        return Program.ExitSuccess;
+        return anyFailed ? Program.ExitFailure : Program.ExitSuccess;
     }
 
     /// <summary>The command line one run of a cell hands its stage.</summary>
@@ -1085,6 +1102,56 @@ public static class BenchCommand
             File.Copy(from[i], to[i], overwrite: true);
         }
     }
+
+    /// <summary>
+    /// The compile one chain cell runs, before its cache and GPU backends are
+    /// added: the request <c>ssmap all</c> would build for the same arguments.
+    /// </summary>
+    /// <param name="parsed">The cell's chain arguments.</param>
+    /// <param name="disk">Where the map is read and the output written.</param>
+    /// <param name="mapFile">The resolved <c>.vmf</c>.</param>
+    /// <param name="sourcePath">The map's path without extension; the output goes beside it.</param>
+    /// <param name="mapName">The map's base name.</param>
+    /// <param name="content">The mounted game content, with the loose files ahead of it.</param>
+    /// <param name="format">The resolved output format.</param>
+    /// <param name="pool">The cell's pool, sized by <c>-threads</c>.</param>
+    /// <param name="cooker">The cell's cooker, or null for none.</param>
+    /// <returns>The request.</returns>
+    /// <remarks>
+    /// Public, and apart from the harness around it, so that a fact can pin
+    /// the wiring a timing harness cannot show is missing: without
+    /// <c>-overlap</c> reaching the request the overlapped cells time the
+    /// sequential chain, and without the cooker on the pool a one-thread cell
+    /// cooks on the .NET pool beside it. Either still produces the same
+    /// output, so no output comparison would notice.
+    /// </remarks>
+    public static CompileRequest ChainRequest(
+        AllArgs parsed,
+        IFileSystem disk,
+        string mapFile,
+        string sourcePath,
+        string mapName,
+        IContentFileSystem content,
+        FormatOptions format,
+        CompilePool pool,
+        ICollisionCooker? cooker)
+    {
+        ArgumentNullException.ThrowIfNull(parsed);
+        ArgumentNullException.ThrowIfNull(pool);
+        return new CompileRequest
+        {
+            Source = MapSource.FromVmf(disk, VPath.Create(mapFile)),
+            Content = content,
+            Vbsp = parsed.Vbsp with { Format = format },
+            Vvis = parsed.Vvis,
+            Vrad = parsed.Vrad,
+            Parallel = AllCommand.ChainParallelism(parsed) with { Pool = pool },
+            Overlap = parsed.Overlap,
+            CollisionCooker = AllCommand.CookOnPool(cooker, pool),
+            Output = CompileOutput.ToDirectory(disk, VPath.Create(Path.GetDirectoryName(sourcePath)!), mapName),
+        };
+    }
+
     private readonly record struct BenchOutcome(
         bool Ok,
         string? Failure,
@@ -1160,26 +1227,13 @@ public static class BenchCommand
 
         // The chain's one pool, with the managed cooker's cooks on it, as
         // `ssmap all` runs them; without it -threads 1 is not one thread.
-        CompileParallelism parallel = AllCommand.ChainParallelism(parsed);
-        using CompilePool pool = new(parallel.MaxDegree);
-        using IDisposable onPool = AllCommand.CookOnPool(cooker, pool);
+        using CompilePool pool = new(AllCommand.ChainParallelism(parsed).MaxDegree);
 
         // The store's LIFECYCLE is the harness's (a fresh dir per cold run, the
         // plan's isolation rule); its OPENING is the product's, through the same
         // WithBackendsAsync seam the Phase 11 facts pin.
         CompileRequest request = await AllCommand.WithBackendsAsync(
-            new CompileRequest
-            {
-                Source = MapSource.FromVmf(disk, VPath.Create(mapFile)),
-                Content = content,
-                Vbsp = parsed.Vbsp with { Format = resolution.Resolved },
-                Vvis = parsed.Vvis,
-                Vrad = parsed.Vrad,
-                Parallel = parallel with { Pool = pool },
-                Overlap = parsed.Overlap,
-                CollisionCooker = cooker,
-                Output = CompileOutput.ToDirectory(disk, VPath.Create(Path.GetDirectoryName(paths.Source)!), mapName),
-            },
+            ChainRequest(parsed, disk, mapFile, paths.Source, mapName, content, resolution.Resolved, pool, cooker),
             parsed,
             Path.GetDirectoryName(paths.Source)!,
             mapName,

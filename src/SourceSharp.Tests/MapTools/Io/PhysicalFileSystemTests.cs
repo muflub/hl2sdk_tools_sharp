@@ -282,4 +282,120 @@ public class PhysicalFileSystemTests
             [VPath.Create("materials/a.vmt"), VPath.Create("materials/metal/b.vmt")],
             found);
     }
+
+    /// <summary>
+    /// A file system at a drive root answers for other drives too, keeping
+    /// the drive: on Windows a game on another drive than the one the command
+    /// runs from failed to mount, its directory listing refused as "not
+    /// below the root".
+    /// </summary>
+    [Theory]
+    [InlineData(@"D:\", @"C:\Users\me\mod\gameinfo.txt", "C:/Users/me/mod/gameinfo.txt")]
+    [InlineData(@"D:", @"e:\Steam\steamapps", "e:/Steam/steamapps")]
+    [InlineData("D:/", "C:/x/y.vmt", "C:/x/y.vmt")]
+    public void ADriveRootMapsAPathOnAnotherDriveWithItsDrive(string root, string full, string expected)
+    {
+        Assert.True(PhysicalFileSystem.TryMapAcrossDrives(root, full, out VPath path));
+        Assert.Equal(expected, path.Value);
+    }
+
+    /// <summary>
+    /// Everything else still refuses: the same drive (the prefix test's
+    /// case, not this one's), a root that is a directory rather than a drive
+    /// (containment is why a file system is rooted there), a host path with
+    /// no drive, and a POSIX root.
+    /// </summary>
+    [Theory]
+    [InlineData(@"D:\", @"d:\elsewhere\a.txt")]
+    [InlineData(@"D:\work", @"C:\Users\a.txt")]
+    [InlineData(@"D:\", @"\\server\share\a.txt")]
+    [InlineData("/", "/home/me/a.txt")]
+    [InlineData("/", @"C:\a.txt")]
+    public void AnythingElseIsNotMappedAcrossDrives(string root, string full) =>
+        Assert.False(PhysicalFileSystem.TryMapAcrossDrives(root, full, out _));
+
+    /// <summary>
+    /// A symlinked file reads as its target's bytes, all of them. The size
+    /// came from the link itself, which on Linux is the length of the target
+    /// path, so a symlinked gameinfo.txt read as its first few dozen bytes
+    /// and a whole compile ran with no game content. Both read paths are
+    /// covered: the pooled copy and the memory map.
+    /// </summary>
+    [SymlinkFact]
+    public async Task ASymlinkedFileReadsAsItsTargetWhole()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "pfs-link-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "elsewhere", "deep"));
+        try
+        {
+            byte[] content = new byte[5000];
+            for (int i = 0; i < content.Length; i++)
+            {
+                content[i] = (byte)(i * 7);
+            }
+
+            string target = Path.Combine(dir, "elsewhere", "deep", "gameinfo.txt");
+            File.WriteAllBytes(target, content);
+            File.CreateSymbolicLink(Path.Combine(dir, "gameinfo.txt"), target);
+
+            foreach (long threshold in new[] { long.MaxValue, 1L })
+            {
+                PhysicalFileSystem fs = new(dir, threshold);
+                using IMemoryOwner<byte> read = await fs.ReadAllAsync(VPath.Create("gameinfo.txt"));
+                Assert.Equal(content, read.Memory.ToArray());
+            }
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A symlinked file's info is its target's: its size and its write time,
+    /// so a cache stamp moves when the target is edited.
+    /// </summary>
+    [SymlinkFact]
+    public async Task ASymlinkedFilesInfoIsItsTargets()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "pfs-link-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "a"));
+        try
+        {
+            string target = Path.Combine(dir, "a", "target.txt");
+            File.WriteAllText(target, new string('x', 1234));
+            File.SetLastWriteTimeUtc(target, new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc));
+            File.CreateSymbolicLink(Path.Combine(dir, "link.txt"), target);
+
+            FileInfoSnapshot? info = await new PhysicalFileSystem(dir).GetInfoAsync(VPath.Create("link.txt"));
+
+            Assert.NotNull(info);
+            Assert.Equal(1234, info.Value.Length);
+            Assert.Equal(new DateTimeOffset(2020, 1, 2, 3, 4, 5, TimeSpan.Zero), info.Value.LastWriteTimeUtc);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>A link whose target is gone reads as a missing file, not a crash.</summary>
+    [SymlinkFact]
+    public async Task ADanglingSymlinkIsAMissingFile()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "pfs-link-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.CreateSymbolicLink(Path.Combine(dir, "link.txt"), Path.Combine(dir, "gone.txt"));
+            PhysicalFileSystem fs = new(dir);
+
+            await Assert.ThrowsAsync<FileNotFoundException>(async () => await fs.ReadAllAsync(VPath.Create("link.txt")));
+            Assert.Null(await fs.GetInfoAsync(VPath.Create("link.txt")));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

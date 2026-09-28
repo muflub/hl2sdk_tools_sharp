@@ -466,12 +466,24 @@ public sealed class GameInfo
                 pendingKey = null;
             }
 
+            // The first top-level section sits on the stack twice (as the root
+            // and as its own open block), so a balanced file ends at one. More
+            // means a block was never closed: a truncated file, whose leading
+            // part parses cleanly and names no search paths at all. Read that
+            // way, a compile mounted no game content, found no materials and
+            // said nothing about why; refusing names the problem instead.
+            if (stack.Count > 1)
+            {
+                throw new InvalidDataException(
+                    "the text ends inside a block: a '{' is never closed (is the file truncated?)");
+            }
+
             return root;
         }
     }
     /// <summary>
-    /// Replaces the <c>|…|</c> tokens in a location and strips any Windows
-    /// drive letter.
+    /// Replaces the <c>|…|</c> tokens in a location and strips a Windows
+    /// drive letter the location itself starts with.
     /// </summary>
     /// <param name="location">A location as the file wrote it.</param>
     /// <param name="gameInfoPath">What <c>|gameinfo_path|</c> stands for.</param>
@@ -481,7 +493,8 @@ public sealed class GameInfo
     /// The drive letter is stripped because this repo's own toolgame
     /// <c>gameinfo.txt</c> writes <c>Z:/…</c> for wine's benefit, and a reader
     /// that took <c>Z:</c> for a path segment would look for a directory called
-    /// <c>Z:</c>.
+    /// <c>Z:</c>. A drive inside a token's expansion is the host's and is
+    /// kept.
     /// </remarks>
     public static string ExpandTokens(
         string location,
@@ -497,7 +510,16 @@ public sealed class GameInfo
         // separator is part of the expansion. Without it the two halves run
         // together into a directory name that does not exist, and every shared
         // search path silently becomes a skip.
-        string expanded = location
+        //
+        // The drive is stripped from what the file wrote, before expansion:
+        // the directories the tokens stand for are the host's own, and on
+        // Windows those carry their drive (D:/games/mod). Stripping after
+        // expansion pointed every token path at the current drive instead.
+        string written = location.Length >= 2 && location[1] == ':' && char.IsAsciiLetter(location[0])
+            ? location[2..]
+            : location;
+
+        return written
             .Replace(
                 GameInfoSearchPath.GameInfoPathToken,
                 Separated(gameInfoPath),
@@ -507,13 +529,6 @@ public sealed class GameInfo
                 Separated(allSourceEnginePaths),
                 StringComparison.OrdinalIgnoreCase)
             .Replace('\\', '/');
-
-        if (expanded.Length >= 2 && expanded[1] == ':' && char.IsAsciiLetter(expanded[0]))
-        {
-            expanded = expanded[2..];
-        }
-
-        return expanded;
     }
 
     private static string Separated(string directory) =>

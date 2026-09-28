@@ -205,6 +205,17 @@ Each takes the stock tool's options. Accepted flags include:
 The authoritative list for each stage is the parser in
 `src/SourceSharp.MapTools/Options/StockArgs.cs`.
 
+Every stage mounts the game's content from `gameinfo.txt` (the `-game`
+directory, or the directory above the map's `maps/` folder), and a game that
+cannot be mounted fails the compile with exit code `1`, as it does in the
+stock tools: no `gameinfo.txt` there, an `|appid_N|` search path whose app is
+not installed, or no Steam library to look it up in. `vrad` alone takes
+`--no-game-content` to light anyway: the mount failure becomes a note and the
+map is lit with only the level's `.rad` and the `-lights` file, without any
+material's reflectivity, the game's `lights.rad` texlights or prop models.
+The result is not the compile the stock tool would produce, which is why it
+has to be asked for.
+
 ### `all`
 
 ```sh
@@ -252,6 +263,19 @@ is read from the sidecar next to the VMF (`<base>.roomdef.json`) unless
 `-def` names another. `link` joins every `*.room` in a directory into one
 map, following a `layout.json` that names the rooms, cells, joints and caps.
 Linking needs no game directory.
+
+A room name is one path segment (no separators, no `..`). A placement's
+`rotation` is a count of quarter turns, 0 to 3. Every room is compiled
+sealed, with a plug brush in each socket; the link removes the plug at a
+joined socket (the doorway becomes open space, drops out of the world
+collision and its faces stop drawing) and keeps it at a capped one. The
+rooms' world collision, entities and areas are merged into the map's own.
+The link refuses what it cannot carry: area portals, static or detail
+props, packed files, displacements, water, and a mix of cooked and
+`-cooker none` rooms. The doorway's side walls have no faces of their own,
+because in the room's compile they faced the plug, so they draw as a gap
+unless something placed in the socket (a door frame model, say) covers
+them.
 
 ### Instruments
 

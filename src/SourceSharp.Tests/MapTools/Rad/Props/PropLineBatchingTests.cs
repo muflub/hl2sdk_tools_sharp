@@ -92,6 +92,10 @@ public sealed class PropLineBatchingTests : IClassFixture<AmbientFixture>, IClas
     [InlineData(false, PropId)]
     public void APlannedBatchAnswersEverySampleAsGatherDoes(bool stock, int skipId)
     {
+        // Gather is itself Plan, a one-sample batch and Resolve, so this pins
+        // the batch against the new code; the independent copy of the old
+        // one-call sampler is what APlannedBatchAnswersEverySampleAsTheOldSamplerDid
+        // compares with.
         ComplianceOptions compliance = stock ? ComplianceOptions.Stock : ComplianceOptions.Correct;
         PropLightSampler sampler = new(Scene, compliance, sunAngularExtent: 0.05f);
         List<PropLight> lights = Lights();
@@ -127,6 +131,58 @@ public sealed class PropLineBatchingTests : IClassFixture<AmbientFixture>, IClas
         // Plain and sky-passing segments: two batches, whatever the count.
         Assert.Equal(2, counting.VisibilityCalls.Count);
         Assert.True(lit > 0 && lit < planned.Count, $"{lit} of {planned.Count} lit");
+    }
+
+    [Theory]
+    [InlineData(false, -1, PropGatherFlags.ForceFast, 0.0f)]
+    [InlineData(true, -1, PropGatherFlags.ForceFast, 0.0f)]
+    [InlineData(true, PropId, PropGatherFlags.ForceFast, 0.0f)]
+    [InlineData(false, PropId, PropGatherFlags.ForceFast, 0.0f)]
+    [InlineData(true, PropId, PropGatherFlags.None, 0.5f)]
+    [InlineData(false, -1, PropGatherFlags.IgnoreNormals, 0.5f)]
+    public void APlannedBatchAnswersEverySampleAsTheOldSamplerDid(bool stock, int skipId, PropGatherFlags flags, float epsilon)
+    {
+        // Pinned to OldPropLightSampler: the one-call sampler as it was before
+        // Plan and Resolve, testing each segment alone through OldTestLine.
+        // Every light kind, the sun's several samples (a nonzero angular
+        // extent) and the ambient sky's many directions are in the mix, so a
+        // segment planned from the wrong point, a sum taken in another order
+        // or a dot paired with the wrong segment changes some sample's bits.
+        ComplianceOptions compliance = stock ? ComplianceOptions.Stock : ComplianceOptions.Correct;
+        PropLightSampler sampler = new(Scene, compliance, sunAngularExtent: 0.05f);
+        OldPropLightSampler old = new(Scene, stock, sunAngularExtent: 0.05f);
+        List<PropLight> lights = Lights();
+        Vec3[] points = Points(60, 21);
+        Vec3 normal = new Vec3(0.2f, -0.1f, 1).Normalise().Normalised;
+
+        TestLineBatch batch = sampler.CreateBatch();
+        List<PendingPropSample> planned = [];
+        foreach (Vec3 p in points)
+        {
+            foreach (PropLight light in lights)
+            {
+                planned.Add(sampler.Plan(light, p, normal, batch, flags, epsilon, skipId));
+            }
+        }
+
+        batch.Trace(CancellationToken.None);
+
+        int k = 0;
+        int lit = 0;
+        int shadowed = 0;
+        foreach (Vec3 p in points)
+        {
+            foreach (PropLight light in lights)
+            {
+                PropLightSample expected = old.Gather(light, p, normal, flags, epsilon, skipId);
+                PropLightSample actual = sampler.Resolve(planned[k++], batch);
+                Assert.Equal(expected, actual);
+                lit += actual.Dot > 0 ? 1 : 0;
+                shadowed += actual.Dot == 0 && planned[k - 1].Kind != PropSampleKind.None ? 1 : 0;
+            }
+        }
+
+        Assert.True(lit > 0 && shadowed > 0, $"{lit} lit and {shadowed} shadowed of {planned.Count}");
     }
 
     [Theory]

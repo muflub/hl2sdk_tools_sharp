@@ -446,10 +446,18 @@ public sealed class StaticPropEmitter
             return Task.CompletedTask;
         }
 
+        // On a pool, through the pool's own loop, which ends in a fault if a
+        // host disposes the pool under the compile instead of running the
+        // remaining models on the disposing thread (CompilePool.ForAsync).
+        if (_context.Parallelism.Pool is { } pool)
+        {
+            return pool.ForAsync(count, _context.Parallelism.MaxDegree, body, cancellationToken);
+        }
+
         ParallelOptions options = new()
         {
             MaxDegreeOfParallelism = Math.Max(1, _context.Parallelism.MaxDegree),
-            TaskScheduler = _context.Parallelism.Pool?.Scheduler ?? _context.Parallelism.Scheduler ?? TaskScheduler.Default,
+            TaskScheduler = _context.Parallelism.Scheduler ?? TaskScheduler.Default,
             CancellationToken = cancellationToken,
         };
         return System.Threading.Tasks.Parallel.ForAsync(0, count, options, body);

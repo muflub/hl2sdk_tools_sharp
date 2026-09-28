@@ -101,9 +101,33 @@ public sealed class VisMatrix
     /// <summary>
     /// The slab <see cref="BuildAsync"/> traces in, <see cref="RaysPerTraceSlab"/>
     /// unless a test asks for a smaller one to get several slabs out of a
-    /// small map. A multiple of 64.
+    /// small map. A positive multiple of 64.
     /// </summary>
-    internal int TraceSlabRays { get; init; } = RaysPerTraceSlab;
+    /// <remarks>
+    /// Checked here because nothing downstream would notice: slabs are traced
+    /// concurrently, each writing its rays' hit bits into one shared array of
+    /// 64-bit words. A slab that ends inside a word shares that word with the
+    /// next slab, and two tracer calls writing it at once can lose each other's
+    /// bits, so a transfer would come and go with the thread timing rather
+    /// than fail.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not a positive multiple of 64.</exception>
+    internal int TraceSlabRays
+    {
+        get => _traceSlabRays;
+        init
+        {
+            if (value <= 0 || value % 64 != 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(TraceSlabRays), value, "a trace slab is a positive multiple of 64 rays, so it owns whole words of hit bits");
+            }
+
+            _traceSlabRays = value;
+        }
+    }
+
+    private readonly int _traceSlabRays = RaysPerTraceSlab;
 
     /// <summary>
     /// Where the build's scratch comes from and goes back to: the shared

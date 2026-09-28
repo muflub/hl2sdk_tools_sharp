@@ -18,9 +18,9 @@ another profiler's numbers:
             lock contention, thread pool, exceptions, JIT) -> gc.json via
             tools/PerfTraceReport
   counters  dotnet-counters, System.Runtime once a second -> counters.csv
-  heap      dotnet-gcdump from 0.25 s in, then every --heap-interval seconds;
-            the largest snapshot
-            is kept with its by-type report
+  heap      dotnet-gcdump from 0.25 s in, then every --heap-interval seconds
+            after the last one finished; each is labelled with the time it
+            was taken, and the largest is kept with its by-type report
   perf      with --perf-record: perf record -g with the runtime's perf map,
             native and managed frames together -> perf.folded
 
@@ -70,8 +70,12 @@ Options:
   --vphysics GAME       enables the cooker=native value (-vphysics GAME)
   --aot                 enables build=aot: publishes a NativeAOT ssmap first
   --perf-record         adds the perf profiler (needs perf)
-  --out DIR             results (default perf-results/<timestamp>)
-  --resume              skip cells a previous run into --out finished
+  --out DIR             results (default perf-results/<timestamp>): a new or
+                        empty folder, or one an earlier run made (it is
+                        marked with .compile-perf-out); the tool deletes
+                        folders inside it, so any other folder is refused
+  --resume              skip cells a previous run into --out finished; any
+                        other cell starts again from an empty cell folder
   --dry-run             list the cells and stop
   --dotnet PATH         dotnet host (default ~/.dotnet/dotnet when present)
   --no-build            use the existing Release build
@@ -99,6 +103,57 @@ DEFAULT_PROFILERS = [p for p in PROFILERS if p != "perf"]
 # AllocationTick; Loader (0x8) and JIT (0x10) so stacks resolve; Contention
 # (0x4000), Exception (0x8000) and Threading (0x10000).
 GC_PROVIDERS = "Microsoft-Windows-DotNETRuntime:0x1C019:5"
+
+# The exit code Runner.run reports for a command it stopped at its timeout:
+# the same one coreutils' timeout(1) uses, so a log reads the same either way.
+TIMEOUT_EXIT = 124
+
+# The file that marks an --out folder as this tool's. The tool deletes
+# folders inside --out (the game copy, the work folder, a retried cell), so it
+# works only in a folder that is new, empty, or carries this marker: `--out .`
+# from the repo root must not delete the repo's game/.
+OUT_MARKER = ".compile-perf-out"
+
+# Where the runtime writes perf-<pid>.map for perf to symbolise JIT frames
+# with. The runtime and perf both use this fixed path, whatever TMPDIR says.
+PERF_MAP_DIR = "/tmp"
+
+
+# ------------------------------------------------------------ the out folder
+
+def claim_out(out):
+    """Makes out this tool's folder, or stops the run if it belongs to someone else.
+
+    A folder that does not exist is made, and an empty one is taken; either
+    way the marker is written. A folder that already holds the marker is
+    taken again (that is --resume, or a rerun into the same --out). Anything
+    else is refused before a single file is touched.
+    """
+    if os.path.exists(out) and not os.path.isdir(out):
+        sys.exit(f"compile-perf: --out {out} is a file")
+    marker = os.path.join(out, OUT_MARKER)
+    if os.path.isdir(out) and os.listdir(out) and not os.path.exists(marker):
+        sys.exit(f"compile-perf: --out {out} already holds files this tool did not write (no {OUT_MARKER}). "
+                 "The tool deletes folders inside --out, so it needs a new or empty folder, or one a previous "
+                 "run made.")
+    os.makedirs(out, exist_ok=True)
+    with open(marker, "a", encoding="utf-8"):
+        pass
+
+
+def owned_rmtree(out, path):
+    """Deletes path, which must be strictly inside out, and out must carry the marker.
+
+    Every deletion goes through here, so a mistake in how a path is built
+    raises rather than removing something the tool never made.
+    """
+    root = os.path.realpath(out)
+    target = os.path.realpath(path)
+    if not os.path.exists(os.path.join(root, OUT_MARKER)):
+        raise RuntimeError(f"compile-perf: refusing to delete {path}: {out} is not a folder this tool made")
+    if os.path.commonpath([root, target]) != root or target == root:
+        raise RuntimeError(f"compile-perf: refusing to delete {path}: it is not inside {out}")
+    shutil.rmtree(target, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- the matrix
@@ -308,15 +363,30 @@ class Runner:
         return [self.aot] if build == "aot" else [self.dotnet, self.dll]
 
     def run(self, cmd, log, env=None, cwd=None, timeout=None):
-        """Runs a command to completion; returns (exit code, wall seconds, rusage dict)."""
+        """Runs a command to completion; returns (exit code, wall seconds, rusage dict).
+
+        With timeout (seconds), a command still running when it runs out is
+        stopped and reported as TIMEOUT_EXIT, with a line in its log saying
+        so. The command then runs in a process group of its own and the whole
+        group is stopped, because the profilers (dotnet-trace, perf) run the
+        compile as their child and stopping only the wrapper would leave the
+        compile running. Without a timeout the command stays in this script's
+        group, so Ctrl-C reaches it as before.
+        """
         full_env = dict(os.environ, **(env or {}))
         start = time.monotonic()
         with open(log, "ab") as out:
             out.write(("$ " + " ".join(cmd) + "\n").encode())
             out.flush()
-            proc = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, env=full_env, cwd=cwd)
-            _, status, ru = os.wait4(proc.pid, 0)
-            proc.returncode = os.waitstatus_to_exitcode(status)
+            proc = subprocess.Popen(cmd, stdout=out, stderr=subprocess.STDOUT, env=full_env, cwd=cwd,
+                                    start_new_session=timeout is not None)
+            status, ru = self._wait(proc.pid, None if timeout is None else start + timeout)
+            if status is None:
+                out.write(f"compile-perf: timed out after {timeout:g} s, stopped\n".encode())
+                status, ru = self._stop(proc.pid)
+                proc.returncode = TIMEOUT_EXIT
+            else:
+                proc.returncode = os.waitstatus_to_exitcode(status)
         wall = time.monotonic() - start
         return proc.returncode, wall, {
             "wall_s": wall,
@@ -330,6 +400,41 @@ class Runner:
             "block_in": ru.ru_inblock,
             "block_out": ru.ru_oublock,
         }
+
+    @staticmethod
+    def _wait(pid, deadline):
+        """Reaps pid; returns (status, rusage), or (None, None) if deadline passes first.
+
+        os.wait4 has no timeout of its own, so a deadline is a WNOHANG poll;
+        wait4 rather than Popen.wait because the rusage is the point.
+        """
+        if deadline is None:
+            _, status, ru = os.wait4(pid, 0)
+            return status, ru
+        while True:
+            done, status, ru = os.wait4(pid, os.WNOHANG)
+            if done:
+                return status, ru
+            if time.monotonic() >= deadline:
+                return None, None
+            time.sleep(0.05)
+
+    @classmethod
+    def _stop(cls, pid):
+        """SIGTERM to the command's group, SIGKILL after a grace period, then reaps it."""
+        def signal_group(sig):
+            try:
+                os.killpg(pid, sig)
+            except (ProcessLookupError, PermissionError):
+                pass
+        signal_group(signal.SIGTERM)
+        status, ru = cls._wait(pid, time.monotonic() + 5)
+        # The leader may exit on SIGTERM while a child ignores it: the group
+        # gets SIGKILL either way, so nothing of the command outlives the run.
+        signal_group(signal.SIGKILL)
+        if status is None:
+            status, ru = cls._wait(pid, None)
+        return status, ru
 
 
 def build(runner, out, with_aot, with_content=False):
@@ -402,7 +507,7 @@ def game_copy(game, out, strip):
     search paths are removed), for a machine without those apps.
     """
     copy = os.path.join(out, "game")
-    shutil.rmtree(copy, ignore_errors=True)
+    owned_rmtree(out, copy)
     shutil.copytree(game, copy, symlinks=True)
     if strip:
         info = os.path.join(copy, "gameinfo.txt")
@@ -442,8 +547,9 @@ class Inputs:
 
     def __init__(self, runner, out, map_path, game_args):
         self.runner, self.game_args = runner, game_args
+        self.out = out
         self.work = os.path.join(out, "work")
-        shutil.rmtree(self.work, ignore_errors=True)
+        owned_rmtree(out, self.work)
         os.makedirs(self.work)
         shutil.copy(map_path, self.work)
         rad = map_path[:-4] + ".rad"
@@ -496,7 +602,13 @@ def gpu_decline(log_text):
 
 def check_gpu(runner, inputs, game_args, match, log):
     """One fast vrad with -gpu on the prepared input: the same device pick and
-    self-test every gpu cell will get, so a bad match stops the run here."""
+    self-test every gpu cell will get, so a bad match stops the run here.
+
+    The log is started afresh: it is read for vrad's decline line, and a
+    line left by an earlier run into the same --out (a --gpu that did not
+    match, since corrected) would otherwise stop every rerun.
+    """
+    open(log, "wb").close()
     stem = inputs.restore("vrad")
     code, _, _ = runner.run(runner.ssmap("jit") + ["vrad"] + game_args + ["-fast", "-bounce", "0", "-gpu", match, stem],
                             log, cwd=inputs.work)
@@ -505,6 +617,42 @@ def check_gpu(runner, inputs, game_args, match, log):
     if code != 0 or reason:
         sys.exit(f"compile-perf: --gpu {match} cannot be used: {reason or f'vrad exited {code}'}\n"
                  f"(see {log}; `vulkaninfo --summary` lists device names)")
+
+
+def needs_gpu_check(cells):
+    """Whether any planned cell uses the GPU tracer.
+
+    The tracer axis keeps its gpu value whenever --gpu is given, even when
+    --stages leaves out every stage it applies to (vbsp,vvis), so the axis
+    alone would run a vrad nobody asked for. The cells are what will run.
+    """
+    return any(c["settings"].get("tracer") == "gpu" for c in cells)
+
+
+def prime_problem(ledger):
+    """Why a warm cell's prime left no store for its timed run to read, or None.
+
+    The prime is one cold run whose only job is to fill the store; a prime
+    that exits 0 but stored nothing (every run failed, or the store was not
+    written) would leave the "warm" cell timing a cold compile and recording
+    it as ok. bench's ledger says what each run staged into the store
+    (CacheBytesStored) and how many collision models it cooked into it
+    (CacheCooked), so a timed, ok run with either above zero is a filled
+    store.
+    """
+    if not os.path.exists(ledger):
+        return "wrote no ledger"
+    with open(ledger, encoding="utf-8", errors="replace") as f:
+        samples = [json.loads(l) for l in f if l.strip()]
+    timed = [s for s in samples if s.get("Timed")]
+    if not timed:
+        return "recorded no timed run"
+    ok = [s for s in timed if s.get("Ok")]
+    if not ok:
+        return "failed"
+    if not any(s.get("CacheBytesStored", 0) > 0 or s.get("CacheCooked", 0) > 0 for s in ok):
+        return "stored nothing in the cache store"
+    return None
 
 
 def direct_command(runner, stage, build, map_arg, game_args, threads, opts, store=None):
@@ -556,16 +704,29 @@ def run_cell(runner, inputs, cell, cid, cdir, args, matrix, subst, game_args, pr
     opts, env, cache = cell_command(matrix, cell, subst)
     record = {"id": cid, "stage": stage, "settings": s, "threads": threads, "options": opts, "env": env,
               "cache": cache, "profiles": {}, "status": "running"}
-    os.makedirs(cdir, exist_ok=True)
+    # A cell that runs is one whose previous attempt (if any) did not finish
+    # ok, so whatever that attempt left is stale. The logs are appended to
+    # within an attempt (a profiler's log holds its compile and its report),
+    # and the bench log is read for FAILED, so an old attempt's lines would
+    # fail every retry: the cell starts from an empty folder instead.
+    owned_rmtree(os.path.dirname(os.path.dirname(cdir)), cdir)
+    os.makedirs(cdir)
 
     # 1. timing
     for name, cmd in bench_commands(runner, stage, build_kind, threads, cache, cid, cdir, args, opts,
                                     inputs.work, lambda: inputs.restore(stage)):
         code, wall, _ = runner.run(cmd(), os.path.join(cdir, name + ".log"), env=env, cwd=inputs.work)
-        if name == "bench-prime" and code != 0:
-            break
+        if name == "bench-prime":
+            why = f"exited {code}" if code != 0 else prime_problem(os.path.join(cdir, "bench-prime.jsonl"))
+            if why:
+                shutil.rmtree(os.path.join(cdir, "bench-store"), ignore_errors=True)
+                record["bench_exit"] = code
+                record["status"] = "failed"
+                record["failure"] = f"the warm-cache prime {why}, see cells/{cid}/bench-prime.log"
+                return record
     record["bench_exit"] = code
-    failed = code != 0 or "FAILED" in open(os.path.join(cdir, name + ".log"), encoding="utf-8", errors="replace").read()
+    with open(os.path.join(cdir, name + ".log"), encoding="utf-8", errors="replace") as f:
+        failed = code != 0 or "FAILED" in f.read()
     shutil.rmtree(os.path.join(cdir, "bench-store"), ignore_errors=True)
     if failed:
         record["status"] = "failed"
@@ -692,23 +853,70 @@ def profile_cell(runner, inputs, cell, cdir, args, env, cache, opts, threads, bu
             return {"skipped": "perf is not installed"}
         arg, store = fresh("perf")
         data = os.path.join(cdir, "perf.data")
-        cmd = [perf, "record", "-F", "499", "-g", "-o", data, "--"] + direct_command(
-            runner, stage, build_kind, arg, game_args, threads, opts, store)
-        code, _, _ = runner.run(cmd, os.path.join(cdir, "perf.log"), env=dict(env, DOTNET_PerfMapEnabled="1"),
+        pidfile = os.path.join(cdir, "perf.pid")
+        cmd = [perf, "record", "-F", "499", "-g", "-o", data, "--"] + pid_wrapped(direct_command(
+            runner, stage, build_kind, arg, game_args, threads, opts, store), pidfile)
+        # 3 is the perf map alone: perf script symbolises JIT frames from it,
+        # and the jitdump files that 1 adds are never read here.
+        code, _, _ = runner.run(cmd, os.path.join(cdir, "perf.log"), env=dict(env, DOTNET_PerfMapEnabled="3"),
                                 cwd=inputs.work)
         done_with("perf", store)
         folded = os.path.join(cdir, "perf.folded")
-        with open(folded, "w") as out:
-            script = subprocess.run([perf, "script", "-i", data], capture_output=True, text=True, errors="replace")
-            for stack, n in fold_perf_script(script.stdout).items():
-                out.write(f"{stack} {n}\n")
-        os.remove(data)
+        try:
+            with open(folded, "w") as out:
+                script = subprocess.run([perf, "script", "-i", data], capture_output=True, text=True, errors="replace")
+                for stack, n in fold_perf_script(script.stdout).items():
+                    out.write(f"{stack} {n}\n")
+        finally:
+            # The map lives in /tmp, which is RAM on some machines, and one
+            # is left per profiled cell; perf script was its only reader.
+            remove_perf_maps(pidfile)
+            if os.path.exists(data):
+                os.remove(data)
         return {"exit": code, "file": "perf.folded"}
 
     for name, fn in (("stages", stages_), ("rusage", rusage_), ("cpu", cpu_), ("gc", gc_),
                      ("counters", counters_), ("heap", heap_), ("perf", perf_)):
         step(name, fn)
     return done
+
+
+def pid_wrapped(cmd, pidfile):
+    """cmd run through sh, which writes its pid to pidfile and then execs cmd in place.
+
+    exec keeps the pid, so pidfile names the process cmd runs as, the one
+    whose /tmp/perf-<pid>.map the runtime writes. perf record starts the
+    command itself, so this is the only way to learn that pid without
+    guessing from /tmp, where other sessions' maps may be. (An ssmap that
+    relaunches itself for a native cooker is a second process, and its map
+    is not found this way; the cooker=native cells are the only ones that
+    do that.)
+    """
+    return ["sh", "-c", 'echo $$ > "$0"; exec "$@"', pidfile] + list(cmd)
+
+
+def remove_perf_maps(pidfile, directory=PERF_MAP_DIR):
+    """Removes the map files the runtime wrote for the pid in pidfile, and pidfile.
+
+    Only that pid's files go: perf-<pid>.map, perfinfo-<pid>.map and
+    jit-<pid>.dump. Another process's (a compile this tool did not start)
+    are left alone. Returns the paths removed.
+    """
+    try:
+        with open(pidfile, encoding="ascii") as f:
+            pid = int(f.read().strip())
+    except (OSError, ValueError):
+        return []
+    removed = []
+    for name in (f"perf-{pid}.map", f"perfinfo-{pid}.map", f"jit-{pid}.dump"):
+        path = os.path.join(directory, name)
+        try:
+            os.remove(path)
+            removed.append(path)
+        except OSError:
+            pass
+    os.remove(pidfile)
+    return removed
 
 
 def heap_snapshots(runner, cdir, fresh, done_with, env, inputs, stage, build_kind, game_args, threads, opts, interval):
@@ -722,6 +930,7 @@ def heap_snapshots(runner, cdir, fresh, done_with, env, inputs, stage, build_kin
     cmd = direct_command(runner, stage, build_kind, arg, game_args, threads, opts, store)
     log = open(os.path.join(cdir, "heap.log"), "ab")
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=dict(os.environ, **env), cwd=inputs.work)
+    started = time.monotonic()
     snaps, n = [], 0
     try:
         # A compile on a fast machine is over in a couple of seconds, so the
@@ -729,13 +938,20 @@ def heap_snapshots(runner, cdir, fresh, done_with, env, inputs, stage, build_kin
         time.sleep(min(interval, 0.25))
         while proc.poll() is None:
             path = os.path.join(cdir, f"heap-{n}.gcdump")
+            # Each snapshot is labelled with the time it was taken, measured
+            # from the compile's start, not n * interval: the first comes at
+            # 0.25 s rather than 0, and every collect (a full blocking GC plus
+            # the heap walk, often longer than the interval) pushes the next
+            # one later. collect_s says how long the process was held.
+            at = time.monotonic() - started
             subprocess.run([gcdump, "collect", "-p", str(proc.pid), "-o", path], stdout=log, stderr=subprocess.STDOUT,
                            check=False, timeout=600)
+            collect = time.monotonic() - started - at
             if os.path.exists(path):
                 report = subprocess.run([gcdump, "report", path], capture_output=True, text=True, check=False).stdout
                 total = heap_total(report)
-                snaps.append({"file": os.path.basename(path), "at_s": n * interval, "total_mb": total / 1048576,
-                              "report": report})
+                snaps.append({"file": os.path.basename(path), "at_s": round(at, 3), "collect_s": round(collect, 3),
+                              "total_mb": total / 1048576, "report": report})
             n += 1
             deadline = time.monotonic() + interval
             while proc.poll() is None and time.monotonic() < deadline:
@@ -755,7 +971,7 @@ def heap_snapshots(runner, cdir, fresh, done_with, env, inputs, stage, build_kin
     os.replace(os.path.join(cdir, peak["file"]), os.path.join(cdir, "heap-peak.gcdump"))
     with open(os.path.join(cdir, "heap-peak.txt"), "w") as f:
         f.write(peak["report"])
-    timeline = [{"at_s": s["at_s"], "total_mb": s["total_mb"]} for s in snaps]
+    timeline = [{"at_s": s["at_s"], "collect_s": s["collect_s"], "total_mb": s["total_mb"]} for s in snaps]
     with open(os.path.join(cdir, "heap.json"), "w") as f:
         json.dump({"timeline": timeline, "peak_at_s": peak["at_s"], "peak_mb": peak["total_mb"],
                    "top_types": parse_heap_report(peak["report"])[:40]}, f, indent=2)
@@ -957,6 +1173,7 @@ def main(argv):
                  + "\nor leave those profilers out with --profile.")
 
     out = os.path.abspath(args.out or os.path.join(REPO, "perf-results", datetime.datetime.now().strftime("%Y%m%d-%H%M%S")))
+    claim_out(out)
     os.makedirs(os.path.join(out, "cells"), exist_ok=True)
     map_path = os.path.abspath(args.map)
     game = os.path.abspath(args.game) if args.game else None
@@ -985,7 +1202,7 @@ def main(argv):
 
     inputs = Inputs(runner, out, map_path, game_args)
     print("preparing inputs...")
-    gpu_cells = "gpu" in axes.get("tracer", {}).get("values", [])
+    gpu_cells = needs_gpu_check(cells)
     inputs.prepare(args.stages, vrad_input=gpu_cells)
     if gpu_cells:
         print(f"checking -gpu {args.gpu}...")
@@ -1008,7 +1225,7 @@ def main(argv):
         if rec["status"] != "ok":
             print(f"  failed: {rec.get('failure')}")
 
-    shutil.rmtree(inputs.work, ignore_errors=True)
+    owned_rmtree(out, inputs.work)
     sys.path.insert(0, os.path.join(REPO, "tools"))
     import compile_perf_summary
     compile_perf_summary.summarise(out)

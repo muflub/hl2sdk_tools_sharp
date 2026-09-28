@@ -17,8 +17,26 @@ namespace SourceSharp.MapTools.Compile.Cache;
 /// <summary>
 /// The tool identity a cache row is pinned to (assembly
 /// version + commit, per row so a prior worktree's rows stay reachable for
-/// their own build only).
+/// their own build only), and the code it was built from.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The version string alone names a release, not the code: a build with
+/// uncommitted changes, or one made where there is no repository to stamp a
+/// commit from, carries the same version as the build before it, and would
+/// read that build's rows as its own. So the identity also folds the module
+/// version id (MVID) of every SourceSharp assembly whose code makes the
+/// products: MapTools and MapFormats, which it references. The build is
+/// deterministic, so the MVID is a hash of the compiled assembly: the same
+/// source gives the same id, and any change to the code gives a new one.
+/// </para>
+/// <para>
+/// The optional assemblies (the GPU tracer, the SQLite store) are not folded
+/// here: MapTools cannot name them, and their part in a product is already in
+/// its key (the tracer's identity, the cooker's identity), or is no part of
+/// it (the store holds bytes, it does not make them).
+/// </para>
+/// </remarks>
 public static class ToolIdentity
 {
     private static readonly string Lazy = Compute();
@@ -44,9 +62,44 @@ public static class ToolIdentity
         string product = location.Length > 0
             ? Path.GetFileName(location)
             : Path.GetFileName(Environment.ProcessPath ?? "ssmap");
+        string code = CodeDigest([typeof(ToolIdentity).Assembly, typeof(Vec3).Assembly]);
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"MapTools {version} ({product})");
+            $"MapTools {version} ({product}) code {code}");
+    }
+
+    /// <summary>
+    /// A digest of the assemblies' module version ids, the same whatever
+    /// order they are given in: sixteen lower-case hex characters.
+    /// </summary>
+    /// <param name="assemblies">The assemblies whose code makes the products.</param>
+    /// <returns>The digest.</returns>
+    /// <remarks>
+    /// An assembly whose MVID the runtime cannot give is folded by its full
+    /// name alone and marked, so the identity still separates it from a
+    /// build that could, rather than failing the cache.
+    /// </remarks>
+    internal static string CodeDigest(IEnumerable<Assembly> assemblies)
+    {
+        ArgumentNullException.ThrowIfNull(assemblies);
+        List<string> parts = [];
+        foreach (Assembly assembly in assemblies)
+        {
+            string mvid;
+            try
+            {
+                mvid = assembly.ManifestModule.ModuleVersionId.ToString("N", CultureInfo.InvariantCulture);
+            }
+            catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
+            {
+                mvid = "no-mvid";
+            }
+
+            parts.Add($"{assembly.FullName}={mvid}");
+        }
+
+        parts.Sort(StringComparer.Ordinal);
+        return CacheKey.HashComponents(parts)[..16];
     }
 
     /// <summary>The identity a run pins its rows to, cooker included where the product came from one.</summary>

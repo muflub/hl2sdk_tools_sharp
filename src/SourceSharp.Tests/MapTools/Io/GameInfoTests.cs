@@ -165,6 +165,66 @@ public class GameInfoTests
         Assert.Equal("/home/me/mod", GameInfo.ExpandTokens("Z:/home/me/mod", "x", "y"));
     }
 
+    /// <summary>
+    /// Only a drive the file wrote is stripped, never one a token stands for:
+    /// on Windows <c>|gameinfo_path|</c> is the game's real directory,
+    /// <c>D:/games/mod</c>, and stripping its drive pointed every
+    /// <c>|gameinfo_path|</c> search path at the current drive instead (a
+    /// game on another drive mounted nothing).
+    /// </summary>
+    [Theory]
+    [InlineData("|gameinfo_path|.", "D:/games/mod/.")]
+    [InlineData("|all_source_engine_paths|hl2", "D:/games/hl2")]
+    [InlineData("Z:/home/me/mod", "/home/me/mod")]
+    [InlineData(@"Z:\home\me\mod", "/home/me/mod")]
+    public void ATokensDriveIsKeptAndTheFilesIsStripped(string location, string expected) =>
+        Assert.Equal(expected, GameInfo.ExpandTokens(location, "D:/games/mod", "D:/games"));
+
+    /// <summary>
+    /// The same end to end: a game whose directory carries a drive (every
+    /// rooted game on Windows) mounts its <c>|gameinfo_path|.</c> content.
+    /// </summary>
+    [Fact]
+    public async Task AGameOnADriveMountsItsGameInfoPathContent()
+    {
+        InMemoryFileSystem fs = new InMemoryFileSystem()
+            .AddText("D:/game/gameinfo.txt", "\"GameInfo\" { game \"R\" FileSystem { SearchPaths { game |gameinfo_path|. } } }")
+            .AddText("D:/game/materials/unit/trigger.vmt", "x");
+        ReadOnlyFileSystem content = new(fs);
+        GameInfo info = await GameInfo.LoadAsync(content, VPath.Create("D:/game/gameinfo.txt"), CancellationToken.None);
+
+        GameContentMounter.Result mounted = await GameContentMounter.MountAsync(
+            content, info, new GameContentRoots(VPath.Create("D:/game"), VPath.Create("D:")), cancellationToken: CancellationToken.None);
+        await using ContentFileSystem mount = mounted.Content;
+
+        Assert.Empty(mounted.Skipped);
+        using IMemoryOwner<byte>? vmt = await mount.ReadAsync(VPath.Create("materials/unit/trigger.vmt"), CancellationToken.None);
+        Assert.NotNull(vmt);
+    }
+
+    /// <summary>
+    /// A block that is never closed is a truncated file, and is refused:
+    /// parsed as far as it goes, it named no search paths, and the compile
+    /// that mounted it ran with no content and no word of why.
+    /// </summary>
+    [Theory]
+    [InlineData("\"GameInfo\"\n{\n\tgame\t\"SourceSharp\"\n\ttitle\t\"SOURCE#\"\n\ttitle2\t\"")]
+    [InlineData("\"GameInfo\" { game \"x\" FileSystem { SteamAppId 243750 SearchPaths { game |gameinfo_path|. } }")]
+    public void AnUnclosedBlockIsRefused(string text)
+    {
+        InvalidDataException error = Assert.Throws<InvalidDataException>(() => GameInfo.Parse(text));
+        Assert.Contains("never closed", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>The same file closed is read in full.</summary>
+    [Fact]
+    public void TheSameBlockClosedIsRead()
+    {
+        GameInfo info = GameInfo.Parse("\"GameInfo\" { game \"x\" FileSystem { SteamAppId 243750 SearchPaths { game |gameinfo_path|. } } }");
+        Assert.Equal(243750, info.SteamAppId);
+        Assert.Single(info.SearchPaths);
+    }
+
     [Fact]
     public void BackslashesBecomeForwardSlashes()
     {

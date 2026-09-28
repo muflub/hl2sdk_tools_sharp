@@ -93,6 +93,44 @@ public sealed class TestLineSeamTests
         Assert.Contains(false, seam);
     }
 
+    /// <summary>
+    /// <see cref="OldTestLine"/> over every segment: the reference the seam
+    /// is pinned to.
+    /// </summary>
+    private static bool[] OldPerRayLoop(Vec3[] starts, Vec3[] ends, bool stockReciprocal, bool skyDoesNotBlock, int skipId) =>
+        [.. Enumerable.Range(0, starts.Length).Select(
+            i => OldTestLine.Blocked(Tracer, starts[i], ends[i], stockReciprocal, skyDoesNotBlock, skipId))];
+
+    [Theory]
+    [MemberData(nameof(Modes))]
+    public void TheSeamAnswersEachSegmentAsTheOldPerRayLoopDid(bool stockReciprocal, bool skyDoesNotBlock, int skipId)
+    {
+        (Vec3[] starts, Vec3[] ends) = Segments(4000, 11);
+
+        bool[] old = OldPerRayLoop(starts, ends, stockReciprocal, skyDoesNotBlock, skipId);
+        bool[] seam = Seam(Tracer, starts, ends, stockReciprocal, RayTraceOptions.TestLine(skipId, skyDoesNotBlock));
+
+        Assert.Equal(old, seam);
+        Assert.Contains(true, seam);
+        Assert.Contains(false, seam);
+    }
+
+    [Fact]
+    public void TheOldLoopCopyTellsTheSkyAndTheSkippedIdApart()
+    {
+        // The copy is only a reference if its own rules bite: the same
+        // segments answer differently with the sky passing and the prop
+        // skipped than with both blocking.
+        (Vec3[] starts, Vec3[] ends) = Segments(4000, 11);
+
+        Assert.NotEqual(
+            OldPerRayLoop(starts, ends, false, false, -1),
+            OldPerRayLoop(starts, ends, false, true, -1));
+        Assert.NotEqual(
+            OldPerRayLoop(starts, ends, false, false, -1),
+            OldPerRayLoop(starts, ends, false, false, PropId));
+    }
+
     [Theory]
     [MemberData(nameof(Modes))]
     public void AnIsolatedRayAnswersAsAPacketOfFourCopiesOfItself(bool stockReciprocal, bool skyDoesNotBlock, int skipId)

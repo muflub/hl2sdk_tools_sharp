@@ -152,6 +152,21 @@ public sealed class InMemoryCacheStore : ICacheStore
         return new(IsUsable && _blobs.ContainsKey(blobKey));
     }
 
+    /// <summary>The size of one committed blob.</summary>
+    public ValueTask<long?> BlobSizeAsync(string blobKey, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return new(IsUsable && _blobs.TryGetValue(blobKey, out Blob? blob) ? blob.Data.LongLength : null);
+    }
+
+    /// <inheritdoc/>
+    public IDisposable BeginRun() => _runs.Begin();
+
+    /// <inheritdoc/>
+    public int RunsInFlight => _runs.Count;
+
+    private readonly CacheRunLeases _runs = new();
+
     /// <summary>Reads one blob.</summary>
     public ValueTask<byte[]?> GetBlobAsync(string blobKey, CancellationToken cancellationToken = default)
     {

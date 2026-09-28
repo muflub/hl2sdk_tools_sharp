@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using SourceSharp.Tests.MapTools.Io;
+
 using Xunit;
 
 namespace SourceSharp.Tests;
@@ -85,5 +87,59 @@ public class VendorGoldenTests
         }
 
         Assert.Equal(31f, VendorGolden.Expected("unused-on-the-reference-vendor", 31f, 32f));
+    }
+
+    [Fact]
+    public void ACaptureWritesTheDeltaAndFailsTheFact()
+    {
+        // A capture that passed would compare the port's output with the
+        // values it had just written from it: a green run that checked
+        // nothing. It fails, naming the file, once the delta is on disk.
+        using TempTree tree = new();
+        string[] stock = ["a", "b", "c"];
+        string[] actual = ["a", "B", "c"];
+
+        VendorGoldenCapturedException captured = Assert.Throws<VendorGoldenCapturedException>(
+            () => VendorGolden.Expected("key", stock, actual, "GenuineIntel", tree.Root, capturing: true));
+
+        string path = Path.Combine(tree.Root, "key.txt");
+        Assert.Contains(path, captured.Message, StringComparison.Ordinal);
+        Assert.Contains("1 of 3 lines", captured.Message, StringComparison.Ordinal);
+        Assert.Contains("review and commit", captured.Message, StringComparison.Ordinal);
+        Assert.Equal(VendorGolden.Delta(stock, actual), File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void TheNextRunReadsWhatTheCaptureWrote()
+    {
+        using TempTree tree = new();
+        string[] stock = ["a", "b", "c"];
+        string[] actual = ["a", "B", "c"];
+        Assert.Throws<VendorGoldenCapturedException>(
+            () => VendorGolden.Expected("key", stock, actual, "GenuineIntel", tree.Root, capturing: true));
+
+        Assert.Equal(actual, VendorGolden.Expected("key", stock, ["anything"], "GenuineIntel", tree.Root, capturing: false));
+    }
+
+    [Fact]
+    public void WithoutACaptureAMissingDeltaIsAnError()
+    {
+        using TempTree tree = new();
+
+        InvalidOperationException missing = Assert.Throws<InvalidOperationException>(
+            () => VendorGolden.Expected("key", ["a"], ["a"], "GenuineIntel", tree.Root, capturing: false));
+        Assert.Contains(VendorGolden.CaptureVariable, missing.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheReferenceVendorNeitherCapturesNorFails()
+    {
+        // Its expected values are stock's own; there is no delta to write.
+        using TempTree tree = new();
+
+        Assert.Equal(
+            ["a"],
+            VendorGolden.Expected("key", ["a"], ["b"], ReferenceRsqrt.ReferenceVendor, tree.Root, capturing: true));
+        Assert.Empty(tree.ListRoot());
     }
 }

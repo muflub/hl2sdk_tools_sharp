@@ -39,4 +39,11 @@ internal enum VulkanStep
 
     /// <summary>The BLAS build's scratch buffer is allocated and the build not yet submitted.</summary>
     ScratchAllocated,
+
+    /// <summary>
+    /// One slab slot's buffers are allocated; its command buffer and fence
+    /// are not made yet. Reported once per slot, in slot order, so a fact can
+    /// fail the ring part way through any slot.
+    /// </summary>
+    SlotBuffersAllocated,
 }

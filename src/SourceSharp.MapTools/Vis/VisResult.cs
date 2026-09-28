@@ -155,6 +155,16 @@ public sealed class VisResult
         return _pvs.AsSpan(cluster * RowBytes, RowBytes);
     }
 
+    /// <summary>
+    /// Every PVS row back to back, exactly as held: what a reader of an
+    /// untrusted row set checks the length and padding bits of before any
+    /// <see cref="Pvs(int)"/> slices it (the room store and the linker do).
+    /// </summary>
+    internal ReadOnlySpan<byte> PvsBytes => _pvs;
+
+    /// <summary>Every PAS row back to back, exactly as held.</summary>
+    internal ReadOnlySpan<byte> PasBytes => _pas;
+
     /// <summary>One cluster's potentially audible set, uncompressed.</summary>
     /// <param name="cluster">A cluster index.</param>
     /// <returns><see cref="RowBytes"/> bytes.</returns>

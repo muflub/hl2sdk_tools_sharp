@@ -643,6 +643,8 @@ public static class AllCommand
             return VbspCommand.ExitFailed;
         }
 
+        await VbspCommand.WriteSkippedAsync(mounted, "ssmap all", output).ConfigureAwait(false);
+
         // The format pipeline, mounted-gameinfo first (defaults -> appid
         // preset -> Tools key -> CLI), same as `ssmap vbsp`.
         FormatResolution.Result resolution = FormatResolution.Resolve(
@@ -709,9 +711,8 @@ public static class AllCommand
         // managed cooker's cooks run on it too rather than on the .NET pool.
         CompileParallelism parallel = ChainParallelism(parsed);
         using CompilePool pool = new(parallel.MaxDegree);
-        using IDisposable onPool = CookOnPool(cooker, pool);
         return await CompileOnPoolAsync(
-            disk, parsed, paths, mapFile, cooker, output, start, resolution, content, mapName,
+            disk, parsed, paths, mapFile, CookOnPool(cooker, pool), output, start, resolution, content, mapName,
             parallel with { Pool = pool }, record, cancellationToken).ConfigureAwait(false);
     }
 
@@ -843,41 +844,31 @@ public static class AllCommand
     }
 
     /// <summary>
-    /// Runs a managed cooker's cooks on the chain's pool until the result is
-    /// disposed, then puts it back on the .NET pool.
+    /// The cooker one compile on <paramref name="pool"/> should use: a managed
+    /// cooker's view whose cooks run on the pool, or any other cooker as it is.
     /// </summary>
-    /// <param name="cooker">The chain's cooker; anything but the managed one is left alone.</param>
+    /// <param name="cooker">The chain's cooker, or null for none.</param>
     /// <param name="pool">The chain's pool.</param>
-    /// <returns>What restores the cooker's scheduler.</returns>
+    /// <returns>The cooker to put in that compile's request.</returns>
     /// <remarks>
+    /// <para>
     /// Without this the cooks run on the .NET thread pool, beside the
     /// chain's own <c>-threads</c> workers rather than among them, so a
     /// one-thread compile would not be one thread.
+    /// </para>
+    /// <para>
+    /// A view, not a change to the cooker: this used to set the cooker's
+    /// scheduler for the compile and reset it afterwards, and a host sharing
+    /// one cooker between concurrent compiles (as this pattern invites) then
+    /// had one compile's reset move the other's cooks, or leave them on a
+    /// disposed pool. The view is the compile's alone and needs no undoing;
+    /// the cooker stays the caller's to dispose.
+    /// </para>
     /// </remarks>
-    public static IDisposable CookOnPool(ICollisionCooker? cooker, CompilePool pool)
+    public static ICollisionCooker? CookOnPool(ICollisionCooker? cooker, CompilePool pool)
     {
         ArgumentNullException.ThrowIfNull(pool);
-        if (cooker is not ManagedCollisionCooker managed)
-        {
-            return NoLease.Instance;
-        }
-
-        managed.Scheduler = pool.Scheduler;
-        return new SchedulerLease(managed);
-    }
-
-    private sealed class SchedulerLease(ManagedCollisionCooker cooker) : IDisposable
-    {
-        public void Dispose() => cooker.Scheduler = TaskScheduler.Default;
-    }
-
-    private sealed class NoLease : IDisposable
-    {
-        public static readonly NoLease Instance = new();
-
-        public void Dispose()
-        {
-        }
+        return cooker is ManagedCollisionCooker managed ? managed.On(pool.Scheduler) : cooker;
     }
 
     private static async Task<int> CompileOnPoolAsync(
