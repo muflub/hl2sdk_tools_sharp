@@ -147,7 +147,7 @@ public static class RoomLocalNames
         }
 
         string number = name[(at + 1)..end];
-        if (number.Length == 0 || (strict && number != "1"))
+        if (strict && number != "1")
         {
             return false;
         }
