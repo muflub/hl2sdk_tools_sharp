@@ -486,6 +486,21 @@ public static class RoomCommands
             return Program.ExitUsage;
         }
 
+        // The grid is checked before the library is read: a grid past the
+        // cap is refused whatever the library holds, and reading a large
+        // library first cost seconds and hundreds of megabytes for nothing.
+        // The refusal reads as it did when the generator made it.
+        LevelGeneratorOptions options = new(rowCount, columnCount, seedValue, ratio);
+        try
+        {
+            LevelGenerator.CheckOptions(options);
+        }
+        catch (ArgumentException exception)
+        {
+            await output.WriteLineAsync($"ssmap layout: {libraryPath}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
+
         string text;
         try
         {
@@ -494,7 +509,6 @@ public static class RoomCommands
             string from = target is null ? Path.GetFullPath(".") : Path.GetDirectoryName(target)!;
             string library = Path.GetRelativePath(from, libraryPath).Replace('\\', '/');
             string name = target is null ? "level" : Path.GetFileNameWithoutExtension(target);
-            LevelGeneratorOptions options = new(rowCount, columnCount, seedValue, ratio);
             LevelGrid level = LevelGenerator.Generate([.. rooms.Select(r => r.Definition)], options, name, library);
             text = LevelYaml.Write(level, LevelGenerator.Header(options, level));
         }

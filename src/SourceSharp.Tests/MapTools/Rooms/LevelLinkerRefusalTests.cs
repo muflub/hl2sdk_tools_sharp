@@ -159,6 +159,92 @@ public sealed class LevelLinkerRefusalTests
         Assert.Contains("texinfos", refused.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The nodraw copies the assembly adds for stripped plug faces count
+    /// toward <c>MAX_MAP_TEXINFO</c> too: two rooms whose own texinfos are
+    /// exactly the cap between them pass the check made before planning,
+    /// and the first nodraw copy of a doorway's face is refused, naming the
+    /// loader's constant.
+    /// </summary>
+    [Fact]
+    public async Task NodrawCopiesPastTheTexinfoCapAreRefused()
+    {
+        const int cap = 12288;
+        RoomObject hub = await HubAsync();
+        RoomObject full = RoomHarness.WithLumps(hub, bsp =>
+        {
+            TexInfo[] infos = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]).ToArray();
+            TexInfo[] padded = new TexInfo[cap / 2];
+            for (int i = 0; i < padded.Length; i++)
+            {
+                padded[i] = infos[i % infos.Length];
+            }
+
+            bsp.SetLump(BspLump.TexInfo, BspStructView.ToLump<TexInfo>(padded, 0).Data);
+        });
+
+        RoomLibrary library = RoomHarness.Library(full);
+        LevelLayout layout = RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, 0));
+        LevelLinker.CheckCapacity(layout, library); // exactly the cap: loads
+
+        LinkException refused = await LinkPairAsync(full);
+        Assert.Matches(
+            $@"^room hub at cell \(\d, 0\) pushes the link to {cap + 1} texinfos; the engine loads at most {cap} \(MAX_MAP_TEXINFO\)\.$",
+            refused.Message);
+    }
+
+    /// <summary>
+    /// Nodes past <c>MAX_MAP_NODES</c> are refused before any room is
+    /// planned: two rooms of 33,000 nodes each are 66,000 before the top tree
+    /// adds any.
+    /// </summary>
+    [Fact]
+    public async Task NodesPastTheLoadersCapAreRefusedUpFront()
+    {
+        RoomObject big = WithNodes(await HubAsync(), 33_000);
+        RoomLibrary library = RoomHarness.Library(big);
+        LevelLayout layout = RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, 0));
+
+        LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(layout, library));
+        Assert.Equal(
+            "room hub at cell (1, 0) pushes the link to 66003 nodes; the engine loads at most 65536 (MAX_MAP_NODES).",
+            refused.Message);
+    }
+
+    /// <summary>
+    /// The node check made before planning counts the top tree at its floor
+    /// (three nodes for two rooms in a row) and no carve chains, so it can
+    /// pass a level the assembly then takes past <c>MAX_MAP_NODES</c>; the
+    /// exact total is checked once the carve has run. Two rooms of 32,766
+    /// nodes are 65,535 up front, and the doorway's carve chain adds more.
+    /// </summary>
+    [Fact]
+    public async Task NodesTheCarveAddsPastTheLoadersCapAreRefused()
+    {
+        RoomObject big = WithNodes(await HubAsync(), 32_766);
+        RoomLibrary library = RoomHarness.Library(big);
+        LevelLayout layout = RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, 0));
+        LevelLinker.CheckCapacity(layout, library);
+
+        LinkException refused = await LinkPairAsync(big);
+        Assert.Matches(
+            @"^room hub at cell \(1, 0\) pushes the link to 655(3[7-9]|[4-9]\d) nodes; the engine loads at most 65536 \(MAX_MAP_NODES\)\.$",
+            refused.Message);
+    }
+
+    /// <summary>A room whose node lump is padded to <paramref name="count"/> nodes with copies of its own.</summary>
+    private static RoomObject WithNodes(RoomObject room, int count) => RoomHarness.WithLumps(room, bsp =>
+    {
+        DNode[] nodes = BspStructView.As<DNode>(bsp[BspLump.Nodes]).ToArray();
+        DNode[] padded = new DNode[count];
+        for (int i = 0; i < padded.Length; i++)
+        {
+            padded[i] = nodes[i % nodes.Length];
+        }
+
+        bsp.SetLump(BspLump.Nodes, BspStructView.ToLump<DNode>(padded, 0).Data);
+    });
+
     // ---- L11 (linker side): vis that does not number its compile ----------
 
     /// <summary>

@@ -106,6 +106,7 @@ public sealed class LevelLinkerScaleTests
             ("texdatas", counts.TexDatas, 0, 2048),
             ("brushes", counts.Brushes, 0, 8192),
             ("brush sides", counts.BrushSides, 0, 65536),
+            ("nodes", counts.Nodes + 2, -1, 65536),
         ];
         (string what, long crossing) = fields
             .Where(f => f.perRoom > 0)
@@ -175,6 +176,24 @@ public sealed class LevelLinkerScaleTests
         }, "c", 2, 0));
         Assert.Equal(
             $"room c at cell (2, 0) pushes the link to {cap + 1} {what}; the engine loads at most {cap} ({constant}).",
+            refused.Message);
+    }
+
+    /// <summary>
+    /// The node total starts at -1 and each room adds its nodes and 2: the
+    /// top tree's floor of 2 x rooms - 1 nodes. It may reach
+    /// <c>MAX_MAP_NODES</c> and is refused one past it, naming the loader's
+    /// constant.
+    /// </summary>
+    [Fact]
+    public void TheNodeTotalCountsTheTopTreesFloorAndIsCappedAtTheLoaders()
+    {
+        LevelLinker.LinkTotals totals = new();
+        totals.Add(new LevelLinker.LinkCounts() with { Nodes = 32_767 }, "a", 0, 0); // -1 + 32,769
+        totals.Add(new LevelLinker.LinkCounts() with { Nodes = 32_766 }, "b", 1, 0); // 65,536: loads
+        LinkException refused = Assert.Throws<LinkException>(() => totals.Add(new LevelLinker.LinkCounts(), "c", 2, 0));
+        Assert.Equal(
+            "room c at cell (2, 0) pushes the link to 65538 nodes; the engine loads at most 65536 (MAX_MAP_NODES).",
             refused.Message);
     }
 

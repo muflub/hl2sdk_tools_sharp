@@ -974,6 +974,24 @@ public sealed class RoomCommandsTests
         Assert.Contains("no level of 1x3 cells with every room reachable was found", output.ToString(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A grid past the cap is refused before the library is read: the
+    /// library here does not exist, and the refusal is still the grid's,
+    /// worded as the generator words it, where it used to be the missing
+    /// file's (and, for a real library, came only after reading all of it).
+    /// </summary>
+    [Fact]
+    public async Task LayoutRefusesAGridPastTheCapBeforeReadingTheLibrary()
+    {
+        using StringWriter output = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLayoutAsync(
+            new InMemoryFileSystem(), ["/nowhere/rooms.vmf", "-rows", "512", "-columns", "512", "-seed", "1"], output));
+        Assert.Equal(
+            $"ssmap layout: {Path.GetFullPath("/nowhere/rooms.vmf")}: a 512x512 grid has more than 4096 cells (Parameter 'options')"
+                + Environment.NewLine,
+            output.ToString());
+    }
+
     /// <summary>A layout from a library that is not there is reported.</summary>
     [Fact]
     public async Task LayoutReportsAMissingLibrary()
