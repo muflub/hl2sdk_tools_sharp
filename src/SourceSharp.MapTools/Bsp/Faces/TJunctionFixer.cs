@@ -9,6 +9,7 @@ using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Bsp.Portals;
+using SourceSharp.MapTools.Options;
 
 namespace SourceSharp.MapTools.Bsp.Faces;
 
@@ -60,13 +61,24 @@ public sealed class TJunctionFixer
     private Vec3 _edgeStart;
     private Vec3 _edgeDir;
 
+    /// <summary>
+    /// Whether each edge is normalised with stock's estimate
+    /// (<see cref="StockQuirk.VbspVectorNormalise"/>). The edge direction is
+    /// what every welded vertex is projected onto, so its last bits decide
+    /// where along the edge a candidate lands and whether it is within
+    /// <see cref="OffEpsilon"/> of it; with the estimate that is the CPU's
+    /// choice. Read once, as the compliance cannot change under a fixer.
+    /// </summary>
+    private readonly bool _stockNormalise;
+
     /// <summary>Creates a fixer over one model's face stage.</summary>
-    /// <param name="context">The stage's state.</param>
+    /// <param name="context">The stage's state, whose compliance picks the normalise.</param>
     /// <exception cref="ArgumentNullException"><paramref name="context"/> is null.</exception>
     public TJunctionFixer(FaceBuildContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
+        _stockNormalise = context.Compliance.Emulates(StockQuirk.VbspVectorNormalise);
     }
 
     /// <summary>
@@ -315,7 +327,15 @@ public sealed class TJunctionFixer
 
             _context.Vertices.FindEdgeVerts(_edgeStart, e2);
 
-            (_edgeDir, float len) = (e2 - _edgeStart).NormaliseLikeStock();
+            // A zero-length edge between welded vertices is one vertex number,
+            // which TestEdge refuses before reading either value. Only -noweld
+            // gives two numbers at one point, and its vertices are never in
+            // the hash, so nothing is tested against the edge. The two sides
+            // still differ there only in the length: zero from the exact
+            // divide, about 1e-5 from the estimate (stock's +1e-10 guard).
+            (_edgeDir, float len) = _stockNormalise
+                ? (e2 - _edgeStart).NormaliseLikeStock()
+                : (e2 - _edgeStart).Normalise();
 
             start[i] = _numSuperVerts;
             TestEdge(0f, len, p1, p2, 0);

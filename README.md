@@ -323,13 +323,18 @@ What moves between the rows:
   collision data, leaf ambient and static-prop lighting. On one CPU family
   the output is still deterministic from run to run.
 - **`-compliance correct`** (the default) uses exact IEEE arithmetic in
-  place of these estimates, with one exception: vrad's KD-tree ray tracer
-  keeps stock's estimated reciprocal in its traversal in both modes. A ray
-  that grazes a tree split can resolve differently from one CPU family to
-  another, which changes a shadow test at the edge of an occluder.
+  place of these estimates. vbsp and vvis take no estimate at all, so their
+  output is the same bytes on every CPU; CI pins vbsp's digests for the
+  sandbox map and several displacement maps, and runs them on AMD, Intel and
+  arm64. The exception is vrad's ray tracing, which keeps stock's estimates
+  in both modes: the reciprocal in the KD-tree traversal, the triangle
+  normals the KD tree is built from, the colinear-point cull of the trace
+  geometry's windings, and the point-in-sky-face tests. A ray that grazes a
+  tree split or an edge can resolve differently from one CPU family to
+  another, which changes a shadow or sky test at the edge of an occluder.
 
-Everything else is the same on every platform: file formats, the vbsp tree,
-vvis, every exact computation, and every elementary function.
+Everything else is the same on every platform: file formats, vbsp, vvis,
+every exact computation, and every elementary function.
 
 ### Elementary functions
 
@@ -631,8 +636,8 @@ assemblies rather than by review.
   options produce the same bytes on Linux, Windows and macOS, on any .NET
   runtime. The only differences allowed are the CPU-estimate ones listed
   under [Platform differences](#platform-differences): stock's `rcpss` /
-  `rsqrtss` arithmetic under `-compliance stock`, and the KD-tree
-  traversal reciprocal. The opt-in paths that hand work to code outside
+  `rsqrtss` arithmetic under `-compliance stock`, and vrad's ray
+  tracing under either policy. The opt-in paths that hand work to code outside
   this repository, `-gpu` (the device's ray intersection) and
   `-cooker native` (the game's vphysics library), are outside the rule.
   Any other difference between platforms is a bug.

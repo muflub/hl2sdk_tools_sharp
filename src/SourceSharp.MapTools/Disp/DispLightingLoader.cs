@@ -43,7 +43,9 @@ public static class DispLightingLoader
     /// <param name="compliance">
     /// The compile's compliance: <see cref="StockQuirk.DispVertNormalise"/>
     /// picks the normalise, <see cref="StockQuirk.DispVertexNormalMeanUnnormalised"/>
-    /// whether the vertex normals are renormalised.
+    /// whether the vertex normals are renormalised, and
+    /// <see cref="StockQuirk.VbspVectorNormalise"/> how the base quad's normal is
+    /// normalised.
     /// </param>
     /// <returns>One core per LUMP_DISPINFO entry, in that order.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -60,6 +62,10 @@ public static class DispLightingLoader
 
         bool stockNormalise = compliance.Emulates(StockQuirk.DispVertNormalise);
         bool stockNormalMean = compliance.Emulates(StockQuirk.DispVertexNormalMeanUnnormalised);
+
+        // The base quad's normal, which becomes the four corner normals and
+        // the lighting surface's stab direction.
+        bool stockSurfaceNormalise = compliance.Emulates(StockQuirk.VbspVectorNormalise);
 
         ReadOnlySpan<DispInfo> infos = BspStructView.As<DispInfo>(bsp[BspLump.DispInfo]);
         ReadOnlySpan<DispVert> verts = BspStructView.As<DispVert>(bsp[BspLump.DispVerts]);
@@ -80,6 +86,7 @@ public static class DispLightingLoader
                 ListIndex = i,
                 StockNormalise = stockNormalise,
                 StockVertexNormalMean = stockNormalMean,
+                Surface = { StockNormalise = stockSurfaceNormalise },
             };
         }
 

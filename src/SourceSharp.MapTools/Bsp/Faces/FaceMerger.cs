@@ -8,6 +8,7 @@
 using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Geometry;
+using SourceSharp.MapTools.Options;
 
 namespace SourceSharp.MapTools.Bsp.Faces;
 
@@ -45,13 +46,21 @@ public sealed class FaceMerger
 
     private readonly FaceBuildContext _context;
 
+    /// <summary>
+    /// Whether the merge test's edge normals take stock's estimate
+    /// (<see cref="StockQuirk.VbspVectorNormalise"/>). Read once, as the
+    /// compliance cannot change under a merger.
+    /// </summary>
+    private readonly bool _stockNormalise;
+
     /// <summary>Creates a merger over one compile's face stage.</summary>
-    /// <param name="context">The stage's state.</param>
+    /// <param name="context">The stage's state, whose compliance picks the normalise.</param>
     /// <exception cref="ArgumentNullException"><paramref name="context"/> is null.</exception>
     public FaceMerger(FaceBuildContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
+        _stockNormalise = context.Compliance.Emulates(StockQuirk.VbspVectorNormalise);
     }
 
     /// <summary>
@@ -371,28 +380,33 @@ public sealed class FaceMerger
     }
 
     /// <summary>
-    /// <c>VectorNormalize</c> as the merge test calls it
+    /// <c>VectorNormalize</c> as the merge test calls it.
     /// </summary>
+    /// <param name="v">The edge normal, unnormalised.</param>
+    /// <returns>It at unit length, by the policy's arithmetic.</returns>
     /// <remarks>
     /// <para>
     /// Stock's <c>VectorNormalize</c> is <c>rsqrtss</c> plus one
-    /// Newton-Raphson step, and it is reproduced here unconditionally rather
-    /// than behind a <c>StockQuirk</c>. The reason is the rule: a quirk needs a
-    /// concrete defect, and an approximate reciprocal square root is a
-    /// precision choice, not a defect. It earns a quirk in
-    /// <c>BaseWindingForPlane</c> only because a 65536-unit winding is clipped
-    /// there with an epsilon of exactly zero, so the estimate's last bits
-    /// decide whether a sliver survives. Nothing here amplifies it: the
-    /// estimate scales the vector by 1 + O(1e-7) and leaves its DIRECTION
-    /// untouched, and the only use of the result is a dot product tested
-    /// against 0.001.
+    /// Newton-Raphson step. Here, unlike in <c>BaseWindingForPlane</c>,
+    /// nothing amplifies the estimate: it scales the vector by 1 + O(1e-7)
+    /// without turning it, and the result is only dotted and compared with
+    /// 0.001. It is a quirk all the same, because the rule is that output is
+    /// the same bytes on every platform and <c>rsqrtss</c>'s last bits are
+    /// the CPU's. A dot product within an ulp of 0.001 keeps or drops the
+    /// shared vertex, and with it every vertex index downstream, depending on
+    /// the machine. So the estimate sits behind
+    /// <see cref="StockQuirk.VbspVectorNormalise"/> with the rest of vbsp's
+    /// face-stage normalises, and <see cref="CompliancePolicy.Correct"/>
+    /// divides exactly.
     /// </para>
     /// <para>
-    /// A zero-length input cannot divide by zero, because stock adds
-    /// <c>1.0e-10f</c> to the squared length before the estimate. The result is
-    /// then a vector of length about 1e-5 times the input, i.e. zero, and the
-    /// dot that follows is zero: the shared vertex is kept.
+    /// A zero-length input cannot divide by zero on either side. The exact
+    /// normalise returns the zero vector; stock adds <c>1.0e-10f</c> to the
+    /// squared length before the estimate, so its result is about 1e-5 times
+    /// the input, i.e. zero. The dot that follows is zero either way and the
+    /// shared vertex is kept.
     /// </para>
     /// </remarks>
-    private static Vec3 Normalise(Vec3 v) => v.NormaliseLikeStock().Normalised;
+    private Vec3 Normalise(Vec3 v) =>
+        _stockNormalise ? v.NormaliseLikeStock().Normalised : v.Normalise().Normalised;
 }

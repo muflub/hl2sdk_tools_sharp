@@ -1175,6 +1175,47 @@ public static class ComplianceCatalogue
             "The reference saturates a zero component to FLT_EPSILON. Correct substitutes "
             + "2^-60. Only rays with an exactly zero direction component are affected."),
 
+        StockQuirk.VbspVectorNormalise => new(
+            quirk,
+            "vbsp face and disp normals use the rsqrt estimate",
+            "Face subdivision, t-junction fixing, the face merge test and the displacement "
+            + "surface's normals normalise with the rsqrtss estimate, so the vertices they make "
+            + "depend on the CPU.",
+            "Those normalises divide exactly, so the face lumps are the same on every CPU.",
+            CompileTools.Vbsp | CompileTools.Vrad,
+            [
+                "SourceSharp.MapTools.Bsp.Faces.FaceSubdivider..ctor",
+                "SourceSharp.MapTools.Bsp.Faces.TJunctionFixer..ctor",
+                "SourceSharp.MapTools.Bsp.Faces.FaceMerger..ctor",
+                "SourceSharp.MapTools.Disp.DisplacementLumpBuilder.Build",
+                "SourceSharp.MapTools.Disp.DisplacementLumpBuilder.ComputeDispInfoBounds",
+                "SourceSharp.MapTools.Bsp.Detail.MapDisplacementSurfaces.PositionOnSurface",
+                "SourceSharp.MapTools.Disp.DispLightingLoader.Load",
+            ],
+            QuirkObservation.Measured,
+            "Valve's SDK 2fort compiled under the default policy with the estimate at these sites "
+            + "gave different Vertexes, Faces, Edges and six more face lumps on an AMD Ryzen 9950X "
+            + "and an Intel Xeon. On the Xeon the exact divide moves exactly those lumps, and this "
+            + "quirk alone on the Stock side restores the old bytes.",
+            [
+                "VbspVectorNormaliseTests.StockSubdivisionCutsAtTheEstimatedDistance",
+                "VbspVectorNormaliseTests.CorrectSubdivisionCutsAtTheExactDistance",
+                "VbspVectorNormaliseTests.StockEdgeFixingProjectsOntoTheEstimatedDirection",
+                "VbspVectorNormaliseTests.CorrectEdgeFixingProjectsOntoTheExactDirection",
+                "VbspVectorNormaliseTests.StockMergeTestTakesTheEstimatedNormal",
+                "VbspVectorNormaliseTests.CorrectMergeTestTakesTheExactNormal",
+                "CoreDispSurfaceNormaliseTests.StockLoadTakesTheEstimatedBaseQuadNormal",
+                "CoreDispSurfaceNormaliseTests.CorrectLoadTakesTheExactBaseQuadNormal",
+                "CoreDispSurfaceNormaliseTests.StockLongestInUBreaksATieOnTheEstimate",
+                "CoreDispSurfaceNormaliseTests.CorrectLongestInUKeepsTheExactTie",
+                "VbspCpuIndependenceTests.TheCorrectSandboxBspIsPinnedOnEveryCpu",
+                "VbspCpuIndependenceTests.TheCorrectDisplacementBspIsPinnedOnEveryCpu",
+            ],
+            "Only vrad's displacement loader reaches this quirk in vrad, through the base quad's "
+            + "normal; vrad's own normalises are VradVectorNormalise. The ambient tracer's "
+            + "displacement collision set builds the same surface but reads nothing the "
+            + "normalise decides, and always divides exactly."),
+
         _ => throw new ArgumentOutOfRangeException(
             nameof(quirk), quirk, "no ComplianceCatalogue entry for this StockQuirk"),
     };

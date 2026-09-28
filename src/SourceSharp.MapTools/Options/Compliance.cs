@@ -1302,6 +1302,62 @@ public enum StockQuirk
     /// </para>
     /// </remarks>
     KdZeroDirectionReachCut,
+
+    /// <summary>
+    /// vbsp's face-stage and displacement-surface <c>VectorNormalize</c>
+    /// calls use the <c>rsqrtss</c> estimate plus one Newton-Raphson step, not
+    /// a divide, so the vertices they create depend on the CPU.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The same instruction sequence as <see cref="BaseWindingNormalise"/> and
+    /// <see cref="VradVectorNormalise"/>, at the vbsp sites no other quirk
+    /// covers:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>
+    /// <c>SubdivideFace</c> normalises the lightmap axis to get both the split
+    /// plane's normal and the luxels-per-unit the split distance is divided
+    /// by. The estimate's last bits move the cut, so the new vertices it
+    /// creates land at, say, <c>-496.000092</c> on one CPU and <c>-496</c> on
+    /// another; every lump that holds or indexes a vertex moves with them.
+    /// </description></item>
+    /// <item><description>
+    /// <c>FixFaceEdges</c> normalises each edge to project the welded
+    /// vertices onto it; the projection decides which vertices split the
+    /// edge and in which order.
+    /// </description></item>
+    /// <item><description>
+    /// <c>TryMergeWinding</c> normalises the two edge normals of the merge's
+    /// convexity test, whose dot products are compared against 0.001.
+    /// </description></item>
+    /// <item><description>
+    /// <c>CCoreDispSurface</c>'s plane normal (<c>GetNormal</c>) and the
+    /// two axes <c>LongestInU</c> measures a displacement quad along. The
+    /// second decides the lightmap-axis swap vbsp writes; the first is the
+    /// stab direction and base-quad normal vrad's displacement lighting
+    /// starts from, which is why this quirk reaches vrad too.
+    /// </description></item>
+    /// </list>
+    /// <para>
+    /// <b>Why this is a defect.</b> <c>rsqrtss</c>'s result is
+    /// architecturally permitted to differ between CPU models, so the same
+    /// VMF compiled on two machines gives two different BSPs. Measured: Valve's
+    /// SDK 2fort compiled by this port under the default policy, before this
+    /// quirk existed, gave different Vertexes, Faces, Edges, SurfEdges,
+    /// LeafFaces, OriginalFaces, VertNormalIndices, Primitives and PrimIndices
+    /// lumps on an AMD Ryzen 9950X and an Intel Xeon, with nothing else
+    /// different. An exact divide is available and makes the output the same
+    /// everywhere.
+    /// </para>
+    /// <para>
+    /// <see cref="CompliancePolicy.Correct"/> divides exactly
+    /// (<c>Vec3.Normalise</c>). <see cref="CompliancePolicy.Stock"/> routes
+    /// through <c>Vec3.NormaliseLikeStock</c>, which reproduces stock on the
+    /// same CPU family and nowhere else.
+    /// </para>
+    /// </remarks>
+    VbspVectorNormalise,
 }
 
 /// <summary>

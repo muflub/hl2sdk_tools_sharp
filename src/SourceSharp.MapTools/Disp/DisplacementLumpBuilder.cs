@@ -174,6 +174,10 @@ public static class DisplacementLumpBuilder
         bool stockNormalise = options.Compliance.Emulates(StockQuirk.DispVertNormalise);
         bool stockNormalMean = options.Compliance.Emulates(StockQuirk.DispVertexNormalMeanUnnormalised);
 
+        // The base quad's own normal and lightmap axes; the lightmap-axis swap
+        // below is decided by them.
+        bool stockSurfaceNormalise = options.Compliance.Emulates(StockQuirk.VbspVectorNormalise);
+
         DispInfo[] infos = new DispInfo[displacements.Count];
         CoreDispInfo[] cores = new CoreDispInfo[displacements.Count];
         bool[] swapped = new bool[displacements.Count];
@@ -239,6 +243,7 @@ public static class DisplacementLumpBuilder
             {
                 ListIndex = i,
                 StockVertexNormalMean = stockNormalMean,
+                Surface = { StockNormalise = stockSurfaceNormalise },
             };
         }
 
@@ -639,7 +644,13 @@ public static class DisplacementLumpBuilder
         ArgumentNullException.ThrowIfNull(disp);
         ArgumentNullException.ThrowIfNull(compliance);
 
-        CoreDispInfo core = new(disp.Power);
+        // The surface normalise decides nothing this box reads; it follows
+        // the compliance anyway so that no core vbsp builds takes the
+        // estimate under Correct.
+        CoreDispInfo core = new(disp.Power)
+        {
+            Surface = { StockNormalise = compliance.Emulates(StockQuirk.VbspVectorNormalise) },
+        };
         DispMapToCoreDispInfo(
             disp, face, core, compliance.Emulates(StockQuirk.DispVertNormalise), withFace: false);
 

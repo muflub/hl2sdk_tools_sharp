@@ -10,6 +10,7 @@ using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Geometry;
 using SourceSharp.MapTools.Materials;
+using SourceSharp.MapTools.Options;
 
 namespace SourceSharp.MapTools.Bsp.Faces;
 
@@ -31,18 +32,35 @@ namespace SourceSharp.MapTools.Bsp.Faces;
 /// front piece 31 luxels wide, not 32, because vrad's lightmap is
 /// <c>size + 1</c> samples across.
 /// </para>
+/// <para>
+/// <b>The normalise that sizes the cut is a compliance choice.</b> The
+/// lightmap axis is normalised once to get both the split plane's normal and
+/// the luxels per world unit the distance is divided by, so the normalise's
+/// last bits are the new vertices' last bits. Stock takes the <c>rsqrtss</c>
+/// estimate there, which differs between CPU models; see
+/// <see cref="StockQuirk.VbspVectorNormalise"/>.
+/// </para>
 /// </remarks>
 public sealed class FaceSubdivider
 {
     private readonly FaceBuildContext _context;
 
+    /// <summary>
+    /// Whether the lightmap axis is normalised with stock's estimate
+    /// (<see cref="StockQuirk.VbspVectorNormalise"/>). Read once here rather
+    /// than per split: the context's compliance cannot change under a
+    /// subdivider, and a face stage splits thousands of faces.
+    /// </summary>
+    private readonly bool _stockNormalise;
+
     /// <summary>Creates a subdivider over one compile's face stage.</summary>
-    /// <param name="context">The stage's state.</param>
+    /// <param name="context">The stage's state, whose compliance picks the normalise.</param>
     /// <exception cref="ArgumentNullException"><paramref name="context"/> is null.</exception>
     public FaceSubdivider(FaceBuildContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
+        _stockNormalise = context.Compliance.Emulates(StockQuirk.VbspVectorNormalise);
     }
 
     /// <summary>
@@ -104,7 +122,12 @@ public sealed class FaceSubdivider
                 // split it
                 _context.Counters.Subdivided++;
 
-                (Vec3 normalised, float luxelsPerWorldUnit) = temp.NormaliseLikeStock();
+                // Stock's VectorNormalize returns sqrlen * invlen from the
+                // estimate, not the length; the exact side returns the length.
+                // Either is what the distance below is divided by.
+                (Vec3 normalised, float luxelsPerWorldUnit) = _stockNormalise
+                    ? temp.NormaliseLikeStock()
+                    : temp.Normalise();
 
                 float dist = (mins + _context.MaxLightmapDimension - 1f) / luxelsPerWorldUnit;
 

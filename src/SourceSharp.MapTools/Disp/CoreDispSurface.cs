@@ -63,6 +63,29 @@ public sealed class CoreDispSurface
         }
     }
 
+    /// <summary>
+    /// Whether <see cref="GetNormal"/> and <see cref="LongestInU"/> normalise
+    /// with stock's <c>rsqrtss</c> estimate
+    /// (<see cref="Options.StockQuirk.VbspVectorNormalise"/>) rather than an
+    /// exact divide.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A property the caller sets, not a compliance the surface reads,
+    /// because the surface is built in four places by two tools and only the
+    /// caller knows the compile's compliance. False, the default, is the
+    /// exact side, so a surface nobody configured is the same on every CPU.
+    /// </para>
+    /// <para>
+    /// Set by vbsp's lump builder, world-bounds box and detail-prop surface
+    /// query, and by vrad's displacement loader. The ambient tracer's
+    /// collision set leaves it false in both policies: it reads neither the
+    /// normal nor the swap flag the normalises decide, only the luxel counts,
+    /// which come from exact lengths.
+    /// </para>
+    /// </remarks>
+    public bool StockNormalise { get; set; }
+
     /// <summary>The quad's four points, in winding order after rotation.</summary>
     public ReadOnlySpan<Vec3> Points => _points;
 
@@ -218,21 +241,30 @@ public sealed class CoreDispSurface
     }
 
     /// <summary>
-    /// The quad's plane normal: <c>CCoreDispSurface::GetNormal</c>,
+    /// The quad's plane normal: <c>CCoreDispSurface::GetNormal</c>.
     /// </summary>
     /// <returns>The unit normal.</returns>
     /// <remarks>
+    /// <para>
     /// The cross product's operand order is <c>(p3-p0) x (p1-p0)</c>, which is
-    /// the REVERSE of the usual, and the normalise is stock's estimate. Neither
-    /// reaches the BSP from vbsp: the only caller is the elevation term of
-    /// <c>GenerateDispSurf</c>, and vbsp never sets an elevation.
+    /// the REVERSE of the usual. In vbsp the only callers are the elevation
+    /// term of <c>GenerateDispSurf</c>, which vbsp never sets, and the tangent
+    /// spaces, which nothing reads, so the normal does not reach the BSP from
+    /// there. vrad reads it: its displacement loader gives it to the four
+    /// corners as their normals, and the lighting surface takes it as the
+    /// stab direction.
+    /// </para>
+    /// <para>
+    /// The normalise is stock's estimate when <see cref="StockNormalise"/> is
+    /// set and an exact divide otherwise.
+    /// </para>
     /// </remarks>
     public Vec3 GetNormal()
     {
         Vec3 a = _points[1] - _points[0];
         Vec3 b = _points[3] - _points[0];
 
-        return Vec3.Cross(b, a).NormaliseLikeStock().Normalised;
+        return Normalise(Vec3.Cross(b, a));
     }
 
     /// <summary>
@@ -329,15 +361,24 @@ public sealed class CoreDispSurface
     /// <param name="v">The lightmap v axis.</param>
     /// <returns>True when u wins, including on a tie.</returns>
     /// <remarks>
+    /// <para>
     /// The "edges" it measures are the four consecutive pairs of quad points
     /// projected onto each axis, and it takes the LARGEST of the four rather
     /// than a pair of opposite ones — so for a quad whose points are not in
     /// winding order it measures diagonals. vbsp's points always are.
+    /// </para>
+    /// <para>
+    /// The two axes are normalised by <see cref="StockNormalise"/>'s
+    /// arithmetic. The answer is a comparison of two projected extents with
+    /// a tie going to u, so a quad whose two extents are within an ulp of
+    /// each other is decided by the normalise's last bits; and the answer
+    /// decides whether vbsp swaps the face's lightmap axes.
+    /// </para>
     /// </remarks>
     public bool LongestInU(Vec3 u, Vec3 v)
     {
-        Vec3 normU = u.NormaliseLikeStock().Normalised;
-        Vec3 normV = v.NormaliseLikeStock().Normalised;
+        Vec3 normU = Normalise(u);
+        Vec3 normV = Normalise(v);
 
         Span<float> distU = stackalloc float[4];
         Span<float> distV = stackalloc float[4];
@@ -467,4 +508,7 @@ public sealed class CoreDispSurface
 
         return swapped;
     }
+
+    private Vec3 Normalise(Vec3 v) =>
+        StockNormalise ? v.NormaliseLikeStock().Normalised : v.Normalise().Normalised;
 }
