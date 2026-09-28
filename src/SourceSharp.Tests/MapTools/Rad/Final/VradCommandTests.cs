@@ -75,7 +75,7 @@ public sealed class VradCommandTests
     {
         InMemoryFileSystem fs = await MapAsync();
         using StringWriter output = new();
-        int exit = await VradCommand.RunAsync(fs, ["-bounce", "0", "-threads", "2", "/maps/box"], output);
+        int exit = await VradCommand.RunAsync(fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "-threads", "2", "/maps/box"], output);
 
         BspData lit = await BspFile.LoadAsync(new MemoryStream(fs.GetBytes(VPath.Create(Rooted("/maps/box.bsp")))!));
         Assert.Equal((Program.ExitSuccess, false), (exit, lit[BspLump.Lighting].IsEmpty));
@@ -135,13 +135,78 @@ public sealed class VradCommandTests
     [Fact]
     public async Task WithoutASteamLibraryTheMapIsLitWithoutGameContent()
     {
+        // Only under the switch: the mount's failure is printed, and the
+        // compile carries on with a note instead of failing.
         InMemoryFileSystem fs = await SteamMapAsync();
+        using StringWriter output = new();
+        int exit = await VradCommand.RunAsync(
+            fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "-threads", "2", "-game", "/game", "/game/maps/box"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.Contains($"ssmap vrad: cannot mount {Path.GetFullPath("/game")}:", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("ssmap vrad: no game content; lighting without it", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WithoutASteamLibraryAGameThatNamesAnAppFailsTheCompile()
+    {
+        // Stock stops on a game it cannot mount, and so does vbsp: a .bsp lit
+        // without the game's materials and lights.rad is not the compile
+        // that was asked for, so it must not come back with a success code.
+        InMemoryFileSystem fs = await SteamMapAsync();
+        byte[] before = fs.GetBytes(VPath.Create(Rooted("/game/maps/box.bsp")))!;
         using StringWriter output = new();
         int exit = await VradCommand.RunAsync(
             fs, ["-bounce", "0", "-threads", "2", "-game", "/game", "/game/maps/box"], output);
 
-        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.True(exit == VradCommand.ExitFailed, output.ToString());
         Assert.Contains($"ssmap vrad: cannot mount {Path.GetFullPath("/game")}:", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(before, fs.GetBytes(VPath.Create(Rooted("/game/maps/box.bsp"))));
+    }
+
+    [Fact]
+    public async Task AGameDirectoryWithNoGameInfoFailsTheCompile()
+    {
+        // -game names a directory with no gameinfo.txt in it.
+        InMemoryFileSystem fs = await MapAsync();
+        byte[] before = fs.GetBytes(VPath.Create(Rooted("/maps/box.bsp")))!;
+        using StringWriter output = new();
+        int exit = await VradCommand.RunAsync(fs, ["-bounce", "0", "-game", "/nogame", "/maps/box"], output);
+
+        Assert.True(exit == VradCommand.ExitFailed, output.ToString());
+        Assert.Contains(
+            $"ssmap vrad: cannot mount {Path.GetFullPath("/nogame")}: no gameinfo.txt there",
+            output.ToString(),
+            StringComparison.Ordinal);
+        Assert.Equal(before, fs.GetBytes(VPath.Create(Rooted("/maps/box.bsp"))));
+    }
+
+    [Fact]
+    public async Task NoGameInfoAboveTheMapFailsTheCompileToo()
+    {
+        // No -game: the directory above maps/ is used, as vbsp uses it, and
+        // it has no gameinfo.txt either.
+        InMemoryFileSystem fs = await MapAsync();
+        using StringWriter output = new();
+        int exit = await VradCommand.RunAsync(fs, ["-bounce", "0", "/maps/box"], output);
+
+        Assert.True(exit == VradCommand.ExitFailed, output.ToString());
+        Assert.Contains(VradCommand.NoGameContentSwitch, output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoGameInfoUnderTheSwitchIsANote()
+    {
+        InMemoryFileSystem fs = await MapAsync();
+        using StringWriter output = new();
+        int exit = await VradCommand.RunAsync(
+            fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "-game", "/nogame", "/maps/box"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.Contains(
+            $"ssmap vrad: no game content (no gameinfo.txt in {Path.GetFullPath("/nogame")})",
+            output.ToString(),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -150,7 +215,7 @@ public sealed class VradCommandTests
         InMemoryFileSystem fs = await MapAsync();
         using StringWriter output = new();
         int exit = await VradCommand.RunAsync(
-            fs, ["-bounce", "0", "-threads", "2", VradCommand.BenchSwitch, "/maps/box"], output);
+            fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "-threads", "2", VradCommand.BenchSwitch, "/maps/box"], output);
 
         string text = output.ToString();
         Assert.Equal(Program.ExitSuccess, exit);
@@ -172,7 +237,7 @@ public sealed class VradCommandTests
     {
         InMemoryFileSystem fs = await MapAsync();
         using StringWriter output = new();
-        await VradCommand.RunAsync(fs, ["-bounce", "0", "-threads", "2", "/maps/box"], output);
+        await VradCommand.RunAsync(fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "-threads", "2", "/maps/box"], output);
 
         Assert.DoesNotContain("bench ", output.ToString(), StringComparison.Ordinal);
     }
@@ -186,7 +251,7 @@ public sealed class VradCommandTests
         // answers its segments (nothing blocks) and the stage runs.
         InMemoryFileSystem fs = await MapAsync();
         using StringWriter output = new();
-        int exit = await VradCommand.RunAsync(fs, ["-bounce", "0", "/maps/box.bsp"], output);
+        int exit = await VradCommand.RunAsync(fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "/maps/box.bsp"], output);
 
         BspData lit = await BspFile.LoadAsync(new MemoryStream(fs.GetBytes(VPath.Create(Rooted("/maps/box.bsp")))!));
         Assert.Equal(Program.ExitSuccess, exit);
@@ -200,7 +265,7 @@ public sealed class VradCommandTests
         InMemoryFileSystem fs = await MapAsync();
         fs.AddText(Rooted("/maps/box.rad"), "concrete/floor 255 255 255 200\n");
         using StringWriter output = new();
-        _ = await VradCommand.RunAsync(fs, ["-bounce", "0", "/maps/box.bsp"], output);
+        _ = await VradCommand.RunAsync(fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "/maps/box.bsp"], output);
 
         // Without it the box has exactly its one entity light; the texlight
         // floor adds its patches' lights.
