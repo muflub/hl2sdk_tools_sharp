@@ -53,7 +53,7 @@ src/
 game/                                     test game directories with gameinfo.txt
 maps/ss_sandbox.vmf                       the generated sandbox map
 maps/sdk_ctf_2fort.vmf                    Valve's SDK 2fort, a full-size map for perf runs
-samples/rooms-3x3/                        the rooms sample: five rooms, a 3x3 level, its reference VMFs
+samples/rooms-3x3/                        the rooms sample: a five-room library and 3x3 level files
 ```
 
 ### `SourceSharp.MapFormats`
@@ -89,7 +89,7 @@ The compile passes, grouped by stage and by concern.
 | `Io/` | the `IFileSystem` seam, game mounting, VPK and pak archives, Steam library discovery |
 | `Options/` | stock argument parsing (`StockArgs`), per-stage options, the compliance catalogue |
 | `Compile/` | `MapCompiler`, which runs one or more stages in process |
-| `Rooms/` | compile a VMF into a reusable `.room` object and link rooms into one map |
+| `Rooms/` | split a room library VMF into reusable `.room` objects, read and generate level files, and link or flatten a level into one map |
 | `Validation/` | `BspValidator`, the loader rules `ssmap check` reports |
 | `Compare/` | the lump-by-lump comparer behind `ssmap diff` |
 | `Parallel/`, `Diagnostics/`, `Geometry/`, `Vpk/` | work scheduling, warnings and error codes, geometry kernel, VPK reading |
@@ -251,36 +251,87 @@ way. The zip is a game directory:
 Unzip it anywhere and compile against it with no Steam install:
 `ssmap all <map> -game <unzipped dir>`.
 
-### `room` and `link`
+### `room`, `link` and `layout`
 
 ```sh
-ssmap room <in.vmf> [-out <dir>] [-def <roomdef.json>] [vbsp options]
-ssmap link <layout.json> [-rooms <dir>] [-out <map.bsp>]
+ssmap room <library.vmf> [-out <dir>] [vbsp options]
+ssmap link <level.yaml> [-rooms <dir>] [-out <map.bsp>]
+ssmap link <level.yaml> --flatten [-out <map.vmf>]
+ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>] [-out <level.yaml>]
 ```
 
-`room` compiles one room's VMF into `<dir>/<name>.room`. The room definition
-is read from the sidecar next to the VMF (the VMF's file name plus
-`.roomdef.json`: `hub.vmf.roomdef.json`) unless `-def` names another. `link` joins every `*.room` in a directory into one
-map, following a `layout.json` that names the rooms, cells, joints and caps.
-Linking needs no game directory.
+A **room library** is one VMF holding every room of a set, each in its own
+cell with gaps between them, and each marked by an `info_room` point entity
+at the cell's low corner (least x, y and z). Its keys:
 
-A room name is one path segment (no separators, no `..`). A placement's
-`rotation` is a count of quarter turns, 0 to 3. Every room is compiled
-sealed, with a plug brush in each socket; the link removes the plug at a
-joined socket (the doorway becomes open space, drops out of the world
-collision and its faces stop drawing) and keeps it at a capped one. The
-rooms' world collision, entities and areas are merged into the map's own.
-The link refuses what it cannot carry: area portals, static or detail
-props, packed files, displacements, water, and a mix of cooked and
-`-cooker none` rooms. The doorway's side walls have no faces of their own,
-because in the room's compile they faced the plug, so they draw as a gap
-unless something placed in the socket (a door frame model, say) covers
+| Key | Meaning |
+| --- | --- |
+| `name` | The room's name: letters, digits, `_`, `-` and `.`, starting with a letter, digit or `_`. It names the `.room` file and is what a level calls the room. |
+| `cell_size` | The cell's edge; the cell is a cube. |
+| `door_width`, `door_height` | The door opening, centred on a wall. |
+| `wall_depth` | The shell's thickness, and how deep a door plug reaches in from the cell face. |
+| `socket_east`, `socket_west`, `socket_north`, `socket_south` | Optional names for the sockets; the default is the wall's name. East is +x, north is +y. |
+
+Everything inside a cell belongs to its room. Point entities in the gaps
+are ignored; a brush in the gaps or across a cell's edge, overlapping
+cells, rooms of different grids or kits, and a door a standing player
+(32 x 32 x 72) cannot walk through on the floor are errors that name the
+problem. A room's sockets are its door plugs: a world brush exactly filling
+the kit's opening on a wall, `wall_depth` deep, made of a `%compileTrigger`
+material (still solid, so the room compiles sealed); a trigger brush of any
+other size is refused.
+
+`room` splits the library, moves each room to the origin, and compiles it
+into `<dir>/<name>.room` (one file per room, beside the library by
+default). One room that fails does not stop the others; the exit code
+says whether any did.
+
+A **level** is a YAML file:
+
+```yaml
+library: ../rooms.vmf        # the room library, relative to this file
+rows: 2                      # south to north
+columns: 3                   # west to east
+grid:                        # the NORTH row first, as a map is drawn
+  - [end@270, hall@90, ~]
+  - [tee,     cross,   corner@180]
+```
+
+A cell is a room's name, optionally `@` and a rotation in degrees
+counter-clockwise seen from above (0, 90, 180 or 270), or `~` for no room.
+Joints are implicit: two sockets facing each other across a shared wall are
+joined, and every other socket is capped. Every refusal of a level file
+names its line and column.
+
+`link` links the level's rooms (read from `-rooms`, by default the
+library's folder) into one map, beside the level file by default. It
+refuses a level in which a player could not walk from every room to every
+other, naming the rooms that cannot be reached. It needs no game directory.
+Every room is compiled sealed, with a plug brush in each socket; the link
+removes the plug at a joined socket (the doorway becomes open space, drops
+out of the world collision and its faces stop drawing) and keeps it at a
+capped one. The rooms' world collision, entities and areas are merged into
+the map's own. The link refuses what it cannot carry: area portals, static
+or detail props, packed files, displacements, water, and a mix of cooked
+and `-cooker none` rooms. The doorway's side walls have no faces of their
+own, because in the room's compile they faced the plug, so they draw as a
+gap unless something placed in the socket (a door frame model, say) covers
 them.
 
-`samples/rooms-3x3/` is a worked example: five room kinds, a 3x3 level and
-its turns as layouts, and each level as one monolithic VMF. Its README runs
-it through `room`, `link` and `vbsp`, and the test suite checks the linked
-map against the monolithic compile across rearrangements of the level.
+`link --flatten` writes the same level as one ordinary VMF instead: every
+placed room copied out of the library into its cell and turned, the plugs
+of joined sockets left out and the capped ones kept. Compiled with
+`ssmap vbsp`, it is the reference a linked map is checked against.
+
+`layout` writes a level of the library's rooms from a seed: the same
+library and seed always give the same file, sockets line up between rooms,
+and every room is reachable. `-empty` leaves that share of the cells
+without a room.
+
+`samples/rooms-3x3/` is a worked example: a library of five room kinds, a
+3x3 level, its turns and some seeded levels. Its README runs it through
+`room`, `link`, `link --flatten`, `vbsp` and `layout`, and the test suite
+checks every linked level against its flattened compile.
 
 ### Instruments
 
