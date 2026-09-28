@@ -63,7 +63,13 @@ public sealed class MapDisplacementSurfaces : IDetailDisplacementSurfaces
         {
             MapBrushSide side = _sides[dispInfo];
             MapDisplacement disp = (MapDisplacement)side.Displacement!;
-            core = new CoreDispInfo(disp.Power);
+            // The surface normalise decides nothing a position query reads;
+            // it follows the compliance so no core vbsp builds takes the
+            // estimate under Correct.
+            core = new CoreDispInfo(disp.Power)
+            {
+                Surface = { StockNormalise = _compile.Options.Compliance.Emulates(StockQuirk.VbspVectorNormalise) },
+            };
             DisplacementFace face = DispVbspHooks.Face(
                 0, [.. _compile.Windings.Points(side.Winding)], disp.Contents, _compile.TexInfos[side.TexInfo]);
             DisplacementLumpBuilder.DispMapToCoreDispInfo(

@@ -91,6 +91,26 @@ internal sealed class WorldFacePass
             .LoadAsync(name, compliance, cancellationToken)
             .ConfigureAwait(false);
 
+        return await RunAsync(compile, map, compliance, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs the world model's face pass over a map the caller already loaded,
+    /// for maps that are not in the stock catalogue.
+    /// </summary>
+    /// <param name="compile">The context the map was loaded with.</param>
+    /// <param name="map">The loaded map.</param>
+    /// <param name="compliance">
+    /// The face stage's compliance; the same one the map was loaded under.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the content reads.</param>
+    /// <returns>The finished pass.</returns>
+    internal static async Task<WorldFacePass> RunAsync(
+        VbspContext compile,
+        MapFile map,
+        ComplianceOptions compliance,
+        CancellationToken cancellationToken = default)
+    {
         FaceMaterialFacts materials = await FaceMaterialFacts
             .PrepareAsync(compile, cancellationToken)
             .ConfigureAwait(false);

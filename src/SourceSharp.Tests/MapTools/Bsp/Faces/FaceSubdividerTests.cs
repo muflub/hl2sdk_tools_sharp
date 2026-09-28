@@ -9,6 +9,7 @@ using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Bsp.Faces;
 using SourceSharp.MapTools.Materials;
+using SourceSharp.MapTools.Options;
 
 using Xunit;
 
@@ -58,7 +59,10 @@ public class FaceSubdividerTests
     [ReferenceRsqrtFact]
     public void TheBackPieceIsOneLuxelShortOfTheLimit()
     {
-        FaceBuildContext context = FaceStageFixture.Create();
+        // Stock's estimate sizes the cut, so the expected value is per CPU
+        // family (StockQuirk.VbspVectorNormalise); the Correct side is exact
+        // everywhere and pinned by TheCorrectCutIsExactlyOneLuxelShort.
+        FaceBuildContext context = FaceStageFixture.Create(compliance: ComplianceOptions.Stock);
         FaceSubdivider subdivider = new(context);
 
         Face face = Rect(context, 48f, 16f);
@@ -77,7 +81,10 @@ public class FaceSubdividerTests
     [ReferenceRsqrtFact]
     public void TheFrontPieceIsTheFarSideOfTheCut()
     {
-        FaceBuildContext context = FaceStageFixture.Create();
+        // Stock's estimate sizes the cut, so the expected value is per CPU
+        // family (StockQuirk.VbspVectorNormalise); the Correct side is exact
+        // everywhere and pinned by TheCorrectCutIsExactlyOneLuxelShort.
+        FaceBuildContext context = FaceStageFixture.Create(compliance: ComplianceOptions.Stock);
         FaceSubdivider subdivider = new(context);
 
         Face face = Rect(context, 48f, 16f);
@@ -95,7 +102,10 @@ public class FaceSubdividerTests
     [ReferenceRsqrtFact]
     public void AFaceOverTheLimitOnBothAxesIsSplitOnXFirst()
     {
-        FaceBuildContext context = FaceStageFixture.Create();
+        // Stock's estimate sizes the cut, so the expected value is per CPU
+        // family (StockQuirk.VbspVectorNormalise); the Correct side is exact
+        // everywhere and pinned by TheCorrectCutIsExactlyOneLuxelShort.
+        FaceBuildContext context = FaceStageFixture.Create(compliance: ComplianceOptions.Stock);
         FaceSubdivider subdivider = new(context);
 
         Face face = Rect(context, 96f, 96f);
@@ -109,6 +119,26 @@ public class FaceSubdividerTests
 
         Assert.Equal(VendorGolden.Expected("face-subdivider.both-axes-back-max-x", 31f, maxs.X), maxs.X);
         Assert.Equal(96f, maxs.Y - mins.Y);
+    }
+
+    /// <summary>
+    /// Under Correct the cut is an exact divide, so the back piece ends at
+    /// exactly 31 luxels on every CPU: a plain fact, not a per-vendor golden.
+    /// </summary>
+    [Fact]
+    public void TheCorrectCutIsExactlyOneLuxelShort()
+    {
+        FaceBuildContext context = FaceStageFixture.Create(compliance: ComplianceOptions.Correct);
+        FaceSubdivider subdivider = new(context);
+
+        Face face = Rect(context, 48f, 16f);
+        subdivider.SubdivideFace(face, face);
+
+        context.Windings.Bounds(face.Split[1]!.Winding, out _, out Vec3 backMaxs);
+        context.Windings.Bounds(face.Split[0]!.Winding, out Vec3 frontMins, out _);
+
+        Assert.Equal(31f, backMaxs.X);
+        Assert.Equal(31f, frontMins.X);
     }
 
     [Fact]

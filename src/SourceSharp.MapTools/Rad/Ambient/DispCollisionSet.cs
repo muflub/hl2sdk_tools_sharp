@@ -385,6 +385,15 @@ public sealed class DispCollisionSet
     /// <summary>
     /// <c>DispBuilderInit</c>.
     /// </summary>
+    /// <remarks>
+    /// The surface keeps <see cref="CoreDispSurface.StockNormalise"/> at its
+    /// exact default under both policies. The two normalises it governs decide
+    /// the base quad's normal (which only the unread tangent spaces take here)
+    /// and the lightmap-axis swap flag (discarded below), and this set reads
+    /// neither: it keeps the displaced vertices and their triangles. So there
+    /// is no compliance to thread here, and nothing that could make the set
+    /// depend on the CPU.
+    /// </remarks>
     private static CoreDispInfo BuilderInit(
         ref readonly DFace face,
         ref readonly DispInfo info,
