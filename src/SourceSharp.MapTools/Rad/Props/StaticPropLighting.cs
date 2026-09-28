@@ -289,6 +289,10 @@ public static class StaticPropLighting
 
         (int Prop, int Start)[] chunks = [.. chunkList];
         chunkList.Clear();
+
+        // Each cluster's style-0 lights in its PVS, built as the first point
+        // in the cluster asks and dropped with the pass.
+        PropClusterLights clusterLights = PropClusterLights.ForStaticProps(scene, lights);
         List<PointWorker> workers = [];
         await TestLineStage.RunAsync(
             chunks.Length,
@@ -296,7 +300,7 @@ public static class StaticPropLighting
             degree,
             () =>
             {
-                PointWorker worker = new(scene, prepared, chunks, lights, sampler, options);
+                PointWorker worker = new(scene, prepared, chunks, lights, clusterLights, sampler, options);
                 lock (workers)
                 {
                     workers.Add(worker);
@@ -749,33 +753,45 @@ public static class StaticPropLighting
     /// <c>ComputeDirectLightingAtPoint</c> up to its traces: each light's
     /// sample planned into the worker's batch, in light order.
     /// </summary>
-    /// <returns>The index of the point's first planned sample in <see cref="PointWorker.Samples"/>.</returns>
-    private static int PlanDirect(
+    /// <remarks>
+    /// The reference implementation walks the whole light list for every
+    /// point, skipping lights not of style 0 and lights whose PVS does not
+    /// hold the point's cluster. Both tests depend on the point only through
+    /// its cluster, so the walk here is over <paramref name="clusterLights"/>'
+    /// list for that cluster, which holds exactly the lights the full walk
+    /// keeps, in the same order: the same samples in the same order, a
+    /// fraction of the lights visited (see <see cref="PropClusterLights"/>).
+    /// </remarks>
+    /// <param name="scene">The map, for the point's cluster.</param>
+    /// <param name="position">The point.</param>
+    /// <param name="normal">Its normal.</param>
+    /// <param name="flags">The gather flags; <see cref="PropGatherFlags.ForceFast"/> is added.</param>
+    /// <param name="skipId">The trace id the samples pass through, or -1.</param>
+    /// <param name="lights">The pass's lights.</param>
+    /// <param name="clusterLights">The pass's style-0 lists over <paramref name="lights"/>.</param>
+    /// <param name="sampler">Plans each sample.</param>
+    /// <param name="stockNormalise">Whether light directions are normalised as stock does.</param>
+    /// <param name="lines">The batch the samples' segments go to.</param>
+    /// <param name="samples">Receives each sample and its light's intensity, in light order.</param>
+    /// <returns>The index of the point's first planned sample in <paramref name="samples"/>.</returns>
+    internal static int PlanDirect(
         AmbientScene scene,
         Vec3 position,
         Vec3 normal,
         PropGatherFlags flags,
         int skipId,
         IReadOnlyList<PropLight> lights,
+        PropClusterLights clusterLights,
         PropLightSampler sampler,
         bool stockNormalise,
-        PointWorker scratch)
+        TestLineBatch lines,
+        List<(PendingPropSample Sample, Vec3 Intensity)> samples)
     {
-        int first = scratch.Samples.Count;
+        int first = samples.Count;
         int cluster = DetailPropLighting.ClusterFromPoint(scene, position);
-        for (int i = 0; i < lights.Count; i++)
+        foreach (int i in clusterLights.For(cluster))
         {
             PropLight dl = lights[i];
-            if (dl.Style != 0)
-            {
-                continue;
-            }
-
-            if (cluster >= 0 && (dl.Pvs[cluster >> 3] & (1 << (cluster & 7))) == 0)
-            {
-                continue;
-            }
-
             Vec3 adjusted;
             if (dl.Type != EmitType.SkyAmbient)
             {
@@ -800,8 +816,8 @@ public static class StaticPropLighting
             }
 
             PendingPropSample s = sampler.Plan(
-                dl, adjusted, normal, scratch.Lines, flags | PropGatherFlags.ForceFast, 0.0f, skipId);
-            scratch.Samples.Add((s, dl.Intensity));
+                dl, adjusted, normal, lines, flags | PropGatherFlags.ForceFast, 0.0f, skipId);
+            samples.Add((s, dl.Intensity));
         }
 
         return first;
@@ -878,6 +894,7 @@ public static class StaticPropLighting
         PreparedProp[] prepared,
         (int Prop, int Start)[] chunks,
         IReadOnlyList<PropLight> lights,
+        PropClusterLights clusterLights,
         PropLightSampler sampler,
         StaticPropLightingOptions options)
         : TestLineWorker<(int FirstVertex, int Count), bool>(sampler.CreateBatch())
@@ -914,7 +931,8 @@ public static class StaticPropLighting
             for (int i = start; i < end; i++)
             {
                 ref readonly LightPoint p = ref points[i];
-                int firstSample = PlanDirect(scene, p.Position, p.Normal, p.Flags, p.SkipId, lights, sampler, _stockNormalise, this);
+                int firstSample = PlanDirect(
+                    scene, p.Position, p.Normal, p.Flags, p.SkipId, lights, clusterLights, sampler, _stockNormalise, Lines, Samples);
                 Vec3 indirect = Vec3.Zero;
                 if (p.Indirect)
                 {
