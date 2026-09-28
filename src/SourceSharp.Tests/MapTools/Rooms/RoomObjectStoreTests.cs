@@ -10,6 +10,7 @@ using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Bsp.Driver;
 using SourceSharp.MapTools.Rooms;
+using SourceSharp.MapTools.Vis;
 
 using Xunit;
 
@@ -23,6 +24,12 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// </summary>
 public sealed class RoomObjectStoreTests
 {
+    /// <summary>
+    /// The vis blob's fixed fields ahead of the rows: seven big-endian ints,
+    /// the radius flag byte and the radius as eight bytes.
+    /// </summary>
+    private const int VisFixedBytes = (7 * 4) + 1 + 8;
+
     /// <summary>
     /// Save then load a compiled room: every field the linker reads survives
     /// byte-identically — all 64 lump payloads with their header versions and
@@ -75,8 +82,16 @@ public sealed class RoomObjectStoreTests
         Assert.Equal(room.Vis.RowBytes, loaded.Vis.RowBytes);
         Assert.Equal(room.Vis.VisDataSize, loaded.Vis.VisDataSize);
         Assert.Equal(room.Vis.TotalVisibleClusters, loaded.Vis.TotalVisibleClusters);
-        Assert.Equal(room.Vis.DeepestFlow, loaded.Vis.DeepestFlow);
-        Assert.Equal(room.Vis.Work, loaded.Vis.Work);
+        Assert.Equal(room.Vis.OptimizedClusters, loaded.Vis.OptimizedClusters);
+        Assert.Equal(room.Vis.TotalAudibleClusters, loaded.Vis.TotalAudibleClusters);
+        Assert.Equal(room.Vis.UsedRadius, loaded.Vis.UsedRadius);
+        Assert.Equal(room.Vis.VisRadiusSquared, loaded.Vis.VisRadiusSquared);
+
+        // How the flow got there is not in the file (it depends on the
+        // schedule; see TheVisBlobCarriesNothingTheScheduleDecides): a loaded
+        // room reports no flow, as a room that ran none.
+        Assert.Equal(0, loaded.Vis.DeepestFlow);
+        Assert.Equal(VisWorkCounters.Zero, loaded.Vis.Work);
         for (int cluster = 0; cluster < room.Vis.ClusterCount; cluster++)
         {
             Assert.True(
@@ -99,39 +114,37 @@ public sealed class RoomObjectStoreTests
     }
 
     /// <summary>
-    /// The fourth work counter is persisted, not re-derived: the vis blob's
-    /// BaseRays field is the last 8 bytes before the row payloads, and a
-    /// flipped byte there must reach the loaded counters. (p15 added BaseRays
-    /// to VisWorkCounters; a store whose reader ignored the new field would
-    /// round-trip every OTHER field and still report zero base rays.)
+    /// The file is a function of the room, not of the schedule that compiled
+    /// it: two rooms that differ ONLY in the flow's work counters and deepest
+    /// flow -- what two compiles of one room at more than one worker produce
+    /// (RoomReproducibilityTests forces that schedule) -- write the same
+    /// bytes, and the vis blob is exactly the fixed fields and the two row
+    /// sets, with no room left for a counter.
     /// </summary>
+    /// <remarks>
+    /// Container version 2 wrote the deepest flow and the four counters, and
+    /// the 3x3 sample's rooms came out with different bytes on every compile.
+    /// </remarks>
     [Fact]
-    public async Task TheBaseRaysCounterIsTheBlobNotARecompute()
+    public async Task TheVisBlobCarriesNothingTheScheduleDecides()
     {
         RoomObject room = await CompileHubAsync();
-        // The hub room is small enough that its base pass casts nothing on
-        // some builds, so the fact cannot premise a non-zero stored value.
-        // it works byte-wise: flipping the field's low bit must change what
-        // the reader reports for THAT counter and only that one, whether the
-        // stored value was 0 or not. A reader that ignored BaseRays would
-        // report 0 for the flipped file and 0 for the clean one: equal, RED.
-        byte[] good = await SaveAsync(room);
-        int rowSpan = room.Vis.ClusterCount * room.Vis.RowBytes;
+        VisResult vis = room.Vis;
+        VisResult otherRun = new(
+            vis.ClusterCount, vis.PortalCount, vis.RowBytes, vis.PvsBytes.ToArray(), vis.PasBytes.ToArray(),
+            vis.VisDataSize, vis.TotalVisibleClusters, vis.OptimizedClusters, vis.TotalAudibleClusters,
+            vis.UsedRadius, vis.VisRadiusSquared,
+            deepestFlow: vis.DeepestFlow + 7,
+            vis.Work + new VisWorkCounters(Chains: 11, Candidates: 13, SeparatorClips: 17, BaseRays: 19),
+            trace: null);
 
-        // The vis blob is the container's last section, so its counter block
-        // sits 8 + 2*rowSpan + 8 bytes from the end: the PVS and PAS blobs
-        // (4-byte length + payload each) trail four 8-byte counters.
-        int baseRaysStart = good.Length - (8 + 2 * rowSpan) - 8;
-        byte[] flipped = (byte[])good.Clone();
-        flipped[baseRaysStart] ^= 0x01;
-        RoomObject altered = await LoadAsync(flipped);
-        Assert.NotEqual(room.Vis.Work.BaseRays, altered.Vis.Work.BaseRays);
+        byte[] bytes = await SaveAsync(room);
+        Assert.Equal(bytes, await SaveAsync(room with { Vis = otherRun }));
 
-        // The other three counters still read from their own bytes — the flip
-        // was surgical, so the field boundaries are where they were computed.
-        Assert.Equal(room.Vis.Work.Chains, altered.Vis.Work.Chains);
-        Assert.Equal(room.Vis.Work.Candidates, altered.Vis.Work.Candidates);
-        Assert.Equal(room.Vis.Work.SeparatorClips, altered.Vis.Work.SeparatorClips);
+        // Seven ints, the radius flag and the radius, then the two rows.
+        int rowSpan = vis.ClusterCount * vis.RowBytes;
+        (_, _, byte[] blob) = Split(bytes);
+        Assert.Equal(VisFixedBytes + 4 + rowSpan + 4 + rowSpan, blob.Length);
     }
 
     /// <summary>
@@ -231,7 +244,12 @@ public sealed class RoomObjectStoreTests
         {
             "row bytes" => WithInt(vis, 8, room.Vis.RowBytes + 1),
             "no clusters" => WithInt(vis, 0, 0),
-            _ => [.. vis[..73], .. BE(rowSpan + 1), .. vis[77..(77 + rowSpan)], 0, .. vis[(77 + rowSpan)..]],
+            _ =>
+            [
+                .. vis[..VisFixedBytes], .. BE(rowSpan + 1),
+                .. vis[(VisFixedBytes + 4)..(VisFixedBytes + 4 + rowSpan)], 0,
+                .. vis[(VisFixedBytes + 4 + rowSpan)..],
+            ],
         };
 
         LinkException refused = await Assert.ThrowsAsync<LinkException>(() => LoadAsync(Join(manifest, bsp, edited)));
@@ -410,7 +428,7 @@ public sealed class RoomObjectStoreTests
 
         // Unknown version: one above what this build reads, big-endian at
         // offset 8. Derived from the constant, not a literal — the container
-        // version is bumped when the vis blob's counter list grows, and a
+        // version is bumped whenever the vis blob's fixed fields change, and a
         // hard-coded "future" version would quietly become the current one.
         int future2 = RoomObjectStore.ContainerVersion + 1;
         byte[] future = (byte[])good.Clone();

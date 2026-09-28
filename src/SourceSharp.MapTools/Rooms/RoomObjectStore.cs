@@ -63,6 +63,25 @@ namespace SourceSharp.MapTools.Rooms;
 /// §10a promise "same keys ⇒ same room bytes" holds across files, and the
 /// two strings that compose it are the persisted ones.
 /// </para>
+/// <para>
+/// <b>Nothing schedule-dependent is persisted.</b> The file is a function of
+/// the room -- same VMF, definition and tool, same bytes -- at any thread
+/// count and on any run; the §10a promise and any content-addressed store of
+/// room files need exactly that. So <see cref="VisResult.Work"/> and
+/// <see cref="VisResult.DeepestFlow"/> are NOT written, and a loaded room
+/// reports them as zero (a vvis stage-cache replay zeroes the work counters
+/// for the same reason: it ran no flow). Both describe how
+/// the flow got to its answer, not the answer: under the tightened flow at
+/// more than one worker, a portal whose run read a neighbour still being
+/// flowed may be walked again, and how many chains, candidates and separator
+/// clips that costs -- and how deep the extra walks go -- depends on how far
+/// the neighbour had got, which is the schedule's business. The rows do not
+/// move (<see cref="VisTightening"/> proves why). Container version 2
+/// persisted them, and the 3x3 sample's rooms came out with different bytes
+/// on every compile; version 3 is the same container without them. Nothing
+/// that reads a room used them: the linker builds its own vis with zero
+/// counters, and the counters were only ever a report of one compile.
+/// </para>
 /// </remarks>
 public static class RoomObjectStore
 {
@@ -70,7 +89,13 @@ public static class RoomObjectStore
     public const string ContainerMagic = "SSROOM01";
 
     /// <summary>The only container version this build reads and writes.</summary>
-    public const int ContainerVersion = 2;
+    /// <remarks>
+    /// 3: the vis blob no longer carries the deepest flow or the work
+    /// counters (see the type's remarks). A version-2 file is refused rather
+    /// than read around: its vis blob has 36 bytes this reader does not
+    /// expect, and a room is cheap to recompile next to a misparse.
+    /// </remarks>
+    public const int ContainerVersion = 3;
 
     // Manifest keys — consts, not a table, so nothing mutable is ever static.
     private const string NameKey = "name";
@@ -425,10 +450,16 @@ public static class RoomObjectStore
     // ---- the vis blob ------------------------------------------------------
 
     /// <summary>
-    /// The room's vis: the counters the linker and the cache report read, then
-    /// the raw PVS and PAS rows — the uncompressed halves, which is what the
-    /// linker consumes today when it builds the linked map's visibility lump.
+    /// The room's vis: the counters that are a function of the rows and the
+    /// options (sizes, totals, the radius), then the raw PVS and PAS rows —
+    /// the uncompressed halves, which is what the linker consumes today when
+    /// it builds the linked map's visibility lump.
     /// </summary>
+    /// <remarks>
+    /// The deepest flow and the work counters are left out on purpose: they
+    /// depend on the flow's schedule, and the file may not (see the type's
+    /// remarks).
+    /// </remarks>
     private static byte[] BuildVisBlob(VisResult vis)
     {
         using MemoryStream buffer = new();
@@ -441,11 +472,6 @@ public static class RoomObjectStore
         WriteInt32BE(buffer, vis.TotalAudibleClusters);
         buffer.WriteByte(vis.UsedRadius ? (byte)1 : (byte)0);
         WriteInt64BE(buffer, BitConverter.DoubleToInt64Bits(vis.VisRadiusSquared));
-        WriteInt32BE(buffer, vis.DeepestFlow);
-        WriteInt64BE(buffer, vis.Work.Chains);
-        WriteInt64BE(buffer, vis.Work.Candidates);
-        WriteInt64BE(buffer, vis.Work.SeparatorClips);
-        WriteInt64BE(buffer, vis.Work.BaseRays);
 
         int rowSpan = vis.ClusterCount * vis.RowBytes;
         byte[] rows = new byte[rowSpan];
@@ -476,11 +502,6 @@ public static class RoomObjectStore
         int totalAudible = cursor.ReadInt32("vis total audible clusters");
         byte usedRadius = cursor.ReadByte("vis used-radius");
         double visRadiusSquared = BitConverter.Int64BitsToDouble(cursor.ReadInt64("vis radius squared"));
-        int deepestFlow = cursor.ReadInt32("vis deepest flow");
-        long chains = cursor.ReadInt64("vis work chains");
-        long candidates = cursor.ReadInt64("vis work candidates");
-        long separatorClips = cursor.ReadInt64("vis work separator clips");
-        long baseRays = cursor.ReadInt64("vis work base rays");
 
         ArgumentOutOfRangeException.ThrowIfGreaterThan((uint)clusterCount, (uint)1_000_000);
         ArgumentOutOfRangeException.ThrowIfGreaterThan((uint)rowBytes, (uint)1_000_000);
@@ -499,8 +520,10 @@ public static class RoomObjectStore
             totalAudible,
             usedRadius != 0,
             visRadiusSquared,
-            deepestFlow,
-            new VisWorkCounters(chains, candidates, separatorClips, baseRays),
+            // Not in the file (see the type's remarks): a loaded room reports
+            // how much flow THIS process did for it, which is none.
+            deepestFlow: 0,
+            VisWorkCounters.Zero,
             trace: null);
     }
 

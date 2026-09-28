@@ -263,7 +263,11 @@ ssmap link <layout.json> [-rooms <dir>] [-out <map.bsp>]
 is read from the sidecar next to the VMF (the VMF's file name plus
 `.roomdef.json`: `hub.vmf.roomdef.json`) unless `-def` names another. `link` joins every `*.room` in a directory into one
 map, following a `layout.json` that names the rooms, cells, joints and caps.
-Linking needs no game directory.
+Linking needs no game directory. A `.room` file is a function of its inputs:
+the same VMF, definition and `ssmap` build write the same bytes at any
+`-threads` and on every run. (The work counters and deepest flow that
+`ssmap vvis` reports depend on the schedule, so a `.room` file does not
+store them.)
 
 A room name is one path segment (no separators, no `..`). A placement's
 `rotation` is a count of quarter turns, 0 to 3. Every room is compiled

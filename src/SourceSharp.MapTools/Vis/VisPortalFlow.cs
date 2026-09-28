@@ -157,9 +157,11 @@ internal sealed class VisPortalFlow
     /// numerator this port can state about ITSELF: a wall time divided by a
     /// portal count says nothing, because the pruning choice at
     /// <see cref="VisPortalFlow"/> changes how many candidates a portal has.
-    /// These are the denominators that do not move -- the same map produces the
-    /// same counts at any thread count, which is the same property the output
-    /// has and for the same reason.
+    /// These are the denominators that do not move on the untightened walk,
+    /// at any thread count, and on the tightened walk at one thread. On the
+    /// tightened walk at more they include the re-walks of runs that read a
+    /// neighbour still being flowed, so they move with the schedule while the
+    /// answer does not (see <see cref="VisWorkCounters"/>).
     /// </para>
     /// <para>
     /// Three counters on the hot path, each an increment of a field already in

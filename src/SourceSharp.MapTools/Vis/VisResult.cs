@@ -117,6 +117,16 @@ public sealed class VisResult
     /// close a map came to the limit stock's 8.7 KB stack frame imposes on
     /// stock, and therefore whether
     /// <see cref="VisPortalFlow"/>'s own limit is anywhere near being an issue.
+    /// <para>
+    /// Like the flow counters in <see cref="Work"/>, it is a property of the
+    /// run, not of the map, on the tightened walk at more than one worker: a
+    /// run that read an unfinished neighbour's vector while it was still
+    /// growing prunes differently from the exact run, and may reach deeper
+    /// before it is judged and walked again. The 3x3 sample's corner room
+    /// reports 3 or 4 from one compile to the next with identical rows. Zero
+    /// for a room loaded from a file, which ran no flow and whose container
+    /// must not depend on the schedule.
+    /// </para>
     /// </remarks>
     public int DeepestFlow { get; }
 
@@ -125,9 +135,11 @@ public sealed class VisResult
     /// </summary>
     /// <remarks>
     /// Zero for a <c>-fast</c> run, which has no flow, and for a
-    /// <c>-trace</c> run, which answers a different question. See
-    /// <see cref="VisWorkCounters"/> for why a wall time alone cannot be
-    /// compared with stock's.
+    /// <c>-trace</c> run, which answers a different question; zero too for a
+    /// room loaded from a file and for a vvis stage-cache replay, which ran
+    /// none. See <see cref="VisWorkCounters"/> for why a wall time alone
+    /// cannot be compared with stock's, and for when these depend on the
+    /// schedule rather than the map.
     /// </remarks>
     public VisWorkCounters Work { get; }
 

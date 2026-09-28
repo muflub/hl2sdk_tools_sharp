@@ -59,11 +59,35 @@ public static class RoomCompiler
     /// Async at the edges (content reads on the caller's I/O, compute on the
     /// compile's own workers), as every stage of this port is.
     /// </remarks>
-    public static async Task<RoomObject> CompileAsync(
+    public static Task<RoomObject> CompileAsync(
         VmfDocument document,
         RoomDefinition definition,
         VbspContext context,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        CompileAsync(document, definition, context, tighteningClaimProbe: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="CompileAsync(VmfDocument, RoomDefinition, VbspContext, CancellationToken)"/>
+    /// with the vvis half's <see cref="VisContext.TighteningClaimProbe"/> set.
+    /// </summary>
+    /// <param name="document">The room's VMF, room-local.</param>
+    /// <param name="definition">What the room claims to be.</param>
+    /// <param name="context">The compile context.</param>
+    /// <param name="tighteningClaimProbe">
+    /// For the facts: see <see cref="VisContext.TighteningClaimProbe"/>. A fact
+    /// that holds the first claimed portal here while the other workers claim
+    /// the rest forces every one of those runs to speculate, which is the
+    /// schedule a busy machine produces by chance and a fact needs on demand.
+    /// Null in every real compile.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the compile.</param>
+    /// <returns>The linkable room object.</returns>
+    internal static async Task<RoomObject> CompileAsync(
+        VmfDocument document,
+        RoomDefinition definition,
+        VbspContext context,
+        Action<int>? tighteningClaimProbe,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(definition);
@@ -93,9 +117,23 @@ public static class RoomCompiler
         RoomLintReport lint = RoomLinter.CheckCompiled(definition, vbsp.Bsp, seals, leaked: false);
 
         // The vvis half: the room's PVS with its doors shut.
+        //
+        // On the compile's own parallelism, not a default context's. vvis used
+        // to get `new VisContext()`, which is every core of the machine on the
+        // shared default pool: `ssmap room -threads 1` compiled vbsp on one
+        // thread and vvis on all of them, and a service host that gave the
+        // compile its own pool or degree lost that choice for the vis half.
+        // The answer is the same either way (the tightened flow's rows are a
+        // function of the map at any degree); what the host's choice decides
+        // is how much of the machine the room takes, which is the host's call.
         PortalSet portals = PortalSet.FromPortalFile(vbsp.Portals);
+        VisContext visContext = new()
+        {
+            Parallelism = context.Parallelism,
+            TighteningClaimProbe = tighteningClaimProbe,
+        };
         VisResult vis = await Vvis
-            .ComputeAsync(vbsp.Bsp, portals, new VisContext(), cancellationToken).ConfigureAwait(false);
+            .ComputeAsync(vbsp.Bsp, portals, visContext, cancellationToken).ConfigureAwait(false);
 
         return new RoomObject(
             definition,
