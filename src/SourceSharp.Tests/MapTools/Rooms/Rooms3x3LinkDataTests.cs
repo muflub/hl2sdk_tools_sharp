@@ -45,17 +45,23 @@ public sealed class Rooms3x3LinkDataTests(Rooms3x3Fixture fixture) : IClassFixtu
             items.Add(await RoomPackItem.CreateAsync(room));
         }
 
+        // The library's settings go in the pack and come back out, as
+        // ssmap room and ssmap link carry them (the library's mapversion is
+        // among them).
         using MemoryStream pack = new();
-        await RoomPack.SaveAsync(items, pack);
+        await RoomPack.SaveAsync([fixture.Library.Options.ToSection()!.Value], items, pack, CancellationToken.None);
         pack.Position = 0;
         RoomPackIndex index = await RoomPack.ReadIndexAsync(pack);
+        RoomLibraryOptions options = await RoomPack.ReadLibraryOptionsAsync(pack, index);
+        pack.Position = 0;
+        index = await RoomPack.ReadIndexAsync(pack);
         IReadOnlyList<RoomObject> rooms = await RoomPack.LoadRoomsAsync(
             pack,
             index,
             [.. layout.Rooms.GroupBy(r => r.Placement.Room, r => r.Placement.Rotation).Select(g => new RoomPackRequest(g.Key, [.. g]))]);
         Assert.All(rooms, r => Assert.NotNull(r.Link));
 
-        RoomLibrary packed = new(fixture.Library.Kit, fixture.Library.CellSize);
+        RoomLibrary packed = new(fixture.Library.Kit, fixture.Library.CellSize) { Options = options };
         foreach (RoomObject room in rooms)
         {
             packed.Add(room);

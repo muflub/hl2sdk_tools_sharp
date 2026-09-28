@@ -67,7 +67,7 @@ public static partial class LevelLinker
     /// entirely and links to the bytes it did before names existed.
     /// </para>
     /// </remarks>
-    internal static BspLumpData MergeEntities(RoomPlan[] plans, EntityClassTable classes, LevelNaming? naming = null)
+    internal static BspLumpData MergeEntities(RoomPlan[] plans, EntityClassTable classes, LevelNaming? naming = null, string? mapVersion = null)
     {
         List<BspEntity> merged = [];
         BspEntity? world = null;
@@ -184,6 +184,12 @@ public static partial class LevelLinker
                 else if (extent is { } box2 && IsKey(pair.Key, WorldMaxsKey))
                 {
                     value = FormatVec(box2.Maxs);
+                }
+                else if (mapVersion is not null && IsKey(pair.Key, RoomLibraryOptions.MapVersionKey))
+                {
+                    // The rooms carry a fixed save counter; the level carries
+                    // the library's (RoomLibraryOptions.MapVersionKey).
+                    value = mapVersion;
                 }
 
                 linkedWorld.Pairs.Add(new BspKeyValue(pair.Key, value));

@@ -261,8 +261,10 @@ Unzip it anywhere and compile against it with no Steam install:
 ### `room`, `rooms`, `link` and `layout`
 
 ```sh
-ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <codec>] [vbsp options]
+ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <codec>]
+           [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
 ssmap rooms <library.vmf> [-rooms <pack.roompack>]
+ssmap rooms -rooms <pack.roompack>
 ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
 ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
@@ -283,6 +285,47 @@ A room pack is a function of its inputs: the same library and `ssmap`
 build write the same bytes at any `-threads` and on every run, and so does
 each room inside it. (The work counters and deepest flow that `ssmap vvis`
 reports depend on the schedule, so a room does not store them.)
+
+**Incremental room compiles.** With `-incremental`, `ssmap room` keeps each
+room's finished pack sections in the same SQLite store `ssmap all
+-incremental` uses (`<library>.sscache.db` beside the library, or in
+`-cache-dir <dir>`; `-nocache` turns it off again for one run). A room whose
+inputs have not changed since a run that stored it is copied from the store
+instead of compiled, and the log says `reused` for it and ends with
+`N compiled, M reused`. The pack is byte for byte the pack a run without
+`-incremental` writes, pack id included (the id is derived from the library
+and the options, never from the rooms). A room's key holds:
+
+- the room as the split hands it to the compile: its room-local VMF (the
+  library's `versioninfo` and worldspawn keys, its own brushes and entities,
+  in its own order) written back out, and its `info_room` claims (name,
+  cell, door kit, sockets, `room_role`). Whitespace, editor chunks, other
+  rooms and the order of other rooms' entities do not count, and neither
+  does the library's `mapversion` (the editor's save counter): every room
+  is compiled with `mapversion` 0, the pack's `LOPT` section keeps the
+  library's value, and `ssmap link` writes it into the linked worldspawn,
+  so the linked map is what it was and a save that changes nothing else
+  recompiles no room;
+- the vbsp options after the format pipeline (every one but `-v` and
+  `-verboseentities`), the library's navigation keys, `-nav-turn0` and
+  `-nav-codec`, and `rooms_name_keys`;
+- the collision cooker and format preset, and the `ssmap` build;
+- the game content the room compile read, found or looked for and missed,
+  checked against the content as it is now each time a room is reused.
+
+The library-only settings (`rooms_entity_reserve`, `rooms_fold_logic`) and
+the library-wide entities are link inputs: editing them rewrites those
+sections and reuses every room. Rows are written only after the pack is, so
+a cancelled or failed run leaves the store as it was; several runs may
+share one store file. On the 256-room stress library (4 cores), a clean
+compile takes about 5 s, a recompile with nothing changed about 1.7 s, and
+one with one room edited about 2.1 s; the store holds about 44 MB beside
+the 40 MB pack.
+
+`ssmap rooms -rooms <pack>` without a library prints the pack's section
+table: each library and room section's tag, offset, stored length, codec,
+decoded length, revision and a SHA-256 prefix, so two packs can be compared
+section by section.
 
 A **room library** is one VMF holding every room of a set, each in its own
 cell with gaps between them, and each marked by an `info_room` point entity
@@ -610,7 +653,9 @@ the map (`<map>.sscache.db`, or under `-cache-dir`). A later compile reuses
 every model whose inputs have not changed. Brush models are keyed by their
 content, so adding or moving one brush does not invalidate the others.
 `-nocache` turns the cache off for one run. The cache needs a cooker; with
-`-cooker none` there is nothing to store.
+`-cooker none` there is nothing to store. `ssmap room -incremental` uses
+the same store for a room library's finished rooms (see
+[`room`](#room-rooms-link-and-layout)); it needs no cooker.
 
 `ssmap cache` reads the same file: `stats` summarises it, `explain` shows
 what a key was built from, `gc` trims it, `clear` empties it and `check`

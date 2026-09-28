@@ -440,11 +440,14 @@ public static class Program
                                                        --record-content <zip>: also write every
                                                        game file the compile read, as a game
                                                        directory with its own gameinfo.txt
-              room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <c>] [vbsp options]
+              room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <c>]
+                   [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
                                                       every room of a library VMF (one
                                                       info_room each), -threads at once
                                                       -> one <library>.roompack, with each
-                                                      room's 3D navigation and entity counts
+                                                      room's 3D navigation and entity counts;
+                                                      -incremental reuses unchanged rooms from
+                                                      <library>.sscache.db (the same pack)
               link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]
                    [-no-nav | -require-nav] [-nav-codec <c>] [-mod-entities]
                                                       the level's rooms -> one linked map
@@ -460,6 +463,8 @@ public static class Program
                                                       list a library's rooms: name, cell,
                                                       each door's box and size, and with
                                                       its pack each room's entities and names
+              rooms -rooms <pack.roompack>             a pack's section table: tag, offset,
+                                                      length, codec, revision, hash
               layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
                      [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
                                                       a seeded level of the library's rooms,
