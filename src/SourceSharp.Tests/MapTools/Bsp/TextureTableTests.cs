@@ -313,4 +313,87 @@ public class TextureTableTests
             context.TexDatas.SurfaceProperties[clone]);
         Assert.NotEqual(source, clone);
     }
+
+    /// <summary>
+    /// The texdata lookup is a table now, not a scan; a clone given a name
+    /// that already exists (in any casing) makes a SECOND entry with that
+    /// name, and the lookup must still answer the first, as the scan did.
+    /// </summary>
+    [Fact]
+    public async Task FindAnswersTheFirstOfTwoEntriesWithOneName()
+    {
+        VbspContext context = await UnitMap.ContextAsync();
+        int first = await context.TexDatas.FindOrCreateAsync(UnitMap.Plain, context.Materials);
+
+        int clone = context.TexDatas.AddClone(first, UnitMap.Plain.ToUpperInvariant());
+
+        Assert.NotEqual(first, clone);
+        Assert.Equal(first, context.TexDatas.Find(UnitMap.Plain));
+        Assert.Equal(first, context.TexDatas.Find(UnitMap.Plain.ToUpperInvariant()));
+    }
+
+    [Fact]
+    public async Task FindIgnoresCaseAgainstTheStoredSpelling()
+    {
+        VbspContext context = await UnitMap.ContextAsync();
+        int index = await context.TexDatas.FindOrCreateAsync(UnitMap.Plain, context.Materials);
+
+        Assert.Equal(index, context.TexDatas.Find(UnitMap.Plain.ToUpperInvariant()));
+        Assert.Equal(-1, context.TexDatas.Find(UnitMap.Plain + "x"));
+    }
+
+    [Fact]
+    public void AddOrFindAnswersTheFirstIdForEverySpellingAfterManyNames()
+    {
+        TexDataStringTable strings = new();
+        for (int i = 0; i < 500; i++)
+        {
+            Assert.Equal(i, strings.AddOrFind($"Maps/Name{i}"));
+        }
+
+        Assert.Equal(123, strings.AddOrFind("MAPS/NAME123"));
+        Assert.Equal("Maps/Name123", strings.GetString(123));
+        Assert.Equal(500, strings.Count);
+    }
+
+    /// <summary>
+    /// The texture-reference lookup remembers only COMMITTED names. A material
+    /// that did not resolve is never committed, so every later side naming it
+    /// asks again -- and is warned about again, as in stock.
+    /// </summary>
+    [Fact]
+    public async Task AMissingMaterialIsLookedUpAndReportedEveryTime()
+    {
+        VbspContext context = await UnitMap.ContextAsync();
+        List<SourceSharp.MapTools.Diagnostics.CompileDiagnostic> diagnostics = [];
+
+        int first = await context.TextureReferences.FindMiptexAsync(
+            "unit/not_a_material", context.Materials, context.MaterialOptions, diagnostics);
+        int second = await context.TextureReferences.FindMiptexAsync(
+            "unit/not_a_material", context.Materials, context.MaterialOptions, diagnostics);
+
+        Assert.Equal(0, first);
+        Assert.Equal(0, second);
+        Assert.Equal(0, context.TextureReferences.Count);
+        Assert.Equal(2, diagnostics.Count);
+    }
+
+    [Fact]
+    public async Task ACommittedNameIsFoundAtItsIndexWithoutAnotherWarning()
+    {
+        VbspContext context = await UnitMap.ContextAsync();
+        List<SourceSharp.MapTools.Diagnostics.CompileDiagnostic> diagnostics = [];
+
+        int plain = await context.TextureReferences.FindMiptexAsync(
+            UnitMap.Plain, context.Materials, context.MaterialOptions, diagnostics);
+        int nodraw = await context.TextureReferences.FindMiptexAsync(
+            UnitMap.NoDraw, context.Materials, context.MaterialOptions, diagnostics);
+        int again = await context.TextureReferences.FindMiptexAsync(
+            UnitMap.Plain, context.Materials, context.MaterialOptions, diagnostics);
+
+        Assert.Equal(plain, again);
+        Assert.NotEqual(plain, nodraw);
+        Assert.Equal(2, context.TextureReferences.Count);
+        Assert.Empty(diagnostics);
+    }
 }

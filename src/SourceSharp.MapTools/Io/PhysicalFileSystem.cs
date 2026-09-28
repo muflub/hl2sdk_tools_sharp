@@ -9,6 +9,8 @@ using System.Buffers;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 
+using Microsoft.Win32.SafeHandles;
+
 namespace SourceSharp.MapTools.Io;
 
 /// <summary>
@@ -237,9 +239,54 @@ public sealed class PhysicalFileSystem : IFileSystem
     }
 
     /// <inheritdoc />
-    public async ValueTask<IMemoryOwner<byte>> ReadAllAsync(
+    /// <remarks>
+    /// <para>
+    /// A file at or over the memory-map threshold is mapped; a smaller one is
+    /// read straight into a pooled buffer of its exact size, synchronously,
+    /// with positioned reads on an unbuffered handle.
+    /// </para>
+    /// <para>
+    /// Synchronous on purpose. Loading a map reads a few hundred small
+    /// content files (every VMT and the texture each names), and the
+    /// asynchronous stream this used did two things per file that cost more
+    /// than the read: it allocated its own 128 KB copy buffer -- on the large
+    /// object heap, per file -- and, file IO on Linux being blocking calls
+    /// run on the thread pool, it queued every read to another thread and
+    /// waited for it. On a busy host that queueing was most of the time a
+    /// material lookup took. A read of a file this small is a copy out of the
+    /// page cache or one short disk read, which is cheaper done where the
+    /// caller already is. Large files never come here: they are mapped.
+    /// </para>
+    /// <para>
+    /// The result is still delivered the way an async method delivers it --
+    /// a failure faults the returned task and a cancelled token cancels it --
+    /// so callers see no difference but the timing.
+    /// </para>
+    /// </remarks>
+    public ValueTask<IMemoryOwner<byte>> ReadAllAsync(
         VPath path,
         CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return ValueTask.FromResult(ReadAll(path, cancellationToken));
+        }
+        catch (OperationCanceledException exception)
+        {
+            return ValueTask.FromCanceled<IMemoryOwner<byte>>(
+                exception.CancellationToken.IsCancellationRequested
+                    ? exception.CancellationToken
+                    : cancellationToken.IsCancellationRequested ? cancellationToken : new CancellationToken(true));
+        }
+#pragma warning disable CA1031 // Every failure is handed to the caller through the task, as an async method would.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            return ValueTask.FromException<IMemoryOwner<byte>>(exception);
+        }
+    }
+
+    private IMemoryOwner<byte> ReadAll(VPath path, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -267,15 +314,25 @@ public sealed class PhysicalFileSystem : IFileSystem
         PooledMemoryOwner owner = PooledMemoryOwner.Rent((int)length);
         try
         {
-            await using FileStream stream = new(
-                host,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                CopyBufferSize,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            using SafeFileHandle handle = File.OpenHandle(
+                host, FileMode.Open, FileAccess.Read, FileShare.Read, FileOptions.SequentialScan);
 
-            await stream.ReadExactlyAsync(owner.Memory, cancellationToken).ConfigureAwait(false);
+            Span<byte> destination = owner.Memory.Span;
+            int filled = 0;
+            while (filled < destination.Length)
+            {
+                int read = RandomAccess.Read(handle, destination[filled..], filled);
+                if (read == 0)
+                {
+                    // Shorter than it was a moment ago: the same failure the
+                    // exact-length stream read reported.
+                    throw new EndOfStreamException(
+                        $"{path} ended at {filled} of the {destination.Length} bytes it had");
+                }
+
+                filled += read;
+            }
+
             return owner;
         }
         catch

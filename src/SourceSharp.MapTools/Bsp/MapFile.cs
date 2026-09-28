@@ -89,6 +89,21 @@ public sealed class MapFile
     private readonly List<MapBrushSide> _brushSides = [];
     private readonly List<BrushTexture> _sideBrushTextures = [];
 
+    // SideIdToIndex's answers: each id's FIRST index in _brushSides, for the
+    // first _sideIdsIndexed sides. Built lazily and extended as sides are
+    // appended, so a lookup is O(1) instead of a scan of every side -- the
+    // overlay and cubemap passes ask once per side they name, and on a
+    // full-size map the scans were a measurable share of the whole load.
+    //
+    // Anything that could change an answer throws the table away rather than
+    // patching it: Swap (bevel ordering moves sides) and a side's Id being
+    // set after it was added (MapBrushSide calls back through
+    // _invalidateSideIds). Both are rare after loading, which is when the
+    // lookups happen, so a rebuild costs one pass at most.
+    private readonly Dictionary<int, int> _sideIds = [];
+    private readonly Action _invalidateSideIds;
+    private int _sideIdsIndexed;
+
     /// <summary>Creates an empty map over a winding arena.</summary>
     /// <param name="windings">
     /// Where side windings are allocated. Shared with the map this one is
@@ -99,6 +114,7 @@ public sealed class MapFile
     {
         ArgumentNullException.ThrowIfNull(windings);
         Windings = windings;
+        _invalidateSideIds = InvalidateSideIds;
     }
 
     /// <summary>The arena this map's side windings live in.</summary>
@@ -261,6 +277,7 @@ public sealed class MapFile
 
         _brushSides.Add(side);
         _sideBrushTextures.Add(texture);
+        side.IdChanged += _invalidateSideIds;
         return _brushSides.Count - 1;
     }
 
@@ -653,17 +670,30 @@ public sealed class MapFile
     /// </summary>
     /// <param name="brushSideId">The side's VMF <c>id</c>.</param>
     /// <returns>The index into <see cref="BrushSides"/>, or -1.</returns>
+    /// <remarks>
+    /// The FIRST side with the id, as the reference's linear scan finds it:
+    /// ids are not required to be unique (an instance merge offsets them, a
+    /// hand-edited VMF can repeat them), and the first one wins. Answered from
+    /// a table built on first use and extended as sides are appended; see the
+    /// field comment for what invalidates it. Not safe to call concurrently
+    /// with itself or with any change to the map, like the rest of this type.
+    /// </remarks>
     public int SideIdToIndex(int brushSideId)
     {
-        for (int i = 0; i < _brushSides.Count; i++)
+        for (int i = _sideIdsIndexed; i < _brushSides.Count; i++)
         {
-            if (_brushSides[i].Id == brushSideId)
-            {
-                return i;
-            }
+            // TryAdd keeps the earlier index when an id repeats.
+            _sideIds.TryAdd(_brushSides[i].Id, i);
         }
 
-        return -1;
+        _sideIdsIndexed = _brushSides.Count;
+        return _sideIds.TryGetValue(brushSideId, out int index) ? index : -1;
+    }
+
+    private void InvalidateSideIds()
+    {
+        _sideIds.Clear();
+        _sideIdsIndexed = 0;
     }
 
     /// <summary>
@@ -704,6 +734,12 @@ public sealed class MapFile
 
     private void Swap(int a, int b)
     {
+        if (a != b && (a < _sideIdsIndexed || b < _sideIdsIndexed))
+        {
+            // Two indexed positions trade sides: first-index answers may move.
+            InvalidateSideIds();
+        }
+
         (_brushSides[a], _brushSides[b]) = (_brushSides[b], _brushSides[a]);
         (_sideBrushTextures[a], _sideBrushTextures[b]) = (_sideBrushTextures[b], _sideBrushTextures[a]);
     }

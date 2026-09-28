@@ -142,8 +142,14 @@ public static class MapFileLoader
         int baseContents = 0;
         const int baseFlags = 0;
 
-        foreach (VmfNode node in chunk.Children)
+        // Indexed, not foreach: Children is an IList, and enumerating one
+        // through the interface boxes an enumerator per chunk -- one per
+        // entity, solid and side of the map. The loader never edits the
+        // document it reads, so the index walk sees the same children.
+        IList<VmfNode> nodes = chunk.Children;
+        for (int n = 0; n < nodes.Count; n++)
         {
+            VmfNode node = nodes[n];
             cancellationToken.ThrowIfCancellationRequested();
 
             if (node is VmfKey key)
@@ -310,8 +316,10 @@ public static class MapFileLoader
             BrushNumber = map.BrushCount - entity.FirstBrush,
         };
 
-        foreach (VmfNode node in chunk.Children)
+        IList<VmfNode> nodes = chunk.Children;
+        for (int n = 0; n < nodes.Count; n++)
         {
+            VmfNode node = nodes[n];
             cancellationToken.ThrowIfCancellationRequested();
 
             if (node is VmfKey key)
@@ -472,8 +480,10 @@ public static class MapFileLoader
         BrushTexture td = new() { Name = string.Empty };
         Vec3[] planePoints = new Vec3[3];
 
-        foreach (VmfNode node in chunk.Children)
+        IList<VmfNode> nodes = chunk.Children;
+        for (int n = 0; n < nodes.Count; n++)
         {
+            VmfNode node = nodes[n];
             cancellationToken.ThrowIfCancellationRequested();
 
             if (node is not VmfKey key)
@@ -672,6 +682,14 @@ public static class MapFileLoader
 
         string[] targets = ["target", "BackgroundBModel"];
 
+        // EntityByName's answers, built once on the first target that needs
+        // one. The scan it replaces walked every entity's keys per target; a
+        // map with dozens of areaportal windows and thousands of entities
+        // spent tens of milliseconds here. Nothing in this pass changes a key,
+        // only brush contents, so one index serves the whole pass. First
+        // entity with the name wins, as the scan's does.
+        Dictionary<string, MapEntity>? byName = null;
+
         foreach (MapEntity entity in map.Entities)
         {
             string className = entity.ValueForKey("classname");
@@ -690,8 +708,8 @@ public static class MapFileLoader
                     continue;
                 }
 
-                MapEntity? brushEntity = EntityByName(map, name);
-                if (brushEntity is null)
+                byName ??= EntitiesByName(map);
+                if (!byName.TryGetValue(name, out MapEntity? brushEntity))
                 {
                     continue;
                 }
@@ -704,6 +722,19 @@ public static class MapFileLoader
                 }
             }
         }
+    }
+
+    // Every entity by targetname, case-insensitively, the first of each name
+    // kept: EntityByName for every name at once.
+    private static Dictionary<string, MapEntity> EntitiesByName(MapFile map)
+    {
+        Dictionary<string, MapEntity> byName = new(StringComparer.OrdinalIgnoreCase);
+        foreach (MapEntity entity in map.Entities)
+        {
+            byName.TryAdd(entity.ValueForKey("targetname"), entity);
+        }
+
+        return byName;
     }
 
     /// <summary>
@@ -866,8 +897,10 @@ public static class MapFileLoader
 
     private static void LoadConnections(MapFile map, MapEntity entity, VmfChunk chunk)
     {
-        foreach (VmfNode node in chunk.Children)
+        IList<VmfNode> nodes = chunk.Children;
+        for (int n = 0; n < nodes.Count; n++)
         {
+            VmfNode node = nodes[n];
             if (node is not VmfKey key)
             {
                 continue;
@@ -1022,9 +1055,21 @@ public static class MapFileLoader
         return td;
     }
 
-    private static bool TryParsePlanePoints(string value, Vec3[] points)
+    // "(x y z) (x y z) (x y z)": each parenthesised group split on single
+    // spaces, empties dropped, exactly three fields, each through atof.
+    //
+    // Scanned in place rather than cut up. The obvious spelling -- slice the
+    // group out, Split it, parse each piece -- allocates a substring, a string
+    // array and three more substrings per point, nine points per side; on a
+    // full-size map that was the largest allocator in the whole load. The
+    // field rules are the Split rules exactly: only ' ' separates (a tab stays
+    // inside its field, where atof stops at it), and runs of spaces make no
+    // empty fields. A point is written as soon as its group parses, so a
+    // failure in the third group leaves the first two written, as before.
+    internal static bool TryParsePlanePoints(string value, Vec3[] points)
     {
         int position = 0;
+        Span<float> fields = stackalloc float[3];
 
         for (int i = 0; i < 3; i++)
         {
@@ -1036,19 +1081,40 @@ public static class MapFileLoader
                 return false;
             }
 
-            string[] parts = value[(open + 1)..close]
-                .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            ReadOnlySpan<char> group = value.AsSpan(open + 1, close - open - 1);
+            int count = 0;
+            int at = 0;
 
-            if (parts.Length != 3)
+            while (at < group.Length)
+            {
+                if (group[at] == ' ')
+                {
+                    at++;
+                    continue;
+                }
+
+                int length = group[at..].IndexOf(' ');
+                if (length < 0)
+                {
+                    length = group.Length - at;
+                }
+
+                if (count == 3)
+                {
+                    // A fourth field: Split would have made four parts.
+                    return false;
+                }
+
+                fields[count++] = VmfValue.ParseFloat(group.Slice(at, length));
+                at += length;
+            }
+
+            if (count != 3)
             {
                 return false;
             }
 
-            points[i] = new Vec3(
-                VmfValue.ParseFloat(parts[0]),
-                VmfValue.ParseFloat(parts[1]),
-                VmfValue.ParseFloat(parts[2]));
-
+            points[i] = new Vec3(fields[0], fields[1], fields[2]);
             position = close + 1;
         }
 
@@ -1057,14 +1123,16 @@ public static class MapFileLoader
 
     // sscanf("[%f %f %f %f] %f") -- all five fields, or the key is an error
     // The bracketed four are the axis and the shift; the
-    // trailing one is world units per texel.
-    private static bool TryParseAxis(string value, out Vec3 axis, out float shift, out float scale)
+    // trailing one is world units per texel. The tail after the LAST ']' is
+    // trimmed of whitespace and must not be empty; it is read in place, as
+    // the plane's fields are, for the same reason.
+    internal static bool TryParseAxis(string value, out Vec3 axis, out float shift, out float scale)
     {
         axis = default;
         shift = 0f;
         scale = 0f;
 
-        if (!VmfValue.TryParseVector4(value, out (float X, float Y, float Z, float W) vector))
+        if (!VmfValue.TryParseVector4(value.AsSpan(), out (float X, float Y, float Z, float W) vector))
         {
             return false;
         }
@@ -1075,8 +1143,8 @@ public static class MapFileLoader
             return false;
         }
 
-        string tail = value[(close + 1)..].Trim();
-        if (tail.Length == 0)
+        ReadOnlySpan<char> tail = value.AsSpan(close + 1).Trim();
+        if (tail.IsEmpty)
         {
             return false;
         }

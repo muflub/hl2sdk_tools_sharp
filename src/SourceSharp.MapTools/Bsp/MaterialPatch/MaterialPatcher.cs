@@ -77,6 +77,23 @@ public sealed class MaterialPatcher
     // of a key inserted twice returns the earlier node.
     private readonly Dictionary<string, string> _originals = new(StringComparer.OrdinalIgnoreCase);
 
+    // Every game file this patcher has parsed, by content path: the parsed
+    // tree, or null for a file that is absent or will not parse. The cubemap
+    // pass asks the same handful of questions ("has it $envmap?", "what is
+    // its $bottommaterial?", and the REPLACE walk) about the same materials
+    // once per material and again per material-and-sample pair, and each
+    // question used to read and parse the VMT afresh -- on a full-size map
+    // that was thousands of reads of a few hundred files, and most of the
+    // pass's time and allocation.
+    //
+    // Sound because the game file system is read-only for the length of a
+    // compile (the patcher writes only to its pak, which this cache never
+    // holds), and because nothing a cached tree is handed to may change it:
+    // the read-only questions get the shared tree, and every public path
+    // gets a deep copy. The cache belongs to this patcher and so to one
+    // compile, and goes when it does.
+    private readonly Dictionary<string, KeyValuesNode?> _parsedFiles = new(StringComparer.Ordinal);
+
     /// <summary>A patcher over a compile's content, writing into its pak.</summary>
     /// <param name="content">Where original materials are read from.</param>
     /// <param name="pak">The BSP's pak.</param>
@@ -159,6 +176,18 @@ public sealed class MaterialPatcher
     {
         ArgumentNullException.ThrowIfNull(path);
 
+        // The caller owns what it is given and may edit it (ExpandPatchAsync
+        // inserts into an included material), so it gets its own copy of the
+        // shared parse.
+        KeyValuesNode? shared = await LoadSharedAsync(path, cancellationToken).ConfigureAwait(false);
+        return shared?.Clone();
+    }
+
+    // LoadFromFile's answer, parsed once per path and shared: see
+    // _parsedFiles for why that is sound. Callers must treat the tree as
+    // read-only.
+    private async ValueTask<KeyValuesNode?> LoadSharedAsync(string path, CancellationToken cancellationToken)
+    {
         // A path that does not normalise (empty, or escaping with "..") is a
         // file the file system cannot open: LoadFromFile's failure, not a throw.
         if (!VPath.TryCreate(path, out VPath contentPath) || contentPath.IsEmpty)
@@ -166,10 +195,22 @@ public sealed class MaterialPatcher
             return null;
         }
 
-        using IMemoryOwner<byte>? owner =
-            await _content.ReadAsync(contentPath, cancellationToken).ConfigureAwait(false);
+        if (_parsedFiles.TryGetValue(contentPath.Value, out KeyValuesNode? cached))
+        {
+            return cached;
+        }
 
-        return owner is null ? null : await ParseAsync(owner.Memory, cancellationToken).ConfigureAwait(false);
+        KeyValuesNode? parsed;
+        using (IMemoryOwner<byte>? owner =
+            await _content.ReadAsync(contentPath, cancellationToken).ConfigureAwait(false))
+        {
+            parsed = owner is null ? null : await ParseAsync(owner.Memory, cancellationToken).ConfigureAwait(false);
+        }
+
+        // Only a completed read is remembered: a cancelled or failed one
+        // throws past this line and leaves nothing behind.
+        _parsedFiles[contentPath.Value] = parsed;
+        return parsed;
     }
 
     /// <summary>
@@ -451,14 +492,18 @@ public sealed class MaterialPatcher
     }
 
     // The original of a (possibly patched) material, as the "does it have key
-    // X" family and the REPLACE walk read it:,
-    // 208-211 -- LoadFromFile, raw. Under Correct a
-    // patch is expanded first (StockQuirk.CubemapIgnoresPatchMaterials).
+    // X" family and the REPLACE walk read it: LoadFromFile, raw. Under
+    // Correct a patch is expanded first (StockQuirk.CubemapIgnoresPatchMaterials).
+    //
+    // Every caller only reads the tree it gets, so this hands out the shared
+    // parse rather than a copy. Expanding a patch does not touch the patch
+    // itself -- it edits the INCLUDED material, which LoadFromPackOrFileAsync
+    // returns as the caller's own copy -- so the shared tree survives that too.
     private async ValueTask<KeyValuesNode?> LoadOriginalAsync(string materialName, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(materialName);
 
-        KeyValuesNode? kv = await LoadFromFileAsync($"materials/{OriginalNameFor(materialName)}.vmt", cancellationToken)
+        KeyValuesNode? kv = await LoadSharedAsync($"materials/{OriginalNameFor(materialName)}.vmt", cancellationToken)
             .ConfigureAwait(false);
 
         if (kv is not null && !Compliance.Emulates(StockQuirk.CubemapIgnoresPatchMaterials))

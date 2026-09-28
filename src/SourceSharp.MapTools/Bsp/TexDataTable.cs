@@ -43,6 +43,14 @@ public sealed class TexDataTable
     private readonly List<DTexData> _texData = [];
     private readonly List<int> _surfaceProperties = [];
 
+    // Each name's first index under Find's case-insensitive comparison. Find
+    // runs once per brush side during the load and once per cubemap patch
+    // after it; the scan it replaces compared against every texdata so far.
+    // An entry's name is fixed when it is appended (Fill and a clone keep
+    // the string-table id), so recording the first index at append time is
+    // exactly the scan's answer.
+    private readonly Dictionary<string, int> _firstByName = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Creates a table over a string table.</summary>
     /// <param name="strings">The name table entries point into.</param>
     /// <exception cref="ArgumentNullException"><paramref name="strings"/> is null.</exception>
@@ -114,16 +122,7 @@ public sealed class TexDataTable
     public int Find(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
-
-        for (int i = 0; i < _texData.Count; i++)
-        {
-            if (string.Equals(NameOf(i), name, StringComparison.OrdinalIgnoreCase))
-            {
-                return i;
-            }
-        }
-
-        return -1;
+        return _firstByName.TryGetValue(name, out int index) ? index : -1;
     }
 
     /// <summary>
@@ -351,8 +350,10 @@ public sealed class TexDataTable
                 $"Too many unique texture mappings, max = {MaxMapTexData}");
         }
 
-        _texData.Add(new DTexData { NameStringTableId = Strings.AddOrFind(name) });
+        int nameId = Strings.AddOrFind(name);
+        _texData.Add(new DTexData { NameStringTableId = nameId });
         _surfaceProperties.Add(0);
+        _firstByName.TryAdd(Strings.GetString(nameId), _texData.Count - 1);
         return _texData.Count - 1;
     }
 

@@ -380,4 +380,148 @@ public class ChunkTokenReaderTests
         Assert.Equal(ChunkTokenType.String, reader.NextToken(out string token));
         Assert.Equal("é", token);
     }
+
+    [Fact]
+    public void OperatorTextAgreesWithTheOperatorList()
+    {
+        // The literal switch and the documented list must be the same set, for
+        // every character a Latin-1 decode (or anything else) can produce.
+        for (int c = 0; c <= char.MaxValue; c++)
+        {
+            char ch = (char)c;
+            string? text = ChunkTokenReader.OperatorText(ch);
+
+            if (ChunkTokenReader.OperatorCharacters.Contains(ch, StringComparison.Ordinal))
+            {
+                Assert.Equal(ch.ToString(), text);
+            }
+            else
+            {
+                Assert.Null(text);
+            }
+        }
+    }
+
+    [Fact]
+    public void EveryBraceIsTheSameString()
+    {
+        ChunkTokenReader reader = new("{ { }");
+
+        reader.NextToken(out string first);
+        reader.NextToken(out string second);
+        reader.NextToken(out string close);
+
+        Assert.Same(first, second);
+        Assert.Equal("}", close);
+    }
+
+    [Fact]
+    public void ARepeatedShortStringIsSharedWithTheFirst()
+    {
+        ChunkTokenReader reader = new("\"material\" \"material\"");
+
+        reader.NextToken(out string first);
+        reader.NextToken(out string second);
+
+        Assert.Equal("material", second);
+        Assert.Same(first, second);
+    }
+
+    [Fact]
+    public void RepeatedIdentifiersAndIntegersAreSharedToo()
+    {
+        ChunkTokenReader reader = new("side side 16 16");
+
+        reader.NextToken(out string side1);
+        reader.NextToken(out string side2);
+        reader.NextToken(out string sixteen1);
+        reader.NextToken(out string sixteen2);
+
+        Assert.Same(side1, side2);
+        Assert.Same(sixteen1, sixteen2);
+        Assert.Equal("16", sixteen2);
+    }
+
+    [Fact]
+    public void ATokenAtTheShareLimitIsSharedAndOneOverItIsNot()
+    {
+        string atLimit = new('a', ChunkTokenReader.RecentTokenMaxLength);
+        string overLimit = new('b', ChunkTokenReader.RecentTokenMaxLength + 1);
+        ChunkTokenReader reader = new($"\"{atLimit}\" \"{atLimit}\" \"{overLimit}\" \"{overLimit}\"");
+
+        reader.NextToken(out string a1);
+        reader.NextToken(out string a2);
+        reader.NextToken(out string b1);
+        reader.NextToken(out string b2);
+
+        Assert.Same(a1, a2);
+        Assert.Equal(overLimit, b1);
+        Assert.Equal(overLimit, b2);
+        Assert.NotSame(b1, b2);
+    }
+
+    [Fact]
+    public void AnEmptyStringTokenIsTheEmptyString()
+    {
+        Assert.Same(string.Empty, Next("\"\"").Text);
+    }
+
+    [Fact]
+    public void AnEvictedTokenIsCutAgainWithItsOwnText()
+    {
+        // Far more distinct tokens than slots: whichever slot "x" had is
+        // overwritten, and the next "x" must still be "x".
+        System.Text.StringBuilder text = new("x ");
+        for (int i = 0; i < ChunkTokenReader.RecentTokenSlots * 4; i++)
+        {
+            text.Append('t').Append(i).Append(' ');
+        }
+
+        text.Append('x');
+        ChunkTokenReader reader = new(text.ToString());
+
+        reader.NextToken(out string first);
+        string last = first;
+        for (int i = 0; i <= ChunkTokenReader.RecentTokenSlots * 4; i++)
+        {
+            reader.NextToken(out last);
+            if (i < ChunkTokenReader.RecentTokenSlots * 4)
+            {
+                Assert.Equal("t" + i, last);
+            }
+        }
+
+        Assert.Equal("x", first);
+        Assert.Equal("x", last);
+    }
+
+    [Fact]
+    public void AStringFillingTheLastChunkExactlyAtEndOfFileIsEndOfFile()
+    {
+        // 1023 characters and then nothing: the chunk read stops on its count
+        // without seeing the end, and the next chunk read finds it.
+        Assert.Equal(ChunkTokenType.EndOfFile, Next("\"" + new string('a', 1023)).Type);
+    }
+
+    [Fact]
+    public void AStringOneShortOfAChunkAtEndOfFileIsEndOfFile()
+    {
+        Assert.Equal(ChunkTokenType.EndOfFile, Next("\"" + new string('a', 1022)).Type);
+    }
+
+    [Fact]
+    public void AStringOfExactlyOneChunkClosedAtEndOfFileIsAString()
+    {
+        string value = new('a', 1023);
+
+        Assert.Equal((ChunkTokenType.String, value), Next("\"" + value + "\""));
+    }
+
+    [Fact]
+    public void AStringSpanningChunksIsWhole()
+    {
+        string value = new('q', 3000);
+
+        Assert.Equal((ChunkTokenType.String, value), Next("\"" + value + "\""));
+    }
 }

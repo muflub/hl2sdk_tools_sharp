@@ -93,7 +93,28 @@ public sealed class MapBrushSide
     public bool Bevel { get; set; }
 
     /// <summary>The side's id from the VMF's <c>id</c> key.</summary>
-    public int Id { get; set; }
+    /// <remarks>
+    /// Settable after the side joined a map, so the map's id-to-index table
+    /// (<see cref="MapFile.SideIdToIndex"/>) is told when it changes and
+    /// rebuilds rather than answering from a stale entry.
+    /// </remarks>
+    public int Id
+    {
+        get => _id;
+        set
+        {
+            if (_id != value)
+            {
+                _id = value;
+                IdChanged?.Invoke();
+            }
+        }
+    }
+
+    // Raised when Id changes; every map the side was added to listens.
+    internal Action? IdChanged { get; set; }
+
+    private int _id;
 
     /// <summary>The side's smoothing group mask, from <c>smoothing_groups</c>.</summary>
     public uint SmoothingGroups { get; set; }

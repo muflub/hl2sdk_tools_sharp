@@ -67,16 +67,32 @@ public sealed class VmfDocument
     /// <returns>The parsed document.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="stream"/> is null.</exception>
     /// <exception cref="ChunkFileException">The file is malformed.</exception>
+    /// <remarks>
+    /// The bytes are parsed where they were read to, not copied out first: a
+    /// full-size map is megabytes, and <c>ToArray</c> made a second copy of
+    /// all of them only to decode it and drop it. A seekable stream also
+    /// sizes the buffer up front, so it is not regrown on the way. The parse
+    /// finishes before the buffer is released, so nothing refers to it after.
+    /// </remarks>
     public static async Task<VmfDocument> ReadAsync(
         Stream stream,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(stream);
 
-        using MemoryStream buffer = new();
+        int capacity = 0;
+        if (stream.CanSeek)
+        {
+            long remaining = stream.Length - stream.Position;
+            capacity = remaining > 0 && remaining <= Array.MaxLength ? (int)remaining : 0;
+        }
+
+        using MemoryStream buffer = new(capacity);
         await stream.CopyToAsync(buffer, cancellationToken).ConfigureAwait(false);
 
-        return await ParseAsync(buffer.ToArray(), cancellationToken).ConfigureAwait(false);
+        return await ParseAsync(
+                new ReadOnlyMemory<byte>(buffer.GetBuffer(), 0, (int)buffer.Length), cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>Parses a chunk file already in memory.</summary>
