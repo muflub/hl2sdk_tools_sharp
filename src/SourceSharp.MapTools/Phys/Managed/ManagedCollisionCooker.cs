@@ -33,7 +33,7 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// the same bytes as one thread would.
 /// </para>
 /// </remarks>
-public sealed class ManagedCollisionCooker : ICollisionCooker
+public sealed class ManagedCollisionCooker : ICollisionCooker, IDisposable
 {
     private readonly bool _double;
     private readonly bool _fixPolysoupMaterialWalk;
@@ -175,10 +175,17 @@ public sealed class ManagedCollisionCooker : ICollisionCooker
     private static byte[]? Serialize(byte[]? surface) =>
         surface is null ? null : VphyWriter.Serialize(surface, (1f, 1f, 1f));
 
+    /// <summary>
+    /// Releases the per-thread scratch contexts. Disposal has nothing to wait
+    /// for, so a synchronous caller (the level linker) disposes it directly
+    /// rather than blocking on <see cref="DisposeAsync"/>.
+    /// </summary>
+    public void Dispose() => _contexts.Dispose();
+
     /// <inheritdoc/>
     public ValueTask DisposeAsync()
     {
-        _contexts.Dispose();
+        Dispose();
         return ValueTask.CompletedTask;
     }
 }

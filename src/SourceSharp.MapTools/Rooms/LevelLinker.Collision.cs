@@ -130,8 +130,7 @@ public static partial class LevelLinker
 
         List<byte[]> solids = [];
         CollisionTextBuffer text = new();
-        ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(compliance);
-        try
+        using (ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(compliance))
         {
             foreach (int contents in contentsOrder)
             {
@@ -144,10 +143,6 @@ public static partial class LevelLinker
                 new PhysStaticSolidEntry(blob, contents).WriteText(text, solids.Count);
                 solids.Add(blob);
             }
-        }
-        finally
-        {
-            cooker.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
 
         if (solids.Count == 0)
