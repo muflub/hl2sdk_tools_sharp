@@ -98,11 +98,25 @@ public sealed class BrushBspTreeForkArenaTests
         Assert.True(build.ForkedSubtrees > 1, $"only {build.ForkedSubtrees} forks");
         Assert.Equal(0, build.ForkArenas.Rented);
         Assert.Equal(build.ForkArenas.Created, build.ForkArenas.Idle);
+    }
 
-        // Reused, not made per fork: the pool never had more out at once
-        // than the forks alive together.
-        Assert.True(build.ForkArenas.Created < build.ForkedSubtrees,
-            $"{build.ForkArenas.Created} arenas for {build.ForkedSubtrees} forks");
+    /// <summary>
+    /// Arenas are reused, not made per fork: with every helper run at once on
+    /// the queueing thread, at most one chain of nested forks is alive at a
+    /// time, so the pool never makes more arenas than the fork depth, however
+    /// many forks there are.
+    /// </summary>
+    [Fact]
+    public async Task ForksReuseArenasRatherThanMakingOneEach()
+    {
+        (BspBuildContext build, _) = await SixBoxes();
+        build.TreeParallelism = Forking(new InlineScheduler(), CancellationToken.None);
+
+        BrushBspTree.BrushBsp(build, CsgFixture.AllBrushes(build), Mins, Maxs);
+
+        Assert.True(build.ForkedSubtrees > 4, $"only {build.ForkedSubtrees} forks");
+        Assert.InRange(build.ForkArenas.Created, 1, 4);
+        Assert.Equal(0, build.ForkArenas.Rented);
     }
 
     /// <summary>
@@ -174,6 +188,16 @@ public sealed class BrushBspTreeForkArenaTests
         }
 
         protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued) => false;
+
+        protected override IEnumerable<Task> GetScheduledTasks() => [];
+    }
+
+    /// <summary>Runs every helper at once, on the thread that queued it.</summary>
+    private sealed class InlineScheduler : TaskScheduler
+    {
+        protected override void QueueTask(Task task) => TryExecuteTask(task);
+
+        protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued) => TryExecuteTask(task);
 
         protected override IEnumerable<Task> GetScheduledTasks() => [];
     }
