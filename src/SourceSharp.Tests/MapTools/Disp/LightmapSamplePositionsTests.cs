@@ -119,4 +119,66 @@ public sealed class LightmapSamplePositionsTests
         int samples = (core.Surface.LuxelU + 1) * (core.Surface.LuxelV + 1);
         Assert.True(output.Count > samples * 4, $"{output.Count} bytes for {samples} samples");
     }
+
+    /// <summary>
+    /// Append searches triangles worked out once per displacement; its bytes
+    /// are those of searching every sample with <see cref="LightmapSamplePositions.FindTriangleByUv"/>,
+    /// the search it replaced, over displacements of every power, on floors
+    /// whose luxel coordinates are not whole numbers, with sample grids that
+    /// reach past the displacement.
+    /// </summary>
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void AppendWritesWhatASearchPerSampleWrites(int power)
+    {
+        foreach ((Vec3 min, float sx, float sy) in (ReadOnlySpan<(Vec3, float, float)>)[
+            (Vec3.Zero, 256, 256), (new Vec3(13.7f, -5.3f, 0), 200, 333), (new Vec3(-1000.25f, 77.5f, 12), 97, 61)])
+        {
+            Vec3[] floor = DispFixtures.FloorQuad(min, sx, sy);
+            CoreDispInfo core = DispFixtures.Core(
+                DispFixtures.Heightfield(power, floor[0], (x, y) => ((x * 7) + (y * 3)) % 11), floor);
+            foreach ((int u, int v) in (ReadOnlySpan<(int, int)>)[
+                (core.Surface.LuxelU, core.Surface.LuxelV), (core.Surface.LuxelU + 2, core.Surface.LuxelV + 3), (1, 0)])
+            {
+                List<byte> fast = [];
+                LightmapSamplePositions.Append(core, u, v, fast);
+                Assert.Equal(PerSample(core, u, v), fast);
+            }
+        }
+    }
+
+    // The encoding Append writes, one FindTriangleByUv per sample.
+    private static List<byte> PerSample(CoreDispInfo core, int u, int v)
+    {
+        List<byte> output = [];
+        for (int y = 0; y <= v; y++)
+        {
+            for (int x = 0; x <= u; x++)
+            {
+                if (!LightmapSamplePositions.FindTriangleByUv(core, new DispUv(x + 0.5f, y + 0.5f), out int tri, out Barycentric bary))
+                {
+                    output.AddRange([0, 0, 0, 0]);
+                    continue;
+                }
+
+                if (tri < LightmapSamplePositions.LongFormMarker)
+                {
+                    output.Add((byte)tri);
+                }
+                else
+                {
+                    output.Add(LightmapSamplePositions.LongFormMarker);
+                    output.Add((byte)(tri - LightmapSamplePositions.LongFormMarker));
+                }
+
+                output.Add((byte)(bary.A * 255.9f));
+                output.Add((byte)(bary.B * 255.9f));
+                output.Add((byte)(bary.C * 255.9f));
+            }
+        }
+
+        return output;
+    }
 }
