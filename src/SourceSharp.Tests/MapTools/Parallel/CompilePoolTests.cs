@@ -379,6 +379,245 @@ public class CompilePoolTests
     }
 
     [Fact]
+    public async Task DisposingWhileItsLoopWaitsFaultsTheLoop()
+    {
+        // A host disposing a pool it lent, mid-compile: the loop's workers are
+        // queued behind a held thread and never started. Left in the queue
+        // they would never run and the awaiting compile would hang; the loop
+        // must end in a fault instead, soon, and without running its items on
+        // the disposing thread.
+        CompilePool pool = new(1);
+        (Task held, ManualResetEventSlim release) = HoldTheOnlyThread(pool);
+        using (release)
+        {
+            int ran = 0;
+            Task loop = pool.ForAsync(
+                1000,
+                4,
+                (_, _) =>
+                {
+                    Interlocked.Increment(ref ran);
+                    return ValueTask.CompletedTask;
+                },
+                CancellationToken.None);
+            Assert.False(loop.IsCompleted);
+
+            await DisposeWhileHeldAsync(pool, release);
+            await held.WaitAsync(Patience);
+
+            await Assert.ThrowsAsync<ObjectDisposedException>(() => loop.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.True(loop.IsFaulted, $"the loop ended {loop.Status}, not faulted");
+            Assert.Equal(0, Volatile.Read(ref ran));
+        }
+    }
+
+    [Fact]
+    public async Task DisposingWhileItsLoopsBodyAwaitsFaultsTheLoopWhenTheAwaitEnds()
+    {
+        // The body's await holds no thread, so disposal completes under it;
+        // the await's continuation then comes back to the disposed pool's
+        // scheduler. Refused there, the loop would never resume.
+        CompilePool pool = new(2);
+        TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ManualResetEventSlim awaiting = new();
+        int started = 0;
+        Task loop = pool.ForAsync(
+            1000,
+            1,
+            async (_, _) =>
+            {
+                if (Interlocked.Increment(ref started) == 1)
+                {
+                    awaiting.Set();
+                    await gate.Task;
+                }
+            },
+            CancellationToken.None);
+        Assert.True(awaiting.Wait(Patience));
+
+        pool.Dispose();
+        Assert.False(loop.IsCompleted);
+        gate.SetResult();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => loop.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(1, Volatile.Read(ref started));
+    }
+
+    [Fact]
+    public async Task DisposingWhileABareParallelForAsyncWaitsFinishesItInsteadOfStrandingIt()
+    {
+        // A loop that does not watch the pool's StoppingToken cannot be told
+        // to stop, and a Task the pool did not create cannot be failed from
+        // outside; so its queued workers are run, and the loop completes
+        // rather than leaving its awaiter hanging.
+        CompilePool pool = new(1);
+        (Task held, ManualResetEventSlim release) = HoldTheOnlyThread(pool);
+        using (release)
+        {
+            int[] visits = new int[1000];
+            Task loop = System.Threading.Tasks.Parallel.ForAsync(
+                0,
+                visits.Length,
+                new ParallelOptions { MaxDegreeOfParallelism = 4, TaskScheduler = pool.Scheduler },
+                (i, _) =>
+                {
+                    Interlocked.Increment(ref visits[i]);
+                    return ValueTask.CompletedTask;
+                });
+            Assert.False(loop.IsCompleted);
+
+            await DisposeWhileHeldAsync(pool, release);
+            await held.WaitAsync(Patience);
+
+            await loop.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.All(visits, v => Assert.Equal(1, v));
+        }
+    }
+
+    [Fact]
+    public async Task ItsLoopVisitsEveryIndexOnceOnPoolThreads()
+    {
+        using CompilePool pool = new(3);
+        int[] visits = new int[1000];
+        int offPool = 0;
+
+        await pool.ForAsync(
+            visits.Length,
+            3,
+            (i, _) =>
+            {
+                if (!pool.IsPoolThread)
+                {
+                    Interlocked.Increment(ref offPool);
+                }
+
+                Interlocked.Increment(ref visits[i]);
+                return ValueTask.CompletedTask;
+            },
+            CancellationToken.None).WaitAsync(Patience);
+
+        Assert.All(visits, v => Assert.Equal(1, v));
+        Assert.Equal(0, offPool);
+    }
+
+    [Fact]
+    public async Task ItsLoopCancelledByTheCallerEndsCancelledNotDisposed()
+    {
+        using CompilePool pool = new(2);
+        using CancellationTokenSource cts = new();
+
+        Task loop = pool.ForAsync(
+            100_000,
+            2,
+            (i, _) =>
+            {
+                if (i == 10)
+                {
+                    cts.Cancel();
+                }
+
+                return ValueTask.CompletedTask;
+            },
+            cts.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => loop.WaitAsync(Patience));
+        Assert.True(loop.IsCanceled, $"the loop ended {loop.Status}");
+    }
+
+    [Fact]
+    public async Task ItsLoopWithNothingToDoCompletesAtOnce()
+    {
+        using CompilePool pool = new(2);
+        await pool.ForAsync(0, 2, (_, _) => throw new InvalidOperationException("no items"), CancellationToken.None)
+            .WaitAsync(Patience);
+        Assert.Equal(0, pool.LiveThreadCount);
+    }
+
+    [Fact]
+    public void TheStoppingTokenIsCancelledWhenDisposalBegins()
+    {
+        CompilePool pool = new(1);
+        CancellationToken stopping = pool.StoppingToken;
+        Assert.True(stopping.CanBeCanceled);
+        Assert.False(stopping.IsCancellationRequested);
+
+        pool.Dispose();
+
+        Assert.True(stopping.IsCancellationRequested);
+        Assert.True(pool.StoppingToken.IsCancellationRequested);
+    }
+
+    // Occupies a degree-one pool's thread with a job that waits for the
+    // returned event, so anything queued after it waits too.
+    private static (Task Held, ManualResetEventSlim Release) HoldTheOnlyThread(CompilePool pool)
+    {
+        WorkQueue holder = new(On(pool, 1));
+        ManualResetEventSlim release = new();
+        using ManualResetEventSlim holding = new();
+        Task held = holder.RunAsync(
+            1,
+            (_, _) =>
+            {
+                holding.Set();
+                release.Wait(Patience);
+            },
+            null,
+            CancellationToken.None);
+        Assert.True(holding.Wait(Patience));
+        return (held.ContinueWith(_ => holder.Dispose(), TaskScheduler.Default), release);
+    }
+
+    // Disposes the pool while its thread is held, releasing the hold only once
+    // the stop is flagged: released any sooner, the one thread could
+    // legitimately run what is queued before disposal begins.
+    private static async Task DisposeWhileHeldAsync(CompilePool pool, ManualResetEventSlim release)
+    {
+        Task disposing = Task.Run(pool.Dispose);
+        Assert.True(SpinWait.SpinUntil(() => pool.IsStopping, Patience));
+        release.Set();
+        await disposing.WaitAsync(Patience);
+    }
+
+    [Fact]
+    public async Task ATaskQueuedBeforeDisposalRunsOnceAndOneOfferedAfterRunsOnTheOfferingThread()
+    {
+        // The scheduler's half of the disposal contract: nothing it is given
+        // is stranded. A task it accepted runs, once, after the threads have
+        // stopped; a task offered afterwards runs at once, where it is
+        // offered.
+        CompilePool pool = new(1);
+        (Task held, ManualResetEventSlim release) = HoldTheOnlyThread(pool);
+        using ManualResetEventSlim released = release;
+
+        int runs = 0;
+        bool onPool = true;
+        Task queued = Task.Factory.StartNew(
+            () =>
+            {
+                Interlocked.Increment(ref runs);
+                onPool = pool.IsPoolThread;
+            },
+            CancellationToken.None,
+            TaskCreationOptions.DenyChildAttach,
+            pool.Scheduler);
+
+        await DisposeWhileHeldAsync(pool, release);
+        await held.WaitAsync(Patience);
+
+        // Complete by the time Dispose returned, not merely soon after.
+        Assert.True(queued.IsCompletedSuccessfully, $"the queued task is {queued.Status}");
+        Assert.Equal(1, runs);
+        Assert.False(onPool);
+
+        int offeredOn = -1;
+        Task late = new(() => offeredOn = Environment.CurrentManagedThreadId);
+        late.Start(pool.Scheduler);
+        Assert.True(late.IsCompletedSuccessfully, $"the late task is {late.Status}");
+        Assert.Equal(Environment.CurrentManagedThreadId, offeredOn);
+        Assert.Equal(0, pool.LiveThreadCount);
+    }
+
+    [Fact]
     public async Task ScheduledTasksAndJobsShareThePool()
     {
         using CompilePool pool = new(2);
@@ -440,15 +679,31 @@ public class CompilePoolTests
         Assert.True(SpinWait.SpinUntil(() => pool.ActiveJobCount == 0, Patience));
     }
 
+    // The wake counters are read only across a quiet pool: the backstop is
+    // off, so a parked thread stays parked until something signals, and
+    // every thread is parked before the first read and again before the
+    // second. A thread still finishing the previous job's step (and maybe
+    // signalling for it) is then not parked, so the counts cannot include a
+    // trailing signal of the job before; and no thread can be caught awake by
+    // its idle timeout when the job under test arrives, which made the wake
+    // that job counts depend on timing.
+    private static CompilePool QuietPool(int degree) => new(degree) { IdleTimeoutMs = Timeout.Infinite };
+
+    private static async Task QuiesceAsync(CompilePool pool, WorkQueue queue)
+    {
+        await queue.RunAsync(pool.Degree, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
+        Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == pool.Degree, Patience));
+    }
+
     [Fact]
     public async Task ASlotBackOnARunOutJobWakesNobody()
     {
         // Every item is claimed before any finishes (the barrier), so each slot
         // comes back to a job with nothing left to hand out: the only signal is
         // the job's own arrival.
-        using CompilePool pool = new(4);
+        using CompilePool pool = QuietPool(4);
         using WorkQueue queue = new(On(pool, 4));
-        await queue.RunAsync(4, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
+        await QuiesceAsync(pool, queue);
         using Barrier together = new(4);
 
         long before = pool.SignalCount;
@@ -457,6 +712,7 @@ public class CompilePoolTests
             (_, _) => Assert.True(together.SignalAndWait(Patience)),
             new WorkQueueOptions { ChunkSize = 1 },
             CancellationToken.None).WaitAsync(Patience);
+        Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == 4, Patience));
 
         Assert.Equal(1, pool.SignalCount - before);
     }
@@ -464,10 +720,9 @@ public class CompilePoolTests
     [Fact]
     public async Task ANewJobWakesEveryParkedThread()
     {
-        using CompilePool pool = new(4);
+        using CompilePool pool = QuietPool(4);
         using WorkQueue queue = new(On(pool, 4));
-        await queue.RunAsync(4, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
-        Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == 4, Patience));
+        await QuiesceAsync(pool, queue);
         using Barrier together = new(4);
 
         long before = pool.WakeAllCount;
@@ -476,7 +731,9 @@ public class CompilePoolTests
             (_, _) => Assert.True(together.SignalAndWait(Patience)),
             new WorkQueueOptions { ChunkSize = 1 },
             CancellationToken.None).WaitAsync(Patience);
+        Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == 4, Patience));
 
+        // One wake-all, and it reached every thread: the barrier needs four.
         Assert.Equal(1, pool.WakeAllCount - before);
     }
 
@@ -485,27 +742,44 @@ public class CompilePoolTests
     {
         // A degree-one job on a four-thread pool: three threads are turned away
         // and park, and a slot that comes back wakes one of them, not all.
-        using CompilePool pool = new(4);
+        ConcurrentDictionary<int, bool> turnedAway = new();
+        using CompilePool pool = new(4)
+        {
+            IdleTimeoutMs = Timeout.Infinite,
+            TurnAwayGapProbe = () => turnedAway[Environment.CurrentManagedThreadId] = true,
+        };
+        using WorkQueue warmUp = new(On(pool, 4));
+        await QuiesceAsync(pool, warmUp);
+        turnedAway.Clear();
         using WorkQueue queue = new(On(pool, 1));
-        await queue.RunAsync(1, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
-        Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == 4, Patience));
-        int[] claims = new int[200];
 
+        // Item 0 is held until every other thread has been turned away from
+        // the job and parked, so the slot it hands back certainly finds a
+        // thread to wake. Parked alone is not enough: a thread the job's
+        // arrival has not woken yet (the waker can be descheduled between
+        // two claims) is parked too, and was never turned away.
+        int[] claims = new int[20];
         long allBefore = pool.WakeAllCount;
         long oneBefore = pool.WakeOneCount;
         await queue.RunAsync(
             claims.Length,
             (index, _) =>
             {
+                if (index == 0)
+                {
+                    Assert.True(SpinWait.SpinUntil(
+                        () => turnedAway.Count == 3 && pool.ParkedThreadCount == 3, Patience));
+                }
+
                 Interlocked.Increment(ref claims[index]);
-                Thread.Sleep(1);
             },
             new WorkQueueOptions { ChunkSize = 1 },
             CancellationToken.None).WaitAsync(Patience);
+        Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == 4, Patience));
 
         Assert.All(claims, c => Assert.Equal(1, c));
         Assert.Equal(1, pool.WakeAllCount - allBefore);
-        Assert.True(pool.WakeOneCount > oneBefore, "no slot coming back woke a turned-away thread");
+        Assert.InRange(pool.WakeOneCount - oneBefore, 1, claims.Length);
     }
 
     [Theory]
@@ -688,6 +962,150 @@ public class CompilePoolTests
 
         Assert.Equal(0, pool.LiveThreadCount);
         Assert.Equal(0, pool.ParkedThreadCount);
+    }
+
+    // ---- Lost wakes, with the idle backstop off -----------------------------
+    //
+    // A parked thread normally rescans every IdleTimeoutMs whatever happens,
+    // which turns a lost wake into a pause no test can tell from noise. These
+    // facts switch that off and force the interleavings the wake protocol
+    // exists for, so a lost wake leaves work unclaimed and the fact times out.
+
+    private static readonly TimeSpan Stuck = TimeSpan.FromSeconds(5);
+
+    [Fact]
+    public async Task WithTheBackstopOffAThreadThatParksJustAfterASignalStillRunsTheNewJob()
+    {
+        // The signal lands after the thread's scan found nothing and before
+        // it raised its parked flag, so no waker can claim it: only its
+        // re-read of the signal count keeps it from sleeping on the new job.
+        int firstRan = 0;
+        int submitted = 0;
+        Task? second = null;
+        WorkQueue? late = null;
+        CompilePool? pool = null;
+        pool = new CompilePool(1)
+        {
+            IdleTimeoutMs = Timeout.Infinite,
+            BeforeParkProbe = () =>
+            {
+                if (Volatile.Read(ref firstRan) == 1 && Interlocked.Exchange(ref submitted, 1) == 0)
+                {
+                    late = new WorkQueue(On(pool!, 1));
+                    Volatile.Write(ref second, late.RunAsync(1, (_, _) => { }, null, CancellationToken.None));
+                }
+            },
+        };
+
+        using (pool)
+        {
+            using WorkQueue first = new(On(pool, 1));
+            await first.RunAsync(1, (_, _) => Volatile.Write(ref firstRan, 1), null, CancellationToken.None)
+                .WaitAsync(Patience);
+
+            Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref second) is not null, Patience));
+            try
+            {
+                await second!.WaitAsync(Stuck);
+            }
+            finally
+            {
+                late?.Dispose();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task WithTheBackstopOffASlotHandedBackDuringATurnAwayIsStillTaken()
+    {
+        // A degree-one job on a two-thread pool. Thread A runs item 0; thread
+        // B finds the job full. Between B's failed borrow and B counting
+        // itself turned away, A finishes, hands the slot back (nobody is
+        // counted yet, so nobody is woken) and does not come back for it. Only
+        // B's second look can find the slot; without it B parks for good and
+        // item 1 never runs.
+        using ManualResetEventSlim releaseA = new();
+        using ManualResetEventSlim aHandedBack = new();
+        using ManualResetEventSlim jobDone = new();
+        int aThread = -1;
+        int armed = 0;
+        int gapSeen = 0;
+        int returnSeen = 0;
+        int ranOnB = 0;
+
+        CompilePool pool = new(2)
+        {
+            IdleTimeoutMs = Timeout.Infinite,
+            TurnAwayGapProbe = () =>
+            {
+                // The job is full, so its one slot is held by the thread
+                // running item 0: wait for it to say who it is.
+                if (Volatile.Read(ref armed) == 1 && Interlocked.Exchange(ref gapSeen, 1) == 0)
+                {
+                    Assert.True(SpinWait.SpinUntil(() => Volatile.Read(ref aThread) >= 0, Patience));
+                    releaseA.Set();
+                    Assert.True(aHandedBack.Wait(Patience));
+                }
+            },
+            SlotReturnedProbe = () =>
+            {
+                if (Environment.CurrentManagedThreadId == Volatile.Read(ref aThread)
+                    && Interlocked.Exchange(ref returnSeen, 1) == 0)
+                {
+                    aHandedBack.Set();
+
+                    // A stays away until the job is done (or the fact has
+                    // given up on it), so the slot is B's to take.
+                    jobDone.Wait(Stuck + Stuck);
+                }
+            },
+        };
+
+        using (pool)
+        {
+            // Both threads started and parked first. A thread that read the
+            // signal count before the job's own arrival would see that
+            // arrival when it came to park, and look again: the second look
+            // this fact is about would then be done for it by accident.
+            using (WorkQueue warmUp = new(On(pool, 2)))
+            {
+                await warmUp.RunAsync(2, (_, _) => { }, null, CancellationToken.None).WaitAsync(Patience);
+            }
+
+            Assert.True(SpinWait.SpinUntil(() => pool.ParkedThreadCount == 2, Patience));
+            Volatile.Write(ref armed, 1);
+
+            using WorkQueue queue = new(On(pool, 1));
+            Task run = queue.RunAsync(
+                2,
+                (index, _) =>
+                {
+                    if (index == 0)
+                    {
+                        Volatile.Write(ref aThread, Environment.CurrentManagedThreadId);
+                        Assert.True(releaseA.Wait(Patience));
+                    }
+                    else if (Environment.CurrentManagedThreadId != Volatile.Read(ref aThread))
+                    {
+                        Interlocked.Increment(ref ranOnB);
+                    }
+                },
+                new WorkQueueOptions { ChunkSize = 1 },
+                CancellationToken.None);
+
+            try
+            {
+                await run.WaitAsync(Stuck);
+            }
+            finally
+            {
+                jobDone.Set();
+            }
+
+            Assert.Equal(1, gapSeen);
+            Assert.Equal(1, returnSeen);
+            Assert.Equal(1, ranOnB);
+        }
     }
 
     private static void InterlockedMax(ref int target, int value)

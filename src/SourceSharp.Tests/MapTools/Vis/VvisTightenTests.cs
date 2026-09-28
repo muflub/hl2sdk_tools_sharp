@@ -12,6 +12,7 @@ using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
 
+using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
@@ -232,6 +233,66 @@ public class VvisTightenTests
         Assert.Equal(
             one[BspLump.Visibility].Data.ToArray(),
             other[BspLump.Visibility].Data.ToArray());
+    }
+
+    [Fact]
+    public async Task ATightenedFlowOnASharedPoolLetsAnotherJobRunBesideIt()
+    {
+        // The flow used to hold every pool thread for its whole length: each
+        // worker looped inside one queue item, parking on the thread when it
+        // had nothing to do. Here worker A blocks at its first claimed run,
+        // before flowing it, so the flow cannot finish while A waits: that
+        // portal is neither flowed nor settled. A waits until the pool's other
+        // thread has claimed a run too (so it is inside the flow, not merely
+        // late to it), then queues a one-item job on the same two-thread pool
+        // and waits for it. Only the other thread can run it, and only if the
+        // flow gives that thread back between units; held by the flow, it
+        // would wait for A's portal forever and the job would never run.
+        (BspData alone, _) = await RunAsync(Tight, degree: 2);
+
+        using CompilePool pool = new(2);
+        using WorkQueue beside = new(new CompileParallelism { MaxDegree = 1, Pool = pool });
+        int blocker = -1;
+        int otherClaims = 0;
+        bool besideInTime = false;
+        bool otherClaimed = false;
+        (BspData map, PortalSet portals) = Grid();
+        VisContext context = new()
+        {
+            Options = Tight,
+            Parallelism = new CompileParallelism { MaxDegree = 2, Pool = pool },
+            TighteningClaimProbe = _ =>
+            {
+                int self = Environment.CurrentManagedThreadId;
+                if (Interlocked.CompareExchange(ref blocker, self, -1) != -1)
+                {
+                    if (Volatile.Read(ref blocker) != self)
+                    {
+                        Interlocked.Increment(ref otherClaims);
+                    }
+
+                    return;
+                }
+
+                otherClaimed = SpinWait.SpinUntil(() => Volatile.Read(ref otherClaims) > 0, TimeSpan.FromSeconds(30));
+                if (!otherClaimed)
+                {
+                    return;
+                }
+
+                // Within the wait, while A still holds its run: a job that
+                // only runs once A gives up waiting ran after the flow, not
+                // beside it.
+                Task side = beside.RunAsync(1, (_, _) => { }, null, CancellationToken.None);
+                besideInTime = side.Wait(TimeSpan.FromSeconds(10));
+            },
+        };
+
+        await Vvis.ComputeAsync(map, portals, context, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(60));
+
+        Assert.True(otherClaimed, "the pool's other thread never claimed a run of the flow");
+        Assert.True(besideInTime, "the job beside the flow never got a thread while a claimed run was held");
+        Assert.Equal(alone[BspLump.Visibility].Data.ToArray(), map[BspLump.Visibility].Data.ToArray());
     }
 
     [Fact]

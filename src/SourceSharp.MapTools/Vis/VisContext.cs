@@ -49,6 +49,18 @@ public sealed record VisContext
     public IProgress<CompileProgress>? Progress { get; init; }
 
     /// <summary>
+    /// For the facts: runs on a <c>-tighten</c> worker that has just claimed a
+    /// portal's run, before it flows it, with the portal's rank.
+    /// </summary>
+    /// <remarks>
+    /// Null in every real compile. A fact that blocks here holds a claimed
+    /// and unsettled unit, so the flow provably cannot finish while it waits,
+    /// which is what makes "another job ran beside the flow" something a fact
+    /// can tell from "another job ran after it".
+    /// </remarks>
+    internal Action<int>? TighteningClaimProbe { get; init; }
+
+    /// <summary>
     /// Which bit-vector implementation the inner loop runs.
     /// </summary>
     /// <remarks>

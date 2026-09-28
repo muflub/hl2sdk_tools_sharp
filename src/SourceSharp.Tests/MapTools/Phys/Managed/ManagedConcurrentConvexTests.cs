@@ -246,10 +246,10 @@ public class ManagedConcurrentConvexTests
         // The workers count against the compile's pool, like the cooks do.
         using CompilePool pool = new(3);
         await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
-        cooker.Scheduler = pool.Scheduler;
+        ICollisionCooker onPoolCooker = cooker.On(pool.Scheduler);
         ConcurrentBag<bool> onPool = [];
 
-        await cooker.RunAsync(s => ((IConcurrentConvexSession)s).BuildConvexes(
+        await onPoolCooker.RunAsync(s => ((IConcurrentConvexSession)s).BuildConvexes(
             30,
             (w, i) =>
             {

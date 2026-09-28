@@ -38,6 +38,45 @@ public class StaticPropParallelTests
     }
 
     [Fact]
+    public async Task OnASharedPoolTheLumpIsTheSameAsOneAtATime()
+    {
+        StaticPropLump serial = await EmitManyAsync(1);
+        using CompilePool pool = new(4);
+        StaticPropLump pooled = await EmitManyAsync(4, pool);
+
+        Assert.Equal(serial.ModelNames, pooled.ModelNames);
+        Assert.Equal(serial.LeafEntries, pooled.LeafEntries);
+        Assert.Equal(serial.Props.Select(Describe), pooled.Props.Select(Describe));
+    }
+
+    [Fact]
+    public async Task APoolDisposedUnderTheEmitFailsItInsteadOfHanging()
+    {
+        // A host disposing the pool it lent while hulls are being cooked: the
+        // cook's await ends after the pool has gone, and the emit must then
+        // fail as disposed, not wait forever for its loop to resume.
+        CompilePool pool = new(2);
+        (VbspContext context, _) = await ContextAsync(
+            2,
+            f =>
+            {
+                StudioFixture.AddModel(f, "models/a.mdl");
+                StudioFixture.AddModel(f, "models/b.mdl");
+            },
+            pool);
+        GatedCollision collision = new();
+
+        Task<StaticPropLump> emit = new StaticPropEmitter(context, collision)
+            .EmitAsync([Prop("models/a.mdl", -20f), Prop("models/b.mdl", 20f)], OneNode());
+        Assert.True(collision.Entered.Wait(TimeSpan.FromSeconds(30)));
+
+        pool.Dispose();
+        collision.Open();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => emit.WaitAsync(TimeSpan.FromSeconds(30)));
+    }
+
+    [Fact]
     public async Task ThePropsKeepEntityOrderWhenTheirQueriesFinishOutOfOrder()
     {
         // The hull of the FIRST model is the slowest to cook and to trace.
@@ -182,14 +221,17 @@ public class StaticPropParallelTests
     }
 
     // Nine props over three models, a b c a b c a b c, along x from -60 to 60.
-    private static async Task<StaticPropLump> EmitManyAsync(int degree)
+    private static async Task<StaticPropLump> EmitManyAsync(int degree, CompilePool? pool = null)
     {
-        (VbspContext context, _) = await ContextAsync(degree, f =>
-        {
-            StudioFixture.AddModel(f, "models/a.mdl");
-            StudioFixture.AddModel(f, "models/b.mdl");
-            StudioFixture.AddModel(f, "models/c.mdl");
-        });
+        (VbspContext context, _) = await ContextAsync(
+            degree,
+            f =>
+            {
+                StudioFixture.AddModel(f, "models/a.mdl");
+                StudioFixture.AddModel(f, "models/b.mdl");
+                StudioFixture.AddModel(f, "models/c.mdl");
+            },
+            pool);
 
         string[] models = ["models/a.mdl", "models/b.mdl", "models/c.mdl"];
         List<MapEntity> entities = [.. Enumerable.Range(0, 9).Select(i => Prop(models[i % 3], -60f + (15f * i)))];
@@ -209,7 +251,11 @@ public class StaticPropParallelTests
         return new([node], [new DPlane { Normal = new Vec3(1f, 0f, 0f), Dist = 0f }], [0, 0]);
     }
 
-    private static async Task<(VbspContext, InMemoryFileSystem)> ContextAsync(int degree, Action<InMemoryFileSystem> fill)
+    private static Task<(VbspContext, InMemoryFileSystem)> ContextAsync(int degree, Action<InMemoryFileSystem> fill) =>
+        ContextAsync(degree, fill, pool: null);
+
+    private static async Task<(VbspContext, InMemoryFileSystem)> ContextAsync(
+        int degree, Action<InMemoryFileSystem> fill, CompilePool? pool)
     {
         InMemoryFileSystem files = new();
         fill(files);
@@ -217,7 +263,7 @@ public class StaticPropParallelTests
         VbspOptions options = VbspOptions.Default with { Compliance = ComplianceOptions.Correct };
         return (new VbspContext(options, new ContentFileSystem([mount]))
         {
-            Parallelism = new CompileParallelism { MaxDegree = degree },
+            Parallelism = new CompileParallelism { MaxDegree = degree, Pool = pool },
         }, files);
     }
 
@@ -229,6 +275,24 @@ public class StaticPropParallelTests
         entity.SetKeyValue("origin", FormattableString.Invariant($"{x} 0 0"));
         entity.SetKeyValue("angles", "0 0 0");
         return entity;
+    }
+
+    // A box hull whose cooks all wait for one gate, and say when the first
+    // has started waiting.
+    private sealed class GatedCollision : IStaticPropCollision
+    {
+        private readonly TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ManualResetEventSlim Entered { get; } = new();
+
+        public void Open() => _gate.SetResult();
+
+        public async ValueTask<IStaticPropHull?> BuildHullAsync(IReadOnlyList<Vec3[]> meshes, CancellationToken cancellationToken = default)
+        {
+            Entered.Set();
+            await _gate.Task;
+            return null;
+        }
     }
 
     // A box hull like BoxCollision's, whose cooks and traces finish in the

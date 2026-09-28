@@ -73,22 +73,47 @@ public sealed class ManagedCollisionCooker : ICollisionCooker, IDisposable
     /// <summary>True when this cooker computes in TF2's double precision.</summary>
     public bool IsDoublePrecision => _double;
 
-    /// <summary>
-    /// Where <see cref="RunAsync"/> runs its cooks: the thread pool by default,
-    /// or a compile's <see cref="SourceSharp.MapTools.Parallel.CompilePool.Scheduler"/> so that cooking
-    /// counts against the same <c>-threads</c> budget as every other stage.
-    /// </summary>
-    public TaskScheduler Scheduler { get; set; } = TaskScheduler.Default;
-
     /// <inheritdoc/>
     /// <remarks>
-    /// Runs <paramref name="work"/> on <see cref="Scheduler"/> against a fresh
+    /// Runs <paramref name="work"/> on the .NET thread pool against a fresh
     /// <see cref="ManagedCollisionSession"/>; calls may run concurrently, each with its own
-    /// handles and its thread's scratch.
+    /// handles and its thread's scratch. <see cref="On"/> gives a cooker whose calls run on a
+    /// compile's own scheduler instead.
     /// </remarks>
-    public Task<T> RunAsync<T>(Func<ICollisionSession, T> work, CancellationToken cancellationToken = default)
+    public Task<T> RunAsync<T>(Func<ICollisionSession, T> work, CancellationToken cancellationToken = default) =>
+        RunAsync(work, TaskScheduler.Default, cancellationToken);
+
+    /// <summary>
+    /// Runs one unit of cooking on a given scheduler, against a fresh session whose concurrent
+    /// convex builds queue on the same scheduler.
+    /// </summary>
+    /// <typeparam name="T">What the work returns.</typeparam>
+    /// <param name="work">The calls to make, against a session valid only inside it.</param>
+    /// <param name="scheduler">
+    /// Where the cook and its convex workers run: a compile's
+    /// <see cref="SourceSharp.MapTools.Parallel.CompilePool.Scheduler"/>, so that cooking counts
+    /// against the same <c>-threads</c> budget as every other stage.
+    /// </param>
+    /// <param name="cancellationToken">Cancels before the work starts.</param>
+    /// <returns>What <paramref name="work"/> returned.</returns>
+    /// <remarks>
+    /// <para>
+    /// The scheduler is an argument of the call, not state of the cooker. It used to be a
+    /// settable property that a host pointed at a compile's pool for the length of the compile
+    /// and put back afterwards. A service shares one cooker between concurrent compiles (the
+    /// cooker is thread-safe and costly to build), and then one compile's reset could send the
+    /// other's cooks to the wrong pool, or leave them pointing at a pool that had been
+    /// disposed, after which every cook of the survivor failed. Passed per call, each compile's
+    /// cooks go where that compile says, whoever else is cooking.
+    /// </para>
+    /// </remarks>
+    public Task<T> RunAsync<T>(
+        Func<ICollisionSession, T> work,
+        TaskScheduler scheduler,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(work);
+        ArgumentNullException.ThrowIfNull(scheduler);
         if (cancellationToken.IsCancellationRequested)
         {
             return Task.FromCanceled<T>(cancellationToken);
@@ -96,27 +121,55 @@ public sealed class ManagedCollisionCooker : ICollisionCooker, IDisposable
 
         // Task.Run's own options, on the chosen scheduler.
         return Task.Factory.StartNew(
-            () => work(OpenSession()),
+            () => work(OpenSession(scheduler)),
             cancellationToken,
             TaskCreationOptions.DenyChildAttach,
-            Scheduler);
+            scheduler);
     }
 
-    /// <summary>A session on the calling thread (what <see cref="RunAsync{T}"/> hands its work).</summary>
+    /// <summary>
+    /// This cooker, with every <see cref="ICollisionCooker.RunAsync{T}"/> on
+    /// <paramref name="scheduler"/>: what one compile hands its stages.
+    /// </summary>
+    /// <param name="scheduler">The compile's scheduler, typically its pool's.</param>
+    /// <returns>
+    /// A view that shares this cooker's scratch, surface properties and identity. Disposing it
+    /// does nothing: the cooker is still this one's, to dispose when the host is done with it.
+    /// </returns>
+    /// <remarks>
+    /// One view per compile, made when the compile's pool is, and dropped with it; nothing about
+    /// it outlives the compile or reaches another compile sharing the cooker (see
+    /// <see cref="RunAsync{T}(Func{ICollisionSession, T}, TaskScheduler, CancellationToken)"/>).
+    /// </remarks>
+    public ICollisionCooker On(TaskScheduler scheduler)
+    {
+        ArgumentNullException.ThrowIfNull(scheduler);
+        return new ScheduledCooker(this, scheduler);
+    }
+
+    /// <summary>A session on the calling thread whose concurrent convex builds run on the .NET pool.</summary>
+    /// <returns>The session.</returns>
+    public ICollisionSession OpenSession() => OpenSession(TaskScheduler.Default);
+
+    /// <summary>A session on the calling thread (what <see cref="RunAsync{T}(Func{ICollisionSession, T}, TaskScheduler, CancellationToken)"/> hands its work).</summary>
+    /// <param name="workerScheduler">Where the session's concurrent convex builds queue.</param>
     /// <returns>The session.</returns>
     /// <remarks>
     /// The session can also build brush convexes on several threads at once
     /// (<see cref="IConcurrentConvexSession"/>): its workers take their builders from this
-    /// cooker's per-thread scratch and queue on <see cref="Scheduler"/>, so they count against the
-    /// same thread budget as the cooks themselves.
+    /// cooker's per-thread scratch and queue on <paramref name="workerScheduler"/>, so they
+    /// count against the same thread budget as the cooks themselves.
     /// </remarks>
-    public ICollisionSession OpenSession() =>
-        new ManagedCollisionSession(Build(), _surfaceProps)
+    public ICollisionSession OpenSession(TaskScheduler workerScheduler)
+    {
+        ArgumentNullException.ThrowIfNull(workerScheduler);
+        return new ManagedCollisionSession(Build(), _surfaceProps)
         {
             FixPolysoupMaterialWalk = _fixPolysoupMaterialWalk,
             WorkerBuilds = Build,
-            WorkerScheduler = Scheduler,
+            WorkerScheduler = workerScheduler,
         };
+    }
 
     private IIvpBuild Build()
     {
@@ -187,6 +240,18 @@ public sealed class ManagedCollisionCooker : ICollisionCooker, IDisposable
     {
         Dispose();
         return ValueTask.CompletedTask;
+    }
+
+    // One compile's view of the cooker (On): its calls on that compile's scheduler.
+    private sealed class ScheduledCooker(ManagedCollisionCooker owner, TaskScheduler scheduler) : ICollisionCooker
+    {
+        public string CookerIdentity => owner.CookerIdentity;
+
+        public Task<T> RunAsync<T>(Func<ICollisionSession, T> work, CancellationToken cancellationToken = default) =>
+            owner.RunAsync(work, scheduler, cancellationToken);
+
+        // The cooker is the host's; a compile's view of it owns nothing.
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
 
