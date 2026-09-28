@@ -567,6 +567,99 @@ public sealed class LevelLinkerRelocationTests
     }
 
     /// <summary>
+    /// An original face's texinfo is not trusted. vbsp compacts the texinfo
+    /// table after the faces are written and renumbers the drawn faces, the
+    /// brush sides and the water data, but not the original faces: a room
+    /// with a player clip or a grate (whose side texinfos compaction folds
+    /// away) carries original faces whose texinfo is past the end of its
+    /// table, which this fact stands in for by moving every original face's
+    /// texinfo past it. The plug's original faces are
+    /// found through the stripped drawn faces that name them, and take their
+    /// nodraw texinfo; reading the stale index used to throw
+    /// <see cref="IndexOutOfRangeException"/> out of the link.
+    /// </summary>
+    [Fact]
+    public async Task AStaleOriginalFaceTexinfoDoesNotDecideWhichFacesAreThePlug()
+    {
+        RoomLibrary compiled = await RoomHarness.LibraryAsync(false, RoomHarness.Hub());
+        RoomObject stale = RoomHarness.WithLumps(compiled.Get("hub"), bsp =>
+        {
+            int past = BspStructView.Count<TexInfo>(bsp[BspLump.TexInfo]) + 7;
+            DFace[] faces = BspStructView.As<DFace>(bsp[BspLump.OriginalFaces]).ToArray();
+            for (int f = 0; f < faces.Length; f++)
+            {
+                faces[f].TexInfo = (short)past;
+            }
+
+            bsp.SetLump(BspLump.OriginalFaces, BspStructView.ToLump<DFace>(faces, 0).Data);
+        });
+        RoomLibrary library = RoomHarness.Library(stale);
+        int roomTexInfos = BspStructView.Count<TexInfo>(stale.Bsp[BspLump.TexInfo]);
+        LinkedLevel link = await LevelLinker.LinkAsync(
+            RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, 0)), library, await RoomHarness.ContextAsync());
+
+        // The original faces of the stripped plug faces are drawn nodraw
+        // through a texinfo that exists; every other original face keeps its
+        // relocated index, stale as it came.
+        TexInfo[] infos = BspStructView.As<TexInfo>(link.Bsp[BspLump.TexInfo]).ToArray();
+        DFace[] drawn = BspStructView.As<DFace>(link.Bsp[BspLump.Faces]).ToArray();
+        DFace[] originals = BspStructView.As<DFace>(link.Bsp[BspLump.OriginalFaces]).ToArray();
+        HashSet<int> plugOriginals = [.. drawn
+            .Where(f => (infos[f.TexInfo].Flags & (int)(SurfaceFlags.Trigger | SurfaceFlags.NoDraw))
+                == (int)(SurfaceFlags.Trigger | SurfaceFlags.NoDraw))
+            .Select(f => f.OrigFace)];
+        Assert.Equal(2, plugOriginals.Count); // one plug face on each side of the one joint
+        for (int o = 0; o < originals.Length; o++)
+        {
+            if (plugOriginals.Contains(o))
+            {
+                Assert.InRange(originals[o].TexInfo, 0, infos.Length - 1);
+                Assert.Equal(
+                    (int)(SurfaceFlags.Trigger | SurfaceFlags.NoDraw),
+                    infos[originals[o].TexInfo].Flags & (int)(SurfaceFlags.Trigger | SurfaceFlags.NoDraw));
+            }
+            else
+            {
+                int room = o < originals.Length / 2 ? 0 : 1;
+                Assert.Equal(roomTexInfos + 7 + (room * roomTexInfos), originals[o].TexInfo);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A stripped drawn face that names no original face (<c>OrigFace</c> -1)
+    /// strips none, and every original face keeps its relocated texinfo.
+    /// </summary>
+    [Fact]
+    public async Task APlugFaceWithNoOriginalFaceStripsNone()
+    {
+        RoomLibrary compiled = await RoomHarness.LibraryAsync(false, RoomHarness.Hub());
+        RoomObject orphan = RoomHarness.WithLumps(compiled.Get("hub"), bsp =>
+        {
+            DFace[] faces = BspStructView.As<DFace>(bsp[BspLump.Faces]).ToArray();
+            for (int f = 0; f < faces.Length; f++)
+            {
+                faces[f].OrigFace = -1;
+            }
+
+            bsp.SetLump(BspLump.Faces, BspStructView.ToLump<DFace>(faces, bsp[BspLump.Faces].Version).Data);
+        });
+        RoomLibrary library = RoomHarness.Library(orphan);
+        LinkedLevel link = await LevelLinker.LinkAsync(
+            RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, 0)), library, await RoomHarness.ContextAsync());
+
+        int roomTexInfos = BspStructView.Count<TexInfo>(orphan.Bsp[BspLump.TexInfo]);
+        DFace[] room = BspStructView.As<DFace>(orphan.Bsp[BspLump.OriginalFaces]).ToArray();
+        DFace[] originals = BspStructView.As<DFace>(link.Bsp[BspLump.OriginalFaces]).ToArray();
+        Assert.Equal(2 * room.Length, originals.Length);
+        for (int o = 0; o < originals.Length; o++)
+        {
+            int copy = o / room.Length;
+            Assert.Equal(room[o % room.Length].TexInfo + (copy * roomTexInfos), originals[o].TexInfo);
+        }
+    }
+
+    /// <summary>
     /// Every linked texdata names its room's material: the string table is
     /// int offsets into the concatenated string data, one per texdata. Read
     /// as ushort pairs it both miscounts the table (so the second room's
