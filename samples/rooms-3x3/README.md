@@ -81,11 +81,9 @@ grid:                        # first line = the NORTH row
 ```
 
 A cell is a room's name, optionally `@` and its rotation in degrees
-counter-clockwise seen from above (0, 90, 180 or 270), or `@` for no room.
-A bare `@` is the whole cell, so it cannot be mistaken for a room with a
-rotation. (YAML reserves `@` at the start of a plain value; ssmap's reader
-accepts it bare, and a strict YAML tool is satisfied by `'@'`, which reads
-the same.)
+counter-clockwise seen from above (0, 90, 180 or 270), or `~` for no room.
+(`-` would read better, but YAML takes a `-` inside brackets for a
+sequence entry, so `~`, YAML's own "nothing", it is.)
 
 Joints are never written. Two sockets that face each other across a shared
 wall are joined; every other socket, facing an empty cell, the grid's edge

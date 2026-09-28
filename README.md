@@ -293,12 +293,12 @@ library: ../rooms.vmf        # the room library, relative to this file
 rows: 2                      # south to north
 columns: 3                   # west to east
 grid:                        # the NORTH row first, as a map is drawn
-  - [end@270, hall@90, @]
+  - [end@270, hall@90, ~]
   - [tee,     cross,   corner@180]
 ```
 
 A cell is a room's name, optionally `@` and a rotation in degrees
-counter-clockwise seen from above (0, 90, 180 or 270), or `@` for no room.
+counter-clockwise seen from above (0, 90, 180 or 270), or `~` for no room.
 Joints are implicit: two sockets facing each other across a shared wall are
 joined, and every other socket is capped. Every refusal of a level file
 names its line and column.

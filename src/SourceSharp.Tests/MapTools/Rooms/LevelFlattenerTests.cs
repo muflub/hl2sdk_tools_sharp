@@ -109,10 +109,10 @@ public sealed class LevelFlattenerTests
         Assert.Equal("line 5, column 11: the level places room \"attic\", which is not in the room library.", unknown.Message);
 
         Assert.Throws<ArgumentException>(
-            () => LevelFlattener.Flatten(LevelYaml.Parse(RoomHarness.LevelText("x", "@"), "l"), library));
+            () => LevelFlattener.Flatten(LevelYaml.Parse(RoomHarness.LevelText("x", "~"), "l"), library));
 
         RoomLintException island = Assert.Throws<RoomLintException>(
-            () => LevelFlattener.Flatten(LevelYaml.Parse(RoomHarness.LevelText("x", "hub, @, hub"), "l"), library));
+            () => LevelFlattener.Flatten(LevelYaml.Parse(RoomHarness.LevelText("x", "hub, ~, hub"), "l"), library));
         Assert.Contains("rule 6 (EveryRoomReachable)", island.Message, StringComparison.Ordinal);
 
         Assert.Throws<RoomLibraryException>(

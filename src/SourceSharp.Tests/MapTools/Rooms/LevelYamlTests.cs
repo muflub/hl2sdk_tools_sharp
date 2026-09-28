@@ -24,7 +24,7 @@ public sealed class LevelYamlTests
         columns: 2
         grid:
           - [end@270, hall@90]   # north row
-          - [tee,     @]
+          - [tee,     ~]
           - [corner@180, cross]  # south row
         """;
 
@@ -32,7 +32,7 @@ public sealed class LevelYamlTests
 
     /// <summary>
     /// Every key reads: the library as written, the counts, and the grid
-    /// with its first line as the NORTH row, <c>@</c> as no room, and
+    /// with its first line as the NORTH row, <c>~</c> as no room, and
     /// <c>@degrees</c> as quarter turns; each cell remembers where it was
     /// written.
     /// </summary>
@@ -70,7 +70,7 @@ public sealed class LevelYamlTests
               -
                 - "end@270"
                 - 'hall@90'
-              - [tee, "@"]
+              - [tee, "~"]
               - [corner@180, salle-é]
             columns: 2
             rows: 3
@@ -102,7 +102,7 @@ public sealed class LevelYamlTests
         Assert.Equal(
             "# one\n# two\nlibrary: ../rooms.vmf\nrows: 3\ncolumns: 2\ngrid:\n"
             + "  - [end@270,    hall@90]\n"
-            + "  - [tee,        @]\n"
+            + "  - [tee,        ~]\n"
             + "  - [corner@180, cross]\n",
             text);
         AssertSame(level, LevelYaml.Parse(text, "sample"));
@@ -155,7 +155,7 @@ public sealed class LevelYamlTests
     [InlineData("library: l\nrows: 2\ncolumns: 1\ngrid: [[a]]\n", 4, 7, "grid has 1 row(s); rows says 2")]
     [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - a\n", 5, 5, "row 1 of grid is not a sequence of cells")]
     [InlineData("library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [a]\n", 5, 5, "row 1 of grid has 1 cell(s); columns says 2")]
-    [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - [[a]]\n", 5, 6, "a cell is a room name, name@rotation, or @ for no room")]
+    [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - [[a]]\n", 5, 6, "a cell is a room name, name@rotation, or ~ for no room")]
     [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - [a@45]\n", 5, 6, "the rotation \"45\" of \"a@45\" is not 0, 90, 180 or 270 degrees")]
     [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - [a@360]\n", 5, 6, "the rotation \"360\"")]
     [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - [a@-90]\n", 5, 6, "the rotation \"-90\"")]
@@ -163,8 +163,7 @@ public sealed class LevelYamlTests
     [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - [a@ninety]\n", 5, 6, "the rotation \"ninety\"")]
     [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - [@90]\n", 5, 6, "the room name \"\" is empty")]
     [InlineData("library: l\nrows: 1\ncolumns: 1\ngrid:\n  - [my room]\n", 5, 6, "the room name \"my room\" contains 'U+0020'")]
-    [InlineData("library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [a, -]\n", 5, 9, "(an empty cell is written @, not -)")]
-    [InlineData("library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [a, ~]\n", 5, 9, "~ is not a cell; an empty cell is written @")]
+    [InlineData("library: l\nrows: 1\ncolumns: 2\ngrid:\n  - [a, -]\n", 5, 9, "(an empty cell is written ~, not -)")]
     public void ABadLevelIsRefusedWhereItIs(string text, int line, int column, string problem)
     {
         LevelFileException refused = Assert.Throws<LevelFileException>(() => LevelYaml.Parse(text, "l"));
@@ -193,7 +192,7 @@ public sealed class LevelYamlTests
     {
         Assert.Equal(string.Empty, LevelYaml.DashHint("a: [-]", 0));
         Assert.Equal(string.Empty, LevelYaml.DashHint("a: [-]", 2));
-        Assert.Equal(" (an empty cell is written @, not -)", LevelYaml.DashHint("a: [-]", 1));
+        Assert.Equal(" (an empty cell is written ~, not -)", LevelYaml.DashHint("a: [-]", 1));
         Assert.Equal("plain words", LevelYaml.Plain(new YamlDotNet.Core.YamlException("plain words")));
         Assert.Equal("(Line: 1", LevelYaml.Plain(new YamlDotNet.Core.YamlException("(Line: 1")));
     }
@@ -202,7 +201,7 @@ public sealed class LevelYamlTests
     {
         Assert.Equal((expected.Library, expected.Rows, expected.Columns), (actual.Library, actual.Rows, actual.Columns));
         Assert.Equal(
-            expected.Cells.Select(c => c is null ? "@" : $"{c.Room}@{c.Rotation}"),
-            actual.Cells.Select(c => c is null ? "@" : $"{c.Room}@{c.Rotation}"));
+            expected.Cells.Select(c => c is null ? "~" : $"{c.Room}@{c.Rotation}"),
+            actual.Cells.Select(c => c is null ? "~" : $"{c.Room}@{c.Rotation}"));
     }
 }

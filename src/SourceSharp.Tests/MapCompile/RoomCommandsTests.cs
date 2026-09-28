@@ -341,7 +341,7 @@ public sealed class RoomCommandsTests
                 AddLevel(fs, "/levels/level.yaml", "hub");
                 break;
             case "no rooms":
-                AddLevel(fs, "/levels/level.yaml", "@");
+                AddLevel(fs, "/levels/level.yaml", "~");
                 break;
         }
 
@@ -375,7 +375,7 @@ public sealed class RoomCommandsTests
         InMemoryFileSystem fs = Game(Hub);
         using StringWriter output = new();
         Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output));
-        AddLevel(fs, "/levels/island.yaml", "hub, @, hub", library: "../game/maps/rooms.vmf");
+        AddLevel(fs, "/levels/island.yaml", "hub, ~, hub", library: "../game/maps/rooms.vmf");
 
         using StringWriter link = new();
         Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/island.yaml", "-rooms", "/rooms"], link));
@@ -500,7 +500,7 @@ public sealed class RoomCommandsTests
         Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/game/levels/level.yaml", "--flatten"], output));
         Assert.Contains("line 5, column 11: the level places room \"attic\", which is not in the room library", output.ToString(), StringComparison.Ordinal);
 
-        AddLevel(fs, "/game/levels/empty.yaml", "@", library: "../maps/rooms.vmf");
+        AddLevel(fs, "/game/levels/empty.yaml", "~", library: "../maps/rooms.vmf");
         using StringWriter empty = new();
         Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/game/levels/empty.yaml", "--flatten"], empty));
         Assert.Contains("A level places at least one room", empty.ToString(), StringComparison.Ordinal);

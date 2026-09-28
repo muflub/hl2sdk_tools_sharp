@@ -54,11 +54,11 @@ public sealed class LevelFileException : Exception
 /// columns: 3                   # columns, west to east
 /// grid:                        # one line per row, NORTH row first, as a map is drawn
 ///   - [end@270,   hall@90,  corner@270]
-///   - [tee@270,   cross,    @]
+///   - [tee@270,   cross,    ~]
 ///   - [corner@90, corner,   corner@90]
 /// </code>
 /// <para>
-/// A cell is <c>@</c> for no room, or a room's library name, optionally
+/// A cell is <c>~</c> for no room, or a room's library name, optionally
 /// followed by <c>@</c> and its rotation in degrees counter-clockwise seen
 /// from above: <c>0</c>, <c>90</c>, <c>180</c> or <c>270</c>. The grid is
 /// written the way the level looks from above with north up, so its first
@@ -68,14 +68,11 @@ public sealed class LevelFileException : Exception
 /// other socket is capped (<see cref="LevelGrid.ToLayout"/>).
 /// </para>
 /// <para>
-/// <b>Why <c>@</c> for an empty cell</b>: the owner's choice. It is a bare
-/// <c>@</c> on its own; a cell that has a name before the <c>@</c> is a room
-/// and its rotation, so the two cannot be confused. YAML reserves <c>@</c> at
-/// the start of a plain value, but YamlDotNet reads it as the value
-/// <c>@</c>, and a strict tool can be satisfied by quoting it
-/// (<c>'@'</c>), which reads the same. A bare <c>-</c> is refused by YAML
-/// itself inside a row's brackets, and <c>~</c> is YAML's null; a file that
-/// writes either gets a hint to write <c>@</c>.
+/// <b>Why <c>~</c> for an empty cell</b>: it is YAML's own spelling of
+/// "nothing", and it is a plain value inside a flow sequence. A bare
+/// <c>-</c>, which might read better, is not: YAML reads a <c>-</c> there as
+/// a sequence indicator, and a standard reader refuses the row. A file that
+/// tries it gets that refusal with a hint to write <c>~</c>.
 /// </para>
 /// <para>
 /// <b>Reading</b> uses YamlDotNet's representation model, a standard YAML
@@ -108,7 +105,7 @@ public static class LevelYaml
     public const string GridKey = "grid";
 
     /// <summary>The cell that holds no room.</summary>
-    public const string Empty = "@";
+    public const string Empty = "~";
 
     /// <summary>The largest grid a level file may describe, in cells: a guard, not a format limit.</summary>
     public const int MaxCells = 4096;
@@ -234,7 +231,7 @@ public static class LevelYaml
             int y = rowCount - 1 - line;
             if (rowNode is not YamlSequenceNode row)
             {
-                throw At(rowNode, $"row {line + 1} of {GridKey} is not a sequence of cells, like [cross, tee@90, @].");
+                throw At(rowNode, $"row {line + 1} of {GridKey} is not a sequence of cells, like [cross, tee@90, ~].");
             }
 
             if (row.Children.Count != columnCount)
@@ -313,19 +310,13 @@ public static class LevelYaml
     {
         if (node is not YamlScalarNode scalar)
         {
-            throw At(node, "a cell is a room name, name@rotation, or @ for no room.");
+            throw At(node, "a cell is a room name, name@rotation, or ~ for no room.");
         }
 
         string token = scalar.Value ?? string.Empty;
         if (token == Empty)
         {
             return null;
-        }
-
-        if (token == "~")
-        {
-            // YAML's null, and what an earlier draft of this format used.
-            throw At(scalar, $"~ is not a cell; an empty cell is written {Empty}.");
         }
 
         int at = token.IndexOf('@', StringComparison.Ordinal);

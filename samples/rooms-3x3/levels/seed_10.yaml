@@ -5,5 +5,5 @@ rows: 3
 columns: 3
 grid:
   - [tee, cross,     cross@90]
-  - [@,   tee@270,   cross@270]
-  - [@,   cross@270, tee@90]
+  - [~,   tee@270,   cross@270]
+  - [~,   cross@270, tee@90]
