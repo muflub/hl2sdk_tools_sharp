@@ -37,19 +37,24 @@ internal static class ManagedTrace
     /// <summary>The leaf convexes of a surface, placed by a transform (null for identity).</summary>
     /// <param name="surface">The compact surface.</param>
     /// <param name="placement">Where the collide sits, or null.</param>
+    /// <param name="hulls">
+    /// The calling thread's qhull storage (its cook context's), which the hull of every leaf is
+    /// built with. A static prop's leaf tests build one hull per leaf per query, so without it
+    /// these queries allocated more qhull objects than all the cooking did.
+    /// </param>
     /// <returns>The convexes.</returns>
-    public static List<Convex> Convexes(ReadOnlySpan<byte> surface, InstanceTransform? placement)
+    public static List<Convex> Convexes(ReadOnlySpan<byte> surface, InstanceTransform? placement, Qhull.QhullSession hulls)
     {
         var list = new List<Convex>();
         foreach (IvpCompactLedge ledge in IvpCollideQueries.Leaves(surface))
         {
-            list.Add(ConvexOf(ledge, placement));
+            list.Add(ConvexOf(ledge, placement, hulls));
         }
 
         return list;
     }
 
-    private static Convex ConvexOf(IvpCompactLedge ledge, InstanceTransform? placement)
+    private static Convex ConvexOf(IvpCompactLedge ledge, InstanceTransform? placement, Qhull.QhullSession hulls)
     {
         int n = ledge.PointCount;
         double[][] points = new double[n][];
@@ -100,7 +105,7 @@ internal static class ManagedTrace
             planes[t] = (nn, d);
         }
 
-        (double[] N, double D)[]? hull = HullPlanes(points);
+        (double[] N, double D)[]? hull = HullPlanes(points, hulls);
         return new Convex { Points = points, Planes = hull ?? planes, Flat = hull is null };
     }
 
@@ -109,7 +114,7 @@ internal static class ManagedTrace
     /// IVP ledges are not exactly the intersection of their triangles' planes (a point may sit a
     /// little outside a face), and the native trace works on the points, so the hull is the solid.
     /// </summary>
-    private static (double[] N, double D)[]? HullPlanes(double[][] points)
+    private static (double[] N, double D)[]? HullPlanes(double[][] points, Qhull.QhullSession hulls)
     {
         if (points.Length < 4)
         {
@@ -124,7 +129,7 @@ internal static class ManagedTrace
             xyz[(3 * i) + 2] = points[i][2];
         }
 
-        Qhull.QhullResult hull = Qhull.QhullBuilder.Build(xyz, "qhull Pp");
+        Qhull.QhullResult hull = hulls.Build(xyz, "qhull Pp");
         if (hull.ExitCode != 0 || hull.Facets.Count < 4)
         {
             return null;
@@ -188,13 +193,13 @@ internal static class ManagedTrace
     }
 
     /// <summary>A ray (zero-extent <c>TraceBox</c>) against a surface's leaves.</summary>
-    public static CollisionTrace Ray(ReadOnlySpan<byte> surface, InstanceTransform? placement, Vec3 start, Vec3 end)
+    public static CollisionTrace Ray(ReadOnlySpan<byte> surface, InstanceTransform? placement, Vec3 start, Vec3 end, Qhull.QhullSession hulls)
     {
         double best = 1;
         double[]? bestNormal = null;
         bool startSolid = false, allSolid = false;
         double[][] segment = [[start.X, start.Y, start.Z], [end.X, end.Y, end.Z]];
-        foreach (Convex c in Convexes(surface, placement))
+        foreach (Convex c in Convexes(surface, placement, hulls))
         {
             if (c.Flat ? !ConvexGeometry.Intersect(segment, c.Points) : Clip(c, start, end) is null)
             {
@@ -266,7 +271,7 @@ internal static class ManagedTrace
     /// <c>CPhysCollideCompactSurface::ComputeOrthographicAreas</c>: the
     /// fraction of a grid of axis rays, <c>sqrt(epsilon)</c> apart, that hit the solid.
     /// </summary>
-    public static (float X, float Y, float Z) OrthographicAreas(ReadOnlySpan<byte> surface, float epsilon, bool doublePrecision)
+    public static (float X, float Y, float Z) OrthographicAreas(ReadOnlySpan<byte> surface, float epsilon, bool doublePrecision, Qhull.QhullSession hulls)
     {
         ((float X, float Y, float Z) mn, (float X, float Y, float Z) mx) = IvpCollideQueries.SurfaceAabb(surface);
         float[] mins = [mn.X, mn.Y, mn.Z];
@@ -277,7 +282,7 @@ internal static class ManagedTrace
             side = 1e-4f;
         }
 
-        var tree = new LedgeTree(surface, doublePrecision);
+        var tree = new LedgeTree(surface, doublePrecision, hulls);
         float[] areas = [1f, 1f, 1f];
         float halfSide = (float)(side * 0.5);
         for (int axis = 0; axis < 3; axis++)
@@ -333,13 +338,13 @@ internal static class ManagedTrace
         private readonly bool _double;
         private readonly Dictionary<int, Convex> _leaves = [];
 
-        public LedgeTree(ReadOnlySpan<byte> surface, bool doublePrecision)
+        public LedgeTree(ReadOnlySpan<byte> surface, bool doublePrecision, Qhull.QhullSession hulls)
         {
             _surface = surface.ToArray();
             _double = doublePrecision;
             foreach (int at in IvpCollideQueries.LeafOffsets(_surface))
             {
-                _leaves[at] = ConvexOf(IvpCollideQueries.LedgeAt(_surface, at), null);
+                _leaves[at] = ConvexOf(IvpCollideQueries.LedgeAt(_surface, at), null, hulls);
             }
         }
 

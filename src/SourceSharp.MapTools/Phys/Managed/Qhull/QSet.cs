@@ -41,6 +41,47 @@ internal sealed class QSet<T> where T : class
         n = 0;
     }
 
+    /// <summary>
+    /// qh_setnew through a build's storage: a set from <paramref name="pool"/> when there is
+    /// one (qhull's qh_memalloc from the set freelist), a fresh one otherwise.
+    /// </summary>
+    /// <param name="setsize">The capacity asked for.</param>
+    /// <param name="pool">The build's reused storage, or null to allocate.</param>
+    /// <returns>An empty set whose every slot is null.</returns>
+    internal static QSet<T> New(int setsize, QhPool? pool) =>
+        pool != null ? pool.Sets<T>().Take(setsize) : new QSet<T>(setsize);
+
+    /// <summary>
+    /// Makes a pooled set what <see cref="QSet{T}(int)"/> would have built: size 0 and every
+    /// slot null, with room for at least <paramref name="setsize"/> elements.
+    /// </summary>
+    /// <param name="setsize">The capacity asked for.</param>
+    /// <param name="slackLimit">
+    /// The largest array kept when it is much bigger than asked for; above it (and above twice
+    /// the request) the array is replaced, so that clearing a reused set never costs much more
+    /// than zeroing a fresh one would, and one huge hull does not leave a huge array in a slot
+    /// that later builds use for small sets.
+    /// </param>
+    /// <remarks>
+    /// The whole array is cleared, not only the first <see cref="n"/> slots: the port writes
+    /// past the size in places (qh_makenew_simplicial fills a neighbor set before truncating it,
+    /// qh_setdelnthsorted copies the terminator down), and qhull reads the slot after the
+    /// terminator of an empty set (<see cref="Second"/>). A fresh array is all null, so a reused
+    /// one must be too. Only the capacity can differ from a fresh set, and the capacity never
+    /// changes element order (see the class remarks).
+    /// </remarks>
+    internal void Reuse(int setsize, int slackLimit)
+    {
+        if (setsize == 0)
+            setsize++;
+        int want = setsize + 1;
+        if (e.Length < want || e.Length > Math.Max(slackLimit, 2 * want))
+            e = new T?[want];
+        else
+            Array.Clear(e);
+        n = 0;
+    }
+
     private void Reserve(int size)
     {
         if (size + 1 > e.Length)
@@ -64,11 +105,11 @@ internal sealed class QSet<T> where T : class
     internal static bool Empty(QSet<T>? set) => set == null || set.e[0] == null;
 
     /// <summary>qh_setappend: appends elem (a NULL elem is ignored).</summary>
-    internal static void Append(ref QSet<T>? setp, T? newelem)
+    internal static void Append(ref QSet<T>? setp, T? newelem, QhPool? pool)
     {
         if (newelem == null)
             return;
-        setp ??= new QSet<T>(3);
+        setp ??= New(3, pool);
         QSet<T> s = setp;
         s.Reserve(s.n + 1);
         s.e[s.n++] = newelem;
@@ -86,12 +127,12 @@ internal sealed class QSet<T> where T : class
     }
 
     /// <summary>qh_setappend_set: appends all elements of setA (including NULL holes).</summary>
-    internal static void AppendSet(ref QSet<T>? setp, QSet<T>? setA)
+    internal static void AppendSet(ref QSet<T>? setp, QSet<T>? setA, QhPool? pool)
     {
         if (setA == null)
             return;
         int sizeA = setA.n;
-        setp ??= new QSet<T>(sizeA);
+        setp ??= New(sizeA, pool);
         QSet<T> s = setp;
         int size = s.n;
         s.Reserve(size + sizeA);
@@ -102,9 +143,9 @@ internal sealed class QSet<T> where T : class
     }
 
     /// <summary>qh_setappend2ndlast: inserts newelem before the last element.</summary>
-    internal static void Append2ndLast(ref QSet<T>? setp, T newelem)
+    internal static void Append2ndLast(ref QSet<T>? setp, T newelem, QhPool? pool)
     {
-        setp ??= new QSet<T>(3);
+        setp ??= New(3, pool);
         QSet<T> s = setp;
         if (s.n == 0)
             throw new InvalidOperationException("qh_setappend2ndlast on an empty set");
@@ -116,9 +157,9 @@ internal sealed class QSet<T> where T : class
     }
 
     /// <summary>qh_setaddnth: inserts newelem at index nth, shifting the tail up.</summary>
-    internal static void AddNth(ref QSet<T>? setp, int nth, T newelem)
+    internal static void AddNth(ref QSet<T>? setp, int nth, T newelem, QhPool? pool)
     {
-        setp ??= new QSet<T>(3);
+        setp ??= New(3, pool);
         QSet<T> s = setp;
         int oldsize = s.n;
         if (nth < 0 || nth > oldsize)
@@ -147,11 +188,11 @@ internal sealed class QSet<T> where T : class
     }
 
     /// <summary>qh_setcopy</summary>
-    internal QSet<T> Copy(int extra)
+    internal QSet<T> Copy(int extra, QhPool? pool)
     {
         if (extra < 0)
             extra = 0;
-        var newset = new QSet<T>(n + extra);
+        var newset = New(n + extra, pool);
         Array.Copy(e, 0, newset.e, 0, n + 1);
         newset.n = n;
         return newset;
@@ -339,13 +380,13 @@ internal sealed class QSet<T> where T : class
     }
 
     /// <summary>qh_setnew_delnthsorted: new set of the first size elements without the nth, prepend slots left empty.</summary>
-    internal QSet<T> NewDelNthSorted(int size, int nth, int prepend)
+    internal QSet<T> NewDelNthSorted(int size, int nth, int prepend, QhPool? pool)
     {
         int tailsize = size - nth - 1;
         if (tailsize < 0)
             throw new QhullExit(QhConst.qhmem_ERRqhull);
         int newsize = size - 1 + prepend;
-        var newset = new QSet<T>(newsize);
+        var newset = New(newsize, pool);
         newset.n = newsize;
         int newp = prepend;
         int oldp = 0;
@@ -380,11 +421,11 @@ internal sealed class QSet<T> where T : class
     }
 
     /// <summary>qh_setunique</summary>
-    internal static bool Unique(ref QSet<T>? set, T elem)
+    internal static bool Unique(ref QSet<T>? set, T elem, QhPool? pool)
     {
         if (!In(set, elem))
         {
-            Append(ref set, elem);
+            Append(ref set, elem, pool);
             return true;
         }
         return false;

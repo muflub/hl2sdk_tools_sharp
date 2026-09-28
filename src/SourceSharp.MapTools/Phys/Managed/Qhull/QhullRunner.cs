@@ -17,6 +17,9 @@ internal sealed class QhullRunner : IQhullRunner
     private readonly QhullSession session = new();
     private QhullResult? last;
 
+    /// <summary>The storage this runner builds with, for the context to share with its other qhull users.</summary>
+    internal QhullSession Session => session;
+
     /// <inheritdoc/>
     public int FacetCount => last?.Facets.Count ?? 0;
 

@@ -366,7 +366,7 @@ internal sealed partial class Qh
         WAScoplanar = false;
         if (ZEROcentrum)
             ZEROall_ok = true;
-        QSet<double[]>? set = new QSet<double[]>(2 * dimension);
+        QSet<double[]>? set = QSet<double[]>.New(2 * dimension, pool);
         for (int k = 0; k < dimension; k++)
         {
             // GOODpointp is not ported ('QGn')
@@ -396,8 +396,8 @@ internal sealed partial class Qh
             if (MAXabs_coord < maxcoord)
                 MAXabs_coord = maxcoord;
             MAXsumcoord += maxcoord;
-            QSet<double[]>.Append(ref set, maximum);
-            QSet<double[]>.Append(ref set, minimum);
+            QSet<double[]>.Append(ref set, maximum, pool);
+            QSet<double[]>.Append(ref set, minimum, pool);
             NEARzero[k] = (80 * REALepsilon) * MAXsumcoord; // reference order: folded constant
         }
         return set!;
@@ -454,9 +454,9 @@ internal sealed partial class Qh
                     }
                 }
             }
-            QSet<double[]>.Unique(ref simplex, minx!);
+            QSet<double[]>.Unique(ref simplex, minx!, pool);
             if (QSet<double[]>.Size(simplex) < 2)
-                QSet<double[]>.Unique(ref simplex, maxx!);
+                QSet<double[]>.Unique(ref simplex, maxx!, pool);
             sizinit = QSet<double[]>.Size(simplex);
             if (sizinit < 2)
             {
@@ -506,7 +506,7 @@ internal sealed partial class Qh
             }
             if (maxpoint == null)
                 throw qh_errexit(qh_ERRqhull, null, null);
-            QSet<double[]>.Append(ref simplex, maxpoint);
+            QSet<double[]>.Append(ref simplex, maxpoint, pool);
         }
     }
 

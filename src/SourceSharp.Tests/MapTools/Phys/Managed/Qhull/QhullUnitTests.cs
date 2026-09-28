@@ -78,7 +78,7 @@ public class QhullUnitTests
         var v = new[] { new Vertex { id = 9 }, new Vertex { id = 7 }, new Vertex { id = 4 } };
         QSet<Vertex>? s = new QSet<Vertex>(3);
         foreach (var x in v)
-            QSet<Vertex>.Append(ref s, x);
+            QSet<Vertex>.Append(ref s, x, null);
         Assert.Equal(4u % 11, Qh.qh_gethash(11, s!, 3, 1, v[1]));
         Assert.Equal(7u % 11, Qh.qh_gethash(11, s!, 3, 1, v[2]));
     }
@@ -94,9 +94,9 @@ public class QhullUnitTests
         var c = new Vertex { id = 1 };
         QSet<Vertex>? A = new QSet<Vertex>(3), B = new QSet<Vertex>(3);
         foreach (var x in new[] { apex, a, b })
-            QSet<Vertex>.Append(ref A, x);
+            QSet<Vertex>.Append(ref A, x, null);
         foreach (var x in new[] { apex2, b, c })
-            QSet<Vertex>.Append(ref B, x);
+            QSet<Vertex>.Append(ref B, x, null);
         Assert.True(Qh.qh_matchvertices(1, A!, 1, B!, out int skipB, out bool same));
         Assert.Equal(2, skipB);
         Assert.False(same);

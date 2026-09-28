@@ -83,6 +83,14 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
 
     private nint NextHandle() => _next += 16;
 
+    /// <summary>
+    /// The qhull storage of the thread this session was opened on (its builders' context), which
+    /// the geometric queries build their leaf hulls with. Sessions are used on the thread that
+    /// opened them (the cooker runs each unit of work synchronously there), which is what makes
+    /// sharing the thread's storage with the builders safe.
+    /// </summary>
+    private Qhull.QhullSession Hulls => _build.Context.Hulls;
+
     private ConvexHandle Add(IvpCompactLedge? ledge)
     {
         if (ledge is null)
@@ -359,7 +367,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
         var collide = ManagedCollide.FromSurface(surface);
         if (parameters.BuildDragAxisAreas)
         {
-            collide.OrthoAreas = ManagedTrace.OrthographicAreas(surface, parameters.DragAreaEpsilon, _build.IsDouble);
+            collide.OrthoAreas = ManagedTrace.OrthographicAreas(surface, parameters.DragAreaEpsilon, _build.IsDouble, Hulls);
         }
 
         return Add(collide);
@@ -404,7 +412,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
 
         Vec3 best = origin;
         float bestDot = float.NegativeInfinity;
-        foreach (ManagedTrace.Convex c in ManagedTrace.Convexes(surface, t))
+        foreach (ManagedTrace.Convex c in ManagedTrace.Convexes(surface, t, Hulls))
         {
             foreach (double[] p in c.Points)
             {
@@ -432,7 +440,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
 
         float x0 = float.MaxValue, y0 = float.MaxValue, z0 = float.MaxValue;
         float x1 = -float.MaxValue, y1 = -float.MaxValue, z1 = -float.MaxValue;
-        foreach (ManagedTrace.Convex c in ManagedTrace.Convexes(surface, t))
+        foreach (ManagedTrace.Convex c in ManagedTrace.Convexes(surface, t, Hulls))
         {
             foreach (double[] p in c.Points)
             {
@@ -489,7 +497,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
                 "the managed cooker traces rays only (TraceBox with zero extents); vbsp's path never sweeps a box");
         }
 
-        return ManagedTrace.Ray(Collide(collide).RequireSurface(), Placement(origin, angles), start, end);
+        return ManagedTrace.Ray(Collide(collide).RequireSurface(), Placement(origin, angles), start, end, Hulls);
     }
 
     /// <inheritdoc/>
@@ -501,8 +509,8 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
                 "the managed cooker answers zero-length TraceCollide (an overlap test) only; vbsp's path never sweeps a collide");
         }
 
-        List<ManagedTrace.Convex> a = ManagedTrace.Convexes(Collide(sweep).RequireSurface(), Placement(start, sweepAngles));
-        List<ManagedTrace.Convex> b = ManagedTrace.Convexes(Collide(collide).RequireSurface(), Placement(origin, angles));
+        List<ManagedTrace.Convex> a = ManagedTrace.Convexes(Collide(sweep).RequireSurface(), Placement(start, sweepAngles), Hulls);
+        List<ManagedTrace.Convex> b = ManagedTrace.Convexes(Collide(collide).RequireSurface(), Placement(origin, angles), Hulls);
         bool overlap = ManagedTrace.Overlaps(a, b);
         return new CollisionTrace(start, end, default, overlap ? 0f : 1f, overlap, overlap);
     }
