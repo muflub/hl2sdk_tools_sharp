@@ -354,11 +354,14 @@ right.
 
 Each function first evaluates in double precision with a bounded error and
 rounds when the whole error band rounds to one value. For about one float
-result in a million, and for every double result, it falls back to
-arbitrary-precision interval arithmetic, which always decides. A float
-function costs a small multiple of `MathF`'s; a double function costs tens of
-microseconds, which is why the per-luxel gamma uses `DetMath.PowToSingle`
-(the bits of `(float)DetMath.Pow`, at float cost). A fact scans the built
+result in a million it falls back to arbitrary-precision interval
+arithmetic, which always decides. Double `log`, which the detail-prop
+Gaussian takes once a sample, has a double-double evaluation good to 2^-64
+and falls back for about one argument in two thousand (about 0.15 µs a call
+on average, against the exact tier's 30). Double `sin`, `cos` and `pow`
+always take the exact tier, tens of microseconds a call, which is fine for
+their once-per-light uses; that is why the per-luxel gamma uses
+`DetMath.PowToSingle` (the bits of `(float)DetMath.Pow`, at float cost). A fact scans the built
 libraries and fails on any call to `Math.Sin`, `MathF.Pow` and the like.
 
 This holds under both policies. The reference tools took these functions from
