@@ -263,8 +263,8 @@ public static partial class LevelLinker
     /// The totals were measured against the format's fields before any room
     /// was planned (<see cref="CheckCapacity"/>, over the same counts in the
     /// same order), so every base here fits the field that carries it. The
-    /// planes, texinfos, leaves and leaf brushes the plug carve and the
-    /// nodraw copies add are checked where they are added.
+    /// planes, texinfos, leaves, leaf brushes and nodes the plug carve and
+    /// the nodraw copies add are checked where they are added.
     /// </remarks>
     private static void AssignBases(RoomPlan[] plans)
     {
@@ -341,8 +341,9 @@ public static partial class LevelLinker
     /// </para>
     /// <para>
     /// What the plug carve and the nodraw copies add during assembly (planes,
-    /// texinfos, leaves, leaf brushes) is not known until then, and is checked
-    /// where it is added.
+    /// texinfos, leaves, leaf brushes, nodes), and the top tree's nodes past
+    /// their floor, are not known until then, and are checked where they are
+    /// added.
     /// </para>
     /// </remarks>
     /// <param name="layout">The level, its rooms already known to be in the library.</param>
@@ -400,6 +401,8 @@ public static partial class LevelLinker
 
         public int VertexNormals { get; init; }
 
+        public int Nodes { get; init; }
+
         public int Clusters { get; init; }
 
         /// <summary>A compiled room's counts, read as <see cref="PlanRoom"/> reads them.</summary>
@@ -419,6 +422,7 @@ public static partial class LevelLinker
             PrimitiveIndices = BspStructView.Count<ushort>(bsp[BspLump.PrimIndices]),
             PrimitiveVertices = BspStructView.Count<Vec3>(bsp[BspLump.PrimVerts]),
             VertexNormals = BspStructView.Count<Vec3>(bsp[BspLump.VertNormals]),
+            Nodes = BspStructView.Count<DNode>(bsp[BspLump.Nodes]),
             Clusters = clusters,
         };
     }
@@ -441,10 +445,25 @@ public static partial class LevelLinker
     /// <para>
     /// Four totals the engine's loader caps below their field's width
     /// (<see cref="BspLimits.Caps"/>, what <c>ssmap check</c> reports):
-    /// texdatas, brushes, brush sides and texinfos. Every room brings its own
+    /// texdatas, brushes, brush sides and texinfos; and one it caps that no
+    /// narrower field carries, the nodes. Every room brings its own
     /// texdata and brushes, so a level of a few hundred rooms passes
     /// <c>MAX_MAP_TEXDATA</c> (2048) and <c>MAX_MAP_BRUSHES</c> (8192) long
     /// before any field fills, and the engine would refuse to load the map.
+    /// </para>
+    /// <para>
+    /// The nodes are the fifth: a node's children are <c>int</c>, so no field
+    /// fills, but the loader refuses more than <c>MAX_MAP_NODES</c> (65,536),
+    /// and every room brings its whole tree. The linked tree is the top tree
+    /// over the grid, then every room's nodes, then the chains the plug carve
+    /// adds. The top tree is not built until assembly, but its size has a
+    /// floor that needs no building: it is a full binary tree (a region that
+    /// is not a single cell and not empty splits into two) whose leaves
+    /// include one single-cell node per room, so it has at least
+    /// 2 x rooms - 1 nodes. The total starts at -1 and each room adds its own
+    /// nodes and 2. That keeps the check a lower bound, so it never refuses a
+    /// level that would load; the exact total, top tree and carve chains
+    /// included, is checked again once assembly has built them.
     /// </para>
     /// <para>
     /// The planes start at 2 (the top tree's first pair) and the leaves at 1
@@ -459,9 +478,10 @@ public static partial class LevelLinker
         private readonly int _brushCap = Cap(BspLump.Brushes);
         private readonly int _brushSideCap = Cap(BspLump.BrushSides);
         private readonly int _texInfoCap = Cap(BspLump.TexInfo);
+        private readonly int _nodeCap = Cap(BspLump.Nodes);
 
         private long _vertices, _planes = 2, _texInfos, _texDatas, _faces, _brushes, _brushSides, _leafFaces, _leaves = 1,
-            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters;
+            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters, _nodes = -1;
 
         /// <summary>Adds one room, refusing the first total it pushes past its limit.</summary>
         public void Add(LinkCounts counts, string room, int cellX, int cellY)
@@ -480,6 +500,7 @@ public static partial class LevelLinker
             _primitiveIndices += counts.PrimitiveIndices;
             _primitiveVertices += counts.PrimitiveVertices;
             _vertexNormals += counts.VertexNormals;
+            _nodes += counts.Nodes + 2;
             _clusters += counts.Clusters;
 
             Limit(room, cellX, cellY, "vertices", _vertices, ushort.MaxValue + 1);
@@ -496,6 +517,7 @@ public static partial class LevelLinker
             Limit(room, cellX, cellY, "primitive indices", _primitiveIndices, ushort.MaxValue + 1);
             Limit(room, cellX, cellY, "primitive vertices", _primitiveVertices, ushort.MaxValue + 1);
             Limit(room, cellX, cellY, "vertex normals", _vertexNormals, ushort.MaxValue + 1);
+            LoaderLimit(room, cellX, cellY, "nodes", _nodes, _nodeCap, "MAX_MAP_NODES");
         }
 
         /// <summary>

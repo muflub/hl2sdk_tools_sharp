@@ -165,6 +165,19 @@ public static partial class LevelLinker
 
         Limit(plans[^1], "leaves", leafs.Count, ushort.MaxValue + 1);
         Limit(plans[^1], "planes", planes.Count, ushort.MaxValue + 1);
+
+        // The node total up front counted the top tree at its floor and no
+        // carve chains (LinkTotals); here both are built, so the exact total
+        // is held to the loader's cap. It names the last room, as the other
+        // totals checked after every room's part is in do.
+        LoaderLimit(
+            plans[^1].Placement.Room.Definition.Name,
+            plans[^1].Placement.Instance.Placement.CellX,
+            plans[^1].Placement.Instance.Placement.CellY,
+            "nodes",
+            nodes.Count,
+            BspLimits.Caps.First(c => c.Lump == BspLump.Nodes).Max,
+            "MAX_MAP_NODES");
         cancellationToken.ThrowIfCancellationRequested();
 
         List<ushort> leafFaces = [];
