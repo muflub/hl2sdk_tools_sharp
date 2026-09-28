@@ -601,7 +601,8 @@ public static class Vrad
         string? digest = context.TransferCache is null ? null : CasterDigest(casters.Set);
         if (casters.Set.Count == 0)
         {
-            return (new EmptySceneTracer(), digest is null ? null : "empty/" + digest);
+            EmptySceneTracer empty = new();
+            return (empty, TracerKey(empty, digest));
         }
 
         // The tree's subtrees are built on the queue's workers
@@ -623,7 +624,8 @@ public static class Vrad
             GpuTracerOffer offer = await factory.TryCreateAsync(casters.Set, cancellationToken).ConfigureAwait(false);
             if (offer.Tracer is { } gpu)
             {
-                return (new HybridRayTracer(gpu, cpu), digest is null ? null : $"gpu:{gpu.GetType().FullName}/{digest}");
+                HybridRayTracer hybrid = new(gpu, cpu);
+                return (hybrid, TracerKey(hybrid, digest));
             }
 
             warn(
@@ -632,8 +634,28 @@ public static class Vrad
                 + "CPU KD tracer for this run");
         }
 
-        return (cpu, digest is null ? null : "kd/" + digest);
+        return (cpu, TracerKey(cpu, digest));
     }
+
+    /// <summary>
+    /// The tracer half of the transfer cache key: which tracer traced the
+    /// scene, by its <see cref="IRayTracer.TracerIdentity"/>, and the scene's
+    /// digest; null when there is no digest (no transfer cache).
+    /// </summary>
+    /// <param name="tracer">The tracer the transfers are built with.</param>
+    /// <param name="sceneDigest">The casters' digest, or null.</param>
+    /// <returns>The key part, or null.</returns>
+    /// <remarks>
+    /// The identity, not the tracer's type: the identity names the backend,
+    /// the device and the driver, and two tracers of one type on two devices
+    /// may disagree on a hit that lies on a plane (the GPU parity gate only
+    /// promises agreement off the plane). A set built on one device must
+    /// never be replayed on another, or the lighting would differ from an
+    /// uncached compile on that device. The KD tracer's identity also names
+    /// its compliance policy, which can change a hit.
+    /// </remarks>
+    internal static string? TracerKey(IRayTracer tracer, string? sceneDigest) =>
+        sceneDigest is null ? null : $"{tracer.TracerIdentity}/{sceneDigest}";
 
     /// <summary>A digest of every caster triangle, its coverage and material: the scene a tracer is built from.</summary>
     /// <param name="set">The casters.</param>
