@@ -13,52 +13,57 @@ using SourceSharp.MapFormats.Nav;
 
 namespace SourceSharp.MapTools.Nav;
 
-/// <summary>One agent's numbers in a level's navigation.</summary>
-/// <param name="Name">The agent.</param>
-/// <param name="Nodes">Octree nodes over every cell.</param>
-/// <param name="Leaves">Free leaves.</param>
-/// <param name="FloorLeaves">Free leaves with a floor under them.</param>
-/// <param name="FreeVolume">The free space, in cubic units.</param>
+/// <summary>One preset's numbers in a level's navigation, derived from the shared grid.</summary>
+/// <param name="Name">The preset.</param>
+/// <param name="Leaves">Leaves it fits somewhere in.</param>
+/// <param name="StandingLeaves">Leaves it stands in (at their bottom voxel).</param>
+/// <param name="FreeVolume">The space it fits in, in cubic units: the voxels of every leaf up to its fit.</param>
 /// <param name="Components">Connected components.</param>
 /// <param name="LargestComponentLeaves">Leaves in the largest component.</param>
-/// <param name="DoorLinks">Leaf pairs joined through doors.</param>
 /// <param name="RoomsInLargestComponent">Placed rooms with a leaf in the largest component.</param>
 public sealed record NavAgentStats(
-    string Name, int Nodes, int Leaves, int FloorLeaves, double FreeVolume, int Components, long LargestComponentLeaves,
-    int DoorLinks, int RoomsInLargestComponent);
+    string Name, int Leaves, int StandingLeaves, double FreeVolume, int Components, long LargestComponentLeaves, int RoomsInLargestComponent);
 
-/// <summary>What the free-leaf export draws.</summary>
+/// <summary>What the leaf export draws.</summary>
 public enum NavObjMode
 {
-    /// <summary>Every free leaf as a box.</summary>
+    /// <summary>Every leaf (or, for a preset, the part of it the preset fits in) as a box.</summary>
     Boxes,
 
-    /// <summary>The floor under every floor leaf, as a square at the leaf's bottom.</summary>
+    /// <summary>The walkable floor under every grounded leaf (or every leaf a preset stands in), as a square at the floor's height.</summary>
     Floor,
 }
 
 /// <summary>
 /// Reports on a level's navigation: the numbers <c>ssmap nav</c> prints, and
-/// an OBJ of the free leaves or the floors for viewing in any 3D tool.
+/// an OBJ of the leaves or the floors for viewing in any 3D tool.
 /// </summary>
 public static class NavInspector
 {
-    /// <summary>One agent's numbers.</summary>
+    /// <summary>One preset's numbers.</summary>
     /// <param name="nav">The navigation.</param>
-    /// <param name="agent">The agent.</param>
+    /// <param name="preset">The preset.</param>
     /// <returns>The numbers.</returns>
-    public static NavAgentStats Stats(Nav3dReader nav, int agent)
+    public static NavAgentStats Stats(Nav3dReader nav, int preset)
     {
         ArgumentNullException.ThrowIfNull(nav);
-        int floors = 0;
-        double voxels = 0;
-        long[] perComponent = new long[nav.ComponentCount(agent)];
-        for (int l = 0; l < nav.LeafCount(agent); l++)
+        Nav3dPreset p = nav.Preset(preset);
+        int leaves = 0;
+        int standing = 0;
+        long voxels = 0;
+        long[] perComponent = new long[nav.ComponentCount(preset)];
+        for (int l = 0; l < nav.LeafCount; l++)
         {
-            Nav3dLeaf leaf = nav.Leaf(agent, l);
-            floors += (leaf.Flags & Nav3dLeafFlags.Floor) != 0 ? 1 : 0;
-            voxels += leaf.Voxels;
-            perComponent[leaf.Component]++;
+            int top = nav.FitTop(l, p.Width, p.Height, p.ClipClass);
+            if (top < 0)
+            {
+                continue;
+            }
+
+            leaves++;
+            voxels += top - nav.Leaf(l).ZLo + 1;
+            standing += nav.Standable(l, nav.Leaf(l).ZLo, p.Width, p.Height, p.ClipClass) ? 1 : 0;
+            perComponent[nav.Component(preset, l)]++;
         }
 
         int largest = 0;
@@ -70,20 +75,19 @@ public static class NavInspector
             }
         }
 
-        HashSet<uint> rooms = [];
-        for (int l = 0; l < nav.LeafCount(agent); l++)
+        HashSet<int> rooms = [];
+        for (int l = 0; l < nav.LeafCount; l++)
         {
-            Nav3dLeaf leaf = nav.Leaf(agent, l);
-            if (leaf.Component == largest)
+            if (nav.Component(preset, l) == largest)
             {
-                rooms.Add(leaf.Cell);
+                rooms.Add(nav.LeafColumn(l).Cell);
             }
         }
 
         double s = nav.VoxelSize;
         return new NavAgentStats(
-            nav.AgentName(agent), nav.NodeCount(agent), nav.LeafCount(agent), floors, voxels * s * s * s,
-            perComponent.Length, perComponent.Length == 0 ? 0 : perComponent[largest], nav.LinkCount(agent), rooms.Count);
+            p.Name, leaves, standing, voxels * s * s * s, perComponent.Length, perComponent.Length == 0 ? 0 : perComponent[largest],
+            perComponent.Length == 0 ? 0 : rooms.Count);
     }
 
     /// <summary>The report <c>ssmap nav</c> prints.</summary>
@@ -105,9 +109,22 @@ public static class NavInspector
             joined += nav.Door(d).Joined ? 1 : 0;
         }
 
+        int grounded = 0;
+        int water = 0;
+        int ladder = 0;
+        for (int l = 0; l < nav.LeafCount; l++)
+        {
+            Nav3dLeaf leaf = nav.Leaf(l);
+            grounded += leaf.IsGrounded(Nav3dClipClass.Player) ? 1 : 0;
+            water += (leaf.Flags & Nav3dLeafFlags.Water) != 0 ? 1 : 0;
+            ladder += (leaf.Flags & Nav3dLeafFlags.Ladder) != 0 ? 1 : 0;
+        }
+
         Line(text, $"grid {nav.Columns} x {nav.Rows} cells of {nav.CellSize:0.###} units, {placed} placed; voxel {nav.VoxelSize:0.###} ({nav.CellVoxels} per cell edge)");
         Line(text, $"level id {nav.LevelId:D}, pack id {nav.PackId:D}, codec {nav.Codec}");
         Line(text, $"doors {nav.DoorCount} ({joined} joined, {nav.DoorCount - joined} capped); points of interest {nav.PoiCount}");
+        Line(text, $"leaves {nav.LeafCount} ({grounded} on a player floor, {water} water, {ladder} ladder); jump links {nav.JumpCount}; dynamic obstacles {nav.ObstacleCount}");
+        Line(text, $"step {nav.StepHeight:0.###}, jump {nav.JumpHeight:0.###} up and {nav.JumpDistance:0.###} across");
         if (nav.TryGetSpawn(out Vec3 spawn, out float yaw))
         {
             Line(text, $"spawn at ({spawn.X:0.###} {spawn.Y:0.###} {spawn.Z:0.###}) facing {yaw:0.###}");
@@ -117,54 +134,72 @@ public static class NavInspector
             text.Append("spawn: none\n");
         }
 
-        for (int a = 0; a < nav.AgentCount; a++)
+        for (int a = 0; a < nav.PresetCount; a++)
         {
             NavAgentStats stats = Stats(nav, a);
-            (Vec3 mins, Vec3 maxs) = nav.AgentBox(a);
-            Line(text, $"agent {a} \"{stats.Name}\" box ({mins.X:0.###} {mins.Y:0.###} {mins.Z:0.###})-({maxs.X:0.###} {maxs.Y:0.###} {maxs.Z:0.###}) mask 0x{nav.AgentContentsMask(a):x}");
-            Line(text, $"  {stats.Leaves} free leaves ({stats.FloorLeaves} floor), {stats.Nodes} nodes, free volume {stats.FreeVolume:0} cubic units");
-            Line(text, $"  {stats.Components} components; the largest has {stats.LargestComponentLeaves} leaves in {stats.RoomsInLargestComponent} of {placed} rooms; {stats.DoorLinks} door links");
+            Nav3dPreset preset = nav.Preset(a);
+            Line(text, $"agent {a} \"{stats.Name}\" {preset.Width:0.###} x {preset.Height:0.###} {preset.ClipClass.ToString().ToLowerInvariant()}");
+            Line(text, $"  fits in {stats.Leaves} leaves (stands in {stats.StandingLeaves}), free volume {stats.FreeVolume:0} cubic units");
+            Line(text, $"  {stats.Components} components; the largest has {stats.LargestComponentLeaves} leaves in {stats.RoomsInLargestComponent} of {placed} rooms");
         }
 
         return text.ToString();
     }
 
-    /// <summary>An OBJ of one agent's free leaves or floors, in level coordinates (Source units, z up).</summary>
+    /// <summary>An OBJ of the leaves or floors, in level coordinates (Source units, z up).</summary>
     /// <param name="nav">The navigation.</param>
-    /// <param name="agent">The agent.</param>
+    /// <param name="preset">A preset to draw the leaves it fits in and the floors it stands on; -1 for every leaf and every walkable player floor.</param>
     /// <param name="mode">Boxes or floors.</param>
     /// <returns>The OBJ text.</returns>
-    public static string Obj(Nav3dReader nav, int agent, NavObjMode mode)
+    public static string Obj(Nav3dReader nav, int preset, NavObjMode mode)
     {
         ArgumentNullException.ThrowIfNull(nav);
         StringBuilder obj = new();
-        string what = mode == NavObjMode.Boxes ? "free leaves" : "floors";
-        Line(obj, $"# ssmap nav: agent \"{nav.AgentName(agent)}\", {what}");
+        string who = preset < 0 ? "every leaf" : $"agent \"{nav.Preset(preset).Name}\"";
+        string what = mode == NavObjMode.Boxes ? "leaves" : "floors";
+        Line(obj, $"# ssmap nav: {who}, {what}");
         int vertex = 1;
-        for (int l = 0; l < nav.LeafCount(agent); l++)
+        double s = nav.VoxelSize;
+        for (int l = 0; l < nav.LeafCount; l++)
         {
-            Nav3dLeaf leaf = nav.Leaf(agent, l);
-            Vec3 lo = nav.LeafMins(agent, l);
-            float size = nav.LeafSize(agent, l);
+            Nav3dLeaf leaf = nav.Leaf(l);
+            (Vec3 lo, Vec3 hi) = nav.LeafBounds(l);
             if (mode == NavObjMode.Floor)
             {
-                if ((leaf.Flags & Nav3dLeafFlags.Floor) == 0)
+                bool draws = preset < 0
+                    ? leaf.IsWalkable(Nav3dClipClass.Player)
+                    : nav.Standable(l, leaf.ZLo, nav.Preset(preset).Width, nav.Preset(preset).Height, nav.Preset(preset).ClipClass);
+                if (!draws)
                 {
                     continue;
                 }
 
-                Vertex(obj, lo.X, lo.Y, lo.Z);
-                Vertex(obj, lo.X + size, lo.Y, lo.Z);
-                Vertex(obj, lo.X + size, lo.Y + size, lo.Z);
-                Vertex(obj, lo.X, lo.Y + size, lo.Z);
+                Nav3dClipClass clipClass = preset < 0 ? Nav3dClipClass.Player : nav.Preset(preset).ClipClass;
+                float z = leaf.IsGrounded(clipClass) ? leaf.FloorZ(clipClass) : lo.Z;
+                Vertex(obj, lo.X, lo.Y, z);
+                Vertex(obj, hi.X, lo.Y, z);
+                Vertex(obj, hi.X, hi.Y, z);
+                Vertex(obj, lo.X, hi.Y, z);
                 Line(obj, $"f {vertex} {vertex + 1} {vertex + 2} {vertex + 3}");
                 vertex += 4;
                 continue;
             }
 
+            if (preset >= 0)
+            {
+                Nav3dPreset p = nav.Preset(preset);
+                int top = nav.FitTop(l, p.Width, p.Height, p.ClipClass);
+                if (top < 0)
+                {
+                    continue;
+                }
+
+                hi = new Vec3(hi.X, hi.Y, (float)(nav.Origin.Z + ((top + 1) * s)));
+            }
+
             for (int c = 0; c < 8; c++)
             {
-                Vertex(obj, lo.X + ((c & 1) * size), lo.Y + (((c >> 1) & 1) * size), lo.Z + (((c >> 2) & 1) * size));
+                Vertex(obj, (c & 1) == 0 ? lo.X : hi.X, (c & 2) == 0 ? lo.Y : hi.Y, (c & 4) == 0 ? lo.Z : hi.Z);
             }
 
             ReadOnlySpan<int> faces = [0, 2, 3, 1, 4, 5, 7, 6, 0, 1, 5, 4, 2, 6, 7, 3, 0, 4, 6, 2, 1, 3, 7, 5];
