@@ -10,9 +10,14 @@ using System.Text;
 using SourceSharp.MapCompile;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Text;
+using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Io;
+using SourceSharp.MapTools.Options;
+using SourceSharp.MapTools.Parallel;
+using SourceSharp.MapTools.Phys.Managed;
 using SourceSharp.MapTools.Rooms;
 using SourceSharp.MapTools.Validation;
+using SourceSharp.Tests.MapTools.Io;
 using SourceSharp.Tests.MapTools.Rooms;
 
 using Xunit;
@@ -22,8 +27,8 @@ namespace SourceSharp.Tests.MapCompile;
 /// <summary>
 /// <c>ssmap room</c>, <c>ssmap link</c> and <c>ssmap layout</c> end to end on
 /// an in-memory disk: a game with the harness materials, a room library VMF,
-/// the <c>.room</c> files the first verb writes, the level files, and the
-/// map or flattened VMF the second writes from them.
+/// the room pack the first verb writes, the level files, and the map or
+/// flattened VMF the second writes from them.
 /// </summary>
 public sealed class RoomCommandsTests
 {
@@ -65,11 +70,11 @@ public sealed class RoomCommandsTests
     {
         InMemoryFileSystem fs = Game(Hub);
         using StringWriter output = new();
-        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["/game/maps/rooms.vmf", "-out", "/rooms"], output));
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
         Assert.Contains("collision: managed", output.ToString(), StringComparison.Ordinal);
 
         AddLevel(fs, "/levels/level.yaml", "hub, hub");
-        int exit = await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms", "-out", "/out/level.bsp"], output);
+        int exit = await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-out", "/out/level.bsp"], output);
         Assert.True(exit == Program.ExitSuccess, output.ToString());
 
         BspData map = await LoadMapAsync(fs, "/out/level.bsp");
@@ -86,17 +91,17 @@ public sealed class RoomCommandsTests
         using StringWriter output = new();
         Assert.Equal(
             Program.ExitSuccess,
-            await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output));
+            await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
 
         AddLevel(fs, "/levels/level.yaml", "hub, hub");
-        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms", "-out", "/out/level.bsp"], output));
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-out", "/out/level.bsp"], output));
         Assert.Equal(0, (await LoadMapAsync(fs, "/out/level.bsp"))[BspLump.PhysCollide].Length);
     }
 
     /// <summary>
-    /// The defaults line up: <c>ssmap room</c> writes beside the library,
-    /// and <c>ssmap link</c> looks for rooms beside the library its level
-    /// names and writes the map beside the level.
+    /// The defaults line up: <c>ssmap room</c> writes <c>rooms.roompack</c>
+    /// beside <c>rooms.vmf</c>, and <c>ssmap link</c> looks for that pack
+    /// beside the library its level names and writes the map beside the level.
     /// </summary>
     [Fact]
     public async Task ByDefaultRoomsGoBesideTheLibraryAndTheMapBesideTheLevel()
@@ -104,7 +109,8 @@ public sealed class RoomCommandsTests
         InMemoryFileSystem fs = Game(Hub);
         using StringWriter output = new();
         Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
-        Assert.NotNull(fs.GetBytes(VPath.Create(Rooted("/game/maps/hub.room"))));
+        Assert.NotNull(fs.GetBytes(VPath.Create(Rooted("/game/maps/rooms.roompack"))));
+        Assert.DoesNotContain(fs.Paths, p => p.Value.EndsWith(".room", StringComparison.Ordinal));
 
         AddLevel(fs, "/game/levels/pair.yaml", "hub, hub", library: "../maps/rooms.vmf");
         int exit = await RoomCommands.RunLinkAsync(fs, ["/game/levels/pair.yaml"], output);
@@ -115,9 +121,8 @@ public sealed class RoomCommandsTests
     // ---- what they say they wrote -------------------------------------------
 
     /// <summary>
-    /// <c>ssmap room</c> names the file it wrote as the host spells it, where
-    /// it used to print the path with its root cut off
-    /// (<c>tmp/x/rooms/hub.room</c>).
+    /// <c>ssmap room</c> names the pack it wrote as the host spells it, where
+    /// it used to print the path with its root cut off.
     /// </summary>
     [Fact]
     public async Task ARoomNamesTheFileItWroteByItsHostPath()
@@ -125,11 +130,11 @@ public sealed class RoomCommandsTests
         InMemoryFileSystem fs = Game(Hub);
         using StringWriter output = new();
 
-        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output);
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
 
         Assert.True(exit == Program.ExitSuccess, output.ToString());
         Assert.Contains(
-            $"ssmap room: wrote {Path.GetFullPath("/rooms/hub.room")} (",
+            $"ssmap room: wrote {Path.GetFullPath("/rooms.roompack")} (1 of 1 room(s))",
             output.ToString(),
             StringComparison.Ordinal);
     }
@@ -170,10 +175,10 @@ public sealed class RoomCommandsTests
         using StringWriter output = new();
         Assert.Equal(
             Program.ExitSuccess,
-            await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output));
+            await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
         AddLevel(fs, "/levels/level.yaml", "hub, hub");
 
-        int exit = await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms", "-out", "/out/level.bsp"], output);
+        int exit = await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-out", "/out/level.bsp"], output);
 
         Assert.True(exit == Program.ExitSuccess, output.ToString());
         Assert.Contains(
@@ -184,27 +189,39 @@ public sealed class RoomCommandsTests
 
     // ---- ssmap room: its inputs ---------------------------------------------
 
-    /// <summary>Every room of the library becomes its own <c>.room</c>, named for its <c>info_room</c>.</summary>
+    /// <summary>
+    /// Every room of the library is in the one pack, named for its
+    /// <c>info_room</c>, in library order, and a line per room says so in
+    /// that order.
+    /// </summary>
     [Fact]
-    public async Task EveryRoomOfTheLibraryIsWrittenAsItsOwnFile()
+    public async Task EveryRoomOfTheLibraryIsInThePackInLibraryOrder()
     {
         RoomDefinition end = RoomHarness.WalkableRoom("end", RoomFacing.PositiveX);
         InMemoryFileSystem fs = Game(Hub, end);
         using StringWriter output = new();
 
-        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output);
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
 
         Assert.True(exit == Program.ExitSuccess, output.ToString());
-        RoomObject hub = await LoadRoomAsync(fs, "/rooms/hub.room");
-        RoomObject endRoom = await LoadRoomAsync(fs, "/rooms/end.room");
+        Assert.Equal(["hub", "end"], (await ReadIndexAsync(fs, "/rooms.roompack")).Entries.Select(e => e.Name));
+        RoomObject hub = await LoadRoomAsync(fs, "/rooms.roompack", "hub");
+        RoomObject endRoom = await LoadRoomAsync(fs, "/rooms.roompack", "end");
+        string[] lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.Equal(
+            [
+                "ssmap room: compiled hub (1 clusters, 4 sockets)",
+                "ssmap room: compiled end (1 clusters, 1 sockets)",
+                $"ssmap room: wrote {Path.GetFullPath("/rooms.roompack")} (2 of 2 room(s))",
+            ],
+            lines[^3..]);
         Assert.Equal(["east", "west", "north", "south"], hub.Definition.Sockets.Select(s => s.Name));
         Assert.Equal([new RoomSocket(RoomFacing.PositiveX, "east")], endRoom.Definition.Sockets);
     }
 
     /// <summary>
     /// A room name that is a path is refused before anything is compiled or
-    /// written: <c>../escape</c> would have written <c>escape.room</c> beside
-    /// <c>-out</c> instead of inside it.
+    /// written: a name is one path segment, whatever it names.
     /// </summary>
     [Fact]
     public async Task ARoomNameThatLeavesTheOutputDirectoryIsRefused()
@@ -212,18 +229,18 @@ public sealed class RoomCommandsTests
         InMemoryFileSystem fs = Game(RoomHarness.WalkableRoom("../escape", RoomFacing.PositiveX));
         using StringWriter output = new();
 
-        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output);
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
 
         Assert.Equal(RoomCommands.ExitFailed, exit);
         Assert.Contains("the room name \"../escape\" starts with '.'", output.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain(fs.Paths, p => p.Value.EndsWith(".room", StringComparison.Ordinal));
+        Assert.DoesNotContain(fs.Paths, p => p.Value.EndsWith(".roompack", StringComparison.Ordinal));
     }
 
     /// <summary>
     /// <c>-out</c> resolves against the current directory like every other
-    /// path on the line: a relative <c>-out rooms</c> writes beside where the
-    /// command ran, where it used to write to a root-level <c>/rooms</c> (and on
-    /// Windows a rooted <c>-out</c> lost its drive the same way).
+    /// path on the line: a relative <c>-out rooms.roompack</c> writes beside
+    /// where the command ran, where it used to write under the disk root (and
+    /// on Windows a rooted <c>-out</c> lost its drive the same way).
     /// </summary>
     [Fact]
     public async Task ARelativeOutDirectoryResolvesAgainstTheCurrentDirectory()
@@ -231,16 +248,16 @@ public sealed class RoomCommandsTests
         InMemoryFileSystem fs = Game(Hub);
         using StringWriter output = new();
 
-        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "relative-rooms"], output);
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "relative-rooms.roompack"], output);
 
         Assert.True(exit == Program.ExitSuccess, output.ToString());
-        Assert.NotNull(fs.GetBytes(VPath.Create(Rooted("relative-rooms/hub.room"))));
+        Assert.NotNull(fs.GetBytes(VPath.Create(Rooted("relative-rooms.roompack"))));
     }
 
     /// <summary>
     /// The room's name is read as UTF-8, as an editor writes it: an
-    /// <c>info_room</c> named <c>salle-é</c> in a UTF-8 file is written as
-    /// <c>salle-é.room</c> and reads back under that name, where reading the
+    /// <c>info_room</c> named <c>salle-é</c> in a UTF-8 file is packed as
+    /// <c>salle-é</c> and reads back under that name, where reading the
     /// VMF's bytes as they are would have made it <c>salle-Ã©</c>.
     /// </summary>
     [Fact]
@@ -253,10 +270,10 @@ public sealed class RoomCommandsTests
         fs.AddFile(Rooted("/game/maps/rooms.vmf"), utf8);
         using StringWriter output = new();
 
-        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output);
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
 
         Assert.True(exit == Program.ExitSuccess, output.ToString());
-        Assert.Equal("salle-é", (await LoadRoomAsync(fs, "/rooms/salle-é.room")).Definition.Name);
+        Assert.Equal("salle-é", (await LoadRoomAsync(fs, "/rooms.roompack", "salle-é")).Definition.Name);
     }
 
     /// <summary>
@@ -270,10 +287,10 @@ public sealed class RoomCommandsTests
         fs.AddFile(Rooted("/game/maps/rooms.vmf"), RoomHarness.LibraryVmf(RoomHarness.WalkableRoom("salle-é", RoomFacing.PositiveX)).ToBytes());
         using StringWriter output = new();
 
-        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output);
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
 
         Assert.True(exit == Program.ExitSuccess, output.ToString());
-        Assert.Equal("salle-é", (await LoadRoomAsync(fs, "/rooms/salle-é.room")).Definition.Name);
+        Assert.Equal("salle-é", (await LoadRoomAsync(fs, "/rooms.roompack", "salle-é")).Definition.Name);
     }
 
     /// <summary>
@@ -292,7 +309,7 @@ public sealed class RoomCommandsTests
 
         Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
         Assert.Contains("room \"hub\": \"cell_size\" is \"big\", not a number", output.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain(fs.Paths, p => p.Value.EndsWith(".room", StringComparison.Ordinal));
+        Assert.DoesNotContain(fs.Paths, p => p.Value.EndsWith(".roompack", StringComparison.Ordinal));
     }
 
     /// <summary>A VMF with no <c>info_room</c> is not a library, and says what it lacks.</summary>
@@ -321,7 +338,8 @@ public sealed class RoomCommandsTests
     /// <summary>
     /// One room that is not linkable (its plug is not trigger-surfaced, so
     /// the census finds no plug) fails the run, but the other rooms are
-    /// still compiled and written.
+    /// still compiled and packed: the pack holds the rest, the failure is
+    /// reported in its place in library order, and the exit code is failed.
     /// </summary>
     [Fact]
     public async Task ARoomThatFailsDoesNotStopTheOthers()
@@ -347,13 +365,221 @@ public sealed class RoomCommandsTests
         fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
         using StringWriter output = new();
 
-        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output);
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
 
         Assert.Equal(RoomCommands.ExitFailed, exit);
-        Assert.Contains("room \"bad\" is not linkable: rule 4", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("1 of 2 room(s) failed", output.ToString(), StringComparison.Ordinal);
-        Assert.NotNull(fs.GetBytes(VPath.Create(Rooted("/rooms/hub.room"))));
-        Assert.Null(fs.GetBytes(VPath.Create(Rooted("/rooms/bad.room"))));
+        string[] lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.StartsWith("ssmap room: compiled hub (", lines[^4], StringComparison.Ordinal);
+        Assert.StartsWith("ssmap room: room \"bad\" is not linkable: rule 4", lines[^3], StringComparison.Ordinal);
+        Assert.Equal($"ssmap room: wrote {Path.GetFullPath("/rooms.roompack")} (1 of 2 room(s))", lines[^2]);
+        Assert.Equal("ssmap room: 1 of 2 room(s) failed", lines[^1]);
+        Assert.Equal(["hub"], (await ReadIndexAsync(fs, "/rooms.roompack")).Entries.Select(e => e.Name));
+    }
+
+    // ---- ssmap room: rooms side by side --------------------------------------
+
+    /// <summary>
+    /// The pack and the log are the same at one thread and at four, run after
+    /// run: the rooms compile side by side, but the pack holds them in library
+    /// order and the log reports them in it.
+    /// </summary>
+    [Fact]
+    public async Task ThePackAndTheLogAreTheSameAtAnyThreadCountRunAfterRun()
+    {
+        InMemoryFileSystem fs = Game(Library());
+        List<(byte[] Pack, string Log)> runs = [];
+        foreach (string threads in new[] { "1", "4", "1", "4" })
+        {
+            using StringWriter output = new();
+            int exit = await RoomCommands.RunRoomAsync(
+                fs, [], ["-threads", threads, "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
+            Assert.True(exit == Program.ExitSuccess, output.ToString());
+            runs.Add((fs.GetBytes(VPath.Create(Rooted("/rooms.roompack")))!, output.ToString()));
+        }
+
+        Assert.All(runs, run => Assert.Equal(runs[0].Pack, run.Pack));
+        Assert.All(runs, run => Assert.Equal(runs[0].Log, run.Log));
+        Assert.Equal(
+            Library().Select(d => $"ssmap room: compiled {d.Name} ("),
+            runs[0].Log.Split('\n').Where(l => l.StartsWith("ssmap room: compiled", StringComparison.Ordinal))
+                .Select(l => l[..(l.IndexOf('(', StringComparison.Ordinal) + 1)]));
+    }
+
+    /// <summary>
+    /// Each room in the pack is byte for byte the container a serial compile
+    /// of that room alone writes (its own context, one thread, the same
+    /// cooker): packing and compiling side by side change no room's bytes.
+    /// </summary>
+    [Fact]
+    public async Task EachPackedRoomIsTheSerialCompileOfThatRoomAlone()
+    {
+        InMemoryFileSystem fs = Game(Library());
+        using StringWriter output = new();
+        Assert.Equal(
+            Program.ExitSuccess,
+            await RoomCommands.RunRoomAsync(fs, [], ["-threads", "4", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
+
+        VmfDocument library = await VmfDocument.ParseAsync(fs.GetBytes(VPath.Create(Rooted("/game/maps/rooms.vmf")))!);
+        await using ContentFileSystem content = new([await DirectoryContentMount.MountAsync(fs, VPath.Create(Rooted("/game")))]);
+        await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+        using MemoryStream pack = new(fs.GetBytes(VPath.Create(Rooted("/rooms.roompack")))!);
+        RoomPackIndex index = await RoomPack.ReadIndexAsync(pack);
+        IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(library);
+        IReadOnlyList<byte[]> packed = await RoomPack.ReadRoomBytesAsync(pack, index, [.. rooms.Select(r => r.Definition.Name)]);
+
+        for (int i = 0; i < rooms.Count; i++)
+        {
+            VbspContext alone = new(VbspOptions.Default, content)
+            {
+                MapBase = rooms[i].Definition.Name.ToLowerInvariant(),
+                CollisionCooker = cooker,
+                Parallelism = CompileParallelism.Serial,
+            };
+            RoomObject room = await RoomCompiler.CompileAsync(rooms[i].Document, rooms[i].Definition, alone);
+            using MemoryStream serial = new();
+            await RoomObjectStore.SaveAsync(room, serial);
+            Assert.True(serial.ToArray().AsSpan().SequenceEqual(packed[i]), $"{rooms[i].Definition.Name} differs from its serial compile");
+        }
+    }
+
+    /// <summary>
+    /// A run cancelled while its rooms compile writes no pack, and leaves the
+    /// previous one as it was; nor is any temporary left beside it. On the
+    /// host's disk, where a temporary would be a real file.
+    /// </summary>
+    [Fact]
+    public async Task ARunCancelledWhileCompilingLeavesThePreviousPackAndNoTemporary()
+    {
+        using TempTree tree = new();
+        string root = tree.Root;
+        WriteGame(tree, Library());
+        tree.Write("game/maps/rooms.roompack", [7, 7, 7]);
+        using CancellationTokenSource cancel = new();
+        TapFileSystem fs = new(new PhysicalFileSystem("/"))
+        {
+            OnRead = path =>
+            {
+                if (path.Value.EndsWith(".vmt", StringComparison.Ordinal))
+                {
+                    cancel.Cancel();
+                }
+            },
+        };
+        using StringWriter output = new();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => RoomCommands.RunRoomAsync(
+            fs, [], ["-cooker", "none", Path.Combine(root, "game/maps/rooms.vmf")], output, cancel.Token));
+
+        Assert.Equal([7, 7, 7], tree.Read("game/maps/rooms.roompack"));
+        Assert.Equal(["gameinfo.txt", "maps", "materials"], Directory.EnumerateFileSystemEntries(Path.Combine(root, "game")).Select(Path.GetFileName).Order());
+        Assert.Equal(["rooms.roompack", "rooms.vmf"], Directory.EnumerateFiles(Path.Combine(root, "game/maps")).Select(Path.GetFileName).Order());
+    }
+
+    /// <summary>
+    /// A run cancelled after the pack's bytes are written but before the
+    /// file is replaced leaves the previous pack, and no temporary.
+    /// </summary>
+    [Fact]
+    public async Task ARunCancelledWhileWritingThePackLeavesThePreviousPackAndNoTemporary()
+    {
+        using TempTree tree = new();
+        string root = tree.Root;
+        WriteGame(tree, Library());
+        tree.Write("game/maps/rooms.roompack", [7, 7, 7]);
+        using CancellationTokenSource cancel = new();
+        TapFileSystem fs = new(new PhysicalFileSystem("/")) { AfterWrite = _ => cancel.Cancel() };
+        using StringWriter output = new();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => RoomCommands.RunRoomAsync(
+            fs, [], ["-cooker", "none", Path.Combine(root, "game/maps/rooms.vmf")], output, cancel.Token));
+
+        Assert.Equal([7, 7, 7], tree.Read("game/maps/rooms.roompack"));
+        Assert.Equal(["rooms.roompack", "rooms.vmf"], Directory.EnumerateFiles(Path.Combine(root, "game/maps")).Select(Path.GetFileName).Order());
+        Assert.DoesNotContain("wrote", output.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A room whose content cannot be read fails with the read's message,
+    /// reported against the room in library order, as a room that does not
+    /// lint is; the run fails.
+    /// </summary>
+    [Fact]
+    public async Task AContentReadErrorIsReportedAgainstEachRoomInOrder()
+    {
+        TapFileSystem fs = new(Game(Hub, RoomHarness.WalkableRoom("end", RoomFacing.PositiveX)))
+        {
+            OnRead = path =>
+            {
+                if (path.Value.EndsWith(".vmt", StringComparison.Ordinal))
+                {
+                    throw new IOException("the kit is unreadable");
+                }
+            },
+        };
+        using StringWriter output = new();
+
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
+
+        Assert.Equal(RoomCommands.ExitFailed, exit);
+        string[] lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.Equal(
+            [
+                "ssmap room: room \"hub\": the kit is unreadable",
+                "ssmap room: room \"end\": the kit is unreadable",
+                $"ssmap room: wrote {Path.GetFullPath("/rooms.roompack")} (0 of 2 room(s))",
+                "ssmap room: 2 of 2 room(s) failed",
+            ],
+            lines[^4..]);
+    }
+
+    /// <summary>A pack that cannot be written is reported, and the run fails.</summary>
+    [Fact]
+    public async Task APackThatCannotBeWrittenIsReported()
+    {
+        InMemoryFileSystem inner = Game(Hub);
+        TapFileSystem fs = new(inner) { AfterWrite = _ => throw new IOException("the disk is full") };
+        using StringWriter output = new();
+
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
+
+        Assert.Equal(RoomCommands.ExitFailed, exit);
+        Assert.Contains($"ssmap room: cannot write {Path.GetFullPath("/rooms.roompack")}: the disk is full", output.ToString(), StringComparison.Ordinal);
+        Assert.Null(inner.GetBytes(VPath.Create(Rooted("/rooms.roompack"))));
+    }
+
+    /// <summary>
+    /// A library in which every room fails still writes its pack, empty, so
+    /// the pack always says what the last run compiled; the run fails.
+    /// </summary>
+    [Fact]
+    public async Task ALibraryOfOnlyFailingRoomsWritesAnEmptyPackAndFails()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        foreach (VmfKey key in library.GetChunk("world")!.Chunks.SelectMany(s => s.Chunks).SelectMany(s => s.Keys)
+            .Where(k => k.Name == "material" && k.Value == RoomHarness.Trigger))
+        {
+            key.Value = RoomHarness.Plain;
+        }
+
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter output = new();
+
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
+        Assert.Empty((await ReadIndexAsync(fs, "/game/maps/rooms.roompack")).Entries);
+        Assert.Contains("(0 of 1 room(s))", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("1 of 1 room(s) failed", output.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>A <c>-out</c> the host cannot hold as a path is a usage error.</summary>
+    [Fact]
+    public async Task AnOutPathTheHostCannotHoldIsAUsageError()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomAsync(fs, [], ["/game/maps/rooms.vmf", "-out", "/a\0b"], output));
+        Assert.Contains("-out \"/a\0b\" is not a usable path", output.ToString(), StringComparison.Ordinal);
     }
 
     /// <summary>No map on the line is a usage error.</summary>
@@ -377,7 +603,7 @@ public sealed class RoomCommandsTests
         List<string> args = [.. Enumerable.Range(0, levels).Select(i => $"l{i}.yaml")];
         if (flattenWithRooms)
         {
-            args.AddRange(["--flatten", "-rooms", "/rooms"]);
+            args.AddRange(["--flatten", "-rooms", "/rooms.roompack"]);
         }
 
         using StringWriter output = new();
@@ -386,15 +612,15 @@ public sealed class RoomCommandsTests
     }
 
     /// <summary>
-    /// An unreadable level, a level that is not YAML, a level that names a
-    /// room with no compiled file, and a level of no rooms are each reported,
-    /// the file's own problems with their line and column.
+    /// An unreadable level, a level that is not YAML, a level whose rooms
+    /// were never packed, and a level of no rooms are each reported, the
+    /// file's own problems with their line and column.
     /// </summary>
     [Theory]
     [InlineData("missing level", "cannot read")]
     [InlineData("bad yaml", "line 2, column 1: not YAML")]
     [InlineData("unknown key", "line 1, column 1: unknown key \"size\"")]
-    [InlineData("no room file", "line 5, column 6: room \"hub\" has no compiled room")]
+    [InlineData("no room pack", "there is no room pack")]
     [InlineData("no rooms", "the level places no room")]
     public async Task ABrokenLinkInputIsReported(string fault, string expected)
     {
@@ -407,7 +633,7 @@ public sealed class RoomCommandsTests
             case "unknown key":
                 fs.AddText(Rooted("/levels/level.yaml"), "size: 1\n");
                 break;
-            case "no room file":
+            case "no room pack":
                 AddLevel(fs, "/levels/level.yaml", "hub");
                 break;
             case "no rooms":
@@ -416,7 +642,7 @@ public sealed class RoomCommandsTests
         }
 
         using StringWriter output = new();
-        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms"], output));
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack"], output));
         Assert.Contains(expected, output.ToString(), StringComparison.Ordinal);
     }
 
@@ -444,11 +670,11 @@ public sealed class RoomCommandsTests
     {
         InMemoryFileSystem fs = Game(Hub);
         using StringWriter output = new();
-        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms"], output));
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
         AddLevel(fs, "/levels/island.yaml", "hub, ~, hub", library: "../game/maps/rooms.vmf");
 
         using StringWriter link = new();
-        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/island.yaml", "-rooms", "/rooms"], link));
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/island.yaml", "-rooms", "/rooms.roompack"], link));
         Assert.Contains(
             "the level is not linkable: rule 6 (EveryRoomReachable): a player cannot reach every room: room \"hub\" at cell (2, 0) is not joined",
             link.ToString(),
@@ -462,6 +688,48 @@ public sealed class RoomCommandsTests
     }
 
     /// <summary>
+    /// A level that places a room its pack does not hold is refused naming
+    /// the room, where the level places it, and the pack.
+    /// </summary>
+    [Fact]
+    public async Task ARoomThePackDoesNotHoldIsNamedWithThePack()
+    {
+        InMemoryFileSystem fs = new();
+        await AddPackAsync(fs, ("hub", RoomHarness.Hub()));
+        AddLevel(fs, "/levels/level.yaml", "hub, attic");
+        using StringWriter output = new();
+
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack"], output));
+        Assert.Contains(
+            $"line 5, column 11: room \"attic\" is not in the room pack {Path.GetFullPath("/rooms.roompack")}",
+            output.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A link reads the pack's index and the rooms its level places, and
+    /// not one byte of the pack's other rooms.
+    /// </summary>
+    [Fact]
+    public async Task ALinkReadsOnlyTheIndexAndTheRoomsItPlaces()
+    {
+        InMemoryFileSystem inner = new();
+        byte[] hub = await AddPackAsync(inner, ("hub", RoomHarness.Hub()), ("big", RoomHarness.Room("big", RoomFacing.PositiveX)));
+        byte[] pack = inner.GetBytes(VPath.Create(Rooted("/rooms.roompack")))!;
+        AddLevel(inner, "/levels/level.yaml", "hub, hub");
+        TapFileSystem fs = new(inner);
+        using StringWriter output = new();
+
+        int exit = await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        using MemoryStream stream = new(pack);
+        RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+        Assert.Equal(index.IndexEnd + hub.Length, fs.BytesReadFrom(VPath.Create(Rooted("/rooms.roompack"))));
+        Assert.True(index.IndexEnd + hub.Length < pack.Length);
+    }
+
+    /// <summary>
     /// Room files built for two different grids cannot be one library; the
     /// refusal is reported, instead of escaping as an ArgumentException.
     /// </summary>
@@ -469,57 +737,110 @@ public sealed class RoomCommandsTests
     public async Task RoomsOfTwoGridsAreReportedNotThrown()
     {
         InMemoryFileSystem fs = new();
-        await AddRoomFileAsync(fs, "hub", RoomHarness.Hub());
-        await AddRoomFileAsync(fs, "big", new RoomDefinition("big", 512, RoomHarness.Kit, [new RoomSocket(RoomFacing.NegativeX, "west")]));
+        await AddPackAsync(
+            fs,
+            ("hub", RoomHarness.Hub()),
+            ("big", new RoomDefinition("big", 512, RoomHarness.Kit, [new RoomSocket(RoomFacing.NegativeX, "west")])));
         AddLevel(fs, "/levels/level.yaml", "hub, big");
         using StringWriter output = new();
 
-        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms"], output));
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack"], output));
         Assert.Contains("was built for cell", output.ToString(), StringComparison.Ordinal);
     }
 
-    /// <summary>A room file that is not a room container is reported by the room directory.</summary>
-    [Fact]
-    public async Task ABadRoomFileIsReported()
+    /// <summary>
+    /// A file that is not a room pack, and a pack whose room is not a room
+    /// container, are each reported naming the pack.
+    /// </summary>
+    [Theory]
+    [InlineData(false, "not a room pack")]
+    [InlineData(true, "room pack entry \"junk\": not a room container")]
+    public async Task ABadPackOrABadRoomInItIsReported(bool packed, string expected)
     {
         InMemoryFileSystem fs = new();
-        fs.AddFile(Rooted("/rooms/junk.room"), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        if (packed)
+        {
+            await AddRawPackAsync(fs, new RoomPackItem("junk", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 }));
+        }
+        else
+        {
+            fs.AddFile(Rooted("/rooms.roompack"), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
+        }
+
         AddLevel(fs, "/levels/level.yaml", "junk");
         using StringWriter output = new();
 
-        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms"], output));
-        Assert.Contains("not a room container", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack"], output));
+        Assert.Contains($"ssmap link: {Path.GetFullPath("/rooms.roompack")}: {expected}", output.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>A pack that cannot be read is reported, not thrown.</summary>
+    [Fact]
+    public async Task APackThatCannotBeReadIsReported()
+    {
+        InMemoryFileSystem inner = new();
+        await AddPackAsync(inner, ("hub", RoomHarness.Hub()));
+        AddLevel(inner, "/levels/level.yaml", "hub");
+        TapFileSystem fs = new(inner)
+        {
+            OnRead = path =>
+            {
+                if (path.Value.EndsWith(".roompack", StringComparison.Ordinal))
+                {
+                    throw new IOException("the disk is gone");
+                }
+            },
+        };
+        using StringWriter output = new();
+
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack"], output));
+        Assert.Contains($"cannot read the room pack {Path.GetFullPath("/rooms.roompack")}: the disk is gone", output.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>A <c>-rooms</c> the host cannot hold as a path is a usage error.</summary>
+    [Fact]
+    public async Task ARoomsPathTheHostCannotHoldIsAUsageError()
+    {
+        InMemoryFileSystem fs = new();
+        AddLevel(fs, "/levels/level.yaml", "hub");
+        using StringWriter output = new();
+
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/a\0b"], output));
+        Assert.Contains("-rooms \"/a\0b\" is not a usable path", output.ToString(), StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// The link reads exactly the rooms its level places: a broken
-    /// <c>.room</c> file the level does not name is never opened.
+    /// The link reads exactly the rooms its level places: a broken room in
+    /// the pack that the level does not name is never parsed.
     /// </summary>
     [Fact]
-    public async Task ARoomFileTheLevelDoesNotPlaceIsNeverRead()
+    public async Task ARoomTheLevelDoesNotPlaceIsNeverRead()
     {
         InMemoryFileSystem fs = new();
-        await AddRoomFileAsync(fs, "hub", RoomHarness.Hub());
-        fs.AddFile(Rooted("/rooms/junk.room"), [1, 2, 3]);
+        RoomDefinition definition = RoomHarness.Hub();
+        await AddRawPackAsync(
+            fs,
+            new RoomPackItem("hub", await ContainerAsync(definition)),
+            new RoomPackItem("junk", new byte[] { 1, 2, 3 }));
         AddLevel(fs, "/levels/level.yaml", "hub, hub");
         using StringWriter output = new();
 
-        int exit = await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms"], output);
+        int exit = await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack"], output);
 
         Assert.True(exit == Program.ExitSuccess, output.ToString());
     }
 
-    /// <summary>A room file renamed to another room's name is refused, not linked as the wrong room.</summary>
+    /// <summary>A pack entry that holds another room than it is named for is refused, not linked as the wrong room.</summary>
     [Fact]
-    public async Task ARoomFileMustHoldTheRoomItIsNamedFor()
+    public async Task APackEntryMustHoldTheRoomItIsNamedFor()
     {
         InMemoryFileSystem fs = new();
-        await AddRoomFileAsync(fs, "other", RoomHarness.Hub());
+        await AddRawPackAsync(fs, new RoomPackItem("other", await ContainerAsync(RoomHarness.Hub())));
         AddLevel(fs, "/levels/level.yaml", "other");
         using StringWriter output = new();
 
-        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms"], output));
-        Assert.Contains("holds room \"hub\", not \"other\"", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack"], output));
+        Assert.Contains("room pack entry \"other\" holds room \"hub\"", output.ToString(), StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -773,26 +1094,77 @@ public sealed class RoomCommandsTests
         return fs;
     }
 
+    /// <summary>Five walkable rooms of different shapes: enough for rooms to overlap on four threads.</summary>
+    private static RoomDefinition[] Library() =>
+    [
+        Hub,
+        RoomHarness.WalkableRoom("end", RoomFacing.PositiveX),
+        RoomHarness.WalkableRoom("hall", RoomFacing.PositiveX, RoomFacing.NegativeX),
+        RoomHarness.WalkableRoom("tee", RoomFacing.PositiveX, RoomFacing.NegativeX, RoomFacing.PositiveY),
+        RoomHarness.WalkableRoom("corner", RoomFacing.PositiveX, RoomFacing.PositiveY),
+    ];
+
+    /// <summary>The same game as <see cref="Game"/>, on the host's disk under a temporary tree.</summary>
+    private static void WriteGame(TempTree tree, params RoomDefinition[] rooms)
+    {
+        tree.Write("game/gameinfo.txt", Encoding.UTF8.GetBytes(GameInfoText));
+        tree.Write($"game/materials/{RoomHarness.Plain}.vmt", Encoding.UTF8.GetBytes(
+            "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n}\n"));
+        tree.Write($"game/materials/{RoomHarness.Trigger}.vmt", Encoding.UTF8.GetBytes(
+            "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compileTrigger\" \"1\"\n}\n"));
+        tree.Write("game/maps/rooms.vmf", RoomHarness.LibraryVmf(rooms).ToBytes());
+    }
+
     /// <summary>A one-row level file.</summary>
     private static void AddLevel(InMemoryFileSystem fs, string path, string row, string library = "rooms.vmf") =>
         fs.AddText(Rooted(path), RoomHarness.LevelText(library, row));
 
-    /// <summary>A compiled room written straight into <c>/rooms</c>.</summary>
-    private static async Task AddRoomFileAsync(InMemoryFileSystem fs, string file, RoomDefinition definition)
+    /// <summary>A compiled room's container.</summary>
+    private static async Task<byte[]> ContainerAsync(RoomDefinition definition)
     {
         RoomObject room = await RoomCompiler.CompileAsync(
             RoomHarness.BuildRoomModel(definition), definition, await RoomHarness.ContextAsync());
         using MemoryStream stream = new();
         await RoomObjectStore.SaveAsync(room, stream);
-        fs.AddFile(Rooted($"/rooms/{file}.room"), stream.ToArray());
+        return stream.ToArray();
     }
 
-    private static async Task<RoomObject> LoadRoomAsync(InMemoryFileSystem fs, string path)
+    /// <summary>Compiled rooms packed straight into <c>/rooms.roompack</c>; returns the first room's container.</summary>
+    private static async Task<byte[]> AddPackAsync(InMemoryFileSystem fs, params (string Name, RoomDefinition Definition)[] rooms)
+    {
+        List<RoomPackItem> items = [];
+        foreach ((string name, RoomDefinition definition) in rooms)
+        {
+            items.Add(new RoomPackItem(name, await ContainerAsync(definition)));
+        }
+
+        await AddRawPackAsync(fs, [.. items]);
+        return items[0].Room.ToArray();
+    }
+
+    /// <summary>A pack of the given containers at <c>/rooms.roompack</c>, whatever they hold.</summary>
+    private static async Task AddRawPackAsync(InMemoryFileSystem fs, params RoomPackItem[] items)
+    {
+        using MemoryStream stream = new();
+        await RoomPack.SaveAsync(items, stream);
+        fs.AddFile(Rooted("/rooms.roompack"), stream.ToArray());
+    }
+
+    private static async Task<RoomPackIndex> ReadIndexAsync(InMemoryFileSystem fs, string path)
     {
         byte[]? bytes = fs.GetBytes(VPath.Create(Rooted(path)));
         Assert.True(bytes is not null, $"{path} was not written");
         using MemoryStream stream = new(bytes!);
-        return await RoomObjectStore.LoadAsync(stream);
+        return await RoomPack.ReadIndexAsync(stream);
+    }
+
+    private static async Task<RoomObject> LoadRoomAsync(InMemoryFileSystem fs, string path, string room)
+    {
+        byte[]? bytes = fs.GetBytes(VPath.Create(Rooted(path)));
+        Assert.True(bytes is not null, $"{path} was not written");
+        using MemoryStream stream = new(bytes!);
+        RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+        return (await RoomPack.LoadRoomsAsync(stream, index, [room]))[0];
     }
 
     private static async Task<BspData> LoadMapAsync(InMemoryFileSystem fs, string path)

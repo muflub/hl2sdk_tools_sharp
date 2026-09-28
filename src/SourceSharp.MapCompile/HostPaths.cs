@@ -19,7 +19,7 @@ namespace SourceSharp.MapCompile;
 /// <see cref="VPath"/> of each, on a disk rooted at the host's filesystem
 /// root. A <see cref="VPath"/> carries no root, so its
 /// <see cref="VPath.Value"/> is the host path with the root cut off:
-/// <c>/tmp/x/rooms/cross.room</c> became <c>tmp/x/rooms/cross.room</c>, which
+/// <c>/tmp/x/rooms.roompack</c> became <c>tmp/x/rooms.roompack</c>, which
 /// looks like a path relative to wherever the reader happens to be and is
 /// not one. Messages print what this class gives back instead: the root
 /// restored, in the host's own separators, so the line names the file the

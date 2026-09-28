@@ -9,18 +9,19 @@ namespace SourceSharp.MapTools.Rooms;
 
 /// <summary>
 /// What a room name may be: the one rule shared by the library VMF that
-/// names a room, the <c>.room</c> file it is compiled to, and the level
+/// names a room, its entry in the room pack it is compiled into, and the level
 /// file that places it.
 /// </summary>
 /// <remarks>
 /// <para>
-/// A room name travels three ways, and each constrains it. It becomes a file
-/// name, <c>&lt;name&gt;.room</c>, joined onto an output directory, so it
-/// must be exactly one path segment on every host: no separator of either
-/// platform, no drive or stream colon, no control character, and not
-/// <c>.</c> or <c>..</c>, which would write outside the directory the user
-/// named. It is a cell of a level's grid, written <c>name</c> or
-/// <c>name@90</c> inside a YAML flow sequence, so it cannot hold the
+/// A room name travels three ways, and each constrains it. It names the
+/// room's entry in a <see cref="RoomPack"/>, which a level's name is looked
+/// up in byte for byte, and it may still become a file name for a host that
+/// unpacks rooms, so it stays exactly one path segment on every host: no
+/// separator of either platform, no drive or stream colon, no control
+/// character, and not <c>.</c> or <c>..</c>. It is a cell of a level's
+/// grid, written <c>name</c> or <c>name@90</c> inside a YAML flow
+/// sequence, so it cannot hold the
 /// rotation's <c>@</c>, YAML's flow punctuation or whitespace, and it
 /// cannot be the empty cell's <c>~</c>.
 /// </para>

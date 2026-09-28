@@ -67,7 +67,7 @@ namespace SourceSharp.MapTools.Vis;
 /// work behind them differs only if the extra work was wasted. Elsewhere they
 /// are a diagnostic of one run: compare them only between runs of the same
 /// arm at one thread, and never write them into an artefact that must be a
-/// function of its input. The <c>.room</c> container used to, and a room
+/// function of its input. The room container used to, and a room
 /// compiled twice came out with different bytes; it no longer does (see
 /// <see cref="Rooms.RoomObjectStore"/>).
 /// </para>
