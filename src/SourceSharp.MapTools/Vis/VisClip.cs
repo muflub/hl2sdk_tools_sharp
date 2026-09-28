@@ -225,6 +225,46 @@ public static class VisClip
             return VisChopResult.Empty;
         }
 
+        return Split(input, in normal, distance, dists, sides, output, out outputCount);
+    }
+
+    /// <summary>
+    /// The second half of <see cref="ChopWinding"/>: given every point's
+    /// distance and side, walks the winding and emits the front part.
+    /// </summary>
+    /// <param name="input">The winding being clipped; <c>n</c> points.</param>
+    /// <param name="normal">The clipping plane's normal.</param>
+    /// <param name="distance">The clipping plane's distance.</param>
+    /// <param name="dists">
+    /// Each point's signed distance, with room for one more: index <c>n</c> is
+    /// overwritten with the wrap.
+    /// </param>
+    /// <param name="sides">Each point's side, with the same extra slot.</param>
+    /// <param name="output">Where the clipped winding goes.</param>
+    /// <param name="outputCount">How many points it has.</param>
+    /// <returns>
+    /// <see cref="VisChopResult.Clipped"/>, or
+    /// <see cref="VisChopResult.Unchanged"/> when the result would have
+    /// needed more than <see cref="MaxPointsOnFixedWinding"/> points.
+    /// </returns>
+    /// <remarks>
+    /// Split out so the lane-parallel classifier in
+    /// <see cref="VisClipLanes"/> reaches the SAME emission code the scalar
+    /// chop does. The vector half only replaces how the distances are
+    /// computed -- and produces the same bits -- so everything from here on
+    /// must be one copy, not two kept in step by hand. Only called once the
+    /// caller knows there is at least one point on each side.
+    /// </remarks>
+    internal static VisChopResult Split(
+        ReadOnlySpan<Vec3> input,
+        in Vec3 normal,
+        float distance,
+        Span<float> dists,
+        Span<int> sides,
+        Span<Vec3> output,
+        out int outputCount)
+    {
+        int n = input.Length;
         sides[n] = sides[0];
         dists[n] = dists[0];
 
@@ -287,6 +327,17 @@ public static class VisClip
         outputCount = np;
         return VisChopResult.Clipped;
     }
+
+    /// <summary>
+    /// Which side of a plane a point at signed distance
+    /// <paramref name="dot"/> is on: <see cref="ChopWinding"/>'s
+    /// classification, callable from the lane-parallel path.
+    /// </summary>
+    /// <param name="dot">The point's signed distance.</param>
+    /// <returns>Front, back or on, as <see cref="ChopWinding"/> numbers them.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static int Side(float dot) =>
+        dot > OnVisEpsilon ? SideFront : dot < -OnVisEpsilon ? SideBack : SideOn;
 
     /// <summary>
     /// Clips <paramref name="target"/> by every separating plane formed from an

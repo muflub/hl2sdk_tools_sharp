@@ -285,6 +285,7 @@ internal sealed class VisPortalFlow
                 frame.Source,
                 frame.Pass,
                 frame.MightSee,
+                VisFrameStack.Extent(frame.MightSee),
                 frame.Node,
                 frame.From,
                 frame.To,
@@ -350,6 +351,7 @@ internal sealed class VisPortalFlow
             prevSource: source,
             prevPass: [],
             prevMightSee: flood,
+            mightExtent: VisFrameStack.Extent(flood),
             node: VisRepairTree.Root,
             from: 0,
             to: -1,
@@ -363,6 +365,7 @@ internal sealed class VisPortalFlow
         ReadOnlySpan<Vec3> prevSource,
         ReadOnlySpan<Vec3> prevPass,
         ReadOnlySpan<ulong> prevMightSee,
+        (int Lo, int Hi) mightExtent,
         int node,
         int from,
         int to,
@@ -388,7 +391,27 @@ internal sealed class VisPortalFlow
         _totalChains++;
         FrameEntered?.Invoke(depth, cluster, prevSource, prevPass, prevMightSee);
 
-        Span<ulong> might = _frames.MightSee(depth);
+        // THE MIGHT-SEE EXTENT.
+        //
+        // Every word of prevMightSee outside mightExtent is zero -- the caller
+        // proved it -- so every word of prev AND test outside it is zero too.
+        // The intersection below is therefore computed over the extent only,
+        // and the frame's might buffer is made zero outside it once, here,
+        // rather than rewritten with zeros by every candidate. The buffer
+        // stays the whole, exact intersection every reader expects (the
+        // candidate test's GetBit, the speculative reads, a split handing the
+        // vector to another worker); only the work shrinks.
+        //
+        // It shrinks a lot. On 2fort a vector is 216 words, the nonzero words
+        // of a frame's might-see span 49 of them on average and only 9 are
+        // actually nonzero: deep in a flow almost everything has been ruled
+        // out, and the ruled-out bits are the ones the full-width AND spent
+        // its time on. The result is identical by construction: the words
+        // skipped are words whose AND is zero, and a zero word contributes
+        // nothing to `more` either.
+        Span<ulong> might = _frames.MightSee(depth, mightExtent.Lo, mightExtent.Hi);
+        ReadOnlySpan<ulong> prevSpan = prevMightSee[mightExtent.Lo..mightExtent.Hi];
+        Span<ulong> mightSpan = might[mightExtent.Lo..mightExtent.Hi];
         Vec3[] windings = _frames.Windings(depth);
         Span<Vec3> passBuffer = windings.AsSpan(
             VisFrameStack.PassOffset, VisClip.MaxPointsOnFixedWinding);
@@ -398,6 +421,7 @@ internal sealed class VisPortalFlow
             VisFrameStack.ClipOffset, VisClip.MaxPointsOnWinding);
 
         Span<ulong> vis = _state.Vis(basePortal);
+        ReadOnlySpan<ulong> visSpan = vis[mightExtent.Lo..mightExtent.Hi];
         Vec3 basePlaneNormal = _portals.Normal(basePortal);
         float basePlaneDistance = _portals.Distance(basePortal);
         Vec3 baseOrigin = _portals.Origin(basePortal);
@@ -419,17 +443,22 @@ internal sealed class VisPortalFlow
         // nothing reads.
         bool cacheable = !prevPass.IsEmpty
             && prevSource.Length * prevPass.Length <= VisFrameStack.MaxCachedSeparators;
-        int forwardPlanes = -1;
-        int reversePlanes = -1;
-        // Fetched with the derivation below rather than here: an eager fetch
+        //
+        // And derived only as far as a clip reaches: each ordering's list is a
+        // VisSeparatorMemo, filled one source edge at a time when a clip has
+        // used every plane in it, so planes past the furthest point any
+        // candidate's clip got to are never derived at all, and a frame whose
+        // candidates all die in the forward clip never derives the reverse
+        // list. The order of the planes is the full derivation's, so each
+        // clip sees the same sequence either way.
+        bool memoReady = false;
+        // Fetched with the first use below rather than here: an eager fetch
         // was measured at 1.4 % SLOWER across three interleaved pairs, because
         // most frames never reach a candidate that can use the cache and would
         // pay four slab lookups for nothing. 570 million frames against 326
         // million cached candidates is the whole of that difference.
-        Vec3[] forwardNormals = [];
-        float[] forwardDistances = [];
-        Vec3[] reverseNormals = [];
-        float[] reverseDistances = [];
+        VisSeparatorMemo forward = default;
+        VisSeparatorMemo reverse = default;
 
         ReadOnlySpan<int> candidates = _portals.ClusterPortals(cluster);
         int end = to < 0 ? candidates.Length : to;
@@ -541,7 +570,8 @@ internal sealed class VisPortalFlow
             {
                 if (_state.Status(pnum) == VisPortalStatus.Done)
                 {
-                    more = BitVectorOps.AndWithNewBits(prevMightSee, _state.Vis(pnum), vis, might, _path);
+                    more = BitVectorOps.AndWithNewBits(
+                        prevSpan, _state.Vis(pnum)[mightExtent.Lo..mightExtent.Hi], visSpan, mightSpan, _path);
                 }
                 else if (_tree is not null)
                 {
@@ -555,7 +585,8 @@ internal sealed class VisPortalFlow
             }
             else
             {
-                more = BitVectorOps.AndWithNewBits(prevMightSee, _state.Flood(pnum), vis, might, _path);
+                more = BitVectorOps.AndWithNewBits(
+                    prevSpan, _state.Flood(pnum)[mightExtent.Lo..mightExtent.Hi], visSpan, mightSpan, _path);
             }
 
             if (!more && BitVectorOps.GetBit(vis, pnum))
@@ -642,7 +673,18 @@ internal sealed class VisPortalFlow
                     pass.Length,
                     VisFrameLedger.MightSlab,
                     depth);
-                Flow(_portals.Leaf(pnum), depth + 1, basePortal, source, pass, might, child, 0, -1, context);
+                Flow(
+                    _portals.Leaf(pnum),
+                    depth + 1,
+                    basePortal,
+                    source,
+                    pass,
+                    might,
+                    VisFrameStack.Extent(might, mightExtent),
+                    child,
+                    0,
+                    -1,
+                    context);
                 _chain?.RemoveAt(_chain.Count - 1);
                 continue;
             }
@@ -653,37 +695,27 @@ internal sealed class VisPortalFlow
             int secondCount;
             bool useCache = cacheable && sourceIsPrev;
 
-            if (useCache && forwardPlanes < 0)
+            if (useCache && !memoReady)
             {
+                // Room for every plane the pairing can produce -- one per
+                // edge-vertex pair -- so the lazy derivation can never run out
+                // of space part-way and clip by a TRUNCATED list, which would
+                // let sight lines through. `cacheable` bounds this product by
+                // the slab's cap.
                 int room = prevSource.Length * prevPass.Length;
-                forwardNormals = _frames.SeparatorNormals(depth, 0, room);
-                forwardDistances = _frames.SeparatorDistances(depth, 0, room);
-                reverseNormals = _frames.SeparatorNormals(depth, 1, room);
-                reverseDistances = _frames.SeparatorDistances(depth, 1, room);
-
-                forwardPlanes = VisClip.BuildSeparators(
-                    prevSource, prevPass, forwardNormals, forwardDistances);
-                reversePlanes = VisClip.BuildSeparators(
-                    prevPass, prevSource, reverseNormals, reverseDistances);
-
-                if (forwardPlanes < 0 || reversePlanes < 0)
-                {
-                    // Unreachable while `cacheable` bounds the product of the
-                    // two winding lengths by the slab's capacity. Kept because
-                    // the alternative to noticing an overflow is clipping by a
-                    // TRUNCATED list of separating planes, which lets sight
-                    // lines through -- the exact shape of defect this lane is
-                    // forbidden to introduce.
-                    cacheable = false;
-                    useCache = false;
-                }
+                forward = new VisSeparatorMemo(
+                    _frames.SeparatorNormals(depth, 0, room), _frames.SeparatorDistances(depth, 0, room));
+                reverse = new VisSeparatorMemo(
+                    _frames.SeparatorNormals(depth, 1, room), _frames.SeparatorDistances(depth, 1, room));
+                memoReady = true;
             }
 
             if (useCache)
             {
-                if (!VisClip.ClipToSeparatorPlanes(
-                    forwardNormals.AsSpan(0, forwardPlanes),
-                    forwardDistances.AsSpan(0, forwardPlanes),
+                if (!VisClipLanes.ClipToSeparators(
+                    ref forward,
+                    prevSource,
+                    prevPass,
                     pass,
                     flipClip: false,
                     clipBuffer,
@@ -692,9 +724,10 @@ internal sealed class VisPortalFlow
                     continue;
                 }
 
-                if (!VisClip.ClipToSeparatorPlanes(
-                    reverseNormals.AsSpan(0, reversePlanes),
-                    reverseDistances.AsSpan(0, reversePlanes),
+                if (!VisClipLanes.ClipToSeparators(
+                    ref reverse,
+                    prevPass,
+                    prevSource,
                     clipBuffer[..firstCount],
                     flipClip: true,
                     clipBuffer,
@@ -737,6 +770,7 @@ internal sealed class VisPortalFlow
                 source,
                 clipBuffer[..secondCount],
                 might,
+                VisFrameStack.Extent(might, mightExtent),
                 child,
                 0,
                 -1,
