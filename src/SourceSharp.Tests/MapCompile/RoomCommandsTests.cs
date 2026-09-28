@@ -177,6 +177,44 @@ public sealed class RoomCommandsTests
         Assert.Empty((await RoomPack.ReadIndexAsync(stream)).LibrarySections);
     }
 
+    // ---- real game content ------------------------------------------------------
+
+    /// <summary>
+    /// A game whose sky textures resolve, as any real game's do: a room
+    /// compile must not pack the default cubemaps vbsp writes for a map
+    /// (named after the room, which no linked level is), so the rooms still
+    /// link. Before the fix every room's pak held
+    /// <c>materials/maps/&lt;room&gt;/cubemapdefault.vtf</c> and the link
+    /// refused every room for it.
+    /// </summary>
+    [Fact]
+    public async Task RoomsOfAGameWithASkyStillLink()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        library.GetChunk("world")!.AddKey("skyname", SurfaceUnitSky);
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        foreach (string face in new[] { "rt", "lf", "bk", "ft", "up", "dn" })
+        {
+            fs.AddText(Rooted($"/game/materials/skybox/{SurfaceUnitSky}{face}.vmt"),
+                $"\"UnlitGeneric\"\n{{\n\t\"$basetexture\" \"skybox/{SurfaceUnitSky}{face}\"\n}}\n");
+            fs.AddFile(Rooted($"/game/materials/skybox/{SurfaceUnitSky}{face}.vtf"),
+                SourceSharp.Tests.MapTools.Bsp.SurfaceContent.SurfaceUnit.Vtf(512, 512, (int)SourceSharp.MapFormats.Assets.ImageFormat.Bgr888, 0x0304));
+        }
+
+        using StringWriter output = new();
+        Assert.Equal(
+            Program.ExitSuccess,
+            await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
+        Assert.DoesNotContain("default cubemap", output.ToString(), StringComparison.OrdinalIgnoreCase);
+
+        AddLevel(fs, "/levels/level.yaml", "hub, hub");
+        int exit = await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-out", "/out/level.bsp"], output);
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+    }
+
+    private const string SurfaceUnitSky = "sky_unit";
+
     private static VmfChunk GapEntity(int id, string classname, string origin, params (string Key, string Value)[] keys)
     {
         VmfChunk entity = new("entity");

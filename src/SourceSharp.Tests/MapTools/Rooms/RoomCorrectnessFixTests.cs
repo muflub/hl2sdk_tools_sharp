@@ -7,6 +7,7 @@
 
 using System.Globalization;
 
+using SourceSharp.MapFormats.Assets;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
@@ -14,7 +15,10 @@ using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Bsp.Driver;
+using SourceSharp.MapTools.Io;
+using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Rooms;
+using SourceSharp.Tests.MapTools.Bsp.SurfaceContent;
 
 using Xunit;
 
@@ -501,6 +505,47 @@ public sealed class RoomCorrectnessFixTests
         Assert.StartsWith("the room pack's LENT section is not VMF text: ", notVmf.Message, StringComparison.Ordinal);
 
         Assert.Throws<ArgumentNullException>(() => RoomLibraryEntities.ToSection(null!));
+    }
+
+    // ---- 7. default cubemaps and real content ------------------------------------
+
+    /// <summary>
+    /// With sky textures that resolve, an ordinary compile of a room's VMF
+    /// packs the default cubemaps under its map name, as vbsp does, and the
+    /// room compile of the same VMF packs nothing, turning the switch off on
+    /// the context it was given.
+    /// </summary>
+    [Fact]
+    public async Task ARoomCompilePacksNoDefaultCubemapsWhereAMapCompileDoes()
+    {
+        RoomDefinition hub = RoomHarness.WalkableRoom("hub", RoomFacing.PositiveX);
+        VmfDocument document = RoomHarness.BuildRoomModel(hub);
+        document.GetChunk(MapFileLoader.WorldChunk)!.AddKey("skyname", "sky_unit");
+
+        VbspContext map = await SkyContextAsync();
+        Assert.True(map.WritesDefaultCubemaps);
+        VbspResult whole = await RoomHarness.CompileAsync(document, map);
+        Assert.Contains("materials/maps/hub/cubemapdefault.vtf"u8.ToArray(), Windows(whole.Bsp![BspLump.PakFile].Data.ToArray(), 37));
+
+        VbspContext room = await SkyContextAsync();
+        RoomObject compiled = await RoomCompiler.CompileAsync(document, hub, room);
+        Assert.False(room.WritesDefaultCubemaps);
+        Assert.DoesNotContain("cubemapdefault"u8.ToArray(), Windows(compiled.Bsp[BspLump.PakFile].Data.ToArray(), 14));
+
+        static IEnumerable<byte[]> Windows(byte[] bytes, int width) =>
+            Enumerable.Range(0, Math.Max(0, bytes.Length - width + 1)).Select(i => bytes[i..(i + width)]);
+    }
+
+    private static async Task<VbspContext> SkyContextAsync()
+    {
+        InMemoryFileSystem files = new();
+        files.AddText($"materials/{RoomHarness.Plain}.vmt", "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n}\n");
+        files.AddText(
+            $"materials/{RoomHarness.Trigger}.vmt",
+            "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compileTrigger\" \"1\"\n}\n");
+        SurfaceUnit.AddSky(files, "sky_unit", (int)ImageFormat.Bgr888, 0x0304);
+        DirectoryContentMount mount = await DirectoryContentMount.MountAsync(files, VPath.Empty);
+        return new VbspContext(VbspOptions.Default, new ContentFileSystem([mount])) { MapBase = "hub" };
     }
 
     // ---- helpers ---------------------------------------------------------------
