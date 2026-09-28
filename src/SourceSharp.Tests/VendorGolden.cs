@@ -63,26 +63,69 @@ internal static class VendorGolden
     /// <summary>
     /// The expected lines on this CPU: <paramref name="stock"/> on the reference
     /// vendor, stock with this vendor's delta applied otherwise. When capturing,
-    /// the delta is rewritten from <paramref name="actual"/> first.
+    /// the delta is rewritten from <paramref name="actual"/> and the call throws.
     /// </summary>
+    /// <exception cref="VendorGoldenCapturedException">
+    /// This run is capturing and wrote the delta: the fact fails on purpose.
+    /// </exception>
     public static IReadOnlyList<string> Expected(
         string key, IReadOnlyList<string> stock, IReadOnlyList<string> actual)
     {
         string? vendor = ReferenceRsqrt.CpuVendor();
+        return Expected(key, stock, actual, vendor, vendor is null ? null : Directory(vendor), Capturing);
+    }
+
+    /// <summary>
+    /// <see cref="Expected(string, IReadOnlyList{string}, IReadOnlyList{string})"/>
+    /// with the CPU vendor, its capture directory and the capture switch given
+    /// rather than read from the machine, so both sides of capturing can be
+    /// tested on any host.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A CAPTURE NEVER PASSES.</b> After writing the delta, a capturing call
+    /// throws <see cref="VendorGoldenCapturedException"/>, so every fact that
+    /// captured fails and names the file it wrote. If capturing returned the
+    /// values it had just written, each fact would compare its output with
+    /// itself and pass, and a capture run would look exactly like a green run
+    /// while pinning whatever the port produced, regressions included. The
+    /// failure is the prompt to review the delta (its size is how far the
+    /// vendor moved) and commit it; a second run without the variable is the
+    /// one that checks them.
+    /// </para>
+    /// <para>
+    /// The reference vendor has nothing to capture (its expected values are
+    /// stock's own), so it neither writes nor fails.
+    /// </para>
+    /// </remarks>
+    internal static IReadOnlyList<string> Expected(
+        string key,
+        IReadOnlyList<string> stock,
+        IReadOnlyList<string> actual,
+        string? vendor,
+        string? directory,
+        bool capturing)
+    {
         if (vendor == ReferenceRsqrt.ReferenceVendor)
         {
             return stock;
         }
 
-        string dir = (vendor is null ? null : Directory(vendor))
+        string dir = (vendor is null ? null : directory)
             ?? throw new InvalidOperationException(
                 "no vendor capture directory: this CPU is neither x86 nor arm64, or the test is not in a checkout");
         string path = Path.Combine(dir, key + ".txt");
 
-        if (Capturing)
+        if (capturing)
         {
+            string delta = Delta(stock, actual);
             System.IO.Directory.CreateDirectory(dir);
-            File.WriteAllText(path, Delta(stock, actual));
+            File.WriteAllText(path, delta);
+            int moved = delta.Count(c => c == '\n') - 1;
+            throw new VendorGoldenCapturedException(
+                $"captured {vendor} delta for '{key}' ({moved} of {actual.Count} lines differ from stock) "
+                + $"to {path}: review and commit it. A capture run always fails; rerun without "
+                + $"{CaptureVariable} to check the committed values.");
         }
 
         if (!File.Exists(path))
@@ -160,3 +203,10 @@ internal static class VendorGolden
         return result!;
     }
 }
+
+/// <summary>
+/// Thrown by <see cref="VendorGolden.Expected(string, IReadOnlyList{string}, IReadOnlyList{string})"/>
+/// after a capture run wrote a delta, so the fact fails with the file's path
+/// instead of passing against the values it just wrote.
+/// </summary>
+internal sealed class VendorGoldenCapturedException(string message) : Exception(message);

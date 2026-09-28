@@ -52,6 +52,25 @@ public static class VradCommand
     /// </summary>
     public const string BenchSwitch = "--bench";
 
+    /// <summary>
+    /// Lights the map even when no game content can be mounted: a missing
+    /// <c>gameinfo.txt</c>, or one whose search paths cannot be mounted (an
+    /// <c>|appid_N|</c> app that is not installed, no Steam library), becomes
+    /// a note and the compile carries on with only the loose files (the
+    /// level's <c>.rad</c> and <c>-lights</c>). Not a stock option: it is
+    /// taken out before the stock arguments are parsed.
+    /// </summary>
+    /// <remarks>
+    /// Without it a mount that fails is a failed compile (<see cref="ExitFailed"/>),
+    /// as it is in stock vrad and in <c>ssmap vbsp</c> and <c>ssmap all</c>.
+    /// Lighting without content is not the same compile: no material's
+    /// reflectivity, no <c>lights.rad</c> texlights, no model for a static
+    /// prop's shadow. A host that asked for a game and got none would
+    /// otherwise receive a wrongly lit <c>.bsp</c> and a success code, so
+    /// carrying on is something the caller has to ask for by name.
+    /// </remarks>
+    public const string NoGameContentSwitch = "--no-game-content";
+
     /// <summary>Runs one <c>vrad</c> invocation.</summary>
     /// <param name="fileSystem">Where maps and game content are read and written.</param>
     /// <param name="args">The arguments after <c>vrad</c>.</param>
@@ -75,7 +94,8 @@ public static class VradCommand
     /// <param name="steam">
     /// Resolves the gameinfo's <c>|appid_N|</c> search paths, as vbsp's mount
     /// does; null when there is no Steam library, and a gameinfo that names
-    /// one then lights without game content, with a note.
+    /// one then fails to mount (a failed compile, unless
+    /// <see cref="NoGameContentSwitch"/> is given).
     /// </param>
     /// <param name="output">Where the running commentary goes.</param>
     /// <param name="cancellationToken">Cancels the compile.</param>
@@ -96,8 +116,10 @@ public static class VradCommand
         ArgumentNullException.ThrowIfNull(output);
 
         bool bench = args.Contains(BenchSwitch, StringComparer.Ordinal);
+        bool withoutContent = args.Contains(NoGameContentSwitch, StringComparer.Ordinal);
         StockArgsResult<VradOptions> parsed = StockArgs.ParseVrad(
-            bench ? [.. args.Where(a => !string.Equals(a, BenchSwitch, StringComparison.Ordinal))] : args);
+            [.. args.Where(a => !string.Equals(a, BenchSwitch, StringComparison.Ordinal)
+                && !string.Equals(a, NoGameContentSwitch, StringComparison.Ordinal))]);
 
         if (parsed.ListCompliance && !parsed.HasErrors)
         {
@@ -137,8 +159,13 @@ public static class VradCommand
 
         Stopwatch clock = Stopwatch.StartNew();
 
-        (IContentFileSystem? game, GameInfo? gameInfo) = await MountGameAsync(
-            fileSystem, parsed.GameDirectory, source, steam, output, cancellationToken).ConfigureAwait(false);
+        (bool mountedOk, IContentFileSystem? game, GameInfo? gameInfo) = await MountGameAsync(
+            fileSystem, parsed.GameDirectory, source, steam, withoutContent, output, cancellationToken).ConfigureAwait(false);
+        if (!mountedOk)
+        {
+            return ExitFailed;
+        }
+
         LooseFileContent content = new(fileSystem, game);
         content.Add(mapName + ".rad", source + ".rad");
         if (parsed.Options.LightsFile is { Length: > 0 } lights)
@@ -215,17 +242,23 @@ public static class VradCommand
 
     /// <summary>
     /// The game named by <c>-game</c>, or the one two directories above the
-    /// map (<c>game/maps/x.bsp</c>) when that has a <c>gameinfo.txt</c>; null,
-    /// with a note, when there is none -- a map without props or macro
-    /// textures lights the same without it.
+    /// map (<c>game/maps/x.bsp</c>) when there is no <c>-game</c>, the way
+    /// <c>ssmap vbsp</c> finds it.
     /// </summary>
-    // The mounted content, and the parsed gameinfo.txt even when mounting it
-    // failed: the lights.rad fallback still needs to know which Steam apps it names.
-    private static async Task<(IContentFileSystem? Content, GameInfo? GameInfo)> MountGameAsync(
+    /// <remarks>
+    /// A game that cannot be mounted (no <c>gameinfo.txt</c> there, or a mount
+    /// that throws) fails the compile unless <paramref name="withoutContent"/>
+    /// (<see cref="NoGameContentSwitch"/>) is set; then it is a note and the
+    /// content is null. The parsed gameinfo is still returned when only the
+    /// mount failed: the <c>lights.rad</c> fallback needs to know which Steam
+    /// apps it names.
+    /// </remarks>
+    private static async Task<(bool Ok, IContentFileSystem? Content, GameInfo? GameInfo)> MountGameAsync(
         IFileSystem fileSystem,
         string? gameDirectory,
         string source,
         ISteamAppLocator? steam,
+        bool withoutContent,
         TextWriter output,
         CancellationToken cancellationToken)
     {
@@ -237,30 +270,35 @@ public static class VradCommand
         if (!VPath.TryCreate(gameInfo, out VPath info)
             || !await fileSystem.ExistsAsync(info, cancellationToken).ConfigureAwait(false))
         {
-            if (gameDirectory is not null)
-            {
-                await output.WriteLineAsync($"ssmap vrad: no gameinfo.txt in {directory}").ConfigureAwait(false);
-            }
-            else
+            if (!withoutContent)
             {
                 await output.WriteLineAsync(
-                    $"ssmap vrad: no game content (no gameinfo.txt in {directory}); pass -game to mount one")
-                    .ConfigureAwait(false);
+                    $"ssmap vrad: cannot mount {directory}: no gameinfo.txt there; pass -game <dir>, "
+                    + $"or {NoGameContentSwitch} to light without game content").ConfigureAwait(false);
+                return (false, null, null);
             }
 
-            return (null, null);
+            await output.WriteLineAsync($"ssmap vrad: no game content (no gameinfo.txt in {directory})")
+                .ConfigureAwait(false);
+            return (true, null, null);
         }
 
         try
         {
             GameContentMounter.Result mounted = await VbspCommand.MountGameAsync(
                 fileSystem, directory, steam, cancellationToken).ConfigureAwait(false);
-            return (mounted.Content, mounted.GameInfo);
+            return (true, mounted.Content, mounted.GameInfo);
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException)
+        catch (Exception exception) when (exception is IOException or InvalidDataException or InvalidOperationException)
         {
             await output.WriteLineAsync($"ssmap vrad: cannot mount {directory}: {exception.Message}").ConfigureAwait(false);
-            return (null, await ReadGameInfoAsync(fileSystem, info, cancellationToken).ConfigureAwait(false));
+            if (!withoutContent)
+            {
+                return (false, null, null);
+            }
+
+            await output.WriteLineAsync("ssmap vrad: no game content; lighting without it").ConfigureAwait(false);
+            return (true, null, await ReadGameInfoAsync(fileSystem, info, cancellationToken).ConfigureAwait(false));
         }
     }
 

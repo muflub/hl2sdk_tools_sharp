@@ -7,6 +7,7 @@
 
 using SourceSharp.MapCompile;
 using SourceSharp.MapFormats.Bsp;
+using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
@@ -75,7 +76,7 @@ public sealed class VradCommandTests
     {
         InMemoryFileSystem fs = await MapAsync();
         using StringWriter output = new();
-        int exit = await VradCommand.RunAsync(fs, ["-bounce", "0", "-threads", "2", "/maps/box"], output);
+        int exit = await VradCommand.RunAsync(fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "-threads", "2", "/maps/box"], output);
 
         BspData lit = await BspFile.LoadAsync(new MemoryStream(fs.GetBytes(VPath.Create(Rooted("/maps/box.bsp")))!));
         Assert.Equal((Program.ExitSuccess, false), (exit, lit[BspLump.Lighting].IsEmpty));
@@ -135,13 +136,78 @@ public sealed class VradCommandTests
     [Fact]
     public async Task WithoutASteamLibraryTheMapIsLitWithoutGameContent()
     {
+        // Only under the switch: the mount's failure is printed, and the
+        // compile carries on with a note instead of failing.
         InMemoryFileSystem fs = await SteamMapAsync();
+        using StringWriter output = new();
+        int exit = await VradCommand.RunAsync(
+            fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "-threads", "2", "-game", "/game", "/game/maps/box"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.Contains($"ssmap vrad: cannot mount {Path.GetFullPath("/game")}:", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("ssmap vrad: no game content; lighting without it", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WithoutASteamLibraryAGameThatNamesAnAppFailsTheCompile()
+    {
+        // Stock stops on a game it cannot mount, and so does vbsp: a .bsp lit
+        // without the game's materials and lights.rad is not the compile
+        // that was asked for, so it must not come back with a success code.
+        InMemoryFileSystem fs = await SteamMapAsync();
+        byte[] before = fs.GetBytes(VPath.Create(Rooted("/game/maps/box.bsp")))!;
         using StringWriter output = new();
         int exit = await VradCommand.RunAsync(
             fs, ["-bounce", "0", "-threads", "2", "-game", "/game", "/game/maps/box"], output);
 
-        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.True(exit == VradCommand.ExitFailed, output.ToString());
         Assert.Contains($"ssmap vrad: cannot mount {Path.GetFullPath("/game")}:", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(before, fs.GetBytes(VPath.Create(Rooted("/game/maps/box.bsp"))));
+    }
+
+    [Fact]
+    public async Task AGameDirectoryWithNoGameInfoFailsTheCompile()
+    {
+        // -game names a directory with no gameinfo.txt in it.
+        InMemoryFileSystem fs = await MapAsync();
+        byte[] before = fs.GetBytes(VPath.Create(Rooted("/maps/box.bsp")))!;
+        using StringWriter output = new();
+        int exit = await VradCommand.RunAsync(fs, ["-bounce", "0", "-game", "/nogame", "/maps/box"], output);
+
+        Assert.True(exit == VradCommand.ExitFailed, output.ToString());
+        Assert.Contains(
+            $"ssmap vrad: cannot mount {Path.GetFullPath("/nogame")}: no gameinfo.txt there",
+            output.ToString(),
+            StringComparison.Ordinal);
+        Assert.Equal(before, fs.GetBytes(VPath.Create(Rooted("/maps/box.bsp"))));
+    }
+
+    [Fact]
+    public async Task NoGameInfoAboveTheMapFailsTheCompileToo()
+    {
+        // No -game: the directory above maps/ is used, as vbsp uses it, and
+        // it has no gameinfo.txt either.
+        InMemoryFileSystem fs = await MapAsync();
+        using StringWriter output = new();
+        int exit = await VradCommand.RunAsync(fs, ["-bounce", "0", "/maps/box"], output);
+
+        Assert.True(exit == VradCommand.ExitFailed, output.ToString());
+        Assert.Contains(VradCommand.NoGameContentSwitch, output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoGameInfoUnderTheSwitchIsANote()
+    {
+        InMemoryFileSystem fs = await MapAsync();
+        using StringWriter output = new();
+        int exit = await VradCommand.RunAsync(
+            fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "-game", "/nogame", "/maps/box"], output);
+
+        Assert.True(exit == Program.ExitSuccess, output.ToString());
+        Assert.Contains(
+            $"ssmap vrad: no game content (no gameinfo.txt in {Path.GetFullPath("/nogame")})",
+            output.ToString(),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -150,7 +216,7 @@ public sealed class VradCommandTests
         InMemoryFileSystem fs = await MapAsync();
         using StringWriter output = new();
         int exit = await VradCommand.RunAsync(
-            fs, ["-bounce", "0", "-threads", "2", VradCommand.BenchSwitch, "/maps/box"], output);
+            fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "-threads", "2", VradCommand.BenchSwitch, "/maps/box"], output);
 
         string text = output.ToString();
         Assert.Equal(Program.ExitSuccess, exit);
@@ -172,7 +238,7 @@ public sealed class VradCommandTests
     {
         InMemoryFileSystem fs = await MapAsync();
         using StringWriter output = new();
-        await VradCommand.RunAsync(fs, ["-bounce", "0", "-threads", "2", "/maps/box"], output);
+        await VradCommand.RunAsync(fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "-threads", "2", "/maps/box"], output);
 
         Assert.DoesNotContain("bench ", output.ToString(), StringComparison.Ordinal);
     }
@@ -183,15 +249,54 @@ public sealed class VradCommandTests
         // The box has no brushes, so the tracer is the empty scene's. Leaf
         // ambient used to need the KD tracer itself and was reported as not
         // ported (VRAD0701) here; through the tracer seam, an empty scene
-        // answers its segments (nothing blocks) and the stage runs.
+        // answers its segments (nothing blocks) and the stage runs. The floor
+        // is a dim texlight (the level's .rad): dim enough at 512 units to be
+        // baked into the cubes, and surface lights baked into the cubes are
+        // the ones whose visibility the stage asks the tracer. Without one the
+        // tracer is never consulted and the cubes would match whatever it
+        // answered.
         InMemoryFileSystem fs = await MapAsync();
+        fs.AddText(Rooted("/maps/box.rad"), "concrete/floor 255 255 255 1\n");
         using StringWriter output = new();
-        int exit = await VradCommand.RunAsync(fs, ["-bounce", "0", "/maps/box.bsp"], output);
+        int exit = await VradCommand.RunAsync(fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "/maps/box.bsp"], output);
 
         BspData lit = await BspFile.LoadAsync(new MemoryStream(fs.GetBytes(VPath.Create(Rooted("/maps/box.bsp")))!));
         Assert.Equal(Program.ExitSuccess, exit);
         Assert.DoesNotContain("VRAD0701", output.ToString(), StringComparison.Ordinal);
         Assert.False(lit[BspLump.LeafAmbientIndex].IsEmpty);
+
+        // The cubes are the ones the builder gives over a KD tree that blocks
+        // nothing: one triangle far outside the box, so the answer comes from
+        // real traversal rather than from the empty scene's "never blocked".
+        // Built from the lit map, whose lightmaps and world lights are what
+        // the stage read, and with the options the command's parse gives.
+        KdRayTracer nothingBlocks = KdRayTracer.Build(
+        [
+            new TracedTriangle(
+                SourceSharp.MapTools.Rad.TraceId.Opaque,
+                new Vec3(-100000, -100000, -100000), new Vec3(-99990, -100000, -100000), new Vec3(-100000, -99990, -100000), 0),
+        ]);
+        VradOptions options = StockArgs.ParseVrad(["-bounce", "0", "/maps/box.bsp"]).Options;
+        SourceSharp.MapTools.Rad.Ambient.AmbientScene scene =
+            SourceSharp.MapTools.Rad.Ambient.AmbientScene.Create(lit, SourceSharp.MapTools.Rad.Ambient.LightingMode.Ldr);
+        SourceSharp.MapTools.Rad.Ambient.LeafAmbientResult expected = await SourceSharp.MapTools.Rad.Ambient.LeafAmbientBuilder.BuildAsync(
+            scene,
+            scene.WorldLights.ToArray(),
+            new SourceSharp.MapTools.Rad.Ambient.LeafAmbientOptions { Compliance = options.Compliance, FastAmbient = options.FastAmbient },
+            new SourceSharp.MapTools.Rad.Ambient.TracerLineVisibility(nothingBlocks, options.Compliance),
+            CancellationToken.None);
+
+        Assert.True(expected.LightsInAmbientCube > 0, $"{expected.LightsInAmbientCube} lights in the cubes");
+        DLeafAmbientLighting[] cubes = SourceSharp.MapFormats.Bsp.Structs.BspStructView.As<DLeafAmbientLighting>(lit[BspLump.LeafAmbientLighting]).ToArray();
+        Assert.Equal(
+            System.Runtime.InteropServices.MemoryMarshal.AsBytes(expected.Lighting.AsSpan()).ToArray(),
+            System.Runtime.InteropServices.MemoryMarshal.AsBytes(cubes.AsSpan()).ToArray());
+
+        // And the entity light reached them: a cube of zeros everywhere would
+        // match a builder that saw no light at all.
+        Assert.Contains(
+            cubes,
+            c => System.Runtime.InteropServices.MemoryMarshal.AsBytes(new[] { c.Cube }.AsSpan()).ToArray().Any(b => b != 0));
     }
 
     [Fact]
@@ -200,7 +305,7 @@ public sealed class VradCommandTests
         InMemoryFileSystem fs = await MapAsync();
         fs.AddText(Rooted("/maps/box.rad"), "concrete/floor 255 255 255 200\n");
         using StringWriter output = new();
-        _ = await VradCommand.RunAsync(fs, ["-bounce", "0", "/maps/box.bsp"], output);
+        _ = await VradCommand.RunAsync(fs, [VradCommand.NoGameContentSwitch, "-bounce", "0", "/maps/box.bsp"], output);
 
         // Without it the box has exactly its one entity light; the texlight
         // floor adds its patches' lights.

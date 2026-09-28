@@ -8,11 +8,14 @@ on:
   # Run by hand with capture on to record a CPU's delta files from this
   # port's own output (see src/SourceSharp.Tests/Fixtures/rsqrt-vendor). The
   # files come back as the rsqrt-vendor-* artifacts, to be reviewed and
-  # committed; nothing is committed by the run.
+  # committed; nothing is committed by the run. A capture run is RED on
+  # purpose on every non-AMD runner: each fact that wrote a delta fails with
+  # "captured ... review and commit it", so it is never mistaken for a green
+  # run. The upload steps are `if: always()` for that reason.
   workflow_dispatch:
     inputs:
       capture:
-        description: Record vendor goldens (SS_CAPTURE_VENDOR_GOLDENS=1)
+        description: Record vendor goldens (SS_CAPTURE_VENDOR_GOLDENS=1; the facts that capture fail on purpose)
         type: boolean
         default: false
 

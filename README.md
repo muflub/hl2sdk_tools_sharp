@@ -204,6 +204,17 @@ Each takes the stock tool's options. Accepted flags include:
 The authoritative list for each stage is the parser in
 `src/SourceSharp.MapTools/Options/StockArgs.cs`.
 
+Every stage mounts the game's content from `gameinfo.txt` (the `-game`
+directory, or the directory above the map's `maps/` folder), and a game that
+cannot be mounted fails the compile with exit code `1`, as it does in the
+stock tools: no `gameinfo.txt` there, an `|appid_N|` search path whose app is
+not installed, or no Steam library to look it up in. `vrad` alone takes
+`--no-game-content` to light anyway: the mount failure becomes a note and the
+map is lit with only the level's `.rad` and the `-lights` file, without any
+material's reflectivity, the game's `lights.rad` texlights or prop models.
+The result is not the compile the stock tool would produce, which is why it
+has to be asked for.
+
 ### `all`
 
 ```sh

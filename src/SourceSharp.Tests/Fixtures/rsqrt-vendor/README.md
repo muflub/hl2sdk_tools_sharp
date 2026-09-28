@@ -24,3 +24,13 @@ commit the files from the `rsqrt-vendor-<os>` artifact. To recapture locally on
 a host of the same vendor:
 
     SS_CAPTURE_VENDOR_GOLDENS=1 dotnet test src/SourceSharp.MapTools.slnx -c Release
+
+**A capture run always fails.** Every fact that wrote a delta fails with
+"captured ... review and commit it" and the file's path, so a capture can
+never be mistaken for a green run: a fact that passed would only have
+compared the port's output with the values it had just written from it. On
+the reference vendor (AMD) there is nothing to capture, and those facts pass
+as usual. In CI the Intel and Apple Silicon test jobs go red on a capture run;
+the `rsqrt-vendor-<os>` artifact is uploaded regardless. Review the deltas
+(their size is how far the vendor moves the result), commit them, and rerun
+without the variable: that run is the one that checks them.

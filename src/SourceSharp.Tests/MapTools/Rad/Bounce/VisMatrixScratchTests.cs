@@ -67,6 +67,38 @@ public sealed class VisMatrixScratchTests
     }
 
     /// <summary>
+    /// A slab that is not whole words of hit bits is refused when it is set:
+    /// two slabs sharing a word would race on it, and that shows as a
+    /// transfer that depends on thread timing, not as an error.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-64)]
+    [InlineData(1)]
+    [InlineData(63)]
+    [InlineData(100)]
+    public void ASlabThatIsNotWholeWordsOfBitsIsRefused(int slabRays)
+    {
+        RadWorld world = BounceBox.Build(OccludedBox());
+
+        ArgumentOutOfRangeException refused = Assert.Throws<ArgumentOutOfRangeException>(
+            () => new VisMatrix(world.BounceContext()) { TraceSlabRays = slabRays });
+        Assert.Equal(slabRays, refused.ActualValue);
+    }
+
+    [Theory]
+    [InlineData(64)]
+    [InlineData(192)]
+    [InlineData(VisMatrix.RaysPerTraceSlab)]
+    public void ASlabOfWholeWordsIsTaken(int slabRays)
+    {
+        RadWorld world = BounceBox.Build(OccludedBox());
+
+        Assert.Equal(slabRays, new VisMatrix(world.BounceContext()) { TraceSlabRays = slabRays }.TraceSlabRays);
+        Assert.Equal(VisMatrix.RaysPerTraceSlab, new VisMatrix(world.BounceContext()).TraceSlabRays);
+    }
+
+    /// <summary>
     /// The transfers are the same bytes whatever the chunking, the slab size
     /// and the worker count: the chunk bound and the scratch reuse are
     /// invisible in the output.
