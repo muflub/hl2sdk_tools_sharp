@@ -224,6 +224,56 @@ public sealed class RoomLibraryBuildTests
         Assert.Null(moved.CollisionCooker);
     }
 
+    /// <summary>
+    /// A room whose navigation warned (a prop whose model the content lacks)
+    /// carries the warning in its outcome when it compiles, and the same
+    /// list, in the same order, when the next run reuses it; a room without
+    /// such a prop carries none either way, and a build without navigation
+    /// carries none at all.
+    /// </summary>
+    [Fact]
+    public async Task AReusedRoomCarriesTheNavigationWarningsItsCompileGave()
+    {
+        VmfDocument library = RoomCacheHarness.Library(2);
+        VmfChunk prop = new(SourceSharp.MapTools.Bsp.MapFileLoader.EntityChunk);
+        prop.AddKey("id", "720001");
+        prop.AddKey("classname", "prop_physics");
+        prop.AddKey("model", "models/unit/missing_crate.mdl");
+        prop.AddKey("origin", "64 64 16");
+        library.Chunks.Add(prop);
+        IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(library);
+        ContentFileSystem content = await RoomCacheHarness.ContentAsync();
+        InMemoryCacheStore store = await RoomCacheHarness.StoreAsync();
+        RoomCacheInputs inputs = RoomCacheHarness.Inputs with { Nav = NavSettings.Default };
+
+        async Task<List<RoomBuildOutcome>> NavRunAsync()
+        {
+            using RoomCompileCache cache = new(store, CachePolicy.Default, inputs, content);
+            List<RoomBuildOutcome> built = await RoomCacheHarness.BuildAsync(
+                rooms,
+                content,
+                cache,
+                s => new RoomLibraryCompileSettings(s.Options, s.Content) { Nav = NavSettings.Default, Parallelism = s.Parallelism });
+            await cache.CommitAsync(CancellationToken.None);
+            return built;
+        }
+
+        List<RoomBuildOutcome> first = await NavRunAsync();
+        List<RoomBuildOutcome> second = await NavRunAsync();
+        Assert.All(first, o => Assert.False(o.Reused));
+        Assert.All(second, o => Assert.True(o.Reused));
+        string warning = Assert.Single(first[0].NavWarnings);
+        Assert.Contains("\"models/unit/missing_crate.mdl\"", warning, StringComparison.Ordinal);
+        Assert.Empty(first[1].NavWarnings);
+        for (int i = 0; i < rooms.Count; i++)
+        {
+            Assert.Equal(first[i].NavWarnings, second[i].NavWarnings);
+        }
+
+        List<RoomBuildOutcome> plain = await RoomCacheHarness.BuildAsync(rooms, content, null);
+        Assert.All(plain, o => Assert.Empty(o.NavWarnings));
+    }
+
     private static async Task<List<RoomBuildOutcome>> RunAsync(ICacheStore store, IReadOnlyList<LibraryRoom> rooms, IContentFileSystem content)
     {
         using RoomCompileCache cache = new(store, CachePolicy.Default, RoomCacheHarness.Inputs, content);

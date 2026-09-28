@@ -188,7 +188,7 @@ public sealed class RoomCompileCacheTests
         await store.PutBlobAsync(CacheKey.HashBytes([1, 2, 3]), new byte[] { 9, 9, 9 }, "t", 0, CancellationToken.None);
         byte[] badMeta = [0, 0, 0, 9];
         await store.PutBlobAsync(CacheKey.HashBytes(badMeta), badMeta, "t", 0, CancellationToken.None);
-        byte[] swappedMeta = RoomCompileCache.Meta.Write(new RoomCompileCache.Meta(["ECNT"], 1, []));
+        byte[] swappedMeta = RoomCompileCache.Meta.Write(new RoomCompileCache.Meta(["ECNT"], 1, [], []));
         await store.PutBlobAsync(CacheKey.HashBytes(swappedMeta), swappedMeta, "t", 0, CancellationToken.None);
         await store.CommitAsync(CancellationToken.None);
 
@@ -218,13 +218,14 @@ public sealed class RoomCompileCacheTests
     [Fact]
     public void TheMetaBlobRoundTripsAndRefusesDamage()
     {
-        RoomCompileCache.Meta meta = new(["ROOM", "ECNT", "LNKA"], 7, ["one", "twö"]);
+        RoomCompileCache.Meta meta = new(["ROOM", "ECNT", "LNKA"], 7, ["one", "twö"], ["prop_physics crate: no hull"]);
         byte[] bytes = RoomCompileCache.Meta.Write(meta);
         RoomCompileCache.Meta? back = RoomCompileCache.Meta.Read(bytes);
         Assert.NotNull(back);
         Assert.Equal(meta.Tags, back.Tags);
         Assert.Equal(7, back.ClusterCount);
         Assert.Equal(meta.Warnings, back.Warnings);
+        Assert.Equal(meta.NavWarnings, back.NavWarnings);
 
         for (int cut = 0; cut < bytes.Length; cut++)
         {
@@ -233,17 +234,129 @@ public sealed class RoomCompileCacheTests
 
         Assert.Null(RoomCompileCache.Meta.Read([.. bytes, 0]));
         byte[] revision = [.. bytes];
-        revision[3] = 2;
+        revision[3] = 3;
         Assert.Null(RoomCompileCache.Meta.Read(revision));
         byte[] sections = [.. bytes];
         sections[8] = 0x7F;
         Assert.Null(RoomCompileCache.Meta.Read(sections));
-        byte[] warnings = RoomCompileCache.Meta.Write(new RoomCompileCache.Meta([], 0, []));
-        warnings[^4] = 0xFF;
-        Assert.Null(RoomCompileCache.Meta.Read(warnings));
-        byte[] length = RoomCompileCache.Meta.Write(new RoomCompileCache.Meta([], 0, ["x"]));
-        length[^5] = 0xFF;
-        Assert.Null(RoomCompileCache.Meta.Read(length));
+
+        // Each list's count out of range: the naming list's, then the
+        // navigation list's (the last word of a blob with both empty).
+        byte[] names = RoomCompileCache.Meta.Write(new RoomCompileCache.Meta([], 0, [], []));
+        names[^8] = 0xFF;
+        Assert.Null(RoomCompileCache.Meta.Read(names));
+        byte[] navs = RoomCompileCache.Meta.Write(new RoomCompileCache.Meta([], 0, [], []));
+        navs[^4] = 0xFF;
+        Assert.Null(RoomCompileCache.Meta.Read(navs));
+
+        // Each list's item length out of range: the high byte of the one
+        // item's length word, ahead of its one byte of text (and, for the
+        // naming list, of the navigation list's empty count).
+        byte[] nameLength = RoomCompileCache.Meta.Write(new RoomCompileCache.Meta([], 0, ["x"], []));
+        nameLength[^9] = 0xFF;
+        Assert.Null(RoomCompileCache.Meta.Read(nameLength));
+        byte[] navLength = RoomCompileCache.Meta.Write(new RoomCompileCache.Meta([], 0, [], ["x"]));
+        navLength[^5] = 0xFF;
+        Assert.Null(RoomCompileCache.Meta.Read(navLength));
+    }
+
+    /// <summary>
+    /// The navigation warnings round-trip through the meta blob exactly: none,
+    /// one, several in order, empty strings among them, and text outside
+    /// ASCII (UTF-8, several bytes per character), independent of the naming
+    /// warnings beside them.
+    /// </summary>
+    [Fact]
+    public void TheMetaBlobCarriesTheNavigationWarnings()
+    {
+        IReadOnlyList<string>[] lists =
+        [
+            [],
+            ["prop_physics 800006: model \"models/missing.mdl\" has no hull the content gives, so it is left out of the navigation's obstacles."],
+            ["prop_physics kiste_ö: model \"models/größe/箱.mdl\" fehlt", "", "second — with a dash", "\U0001F4E6 crate"],
+        ];
+        foreach (IReadOnlyList<string> nav in lists)
+        {
+            foreach (IReadOnlyList<string> names in (IReadOnlyList<string>[])[[], ["naming ✓"]])
+            {
+                RoomCompileCache.Meta meta = new(["ROOM", "NVR0"], 3, names, nav);
+                RoomCompileCache.Meta? back = RoomCompileCache.Meta.Read(RoomCompileCache.Meta.Write(meta));
+                Assert.NotNull(back);
+                Assert.Equal(names, back.Warnings);
+                Assert.Equal(nav, back.NavWarnings);
+                Assert.Equal(meta.Tags, back.Tags);
+                Assert.Equal(3, back.ClusterCount);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A meta blob of revision 1 (the layout before the navigation warnings:
+    /// the naming warnings are its last list) reads as nothing, and a row
+    /// that carries one is a miss, so the room compiles again and its
+    /// navigation warnings are printed rather than silently dropped.
+    /// </summary>
+    [Fact]
+    public async Task ARevisionOneMetaBlobIsAMiss()
+    {
+        byte[] old = RevisionOneMeta(["ROOM"], 1, ["an old naming warning"]);
+        Assert.Null(RoomCompileCache.Meta.Read(old));
+
+        // The same blob relabelled as the current revision is not a
+        // readable current blob either: it lacks the navigation list.
+        byte[] relabelled = [.. old];
+        relabelled[3] = 2;
+        Assert.Null(RoomCompileCache.Meta.Read(relabelled));
+
+        (InMemoryCacheStore store, IReadOnlyList<LibraryRoom> rooms, ContentFileSystem content) = await PrimedAsync(1);
+        string key = (await store.KeysAsync(CancellationToken.None))[0];
+        CacheRecord record = (await store.LookupAsync(key, CancellationToken.None))!;
+        using (RoomCompileCache current = new(store, CachePolicy.Default, RoomCacheHarness.Inputs, content))
+        {
+            Assert.NotNull(await current.TryGetAsync(rooms[0], CancellationToken.None));
+        }
+
+        byte[] stored = (await store.GetBlobAsync(record.Blobs["meta"], CancellationToken.None))!;
+        RoomCompileCache.Meta meta = RoomCompileCache.Meta.Read(stored)!;
+        byte[] downgraded = RevisionOneMeta(meta.Tags, meta.ClusterCount, meta.Warnings);
+        await store.PutBlobAsync(CacheKey.HashBytes(downgraded), downgraded, "t", 0, CancellationToken.None);
+        await store.PutAsync(
+            record with { Blobs = new Dictionary<string, string>(record.Blobs) { ["meta"] = CacheKey.HashBytes(downgraded) } },
+            CancellationToken.None);
+        await store.CommitAsync(CancellationToken.None);
+        using RoomCompileCache cache = new(store, CachePolicy.Default, RoomCacheHarness.Inputs, content);
+        Assert.Null(await cache.TryGetAsync(rooms[0], CancellationToken.None));
+        Assert.Equal(1, cache.Misses);
+    }
+
+    /// <summary>A meta blob as revision 1 wrote it: revision, clusters, the tags, then the naming warnings and nothing after.</summary>
+    private static byte[] RevisionOneMeta(IReadOnlyList<string> tags, int clusters, IReadOnlyList<string> warnings)
+    {
+        List<byte> w = [];
+        void Int(int value)
+        {
+            byte[] word = new byte[4];
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(word, value);
+            w.AddRange(word);
+        }
+
+        Int(1);
+        Int(clusters);
+        Int(tags.Count);
+        foreach (string tag in tags)
+        {
+            w.AddRange(System.Text.Encoding.ASCII.GetBytes(tag));
+        }
+
+        Int(warnings.Count);
+        foreach (string warning in warnings)
+        {
+            byte[] text = System.Text.Encoding.UTF8.GetBytes(warning);
+            Int(text.Length);
+            w.AddRange(text);
+        }
+
+        return [.. w];
     }
 
     // ---- posture -----------------------------------------------------------------
@@ -256,7 +369,7 @@ public sealed class RoomCompileCacheTests
         using (RoomCompileCache readOnly = new(store, CachePolicy.ReadOnly, RoomCacheHarness.Inputs, content))
         {
             Assert.NotNull(await readOnly.TryGetAsync(rooms[0], CancellationToken.None));
-            readOnly.Add(rooms[0], (await RoomCacheHarness.BuildAsync(rooms, content, null))[0].Item!, 1, []);
+            readOnly.Add(rooms[0], (await RoomCacheHarness.BuildAsync(rooms, content, null))[0].Item!, 1, [], []);
             Assert.Equal(0, (await readOnly.CommitAsync(CancellationToken.None)).RowsStored);
         }
 
@@ -407,7 +520,7 @@ public sealed class RoomCompileCacheTests
         RoomCompileCache cache = new(store, CachePolicy.Default, RoomCacheHarness.Inputs, content);
         Assert.Equal(1, store.RunsInFlight);
         Assert.NotNull(await cache.TryGetAsync(rooms[0], CancellationToken.None));
-        cache.Add(rooms[0], (await RoomCacheHarness.BuildAsync(rooms, content, null))[0].Item!, 1, []);
+        cache.Add(rooms[0], (await RoomCacheHarness.BuildAsync(rooms, content, null))[0].Item!, 1, [], []);
         Assert.Equal(1, cache.PendingCount);
         cache.Dispose();
         Assert.Equal(0, cache.PendingCount);
@@ -494,9 +607,10 @@ public sealed class RoomCompileCacheTests
         LibraryRoom room = RoomLibraryVmf.Split(RoomCacheHarness.Library(1))[0];
         RoomPackItem item = new("hub", new byte[] { 1 });
         await Assert.ThrowsAsync<ArgumentNullException>(async () => await cache.TryGetAsync(null!, CancellationToken.None));
-        Assert.Throws<ArgumentNullException>(() => cache.Add(null!, item, 1, []));
-        Assert.Throws<ArgumentNullException>(() => cache.Add(room, null!, 1, []));
-        Assert.Throws<ArgumentNullException>(() => cache.Add(room, item, 1, null!));
+        Assert.Throws<ArgumentNullException>(() => cache.Add(null!, item, 1, [], []));
+        Assert.Throws<ArgumentNullException>(() => cache.Add(room, null!, 1, [], []));
+        Assert.Throws<ArgumentNullException>(() => cache.Add(room, item, 1, null!, []));
+        Assert.Throws<ArgumentNullException>(() => cache.Add(room, item, 1, [], null!));
     }
 
     /// <summary>A store with the library's rooms compiled and committed once.</summary>

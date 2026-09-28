@@ -152,6 +152,61 @@ public sealed class RoomIncrementalCommandsTests
         Assert.Equal("42", flat.GetChunk("versioninfo")!.GetValue("mapversion"));
     }
 
+    /// <summary>
+    /// A room whose navigation warns (a prop whose model the game lacks, left
+    /// out of the obstacles) prints the warning when it compiles, and prints
+    /// the same line when the next <c>-incremental</c> run reuses it: the
+    /// warning lines of a clean run, a first incremental run and a fully
+    /// reused one are the same lines in the same order, and the reused run's
+    /// pack is still the clean pack.
+    /// </summary>
+    [Fact]
+    public async Task AReusedRoomPrintsTheNavigationWarningsItsCompilePrinted()
+    {
+        using TempTree tree = new();
+        InMemoryFileSystem fs = Sample();
+        string room = Rooms3x3Kit.Kinds[0].Name;
+        VmfDocument library = Copy(await LibraryAsync(fs));
+        (Vec3 corner, float cell) = Cell(library, room);
+        VmfChunk prop = new("entity");
+        prop.AddKey("id", "990101");
+        prop.AddKey("classname", "prop_physics");
+        prop.AddKey("model", "models/unit/missing_crate.mdl");
+        prop.AddKey("origin", VmfPlacement.Format(corner + new Vec3(cell / 2f, cell / 2f, 64f)));
+        library.Chunks.Add(prop);
+        await SetLibraryAsync(fs, library);
+        int count = Rooms3x3Kit.Kinds.Count;
+
+        using StringWriter clean = new();
+        Assert.Equal(
+            Program.ExitSuccess,
+            await RoomCommands.RunRoomAsync(fs, [], [LibraryPath, "-game", "/sample", "-out", "/clean.roompack"], clean));
+        string[] expected = NavWarningLines(clean.ToString());
+        string line = Assert.Single(expected);
+        Assert.StartsWith($"ssmap room: warning: room \"{room}\": prop_physics ", line, StringComparison.Ordinal);
+        Assert.Contains("\"models/unit/missing_crate.mdl\"", line, StringComparison.Ordinal);
+
+        foreach (string summary in (string[])[$"{count} compiled, 0 reused", $"0 compiled, {count} reused"])
+        {
+            using StringWriter output = new();
+            Assert.Equal(
+                Program.ExitSuccess,
+                await RoomCommands.RunRoomAsync(
+                    fs, [], [LibraryPath, "-game", "/sample", "-incremental", "-out", "/inc.roompack"], output, Opener(tree)));
+            string log = output.ToString().ReplaceLineEndings("\n");
+            Assert.Contains("ssmap room: " + summary + "\n", log, StringComparison.Ordinal);
+            Assert.Equal(expected, NavWarningLines(log));
+            Assert.Equal(Bytes(fs, "/clean.roompack"), Bytes(fs, "/inc.roompack"));
+        }
+    }
+
+    /// <summary>The navigation warning lines of a room log, in order.</summary>
+    private static string[] NavWarningLines(string log) =>
+    [
+        .. log.ReplaceLineEndings("\n").Split('\n')
+            .Where(l => l.StartsWith("ssmap room: warning: room \"", StringComparison.Ordinal) && l.Contains(" has no hull ", StringComparison.Ordinal)),
+    ];
+
     private static string? WorldKey(SourceSharp.MapFormats.Bsp.BspData bsp, string key) =>
         SourceSharp.MapFormats.Bsp.Structs.EntityLump.Parse(bsp[SourceSharp.MapFormats.Bsp.BspLump.Entities])
             .Single(e => e.ClassName == "worldspawn").Get(key);

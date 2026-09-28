@@ -387,8 +387,10 @@ public static class RoomCommands
                 }
 
                 // What the navigation could not read (a prop whose model the
-                // content lacks): the room compiles without that obstacle.
-                foreach (string warning in compiled.Nav?.Base.Warnings ?? [])
+                // content lacks): the room compiles without that obstacle. A
+                // reused room replays the list its compile stored, so the log
+                // is the clean run's whichever rooms came from the cache.
+                foreach (string warning in outcome.NavWarnings)
                 {
                     await output.WriteLineAsync($"ssmap room: warning: room \"{definition.Name}\": {warning}").ConfigureAwait(false);
                 }
