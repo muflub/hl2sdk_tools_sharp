@@ -63,6 +63,15 @@ public sealed record RoomObject(
     /// older pack, a room built in memory) links to the same bytes.
     /// </remarks>
     internal RoomLinkData? Link { get; init; }
+
+    /// <summary>
+    /// The room's navigation, or null: built beside the link work by a
+    /// library compile whose library builds navigation, and read by a pack
+    /// load that asks for it (<see cref="RoomPackRequest.Navigation"/>), at
+    /// the turns asked for. It is not part of the room container; the pack
+    /// stores it in its own sections (<see cref="Nav.RoomNavSection"/>).
+    /// </summary>
+    public Nav.RoomNavTurns? Nav { get; init; }
 }
 
 /// <summary>

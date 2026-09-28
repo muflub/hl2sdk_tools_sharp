@@ -144,8 +144,9 @@ public sealed class RoomCommandsTests
         byte[] pack = fs.GetBytes(VPath.Create(Rooted("/rooms.roompack")))!;
         using MemoryStream stream = new(pack);
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
-        RoomPackSection section = Assert.Single(index.LibrarySections);
-        Assert.Equal("LENT", section.Tag);
+        // Beside the pack's compile id, which every ssmap room pack carries.
+        Assert.Equal(["CMPL", "LENT"], index.LibrarySections.Select(s => s.Tag));
+        RoomPackSection section = index.LibrarySections.Single(s => s.Tag == "LENT");
         string text = Encoding.UTF8.GetString(pack, (int)section.Offset, (int)section.Length);
         Assert.Contains("\"light_environment\"", text, StringComparison.Ordinal);
         Assert.Contains("\"-64 -64 128\"", text, StringComparison.Ordinal);
@@ -157,9 +158,9 @@ public sealed class RoomCommandsTests
     }
 
     /// <summary>
-    /// A library with nothing library-wide in its gaps writes a pack with
-    /// no library section, byte for byte the pack it wrote before library
-    /// sections were written at all.
+    /// A library with nothing library-wide in its gaps writes no
+    /// library-wide entities section: its only library section is the
+    /// pack's compile id.
     /// </summary>
     [Fact]
     public async Task ALibraryWithoutLibraryWideEntitiesWritesNoLibrarySection()
@@ -174,7 +175,7 @@ public sealed class RoomCommandsTests
         Assert.True(exit == Program.ExitSuccess, output.ToString());
 
         using MemoryStream stream = new(fs.GetBytes(VPath.Create(Rooted("/rooms.roompack")))!);
-        Assert.Empty((await RoomPack.ReadIndexAsync(stream)).LibrarySections);
+        Assert.Equal(["CMPL"], (await RoomPack.ReadIndexAsync(stream)).LibrarySections.Select(s => s.Tag));
     }
 
     // ---- real game content ------------------------------------------------------

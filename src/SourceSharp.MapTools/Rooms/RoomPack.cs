@@ -8,6 +8,8 @@
 using System.Buffers.Binary;
 using System.Text;
 
+using SourceSharp.MapTools.Nav;
+
 namespace SourceSharp.MapTools.Rooms;
 
 /// <summary>A typed block of bytes in a pack, as the writer takes it: a four-character tag and its bytes.</summary>
@@ -25,7 +27,8 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
 {
     /// <summary>
     /// Further sections of the room, after its <see cref="RoomPack.RoomSection"/>:
-    /// the link work done ahead for it (<see cref="CreateAsync"/>), or none.
+    /// the link work done ahead for it and its navigation
+    /// (<see cref="CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>), or none.
     /// </summary>
     internal IReadOnlyList<RoomPackSectionData> Extra { get; init; } = [];
 
@@ -52,17 +55,43 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
     /// item at any thread count.
     /// </para>
     /// </remarks>
-    public static async Task<RoomPackItem> CreateAsync(RoomObject room, CancellationToken cancellationToken = default)
+    public static Task<RoomPackItem> CreateAsync(RoomObject room, CancellationToken cancellationToken = default) =>
+        CreateAsync(room, new RoomNavPackOptions(), cancellationToken);
+
+    /// <summary>
+    /// The pack item for a compiled room, with its navigation stored as the
+    /// options say: the link sections of
+    /// <see cref="CreateAsync(RoomObject, CancellationToken)"/>, and the
+    /// room's <see cref="RoomObject.Nav"/> as <c>NVR</c><i>r</i> sections
+    /// (<see cref="RoomNavSection"/>) when it has one.
+    /// </summary>
+    /// <param name="room">The compiled room.</param>
+    /// <param name="navigation">Which turns of the navigation to store, and how.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The item, named for the room.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// Each turn's <c>NVR</c><i>r</i> goes right after that turn's link
+    /// sections (<c>GEO</c><i>r</i>, <c>COL</c><i>r</i>, <c>ENT</c><i>r</i>),
+    /// so a link placing the room at one turn reads the container, the shared
+    /// section, the turn's link sections and its navigation as one run of
+    /// bytes (<see cref="RoomPack.LoadRoomsAsync(Stream, RoomPackIndex, IReadOnlyList{RoomPackRequest}, CancellationToken)"/>).
+    /// </remarks>
+    public static async Task<RoomPackItem> CreateAsync(
+        RoomObject room, RoomNavPackOptions navigation, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(room);
+        ArgumentNullException.ThrowIfNull(navigation);
         using MemoryStream container = new();
         await RoomObjectStore.SaveAsync(room, container, cancellationToken).ConfigureAwait(false);
         RoomLinkData? link = room.Link is { } stored && stored.IsFor(room)
             ? stored
             : await LevelLinker.TryPrecomputeAsync(room, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<RoomPackSectionData> linkSections = link is null ? [] : RoomLinkSections.Write(link);
+        IReadOnlyList<RoomPackSectionData> navSections = room.Nav is { } nav ? RoomNavPack.Sections(nav.Base, navigation) : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = link is null ? [] : RoomLinkSections.Write(link),
+            Extra = RoomNavPack.Interleave(linkSections, navSections),
         };
     }
 }
@@ -74,7 +103,16 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
 /// reduced as a placement reduces it); only these turns' link sections are
 /// read.
 /// </param>
-public sealed record RoomPackRequest(string Name, IReadOnlyCollection<int> Rotations);
+public sealed record RoomPackRequest(string Name, IReadOnlyCollection<int> Rotations)
+{
+    /// <summary>
+    /// Whether to read the room's navigation too: the <c>NVR</c><i>r</i>
+    /// section of each turn asked for (turn 0's when the pack stores no
+    /// turned copy), into <see cref="RoomObject.Nav"/>. Off by default, so a
+    /// link that writes no navigation reads not a byte of it.
+    /// </summary>
+    public bool Navigation { get; init; }
+}
 
 /// <summary>Where one section sits in a pack.</summary>
 /// <param name="Tag">What the section is.</param>
@@ -136,7 +174,13 @@ public sealed class RoomPackIndex
         }
     }
 
-    /// <summary>The sections that belong to the whole library rather than to one room: the library-wide entities (<see cref="RoomLibraryEntities.SectionTag"/>) when the library has any, else none.</summary>
+    /// <summary>
+    /// The sections that belong to the whole library rather than to one
+    /// room, looked up by tag and in any order: the pack's compile id
+    /// (<see cref="RoomCompileIds.PackSection"/>, <c>CMPL</c>) when
+    /// <c>ssmap room</c> wrote the pack, and the library-wide entities
+    /// (<see cref="RoomLibraryEntities.SectionTag"/>) when the library has any.
+    /// </summary>
     public IReadOnlyList<RoomPackSection> LibrarySections { get; }
 
     /// <summary>The rooms, in the order the pack holds them (the library's).</summary>
@@ -178,7 +222,7 @@ public sealed class RoomPackIndex
 /// <listheader><term>Bytes</term><description>What</description></listheader>
 /// <item><term>8</term><description>The magic, <c>SSRPAK01</c> in ASCII (<see cref="Magic"/>).</description></item>
 /// <item><term>4</term><description><c>int32</c> format version (<see cref="Version"/>).</description></item>
-/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/> (1 when the library has library-wide entities, <see cref="RoomLibraryEntities.SectionTag"/>; else 0).</description></item>
+/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/>: <c>ssmap room</c> writes the compile id (<see cref="RoomCompileIds.PackSection"/>, <c>CMPL</c>), then the library-wide entities (<see cref="RoomLibraryEntities.SectionTag"/>) when the library has any.</description></item>
 /// <item><term>4</term><description><c>int32</c> room count, 0 to <see cref="MaxRooms"/>.</description></item>
 /// <item><term>20 per library section</term><description>
 /// The library section table: tag, <c>int64</c> offset from the start of the pack, <c>int64</c> length.
@@ -191,13 +235,16 @@ public sealed class RoomPackIndex
 /// <see cref="RoomSection"/>, exactly the bytes
 /// <see cref="RoomObjectStore.SaveAsync"/> writes for it (the room container).
 /// A room <c>ssmap room</c> packs then has the link work done ahead for it
-/// (<see cref="RoomPackItem.CreateAsync"/>): <c>LNKA</c>, what depends on
+/// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
 /// the room alone, then per quarter turn <i>r</i> its turned geometry
 /// (<c>GEO</c><i>r</i>) and world collision (<c>COL</c><i>r</i>), and
 /// optionally its turned entities (<c>ENT</c><i>r</i>); <c>RoomLinkSections</c>
 /// gives their layout and why each is stored or not. They are optional: a
 /// room the link would refuse has none, and a pack written before them
 /// links to the same bytes, the link computing the same data on the fly.
+/// When the library builds navigation, each turn's link sections are followed
+/// by that turn's <see cref="RoomNavSection"/> (<c>NVR</c><i>r</i>; all four
+/// turns by default, <c>NVR0</c> alone with <c>-nav-turn0</c>).
 /// </description></item>
 /// <item><term>the rest</term><description>
 /// Every section's bytes, back to back with nothing between: the library
@@ -310,8 +357,10 @@ public static class RoomPack
     /// </summary>
     /// <param name="librarySections">
     /// The sections that belong to the whole library, in the order they are
-    /// written: <c>ssmap room</c> writes <see cref="RoomLibraryEntities.SectionTag"/>
-    /// when the library has library-wide entities, and none otherwise.
+    /// written: <c>ssmap room</c> writes the compile id
+    /// (<see cref="RoomCompileIds.PackSection"/>), then
+    /// <see cref="RoomLibraryEntities.SectionTag"/> when the library has
+    /// library-wide entities.
     /// </param>
     /// <param name="rooms">The rooms and their container bytes.</param>
     /// <param name="w">The stream to write to, positioned where the pack starts; the caller owns it.</param>
@@ -657,6 +706,7 @@ public static class RoomPack
         // Per room, first-asked order: its entry and the turns wanted.
         List<string> order = [];
         Dictionary<string, (RoomPackEntry Entry, bool[] Turns)> rooms = new(StringComparer.Ordinal);
+        HashSet<string> navigation = new(StringComparer.Ordinal);
         foreach (RoomPackRequest request in requests)
         {
             ArgumentNullException.ThrowIfNull(request, nameof(requests));
@@ -674,6 +724,11 @@ public static class RoomPack
             {
                 room.Turns[((rotation % 4) + 4) % 4] = true;
             }
+
+            if (request.Navigation)
+            {
+                navigation.Add(request.Name);
+            }
         }
 
         List<(string Name, RoomPackSection Section)> wanted = [];
@@ -681,6 +736,26 @@ public static class RoomPack
         {
             (RoomPackEntry entry, bool[] turns) = rooms[name];
             wanted.Add((name, entry.Room));
+            if (navigation.Contains(name))
+            {
+                HashSet<string> tags = new(StringComparer.Ordinal);
+                for (int rotation = 0; rotation < 4; rotation++)
+                {
+                    if (!turns[rotation])
+                    {
+                        continue;
+                    }
+
+                    foreach (RoomPackSection nav in RoomNavPack.SectionsFor(entry, rotation))
+                    {
+                        if (tags.Add(nav.Tag))
+                        {
+                            wanted.Add((name, nav));
+                        }
+                    }
+                }
+            }
+
             if (entry.Find(RoomLinkSections.SharedTag) is { } shared)
             {
                 wanted.Add((name, shared));
@@ -735,7 +810,14 @@ public static class RoomPack
             }
 
             RoomLinkData? link = RoomLinkSections.Read(room, tag => Section(name, tag));
-            loaded[name] = link is null ? room : room with { Link = link };
+            RoomNavTurns? nav = navigation.Contains(name) ? RoomNavPack.FromSections(name, tag => Section(name, tag)) : null;
+            loaded[name] = (link, nav) switch
+            {
+                (null, null) => room,
+                (_, null) => room with { Link = link },
+                (null, _) => room with { Nav = nav },
+                _ => room with { Link = link, Nav = nav },
+            };
         }
 
         return [.. requests.Select(request => loaded[request.Name])];
@@ -805,6 +887,34 @@ public static class RoomPack
         return read;
     }
 
+    /// <summary>
+    /// Reads one section's bytes, a library's or a room's, from a pack whose
+    /// index was just read: the link's way to the sections beside a room's
+    /// container (its navigation) and the library's (its compile id), read
+    /// only when wanted.
+    /// </summary>
+    /// <param name="r">The pack; it must be able to seek.</param>
+    /// <param name="index">The pack's index, read from <paramref name="r"/>.</param>
+    /// <param name="section">The section, from <see cref="RoomPackIndex.LibrarySections"/> or an entry's <see cref="RoomPackEntry.Sections"/>.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The section's bytes.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="NotSupportedException">The stream cannot seek.</exception>
+    /// <exception cref="LinkException">The pack is cut short in the section.</exception>
+    public static async Task<byte[]> ReadSectionAsync(
+        Stream r, RoomPackIndex index, RoomPackSection section, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(r);
+        ArgumentNullException.ThrowIfNull(index);
+        if (index.Start is not long start)
+        {
+            throw new NotSupportedException("reading one section of a room pack needs a stream that can seek.");
+        }
+
+        r.Seek(start + section.Offset, SeekOrigin.Begin);
+        return await ReadSectionAsync(r, section, $"the \"{section.Tag}\" section", cancellationToken).ConfigureAwait(false);
+    }
+
     private static void CheckSections(IReadOnlyList<RoomPackSectionData> sections, string owner)
     {
         if (sections.Count > MaxSections)
@@ -839,6 +949,7 @@ public static class RoomPack
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),
+        ((byte)'N', (byte)'V', (byte)'R', >= (byte)'0' and <= (byte)'3') => RoomNavSection.Tag(tag[3] - '0'),
         _ => null,
     };
 

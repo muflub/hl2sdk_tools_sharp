@@ -27,7 +27,16 @@ namespace SourceSharp.MapTools.Rooms;
 /// inside it, all moved by <c>-Corner</c>. The <c>info_room</c> itself is
 /// left out; it describes the room and is not part of it.
 /// </param>
-public sealed record LibraryRoom(RoomDefinition Definition, Vec3 Corner, VmfDocument Document);
+public sealed record LibraryRoom(RoomDefinition Definition, Vec3 Corner, VmfDocument Document)
+{
+    /// <summary>
+    /// The room's transition role, from its <c>info_room</c>'s
+    /// <c>room_role</c> key (<see cref="RoomPois.RoleKey"/>): whether it moves
+    /// the player up or down between levels. <see cref="RoomRole.None"/>
+    /// without the key.
+    /// </summary>
+    public RoomRole Role { get; init; }
+}
 
 /// <summary>A room library split: its rooms, and what the whole library shares.</summary>
 /// <param name="Rooms">The rooms, in the order their <c>info_room</c> entities appear.</param>
@@ -70,6 +79,7 @@ public sealed class RoomLibraryException : Exception
 /// <item><term><c>door_height</c></term><description>The door opening's height.</description></item>
 /// <item><term><c>wall_depth</c></term><description>The shell's thickness, which is also how deep a door plug reaches in from the cell face.</description></item>
 /// <item><term><c>socket_east</c>, <c>socket_west</c>, <c>socket_north</c>, <c>socket_south</c></term><description>Optional: a name for the socket on that wall, where the default is the wall's own name. East is +x, north is +y.</description></item>
+/// <item><term><c>room_role</c></term><description>Optional: <c>up</c> or <c>down</c> for a room that moves the player between levels (<see cref="LibraryRoom.Role"/>).</description></item>
 /// </list>
 /// <para>
 /// Every world brush and every brush entity inside a cell's box belongs to
@@ -244,7 +254,7 @@ public static class RoomLibraryVmf
 
             RoomDefinition definition = new(marker.Name, marker.CellSize, marker.Kit, Sockets(marker, localSolids));
             definition.Validate();
-            rooms.Add(new LibraryRoom(definition, marker.Corner, document));
+            rooms.Add(new LibraryRoom(definition, marker.Corner, document) { Role = marker.Role });
         }
 
         return new RoomLibrarySplit(rooms, libraryWide);
@@ -462,7 +472,17 @@ public static class RoomLibraryVmf
             socketNames[wall] = socket;
         }
 
-        return new Marker(name, corner, cell, kit, socketNames);
+        RoomRole role;
+        try
+        {
+            role = RoomPois.ParseRole(entity.GetValue(RoomPois.RoleKey));
+        }
+        catch (RoomLibraryException exception)
+        {
+            throw new RoomLibraryException($"{who}: {exception.Message}");
+        }
+
+        return new Marker(name, corner, cell, kit, socketNames) { Role = role };
     }
 
     private static float Positive(VmfChunk entity, string key, string who)
@@ -514,5 +534,7 @@ public static class RoomLibraryVmf
     private sealed record Marker(string Name, Vec3 Corner, float CellSize, SocketKit Kit, Dictionary<string, string> SocketNames)
     {
         public Box Cell => new(Corner, Corner + new Vec3(CellSize, CellSize, CellSize));
+
+        public RoomRole Role { get; init; }
     }
 }
