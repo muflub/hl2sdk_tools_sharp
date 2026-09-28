@@ -9,6 +9,7 @@ using System.Globalization;
 
 using SourceSharp.MapCompile;
 using SourceSharp.MapFormats.Bsp;
+using SourceSharp.MapFormats.Nav;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapGen.Rooms;
 using SourceSharp.MapTools.Io;
@@ -62,9 +63,23 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
 
             byte[] written = fs.GetBytes(VPath.Create(Rooted($"/sample/out/{name}.bsp")))!;
             Rooms3x3Pair pair = await fixture.PairAsync(name);
+
+            // ssmap link is the linker API plus the ids in the worldspawn,
+            // which tie the map to its .nav3d: the API's map, stamped with the
+            // same ids, is the map ssmap link wrote, byte for byte.
             using MemoryStream api = new();
             await BspFile.SaveAsync(pair.Linked.Bsp, api, BspWriteMode.Canonical, CancellationToken.None);
-            Assert.True(api.ToArray().AsSpan().SequenceEqual(written), $"{name}: ssmap link and the linker API wrote different maps");
+            using MemoryStream copy = new(api.ToArray());
+            BspData stamped = await BspFile.LoadAsync(copy);
+            using MemoryStream linkedStream = new(written);
+            BspData linkedMap = await BspFile.LoadAsync(linkedStream);
+            Guid levelId = RoomCompileIds.LevelIdOf(linkedMap) ?? throw new InvalidOperationException($"{name}: no level id");
+            Nav3dReader nav = Nav3dReader.Open(fs.GetBytes(VPath.Create(Rooted($"/sample/out/{name}.nav3d")))!);
+            Assert.Equal(levelId, nav.LevelId);
+            RoomCompileIds.Stamp(stamped, nav.PackId, levelId);
+            using MemoryStream restamped = new();
+            await BspFile.SaveAsync(stamped, restamped, BspWriteMode.Canonical, CancellationToken.None);
+            Assert.True(restamped.ToArray().AsSpan().SequenceEqual(written), $"{name}: ssmap link and the linker API wrote different maps");
 
             using MemoryStream stream = new(written);
             BspData map = await BspFile.LoadAsync(stream);

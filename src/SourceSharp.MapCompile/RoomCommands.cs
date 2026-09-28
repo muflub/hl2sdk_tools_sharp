@@ -10,6 +10,7 @@ using System.Text;
 
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Nav;
 using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp;
@@ -17,6 +18,7 @@ using SourceSharp.MapTools.Bsp.Driver;
 using SourceSharp.MapTools.Compile;
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Io;
+using SourceSharp.MapTools.Nav;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Phys;
@@ -104,12 +106,29 @@ public static class RoomCommands
         // so the stock parser never sees an option it would (correctly) refuse.
         List<string> stock = [];
         string? outDirectory = null;
+        RoomNavPackOptions navOptions = new();
         for (int i = 0; i < args.Count; i++)
         {
             if (Take(args, i, "out", out string o))
             {
                 outDirectory = o;
                 i++;
+            }
+            else if (Take(args, i, "nav-codec", out string codec))
+            {
+                if (!NavCompression.TryParse(codec, out NavCompression compression))
+                {
+                    await output.WriteLineAsync($"ssmap room: -nav-codec \"{codec}\" is not none, deflate[:0-9] or brotli[:0-11]")
+                        .ConfigureAwait(false);
+                    return Program.ExitUsage;
+                }
+
+                navOptions = navOptions with { Compression = compression };
+                i++;
+            }
+            else if (IsFlag(args[i], "nav-turns"))
+            {
+                navOptions = navOptions with { StoreAllTurns = true };
             }
             else
             {
@@ -125,7 +144,8 @@ public static class RoomCommands
 
         if (parsed.HasErrors || parsed.MapPath is null)
         {
-            await output.WriteLineAsync("usage: ssmap room <library.vmf> [-out <pack.roompack>] [stock vbsp options]")
+            await output.WriteLineAsync(
+                "usage: ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turns] [-nav-codec <none|deflate[:n]|brotli[:n]>] [stock vbsp options]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
         }
@@ -150,9 +170,22 @@ public static class RoomCommands
         // The library first: a library that does not split into rooms is
         // refused before a game is mounted or a cooker loaded.
         IReadOnlyList<LibraryRoom> rooms;
+        NavSettings? navSettings;
+        Guid packId;
         try
         {
-            rooms = RoomLibraryVmf.Split(await ReadVmfAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false));
+            byte[] libraryBytes = await ReadBytesAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false);
+            VmfDocument libraryVmf = await VmfDocument.ParseAsync(libraryBytes, cancellationToken).ConfigureAwait(false);
+            rooms = RoomLibraryVmf.Split(libraryVmf);
+            navSettings = NavSettings.FromLibrary(libraryVmf);
+            if (navSettings is not null && rooms.Count > 0)
+            {
+                _ = navSettings.CellVoxels(rooms[0].Definition.CellSize);
+            }
+
+            // The pack's id: a function of what shapes it, so a rebuild of the
+            // same library writes the same pack (RoomCompileIds).
+            packId = RoomCompileIds.PackId(libraryBytes, PackIdOptions(stock, parsed.MapPath), Describe(navSettings, navOptions));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or ChunkFileException or RoomLibraryException)
@@ -207,6 +240,7 @@ public static class RoomCommands
         RoomLibraryCompileSettings settings = new(options, mounted.Content)
         {
             CollisionCooker = cooker,
+            Nav = navSettings,
             Parallelism = parsed.Threads is int degree && degree > 0
                 ? new CompileParallelism { MaxDegree = degree }
                 : CompileParallelism.Default,
@@ -224,7 +258,10 @@ public static class RoomCommands
             {
                 using MemoryStream container = new();
                 await RoomObjectStore.SaveAsync(compiled, container, token).ConfigureAwait(false);
-                packed.Add(new RoomPackItem(definition.Name, container.ToArray()));
+                packed.Add(new RoomPackItem(definition.Name, container.ToArray())
+                {
+                    Extra = outcome.Nav is { } nav ? RoomNavPack.Sections(nav, navOptions) : [],
+                });
                 await output.WriteLineAsync(
                     $"ssmap room: compiled {definition.Name}"
                     + $" ({compiled.ClusterCount} clusters, {definition.Sockets.Count} sockets)")
@@ -245,7 +282,8 @@ public static class RoomCommands
         {
             await disk.ReplaceAsync(
                 packPath,
-                async (stream, token) => await RoomPack.SaveAsync(packed, stream, token).ConfigureAwait(false),
+                async (stream, token) => await RoomPack
+                    .SaveAsync([RoomCompileIds.Section(packId)], packed, stream, token).ConfigureAwait(false),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -304,12 +342,33 @@ public static class RoomCommands
         string? roomsPack = null;
         string? outPath = null;
         bool flatten = false;
+        LinkNavOptions nav = new();
         for (int i = 0; i < args.Count; i++)
         {
             if (Take(args, i, "rooms", out string r))
             {
                 roomsPack = r;
                 i++;
+            }
+            else if (Take(args, i, "nav-codec", out string codec))
+            {
+                if (!NavCompression.TryParse(codec, out NavCompression compression))
+                {
+                    await output.WriteLineAsync($"ssmap link: -nav-codec \"{codec}\" is not none, deflate[:0-9] or brotli[:0-11]")
+                        .ConfigureAwait(false);
+                    return Program.ExitUsage;
+                }
+
+                nav = nav with { Compression = compression };
+                i++;
+            }
+            else if (IsFlag(args[i], "no-nav"))
+            {
+                nav = nav with { Skip = true };
+            }
+            else if (IsFlag(args[i], "require-nav"))
+            {
+                nav = nav with { Require = true };
             }
             else if (Take(args, i, "out", out string o))
             {
@@ -329,7 +388,7 @@ public static class RoomCommands
         if (rest.Count != 1 || (flatten && roomsPack is not null))
         {
             await output.WriteLineAsync(
-                "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-out <map.bsp>]\n"
+                "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
                 + "       ssmap link <level.yaml> --flatten [-out <map.vmf>]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
@@ -347,10 +406,11 @@ public static class RoomCommands
         }
 
         LevelGrid level;
+        byte[] levelBytes;
         try
         {
-            await using Stream stream = await disk.OpenReadAsync(levelVPath, cancellationToken).ConfigureAwait(false);
-            string text = await new StreamReader(stream, Encoding.UTF8)
+            levelBytes = await ReadBytesAsync(disk, levelVPath, cancellationToken).ConfigureAwait(false);
+            string text = await new StreamReader(new MemoryStream(levelBytes), Encoding.UTF8)
                 .ReadToEndAsync(cancellationToken).ConfigureAwait(false);
             level = LevelYaml.Parse(text, Path.GetFileNameWithoutExtension(levelPath));
         }
@@ -382,7 +442,8 @@ public static class RoomCommands
 
         return flatten
             ? await FlattenAsync(disk, level, levelPath, libraryPath, targetPath, output, cancellationToken).ConfigureAwait(false)
-            : await LinkAsync(disk, level, levelPath, libraryPath, roomsPack, targetPath, output, cancellationToken).ConfigureAwait(false);
+            : await LinkAsync(disk, level, levelBytes, levelPath, libraryPath, roomsPack, targetPath, nav, output, cancellationToken)
+                .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -654,10 +715,12 @@ public static class RoomCommands
     private static async Task<int> LinkAsync(
         IFileSystem disk,
         LevelGrid level,
+        byte[] levelBytes,
         string levelPath,
         string libraryPath,
         string? roomsPack,
         VPath mapPath,
+        LinkNavOptions nav,
         TextWriter output,
         CancellationToken cancellationToken)
     {
@@ -689,6 +752,7 @@ public static class RoomCommands
 
         string pack = HostPaths.Display(packPath);
         RoomLibrary library;
+        LevelNavLink navLink;
         try
         {
             if (!await disk.ExistsAsync(packPath, cancellationToken).ConfigureAwait(false))
@@ -722,6 +786,14 @@ public static class RoomCommands
             {
                 library.Add(room);
             }
+
+            // The navigation, and the ids that tie the map and it together:
+            // from the same read of the pack, its id and the placed rooms'
+            // navigation sections, and nothing else of it.
+            LevelLayout navLayout = level.ToLayout(name => library.Find(name)?.Definition, library.CellSize, library.Kit);
+            navLink = await LevelNavFromPack.LinkAsync(
+                stream, index, navLayout, level.Columns, level.Rows, levelBytes, nav.IdOptions, !nav.Skip, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -750,6 +822,16 @@ public static class RoomCommands
             LinkedLevel link = await LevelLinker
                 .LinkAsync(layout, library, context, cancellationToken).ConfigureAwait(false);
 
+            if (navLink.Warning is { } warning)
+            {
+                await output.WriteLineAsync($"ssmap link: {(nav.Require ? "error" : "warning")}: {warning}").ConfigureAwait(false);
+                if (nav.Require)
+                {
+                    return ExitFailed;
+                }
+            }
+
+            RoomCompileIds.Stamp(link.Bsp, navLink.PackId, navLink.LevelId);
             using MemoryStream buffer = new();
             await BspFile
                 .SaveAsync(link.Bsp, buffer, BspWriteMode.Canonical, cancellationToken).ConfigureAwait(false);
@@ -762,8 +844,21 @@ public static class RoomCommands
 
             await output.WriteLineAsync(
                 $"ssmap link: wrote {HostPaths.Display(mapPath)}"
-                + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters)")
+                + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters, level id {navLink.LevelId:D})")
                 .ConfigureAwait(false);
+            if (navLink.Nav is { } levelNav)
+            {
+                VPath navPath = NavPathOf(mapPath);
+                byte[] navBytes = Nav3dWriter.Write(levelNav, nav.Compression);
+                await disk.ReplaceAsync(
+                    navPath,
+                    async (stream, token) => await stream.WriteAsync(navBytes, token).ConfigureAwait(false),
+                    cancellationToken).ConfigureAwait(false);
+                await output.WriteLineAsync(
+                    $"ssmap link: wrote {HostPaths.Display(navPath)} ({levelNav.Agents.Count} agents, {levelNav.Pois.Count} points of interest)")
+                    .ConfigureAwait(false);
+            }
+
             return Program.ExitSuccess;
         }
         catch (MapCompileException exception)
@@ -783,6 +878,64 @@ public static class RoomCommands
             await output.WriteLineAsync($"ssmap link: {levelPath}: {exception.Message}").ConfigureAwait(false);
             return ExitFailed;
         }
+    }
+
+    /// <summary>Where a linked map's navigation goes: beside it, <c>&lt;map&gt;.nav3d</c>.</summary>
+    /// <param name="mapPath">The map.</param>
+    /// <returns>The navigation file's path.</returns>
+    public static VPath NavPathOf(VPath mapPath) =>
+        VPath.Create(Path.ChangeExtension(mapPath.ToString(), Nav3dFormat.Extension));
+
+    /// <summary>The <c>ssmap room</c> options that shape a pack, for its id: the stock line without the library path and <c>-threads</c>.</summary>
+    private static List<string> PackIdOptions(List<string> stock, string? mapPath)
+    {
+        List<string> options = [];
+        for (int i = 0; i < stock.Count; i++)
+        {
+            if (IsFlag(stock[i], "threads"))
+            {
+                i++;
+                continue;
+            }
+
+            if (stock[i] != mapPath)
+            {
+                options.Add(stock[i]);
+            }
+        }
+
+        return options;
+    }
+
+    /// <summary>The navigation settings and storage, as a pack id input.</summary>
+    private static string Describe(NavSettings? settings, RoomNavPackOptions options) =>
+        settings is null
+            ? "none"
+            : string.Create(CultureInfo.InvariantCulture,
+                $"voxel {settings.VoxelSize:R} floor {settings.FloorNormalZ:R} agents {string.Join(";", settings.Agents)} turns {options.StoreAllTurns} codec {options.Compression}");
+
+    private static async Task<byte[]> ReadBytesAsync(IFileSystem disk, VPath path, CancellationToken cancellationToken)
+    {
+        await using Stream stream = await disk.OpenReadAsync(path, cancellationToken).ConfigureAwait(false);
+        using MemoryStream bytes = new();
+        await stream.CopyToAsync(bytes, cancellationToken).ConfigureAwait(false);
+        return bytes.ToArray();
+    }
+
+    /// <summary>The link's navigation switches.</summary>
+    private sealed record LinkNavOptions
+    {
+        /// <summary><c>-no-nav</c>: write no <c>.nav3d</c>.</summary>
+        public bool Skip { get; init; }
+
+        /// <summary><c>-require-nav</c>: a pack without navigation fails the link instead of warning.</summary>
+        public bool Require { get; init; }
+
+        /// <summary><c>-nav-codec</c>: how the <c>.nav3d</c> image is stored.</summary>
+        public NavCompression Compression { get; init; } = NavCompression.None;
+
+        /// <summary>The switches that shape the outputs, as level id inputs.</summary>
+        public IReadOnlyList<string> IdOptions => LevelNavFromPack.IdOptions(!Skip, Compression);
     }
 
     private static async Task<int> FlattenAsync(
