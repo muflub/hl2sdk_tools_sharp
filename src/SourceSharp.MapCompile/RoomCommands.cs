@@ -173,6 +173,7 @@ public static class RoomCommands
         NavSettings? navSettings;
         Guid packId;
         IReadOnlyList<VmfChunk> libraryEntities;
+        RoomLibraryOptions libraryOptions;
         try
         {
             byte[] libraryBytes = await ReadBytesAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false);
@@ -183,6 +184,7 @@ public static class RoomCommands
             RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(libraryVmf);
             rooms = split.Rooms;
             libraryEntities = split.LibraryEntities;
+            libraryOptions = split.Options;
             navSettings = NavSettings.FromLibrary(libraryVmf);
             if (navSettings is not null && rooms.Count > 0)
             {
@@ -281,11 +283,21 @@ public static class RoomCommands
 
         await RoomLibraryCompiler.CompileAsync(rooms, settings, ReportAsync, cancellationToken).ConfigureAwait(false);
 
-        // The compile id always; the library-wide entities only when there
-        // are some. Tags are looked up, so their order is the writer's.
-        RoomPackSectionData[] librarySections = libraryEntities.Count == 0
-            ? [RoomCompileIds.Section(packId)]
-            : [RoomCompileIds.Section(packId), RoomLibraryEntities.ToSection(libraryEntities)];
+        // The compile id always; the library-wide entities and the library's
+        // settings only when there are some, so a library that sets nothing
+        // writes the pack it would without them. Tags are looked up, so their
+        // order is the writer's.
+        List<RoomPackSectionData> librarySections = [RoomCompileIds.Section(packId)];
+        if (libraryEntities.Count > 0)
+        {
+            librarySections.Add(RoomLibraryEntities.ToSection(libraryEntities));
+        }
+
+        if (libraryOptions.ToSection() is { } optionsSection)
+        {
+            librarySections.Add(optionsSection);
+        }
+
 
         try
         {
@@ -335,6 +347,17 @@ public static class RoomCommands
     /// it, and the pack.
     /// The map defaults to the level file with <c>.bsp</c>, the flattened VMF
     /// to the level file with <c>.vmf</c>.
+    /// <para>
+    /// <b>Entity budget.</b> The link totals the level's edicts from the
+    /// rooms' entity counts before it links anything
+    /// (<see cref="LevelEntityBudget"/>): it refuses a level over the
+    /// 2048-edict cap, warns when one eats into the reserve the game needs
+    /// at runtime, and always prints the headroom line. The reserve is the
+    /// library's (<see cref="RoomLibraryOptions.EntityReserveKey"/> on its
+    /// worldspawn, kept in the pack) unless <c>-entity-reserve N</c> gives
+    /// another, and 512 when neither does. <c>--flatten</c> budgets
+    /// nothing, so it takes no reserve.
+    /// </para>
     /// </remarks>
     public static async Task<int> RunLinkAsync(
         IFileSystem disk,
@@ -349,6 +372,7 @@ public static class RoomCommands
         List<string> rest = [];
         string? roomsPack = null;
         string? outPath = null;
+        string? reserveText = null;
         bool flatten = false;
         LinkNavOptions nav = new();
         for (int i = 0; i < args.Count; i++)
@@ -356,6 +380,11 @@ public static class RoomCommands
             if (Take(args, i, "rooms", out string r))
             {
                 roomsPack = r;
+                i++;
+            }
+            else if (Take(args, i, "entity-reserve", out string e))
+            {
+                reserveText = e;
                 i++;
             }
             else if (Take(args, i, "nav-codec", out string codec))
@@ -393,13 +422,27 @@ public static class RoomCommands
             }
         }
 
-        if (rest.Count != 1 || (flatten && roomsPack is not null))
+        if (rest.Count != 1 || (flatten && (roomsPack is not null || reserveText is not null)))
         {
             await output.WriteLineAsync(
-                "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
+                "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
                 + "       ssmap link <level.yaml> --flatten [-out <map.vmf>]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
+        }
+
+        int? reserve = null;
+        if (reserveText is not null)
+        {
+            if (!RoomLibraryOptions.TryParseReserve(reserveText, out int parsed))
+            {
+                await output.WriteLineAsync(
+                    $"ssmap link: -entity-reserve is a whole number of edicts from 0 to {EntityClassTable.EdictCap}")
+                    .ConfigureAwait(false);
+                return Program.ExitUsage;
+            }
+
+            reserve = parsed;
         }
 
         string levelPath = Path.GetFullPath(rest[0]);
@@ -450,7 +493,7 @@ public static class RoomCommands
 
         return flatten
             ? await FlattenAsync(disk, level, levelPath, libraryPath, targetPath, output, cancellationToken).ConfigureAwait(false)
-            : await LinkAsync(disk, level, levelBytes, levelPath, libraryPath, roomsPack, targetPath, nav, output, cancellationToken)
+            : await LinkAsync(disk, level, levelBytes, levelPath, libraryPath, roomsPack, reserve, targetPath, nav, output, cancellationToken)
                 .ConfigureAwait(false);
     }
 
@@ -482,9 +525,10 @@ public static class RoomCommands
         ArgumentNullException.ThrowIfNull(output);
 
         const string Usage =
-            "usage: ssmap layout <library.vmf> -rows <n> -columns <n> -seed <n> [-empty <ratio>] [-out <level.yaml>]";
+            "usage: ssmap layout <library.vmf> -rows <n> -columns <n> -seed <n> [-empty <ratio>]"
+            + " [-rooms <pack.roompack>] [-entity-budget <n>] [-out <level.yaml>]";
         List<string> rest = [];
-        string? rows = null, columns = null, seed = null, empty = null, outPath = null;
+        string? rows = null, columns = null, seed = null, empty = null, outPath = null, roomsPack = null, budgetText = null;
         for (int i = 0; i < args.Count; i++)
         {
             if (Take(args, i, "rows", out string value))
@@ -506,6 +550,14 @@ public static class RoomCommands
             else if (Take(args, i, "out", out value))
             {
                 outPath = value;
+            }
+            else if (Take(args, i, "rooms", out value))
+            {
+                roomsPack = value;
+            }
+            else if (Take(args, i, "entity-budget", out value))
+            {
+                budgetText = value;
             }
             else
             {
@@ -540,11 +592,32 @@ public static class RoomCommands
             return Program.ExitUsage;
         }
 
+        int? explicitBudget = null;
+        if (budgetText is not null)
+        {
+            if (!int.TryParse(budgetText, NumberStyles.None, CultureInfo.InvariantCulture, out int parsed)
+                || parsed > EntityClassTable.EdictCap)
+            {
+                await output.WriteLineAsync(
+                    $"ssmap layout: -entity-budget is a whole number of edicts from 0 to {EntityClassTable.EdictCap}")
+                    .ConfigureAwait(false);
+                return Program.ExitUsage;
+            }
+
+            explicitBudget = parsed;
+        }
+
         string libraryPath = Path.GetFullPath(rest[0]);
         string? target = outPath is null ? null : Path.GetFullPath(outPath);
         if (!VPath.TryCreate(libraryPath, out VPath libraryVPath))
         {
             await output.WriteLineAsync($"ssmap layout: \"{libraryPath}\" is not a usable path").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        if (!TryHostPath(roomsPack ?? DefaultPack(libraryPath), out VPath packPath))
+        {
+            await output.WriteLineAsync($"ssmap layout: -rooms \"{roomsPack}\" is not a usable path").ConfigureAwait(false);
             return Program.ExitUsage;
         }
 
@@ -575,10 +648,12 @@ public static class RoomCommands
         {
             IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(
                 await ReadVmfAsync(disk, libraryVPath, cancellationToken).ConfigureAwait(false));
+            LayoutEntityBudget? budget = await LayoutBudgetAsync(disk, packPath, rooms, explicitBudget, cancellationToken)
+                .ConfigureAwait(false);
             string from = target is null ? Path.GetFullPath(".") : Path.GetDirectoryName(target)!;
             string library = Path.GetRelativePath(from, libraryPath).Replace('\\', '/');
             string name = target is null ? "level" : Path.GetFileNameWithoutExtension(target);
-            LevelGrid level = LevelGenerator.Generate([.. rooms.Select(r => r.Definition)], options, name, library);
+            LevelGrid level = LevelGenerator.Generate([.. rooms.Select(r => r.Definition)], options, name, library, budget);
             text = LevelYaml.Write(level, LevelGenerator.Header(options, level));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
@@ -613,6 +688,54 @@ public static class RoomCommands
     }
 
     /// <summary>
+    /// The entity budget <c>ssmap layout</c> generates within: the given one,
+    /// else the link's <c>cap − reserve</c> with the library's reserve, from
+    /// the rooms' counts in the library's pack.
+    /// </summary>
+    /// <returns>
+    /// The budget; or null when none was given and the pack is missing or
+    /// lacks a room's counts, since there is then nothing to count with.
+    /// </returns>
+    /// <exception cref="LinkException">
+    /// A budget was given and there is no pack, or the pack lacks a room's
+    /// counts; or the pack cannot be read.
+    /// </exception>
+    private static async Task<LayoutEntityBudget?> LayoutBudgetAsync(
+        IFileSystem disk, VPath packPath, IReadOnlyList<LibraryRoom> rooms, int? explicitBudget, CancellationToken cancellationToken)
+    {
+        string pack = HostPaths.Display(packPath);
+        PackCounts? counts = await ReadPackCountsAsync(disk, packPath, cancellationToken).ConfigureAwait(false);
+        if (counts is null)
+        {
+            return explicitBudget is null
+                ? null
+                : throw new LinkException(
+                    $"-entity-budget counts the rooms' entities, and there is no room pack {pack};"
+                    + " compile the library with ssmap room, or point -rooms at its pack.");
+        }
+
+        List<int> edicts = new(rooms.Count);
+        foreach (LibraryRoom room in rooms)
+        {
+            string name = room.Definition.Name;
+            if (counts.Counts.GetValueOrDefault(name) is not { } found)
+            {
+                return explicitBudget is null
+                    ? null
+                    : throw new LinkException(
+                        $"-entity-budget counts the rooms' entities, and the room pack {pack} has no counts for room \"{name}\";"
+                        + " recompile the library with ssmap room.");
+            }
+
+            edicts.Add(found.Tally(EntityClassTable.Default).Edicts);
+        }
+
+        int budget = explicitBudget
+            ?? EntityClassTable.EdictCap - LevelEntityBudget.ReserveFor(LevelLinkOptions.Default, counts.Options);
+        return new LayoutEntityBudget(budget, edicts);
+    }
+
+    /// <summary>
     /// Runs <c>ssmap rooms &lt;library.vmf&gt;</c>: lists every room in a
     /// library VMF with its cell, and every door with where it is and how big.
     /// </summary>
@@ -622,10 +745,21 @@ public static class RoomCommands
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>The process exit code.</returns>
     /// <remarks>
+    /// <para>
     /// The library is read and checked exactly as <c>ssmap room</c> reads it
     /// (<see cref="RoomLibraryVmf.Split"/>), so a library this lists is one
     /// the room compile accepts, and one it refuses is refused with the same
     /// message. Nothing is compiled and no game is mounted.
+    /// </para>
+    /// <para>
+    /// When the library's room pack is there (<c>-rooms</c>, else
+    /// <c>&lt;library&gt;.roompack</c> beside it), each room also lists its
+    /// entities as the room compile counted them: how many reach a linked
+    /// map, how many of those take an edict, and how many are server-only
+    /// (<see cref="EntityClassTable"/>); and the listing opens with the
+    /// library's entity budget. Without a pack the listing is the library's
+    /// alone, since entities are counted after the compile.
+    /// </para>
     /// </remarks>
     public static async Task<int> RunRoomsAsync(
         IFileSystem disk,
@@ -637,16 +771,33 @@ public static class RoomCommands
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(output);
 
-        if (args.Count != 1 || args[0].StartsWith('-'))
+        List<string> rest = [];
+        string? roomsPack = null;
+        for (int i = 0; i < args.Count; i++)
         {
-            await output.WriteLineAsync("usage: ssmap rooms <library.vmf>").ConfigureAwait(false);
+            if (Take(args, i, "rooms", out string r))
+            {
+                roomsPack = r;
+                i++;
+            }
+            else
+            {
+                rest.Add(args[i]);
+            }
+        }
+
+        if (rest.Count != 1 || rest[0].StartsWith('-'))
+        {
+            await output.WriteLineAsync("usage: ssmap rooms <library.vmf> [-rooms <pack.roompack>]").ConfigureAwait(false);
             return Program.ExitUsage;
         }
 
-        string libraryPath = Path.GetFullPath(args[0]);
-        if (!VPath.TryCreate(libraryPath, out VPath libraryVPath))
+        string libraryPath = Path.GetFullPath(rest[0]);
+        if (!VPath.TryCreate(libraryPath, out VPath libraryVPath)
+            || !TryHostPath(roomsPack ?? DefaultPack(libraryPath), out VPath packPath))
         {
-            await output.WriteLineAsync($"ssmap rooms: \"{libraryPath}\" is not a usable path").ConfigureAwait(false);
+            await output.WriteLineAsync($"ssmap rooms: \"{libraryPath}\" or -rooms \"{roomsPack}\" is not a usable path")
+                .ConfigureAwait(false);
             return Program.ExitUsage;
         }
 
@@ -662,7 +813,20 @@ public static class RoomCommands
             return ExitFailed;
         }
 
-        await output.WriteAsync(DescribeLibrary(rooms)).ConfigureAwait(false);
+        PackCounts? counts;
+        try
+        {
+            counts = await ReadPackCountsAsync(disk, packPath, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or LinkException)
+        {
+            await output.WriteLineAsync($"ssmap rooms: {HostPaths.Display(packPath)}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
+
+        await output.WriteAsync(counts is null
+            ? DescribeLibrary(rooms)
+            : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default)).ConfigureAwait(false);
         return Program.ExitSuccess;
     }
 
@@ -687,12 +851,65 @@ public static class RoomCommands
     /// is joined.
     /// </para>
     /// </remarks>
-    public static string DescribeLibrary(IReadOnlyList<LibraryRoom> rooms)
+    public static string DescribeLibrary(IReadOnlyList<LibraryRoom> rooms) => Describe(rooms, null, RoomLibraryOptions.None, null);
+
+    /// <summary>
+    /// The listing <c>ssmap rooms</c> prints when the library's pack is
+    /// there: <see cref="DescribeLibrary(IReadOnlyList{LibraryRoom})"/>'s,
+    /// opened by the library's entity budget, with each room's entities
+    /// after its line.
+    /// </summary>
+    /// <param name="rooms">The library's rooms, as <see cref="RoomLibraryVmf.Split"/> gives them.</param>
+    /// <param name="counts">The rooms' entity counts from the pack, by name (<see cref="RoomPack.ReadEntityCountsAsync"/>).</param>
+    /// <param name="options">The library's settings from the pack (<see cref="RoomPack.ReadLibraryOptionsAsync"/>).</param>
+    /// <param name="table">The class table the entities are sorted with.</param>
+    /// <returns>The listing.</returns>
+    /// <remarks>
+    /// <para>
+    /// The budget line reads <c>entity budget {b} (reserve {r}, cap {c})</c>;
+    /// a room's entity line reads <c>entities: {n} ({e} edicts, {s} server-only)</c>,
+    /// where <c>n</c> is what the room adds to a linked map's entity list
+    /// per placement and <c>e</c> and <c>s</c> split it by the class table.
+    /// Compile-only entities (which vbsp clears, so a compiled room has
+    /// none) are named on the line only when there are some, since the
+    /// link strips them.
+    /// </para>
+    /// <para>
+    /// A room the pack has no counts for reads <c>entities: not in the room
+    /// pack</c> when it failed to compile or the pack is another library's,
+    /// and <c>entities: not counted; recompile with ssmap room</c> when the
+    /// pack was written before the counts were.
+    /// </para>
+    /// </remarks>
+    public static string DescribeLibrary(
+        IReadOnlyList<LibraryRoom> rooms,
+        IReadOnlyDictionary<string, RoomEntityCounts?> counts,
+        RoomLibraryOptions options,
+        EntityClassTable table)
+    {
+        ArgumentNullException.ThrowIfNull(counts);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(table);
+        return Describe(rooms, counts, options, table);
+    }
+
+    private static string Describe(
+        IReadOnlyList<LibraryRoom> rooms,
+        IReadOnlyDictionary<string, RoomEntityCounts?>? counts,
+        RoomLibraryOptions options,
+        EntityClassTable? table)
     {
         ArgumentNullException.ThrowIfNull(rooms);
 
         StringBuilder text = new();
         text.Append(CultureInfo.InvariantCulture, $"{rooms.Count} room(s)\n");
+        if (counts is not null)
+        {
+            int reserve = LevelEntityBudget.ReserveFor(LevelLinkOptions.Default, options);
+            text.Append(CultureInfo.InvariantCulture,
+                $"entity budget {EntityClassTable.EdictCap - reserve} (reserve {reserve}, cap {EntityClassTable.EdictCap})\n");
+        }
+
         foreach (LibraryRoom room in rooms)
         {
             RoomDefinition definition = room.Definition;
@@ -700,6 +917,10 @@ public static class RoomCommands
             text.Append(CultureInfo.InvariantCulture,
                 $"{definition.Name}: cell at ({Num(room.Corner)}), {Num(cell)} x {Num(cell)} x {Num(cell)}, "
                 + $"{definition.Sockets.Count} door(s)\n");
+            if (counts is not null)
+            {
+                text.Append(EntityLine(definition.Name, counts, table!));
+            }
             foreach (RoomSocket socket in definition.Sockets)
             {
                 Box plug = RoomLinter.SealBox(definition, socket, cell);
@@ -716,6 +937,57 @@ public static class RoomCommands
         return text.ToString();
     }
 
+    /// <summary>A room's entity line for <c>ssmap rooms</c>.</summary>
+    private static string EntityLine(string room, IReadOnlyDictionary<string, RoomEntityCounts?> counts, EntityClassTable table)
+    {
+        if (!counts.TryGetValue(room, out RoomEntityCounts? found))
+        {
+            return "  entities: not in the room pack\n";
+        }
+
+        if (found is null)
+        {
+            return "  entities: not counted; recompile with ssmap room\n";
+        }
+
+        EntityTally tally = found.Tally(table);
+        string stripped = tally.CompileOnly == 0
+            ? string.Empty
+            : string.Create(CultureInfo.InvariantCulture, $", {tally.CompileOnly} compile-only stripped at link");
+        return string.Create(CultureInfo.InvariantCulture,
+            $"  entities: {tally.Listed} ({tally.Edicts} edicts, {tally.ServerOnly} server-only{stripped})\n");
+    }
+
+    /// <summary>What <c>ssmap rooms</c> and <c>ssmap layout</c> read from a pack: its settings and its rooms' counts.</summary>
+    /// <param name="Options">The library's settings.</param>
+    /// <param name="Counts">
+    /// Per room of the pack, its entity counts, or null when the pack holds
+    /// the room without them (a pack written before the counts were).
+    /// </param>
+    private sealed record PackCounts(RoomLibraryOptions Options, IReadOnlyDictionary<string, RoomEntityCounts?> Counts);
+
+    /// <summary>The pack's settings and counts, or null when there is no pack at <paramref name="packPath"/>.</summary>
+    private static async Task<PackCounts?> ReadPackCountsAsync(IFileSystem disk, VPath packPath, CancellationToken cancellationToken)
+    {
+        if (!await disk.ExistsAsync(packPath, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        await using Stream stream = await disk.OpenReadAsync(packPath, cancellationToken).ConfigureAwait(false);
+        RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+        RoomLibraryOptions options = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        IReadOnlyDictionary<string, RoomEntityCounts> read = await RoomPack.ReadEntityCountsAsync(stream, index, cancellationToken)
+            .ConfigureAwait(false);
+        Dictionary<string, RoomEntityCounts?> counts = new(StringComparer.Ordinal);
+        foreach (RoomPackEntry entry in index.Entries)
+        {
+            counts[entry.Name] = read.GetValueOrDefault(entry.Name);
+        }
+
+        return new PackCounts(options, counts);
+    }
+
     private static string Num(float value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 
     private static string Num(Vec3 value) => $"{Num(value.X)}, {Num(value.Y)}, {Num(value.Z)}";
@@ -727,6 +999,7 @@ public static class RoomCommands
         string levelPath,
         string libraryPath,
         string? roomsPack,
+        int? reserve,
         VPath mapPath,
         LinkNavOptions nav,
         TextWriter output,
@@ -778,6 +1051,8 @@ public static class RoomCommands
 
             await using Stream stream = await disk.OpenReadAsync(packPath, cancellationToken).ConfigureAwait(false);
             RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+            RoomLibraryOptions libraryOptions = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken)
+                .ConfigureAwait(false);
             foreach (LevelCell cell in first)
             {
                 if (index.Find(cell.Room) is null)
@@ -798,7 +1073,7 @@ public static class RoomCommands
                     cancellationToken)
                 .ConfigureAwait(false);
             // The first room sets the grid; RoomLibrary.Add refuses any other.
-            library = new RoomLibrary(rooms[0].Definition.Kit, rooms[0].Definition.CellSize);
+            library = new RoomLibrary(rooms[0].Definition.Kit, rooms[0].Definition.CellSize) { Options = libraryOptions };
             foreach (RoomObject room in rooms)
             {
                 library.Add(room);
@@ -837,7 +1112,8 @@ public static class RoomCommands
         {
             LevelLayout layout = level.ToLayout(name => library.Find(name)?.Definition, library.CellSize, library.Kit);
             LinkedLevel link = await LevelLinker
-                .LinkAsync(layout, library, context, cancellationToken).ConfigureAwait(false);
+                .LinkAsync(layout, library, context, new LevelLinkOptions { EntityReserve = reserve }, cancellationToken)
+                .ConfigureAwait(false);
 
             if (navLink.Warning is { } warning)
             {
@@ -865,6 +1141,14 @@ public static class RoomCommands
                     .WriteAsync(bytes, token).ConfigureAwait(false),
                 cancellationToken).ConfigureAwait(false);
 
+            // The budget's warnings, then the headroom it always reports.
+            LevelEntityReport budget = link.EntityBudget!;
+            foreach (string budgetWarning in budget.Warnings)
+            {
+                await output.WriteLineAsync($"ssmap link: warning: {budgetWarning}").ConfigureAwait(false);
+            }
+
+            await output.WriteLineAsync($"ssmap link: {budget.Headroom}").ConfigureAwait(false);
             await output.WriteLineAsync(
                 $"ssmap link: wrote {HostPaths.Display(mapPath)}"
                 + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters"

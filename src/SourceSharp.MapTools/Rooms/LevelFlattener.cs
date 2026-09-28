@@ -87,10 +87,16 @@ public static class LevelFlattener
             flat.Chunks.Add(VmfPlacement.Clone(version));
         }
 
+        // The library's own settings (its entity reserve) are left out, as
+        // the split leaves them out of every room, so the flattened map's
+        // worldspawn is the linked map's.
         VmfChunk flatWorld = new(world.Name);
         foreach (VmfKey key in world.Keys)
         {
-            flatWorld.AddKey(key.Name, key.Value);
+            if (!RoomLibraryOptions.IsLibraryKey(key.Name))
+            {
+                flatWorld.AddKey(key.Name, key.Value);
+            }
         }
 
         flat.Chunks.Add(flatWorld);

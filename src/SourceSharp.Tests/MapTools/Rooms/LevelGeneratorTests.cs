@@ -208,7 +208,7 @@ public sealed class LevelGeneratorTests
 
     /// <summary>
     /// The options check a host runs before reading a library refuses what
-    /// <see cref="LevelGenerator.Generate"/> refuses, with the same messages,
+    /// <see cref="LevelGenerator.Generate(IReadOnlyList{RoomDefinition}, LevelGeneratorOptions, string, string)"/> refuses, with the same messages,
     /// and passes the largest grid and a share just under one.
     /// </summary>
     [Fact]

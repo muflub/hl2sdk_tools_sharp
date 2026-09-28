@@ -9,6 +9,7 @@ using System.Text;
 
 using SourceSharp.MapCompile;
 using SourceSharp.MapFormats.Bsp;
+using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Text;
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Io;
@@ -1203,6 +1204,284 @@ public sealed class RoomCommandsTests
         using StringWriter empty = new();
         Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunRoomsAsync(fs, ["/lib/empty.vmf"], empty));
         Assert.Contains(RoomLibraryVmf.RoomEntity, empty.ToString(), StringComparison.Ordinal);
+    }
+
+    // ---- entity budget -------------------------------------------------------
+
+    /// <summary>
+    /// <c>ssmap link</c> always prints the headroom line: the level's edicts
+    /// (the worldspawn and each hub's player start), the budget with the
+    /// default reserve, and the entity list, which is exactly the linked
+    /// entity lump.
+    /// </summary>
+    [Fact]
+    public async Task LinkPrintsTheHeadroomLine()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
+        AddLevel(fs, "/levels/level.yaml", "hub, hub");
+
+        using StringWriter link = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-out", "/out/level.bsp"], link));
+
+        // The headroom line, right before the map is reported written (the
+        // navigation's own line follows).
+        string[] lines = link.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        int headroom = Array.IndexOf(lines, "ssmap link: map entities 3 / budget 1536 (reserve 512, cap 2048); 3 entities in the entity list");
+        Assert.True(headroom >= 0, link.ToString());
+        Assert.StartsWith($"ssmap link: wrote {HostPaths.Display(VPath.Create(Rooted("/out/level.bsp")))}", lines[headroom + 1], StringComparison.Ordinal);
+        Assert.DoesNotContain(lines, l => l.Contains("warning", StringComparison.Ordinal));
+        Assert.Equal(3, EntityLump.Parse((await LoadMapAsync(fs, "/out/level.bsp"))[BspLump.Entities]).Count);
+    }
+
+    /// <summary>
+    /// The library's reserve (its worldspawn key) travels in the pack's
+    /// library section: <c>ssmap room</c> writes it, and <c>ssmap link</c>
+    /// budgets with it, here warning that the level eats into it with the
+    /// design's message, before the headroom line. <c>-entity-reserve</c>
+    /// overrides it. The key reaches neither the rooms nor the map.
+    /// </summary>
+    [Fact]
+    public async Task TheLibrarysReserveTravelsInThePackAndTheLinkOverridesIt()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        library.GetChunk(MapFileLoader.WorldChunk)!.AddKey(RoomLibraryOptions.EntityReserveKey, "2046");
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
+        Assert.Equal(["CMPL", RoomLibraryOptions.SectionTag], (await ReadIndexAsync(fs, "/rooms.roompack")).LibrarySections.Select(s => s.Tag));
+
+        AddLevel(fs, "/levels/level.yaml", "hub, hub");
+        using StringWriter warned = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-out", "/out/a.bsp"], warned));
+        string[] lines = warned.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(
+            "ssmap link: warning: map entities 3 / budget 2 (reserve 2046, cap 2048): the level uses 1 of the reserve; most expensive rooms: hub x2 = 2",
+            lines[0]);
+        Assert.Equal("ssmap link: map entities 3 / budget 2 (reserve 2046, cap 2048); 3 entities in the entity list", lines[1]);
+
+        using StringWriter overridden = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(
+            fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-entity-reserve", "100", "-out", "/out/b.bsp"], overridden));
+        Assert.StartsWith("ssmap link: map entities 3 / budget 1948 (reserve 100, cap 2048);", overridden.ToString(), StringComparison.Ordinal);
+
+        Assert.Equal(fs.GetBytes(VPath.Create(Rooted("/out/a.bsp"))), fs.GetBytes(VPath.Create(Rooted("/out/b.bsp"))));
+        BspEntity world = EntityLump.Parse((await LoadMapAsync(fs, "/out/a.bsp"))[BspLump.Entities])[0];
+        Assert.DoesNotContain(world.Pairs, p => RoomLibraryOptions.IsLibraryKey(p.Key));
+    }
+
+    /// <summary>A library that sets nothing writes no settings section: its pack's library sections are the compile id alone.</summary>
+    [Fact]
+    public async Task ALibraryThatSetsNothingWritesNoSettings()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
+        Assert.Equal(["CMPL"], (await ReadIndexAsync(fs, "/rooms.roompack")).LibrarySections.Select(s => s.Tag));
+    }
+
+    /// <summary>
+    /// A level over the 2048-edict cap is refused with the design's message,
+    /// naming the room that costs the most, and no map is written.
+    /// </summary>
+    [Fact]
+    public async Task ALevelOverTheCapIsRefused()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        for (int i = 0; i < 1100; i++)
+        {
+            library.Chunks.Add(GapEntity(700000 + i, "info_target", "128 128 64"));
+        }
+
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
+        AddLevel(fs, "/levels/level.yaml", "hub, hub");
+
+        using StringWriter refused = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-out", "/out/level.bsp"], refused));
+        Assert.Equal(
+            $"ssmap link: {Path.GetFullPath("/levels/level.yaml")}: map entities 2203 exceed the cap of 2048 edicts; most expensive rooms: hub x2 = 2202"
+            + Environment.NewLine,
+            refused.ToString());
+        Assert.Null(fs.GetBytes(VPath.Create(Rooted("/out/level.bsp"))));
+    }
+
+    /// <summary><c>-entity-reserve</c> takes a whole number from 0 to the cap, and <c>--flatten</c> takes none.</summary>
+    [Theory]
+    [InlineData("-1", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
+    [InlineData("2049", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
+    [InlineData("half", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
+    [InlineData("flatten", "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]")]
+    public async Task ABadEntityReserveIsAUsageError(string value, string expected)
+    {
+        string[] args = value == "flatten"
+            ? ["/levels/level.yaml", "--flatten", "-entity-reserve", "10"]
+            : ["/levels/level.yaml", "-entity-reserve", value];
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunLinkAsync(new InMemoryFileSystem(), args, output));
+        Assert.StartsWith(expected, output.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// With the library's pack beside it, <c>ssmap rooms</c> opens with the
+    /// entity budget and lists each room's entities, edicts and server-only
+    /// ones; <c>-rooms</c> names another pack.
+    /// </summary>
+    [Fact]
+    public async Task RoomsListsEachRoomsEntitiesFromThePack()
+    {
+        InMemoryFileSystem fs = Game(Hub, RoomHarness.WalkableRoom("end", RoomFacing.PositiveX));
+        using StringWriter compile = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], compile));
+
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/game/maps/rooms.vmf"], output));
+        string[] lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("2 room(s)", lines[0]);
+        Assert.Equal("entity budget 1536 (reserve 512, cap 2048)", lines[1]);
+        Assert.StartsWith("hub: cell at (0, 0, 0)", lines[2], StringComparison.Ordinal);
+        Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[3]);
+        Assert.StartsWith("end: cell at", lines[8], StringComparison.Ordinal);
+        Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[9]);
+
+        fs.AddFile(Rooted("/elsewhere/other.roompack"), fs.GetBytes(VPath.Create(Rooted("/game/maps/rooms.roompack")))!);
+        await fs.DeleteAsync(VPath.Create(Rooted("/game/maps/rooms.roompack")));
+        using StringWriter named = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/game/maps/rooms.vmf", "-rooms", "/elsewhere/other.roompack"], named));
+        Assert.Equal(output.ToString(), named.ToString());
+    }
+
+    /// <summary>
+    /// A room the pack lacks, a room packed before the counts existed, and a
+    /// room whose counts include compile-only entities each read as such;
+    /// the library's reserve opens the listing.
+    /// </summary>
+    [Fact]
+    public async Task RoomsSaysWhatThePackLacks()
+    {
+        InMemoryFileSystem fs = Game(Hub, RoomHarness.WalkableRoom("end", RoomFacing.PositiveX), RoomHarness.WalkableRoom("hall", RoomFacing.PositiveX, RoomFacing.NegativeX));
+        byte[] hub = await ContainerAsync(Hub);
+        RoomEntityCounts counts = RoomEntityCounts.Of(RoomEntityCountsTests.Bsp(["worldspawn"], ["light"], ["func_detail"], ["func_detail"]));
+        using (MemoryStream stream = new())
+        {
+            await RoomPack.SaveAsync(
+                [new RoomLibraryOptions(1000).ToSection()!.Value],
+                [
+                    new RoomPackItem("hub", hub) { Extra = [counts.ToSection()] },
+                    new RoomPackItem("end", await ContainerAsync(RoomHarness.WalkableRoom("end", RoomFacing.PositiveX))),
+                ],
+                stream,
+                CancellationToken.None);
+            fs.AddFile(Rooted("/game/maps/rooms.roompack"), stream.ToArray());
+        }
+
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/game/maps/rooms.vmf"], output));
+        string[] lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("entity budget 1048 (reserve 1000, cap 2048)", lines[1]);
+        Assert.Equal("  entities: 1 (1 edicts, 0 server-only, 2 compile-only stripped at link)", lines[3]);
+        Assert.Equal("  entities: not counted; recompile with ssmap room", lines[9]);
+        Assert.Equal("  entities: not in the room pack", lines[12]);
+    }
+
+    /// <summary>A pack that is not one is reported, and the listing fails.</summary>
+    [Fact]
+    public async Task RoomsReportsABrokenPack()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        fs.AddText(Rooted("/game/maps/rooms.roompack"), "not a pack at all, not even close");
+        using StringWriter output = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunRoomsAsync(fs, ["/game/maps/rooms.vmf"], output));
+        Assert.StartsWith("ssmap rooms: ", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("not a room pack", output.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// With the pack beside the library, <c>ssmap layout</c> keeps within
+    /// <c>cap − reserve</c> by default, which for rooms of a few entities
+    /// changes nothing: the level is the one made without a pack.
+    /// </summary>
+    [Fact]
+    public async Task LayoutsDefaultBudgetChangesNothingForSmallRooms()
+    {
+        InMemoryFileSystem fs = Game(Library());
+        using StringWriter output = new();
+        string[] args = ["/game/maps/rooms.vmf", "-rows", "3", "-columns", "3", "-seed", "4"];
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLayoutAsync(fs, [.. args, "-out", "/levels/before.yaml"], output));
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLayoutAsync(fs, [.. args, "-out", "/levels/after.yaml"], output));
+        Assert.Equal(fs.GetBytes(VPath.Create(Rooted("/levels/before.yaml"))), fs.GetBytes(VPath.Create(Rooted("/levels/after.yaml"))));
+    }
+
+    /// <summary>
+    /// <c>-entity-budget</c> holds the level to it: three rooms of one
+    /// entity each are four edicts with the worldspawn, so a budget of four
+    /// makes the level and three is refused with the generator's message.
+    /// </summary>
+    [Fact]
+    public async Task LayoutHoldsTheLevelToAnEntityBudget()
+    {
+        InMemoryFileSystem fs = Game(Library());
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
+        string[] args = ["/game/maps/rooms.vmf", "-rows", "1", "-columns", "3", "-seed", "2"];
+
+        using StringWriter fits = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLayoutAsync(fs, [.. args, "-entity-budget", "4", "-out", "/levels/four.yaml"], fits));
+
+        using StringWriter over = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLayoutAsync(fs, [.. args, "-entity-budget", "3"], over));
+        Assert.Equal(
+            $"ssmap layout: {Path.GetFullPath("/game/maps/rooms.vmf")}: no level of 1x3 cells keeps within the entity budget of 3 edicts:"
+            + " its 3 room(s) bring at least 4, the worldspawn included." + Environment.NewLine,
+            over.ToString());
+    }
+
+    /// <summary>
+    /// <c>-entity-budget</c> needs the rooms' counts: with no pack, or a pack
+    /// without them, it is refused naming the pack; without the option, the
+    /// layout goes ahead unbudgeted.
+    /// </summary>
+    [Fact]
+    public async Task LayoutsEntityBudgetNeedsTheCounts()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        string pack = HostPaths.Display(VPath.Create(Rooted("/game/maps/rooms.roompack")));
+        string[] args = ["/game/maps/rooms.vmf", "-rows", "1", "-columns", "2", "-seed", "1", "-entity-budget", "100"];
+
+        using StringWriter none = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLayoutAsync(fs, args, none));
+        Assert.Contains($"-entity-budget counts the rooms' entities, and there is no room pack {pack};", none.ToString(), StringComparison.Ordinal);
+
+        using (MemoryStream stream = new())
+        {
+            await RoomPack.SaveAsync([new RoomPackItem("hub", await ContainerAsync(Hub))], stream);
+            fs.AddFile(Rooted("/game/maps/rooms.roompack"), stream.ToArray());
+        }
+
+        using StringWriter uncounted = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLayoutAsync(fs, args, uncounted));
+        Assert.Contains($"the room pack {pack} has no counts for room \"hub\"; recompile the library with ssmap room.", uncounted.ToString(), StringComparison.Ordinal);
+
+        using StringWriter plain = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLayoutAsync(fs, args[..^2], plain));
+    }
+
+    /// <summary><c>-entity-budget</c> takes a whole number from 0 to the cap.</summary>
+    [Theory]
+    [InlineData("-5")]
+    [InlineData("2049")]
+    [InlineData("lots")]
+    public async Task ABadEntityBudgetIsAUsageError(string value)
+    {
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunLayoutAsync(
+            new InMemoryFileSystem(), ["/lib.vmf", "-rows", "1", "-columns", "1", "-seed", "1", "-entity-budget", value], output));
+        Assert.Equal("ssmap layout: -entity-budget is a whole number of edicts from 0 to 2048" + Environment.NewLine, output.ToString());
     }
 
     // ---- helpers -----------------------------------------------------------

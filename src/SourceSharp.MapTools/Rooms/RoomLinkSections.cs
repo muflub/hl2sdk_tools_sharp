@@ -679,7 +679,7 @@ internal static class RoomLinkSections
     }
 
     /// <summary>Appends big-endian scalars and little-endian struct arrays.</summary>
-    private sealed class Writer
+    internal sealed class Writer
     {
         private readonly MemoryStream _bytes = new();
 
