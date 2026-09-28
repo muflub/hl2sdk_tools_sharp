@@ -229,6 +229,42 @@ public static class BspFile
     }
 
     /// <summary>
+    /// A size no written BSP of this data can exceed: the header, every lump
+    /// padded to four bytes, and the game lump directory and payloads.
+    /// </summary>
+    /// <param name="bsp">The data to be written.</param>
+    /// <returns>The bound, in bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="bsp"/> is null.</exception>
+    /// <remarks>
+    /// For sizing the buffer a whole file is written into. A memory stream
+    /// that starts empty doubles its way up to the file's size, and on a
+    /// compiled map every buffer it outgrows past 85 KB is large-object
+    /// garbage: about three times the file, on 2fort some 36 MB, before a
+    /// final copy of it to hand the bytes on. A buffer this size is made
+    /// once. The bound is generous by at most a few bytes a lump.
+    /// </remarks>
+    public static long SizeBound(BspData bsp)
+    {
+        ArgumentNullException.ThrowIfNull(bsp);
+
+        long size = BspData.HeaderSize;
+        for (int i = 0; i < BspData.HeaderLumps; i++)
+        {
+            size += bsp[i].Length + 3;
+        }
+
+        // The game lump: its count, then per entry a directory record and
+        // the payload, each padded; plus room for the pak lump's alignment.
+        size += 4 + 3;
+        foreach (GameLumpEntry entry in bsp.GameLumps)
+        {
+            size += 16 + entry.Data.Length + 3;
+        }
+
+        return size + Math.Max(0, PakFileAlignment);
+    }
+
+    /// <summary>
     /// The shared writer. <paramref name="format"/> null means "today's
     /// bytes": the header version is <see cref="BspData.FileVersion"/> as
     /// loaded or set, lump versions come from the canonical table or the

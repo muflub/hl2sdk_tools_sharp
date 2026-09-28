@@ -410,7 +410,10 @@ public static class VbspCommand
         CancellationToken cancellationToken)
     {
         await output.WriteLineAsync($"Writing {HostPaths.Display(path)}").ConfigureAwait(false);
-        using MemoryStream buffer = new();
+        // Sized once for the whole file (BspFile.SizeBound), and handed on
+        // without a copy, rather than doubled up to it and copied out.
+        long bound = BspFile.SizeBound(bsp);
+        using MemoryStream buffer = new(bound <= Array.MaxLength ? (int)bound : 0);
         // The T3 seam: a resolved format beyond today's default is handed the
         // writer's format overload; the default asks for null and so runs
         // literally the legacy call T1 left here (corpus identity).
@@ -425,11 +428,12 @@ public static class VbspCommand
             await BspFile.SaveAsync(bsp, buffer, BspWriteMode.Canonical, cancellationToken)
                 .ConfigureAwait(false);
         }
-        await WriteBytesAsync(fileSystem, path, buffer.ToArray(), cancellationToken).ConfigureAwait(false);
+        await WriteBytesAsync(fileSystem, path, buffer.GetBuffer().AsMemory(0, (int)buffer.Length), cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static async Task WriteBytesAsync(
-        IFileSystem fileSystem, VPath path, byte[] bytes, CancellationToken cancellationToken)
+        IFileSystem fileSystem, VPath path, ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
     {
         await fileSystem.ReplaceAsync(
             path,
