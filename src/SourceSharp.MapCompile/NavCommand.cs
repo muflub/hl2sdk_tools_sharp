@@ -149,14 +149,27 @@ public static class NavCommand
         VPath pack = VPath.Create(Path.GetFullPath(roomsPack ?? Path.ChangeExtension(library, RoomPack.Extension)));
         await using Stream stream = await disk.OpenReadAsync(pack, cancellationToken).ConfigureAwait(false);
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
-        string[] names = [.. level.Placed.Select(p => p.Cell.Room).Distinct()];
-        IReadOnlyList<RoomObject> loaded = await RoomPack.LoadRoomsAsync(stream, index, names, cancellationToken).ConfigureAwait(false);
-        Dictionary<string, RoomDefinition> definitions = loaded.ToDictionary(r => r.Definition.Name, r => r.Definition, StringComparer.Ordinal);
+        Dictionary<string, HashSet<int>> turns = new(StringComparer.Ordinal);
+        foreach ((_, _, LevelCell cell) in level.Placed)
+        {
+            if (!turns.TryGetValue(cell.Room, out HashSet<int>? placed))
+            {
+                turns[cell.Room] = placed = [];
+            }
+
+            placed.Add(cell.Rotation);
+        }
+
+        IReadOnlyList<RoomObject> loaded = await RoomPack.LoadRoomsAsync(
+            stream, index, [.. turns.Select(t => new RoomPackRequest(t.Key, t.Value) { Navigation = true })], cancellationToken)
+            .ConfigureAwait(false);
+        Dictionary<string, RoomObject> byName = loaded.ToDictionary(r => r.Definition.Name, StringComparer.Ordinal);
         RoomDefinition first = loaded[0].Definition;
-        LevelLayout layout = level.ToLayout(name => definitions.GetValueOrDefault(name), first.CellSize, first.Kit);
-        LevelNavLink link = await LevelNavFromPack.LinkAsync(
-            stream, index, layout, level.Columns, level.Rows, levelBytes, LevelNavFromPack.IdOptions(true, NavCompression.None),
-            includeNavigation: true, cancellationToken).ConfigureAwait(false);
+        LevelLayout layout = level.ToLayout(name => byName.GetValueOrDefault(name)?.Definition, first.CellSize, first.Kit);
+        Guid? packId = await RoomNavPack.ReadPackIdAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        LevelNavLink link = LevelNavFromPack.Link(
+            layout, level.Columns, level.Rows, name => byName[name], packId, levelBytes,
+            LevelNavFromPack.IdOptions(true, NavCompression.None), includeNavigation: true, cancellationToken);
         return link.Nav is null ? (null, link.Warning) : (Nav3dReader.Open(Nav3dWriter.Write(link.Nav)), null);
     }
 

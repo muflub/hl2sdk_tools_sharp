@@ -191,7 +191,7 @@ public sealed class LevelNavLinkerTests(NavRoomsFixture fixture) : IClassFixture
         {
             for (int t = 0; t < 4; t++)
             {
-                stored[(room, t)] = RoomNavSection.Read(RoomNavSection.Write(fixture.Nav(room).Turned(t), NavCompression.None));
+                stored[(room, t)] = RoomNavSection.Read(RoomNavSection.Write(fixture.Nav(room).Turned(t), NavCompression.None))!;
             }
         }
 

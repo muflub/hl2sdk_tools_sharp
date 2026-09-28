@@ -172,11 +172,17 @@ public static class RoomCommands
         IReadOnlyList<LibraryRoom> rooms;
         NavSettings? navSettings;
         Guid packId;
+        IReadOnlyList<VmfChunk> libraryEntities;
         try
         {
             byte[] libraryBytes = await ReadBytesAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false);
             VmfDocument libraryVmf = await VmfDocument.ParseAsync(libraryBytes, cancellationToken).ConfigureAwait(false);
-            rooms = RoomLibraryVmf.Split(libraryVmf);
+
+            // The library-wide entities in the gaps (the sun, fog and the
+            // like) go into the pack's library section, not away.
+            RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(libraryVmf);
+            rooms = split.Rooms;
+            libraryEntities = split.LibraryEntities;
             navSettings = NavSettings.FromLibrary(libraryVmf);
             if (navSettings is not null && rooms.Count > 0)
             {
@@ -256,12 +262,9 @@ public static class RoomCommands
             RoomDefinition definition = outcome.Room.Definition;
             if (outcome.Compiled is { } compiled)
             {
-                using MemoryStream container = new();
-                await RoomObjectStore.SaveAsync(compiled, container, token).ConfigureAwait(false);
-                packed.Add(new RoomPackItem(definition.Name, container.ToArray())
-                {
-                    Extra = outcome.Nav is { } nav ? RoomNavPack.Sections(nav, navOptions) : [],
-                });
+                // The container, the link work and the navigation the
+                // library compile did ahead for the room (RoomPackItem.CreateAsync).
+                packed.Add(await RoomPackItem.CreateAsync(compiled, navOptions, token).ConfigureAwait(false));
                 await output.WriteLineAsync(
                     $"ssmap room: compiled {definition.Name}"
                     + $" ({compiled.ClusterCount} clusters, {definition.Sockets.Count} sockets)")
@@ -278,12 +281,17 @@ public static class RoomCommands
 
         await RoomLibraryCompiler.CompileAsync(rooms, settings, ReportAsync, cancellationToken).ConfigureAwait(false);
 
+        // The compile id always; the library-wide entities only when there
+        // are some. Tags are looked up, so their order is the writer's.
+        RoomPackSectionData[] librarySections = libraryEntities.Count == 0
+            ? [RoomCompileIds.Section(packId)]
+            : [RoomCompileIds.Section(packId), RoomLibraryEntities.ToSection(libraryEntities)];
+
         try
         {
             await disk.ReplaceAsync(
                 packPath,
-                async (stream, token) => await RoomPack
-                    .SaveAsync([RoomCompileIds.Section(packId)], packed, stream, token).ConfigureAwait(false),
+                async (stream, token) => await RoomPack.SaveAsync(librarySections, packed, stream, token).ConfigureAwait(false),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -732,16 +740,20 @@ public static class RoomCommands
         }
 
         // Exactly the rooms the level places, in the order it first places
-        // them: the pack's index is read, then those rooms and nothing else,
+        // them, and the turns it places each at: the pack's index is read,
+        // then those rooms and those turns' link sections and nothing else,
         // so a stale or broken room the level does not name is never read.
         List<LevelCell> first = [];
-        HashSet<string> named = new(StringComparer.Ordinal);
+        Dictionary<string, HashSet<int>> turns = new(StringComparer.Ordinal);
         foreach ((_, _, LevelCell cell) in level.Placed)
         {
-            if (named.Add(cell.Room))
+            if (!turns.TryGetValue(cell.Room, out HashSet<int>? placed))
             {
+                turns[cell.Room] = placed = [];
                 first.Add(cell);
             }
+
+            placed.Add(cell.Rotation);
         }
 
         if (first.Count == 0)
@@ -779,7 +791,12 @@ public static class RoomCommands
             }
 
             IReadOnlyList<RoomObject> rooms = await RoomPack
-                .LoadRoomsAsync(stream, index, [.. first.Select(c => c.Room)], cancellationToken).ConfigureAwait(false);
+                .LoadRoomsAsync(
+                    stream,
+                    index,
+                    [.. first.Select(c => new RoomPackRequest(c.Room, turns[c.Room]) { Navigation = !nav.Skip })],
+                    cancellationToken)
+                .ConfigureAwait(false);
             // The first room sets the grid; RoomLibrary.Add refuses any other.
             library = new RoomLibrary(rooms[0].Definition.Kit, rooms[0].Definition.CellSize);
             foreach (RoomObject room in rooms)
@@ -787,13 +804,13 @@ public static class RoomCommands
                 library.Add(room);
             }
 
-            // The navigation, and the ids that tie the map and it together:
-            // from the same read of the pack, its id and the placed rooms'
-            // navigation sections, and nothing else of it.
+            // The navigation came with the rooms, at the turns they are placed
+            // (RoomPackRequest.Navigation); the pack's id is its one library
+            // section more, and only read when the link writes navigation.
+            Guid? packId = nav.Skip ? null : await RoomNavPack.ReadPackIdAsync(stream, index, cancellationToken).ConfigureAwait(false);
             LevelLayout navLayout = level.ToLayout(name => library.Find(name)?.Definition, library.CellSize, library.Kit);
-            navLink = await LevelNavFromPack.LinkAsync(
-                stream, index, navLayout, level.Columns, level.Rows, levelBytes, nav.IdOptions, !nav.Skip, cancellationToken)
-                .ConfigureAwait(false);
+            navLink = LevelNavFromPack.Link(
+                navLayout, level.Columns, level.Rows, library.Get, packId, levelBytes, nav.IdOptions, !nav.Skip, cancellationToken);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -831,7 +848,13 @@ public static class RoomCommands
                 }
             }
 
-            RoomCompileIds.Stamp(link.Bsp, navLink.PackId, navLink.LevelId);
+            // The ids tie the map to its .nav3d, so they are written only
+            // with one: a link without navigation writes the map it always did.
+            if (navLink.Nav is not null)
+            {
+                RoomCompileIds.Stamp(link.Bsp, navLink.PackId, navLink.LevelId);
+            }
+
             using MemoryStream buffer = new();
             await BspFile
                 .SaveAsync(link.Bsp, buffer, BspWriteMode.Canonical, cancellationToken).ConfigureAwait(false);
@@ -844,7 +867,8 @@ public static class RoomCommands
 
             await output.WriteLineAsync(
                 $"ssmap link: wrote {HostPaths.Display(mapPath)}"
-                + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters, level id {navLink.LevelId:D})")
+                + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters"
+                + (navLink.Nav is null ? ")" : $", level id {navLink.LevelId:D})"))
                 .ConfigureAwait(false);
             if (navLink.Nav is { } levelNav)
             {

@@ -21,20 +21,13 @@ namespace SourceSharp.MapTools.Rooms;
 /// <summary>How one room of a library compile ended.</summary>
 public sealed class RoomCompileOutcome
 {
-    internal RoomCompileOutcome(int index, LibraryRoom room, RoomObject? compiled, Exception? error, RoomNav? nav = null)
+    internal RoomCompileOutcome(int index, LibraryRoom room, RoomObject? compiled, Exception? error)
     {
         Index = index;
         Room = room;
         Compiled = compiled;
         Error = error;
-        Nav = nav;
     }
-
-    /// <summary>
-    /// The room's navigation at turn 0, or null when it failed or the
-    /// library builds none (<see cref="RoomLibraryCompileSettings.Nav"/>).
-    /// </summary>
-    public RoomNav? Nav { get; }
 
     /// <summary>The room's place in the library, from zero.</summary>
     public int Index { get; }
@@ -42,7 +35,11 @@ public sealed class RoomCompileOutcome
     /// <summary>The room as the library gave it.</summary>
     public LibraryRoom Room { get; }
 
-    /// <summary>The compiled room, or null when it failed.</summary>
+    /// <summary>
+    /// The compiled room, or null when it failed: with its link work done
+    /// ahead, and its navigation (<see cref="RoomObject.Nav"/>) when the
+    /// library builds it (<see cref="RoomLibraryCompileSettings.Nav"/>).
+    /// </summary>
     public RoomObject? Compiled { get; }
 
     /// <summary>
@@ -320,10 +317,20 @@ public static class RoomLibraryCompiler
             (VmfDocument document, IReadOnlyList<AuthoredPoi> pois) = RoomPois.Extract(room.Document);
             RoomObject compiled = await RoomCompiler
                 .CompileAsync(document, room.Definition, context, cancellationToken).ConfigureAwait(false);
+
+            // The link work that depends only on the room and its turn,
+            // done here, on the room's own thread, so it runs side by side
+            // like the compiles and every later link of the room skips it
+            // (RoomLinkData). A room the link would refuse gets none and is
+            // delivered as before. Its navigation is the same kind of work
+            // (per room, per turn, read by the link instead of redone), so
+            // it is done here too, beside it.
+            RoomLinkData? link = await LevelLinker.TryPrecomputeAsync(compiled, cancellationToken).ConfigureAwait(false);
             RoomNav? nav = settings.Nav is { } navSettings
                 ? RoomNavBuilder.Build(room.Definition, compiled.Bsp, pois, room.Role, navSettings, cancellationToken)
                 : null;
-            return new RoomCompileOutcome(index, room, compiled, null, nav);
+            RoomObject delivered = link is null ? compiled : compiled with { Link = link };
+            return new RoomCompileOutcome(index, room, nav is null ? delivered : delivered with { Nav = RoomNavTurns.Of(nav) }, null);
         }
         catch (Exception exception) when (IsRoomFailure(exception))
         {

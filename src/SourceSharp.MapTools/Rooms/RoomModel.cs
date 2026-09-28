@@ -348,6 +348,69 @@ public readonly record struct RoomTransform(RoomPlacement Placement, float CellS
         };
     }
 
+    /// <summary>
+    /// The rotation half of <see cref="Apply"/> alone: the quarter turn about
+    /// +z, with no translation. It depends only on the rotation, so the room
+    /// compile can do it once per rotation and store the result
+    /// (<see cref="RoomLinkData"/>).
+    /// </summary>
+    /// <param name="p">The room-local point.</param>
+    /// <param name="rotation">The quarter turns, 0 to 3.</param>
+    /// <returns>The turned point, still about the room's own origin.</returns>
+    /// <remarks>
+    /// A negation and a permutation, both exact in floating point, so no
+    /// rounding happens here: the only rounding <see cref="Apply"/> does is
+    /// in the additions <see cref="Translate"/> repeats.
+    /// </remarks>
+    internal static Vec3 Rotate(Vec3 p, int rotation) => rotation switch
+    {
+        0 => p,
+        1 => new Vec3(-p.Y, p.X, p.Z),
+        2 => new Vec3(-p.X, -p.Y, p.Z),
+        _ => new Vec3(p.Y, -p.X, p.Z),
+    };
+
+    /// <summary>
+    /// The translation half of <see cref="Apply"/>: a point
+    /// <see cref="Rotate"/> already turned, moved to the placement's cell.
+    /// </summary>
+    /// <param name="rotated">The point as <see cref="Rotate"/> returned it for this placement's rotation.</param>
+    /// <returns>The world point, bit for bit what <see cref="Apply"/> returns for the unturned point.</returns>
+    /// <remarks>
+    /// Each component is the same float additions, in the same order,
+    /// that <see cref="Apply"/> makes on the same turned value (for a
+    /// quarter turn, <c>-p.Y + tx + CellSize</c> is <c>(r.X + tx) + CellSize</c>
+    /// with <c>r = Rotate(p)</c>), so the split changes no bit, negative zero
+    /// included: no component gains or loses an addition. That equivalence
+    /// is what lets the rotation move to room compile time while the link
+    /// keeps only this.
+    /// </remarks>
+    internal readonly Vec3 Translate(Vec3 rotated)
+    {
+        float tx = Placement.CellX * CellSize;
+        float ty = Placement.CellY * CellSize;
+        return _rotation switch
+        {
+            0 => new Vec3(rotated.X + tx, rotated.Y + ty, rotated.Z),
+            1 => new Vec3(rotated.X + tx + CellSize, rotated.Y + ty, rotated.Z),
+            2 => new Vec3(rotated.X + tx + CellSize, rotated.Y + ty + CellSize, rotated.Z),
+            _ => new Vec3(rotated.X + tx, rotated.Y + ty + CellSize, rotated.Z),
+        };
+    }
+
+    /// <summary>A box <see cref="LevelLinker.RotateBox"/> turned, moved to the placement's cell.</summary>
+    /// <param name="rotated">The turned box.</param>
+    /// <returns>Bit for bit what <see cref="LevelLinker.MoveBox"/> returns for the unturned box.</returns>
+    /// <remarks>
+    /// <see cref="Translate"/> adds constants to each component, and a
+    /// rounded addition never reverses the order of two values, so the
+    /// smallest of the moved corners is the moved smallest corner: moving the
+    /// turned box's two corners gives the same box as moving all eight
+    /// corners and taking their bounds, which is what
+    /// <see cref="LevelLinker.MoveBox"/> does.
+    /// </remarks>
+    internal readonly Box TranslateBox(Box rotated) => new(Translate(rotated.Mins), Translate(rotated.Maxs));
+
     /// <summary>The inverse: a world point back to the room's own coordinates.</summary>
     /// <param name="p">The world point.</param>
     /// <returns>The room-local point.</returns>

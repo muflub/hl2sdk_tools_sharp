@@ -11,14 +11,14 @@ using SourceSharp.MapTools.Rooms;
 
 namespace SourceSharp.MapTools.Nav;
 
-/// <summary>What linking a level's navigation from a pack gave.</summary>
-/// <param name="Nav">The level's navigation, or null when the pack holds none for some placed room.</param>
+/// <summary>What linking a level's navigation gave.</summary>
+/// <param name="Nav">The level's navigation, or null when some placed room has none (or the link asked for none).</param>
 /// <param name="PackId">The pack's id, or null for a pack written before packs had one.</param>
 /// <param name="LevelId">The level's id, for the map's worldspawn and the navigation's header.</param>
-/// <param name="Warning">Why there is no navigation, or null.</param>
+/// <param name="Warning">Why there is no navigation when the link asked for it, or null.</param>
 public sealed record LevelNavLink(Nav3dLevel? Nav, Guid? PackId, Guid LevelId, string? Warning);
 
-/// <summary>The link's navigation step, from a room pack: what <c>ssmap link</c> and <c>ssmap nav</c> run.</summary>
+/// <summary>The link's navigation step: what <c>ssmap link</c> and <c>ssmap nav</c> run over the rooms a pack load gave.</summary>
 public static class LevelNavFromPack
 {
     /// <summary>
@@ -33,54 +33,53 @@ public static class LevelNavFromPack
         [navigation ? "nav" : "no-nav", $"nav-codec {compression.Codec}:{compression.Level}"];
 
     /// <summary>
-    /// Reads the pack's id and the placed rooms' navigation (and nothing
-    /// else of the pack), derives the level id, and stitches the level's
-    /// navigation.
+    /// Stitches the level's navigation from the placed rooms' own
+    /// (<see cref="RoomObject.Nav"/>, which a pack load reads when its
+    /// requests ask for navigation, at the turns they place), and derives the
+    /// level id.
     /// </summary>
-    /// <param name="pack">The room pack; it must be able to seek.</param>
-    /// <param name="index">The pack's index.</param>
     /// <param name="layout">The level's layout (<see cref="LevelGrid.ToLayout"/>).</param>
     /// <param name="columns">The grid's columns.</param>
     /// <param name="rows">The grid's rows.</param>
+    /// <param name="rooms">The placed rooms by name.</param>
+    /// <param name="packId">The pack's id (<see cref="RoomNavPack.ReadPackIdAsync"/>), or null.</param>
     /// <param name="levelFile">The level file's bytes, as read: an input of the level id.</param>
-    /// <param name="options">The link options that shape the outputs: an input of the level id.</param>
-    /// <param name="includeNavigation">False to derive the ids only, reading no navigation.</param>
-    /// <param name="cancellationToken">Cancels the reads and the link.</param>
+    /// <param name="options">The link options that shape the outputs (<see cref="IdOptions"/>): an input of the level id.</param>
+    /// <param name="includeNavigation">False to derive the ids only.</param>
+    /// <param name="cancellationToken">Cancels the stitch.</param>
     /// <returns>The navigation (or why there is none) and the ids.</returns>
-    /// <exception cref="LinkException">A navigation section this build cannot read, or rooms built with different settings.</exception>
-    public static async Task<LevelNavLink> LinkAsync(
-        Stream pack,
-        RoomPackIndex index,
+    /// <exception cref="LinkException">Rooms built with different settings.</exception>
+    public static LevelNavLink Link(
         LevelLayout layout,
         int columns,
         int rows,
-        ReadOnlyMemory<byte> levelFile,
+        Func<string, RoomObject> rooms,
+        Guid? packId,
+        ReadOnlySpan<byte> levelFile,
         IReadOnlyList<string> options,
         bool includeNavigation = true,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(layout);
+        ArgumentNullException.ThrowIfNull(rooms);
         ArgumentNullException.ThrowIfNull(options);
-        Guid? packId = await RoomNavPack.ReadPackIdAsync(pack, index, cancellationToken).ConfigureAwait(false);
-        Guid levelId = RoomCompileIds.LevelId(packId ?? Guid.Empty, levelFile.Span, options);
+        Guid levelId = RoomCompileIds.LevelId(packId ?? Guid.Empty, levelFile, options);
         if (!includeNavigation)
         {
             return new LevelNavLink(null, packId, levelId, null);
         }
 
-        IReadOnlyDictionary<(string Room, int Turn), RoomNav>? navs = await RoomNavPack.ReadAsync(
-            pack, index, layout.Rooms.Select(r => (r.Placement.Room, r.Placement.NormalizedRotation)), cancellationToken)
-            .ConfigureAwait(false);
-        if (navs is null)
+        string[] missing = [.. layout.Rooms.Select(r => r.Placement.Room).Distinct(StringComparer.Ordinal)
+            .Where(room => rooms(room).Nav is null).Order(StringComparer.Ordinal)];
+        if (missing.Length > 0)
         {
-            string[] missing = [.. layout.Rooms.Select(r => r.Placement.Room).Distinct()
-                .Where(room => index.Find(room)?.Find(RoomNavSection.Tag(0)) is null).Order(StringComparer.Ordinal)];
             return new LevelNavLink(null, packId, levelId,
                 $"the room pack holds no navigation for {string.Join(", ", missing.Select(m => $"\"{m}\""))};"
                 + " the level is linked without a .nav3d (compile the library with a build that writes navigation)");
         }
 
-        Nav3dLevel nav = LevelNavLinker.Link(layout, columns, rows, (room, turn) => navs[(room, turn)], packId, levelId, cancellationToken);
+        Nav3dLevel nav = LevelNavLinker.Link(
+            layout, columns, rows, (room, turn) => rooms(room).Nav!.At(turn), packId, levelId, cancellationToken);
         return new LevelNavLink(nav, packId, levelId, null);
     }
 }

@@ -202,6 +202,13 @@ internal sealed class SurfaceContentExtension : IVbspExtension
                 cancellationToken).ConfigureAwait(false);
         }
 
+        // A room compile keeps the pak free of files named after the room
+        // (VbspContext.WritesDefaultCubemaps).
+        if (!compile.WritesDefaultCubemaps)
+        {
+            return;
+        }
+
         MapEntity? world = stage.Map.Entities.Count > 0 ? stage.Map.Entities[0] : null;
         string? skyName = world?.ValueForKey("skyname");
         await DefaultCubemapBuilder.CreateAsync(

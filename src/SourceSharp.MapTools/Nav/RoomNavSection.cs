@@ -22,19 +22,22 @@ namespace SourceSharp.MapTools.Nav;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Layout, version 1.</b> Big-endian, as every integer of a room pack is.
-/// A four-byte envelope that is never compressed, then the payload:
+/// <b>Layout, revision 1.</b> Big-endian, as every integer of a room pack is,
+/// and framed as the pack's link sections are (<c>RoomLinkSections</c>), so
+/// every per-room section of a pack reads the same way: a codec byte
+/// (<see cref="NavCodec"/>: 0 none, 1 Deflate, 2 Brotli, the same values
+/// as the link sections' codec), the payload's decoded length as an
+/// <c>int64</c>, and the payload, stored by the codec. The decoded payload
+/// starts with an <c>int32</c> revision (<see cref="Revision"/>) and a
+/// <c>uint8</c> turn, 0 to 3, which must match the tag. As with the link
+/// sections, a section of a revision this build does not know reads as
+/// absent (the link goes on without navigation and says so), a codec it does
+/// not know, or a payload that does not decode to its recorded length, is
+/// refused. The codec byte and revision replace the earlier nav-only
+/// version and codec header, so there is one convention in the pack.
 /// </para>
-/// <list type="table">
-/// <listheader><term>Bytes</term><description>What</description></listheader>
-/// <item><term>2</term><description><c>uint16</c> version (<see cref="Version"/>).</description></item>
-/// <item><term>1</term><description>The codec (<see cref="NavCodec"/>): 0 none, 1 Deflate, 2 Brotli.</description></item>
-/// <item><term>1</term><description>The turn, 0 to 3; it must match the tag.</description></item>
-/// <item><term>4</term><description><c>int32</c> the payload's raw length.</description></item>
-/// <item><term>the rest</term><description>The payload, stored by the codec.</description></item>
-/// </list>
 /// <para>
-/// The payload: <c>float32</c> cell size, voxel size, <c>int32</c> voxels
+/// The payload after the revision and turn: <c>float32</c> cell size, voxel size, <c>int32</c> voxels
 /// per cell edge, <c>float32</c> floor normal z, <c>uint8</c> role; the
 /// agents (<c>uint8</c> count, each a string name, <c>float32</c> width and
 /// height, <c>int32</c> contents mask); the sockets (<c>uint8</c> count, each
@@ -59,8 +62,14 @@ namespace SourceSharp.MapTools.Nav;
 /// </remarks>
 public static class RoomNavSection
 {
-    /// <summary>The only section version this build reads and writes.</summary>
-    public const int Version = 1;
+    /// <summary>The payload revision this build writes and reads; a section of another reads as absent.</summary>
+    public const int Revision = 1;
+
+    /// <summary>The codec byte and the <c>int64</c> decoded length every section starts with.</summary>
+    private const int HeaderBytes = 1 + 8;
+
+    /// <summary>The largest payload a section may claim: a lying length fails before it allocates.</summary>
+    private const int MaxPayloadBytes = 1 << 30;
 
     /// <summary>The tag of the section holding a turn: <c>NVR0</c> to <c>NVR3</c>.</summary>
     /// <param name="turn">The quarter turns, 0 to 3.</param>
@@ -82,6 +91,8 @@ public static class RoomNavSection
     {
         ArgumentNullException.ThrowIfNull(nav);
         Writer w = new();
+        w.I32(Revision);
+        w.U8((byte)nav.Turn);
         w.F32(nav.CellSize);
         w.F32(nav.VoxelSize);
         w.I32(nav.CellVoxels);
@@ -161,40 +172,43 @@ public static class RoomNavSection
 
         byte[] raw = w.ToArray();
         byte[] stored = compression.Compress(raw);
-        byte[] section = new byte[8 + stored.Length];
-        BinaryPrimitives.WriteUInt16BigEndian(section, Version);
-        section[2] = (byte)compression.Codec;
-        section[3] = (byte)nav.Turn;
-        BinaryPrimitives.WriteInt32BigEndian(section.AsSpan(4), raw.Length);
-        stored.CopyTo(section, 8);
+        byte[] section = new byte[HeaderBytes + stored.Length];
+        section[0] = (byte)compression.Codec;
+        BinaryPrimitives.WriteInt64BigEndian(section.AsSpan(1), raw.Length);
+        stored.CopyTo(section, HeaderBytes);
         return section;
     }
 
     /// <summary>Reads a section.</summary>
     /// <param name="section">The section's bytes.</param>
-    /// <returns>The room's navigation at the section's turn.</returns>
-    /// <exception cref="InvalidDataException">Not a section of this version, or cut short, or inconsistent; the message says which.</exception>
-    public static RoomNav Read(ReadOnlySpan<byte> section)
+    /// <returns>The room's navigation at the section's turn, or null for a section of a revision this build does not read.</returns>
+    /// <exception cref="InvalidDataException">An unknown codec, or a payload cut short, of the wrong length, or inconsistent; the message says which.</exception>
+    public static RoomNav? Read(ReadOnlySpan<byte> section)
     {
-        if (section.Length < 8)
+        if (section.Length < HeaderBytes)
         {
-            throw new InvalidDataException($"a room nav section is at least 8 bytes, not {section.Length}.");
+            throw new InvalidDataException($"a room nav section is at least {HeaderBytes} bytes, not {section.Length}.");
         }
 
-        int version = BinaryPrimitives.ReadUInt16BigEndian(section);
-        if (version != Version)
+        long length = BinaryPrimitives.ReadInt64BigEndian(section[1..]);
+        if (length is < 0 or > MaxPayloadBytes)
         {
-            throw new InvalidDataException($"room nav section version {version}; this build reads version {Version}.");
+            throw new InvalidDataException($"a room nav section claims a payload of {length} bytes.");
         }
 
-        int turn = section[3];
+        byte[] raw = NavCompression.Decompress((NavCodec)section[0], section[HeaderBytes..], (int)length);
+        Reader r = new(raw);
+        if (r.I32() != Revision)
+        {
+            return null;
+        }
+
+        int turn = r.U8();
         if (turn > 3)
         {
             throw new InvalidDataException($"a room nav section at turn {turn}; a turn is 0 to 3.");
         }
 
-        byte[] raw = NavCompression.Decompress((NavCodec)section[2], section[8..], BinaryPrimitives.ReadInt32BigEndian(section[4..]));
-        Reader r = new(raw);
         float cell = r.F32();
         float voxel = r.F32();
         int n = r.I32();

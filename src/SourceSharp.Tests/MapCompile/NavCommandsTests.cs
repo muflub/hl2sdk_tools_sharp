@@ -157,7 +157,10 @@ public sealed class NavCommandsTests
             Assert.DoesNotContain(EntityLump.Parse(room.Bsp[BspLump.Entities]), e => e.ClassName == RoomPois.Entity);
         }
 
-        Assert.All(index.Entries, e => Assert.Equal(["ROOM", "NVR0", "NVR1", "NVR2", "NVR3"], e.Sections.Select(s => s.Tag)));
+        // Each turn's navigation right after that turn's link sections (a
+        // -cooker none room has no collision sections).
+        Assert.All(index.Entries, e => Assert.Equal(
+            ["ROOM", "LNKA", "GEO0", "NVR0", "GEO1", "NVR1", "GEO2", "NVR2", "GEO3", "NVR3"], e.Sections.Select(s => s.Tag)));
         Assert.Equal(["CMPL"], index.LibrarySections.Select(s => s.Tag));
     }
 
@@ -171,7 +174,9 @@ public sealed class NavCommandsTests
         Assert.Single(log.Split('\n'), l => l.Contains("warning", StringComparison.Ordinal));
         Assert.Contains("ssmap link: warning: the room pack holds no navigation for \"down\", \"hall\", \"up\"", log, StringComparison.Ordinal);
         Assert.Null(fs.GetBytes(At("/out/level.nav3d")));
-        Assert.NotNull(RoomCompileIds.LevelIdOf(await MapAsync(fs)));
+        // No navigation, so no ids: the map is the one a link without
+        // navigation always wrote.
+        Assert.Null(RoomCompileIds.LevelIdOf(await MapAsync(fs)));
 
         (exit, log) = await LinkAsync(fs, "-require-nav");
         Assert.Equal(RoomCommands.ExitFailed, exit);
@@ -179,18 +184,43 @@ public sealed class NavCommandsTests
     }
 
     [Fact]
-    public async Task NoNavWritesNoNavigationAndChangesTheLevelId()
+    public async Task NoNavWritesNoNavigationAndAMapWithoutIds()
     {
         InMemoryFileSystem fs = Game();
         Assert.Equal(Program.ExitSuccess, (await RoomAsync(fs)).Exit);
         Assert.Equal(Program.ExitSuccess, (await LinkAsync(fs)).Exit);
-        Guid? withNav = RoomCompileIds.LevelIdOf(await MapAsync(fs));
+        BspData withNav = await MapAsync(fs);
+        Assert.NotNull(RoomCompileIds.LevelIdOf(withNav));
         await fs.DeleteAsync(At("/out/level.nav3d"));
         (int exit, string log) = await LinkAsync(fs, "-no-nav");
         Assert.True(exit == Program.ExitSuccess, log);
         Assert.DoesNotContain("warning", log, StringComparison.Ordinal);
         Assert.Null(fs.GetBytes(At("/out/level.nav3d")));
-        Assert.NotEqual(withNav, RoomCompileIds.LevelIdOf(await MapAsync(fs)));
+        BspData without = await MapAsync(fs);
+        Assert.Null(RoomCompileIds.LevelIdOf(without));
+
+        // The two maps differ in exactly the two worldspawn keys.
+        List<BspEntity> a = EntityLump.Parse(withNav[BspLump.Entities]);
+        List<BspEntity> b = EntityLump.Parse(without[BspLump.Entities]);
+        a[0].Pairs.RemoveAll(p => p.Key is RoomCompileIds.LevelIdKey or RoomCompileIds.PackIdKey);
+        Assert.Equal(EntityLump.Write(a).Data.ToArray(), without[BspLump.Entities].Data.ToArray());
+        for (int lump = 0; lump < BspData.HeaderLumps; lump++)
+        {
+            // The game lump's header holds file offsets, which move with the
+            // entity lump's length; its entries are compared below.
+            if (lump is not ((int)BspLump.Entities or (int)BspLump.GameLump))
+            {
+                Assert.True(withNav[lump].Data.Span.SequenceEqual(without[lump].Data.Span), $"lump {(BspLump)lump}");
+            }
+        }
+
+        Assert.Equal(b.Count, a.Count);
+        Assert.Equal(without.GameLumps.Count, withNav.GameLumps.Count);
+        for (int g = 0; g < without.GameLumps.Count; g++)
+        {
+            Assert.Equal(without.GameLumps[g].Id, withNav.GameLumps[g].Id);
+            Assert.True(without.GameLumps[g].Data.Span.SequenceEqual(withNav.GameLumps[g].Data.Span));
+        }
     }
 
     /// <summary>
@@ -240,12 +270,15 @@ public sealed class NavCommandsTests
 
         using MemoryStream stream = new(fs.GetBytes(At("/rooms.roompack"))!);
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+        // The index, the library's sections, and per placed room its
+        // container, its shared link section, and its turn's link and
+        // navigation sections: none of the other turns'.
         long expected = index.IndexEnd + index.LibrarySections.Sum(s => s.Length);
-        foreach (string room in new[] { "up", "hall" })
+        foreach ((string room, int turn) in new[] { ("up", 0), ("hall", 2) })
         {
             RoomPackEntry entry = index.Find(room)!;
-            expected += entry.Room.Length + entry.Find(room == "hall" ? "NVR2" : "NVR0")!.Value.Length;
-            Assert.Equal(["ROOM", "NVR0", "NVR1", "NVR2", "NVR3"], entry.Sections.Select(s => s.Tag));
+            expected += entry.Room.Length + entry.Find("LNKA")!.Value.Length + entry.Find($"GEO{turn}")!.Value.Length
+                + entry.Find($"NVR{turn}")!.Value.Length;
         }
 
         Assert.Equal(expected, tap.BytesReadFrom(At("/rooms.roompack")));
