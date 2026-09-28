@@ -93,7 +93,15 @@ public static partial class LevelLinker
         foreach (RoomPlan plan in plans)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            RoomCollide collide = ReadRoomCollide(plan);
+
+            // Read out and turned at room compile time (or now, for a room
+            // without stored link data): what is left is the level's share,
+            // which brushes it strips, the cell, the linked brush numbers and
+            // material slots.
+            // Never null here: this room has a collision lump, so the
+            // computed collision is not null, and stored link data holds a
+            // collision section only for a room that has one.
+            RoomLinkCollision collide = CollisionFor(plan.Placement.Room, plan.Transform.Placement.NormalizedRotation)!;
             virtualTerrain |= collide.VirtualTerrain;
 
             // Room-local material index m (1-based into its table, 0 = none)
@@ -105,22 +113,28 @@ public static partial class LevelLinker
                 remap[m + 1] = MaterialIndex(materials, collide.Materials[m]);
             }
 
-            foreach ((int contents, byte[] blob) in collide.Solids)
+            foreach (RoomLinkSolid solid in collide.Solids)
             {
-                if (!groups.TryGetValue(contents, out List<IvpCompactLedge>? group))
+                if (!groups.TryGetValue(solid.Contents, out List<IvpCompactLedge>? group))
                 {
-                    groups[contents] = group = [];
-                    contentsOrder.Add(contents);
+                    groups[solid.Contents] = group = [];
+                    contentsOrder.Add(solid.Contents);
                 }
 
-                foreach (IvpCompactLedge ledge in IvpCollideQueries.Leaves(IvpCollideQueries.Surface(blob)))
+                for (int l = 0; l < solid.Starts.Length; l++)
                 {
-                    if (plan.StrippedBrushes.Contains(ledge.ClientData))
+                    // The client data (the room-local brush) is at byte 4,
+                    // and turning the points never touches it.
+                    ReadOnlySpan<byte> turned = solid.Ledge(l);
+                    if (plan.StrippedBrushes.Contains(BinaryPrimitives.ReadInt32LittleEndian(turned[4..])))
                     {
                         continue;
                     }
 
-                    MoveLedge(ledge, plan.Transform);
+                    // A copy: the stored ledge is the room's, shared by every
+                    // placement at this turn and every later link.
+                    IvpCompactLedge ledge = new(turned.ToArray());
+                    TranslateLedge(ledge, plan.Transform);
                     ledge.ClientData += plan.BrushBase;
                     RemapMaterials(ledge, remap, plan);
                     group.Add(ledge);
@@ -177,13 +191,12 @@ public static partial class LevelLinker
     internal sealed record RoomCollide(IReadOnlyList<(int Contents, byte[] Blob)> Solids, IReadOnlyList<string> Materials, bool VirtualTerrain);
 
     /// <summary>Reads a room's <c>PhysCollide</c>, refusing any record or block the merge does not understand.</summary>
-    internal static RoomCollide ReadRoomCollide(RoomPlan plan)
+    internal static RoomCollide ReadRoomCollide(BspData bsp, string name)
     {
-        string name = plan.Placement.Room.Definition.Name;
         IReadOnlyList<PhysCollideModel> records;
         try
         {
-            records = PhysCollideLump.Read(plan.Bsp[BspLump.PhysCollide].Data.Span);
+            records = PhysCollideLump.Read(bsp[BspLump.PhysCollide].Data.Span);
         }
         catch (MapCompileException exception)
         {
@@ -381,30 +394,33 @@ public static partial class LevelLinker
     }
 
     /// <summary>A ledge's points through the placement, in IVP's axes.</summary>
+    /// <remarks>
+    /// The turn (<see cref="RotateLedge"/>) and then the translation
+    /// (<see cref="TranslateLedge"/>); the link stores the first per room and
+    /// makes only the second, and each point's value is the same either way,
+    /// because the turn is a negation and a swap and rounds nothing.
+    /// </remarks>
     internal static void MoveLedge(IvpCompactLedge ledge, RoomTransform transform)
     {
-        int turns = transform.Placement.NormalizedRotation;
-        Vec3Ivp t = new(transform.Apply(default).X * MetersPerInch, transform.Apply(default).Y * MetersPerInch);
-        Span<byte> bytes = ledge.Bytes;
-        for (int p = 0; p < ledge.PointCount; p++)
-        {
-            int o = ledge.PointOffset + (16 * p);
-            float x = BinaryPrimitives.ReadSingleLittleEndian(bytes[o..]);
-            float z = BinaryPrimitives.ReadSingleLittleEndian(bytes[(o + 8)..]);
-
-            // (x, z) is the map's (X, Y) in metres; turn it as the map turns.
-            (float rx, float rz) = turns switch
-            {
-                0 => (x, z),
-                1 => (-z, x),
-                2 => (-x, -z),
-                _ => (z, -x),
-            };
-
-            BinaryPrimitives.WriteSingleLittleEndian(bytes[o..], rx + t.X);
-            BinaryPrimitives.WriteSingleLittleEndian(bytes[(o + 8)..], rz + t.Z);
-        }
+        RotateLedge(ledge, transform.Placement.NormalizedRotation);
+        TranslateLedge(ledge, transform);
     }
+
+    /// <summary>
+    /// A quarter turn of IVP's horizontal axes: <c>(x, z)</c> is the map's
+    /// <c>(X, Y)</c> in metres, turned as the map turns.
+    /// </summary>
+    private static (float X, float Z) TurnIvp(float x, float z, int turns) => turns switch
+    {
+        0 => (x, z),
+        1 => (-z, x),
+        2 => (-x, -z),
+        _ => (z, -x),
+    };
+
+    /// <summary>The placement's translation on IVP's horizontal axes, in metres.</summary>
+    private static Vec3Ivp IvpTranslation(RoomTransform transform) =>
+        new(transform.Apply(default).X * MetersPerInch, transform.Apply(default).Y * MetersPerInch);
 
     /// <summary>The placement's translation on IVP's horizontal axes, x and z.</summary>
     private readonly record struct Vec3Ivp(float X, float Z);

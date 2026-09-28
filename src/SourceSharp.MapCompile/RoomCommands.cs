@@ -150,9 +150,15 @@ public static class RoomCommands
         // The library first: a library that does not split into rooms is
         // refused before a game is mounted or a cooker loaded.
         IReadOnlyList<LibraryRoom> rooms;
+        IReadOnlyList<VmfChunk> libraryEntities;
         try
         {
-            rooms = RoomLibraryVmf.Split(await ReadVmfAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false));
+            // The library-wide entities in the gaps (the sun, fog and the
+            // like) go into the pack's library section, not away.
+            RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(
+                await ReadVmfAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false));
+            rooms = split.Rooms;
+            libraryEntities = split.LibraryEntities;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or ChunkFileException or RoomLibraryException)
@@ -222,9 +228,9 @@ public static class RoomCommands
             RoomDefinition definition = outcome.Room.Definition;
             if (outcome.Compiled is { } compiled)
             {
-                using MemoryStream container = new();
-                await RoomObjectStore.SaveAsync(compiled, container, token).ConfigureAwait(false);
-                packed.Add(new RoomPackItem(definition.Name, container.ToArray()));
+                // The container and the link work the library compile did
+                // ahead for the room (RoomPackItem.CreateAsync).
+                packed.Add(await RoomPackItem.CreateAsync(compiled, token).ConfigureAwait(false));
                 await output.WriteLineAsync(
                     $"ssmap room: compiled {definition.Name}"
                     + $" ({compiled.ClusterCount} clusters, {definition.Sockets.Count} sockets)")
@@ -241,11 +247,15 @@ public static class RoomCommands
 
         await RoomLibraryCompiler.CompileAsync(rooms, settings, ReportAsync, cancellationToken).ConfigureAwait(false);
 
+        // A section only when there is something in it, so a library with no
+        // library-wide entities writes the pack it always did.
+        RoomPackSectionData[] librarySections = libraryEntities.Count == 0 ? [] : [RoomLibraryEntities.ToSection(libraryEntities)];
+
         try
         {
             await disk.ReplaceAsync(
                 packPath,
-                async (stream, token) => await RoomPack.SaveAsync(packed, stream, token).ConfigureAwait(false),
+                async (stream, token) => await RoomPack.SaveAsync(librarySections, packed, stream, token).ConfigureAwait(false),
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -669,16 +679,20 @@ public static class RoomCommands
         }
 
         // Exactly the rooms the level places, in the order it first places
-        // them: the pack's index is read, then those rooms and nothing else,
+        // them, and the turns it places each at: the pack's index is read,
+        // then those rooms and those turns' link sections and nothing else,
         // so a stale or broken room the level does not name is never read.
         List<LevelCell> first = [];
-        HashSet<string> named = new(StringComparer.Ordinal);
+        Dictionary<string, HashSet<int>> turns = new(StringComparer.Ordinal);
         foreach ((_, _, LevelCell cell) in level.Placed)
         {
-            if (named.Add(cell.Room))
+            if (!turns.TryGetValue(cell.Room, out HashSet<int>? placed))
             {
+                turns[cell.Room] = placed = [];
                 first.Add(cell);
             }
+
+            placed.Add(cell.Rotation);
         }
 
         if (first.Count == 0)
@@ -715,7 +729,8 @@ public static class RoomCommands
             }
 
             IReadOnlyList<RoomObject> rooms = await RoomPack
-                .LoadRoomsAsync(stream, index, [.. first.Select(c => c.Room)], cancellationToken).ConfigureAwait(false);
+                .LoadRoomsAsync(stream, index, [.. first.Select(c => new RoomPackRequest(c.Room, turns[c.Room]))], cancellationToken)
+                .ConfigureAwait(false);
             // The first room sets the grid; RoomLibrary.Add refuses any other.
             library = new RoomLibrary(rooms[0].Definition.Kit, rooms[0].Definition.CellSize);
             foreach (RoomObject room in rooms)

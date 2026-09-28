@@ -56,12 +56,24 @@ public static partial class LevelLinker
         foreach (RoomPlan plan in plans)
         {
             string name = plan.Placement.Room.Definition.Name;
-            foreach (BspEntity entity in EntityLump.Parse(plan.Bsp[BspLump.Entities]))
+
+            // Parsed and turned at room compile time (or now, for a room
+            // without stored link data); a key that could not be read is
+            // reported here, where the walk reaches its entity.
+            foreach (RoomLinkEntity item in EntitiesFor(plan.Placement.Room, plan.Transform.Placement.NormalizedRotation).Items)
             {
-                if (!string.Equals(entity.ClassName, "worldspawn", StringComparison.Ordinal))
+                if (!item.IsWorld)
                 {
-                    merged.Add(MoveEntity(entity, plan.Transform, name));
+                    merged.Add(item.Error is null
+                        ? TranslateEntity(item, plan.Transform, name, plan.OccluderBase)
+                        : throw new LinkException(item.Error));
                     continue;
+                }
+
+                BspEntity entity = new();
+                foreach (RoomLinkPair pair in item.Pairs)
+                {
+                    entity.Pairs.Add(new BspKeyValue(pair.Key, pair.Value!));
                 }
 
                 if (world is null)
@@ -74,9 +86,14 @@ public static partial class LevelLinker
                     RequireSameWorld(world, worldOwner!, entity, name);
                 }
 
-                if (entity.Get(WorldMinsKey) is { } mins && entity.Get(WorldMaxsKey) is { } maxs)
+                if (item.Error is { } error)
                 {
-                    Box moved = MoveBox(plan.Transform, ParseVec(mins, WorldMinsKey, name), ParseVec(maxs, WorldMaxsKey, name));
+                    throw new LinkException(error);
+                }
+
+                if (item.Extent is { } turned)
+                {
+                    Box moved = plan.Transform.TranslateBox(turned);
                     extent = extent is { } sofar ? Union(sofar, moved) : moved;
                 }
             }
@@ -108,33 +125,158 @@ public static partial class LevelLinker
         return EntityLump.Write(lump);
     }
 
+    /// <summary>
+    /// The six keys vbsp writes on an <c>info_ladder</c> (what a
+    /// <c>func_ladder</c> becomes once its brushes join the world): the
+    /// ladder's bounds, one component per key, in mins-then-maxs order.
+    /// </summary>
+    /// <remarks>A property, not a static array: an array's elements are writable, and the libraries hold no mutable statics.</remarks>
+    private static string[] LadderKeys => ["mins.x", "mins.y", "mins.z", "maxs.x", "maxs.y", "maxs.z"];
+
     /// <summary>One entity with its placement keys moved.</summary>
-    internal static BspEntity MoveEntity(BspEntity entity, RoomTransform transform, string room)
+    /// <remarks>
+    /// The turn (<see cref="TurnEntity"/>, which the room compile stores)
+    /// and then the cell (<see cref="TranslateEntity"/>, the link's share).
+    /// </remarks>
+    internal static BspEntity MoveEntity(BspEntity entity, RoomTransform transform, string room, int occluderBase = 0) =>
+        TranslateEntity(
+            new RoomLinkEntity(false, TurnEntity(entity, transform.Placement.NormalizedRotation, room), null, null),
+            transform,
+            room,
+            occluderBase);
+
+    /// <summary>
+    /// One entity's keys turned by a quarter turn: the part of moving it
+    /// that depends only on the room and its turn, which the room compile
+    /// can store per rotation (<see cref="RoomLinkEntities"/>).
+    /// </summary>
+    /// <param name="entity">The room's entity, as its compile wrote it.</param>
+    /// <param name="turns">The quarter turns, 0 to 3.</param>
+    /// <param name="room">The room's name, for messages.</param>
+    /// <returns>Its keys in order, turned (<see cref="RoomLinkPair"/> says which kind each is).</returns>
+    /// <exception cref="LinkException">A placement key does not hold numbers.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>The yaw</b> (<c>angles</c>' second value, or <c>angle</c> unless it
+    /// is the -1 "up" or -2 "down" code) turns with the room, except the
+    /// sun's: all rooms of a library share one sun, fixed in the world
+    /// (<see cref="VmfPlacement.KeepsWorldAngles"/>), so a
+    /// <c>light_environment</c>'s angles are carried as written while its
+    /// origin still turns.
+    /// </para>
+    /// <para>
+    /// <b>An <c>info_ladder</c>'s bounds</b> are a world-space box written as
+    /// six separate keys (<see cref="LadderKeys"/>), room-local in the room
+    /// compile; a whole-map compile of the level measures them from the
+    /// moved brushes. When all six are present they are read as one box and
+    /// turned the way an occluder's box is (<see cref="RotateBox"/>: every
+    /// corner turned, then the least and greatest taken again, because a
+    /// quarter turn swaps which corner is the least). Each key then carries
+    /// the turned corner it reads a component of, and the link adds the cell
+    /// and writes the component with two decimals, the format vbsp writes
+    /// them in; <see cref="RoomTransform.TranslateBox"/> makes the two steps
+    /// bit for bit <see cref="MoveBox"/>. An entity with only some of the
+    /// six keys is not a ladder vbsp made, and they are carried as written.
+    /// The values are read back from the two-decimal text the room compile
+    /// wrote, so a bound off the 0.01 grid is moved from its rounded value;
+    /// on the grid (every bound a room kit produces) the result equals the
+    /// whole-map compile's to the digit.
+    /// </para>
+    /// </remarks>
+    internal static List<RoomLinkPair> TurnEntity(BspEntity entity, int turns, string room)
     {
-        int turns = transform.Placement.NormalizedRotation;
-        BspEntity moved = new();
+        string[] ladderKeys = LadderKeys;
+        Box? ladder = LadderBounds(entity, ladderKeys, turns, room);
+        int yawTurns = VmfPlacement.KeepsWorldAngles(entity.ClassName) ? 0 : turns;
+        List<RoomLinkPair> pairs = new(entity.Pairs.Count);
         foreach (BspKeyValue pair in entity.Pairs)
         {
-            string value = pair.Value;
-            if (IsKey(pair.Key, "origin"))
+            int ladderKey = ladder is null ? -1 : Array.FindIndex(ladderKeys, k => IsKey(pair.Key, k));
+            if (ladderKey >= 0)
             {
-                value = FormatVec(transform.Apply(ParseVec(value, "origin", room)));
+                Box box = ladder!.Value;
+                pairs.Add(new RoomLinkPair(pair.Key, null, ladderKey < 3 ? box.Mins : box.Maxs, ladderKey % 3));
+                continue;
             }
-            else if (turns != 0 && IsKey(pair.Key, "angles"))
+
+            pairs.Add(TurnPair(pair, turns, yawTurns, room));
+        }
+
+        return pairs;
+    }
+
+    /// <summary>
+    /// A turned entity moved to the placement's cell: its origin through
+    /// <see cref="RoomTransform.Translate"/>, a ladder bound through the same
+    /// translation, its <c>occludernumber</c> shifted by the room's occluder
+    /// base, every other key as the turn left it.
+    /// </summary>
+    /// <remarks>
+    /// A <c>func_occluder</c>'s <c>occludernumber</c> is an index into the
+    /// occlusion lump, which every room compile numbers from 0. The linker
+    /// appends the rooms' occluders in layout order
+    /// (<see cref="RoomPlan.OccluderBase"/>), so the key is shifted by the
+    /// same base, or the second room's occluder entity would name the first
+    /// room's occluder, and an input toggling it would reach the wrong one.
+    /// The base depends on the level, not the room, so this is the link's
+    /// step, never stored; the first room's key (base 0) is carried as
+    /// written.
+    /// </remarks>
+    private static BspEntity TranslateEntity(RoomLinkEntity entity, RoomTransform transform, string room, int occluderBase)
+    {
+        BspEntity moved = new();
+        foreach (RoomLinkPair pair in entity.Pairs)
+        {
+            string value;
+            if (pair.Value is null)
             {
-                Vec3 angles = ParseVec(value, "angles", room);
-                value = FormatVec(new Vec3(angles.X, TurnYaw(angles.Y, turns), angles.Z));
+                Vec3 at = transform.Translate(pair.Origin);
+                value = pair.Component switch
+                {
+                    0 => F2(at.X),
+                    1 => F2(at.Y),
+                    2 => F2(at.Z),
+                    _ => FormatVec(at),
+                };
             }
-            else if (turns != 0 && IsKey(pair.Key, "angle"))
+            else if (occluderBase != 0 && IsKey(pair.Key, "occludernumber"))
             {
-                float yaw = ParseFloat(value, "angle", room);
-                value = yaw is -1f or -2f ? value : Format(TurnYaw(yaw, turns));
+                value = int.TryParse(pair.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int occluder)
+                    ? (occluder + occluderBase).ToString(CultureInfo.InvariantCulture)
+                    : throw new LinkException($"room {room} has an entity whose \"occludernumber\" holds \"{pair.Value}\", not an occluder index");
+            }
+            else
+            {
+                value = pair.Value;
             }
 
             moved.Pairs.Add(new BspKeyValue(pair.Key, value));
         }
 
         return moved;
+
+        static string F2(float value) => value.ToString("F2", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// An <c>info_ladder</c>'s bounds read from its six keys (in
+    /// <paramref name="keys"/> order) and turned, or null when the entity
+    /// does not carry all six.
+    /// </summary>
+    private static Box? LadderBounds(BspEntity entity, string[] keys, int turns, string room)
+    {
+        float[] bounds = new float[keys.Length];
+        for (int i = 0; i < keys.Length; i++)
+        {
+            if (entity.Get(keys[i]) is not { } text)
+            {
+                return null;
+            }
+
+            bounds[i] = ParseFloat(text, keys[i], room);
+        }
+
+        return RotateBox(new Vec3(bounds[0], bounds[1], bounds[2]), new Vec3(bounds[3], bounds[4], bounds[5]), turns);
     }
 
     private static void RequireSameWorld(BspEntity world, string owner, BspEntity other, string name)

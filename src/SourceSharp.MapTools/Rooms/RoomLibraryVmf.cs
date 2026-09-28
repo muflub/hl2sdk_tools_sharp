@@ -29,6 +29,16 @@ namespace SourceSharp.MapTools.Rooms;
 /// </param>
 public sealed record LibraryRoom(RoomDefinition Definition, Vec3 Corner, VmfDocument Document);
 
+/// <summary>A room library split: its rooms, and what the whole library shares.</summary>
+/// <param name="Rooms">The rooms, in the order their <c>info_room</c> entities appear.</param>
+/// <param name="LibraryEntities">
+/// The library-wide entities (<see cref="RoomLibraryEntities.IsLibraryWide"/>)
+/// that stand in the gaps between cells, in library order and library
+/// coordinates: what <c>ssmap room</c> keeps in the pack's library section
+/// (<see cref="RoomLibraryEntities.SectionTag"/>). Empty when there are none.
+/// </param>
+public sealed record RoomLibrarySplit(IReadOnlyList<LibraryRoom> Rooms, IReadOnlyList<VmfChunk> LibraryEntities);
+
 /// <summary>
 /// A room library that cannot be split into rooms: one problem, named.
 /// </summary>
@@ -65,7 +75,10 @@ public sealed class RoomLibraryException : Exception
 /// Every world brush and every brush entity inside a cell's box belongs to
 /// that room, and so does every point entity whose origin is inside it.
 /// Point entities in the gaps belong to no room and are ignored (a note for
-/// the author, a camera, a light to see by in the editor); a brush in the
+/// the author, a camera, a light to see by in the editor), except the
+/// classes the whole library shares, such as the sun, which are collected
+/// for the pack's library section (<see cref="RoomLibraryEntities"/>,
+/// <see cref="SplitLibrary"/>); a brush in the
 /// gaps, or one that crosses a cell's edge, is an error, because it is
 /// geometry some room would silently lose. Two cells may touch but not
 /// overlap. Every room of a library shares one grid and one door kit, and
@@ -129,7 +142,19 @@ public static class RoomLibraryVmf
     /// <returns>The rooms, in the order their <c>info_room</c> entities appear.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="library"/> is null.</exception>
     /// <exception cref="RoomLibraryException">The library breaks a rule; the message names it.</exception>
-    public static IReadOnlyList<LibraryRoom> Split(VmfDocument library)
+    /// <remarks>The rooms of <see cref="SplitLibrary"/>, for a caller that has no use for the library-wide entities.</remarks>
+    public static IReadOnlyList<LibraryRoom> Split(VmfDocument library) => SplitLibrary(library).Rooms;
+
+    /// <summary>Splits a library into its rooms, and collects the entities the whole library shares.</summary>
+    /// <param name="library">The library VMF.</param>
+    /// <returns>
+    /// The rooms, in the order their <c>info_room</c> entities appear, and
+    /// the library-wide entities (<see cref="RoomLibraryEntities.IsLibraryWide"/>)
+    /// found in the gaps between cells, in library order.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="library"/> is null.</exception>
+    /// <exception cref="RoomLibraryException">The library breaks a rule; the message names it.</exception>
+    public static RoomLibrarySplit SplitLibrary(VmfDocument library)
     {
         ArgumentNullException.ThrowIfNull(library);
 
@@ -163,6 +188,7 @@ public static class RoomLibraryVmf
         }
 
         List<VmfChunk>[] owned = [.. markers.Select(_ => new List<VmfChunk>())];
+        List<VmfChunk> libraryWide = [];
         foreach (VmfChunk entity in entities)
         {
             if (IsRoomMarker(entity))
@@ -174,6 +200,12 @@ public static class RoomLibraryVmf
             if (owner >= 0)
             {
                 owned[owner].Add(entity);
+            }
+            else if (RoomLibraryEntities.IsLibraryWide(entity.GetValue("classname")))
+            {
+                // In the gaps and shared by the whole library: kept as the
+                // library wrote it, in library coordinates, not dropped.
+                libraryWide.Add(VmfPlacement.Clone(entity));
             }
         }
 
@@ -215,7 +247,7 @@ public static class RoomLibraryVmf
             rooms.Add(new LibraryRoom(definition, marker.Corner, document));
         }
 
-        return rooms;
+        return new RoomLibrarySplit(rooms, libraryWide);
     }
 
     /// <summary>The plugs among a room's world brushes, as sockets in wall order.</summary>
