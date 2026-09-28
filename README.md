@@ -348,18 +348,25 @@ What moves between the rows:
   collision data, leaf ambient and static-prop lighting. On one CPU family
   the output is still deterministic from run to run.
 - **`-compliance correct`** (the default) uses exact IEEE arithmetic in
-  place of every one of these estimates, so vbsp, vvis and vrad all write
-  the same bytes on every CPU. vrad's ray tracing used to be the exception
-  and no longer is: the KD tracer's traversal reciprocal and triangle
+  place of every one of these estimates, so vbsp and vvis write the same
+  bytes on every CPU, and so does vrad with one known exception below.
+  vrad's ray tracing used to be an exception and no longer is: the KD tracer's traversal reciprocal and triangle
   normals (`KdTracerReciprocalEstimate`) and the leaf-ambient walk's sky
   windings and point-in-sky-face test (`SkyWindingNormalise`) divide
   exactly under the default policy, as the gather, transfer and ambient-cube
   estimates already did. CI pins vbsp's digests for the sandbox map and
   several displacement maps, and vrad's for the KD tracer on two committed
-  scenes, leaf ambient on its committed fixture, static-prop lighting, and
-  the whole chain on the sandbox map, and runs them on AMD, Intel and arm64.
-  A digest that holds on one of those runners and not another is a bug: a
-  Correct path still taking an estimate.
+  scenes, leaf ambient on its committed fixture, and the whole chain on the
+  sandbox map, and runs them on AMD, Intel and arm64. A digest that holds on
+  one of those runners and not another is a bug: a Correct path still taking
+  an estimate.
+
+  The known exception: static-prop lighting under the default policy still
+  gives different bytes on arm64 than on x86 (AMD and Intel agree). It is not
+  the KD tracer, whose Correct digests agree everywhere; its source in the
+  prop-lighting path is not yet identified. Until it is, that fact keeps a
+  captured arm64 delta (`Fixtures/rsqrt-vendor/Arm64/static-prop-chunking.correct.txt`)
+  so the difference stays declared.
 
 Everything else is the same on every platform: file formats, vbsp, vvis,
 vrad under the default policy, every exact computation, and every

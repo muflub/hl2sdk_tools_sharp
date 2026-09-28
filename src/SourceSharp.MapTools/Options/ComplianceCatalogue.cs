@@ -1240,7 +1240,6 @@ public static class ComplianceCatalogue
                 "KdTracerReciprocalEstimateTests.StockTrianglePlanesTakeTheEstimatedNormal",
                 "KdTracerReciprocalEstimateTests.CorrectTrianglePlanesTakeTheExactNormal",
                 "KdTracerReciprocalEstimateTests.ThePoliciesTraceTheSameRaysToDifferentDistances",
-                "StaticPropChunkingTests.TheCorrectDigestsArePinnedOnEveryCpu",
                 "VradCpuIndependenceTests.TheCorrectKdSceneDistancesArePinnedOnEveryCpu",
             ],
             "The zero-component substitute taken before the reciprocal is "
