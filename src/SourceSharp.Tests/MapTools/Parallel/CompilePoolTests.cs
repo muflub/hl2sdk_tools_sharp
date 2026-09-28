@@ -379,6 +379,245 @@ public class CompilePoolTests
     }
 
     [Fact]
+    public async Task DisposingWhileItsLoopWaitsFaultsTheLoop()
+    {
+        // A host disposing a pool it lent, mid-compile: the loop's workers are
+        // queued behind a held thread and never started. Left in the queue
+        // they would never run and the awaiting compile would hang; the loop
+        // must end in a fault instead, soon, and without running its items on
+        // the disposing thread.
+        CompilePool pool = new(1);
+        (Task held, ManualResetEventSlim release) = HoldTheOnlyThread(pool);
+        using (release)
+        {
+            int ran = 0;
+            Task loop = pool.ForAsync(
+                1000,
+                4,
+                (_, _) =>
+                {
+                    Interlocked.Increment(ref ran);
+                    return ValueTask.CompletedTask;
+                },
+                CancellationToken.None);
+            Assert.False(loop.IsCompleted);
+
+            await DisposeWhileHeldAsync(pool, release);
+            await held.WaitAsync(Patience);
+
+            await Assert.ThrowsAsync<ObjectDisposedException>(() => loop.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.True(loop.IsFaulted, $"the loop ended {loop.Status}, not faulted");
+            Assert.Equal(0, Volatile.Read(ref ran));
+        }
+    }
+
+    [Fact]
+    public async Task DisposingWhileItsLoopsBodyAwaitsFaultsTheLoopWhenTheAwaitEnds()
+    {
+        // The body's await holds no thread, so disposal completes under it;
+        // the await's continuation then comes back to the disposed pool's
+        // scheduler. Refused there, the loop would never resume.
+        CompilePool pool = new(2);
+        TaskCompletionSource gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ManualResetEventSlim awaiting = new();
+        int started = 0;
+        Task loop = pool.ForAsync(
+            1000,
+            1,
+            async (_, _) =>
+            {
+                if (Interlocked.Increment(ref started) == 1)
+                {
+                    awaiting.Set();
+                    await gate.Task;
+                }
+            },
+            CancellationToken.None);
+        Assert.True(awaiting.Wait(Patience));
+
+        pool.Dispose();
+        Assert.False(loop.IsCompleted);
+        gate.SetResult();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => loop.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(1, Volatile.Read(ref started));
+    }
+
+    [Fact]
+    public async Task DisposingWhileABareParallelForAsyncWaitsFinishesItInsteadOfStrandingIt()
+    {
+        // A loop that does not watch the pool's StoppingToken cannot be told
+        // to stop, and a Task the pool did not create cannot be failed from
+        // outside; so its queued workers are run, and the loop completes
+        // rather than leaving its awaiter hanging.
+        CompilePool pool = new(1);
+        (Task held, ManualResetEventSlim release) = HoldTheOnlyThread(pool);
+        using (release)
+        {
+            int[] visits = new int[1000];
+            Task loop = System.Threading.Tasks.Parallel.ForAsync(
+                0,
+                visits.Length,
+                new ParallelOptions { MaxDegreeOfParallelism = 4, TaskScheduler = pool.Scheduler },
+                (i, _) =>
+                {
+                    Interlocked.Increment(ref visits[i]);
+                    return ValueTask.CompletedTask;
+                });
+            Assert.False(loop.IsCompleted);
+
+            await DisposeWhileHeldAsync(pool, release);
+            await held.WaitAsync(Patience);
+
+            await loop.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.All(visits, v => Assert.Equal(1, v));
+        }
+    }
+
+    [Fact]
+    public async Task ItsLoopVisitsEveryIndexOnceOnPoolThreads()
+    {
+        using CompilePool pool = new(3);
+        int[] visits = new int[1000];
+        int offPool = 0;
+
+        await pool.ForAsync(
+            visits.Length,
+            3,
+            (i, _) =>
+            {
+                if (!pool.IsPoolThread)
+                {
+                    Interlocked.Increment(ref offPool);
+                }
+
+                Interlocked.Increment(ref visits[i]);
+                return ValueTask.CompletedTask;
+            },
+            CancellationToken.None).WaitAsync(Patience);
+
+        Assert.All(visits, v => Assert.Equal(1, v));
+        Assert.Equal(0, offPool);
+    }
+
+    [Fact]
+    public async Task ItsLoopCancelledByTheCallerEndsCancelledNotDisposed()
+    {
+        using CompilePool pool = new(2);
+        using CancellationTokenSource cts = new();
+
+        Task loop = pool.ForAsync(
+            100_000,
+            2,
+            (i, _) =>
+            {
+                if (i == 10)
+                {
+                    cts.Cancel();
+                }
+
+                return ValueTask.CompletedTask;
+            },
+            cts.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => loop.WaitAsync(Patience));
+        Assert.True(loop.IsCanceled, $"the loop ended {loop.Status}");
+    }
+
+    [Fact]
+    public async Task ItsLoopWithNothingToDoCompletesAtOnce()
+    {
+        using CompilePool pool = new(2);
+        await pool.ForAsync(0, 2, (_, _) => throw new InvalidOperationException("no items"), CancellationToken.None)
+            .WaitAsync(Patience);
+        Assert.Equal(0, pool.LiveThreadCount);
+    }
+
+    [Fact]
+    public void TheStoppingTokenIsCancelledWhenDisposalBegins()
+    {
+        CompilePool pool = new(1);
+        CancellationToken stopping = pool.StoppingToken;
+        Assert.True(stopping.CanBeCanceled);
+        Assert.False(stopping.IsCancellationRequested);
+
+        pool.Dispose();
+
+        Assert.True(stopping.IsCancellationRequested);
+        Assert.True(pool.StoppingToken.IsCancellationRequested);
+    }
+
+    // Occupies a degree-one pool's thread with a job that waits for the
+    // returned event, so anything queued after it waits too.
+    private static (Task Held, ManualResetEventSlim Release) HoldTheOnlyThread(CompilePool pool)
+    {
+        WorkQueue holder = new(On(pool, 1));
+        ManualResetEventSlim release = new();
+        using ManualResetEventSlim holding = new();
+        Task held = holder.RunAsync(
+            1,
+            (_, _) =>
+            {
+                holding.Set();
+                release.Wait(Patience);
+            },
+            null,
+            CancellationToken.None);
+        Assert.True(holding.Wait(Patience));
+        return (held.ContinueWith(_ => holder.Dispose(), TaskScheduler.Default), release);
+    }
+
+    // Disposes the pool while its thread is held, releasing the hold only once
+    // the stop is flagged: released any sooner, the one thread could
+    // legitimately run what is queued before disposal begins.
+    private static async Task DisposeWhileHeldAsync(CompilePool pool, ManualResetEventSlim release)
+    {
+        Task disposing = Task.Run(pool.Dispose);
+        Assert.True(SpinWait.SpinUntil(() => pool.IsStopping, Patience));
+        release.Set();
+        await disposing.WaitAsync(Patience);
+    }
+
+    [Fact]
+    public async Task ATaskQueuedBeforeDisposalRunsOnceAndOneOfferedAfterRunsOnTheOfferingThread()
+    {
+        // The scheduler's half of the disposal contract: nothing it is given
+        // is stranded. A task it accepted runs, once, after the threads have
+        // stopped; a task offered afterwards runs at once, where it is
+        // offered.
+        CompilePool pool = new(1);
+        (Task held, ManualResetEventSlim release) = HoldTheOnlyThread(pool);
+        using ManualResetEventSlim released = release;
+
+        int runs = 0;
+        bool onPool = true;
+        Task queued = Task.Factory.StartNew(
+            () =>
+            {
+                Interlocked.Increment(ref runs);
+                onPool = pool.IsPoolThread;
+            },
+            CancellationToken.None,
+            TaskCreationOptions.DenyChildAttach,
+            pool.Scheduler);
+
+        await DisposeWhileHeldAsync(pool, release);
+        await held.WaitAsync(Patience);
+
+        // Complete by the time Dispose returned, not merely soon after.
+        Assert.True(queued.IsCompletedSuccessfully, $"the queued task is {queued.Status}");
+        Assert.Equal(1, runs);
+        Assert.False(onPool);
+
+        int offeredOn = -1;
+        Task late = new(() => offeredOn = Environment.CurrentManagedThreadId);
+        late.Start(pool.Scheduler);
+        Assert.True(late.IsCompletedSuccessfully, $"the late task is {late.Status}");
+        Assert.Equal(Environment.CurrentManagedThreadId, offeredOn);
+        Assert.Equal(0, pool.LiveThreadCount);
+    }
+
+    [Fact]
     public async Task ScheduledTasksAndJobsShareThePool()
     {
         using CompilePool pool = new(2);
