@@ -251,14 +251,20 @@ way. The zip is a game directory:
 Unzip it anywhere and compile against it with no Steam install:
 `ssmap all <map> -game <unzipped dir>`.
 
-### `room`, `link` and `layout`
+### `room`, `rooms`, `link` and `layout`
 
 ```sh
 ssmap room <library.vmf> [-out <dir>] [vbsp options]
+ssmap rooms <library.vmf>
 ssmap link <level.yaml> [-rooms <dir>] [-out <map.bsp>]
 ssmap link <level.yaml> --flatten [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>] [-out <level.yaml>]
 ```
+
+`ssmap rooms` lists a library without compiling it: each room's name, its
+cell's corner and size, and each door's wall, plug box (in library
+coordinates) and size. It reads and checks the library exactly as
+`ssmap room` does, so a library it lists is one the compile accepts.
 
 A **room library** is one VMF holding every room of a set, each in its own
 cell with gaps between them, and each marked by an `info_room` point entity

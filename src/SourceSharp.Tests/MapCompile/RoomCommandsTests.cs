@@ -593,6 +593,97 @@ public sealed class RoomCommandsTests
         Assert.Contains("ssmap layout: ", output.ToString(), StringComparison.Ordinal);
     }
 
+    // ---- ssmap rooms -------------------------------------------------------
+
+    /// <summary>
+    /// The checked-in sample library lists as its five rooms, each with its
+    /// cell corner and size and every door's plug box and size, in library
+    /// order. Pinned as text: this is what an author reads.
+    /// </summary>
+    [RepoSourceFact("samples/rooms-3x3/rooms.vmf")]
+    public async Task TheSampleLibraryListsItsRoomsAndDoors()
+    {
+        string library = RepoSourceFactAttribute.Find("samples/rooms-3x3/rooms.vmf")!;
+        using StringWriter output = new();
+
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(new PhysicalFileSystem("/"), [library], output));
+
+        Assert.Equal(
+            """
+            5 room(s)
+            cross: cell at (0, 0, 0), 256 x 256 x 256, 4 door(s)
+              east: (240, 80, 16) to (256, 176, 240), 96 wide x 224 high x 16 deep
+              west: (0, 80, 16) to (16, 176, 240), 96 wide x 224 high x 16 deep
+              north: (80, 240, 16) to (176, 256, 240), 96 wide x 224 high x 16 deep
+              south: (80, 0, 16) to (176, 16, 240), 96 wide x 224 high x 16 deep
+            tee: cell at (384, 0, 0), 256 x 256 x 256, 3 door(s)
+              east: (624, 80, 16) to (640, 176, 240), 96 wide x 224 high x 16 deep
+              west: (384, 80, 16) to (400, 176, 240), 96 wide x 224 high x 16 deep
+              north: (464, 240, 16) to (560, 256, 240), 96 wide x 224 high x 16 deep
+            corner: cell at (768, 0, 0), 256 x 256 x 256, 2 door(s)
+              east: (1008, 80, 16) to (1024, 176, 240), 96 wide x 224 high x 16 deep
+              north: (848, 240, 16) to (944, 256, 240), 96 wide x 224 high x 16 deep
+            hall: cell at (1152, 0, 0), 256 x 256 x 256, 2 door(s)
+              east: (1392, 80, 16) to (1408, 176, 240), 96 wide x 224 high x 16 deep
+              west: (1152, 80, 16) to (1168, 176, 240), 96 wide x 224 high x 16 deep
+            end: cell at (1536, 0, 0), 256 x 256 x 256, 1 door(s)
+              east: (1776, 80, 16) to (1792, 176, 240), 96 wide x 224 high x 16 deep
+
+            """.Replace("\r\n", "\n", StringComparison.Ordinal),
+            output.ToString().Replace("\r\n", "\n", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Each room's doors sit in its own cell: the second room's boxes are the
+    /// first's moved by the cell pitch, and a renamed socket shows its name
+    /// beside its wall.
+    /// </summary>
+    [Fact]
+    public async Task EachRoomsDoorsAreListedInItsOwnCell()
+    {
+        RoomDefinition end = new("end", RoomHarness.Cell, RoomHarness.WalkableKit, [new RoomSocket(RoomFacing.PositiveX, "front")]);
+        InMemoryFileSystem fs = Game(Hub, end);
+        using StringWriter output = new();
+
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/game/maps/rooms.vmf"], output));
+
+        string[] lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("2 room(s)", lines[0]);
+        Assert.Equal("hub: cell at (0, 0, 0), 256 x 256 x 256, 4 door(s)", lines[1]);
+        Assert.Equal("  east: (240, 80, 16) to (256, 176, 240), 96 wide x 224 high x 16 deep", lines[2]);
+        float pitch = RoomHarness.Cell + RoomHarness.LibraryGap;
+        Assert.Equal($"end: cell at ({pitch}, 0, 0), 256 x 256 x 256, 1 door(s)", lines[6]);
+        Assert.Equal($"  east \"front\": ({pitch + 240}, 80, 16) to ({pitch + 256}, 176, 240), 96 wide x 224 high x 16 deep", lines[7]);
+    }
+
+    /// <summary>Anything but one library path is a usage error.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("a.vmf b.vmf")]
+    [InlineData("-out")]
+    public async Task RoomsNeedsOneLibrary(string line)
+    {
+        string[] args = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomsAsync(new InMemoryFileSystem(), args, output));
+        Assert.Contains("usage: ssmap rooms <library.vmf>", output.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>A missing library, and a VMF with no rooms in it, are reported and fail.</summary>
+    [Fact]
+    public async Task AMissingOrRoomlessLibraryIsReported()
+    {
+        InMemoryFileSystem fs = new();
+        using StringWriter missing = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunRoomsAsync(fs, ["/nowhere/rooms.vmf"], missing));
+        Assert.StartsWith("ssmap rooms: ", missing.ToString(), StringComparison.Ordinal);
+
+        fs.AddText(Rooted("/lib/empty.vmf"), "world\n{\n\t\"id\" \"1\"\n\t\"classname\" \"worldspawn\"\n}\n");
+        using StringWriter empty = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunRoomsAsync(fs, ["/lib/empty.vmf"], empty));
+        Assert.Contains(RoomLibraryVmf.RoomEntity, empty.ToString(), StringComparison.Ordinal);
+    }
+
     // ---- helpers -----------------------------------------------------------
 
     /// <summary>A game with the harness materials, and a library of the given rooms at <c>/game/maps/rooms.vmf</c>.</summary>

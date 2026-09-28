@@ -105,6 +105,9 @@ From this folder, with `ssmap` built (`dotnet build src/SourceSharp.MapTools.sln
 at the repository root puts it in `bin/Release/ssmap.dll`):
 
 ```sh
+# list the library's rooms, their cells and their doors
+ssmap rooms rooms.vmf
+
 # compile every room of the library into rooms/<name>.room (the game is this folder)
 ssmap room rooms.vmf -game . -out rooms
 

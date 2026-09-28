@@ -9,6 +9,7 @@ using System.Globalization;
 using System.Text;
 
 using SourceSharp.MapFormats.Bsp;
+using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp;
@@ -510,6 +511,114 @@ public static class RoomCommands
         await output.WriteLineAsync($"ssmap layout: wrote {targetPath.Value}").ConfigureAwait(false);
         return Program.ExitSuccess;
     }
+
+    /// <summary>
+    /// Runs <c>ssmap rooms &lt;library.vmf&gt;</c>: lists every room in a
+    /// library VMF with its cell, and every door with where it is and how big.
+    /// </summary>
+    /// <param name="disk">Where the library lives.</param>
+    /// <param name="args">The arguments after <c>rooms</c>: the library VMF.</param>
+    /// <param name="output">Where the listing goes.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The process exit code.</returns>
+    /// <remarks>
+    /// The library is read and checked exactly as <c>ssmap room</c> reads it
+    /// (<see cref="RoomLibraryVmf.Split"/>), so a library this lists is one
+    /// the room compile accepts, and one it refuses is refused with the same
+    /// message. Nothing is compiled and no game is mounted.
+    /// </remarks>
+    public static async Task<int> RunRoomsAsync(
+        IFileSystem disk,
+        IReadOnlyList<string> args,
+        TextWriter output,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(disk);
+        ArgumentNullException.ThrowIfNull(args);
+        ArgumentNullException.ThrowIfNull(output);
+
+        if (args.Count != 1 || args[0].StartsWith('-'))
+        {
+            await output.WriteLineAsync("usage: ssmap rooms <library.vmf>").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        string libraryPath = Path.GetFullPath(args[0]);
+        if (!VPath.TryCreate(libraryPath, out VPath libraryVPath))
+        {
+            await output.WriteLineAsync($"ssmap rooms: \"{libraryPath}\" is not a usable path").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        IReadOnlyList<LibraryRoom> rooms;
+        try
+        {
+            rooms = RoomLibraryVmf.Split(await ReadVmfAsync(disk, libraryVPath, cancellationToken).ConfigureAwait(false));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ChunkFileException or RoomLibraryException)
+        {
+            await output.WriteLineAsync($"ssmap rooms: {libraryPath}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
+
+        await output.WriteAsync(DescribeLibrary(rooms)).ConfigureAwait(false);
+        return Program.ExitSuccess;
+    }
+
+    /// <summary>
+    /// The listing <c>ssmap rooms</c> prints: one block per room, in library
+    /// order, with its cell and its doors.
+    /// </summary>
+    /// <param name="rooms">The library's rooms, as <see cref="RoomLibraryVmf.Split"/> gives them.</param>
+    /// <returns>The listing, one line per room and per door.</returns>
+    /// <remarks>
+    /// <para>
+    /// Each room line gives the name, the cell's low corner in library
+    /// coordinates (where its <c>info_room</c> stands) and the cell's size.
+    /// Each door line gives the wall (east is +x, north is +y), the socket's
+    /// name, the door plug's box in library coordinates, and the opening's
+    /// width along the wall, its height and the plug's depth into the room.
+    /// </para>
+    /// <para>
+    /// The box is the one the linter holds the plug to
+    /// (<see cref="RoomLinter.SealBox"/>) moved to the room's corner, so it is
+    /// where the plug brush has to be, and where a door is cut when the room
+    /// is joined.
+    /// </para>
+    /// </remarks>
+    public static string DescribeLibrary(IReadOnlyList<LibraryRoom> rooms)
+    {
+        ArgumentNullException.ThrowIfNull(rooms);
+
+        StringBuilder text = new();
+        text.Append(CultureInfo.InvariantCulture, $"{rooms.Count} room(s)\n");
+        foreach (LibraryRoom room in rooms)
+        {
+            RoomDefinition definition = room.Definition;
+            float cell = definition.CellSize;
+            text.Append(CultureInfo.InvariantCulture,
+                $"{definition.Name}: cell at ({Num(room.Corner)}), {Num(cell)} x {Num(cell)} x {Num(cell)}, "
+                + $"{definition.Sockets.Count} door(s)\n");
+            foreach (RoomSocket socket in definition.Sockets)
+            {
+                Box plug = RoomLinter.SealBox(definition, socket, cell);
+                Vec3 mins = room.Corner + plug.Mins;
+                Vec3 maxs = room.Corner + plug.Maxs;
+                string wall = RoomLibraryVmf.WallName(socket.Facing);
+                string name = socket.Name == wall ? wall : $"{wall} \"{socket.Name}\"";
+                text.Append(CultureInfo.InvariantCulture,
+                    $"  {name}: ({Num(mins)}) to ({Num(maxs)}), "
+                    + $"{Num(definition.Kit.Width)} wide x {Num(definition.Kit.Height)} high x {Num(definition.Kit.Depth)} deep\n");
+            }
+        }
+
+        return text.ToString();
+    }
+
+    private static string Num(float value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string Num(Vec3 value) => $"{Num(value.X)}, {Num(value.Y)}, {Num(value.Z)}";
 
     private static async Task<int> LinkAsync(
         IFileSystem disk,

@@ -217,6 +217,18 @@ internal static class RoomHarness
         marker.AddKey(RoomLibraryVmf.DoorWidthKey, VmfPlacement.Format(room.Kit.Width));
         marker.AddKey(RoomLibraryVmf.DoorHeightKey, VmfPlacement.Format(room.Kit.Height));
         marker.AddKey(RoomLibraryVmf.WallDepthKey, VmfPlacement.Format(room.Kit.Depth));
+
+        // A socket named other than its wall is named on the marker, as an
+        // author would; the default name needs no key.
+        foreach (RoomSocket socket in room.Sockets)
+        {
+            string wall = RoomLibraryVmf.WallName(socket.Facing);
+            if (socket.Name != wall)
+            {
+                marker.AddKey(RoomLibraryVmf.SocketKeyPrefix + wall, socket.Name);
+            }
+        }
+
         return marker;
     }
 

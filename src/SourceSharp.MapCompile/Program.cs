@@ -210,6 +210,15 @@ public static class Program
                     .ConfigureAwait(false);
             }
 
+            case "rooms":
+            {
+                // A listing of a library: reads the VMF, mounts no game.
+                PhysicalFileSystem disk = new("/");
+
+                return await RoomCommands.RunRoomsAsync(disk, args[1..], output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             case "layout":
             {
                 // A seeded level needs only the library's socket sets, which
@@ -430,6 +439,8 @@ public static class Program
                                                       joints are the sockets that face
               link <level.yaml> --flatten [-out <map.vmf>]
                                                       the same level as one VMF, for vbsp
+              rooms <library.vmf>                     list a library's rooms: name, cell,
+                                                      and each door's box and size
               layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>] [-out <level.yaml>]
                                                       a seeded level of the library's rooms
               check | diff | bench                     the acceptance instruments
