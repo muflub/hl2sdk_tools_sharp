@@ -144,8 +144,12 @@ public static partial class LevelLinker
         ArgumentNullException.ThrowIfNull(context);
 
         // Layout first (rule 5 / rule 2's layout halves, house messages), then
-        // the joint geometry only the linker can check.
+        // the format's limits, then the joint geometry only the linker can
+        // check. The limits come before anything that costs in the rooms: a
+        // level far past them is refused from the rooms' lump counts alone,
+        // not after every room has been planned.
         RoomLinter.CheckLayout(layout, library);
+        CheckCapacity(layout, library);
         ValidateJoints(layout, library);
         RoomLinter.CheckReachable(layout, name => library.Get(name).Definition);
 
@@ -188,8 +192,7 @@ public static partial class LevelLinker
             clusterCursor += plan.ClusterCount;
         }
 
-        int clusterCount = clusterCursor;
-        Limit(plans[^1], "clusters", clusterCount, short.MaxValue);
+        int clusterCount = clusterCursor; // at most short.MaxValue: CheckCapacity
         int rowBytes = (clusterCount + 7) >> 3;
 
         // Rows: own rows shifted into the global numbering, door edges from
@@ -251,19 +254,13 @@ public static partial class LevelLinker
 
     /// <summary>
     /// The prefix sums every index-bearing struct is shifted by, in layout
-    /// order, with a refusal the moment a sum outgrows the field that will
-    /// carry it.
+    /// order.
     /// </summary>
     /// <remarks>
-    /// Each limit is the narrowest field that holds an index into (or a count
-    /// of) that lump: a face's plane number and a brush side's are
-    /// <c>ushort</c>, a face's and a brush side's texinfo is <c>short</c>, a
-    /// leaf's cluster is <c>short</c>, an edge's vertices, a leaf's face and
-    /// brush runs, a node's first face, a face's first primitive, a
-    /// primitive's first index and vertex, a vertex-normal index and a macro
-    /// texture's name id are <c>ushort</c>. A sum past its field would wrap
-    /// silently in the cast that writes it and point into some other room.
-    /// The planes, texinfos, leaves and leaf brushes the plug carve and the
+    /// The totals were measured against the format's fields before any room
+    /// was planned (<see cref="CheckCapacity"/>, over the same counts in the
+    /// same order), so every base here fits the field that carries it. The
+    /// planes, texinfos, leaves and leaf brushes the plug carve and the
     /// nodraw copies add are checked where they are added.
     /// </remarks>
     private static void AssignBases(RoomPlan[] plans)
@@ -321,19 +318,160 @@ public static partial class LevelLinker
             occluderPolys += plan.Occlusion?.Polys.Count ?? 0;
             occluderVerts += plan.Occlusion?.VertexIndices.Count ?? 0;
 
-            Limit(plan, "vertices", vertices, ushort.MaxValue + 1);
-            Limit(plan, "planes", planes, ushort.MaxValue + 1);
-            Limit(plan, "texinfos", texInfos, short.MaxValue + 1);
-            Limit(plan, "faces", faces, ushort.MaxValue + 1);
-            Limit(plan, "brushes", brushes, ushort.MaxValue + 1);
-            Limit(plan, "leaf faces", leafFaces, ushort.MaxValue + 1);
-            Limit(plan, "leaves", leaves, ushort.MaxValue + 1);
-            Limit(plan, "texdata string table entries", stringTable, ushort.MaxValue);
-            Limit(plan, "primitives", prims, ushort.MaxValue + 1);
-            Limit(plan, "primitive indices", primIndices, ushort.MaxValue + 1);
-            Limit(plan, "primitive vertices", primVerts, ushort.MaxValue + 1);
-            Limit(plan, "vertex normals", vertNormals, ushort.MaxValue + 1);
         }
+    }
+
+    /// <summary>
+    /// Refuses a level whose running totals outgrow a field of the format,
+    /// before any room is planned.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The totals are the ones <see cref="AssignBases"/> shifts by, summed in
+    /// the same layout order from the same lumps each room's plan reads
+    /// (<see cref="LinkCounts.Of"/>), so the refusal names the same room at
+    /// the same total as a check made while assigning the bases would. It
+    /// runs first because everything after it costs in the rooms: planning
+    /// reads and transforms every room's structs, and a level hundreds of
+    /// times too big spent minutes and gigabytes on that before being
+    /// refused. This pass reads a handful of lump lengths per room.
+    /// </para>
+    /// <para>
+    /// What the plug carve and the nodraw copies add during assembly (planes,
+    /// texinfos, leaves, leaf brushes) is not known until then, and is checked
+    /// where it is added.
+    /// </para>
+    /// </remarks>
+    /// <param name="layout">The level, its rooms already known to be in the library.</param>
+    /// <param name="library">The rooms.</param>
+    /// <exception cref="LinkException">A total passes its field's limit.</exception>
+    internal static void CheckCapacity(LevelLayout layout, RoomLibrary library)
+    {
+        if (layout.Rooms.Count == 0)
+        {
+            return;
+        }
+
+        LinkTotals totals = new();
+        foreach (RoomInstance instance in layout.Rooms)
+        {
+            RoomObject room = library.Get(instance.Placement.Room);
+            totals.Add(LinkCounts.Of(room.Bsp, room.ClusterCount), room.Definition.Name, instance.Placement.CellX, instance.Placement.CellY);
+        }
+
+        RoomInstance last = layout.Rooms[^1];
+        totals.CheckClusters(library.Get(last.Placement.Room).Definition.Name, last.Placement.CellX, last.Placement.CellY);
+    }
+
+    /// <summary>
+    /// What one room adds to each total the format limits: the lengths of the
+    /// lumps its plan carries, and its clusters.
+    /// </summary>
+    internal readonly record struct LinkCounts
+    {
+        public int Vertices { get; init; }
+
+        public int Planes { get; init; }
+
+        public int TexInfos { get; init; }
+
+        public int Faces { get; init; }
+
+        public int Brushes { get; init; }
+
+        public int LeafFaces { get; init; }
+
+        public int Leaves { get; init; }
+
+        public int StringTable { get; init; }
+
+        public int Primitives { get; init; }
+
+        public int PrimitiveIndices { get; init; }
+
+        public int PrimitiveVertices { get; init; }
+
+        public int VertexNormals { get; init; }
+
+        public int Clusters { get; init; }
+
+        /// <summary>A compiled room's counts, read as <see cref="PlanRoom"/> reads them.</summary>
+        public static LinkCounts Of(BspData bsp, int clusters) => new()
+        {
+            Vertices = BspStructView.Count<Vec3>(bsp[BspLump.Vertexes]),
+            Planes = BspStructView.Count<DPlane>(bsp[BspLump.Planes]),
+            TexInfos = BspStructView.Count<TexInfo>(bsp[BspLump.TexInfo]),
+            Faces = BspStructView.Count<DFace>(bsp[BspLump.Faces]),
+            Brushes = BspStructView.Count<DBrush>(bsp[BspLump.Brushes]),
+            LeafFaces = BspStructView.Count<ushort>(bsp[BspLump.LeafFaces]),
+            Leaves = BspStructView.Count<DLeaf>(bsp[BspLump.Leafs]),
+            StringTable = BspStructView.Count<int>(bsp[BspLump.TexDataStringTable]),
+            Primitives = BspStructView.Count<DPrimitive>(bsp[BspLump.Primitives]),
+            PrimitiveIndices = BspStructView.Count<ushort>(bsp[BspLump.PrimIndices]),
+            PrimitiveVertices = BspStructView.Count<Vec3>(bsp[BspLump.PrimVerts]),
+            VertexNormals = BspStructView.Count<Vec3>(bsp[BspLump.VertNormals]),
+            Clusters = clusters,
+        };
+    }
+
+    /// <summary>
+    /// The level's running totals, room by room in layout order, each refused
+    /// the moment it passes the narrowest field that carries it.
+    /// </summary>
+    /// <remarks>
+    /// Each limit is the narrowest field that holds an index into (or a count
+    /// of) that lump: a face's plane number and a brush side's are
+    /// <c>ushort</c>, a face's and a brush side's texinfo is <c>short</c>, a
+    /// leaf's cluster is <c>short</c>, an edge's vertices, a leaf's face and
+    /// brush runs, a node's first face, a face's first primitive, a
+    /// primitive's first index and vertex, a vertex-normal index and a macro
+    /// texture's name id are <c>ushort</c>. A sum past its field would wrap
+    /// silently in the cast that writes it and point into some other room.
+    /// The planes start at 2 (the top tree's first pair) and the leaves at 1
+    /// (the shared solid leaf), as the bases do.
+    /// </remarks>
+    internal sealed class LinkTotals
+    {
+        private long _vertices, _planes = 2, _texInfos, _faces, _brushes, _leafFaces, _leaves = 1, _stringTable,
+            _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters;
+
+        /// <summary>Adds one room, refusing the first total it pushes past its limit.</summary>
+        public void Add(LinkCounts counts, string room, int cellX, int cellY)
+        {
+            _vertices += counts.Vertices;
+            _planes += counts.Planes;
+            _texInfos += counts.TexInfos;
+            _faces += counts.Faces;
+            _brushes += counts.Brushes;
+            _leafFaces += counts.LeafFaces;
+            _leaves += counts.Leaves;
+            _stringTable += counts.StringTable;
+            _primitives += counts.Primitives;
+            _primitiveIndices += counts.PrimitiveIndices;
+            _primitiveVertices += counts.PrimitiveVertices;
+            _vertexNormals += counts.VertexNormals;
+            _clusters += counts.Clusters;
+
+            Limit(room, cellX, cellY, "vertices", _vertices, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "planes", _planes, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "texinfos", _texInfos, short.MaxValue + 1);
+            Limit(room, cellX, cellY, "faces", _faces, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "brushes", _brushes, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "leaf faces", _leafFaces, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "leaves", _leaves, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "texdata string table entries", _stringTable, ushort.MaxValue);
+            Limit(room, cellX, cellY, "primitives", _primitives, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "primitive indices", _primitiveIndices, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "primitive vertices", _primitiveVertices, ushort.MaxValue + 1);
+            Limit(room, cellX, cellY, "vertex normals", _vertexNormals, ushort.MaxValue + 1);
+        }
+
+        /// <summary>
+        /// Refuses a cluster total past a leaf's <c>short</c> cluster field;
+        /// checked once, after the last room, which the refusal names.
+        /// </summary>
+        public void CheckClusters(string room, int cellX, int cellY) =>
+            Limit(room, cellX, cellY, "clusters", _clusters, short.MaxValue);
     }
 
     /// <summary>Refuses a count past what its field can carry.</summary>
@@ -342,13 +480,22 @@ public static partial class LevelLinker
     /// <param name="count">The running total.</param>
     /// <param name="max">One past the largest total the field holds.</param>
     /// <exception cref="LinkException">The total reaches <paramref name="max"/>.</exception>
-    internal static void Limit(RoomPlan plan, string what, long count, long max)
+    internal static void Limit(RoomPlan plan, string what, long count, long max) =>
+        Limit(
+            plan.Placement.Room.Definition.Name,
+            plan.Placement.Instance.Placement.CellX,
+            plan.Placement.Instance.Placement.CellY,
+            what,
+            count,
+            max);
+
+    /// <summary>Refuses a count past what its field can carry, naming the room and cell that crossed it.</summary>
+    private static void Limit(string room, int cellX, int cellY, string what, long count, long max)
     {
         if (count > max)
         {
             throw new LinkException(
-                $"room {plan.Placement.Room.Definition.Name} at cell ({plan.Placement.Instance.Placement.CellX},"
-                + $" {plan.Placement.Instance.Placement.CellY}) pushes the link to {count} {what};"
+                $"room {room} at cell ({cellX}, {cellY}) pushes the link to {count} {what};"
                 + $" the format carries at most {max}.");
         }
     }

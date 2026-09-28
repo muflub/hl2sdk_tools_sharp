@@ -42,6 +42,109 @@ public sealed class LevelLinkerScaleTests
         await check;
     }
 
+    // ---- the format's limits, up front ---------------------------------------
+
+    /// <summary>
+    /// A level past a field's limit is refused before any room is planned: a
+    /// room whose compile the relocation refuses (it carries area portals)
+    /// stands in the first cell, and the refusal is still the limit's. Planning
+    /// every room first costs memory and time in the rooms, which for a
+    /// level hundreds of times too big is gigabytes and minutes spent on a
+    /// level that was never going to link.
+    /// </summary>
+    [Fact]
+    public async Task ALevelPastALimitIsRefusedBeforeAnyRoomIsPlanned()
+    {
+        RoomLibrary hubs = await RoomHarness.LibraryAsync(false, RoomHarness.Hub());
+        RoomObject hub = hubs.Get("hub");
+        RoomObject bad = RoomHarness.WithLumps(hub with { Definition = hub.Definition with { Name = "bad" } }, bsp =>
+        {
+            bsp.SetLump(SourceSharp.MapFormats.Bsp.BspLump.Areas, new byte[3 * 8]);
+            bsp.SetLump(SourceSharp.MapFormats.Bsp.BspLump.AreaPortals, new byte[2 * 12]);
+        });
+        RoomLibrary library = RoomHarness.Library(hub, bad);
+
+        // Enough hubs to pass the plane limit, which every room adds to.
+        int planes = SourceSharp.MapFormats.Bsp.Structs.BspStructView.Count<SourceSharp.MapFormats.Bsp.Structs.DPlane>(
+            hub.Bsp[SourceSharp.MapFormats.Bsp.BspLump.Planes]);
+        int size = (int)Math.Ceiling(Math.Sqrt((65536.0 / planes) + 2));
+        LevelCell?[] cells = new LevelCell?[size * size];
+        Array.Fill(cells, new LevelCell("hub", 0));
+        cells[0] = new LevelCell("bad", 0);
+        LevelLayout layout = new LevelGrid("big", "rooms.vmf", size, size, cells)
+            .ToLayout(name => library.Find(name)?.Definition, library.CellSize, library.Kit);
+
+        LinkException refused = await Assert.ThrowsAsync<LinkException>(
+            async () => await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync()));
+        Assert.Contains("the format carries at most", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("area portal", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The limit refusal names the room whose addition crosses the limit, its
+    /// cell, the running total and the limit; a level one room short of it
+    /// passes the check.
+    /// </summary>
+    [Fact]
+    public async Task TheLimitRefusalNamesTheRoomThatCrossesIt()
+    {
+        RoomLibrary library = await RoomHarness.LibraryAsync(false, RoomHarness.Hub());
+        RoomObject hub = library.Get("hub");
+        LevelLinker.LinkCounts counts = LevelLinker.LinkCounts.Of(hub.Bsp, hub.ClusterCount);
+
+        // The field every hub fills fastest crosses first; the room that
+        // crosses it is the first whose running total passes the limit.
+        (string what, long perRoom, long start, long max)[] fields =
+        [
+            ("vertices", counts.Vertices, 0, ushort.MaxValue + 1),
+            ("planes", counts.Planes, 2, ushort.MaxValue + 1),
+            ("faces", counts.Faces, 0, ushort.MaxValue + 1),
+            ("leaves", counts.Leaves, 1, ushort.MaxValue + 1),
+            ("leaf faces", counts.LeafFaces, 0, ushort.MaxValue + 1),
+            ("primitive indices", counts.PrimitiveIndices, 0, ushort.MaxValue + 1),
+        ];
+        (string what, long crossing) = fields
+            .Where(f => f.perRoom > 0)
+            .Select(f => (f.what, crossing: ((f.max - f.start) / f.perRoom) + 1))
+            .MinBy(f => f.crossing);
+
+        LevelLayout under = Line(library, (int)crossing - 1);
+        LevelLinker.CheckCapacity(under, library);
+
+        LevelLayout over = Line(library, (int)crossing);
+        LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(over, library));
+        Assert.StartsWith($"room hub at cell ({crossing - 1}, 0) pushes the link to ", refused.Message, StringComparison.Ordinal);
+        Assert.Contains($" {what}; the format carries at most ", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The cluster total is checked against the leaf's short cluster field
+    /// once every room is counted, and names the last room.
+    /// </summary>
+    [Fact]
+    public void TheClusterTotalIsLimitedToTheLeafsField()
+    {
+        LevelLinker.LinkCounts one = new() { Clusters = short.MaxValue / 2 };
+        LevelLinker.LinkTotals totals = new();
+        totals.Add(one, "a", 0, 0);
+        totals.Add(one, "b", 1, 0);
+        totals.CheckClusters("b", 1, 0);
+        totals.Add(one with { Clusters = 2 }, "c", 2, 0);
+        LinkException refused = Assert.Throws<LinkException>(() => totals.CheckClusters("c", 2, 0));
+        Assert.Equal(
+            $"room c at cell (2, 0) pushes the link to {short.MaxValue + 1} clusters; the format carries at most {short.MaxValue}.",
+            refused.Message);
+    }
+
+    /// <summary>A line of hubs along +x, jointed end to end.</summary>
+    private static LevelLayout Line(RoomLibrary library, int length)
+    {
+        LevelCell?[] cells = new LevelCell?[length];
+        Array.Fill(cells, new LevelCell("hub", 0));
+        return new LevelGrid("line", "rooms.vmf", 1, length, cells)
+            .ToLayout(name => library.Find(name)?.Definition, library.CellSize, library.Kit);
+    }
+
     // ---- the visibility closure --------------------------------------------
 
     /// <summary>
