@@ -326,6 +326,9 @@ change.
 The game loads `level.bsp` and, beside it, `level.nav3d`; nothing stops the
 two coming from different links. So the link writes one **level id** into
 both: the map's worldspawn key `ss_level_id` and the header's `levelId`.
+The keys are written only when the link writes a `.nav3d`: a link without
+navigation (`-no-nav`, or a pack without it) writes byte for byte the map it
+did before navigation existed.
 The mod checks they are equal (`Nav3dReader.MatchesMap`) before trusting the
 navigation. The map's `ss_pack_id` and the header's `packId` name the room
 compile the level's rooms came from.
@@ -530,20 +533,31 @@ entity at run time, and live only in the navigation. An `info_room`'s
 
 `ssmap room` precomputes each room's navigation and stores it in the
 `.roompack` beside the room's container, under tags `NVR0` (the room as
-authored) and `NVR1`-`NVR3` (turned one, two and three quarter turns). The
-link reads, for each placement, the section of its turn, and nothing else of
-the pack. All integers are **big-endian** (the pack's convention); the
-section starts with a 4-byte envelope that is never compressed:
+authored) and `NVR1`-`NVR3` (turned one, two and three quarter turns). Each
+`NVR`*r* sits right after that turn's link sections (`GEO`*r*, `COL`*r*,
+`ENT`*r*), so the pack order of a room is `ROOM`, `LNKA`, then per turn its
+link sections and its navigation. The link asks for navigation through the
+pack's own room requests (`RoomPackRequest.Navigation`), so for each placed
+room it reads its container, its link sections and its navigation for the
+turns it places, one run of bytes per room, and nothing else of the pack.
+
+The sections are framed as the link sections are, so every per-room
+section of a pack reads the same way. All integers are **big-endian** (the
+pack's convention):
 
 | Bytes | Field |
 | --- | --- |
-| 2 | `uint16` version, 1 |
-| 1 | codec (as the `.nav3d` envelope's) |
-| 1 | turn, 0-3 (must match the tag) |
-| 4 | `int32` payload's raw length |
+| 1 | codec (0 none, 1 Deflate, 2 Brotli; as the link sections' and the `.nav3d` envelope's) |
+| 8 | `int64` the payload's decoded length |
 | rest | payload, stored by the codec |
 
-Payload: `float32` cell size, voxel size, `int32` voxels per edge, `float32`
+The decoded payload starts with an `int32` **revision** (1) and a `uint8`
+**turn**, 0-3, which must match the tag. As with the link sections, a
+section of a revision the reader does not know reads as absent (the link
+goes on without navigation, with its warning); an unknown codec or a
+payload of the wrong length is refused naming the room and section.
+
+Payload, after the revision and turn: `float32` cell size, voxel size, `int32` voxels per edge, `float32`
 floor normal z, `uint8` role; agents (`uint8` count; each a string name,
 `float32` width, height, `int32` mask); sockets (`uint8` count; each `uint8`
 turn-0 facing, string name); points (`int32` count; each `float32` x, y, z,
@@ -561,7 +575,9 @@ cannot know alone. Capping a door only adds solids, so a placement with some
 doors capped is the open octree with those sockets' cap changes applied, and
 the changes of different doors never disagree.
 
-The library section `CMPL` holds the pack id's 16 bytes.
+The library section `CMPL` holds the pack id's 16 bytes. It stands beside
+the library-wide entities section `LENT` (when the library has any); the
+pack's library sections are looked up by tag.
 
 **Why the navigation lives in the pack.** The owner's decision: the pack
 already has typed per-room sections that readers skip when unknown, so an

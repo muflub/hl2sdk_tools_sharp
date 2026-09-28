@@ -385,7 +385,8 @@ components per agent, and the points of interest in level coordinates. The
 map's worldspawn and the file's header carry one level id
 (`ss_level_id`), so the game can tell they belong together. A pack without
 navigation links with one warning and no `.nav3d` (`-require-nav` makes it
-an error, `-no-nav` skips it). `ssmap nav` prints a navigation's cells, free
+an error, `-no-nav` skips it), and a link without navigation writes no id
+keys, so its map is the one it always was. `ssmap nav` prints a navigation's cells, free
 volume, components and door links, from the file or straight from a level
 and its pack, and exports the free leaves or the floors as OBJ. The format
 is specified in [`docs/nav3d-format.md`](docs/nav3d-format.md), with a C++
