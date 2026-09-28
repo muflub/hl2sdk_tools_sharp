@@ -146,7 +146,7 @@ internal sealed partial class Qh
         }
         if (i >= dim || j >= dim)
             throw qh_errexit2(qh_ERRqhull, facetA, facetB);
-        return facetA.vertices!.NewDelNthSorted(hull_dim, skipA, prepend);
+        return facetA.vertices!.NewDelNthSorted(hull_dim, skipA, prepend, pool);
     }
 
     /// <summary>
@@ -268,9 +268,9 @@ internal sealed partial class Qh
             else
             {
                 toporient = ridge.top == visible;
-                vertices = new QSet<Vertex>(hull_dim);
+                vertices = QSet<Vertex>.New(hull_dim, pool);
                 vertices.Append(apex);
-                QSet<Vertex>.AppendSet(ref vertices, ridge.vertices);
+                QSet<Vertex>.AppendSet(ref vertices, ridge.vertices, pool);
                 newfacet = qh_makenewfacet(vertices!, toporient, neighbor);
                 numnew++;
                 if (neighbor.coplanar)
@@ -291,7 +291,7 @@ internal sealed partial class Qh
                 if (ONLYgood)
                 {
                     if (!neighbor.simplicial)
-                        QSet<Ridge>.Append(ref newfacet.ridges, ridge);
+                        QSet<Ridge>.Append(ref newfacet.ridges, ridge, pool);
                 }
                 else
                 {
@@ -299,7 +299,7 @@ internal sealed partial class Qh
                     {
                         if (neighbor.simplicial)
                             throw qh_errexit2(qh_ERRqhull, neighbor, visible);
-                        QSet<Facet>.Append(ref neighbor.neighbors, newfacet);
+                        QSet<Facet>.Append(ref neighbor.neighbors, newfacet, pool);
                     }
                     else
                         QSet<Facet>.Replace(neighbor.neighbors!, visible, newfacet);
@@ -310,7 +310,7 @@ internal sealed partial class Qh
                     }
                     else
                     {
-                        QSet<Ridge>.Append(ref newfacet.ridges, ridge);
+                        QSet<Ridge>.Append(ref newfacet.ridges, ridge, pool);
                         if (toporient)
                             ridge.top = newfacet;
                         else
@@ -518,25 +518,8 @@ internal sealed partial class Qh
     internal Facet qh_newfacet()
     {
         Facet facet;
-        if (pool != null)
-        {
-            facet = pool.NewFacet();
-            QSet<Facet>? nb = facet.spareNeighbors;
-            if (nb != null)
-            {
-                // qh_setnew (hull_dim): an empty set; cleared so that nothing stale is visible
-                Array.Clear(nb.e);
-                nb.n = 0;
-                facet.neighbors = nb;
-            }
-            else
-                facet.neighbors = new QSet<Facet>(hull_dim);
-        }
-        else
-        {
-            facet = new Facet();
-            facet.neighbors = new QSet<Facet>(hull_dim);
-        }
+        facet = pool != null ? pool.NewFacet() : new Facet();
+        facet.neighbors = QSet<Facet>.New(hull_dim, pool);
         facet.id = facet_id++;
         facet.furthestdist = 0.0;
         if (FORCEoutput && APPROXhull)
@@ -639,7 +622,7 @@ internal sealed partial class Qh
             {
                 QSet<Vertex> nv = newfacet.vertices!;
                 for (int vi = 0; (vertex = nv.e[vi]) != null; vi++)
-                    QSet<Facet>.Append(ref vertex.neighbors, newfacet);
+                    QSet<Facet>.Append(ref vertex.neighbors, newfacet, pool);
             }
             for (visible = visible_list; visible != null && visible.visible; visible = visible.next)
             {
@@ -663,7 +646,7 @@ internal sealed partial class Qh
                         else
                         {
                             vertex.deleted = true;
-                            QSet<Vertex>.Append(ref del_vertices, vertex);
+                            QSet<Vertex>.Append(ref del_vertices, vertex, pool);
                         }
                     }
                 }
@@ -679,7 +662,7 @@ internal sealed partial class Qh
                     if (!vertex.newlist && !vertex.deleted)
                     {
                         vertex.deleted = true;
-                        QSet<Vertex>.Append(ref del_vertices, vertex);
+                        QSet<Vertex>.Append(ref del_vertices, vertex, pool);
                     }
                 }
             }

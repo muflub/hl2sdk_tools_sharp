@@ -31,8 +31,8 @@ internal sealed partial class Qh
             return;
         centrum_radius = maxcentrum;
         cos_max = maxangle;
-        degen_mergeset = new QSet<MergeT>(TEMPsize);
-        facet_mergeset = new QSet<MergeT>(TEMPsize);
+        degen_mergeset = QSet<MergeT>.New(TEMPsize, pool);
+        facet_mergeset = QSet<MergeT>.New(TEMPsize, pool);
         if (hull_dim >= 3)
         {
             qh_mark_dupridges(newfacet_list);
@@ -144,20 +144,20 @@ internal sealed partial class Qh
         if (hasangle && ANGLEmerge)
             merge.angle = angle;
         if (mergetype < MergeType.MRGdegen)
-            QSet<MergeT>.Append(ref facet_mergeset, merge);
+            QSet<MergeT>.Append(ref facet_mergeset, merge, pool);
         else if (mergetype == MergeType.MRGdegen)
         {
             facet.degenerate = true;
             if ((lastmerge = QSet<MergeT>.Last(degen_mergeset)) == null
                 || lastmerge.type == MergeType.MRGdegen)
-                QSet<MergeT>.Append(ref degen_mergeset, merge);
+                QSet<MergeT>.Append(ref degen_mergeset, merge, pool);
             else
-                QSet<MergeT>.AddNth(ref degen_mergeset, 0, merge);
+                QSet<MergeT>.AddNth(ref degen_mergeset, 0, merge, pool);
         }
         else
         {
             facet.redundant = true;
-            QSet<MergeT>.Append(ref degen_mergeset, merge);
+            QSet<MergeT>.Append(ref degen_mergeset, merge, pool);
         }
     }
 
@@ -166,7 +166,7 @@ internal sealed partial class Qh
     {
         Facet? same;
         Vertex? apex, vertex;
-        var vertices = new QSet<Vertex>(TEMPsize);
+        var vertices = QSet<Vertex>.New(TEMPsize, pool);
         apex = samecycle.vertices!.e[0]!;
         apex.visitid = ++vertex_visit;
         for (same = samecycle.f; same != null; same = (same == samecycle ? null : same.f))
@@ -405,7 +405,7 @@ internal sealed partial class Qh
                 break;
             size += 2;
         }
-        ridge_hash_table = new QSet<Ridge>(size);
+        ridge_hash_table = QSet<Ridge>.New(size, pool);
         ridge_hash_table.Zero(0, size);
         return size;
     }
@@ -500,7 +500,7 @@ internal sealed partial class Qh
         }
         // othermerges= qh_settemppop(); qh facet_mergeset= qh_settemp(); qh_settemppush(othermerges)
         QSet<MergeT> othermerges = facet_mergeset!;
-        facet_mergeset = new QSet<MergeT>(TEMPsize);
+        facet_mergeset = QSet<MergeT>.New(TEMPsize, pool);
         for (int mi = 0; (merge = othermerges.e[mi]) != null; mi++)
         {
             facet1 = merge.facet1;
@@ -518,7 +518,7 @@ internal sealed partial class Qh
                 // qh_memfree (merge)
             }
             else
-                QSet<MergeT>.Append(ref facet_mergeset, merge);
+                QSet<MergeT>.Append(ref facet_mergeset, merge, pool);
         }
         if (nummerge != 0)
             wasmerge = true;
@@ -532,7 +532,7 @@ internal sealed partial class Qh
         double dist1, dist2, mindist1, mindist2, maxdist1, maxdist2;
         int nummerge = 0;
         QSet<MergeT> othermerges = facet_mergeset!;
-        facet_mergeset = new QSet<MergeT>(TEMPsize);
+        facet_mergeset = QSet<MergeT>.New(TEMPsize, pool);
         for (int mi = 0; (merge = othermerges.e[mi]) != null; mi++)
         {
             if (merge.type != MergeType.MRGridge)
@@ -566,7 +566,7 @@ internal sealed partial class Qh
                 // qh_memfree (merge)
             }
             else
-                QSet<MergeT>.Append(ref facet_mergeset, merge);
+                QSet<MergeT>.Append(ref facet_mergeset, merge, pool);
         }
         if (nummerge != 0)
             wasmerge = true;
@@ -745,7 +745,7 @@ internal sealed partial class Qh
             else if (!neighbor!.seen)
             {
                 ridge = qh_newridge();
-                ridge.vertices = facet.vertices!.NewDelNthSorted(hull_dim, neighbor_i, 0);
+                ridge.vertices = facet.vertices!.NewDelNthSorted(hull_dim, neighbor_i, 0, pool);
                 toporient = facet.toporient ^ ((neighbor_i & 0x1) != 0);
                 if (toporient)
                 {
@@ -757,8 +757,8 @@ internal sealed partial class Qh
                     ridge.top = neighbor;
                     ridge.bottom = facet;
                 }
-                QSet<Ridge>.Append(ref facet.ridges, ridge);
-                QSet<Ridge>.Append(ref neighbor.ridges, ridge);
+                QSet<Ridge>.Append(ref facet.ridges, ridge, pool);
+                QSet<Ridge>.Append(ref neighbor.ridges, ridge, pool);
             }
         }
         if (mergeridge)
@@ -810,7 +810,7 @@ internal sealed partial class Qh
         {
             if (merge.type == MergeType.MRGridge)
             {
-                QSet<Facet>.Append(ref merge.facet2.neighbors, merge.facet1);
+                QSet<Facet>.Append(ref merge.facet2.neighbors, merge.facet1, pool);
                 qh_makeridges(merge.facet1);
             }
         }
@@ -898,7 +898,7 @@ internal sealed partial class Qh
                         if (vertex.neighbors!.e[0] == null)
                         {
                             vertex.deleted = true;
-                            QSet<Vertex>.Append(ref del_vertices, vertex);
+                            QSet<Vertex>.Append(ref del_vertices, vertex, pool);
                         }
                     }
                     nummerges++;
@@ -959,7 +959,7 @@ internal sealed partial class Qh
         qh_mergecycle_ridges(samecycle, newfacet);
         qh_mergecycle_vneighbors(samecycle, newfacet);
         if (newfacet.vertices!.e[0] != apex)
-            QSet<Vertex>.AddNth(ref newfacet.vertices, 0, apex);
+            QSet<Vertex>.AddNth(ref newfacet.vertices, 0, apex, pool);
         if (!newfacet.newfacet)
             qh_newvertices(newfacet.vertices!);
         qh_mergecycle_facets(samecycle, newfacet);
@@ -1087,7 +1087,7 @@ internal sealed partial class Qh
                 {
                     if (neighbor.visitid != visit_id)
                     {
-                        QSet<Facet>.Append(ref newfacet.neighbors, neighbor);
+                        QSet<Facet>.Append(ref newfacet.neighbors, neighbor, pool);
                         QSet<Facet>.Replace(neighbor.neighbors!, same, newfacet);
                         neighbor.visitid = visit_id;
                         QSet<Ridge>? nr = neighbor.ridges;
@@ -1119,8 +1119,8 @@ internal sealed partial class Qh
                     QSet<Facet>.Del(neighbor.neighbors, same);
                     if (neighbor.visitid != visit_id)
                     {
-                        QSet<Facet>.Append(ref neighbor.neighbors, newfacet);
-                        QSet<Facet>.Append(ref newfacet.neighbors, neighbor);
+                        QSet<Facet>.Append(ref neighbor.neighbors, newfacet, pool);
+                        QSet<Facet>.Append(ref newfacet.neighbors, neighbor, pool);
                         neighbor.visitid = visit_id;
                     }
                 }
@@ -1166,7 +1166,7 @@ internal sealed partial class Qh
                     }
                     else if (ridge.top == newfacet || ridge.bottom == newfacet)
                     {
-                        QSet<Ridge>.Append(ref newfacet.ridges, ridge);
+                        QSet<Ridge>.Append(ref newfacet.ridges, ridge, pool);
                         continue;
                     }
                     else
@@ -1182,7 +1182,7 @@ internal sealed partial class Qh
                     }
                     else
                     {
-                        QSet<Ridge>.Append(ref newfacet.ridges, ridge);
+                        QSet<Ridge>.Append(ref newfacet.ridges, ridge, pool);
                     }
                 }
             }
@@ -1197,7 +1197,7 @@ internal sealed partial class Qh
                 if (neighbor.visitid != samevisitid && neighbor.simplicial)
                 {
                     ridge = qh_newridge();
-                    ridge.vertices = same.vertices!.NewDelNthSorted(hull_dim, neighbor_i, 0);
+                    ridge.vertices = same.vertices!.NewDelNthSorted(hull_dim, neighbor_i, 0, pool);
                     toporient = same.toporient ^ ((neighbor_i & 0x1) != 0);
                     if (toporient)
                     {
@@ -1209,8 +1209,8 @@ internal sealed partial class Qh
                         ridge.top = neighbor;
                         ridge.bottom = newfacet;
                     }
-                    QSet<Ridge>.Append(ref newfacet.ridges, ridge);
-                    QSet<Ridge>.Append(ref neighbor.ridges, ridge);
+                    QSet<Ridge>.Append(ref newfacet.ridges, ridge, pool);
+                    QSet<Ridge>.Append(ref neighbor.ridges, ridge, pool);
                 }
             }
         }
@@ -1241,12 +1241,12 @@ internal sealed partial class Qh
                 }
             }
             QSet<Facet>.Compact(vertex.neighbors);
-            QSet<Facet>.Append(ref vertex.neighbors, newfacet);
+            QSet<Facet>.Append(ref vertex.neighbors, newfacet, pool);
             if (vertex.neighbors!.Second == null)
             {
                 QSet<Vertex>.DelSorted(newfacet.vertices, vertex);
                 vertex.deleted = true;
-                QSet<Vertex>.Append(ref del_vertices, vertex);
+                QSet<Vertex>.Append(ref del_vertices, vertex, pool);
             }
         }
     }
@@ -1343,7 +1343,7 @@ internal sealed partial class Qh
             }
             else if (neighbor != facet2)
             {
-                QSet<Facet>.Append(ref facet2.neighbors, neighbor);
+                QSet<Facet>.Append(ref facet2.neighbors, neighbor, pool);
                 QSet<Facet>.Replace(neighbor.neighbors!, facet1, facet2);
             }
         }
@@ -1352,7 +1352,7 @@ internal sealed partial class Qh
     }
 
     /// <summary>qh_mergeridges</summary>
-    internal static void qh_mergeridges(Facet facet1, Facet facet2)
+    internal void qh_mergeridges(Facet facet1, Facet facet2)
     {
         Ridge? ridge;
         Vertex? vertex;
@@ -1380,7 +1380,7 @@ internal sealed partial class Qh
                     ridge.top = facet2;
                 else
                     ridge.bottom = facet2;
-                QSet<Ridge>.Append(ref facet2.ridges, ridge);
+                QSet<Ridge>.Append(ref facet2.ridges, ridge, pool);
             }
         }
     }
@@ -1399,7 +1399,7 @@ internal sealed partial class Qh
                 qh_newvertices(facet2.vertices!);
             apex = facet1.vertices!.e[0]!;
             if (facet2.vertices!.e[0] != apex)
-                QSet<Vertex>.AddNth(ref facet2.vertices, 0, apex);
+                QSet<Vertex>.AddNth(ref facet2.vertices, 0, apex, pool);
             else
                 issubset = true;
         }
@@ -1446,7 +1446,7 @@ internal sealed partial class Qh
                 }
             }
             if (!issubset)
-                QSet<Vertex>.AddNth(ref facet2.vertices, vertex_i, apex);
+                QSet<Vertex>.AddNth(ref facet2.vertices, vertex_i, apex, pool);
             if (!facet2.newfacet)
                 qh_newvertices(facet2.vertices!);
             else if (!apex.newlist)
@@ -1485,10 +1485,10 @@ internal sealed partial class Qh
                 }
                 else
                 {
-                    QSet<Ridge>.Append(ref facet2.ridges, ridge);
+                    QSet<Ridge>.Append(ref facet2.ridges, ridge, pool);
                     if (otherfacet.visitid != visit_id)
                     {
-                        QSet<Facet>.Append(ref facet2.neighbors, otherfacet);
+                        QSet<Facet>.Append(ref facet2.neighbors, otherfacet, pool);
                         QSet<Facet>.Replace(otherfacet.neighbors!, facet1, facet2);
                         otherfacet.visitid = visit_id;
                     }
@@ -1521,7 +1521,7 @@ internal sealed partial class Qh
     {
         QSet<Vertex>.DelSorted(facet2.vertices, vertex);
         vertex.deleted = true;
-        QSet<Vertex>.Append(ref del_vertices, vertex);
+        QSet<Vertex>.Append(ref del_vertices, vertex, pool);
         _ = facet1;
     }
 
@@ -1547,7 +1547,7 @@ internal sealed partial class Qh
     internal void qh_mergevertices(QSet<Vertex> vertices1, ref QSet<Vertex>? vertices2)
     {
         int newsize = vertices1.n + QSet<Vertex>.Size(vertices2) - hull_dim + 1;
-        var mergedvertices = new QSet<Vertex>(newsize);
+        var mergedvertices = QSet<Vertex>.New(newsize, pool);
         Vertex? vertex;
         Vertex?[] v2 = vertices2!.e;
         int vertex2 = 0;
@@ -1667,7 +1667,7 @@ internal sealed partial class Qh
                 if (QSet<Facet>.Size(vertex.neighbors) == 0)
                 {
                     vertex.deleted = true;
-                    QSet<Vertex>.Append(ref del_vertices, vertex);
+                    QSet<Vertex>.Append(ref del_vertices, vertex, pool);
                 }
                 vi--;
             }
@@ -1709,7 +1709,7 @@ internal sealed partial class Qh
             if (neighborA == null)
                 throw qh_errexit(qh_ERRqhull, null, null);
         }
-        ridges = new QSet<Ridge>(TEMPsize);
+        ridges = QSet<Ridge>.New(TEMPsize, pool);
         neighborA!.visitid = ++visit_id;
         qh_vertexridges_facet(vertex, facet, ref ridges);
         vertices = qh_vertexintersect_new(facet.vertices!, neighborA.vertices!);
@@ -1741,7 +1741,7 @@ internal sealed partial class Qh
                 break;
             nth++;
         }
-        QSet<Vertex>.AddNth(ref ridge.vertices, nth, newvertex);
+        QSet<Vertex>.AddNth(ref ridge.vertices, nth, newvertex, pool);
         if ((Math.Abs(oldnth - nth) % 2) != 0)
         {
             temp = ridge.top;
@@ -1770,7 +1770,7 @@ internal sealed partial class Qh
             if (!oldvertex.deleted)
             {
                 oldvertex.deleted = true;
-                QSet<Vertex>.Append(ref del_vertices, oldvertex);
+                QSet<Vertex>.Append(ref del_vertices, oldvertex, pool);
             }
         }
         else if (QSet<Facet>.Size(oldvertex.neighbors) == 2)
@@ -1779,7 +1779,7 @@ internal sealed partial class Qh
             for (int ni = 0; (neighbor = vn.e[ni]) != null; ni++)
                 QSet<Vertex>.DelSorted(neighbor.vertices, oldvertex);
             oldvertex.deleted = true;
-            QSet<Vertex>.Append(ref del_vertices, oldvertex);
+            QSet<Vertex>.Append(ref del_vertices, oldvertex, pool);
         }
         else
         {
@@ -1884,7 +1884,7 @@ internal sealed partial class Qh
     internal QSet<Ridge> qh_vertexridges(Vertex vertex)
     {
         Facet? neighbor;
-        QSet<Ridge>? ridges = new QSet<Ridge>(TEMPsize);
+        QSet<Ridge>? ridges = QSet<Ridge>.New(TEMPsize, pool);
         visit_id++;
         QSet<Facet> vn = vertex.neighbors!;
         for (int ni = 0; (neighbor = vn.e[ni]) != null; ni++)
@@ -1910,7 +1910,7 @@ internal sealed partial class Qh
                 neighbor = ridge.top == facet ? ridge.bottom! : ridge.top!;
                 if (neighbor.visitid == visit_id
                     && QSet<Vertex>.In(ridge.vertices, vertex))
-                    QSet<Ridge>.Append(ref ridges, ridge);
+                    QSet<Ridge>.Append(ref ridges, ridge, pool);
             }
         }
         facet.visitid = visit_id - 1;

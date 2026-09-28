@@ -16,9 +16,20 @@ using System.Text;
 namespace SourceSharp.MapTools.Phys.Managed.Qhull;
 
 /// <summary>One facet of a hull built by <see cref="QhullBuilder"/>, in qhull's facet_list order.</summary>
-internal sealed class QhullFacet
+/// <remarks>
+/// A value, not an object, and its point ids a slice of one array shared by the whole result:
+/// a result is what a build hands its caller to keep, so it cannot come from the build's reused
+/// storage the way the facets being built do, and as a class with an array each it was one
+/// allocation per facet plus one per facet's ids, for every hull a cook builds. As a struct
+/// over a shared id array a result is three allocations whatever its size.
+/// </remarks>
+internal readonly struct QhullFacet
 {
-    internal QhullFacet(uint id, bool topOrient, bool simplicial, double nx, double ny, double nz, double offset, int[] pointIds)
+    private readonly int[] ids;
+    private readonly int idStart;
+    private readonly int idCount;
+
+    internal QhullFacet(uint id, bool topOrient, bool simplicial, double nx, double ny, double nz, double offset, int[] ids, int idStart, int idCount)
     {
         Id = id;
         TopOrient = topOrient;
@@ -27,7 +38,9 @@ internal sealed class QhullFacet
         NormalY = ny;
         NormalZ = nz;
         Offset = offset;
-        PointIds = pointIds;
+        this.ids = ids;
+        this.idStart = idStart;
+        this.idCount = idCount;
     }
 
     /// <summary>qhull's facet id (facet->id).</summary>
@@ -55,7 +68,7 @@ internal sealed class QhullFacet
     /// Input point indices of the facet's vertices in qh_facet3vertex order
     /// (qh_pointid of each vertex's point).
     /// </summary>
-    public int[] PointIds { get; }
+    public ReadOnlySpan<int> PointIds => new(ids, idStart, idCount);
 }
 
 /// <summary>The result of one qh_new_qhull call, or of IVP's retry loop.</summary>
@@ -170,6 +183,11 @@ internal static class QhullBuilder
 
     private static QhullFacet[] RunOnce(ReadOnlySpan<double> xyz, string options, QhPool? pool, out int exitcode)
     {
+        // The context itself is not pooled: it is one object per build (under 2% of what a
+        // build allocated before the pool took its facets, vertices, ridges, merges and sets),
+        // and it has well over a hundred fields that qh_initqhull_start relies on starting at
+        // zero. Resetting them by hand would be the one place a missed field could carry state
+        // from one hull into the next, which is the failure pooling must never have.
         var qh = new Qh();
         if (pool != null)
         {
@@ -187,7 +205,15 @@ internal static class QhullBuilder
         }
         if (exitcode != 0)
             return [];
-        var list = new List<QhullFacet>(qh.num_facets);
+        int count = 0;
+        for (Facet? facet = qh.facet_list; facet != null && facet.next != null; facet = facet.next)
+            count++;
+        var facets = new QhullFacet[count];
+        // Every facet of a 3-d hull has at least three vertices; a merged facet has more, and
+        // the id array grows (doubling) when the hull has many of those.
+        int[] ids = new int[3 * count];
+        int used = 0;
+        int k = 0;
         for (Facet? facet = qh.facet_list; facet != null && facet.next != null; facet = facet.next)
         {
             QSet<Vertex> vertices;
@@ -200,14 +226,17 @@ internal static class QhullBuilder
                 // In C, qh_errexit after qh_new_qhull returned calls exit(1).
                 throw new InvalidOperationException("qh_facet3vertex failed with qhull exit " + ex.ExitCode, ex);
             }
-            var ids = new int[vertices.n];
-            for (int i = 0; i < ids.Length; i++)
-                ids[i] = qh.qh_pointid(vertices.e[i]!.point);
+            int nv = vertices.n;
+            if (used + nv > ids.Length)
+                Array.Resize(ref ids, Math.Max(2 * ids.Length, used + nv));
+            for (int i = 0; i < nv; i++)
+                ids[used + i] = qh.qh_pointid(vertices.e[i]!.point);
             double[] normal = facet.normal!;
-            list.Add(new QhullFacet(facet.id, facet.toporient, facet.simplicial,
-                normal[0], normal[1], normal[2], facet.offset, ids));
+            facets[k++] = new QhullFacet(facet.id, facet.toporient, facet.simplicial,
+                normal[0], normal[1], normal[2], facet.offset, ids, used, nv);
+            used += nv;
         }
-        return list.ToArray();
+        return facets;
     }
 
     /// <summary>C printf "%G" (precision 6, no '#' flag), as IVP formats the joggle.</summary>

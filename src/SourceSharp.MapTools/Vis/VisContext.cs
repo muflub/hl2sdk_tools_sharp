@@ -61,6 +61,33 @@ public sealed record VisContext
     internal Action<int>? TighteningClaimProbe { get; init; }
 
     /// <summary>
+    /// For the facts: runs on a <c>-tighten</c> worker once every piece of a
+    /// portal's run has finished and the run has been settled, with the
+    /// portal's rank and whether the run read a neighbour that had not
+    /// finished (and so waits to be judged rather than being done).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Null in every real compile. It is the other half of
+    /// <see cref="TighteningClaimProbe"/>: a claim says a run is ABOUT to
+    /// flow, a settlement says it HAS. With both, a fact can dictate the
+    /// schedule instead of hoping for one -- let one run at a time through
+    /// (take a baton at the claim, give it back at the settlement), and hold
+    /// one portal's claim until every other portal has settled -- so every
+    /// read of the held portal is a read of an unfinished neighbour, on every
+    /// run of the fact.
+    /// </para>
+    /// <para>
+    /// The flag is what makes "the run speculated" a fact's premise rather
+    /// than an inference from the work counters. The counters are a poor
+    /// witness: a speculative read that prunes nothing the exact read would
+    /// not leaves them unchanged, and a frame split off to an idle worker
+    /// moves them by a chain whether anything speculated or not.
+    /// </para>
+    /// </remarks>
+    internal Action<int, bool>? TighteningSettleProbe { get; init; }
+
+    /// <summary>
     /// Which bit-vector implementation the inner loop runs.
     /// </summary>
     /// <remarks>

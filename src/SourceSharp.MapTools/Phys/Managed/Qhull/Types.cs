@@ -86,7 +86,7 @@ internal enum MergeType
 }
 
 /// <summary>facetT</summary>
-internal sealed class Facet
+internal sealed class Facet : IQhPooled
 {
     internal double furthestdist;
     internal double maxoutside;
@@ -127,16 +127,19 @@ internal sealed class Facet
     internal bool redundant;
     /// <summary>true for the qh_DUPLICATEridge / qh_MERGEridge sentinels ((facetT*)1 and 2 in C).</summary>
     internal bool sentinel;
-    /// <summary>QhPool: the normal array of this object's previous life, reused by qh_setfacetplane.</summary>
+    /// <summary>
+    /// QhPool: the normal array of this object's previous life, reused by qh_setfacetplane.
+    /// A facet owns its normal alone (nothing else holds or shares the array), so the array can
+    /// follow the facet from build to build; qh_setfacetplane writes every coordinate before
+    /// anything reads it. Sets are not kept this way: they come from the pool's own set
+    /// storage, so that a set is never owned by two slots at once.
+    /// </summary>
     internal double[]? spareNormal;
-    /// <summary>QhPool: the neighbor set of this object's previous life, reused by qh_newfacet.</summary>
-    internal QSet<Facet>? spareNeighbors;
 
-    /// <summary>memset (facet, 0) for a pooled facet, keeping the spare buffers.</summary>
-    internal void Reset()
+    /// <summary>memset (facet, 0) for a pooled facet, keeping the spare normal.</summary>
+    public void Reset()
     {
         double[]? nm = normal ?? spareNormal;
-        QSet<Facet>? nb = neighbors ?? spareNeighbors;
         furthestdist = 0;
         maxoutside = 0;
         offset = 0;
@@ -175,12 +178,11 @@ internal sealed class Facet
         redundant = false;
         sentinel = false;
         spareNormal = nm;
-        spareNeighbors = nb;
     }
 }
 
 /// <summary>ridgeT</summary>
-internal sealed class Ridge
+internal sealed class Ridge : IQhPooled
 {
     internal QSet<Vertex>? vertices;
     internal Facet? top;
@@ -190,7 +192,7 @@ internal sealed class Ridge
     internal bool nonconvex;
 
     /// <summary>memset (ridge, 0) for a pooled ridge.</summary>
-    internal void Reset()
+    public void Reset()
     {
         vertices = null;
         top = null;
@@ -202,7 +204,7 @@ internal sealed class Ridge
 }
 
 /// <summary>vertexT</summary>
-internal sealed class Vertex
+internal sealed class Vertex : IQhPooled
 {
     internal Vertex? next;
     internal Vertex? previous;
@@ -216,7 +218,7 @@ internal sealed class Vertex
     internal bool newlist;
 
     /// <summary>memset (vertex, 0) for a pooled vertex.</summary>
-    internal void Reset()
+    public void Reset()
     {
         next = null;
         previous = null;
@@ -232,12 +234,21 @@ internal sealed class Vertex
 }
 
 /// <summary>mergeT</summary>
-internal sealed class MergeT
+internal sealed class MergeT : IQhPooled
 {
     internal double angle;
     internal Facet facet1 = null!;
     internal Facet facet2 = null!;
     internal MergeType type;
+
+    /// <summary>memset (merge, 0) for a pooled merge record.</summary>
+    public void Reset()
+    {
+        angle = 0;
+        facet1 = null!;
+        facet2 = null!;
+        type = MergeType.MRGnone;
+    }
 }
 
 /// <summary>qh_errexit's longjmp to qh.errexit, carrying the exit code.</summary>

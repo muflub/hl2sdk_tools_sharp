@@ -215,7 +215,7 @@ internal sealed partial class Qh
                     searchset.Truncate(1);
                 }
                 else
-                    QSet<Facet>.Append(ref searchset, neighbor);
+                    QSet<Facet>.Append(ref searchset, neighbor, pool);
             }
         }
         while (searchsize != 0 && (facet = QSet<Facet>.DelLast(searchset)) != null);

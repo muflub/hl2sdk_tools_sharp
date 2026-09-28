@@ -8,6 +8,7 @@
 using System.Runtime.CompilerServices;
 
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapTools.Rad.Bounce;
 using SourceSharp.MapTools.Tracing;
 
 namespace SourceSharp.MapTools.Rad.Light;
@@ -55,23 +56,51 @@ namespace SourceSharp.MapTools.Rad.Light;
 /// closest hit and a <see cref="TraceId.Sky"/> test on its surface id.
 /// </para>
 /// <para>
-/// The storage is pooled: a log is reset and reused for every batch, so after
+/// The storage is reused: a log is reset and reused for every batch, so after
 /// the first few batches it allocates nothing.
 /// </para>
+/// <para>
+/// AND, FOR A STAGE'S WORKERS, RENTED. A face-lighting worker's log grows to
+/// its largest batch -- tens of thousands of rays and a tape of up to a
+/// quarter of a million words -- and on ctf_2fort that growth, doubling from
+/// a few elements on every worker, was about 70 MB of large-object
+/// allocations per compile. Given a <see cref="Pool"/>, every array the log
+/// grows into is rented from it, the outgrown one goes straight back, and
+/// <see cref="Dispose"/> returns the rest when the stage ends; the next stage
+/// and the next compile in a long-lived service rent the same arrays again.
+/// Without a pool (a one-off log, a test) the arrays are plain allocations
+/// and <see cref="Dispose"/> has nothing to give back.
+/// </para>
+/// <para>
+/// A rented array may hold an earlier renter's data. Nothing is read past
+/// what this log wrote: every read is bounded by a count this log advanced
+/// as it wrote, the tracer writes every answer (and clears every word of
+/// hit bits) it is handed, and a replay reads only answers for rays it
+/// recorded.
+/// </para>
 /// </remarks>
-public sealed class LightRayLog
+public sealed class LightRayLog : IDisposable
 {
-    private Ray[] _visibility = new Ray[16];
-    private Ray[] _sky = new Ray[16];
-    private Ray[] _sky2 = new Ray[4];
+    private const int InitialRays = 16;
+    private const int InitialDeferred = 4;
+    private const int InitialDeferredPoints = 8;
+
+    // Empty until first written, so that every non-empty array is rented
+    // exactly when a pool is set: the pool is an init-only property, set
+    // before anything is recorded.
+    private Ray[] _visibility = [];
+    private Ray[] _sky = [];
+    private Ray[] _sky2 = [];
     private int _visibilityCount;
     private int _skyCount;
     private int _sky2Count;
 
-    private DeferredSkyTest[] _deferred = new DeferredSkyTest[4];
-    private Vec3[] _deferredPoints = new Vec3[8];
+    private DeferredSkyTest[] _deferred = [];
+    private Vec3[] _deferredPoints = [];
     private int _deferredCount;
     private int _deferredPointCount;
+    private IScratchArrayPool? _pool;
+    private bool _disposed;
 
     private ReadOnlyMemory<ulong> _visibilityBits;
     private int _visibilityBase;
@@ -110,6 +139,57 @@ public sealed class LightRayLog
 
     /// <summary>The emit/resolve intermediate values, reset with the rays.</summary>
     internal GatherTape Tape { get; } = new();
+
+    /// <summary>
+    /// Where the log's arrays (and its tape's) are rented from, or null for
+    /// plain allocations. Set once, when the log is made.
+    /// </summary>
+    internal IScratchArrayPool? Pool
+    {
+        get => _pool;
+        init
+        {
+            _pool = value;
+            Tape.Pool = value;
+        }
+    }
+
+    /// <summary>
+    /// Returns every rented array to <see cref="Pool"/>, once, the tape's
+    /// included; the log cannot record again. Safe to call more than once,
+    /// and a no-op without a pool.
+    /// </summary>
+    /// <remarks>
+    /// The caller must know no tracer call still reads the rays or writes
+    /// the answers: the face-lighting worker checks its calls have completed
+    /// and does not dispose otherwise.
+    /// </remarks>
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        Release(ref _visibility);
+        Release(ref _sky);
+        Release(ref _sky2);
+        Release(ref _deferred);
+        Release(ref _deferredPoints);
+        Release(ref _ownBits);
+        Release(ref _ownHits);
+        Release(ref _ownHits2);
+        _visibilityBits = default;
+        _skyHits = default;
+        _sky2Hits = default;
+        _visibilityCount = 0;
+        _skyCount = 0;
+        _sky2Count = 0;
+        _deferredCount = 0;
+        _deferredPointCount = 0;
+        Tape.Dispose();
+    }
 
     /// <summary>Tests waiting for the second stage.</summary>
     internal ReadOnlySpan<DeferredSkyTest> Deferred => _deferred.AsSpan(0, _deferredCount);
@@ -267,14 +347,16 @@ public sealed class LightRayLog
     internal (Memory<ulong> Bits, Memory<HitId> Hits) FirstStageAnswers()
     {
         int words = (_visibilityCount + 63) >> 6;
+        // Answers are written whole by the tracer before they are read, so an
+        // outgrown answer buffer is replaced, not copied.
         if (_ownBits.Length < words)
         {
-            _ownBits = new ulong[Math.Max(words, _ownBits.Length * 2)];
+            Replace(ref _ownBits, Math.Max(words, _ownBits.Length * 2));
         }
 
         if (_ownHits.Length < _skyCount)
         {
-            _ownHits = new HitId[Math.Max(_skyCount, _ownHits.Length * 2)];
+            Replace(ref _ownHits, Math.Max(_skyCount, _ownHits.Length * 2));
         }
 
         return (_ownBits.AsMemory(0, words), _ownHits.AsMemory(0, _skyCount));
@@ -289,7 +371,7 @@ public sealed class LightRayLog
     {
         if (_ownHits2.Length < _sky2Count)
         {
-            _ownHits2 = new HitId[Math.Max(_sky2Count, _ownHits2.Length * 2)];
+            Replace(ref _ownHits2, Math.Max(_sky2Count, _ownHits2.Length * 2));
         }
 
         return _ownHits2.AsMemory(0, _sky2Count);
@@ -407,7 +489,7 @@ public sealed class LightRayLog
         ArgumentOutOfRangeException.ThrowIfNegative(count);
         if (count > _sky.Length)
         {
-            Array.Resize(ref _sky, count);
+            Resize(ref _sky, _skyCount, count);
         }
     }
 
@@ -421,14 +503,56 @@ public sealed class LightRayLog
     internal void EmitVisibility(Vec3 start, Vec3 stop) => EmitRay(ref _visibility, ref _visibilityCount, Make(start, stop));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void EmitRay(ref Ray[] rays, ref int count, Ray ray)
+    private void EmitRay(ref Ray[] rays, ref int count, Ray ray)
     {
         if (count == rays.Length)
         {
-            Array.Resize(ref rays, rays.Length * 2);
+            Resize(ref rays, count, Math.Max(InitialRays, rays.Length * 2));
         }
 
         rays[count++] = ray;
+    }
+
+    /// <summary>
+    /// Grows an array to <paramref name="size"/> elements, keeping the first
+    /// <paramref name="keep"/>: rented when the log has a pool, the old one
+    /// returned; allocated otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Out of line: the emit paths inline only the capacity test, so the hot
+    /// loop stays as small as it was before the pool.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void Resize<T>(ref T[] array, int keep, int size)
+    {
+        T[] grown = New<T>(size);
+        array.AsSpan(0, keep).CopyTo(grown);
+        Release(ref array);
+        array = grown;
+    }
+
+    /// <summary>Replaces an array whose contents do not matter with one of at least <paramref name="size"/> elements.</summary>
+    private void Replace<T>(ref T[] array, int size)
+    {
+        Release(ref array);
+        array = New<T>(size);
+    }
+
+    private T[] New<T>(int size)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return _pool is null ? new T[size] : _pool.Rent<T>(size);
+    }
+
+    /// <summary>Gives an array back to the pool (every non-empty one was rented from it) and forgets it.</summary>
+    private void Release<T>(ref T[] array)
+    {
+        if (_pool is not null && array.Length > 0)
+        {
+            _pool.Return(array);
+        }
+
+        array = [];
     }
 
     /// <summary>Records a first-stage sky ray.</summary>
@@ -454,12 +578,18 @@ public sealed class LightRayLog
     {
         if (_deferredCount == _deferred.Length)
         {
-            Array.Resize(ref _deferred, _deferred.Length * 2);
+            Resize(ref _deferred, _deferredCount, Math.Max(InitialDeferred, _deferred.Length * 2));
         }
 
-        while (_deferredPointCount + (2 * count) > _deferredPoints.Length)
+        if (_deferredPointCount + (2 * count) > _deferredPoints.Length)
         {
-            Array.Resize(ref _deferredPoints, _deferredPoints.Length * 2);
+            int size = Math.Max(InitialDeferredPoints, _deferredPoints.Length);
+            while (_deferredPointCount + (2 * count) > size)
+            {
+                size *= 2;
+            }
+
+            Resize(ref _deferredPoints, _deferredPointCount, size);
         }
 
         _deferred[_deferredCount++] = new DeferredSkyTest(primaryBase, count, recurseMask, _deferredPointCount);
