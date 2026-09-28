@@ -85,12 +85,18 @@ public sealed class CompilePool : IDisposable
     // How long a parked thread sleeps with no signal before it scans again.
     // A safety net only: every state change that can make work runnable
     // signals.
-    private const int IdleTimeoutMs = 100;
+    private const int DefaultIdleTimeoutMs = 100;
 
     private readonly object _sync = new();
     private readonly List<PoolJob> _jobs = [];
     private readonly List<Thread> _threads = [];
     private readonly PoolScheduler _scheduler;
+
+    // Cancelled when Dispose begins. Never disposed: with no wait handle and
+    // no timer it holds nothing to release, and leaving it undisposed means a
+    // token handed out earlier can still be linked or registered on after
+    // the pool is gone.
+    private readonly CancellationTokenSource _stopping = new();
     private long _version;
     private int _idle;
     private bool _shutdown;
@@ -111,6 +117,16 @@ public sealed class CompilePool : IDisposable
 
     /// <summary>How many threads the pool runs.</summary>
     public int Degree { get; }
+
+    /// <summary>Cancelled as soon as <see cref="Dispose"/> begins.</summary>
+    /// <remarks>
+    /// For work a host puts on <see cref="Scheduler"/> itself: pass it (linked
+    /// with the work's own token) to a <c>Parallel.ForAsync</c> or a task's
+    /// body, and that work stops taking items when the pool goes, instead of
+    /// being run to its end on the disposing thread (see <see cref="Dispose"/>).
+    /// The library's own loops on the scheduler already watch it.
+    /// </remarks>
+    public CancellationToken StoppingToken => _stopping.Token;
 
     /// <summary>
     /// A scheduler whose tasks run on the pool's threads, for code that is
@@ -154,6 +170,58 @@ public sealed class CompilePool : IDisposable
     // published the same way.
     private Parker[] _parkers = [];
 
+    /// <summary>
+    /// How long a parked thread waits with no signal before it scans again;
+    /// <see cref="Timeout.Infinite"/> turns the backstop off.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The backstop is a safety net, not part of the protocol: every change
+    /// that can make work runnable signals, and the hand-out and park paths
+    /// are written so that no signal is lost (the version re-read in
+    /// <see cref="Park"/>, the retry after a turned-away scan in the queue's
+    /// step). With it on, a lost wake costs a thread its timeout, which no
+    /// test can tell from scheduling noise; with it off, a lost wake leaves
+    /// work sitting unclaimed for good. So the facts that pin those paths
+    /// turn it off, and deleting either one then turns them red.
+    /// </para>
+    /// <para>
+    /// Internal and init-only: a host has no reason to change it, and a
+    /// compile relying on it would hide exactly the bug it exists to survive.
+    /// </para>
+    /// </remarks>
+    internal int IdleTimeoutMs { get; init; } = DefaultIdleTimeoutMs;
+
+    /// <summary>
+    /// For the facts: runs on a pool thread that found nothing to do, before
+    /// it announces itself parked and re-reads the signal count.
+    /// </summary>
+    /// <remarks>
+    /// Null in every real pool. It widens the one window the version
+    /// re-read in <see cref="Park"/> exists for (a signal raised after the
+    /// scan and before the wait) to whatever the fact does in it.
+    /// </remarks>
+    internal Action? BeforeParkProbe { get; init; }
+
+    /// <summary>
+    /// For the facts: runs on a pool thread that found a queue's job full,
+    /// after the failed borrow and before the scan is counted as turned away.
+    /// </summary>
+    /// <remarks>Null in every real pool; see <see cref="SlotReturnedProbe"/>.</remarks>
+    internal Action? TurnAwayGapProbe { get; init; }
+
+    /// <summary>
+    /// For the facts: runs on a pool thread that has just handed a queue's
+    /// job slot back and left the job, before it looks for its next step.
+    /// </summary>
+    /// <remarks>
+    /// Null in every real pool. With <see cref="TurnAwayGapProbe"/> it forces
+    /// the interleaving the queue's retry after a turned-away scan exists
+    /// for: a slot handed back between the failed borrow and the count, by a
+    /// thread that then does not come back for it.
+    /// </remarks>
+    internal Action? SlotReturnedProbe { get; init; }
+
     /// <summary>Whether <see cref="Dispose"/> has begun: no thread starts another step.</summary>
     internal bool IsStopping => Volatile.Read(ref _shutdown);
 
@@ -176,7 +244,47 @@ public sealed class CompilePool : IDisposable
     /// <summary>How many signals were raised, whether or not a thread was parked.</summary>
     internal long SignalCount => Interlocked.Read(ref _version);
 
-    /// <summary>Stops the threads once their current chunk ends and waits for them.</summary>
+    /// <summary>Stops the threads once their current step ends and waits for them.</summary>
+    /// <remarks>
+    /// <para>
+    /// A pool is disposed by whoever created it, and a host that lent one to a
+    /// compile may dispose it while that compile is still running. Nothing the
+    /// pool has accepted is then left waiting forever:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>Each thread stops once the step it is running ends: one chunk of a
+    /// job, or one task of <see cref="Scheduler"/> run until it returns or
+    /// first awaits. The body is never interrupted, so this waits for those
+    /// steps and no longer.</item>
+    /// <item>A job still in the pool is failed with an
+    /// <see cref="ObjectDisposedException"/>, its remaining items not run.</item>
+    /// <item>A task that <see cref="Scheduler"/> accepted and no thread has
+    /// started is run, once, on the thread calling this, after the pool's
+    /// threads have stopped and before this returns. A <see cref="Task"/> the
+    /// scheduler did not create cannot be failed from outside, and a task
+    /// left in the queue never completes, so whatever awaits it (a
+    /// <c>Parallel.ForAsync</c> waiting for its workers, a compile awaiting
+    /// that loop) would hang. Run, it completes.</item>
+    /// <item>A task offered to <see cref="Scheduler"/> once disposal has begun
+    /// runs at once, on the thread that offers it. Refusing it looks tidier
+    /// and hangs: the continuation of an <c>await</c> inside a scheduled task
+    /// comes back to the scheduler it started on (measured with
+    /// <c>Parallel.ForAsync</c>, whose workers and bodies both do), and a
+    /// refused continuation faults a task nobody observes while the method
+    /// it belongs to never resumes. So a loop whose body was awaiting I/O
+    /// when the pool went would wait forever.</item>
+    /// </list>
+    /// <para>
+    /// Running is not the same as finishing the work: code on the scheduler
+    /// that watches <see cref="StoppingToken"/> stops at its next check, and
+    /// the library's loops (<see cref="ForAsync"/>) then end in an
+    /// <see cref="ObjectDisposedException"/>. Code that does not watch it
+    /// runs to its end on whichever thread picked it up. Either way nothing
+    /// the pool accepted is left waiting, which is what a service that
+    /// disposes a lent pool under a running compile needs: the compile ends,
+    /// and the process is fit for the next one.
+    /// </para>
+    /// </remarks>
     public void Dispose()
     {
         Thread[] threads;
@@ -191,6 +299,10 @@ public sealed class CompilePool : IDisposable
             Volatile.Write(ref _shutdown, true);
             threads = [.. _threads];
         }
+
+        // Before the threads are joined, so a loop that watches it stops
+        // taking items now rather than running on until the join.
+        _stopping.Cancel();
 
         // After the flag, so a thread that parks from here on either sees it
         // or is claimed by this wake.
@@ -215,6 +327,71 @@ public sealed class CompilePool : IDisposable
         foreach (PoolJob job in left)
         {
             job.Abandon();
+        }
+
+        // After the jobs: a drained task may be awaiting one of them, and
+        // should see it failed rather than find it still pending.
+        _scheduler.RunLeftBehind();
+    }
+
+    /// <summary>
+    /// <c>Parallel.ForAsync</c> over <c>0..count-1</c> on <see cref="Scheduler"/>,
+    /// ending in a fault if the pool is disposed under it.
+    /// </summary>
+    /// <param name="count">How many indices.</param>
+    /// <param name="degree">The most bodies at once; floored at one.</param>
+    /// <param name="body">What to do with one index.</param>
+    /// <param name="cancellationToken">The caller's token.</param>
+    /// <returns>The loop.</returns>
+    /// <exception cref="ObjectDisposedException">
+    /// The pool was disposed before the loop finished (the task faults with it).
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// A plain <c>Parallel.ForAsync</c> on <see cref="Scheduler"/> cannot be
+    /// told the pool has gone: its workers still queued at disposal are run
+    /// on the disposing thread (see <see cref="Dispose"/>), all of its
+    /// remaining items with them. This one also watches
+    /// <see cref="StoppingToken"/>, so those workers stop before taking an
+    /// item and the loop ends at once.
+    /// </para>
+    /// <para>
+    /// Ends as an <see cref="ObjectDisposedException"/>, not a cancellation:
+    /// nobody cancelled the compile, and a caller that sees a cancellation it
+    /// did not ask for would report the compile as stopped by the user. The
+    /// same exception fails a <see cref="WorkQueue"/> job left in a disposed
+    /// pool, so a compile caught by disposal fails the same way whichever
+    /// stage it was in. A cancel of the caller's own token stays a cancel.
+    /// </para>
+    /// </remarks>
+    internal async Task ForAsync(
+        int count,
+        int degree,
+        Func<int, CancellationToken, ValueTask> body,
+        CancellationToken cancellationToken)
+    {
+        if (count == 0)
+        {
+            return;
+        }
+
+        using CancellationTokenSource linked =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stopping.Token);
+        ParallelOptions options = new()
+        {
+            MaxDegreeOfParallelism = Math.Max(1, degree),
+            TaskScheduler = _scheduler,
+            CancellationToken = linked.Token,
+        };
+
+        try
+        {
+            await System.Threading.Tasks.Parallel.ForAsync(0, count, options, body).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && IsStopping)
+        {
+            throw new ObjectDisposedException(
+                nameof(CompilePool), "The compile's thread pool was disposed while a loop on it was still running.");
         }
     }
 
@@ -332,6 +509,8 @@ public sealed class CompilePool : IDisposable
     // Waits for a signal newer than `seen`, or the timeout.
     private void Park(Parker parker, long seen)
     {
+        BeforeParkProbe?.Invoke();
+
         // Reset before the flag goes up: a waker sets the event only after it
         // has claimed the flag, so its set can never be undone by this reset.
         // A set left over from an earlier claim that landed after that park
@@ -456,14 +635,41 @@ public sealed class CompilePool : IDisposable
 
         protected override void QueueTask(Task task)
         {
+            // Enqueued under the same lock that Dispose raises its flag
+            // under, so a task is either in the queue before disposal begins
+            // (and the drain after the join finds it) or sees the flag: none
+            // can slip in after the drain has looked.
+            bool accepted;
             lock (pool._sync)
             {
-                ObjectDisposedException.ThrowIf(pool._disposed, pool);
-                pool.EnsureThreads();
+                accepted = !pool._disposed;
+                if (accepted)
+                {
+                    pool.EnsureThreads();
+                    _tasks.Enqueue(task);
+                }
             }
 
-            _tasks.Enqueue(task);
-            pool.Signal();
+            if (accepted)
+            {
+                pool.Signal();
+                return;
+            }
+
+            // Offered after disposal began: nobody is left to run it, so the
+            // offering thread does, now (see Dispose for why it is run rather
+            // than refused).
+            TryExecuteTask(task);
+        }
+
+        // Runs every task still queued, on the calling thread: the pool's
+        // threads are gone (see Dispose for why they are run, not dropped).
+        public void RunLeftBehind()
+        {
+            while (_tasks.TryDequeue(out Task? task))
+            {
+                TryExecuteTask(task);
+            }
         }
 
         // Inline only on the pool's own threads, so a task never runs on a

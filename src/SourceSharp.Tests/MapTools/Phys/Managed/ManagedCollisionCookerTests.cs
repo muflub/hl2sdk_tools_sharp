@@ -59,13 +59,70 @@ public class ManagedCollisionCookerTests
     [Fact]
     public async Task CooksRunOnTheSchedulerTheyAreGiven()
     {
-        // ssmap all hands the cooker the chain's pool, so prop cooks share its threads.
+        // ssmap all hands each compile a view of the cooker on the chain's
+        // pool, so prop cooks share its threads.
         using SourceSharp.MapTools.Parallel.CompilePool pool = new(2);
         await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Stock);
         Assert.False(await cooker.RunAsync(_ => pool.IsPoolThread));
 
-        cooker.Scheduler = pool.Scheduler;
-        Assert.True(await cooker.RunAsync(_ => pool.IsPoolThread));
+        Assert.True(await cooker.RunAsync(_ => pool.IsPoolThread, pool.Scheduler));
+        ICollisionCooker onPool = cooker.On(pool.Scheduler);
+        Assert.True(await onPool.RunAsync(_ => pool.IsPoolThread));
+        Assert.Equal(cooker.CookerIdentity, onPool.CookerIdentity);
+    }
+
+    [Fact]
+    public async Task TwoCompilesSharingOneCookerEachCookOnTheirOwnPool()
+    {
+        // The service shape: one cooker, two compiles at once, each on its own
+        // pool. The scheduler used to be a setter on the shared cooker, so the
+        // second compile's lease moved the first's cooks, and the first's
+        // release (back to the .NET pool) moved the second's.
+        using SourceSharp.MapTools.Parallel.CompilePool first = new(1);
+        using SourceSharp.MapTools.Parallel.CompilePool second = new(1);
+        await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+        ICollisionCooker a = cooker.On(first.Scheduler);
+        ICollisionCooker b = cooker.On(second.Scheduler);
+
+        Assert.True(await a.RunAsync(_ => first.IsPoolThread));
+        Assert.True(await b.RunAsync(_ => second.IsPoolThread));
+
+        // The first compile ends and drops its view: the second is unmoved,
+        // and so is the cooker itself.
+        await a.DisposeAsync();
+        Assert.True(await b.RunAsync(_ => second.IsPoolThread && !first.IsPoolThread));
+        Assert.False(await cooker.RunAsync(_ => first.IsPoolThread || second.IsPoolThread));
+
+        // Disposing a view leaves the cooker usable: it is the host's.
+        Assert.NotNull(await a.CookFromPlanesAsync(Cube, 0f));
+    }
+
+    [Fact]
+    public async Task ASessionOpenedForASchedulerQueuesItsConvexWorkersThere()
+    {
+        using SourceSharp.MapTools.Parallel.CompilePool pool = new(2);
+        await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+
+        Assert.IsAssignableFrom<IConcurrentConvexSession>(cooker.OpenSession(pool.Scheduler));
+        Assert.IsAssignableFrom<IConcurrentConvexSession>(cooker.OpenSession());
+        Assert.Throws<ArgumentNullException>(() => cooker.OpenSession(null!));
+        Assert.Throws<ArgumentNullException>(() => cooker.On(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => cooker.RunAsync(_ => 0, null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => cooker.RunAsync<int>(null!, pool.Scheduler));
+    }
+
+    [Fact]
+    public async Task ACancelledCookOnAViewThrowsBeforeCooking()
+    {
+        using SourceSharp.MapTools.Parallel.CompilePool pool = new(1);
+        await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        bool ran = false;
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => cooker.On(pool.Scheduler).RunAsync(_ => ran = true, cts.Token));
+        Assert.False(ran);
     }
 
     [Fact]

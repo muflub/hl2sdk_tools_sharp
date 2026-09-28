@@ -1102,6 +1102,56 @@ public static class BenchCommand
             File.Copy(from[i], to[i], overwrite: true);
         }
     }
+
+    /// <summary>
+    /// The compile one chain cell runs, before its cache and GPU backends are
+    /// added: the request <c>ssmap all</c> would build for the same arguments.
+    /// </summary>
+    /// <param name="parsed">The cell's chain arguments.</param>
+    /// <param name="disk">Where the map is read and the output written.</param>
+    /// <param name="mapFile">The resolved <c>.vmf</c>.</param>
+    /// <param name="sourcePath">The map's path without extension; the output goes beside it.</param>
+    /// <param name="mapName">The map's base name.</param>
+    /// <param name="content">The mounted game content, with the loose files ahead of it.</param>
+    /// <param name="format">The resolved output format.</param>
+    /// <param name="pool">The cell's pool, sized by <c>-threads</c>.</param>
+    /// <param name="cooker">The cell's cooker, or null for none.</param>
+    /// <returns>The request.</returns>
+    /// <remarks>
+    /// Public, and apart from the harness around it, so that a fact can pin
+    /// the wiring a timing harness cannot show is missing: without
+    /// <c>-overlap</c> reaching the request the overlapped cells time the
+    /// sequential chain, and without the cooker on the pool a one-thread cell
+    /// cooks on the .NET pool beside it. Either still produces the same
+    /// output, so no output comparison would notice.
+    /// </remarks>
+    public static CompileRequest ChainRequest(
+        AllArgs parsed,
+        IFileSystem disk,
+        string mapFile,
+        string sourcePath,
+        string mapName,
+        IContentFileSystem content,
+        FormatOptions format,
+        CompilePool pool,
+        ICollisionCooker? cooker)
+    {
+        ArgumentNullException.ThrowIfNull(parsed);
+        ArgumentNullException.ThrowIfNull(pool);
+        return new CompileRequest
+        {
+            Source = MapSource.FromVmf(disk, VPath.Create(mapFile)),
+            Content = content,
+            Vbsp = parsed.Vbsp with { Format = format },
+            Vvis = parsed.Vvis,
+            Vrad = parsed.Vrad,
+            Parallel = AllCommand.ChainParallelism(parsed) with { Pool = pool },
+            Overlap = parsed.Overlap,
+            CollisionCooker = AllCommand.CookOnPool(cooker, pool),
+            Output = CompileOutput.ToDirectory(disk, VPath.Create(Path.GetDirectoryName(sourcePath)!), mapName),
+        };
+    }
+
     private readonly record struct BenchOutcome(
         bool Ok,
         string? Failure,
@@ -1177,26 +1227,13 @@ public static class BenchCommand
 
         // The chain's one pool, with the managed cooker's cooks on it, as
         // `ssmap all` runs them; without it -threads 1 is not one thread.
-        CompileParallelism parallel = AllCommand.ChainParallelism(parsed);
-        using CompilePool pool = new(parallel.MaxDegree);
-        using IDisposable onPool = AllCommand.CookOnPool(cooker, pool);
+        using CompilePool pool = new(AllCommand.ChainParallelism(parsed).MaxDegree);
 
         // The store's LIFECYCLE is the harness's (a fresh dir per cold run, the
         // plan's isolation rule); its OPENING is the product's, through the same
         // WithBackendsAsync seam the Phase 11 facts pin.
         CompileRequest request = await AllCommand.WithBackendsAsync(
-            new CompileRequest
-            {
-                Source = MapSource.FromVmf(disk, VPath.Create(mapFile)),
-                Content = content,
-                Vbsp = parsed.Vbsp with { Format = resolution.Resolved },
-                Vvis = parsed.Vvis,
-                Vrad = parsed.Vrad,
-                Parallel = parallel with { Pool = pool },
-                Overlap = parsed.Overlap,
-                CollisionCooker = cooker,
-                Output = CompileOutput.ToDirectory(disk, VPath.Create(Path.GetDirectoryName(paths.Source)!), mapName),
-            },
+            ChainRequest(parsed, disk, mapFile, paths.Source, mapName, content, resolution.Resolved, pool, cooker),
             parsed,
             Path.GetDirectoryName(paths.Source)!,
             mapName,

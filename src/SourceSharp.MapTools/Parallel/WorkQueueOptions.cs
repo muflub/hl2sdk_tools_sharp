@@ -75,4 +75,18 @@ public sealed record WorkQueueOptions
     /// a big block.
     /// </remarks>
     public int ChunkSize { get; init; }
+
+    /// <summary>
+    /// How long an idle worker of a loop run on a host's scheduler waits for a
+    /// wake before it looks again; <see cref="Timeout.Infinite"/> for no limit.
+    /// </summary>
+    /// <remarks>
+    /// Internal: a backstop for <c>WorkQueue.RunLoopAsync</c>, and the poll that
+    /// notices a cancel. The facts turn it off to show that the wake alone
+    /// reaches a waiting worker; nothing else should change it.
+    /// </remarks>
+    internal int LoopIdleWaitMs { get; init; } = DefaultLoopIdleWaitMs;
+
+    /// <summary>The default for <see cref="LoopIdleWaitMs"/>.</summary>
+    internal const int DefaultLoopIdleWaitMs = 5;
 }

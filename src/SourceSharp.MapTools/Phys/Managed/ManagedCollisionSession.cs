@@ -18,7 +18,7 @@ namespace SourceSharp.MapTools.Phys.Managed;
 /// </summary>
 /// <remarks>
 /// <para>
-/// One session per <see cref="ManagedCollisionCooker.RunAsync{T}"/> call, on whatever thread the
+/// One session per <see cref="ManagedCollisionCooker.RunAsync{T}(Func{ICollisionSession, T}, TaskScheduler, CancellationToken)"/> call, on whatever thread the
 /// call runs; handles are keys into this session's own tables and mean nothing outside it, which
 /// is the contract <see cref="ICollisionCooker.RunAsync{T}"/> already states. Nothing is shared
 /// between sessions except the surface-property table, which is locked.
