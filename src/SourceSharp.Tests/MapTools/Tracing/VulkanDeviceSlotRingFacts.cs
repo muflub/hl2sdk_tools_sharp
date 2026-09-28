@@ -252,6 +252,33 @@ public sealed class VulkanDeviceSlotRingFacts
     }
 
     /// <summary>
+    /// A set-up submit (here the scene upload) whose wait timed out is
+    /// waited for by dispose too, not only the slots: with its fence never
+    /// signalling, dispose abandons the device; once it signals, the retry
+    /// releases every byte, the parked upload buffer included.
+    /// </summary>
+    [VulkanStageFact(VulkanNeed.RayQueryDevice)]
+    public void DisposeWaitsForASetUpSubmitWhoseWaitTimedOut()
+    {
+        VulkanDevice device = new();
+        device.Construct(null, -1, SmallSlab, 1);
+        GatedFences fences = new(device.FenceWaits);
+        device.FenceWaits = fences;
+        Assert.Equal(Result.Timeout, Assert.Throws<VulkanException>(
+            () => device.LoadScene(VulkanDeviceReleaseFacts.Vertices())).Result);
+
+        device.DisposeWait = TimeSpan.FromMilliseconds(50);
+        device.Dispose();
+        Assert.True(device.Abandoned);
+        Assert.True(device.LiveBytes > 0);
+
+        fences.Signalled = true;
+        device.Dispose();
+        Assert.False(device.Abandoned);
+        Assert.Equal(0, device.LiveBytes);
+    }
+
+    /// <summary>
     /// With nothing in flight, dispose waits for nothing and releases every
     /// byte (the fence calls are never made).
     /// </summary>
