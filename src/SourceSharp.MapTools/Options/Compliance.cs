@@ -1510,6 +1510,49 @@ public enum StockQuirk
     /// </para>
     /// </remarks>
     SplitEpsilonBrushOnPlane,
+
+    /// <summary>
+    /// vbsp's brush splitter divides each brush side between the two halves
+    /// with an epsilon of zero, so a side that only touches the splitting
+    /// plane gives one half an extra sliver side or not by the sign of its
+    /// rounding residual.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// When a brush is split, a new side on the splitting plane closes each
+    /// half, and every old side is clipped against the plane to decide which
+    /// half gets which part of it. Stock clips with an epsilon of zero. A side
+    /// meeting the plane only along an edge or at a vertex, and otherwise
+    /// wholly on one side, has that edge a residual like 1e-5 or 3e-3 away
+    /// from the plane: on the side's own side, the side goes whole to its own
+    /// half; across, it is cut, and the other half receives a sliver of it a
+    /// few thousandths of a unit wide, a whole brush side carrying the plane
+    /// of a face that half does not have.
+    /// </para>
+    /// <para>
+    /// <b>Why this is a defect.</b> The residual's sign is rounding, so which
+    /// half has the extra side is noise, and the side is not inert. The split
+    /// heuristic treats a brush that owns a candidate plane as facing it, so
+    /// the sliver changes how later candidates score; the half's bounds
+    /// stretch to it; and every split below is made on different brushes. On
+    /// 2fort, with <see cref="SplitEpsilonBrushOnPlane"/> corrected, this was
+    /// what still moved Correct's tree when one of
+    /// <see cref="PlaneFromPointsNormalise"/> or
+    /// <see cref="BaseWindingNormalise"/> was flipped to the estimate: 16 to 18
+    /// nodes chose a different plane and the cluster count moved from 2473 to
+    /// 2475 or 2476. Under the Stock policy those normalises are the CPU's
+    /// <c>rsqrtss</c> estimate, so the same holds between CPUs. And the
+    /// splitter already refuses to cut a whole brush that crosses the plane
+    /// by less than 0.1; the sliver is a cut it would not make to the brush.
+    /// </para>
+    /// <para>
+    /// <see cref="CompliancePolicy.Correct"/> clips the sides with
+    /// <c>BrushGeometry.SliverSideEpsilon</c> (0.1, the splitter's own
+    /// whole-brush band), so a side reaching less than 0.1 across goes whole to
+    /// the half it is on. <see cref="CompliancePolicy.Stock"/> keeps the zero.
+    /// </para>
+    /// </remarks>
+    SplitBrushSliverSides,
 }
 
 /// <summary>
