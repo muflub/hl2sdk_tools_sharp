@@ -33,7 +33,12 @@ namespace SourceSharp.MapTools.Rooms;
 /// (<see cref="StaticPropFlags.UseLightingOrigin"/>); otherwise the record's
 /// own value, which is not a position and is never moved.
 /// </param>
-internal readonly record struct RoomPropPose(Vec3 Origin, Vec3 Angles, Vec3 LightingOrigin);
+/// <param name="Bounds">
+/// Its hull's box at the room-local pose, turned: what the link holds
+/// against the cell and the jointed doorways to know whether the prop's
+/// leaves are its room's own (<see cref="LevelLinker.WritePropsAsync"/>).
+/// </param>
+internal readonly record struct RoomPropPose(Vec3 Origin, Vec3 Angles, Vec3 LightingOrigin, Box Bounds);
 
 /// <summary>
 /// What the link needs to know of one static prop that its compiled record
@@ -95,11 +100,13 @@ internal sealed record RoomPropSource(int Id, StaticPropBuild Build, string? Nee
 /// repeated points left out. The link rebuilds the managed hull from them
 /// (<see cref="ManagedStaticPropCollision"/>, the default cooker's) and
 /// walks the linked tree with the prop's linked pose
-/// (<see cref="StaticPropLeaves"/>), so a prop's leaf list is recomputed
-/// against the tree it will be drawn from: its own room's leaves, the
-/// doorway leaves the plug carve makes, and for socket furniture the
-/// neighbour's. A hull is the same at every turn (the pose turns, not the
-/// model), so it is stored once.
+/// (<see cref="StaticPropLeaves"/>) wherever the linked tree differs from
+/// the room's own, so a prop's leaf list is recomputed against the tree it
+/// will be drawn from: the doorway leaves the plug carve makes, and for
+/// socket furniture the neighbour's (a prop clear of both keeps its room's
+/// own list, rebased, which is what the walk would find). A hull is the
+/// same at every turn (the pose turns, not the model), so it is stored
+/// once; its box at the prop's pose is stored with each turn's pose.
 /// </para>
 /// <para>
 /// <b>Poses, per turn.</b> The poses are stored for all four quarter turns
@@ -109,6 +116,10 @@ internal sealed record RoomPropSource(int Id, StaticPropBuild Build, string? Nee
 /// 1 or 4, as every per-turn section of that design does; a pack with one
 /// holds turn 0 and the link turns it, to the same bytes
 /// (<see cref="Poses"/>), so the choice can change on measurement alone.
+/// Measured on a 16 x 16 grid of hubs with four props each, the two link in
+/// the same time within the run-to-run noise (a turn is three negations
+/// and a yaw addition a prop, next to reading the poses at all), so the
+/// writer keeps the design's default of four; a pose is 60 bytes.
 /// </para>
 /// <para>
 /// <b>Refused at pack time.</b> A prop whose hull reaches outside its cell
@@ -130,7 +141,8 @@ internal sealed record RoomPropSource(int Id, StaticPropBuild Build, string? Nee
 /// count (the lump's), and per prop its Hammer id, its socket (-1 for none),
 /// its priority, its condition count and per condition a direction byte and
 /// a flags byte (1 joined, 2 negated); then the turn count, 1 or 4, and per
-/// turn per prop nine little-endian floats: origin, angles, lighting origin.
+/// turn per prop fifteen little-endian floats: origin, angles, lighting
+/// origin, and the hull's box (mins, maxs).
 /// A section of a revision this build does not read is absent (and a room
 /// with props but no section is refused at link, naming the room); a
 /// section that does not fit the room's lump is refused as damaged.
@@ -241,7 +253,8 @@ internal sealed class RoomStaticProps
         return new RoomPropPose(
             RoomTransform.Rotate(pose.Origin, rotation),
             angles,
-            lightingOrigin ? RoomTransform.Rotate(pose.LightingOrigin, rotation) : pose.LightingOrigin);
+            lightingOrigin ? RoomTransform.Rotate(pose.LightingOrigin, rotation) : pose.LightingOrigin,
+            LevelLinker.RotateBox(pose.Bounds.Mins, pose.Bounds.Maxs, rotation));
     }
 
     /// <summary>A zero without its sign, as the flatten spells every number it writes.</summary>
@@ -406,11 +419,11 @@ internal sealed class RoomStaticProps
             StaticProp record = lump.Props[i];
             RoomPropSource source = matched[i];
             RoomProp prop = Describe(definition, source);
-            await CheckCellAsync(definition, prop, lump.ModelNames[record.PropType], built[record.PropType], record, cancellationToken)
+            Box bounds = await CheckCellAsync(definition, prop, lump.ModelNames[record.PropType], built[record.PropType], record, cancellationToken)
                 .ConfigureAwait(false);
             props.Add(prop);
 
-            RoomPropPose pose = new(record.Origin, record.Angles, record.LightingOrigin);
+            RoomPropPose pose = new(record.Origin, record.Angles, record.LightingOrigin, bounds);
             for (int turn = 0; turn < 4; turn++)
             {
                 poses[turn][i] = Turn(pose, turn, HasLightingOrigin(record));
@@ -643,8 +656,8 @@ internal sealed class RoomStaticProps
         return new RoomProp(source.Id, needs, socket, priority);
     }
 
-    /// <summary>The cell rule of open point O6, on the prop's hull at its room-local pose.</summary>
-    private static async Task CheckCellAsync(
+    /// <summary>The cell rule of open point O6, on the prop's hull at its room-local pose; returns the hull's box there.</summary>
+    private static async Task<Box> CheckCellAsync(
         RoomDefinition definition, RoomProp prop, string model, IStaticPropHull hull, StaticProp record, CancellationToken cancellationToken)
     {
         float cell = definition.CellSize;
@@ -652,9 +665,10 @@ internal sealed class RoomStaticProps
         float reach = Math.Max(
             Math.Max(Math.Max(-mins.X, maxs.X - cell), Math.Max(-mins.Y, maxs.Y - cell)),
             Math.Max(-mins.Z, maxs.Z - cell));
+        Box bounds = new(mins, maxs);
         if (reach <= RoomLinter.CellEpsilon)
         {
-            return;
+            return bounds;
         }
 
         if (prop.Socket >= 0)
@@ -667,7 +681,7 @@ internal sealed class RoomStaticProps
 
             if (!outside)
             {
-                return;
+                return bounds;
             }
         }
 

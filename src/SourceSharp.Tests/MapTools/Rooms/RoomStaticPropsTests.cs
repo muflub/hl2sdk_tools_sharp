@@ -61,15 +61,17 @@ public sealed class RoomStaticPropsTests
             entity.AddKey("angles", angles);
             VmfChunk moved = VmfPlacement.MoveEntity(entity, QuarterTurn.Of(transform));
 
-            RoomPropPose pose = new(Read(entity, "origin"), Read(entity, "angles"), Read(entity, "origin"));
+            Box bounds = new(new Vec3(1, 2, 3), new Vec3(4, 6, 8));
+            RoomPropPose pose = new(Read(entity, "origin"), Read(entity, "angles"), Read(entity, "origin"), bounds);
             RoomPropPose turned = RoomStaticProps.Turn(pose, turns, lightingOrigin: true);
             Assert.Equal(Bits(Read(moved, "origin")), Bits(RoomStaticProps.Unsigned(transform.Translate(turned.Origin))));
             Assert.Equal(Bits(Read(moved, "origin")), Bits(RoomStaticProps.Unsigned(transform.Translate(turned.LightingOrigin))));
             Assert.Equal(Bits(Read(moved, "angles")), Bits(turned.Angles));
+            Assert.Equal(LevelLinker.RotateBox(bounds.Mins, bounds.Maxs, turns), turned.Bounds);
         }
 
         // Without a lighting origin, the record's value is not a position and does not move.
-        RoomPropPose unlit = new(new Vec3(1, 2, 3), Vec3.Zero, new Vec3(7, 8, 9));
+        RoomPropPose unlit = new(new Vec3(1, 2, 3), Vec3.Zero, new Vec3(7, 8, 9), default);
         Assert.Equal(new Vec3(7, 8, 9), RoomStaticProps.Turn(unlit, turns, lightingOrigin: false).LightingOrigin);
     }
 
