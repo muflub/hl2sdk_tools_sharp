@@ -436,8 +436,16 @@ public sealed class StaticPropEmitter
             return;
         }
 
-        VvdFile vvd = await LoadVertexFileAsync(load.Mdl!, cancellationToken).ConfigureAwait(false);
-        model.Meshes = StudioModelCheck.MeshHulls(load.Mdl!, vvd);
+        // The vertex file's bytes are read in place and released as soon as
+        // the mesh positions are copied out of them: MeshHulls keeps nothing
+        // of the file, and a copy of it per model was about 18 MB of
+        // large-object garbage on 2fort.
+        (IMemoryOwner<byte> bytes, VvdFile vvd) = await LoadVertexFileAsync(load.Mdl!, cancellationToken)
+            .ConfigureAwait(false);
+        using (bytes)
+        {
+            model.Meshes = StudioModelCheck.MeshHulls(load.Mdl!, vvd);
+        }
         model.CookCost = CookCost(model.Meshes);
     }
 
@@ -522,40 +530,52 @@ public sealed class StaticPropEmitter
 
     // mstudiomodel_t::CacheVertexData: "models/" + the header's own
     // name, extension swapped for .vvd. Every failure there is Error().
-    private async ValueTask<VvdFile> LoadVertexFileAsync(MdlFile mdl, CancellationToken cancellationToken)
+    // The file is parsed over the content's own buffer, which the caller
+    // owns and disposes once it is done with the returned file; on a
+    // failure here it is disposed before the throw.
+    private async ValueTask<(IMemoryOwner<byte> Bytes, VvdFile Vvd)> LoadVertexFileAsync(
+        MdlFile mdl, CancellationToken cancellationToken)
     {
         string name = "models/" + mdl.Name;
         int dot = name.LastIndexOf('.');
         int slash = name.LastIndexOfAny(['/', '\\']);
         string path = (dot > slash ? name[..dot] : name) + ".vvd";
 
-        using IMemoryOwner<byte>? owner = VPath.TryCreate(path, out VPath vpath) && !vpath.IsEmpty
+        IMemoryOwner<byte>? owner = VPath.TryCreate(path, out VPath vpath) && !vpath.IsEmpty
             ? await _context.Content.ReadAsync(vpath, cancellationToken).ConfigureAwait(false)
             : null;
 
-        if (owner is null || owner.Memory.Length == 0)
-        {
-            throw new MapCompileException(
-                owner is null ? $"Unable to load vertex data \"{path}\"" : $"Bad size for vertex data \"{path}\"");
-        }
-
-        VvdFile vvd;
         try
         {
-            vvd = VvdFile.Parse(owner.Memory.ToArray());
-        }
-        catch (InvalidStudioException e)
-        {
-            throw new MapCompileException($"Error Vertex File {path}: {e.Message}");
-        }
+            if (owner is null || owner.Memory.Length == 0)
+            {
+                throw new MapCompileException(
+                    owner is null ? $"Unable to load vertex data \"{path}\"" : $"Bad size for vertex data \"{path}\"");
+            }
 
-        if (vvd.Checksum != mdl.Checksum)
-        {
-            throw new MapCompileException(
-                $"Error Vertex File {path} checksum {vvd.Checksum} should be {mdl.Checksum}");
-        }
+            VvdFile vvd;
+            try
+            {
+                vvd = VvdFile.Parse(owner.Memory);
+            }
+            catch (InvalidStudioException e)
+            {
+                throw new MapCompileException($"Error Vertex File {path}: {e.Message}");
+            }
 
-        return vvd;
+            if (vvd.Checksum != mdl.Checksum)
+            {
+                throw new MapCompileException(
+                    $"Error Vertex File {path} checksum {vvd.Checksum} should be {mdl.Checksum}");
+            }
+
+            return (owner, vvd);
+        }
+        catch
+        {
+            owner?.Dispose();
+            throw;
+        }
     }
 }
 

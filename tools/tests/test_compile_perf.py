@@ -316,6 +316,17 @@ class ParserTests(unittest.TestCase):
         self.assertEqual({"vrad.Load": 0.25, "total": 1.0}, s["stages_s"])
         self.assertEqual(["ldr samples=5"], s["work"])
 
+    def test_vbsp_stage_lines_are_read_and_keep_their_parents_in_the_heading(self):
+        with tempfile.NamedTemporaryFile("w", delete=False) as fh:
+            fh.write("bench vbsp.world.write 0.100s\nbench vbsp.write 0.020s\nbench total 1.000s\n")
+        s = cs.read_stages(fh.name)
+        os.remove(fh.name)
+        self.assertEqual({"vbsp.world.write": 0.1, "vbsp.write": 0.02, "total": 1.0}, s["stages_s"])
+        self.assertEqual("world.write", cs.stage_column("vbsp", "vbsp.world.write"))
+        self.assertEqual("write", cs.stage_column("vbsp", "vbsp.write"))
+        self.assertEqual("total", cs.stage_column("vbsp", "total"))
+        self.assertEqual("Load", cs.stage_column("vrad", "vrad.Load"))
+
 
 def cell(id_, stage, settings, wall, rss=100, threads=None, status="ok", alloc=None):
     c = {"id": id_, "stage": stage, "settings": settings, "status": status, "threads_n": threads,

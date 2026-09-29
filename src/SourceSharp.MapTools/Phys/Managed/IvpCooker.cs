@@ -98,7 +98,7 @@ internal static class IvpCooker<T, TP>
     /// The halfspace half of <c>RebuildConvexFromPlanes</c>: one inward plane per triangle of the
     /// ledge, in triangle order, near-parallel duplicates folded by
     /// <see cref="IvpHalfspaceSoup{T, TP}.AddHalfspace"/>. This soup is what
-    /// <see cref="IvpHalfspaceSoup{T, TP}.CornerPoints"/> is handed for every prop hull, and the
+    /// <see cref="IvpHalfspaceSoup{T, TP}.CornerPoints(List{IvpPoint{T}}, T)"/> is handed for every prop hull, and the
     /// case that makes it expensive: a detailed hull has hundreds of triangle planes.
     /// </summary>
     /// <param name="ledge">The ledge whose triangles give the planes.</param>
