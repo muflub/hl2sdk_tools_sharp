@@ -186,25 +186,22 @@ public sealed class LevelDoorVisibilityTests
     }
 
     /// <summary>
-    /// A U-turn of four rooms: an end room, a bend north, a bend west and a
-    /// second end room beside the first, which shares a wall and no door
-    /// with it. A straight line cannot go east, north and back west, so the
-    /// two end rooms do not see each other, and the real vvis on the same
-    /// level compiled whole agrees; every sight line of that monolithic map
-    /// is kept by the linked one. Linked unturned and turned.
+    /// A U-turn and on: an end room, a bend north, a bend west, a bend north
+    /// again beside the first room (sharing a wall and no door with it), and
+    /// an end room above that. A straight line cannot go east, north and back
+    /// west, so the first and last rooms do not see each other; nor do the
+    /// first and fourth, whose shared face is wall. The real vvis on the same
+    /// level compiled whole agrees, and every sight line of that monolithic
+    /// map is kept by the linked one. Linked unturned and turned.
     /// </summary>
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
-    public async Task AUTurnHidesTheRoomBehindAndKeepsEverySightLine(int turns)
+    public async Task AUTurnHidesTheRoomsBehindAndKeepsEverySightLine(int turns)
     {
         VbspContext context = await RoomHarness.ContextAsync();
-        RoomLibrary library = await RoomHarness.LibraryAsync(
-            false,
-            RoomHarness.Room("end", RoomFacing.PositiveX),
-            RoomHarness.Room("north", RoomFacing.NegativeX, RoomFacing.PositiveY),
-            RoomHarness.Room("west", RoomFacing.NegativeY, RoomFacing.NegativeX));
-        LevelLayout layout = Turned(library, turns, ("end", 0, 0), ("north", 1, 0), ("west", 1, 1), ("end", 0, 1));
+        RoomLibrary library = await UTurnLibraryAsync();
+        LevelLayout layout = Turned(library, turns, UTurn);
         LinkedLevel link = await LevelLinker.LinkAsync(layout, library, context);
         DoorGraphFacts.AssertWithinDoorGraph(link, layout, library);
 
@@ -213,16 +210,32 @@ public sealed class LevelDoorVisibilityTests
         LevelProbe monolithicProbe = new(monolithic.Bsp!);
         DoorGraphFacts.AssertKeepsEverySightLine($"u-turn {turns}", link, linkedProbe, monolithicProbe, monolithicVis);
 
-        // The two end rooms' centres: neither map lets them see each other;
-        // the first sees both bends.
+        // The rooms' centres: the first sees neither the fourth nor the
+        // last in either map, and sees both bends.
         Vec3 Centre(int room) => RoomTransform(layout, room).Apply(new Vec3(128, 128, 128));
         int LinkedAt(int room) => linkedProbe.Leafs[linkedProbe.Leaf(Centre(room))].Cluster;
         int MonolithicAt(int room) => monolithicProbe.Leafs[monolithicProbe.Leaf(Centre(room))].Cluster;
-        Assert.False(link.Vis.CanSee(LinkedAt(0), LinkedAt(3)));
-        Assert.False(monolithicVis.CanSee(MonolithicAt(0), MonolithicAt(3)));
+        foreach (int hidden in new[] { 3, 4 })
+        {
+            Assert.False(link.Vis.CanSee(LinkedAt(0), LinkedAt(hidden)), $"the first room sees room {hidden}");
+            Assert.False(monolithicVis.CanSee(MonolithicAt(0), MonolithicAt(hidden)), $"the monolithic first room sees room {hidden}");
+        }
+
         Assert.True(link.Vis.CanSee(LinkedAt(0), LinkedAt(1)));
         Assert.True(link.Vis.CanSee(LinkedAt(0), LinkedAt(2)));
     }
+
+    /// <summary>The U-turn's rooms: an end room, the bends, and an end room facing south.</summary>
+    private static readonly (string Room, int X, int Y)[] UTurn =
+        [("end", 0, 0), ("north", 1, 0), ("west", 1, 1), ("up", 0, 1), ("down", 0, 2)];
+
+    private static Task<RoomLibrary> UTurnLibraryAsync() => RoomHarness.LibraryAsync(
+        false,
+        RoomHarness.Room("end", RoomFacing.PositiveX),
+        RoomHarness.Room("north", RoomFacing.NegativeX, RoomFacing.PositiveY),
+        RoomHarness.Room("west", RoomFacing.NegativeY, RoomFacing.NegativeX),
+        RoomHarness.Room("up", RoomFacing.PositiveX, RoomFacing.PositiveY),
+        RoomHarness.Room("down", RoomFacing.NegativeY));
 
     /// <summary>
     /// The composition is a function of the level alone: the same rows and
@@ -253,25 +266,21 @@ public sealed class LevelDoorVisibilityTests
     /// <summary>
     /// A flow that would enter more rooms than its cap gives up and keeps
     /// every cluster, rather than cut its walk short and guess: with a cap
-    /// of one room the U-turn's end rooms see each other again, and every
-    /// pair the uncapped flow keeps is still kept.
+    /// of one room the U-turn's first and last rooms see each other again
+    /// (they share no face, so only the flows decide them), and every pair
+    /// the uncapped flow keeps is still kept.
     /// </summary>
     [Fact]
     public async Task AFlowPastItsCapKeepsEveryCluster()
     {
         VbspContext context = await RoomHarness.ContextAsync();
-        RoomLibrary library = await RoomHarness.LibraryAsync(
-            false,
-            RoomHarness.Room("end", RoomFacing.PositiveX),
-            RoomHarness.Room("north", RoomFacing.NegativeX, RoomFacing.PositiveY),
-            RoomHarness.Room("west", RoomFacing.NegativeY, RoomFacing.NegativeX));
-        LevelLayout layout = Turned(library, 0, ("end", 0, 0), ("north", 1, 0), ("west", 1, 1), ("end", 0, 1));
+        RoomLibrary library = await UTurnLibraryAsync();
+        LevelLayout layout = Turned(library, 0, UTurn);
         LinkedLevel full = await LevelLinker.LinkAsync(layout, library, context);
         LinkedLevel capped = await LevelLinker.LinkAsync(layout, library, context, new LevelLinkOptions { DoorFlowStateCap = 1 });
 
         DoorGraphFacts.AssertWithinDoorGraph(capped, layout, library);
-        int endCount = library.Get("end").ClusterCount;
-        int lastBase = full.Vis.ClusterCount - endCount;
+        int lastBase = full.Vis.ClusterCount - library.Get("down").ClusterCount;
         Assert.False(full.Vis.CanSee(0, lastBase));
         Assert.True(capped.Vis.CanSee(0, lastBase));
         for (int a = 0; a < full.Vis.ClusterCount; a++)
@@ -308,6 +317,91 @@ public sealed class LevelDoorVisibilityTests
         await cancelled.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => LevelDoorVisibility.ComposeAsync(
             [Room(0, 0), Room(1, 1)], 2 * hub.ClusterCount, CompileParallelism.Default, LevelDoorVisibility.DefaultStateCap, cancelled.Token));
+    }
+
+    /// <summary>
+    /// The neighbouring-room test on its own: a segment between two boxes on
+    /// either side of a doorway's plane crosses the doorway when the boxes
+    /// line up with it, not when both lie above it, in any room's frame;
+    /// boxes touching the plane count; a box wholly past the plane is not
+    /// decided (kept).
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void ASegmentBetweenTwoBoxesCrossesTheDoorwayOnlyWhereTheyLineUp(int frameTurns)
+    {
+        RoomTransform frame = new(new RoomPlacement("any", 3, 2, frameTurns), RoomHarness.Cell);
+        Box opening = new(new Vec3(256, 80, 80), new Vec3(256, 176, 176));
+        Box low = new(new Vec3(144, 16, 16), new Vec3(240, 200, 240));
+        Box farLow = new(new Vec3(272, 16, 16), new Vec3(368, 200, 240));
+        Box high = new(new Vec3(144, 16, 200), new Vec3(240, 240, 240));
+        Box farHigh = new(new Vec3(272, 16, 200), new Vec3(368, 240, 240));
+        Box farSide = new(new Vec3(272, 190, 16), new Vec3(368, 240, 240));
+        Box touching = new(new Vec3(240, 100, 100), new Vec3(256, 120, 120));
+        Box past = new(new Vec3(300, 16, 16), new Vec3(400, 40, 40));
+
+        Assert.True(LevelDoorVisibility.Through(frame, low, farLow, opening));
+        Assert.False(LevelDoorVisibility.Through(frame, high, farHigh, opening));
+        Assert.True(LevelDoorVisibility.Through(frame, low, farHigh, opening));
+        Assert.True(LevelDoorVisibility.Through(frame, touching, farHigh, opening));
+        Assert.True(LevelDoorVisibility.Through(frame, past, farLow, opening));
+
+        // A pocket past the doorway's side: lines from anywhere low reach it
+        // through the doorway only by rising, which the low box allows.
+        Assert.True(LevelDoorVisibility.Through(frame, low, farSide, opening));
+        Assert.False(LevelDoorVisibility.Through(frame, high, new Box(new Vec3(272, 190, 190), new Vec3(368, 240, 240)), opening));
+    }
+
+    /// <summary>
+    /// Neighbouring rooms, composed from hand-made door visibility: each
+    /// room has a cluster by its doorway and a pocket under its ceiling
+    /// that sees the doorway. The pockets see each other only if a line can
+    /// cross the doorway between them, which it cannot; a pocket with no
+    /// bounds is kept; and two neighbours with no doorway between them see
+    /// nothing of each other, whatever the flows say.
+    /// </summary>
+    [Fact]
+    public async Task NeighbouringRoomsSeeEachOtherOnlyThroughTheirDoorway()
+    {
+        LevelDoorRoom[] Level(bool pocketBox, bool door)
+        {
+            LevelDoorRoom Room(int x, int index) => new()
+            {
+                ClusterBase = index * 2,
+                Doors = new RoomDoorVisibility(
+                    2,
+                    [[0b11UL], [0b11UL]],
+                    [false, true, true, false],
+                    [new Box(new Vec3(144, 80, 80), new Vec3(240, 176, 176)), new Box(new Vec3(16, 16, 200), new Vec3(240, 240, 240))],
+                    [true, pocketBox]),
+                OwnRows = [[0b11], [0b11]],
+                Transform = new RoomTransform(new RoomPlacement("synthetic", x, 0, 0), RoomHarness.Cell),
+                Joints = door
+                    ? [x == 0
+                        ? new LevelDoor(0, 1, 1, new Box(new Vec3(256, 80, 80), new Vec3(256, 176, 176)), new Box(new Vec3(240, 80, 80), new Vec3(256, 176, 176)), [0])
+                        : new LevelDoor(1, 0, 0, new Box(new Vec3(256, 80, 80), new Vec3(256, 176, 176)), new Box(new Vec3(256, 80, 80), new Vec3(272, 176, 176)), [0])]
+                    : [],
+            };
+
+            return [Room(0, 0), Room(1, 1)];
+        }
+
+        LevelVisibility tight = await LevelDoorVisibility.ComposeAsync(Level(pocketBox: true, door: true), 4, CompileParallelism.Default, LevelDoorVisibility.DefaultStateCap, CancellationToken.None);
+        Assert.True(Sees(tight, 0, 2) && Sees(tight, 0, 3) && Sees(tight, 1, 2));
+        Assert.False(Sees(tight, 1, 3));
+        Assert.False(Sees(tight, 3, 1));
+
+        LevelVisibility unbounded = await LevelDoorVisibility.ComposeAsync(Level(pocketBox: false, door: true), 4, CompileParallelism.Default, LevelDoorVisibility.DefaultStateCap, CancellationToken.None);
+        Assert.True(Sees(unbounded, 1, 3));
+
+        LevelVisibility walled = await LevelDoorVisibility.ComposeAsync(Level(pocketBox: true, door: false), 4, CompileParallelism.Default, LevelDoorVisibility.DefaultStateCap, CancellationToken.None);
+        Assert.False(Sees(walled, 0, 2));
+        Assert.True(Sees(walled, 0, 1) && Sees(walled, 2, 3));
+
+        static bool Sees(LevelVisibility v, int from, int to) => (v.Pvs[(from * v.RowBytes) + (to >> 3)] & (1 << (to & 7))) != 0;
     }
 
     /// <summary>

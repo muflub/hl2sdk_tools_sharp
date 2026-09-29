@@ -176,8 +176,19 @@ internal static class LevelDoorVisibility
 
         System.Console.Error.WriteLine($"TIMING flows {swT.ElapsedMilliseconds} states {System.Threading.Interlocked.Read(ref DiagStates)} marks {DiagMarks} tries {DiagTries}"); swT.Restart();
         // Rows: the room's own (with its doorways), then every cross-room
-        // pair both directions keep, then the cluster itself.
+        // pair both directions keep, then the cluster itself. A pair in two
+        // rooms that share a cell face must also pass the one doorway
+        // between them (Adjacent), and a pair in two that share a face and
+        // no doorway cannot see each other at all.
         int rowBytes = (clusterCount + 7) >> 3;
+        int[] roomOf = new int[clusterCount];
+        Dictionary<(int X, int Y), int> byCell = new(rooms.Count);
+        for (int r = 0; r < rooms.Count; r++)
+        {
+            Array.Fill(roomOf, r, rooms[r].ClusterBase, rooms[r].Doors.ClusterCount);
+            byCell[(rooms[r].Transform.Placement.CellX, rooms[r].Transform.Placement.CellY)] = r;
+        }
+
         ulong[][] pvs = new ulong[clusterCount][];
         for (int r = 0; r < rooms.Count; r++)
         {
@@ -205,7 +216,7 @@ internal static class LevelDoorVisibility
                     for (ulong bits = a[w]; bits != 0; bits &= bits - 1)
                     {
                         int y = (w << 6) + BitOperations.TrailingZeroCount(bits);
-                        if ((y < lo || y >= hi) && Has(forward[y], x))
+                        if ((y < lo || y >= hi) && Has(forward[y], x) && Adjacent(rooms, prepared, roomOf, r, x, y))
                         {
                             Set(row, y);
                         }
@@ -260,6 +271,138 @@ internal static class LevelDoorVisibility
 
         System.Console.Error.WriteLine($"TIMING bytes {swT.ElapsedMilliseconds}");
         return new LevelVisibility(pvsBytes, pasBytes, rowBytes, visible, audible);
+    }
+
+    /// <summary>
+    /// Whether clusters <paramref name="x"/> (of room <paramref name="r"/>)
+    /// and <paramref name="y"/> can see each other as far as the cell face
+    /// between their rooms goes: always when the rooms do not share a face;
+    /// never when they share one and no doorway; and when they share a
+    /// doorway, only if some segment from one cluster's bounds to the
+    /// other's crosses the doorway.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two neighbouring cells make one convex box, so a sight line between
+    /// them stays inside the two and crosses their shared face, which is
+    /// wall but for the doorway: the doorway is the only way, and whether a
+    /// line can get through it is a question of the two boxes alone. The
+    /// flows cannot ask it (a flow starts from the whole doorway, and the
+    /// room beyond it has no cone to test yet), which made neighbouring
+    /// rooms the loosest part of the composition.
+    /// </para>
+    /// <para>
+    /// The points where segments between two boxes on either side of a plane
+    /// cross it make a convex set: the plane's cut through the hull of the
+    /// two boxes, which is the hull of where the segments between their
+    /// corners cross. Its bounds, widened by <see cref="BoxMargin"/>, must
+    /// meet the doorway's rectangle. The test runs in each room's frame and
+    /// passes if either passes, so it is symmetric and, like the flows, the
+    /// same numbers in a level turned as a whole.
+    /// </para>
+    /// </remarks>
+    private static bool Adjacent(IReadOnlyList<LevelDoorRoom> rooms, Prepared[] prepared, int[] roomOf, int r, int x, int y)
+    {
+        int other = roomOf[y];
+        RoomPlacement a = rooms[r].Transform.Placement, b = rooms[other].Transform.Placement;
+        if (Math.Abs(a.CellX - b.CellX) + Math.Abs(a.CellY - b.CellY) != 1)
+        {
+            return true;
+        }
+
+        LevelDoor? door = null;
+        foreach (LevelDoor joint in rooms[r].Joints)
+        {
+            if (joint.Neighbor == other)
+            {
+                door = joint;
+            }
+        }
+
+        if (door is not { } shared)
+        {
+            return false;
+        }
+
+        int cx = x - rooms[r].ClusterBase, cy = y - rooms[other].ClusterBase;
+        Prepared px = prepared[r], py = prepared[other];
+        if (!px.HasBox[cx] || !py.HasBox[cy])
+        {
+            return true;
+        }
+
+        return Through(rooms[r].Transform, px.Boxes[cx], py.Boxes[cy], shared.Opening)
+            || Through(rooms[other].Transform, px.Boxes[cx], py.Boxes[cy], shared.Opening);
+    }
+
+    /// <summary>Whether a segment from box <paramref name="near"/> to box <paramref name="far"/> can cross the doorway, in one room's frame.</summary>
+    internal static bool Through(RoomTransform frame, Box nearWorld, Box farWorld, Box openingWorld)
+    {
+        Box near = ToFrame(frame, nearWorld), far = ToFrame(frame, farWorld), opening = ToFrame(frame, openingWorld);
+        int axis = opening.Mins.X == opening.Maxs.X ? 0 : opening.Mins.Y == opening.Maxs.Y ? 1 : 2;
+        int u = axis == 0 ? 1 : 0, v = axis == 2 ? 1 : 2;
+        float plane = Component(opening.Mins, axis);
+
+        // Which side the far box is on, and each box cut to its own side.
+        float sign = Component(far.Mins, axis) + Component(far.Maxs, axis) >= Component(near.Mins, axis) + Component(near.Maxs, axis) ? 1f : -1f;
+        (float nearLo, float nearHi) = (Component(near.Mins, axis), Component(near.Maxs, axis));
+        (float farLo, float farHi) = (Component(far.Mins, axis), Component(far.Maxs, axis));
+        if (sign > 0)
+        {
+            nearHi = Math.Min(nearHi, plane);
+            farLo = Math.Max(farLo, plane);
+        }
+        else
+        {
+            nearLo = Math.Max(nearLo, plane);
+            farHi = Math.Min(farHi, plane);
+        }
+
+        if (nearLo > nearHi || farLo > farHi)
+        {
+            return true; // a box wholly past the doorway's plane: nothing to decide by
+        }
+
+        float uLo = float.MaxValue, uHi = float.MinValue, vLo = float.MaxValue, vHi = float.MinValue;
+        for (int i = 0; i < 8; i++)
+        {
+            Vec3 p = Corner(near, i, axis, nearLo, nearHi);
+            float fp = sign * (Component(p, axis) - plane);
+            for (int j = 0; j < 8; j++)
+            {
+                Vec3 q = Corner(far, j, axis, farLo, farHi);
+                float fq = sign * (Component(q, axis) - plane);
+                float t = fp == fq ? 0f : fp / (fp - fq);
+                float pu = Component(p, u), pv = Component(p, v);
+                float cu = pu + (t * (Component(q, u) - pu));
+                float cv = pv + (t * (Component(q, v) - pv));
+                uLo = Math.Min(uLo, cu);
+                uHi = Math.Max(uHi, cu);
+                vLo = Math.Min(vLo, cv);
+                vHi = Math.Max(vHi, cv);
+                if (fp == fq)
+                {
+                    // Both on the plane: the whole segment lies in it.
+                    float qu = Component(q, u), qv = Component(q, v);
+                    uLo = Math.Min(uLo, qu);
+                    uHi = Math.Max(uHi, qu);
+                    vLo = Math.Min(vLo, qv);
+                    vHi = Math.Max(vHi, qv);
+                }
+            }
+        }
+
+        return uLo - BoxMargin <= Component(opening.Maxs, u) && Component(opening.Mins, u) <= uHi + BoxMargin
+            && vLo - BoxMargin <= Component(opening.Maxs, v) && Component(opening.Mins, v) <= vHi + BoxMargin;
+    }
+
+    /// <summary>Corner <paramref name="i"/> of a box, its extent along <paramref name="axis"/> replaced by the cut one.</summary>
+    private static Vec3 Corner(Box box, int i, int axis, float lo, float hi)
+    {
+        float x = axis == 0 ? ((i & 1) == 0 ? lo : hi) : (i & 1) == 0 ? box.Mins.X : box.Maxs.X;
+        float y = axis == 1 ? ((i & 2) == 0 ? lo : hi) : (i & 2) == 0 ? box.Mins.Y : box.Maxs.Y;
+        float z = axis == 2 ? ((i & 4) == 0 ? lo : hi) : (i & 4) == 0 ? box.Mins.Z : box.Maxs.Z;
+        return new Vec3(x, y, z);
     }
 
     /// <summary>A room's link-time view: its own rows and what sees each doorway, with its carved doorways joined in.</summary>
