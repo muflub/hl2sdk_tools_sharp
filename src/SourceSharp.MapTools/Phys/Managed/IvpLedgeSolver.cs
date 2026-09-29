@@ -145,9 +145,7 @@ internal static class IvpLedgeSolver<T, TP>
             T.CreateTruncating(sy) * inv,
             inv * T.CreateTruncating(sz));
 
-        T b0 = AxisMoment(ledges, massCenter, 0, 1, 2, skipZeroLengthEdges);
-        T b1 = AxisMoment(ledges, massCenter, 1, 2, 0, skipZeroLengthEdges);
-        T b2 = AxisMoment(ledges, massCenter, 2, 0, 1, skipZeroLengthEdges);
+        (T b0, T b1, T b2) = AxisMoments(ledges, massCenter, skipZeroLengthEdges);
         inertia = (
             T.Sqrt((b1 * b1) + (b2 * b2)),
             T.Sqrt((b2 * b2) + (b0 * b0)),
@@ -199,21 +197,47 @@ internal static class IvpLedgeSolver<T, TP>
     }
 
     /// <summary>
-    /// the second moment about one axis, as <c>acc3/acc1</c> of the per-edge integrals,
-    /// or 1 when the first integral is below <c>P_DOUBLE_EPS</c>.
+    /// The second moments about all three axes, each as <c>acc3/acc1</c> of its per-edge
+    /// integrals, or 1 when that axis's first integral is below <c>P_DOUBLE_EPS</c>.
     /// </summary>
-    private static T AxisMoment(List<IvpCompactLedge> ledges, (T X, T Y, T Z) mc, int a, int b, int c, bool skipZeroLengthEdges)
+    /// <remarks>
+    /// <para>
+    /// The reference makes one pass over every triangle per axis, and each pass recomputes the
+    /// triangle's normal, normalises it and moves its three corners into the mass-centre frame:
+    /// work that depends on the triangle and the mass centre, never on the axis. This makes one
+    /// pass and shares that work between the axes, which is two thirds of it saved; on a linked
+    /// level's world surface (every room's ledges in one compile) the moment passes were most of
+    /// the collision merge's time.
+    /// </para>
+    /// <para>
+    /// The result is bit for bit the three-pass one. Each axis keeps its own accumulators, and
+    /// they take the triangles in the reference's order (ledges from the last, triangles in
+    /// order), so every sum rounds exactly as it did; what is shared is pure (a function of one
+    /// triangle's bytes and the mass centre), so computing it once rather than three times
+    /// changes no value. The reference's second integral (<c>acc2</c>) never reaches the result,
+    /// so it is not formed.
+    /// </para>
+    /// </remarks>
+    private static (T B0, T B1, T B2) AxisMoments(List<IvpCompactLedge> ledges, (T X, T Y, T Z) mc, bool skipZeroLengthEdges)
     {
-        double acc1 = 0.0, acc2 = 0.0, acc3 = 0.0;
+        // Per axis a: [a] is acc1 and [3 + a] is acc3.
+        Span<double> acc = stackalloc double[6];
+        acc.Clear();
         for (int l = ledges.Count - 1; l >= 0; l--)
         {
             IvpCompactLedge ledge = ledges[l];
             for (int t = 0; t < ledge.TriangleCount; t++)
             {
-                InertiaIntegrand(ledge, t, mc, a, b, c, skipZeroLengthEdges, ref acc1, ref acc2, ref acc3);
+                InertiaIntegrands(ledge, t, mc, skipZeroLengthEdges, acc);
             }
         }
 
+        return (Moment(acc[0], acc[3]), Moment(acc[1], acc[4]), Moment(acc[2], acc[5]));
+    }
+
+    /// <summary>One axis's second moment from its first and third integrals.</summary>
+    private static T Moment(double acc1, double acc3)
+    {
         // comisd acc1, eps ; ja fallback -- a NaN acc1 takes the divide, as stock does.
         if (double.CreateTruncating(Eps) > acc1)
         {
@@ -252,101 +276,119 @@ internal static class IvpLedgeSolver<T, TP>
     };
 
     /// <summary>
-    /// one triangle's contribution to the three moment integrals about axis
-    /// <paramref name="a"/>, integrating along each edge's projection. The per-edge polynomial is
-    /// double under both policies; the normal, slopes and threshold are IVP_DOUBLE.
+    /// One triangle's contribution to the first and third moment integrals about each axis
+    /// <c>a</c> (with <c>b</c>, <c>c</c> the next two, cyclically), integrating along each edge's
+    /// projection. The per-edge polynomial is double under both policies; the normal, slopes and
+    /// threshold are IVP_DOUBLE.
     /// </summary>
-    private static void InertiaIntegrand(
-        IvpCompactLedge ledge, int tri, (T X, T Y, T Z) mc, int a, int b, int c, bool skipZeroLengthEdges,
-        ref double acc1, ref double acc2, ref double acc3)
+    /// <param name="ledge">The ledge.</param>
+    /// <param name="tri">The triangle.</param>
+    /// <param name="mc">The mass centre.</param>
+    /// <param name="skipZeroLengthEdges">Skip zero-length edges (the correct-mode fix).</param>
+    /// <param name="acc">Per axis a, acc1 at [a] and acc3 at [3 + a]; each gets this triangle's terms added last.</param>
+    /// <remarks>
+    /// The normal, its normalisation and the corners in the mass-centre frame are made once and
+    /// used for all three axes (<see cref="AxisMoments"/> says why that changes no bit). Corner k's
+    /// edge runs to corner k + 1, since an edge's <c>get_next()</c> starts where the edge ends.
+    /// </remarks>
+    private static void InertiaIntegrands(
+        IvpCompactLedge ledge, int tri, (T X, T Y, T Z) mc, bool skipZeroLengthEdges, Span<double> acc)
     {
         (T X, T Y, T Z) n = TriangleNormal(ledge, tri, 0);
         T nx = n.X, ny = n.Y, nz = n.Z;
         NormizePoint(ref nx, ref ny, ref nz);
         n = (nx, ny, nz);
-        T nb = Axis(n, b), nc = Axis(n, c);
-        bool mode1;
-        double e = 0.0, dcoef = 0.0;
-        if (T.Abs(nc) < T.Abs(nb))
-        {
-            mode1 = false;
-            e = double.CreateTruncating((nc * T.CreateTruncating(0.5f)) / nb);
-        }
-        else
-        {
-            mode1 = true;
-            if (SolverEps < T.Abs(nc))
-            {
-                dcoef = double.CreateTruncating((nb * T.CreateTruncating(-0.5f)) / nc);
-            }
-        }
 
-        double l1 = 0.0, l2 = 0.0, l3 = 0.0;
-        for (int k = 0; k < 3; k++)
+        (float X, float Y, float Z) c0 = ToMassFrame(ledge, ledge.EdgeStart(tri, 0), mc);
+        (float X, float Y, float Z) c1 = ToMassFrame(ledge, ledge.EdgeStart(tri, 1), mc);
+        (float X, float Y, float Z) c2 = ToMassFrame(ledge, ledge.EdgeStart(tri, 2), mc);
+
+        for (int a = 0; a < 3; a++)
         {
-            (float X, float Y, float Z) q0 = ToMassFrame(ledge, ledge.EdgeStart(tri, k), mc);
-            (float X, float Y, float Z) q1 = ToMassFrame(ledge, ledge.NextStart(tri, k), mc);
-            float dfx = q1.X - q0.X, dfy = q1.Y - q0.Y, dfz = q1.Z - q0.Z;
-            T dx = T.CreateTruncating(dfx), dy = T.CreateTruncating(dfy), dz = T.CreateTruncating(dfz);
-            (T X, T Y, T Z) d = (dx, dy, dz);
-            T len = RealLength(dx, dy, dz, dfx, dfy, dfz);
-            if (len * SolverEps > T.Abs(Axis(d, a)))
+            int b = a == 2 ? 0 : a + 1;
+            int c = b == 2 ? 0 : b + 1;
+            T nb = Axis(n, b), nc = Axis(n, c);
+            bool mode1;
+            double e = 0.0, dcoef = 0.0;
+            if (T.Abs(nc) < T.Abs(nb))
             {
-                continue;
-            }
-
-            // Stock divides 0 by 0 here when a ledge has two coincident points (the double policy
-            // de-duplicates in double, then rounds the survivors to float), and the NaN reaches
-            // rotation_inertia. A zero-length edge contributes nothing to the integral. The divides
-            // take x86's NaN so the stored bits match stock's on arm64 too.
-            if (skipZeroLengthEdges && len == T.Zero)
-            {
-                continue;
-            }
-
-            double s = double.CreateTruncating(X86Nan.Divide(Axis(d, b), Axis(d, a)));
-            double q0a = Axis(q0, a);
-            double ib = Axis(q0, b) - (q0a * s);
-            double p, q, r;
-            if (mode1)
-            {
-                double t = dcoef * ib;
-                p = ib * t;
-                q = (s * s) * dcoef;
-                r = (s + s) * t;
+                mode1 = false;
+                e = double.CreateTruncating((nc * T.CreateTruncating(0.5f)) / nb);
             }
             else
             {
-                double sc = double.CreateTruncating(X86Nan.Divide(Axis(d, c), Axis(d, a)));
-                double ic = Axis(q0, c) - (q0a * sc);
-                double u = e * ic;
-                p = (u + ib) * ic;
-                r = ((ib + (u + u)) * sc) + (ic * s);
-                q = (s + (e * sc)) * sc;
+                mode1 = true;
+                if (SolverEps < T.Abs(nc))
+                {
+                    dcoef = double.CreateTruncating((nb * T.CreateTruncating(-0.5f)) / nc);
+                }
             }
 
-            double q1a = Axis(q1, a);
-            double q0a2 = q0a * q0a;
-            double q1a2 = q1a * q1a;
-            double q1a3 = q1a2 * q1a;
-            double h2 = (q1a2 - q0a2) * 0.5;
-            double q0a3 = q0a2 * q0a;
-            double q1a4 = q1a3 * q1a;
-            double h3 = (q1a3 - q0a3) * 0.3333333432674408;
-            double q0a4 = q0a3 * q0a;
-            double q1a5 = q1a4 * q1a;
-            double q0a5 = q0a4 * q0a;
-            double h1 = q1a - q0a;
-            double h4 = (q1a4 - q0a4) * 0.25;
-            double h5 = (q1a5 - q0a5) * 0.20000000298023224;
-            l1 = ((h1 * p) + (r * h2)) + ((q * h3) + l1);
-            l2 = ((h2 * p) + (r * h3)) + ((q * h4) + l2);
-            l3 = ((p * h3) + (r * h4)) + (l3 + (h5 * q));
-        }
+            double l1 = 0.0, l3 = 0.0;
+            for (int k = 0; k < 3; k++)
+            {
+                (float X, float Y, float Z) q0 = k switch { 0 => c0, 1 => c1, _ => c2 };
+                (float X, float Y, float Z) q1 = k switch { 0 => c1, 1 => c2, _ => c0 };
+                float dfx = q1.X - q0.X, dfy = q1.Y - q0.Y, dfz = q1.Z - q0.Z;
+                T dx = T.CreateTruncating(dfx), dy = T.CreateTruncating(dfy), dz = T.CreateTruncating(dfz);
+                (T X, T Y, T Z) d = (dx, dy, dz);
+                T len = RealLength(dx, dy, dz, dfx, dfy, dfz);
+                if (len * SolverEps > T.Abs(Axis(d, a)))
+                {
+                    continue;
+                }
 
-        acc3 = l3 + acc3;
-        acc1 = l1 + acc1;
-        acc2 = l2 + acc2;
+                // Stock divides 0 by 0 here when a ledge has two coincident points (the double
+                // policy de-duplicates in double, then rounds the survivors to float), and the NaN
+                // reaches rotation_inertia. A zero-length edge contributes nothing to the integral.
+                // The divides take x86's NaN so the stored bits match stock's on arm64 too.
+                if (skipZeroLengthEdges && len == T.Zero)
+                {
+                    continue;
+                }
+
+                double s = double.CreateTruncating(X86Nan.Divide(Axis(d, b), Axis(d, a)));
+                double q0a = Axis(q0, a);
+                double ib = Axis(q0, b) - (q0a * s);
+                double p, q, r;
+                if (mode1)
+                {
+                    double t = dcoef * ib;
+                    p = ib * t;
+                    q = (s * s) * dcoef;
+                    r = (s + s) * t;
+                }
+                else
+                {
+                    double sc = double.CreateTruncating(X86Nan.Divide(Axis(d, c), Axis(d, a)));
+                    double ic = Axis(q0, c) - (q0a * sc);
+                    double u = e * ic;
+                    p = (u + ib) * ic;
+                    r = ((ib + (u + u)) * sc) + (ic * s);
+                    q = (s + (e * sc)) * sc;
+                }
+
+                double q1a = Axis(q1, a);
+                double q0a2 = q0a * q0a;
+                double q1a2 = q1a * q1a;
+                double q1a3 = q1a2 * q1a;
+                double h2 = (q1a2 - q0a2) * 0.5;
+                double q0a3 = q0a2 * q0a;
+                double q1a4 = q1a3 * q1a;
+                double h3 = (q1a3 - q0a3) * 0.3333333432674408;
+                double q0a4 = q0a3 * q0a;
+                double q1a5 = q1a4 * q1a;
+                double q0a5 = q0a4 * q0a;
+                double h1 = q1a - q0a;
+                double h4 = (q1a4 - q0a4) * 0.25;
+                double h5 = (q1a5 - q0a5) * 0.20000000298023224;
+                l1 = ((h1 * p) + (r * h2)) + ((q * h3) + l1);
+                l3 = ((p * h3) + (r * h4)) + (l3 + (h5 * q));
+            }
+
+            acc[3 + a] = l3 + acc[3 + a];
+            acc[a] = l1 + acc[a];
+        }
     }
 
     /// <summary>
