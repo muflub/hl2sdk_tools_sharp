@@ -101,7 +101,23 @@ public sealed class VvisStageCacheKeyTests
 
     [Fact]
     public void TheKeyFollowsTheFastFlow() =>
-        Assert.NotEqual(Key(Map()), Key(Map(), VvisOptions.Default with { FastFlow = true }));
+        Assert.NotEqual(Key(Map()), Key(Map(), VvisOptions.Default with { FastFlowSteps = VvisOptions.DefaultFastFlowSteps }));
+
+    [Fact]
+    public void TheKeyFollowsTheFastFlowsStepCount()
+    {
+        string zero = Key(Map(), VvisOptions.Default with { FastFlowSteps = 0 });
+        string thousand = Key(Map(), VvisOptions.Default with { FastFlowSteps = 1000 });
+        string fiveThousand = Key(Map(), VvisOptions.Default with { FastFlowSteps = 5000 });
+
+        Assert.NotEqual(zero, thousand);
+        Assert.NotEqual(thousand, fiveThousand);
+        Assert.NotEqual(zero, Key(Map()));
+
+        // -fastflow and -fastflow=1000 are one compile, so one key.
+        Assert.Equal(thousand, Key(Map(), StockArgs.ParseVvis(["-fastflow", "m.bsp"]).Options));
+        Assert.Equal(thousand, Key(Map(), StockArgs.ParseVvis(["-fastflow=1000", "m.bsp"]).Options));
+    }
 
     [Fact]
     public void TheFastFlowLeavesEveryOtherKeyAsItWas()

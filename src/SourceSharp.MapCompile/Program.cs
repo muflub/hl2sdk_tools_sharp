@@ -426,9 +426,12 @@ public static class Program
 
               vbsp|vvis|vrad <stock-compatible args>   one stage, stock spelling
                                                        each also: --bench (stage times);
-                                                       vvis also: -fastflow (a faster portal
-                                                       flow whose PVS is approximate; it
-                                                       warns, and is off by default);
+                                                       vvis also: -fastflow[=N] (a faster
+                                                       portal flow whose PVS is approximate:
+                                                       each walk stops early after N exact
+                                                       steps, 1000 by default, 0 everywhere;
+                                                       larger N is slower and loses less;
+                                                       it warns, and is off by default);
                                                        vrad also: --no-game-content (light even when
                                                        -game cannot be mounted; the default
                                                        fails, as stock does);
@@ -446,7 +449,7 @@ public static class Program
               all [chain options] <map> [--vbsp ...] [--vvis ...] [--vrad ...]
                                                        vbsp+vvis+vrad, one process, BSP in memory;
                                                        each --stage section takes that stage's
-                                                       stock options (--vvis also -fastflow);
+                                                       stock options (--vvis also -fastflow[=N]);
                                                        chain options: -game -threads
                                                        -compliance -v -fast -tighten -loose -cooker -vphysics
                                                        -listcompliance -nocache -incremental

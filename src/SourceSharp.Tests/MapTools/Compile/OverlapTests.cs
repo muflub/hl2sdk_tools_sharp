@@ -90,7 +90,7 @@ public sealed class OverlapTests
             request => request with
             {
                 Parallel = new CompileParallelism { MaxDegree = 4 },
-                Vvis = VvisOptions.Default with { FastFlow = true },
+                Vvis = VvisOptions.Default with { FastFlowSteps = 0 },
             });
 
     [Fact]

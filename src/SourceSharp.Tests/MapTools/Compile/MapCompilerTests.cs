@@ -310,12 +310,12 @@ public sealed class MapCompilerTests
     {
         (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room());
         CompileResult result = await MapCompiler.CompileAsync(
-            Request(files, content) with { Vvis = VvisOptions.Default with { FastFlow = true } }, null);
+            Request(files, content) with { Vvis = VvisOptions.Default with { FastFlowSteps = 5000 } }, null);
 
         Assert.NotNull(result.Vis);
         CompileDiagnostic warning = Assert.Single(result.Diagnostics, d => d.Code == VvisCodes.ApproximateFlow);
         Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);
-        Assert.Equal(Vvis.FastFlowWarning, warning.Message);
+        Assert.Equal(Vvis.FastFlowWarning(5000), warning.Message);
     }
 
     [Fact]

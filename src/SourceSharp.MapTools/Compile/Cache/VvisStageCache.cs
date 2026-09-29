@@ -144,11 +144,13 @@ public sealed class VvisStageCache
         Str(options.RadiusOverride is null ? FirstFogFarZ(bsp) : null);
 
         // Appended only when on, so every digest a compile without it ever
-        // stored stays the key it was: -fastflow writes a different PVS, and
-        // an exact compile must never be served one (or the reverse).
-        if (options.FastFlow)
+        // stored stays the key it was: -fastflow writes a different PVS for
+        // every step count, and an exact compile must never be served one (or
+        // the reverse).
+        if (options.FastFlowSteps is int steps)
         {
             Str("fastflow");
+            Long(steps);
         }
         return Convert.ToHexStringLower(sha.GetHashAndReset());
     }

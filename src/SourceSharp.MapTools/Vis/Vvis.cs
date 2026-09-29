@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using System.Buffers.Binary;
+using System.Globalization;
 
 using SourceSharp.MapFormats;
 using SourceSharp.MapFormats.Bsp;
@@ -103,7 +104,7 @@ public static class Vvis
     /// log, and any other host decides for itself.
     /// </para>
     /// <para>
-    /// <see cref="VvisOptions.FastFlow"/> under <see cref="VvisOptions.Fast"/>
+    /// <see cref="VvisOptions.FastFlowSteps"/> under <see cref="VvisOptions.Fast"/>
     /// earns nothing: <c>-fast</c> skips the flow the flag would shorten.
     /// </para>
     /// </remarks>
@@ -111,20 +112,28 @@ public static class Vvis
     public static IReadOnlyList<CompileDiagnostic> OptionWarnings(VvisOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        if (!options.FastFlow || options.Fast)
+        if (options.FastFlowSteps is not int steps || options.Fast)
         {
             return [];
         }
 
         return
         [
-            new CompileDiagnostic(VvisCodes.ApproximateFlow, DiagnosticSeverity.Warning, FastFlowWarning),
+            new CompileDiagnostic(VvisCodes.ApproximateFlow, DiagnosticSeverity.Warning, FastFlowWarning(steps)),
         ];
     }
 
-    /// <summary>The one line <see cref="OptionWarnings"/> says for <see cref="VvisOptions.FastFlow"/>.</summary>
-    public const string FastFlowWarning =
-        "-fastflow: the PVS is approximate and may cull visible geometry; compile without it for a release";
+    /// <summary>
+    /// The one line <see cref="OptionWarnings"/> says for
+    /// <see cref="VvisOptions.FastFlowSteps"/>, naming the step count so a
+    /// log says which approximation the map got.
+    /// </summary>
+    /// <param name="steps">The step count.</param>
+    /// <returns>The message.</returns>
+    public static string FastFlowWarning(int steps) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"-fastflow={steps}: the PVS is approximate (walks stop early after {steps} exact steps) and may cull visible geometry; compile without it for a release");
 
     /// <summary>
     /// Computes a map's visibility and writes it into the map.
@@ -428,8 +437,8 @@ public static class Vvis
         VisWorkCounters work = new(Chains: 0, Candidates: 0, SeparatorClips: 0, BaseRays: baseRays);
         // -fastflow: the cluster-granular early stop (VisClusterStop). Null
         // on every exact compile, and then nothing below differs from it.
-        VisClusterStop? stop = context.Options.FastFlow && !context.Options.Fast
-            ? new VisClusterStop(portals, context.FastFlowFilter, context.FastFlowMinChains)
+        VisClusterStop? stop = context.Options.FastFlowSteps is int steps && !context.Options.Fast
+            ? new VisClusterStop(portals, context.FastFlowFilter, steps)
             : null;
         if (context.Options.Fast)
         {

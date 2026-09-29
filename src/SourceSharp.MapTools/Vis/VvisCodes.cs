@@ -11,7 +11,7 @@ namespace SourceSharp.MapTools.Vis;
 public static class VvisCodes
 {
     /// <summary>
-    /// <see cref="Options.VvisOptions.FastFlow"/> is on: the PVS is an
+    /// <see cref="Options.VvisOptions.FastFlowSteps"/> is set: the PVS is an
     /// approximation, not the portal flow's answer
     /// (<see cref="Vvis.OptionWarnings"/>).
     /// </summary>

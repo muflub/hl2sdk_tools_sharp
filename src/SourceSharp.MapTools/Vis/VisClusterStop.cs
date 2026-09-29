@@ -13,7 +13,7 @@ namespace SourceSharp.MapTools.Vis;
 /// </summary>
 /// <remarks>
 /// Internal, and only <see cref="Truncated"/> is reachable from
-/// <see cref="Options.VvisOptions.FastFlow"/>. The other two are arms the
+/// <see cref="Options.VvisOptions.FastFlowSteps"/>. The other two are arms the
 /// fast flow was chosen against, kept so the facts can pin the containments
 /// between them (see <see cref="VisClusterStop"/>) and so the measurement can
 /// be repeated.
@@ -76,7 +76,8 @@ internal enum VisFastFlowFilter
 /// walked 137.3M chains against the exact 146.3M.
 /// </para>
 /// <para>
-/// <b>The threshold.</b> A walk takes <see cref="MinChains"/> steps exactly,
+/// <b>The threshold.</b> A walk takes <see cref="MinChains"/> steps exactly
+/// (<c>-fastflow=N</c>; 1,000 for <c>-fastflow</c> alone),
 /// portal-granular, before the stop may cut anything. Most portals' walks are
 /// shorter than that, so their published vectors are exact, and those are
 /// the cheap, low-ranked portals every expensive one prunes with. Measured on
@@ -87,10 +88,11 @@ internal enum VisFastFlowFilter
 /// <item><term>exact walk</term><description>146.3M; 0 / 0</description></item>
 /// <item><term>0 (cut from the first step)</term><description>61.5M; 33,432 / 60,786</description></item>
 /// <item><term>500</term><description>65.4M; 13,323 / 24,620</description></item>
-/// <item><term>1,000 (shipped)</term><description>71.1M; 9,599 / 17,622</description></item>
+/// <item><term>1,000 (the default)</term><description>71.1M; 9,599 / 17,622</description></item>
 /// <item><term>2,000</term><description>80.1M; 6,762 / 12,416</description></item>
 /// <item><term>5,000</term><description>91.6M; 3,980 / 7,286</description></item>
 /// <item><term>20,000</term><description>114.3M; 1,186 / 2,156</description></item>
+/// <item><term>50,000</term><description>128.4M; 540 / 1,036</description></item>
 /// </list>
 /// <para>
 /// A depth threshold instead (cut only frames at least N deep) was measured
@@ -116,17 +118,6 @@ internal enum VisFastFlowFilter
 /// </remarks>
 internal sealed class VisClusterStop
 {
-    /// <summary>
-    /// How many steps a <c>-fastflow</c> walk takes exactly before the stop
-    /// may cut: see the remarks for the measurement it was chosen from.
-    /// </summary>
-    /// <remarks>
-    /// A constant, and that is load-bearing in the same way as
-    /// <see cref="VisTightening.Lag"/>: it decides what every portal
-    /// publishes, so it may not depend on the machine.
-    /// </remarks>
-    internal const int DefaultMinChains = 1000;
-
     private readonly int[] _intoStart;
     private readonly int[] _into;
 
@@ -137,7 +128,7 @@ internal sealed class VisClusterStop
     internal VisClusterStop(
         PortalSet portals,
         VisFastFlowFilter filter = VisFastFlowFilter.Truncated,
-        int minChains = DefaultMinChains)
+        int minChains = Options.VvisOptions.DefaultFastFlowSteps)
     {
         ArgumentNullException.ThrowIfNull(portals);
         ArgumentOutOfRangeException.ThrowIfNegative(minChains);
@@ -175,8 +166,10 @@ internal sealed class VisClusterStop
 
     /// <summary>
     /// How many steps a walk takes with the exact, portal-granular test
-    /// before the cluster stop may cut; <see cref="DefaultMinChains"/> unless
-    /// a fact asks otherwise.
+    /// before the cluster stop may cut: <see cref="Options.VvisOptions.FastFlowSteps"/>.
+    /// A constant of the compile, and that is load-bearing in the same way as
+    /// <see cref="VisTightening.Lag"/>: it decides what every portal
+    /// publishes, so it may not depend on the machine.
     /// </summary>
     internal int MinChains { get; }
 

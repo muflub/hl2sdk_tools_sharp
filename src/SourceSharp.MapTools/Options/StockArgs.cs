@@ -517,10 +517,18 @@ public static class StockArgs
             else if (Is(arg, "-fastflow"))
             {
                 // Not stock's: this port's approximate portal flow
-                // (VvisOptions.FastFlow). Parsed here rather than by the
+                // (VvisOptions.FastFlowSteps). Parsed here rather than by the
                 // host, like -compliance, because it is an option of the
-                // vvis stage every host should be able to spell.
-                options = options with { FastFlow = true };
+                // vvis stage every host should be able to spell. Given
+                // twice, the last one wins, like every other option here.
+                options = options with { FastFlowSteps = VvisOptions.DefaultFastFlowSteps };
+            }
+            else if (arg.StartsWith(FastFlowPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                if (TryFastFlowSteps(cursor, arg, out int steps))
+                {
+                    options = options with { FastFlowSteps = steps };
+                }
             }
             else if (Is(arg, "-radius_override"))
             {
@@ -1226,6 +1234,55 @@ public static class StockArgs
                 cursor.Malformed(arg, text, "'native', 'vphysics', 'managed' or 'none'");
                 return false;
         }
+    }
+
+    /// <summary><c>-fastflow=N</c>'s spelling up to the value.</summary>
+    private const string FastFlowPrefix = "-fastflow=";
+
+    /// <summary>
+    /// Reads the N of <c>-fastflow=N</c>: a whole number from zero up, in
+    /// the one token (the value is not a separate argument, so
+    /// <c>-fastflow</c> alone stays the default and never eats the map path).
+    /// </summary>
+    private static bool TryFastFlowSteps(ArgCursor cursor, string arg, out int steps)
+    {
+        string text = arg[FastFlowPrefix.Length..];
+        if (text.Length == 0)
+        {
+            cursor.Add(
+                StockArgsCodes.MissingValue,
+                DiagnosticSeverity.Error,
+                "vvis: '-fastflow=' needs a step count after the '=' (or give -fastflow alone for "
+                + VvisOptions.DefaultFastFlowSteps.ToString(CultureInfo.InvariantCulture) + ")");
+            steps = 0;
+            return false;
+        }
+
+        if (int.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out steps))
+        {
+            if (steps >= 0)
+            {
+                return true;
+            }
+
+            cursor.OutOfRange("-fastflow", "must be a step count of 0 or more, not " + text);
+            return false;
+        }
+
+        // Digits that do not fit are out of range, not malformed: the
+        // message should say which.
+        string digits = text.StartsWith('-') || text.StartsWith('+') ? text[1..] : text;
+        if (digits.Length > 0 && digits.All(char.IsAsciiDigit))
+        {
+            cursor.OutOfRange(
+                "-fastflow",
+                "must be a step count from 0 to "
+                + int.MaxValue.ToString(CultureInfo.InvariantCulture) + ", not " + text);
+            return false;
+        }
+
+        cursor.Malformed("-fastflow", text, "a whole number of steps (0 or more)");
+        return false;
     }
 
     private static bool Is(string arg, string flag) =>

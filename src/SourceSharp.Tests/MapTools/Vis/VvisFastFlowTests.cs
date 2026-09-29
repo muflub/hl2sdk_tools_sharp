@@ -25,7 +25,7 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Vis;
 
 /// <summary>
-/// <see cref="VvisOptions.FastFlow"/> (<c>-fastflow</c>) on the windowed grid
+/// <see cref="VvisOptions.FastFlowSteps"/> (<c>-fastflow[=N]</c>) on the windowed grid
 /// of <see cref="VvisTightenTests"/>.
 /// </summary>
 /// <remarks>
@@ -41,21 +41,22 @@ namespace SourceSharp.Tests.MapTools.Vis;
 /// <para>
 /// The grid is where the stop has something to cut: 100 rooms with offset
 /// windows, deep flows, and ranks that depend on each other. Its walks are
-/// all shorter than the shipped step threshold, so most facts cut from the
-/// first step (<see cref="VisContext.FastFlowMinChains"/> zero) and one
-/// checks the threshold itself.
+/// all shorter than the default step threshold, so most facts cut from the
+/// first step (<c>-fastflow=0</c>) and some check the threshold itself.
 /// </para>
 /// </remarks>
 public class VvisFastFlowTests
 {
     private static readonly VvisOptions Exact = new();
-    private static readonly VvisOptions Fast = new() { FastFlow = true };
+    // Stop from the first step: every grid walk is shorter than the default.
+    private static readonly VvisOptions Fast = new() { FastFlowSteps = 0 };
+
+    private static VvisOptions Steps(int steps) => new() { FastFlowSteps = steps };
 
     private static async Task<(BspData Map, VisResult Result)> RunAsync(
         VvisOptions options,
         int degree,
-        VisFastFlowFilter filter = VisFastFlowFilter.Truncated,
-        int minChains = 0)
+        VisFastFlowFilter filter = VisFastFlowFilter.Truncated)
     {
         (BspData map, PortalSet portals) = VvisTightenTests.Grid();
         VisContext context = new()
@@ -63,7 +64,6 @@ public class VvisFastFlowTests
             Options = options,
             Parallelism = new CompileParallelism { MaxDegree = degree },
             FastFlowFilter = filter,
-            FastFlowMinChains = minChains,
         };
 
         VisResult result = await Vvis.ComputeAsync(map, portals, context, CancellationToken.None);
@@ -105,11 +105,20 @@ public class VvisFastFlowTests
     [Fact]
     public void TheFastFlowIsOffByDefault()
     {
-        Assert.False(VvisOptions.Default.FastFlow);
-        Assert.False(VvisOptions.Untightened.FastFlow);
-        Assert.False(VvisOptions.FastDefault.FastFlow);
+        Assert.Null(VvisOptions.Default.FastFlowSteps);
+        Assert.Null(VvisOptions.Untightened.FastFlowSteps);
+        Assert.Null(VvisOptions.FastDefault.FastFlowSteps);
+        Assert.Equal(1000, VvisOptions.DefaultFastFlowSteps);
         Assert.Equal(VisFastFlowFilter.Truncated, VisContext.Default.FastFlowFilter);
-        Assert.Equal(VisClusterStop.DefaultMinChains, VisContext.Default.FastFlowMinChains);
+        Assert.Equal(VvisOptions.DefaultFastFlowSteps, new VisClusterStop(VvisTightenTests.Grid().Portals).MinChains);
+    }
+
+    [Fact]
+    public void ANegativeStepCountIsRefused()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new VvisOptions { FastFlowSteps = -1 });
+        Assert.Equal(0, new VvisOptions { FastFlowSteps = 0 }.FastFlowSteps);
+        Assert.Null((VvisOptions.Default with { FastFlowSteps = 5 } with { FastFlowSteps = null }).FastFlowSteps);
     }
 
     [Fact]
@@ -153,6 +162,46 @@ public class VvisFastFlowTests
         }
     }
 
+    [Theory]
+    [InlineData(10, 2)]
+    [InlineData(10, 7)]
+    [InlineData(40, 3)]
+    [InlineData(40, 16)]
+    public async Task EveryStepCountIsTheSameAtOneThreadAndMore(int steps, int degree)
+    {
+        (BspData one, VisResult oneResult) = await RunAsync(Steps(steps), degree: 1);
+        (BspData many, VisResult manyResult) = await RunAsync(Steps(steps), degree);
+
+        Assert.Equal(Lump(one), Lump(many));
+        Assert.Equal(oneResult.Work, manyResult.Work);
+    }
+
+    [Fact]
+    public async Task DifferentStepCountsGiveDifferentAnswers()
+    {
+        // The count reaches the walk: on the grid, stopping from the first
+        // step, after 10 and after 40 give three different lumps, each more
+        // work than the one before and each inside the exact PVS (checked by
+        // TheFastPvsIsInsideTheExactOne).
+        (BspData zero, VisResult zeroResult) = await RunAsync(Steps(0), degree: 4);
+        (BspData ten, VisResult tenResult) = await RunAsync(Steps(10), degree: 4);
+        (BspData forty, VisResult fortyResult) = await RunAsync(Steps(40), degree: 4);
+
+        Assert.NotEqual(Lump(zero), Lump(ten));
+        Assert.NotEqual(Lump(ten), Lump(forty));
+        Assert.True(zeroResult.Work.Chains < tenResult.Work.Chains);
+        Assert.True(tenResult.Work.Chains < fortyResult.Work.Chains);
+    }
+
+    [Fact]
+    public async Task TheDefaultStepCountIsTheSameAsSpellingItOut()
+    {
+        (BspData spelled, _) = await RunAsync(Steps(1000), degree: 4);
+        (BspData parsed, _) = await RunAsync(StockArgs.ParseVvis(["-fastflow", "m.bsp"]).Options, degree: 4);
+
+        Assert.Equal(Lump(spelled), Lump(parsed));
+    }
+
     [Fact]
     public async Task TheFastWorkIsTheSameAtEveryDegree()
     {
@@ -189,7 +238,7 @@ public class VvisFastFlowTests
         // doing its job -- the cheap portals everything else prunes with
         // stay exact.
         (BspData exact, _) = await RunAsync(Exact, degree: 2);
-        (BspData fast, VisResult result) = await RunAsync(Fast, degree: 2, minChains: VisClusterStop.DefaultMinChains);
+        (BspData fast, VisResult result) = await RunAsync(Steps(VvisOptions.DefaultFastFlowSteps), degree: 2);
 
         Assert.Equal(Lump(exact), Lump(fast));
         Assert.True(result.Work.Chains > 0);
@@ -209,14 +258,14 @@ public class VvisFastFlowTests
     [Theory]
     [InlineData(0)]
     [InlineData(40)]
-    [InlineData(VisClusterStop.DefaultMinChains)]
-    public async Task TheFastPvsIsInsideTheExactOne(int minChains)
+    [InlineData(VvisOptions.DefaultFastFlowSteps)]
+    public async Task TheFastPvsIsInsideTheExactOne(int steps)
     {
         // A cut-short vector lacks portals behind its cuts, so the portals
         // ranked above prune chains the exact flow keeps: the fast PVS may
         // lose clusters, and never gains one. Whatever the threshold.
         (_, VisResult exact) = await RunAsync(Exact, degree: 4);
-        (_, VisResult fast) = await RunAsync(Fast, degree: 4, minChains: minChains);
+        (_, VisResult fast) = await RunAsync(Steps(steps), degree: 4);
 
         AssertContained(fast, exact, "fast inside exact");
     }
@@ -273,7 +322,7 @@ public class VvisFastFlowTests
         // subtrees that could reach no new cluster, gives the exact answer.
         VvisOptions loose = new() { Tighten = false };
         (BspData exact, VisResult exactResult) = await RunAsync(loose, degree: 4);
-        (BspData fast, VisResult fastResult) = await RunAsync(loose with { FastFlow = true }, degree: 4);
+        (BspData fast, VisResult fastResult) = await RunAsync(loose with { FastFlowSteps = 0 }, degree: 4);
 
         Assert.Equal(Lump(exact), Lump(fast));
         Assert.True(fastResult.Work.Chains < exactResult.Work.Chains);
@@ -284,7 +333,7 @@ public class VvisFastFlowTests
     {
         // -fast skips the flow altogether; -fastflow has nothing to shorten.
         (BspData fast, _) = await RunAsync(VvisOptions.FastDefault, degree: 2);
-        (BspData both, _) = await RunAsync(VvisOptions.FastDefault with { FastFlow = true }, degree: 2);
+        (BspData both, _) = await RunAsync(VvisOptions.FastDefault with { FastFlowSteps = 0 }, degree: 2);
 
         Assert.Equal(Lump(fast), Lump(both));
     }
@@ -298,12 +347,15 @@ public class VvisFastFlowTests
         Assert.Empty(Vvis.OptionWarnings(VvisOptions.Untightened));
 
         // -fast skips the flow the flag would shorten: nothing to warn of.
-        Assert.Empty(Vvis.OptionWarnings(VvisOptions.FastDefault with { FastFlow = true }));
+        Assert.Empty(Vvis.OptionWarnings(VvisOptions.FastDefault with { FastFlowSteps = 0 }));
 
-        CompileDiagnostic warning = Assert.Single(Vvis.OptionWarnings(Fast));
+        CompileDiagnostic warning = Assert.Single(Vvis.OptionWarnings(Steps(5000)));
         Assert.Equal(VvisCodes.ApproximateFlow, warning.Code);
         Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);
-        Assert.Equal(Vvis.FastFlowWarning, warning.Message);
+        Assert.Equal(Vvis.FastFlowWarning(5000), warning.Message);
+        Assert.StartsWith("-fastflow=5000: ", warning.Message, StringComparison.Ordinal);
+        Assert.Contains("after 5000 exact steps", warning.Message, StringComparison.Ordinal);
+        Assert.StartsWith("-fastflow=0: ", Assert.Single(Vvis.OptionWarnings(Fast)).Message, StringComparison.Ordinal);
         Assert.DoesNotContain('\n', warning.Message);
         Assert.Contains("approximate", warning.Message, StringComparison.Ordinal);
     }
@@ -341,13 +393,13 @@ public class VvisFastFlowTests
         Assert.Equal(Program.ExitSuccess, exactExit);
         Assert.Equal(Program.ExitSuccess, fastExit);
         Assert.DoesNotContain(VvisCodes.ApproximateFlow, exactOutput, StringComparison.Ordinal);
-        string line = $"Warning {VvisCodes.ApproximateFlow}: {Vvis.FastFlowWarning}";
+        string line = $"Warning {VvisCodes.ApproximateFlow}: {Vvis.FastFlowWarning(VvisOptions.DefaultFastFlowSteps)}";
         Assert.Single(fastOutput.Split('\n'), l => l.TrimEnd('\r') == line);
 
         // And the command wrote what the library computes for the flag (on
         // the grid that is the exact lump: its walks are all shorter than the
         // shipped threshold, see UnderTheShippedThresholdTheGridsShortWalksAreExact).
-        (BspData library, _) = await RunAsync(Fast, degree: 2, minChains: VisClusterStop.DefaultMinChains);
+        (BspData library, _) = await RunAsync(Steps(VvisOptions.DefaultFastFlowSteps), degree: 2);
         BspData written;
         await using (MemoryStream again = new(fast))
         {
@@ -356,6 +408,31 @@ public class VvisFastFlowTests
 
         Assert.Equal(Lump(library), Lump(written));
         Assert.Equal(exact.Length, fast.Length);
+
+        // -fastflow=1000 is -fastflow, byte for byte, and says the same line.
+        (int thousandExit, string thousandOutput, byte[] thousand) = await RunCommandAsync("-fastflow=1000");
+        Assert.Equal(Program.ExitSuccess, thousandExit);
+        Assert.Equal(fast, thousand);
+        Assert.Single(thousandOutput.Split('\n'), l => l.TrimEnd('\r') == line);
+
+        // -fastflow=0 reaches the library as zero steps: the lump that
+        // loses clusters on this grid, and the warning names the count.
+        (int zeroExit, string zeroOutput, byte[] zero) = await RunCommandAsync("-fastflow=0");
+        Assert.Equal(Program.ExitSuccess, zeroExit);
+        Assert.Contains($"Warning {VvisCodes.ApproximateFlow}: {Vvis.FastFlowWarning(0)}", zeroOutput, StringComparison.Ordinal);
+        (BspData zeroLibrary, _) = await RunAsync(Fast, degree: 2);
+        await using (MemoryStream again = new(zero))
+        {
+            Assert.Equal(Lump(zeroLibrary), Lump(await BspFile.LoadAsync(again, CancellationToken.None)));
+        }
+
+        Assert.NotEqual(Lump(library), Lump(zeroLibrary));
+
+        // A malformed count is a usage error, and nothing is written.
+        (int badExit, string badOutput, byte[] untouched) = await RunCommandAsync("-fastflow=many");
+        Assert.Equal(Program.ExitUsage, badExit);
+        Assert.Contains(StockArgsCodes.MalformedValue, badOutput, StringComparison.Ordinal);
+        Assert.Equal(bspBytes.ToArray(), untouched);
     }
 
     // ---- the schedule -------------------------------------------------------------
@@ -460,7 +537,7 @@ public class VvisFastFlowTests
 
         Assert.Equal(VisFastFlowFilter.Conservative, stop.Filter);
         Assert.Equal(7, stop.MinChains);
-        Assert.Equal(VisClusterStop.DefaultMinChains, new VisClusterStop(portals).MinChains);
+        Assert.Equal(VvisOptions.DefaultFastFlowSteps, new VisClusterStop(portals).MinChains);
         Assert.Throws<ArgumentOutOfRangeException>(() => new VisClusterStop(portals, minChains: -1));
         Assert.Throws<ArgumentNullException>(() => new VisClusterStop(null!));
         Assert.Equal(portals.ClusterCount, stop.ClusterCount);

@@ -134,29 +134,44 @@ public sealed record VvisOptions
     public bool Tighten { get; init; } = true;
 
     /// <summary>
-    /// Run a faster portal flow whose PVS is knowingly approximate: it may
-    /// leave out clusters the exact flow finds visible.
+    /// <see cref="FastFlowSteps"/> when <c>-fastflow</c> is given without a
+    /// value: the measured knee of the speed/accuracy curve on 2fort.
+    /// </summary>
+    public const int DefaultFastFlowSteps = 1000;
+
+    private readonly int? _fastFlowSteps;
+
+    /// <summary>
+    /// Run a faster portal flow whose PVS is knowingly approximate, letting
+    /// each portal's walk take this many exact steps before it may stop
+    /// early; null (the default) for the exact flow.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Not a stock option (<c>-fastflow</c>, parsed by
-    /// <see cref="StockArgs.ParseVvis"/> like <c>-compliance</c>), and off by
-    /// default: with it off nothing about the flow changes and the output is
-    /// byte-identical to a compile that never heard of it. It is in the spirit
-    /// of Tools++'s faster vvis, and unlike Tools++ it is deterministic: the
-    /// same bytes at every thread count and on every run.
+    /// Not a stock option (<c>-fastflow</c> for
+    /// <see cref="DefaultFastFlowSteps"/>, <c>-fastflow=N</c> for any other
+    /// N, parsed by <see cref="StockArgs.ParseVvis"/> like
+    /// <c>-compliance</c>), and off by default: with it off nothing about the
+    /// flow changes and the output is byte-identical to a compile that never
+    /// heard of it. It is in the spirit of Tools++'s faster vvis, and unlike
+    /// Tools++ it is deterministic: the same bytes at every thread count and
+    /// on every run, for any N.
     /// </para>
     /// <para>
-    /// The walk stops a chain once everything it could still reach leads into
-    /// clusters the portal already sees, after a fixed number of exact steps
-    /// (the mechanism and the measurement are on the internal
-    /// <c>VisClusterStop</c>). Each portal's own row is unchanged by that,
-    /// but the shortened vectors are what later portals prune with, so they
-    /// prune chains the exact flow keeps: the PVS is a SUBSET of the exact
-    /// one. On 2fort it walks 71.1M chains against 146.3M (about half the
-    /// CPU) and loses 1.7 % of the visible cluster pairs, 3.1 % after the
-    /// symmetric pass. A lost pair is geometry the engine culls while it is
-    /// in view, so this is for iterating on a layout, not for a release.
+    /// After N steps the walk stops a chain once everything it could still
+    /// reach leads into clusters the portal already sees (the mechanism and
+    /// the measurement are on the internal <c>VisClusterStop</c>). Each
+    /// portal's own row is unchanged by that, but the shortened vectors are
+    /// what later portals prune with, so they prune chains the exact flow
+    /// keeps: the PVS is a SUBSET of the exact one, whatever N is. Walks
+    /// shorter than N are exact, so a larger N is slower and loses less;
+    /// zero stops everywhere. On 2fort, against the exact flow's 146.3M
+    /// chains: N = 1,000 walks 71.1M chains (about half the CPU) and loses
+    /// 1.7 % of the visible cluster pairs, 3.1 % after the symmetric pass;
+    /// N = 5,000 walks 91.6M and loses 0.7 % (1.3 %); zero walks 61.5M and
+    /// loses 5.8 % (10.6 %). A lost pair is geometry the engine culls while
+    /// it is in view, so this is for iterating on a layout, not for a
+    /// release.
     /// </para>
     /// <para>
     /// Not a compliance quirk: the catalogue lists where this port's DEFAULT
@@ -167,7 +182,20 @@ public sealed record VvisOptions
     /// <see cref="Vis.Vvis.OptionWarnings"/>, which <c>ssmap</c> prints.
     /// </para>
     /// </remarks>
-    public bool FastFlow { get; init; }
+    /// <exception cref="ArgumentOutOfRangeException">The value is negative.</exception>
+    public int? FastFlowSteps
+    {
+        get => _fastFlowSteps;
+        init
+        {
+            if (value is int steps)
+            {
+                ArgumentOutOfRangeException.ThrowIfNegative(steps, nameof(FastFlowSteps));
+            }
+
+            _fastFlowSteps = value;
+        }
+    }
 
     /// <summary>
     /// Whether to reproduce the stock tools' defects or do the right thing.
