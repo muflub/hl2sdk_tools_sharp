@@ -101,6 +101,7 @@ internal sealed class VisFrameStack
     private readonly List<Vec3[]> _windings = [];
     private readonly List<Vec3[]> _separatorNormals = [];
     private readonly List<float[]> _separatorDistances = [];
+    private readonly List<float[]> _separatorPlanes = [];
     private readonly int _words;
 
     /// <summary>Creates a stack for one worker.</summary>
@@ -366,6 +367,49 @@ internal sealed class VisFrameStack
         {
             held = new float[minimum];
             _separatorDistances[slot] = held;
+        }
+
+        return held;
+    }
+
+    /// <summary>
+    /// One frame's separator planes for one ordering as four columns, for the
+    /// <see cref="VisSeparatorPath.Vector512"/> path's
+    /// <see cref="VisSeparatorColumns"/>.
+    /// </summary>
+    /// <param name="depth">The recursion depth, from one.</param>
+    /// <param name="ordering">Zero or one, as for <see cref="SeparatorNormals"/>.</param>
+    /// <param name="stride">
+    /// The column length the list will use,
+    /// <see cref="VisSeparatorColumns.StrideFor"/> of <c>source.Length * pass.Length</c>.
+    /// </param>
+    /// <returns>At least <c>4 * <paramref name="stride"/></c> floats.</returns>
+    /// <remarks>
+    /// <para>
+    /// Sized to the frame and kept per depth, like <see cref="SeparatorNormals"/>
+    /// and for the same reason. A worker runs one path for the whole compile,
+    /// so only one of the two kinds of slab is ever allocated on it.
+    /// </para>
+    /// <para>
+    /// One array rather than four so a frame fetches one slab per ordering.
+    /// What a column holds past the list's count is whatever an earlier frame
+    /// at this depth left there; the batched clip reads it only into lanes it
+    /// then ignores.
+    /// </para>
+    /// </remarks>
+    internal float[] SeparatorPlanes(int depth, int ordering, int stride)
+    {
+        int slot = (depth * 2) + ordering;
+        while (_separatorPlanes.Count <= slot)
+        {
+            _separatorPlanes.Add([]);
+        }
+
+        float[] held = _separatorPlanes[slot];
+        if (held.Length < 4 * stride)
+        {
+            held = new float[4 * stride];
+            _separatorPlanes[slot] = held;
         }
 
         return held;
