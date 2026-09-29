@@ -113,9 +113,13 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // the link reads them for every placement whatever its turn (the
         // section holds all four), so with the container and the counts.
         IReadOnlyList<RoomPackSectionData> props = room.StaticProps is { } staticProps ? [staticProps.ToSection()] : [];
+
+        // The brush models likewise: every placement reads them, whatever
+        // its turn, so they follow the props.
+        IReadOnlyList<RoomPackSectionData> brushModels = room.BrushModelsOfCompile is { } models ? [models.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. props, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. props, .. brushModels, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -806,6 +810,11 @@ public static class RoomPack
                 wanted.Add((name, props));
             }
 
+            if (entry.Find(RoomBrushModels.SectionTag) is { } brushModels)
+            {
+                wanted.Add((name, brushModels));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -893,9 +902,10 @@ public static class RoomPack
             RoomNameTurn?[] turned = [.. Enumerable.Range(0, 4).Select(t => RoomNameTurn.Read(Section(name, RoomNameTurn.Tag(t)), name, t))];
             RoomNameTables? names = turned.Any(t => t is not null) ? new RoomNameTables(turned, room.Bsp) : null;
             RoomStaticProps? props = RoomStaticProps.Read(Section(name, RoomStaticProps.SectionTag), room.Definition, room.Bsp);
-            loaded[name] = link is null && nav is null && counts is null && names is null && props is null
+            RoomBrushModels? brushModels = RoomBrushModels.Read(Section(name, RoomBrushModels.SectionTag), room.Definition, room.Bsp);
+            loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null
                 ? room
-                : room with { Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props };
+                : room with { Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props, BrushModels = brushModels };
         }
 
         return [.. requests.Select(request => loaded[request.Name])];
@@ -1205,6 +1215,8 @@ public static class RoomPack
         ((byte)'R', (byte)'O', (byte)'O', (byte)'M') => RoomSection,
         ((byte)'L', (byte)'N', (byte)'K', (byte)'A') => RoomLinkSections.SharedTag,
         ((byte)'E', (byte)'C', (byte)'N', (byte)'T') => RoomEntityCounts.SectionTag,
+        ((byte)'P', (byte)'R', (byte)'O', (byte)'P') => RoomStaticProps.SectionTag,
+        ((byte)'B', (byte)'M', (byte)'O', (byte)'D') => RoomBrushModels.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),

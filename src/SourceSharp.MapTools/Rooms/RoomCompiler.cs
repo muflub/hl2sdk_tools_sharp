@@ -141,6 +141,17 @@ public static class RoomCompiler
             [.. document.GetChunks(MapFileLoader.EntityChunk).Select((e, i) => LevelEntity.FromVmf(e, -1, i))],
             nameKeys);
 
+        // A brush entity whose angles a turned placement could not treat
+        // right (open point O15), refused before the compile as the split
+        // refuses it for a library's rooms.
+        foreach (VmfChunk entity in document.GetChunks(MapFileLoader.EntityChunk))
+        {
+            if (BrushEntityDirections.Problem(definition.Name, entity) is { } problem)
+            {
+                throw new RoomLintException(problem);
+            }
+        }
+
         // The room packs what vbsp packs for any map, the default cubemaps
         // named after the room included: the link carries every room's
         // files and renames those to the level's map name (LevelPakFiles),
@@ -206,6 +217,11 @@ public static class RoomCompiler
         RoomStaticProps? staticProps = await RoomStaticProps
             .BuildAsync(definition, vbsp.Bsp, props, context, cancellationToken).ConfigureAwait(false);
 
+        // The brush entities the link carries as their own models: the runs
+        // each owns, its entity's brushes (which only the loaded map says),
+        // its conditions and furniture keys, its collision turned four ways.
+        RoomBrushModels? brushModels = RoomBrushModels.Build(definition, vbsp.Bsp, map);
+
         return new RoomObject(
             definition,
             vbsp.Bsp,
@@ -215,6 +231,7 @@ public static class RoomCompiler
         {
             Names = new RoomNameTables(names, vbsp.Bsp),
             Props = staticProps,
+            BrushModels = brushModels,
         };
     }
 

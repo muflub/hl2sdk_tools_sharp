@@ -130,6 +130,25 @@ public sealed record RoomObject(
     internal RoomStaticProps? StaticProps => Props is { } props && props.IsFor(this) ? props : null;
 
     /// <summary>
+    /// The room's brush entities as the link carries them
+    /// (<see cref="RoomBrushModels"/>: per brush model its class, the runs
+    /// of the room's lumps it owns, its conditions and its collision per
+    /// turn), or null: made by the room compile for a room whose compile has
+    /// brush models besides the world, and stored by the pack in its own
+    /// section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Props"/>, not only a shortcut: which brushes are an
+    /// entity's is not in the compiled lumps, so a room with brush models and
+    /// none of this bound to its compile (<see cref="BrushModelsOfCompile"/>)
+    /// is refused by the link, naming the room.
+    /// </remarks>
+    internal RoomBrushModels? BrushModels { get; init; }
+
+    /// <summary>The room's brush models while they describe this compile, else null.</summary>
+    internal RoomBrushModels? BrushModelsOfCompile => BrushModels is { } models && models.IsFor(this) ? models : null;
+
+    /// <summary>
     /// The room's navigation, or null: built beside the link work by a
     /// library compile whose library builds navigation, and read by a pack
     /// load that asks for it (<see cref="RoomPackRequest.Navigation"/>), at

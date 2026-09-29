@@ -269,6 +269,34 @@ public sealed class ManagedCollisionCooker : ICollisionCooker, IDisposable
         return ledges.Count == 0 ? null : Serialize(Build().Compile(ledges, false));
     }
 
+    /// <summary>
+    /// <see cref="CompileLedges(List{IvpCompactLedge})"/> for a movable
+    /// solid: the surface built with or without an outer convex hull, as
+    /// the cook that first made it was, and the header carrying the drag
+    /// areas given rather than computed.
+    /// </summary>
+    /// <param name="ledges">The convexes; the compile takes them.</param>
+    /// <param name="buildOuterConvexHull">Whether to build the root's convex hull, as a brush model of several convexes is cooked.</param>
+    /// <param name="dragAxisAreas">The orthographic areas for the header.</param>
+    /// <returns>The VPHY blob, or null when IVP builds nothing.</returns>
+    /// <remarks>
+    /// The room linker's brush models: a model's convexes, turned and moved
+    /// with its placement, rebuilt into the surface its own compile made,
+    /// with the areas that compile measured turned with it (a quarter turn
+    /// only swaps which axis each belongs to).
+    /// </remarks>
+    internal byte[]? CompileLedges(List<IvpCompactLedge> ledges, bool buildOuterConvexHull, (float X, float Y, float Z) dragAxisAreas)
+    {
+        ArgumentNullException.ThrowIfNull(ledges);
+        if (ledges.Count == 0)
+        {
+            return null;
+        }
+
+        byte[]? surface = Build().Compile(ledges, buildOuterConvexHull);
+        return surface is null ? null : VphyWriter.Serialize(surface, dragAxisAreas);
+    }
+
     private static byte[]? Serialize(byte[]? surface) =>
         surface is null ? null : VphyWriter.Serialize(surface, (1f, 1f, 1f));
 
