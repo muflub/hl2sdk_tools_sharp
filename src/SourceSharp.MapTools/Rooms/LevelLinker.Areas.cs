@@ -9,7 +9,6 @@ using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 
-using SourceSharp.MapTools.Bsp.Write;
 using SourceSharp.MapTools.Validation;
 
 namespace SourceSharp.MapTools.Rooms;
@@ -212,7 +211,7 @@ public static partial class LevelLinker
             plan.PortalBase = portalBase;
             portalBase += plan.AreaPortals?.PortalNumbers ?? 0;
             RoomPlacement where = plan.Placement.Instance.Placement;
-            Limit(plan.Placement.Room.Definition.Name, where.CellX, where.CellY, "area portal numbers", portalBase, ushort.MaxValue + 1);
+            AreaPortalLimits(plan.Placement.Room.Definition.Name, where.CellX, where.CellY, portalBase, listings: 1, clipVerts: 0);
         }
 
         for (int p = 0; p < plans.Length; p++)
@@ -278,11 +277,8 @@ public static partial class LevelLinker
     /// (<see cref="PlanAreas"/>), and reported once.
     /// </para>
     /// <para>
-    /// <b>Limits.</b> The listings (the reserved one included) are held to
-    /// <c>MAX_MAP_AREAPORTALS</c> (1024, each portal counting twice), the
-    /// vertices to the <c>ushort</c> that starts a run, and each run to
-    /// vbsp's own <c>MAX_MAP_PORTALVERTS</c>; each refused naming the
-    /// placement whose listing crossed it.
+    /// <b>Limits.</b> <see cref="AreaPortalLimits"/>, after every listing,
+    /// naming the placement whose listing crossed one.
     /// </para>
     /// </remarks>
     private static void WriteAreas(BspData linked, RoomPlan[] plans, LevelAreas areas, List<string> warnings)
@@ -326,7 +322,6 @@ public static partial class LevelLinker
         List<DArea> areaLump = [default];
         List<DAreaPortal> portalLump = [default];
         List<Vec3> verts = [];
-        int portalCap = BspLimits.Caps.First(c => c.Lump == BspLump.AreaPortals).Max;
         for (int a = 1; a < byArea.Length; a++)
         {
             areaLump.Add(new DArea { FirstAreaPortal = portalLump.Count, NumAreaPortals = byArea[a].Count });
@@ -342,14 +337,6 @@ public static partial class LevelLinker
                     verts.Add(plan.Transform.Translate(turned[v]));
                 }
 
-                Limit(name, where.CellX, where.CellY, "clip portal vertices", verts.Count, ushort.MaxValue + 1);
-                if (start + room.ClipPortalVerts >= WriteLimits.MaxMapPortalVerts)
-                {
-                    throw new LinkException(
-                        $"room {name} at cell ({where.CellX}, {where.CellY}) pushes the link to {start + room.ClipPortalVerts} clip portal vertices;"
-                        + $" vbsp writes fewer than {WriteLimits.MaxMapPortalVerts} (MAX_MAP_PORTALVERTS).");
-                }
-
                 portalLump.Add(new DAreaPortal
                 {
                     PortalKey = (ushort)key,
@@ -358,13 +345,36 @@ public static partial class LevelLinker
                     ClipPortalVerts = room.ClipPortalVerts,
                     PlaneNum = plan.PlaneRef(room.PlaneNum),
                 });
-                LoaderLimit(name, where.CellX, where.CellY, "area portal listings", portalLump.Count, portalCap, "MAX_MAP_AREAPORTALS");
+                AreaPortalLimits(name, where.CellX, where.CellY, portalNumbers: 0, portalLump.Count, verts.Count);
             }
         }
 
         linked.SetLump(BspLump.Areas, Bytes(areaLump));
         linked.SetLump(BspLump.AreaPortals, Bytes(portalLump));
         linked.SetLump(BspLump.ClipPortalVerts, Bytes(verts));
+    }
+
+    /// <summary>
+    /// Refuses area portal totals past what the format carries: the portal
+    /// numbers past the <c>ushort</c> a listing's key is, the listings (the
+    /// reserved one included) past the loader's <c>MAX_MAP_AREAPORTALS</c>
+    /// (1024: each portal is listed twice), and the clip vertices past the
+    /// <c>ushort</c> that starts a listing's run. vbsp's own cap on the
+    /// vertices (<c>MAX_MAP_PORTALVERTS</c>, 128,000) is wider than the
+    /// field, so the field is the one that binds.
+    /// </summary>
+    /// <param name="room">The room whose placement brought the totals there, for the message.</param>
+    /// <param name="cellX">Its cell's column.</param>
+    /// <param name="cellY">Its cell's row.</param>
+    /// <param name="portalNumbers">The portal numbers so far.</param>
+    /// <param name="listings">The listings so far, the reserved one included.</param>
+    /// <param name="clipVerts">The clip vertices so far.</param>
+    /// <exception cref="LinkException">A total is past its limit.</exception>
+    internal static void AreaPortalLimits(string room, int cellX, int cellY, long portalNumbers, long listings, long clipVerts)
+    {
+        Limit(room, cellX, cellY, "area portal numbers", portalNumbers, ushort.MaxValue);
+        LoaderLimit(room, cellX, cellY, "area portal listings", listings, BspLimits.Caps.First(c => c.Lump == BspLump.AreaPortals).Max, "MAX_MAP_AREAPORTALS");
+        Limit(room, cellX, cellY, "clip portal vertices", clipVerts, ushort.MaxValue + 1);
     }
 
     /// <summary>The level's areas, once planned: how many there are besides area 0.</summary>
