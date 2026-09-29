@@ -492,8 +492,21 @@ the library's sky, `materials/maps/<room>/cubemapdefault.vtf` and its HDR
 twin) are renamed to the level's map name, the output file's name, which is
 where the engine looks for them; so renaming a linked `.bsp` afterwards
 loses its default cubemaps, as it does for any map. Other files named after
-a room (patched materials) keep the room's name, which its faces use. The
-link refuses what it cannot carry: area portals, static or detail props,
+a room (patched materials) keep the room's name, which its faces use.
+Static props (`prop_static`) are carried and cost the level no entity: each
+placed room's props are moved and turned with it, their model dictionaries
+merged, and each prop's leaves listed by walking the linked tree with the
+prop's hull, which `ssmap room` reads from the model and stores in the pack
+(the link reads no game files). A prop with `room_needs` is kept only where
+its condition holds, and a prop with `room_socket` naming a socket is socket
+furniture (a door frame): at a joint the room earlier in the level keeps its
+furniture unless the other side's `socket_priority` is higher, and at a cap
+it is dropped. A prop's `.vhv` lighting files are renamed to its index in
+the level. `ssmap room` refuses a prop whose hull reaches outside its cell,
+unless it is socket furniture reaching only into the doorway beyond its
+socket, and a prop that asks for texel lighting (`generatelightmaps`),
+which the port's vrad does not bake. The
+link refuses what it cannot carry: area portals, detail props,
 displacements, water, and a mix of cooked and `-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a
 gap unless something placed in the socket (a door frame model, say) covers

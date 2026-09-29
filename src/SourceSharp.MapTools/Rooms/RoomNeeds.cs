@@ -76,4 +76,39 @@ internal static class RoomNeeds
 
     /// <summary>Whether a key is <c>room_needs</c>, ignoring case as entity keys are.</summary>
     public static bool IsKey(string key) => string.Equals(key, Key, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether every <c>room_needs</c> condition holds for a placement: the
+    /// (c) rule the naming resolver applies to entities, for the records
+    /// that are no longer entities (static props).
+    /// </summary>
+    /// <param name="needs">The conditions in the room's authored frame; none always holds.</param>
+    /// <param name="turns">The placement's quarter turns.</param>
+    /// <param name="column">The placement's column.</param>
+    /// <param name="row">The placement's row.</param>
+    /// <param name="occupied">Whether a cell of the level holds a room.</param>
+    /// <param name="joined">The placement's joined sides, in its authored frame.</param>
+    public static bool Hold(
+        IReadOnlyList<RoomNeed> needs, int turns, int column, int row, Func<(int X, int Y), bool> occupied, JoinedMask joined)
+    {
+        bool holds = true;
+        foreach (RoomNeed need in needs)
+        {
+            bool value;
+            if (need.Joined)
+            {
+                value = (joined & RoomDirections.JoinedBit(need.Direction)) != 0;
+            }
+            else
+            {
+                (int dx, int dy) = RoomDirections.Offset(need.Direction);
+                (int tx, int ty) = RoomNameAnalysis.Turn(dx, dy, turns);
+                value = occupied((column + tx, row + ty));
+            }
+
+            holds &= value != need.Negated;
+        }
+
+        return holds;
+    }
 }

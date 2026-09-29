@@ -46,11 +46,15 @@ public sealed class LevelLinkerRefusalTests
     // ---- L6: game lumps, pak, displacement collision -----------------------
 
     /// <summary>
-    /// A room with a static prop (a non-zero byte in its game lump) is refused
-    /// by lump id, where it used to be dropped for every room but the first.
+    /// A room whose static prop lump has content but that carries no static
+    /// prop data from its compile (a pack written before static props
+    /// linked, a room a host built itself) is refused, naming the room and
+    /// what to do, rather than linked with guessed leaves and its
+    /// <c>room_needs</c> lost; the old refusal by lump id ("game lump
+    /// 'sprp'") is gone with the static props feature.
     /// </summary>
     [Fact]
-    public async Task ARoomWithPropsIsRefused()
+    public async Task ARoomWithPropsButNoPropDataIsRefused()
     {
         RoomObject hub = await HubAsync();
         RoomObject props = RoomHarness.WithLumps(hub, bsp =>
@@ -62,7 +66,34 @@ public sealed class LevelLinkerRefusalTests
         });
 
         LinkException refused = await LinkPairAsync(props);
-        Assert.Contains("game lump 'sprp'", refused.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            "room hub has static props but no static prop data from its compile (a pack written before the link carried"
+            + " static props, or a room built without ssmap room); recompile the library with ssmap room.",
+            refused.Message);
+        Assert.DoesNotContain("game lump 'sprp'", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A room with detail props (a non-zero byte in the detail prop game
+    /// lump) is still refused by lump id, with the message it always had,
+    /// until the link carries detail props.
+    /// </summary>
+    [Fact]
+    public async Task ARoomWithDetailPropsIsStillRefused()
+    {
+        RoomObject hub = await HubAsync();
+        RoomObject props = RoomHarness.WithLumps(hub, bsp =>
+        {
+            GameLumpEntry dprp = bsp.GameLumps.First(g => g.IdString() == "dprp");
+            byte[] data = dprp.Data.ToArray();
+            data[0] = 1;
+            bsp.GameLumps[bsp.GameLumps.IndexOf(dprp)] = dprp with { Data = data };
+        });
+
+        LinkException refused = await LinkPairAsync(props);
+        Assert.Equal(
+            "room hub has content in game lump 'dprp' (static or detail props); the relocation carries only empty game lumps",
+            refused.Message);
     }
 
     /// <summary>

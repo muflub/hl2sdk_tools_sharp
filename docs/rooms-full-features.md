@@ -148,7 +148,9 @@ In the order it checks:
 3. a leaf with `LeafWaterDataId != -1`;
 4. more than two areas or more than one area portal (`RefuseAreaPortals`);
 5. any non-zero byte in any game lump (`RefuseGameLumpContent`: static and
-   detail props);
+   detail props; since PR 6 static props are carried, and a static prop lump
+   with content is refused only when the room carries no static prop data
+   from its compile);
 6. displacement collision (`RefuseDisplacementCollision`);
 7. and, in `LinkAsync`, a pak holding any file (`RefusePackedFilesAsync`;
    since PR 5 the files are carried and only a pak that is not a zip is
@@ -252,7 +254,7 @@ or research).
 | Point entities | carried (origin, yaw); names duplicated | name and I/O positions, parsed placeholders | resolve names, drop/keep, fold, singletons | 1 each; logic may fold to 0 | M |
 | Brush entities | refused (`models != 1`) | models, subtrees, per-model collision, origin class | rebase models, `model` keys, texinfo split for origin models | 1 each | L |
 | `func_ladder` | silently wrong (`info_ladder` bounds) | bounds per rotation | none | 1 (`info_ladder`) | S |
-| Static props | refused (game lump) | props per rotation, dictionary, hulls; lighting ×1, or ×4 if sunlit | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
+| Static props | carried since PR 6 (moved, filtered, dictionaries merged, leaves recomputed, `.vhv` renamed) | props per rotation, dictionary, hulls; lighting ×1, or ×4 if sunlit | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
 | Detail props | refused (game lump) | props per rotation, leaf-local runs; lighting ×1, or ×4 if sunlit | renumber leaves, re-sort, merge dictionaries | 0 | M |
 | Displacements | refused at split (`VmfPlacement.MoveSide`) | lumps and collision per rotation, sample positions | rebase; cross-room neighbours only if allowed | 0 | L |
 | Water | refused (water leaf, lump) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
@@ -436,7 +438,7 @@ position. vrad lights each prop per vertex and writes `sp_N.vhv` /
 (`StaticPropLighting.FileName`, `WriteIntoAsync`). Texel-lit props
 (`texelslighting_N.ppl`) are not ported (`StaticPropLighting` remarks).
 
-**Today.** Refused by `RefuseGameLumpContent`.
+**Today.** Carried since PR 6 (section 13, its landed note).
 
 **Pack vs link.** Per rotation: each prop's moved record; its hull (convex
 hull planes, or the prop-space box and hull) so the link can recompute leaf
@@ -2314,6 +2316,92 @@ change, since vbsp packs the flattened level's files under the level's name
 itself, and the real-content set (the 3x3 sample with the synthetic sky)
 asserts the linked pak equals the flattened compile's, name for name and
 byte for byte.
+
+**PR 6 landed** (static props). `ssmap room` takes every `prop_static`
+as the map loader read it, before vbsp turns it into a record and drops the
+entity, and after the compile matches each record of the room's `sprp` lump
+to its entity (the next one with the record's model, origin and angles,
+which vbsp copied from it). It reads each dictionary model's meshes from
+the game content with the read vbsp's hull build makes
+(`StaticPropEmitter.LoadMeshesAsync`) and stores, per room, one `PROP`
+section (`RoomStaticProps`): per dictionary entry the model's meshes in
+model space (the hull, stored once: it does not turn), per prop its Hammer
+id, its `room_needs` conditions, its socket and `socket_priority`, then the
+rotation count (4) and every prop's pose per turn: origin, angles and
+lighting origin turned, and its hull's box, the translation left to the
+link. The records themselves, and the dictionary, stay in the room's `sprp`
+lump inside its container, byte for byte. The section has the 1.1 framing
+(codec byte, decoded length, revision; codec none). The link plans the
+props before the pak (`LevelLinker.PlanProps`): per placement in link
+order, each prop is kept when its `room_needs` holds (`RoomNeeds.Hold`, the
+resolver's (c) rule on records) and, for socket furniture, when the level
+keeps that side's furniture (`SocketFurniture`); the dictionary is merged in
+the order a kept prop first names a model, each exact name once, so the
+lump is a function of the layout. After assembly each kept record takes its
+placement's translation (the same float additions as every moved point, a
+zero unsigned as the flatten writes it) and its leaves
+(`LevelLinker.WritePropsAsync`): a prop whose hull box lies in its cell and
+clear of every jointed plug box keeps its room's own list, rebased, since
+the linked tree below the top tree is the room's there; any other prop (by
+a jointed door, or socket furniture) is walked through the linked tree with
+vbsp's walk (`StaticPropLeaves`) and the managed hull rebuilt from the
+stored meshes, which finds the carved doorway leaves and the neighbour's.
+The lump replaces the first room's `sprp` in place at version 10; a level
+whose rooms have no props carries the first room's game lumps byte for byte,
+so no linked map without props moved and no golden digest changed. The
+flatten needs no new transform: it moves a `prop_static` like any point
+entity, and the pose turn is written to give the floats vbsp reads back
+from the flatten's keys (`RoomStaticProps.Turn`), so the two maps' records
+agree bit for bit; it applies `room_needs` through the resolver, as it
+did, and drops socket furniture by the link's rule. vrad's prop lighting
+files in a room's pak (`sp_N.vhv`, `sp_hdr_N.vhv`) are written once per
+kept placement of their prop under its linked index, and left out for a
+dropped prop (`LevelPakFiles`); rooms compile without vrad, so today only
+a room a host lit carries them. Static props have no convexes in the
+collide lump (the engine builds a prop's collision from its model's
+`.phy`), so the collision merge is unchanged; the hull serves the leaves
+and the cell rule. They cost the level no entity: `prop_static` and
+`info_lighting` are compile-only, and a level with props has the entity
+lump and budget of the same level without them. Limits: 65,535 props,
+dictionary entries and leaf entries, each refused naming the placement
+that crossed it. The pack format version stays 3: `PROP` is a tag an older
+build skips, and that build still refuses a room with props by its lump; a
+pack written before this PR has no `PROP` for a room with props, which this
+build refuses with `room {room} has static props but no static prop data
+from its compile (...); recompile the library with ssmap room.`, so no pack
+reads silently wrong and there is no new promise for a version to carry.
+Detail props keep their refusal and its text; the old refusal of static
+props by lump id is gone. Measured on a 16 x 16 grid of hubs with four props
+each (one by a jointed door), on a busy 4-core machine: poses stored for
+four turns or for one (the link turning them) link in the same time within
+the noise, so the writer keeps 1.1's default of four; walking every prop
+added 50 to 70 ms to a link of about 30 ms, and reusing the room's lists
+where they are exact brings that to about 10 to 20 ms. Decisions taken where
+this document is open: O6 as recommended, refused when the room is packed
+with the 15.4 text, the distance being how far the hull's box passes the
+cell's (two decimals); socket furniture is a prop whose `room_socket` (O5's
+key) names one of its room's sockets, and its hull may leave the cell only
+into the doorway beyond that socket (the socket's plug box mirrored through
+the cell face, the neighbour's plug box at a joint), tested on the hull, not
+its box; O5's rule is applied to props now (dropped at a cap; at a joint
+the side whose furniture has the higher `socket_priority`, its pieces'
+highest, 0 unset, and on a tie the earlier in link order; a side with no
+furniture never takes the doorway from one that has some), and brush
+entities join it with PR 7; two refusals the table does not list are
+added, `room {room}: prop_static {id} has room_socket "{value}", which is
+not a socket of the room.` and `room {room}: prop_static {id} has
+socket_priority "{value}", which is not a whole number.`; O13 as
+recommended, refused before the room's compile with the 15.4 text (any
+`generatelightmaps`); the stored hull is the model's meshes in prop space
+with the pose per turn (the "prop-space box and hull" of 4.3), not planes;
+lighting waits for Q4 (no base bake is stored, so there are no sunlit ×4
+variants yet). A known difference, not refused: a `lightingorigin` naming a
+neighbour's `info_lighting` (`cx+1ry_...`), or a global name several
+placements define, is resolved inside the room by the room's compile and
+across the level by the flattened compile's, so the two can light a prop
+from different points; a room-local name (`cxry_...`) agrees. Not done
+here: `ssmap rooms` does not list props, and the stress library, which
+compiles without game content, has none.
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity

@@ -24,7 +24,7 @@ public static partial class LevelLinker
     /// indices shifted by the bases, the top tree above them, the jointed
     /// plugs stripped (their brushes dropped, their faces drawn nodraw), and
     /// the lumps that exist once per map merged: <paramref name="mergedPak"/>
-    /// is the rooms' packed files (<see cref="LevelPakFiles.Merge"/>), or
+    /// is the rooms' packed files (<see cref="LevelPakFiles"/>'s merge), or
     /// null when no room packs one.
     /// </summary>
     /// <returns>The map, and how many brushes the fold removed (0 when it did not run).</returns>

@@ -7,6 +7,8 @@
 
 using SourceSharp.MapFormats.Zip;
 
+using SourceSharp.MapTools.Rad.Props;
+
 namespace SourceSharp.MapTools.Rooms;
 
 /// <summary>
@@ -48,9 +50,20 @@ namespace SourceSharp.MapTools.Rooms;
 /// rooms' copies are the same bytes and merge into one; the level's name
 /// is the one a vbsp compile of the flattened level writes it under, so the
 /// linked map and the flattened one hold the same files after renaming.
-/// The cubemap samples and the static prop lighting files, whose names hold
-/// world positions or prop indices, are renamed by the features that carry
-/// them; until then the lumps they come with are refused.
+/// The cubemap samples, whose names hold world positions, are renamed by
+/// the feature that carries them; until then the lump they come with is
+/// refused.
+/// </para>
+/// <para>
+/// <b>Static prop lighting.</b> vrad names each static prop's vertex
+/// lighting by the prop's index in the map's lump (<c>sp_N.vhv</c>, and
+/// <c>sp_hdr_N.vhv</c> for HDR), and the engine finds a prop's file by
+/// that index. A linked prop has a new index, and a room placed twice has
+/// each prop twice, so a room's lighting file is written once per kept
+/// placement of its prop, under the prop's linked index; the file of a
+/// prop the level drops (<c>room_needs</c>, socket furniture) is left out.
+/// The bytes are the room's: vertex lighting is stored in the model's
+/// vertex order, which a turn does not move (the rooms design, 1.1).
 /// </para>
 /// <para>
 /// <b>Deterministic.</b> The archive is written by
@@ -145,20 +158,77 @@ public static class LevelPakFiles
     /// to be renamed to a map name nobody gave.
     /// </exception>
     internal static (byte[]? Pak, int Files) Merge(
-        IReadOnlyList<(string Room, ZipArchiveReader Pak)> rooms, string mapBase, CancellationToken cancellationToken)
+        IReadOnlyList<(string Room, ZipArchiveReader Pak)> rooms, string mapBase, CancellationToken cancellationToken) =>
+        Merge(rooms, mapBase, propFiles: null, cancellationToken);
+
+    /// <summary>
+    /// Merges the paks of the rooms a level places, renaming the rooms'
+    /// static prop lighting files to the props' linked indices.
+    /// </summary>
+    /// <param name="rooms">As for <see cref="Merge(IReadOnlyList{ValueTuple{string, ZipArchiveReader}}, string, CancellationToken)"/>.</param>
+    /// <param name="mapBase">As for the overload without props.</param>
+    /// <param name="propFiles">
+    /// Per room with static props, every (room prop, linked prop) pair of
+    /// the level (<see cref="LevelLinker.PlanProps"/>), or null when no
+    /// placed room has static props: a room listed here has each of its
+    /// <c>sp_N.vhv</c> and <c>sp_hdr_N.vhv</c> written once per pair of its
+    /// prop N, under the linked index, and not at all when the level keeps
+    /// no placement of that prop. A room not listed keeps its files' names.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the merge.</param>
+    /// <returns>As for the overload without props.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="rooms"/> or <paramref name="mapBase"/> is null.</exception>
+    /// <exception cref="LinkException">As for the overload without props.</exception>
+    internal static (byte[]? Pak, int Files) Merge(
+        IReadOnlyList<(string Room, ZipArchiveReader Pak)> rooms,
+        string mapBase,
+        IReadOnlyDictionary<string, IReadOnlyList<(int RoomProp, int Linked)>>? propFiles,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rooms);
         ArgumentNullException.ThrowIfNull(mapBase);
         Dictionary<string, (string Room, ZipEntry Entry)> merged = new(StringComparer.Ordinal);
+        void Add(string room, string name, ZipEntry entry)
+        {
+            if (!merged.TryGetValue(name, out (string Room, ZipEntry Entry) held))
+            {
+                merged.Add(name, (room, name == entry.Name ? entry : Renamed(entry, name)));
+                return;
+            }
+
+            if (!SameBytes(held.Entry, entry))
+            {
+                throw new LinkException(
+                    string.Equals(held.Room, room, StringComparison.Ordinal)
+                        ? $"room {room} packs {name} twice with different bytes."
+                        : $"rooms {held.Room} and {room} both pack {name} with different bytes.");
+            }
+        }
+
         foreach ((string room, ZipArchiveReader pak) in rooms)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlyList<(int RoomProp, int Linked)>? props = null;
+            _ = propFiles?.TryGetValue(room, out props);
             foreach (ZipEntry entry in pak.Entries)
             {
                 // The writer drops an empty entry (vbsp's does too), so an
                 // empty file is not a file of the level either.
                 if (entry.Data.Length == 0)
                 {
+                    continue;
+                }
+
+                if (props is not null && PropLightingFile(entry.Name) is { } lighting)
+                {
+                    foreach ((int roomProp, int linked) in props)
+                    {
+                        if (roomProp == lighting.Prop)
+                        {
+                            Add(room, StaticPropLighting.FileName(linked, lighting.Hdr), entry);
+                        }
+                    }
+
                     continue;
                 }
 
@@ -169,20 +239,7 @@ public static class LevelPakFiles
                         + " and was given none (the map name of the link's compile context).");
                 }
 
-                string name = LinkedName(entry.Name, room, mapBase);
-                if (!merged.TryGetValue(name, out (string Room, ZipEntry Entry) held))
-                {
-                    merged.Add(name, (room, name == entry.Name ? entry : Renamed(entry, name)));
-                    continue;
-                }
-
-                if (!SameBytes(held.Entry, entry))
-                {
-                    throw new LinkException(
-                        string.Equals(held.Room, room, StringComparison.Ordinal)
-                            ? $"room {room} packs {name} twice with different bytes."
-                            : $"rooms {held.Room} and {room} both pack {name} with different bytes.");
-                }
+                Add(room, LinkedName(entry.Name, room, mapBase), entry);
             }
         }
 
@@ -217,6 +274,35 @@ public static class LevelPakFiles
 
         string leaf = file[leafStart..];
         return leaf is DefaultCubemap or DefaultCubemapHdr ? leaf : null;
+    }
+
+    /// <summary>
+    /// The prop a static prop lighting file lights and whether it is the
+    /// HDR one, when <paramref name="file"/> is named as vrad names them
+    /// (<see cref="StaticPropLighting.FileName"/>: at the pak's root, the
+    /// index in decimal without leading zeros); else null.
+    /// </summary>
+    /// <param name="file">A pak entry's name.</param>
+    /// <returns>The prop index and HDR flag, or null.</returns>
+    internal static (int Prop, bool Hdr)? PropLightingFile(string file)
+    {
+        const string prefix = "sp_";
+        const string hdr = "hdr_";
+        const string extension = ".vhv";
+        if (!file.StartsWith(prefix, StringComparison.Ordinal) || !file.EndsWith(extension, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string middle = file[prefix.Length..^extension.Length];
+        bool isHdr = middle.StartsWith(hdr, StringComparison.Ordinal);
+        string digits = isHdr ? middle[hdr.Length..] : middle;
+        return digits.Length > 0
+            && digits.All(char.IsAsciiDigit)
+            && (digits.Length == 1 || digits[0] != '0')
+            && int.TryParse(digits, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int prop)
+            ? (prop, isHdr)
+            : null;
     }
 
     private static ZipEntry Renamed(ZipEntry entry, string name) =>

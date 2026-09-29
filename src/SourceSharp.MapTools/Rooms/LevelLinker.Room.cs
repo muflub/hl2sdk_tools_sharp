@@ -126,21 +126,39 @@ public static partial class LevelLinker
     }
 
     /// <summary>
-    /// Refuses static and detail props (and any other game-lump content): the
-    /// game lumps are carried only when every room's are all zeros.
+    /// Refuses detail props (and any other game-lump content but the static
+    /// props the room's compile described): the game lumps are carried only
+    /// when every room's are all zeros, except the static prop lump, which
+    /// the link rebuilds for the level (<see cref="WritePropsAsync"/>).
     /// </summary>
     /// <remarks>
     /// vbsp always writes the static-prop and detail-prop game lumps, even
     /// empty; empty is every count zero, which for these formats is every byte
-    /// zero. Relocating real props would mean moving their origins and angles,
-    /// merging their model dictionaries and renumbering the leaf lists they
-    /// carry — none of which the linker does — so a room with any is refused
-    /// by name rather than having its props silently dropped.
+    /// zero. Relocating detail props would mean moving their origins and
+    /// angles, merging their dictionaries and renumbering their leaves, which
+    /// the link does not do yet, so a room with any is refused by name rather
+    /// than having them silently dropped. Static props are carried when the
+    /// room's compile left their data with the room
+    /// (<see cref="RoomObject.Props"/>): the models' hulls and the keys vbsp
+    /// consumed are not in the lump, so a room without it is refused
+    /// (<see cref="RefuseUndescribedProps"/>).
     /// </remarks>
-    private static void RefuseGameLumpContent(string name, BspData bsp)
+    private static void RefuseGameLumpContent(RoomObject room)
     {
-        foreach (GameLumpEntry entry in bsp.GameLumps)
+        string name = room.Definition.Name;
+        int staticProps = GameLumpId.MakeId(GameLumpId.StaticProps);
+        foreach (GameLumpEntry entry in room.Bsp.GameLumps)
         {
+            if (entry.Id == staticProps)
+            {
+                if (room.StaticProps is null)
+                {
+                    RefuseUndescribedProps(room);
+                }
+
+                continue;
+            }
+
             if (entry.Data.Span.ContainsAnyExcept((byte)0))
             {
                 throw new LinkException(

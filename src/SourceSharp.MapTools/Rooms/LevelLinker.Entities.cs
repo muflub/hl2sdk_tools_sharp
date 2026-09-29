@@ -510,7 +510,7 @@ public static partial class LevelLinker
     }
 
     /// <summary>A yaw turned by quarter turns, kept in [0, 360).</summary>
-    private static float TurnYaw(float yaw, int turns)
+    internal static float TurnYaw(float yaw, int turns)
     {
         float turned = (yaw + (90f * turns)) % 360f;
         return turned < 0 ? turned + 360f : turned;
