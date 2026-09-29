@@ -79,7 +79,9 @@ internal sealed class RoomLinkData
     /// <param name="vis">The room's own visibility.</param>
     /// <param name="shared">The rotation-free part.</param>
     /// <param name="rotations">Four slots, by quarter turn; a slot may be null when that turn was not read.</param>
-    public RoomLinkData(RoomDefinition definition, BspData bsp, VisResult vis, RoomLinkShared shared, RoomLinkRotation?[] rotations)
+    /// <param name="doors">The room's door visibility, or null when it was not read (the link works it out).</param>
+    public RoomLinkData(
+        RoomDefinition definition, BspData bsp, VisResult vis, RoomLinkShared shared, RoomLinkRotation?[] rotations, RoomDoorVisibility? doors = null)
     {
         if (rotations.Length != 4)
         {
@@ -91,6 +93,7 @@ internal sealed class RoomLinkData
         Vis = vis;
         Shared = shared;
         _rotations = rotations;
+        Doors = doors;
     }
 
     /// <summary>The definition it was computed from.</summary>
@@ -104,6 +107,13 @@ internal sealed class RoomLinkData
 
     /// <summary>The part that depends on the room alone.</summary>
     public RoomLinkShared Shared { get; }
+
+    /// <summary>
+    /// The room's door visibility (<see cref="RoomDoorVisibility"/>), which
+    /// depends on the room alone; null when not held, and the link then
+    /// works it out from the room's own vvis and census.
+    /// </summary>
+    public RoomDoorVisibility? Doors { get; }
 
     /// <summary>The part for one quarter turn, or null when it is not held.</summary>
     /// <param name="rotation">The quarter turns, 0 to 3.</param>

@@ -69,6 +69,20 @@ public sealed record LevelLinkOptions
     /// </remarks>
     public bool FoldBrushes { get; init; } = true;
 
+    /// <summary>
+    /// Compose the level's visibility through its doorways
+    /// (<see cref="LevelDoorVisibility"/>): on by default, off with
+    /// <c>ssmap link -nodoorvis</c>.
+    /// </summary>
+    /// <remarks>
+    /// Off, the link writes the visibility it wrote before: the door graph's
+    /// transitive closure, in which every cluster of a level sees every
+    /// other. That is never tighter and costs nothing to compute, and it is
+    /// kept as the measure the door visibility is compared against and as a
+    /// switch for a host that wants the old bytes.
+    /// </remarks>
+    public bool DoorVisibility { get; init; } = true;
+
     /// <summary>No override: the library's reserve and the shipped class table.</summary>
     public static LevelLinkOptions Default { get => new(); }
 }

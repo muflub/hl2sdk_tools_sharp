@@ -38,10 +38,11 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 internal static class DoorGraphFacts
 {
     /// <summary>
-    /// Asserts the linked level's whole visibility story: the cluster space is
-    /// every room's own clusters in layout order; every row equals the door
-    /// graph replay; and the delivered BSP's visibility lump decompresses back
-    /// to exactly those rows.
+    /// Asserts the linked level's whole visibility story for a level linked
+    /// with the door graph's closure (<see cref="LevelLinkOptions.DoorVisibility"/>
+    /// off): the cluster space is every room's own clusters in layout order;
+    /// every row equals the door graph replay; and the delivered BSP's
+    /// visibility lump decompresses back to exactly those rows.
     /// </summary>
     public static void AssertDoorGraph(LinkedLevel link, LevelLayout layout, RoomLibrary library)
     {
@@ -61,11 +62,70 @@ internal static class DoorGraphFacts
             }
         }
 
-        // The visibility lump is not just the VisResult's mirror: it is the
-        // file's row set, RLE-packed with the header vvis writes, and it must
-        // decompress back to exactly those rows.
+        AssertLump(link);
+    }
+
+    /// <summary>
+    /// Asserts what a level linked with door visibility (the default) must
+    /// hold whatever the doorways let through: the cluster space is every
+    /// room's own clusters in layout order; every row is within the door
+    /// graph replay (the door flow only ever removes pairs from the closure);
+    /// every room's own vvis rows are kept; the rows are symmetric and every
+    /// cluster sees itself; and the lump decompresses back to the rows.
+    /// </summary>
+    /// <returns>The visible pairs, and the door graph's, for the caller's report.</returns>
+    public static (int Visible, int DoorGraph) AssertWithinDoorGraph(LinkedLevel link, LevelLayout layout, RoomLibrary library)
+    {
+        int expectedClusters = layout.Rooms.Sum(i => library.Get(i.Placement.Room).ClusterCount);
+        Assert.Equal(expectedClusters, link.Vis.ClusterCount);
+
+        bool[][] closure = ExpectedRows(layout, library);
+        int visible = 0, graph = 0;
+        for (int from = 0; from < link.Vis.ClusterCount; from++)
+        {
+            Assert.True(link.Vis.CanSee(from, from), $"cluster {from} does not see itself");
+            for (int to = 0; to < link.Vis.ClusterCount; to++)
+            {
+                bool sees = link.Vis.CanSee(from, to);
+                visible += sees ? 1 : 0;
+                graph += closure[from][to] ? 1 : 0;
+                Assert.True(!sees || closure[from][to], $"cluster {from} sees {to}, which the door graph's closure does not");
+                Assert.True(sees == link.Vis.CanSee(to, from), $"cluster {from} seeing {to} is not symmetric");
+            }
+        }
+
+        // Each room's own vvis survives into its rows.
+        int clusterBase = 0;
+        foreach (RoomInstance instance in layout.Rooms)
+        {
+            RoomObject room = library.Get(instance.Placement.Room);
+            for (int c = 0; c < room.ClusterCount; c++)
+            {
+                for (int d = 0; d < room.ClusterCount; d++)
+                {
+                    Assert.True(
+                        !room.Vis.CanSee(c, d) || link.Vis.CanSee(clusterBase + c, clusterBase + d),
+                        $"room {room.Definition.Name}'s own cluster {c} sees {d}; linked, it does not");
+                }
+            }
+
+            clusterBase += room.ClusterCount;
+        }
+
+        AssertLump(link);
+        return (visible, graph);
+    }
+
+    /// <summary>
+    /// The visibility lump is not just the VisResult's mirror: it is the
+    /// file's row set, RLE-packed with the header vvis writes, and each of
+    /// its PVS and PAS rows must decompress back to exactly the result's.
+    /// </summary>
+    private static void AssertLump(LinkedLevel link)
+    {
         byte[] lump = [.. link.Bsp[BspLump.Visibility].Data.Span];
         Assert.Equal(link.Vis.ClusterCount, BitConverter.ToInt32(lump, 0));
+        Assert.Equal(lump.Length, link.Vis.VisDataSize);
         int rowBytes = link.Vis.RowBytes;
         for (int cluster = 0; cluster < link.Vis.ClusterCount; cluster++)
         {
@@ -74,6 +134,11 @@ internal static class DoorGraphFacts
             byte[] row = new byte[rowBytes];
             VisRunLength.Decompress(lump.AsSpan(offset, lump.Length - offset), row);
             Assert.True(row.SequenceEqual(link.Vis.Pvs(cluster)), $"row {cluster} does not survive the lump");
+
+            int pasOffset = BitConverter.ToInt32(lump, 8 + cluster * 8);
+            Assert.True(pasOffset > 0 && pasOffset < lump.Length, $"PAS row {cluster} offset {pasOffset} is outside the lump");
+            VisRunLength.Decompress(lump.AsSpan(pasOffset, lump.Length - pasOffset), row);
+            Assert.True(row.SequenceEqual(link.Vis.Pas(cluster)), $"PAS row {cluster} does not survive the lump");
         }
     }
 

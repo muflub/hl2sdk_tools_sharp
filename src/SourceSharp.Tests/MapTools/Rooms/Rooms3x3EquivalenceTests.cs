@@ -59,8 +59,9 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// player-passable space, as the layout's joints say, in both maps; and a
 /// standing player's hull, not just a point, fits all the way from every
 /// room to every other.</item>
-/// <item><b>Visibility</b>: the linked PVS is exactly the door-graph replay,
-/// and a superset of what the real vvis sees in the monolithic map.</item>
+/// <item><b>Visibility</b>: the linked PVS, composed through the doorways,
+/// lies within the door-graph replay and keeps every room's own rows, and
+/// it is a superset of what the real vvis sees in the monolithic map.</item>
 /// <item><b>Collision</b>: the world collision holds the same convexes, in the
 /// same contents classes, at the same places, and every room has some.</item>
 /// <item><b>Faces</b>: every plane draws the same area in the same material,
@@ -214,7 +215,7 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
         DoorwaysAreOpenExactlyWhereTheLayoutJointsThemCheck(pair);
         TracesStopAtTheSameFractionCheck(pair);
         EveryRoomReachesExactlyTheRoomsItsDoorsJoinCheck(pair);
-        TheLinkedPvsIsTheDoorGraphAndCoversTheMonolithicPvsCheck(pair, library);
+        TheLinkedPvsIsWithinTheDoorGraphAndCoversTheMonolithicPvsCheck(pair, library);
         WorldCollisionHoldsTheSameConvexesCheck(pair);
         FacesDifferOnlyByTheStrippedDoorwaySurfacesCheck(pair);
         EntitiesAreTheSameCheck(pair);
@@ -549,21 +550,23 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
     // ---- 5. visibility -----------------------------------------------------------
 
     /// <summary>
-    /// The linked PVS is exactly the door-graph replay of the rooms' own
-    /// rows and the layout's joints, and it is a superset of what the real
-    /// vvis sees in the monolithic map: every pair of monolithic clusters
-    /// that see each other maps to linked clusters that do too.
+    /// The linked PVS lies within the door-graph replay of the rooms' own
+    /// rows and the layout's joints and keeps each room's own rows, and it
+    /// is a superset of what the real vvis sees in the monolithic map: every
+    /// pair of monolithic clusters that see each other maps to linked
+    /// clusters that do too. This is the proof that the door visibility is
+    /// conservative, on every arrangement of the sample.
     /// </summary>
     [Theory]
     [MemberData(nameof(Cases))]
-    public async Task TheLinkedPvsIsTheDoorGraphAndCoversTheMonolithicPvs(string name) =>
-        TheLinkedPvsIsTheDoorGraphAndCoversTheMonolithicPvsCheck(await fixture.PairAsync(name), fixture.Library);
+    public async Task TheLinkedPvsIsWithinTheDoorGraphAndCoversTheMonolithicPvs(string name) =>
+        TheLinkedPvsIsWithinTheDoorGraphAndCoversTheMonolithicPvsCheck(await fixture.PairAsync(name), fixture.Library);
 
-    /// <summary>The check behind <see cref="TheLinkedPvsIsTheDoorGraphAndCoversTheMonolithicPvs"/>, for any pair.</summary>
-    internal static void TheLinkedPvsIsTheDoorGraphAndCoversTheMonolithicPvsCheck(Rooms3x3Pair pair, RoomLibrary library)
+    /// <summary>The check behind <see cref="TheLinkedPvsIsWithinTheDoorGraphAndCoversTheMonolithicPvs"/>, for any pair.</summary>
+    internal static void TheLinkedPvsIsWithinTheDoorGraphAndCoversTheMonolithicPvsCheck(Rooms3x3Pair pair, RoomLibrary library)
     {
         string name = pair.Case.Name;
-        DoorGraphFacts.AssertDoorGraph(pair.Linked, pair.Layout, library);
+        DoorGraphFacts.AssertWithinDoorGraph(pair.Linked, pair.Layout, library);
 
         // Each monolithic open cluster, by the linked clusters of sample points
         // inside its own leaves: the centre and eight points a third of the

@@ -251,11 +251,15 @@ internal static class RoomLinkSections
     /// <param name="data">The link data, every turn's every part present (collision only if the room has some).</param>
     /// <param name="parts">Which per-turn parts to store.</param>
     /// <param name="codec">How to store every section's payload.</param>
-    /// <returns><c>LNKA</c>, then per turn its <c>GEO</c>, <c>COL</c> and <c>ENT</c> sections.</returns>
+    /// <returns><c>LNKA</c>, the door visibility (<c>DVIS</c>) when the data holds it, then per turn its <c>GEO</c>, <c>COL</c> and <c>ENT</c> sections.</returns>
     public static IReadOnlyList<RoomPackSectionData> Write(
         RoomLinkData data, RoomLinkParts parts = StoredParts, RoomLinkCodec codec = RoomLinkCodec.None)
     {
         List<RoomPackSectionData> sections = [new(SharedTag, Encode(WriteShared(data.Shared), codec))];
+        if (data.Doors is { } doors)
+        {
+            sections.Add(new(RoomDoorVisibility.SectionTag, doors.ToSection(codec)));
+        }
         for (int rotation = 0; rotation < 4; rotation++)
         {
             RoomLinkRotation turn = data.Rotation(rotation)
@@ -296,6 +300,7 @@ internal static class RoomLinkSections
         }
 
         RoomLinkShared linkShared = ReadShared(shared, room);
+        RoomDoorVisibility? doors = RoomDoorVisibility.Read(section(RoomDoorVisibility.SectionTag), room);
         RoomLinkRotation?[] turns = new RoomLinkRotation?[4];
         for (int rotation = 0; rotation < 4; rotation++)
         {
@@ -313,7 +318,7 @@ internal static class RoomLinkSections
                 entities is null ? null : ReadEntities(entities));
         }
 
-        return new RoomLinkData(room.Definition, room.Bsp, room.Vis, linkShared, turns);
+        return new RoomLinkData(room.Definition, room.Bsp, room.Vis, linkShared, turns, doors);
     }
 
     /// <summary>A section's payload with its codec byte in front.</summary>

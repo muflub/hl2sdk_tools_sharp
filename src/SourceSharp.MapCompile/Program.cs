@@ -468,7 +468,7 @@ public static class Program
                                                       -incremental reuses unchanged rooms from
                                                       <library>.sscache.db (the same pack)
               link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]
-                   [-no-nav | -require-nav] [-nav-codec <c>] [-mod-entities] [-nofold]
+                   [-no-nav | -require-nav] [-nav-codec <c>] [-mod-entities] [-nofold] [-nodoorvis]
                                                       the level's rooms -> one linked map
                                                       and its <map>.nav3d beside it;
                                                       reports its edicts against 2048 less
@@ -477,7 +477,9 @@ public static class Program
                                                       cxry_ names resolved to their cells,
                                                       -mod-entities writes logic_room;
                                                       touching box brushes fold into one
-                                                      (-nofold keeps them apart)
+                                                      (-nofold keeps them apart);
+                                                      visibility through the doorways
+                                                      (-nodoorvis: every cluster sees all)
               link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
                                                       the same level as one VMF, for vbsp
               rooms <library.vmf> [-rooms <pack.roompack>]

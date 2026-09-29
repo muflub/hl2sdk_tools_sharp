@@ -96,6 +96,20 @@ internal sealed class LevelProbe
         return ~index;
     }
 
+    /// <summary>
+    /// Whether a segment is a sight line for vis: every leaf it passes
+    /// through (with the engine's epsilon slivers either side of each node
+    /// plane) belongs to a cluster, so no structural solid lies across it.
+    /// Detail brushes and non-solid contents do not block it, as they do not
+    /// block vvis.
+    /// </summary>
+    public bool SightLine(Vec3 start, Vec3 end)
+    {
+        HashSet<int> leaves = [];
+        Walk(0, start, end, leaves);
+        return leaves.All(l => _leafs[l].Cluster >= 0);
+    }
+
     /// <summary>The contents the engine reports at a point: its leaf's.</summary>
     public int Contents(Vec3 p) => _leafs[Leaf(p)].Contents;
 

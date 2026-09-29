@@ -111,7 +111,7 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
         }
 
         Rooms3x3Pair sample = await fixture.PairAsync(Rooms3x3Permutations.LevelName);
-        DoorGraphFacts.AssertDoorGraph(sample.Linked, sample.Layout, fixture.Library);
+        DoorGraphFacts.AssertWithinDoorGraph(sample.Linked, sample.Layout, fixture.Library);
 
         // With the pack beside the library, ssmap layout budgets every level
         // (cap - reserve by default), and the sample's seeded levels, far

@@ -92,6 +92,7 @@ public static partial class LevelLinker
             FacesVersion = bsp[BspLump.Faces].Version,
             LeafsVersion = bsp[BspLump.Leafs].Version,
             LightingLength = bsp[BspLump.Lighting].Length,
+            DoorVisibility = stored?.Doors ?? RoomDoorVisibility.Compute(room, shared),
         };
 
         ApplyCensus(plan, shared);
@@ -532,6 +533,9 @@ public static partial class LevelLinker
         public required OcclusionLump? Occlusion { get; init; }
         public required int FacesVersion { get; init; }
         public required int LeafsVersion { get; init; }
+
+        /// <summary>The room's door visibility, stored with the room or worked out now (<see cref="RoomDoorVisibility"/>).</summary>
+        public required RoomDoorVisibility DoorVisibility { get; init; }
 
         /// <summary>Per jointed socket, the open room-local clusters facing it.</summary>
         public Dictionary<string, int[]> JointFacing { get; } = new(StringComparer.Ordinal);

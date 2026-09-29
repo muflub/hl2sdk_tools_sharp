@@ -518,6 +518,14 @@ public static class RoomCommands
     /// compiled. <c>--flatten</c> writes brushes for vbsp, so it takes no
     /// <c>-nofold</c>.
     /// </para>
+    /// <para>
+    /// <b>Visibility.</b> The link composes the level's PVS through its
+    /// doorways (<see cref="LevelLinkOptions.DoorVisibility"/>) and reports
+    /// the cluster pairs it marks visible and the visibility lump's size;
+    /// <c>-nodoorvis</c> writes the door graph's closure instead, in which
+    /// every cluster sees every other. <c>--flatten</c> leaves visibility to
+    /// vvis, so it takes no <c>-nodoorvis</c>.
+    /// </para>
     /// </remarks>
     public static async Task<int> RunLinkAsync(
         IFileSystem disk,
@@ -536,6 +544,7 @@ public static class RoomCommands
         bool flatten = false;
         bool modEntities = false;
         bool noFold = false;
+        bool noDoorVis = false;
         LinkNavOptions nav = new();
         for (int i = 0; i < args.Count; i++)
         {
@@ -586,16 +595,20 @@ public static class RoomCommands
             {
                 noFold = true;
             }
+            else if (IsFlag(args[i], "nodoorvis"))
+            {
+                noDoorVis = true;
+            }
             else
             {
                 rest.Add(args[i]);
             }
         }
 
-        if (rest.Count != 1 || (flatten && (roomsPack is not null || reserveText is not null || noFold)))
+        if (rest.Count != 1 || (flatten && (roomsPack is not null || reserveText is not null || noFold || noDoorVis)))
         {
             await output.WriteLineAsync(
-                "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
+                "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
                 + "       ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
@@ -665,7 +678,7 @@ public static class RoomCommands
             ? await FlattenAsync(disk, level, levelPath, libraryPath, targetPath, modEntities, output, cancellationToken).ConfigureAwait(false)
             : await LinkAsync(
                 disk, level, levelBytes, levelPath, libraryPath, roomsPack,
-                new LevelLinkOptions { EntityReserve = reserve, ModEntities = modEntities, FoldBrushes = !noFold }, targetPath, nav, output, cancellationToken)
+                new LevelLinkOptions { EntityReserve = reserve, ModEntities = modEntities, FoldBrushes = !noFold, DoorVisibility = !noDoorVis }, targetPath, nav, output, cancellationToken)
                 .ConfigureAwait(false);
     }
 
@@ -1508,6 +1521,14 @@ public static class RoomCommands
                 + (link.FoldedBrushes > 0 ? $" ({link.FoldedBrushes} folded away)" : string.Empty)
                 + (link.PackedFiles > 0 ? $", {link.PackedFiles} packed files" : string.Empty)
                 + (navPlan.WritesNavigation ? $", level id {navPlan.LevelId:D})" : ")"))
+                .ConfigureAwait(false);
+
+            // How much the level's visibility lets through: the pairs of
+            // clusters it marks visible, of all there are, and the lump.
+            long pairs = (long)link.Vis.ClusterCount * link.Vis.ClusterCount;
+            await output.WriteLineAsync(
+                $"ssmap link: visibility {link.Vis.TotalVisibleClusters} of {pairs} cluster pairs,"
+                + $" {link.Vis.VisDataSize} bytes")
                 .ConfigureAwait(false);
             if (navPlan.WritesNavigation)
             {

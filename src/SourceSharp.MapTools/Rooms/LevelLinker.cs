@@ -288,43 +288,17 @@ public static partial class LevelLinker
         }
 
         int clusterCount = clusterCursor; // at most short.MaxValue: CheckCapacity
-        int rowBytes = (clusterCount + 7) >> 3;
 
-        // Rows: own rows shifted into the global numbering, door edges from
-        // the joint graph (both directions), then the transitive closure.
-        byte[][] rows = new byte[clusterCount][];
-        foreach (RoomPlan plan in plans)
-        {
-            for (int c = 0; c < plan.ClusterCount; c++)
-            {
-                rows[plan.ClusterBase + c] = ShiftRow(plan.OwnRows[c], plan.ClusterBase, rowBytes);
-                OrBit(rows[plan.ClusterBase + c], plan.ClusterBase + c);
-            }
-        }
-
-        foreach ((RoomPlan a, RoomPlan b, int[] ca, int[] cb) in DoorEdges(resolved, plans))
-        {
-            foreach (int x in ca)
-            {
-                foreach (int y in cb)
-                {
-                    OrBit(rows[a.ClusterBase + x], b.ClusterBase + y);
-                    OrBit(rows[b.ClusterBase + y], a.ClusterBase + x);
-                }
-            }
-        }
-
-        CloseRows(rows, clusterCount, cancellationToken);
-
-        byte[] pvs = new byte[clusterCount * rowBytes];
-        int totalVisible = 0;
-        for (int c = 0; c < clusterCount; c++)
-        {
-            rows[c].CopyTo(pvs, c * rowBytes);
-            totalVisible += PopCount(rows[c]);
-        }
-
-        byte[] visibilityLump = BuildVisibilityLump(clusterCount, rowBytes, pvs, pvs);
+        // The level's visibility, composed from the rooms' own and the
+        // doorways between them (LevelDoorVisibility), or with the door
+        // visibility off, the door graph's closure.
+        LevelVisibility visibility = options.DoorVisibility
+            ? await LevelDoorVisibility.ComposeAsync(DoorRooms(resolved, plans), clusterCount, context.Parallelism, cancellationToken)
+                .ConfigureAwait(false)
+            : DoorGraphVisibility(resolved, plans, clusterCount, cancellationToken);
+        int rowBytes = visibility.RowBytes;
+        byte[] pvs = visibility.Pvs;
+        byte[] visibilityLump = BuildVisibilityLump(clusterCount, rowBytes, pvs, visibility.Pas);
         RoomInstance lastRoom = plans[^1].Placement.Instance;
         LimitVisibility(plans[^1].Placement.Room.Definition.Name, lastRoom.Placement.CellX, lastRoom.Placement.CellY, visibilityLump.Length);
 
@@ -351,11 +325,11 @@ public static partial class LevelLinker
             portalCount: 0,
             rowBytes,
             pvs,
-            (byte[])pvs.Clone(),
+            visibility.Pas,
             visDataSize: visibilityLump.Length,
-            totalVisibleClusters: totalVisible,
+            totalVisibleClusters: visibility.Visible,
             optimizedClusters: 0,
-            totalAudibleClusters: totalVisible,
+            totalAudibleClusters: visibility.Audible,
             usedRadius: false,
             visRadiusSquared: 0,
             deepestFlow: 0,
@@ -871,6 +845,124 @@ public static partial class LevelLinker
                 $"room {room} at cell ({cellX}, {cellY}) pushes the link to {count} {what};"
                 + $" the format carries at most {max}.");
         }
+    }
+
+    /// <summary>
+    /// The visibility the link wrote before door visibility, and still
+    /// writes with <see cref="LevelLinkOptions.DoorVisibility"/> off: each
+    /// room's own rows, every cluster facing a joint joined to every cluster
+    /// facing it from the other side, and the transitive closure. Every room
+    /// of a level is reachable, so every cluster sees every other; the PAS
+    /// is the PVS, which is already closed.
+    /// </summary>
+    private static LevelVisibility DoorGraphVisibility(
+        ResolvedPlacement[] resolved, RoomPlan[] plans, int clusterCount, CancellationToken cancellationToken)
+    {
+        int rowBytes = (clusterCount + 7) >> 3;
+        byte[][] rows = new byte[clusterCount][];
+        foreach (RoomPlan plan in plans)
+        {
+            for (int c = 0; c < plan.ClusterCount; c++)
+            {
+                rows[plan.ClusterBase + c] = ShiftRow(plan.OwnRows[c], plan.ClusterBase, rowBytes);
+                OrBit(rows[plan.ClusterBase + c], plan.ClusterBase + c);
+            }
+        }
+
+        foreach ((RoomPlan a, RoomPlan b, int[] ca, int[] cb) in DoorEdges(resolved, plans))
+        {
+            foreach (int x in ca)
+            {
+                foreach (int y in cb)
+                {
+                    OrBit(rows[a.ClusterBase + x], b.ClusterBase + y);
+                    OrBit(rows[b.ClusterBase + y], a.ClusterBase + x);
+                }
+            }
+        }
+
+        CloseRows(rows, clusterCount, cancellationToken);
+
+        byte[] pvs = new byte[clusterCount * rowBytes];
+        int totalVisible = 0;
+        for (int c = 0; c < clusterCount; c++)
+        {
+            rows[c].CopyTo(pvs, c * rowBytes);
+            totalVisible += PopCount(rows[c]);
+        }
+
+        return new LevelVisibility(pvs, (byte[])pvs.Clone(), rowBytes, totalVisible, totalVisible);
+    }
+
+    /// <summary>
+    /// The placed rooms as the door visibility reads them: cluster bases,
+    /// door visibility, own rows, placement, and every jointed socket with
+    /// its neighbour, the doorway on the shared cell face and the plug box
+    /// the link carves, in world coordinates.
+    /// </summary>
+    /// <remarks>
+    /// The doorway is the plug box's face on the cell face, where the two
+    /// rooms' plugs meet (<see cref="ValidateJoints"/> checked they meet
+    /// head-on); the two sides' faces are joined, so a kit whose two plugs
+    /// ever differed would still pass every line either lets through.
+    /// </remarks>
+    internal static LevelDoorRoom[] DoorRooms(ResolvedPlacement[] resolved, RoomPlan[] plans)
+    {
+        Dictionary<(int X, int Y), ResolvedPlacement> byCell = new(resolved.Length);
+        foreach (ResolvedPlacement placement in resolved)
+        {
+            byCell[(placement.Instance.Placement.CellX, placement.Instance.Placement.CellY)] = placement;
+        }
+
+        LevelDoorRoom[] rooms = new LevelDoorRoom[plans.Length];
+        for (int i = 0; i < plans.Length; i++)
+        {
+            RoomPlan plan = plans[i];
+            ResolvedPlacement a = resolved[i];
+            List<LevelDoor> joints = [];
+            foreach ((string socketName, string neighborSocket) in a.Instance.Joints)
+            {
+                RoomSocket mine = Socket(a.Room, socketName);
+                (RoomPlan other, RoomSocket theirs, int j) = Neighbor(a, mine, neighborSocket, byCell, plans);
+                int s = SocketIndex(a.Room.Definition, mine.Name);
+                int t = SocketIndex(other.Placement.Room.Definition, theirs.Name);
+                Box plug = plan.Transform.TranslateBox(plan.Geometry.PlugBoxes[s]);
+                Box face = CellFace(plug, plan.Transform.WorldNormal(mine.Facing));
+                Box otherFace = CellFace(
+                    other.Transform.TranslateBox(other.Geometry.PlugBoxes[t]), other.Transform.WorldNormal(theirs.Facing));
+                Box opening = RoomDoorVisibility.Union(face, otherFace);
+                (int axis, _) = plan.Transform.WorldNormal(mine.Facing);
+                opening = axis == 0
+                    ? new Box(new Vec3(face.Mins.X, opening.Mins.Y, opening.Mins.Z), new Vec3(face.Mins.X, opening.Maxs.Y, opening.Maxs.Z))
+                    : new Box(new Vec3(opening.Mins.X, face.Mins.Y, opening.Mins.Z), new Vec3(opening.Maxs.X, face.Mins.Y, opening.Maxs.Z));
+                joints.Add(new LevelDoor(s, j, t, opening, plug, plan.JointFacing[socketName]));
+            }
+
+            rooms[i] = new LevelDoorRoom
+            {
+                ClusterBase = plan.ClusterBase,
+                Doors = plan.DoorVisibility,
+                OwnRows = plan.OwnRows,
+                Transform = plan.Transform,
+                Joints = [.. joints],
+            };
+        }
+
+        return rooms;
+    }
+
+    /// <summary>A world plug box's face on its cell face: the box flattened to its outer side along the socket's world normal.</summary>
+    private static Box CellFace(Box plug, (int Axis, int Sign) normal)
+    {
+        (int axis, int sign) = normal;
+        if (axis == 0)
+        {
+            float x = sign > 0 ? plug.Maxs.X : plug.Mins.X;
+            return new Box(new Vec3(x, plug.Mins.Y, plug.Mins.Z), new Vec3(x, plug.Maxs.Y, plug.Maxs.Z));
+        }
+
+        float y = sign > 0 ? plug.Maxs.Y : plug.Mins.Y;
+        return new Box(new Vec3(plug.Mins.X, y, plug.Mins.Z), new Vec3(plug.Maxs.X, y, plug.Maxs.Z));
     }
 
     /// <summary>The joint graph's door edges: per joint, the clusters facing each side.</summary>

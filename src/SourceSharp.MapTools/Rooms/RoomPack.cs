@@ -824,6 +824,11 @@ public static class RoomPack
             if (entry.Find(RoomLinkSections.SharedTag) is { } shared)
             {
                 wanted.Add((name, shared));
+                if (entry.Find(RoomDoorVisibility.SectionTag) is { } doors)
+                {
+                    wanted.Add((name, doors));
+                }
+
                 for (int rotation = 0; rotation < 4; rotation++)
                 {
                     if (!turns[rotation])
@@ -1191,6 +1196,7 @@ public static class RoomPack
         ((byte)'R', (byte)'O', (byte)'O', (byte)'M') => RoomSection,
         ((byte)'L', (byte)'N', (byte)'K', (byte)'A') => RoomLinkSections.SharedTag,
         ((byte)'E', (byte)'C', (byte)'N', (byte)'T') => RoomEntityCounts.SectionTag,
+        ((byte)'D', (byte)'V', (byte)'I', (byte)'S') => RoomDoorVisibility.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),
