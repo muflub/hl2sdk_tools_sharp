@@ -11,6 +11,7 @@ using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
+using SourceSharp.MapTools.Bsp.Collision;
 using SourceSharp.MapTools.Bsp.Cubemaps;
 using SourceSharp.MapTools.Bsp.Detail;
 using SourceSharp.MapTools.Bsp.Driver;
@@ -87,10 +88,21 @@ internal sealed class SurfaceContentExtension : IVbspExtension
     /// The compile's collision cooker; null answers the prop hull questions
     /// with <see cref="ManagedStaticPropCollision"/>.
     /// </param>
-    internal SurfaceContentExtension(VmfDocument? document = null, ICollisionCooker? cooker = null)
+    /// <param name="hulls">
+    /// The host's cross-compile hull cache (<see cref="VbspContext.PropHullCache"/>),
+    /// or null. Only a cooker cooks, so it is ignored without one.
+    /// </param>
+    /// <param name="compliance">The compile's compliance, part of that cache's key; Correct when null.</param>
+    internal SurfaceContentExtension(
+        VmfDocument? document = null,
+        ICollisionCooker? cooker = null,
+        PropHullCache? hulls = null,
+        ComplianceOptions? compliance = null)
     {
         _document = document;
-        _collision = cooker is null ? new ManagedStaticPropCollision() : new CookedStaticPropCollision(cooker);
+        _collision = cooker is null
+            ? new ManagedStaticPropCollision()
+            : new CookedStaticPropCollision(cooker, hulls, compliance ?? ComplianceOptions.Correct);
     }
 
     /// <summary>The pak being built; null before <see cref="VbspExtensionPoint.AfterLoad"/>.</summary>

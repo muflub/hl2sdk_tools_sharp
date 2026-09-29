@@ -201,6 +201,7 @@ public sealed class RoomLibraryBuildTests
         Action<int> compiled = _ => { };
         Action<SourceSharp.MapTools.Bsp.SharedMaterialFacts> materials = _ => { };
         Action<CompilePool> pool = _ => { };
+        using SourceSharp.MapTools.Bsp.Collision.PropHullCache hulls = new();
         RoomLibraryCompileSettings settings = new(VbspOptions.Default with { NoWeld = true }, content)
         {
             Nav = NavSettings.Default,
@@ -210,6 +211,7 @@ public sealed class RoomLibraryBuildTests
             RoomCompiledProbe = compiled,
             MaterialsProbe = materials,
             PoolProbe = pool,
+            PropHullCache = hulls,
         };
         RoomLibraryCompileSettings moved = settings.WithContent(other);
         Assert.Same(other, moved.Content);
@@ -221,6 +223,7 @@ public sealed class RoomLibraryBuildTests
         Assert.Same(compiled, moved.RoomCompiledProbe);
         Assert.Same(materials, moved.MaterialsProbe);
         Assert.Same(pool, moved.PoolProbe);
+        Assert.Same(hulls, moved.PropHullCache);
         Assert.Null(moved.CollisionCooker);
     }
 

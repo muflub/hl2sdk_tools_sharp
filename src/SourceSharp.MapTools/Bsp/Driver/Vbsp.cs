@@ -141,7 +141,8 @@ public static class Vbsp
         VmfDocument? document = null,
         ICollisionCooker? propCooker = null)
     {
-        SurfaceContentExtension surface = new(document, propCooker ?? context.CollisionCooker);
+        SurfaceContentExtension surface = new(
+            document, propCooker ?? context.CollisionCooker, context.PropHullCache, context.Options.Compliance);
         return context.CollisionCooker is { } cooker ? [surface, new PhysCollisionStage(cooker, context.CollisionModelCache)] : [surface];
     }
 
@@ -175,7 +176,7 @@ public static class Vbsp
         // -onlyprops rewrites the prop lumps; -onlyents keeps the rest of the
         // file, pak included (SurfaceContentExtension's update branch).
         return HostHandoff.ReturnAsync(OnlyEntsUpdate.RunAsync(
-            existing, map, context, [new SurfaceContentExtension(null, context.CollisionCooker)], cancellationToken));
+            existing, map, context, [new SurfaceContentExtension(null, context.CollisionCooker, context.PropHullCache, context.Options.Compliance)], cancellationToken));
     }
 
     /// <summary>

@@ -15,6 +15,7 @@ using SourceSharp.MapFormats.Nav;
 using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp;
+using SourceSharp.MapTools.Bsp.Collision;
 using SourceSharp.MapTools.Bsp.Driver;
 using SourceSharp.MapTools.Compile;
 using SourceSharp.MapTools.Compile.Cache;
@@ -315,9 +316,16 @@ public static class RoomCommands
 
         await using ICollisionCooker? cooker = setup.Cooker;
 
+        // One hull cache for the run: the rooms of a library name the same
+        // few prop models, so each is cooked about once instead of once per
+        // room. It lives exactly as long as this command, so the default
+        // bound is only a ceiling, never a leak.
+        using PropHullCache hulls = new();
+
         RoomLibraryCompileSettings settings = new(options, mounted.Content)
         {
             CollisionCooker = cooker,
+            PropHullCache = hulls,
             Nav = navSettings,
             NameKeys = libraryOptions.NameKeySet,
             Parallelism = parsed.Threads is int degree && degree > 0

@@ -47,9 +47,45 @@ public sealed class ManagedCollisionCooker : ICollisionCooker, IDisposable
         _contexts = new ThreadLocal<IvpCookContext>(
             () => new IvpCookContext(new Qhull.QhullRunner()) { SkipZeroLengthInertiaEdges = skipZeroLengthEdges },
             trackAllValues: false);
-        CookerIdentity = useDouble
+        CookerIdentity = IdentityOf(useDouble, skipZeroLengthEdges, fixPolysoupMaterialWalk);
+    }
+
+    /// <summary>
+    /// The identity string for one configuration: the arithmetic, plus any
+    /// of the two other cook-reaching quirks that departs from what that
+    /// arithmetic's policy normally pairs it with.
+    /// </summary>
+    /// <param name="useDouble">TF2's double precision (Correct) or stock's float.</param>
+    /// <param name="skipZeroLengthEdges">The Correct side of <see cref="StockQuirk.CollisionInertiaZeroLengthEdge"/>.</param>
+    /// <param name="fixPolysoupMaterialWalk">The Correct side of <see cref="StockQuirk.CollisionPolysoupMaterialOverrun"/>.</param>
+    /// <returns>The identity.</returns>
+    /// <remarks>
+    /// The identity is what the caches key cooked bytes on
+    /// (<see cref="Compile.Cache.CollisionModelCache"/>,
+    /// <see cref="Bsp.Collision.PropHullCache"/>), so it must separate every
+    /// configuration that cooks differently. It used to name the precision
+    /// only, which two cookers built from <c>correct</c> and from
+    /// <c>correct,+CollisionInertiaZeroLengthEdge</c> share although their
+    /// bytes differ. The two plain policies keep their historical strings, so
+    /// existing cache rows and logs read the same; only a mixed policy gets a
+    /// suffix.
+    /// </remarks>
+    internal static string IdentityOf(bool useDouble, bool skipZeroLengthEdges, bool fixPolysoupMaterialWalk)
+    {
+        string identity = useDouble
             ? "managed-ivp " + CorrectPrecision.Name + " (double-precision reference arithmetic)"
             : "managed-ivp " + StockPrecision.Name + " (float-precision reference arithmetic)";
+        if (skipZeroLengthEdges != useDouble)
+        {
+            identity += skipZeroLengthEdges ? " +inertia-edge:correct" : " +inertia-edge:stock";
+        }
+
+        if (fixPolysoupMaterialWalk != useDouble)
+        {
+            identity += fixPolysoupMaterialWalk ? " +polysoup-material:correct" : " +polysoup-material:stock";
+        }
+
+        return identity;
     }
 
     /// <summary>
