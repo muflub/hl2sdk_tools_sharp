@@ -381,6 +381,51 @@ public sealed class LevelLinkerAreaPortalTests
         Assert.Equal(EntityLump.Parse(portals.Bsp[BspLump.Entities]).Count, portals.EntityBudget.Listed);
     }
 
+    /// <summary>
+    /// A lit library (the base bake, PR 9) with an area portal: each room
+    /// baked as <c>ssmap room</c> bakes it (vrad reads through the portal,
+    /// which only the engine closes), and the level links with the areas
+    /// and portals of the same level unlit, its leaves' flags set by the
+    /// link's sky pass on top of their areas, and passes the loader checks.
+    /// </summary>
+    [Fact]
+    public async Task ALitLevelWithAnAreaPortalLinks()
+    {
+        VmfDocument library = Library(
+            true,
+            (0, RoomLightHarness.Light(700400, new Vec3(128, 128, 200))),
+            (1, RoomLightHarness.Light(700401, new Vec3(200, 128, 200))));
+        RoomLightHarness.WorldAlign(library);
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
+        RoomLibrary lit = new(split.Rooms[0].Definition.Kit, split.Rooms[0].Definition.CellSize) { LibraryEntities = split.LibraryEntities, Options = split.Options };
+        RoomLibrary unlit = new(split.Rooms[0].Definition.Kit, split.Rooms[0].Definition.CellSize) { LibraryEntities = split.LibraryEntities, Options = split.Options };
+        foreach (LibraryRoom room in split.Rooms)
+        {
+            SourceSharp.MapTools.Bsp.VbspContext context = await ContextAsync(room.Definition.Name);
+            RoomObject compiled = await RoomCompiler.CompileAsync(room.Document, room.Definition, context);
+            unlit.Add(compiled);
+            lit.Add(compiled with
+            {
+                Lighting = await RoomLighting.BakeAsync(
+                    compiled, RoomLightHarness.Settings(split), context.Content!, context.Parallelism, CancellationToken.None),
+            });
+        }
+
+        Assert.NotNull(lit.Get("split").LightingOfCompile);
+        LevelGrid level = Line(0);
+        LinkedLevel linkedLit = await LinkAsync(lit, level);
+        LinkedLevel linkedUnlit = await LinkAsync(unlit, level);
+        Assert.Equal(linkedUnlit.Bsp[BspLump.Areas].Data.ToArray(), linkedLit.Bsp[BspLump.Areas].Data.ToArray());
+        Assert.Equal(linkedUnlit.Bsp[BspLump.AreaPortals].Data.ToArray(), linkedLit.Bsp[BspLump.AreaPortals].Data.ToArray());
+        Assert.Equal(linkedUnlit.Bsp[BspLump.ClipPortalVerts].Data.ToArray(), linkedLit.Bsp[BspLump.ClipPortalVerts].Data.ToArray());
+        DLeaf[] a = BspStructView.As<DLeaf>(linkedLit.Bsp[BspLump.Leafs]).ToArray();
+        DLeaf[] b = BspStructView.As<DLeaf>(linkedUnlit.Bsp[BspLump.Leafs]).ToArray();
+        Assert.Equal(b.Select(l => l.GetArea()), a.Select(l => l.GetArea()));
+        Assert.True(linkedLit.Bsp[BspLump.Lighting].Length > 0);
+        ValidationReport report = await BspValidator.CheckAsync(linkedLit.Bsp, CancellationToken.None);
+        Assert.True(report.ErrorCount == 0, string.Join("\n", report.Diagnostics));
+    }
+
     /// <summary>A linked level with area portals passes the loader checks <c>ssmap check</c> makes, with no error.</summary>
     [Fact]
     public async Task ALinkedLevelWithAreaPortalsPassesTheLoaderChecks()
