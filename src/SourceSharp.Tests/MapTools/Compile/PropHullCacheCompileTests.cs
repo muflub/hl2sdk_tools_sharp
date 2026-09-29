@@ -7,11 +7,13 @@
 
 using System.Globalization;
 
+using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Text;
 using SourceSharp.MapGen.Content;
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Bsp.Collision;
 using SourceSharp.MapTools.Bsp.Driver;
+using SourceSharp.MapTools.Bsp.MaterialPatch;
 using SourceSharp.MapTools.Compile;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
@@ -150,6 +152,55 @@ public sealed class PropHullCacheCompileTests
         Assert.Equal(plain, cold);
         Assert.Equal(plain, warm);
         Assert.Equal(Models.Length, hulls.Statistics.Hits);
+    }
+
+    /// <summary>
+    /// The two update entry points (<c>-onlyprops</c> through
+    /// <see cref="Vbsp.UpdateAsync"/>, and <see cref="SurfaceContentVbsp.UpdateAsync"/>
+    /// with its own cooker) take the cache from the context too: the
+    /// rewritten file is the bytes an update without it writes, and the
+    /// second update cooks nothing.
+    /// </summary>
+    [Fact]
+    public async Task TheUpdatePathsTakeTheCacheFromTheContext()
+    {
+        using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+        using PropHullCache hulls = new();
+
+        async Task<byte[]> UpdateAsync(PropHullCache? cache, bool surfaceEntryPoint)
+        {
+            (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync();
+            VPath vmf = VPath.Create($"{MapCompilerTests.MapDirectory}/room.vmf");
+            VbspContext full = new(VbspOptions.Default, content) { CollisionCooker = cooker };
+            VbspResult compiled = await Vbsp.CompileAsync(
+                await MapSource.FromVmf(files, vmf).LoadAsync(full, CancellationToken.None), full);
+
+            VbspContext update = new(VbspOptions.Default with { OnlyProps = true }, content)
+            {
+                CollisionCooker = cooker,
+                PropHullCache = cache,
+            };
+            MapFile map = await MapSource.FromVmf(files, vmf).LoadAsync(update, CancellationToken.None);
+            BspData updated = surfaceEntryPoint
+                ? await SurfaceContentVbsp.UpdateAsync(compiled.Bsp!, map, update, cooker)
+                : await Vbsp.UpdateAsync(compiled.Bsp!, map, update);
+            return await MapCompilerTests.BytesAsync(updated);
+        }
+
+        foreach (bool surfaceEntryPoint in new[] { false, true })
+        {
+            hulls.Clear();
+            byte[] plain = await UpdateAsync(null, surfaceEntryPoint);
+            byte[] cold = await UpdateAsync(hulls, surfaceEntryPoint);
+            PropHullCacheStatistics filled = hulls.Statistics;
+            byte[] warm = await UpdateAsync(hulls, surfaceEntryPoint);
+
+            Assert.Equal(plain, cold);
+            Assert.Equal(plain, warm);
+            Assert.Equal(Models.Length, filled.Count);
+            Assert.Equal(filled.Misses, hulls.Statistics.Misses);
+            Assert.Equal(filled.Hits + Models.Length, hulls.Statistics.Hits);
+        }
     }
 
     [Fact]
