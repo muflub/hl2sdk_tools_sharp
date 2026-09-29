@@ -119,6 +119,9 @@ internal sealed class RoomLinkData
     /// <param name="rotation">The quarter turns, 0 to 3.</param>
     public RoomLinkRotation? Rotation(int rotation) => _rotations[rotation];
 
+    /// <summary>The same link data holding <paramref name="doors"/> as its door visibility.</summary>
+    public RoomLinkData WithDoors(RoomDoorVisibility doors) => new(Definition, Bsp, Vis, Shared, _rotations, doors);
+
     /// <summary>Whether this describes exactly <paramref name="room"/>'s compile (the same objects, not equal ones).</summary>
     public bool IsFor(RoomObject room) =>
         ReferenceEquals(Bsp, room.Bsp) && ReferenceEquals(Vis, room.Vis) && ReferenceEquals(Definition, room.Definition);

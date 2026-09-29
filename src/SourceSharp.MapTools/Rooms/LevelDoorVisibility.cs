@@ -137,21 +137,23 @@ internal static class LevelDoorVisibility
     internal const int DefaultStateCap = 1 << 22;
 
     private const int WindingRoom = VisClip.MaxPointsOnWinding;
+    internal static long DiagStates, DiagMarks, DiagTries;
 
     /// <summary>Composes the level's PVS and PAS.</summary>
     /// <param name="rooms">The placed rooms, in the level's order, cluster bases ascending.</param>
     /// <param name="clusterCount">The level's clusters.</param>
     /// <param name="parallelism">How many threads the flows may use.</param>
-    /// <param name="cancellationToken">Cancels the work.</param>
     /// <param name="stateCap">The most rooms one flow may enter (<see cref="DefaultStateCap"/>).</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The rows.</returns>
     public static async Task<LevelVisibility> ComposeAsync(
         IReadOnlyList<LevelDoorRoom> rooms,
         int clusterCount,
         CompileParallelism parallelism,
-        CancellationToken cancellationToken,
-        int stateCap = DefaultStateCap)
+        int stateCap,
+        CancellationToken cancellationToken)
     {
+        var swT = System.Diagnostics.Stopwatch.StartNew();
         int words = (clusterCount + 63) >> 6;
         Prepared[] prepared = [.. rooms.Select(Prepare)];
 
@@ -167,11 +169,12 @@ internal static class LevelDoorVisibility
                     FlowRoom(rooms, prepared, index, words, forward, scratch, stateCap, cancellationToken);
                     return true;
                 },
-                _ => new FlowScratch(rooms.Count, words),
+                _ => new FlowScratch(rooms.Count, clusterCount),
                 options: null,
                 cancellationToken).ConfigureAwait(false);
         }
 
+        System.Console.Error.WriteLine($"TIMING flows {swT.ElapsedMilliseconds} states {System.Threading.Interlocked.Read(ref DiagStates)} marks {DiagMarks} tries {DiagTries}"); swT.Restart();
         // Rows: the room's own (with its doorways), then every cross-room
         // pair both directions keep, then the cluster itself.
         int rowBytes = (clusterCount + 7) >> 3;
@@ -214,6 +217,7 @@ internal static class LevelDoorVisibility
             }
         }
 
+        System.Console.Error.WriteLine($"TIMING rows {swT.ElapsedMilliseconds}"); swT.Restart();
         // The PAS: what vvis writes, the union of the rows of every cluster
         // a cluster sees (radius two).
         ulong[][] pas = new ulong[clusterCount][];
@@ -244,6 +248,7 @@ internal static class LevelDoorVisibility
                 cancellationToken).ConfigureAwait(false);
         }
 
+        System.Console.Error.WriteLine($"TIMING pas {swT.ElapsedMilliseconds}"); swT.Restart();
         byte[] pvsBytes = new byte[clusterCount * rowBytes];
         byte[] pasBytes = new byte[clusterCount * rowBytes];
         int visible = 0, audible = 0;
@@ -253,6 +258,7 @@ internal static class LevelDoorVisibility
             audible += ToBytes(pas[x], pasBytes.AsSpan(x * rowBytes, rowBytes));
         }
 
+        System.Console.Error.WriteLine($"TIMING bytes {swT.ElapsedMilliseconds}");
         return new LevelVisibility(pvsBytes, pasBytes, rowBytes, visible, audible);
     }
 
@@ -299,8 +305,7 @@ internal static class LevelDoorVisibility
         {
             if (hasBox[c])
             {
-                Box local = doors.ClusterBoxes[c];
-                boxes[c] = room.Transform.TranslateBox(LevelLinker.RotateBox(local.Mins, local.Maxs, rotation));
+                boxes[c] = room.Transform.TranslateBox(doors.TurnedBox(c, rotation));
             }
         }
 
@@ -337,16 +342,26 @@ internal static class LevelDoorVisibility
     }
 
     /// <summary>What one worker reuses from flow to flow.</summary>
-    private sealed class FlowScratch(int rooms, int words)
+    private sealed class FlowScratch(int rooms, int clusters)
     {
         public bool[] Visited { get; } = new bool[rooms];
 
-        public ulong[] Marked { get; } = new ulong[words];
+        public ulong[] Marked { get; } = new ulong[(clusters + 63) >> 6];
+
+        /// <summary>Marks every cluster of the level, and no bit past the last.</summary>
+        public void MarkAll()
+        {
+            Array.Fill(Marked, ulong.MaxValue);
+            if ((clusters & 63) != 0)
+            {
+                Marked[^1] = (1UL << (clusters & 63)) - 1;
+            }
+        }
 
         public List<Frame> Stack { get; } = [];
 
-        /// <summary>Per depth, the source and pass windings of the frame at that depth.</summary>
-        public List<(Vec3[] Source, Vec3[] Pass)> Windings { get; } = [];
+        /// <summary>Per depth, the windings and separating planes of the frame at that depth.</summary>
+        public List<Level> Levels { get; } = [];
 
         public Vec3[] Chop { get; } = new Vec3[WindingRoom];
 
@@ -354,22 +369,85 @@ internal static class LevelDoorVisibility
 
         public Vec3[] Door { get; } = new Vec3[4];
 
-        public Vec3[] Normals { get; } = new Vec3[WindingRoom * WindingRoom];
-
-        public float[] Distances { get; } = new float[WindingRoom * WindingRoom];
-
-        public Vec3[] Normals2 { get; } = new Vec3[WindingRoom * WindingRoom];
-
-        public float[] Distances2 { get; } = new float[WindingRoom * WindingRoom];
-
-        public (Vec3[] Source, Vec3[] Pass) At(int depth)
+        public Level At(int depth)
         {
-            while (Windings.Count <= depth)
+            while (Levels.Count <= depth)
             {
-                Windings.Add((new Vec3[WindingRoom], new Vec3[WindingRoom]));
+                Levels.Add(new Level());
             }
 
-            return Windings[depth];
+            return Levels[depth];
+        }
+    }
+
+    /// <summary>
+    /// One depth of a flow: the source and pass windings of the frame there
+    /// and, worked out once when first wanted, the planes separating them
+    /// both ways (<see cref="VisClip.BuildSeparators"/>).
+    /// </summary>
+    /// <remarks>
+    /// The same planes serve twice: to test the bounds of the room's
+    /// clusters when the flow enters it, and to clip every doorway out of
+    /// the room whose source the doorway's plane leaves whole, which is
+    /// nearly every one (the source is the first doorway, far behind). vvis
+    /// keeps the same memo per frame; the clip by stored planes is the same
+    /// function as the clip that derives them (<see cref="VisClip.ClipToSeparatorPlanes"/>).
+    /// </remarks>
+    private sealed class Level
+    {
+        /// <summary>Enough for every edge-vertex pair of two windings a chop leaves (at most twelve points each).</summary>
+        private const int Planes = VisClip.MaxPointsOnFixedWinding * VisClip.MaxPointsOnFixedWinding;
+
+        public Vec3[] Source { get; } = new Vec3[WindingRoom];
+
+        public Vec3[] Pass { get; } = new Vec3[WindingRoom];
+
+        public Vec3[] ForwardNormals { get; } = new Vec3[Planes];
+
+        public float[] ForwardDistances { get; } = new float[Planes];
+
+        public Vec3[] BackwardNormals { get; } = new Vec3[Planes];
+
+        public float[] BackwardDistances { get; } = new float[Planes];
+
+        public int SourceCount { get; set; }
+
+        public int PassCount { get; set; }
+
+        /// <summary>-1 until worked out; then the forward planes' count, or -2 when they did not fit.</summary>
+        public int Forward { get; set; } = -1;
+
+        public int Backward { get; set; }
+
+        public ReadOnlySpan<Vec3> SourceSpan => Source.AsSpan(0, SourceCount);
+
+        public ReadOnlySpan<Vec3> PassSpan => Pass.AsSpan(0, PassCount);
+
+        public void Reset(int sourceCount, int passCount)
+        {
+            SourceCount = sourceCount;
+            PassCount = passCount;
+            Forward = -1;
+        }
+
+        /// <summary>Works out the separating planes, once; false when there is no pass yet or they did not fit.</summary>
+        public bool Separators()
+        {
+            if (PassCount == 0)
+            {
+                return false;
+            }
+
+            if (Forward == -1)
+            {
+                System.Threading.Interlocked.Increment(ref DiagMarks);
+                int forward = VisClip.BuildSeparators(SourceSpan, PassSpan, ForwardNormals, ForwardDistances);
+                int backward = VisClip.BuildSeparators(PassSpan, SourceSpan, BackwardNormals, BackwardDistances);
+                Forward = forward < 0 || backward < 0 ? -2 : forward;
+                Backward = backward;
+            }
+
+            return Forward >= 0;
         }
     }
 
@@ -379,8 +457,6 @@ internal static class LevelDoorVisibility
         public int Room;
         public int Entry;
         public int Cursor;
-        public int SourceCount;
-        public int PassCount; // 0: entered through the flow's first doorway, no pass yet
     }
 
     /// <summary>
@@ -444,10 +520,11 @@ internal static class LevelDoorVisibility
         visited[from] = true;
         visited[first.Neighbor] = true;
 
-        (Vec3[] source0, _) = scratch.At(0);
-        scratch.Door.CopyTo(source0, 0);
-        Mark(rooms, prepared, frame, first.Neighbor, first.NeighborSocket, source0.AsSpan(0, 4), [], baseNormal, baseDistance, scratch);
-        stack.Add(new Frame { Room = first.Neighbor, Entry = first.NeighborSocket, SourceCount = 4 });
+        Level top = scratch.At(0);
+        scratch.Door.CopyTo(top.Source, 0);
+        top.Reset(4, 0);
+        Mark(rooms, prepared, frame, first.Neighbor, first.NeighborSocket, top, baseNormal, baseDistance, scratch);
+        stack.Add(new Frame { Room = first.Neighbor, Entry = first.NeighborSocket });
 
         int states = 1;
         while (stack.Count > 0)
@@ -475,7 +552,7 @@ internal static class LevelDoorVisibility
             {
                 // A walk this long is no level a line can cross: give up on
                 // it, and keep every cluster of the level rather than guess.
-                Array.Fill(scratch.Marked, ulong.MaxValue);
+                scratch.MarkAll();
                 stack.Clear();
                 return;
             }
@@ -485,6 +562,7 @@ internal static class LevelDoorVisibility
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
+            System.Threading.Interlocked.Increment(ref DiagTries);
             (Vec3 normal, float distance) = DoorPlane(frame, next.Opening, rooms[next.Neighbor].Transform);
             if (normal == baseNormal && distance == baseDistance)
             {
@@ -496,8 +574,8 @@ internal static class LevelDoorVisibility
                 continue;
             }
 
-            (Vec3[] source, Vec3[] pass) = scratch.At(depth);
-            (Vec3[] nextSource, Vec3[] nextPass) = scratch.At(depth + 1);
+            Level here = scratch.At(depth);
+            Level there = scratch.At(depth + 1);
             Winding(ToFrame(frame, next.Opening), scratch.Door);
 
             // The next doorway, cut to what lies in front of the first.
@@ -510,42 +588,52 @@ internal static class LevelDoorVisibility
             ReadOnlySpan<Vec3> candidate = chopped == VisChopResult.Clipped ? scratch.Chop.AsSpan(0, passCount) : scratch.Door;
 
             // The first doorway, cut to what lies behind the next.
-            chopped = VisClip.ChopWinding(source.AsSpan(0, f.SourceCount), -normal, -distance, nextSource, out int sourceCount);
+            chopped = VisClip.ChopWinding(here.SourceSpan, -normal, -distance, there.Source, out int sourceCount);
             if (chopped == VisChopResult.Empty)
             {
                 continue;
             }
 
-            if (chopped == VisChopResult.Unchanged)
+            bool sourceWhole = chopped == VisChopResult.Unchanged;
+            if (sourceWhole)
             {
-                source.AsSpan(0, f.SourceCount).CopyTo(nextSource);
-                sourceCount = f.SourceCount;
+                here.SourceSpan.CopyTo(there.Source);
+                sourceCount = here.SourceCount;
             }
 
-            ReadOnlySpan<Vec3> newSource = nextSource.AsSpan(0, sourceCount);
+            ReadOnlySpan<Vec3> newSource = there.Source.AsSpan(0, sourceCount);
             int newPassCount;
-            if (f.PassCount == 0)
+            if (here.PassCount == 0)
             {
-                candidate.CopyTo(nextPass);
+                candidate.CopyTo(there.Pass);
                 newPassCount = candidate.Length;
+            }
+            else if (sourceWhole && here.Separators())
+            {
+                // The frame's own source and pass: its stored planes.
+                if (!VisClip.ClipToSeparatorPlanes(
+                    here.ForwardNormals.AsSpan(0, here.Forward), here.ForwardDistances.AsSpan(0, here.Forward), candidate, false, scratch.Clip, out int firstCount)
+                    || !VisClip.ClipToSeparatorPlanes(
+                    here.BackwardNormals.AsSpan(0, here.Backward), here.BackwardDistances.AsSpan(0, here.Backward), scratch.Clip.AsSpan(0, firstCount), true, there.Pass, out newPassCount))
+                {
+                    continue;
+                }
             }
             else
             {
-                ReadOnlySpan<Vec3> prevPass = pass.AsSpan(0, f.PassCount);
-                if (!VisClip.ClipToSeparators(newSource, prevPass, candidate, false, scratch.Clip, out int firstCount))
-                {
-                    continue;
-                }
-
-                if (!VisClip.ClipToSeparators(prevPass, newSource, scratch.Clip.AsSpan(0, firstCount), true, nextPass, out newPassCount))
+                ReadOnlySpan<Vec3> prevPass = here.PassSpan;
+                if (!VisClip.ClipToSeparators(newSource, prevPass, candidate, false, scratch.Clip, out int firstCount)
+                    || !VisClip.ClipToSeparators(prevPass, newSource, scratch.Clip.AsSpan(0, firstCount), true, there.Pass, out newPassCount))
                 {
                     continue;
                 }
             }
 
-            Mark(rooms, prepared, frame, next.Neighbor, next.NeighborSocket, newSource, nextPass.AsSpan(0, newPassCount), baseNormal, baseDistance, scratch);
+            System.Threading.Interlocked.Increment(ref DiagStates);
+            there.Reset(sourceCount, newPassCount);
+            Mark(rooms, prepared, frame, next.Neighbor, next.NeighborSocket, there, baseNormal, baseDistance, scratch);
             visited[next.Neighbor] = true;
-            stack.Add(new Frame { Room = next.Neighbor, Entry = next.NeighborSocket, SourceCount = sourceCount, PassCount = newPassCount });
+            stack.Add(new Frame { Room = next.Neighbor, Entry = next.NeighborSocket });
         }
     }
 
@@ -561,8 +649,7 @@ internal static class LevelDoorVisibility
         RoomTransform frame,
         int roomIndex,
         int entry,
-        ReadOnlySpan<Vec3> source,
-        ReadOnlySpan<Vec3> pass,
+        Level level,
         Vec3 baseNormal,
         float baseDistance,
         FlowScratch scratch)
@@ -571,15 +658,6 @@ internal static class LevelDoorVisibility
         Prepared p = prepared[roomIndex];
         ulong[] sees = p.Sees[entry];
         ulong[] marked = scratch.Marked;
-        int forward = 0, backward = 0;
-        bool test = !pass.IsEmpty;
-        if (test)
-        {
-            forward = VisClip.BuildSeparators(source, pass, scratch.Normals, scratch.Distances);
-            backward = VisClip.BuildSeparators(pass, source, scratch.Normals2, scratch.Distances2);
-            test = forward >= 0 && backward >= 0; // a list too long for the buffers culls nothing
-        }
-
         for (int c = 0; c < room.Doors.ClusterCount; c++)
         {
             int x = room.ClusterBase + c;
@@ -596,8 +674,11 @@ internal static class LevelDoorVisibility
                     continue;
                 }
 
-                if (test && (AnyBehind(box, scratch.Normals, scratch.Distances, forward, flip: false)
-                    || AnyBehind(box, scratch.Normals2, scratch.Distances2, backward, flip: true)))
+                // No pass yet (the room beyond the first doorway), or planes
+                // too many to hold: nothing more to cull by.
+                if (level.Separators()
+                    && (AnyBehind(box, level.ForwardNormals, level.ForwardDistances, level.Forward, flip: false)
+                    || AnyBehind(box, level.BackwardNormals, level.BackwardDistances, level.Backward, flip: true)))
                 {
                     continue;
                 }
@@ -705,9 +786,17 @@ internal static class LevelDoorVisibility
 
     private static void Set(ulong[] row, int bit) => row[bit >> 6] |= 1UL << (bit & 63);
 
+    /// <summary>ORs one row into another, a vector at a time: the PAS is a few million of these on a large level.</summary>
     private static void Or(ulong[] into, ulong[] from)
     {
-        for (int w = 0; w < into.Length; w++)
+        Span<Vector<ulong>> target = System.Runtime.InteropServices.MemoryMarshal.Cast<ulong, Vector<ulong>>(into.AsSpan());
+        ReadOnlySpan<Vector<ulong>> source = System.Runtime.InteropServices.MemoryMarshal.Cast<ulong, Vector<ulong>>(from.AsSpan());
+        for (int v = 0; v < target.Length; v++)
+        {
+            target[v] |= source[v];
+        }
+
+        for (int w = target.Length * Vector<ulong>.Count; w < into.Length; w++)
         {
             into[w] |= from[w];
         }

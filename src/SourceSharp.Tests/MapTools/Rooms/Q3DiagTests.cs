@@ -51,7 +51,7 @@ public sealed class Q3DiagTests(Rooms3x3Fixture fixture, ITestOutputHelper outpu
             }
         }
 
-        int monoPairs = 0, violations = 0, losViolations = 0, losPairs = 0, losMonoMiss = 0;
+        int linkedPairs = 0, monoPairs = 0, violations = 0, losViolations = 0, losPairs = 0, losMonoMiss = 0;
         foreach (var a in samples)
         {
             foreach (var b in samples)
@@ -59,7 +59,7 @@ public sealed class Q3DiagTests(Rooms3x3Fixture fixture, ITestOutputHelper outpu
                 bool mono = pair.MonolithicVis.CanSee(a.Mono, b.Mono);
                 bool linked = pair.Linked.Vis.CanSee(a.Linked, b.Linked);
                 bool los = pair.MonolithicProbe.SightLine(a.P, b.P);
-                monoPairs += mono ? 1 : 0;
+                monoPairs += mono ? 1 : 0; linkedPairs += linked ? 1 : 0;
                 losPairs += los ? 1 : 0;
                 if (mono && !linked)
                 {
@@ -76,6 +76,6 @@ public sealed class Q3DiagTests(Rooms3x3Fixture fixture, ITestOutputHelper outpu
         }
 
         int cl = pair.Linked.Vis.ClusterCount, cm = pair.MonolithicVis.ClusterCount;
-        output.WriteLine($"{name}: samples {samples.Count} monoPairs {monoPairs} violations {violations} losPairs {losPairs} losViolations {losViolations} losNotMono {losMonoMiss}; linked visible {pair.Linked.Vis.TotalVisibleClusters}/{cl * cl}, mono {pair.MonolithicVis.TotalVisibleClusters}/{cm * cm}");
+        output.WriteLine($"{name}: samples {samples.Count} linkedPairs {linkedPairs} monoPairs {monoPairs} violations {violations} losPairs {losPairs} losViolations {losViolations} losNotMono {losMonoMiss}; linked visible {pair.Linked.Vis.TotalVisibleClusters}/{cl * cl}, mono {pair.MonolithicVis.TotalVisibleClusters}/{cm * cm}");
     }
 }

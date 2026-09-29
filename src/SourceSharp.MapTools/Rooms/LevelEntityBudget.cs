@@ -83,6 +83,13 @@ public sealed record LevelLinkOptions
     /// </remarks>
     public bool DoorVisibility { get; init; } = true;
 
+    /// <summary>
+    /// The most rooms one door flow may enter before it gives up and keeps
+    /// every cluster (<see cref="LevelDoorVisibility.DefaultStateCap"/>);
+    /// lowered only by the facts that exercise that path.
+    /// </summary>
+    internal int DoorFlowStateCap { get; init; } = LevelDoorVisibility.DefaultStateCap;
+
     /// <summary>No override: the library's reserve and the shipped class table.</summary>
     public static LevelLinkOptions Default { get => new(); }
 }

@@ -82,13 +82,19 @@ internal sealed class RoomDoorVisibility
     /// <param name="through">Per socket pair <c>s * sockets + t</c>, whether a sight line crosses the room between them.</param>
     /// <param name="clusterBoxes">Per cluster, its open leaves' bounds, room-local; empty for a cluster no open leaf has.</param>
     /// <param name="hasBox">Per cluster, whether it has a box.</param>
-    public RoomDoorVisibility(int clusterCount, ulong[][] sees, bool[] through, Box[] clusterBoxes, bool[] hasBox)
+    /// <param name="turnedBoxes">
+    /// Per quarter turn, the cluster boxes already turned, when a section
+    /// stored them that way (a rotation count of 4); null to turn
+    /// <paramref name="clusterBoxes"/> at link.
+    /// </param>
+    public RoomDoorVisibility(int clusterCount, ulong[][] sees, bool[] through, Box[] clusterBoxes, bool[] hasBox, Box[][]? turnedBoxes = null)
     {
         ClusterCount = clusterCount;
         Sees = sees;
         Through = through;
         ClusterBoxes = clusterBoxes;
         HasBox = hasBox;
+        TurnedBoxes = turnedBoxes;
     }
 
     /// <summary>The room's clusters.</summary>
@@ -111,6 +117,26 @@ internal sealed class RoomDoorVisibility
 
     /// <summary>Per cluster, whether any open leaf has it (a cluster number vvis skipped has none).</summary>
     public bool[] HasBox { get; }
+
+    /// <summary>Per quarter turn, the cluster boxes turned, when the section stored them so; else null.</summary>
+    public Box[][]? TurnedBoxes { get; }
+
+    /// <summary>
+    /// A cluster's box turned by <paramref name="rotation"/> quarter turns and
+    /// not yet moved: the stored turned box when there is one, else the
+    /// room-local box turned now. The two are the same bytes, since a
+    /// quarter turn only permutes and negates (<see cref="LevelLinker.RotateBox"/>).
+    /// </summary>
+    public Box TurnedBox(int cluster, int rotation)
+    {
+        if (TurnedBoxes is { } turned)
+        {
+            return turned[rotation][cluster];
+        }
+
+        Box local = ClusterBoxes[cluster];
+        return LevelLinker.RotateBox(local.Mins, local.Maxs, rotation);
+    }
 
     /// <summary>Whether a sight line can cross the room from socket <paramref name="from"/>'s doorway to socket <paramref name="to"/>'s.</summary>
     public bool IsThrough(int from, int to) => Through[(from * SocketCount) + to];
@@ -203,14 +229,15 @@ internal sealed class RoomDoorVisibility
         new Vec3(Math.Min(a.Mins.X, b.Mins.X), Math.Min(a.Mins.Y, b.Mins.Y), Math.Min(a.Mins.Z, b.Mins.Z)),
         new Vec3(Math.Max(a.Maxs.X, b.Maxs.X), Math.Max(a.Maxs.Y, b.Maxs.Y), Math.Max(a.Maxs.Z, b.Maxs.Z)));
 
-    /// <summary>Whether two door visibilities hold the same relations and boxes.</summary>
+    /// <summary>Whether two door visibilities hold the same relations and, at every turn, the same boxes.</summary>
     internal bool SameAs(RoomDoorVisibility other) =>
         ClusterCount == other.ClusterCount
         && SocketCount == other.SocketCount
         && Sees.Zip(other.Sees).All(p => p.First.AsSpan().SequenceEqual(p.Second))
         && Through.AsSpan().SequenceEqual(other.Through)
-        && ClusterBoxes.AsSpan().SequenceEqual(other.ClusterBoxes)
-        && HasBox.AsSpan().SequenceEqual(other.HasBox);
+        && HasBox.AsSpan().SequenceEqual(other.HasBox)
+        && Enumerable.Range(0, 4).All(turn => Enumerable.Range(0, ClusterCount)
+            .All(c => !HasBox[c] || TurnedBox(c, turn) == other.TurnedBox(c, turn)));
 
     /// <summary>The pack section holding it.</summary>
     /// <param name="codec">How to store the payload: none by default (<see cref="RoomLinkSections"/> says why).</param>
@@ -226,25 +253,42 @@ internal sealed class RoomDoorVisibility
     /// them).
     /// </para>
     /// <para>
-    /// The count is there because the pack's rule for any per-room section
-    /// that could hold rotation variants (a room's section starts with how
-    /// many it holds, 1 or 4, and the link takes payload <c>rotation mod
-    /// count</c>) lets a later build store the boxes turned four times
-    /// without a new tag. Stored once: turning a room's few cluster boxes at
-    /// link is a handful of float negations per placement, well under what
-    /// reading three more copies of the payload costs.
+    /// The count follows the pack's rule for any per-room section that could
+    /// hold rotation variants: it starts with how many it holds, 1 or 4, and
+    /// the link takes payload <c>rotation mod count</c>. With 4, payload
+    /// <i>r</i> holds the same relations (the reader refuses four that
+    /// differ) and the boxes turned <i>r</i> quarters. Stored once by
+    /// default: turning a room's few cluster boxes at link is a handful of
+    /// float negations per placement, and on the 256-room stress library the
+    /// two link to the same bytes in the same time within run-to-run noise
+    /// (the pack's <c>DVIS</c> sections grow fourfold for nothing).
     /// </para>
     /// </remarks>
-    public byte[] ToSection(RoomLinkCodec codec = RoomLinkCodec.None)
+    /// <param name="rotations">
+    /// 1 (the default) to store the boxes room-local, turned at link; 4 to
+    /// store one payload per quarter turn with its boxes turned, for the
+    /// facts that hold the two to the same link and for a measurement that
+    /// ever finds four copies faster.
+    /// </param>
+    public byte[] ToSection(RoomLinkCodec codec = RoomLinkCodec.None, int rotations = 1)
     {
+        if (rotations is not (1 or 4))
+        {
+            throw new ArgumentOutOfRangeException(nameof(rotations), rotations, "a section holds 1 or 4 rotations");
+        }
+
         RoomLinkSections.Writer w = new();
         w.Int(Revision);
-        w.Int(1);
-        WritePayload(w);
+        w.Int(rotations);
+        for (int turn = 0; turn < rotations; turn++)
+        {
+            WritePayload(w, turn);
+        }
+
         return RoomLinkSections.Encode(w.ToArray(), codec);
     }
 
-    private void WritePayload(RoomLinkSections.Writer w)
+    private void WritePayload(RoomLinkSections.Writer w, int turn)
     {
         w.Int(ClusterCount);
         w.Int(SocketCount);
@@ -267,7 +311,7 @@ internal sealed class RoomDoorVisibility
             w.Byte(HasBox[c] ? (byte)1 : (byte)0);
             if (HasBox[c])
             {
-                w.Box(ClusterBoxes[c]);
+                w.Box(TurnedBox(c, turn));
             }
         }
     }
@@ -301,15 +345,31 @@ internal sealed class RoomDoorVisibility
             throw r.Mismatch($"{rotations} rotations; a section holds 1 or 4");
         }
 
-        RoomDoorVisibility? first = null;
-        for (int turn = 0; turn < rotations; turn++)
+        RoomDoorVisibility first = ReadPayload(r, room);
+        if (rotations == 1)
+        {
+            r.End();
+            return first;
+        }
+
+        // Four payloads: the same relations, each turn's boxes turned.
+        Box[][] turned = new Box[4][];
+        turned[0] = first.ClusterBoxes;
+        for (int turn = 1; turn < 4; turn++)
         {
             RoomDoorVisibility read = ReadPayload(r, room);
-            first ??= read;
+            if (!read.Sees.Zip(first.Sees).All(p => p.First.AsSpan().SequenceEqual(p.Second))
+                || !read.Through.AsSpan().SequenceEqual(first.Through)
+                || !read.HasBox.AsSpan().SequenceEqual(first.HasBox))
+            {
+                throw r.Mismatch($"turn {turn}'s relations, which differ from turn 0's");
+            }
+
+            turned[turn] = read.ClusterBoxes;
         }
 
         r.End();
-        return first;
+        return new RoomDoorVisibility(first.ClusterCount, first.Sees, first.Through, first.ClusterBoxes, first.HasBox, turned);
     }
 
     private static RoomDoorVisibility ReadPayload(RoomLinkSections.Reader r, RoomObject room)

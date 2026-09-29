@@ -117,6 +117,93 @@ internal static class DoorGraphFacts
     }
 
     /// <summary>
+    /// What <see cref="AssertKeepsEverySightLine"/> counted over its sample
+    /// points' pairs: the sight lines, and the pairs each map's PVS keeps.
+    /// </summary>
+    internal readonly record struct SightLineCounts(int Samples, int SightLines, int LinkedPairs, int MonolithicPairs);
+
+    /// <summary>
+    /// Asserts that a linked level keeps every sight line of its monolithic
+    /// twin (the flattened level compiled whole), and that the monolithic
+    /// map's own vvis keeps each of them too.
+    /// </summary>
+    /// <remarks>
+    /// The sample points are the centre of each open monolithic leaf and
+    /// eight points two thirds of the way to its corners, kept where the
+    /// monolithic walk agrees the point is in that leaf and the linked map
+    /// puts it in a cluster. A pair is a sight line when the segment between
+    /// them passes only through leaves that belong to a cluster
+    /// (<see cref="LevelProbe.SightLine"/>): what vvis treats as open. vvis
+    /// keeping every such pair shows the sampled lines are ones the flattened
+    /// level's own PVS must keep, and the linked PVS keeping them is the
+    /// conservative claim: the link culls nothing the flattened level shows.
+    /// </remarks>
+    public static SightLineCounts AssertKeepsEverySightLine(
+        string name, LinkedLevel linked, LevelProbe linkedProbe, LevelProbe monolithicProbe, VisResult monolithicVis)
+    {
+        List<(Vec3 Point, int Monolithic, int Linked)> samples = [];
+        IReadOnlyList<DLeaf> leafs = monolithicProbe.Leafs;
+        for (int l = 0; l < leafs.Count; l++)
+        {
+            DLeaf leaf = leafs[l];
+            if (leaf.Cluster < 0 || (leaf.Contents & (int)BrushContents.Solid) != 0)
+            {
+                continue;
+            }
+
+            Vec3 lo = new(leaf.Mins[0], leaf.Mins[1], leaf.Mins[2]);
+            Vec3 hi = new(leaf.Maxs[0], leaf.Maxs[1], leaf.Maxs[2]);
+            Vec3 mid = (lo + hi) * 0.5f;
+            for (int b = -1; b < 8; b++)
+            {
+                Vec3 corner = b < 0
+                    ? mid
+                    : new Vec3((b & 1) == 0 ? lo.X : hi.X, (b & 2) == 0 ? lo.Y : hi.Y, (b & 4) == 0 ? lo.Z : hi.Z);
+                Vec3 sample = mid + ((corner - mid) * (2f / 3f));
+                if (monolithicProbe.Leaf(sample) != l)
+                {
+                    continue;
+                }
+
+                int cluster = linkedProbe.Leafs[linkedProbe.Leaf(sample)].Cluster;
+                if (cluster >= 0)
+                {
+                    samples.Add((sample, leaf.Cluster, cluster));
+                }
+            }
+        }
+
+        Assert.NotEmpty(samples);
+        int sightLines = 0, linkedPairs = 0, monolithicPairs = 0;
+        for (int i = 0; i < samples.Count; i++)
+        {
+            (Vec3 p, int pm, int pl) = samples[i];
+            for (int j = 0; j < samples.Count; j++)
+            {
+                (Vec3 q, int qm, int ql) = samples[j];
+                bool linkedSees = linked.Vis.CanSee(pl, ql);
+                linkedPairs += linkedSees ? 1 : 0;
+                monolithicPairs += monolithicVis.CanSee(pm, qm) ? 1 : 0;
+                if (j <= i || !monolithicProbe.SightLine(p, q))
+                {
+                    continue;
+                }
+
+                sightLines++;
+                Assert.True(
+                    monolithicVis.CanSee(pm, qm) && monolithicVis.CanSee(qm, pm),
+                    $"{name}: {p} and {q} see each other, and the monolithic map's vvis does not keep clusters {pm} and {qm}");
+                Assert.True(
+                    linkedSees && linked.Vis.CanSee(ql, pl),
+                    $"{name}: {p} and {q} see each other in the monolithic map, and the linked map's clusters {pl} and {ql} do not");
+            }
+        }
+
+        Assert.True(sightLines > 0, $"{name}: no sample pair is a sight line");
+        return new SightLineCounts(samples.Count, sightLines, linkedPairs, monolithicPairs);
+    }
+
+    /// <summary>
     /// The visibility lump is not just the VisResult's mirror: it is the
     /// file's row set, RLE-packed with the header vvis writes, and each of
     /// its PVS and PAS rows must decompress back to exactly the result's.

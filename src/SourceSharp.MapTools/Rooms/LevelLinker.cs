@@ -293,8 +293,8 @@ public static partial class LevelLinker
         // doorways between them (LevelDoorVisibility), or with the door
         // visibility off, the door graph's closure.
         LevelVisibility visibility = options.DoorVisibility
-            ? await LevelDoorVisibility.ComposeAsync(DoorRooms(resolved, plans), clusterCount, context.Parallelism, cancellationToken)
-                .ConfigureAwait(false)
+            ? await LevelDoorVisibility.ComposeAsync(
+                DoorRooms(resolved, plans), clusterCount, context.Parallelism, options.DoorFlowStateCap, cancellationToken).ConfigureAwait(false)
             : DoorGraphVisibility(resolved, plans, clusterCount, cancellationToken);
         int rowBytes = visibility.RowBytes;
         byte[] pvs = visibility.Pvs;
