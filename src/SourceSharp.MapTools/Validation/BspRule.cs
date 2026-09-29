@@ -159,6 +159,9 @@ public static class BspRuleCatalog
 
         new(BspRuleCodes.SubLumpFraming, DiagnosticSeverity.Error,
             "a lump built from counted runs must frame exactly within its bytes"),
+
+        new(BspRuleCodes.TooManyCubemaps, DiagnosticSeverity.Warning,
+            "a map should carry at most MAX_MAP_CUBEMAPSAMPLES cubemap samples"),
     ];
 
     /// <summary>The rule a code names.</summary>

@@ -222,6 +222,12 @@ public static class RoomCompiler
         // its conditions and furniture keys, its collision turned four ways.
         RoomBrushModels? brushModels = RoomBrushModels.Build(definition, vbsp.Bsp, map);
 
+        // The cubemap samples as the loader read them (the lump holds them
+        // truncated) and the names vbsp made after them, which the link
+        // renames for every placement to the level's name and positions.
+        RoomCubemaps? cubemaps = await RoomCubemaps
+            .BuildAsync(vbsp.Bsp, context.CubemapSamples, context.MapBase, cancellationToken).ConfigureAwait(false);
+
         return new RoomObject(
             definition,
             vbsp.Bsp,
@@ -232,6 +238,7 @@ public static class RoomCompiler
             Names = new RoomNameTables(names, vbsp.Bsp),
             Props = staticProps,
             BrushModels = brushModels,
+            Cubemaps = cubemaps,
         };
     }
 

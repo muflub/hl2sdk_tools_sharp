@@ -22,8 +22,8 @@ namespace SourceSharp.MapTools.Rooms;
 /// cubemaps built from the sky's textures
 /// (<c>materials/maps/&lt;map&gt;/cubemapdefault.vtf</c> and its
 /// <c>.hdr.vtf</c>), patched materials (water depth,
-/// <c>_wvt_patch</c>), and later the cubemap copies and static prop
-/// <c>.vhv</c> files the features that carry them add. A patched material's
+/// <c>_wvt_patch</c>), the cubemap patches and copies named after each
+/// <c>env_cubemap</c> sample, and static prop <c>.vhv</c> files. A patched material's
 /// name holds the compile's map name, which for a room is the room's own
 /// (<see cref="Bsp.VbspContext.MapBase"/>, the room name lower-cased). The
 /// pack stores each room's pak as vbsp wrote it, byte for byte, inside the
@@ -50,9 +50,12 @@ namespace SourceSharp.MapTools.Rooms;
 /// rooms' copies are the same bytes and merge into one; the level's name
 /// is the one a vbsp compile of the flattened level writes it under, so the
 /// linked map and the flattened one hold the same files after renaming.
-/// The cubemap samples, whose names hold world positions, are renamed by
-/// the feature that carries them; until then the lump they come with is
-/// refused.
+/// The cubemap samples' files, whose names hold the map's name and the
+/// sample's world position (a patched specular material and the sample's
+/// default cubemap copies), are written once per placement of their room,
+/// under the level's name and the placement's position, a patched
+/// material's text renamed to match (<see cref="PlacementCubemaps"/>); none
+/// is kept under the room's name, where nothing would read it.
 /// </para>
 /// <para>
 /// <b>Static prop lighting.</b> vrad names each static prop's vertex
@@ -183,6 +186,38 @@ public static class LevelPakFiles
         IReadOnlyList<(string Room, ZipArchiveReader Pak)> rooms,
         string mapBase,
         IReadOnlyDictionary<string, IReadOnlyList<(int RoomProp, int Linked)>>? propFiles,
+        CancellationToken cancellationToken) =>
+        Merge(rooms, mapBase, propFiles, cubemaps: null, cancellationToken);
+
+    /// <summary>
+    /// Merges the paks of the rooms a level places, renaming the rooms'
+    /// static prop lighting files to the props' linked indices and their
+    /// cubemap files to the level's name and each placement's positions.
+    /// </summary>
+    /// <param name="rooms">As for the overload without props.</param>
+    /// <param name="mapBase">As for the overload without props.</param>
+    /// <param name="propFiles">As for the overload without cubemaps.</param>
+    /// <param name="cubemaps">
+    /// Per room with <c>env_cubemap</c> samples, its placements' cubemaps in
+    /// link order (<see cref="LevelCubemaps.ByRoom"/>), or null when no
+    /// placed room has one: each of such a room's files named after a
+    /// sample (a patched material, a sample's default cubemap copy) is
+    /// written once per placement under the name the placement gives it
+    /// (<see cref="PlacementCubemaps.LinkedEntry"/>), and never under the
+    /// room's.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the merge.</param>
+    /// <returns>As for the overload without props.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="rooms"/> or <paramref name="mapBase"/> is null.</exception>
+    /// <exception cref="LinkException">
+    /// As for the overload without props; and a patched material packed
+    /// compressed, whose text the link cannot rewrite.
+    /// </exception>
+    internal static (byte[]? Pak, int Files) Merge(
+        IReadOnlyList<(string Room, ZipArchiveReader Pak)> rooms,
+        string mapBase,
+        IReadOnlyDictionary<string, IReadOnlyList<(int RoomProp, int Linked)>>? propFiles,
+        IReadOnlyDictionary<string, IReadOnlyList<PlacementCubemaps>>? cubemaps,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rooms);
@@ -210,6 +245,8 @@ public static class LevelPakFiles
             cancellationToken.ThrowIfCancellationRequested();
             IReadOnlyList<(int RoomProp, int Linked)>? props = null;
             _ = propFiles?.TryGetValue(room, out props);
+            IReadOnlyList<PlacementCubemaps>? placed = null;
+            _ = cubemaps?.TryGetValue(room, out placed);
             foreach (ZipEntry entry in pak.Entries)
             {
                 // The writer drops an empty entry (vbsp's does too), so an
@@ -232,11 +269,21 @@ public static class LevelPakFiles
                     continue;
                 }
 
-                if (IsRenamed(entry.Name, room) && mapBase.Length == 0)
+                if (placed is { Count: > 0 } && placed[0].FileNamed(entry.Name) is { } cubemapFile)
                 {
-                    throw new LinkException(
-                        $"room {room} packs {entry.Name}, which is named after its map; the link renames it to the level's map name,"
-                        + " and was given none (the map name of the link's compile context).");
+                    RefuseWithoutMapName(room, entry.Name, mapBase);
+                    foreach (PlacementCubemaps placement in placed)
+                    {
+                        ZipEntry linked = placement.LinkedEntry(entry, cubemapFile, room);
+                        Add(room, linked.Name, linked);
+                    }
+
+                    continue;
+                }
+
+                if (IsRenamed(entry.Name, room))
+                {
+                    RefuseWithoutMapName(room, entry.Name, mapBase);
                 }
 
                 Add(room, LinkedName(entry.Name, room, mapBase), entry);
@@ -255,6 +302,20 @@ public static class LevelPakFiles
         }
 
         return (writer.ToBytes(), merged.Count);
+    }
+
+    /// <summary>
+    /// Refuses a file the link renames to the level's map name when it was
+    /// given none, rather than carrying it where nothing reads it.
+    /// </summary>
+    private static void RefuseWithoutMapName(string room, string file, string mapBase)
+    {
+        if (mapBase.Length == 0)
+        {
+            throw new LinkException(
+                $"room {room} packs {file}, which is named after its map; the link renames it to the level's map name,"
+                + " and was given none (the map name of the link's compile context).");
+        }
     }
 
     /// <summary>The file name under the map's directory when <paramref name="file"/> is the room's default cubemap, else null.</summary>
