@@ -413,19 +413,10 @@ public static class RoomLinter
         LeafSurfaceTables tables = LeafSurfaceTables.From(bsp, seals.Count > 0);
         List<int> interior = [];
         bool[] sealedBox = new bool[seals.Count];
-        HashSet<int> modelLeaves = BrushModelLeaves(bsp);
         for (int leafIndex = 0; leafIndex < leaves.Count; leafIndex++)
         {
             DLeaf leaf = leaves[leafIndex];
             Box box = BoxOf(leaf);
-
-            // A brush entity's leaves are its own model's: a trigger volume
-            // in a doorway is not the doorway's plug, and its leaves have no
-            // cluster to be interior.
-            if (modelLeaves.Contains(leafIndex))
-            {
-                continue;
-            }
 
             if ((leaf.Contents & (int)BrushContents.Solid) != 0)
             {
@@ -507,39 +498,6 @@ public static class RoomLinter
             interior,
             sealClusters,
             seals);
-    }
-
-    /// <summary>
-    /// The leaves of a compile's brush models besides the world: the ones
-    /// their head nodes reach. Empty for a compile with only the world.
-    /// </summary>
-    internal static HashSet<int> BrushModelLeaves(BspData bsp)
-    {
-        HashSet<int> leaves = [];
-        ReadOnlySpan<DModel> models = BspStructView.As<DModel>(bsp[BspLump.Models]);
-        ReadOnlySpan<DNode> nodes = BspStructView.As<DNode>(bsp[BspLump.Nodes]);
-        Stack<int> pending = [];
-        for (int m = 1; m < models.Length; m++)
-        {
-            pending.Push(models[m].HeadNode);
-        }
-
-        HashSet<int> seen = [];
-        while (pending.Count > 0)
-        {
-            int at = pending.Pop();
-            if (at < 0)
-            {
-                leaves.Add(~at);
-            }
-            else if (at < nodes.Length && seen.Add(at))
-            {
-                pending.Push(nodes[at].Children[0]);
-                pending.Push(nodes[at].Children[1]);
-            }
-        }
-
-        return leaves;
     }
 
     /// <summary>
