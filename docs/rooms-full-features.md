@@ -2239,6 +2239,34 @@ One PR per feature or small group. Already queued, and assumed:
 | 15 | **Displacements**, no cross-room stitching. | L | 9 | Many lumps; lighting is a large part. | 15.2 displacements row; 15.4 socket row |
 | 16 | **Detail props**. | M | 15, 9 | Depends on both; statistical equivalence. | 15.2 detail props row |
 
+**PR 4 landed** (singletons and the library section). The split applies
+D3 to every room (`RoomLibraryEntities.KeepInRoom`): a room's
+`light_environment`, or a controller that is unnamed or named as the
+library's copy, is dropped when its keys equal the library's (every key but
+`id`, `hammerid` and `origin`, a missing key read as empty, outputs compared
+in order) and refused otherwise with the 15.4 message, which names the room
+and the first differing key; a room sun in a library without one is refused
+too. The gaps may hold one sun and one controller per class and name. A
+`sky_camera` is refused in a room (15.4) and, until the skybox room of PR 13,
+in the gaps as well, where it used to be ignored. The link and the flatten
+write each library entity once after the worldspawn, never turned, at the
+level's origin (the one position safe in every level: vbsp's leak flood
+skips an entity there), and run one keep-first rule (`LevelSingletons`)
+after naming, which also keeps one `water_lod_control` and dedupes a host-
+packed room's copies. The budget counts the library's entities once per
+level (`LevelEntityReport.Library`, `LayoutEntityBudget.LevelEdicts`), and
+`ssmap rooms` lists them on a `library:` line. The pack format version is
+2: the layout is version 1's, but a version 2 pack promises its rooms were
+held to the library's singletons, which the link cannot check from
+compiled rooms, so a version 1 pack is refused with a message to recompile
+the library. Decisions taken where this document is open: the four
+controllers follow the sun's refusal text with their own class (only the
+sun's and the sky camera's messages are given in 15.4); a named controller
+the library does not hold is room-local, per the per-room fog note in
+section 8; sky settings need no check of their own, since `skyname` comes
+from the worldspawn every room copies and the sky colours are
+`light_environment` keys.
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other

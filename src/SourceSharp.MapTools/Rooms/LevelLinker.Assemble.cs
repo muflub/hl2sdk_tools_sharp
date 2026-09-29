@@ -33,6 +33,7 @@ public static partial class LevelLinker
         VbspContext context,
         EntityClassTable classes,
         LevelNaming naming,
+        LevelSingletons singletons,
         string? mapVersion,
         bool foldBrushes,
         CancellationToken cancellationToken)
@@ -493,7 +494,7 @@ public static partial class LevelLinker
         (byte[]? physCollide, byte[]? physDisp) = MergeCollision(plans, context.Options.Compliance, brushMap, cancellationToken);
 
         BspData linked = new() { FileVersion = first.Bsp.FileVersion };
-        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion);
+        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion, singletons);
         linked.SetLump(BspLump.Planes, Bytes(planes.Planes));
         linked.SetLump(BspLump.TexData, Bytes(textures.TexDatas));
         linked.SetLump(BspLump.Vertexes, plans.SelectMany(p => MemoryMarshal.AsBytes(p.Vertices.AsSpan()).ToArray()).ToArray());

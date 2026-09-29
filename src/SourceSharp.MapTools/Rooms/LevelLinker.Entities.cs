@@ -58,6 +58,15 @@ public static partial class LevelLinker
     /// does not count.
     /// </para>
     /// <para>
+    /// <b>Singletons.</b> The library's own entities (the sun, fog and the
+    /// other library-wide controllers the pack's library section holds) are
+    /// written once, right after the worldspawn, never turned and standing
+    /// at the level's origin (<see cref="RoomLibraryEntities.ToLinked"/>).
+    /// A placement's copy of a level-wide singleton that equals the first
+    /// copy is dropped and a different one refused (<see cref="LevelSingletons"/>),
+    /// after names are resolved, as the flatten does.
+    /// </para>
+    /// <para>
     /// <b>Names.</b> When a placed room uses room-local names (or the link
     /// writes the mod's classes), every placement's entities go through the
     /// one naming resolver the flatten also runs (<see cref="LevelEntityResolver"/>)
@@ -67,8 +76,10 @@ public static partial class LevelLinker
     /// entirely and links to the bytes it did before names existed.
     /// </para>
     /// </remarks>
-    internal static BspLumpData MergeEntities(RoomPlan[] plans, EntityClassTable classes, LevelNaming? naming = null, string? mapVersion = null)
+    internal static BspLumpData MergeEntities(
+        RoomPlan[] plans, EntityClassTable classes, LevelNaming? naming = null, string? mapVersion = null, LevelSingletons? singletons = null)
     {
+        singletons ??= new LevelSingletons([]);
         List<BspEntity> merged = [];
         BspEntity? world = null;
         string? worldOwner = null;
@@ -109,7 +120,7 @@ public static partial class LevelLinker
                     }
                     else if (!compileOnly)
                     {
-                        merged.Add(TranslateEntity(item, plan.Transform, name, plan.OccluderBase));
+                        AddUnlessDuplicate(merged, singletons, TranslateEntity(item, plan.Transform, name, plan.OccluderBase), name, index);
                     }
 
                     continue;
@@ -165,8 +176,13 @@ public static partial class LevelLinker
             {
                 RoomPlan plan = plans[entity.Placement];
                 List<RoomLinkPair> pairs = [.. entity.Pairs.Select(p => p.Position ?? new RoomLinkPair(p.Key, p.Value!, default))];
-                merged.Add(TranslateEntity(
-                    new RoomLinkEntity(false, pairs, null, null), plan.Transform, plan.Placement.Room.Definition.Name, plan.OccluderBase));
+                string room = plan.Placement.Room.Definition.Name;
+                AddUnlessDuplicate(
+                    merged,
+                    singletons,
+                    TranslateEntity(new RoomLinkEntity(false, pairs, null, null), plan.Transform, room, plan.OccluderBase),
+                    room,
+                    entity.Placement);
             }
         }
 
@@ -205,8 +221,24 @@ public static partial class LevelLinker
             lump.Add(linkedWorld);
         }
 
+        // The library's entities once, straight after the worldspawn, as the
+        // flatten writes them (RoomLibraryEntities.ToLinked).
+        lump.AddRange(singletons.Library.Select(RoomLibraryEntities.ToLinked));
         lump.AddRange(merged);
         return EntityLump.Write(lump);
+    }
+
+    /// <summary>
+    /// Adds a moved entity to the level unless it is an equal later copy of
+    /// a level-wide singleton (<see cref="LevelSingletons"/>), which is
+    /// dropped; a different copy is refused there.
+    /// </summary>
+    private static void AddUnlessDuplicate(List<BspEntity> merged, LevelSingletons singletons, BspEntity entity, string room, int placement)
+    {
+        if (singletons.Keep(room, placement, entity.ClassName, [.. entity.Pairs.Select(p => new KeyValuePair<string, string>(p.Key, p.Value))]))
+        {
+            merged.Add(entity);
+        }
     }
 
     private static LevelEntity Removed(LevelEntity entity)

@@ -394,7 +394,8 @@ at the cell's low corner (least x, y and z). Its keys:
 | `socket_east`, `socket_west`, `socket_north`, `socket_south` | Optional names for the sockets; the default is the wall's name. East is +x, north is +y. |
 
 Everything inside a cell belongs to its room. Point entities in the gaps
-are ignored; a brush in the gaps or across a cell's edge, overlapping
+are ignored, except the level-wide ones (see **Level-wide singletons**
+below) and a `sky_camera`, which is refused; a brush in the gaps or across a cell's edge, overlapping
 cells, rooms of different grids or kits, and a door a standing player
 (32 x 32 x 72) cannot walk through on the floor are errors that name the
 problem. A room's sockets are its door plugs: a world brush exactly filling
@@ -419,7 +420,10 @@ The pack starts with an index of its rooms, so `link` reads the index and
 the rooms its level places and nothing else of the file. Each room in it is
 the room container `ssmap` has always written for a room; the format
 (`RoomPack` in `Rooms/`) has room for more per room and per library, and
-a build that does not know a later section reads around it.
+a build that does not know a later section reads around it. The pack is at
+format version 2, which promises that every room was checked against the
+library's singletons when it was built; a version 1 pack is refused with a
+message to recompile the library with `ssmap room`.
 
 A **level** is a YAML file:
 
@@ -541,6 +545,32 @@ mode on the worldspawn (`ssmap_entities mod`); without it the link writes
 stock branches and relays instead. `link --flatten` runs the same resolver,
 so both maps carry the same entities. `ssmap rooms` lists each room's names
 from the pack.
+
+**Level-wide singletons.** All rooms share one sun. A `light_environment`
+belongs in the library's gaps, with the fog, tone map, shadow and
+post-process controllers (`env_fog_controller`, `env_tonemap_controller`,
+`shadow_control`, `postprocess_controller`): `room` keeps them in the pack's
+library section, and the gaps may hold one sun and one of each controller
+per name. A room may carry a copy only if it equals the library's (every
+key but `id` and `origin`, and the outputs in order); the copy is then
+dropped from the room, and a copy that differs refuses the library, naming
+the room and the first key that differs:
+
+```
+room hub: its light_environment differs from the library's (angles: "-45 120 0" against "-45 30 0"); the sun is library-wide.
+```
+
+A named controller the library does not hold under that name is the room's
+own (per-room fog is a trigger and a named controller, as in any map) and
+stays with the room. A `sky_camera` is refused in a room and in the gaps:
+it belongs to a library skybox room, which the linker does not build yet.
+`link` and `link --flatten` write each library entity once, right after the
+worldspawn, never turned, at the level's origin, and keep one
+`water_lod_control` (vbsp adds one to every room compile with water): an
+equal later copy is dropped and a different one refused. The library's
+entities count once per level in the entity budget, in `layout
+-entity-budget` too, and `ssmap rooms` lists them on a `library:` line after
+the budget.
 
 **Navigation.** `ssmap room` also builds each room's 3D navigation: one
 clearance grid of the room's free space (16-unit voxels in runs per

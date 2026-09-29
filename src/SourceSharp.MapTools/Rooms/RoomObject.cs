@@ -8,6 +8,7 @@
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Text;
 using SourceSharp.MapTools.Vis;
 
 namespace SourceSharp.MapTools.Rooms;
@@ -156,6 +157,17 @@ public sealed class RoomLibrary
     /// rooms, <see cref="RoomLibraryOptions.None"/> until then.
     /// </summary>
     public RoomLibraryOptions Options { get; set; } = RoomLibraryOptions.None;
+
+    /// <summary>
+    /// The library-wide entities (the sun, fog and the other controllers
+    /// from the gaps between cells), in library order and as the library
+    /// wrote them: read from the pack's library section
+    /// (<see cref="RoomPack.ReadLibraryEntitiesAsync"/>) by whoever loads the
+    /// rooms, empty until then. The link writes each once, right after the
+    /// worldspawn (<see cref="RoomLibraryEntities.ToLinked"/>), and counts
+    /// them in the level's entity budget.
+    /// </summary>
+    public IReadOnlyList<VmfChunk> LibraryEntities { get; set; } = [];
 
     /// <summary>The rooms, in insertion order.</summary>
     public IReadOnlyCollection<RoomObject> Rooms => _rooms.Values;
