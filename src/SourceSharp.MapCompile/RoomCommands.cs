@@ -1442,11 +1442,13 @@ public static class RoomCommands
             return ExitFailed;
         }
 
-        // The link reads no content — only the context's parallelism — so the
-        // context needs mounts for none. A linked map carries no content lump
-        // for the link to want.
+        // The link reads no content — only the context's parallelism and map
+        // name — so the context needs mounts for none (decision D1: the pack
+        // is all a link reads). The map name is the output file's, as vbsp
+        // takes it from the source file's: the rooms' default cubemaps are
+        // renamed to it, which is where the engine looks for them.
         await using ContentFileSystem content = new([]);
-        VbspContext context = new(VbspOptions.Default, content);
+        VbspContext context = new(VbspOptions.Default, content) { MapBase = MapBaseOf(mapPath) };
 
         try
         {
@@ -1504,6 +1506,7 @@ public static class RoomCommands
                 $"ssmap link: wrote {HostPaths.Display(mapPath)}"
                 + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters, {brushes} brushes"
                 + (link.FoldedBrushes > 0 ? $" ({link.FoldedBrushes} folded away)" : string.Empty)
+                + (link.PackedFiles > 0 ? $", {link.PackedFiles} packed files" : string.Empty)
                 + (navPlan.WritesNavigation ? $", level id {navPlan.LevelId:D})" : ")"))
                 .ConfigureAwait(false);
             if (navPlan.WritesNavigation)
@@ -1550,6 +1553,24 @@ public static class RoomCommands
             await output.WriteLineAsync($"ssmap link: {levelPath}: {exception.Message}").ConfigureAwait(false);
             return ExitFailed;
         }
+    }
+
+    /// <summary>
+    /// A linked map's name, as the link's compile context takes it
+    /// (<see cref="VbspContext.MapBase"/>): the output file's name without
+    /// its extension, lower-cased, as vbsp takes a map's from its source file.
+    /// </summary>
+    /// <param name="mapPath">The map.</param>
+    /// <returns>The map name the rooms' default cubemaps are renamed to.</returns>
+    /// <remarks>
+    /// Public because the CLI gets no <c>InternalsVisibleTo</c>: a host that
+    /// links a level itself names its map the same way, and the facts pin it.
+    /// </remarks>
+    public static string MapBaseOf(VPath mapPath)
+    {
+#pragma warning disable CA1308 // mapbase is lower case, as vbsp's strlwr makes it
+        return Path.GetFileNameWithoutExtension(mapPath.FileName).ToLowerInvariant();
+#pragma warning restore CA1308
     }
 
     /// <summary>Where a linked map's navigation goes: beside it, <c>&lt;map&gt;.nav3d</c>.</summary>

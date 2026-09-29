@@ -161,33 +161,29 @@ public static partial class LevelLinker
     }
 
     /// <summary>
-    /// Refuses a room whose pak file holds a file: the linked map carries one
-    /// pak, and merging archives (and the materials they may patch) is not
-    /// something the relocation does.
+    /// Reads a room's pak file: the archive, or null when the lump is empty;
+    /// a pak that is not a zip is refused, since the link could neither carry
+    /// its files nor tell whether it holds any.
     /// </summary>
-    private static async Task RefusePackedFilesAsync(RoomObject room, CancellationToken cancellationToken)
+    /// <remarks>
+    /// The files themselves are carried: the link merges every placed room's
+    /// into the level's one pak (<see cref="LevelPakFiles"/>).
+    /// </remarks>
+    private static async Task<ZipArchiveReader?> ReadPakAsync(RoomObject room, CancellationToken cancellationToken)
     {
         BspLumpData pak = room.Bsp[BspLump.PakFile];
         if (pak.Length == 0)
         {
-            return;
+            return null;
         }
 
-        ZipArchiveReader archive;
         try
         {
-            archive = await ZipArchiveReader.ParseAsync(pak.Data, cancellationToken).ConfigureAwait(false);
+            return await ZipArchiveReader.ParseAsync(pak.Data, cancellationToken).ConfigureAwait(false);
         }
         catch (InvalidZipException exception)
         {
             throw new LinkException($"room {room.Definition.Name}'s pak file is not a zip: {exception.Message}");
-        }
-
-        if (archive.Entries.Count != 0)
-        {
-            throw new LinkException(
-                $"room {room.Definition.Name}'s pak file holds {archive.Entries.Count} files;"
-                + " the relocation carries only an empty pak");
         }
     }
 
