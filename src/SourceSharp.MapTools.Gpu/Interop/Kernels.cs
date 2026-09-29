@@ -120,7 +120,7 @@ void trace_one(bool anyMode, out bool hit, out uint prim, out float t) {
     uint qflags = anyMode ? gl_RayFlagsTerminateOnFirstHitEXT : 0u;
     // IRayTracer: a visibility hit must be STRICTLY short of the segment end.
     // The driver culls to t <= tmax, so any-hit scales tmax down one ulp
-    // class (host passes 1 - 2^-23) and a t at the boundary falls to the miss
+    // class (host passes 1 - 2^-24) and a t at the boundary falls to the miss
     // side; the parity facts count that eps-band explicitly.
     float tmaxEff = anyMode ? tmax * uintBitsToFloat(PC.tmaxScaleBits) : tmax;
     hit = false;

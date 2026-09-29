@@ -688,18 +688,25 @@ found, vrad reports that it declined the GPU and falls back to the CPU
 KD-tree tracer, so a run never fails for lack of a GPU.
 
 `-gpu auto` asks for no particular device and means "use the faster one":
-it takes the most GPU-like capable device (discrete, then integrated), but
-keeps the CPU tracer, with one warning saying why, when
+it tries the capable devices one at a time, most GPU-like first (discrete,
+then integrated, virtual, CPU), and uses the first that passes. A device is
+passed over, and released before the next is opened, when
 
-- the only capable device is a CPU implementation of Vulkan (llvmpipe),
-  which the built-in CPU tracer beats; or
-- the device has to copy rays to itself (no resizable BAR) and a probe of
-  that copy during start-up measures less than 2.5 GB/s. A ray is 32 bytes
-  and the CPU tracer answers about 80 million rays a second on 32 threads,
-  so below that rate the upload alone takes longer than the CPU would. An
-  RTX 2070 SUPER in a PCIe Gen2 x1 slot (about 0.5 GB/s) spent 34 s of a
-  2fort light copying rays and 0.4 s tracing them, and lost to the CPU by
-  five times.
+- it is a CPU implementation of Vulkan (llvmpipe), which the built-in CPU
+  tracer beats;
+- it fails the two-triangle self-test; or
+- it has to copy rays to itself (no resizable BAR) and a probe of that copy
+  during start-up measures less than 2.5 GB/s.
+
+When every device is passed over, vrad keeps the CPU tracer and its one
+warning lists each device with its reason. On a machine with an RTX 2070 on
+a slow link beside an RX 9070, the 2070 is passed over and the 9070 used.
+
+Why 2.5 GB/s: a ray is 32 bytes and the CPU tracer answers about 80 million
+rays a second on 32 threads, so below that rate the upload alone takes
+longer than the CPU would. An RTX 2070 SUPER in a PCIe Gen2 x1 slot (about
+0.5 GB/s) spent 34 s of a 2fort light copying rays and 0.4 s tracing them,
+and lost to the CPU by five times.
 
 A named device (`-gpu nvidia`, `-gpu llvmpipe`) is always used if it passes
 its self-test. Every device is checked first with a two-triangle self-test;

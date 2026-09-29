@@ -850,8 +850,9 @@ public sealed class VulkanRayTracerFacts
     /// difference is only tolerated where the clips legitimately differ —
     /// the CPU KD's leaf test accepts t &gt; 1e-10 (KdRayTracer.cs:918,
     /// stock's FourZeros) while the GPU's ray query culls t &lt; 1e-3, and the
-    /// any-hit kernel scales tmax by 1-2^-23. Outside that band every claim
-    /// is strict: bits equal, hit/miss equal, ids equal or an oracle-witnessed
+    /// any-hit kernel scales tmax by 1-2^-24 (the oracle below uses 1-2^-23,
+    /// one ulp lower, so its band is a shade wider). Outside that band every
+    /// claim is strict: bits equal, hit/miss equal, ids equal or an oracle-witnessed
     /// tie inside the 1e-3 fraction band, worst fraction gap ≤ 1e-3, and each
     /// arm's committed hit equal to its own policy's oracle answer.
     /// </summary>
@@ -1055,7 +1056,7 @@ public sealed class VulkanRayTracerFacts
         double best = double.PositiveInfinity, second = double.PositiveInfinity;
         int bestId = -1, secondId = -1;
         int nCross = 0;
-        double gpuFar = tmax * (double)(1f - 1f / 8_388_608f); // any-hit kernel's (1-2^-23) tmax scale
+        double gpuFar = tmax * (double)(1f - 1f / 8_388_608f); // 1-2^-23: one ulp below the any-hit kernel's 1-2^-24 tmax scale, a shade wider
         for (int i = 0; i < tris.Length; i++)
         {
             TracedTriangle t = tris[i];

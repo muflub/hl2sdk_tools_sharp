@@ -137,7 +137,7 @@ public sealed class VulkanDevicePolicyFacts(Xunit.Abstractions.ITestOutputHelper
     public void AnUnpinnedSlowUploadIsDeclined()
     {
         Assert.Equal(
-            "rays upload to NVIDIA GeForce RTX 2070 SUPER at 0.67 GB/s, below the 2.50 GB/s at which tracing on "
+            "NVIDIA GeForce RTX 2070 SUPER: rays upload at 0.67 GB/s, below the 2.50 GB/s at which tracing on "
             + "it could beat the CPU; the built-in CPU tracer is faster; pin the device by name to trace on it anyway",
             VulkanRayTracer.SlowDeviceReason(Auto, "NVIDIA GeForce RTX 2070 SUPER", false, 0.67e9));
     }
@@ -191,8 +191,226 @@ public sealed class VulkanDevicePolicyFacts(Xunit.Abstractions.ITestOutputHelper
     }
 
     // ------------------------------------------------------------------
+    // The unpinned walk
+    // ------------------------------------------------------------------
+
+    private static VulkanDeviceInfo Row(int index, string name, PhysicalDeviceType type, bool rayQuery = true) =>
+        new(index, name, type.ToString(), rayQuery);
+
+    /// <summary>A fake attempt: accepted, or declined with a reason that starts with the device's name.</summary>
+    private static VulkanTracerAttempt Fake(IReadOnlyList<VulkanDeviceInfo> rows, string name, string? why) =>
+        why is null
+            ? new VulkanTracerAttempt(null, new VulkanDeviceReport(rows, null, null), true)
+            : new VulkanTracerAttempt(null, new VulkanDeviceReport(rows, null, name + why), false);
+
+    /// <summary>
+    /// The walk's order is selection's ranking over ray-query devices:
+    /// discrete, integrated, virtual, CPU, loader order within a type;
+    /// devices without ray query are not tried.
+    /// </summary>
+    [Fact]
+    public void TheWalkTriesRayQueryDevicesBestFirst()
+    {
+        VulkanDeviceInfo[] rows =
+        [
+            Row(0, "llvmpipe", PhysicalDeviceType.Cpu),
+            Row(1, "old GPU", PhysicalDeviceType.DiscreteGpu, rayQuery: false),
+            Row(2, "iGPU", PhysicalDeviceType.IntegratedGpu),
+            Row(3, "NVIDIA GeForce RTX 2070 SUPER", PhysicalDeviceType.DiscreteGpu),
+            Row(4, "AMD Radeon RX 9070 XT", PhysicalDeviceType.DiscreteGpu),
+            Row(-1, "(no Vulkan loader)", PhysicalDeviceType.Other, rayQuery: false),
+        ];
+
+        Assert.Equal([3, 4, 2, 0], VulkanRayTracer.RankedDevices(rows));
+        Assert.Empty(VulkanRayTracer.RankedDevices([rows[1], rows[5]]));
+    }
+
+    /// <summary>[slow discrete, good discrete]: the slow one is declined and released, the good one used.</summary>
+    [Fact]
+    public void ASlowDiscreteLeadsToTheNextDiscrete()
+    {
+        VulkanDeviceInfo[] rows =
+        [
+            Row(0, "NVIDIA GeForce RTX 2070 SUPER", PhysicalDeviceType.DiscreteGpu),
+            Row(1, "AMD Radeon RX 9070 XT", PhysicalDeviceType.DiscreteGpu),
+        ];
+        List<string> events = [];
+
+        VulkanTracerAttempt a = VulkanRayTracer.Walk(
+            VulkanRayTracer.RankedDevices(rows),
+            i =>
+            {
+                events.Add("open " + i);
+                VulkanTracerAttempt r = i == 0
+                    ? Fake(rows, rows[0].Name, ": rays upload at 0.67 GB/s, below the 2.50 GB/s floor")
+                    : Fake(rows, rows[1].Name, null);
+                events.Add("release-or-hand-over " + i);
+                return r;
+            },
+            rows,
+            CancellationToken.None);
+
+        Assert.True(a.Success);
+        Assert.Equal(["open 0", "release-or-hand-over 0", "open 1", "release-or-hand-over 1"], events);
+    }
+
+    /// <summary>[CPU-type, good integrated]: the integrated device is tried first and used; llvmpipe is never opened.</summary>
+    [Fact]
+    public void AnIntegratedGpuWinsOverACpuDevice()
+    {
+        VulkanDeviceInfo[] rows =
+        [
+            Row(0, "llvmpipe (LLVM 20.1.2, 256 bits)", PhysicalDeviceType.Cpu),
+            Row(1, "AMD Radeon Graphics (RADV RAPHAEL_MENDOCINO)", PhysicalDeviceType.IntegratedGpu),
+        ];
+        List<int> opened = [];
+
+        VulkanTracerAttempt a = VulkanRayTracer.Walk(
+            VulkanRayTracer.RankedDevices(rows),
+            i =>
+            {
+                opened.Add(i);
+                return i == 1 ? Fake(rows, rows[1].Name, null) : Fake(rows, rows[0].Name, " is a CPU implementation");
+            },
+            rows,
+            CancellationToken.None);
+
+        Assert.True(a.Success);
+        Assert.Equal([1], opened);
+    }
+
+    /// <summary>Every device declined: the CPU tracer, with each device and its reason on the one line.</summary>
+    [Fact]
+    public void AllDeclinedFallsToTheCpuWithEveryReason()
+    {
+        VulkanDeviceInfo[] rows =
+        [
+            Row(0, "llvmpipe", PhysicalDeviceType.Cpu),
+            Row(1, "NVIDIA GeForce RTX 2070 SUPER", PhysicalDeviceType.DiscreteGpu),
+            Row(2, "Broken GPU", PhysicalDeviceType.DiscreteGpu),
+        ];
+
+        VulkanTracerAttempt a = VulkanRayTracer.Walk(
+            VulkanRayTracer.RankedDevices(rows),
+            i => i switch
+            {
+                0 => Fake(rows, "llvmpipe", " is a CPU implementation of Vulkan"),
+                1 => Fake(rows, "NVIDIA GeForce RTX 2070 SUPER", ": rays upload at 0.67 GB/s"),
+                // A driver refusal whose message does not name the device gets the name prefixed.
+                _ => new VulkanTracerAttempt(null, new VulkanDeviceReport(rows, null, "vkCreateDevice (VkResult ErrorInitializationFailed)"), false),
+            },
+            rows,
+            CancellationToken.None);
+
+        Assert.False(a.Success);
+        Assert.Null(a.Tracer);
+        Assert.Null(a.Report.Selected);
+        Assert.Equal(
+            "no Vulkan device here is faster than the built-in CPU tracer: "
+            + "NVIDIA GeForce RTX 2070 SUPER: rays upload at 0.67 GB/s | "
+            + "Broken GPU: vkCreateDevice (VkResult ErrorInitializationFailed) | "
+            + "llvmpipe is a CPU implementation of Vulkan",
+            a.Report.Failure);
+    }
+
+    /// <summary>A cancelled walk stops before the next device is opened.</summary>
+    [Fact]
+    public void ACancelledWalkOpensNothingMore()
+    {
+        VulkanDeviceInfo[] rows = [Row(0, "a", PhysicalDeviceType.DiscreteGpu), Row(1, "b", PhysicalDeviceType.DiscreteGpu)];
+        using CancellationTokenSource cts = new();
+        List<int> opened = [];
+
+        Assert.Throws<OperationCanceledException>(() => VulkanRayTracer.Walk(
+            [0, 1],
+            i =>
+            {
+                opened.Add(i);
+                cts.Cancel();
+                return Fake(rows, rows[i].Name, ": declined");
+            },
+            rows,
+            cts.Token));
+        Assert.Equal([0], opened);
+    }
+
+    /// <summary>A declined attempt's line leads with the device name exactly once.</summary>
+    [Fact]
+    public void ADeclineLineNamesTheDeviceOnce()
+    {
+        VulkanDeviceReport named = new([], null, "dev: slow");
+        VulkanDeviceReport bare = new([], null, "vkCreateDevice failed");
+        VulkanDeviceReport none = new([], null, null);
+
+        Assert.Equal("dev: slow", VulkanRayTracer.DeclineLine("dev", named));
+        Assert.Equal("dev: vkCreateDevice failed", VulkanRayTracer.DeclineLine("dev", bare));
+        Assert.Equal("dev: declined without a reason", VulkanRayTracer.DeclineLine("dev", none));
+    }
+
+    /// <summary>
+    /// On a real device: a walk that declines releases every device before
+    /// opening the next (the same device twice, so it runs anywhere).
+    /// </summary>
+    [VulkanStageFact(VulkanNeed.OnlyCpuDevice)]
+    public void EveryDeclinedAttemptIsReleasedBeforeTheNext()
+    {
+        VulkanDeviceInfo[] rows = [.. VulkanRayTracer.ProbeDevices()];
+        int cpu = rows.First(r => r.RayQuery).Index;
+        List<VulkanDevice> opened = [];
+        VulkanDevice Open()
+        {
+            // Everything opened so far must already be fully released.
+            Assert.All(opened, d => Assert.Equal(0, d.LiveBytes));
+            VulkanDevice d = new();
+            opened.Add(d);
+            return d;
+        }
+
+        VulkanTracerAttempt a = VulkanRayTracer.Walk(
+            [cpu, cpu],
+            i => VulkanRayTracer.TryOne(VulkanRayTracerReleaseFacts.TwoTriangles(), null, Open, Auto, i, CancellationToken.None),
+            rows,
+            CancellationToken.None);
+
+        Assert.False(a.Success);
+        Assert.Equal(2, opened.Count);
+        Assert.All(opened, d => Assert.Equal(0, d.LiveBytes));
+        Assert.Equal(2, a.Report.Failure!.Split(" | ").Length);
+    }
+
+    /// <summary>A physical-device index opens exactly that device when it can trace, else none.</summary>
+    [Fact]
+    public void APhysicalIndexOpensExactlyThatDevice()
+    {
+        DeviceCandidate[] devices =
+        [
+            new("old GPU", PhysicalDeviceType.DiscreteGpu, false),
+            new("llvmpipe", PhysicalDeviceType.Cpu, true),
+        ];
+
+        Assert.Equal(1, VulkanDevice.ChoosePhysical(devices, 1));
+        Assert.Equal(-1, VulkanDevice.ChoosePhysical(devices, 0));
+        Assert.Equal(-1, VulkanDevice.ChoosePhysical(devices, 2));
+    }
+
+    // ------------------------------------------------------------------
     // The host's -gpu value
     // ------------------------------------------------------------------
+
+    /// <summary>The CLI's decline line names the device once, whether or not the reason already did.</summary>
+    [Fact]
+    public void TheHostDeclineLineNamesTheDeviceOnce()
+    {
+        Assert.Equal(
+            "NVIDIA GeForce RTX 2070 SUPER: any-hit missed a known hit on the two-triangle self-test scene",
+            HostBackends.FormatDecline(
+                "NVIDIA GeForce RTX 2070 SUPER",
+                "NVIDIA GeForce RTX 2070 SUPER: any-hit missed a known hit on the two-triangle self-test scene"));
+        Assert.Equal(
+            "NVIDIA GeForce RTX 2070 SUPER: vkCreateDevice (VkResult ErrorInitializationFailed)",
+            HostBackends.FormatDecline("NVIDIA GeForce RTX 2070 SUPER", "vkCreateDevice (VkResult ErrorInitializationFailed)"));
+        Assert.Equal("no Vulkan loader: x", HostBackends.FormatDecline(null, "no Vulkan loader: x"));
+    }
 
     /// <summary><c>-gpu auto</c> (any case) and an empty value pin nothing; anything else is a name pin.</summary>
     [Fact]
@@ -290,8 +508,9 @@ public sealed class VulkanDevicePolicyFacts(Xunit.Abstractions.ITestOutputHelper
         Assert.False(unpinned.Success);
         Assert.Null(unpinned.Report.Selected);
         Assert.Equal(
-            $"{rq[0].Name} is a CPU implementation of Vulkan; the built-in CPU tracer is faster, so it is used "
-            + "instead. Pin the device by name to trace on it anyway",
+            $"no Vulkan device here is faster than the built-in CPU tracer: {rq[0].Name} is a CPU implementation "
+            + "of Vulkan; the built-in CPU tracer is faster, so it is used instead. Pin the device by name to trace "
+            + "on it anyway",
             unpinned.Report.Failure);
         Assert.Equal([TryCreateStage.Opened, TryCreateStage.Constructed, TryCreateStage.Released], seen);
 

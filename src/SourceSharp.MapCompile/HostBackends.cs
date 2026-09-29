@@ -476,9 +476,24 @@ public static class HostBackends
         object? selected = Property(report!, "Selected");
         string? selfTest = selected is null ? null : Property(selected, "Reason") as string;
         string? device = selected is null ? null : Property(selected, "DeviceName") as string;
-        string reason = failure ?? selfTest ?? "the self-test did not clear";
-        return device is null ? reason : $"{device}: {reason}";
+        return FormatDecline(device, failure ?? selfTest ?? "the self-test did not clear");
     }
+
+    /// <summary>
+    /// The decline line vrad prints: the reason, led by the device's name
+    /// exactly once.
+    /// </summary>
+    /// <param name="device">The device the attempt opened, or null when none was.</param>
+    /// <param name="reason">The backend's reason.</param>
+    /// <returns>The line.</returns>
+    /// <remarks>
+    /// The backend's reasons already start with the device's name (a failed
+    /// self-test, a CPU implementation, a slow link), and prefixing it again
+    /// printed it twice; a reason that does not start with it (a driver
+    /// refusal) still gets it.
+    /// </remarks>
+    public static string FormatDecline(string? device, string reason) =>
+        device is null || reason.StartsWith(device, StringComparison.Ordinal) ? reason : $"{device}: {reason}";
 
     [UnconditionalSuppressMessage("Trimming", "IL2075:NullabilityMismatchOnThis",
         Justification = "The targets are the Gpu package's own public records (VulkanTracerAttempt, VulkanDeviceReport, SelfTestRecord) — trim-immune in the JIT posture (the linker never sees the package), rooted by name in aot-packages-gpu.rd.xml in the AOT posture, whose Dynamic=Required All keeps exactly this property metadata.")]

@@ -65,7 +65,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// <summary>Kernel workgroup size; the bit-out layout assumes 64 rays/workgroup.</summary>
     internal const int Invocations = 64;
 
-    /// <summary>The any-hit tmax shrink as float bits: <c>1 - 2^-23</c> = 0x3F7FFFFF. A boundary hit goes to the miss side.</summary>
+    /// <summary>The any-hit tmax shrink as float bits: <c>1 - 2^-24</c> = 0x3F7FFFFF, the largest float below 1. A boundary hit goes to the miss side.</summary>
     internal const uint TmaxScaleBits = 0x3F7FFFFFu;
 
     private readonly Vk _vk = Vk.GetApi();
@@ -236,6 +236,10 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// Keep the upload and download copies even where the device could read
     /// rays and write answers in place; facts use it to compare the two paths.
     /// </param>
+    /// <param name="physicalDevice">
+    /// A physical-device index (loader order) to open exactly, overriding
+    /// the pins, or −1. An unpinned walk uses it to try each device in turn.
+    /// </param>
     /// <exception cref="VulkanException">Any driver refusal, with the failing call and result.</exception>
     /// <exception cref="NotSupportedException">No device matches and exposes ray query.</exception>
     public void Construct(
@@ -243,7 +247,8 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         int deviceIndex,
         int maxRaysPerSlab,
         int slots = SlabMemory.DefaultSlots,
-        bool forceStaged = false)
+        bool forceStaged = false,
+        int physicalDevice = -1)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(slots, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(slots, SlabMemory.MaxSlots);
@@ -337,10 +342,14 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                 Traceable(rqFeatures.RayQuery, asFeatures.AccelerationStructure));
         }
 
-        int chosen = ChooseDevice(candidates, deviceMatch, deviceIndex);
+        int chosen = physicalDevice >= 0
+            ? ChoosePhysical(candidates, physicalDevice)
+            : ChooseDevice(candidates, deviceMatch, deviceIndex);
         if (chosen < 0)
         {
-            string what = deviceIndex >= 0
+            string what = physicalDevice >= 0
+                ? $"at physical-device index {physicalDevice}"
+                : deviceIndex >= 0
                 ? $"physical-device index {deviceIndex} among ray-query-capable devices"
                 : $"with name matching '{deviceMatch}'";
             throw new NotSupportedException(
@@ -594,6 +603,13 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
 
         return chosen;
     }
+
+    /// <summary>The device at <paramref name="physicalDevice"/> when it is traceable, else −1.</summary>
+    /// <param name="candidates">Every physical device, in the loader's order.</param>
+    /// <param name="physicalDevice">The index to open.</param>
+    /// <returns><paramref name="physicalDevice"/>, or −1 when it is out of range or cannot trace.</returns>
+    internal static int ChoosePhysical(ReadOnlySpan<DeviceCandidate> candidates, int physicalDevice) =>
+        physicalDevice < candidates.Length && candidates[physicalDevice].Traceable ? physicalDevice : -1;
 
     /// <summary>How GPU-like a device type is, for <see cref="ChooseDevice"/>: higher wins.</summary>
     /// <param name="type">The device's type.</param>
@@ -1660,7 +1676,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// <param name="rayCount">Rays staged.</param>
     /// <param name="outWordCount">Raw out words: 2/ray for modes 1/5, 2/workgroup for 0/4.</param>
     /// <param name="tminBits">Ray epsilon as float bits.</param>
-    /// <param name="tmaxScaleBits">Any-hit tmax scale (<c>1 - 2^-23</c>) as float bits.</param>
+    /// <param name="tmaxScaleBits">Any-hit tmax scale (<c>1 - 2^-24</c>) as float bits.</param>
     /// <exception cref="VulkanException">
     /// Recording or submission failed (the slot stays free), or the slot's
     /// last slab failed its wait and still has not finished.

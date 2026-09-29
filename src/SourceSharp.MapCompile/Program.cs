@@ -432,11 +432,12 @@ public static class Program
                                                        -gpu <match|auto> traces on the Vulkan
                                                        device whose name contains <match>
                                                        (always, if it passes its self-test);
-                                                       -gpu auto takes the fastest capable
-                                                       device, but keeps the CPU tracer when
-                                                       the only device is a CPU implementation
-                                                       (llvmpipe) or its ray upload is below
-                                                       2.5 GB/s
+                                                       -gpu auto tries each capable device,
+                                                       most GPU-like first, skipping one that is
+                                                       a CPU implementation (llvmpipe), fails
+                                                       its self-test or uploads rays below
+                                                       2.5 GB/s; if none is left it keeps the
+                                                       CPU tracer and says why for each
               all [chain options] <map> [--vbsp ...] [--vvis ...] [--vrad ...]
                                                        vbsp+vvis+vrad, one process, BSP in memory;
                                                        each --stage section takes that stage's

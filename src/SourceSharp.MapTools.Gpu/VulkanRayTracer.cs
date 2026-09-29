@@ -76,6 +76,13 @@ public readonly record struct VulkanRayTracerOptions(
     /// one anyway", which diagnostics and the device facts do.
     /// </para>
     /// <para>
+    /// Unpinned with this on, an attempt walks every ray-query device in
+    /// ranking order and takes the first one that is not a CPU
+    /// implementation, passes the self-test and clears the upload floor;
+    /// only when none does is the attempt declined, with each device's
+    /// reason. A declined device is released before the next is opened.
+    /// </para>
+    /// <para>
     /// An init property, off by default, rather than a change of the
     /// default: a host that already relies on "any device that passes"
     /// keeps that, and one that wants the policy says so.
@@ -260,7 +267,7 @@ public readonly record struct VulkanTracerAttempt(
 /// </remarks>
 public sealed class VulkanRayTracer : IRayTracer, IDisposable
 {
-    /// <summary>The kernel's any-hit tmax shrink as float bits: <c>1 - 2^-23</c>.</summary>
+    /// <summary>The kernel's any-hit tmax shrink as float bits: <c>1 - 2^-24</c>, the largest float below 1.</summary>
     private const uint TmaxScaleBits = 0x3F7FFFFFu;
 
     private readonly VulkanDevice _device;
@@ -402,6 +409,24 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     /// <param name="options">Device pin and sizing.</param>
     /// <param name="cancellationToken">Checked at each stage boundary.</param>
     /// <returns>The tracer or the reason it was not created.</returns>
+    /// <remarks>
+    /// <para>
+    /// Pinned, or without
+    /// <see cref="VulkanRayTracerOptions.DeclineSlowDevicesUnlessPinned"/>,
+    /// this is one attempt on the device selection picks. Unpinned with the
+    /// policy on, it WALKS the ranking: every ray-query device, most
+    /// GPU-like first, until one is fast enough (<see cref="Walk"/>). "Use
+    /// the faster one by default" means the next device, not the CPU, when
+    /// the best-ranked one loses: the owner's machine lists an RTX 2070 on a
+    /// Gen2 x1 link beside an RX 9070, and the 2070 being declined for its
+    /// link must lead to the 9070.
+    /// </para>
+    /// <para>
+    /// Each device is opened, tested and, when declined, released before
+    /// the next is opened, so a walk never holds two devices and a declined
+    /// one leaves nothing behind.
+    /// </para>
+    /// </remarks>
     internal static VulkanTracerAttempt TryCreate(
         ReadOnlyMemory<TracedTriangle> triangles,
         Action<TryCreateStage>? observe,
@@ -411,6 +436,122 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     {
         // Checked before anything native is opened, so a bad value cannot
         // leave a device behind.
+        _ = SlotsFor(options);
+        if (!options.DeclineSlowDevicesUnlessPinned || options.IsPinned)
+        {
+            return TryOne(triangles, observe, open, options, -1, cancellationToken);
+        }
+
+        IReadOnlyList<VulkanDeviceInfo> rows = VulkanDevice.ProbeDevices();
+        int[] order = RankedDevices(rows);
+        if (order.Length == 0)
+        {
+            // Nothing to walk (no loader, or no ray-query device): one
+            // ordinary attempt says why in its own words.
+            return TryOne(triangles, observe, open, options, -1, cancellationToken);
+        }
+
+        return Walk(
+            order,
+            physical => TryOne(triangles, observe, open, options, physical, cancellationToken),
+            rows,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The physical-device indices an unpinned walk tries, best first: the
+    /// ray-query devices, ranked by type as selection ranks them (discrete,
+    /// integrated, virtual, CPU, other), loader order within a type.
+    /// </summary>
+    /// <param name="rows">The probe's inventory.</param>
+    /// <returns>Physical-device indices in the order to try them.</returns>
+    internal static int[] RankedDevices(IReadOnlyList<VulkanDeviceInfo> rows) =>
+    [
+        .. rows
+            .Where(r => r.RayQuery && r.Index >= 0)
+            .Select((r, position) => (r.Index, Score: VulkanDevice.DeviceScore(
+                Enum.TryParse(r.DeviceType, out Silk.NET.Vulkan.PhysicalDeviceType t) ? t : Silk.NET.Vulkan.PhysicalDeviceType.Other), position))
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.position)
+            .Select(x => x.Index),
+    ];
+
+    /// <summary>
+    /// Tries devices in <paramref name="order"/> until one is accepted, and
+    /// otherwise declines with every device's reason on one line.
+    /// </summary>
+    /// <param name="order">Physical-device indices, best first.</param>
+    /// <param name="tryOne">
+    /// One attempt on a physical device. It must release the device itself
+    /// when it does not hand it to a tracer, as <see cref="TryOne"/> does, so
+    /// the next attempt opens on a clean slate.
+    /// </param>
+    /// <param name="inventory">The probe's rows, for the combined report.</param>
+    /// <param name="cancellationToken">Checked before each attempt.</param>
+    /// <returns>The first accepted attempt, or a decline naming each device's reason.</returns>
+    internal static VulkanTracerAttempt Walk(
+        IReadOnlyList<int> order,
+        Func<int, VulkanTracerAttempt> tryOne,
+        IReadOnlyList<VulkanDeviceInfo> inventory,
+        CancellationToken cancellationToken)
+    {
+        List<string> declined = [];
+        foreach (int physical in order)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            VulkanTracerAttempt attempt = tryOne(physical);
+            if (attempt.Success)
+            {
+                return attempt;
+            }
+
+            string name = inventory.FirstOrDefault(r => r.Index == physical).Name ?? $"device {physical}";
+            declined.Add(DeclineLine(name, attempt.Report));
+        }
+
+        return new VulkanTracerAttempt(
+            null,
+            new VulkanDeviceReport(
+                inventory,
+                null,
+                "no Vulkan device here is faster than the built-in CPU tracer: " + string.Join(" | ", declined)),
+            false);
+    }
+
+    /// <summary>
+    /// One declined device's reason, starting with the device's name exactly
+    /// once: the reasons the attempt writes already start with it, and a
+    /// reason that does not (a driver refusal) gets it prefixed.
+    /// </summary>
+    /// <param name="deviceName">The device the attempt was for.</param>
+    /// <param name="report">The attempt's report.</param>
+    /// <returns>The line.</returns>
+    internal static string DeclineLine(string deviceName, VulkanDeviceReport report)
+    {
+        string reason = report.Failure ?? report.Selected?.Reason ?? "declined without a reason";
+        return reason.StartsWith(deviceName, StringComparison.Ordinal) ? reason : deviceName + ": " + reason;
+    }
+
+    /// <summary>
+    /// One attempt: open a device (the one <paramref name="physicalDevice"/>
+    /// names, or the one selection picks for −1), gate it, and hand it to a
+    /// tracer or release it.
+    /// </summary>
+    /// <param name="triangles">The scene.</param>
+    /// <param name="observe">Called at each stage, or null.</param>
+    /// <param name="open">Creates the device object.</param>
+    /// <param name="options">Device pin, sizing and policy.</param>
+    /// <param name="physicalDevice">A physical-device index to open exactly, or −1.</param>
+    /// <param name="cancellationToken">Checked at each stage boundary.</param>
+    /// <returns>The tracer or the reason it was not created.</returns>
+    internal static VulkanTracerAttempt TryOne(
+        ReadOnlyMemory<TracedTriangle> triangles,
+        Action<TryCreateStage>? observe,
+        Func<VulkanDevice> open,
+        VulkanRayTracerOptions options,
+        int physicalDevice,
+        CancellationToken cancellationToken)
+    {
         int slots = SlotsFor(options);
         TracedTriangle[] scene = triangles.ToArray();
         List<VulkanDeviceInfo> inventory = [];
@@ -442,7 +583,8 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
             // The inventory comes first so even a total failure reports what
             // the box really has (the device-pin diagnostic the tools owe).
             inventory.AddRange(VulkanDevice.ProbeDevices());
-            device.Construct(options.DeviceMatch, options.DeviceIndex, options.MaxRaysPerSlab, slots);
+            device.Construct(
+                options.DeviceMatch, options.DeviceIndex, options.MaxRaysPerSlab, slots, physicalDevice: physicalDevice);
             cancellationToken.ThrowIfCancellationRequested();
 
             observe?.Invoke(TryCreateStage.Constructed);
@@ -569,7 +711,7 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
         if (uploadBytesPerSecond is double rate && rate < options.UploadFloor)
         {
             System.Globalization.CultureInfo inv = System.Globalization.CultureInfo.InvariantCulture;
-            return $"rays upload to {deviceName} at {(rate / 1e9).ToString("F2", inv)} GB/s, below the "
+            return $"{deviceName}: rays upload at {(rate / 1e9).ToString("F2", inv)} GB/s, below the "
                 + $"{(options.UploadFloor / 1e9).ToString("F2", inv)} GB/s at which tracing on it could beat the "
                 + "CPU; the built-in CPU tracer is faster; pin the device by name to trace on it anyway";
         }
