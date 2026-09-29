@@ -334,6 +334,31 @@ public static partial class LevelLinker
             KeptBrushes(BspStructView.As<DBrush>(plan.Bsp[BspLump.Brushes]), plan.StrippedBrushes);
     }
 
+    /// <summary>The linked index of a kept room brush: its kept index plus the room's brush base.</summary>
+    /// <param name="map">The room's kept-brush map (<see cref="KeptBrushes"/>).</param>
+    /// <param name="brushBase">The room's first linked brush.</param>
+    /// <param name="roomBrush">The room-local brush a reference names.</param>
+    /// <param name="room">The room's name, for the refusal.</param>
+    /// <exception cref="LinkException">
+    /// The room names a brush it does not have, or a stripped plug: the
+    /// census says nothing in the level reaches the plug any more, so a
+    /// reference to one is a room the relocation does not understand, and
+    /// writing it as some other brush would be silently wrong.
+    /// </exception>
+    internal static int LinkedBrush(int[] map, int brushBase, int roomBrush, string room)
+    {
+        bool inRange = (uint)roomBrush < (uint)map.Length;
+        int kept = inRange ? map[roomBrush] : -1;
+        if (kept < 0)
+        {
+            throw new LinkException(
+                $"room {room} names brush {roomBrush}, which "
+                + (inRange ? "is a stripped plug" : $"it does not have ({map.Length} brushes)"));
+        }
+
+        return brushBase + kept;
+    }
+
     /// <summary>
     /// Numbers the brushes a placement keeps: every brush but the stripped
     /// plugs, in the room's own order, with no gaps.
@@ -361,31 +386,6 @@ public static partial class LevelLinker
     /// Per room brush, its index among the kept ones, or -1 when stripped;
     /// how many are kept; and how many sides those have.
     /// </returns>
-    /// <summary>The linked index of a kept room brush: its kept index plus the room's brush base.</summary>
-    /// <param name="map">The room's kept-brush map (<see cref="KeptBrushes"/>).</param>
-    /// <param name="brushBase">The room's first linked brush.</param>
-    /// <param name="roomBrush">The room-local brush a reference names.</param>
-    /// <param name="room">The room's name, for the refusal.</param>
-    /// <exception cref="LinkException">
-    /// The room names a brush it does not have, or a stripped plug: the
-    /// census says nothing in the level reaches the plug any more, so a
-    /// reference to one is a room the relocation does not understand, and
-    /// writing it as some other brush would be silently wrong.
-    /// </exception>
-    internal static int LinkedBrush(int[] map, int brushBase, int roomBrush, string room)
-    {
-        bool inRange = (uint)roomBrush < (uint)map.Length;
-        int kept = inRange ? map[roomBrush] : -1;
-        if (kept < 0)
-        {
-            throw new LinkException(
-                $"room {room} names brush {roomBrush}, which "
-                + (inRange ? "is a stripped plug" : $"it does not have ({map.Length} brushes)"));
-        }
-
-        return brushBase + kept;
-    }
-
     internal static (int[] Map, int Brushes, int Sides) KeptBrushes(ReadOnlySpan<DBrush> brushes, IReadOnlySet<int> stripped)
     {
         int[] map = new int[brushes.Length];
