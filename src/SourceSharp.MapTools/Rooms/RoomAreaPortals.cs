@@ -152,8 +152,8 @@ internal sealed class RoomAreaPortals
 
     /// <summary>
     /// Whether a compiled room has anything of area portals: more than the
-    /// one area and the reserved listing a map without portals has, or an
-    /// entity carrying a portal number (a portal whose two sides the room's
+    /// one area and the reserved listing a map without portals has, a clip
+    /// vertex, or an entity carrying a portal number (a portal whose two sides the room's
     /// flood found to be one area has no listing, but its number still
     /// counts).
     /// </summary>
@@ -162,6 +162,7 @@ internal sealed class RoomAreaPortals
     public static bool Has(BspData bsp, int portalNumbers) =>
         BspStructView.Count<DArea>(bsp[BspLump.Areas]) > 2
         || BspStructView.Count<DAreaPortal>(bsp[BspLump.AreaPortals]) > 1
+        || bsp[BspLump.ClipPortalVerts].Length > 0
         || portalNumbers > 0;
 
     /// <summary>

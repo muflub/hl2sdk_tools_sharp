@@ -17,7 +17,8 @@ public static partial class LevelLinker
 {
     /// <summary>
     /// A room's areas and area portals as the link carries them, or null when
-    /// its compile has none (one area, the reserved listing, no portal number).
+    /// its compile has none (one area, the reserved listing, no clip vertex,
+    /// no portal number).
     /// </summary>
     /// <param name="room">The room.</param>
     /// <returns>The data bound to the room's compile; null for a room without area portals.</returns>
@@ -46,7 +47,7 @@ public static partial class LevelLinker
 
         int areas = BspStructView.Count<DArea>(room.Bsp[BspLump.Areas]);
         ReadOnlySpan<DAreaPortal> listings = BspStructView.As<DAreaPortal>(room.Bsp[BspLump.AreaPortals]);
-        if (areas <= 2 && listings.Length <= 1)
+        if (areas <= 2 && listings.Length <= 1 && room.Bsp[BspLump.ClipPortalVerts].Length == 0)
         {
             return null;
         }

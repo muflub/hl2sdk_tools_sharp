@@ -35,7 +35,7 @@ public sealed class RoomAreaPortalsTests
     /// portal number) has no data; one with a portal has it, its clip
     /// vertices turned four ways; one whose only portal sealed nothing (a
     /// number, no listing) has it too, since its number is still one of the
-    /// level's.
+    /// level's, and so does one with clip vertices alone.
     /// </summary>
     [Fact]
     public void ACompileHasDataOnlyWithAreaPortals()
@@ -59,6 +59,10 @@ public sealed class RoomAreaPortalsTests
         Assert.Equal(2, numbered.AreaCount);
         Assert.Equal(1, numbered.PortalNumbers);
         Assert.Equal(0, numbered.ClipVertCount);
+
+        BspData stray = Bsp(portal: false);
+        Set(stray, BspLump.ClipPortalVerts, Verts);
+        Assert.Equal(8, RoomAreaPortals.Build("r", stray)!.ClipVertCount);
     }
 
     /// <summary>Each listing's own area is the one whose run holds it; a listing no run holds has none.</summary>

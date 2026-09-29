@@ -19,7 +19,7 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 
 /// <summary>
 /// What the linker refuses, and that each refusal names its cause: content
-/// the relocation cannot carry (area portals, props, a pak that is not a
+/// the relocation cannot carry (area portals without their data, props, a pak that is not a
 /// zip, displacement collision), levels past a field of the format, grids that
 /// are not the library's, vis that does not number its own compile, joints
 /// that join nothing, and placements that are not quarter-turn counts.
@@ -28,9 +28,15 @@ public sealed class LevelLinkerRefusalTests
 {
     // ---- L5: area portals --------------------------------------------------
 
-    /// <summary>A room with a real area portal (three areas, two portals) is refused.</summary>
+    /// <summary>
+    /// A room whose lumps have an area portal (three areas, two listings)
+    /// but that carries no area portal data from its compile is refused,
+    /// naming the room and what to do; the old refusal of every area portal
+    /// ("a linkable room has no area portal") is gone with the area portals
+    /// feature (the rooms design, PR 13).
+    /// </summary>
     [Fact]
-    public async Task ARoomWithAnAreaPortalIsRefused()
+    public async Task ARoomWithAnAreaPortalButNoPortalDataIsRefused()
     {
         RoomObject hub = await HubAsync();
         RoomObject portal = RoomHarness.WithLumps(hub, bsp =>
@@ -40,7 +46,15 @@ public sealed class LevelLinkerRefusalTests
         });
 
         LinkException refused = await LinkPairAsync(portal);
-        Assert.Contains("3 areas and 2 area portals", refused.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            "room hub has 1 area portals but no area portal data from its compile (a pack written before the link carried"
+            + " area portals, or a room built without ssmap room); recompile the library with ssmap room.",
+            refused.Message);
+        Assert.DoesNotContain("a linkable room has no area portal", refused.Message, StringComparison.Ordinal);
+
+        // Clip vertices alone are an area portal's too.
+        RoomObject clip = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.ClipPortalVerts, new byte[12]));
+        Assert.StartsWith("room hub has 0 area portals but no area portal data", (await LinkPairAsync(clip)).Message, StringComparison.Ordinal);
     }
 
     // ---- L6: game lumps, pak, displacement collision -----------------------
@@ -138,15 +152,20 @@ public sealed class LevelLinkerRefusalTests
         Assert.Contains("displacement collision", refused.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>A lump outside the relocation set is refused by name.</summary>
+    /// <summary>
+    /// A lump outside the relocation set is refused by name. (The clip
+    /// portal vertices this fact used to name joined the set with the area
+    /// portals, PR 13; a room with them and no area portal data is refused
+    /// by <see cref="ARoomWithAnAreaPortalButNoPortalDataIsRefused"/>.)
+    /// </summary>
     [Fact]
     public async Task ALumpOutsideTheRelocationSetIsRefused()
     {
         RoomObject hub = await HubAsync();
-        RoomObject clip = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.ClipPortalVerts, new byte[12]));
+        RoomObject lights = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.WorldLights, new byte[88]));
 
-        LinkException refused = await LinkPairAsync(clip);
-        Assert.Contains("ClipPortalVerts", refused.Message, StringComparison.Ordinal);
+        LinkException refused = await LinkPairAsync(lights);
+        Assert.Contains("WorldLights", refused.Message, StringComparison.Ordinal);
     }
 
     // ---- L10: fields the level would outgrow ------------------------------
