@@ -32,6 +32,12 @@ public sealed class LevelLinkerBrushStripTests(Rooms3x3Fixture fixture) : IClass
     private static readonly Vec3 PlayerHalfExtents = new(16, 16, 36);
 
     /// <summary>
+    /// These facts are about which brushes are written and how they are
+    /// numbered before any fold; the fold has its own (<see cref="LevelLinkerFoldTests"/>).
+    /// </summary>
+    private static readonly LevelLinkOptions NoFold = new() { FoldBrushes = false };
+
+    /// <summary>
     /// No empty brush is left: the linked brush lump holds exactly the kept
     /// brushes of every placement, with exactly their sides.
     /// </summary>
@@ -306,19 +312,19 @@ public sealed class LevelLinkerBrushStripTests(Rooms3x3Fixture fixture) : IClass
         RoomLibrary library = RoomHarness.Library(stored ? hub : hub with { Link = null });
         Assert.Equal(22, BspStructView.Count<DBrush>(hub.Bsp[BspLump.Brushes]));
 
-        LevelLinker.CheckCapacity(Line(library, 400), library);
-        LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(Line(library, 410), library));
+        LevelLinker.CheckCapacity(Line(library, 400), library, NoFold);
+        LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(Line(library, 410), library, NoFold));
         Assert.StartsWith("room hub at cell (409, 0) pushes the link to 8202 brushes;", refused.Message, StringComparison.Ordinal);
 
         // The first hub's joint renamed to a socket it lacks: that hub
         // strips nothing, one brush more than the line above.
         LevelLayout line = Line(library, 409);
-        LevelLinker.CheckCapacity(line, library); // 8,182
+        LevelLinker.CheckCapacity(line, library, NoFold); // 8,182
         RoomInstance first = line.Rooms[0];
         LevelLayout bogus = line with { Rooms = [first with { Joints = [("nowhere", first.Joints[0].NeighborSocket)] }, .. line.Rooms.Skip(1)] };
-        LevelLinker.CheckCapacity(bogus, library); // 8,183: still under
+        LevelLinker.CheckCapacity(bogus, library, NoFold); // 8,183: still under
         LevelLayout bogusLonger = Line(library, 410) with { Rooms = [first with { Joints = [("nowhere", first.Joints[0].NeighborSocket)] }, .. Line(library, 410).Rooms.Skip(1)] };
-        LinkException refusedBogus = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(bogusLonger, library));
+        LinkException refusedBogus = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(bogusLonger, library, NoFold));
         Assert.StartsWith("room hub at cell (409, 0) pushes the link to 8203 brushes;", refusedBogus.Message, StringComparison.Ordinal);
     }
 
@@ -372,7 +378,7 @@ public sealed class LevelLinkerBrushStripTests(Rooms3x3Fixture fixture) : IClass
         Rooms3x3Case found = Rooms3x3Fixture.Cases.Single(c => c.Name == name);
         LevelGrid level = LevelYaml.Parse(found.Arrangement.LevelYaml(name, Rooms3x3Sample.LibraryFromLevels), name);
         LevelLayout layout = level.ToLayout(n => fixture.Library.Find(n)?.Definition, fixture.Library.CellSize, fixture.Library.Kit);
-        return (await LevelLinker.LinkAsync(layout, fixture.Library, fixture.Context(name)), layout);
+        return (await LevelLinker.LinkAsync(layout, fixture.Library, fixture.Context(name), NoFold), layout);
     }
 
     private static LevelLayout Line(RoomLibrary library, int length)

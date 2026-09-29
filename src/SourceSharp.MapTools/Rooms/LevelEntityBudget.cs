@@ -12,7 +12,7 @@ using SourceSharp.MapTools.Bsp;
 
 namespace SourceSharp.MapTools.Rooms;
 
-/// <summary>What a link is asked to do beyond linking: the entity budget's settings.</summary>
+/// <summary>What a link is asked to do beyond linking: the entity budget's settings, and whether brushes fold.</summary>
 /// <remarks>
 /// A value, like every other option of the libraries: two links in one
 /// process may use different settings, and nothing is kept between them.
@@ -43,6 +43,31 @@ public sealed record LevelLinkOptions
     /// room-local names links to the bytes it always did.
     /// </remarks>
     public bool ModEntities { get; init; }
+
+    /// <summary>
+    /// Merge touching axis-aligned box brushes of the world into larger
+    /// boxes (<c>LinkBrushFold</c>): on by default, off with <c>ssmap link
+    /// -nofold</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Rooms meet cell to cell, so a level is full of pairs that are one box
+    /// in two brushes: floors and ceilings across every shared boundary,
+    /// walls and jambs back to back. The engine loads at most 8192 brushes,
+    /// and without the fold that is the limit a large level reaches first.
+    /// Two boxes merge only when their union is exactly a box, their
+    /// contents are identical and every side that coalesces has the same
+    /// material and surface flags, so traces and physics meet the same
+    /// solid with the same surfaces.
+    /// </para>
+    /// <para>
+    /// What the fold does remove is the seam between the two boxes: a trace
+    /// can no longer start in one and "leave" into the other, or stop on the
+    /// face between them. Off, the link writes the rooms' brushes as they
+    /// were compiled (less the jointed plugs), byte for byte.
+    /// </para>
+    /// </remarks>
+    public bool FoldBrushes { get; init; } = true;
 
     /// <summary>No override: the library's reserve and the shipped class table.</summary>
     public static LevelLinkOptions Default { get => new(); }

@@ -55,6 +55,15 @@ namespace SourceSharp.MapTools.Rooms;
 /// a gap at its edges unless something in the socket covers them.
 /// </para>
 /// <para>
+/// <b>Brushes.</b> After relocation the world's touching box brushes are
+/// folded into larger boxes (<see cref="LinkBrushFold"/>, on unless
+/// <see cref="LevelLinkOptions.FoldBrushes"/> is off): rooms meet cell to
+/// cell, so floors, ceilings and back-to-back walls are one box in two
+/// brushes, and the brush cap is otherwise the first limit a large level
+/// meets. The leaves' brush runs and the ledges' client data follow the
+/// new numbering; nothing else changes.
+/// </para>
+/// <para>
 /// <b>Visibility</b> is composed from the door graph, never flooded. A room's
 /// linked row starts as its own vvis row; the only thing that makes two rooms
 /// see each other is a <b>door edge</b>: every open cluster whose leaf boxes
@@ -290,7 +299,8 @@ public static partial class LevelLinker
         LevelNaming naming = new(
             new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows),
             library.Options.NameKeySet);
-        BspData linked = Assemble(plans, layout, visibilityLump, context, classes, naming, library.Options.MapVersion, cancellationToken);
+        (BspData linked, int foldedBrushes) = Assemble(
+            plans, layout, visibilityLump, context, classes, naming, library.Options.MapVersion, options.FoldBrushes, cancellationToken);
 
         // The budget checked before planning counted the rooms as compiled.
         // When the naming resolver ran, what the level holds is what it left
@@ -321,6 +331,7 @@ public static partial class LevelLinker
         return new LinkedLevel(linked, vis, new LevelPlan(layout, resolved, TopPlanes(layout, layout.CellSize)))
         {
             EntityBudget = entities,
+            FoldedBrushes = foldedBrushes,
             NameWarnings = naming.Result?.Warnings ?? [],
             NameNotes = naming.Result?.Verbose ?? [],
         };
@@ -453,7 +464,7 @@ public static partial class LevelLinker
         List<(string, RoomEntityCounts)> placements = new(layout.Rooms.Count);
         if (layout.Rooms.Count > 0)
         {
-            LinkTotals totals = new();
+            LinkTotals totals = new(checkBrushes: !options.FoldBrushes);
             Dictionary<string, RoomEntityCounts> counted = new(StringComparer.Ordinal);
             Dictionary<(string Room, int Socket), SocketCensus> censuses = [];
             LinkTextures textures = new();
@@ -676,9 +687,18 @@ public static partial class LevelLinker
     /// The leaves start at 1 (the shared solid leaf), as the bases do.
     /// </para>
     /// </remarks>
-    internal sealed class LinkTotals
+    internal sealed class LinkTotals(bool checkBrushes = true)
     {
         private static int Cap(BspLump lump) => BspLimits.Caps.First(c => c.Lump == lump).Max;
+
+        /// <summary>
+        /// Whether the brush and brush side caps are held here. With the
+        /// brush fold on they are not: the fold merges brushes during
+        /// assembly, so the kept totals here are only an upper bound, and a
+        /// level whose rooms bring more than the cap may well fold under it.
+        /// The assembly holds the folded totals to the caps instead.
+        /// </summary>
+        private readonly bool _checkBrushes = checkBrushes;
 
         private readonly int _texDataCap = Cap(BspLump.TexData);
         private readonly int _brushCap = Cap(BspLump.Brushes);
@@ -709,8 +729,11 @@ public static partial class LevelLinker
             Limit(room, cellX, cellY, "vertices", _vertices, ushort.MaxValue + 1);
             LoaderLimit(room, cellX, cellY, "texdatas", _texDatas, _texDataCap, "MAX_MAP_TEXDATA");
             Limit(room, cellX, cellY, "faces", _faces, ushort.MaxValue + 1);
-            LoaderLimit(room, cellX, cellY, "brushes", _brushes, _brushCap, "MAX_MAP_BRUSHES");
-            LoaderLimit(room, cellX, cellY, "brush sides", _brushSides, _brushSideCap, "MAX_MAP_BRUSHSIDES");
+            if (_checkBrushes)
+            {
+                LoaderLimit(room, cellX, cellY, "brushes", _brushes, _brushCap, "MAX_MAP_BRUSHES");
+                LoaderLimit(room, cellX, cellY, "brush sides", _brushSides, _brushSideCap, "MAX_MAP_BRUSHSIDES");
+            }
             Limit(room, cellX, cellY, "leaf faces", _leafFaces, ushort.MaxValue + 1);
             Limit(room, cellX, cellY, "leaves", _leaves, ushort.MaxValue + 1);
             Limit(room, cellX, cellY, "texdata string table entries", _stringTable, ushort.MaxValue);
@@ -1664,6 +1687,12 @@ public sealed record LinkedLevel(BspData Bsp, VisResult Vis, LevelPlan Plan)
     /// null only for a level made some other way than by the link.
     /// </summary>
     public LevelEntityReport? EntityBudget { get; init; }
+
+    /// <summary>
+    /// How many brushes the brush fold removed by merging touching boxes
+    /// (<see cref="LevelLinkOptions.FoldBrushes"/>); 0 when it did not run.
+    /// </summary>
+    public int FoldedBrushes { get; init; }
 
     /// <summary>
     /// What resolving the rooms' names warned of, each a whole sentence: a

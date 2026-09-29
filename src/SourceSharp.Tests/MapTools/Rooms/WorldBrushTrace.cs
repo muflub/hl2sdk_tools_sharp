@@ -19,16 +19,16 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// <param name="AllSolid">Whether it began and ended inside one brush.</param>
 /// <param name="Contents">
 /// The contents of the brush it stopped on (every such brush's, when
-/// several stop it at the same fraction, ORed), or of the brushes it began
-/// in when it started solid; 0 when it met nothing.
+/// several stop it at the same fraction, ORed); 0 when nothing stopped it.
 /// </param>
+/// <param name="StartContents">The contents of every brush it began inside, ORed; 0 when it started outside.</param>
 /// <param name="Surfaces">
 /// The material and surface flags of the side it stopped on, as
 /// <c>name|flags</c>, sorted and distinct over every brush that stops it at
 /// that fraction; empty when it met nothing or started solid.
 /// </param>
 /// <param name="Plane">The plane it stopped on (the first such brush's, in brush order), or null.</param>
-internal readonly record struct WorldHit(float Fraction, bool StartSolid, bool AllSolid, int Contents, string Surfaces, DPlane? Plane);
+internal readonly record struct WorldHit(float Fraction, bool StartSolid, bool AllSolid, int Contents, int StartContents, string Surfaces, DPlane? Plane);
 
 /// <summary>
 /// A brush-level trace over a whole map, for comparing two maps' collision
@@ -127,12 +127,12 @@ internal sealed class WorldBrushTrace
 
         if (allSolid)
         {
-            return new WorldHit(0f, true, true, startContents, string.Empty, null);
+            return new WorldHit(0f, true, true, 0, startContents, string.Empty, null);
         }
 
         if (stops.Count == 0 || best >= 1f)
         {
-            return new WorldHit(1f, startSolid, false, startContents, string.Empty, null);
+            return new WorldHit(1f, startSolid, false, 0, startContents, string.Empty, null);
         }
 
         int contents = 0;
@@ -144,7 +144,7 @@ internal sealed class WorldBrushTrace
             surfaces.Add(texInfo < 0 ? "<none>" : _surfaceOf[texInfo]);
         }
 
-        return new WorldHit(best, startSolid, false, contents | startContents, string.Join(";", surfaces), _planes[_sides[stops[0].Side].PlaneNum]);
+        return new WorldHit(best, startSolid, false, contents, startContents, string.Join(";", surfaces), _planes[_sides[stops[0].Side].PlaneNum]);
     }
 
     private enum Clip

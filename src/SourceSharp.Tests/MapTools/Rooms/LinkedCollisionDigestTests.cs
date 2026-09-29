@@ -49,6 +49,14 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// so the numbering is all that moved.
 /// </para>
 /// <para>
+/// The brush fold (<see cref="LevelLinkOptions.FoldBrushes"/>, on by
+/// default) moved them a third time: it merges brushes, so the brush, side
+/// and leaf brush lumps and the ledges' client data change. The digests
+/// linked with the fold off (<see cref="UnfoldedDigests"/>) are the ones the
+/// fold started from, still pinned, and <c>LevelLinkerFoldTests</c> checks
+/// that the folded map is exactly the unfolded one with the fold applied.
+/// </para>
+/// <para>
 /// The compile runs under <c>ComplianceOptions.Correct</c>, whose collision
 /// arithmetic is double and takes no CPU estimate, so each digest is one
 /// string on every runner. Any intended change to the link's or the room
@@ -61,6 +69,18 @@ public sealed class LinkedCollisionDigestTests(Rooms3x3Fixture fixture) : IClass
     /// <summary>Each case with the SHA-256 of its linked BSP (canonical) and of its <c>PhysCollide</c> lump.</summary>
     public static TheoryData<string, string, string> Digests => new()
     {
+        { "rooms3x3", "F604D78D1636D15C85C0C63D86F9099E686E63E82C2247EA12241141F2CA6B0F", "E5E490681C195955931C17387D353C5D35B45E36712DF928E7E20531F62EE657" },
+        { "rooms3x3_turn1", "CE52A608B5B136EF203EC52F4C8F754DF8690185680BBDEA22DCEC4A809B03AA", "847261BD770EB47EDC3ED46DA4DF3A0259CF56DC3E27EE2FB74511B9C04E3320" },
+        { "seed_9", "C7FDB2492DF6141AAF8D6446602FFE5FE4B89B9583340F5679B592F2A8491E8B", "0822156B74F8B7D77894120ABB40965E7A8B01568CB64C5CD7F2776F3E10E6AF" },
+    };
+
+    /// <summary>
+    /// Each case's digests linked with the brush fold off
+    /// (<c>-nofold</c>): the rooms' brushes as compiled, less the jointed
+    /// plugs, which is what the link wrote before the fold existed.
+    /// </summary>
+    public static TheoryData<string, string, string> UnfoldedDigests => new()
+    {
         { "rooms3x3", "E9792887B107E6571B0E979F437A36E34D3AF88070BE302E50B2C3F0407E41C4", "E8BB66F0933CA892516E37CA733FF7AA32C0D7BE7FDFD68C8F97617DC7B0B651" },
         { "rooms3x3_turn1", "C7D73ABAF865F4F68AA3DCF508CB423719B1BC5C15FD4ABFC5993D7C148746E8", "2A1061EE2607434274B2D24A3FAAC4AE5C00B903C6927C1F34E793C9D4C2191E" },
         { "seed_9", "1B36DFC36F39B7D742DCAA4F5F3AB286CA882B2138FC3A9B0EEADE9E22A6B7B9", "1E9868FEF2947E81B61A2F80003BC7E3D7CC2C8BAAFC116F5F8E343729C7CD6E" },
@@ -72,12 +92,28 @@ public sealed class LinkedCollisionDigestTests(Rooms3x3Fixture fixture) : IClass
     /// <param name="collisionDigest">The linked world collision's digest.</param>
     [Theory]
     [MemberData(nameof(Digests))]
-    public async Task ALevelLinksToItsPinnedBytes(string name, string bspDigest, string collisionDigest)
+    public Task ALevelLinksToItsPinnedBytes(string name, string bspDigest, string collisionDigest) =>
+        AssertDigestsAsync(name, LevelLinkOptions.Default, bspDigest, collisionDigest);
+
+    /// <summary>
+    /// A case linked with the brush fold off links to its pinned bytes: the
+    /// digests the link had before the fold, so <c>-nofold</c> writes what it
+    /// always wrote.
+    /// </summary>
+    /// <param name="name">The case.</param>
+    /// <param name="bspDigest">The linked BSP's digest.</param>
+    /// <param name="collisionDigest">The linked world collision's digest.</param>
+    [Theory]
+    [MemberData(nameof(UnfoldedDigests))]
+    public Task WithoutTheFoldALevelLinksToThePinnedUnfoldedBytes(string name, string bspDigest, string collisionDigest) =>
+        AssertDigestsAsync(name, new LevelLinkOptions { FoldBrushes = false }, bspDigest, collisionDigest);
+
+    private async Task AssertDigestsAsync(string name, LevelLinkOptions options, string bspDigest, string collisionDigest)
     {
         Rooms3x3Case found = Rooms3x3Fixture.Cases.Single(c => c.Name == name);
         LevelGrid level = LevelYaml.Parse(found.Arrangement.LevelYaml(name, Rooms3x3Sample.LibraryFromLevels), name);
         LevelLayout layout = level.ToLayout(n => fixture.Library.Find(n)?.Definition, fixture.Library.CellSize, fixture.Library.Kit);
-        LinkedLevel linked = await LevelLinker.LinkAsync(layout, fixture.Library, fixture.Context(name));
+        LinkedLevel linked = await LevelLinker.LinkAsync(layout, fixture.Library, fixture.Context(name), options);
         using MemoryStream bytes = new();
         await BspFile.SaveAsync(linked.Bsp, bytes, BspWriteMode.Canonical);
 
@@ -105,7 +141,7 @@ public sealed class LinkedCollisionDigestTests(Rooms3x3Fixture fixture) : IClass
 
     /// <summary>
     /// Dropping the stripped plug brushes moved nothing but the brush
-    /// numbering: with the plugs put back as the empty brushes they were
+    /// numbering: linked without the fold, with the plugs put back as the empty brushes they were
     /// (from the rooms, <see cref="LinkedBrushProbe.WithPlugsKept"/>) and
     /// every ledge's client data put back to that numbering, the linked BSP
     /// and its world collision are the bytes they were before, to the digest.
@@ -120,7 +156,8 @@ public sealed class LinkedCollisionDigestTests(Rooms3x3Fixture fixture) : IClass
         Rooms3x3Case found = Rooms3x3Fixture.Cases.Single(c => c.Name == name);
         LevelGrid level = LevelYaml.Parse(found.Arrangement.LevelYaml(name, Rooms3x3Sample.LibraryFromLevels), name);
         LevelLayout layout = level.ToLayout(n => fixture.Library.Find(n)?.Definition, fixture.Library.CellSize, fixture.Library.Kit);
-        LinkedLevel linked = await LevelLinker.LinkAsync(layout, fixture.Library, fixture.Context(name));
+        LinkedLevel linked = await LevelLinker.LinkAsync(
+            layout, fixture.Library, fixture.Context(name), new LevelLinkOptions { FoldBrushes = false });
 
         BspData old = LinkedBrushProbe.WithPlugsKept(linked, fixture.Library);
         old.SetLump(BspLump.PhysCollide, LinkedBrushProbe.CollisionWithNumbering(
