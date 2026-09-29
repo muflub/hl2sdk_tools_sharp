@@ -137,6 +137,35 @@ public sealed class LevelLinkerOverlayTests
     }
 
     /// <summary>
+    /// A named overlay whose name is room-local goes through the naming
+    /// resolver like any entity: each placement's accessor takes its cell's
+    /// name, its own overlay's id and its moved basis, and carries the keys
+    /// the flattened level's compile gives it but its <c>sides</c>.
+    /// </summary>
+    [Fact]
+    public async Task AnAccessorWithARoomLocalNameIsResolvedAndMoved()
+    {
+        VmfDocument library = Library(
+            (0, MatEntity()),
+            (0, Overlay(601, MatAt, MatSide.ToString(CultureInfo.InvariantCulture), ("targetname", "cxry_mark"))));
+        RoomLibrary rooms = await CompileAsync(library);
+        LevelGrid level = RoomPropHarness.Level("hub@90, hub");
+        LinkedLevel linked = await LinkAsync(rooms, level);
+        BspData flat = await CompileFlatAsync(library, level);
+
+        List<BspEntity> accessors = OfClass(linked.Bsp, RoomOverlays.AccessorClass);
+        Assert.Equal(["c0r0_mark", "c1r0_mark"], accessors.Select(e => e.Get("targetname")!));
+        Assert.Equal(["0", "1"], accessors.Select(e => e.Get(RoomOverlays.IdKey)!));
+        Assert.Equal(
+            VmfPlacement.Format(new RoomTransform(new RoomPlacement("hub", 0, 0, 1), RoomHarness.Cell).Apply(MatAt)),
+            accessors[0].Get(RoomOverlays.OriginKey));
+        Assert.Equal(
+            OfClass(flat, RoomOverlays.AccessorClass).Select(Keys),
+            accessors.Select(Keys));
+        Assert.Equal(Observed(flat), Observed(linked.Bsp));
+    }
+
+    /// <summary>
     /// A level whose rooms have no overlays carries neither overlay lump, as
     /// before overlays were carried.
     /// </summary>
