@@ -34,7 +34,7 @@ public sealed class SlabBatcherTests
     // wrong answers as well as tripping the assertion in StageRays.
     private sealed class FakeDevice : ISlabDevice
     {
-        private readonly float[][] _staging;
+        private readonly uint[][] _staging;
         private readonly Submitted?[] _slots;
         private readonly Random _jitter = new(5);
         private int _inside;
@@ -46,7 +46,7 @@ public sealed class SlabBatcherTests
         {
             MaxSlabRays = maxSlabRays;
             SlotCount = slots;
-            _staging = [.. Enumerable.Range(0, slots).Select(_ => new float[maxSlabRays * 8])];
+            _staging = [.. Enumerable.Range(0, slots).Select(_ => new uint[maxSlabRays * RayRecord.WideWords])];
             _slots = new Submitted?[slots];
         }
 
@@ -56,6 +56,12 @@ public sealed class SlabBatcherTests
 
         /// <summary>Rays per submitted slab, in submission order; read once the drainer is parked.</summary>
         public List<int> RaysPerDispatch { get; } = [];
+
+        /// <summary>The record of each submitted slab, in submission order.</summary>
+        public List<RayRecord> RecordPerDispatch { get; } = [];
+
+        /// <summary>Each submitted slab's staged words, as packed, in submission order.</summary>
+        public List<uint[]> StagedPerDispatch { get; } = [];
 
         /// <summary>Slabs submitted and not yet completed.</summary>
         public int InFlight => Volatile.Read(ref _inFlight);
@@ -84,26 +90,31 @@ public sealed class SlabBatcherTests
         /// <summary>Sleeps a random 0-1 ms in each completion, to vary how the queue and the slots interleave.</summary>
         public bool Jitter { get; set; }
 
-        public Span<float> StageRays(int slot, int rayCount)
+        public Memory<uint> StageRays(int slot, int rayCount, RayRecord record)
         {
             using Call call = Enter();
             Assert.Null(_slots[slot]); // a slot in flight must never be restaged
             Assert.InRange(rayCount, 1, MaxSlabRays);
-            return _staging[slot].AsSpan(0, rayCount * 8);
+
+            // Poison the slot, so a word the batcher fails to write shows.
+            Array.Fill(_staging[slot], 0xDEADBEEFu);
+            return _staging[slot].AsMemory(0, rayCount * record.Words);
         }
 
-        public void Submit(int slot, int mode, int rayCount, int outWordCount, uint tminBits, uint tmaxScaleBits)
+        public void Submit(int slot, int mode, int rayCount, int outWordCount, uint tminBits, uint tmaxScaleBits, RayRecord record)
         {
             using Call call = Enter();
             Assert.Null(_slots[slot]);
             int index = _submits++;
             RaysPerDispatch.Add(rayCount);
+            RecordPerDispatch.Add(record);
+            StagedPerDispatch.Add(_staging[slot][..(rayCount * record.Words)]);
             if (FailSubmit is { } f && f.Index == index)
             {
                 throw f.Error;
             }
 
-            _slots[slot] = new Submitted(mode, rayCount, outWordCount, index);
+            _slots[slot] = new Submitted(mode, rayCount, outWordCount, index, record);
             MaxInFlight = Math.Max(MaxInFlight, Interlocked.Increment(ref _inFlight));
         }
 
@@ -138,22 +149,24 @@ public sealed class SlabBatcherTests
                 throw f.Error;
             }
 
-            float[] staging = _staging[slot];
+            // Each lane reads its ray as the kernel's load_ray does.
+            uint[] staging = _staging[slot];
+            int words = sub.Record.Words;
             outWords.Clear();
             for (int i = 0; i < sub.Rays; i++)
             {
-                int b = i * 8;
+                Ray r = sub.Record.Decode(staging.AsSpan(i * words, words));
                 if (sub.Mode == 0)
                 {
-                    if (staging[b + 7] > 5)
+                    if (r.MaxDistance > 5)
                     {
                         outWords[(i / 64 * 2) + (i % 64 / 32)] |= 1u << (i % 32);
                     }
                 }
                 else
                 {
-                    outWords[i * 2] = staging[b + 4] < 0 ? 0xFFFFFFFFu : (uint)staging[b];
-                    outWords[(i * 2) + 1] = (uint)BitConverter.SingleToInt32Bits(staging[b + 1]);
+                    outWords[i * 2] = r.DirectionX < 0 ? 0xFFFFFFFFu : (uint)r.OriginX;
+                    outWords[(i * 2) + 1] = (uint)BitConverter.SingleToInt32Bits(r.OriginY);
                 }
             }
 
@@ -177,7 +190,7 @@ public sealed class SlabBatcherTests
             return new Call(this);
         }
 
-        private readonly record struct Submitted(int Mode, int Rays, int Words, int Index);
+        private readonly record struct Submitted(int Mode, int Rays, int Words, int Index, RayRecord Record);
 
         private readonly struct Call(FakeDevice device) : IDisposable
         {
@@ -442,7 +455,7 @@ public sealed class SlabBatcherTests
         SlabBatcher.Request other = new(1, Rays(5, 3), default, new HitId[5], 0, default);
         SlabBatcher.Request epsilon = new(0, Rays(5, 4), new ulong[1], default, 7, default);
 
-        int total = SlabBatcher.Plan([a, other, epsilon, b], 0, 0, 256, slab);
+        int total = SlabBatcher.Plan([a, other, epsilon, b], 0, 0, null, 256, slab);
 
         Assert.Equal(
             [new SlabBatcher.Segment(a, 0, 70, 0), new SlabBatcher.Segment(b, 0, 128, 128)],
@@ -450,7 +463,7 @@ public sealed class SlabBatcherTests
         Assert.Equal(256, total);
 
         b.Next = 128;
-        total = SlabBatcher.Plan([b], 0, 0, 256, slab);
+        total = SlabBatcher.Plan([b], 0, 0, null, 256, slab);
         Assert.Equal([new SlabBatcher.Segment(b, 128, 72, 0)], slab);
         Assert.Equal(72, total);
     }
@@ -462,7 +475,7 @@ public sealed class SlabBatcherTests
         SlabBatcher.Request a = new(1, Rays(70, 1), default, new HitId[70], 0, default);
         SlabBatcher.Request b = new(1, Rays(300, 2), default, new HitId[300], 0, default);
 
-        int total = SlabBatcher.Plan([a, b], 1, 0, 256, slab);
+        int total = SlabBatcher.Plan([a, b], 1, 0, null, 256, slab);
 
         Assert.Equal([new SlabBatcher.Segment(a, 0, 70, 0), new SlabBatcher.Segment(b, 0, 186, 70)], slab);
         Assert.Equal(256, total);
@@ -475,7 +488,7 @@ public sealed class SlabBatcherTests
         SlabBatcher.Request launched = new(0, Rays(10, 1), new ulong[1], default, 0, default) { Next = 10 };
         SlabBatcher.Request waiting = new(0, Rays(10, 2), new ulong[1], default, 0, default);
 
-        int total = SlabBatcher.Plan([launched, waiting], 0, 0, 256, slab);
+        int total = SlabBatcher.Plan([launched, waiting], 0, 0, null, 256, slab);
 
         // Not even the 64-ray alignment a visibility segment would have cost.
         Assert.Equal([new SlabBatcher.Segment(waiting, 0, 10, 0)], slab);
@@ -705,6 +718,268 @@ public sealed class SlabBatcherTests
         await batcher.TraceVisibilityAsync(ReadOnlyMemory<Ray>.Empty, Memory<ulong>.Empty, 0, CancellationToken.None);
 
         Assert.Empty(device.RaysPerDispatch);
+    }
+
+    /// <summary>Rays like <see cref="Rays"/> but every one with the same reach.</summary>
+    private static Ray[] RaysWithReach(int n, int seed, float reach) =>
+        [.. Rays(n, seed).Select(r => r with { MaxDistance = reach })];
+
+    [Fact]
+    public void OnlyRequestsWithTheSlabsReachShareIt()
+    {
+        List<SlabBatcher.Segment> slab = [];
+        SlabBatcher.Request one = new(1, RaysWithReach(10, 1, 1f), default, new HitId[10], 0, default);
+        SlabBatcher.Request mixed = new(1, Rays(10, 2), default, new HitId[10], 0, default);
+        SlabBatcher.Request two = new(1, RaysWithReach(10, 3, 2f), default, new HitId[10], 0, default);
+        SlabBatcher.Request oneAgain = new(1, RaysWithReach(10, 4, 1f), default, new HitId[10], 0, default);
+        SlabBatcher.Request mixedAgain = new(1, Rays(10, 5), default, new HitId[10], 0, default);
+        SlabBatcher.Request[] queue = [one, mixed, two, oneAgain, mixedAgain];
+
+        Assert.Equal(0x3F800000u, one.UniformReach);
+        Assert.Null(mixed.UniformReach);
+        Assert.Equal(0x40000000u, two.UniformReach);
+
+        Assert.Equal(20, SlabBatcher.Plan(queue, 1, 0, 0x3F800000u, 256, slab));
+        Assert.Equal([new SlabBatcher.Segment(one, 0, 10, 0), new SlabBatcher.Segment(oneAgain, 0, 10, 10)], slab);
+
+        Assert.Equal(20, SlabBatcher.Plan(queue, 1, 0, null, 256, slab));
+        Assert.Equal([new SlabBatcher.Segment(mixed, 0, 10, 0), new SlabBatcher.Segment(mixedAgain, 0, 10, 10)], slab);
+
+        Assert.Equal(10, SlabBatcher.Plan(queue, 1, 0, 0x40000000u, 256, slab));
+        Assert.Equal([new SlabBatcher.Segment(two, 0, 10, 0)], slab);
+    }
+
+    [Fact]
+    public async Task ASlabOfOneSharedReachGoesNarrowAndAnyOtherWide()
+    {
+        FakeDevice device = new(4096);
+        device.Gate.Reset();
+        SlabBatcher batcher = new(device, Ids, 0);
+
+        // Queue all three behind the first slab, so the planner sees them together.
+        Ray[] first = RaysWithReach(10, 1, 7f);
+        Task blocker = batcher.TraceClosestAsync(first, new HitId[10], 0, CancellationToken.None);
+        await device.DrainerWaiting.Task.WaitAsync(Patience);
+        Ray[] narrow = RaysWithReach(100, 2, 1f);
+        Ray[] wide = Rays(100, 3);
+        Ray[] narrowToo = RaysWithReach(50, 4, 1f);
+        HitId[][] hits = [new HitId[100], new HitId[100], new HitId[50]];
+        Task[] queued =
+        [
+            batcher.TraceClosestAsync(narrow, hits[0], 0, CancellationToken.None),
+            batcher.TraceClosestAsync(wide, hits[1], 0, CancellationToken.None),
+            batcher.TraceClosestAsync(narrowToo, hits[2], 0, CancellationToken.None),
+        ];
+        device.Gate.Set();
+        await Task.WhenAll([blocker, .. queued]).WaitAsync(Patience);
+
+        Assert.Equal(
+            [RayRecord.UniformReach(0x40E00000u), RayRecord.UniformReach(0x3F800000u), RayRecord.Wide],
+            device.RecordPerDispatch);
+        Assert.Equal([10, 150, 100], device.RaysPerDispatch);
+
+        // The narrow slab is the two requests' rays, 24 bytes each, reach left out.
+        uint[] expected = new uint[150 * 6];
+        RayRecord.UniformReach(0x3F800000u).Pack(narrow, expected);
+        RayRecord.UniformReach(0x3F800000u).Pack(narrowToo, expected.AsSpan(600));
+        Assert.Equal(expected, device.StagedPerDispatch[1]);
+
+        // And every ray still gets exactly its own answer.
+        Assert.Equal(narrow.Select(Closest), hits[0]);
+        Assert.Equal(wide.Select(Closest), hits[1]);
+        Assert.Equal(narrowToo.Select(Closest), hits[2]);
+
+        GpuTraceStatistics stats = batcher.Statistics;
+        Assert.Equal(260, stats.SlabRays);
+        Assert.Equal((160 * 24) + (100 * 28), stats.RayBytes);
+    }
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    public async Task ASlabLargerThanAChunkIsPackedInPiecesToTheSameWords(int mode, bool narrow)
+    {
+        // Three whole chunks and a part: the pack goes to the pool in four
+        // pieces, and the words must be those of one serial pack.
+        int n = (3 * SlabBatcher.PackChunkRays) + 100;
+        FakeDevice device = new(n + 60);
+        SlabBatcher batcher = new(device, Ids, 0);
+        Ray[] rays = narrow ? RaysWithReach(n, 9, 6f) : Rays(n, 9);
+        ulong[] bits = new ulong[(n + 63) / 64];
+        HitId[] hits = new HitId[n];
+
+        await (mode == 0
+            ? batcher.TraceVisibilityAsync(rays, bits, 0, CancellationToken.None)
+            : batcher.TraceClosestAsync(rays, hits, 0, CancellationToken.None)).WaitAsync(Patience);
+
+        RayRecord record = narrow ? RayRecord.UniformReach(0x40C00000u) : RayRecord.Wide;
+        uint[] expected = new uint[n * record.Words];
+        record.Pack(rays, expected);
+        Assert.Equal([record], device.RecordPerDispatch);
+        Assert.Equal(expected, device.StagedPerDispatch[0]);
+        if (mode == 0)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                Assert.Equal(Hit(rays[i]), (bits[i / 64] & (1UL << (i % 64))) != 0);
+            }
+        }
+        else
+        {
+            Assert.Equal(rays.Select(Closest), hits);
+        }
+    }
+
+    /// <summary>
+    /// A visibility slab with alignment gaps, packed whole and in every way
+    /// of cutting it into ranges, including cuts inside a gap and inside a
+    /// segment: the words never depend on the cut.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void PackingASlabInRangesWritesWhatOnePackWrites(bool narrow)
+    {
+        Ray[] Make(int count, int seed) => narrow ? RaysWithReach(count, seed, 3f) : Rays(count, seed);
+        SlabBatcher.Request a = new(0, Make(70, 1), new ulong[2], default, 0, default);
+        SlabBatcher.Request b = new(0, Make(5, 2), new ulong[1], default, 0, default);
+        SlabBatcher.Request c = new(0, Make(90, 3), new ulong[2], default, 0, default);
+        List<SlabBatcher.Segment> segments = [];
+        uint? reach = narrow ? 0x40400000u : null;
+        int total = SlabBatcher.Plan([a, b, c], 0, 0, reach, 1024, segments);
+        Assert.Equal(128 + 64 + 90, total);
+        RayRecord record = RayRecord.For(reach);
+        int words = record.Words;
+
+        uint[] whole = new uint[total * words];
+        SlabBatcher.Pack(segments, record, whole, 0, total);
+
+        // Position by position: each segment's rays at its offset, and in a
+        // gap, the next segment's first ray.
+        Ray Expected(int at) => at switch
+        {
+            < 70 => a.Rays.Span[at],
+            < 128 => b.Rays.Span[0],
+            < 133 => b.Rays.Span[at - 128],
+            < 192 => c.Rays.Span[0],
+            _ => c.Rays.Span[at - 192],
+        };
+        for (int at = 0; at < total; at++)
+        {
+            Assert.Equal(Expected(at), record.Decode(whole.AsSpan(at * words, words)));
+        }
+
+        Random random = new(11);
+        for (int trial = 0; trial < 50; trial++)
+        {
+            int[] cuts = [0, .. Enumerable.Range(0, random.Next(1, 6)).Select(_ => random.Next(total + 1)).Order(), total];
+            uint[] pieces = new uint[total * words];
+            Array.Fill(pieces, 0xDEADBEEFu);
+            for (int k = 0; k + 1 < cuts.Length; k++)
+            {
+                SlabBatcher.Pack(segments, record, pieces, cuts[k], cuts[k + 1]);
+            }
+
+            Assert.Equal(whole, pieces);
+        }
+
+        // A range writes only its own positions.
+        uint[] one = new uint[total * words];
+        Array.Fill(one, 0xDEADBEEFu);
+        SlabBatcher.Pack(segments, record, one, 100, 140);
+        for (int at = 0; at < total; at++)
+        {
+            bool inside = at is >= 100 and < 140;
+            Assert.Equal(
+                inside,
+                one.AsSpan(at * words, words).ToArray().SequenceEqual(whole.AsSpan(at * words, words).ToArray()));
+        }
+    }
+
+    /// <summary>
+    /// Packing, serial or shared, runs on the batcher's own threads and never
+    /// on the thread pool, even when every request comes from a pool thread.
+    /// </summary>
+    [Fact]
+    public async Task NoPackingRunsOnTheThreadPool()
+    {
+        int n = (3 * SlabBatcher.PackChunkRays) + 100;
+        FakeDevice device = new(n + 60);
+        SlabBatcher batcher = new(device, Ids, 0);
+        System.Collections.Concurrent.ConcurrentBag<(int Chunk, bool Pool, int Thread)> seen = [];
+        batcher.ObservePackChunk = c => seen.Add((c, Thread.CurrentThread.IsThreadPoolThread, Environment.CurrentManagedThreadId));
+        Ray[] big = Rays(n, 3);
+        Ray[] small = Rays(100, 4);
+        try
+        {
+            await Task.Run(() => batcher.TraceClosestAsync(big, new HitId[n], 0, CancellationToken.None)).WaitAsync(Patience);
+            await Task.Run(() => batcher.TraceClosestAsync(small, new HitId[100], 0, CancellationToken.None)).WaitAsync(Patience);
+        }
+        finally
+        {
+            batcher.Close(() => { });
+        }
+
+        // Four chunks of the big slab and the small slab's one.
+        Assert.Equal([0, 0, 1, 2, 3], seen.Select(x => x.Chunk).Order());
+        Assert.All(seen, x => Assert.False(x.Pool, $"chunk {x.Chunk} was packed on a pool thread"));
+        int[] ours = [.. batcher.Threads.Select(t => t.ManagedThreadId)];
+        Assert.All(seen, x => Assert.Contains(x.Thread, ours));
+    }
+
+    /// <summary>
+    /// Close joins every thread the batcher started, the drainer and the
+    /// pack helpers, whether its slabs succeeded or failed.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task TheBatchersThreadsAreGoneAfterClose(int failure)
+    {
+        int n = (2 * SlabBatcher.PackChunkRays) + 7;
+        FakeDevice device = new(n + 57);
+        if (failure == 1)
+        {
+            device.FailSubmit = (1, new InvalidOperationException("submit"));
+        }
+        else if (failure == 2)
+        {
+            device.FailComplete = (1, new InvalidOperationException("complete"));
+        }
+
+        SlabBatcher batcher = new(device, Ids, 0);
+        Task first = batcher.TraceClosestAsync(Rays(n, 5), new HitId[n], 0, CancellationToken.None);
+        await first.WaitAsync(Patience);
+        Task second = batcher.TraceClosestAsync(Rays(n, 6), new HitId[n], 0, CancellationToken.None);
+        if (failure == 0)
+        {
+            await second.WaitAsync(Patience);
+        }
+        else
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => second.WaitAsync(Patience));
+        }
+
+        IReadOnlyList<Thread> threads = batcher.Threads;
+        Assert.Equal(SlabBatcher.MaxPackThreads, threads.Count); // the drainer and its helpers
+        Assert.All(threads, t => Assert.True(t.IsAlive));
+
+        batcher.Close(() => { });
+
+        Assert.All(threads, t => Assert.False(t.IsAlive, $"{t.Name} outlived Close"));
+        batcher.Close(() => { }); // a second close finds nothing to do
+    }
+
+    [Fact]
+    public void ABatcherThatNeverTracedStartsNoThreads()
+    {
+        SlabBatcher batcher = new(new FakeDevice(64), Ids, 0);
+        batcher.Close(() => { });
+
+        Assert.Empty(batcher.Threads);
     }
 
     [Fact]

@@ -32,11 +32,15 @@ internal interface ISlabDevice
     /// <summary>How many slots the device has; at least 1.</summary>
     int SlotCount { get; }
 
-    /// <summary>The staging for a slot's next dispatch, 8 floats per ray.</summary>
+    /// <summary>The staging for a slot's next dispatch, <see cref="RayRecord.Words"/> words per ray.</summary>
     /// <param name="slot">The slot; it must not be in flight.</param>
     /// <param name="rayCount">How many rays the dispatch will carry.</param>
-    /// <returns>The span to fill.</returns>
-    Span<float> StageRays(int slot, int rayCount);
+    /// <param name="record">The record the rays are packed in.</param>
+    /// <returns>
+    /// The memory to fill, exactly <c>rayCount * record.Words</c> words. It is
+    /// memory rather than a span so that several threads can pack one slab.
+    /// </returns>
+    Memory<uint> StageRays(int slot, int rayCount, RayRecord record);
 
     /// <summary>Starts tracing a slot's staged rays and returns without waiting for them.</summary>
     /// <param name="slot">The slot staged last.</param>
@@ -45,7 +49,8 @@ internal interface ISlabDevice
     /// <param name="outWordCount">Words the dispatch returns: 2 per 64-ray workgroup (mode 0) or per ray (mode 1).</param>
     /// <param name="tminBits">The ray epsilon, as float bits.</param>
     /// <param name="tmaxScaleBits">The any-hit tmax scale, as float bits.</param>
-    void Submit(int slot, int mode, int rayCount, int outWordCount, uint tminBits, uint tmaxScaleBits);
+    /// <param name="record">The record the slot's rays were staged in.</param>
+    void Submit(int slot, int mode, int rayCount, int outWordCount, uint tminBits, uint tmaxScaleBits, RayRecord record);
 
     /// <summary>Waits for a submitted slot and reads its answers back; the slot is free afterwards.</summary>
     /// <param name="slot">The slot.</param>
@@ -111,6 +116,39 @@ internal interface ISlabDevice
 /// off, which leaves them zero, as a dispatch of that request alone would.
 /// </para>
 /// <para>
+/// A slab carries one <see cref="RayRecord"/>: requests whose every ray
+/// shares a reach (<see cref="Request.UniformReach"/>) share slabs with
+/// requests that share the same one, and go on the wire in 24 bytes a ray;
+/// the rest share 28-byte slabs. Keeping the two apart is what lets a slab
+/// be narrow at all: one ray with its own reach would make the whole slab
+/// wide. Like the mode and the epsilon, the record cannot change an answer,
+/// only how many bytes carry the question.
+/// </para>
+/// <para>
+/// <b>Its own threads.</b> The drainer is a thread the batcher owns, not a
+/// pool work item: it blocks on fences for as long as slabs are on the
+/// device, which is most of a GPU compile's lighting, and a compile never
+/// holds the host's thread pool (<see cref="Parallel.CompileParallelism"/>;
+/// the host may be a web service). It starts with the first request and is
+/// joined by <see cref="Close"/>.
+/// </para>
+/// <para>
+/// A big slab is packed by the drainer and up to
+/// <see cref="MaxPackThreads"/> - 1 helpers (<see cref="PackCrew"/>), in
+/// chunks of <see cref="PackChunkRays"/>. With one thread packing every slab
+/// the host's writes were the pace-setter on a device that reads rays in
+/// place: on an RX 9070 on 2fort the pack took about 1.65 s of a 2.08 s
+/// facelights stage while the device was seldom waited on. The helpers are
+/// the batcher's too, for the same reason, made the first time a slab is big
+/// enough to share and joined with the drainer. The chunks are disjoint
+/// ranges of the slab and each is a pure copy from the callers' rays, so the
+/// bytes do not depend on how many threads wrote them. Having vrad's workers
+/// pack their own rays into the slab would take the pack off the drainer
+/// altogether, but the slab is only planned once the drainer has a free
+/// slot, long after the workers have handed their rays over, so that is a
+/// different design rather than a change to this one.
+/// </para>
+/// <para>
 /// A request larger than a slab is split across slabs, and those slabs may
 /// be in flight together; it completes when the last of them is answered.
 /// A request is cancelled between slabs (a dispatch in flight cannot be
@@ -122,6 +160,22 @@ internal interface ISlabDevice
 /// </remarks>
 internal sealed class SlabBatcher
 {
+    /// <summary>
+    /// Rays one packing thread takes at a time: 8,192 rays is 192 to 224 KB
+    /// of records, big enough that handing a chunk to the pool costs little
+    /// next to copying it, and small enough that a typical slab (tens of
+    /// thousands of rays) still spreads over several threads.
+    /// </summary>
+    internal const int PackChunkRays = 8192;
+
+    /// <summary>
+    /// The most threads that pack one slab, the drainer included. A few
+    /// writers already saturate what a bus or a memory controller takes from
+    /// one socket; more would only take cores from vrad's workers, which are
+    /// filling the next requests meanwhile.
+    /// </summary>
+    internal const int MaxPackThreads = 4;
+
     private const int WorkgroupRays = 64;
 
     private readonly ISlabDevice _device;
@@ -138,6 +192,16 @@ internal sealed class SlabBatcher
     private readonly Queue<Slab> _inFlight = new();
     private bool _draining;
     private bool _closed;
+
+    // The drainer thread, started under the queue lock by the first request
+    // and woken once per start; the pack helpers, made by the drainer.
+    // Both are joined by Close. The semaphore is never disposed: it holds no
+    // handle unless one is asked for, and a request racing Close may still
+    // release it.
+    private readonly SemaphoreSlim _wake = new(0);
+    private Thread? _drainer;
+    private PackCrew? _crew;
+    private volatile bool _stopping;
 
     /// <summary>Wraps a device.</summary>
     /// <param name="device">The device; its calls are made only from the drainer.</param>
@@ -186,6 +250,8 @@ internal sealed class SlabBatcher
     private long _busySince;
     private long _packTicks;
     private long _readbackTicks;
+    private long _rayBytes;
+    private long _slabRays;
     private int _peakInFlight;
 
     /// <summary>What the device has done so far: the bench's GPU line.</summary>
@@ -217,7 +283,9 @@ internal sealed class SlabBatcher
                 Stopwatch.GetElapsedTime(0, Interlocked.Read(ref _packTicks)),
                 Stopwatch.GetElapsedTime(0, Interlocked.Read(ref _readbackTicks)),
                 _device.Layout.DirectRays,
-                _device.Layout.DirectOut);
+                _device.Layout.DirectOut,
+                Interlocked.Read(ref _rayBytes),
+                Interlocked.Read(ref _slabRays));
         }
     }
 
@@ -282,6 +350,53 @@ internal sealed class SlabBatcher
         {
             release();
         }
+
+        // The device is released and the drainer has nothing to launch: stop
+        // it, then the pack helpers, so no thread of the batcher's outlives
+        // the tracer, whether its compile succeeded, failed or was cancelled.
+        _stopping = true;
+        _wake.Release();
+        Thread? drainer;
+        lock (_queueLock)
+        {
+            drainer = _drainer;
+        }
+
+        if (drainer is not null && drainer != Thread.CurrentThread)
+        {
+            drainer.Join();
+        }
+
+        _crew?.Dispose();
+    }
+
+    /// <summary>
+    /// A hook the pack calls with each chunk's index, on the thread packing
+    /// it; for the fact that no packing runs on the thread pool.
+    /// </summary>
+    internal Action<int>? ObservePackChunk { get; set; }
+
+    /// <summary>The threads the batcher has started so far: the drainer, then any pack helpers.</summary>
+    internal IReadOnlyList<Thread> Threads
+    {
+        get
+        {
+            List<Thread> threads = [];
+            lock (_queueLock)
+            {
+                if (_drainer is not null)
+                {
+                    threads.Add(_drainer);
+                }
+            }
+
+            if (Volatile.Read(ref _crew) is { } crew)
+            {
+                threads.AddRange(crew.Threads);
+            }
+
+            return threads;
+        }
     }
 
     private Task Enqueue(Request request)
@@ -297,6 +412,13 @@ internal sealed class SlabBatcher
         lock (_queueLock)
         {
             ObjectDisposedException.ThrowIf(_closed, typeof(VulkanRayTracer));
+            if (_drainer is null)
+            {
+                Thread drainer = new(DrainerLoop) { IsBackground = true, Name = "ssmap gpu drainer" };
+                drainer.Start();
+                _drainer = drainer;
+            }
+
             _queue.Add(request);
             start = !_draining;
             _draining = true;
@@ -304,12 +426,54 @@ internal sealed class SlabBatcher
 
         if (start)
         {
-            // One drainer at a time, on the pool; it exits when the queue has
-            // nothing to launch and nothing is on the device.
-            _ = Task.Run(Drain);
+            // One drain at a time; it ends when the queue has nothing to
+            // launch and nothing is on the device, and the next request that
+            // finds it ended wakes the drainer again.
+            _wake.Release();
         }
 
         return request.Done.Task;
+    }
+
+    private void DrainerLoop()
+    {
+        while (true)
+        {
+            _wake.Wait();
+            if (_stopping)
+            {
+                return;
+            }
+
+            try
+            {
+                Drain();
+            }
+            catch (Exception e)
+            {
+                // Launch and Land catch everything a slab can throw, so this
+                // is a broken invariant, not a device fault. On the pool it
+                // would have been an unobserved task and a hung queue; here
+                // the queued requests fail with it and the drainer lives on.
+                FailQueued(e);
+            }
+        }
+    }
+
+    private void FailQueued(Exception e)
+    {
+        List<Request> failed;
+        lock (_queueLock)
+        {
+            failed = [.. _queue];
+            _queue.Clear();
+            _draining = false;
+        }
+
+        foreach (Request r in failed)
+        {
+            r.Done.TrySetException(e);
+        }
     }
 
     private void Drain()
@@ -376,8 +540,8 @@ internal sealed class SlabBatcher
             return null;
         }
 
-        Slab slab = new(slot, head.Mode, head.TminBits);
-        slab.Total = Plan(_queue, head.Mode, head.TminBits, _device.MaxSlabRays, slab.Segments);
+        Slab slab = new(slot, head.Mode, head.TminBits, RayRecord.For(head.UniformReach));
+        slab.Total = Plan(_queue, head.Mode, head.TminBits, head.UniformReach, _device.MaxSlabRays, slab.Segments);
         foreach (Segment s in slab.Segments)
         {
             s.Request.Next += s.Count;
@@ -394,7 +558,9 @@ internal sealed class SlabBatcher
             long packStart = Stopwatch.GetTimestamp();
             Stage(slab);
             Interlocked.Add(ref _packTicks, Stopwatch.GetTimestamp() - packStart);
-            _device.Submit(slab.Slot, slab.Mode, slab.Total, slab.WordCount, slab.TminBits, _tmaxScaleBits);
+            _device.Submit(slab.Slot, slab.Mode, slab.Total, slab.WordCount, slab.TminBits, _tmaxScaleBits, slab.Record);
+            Interlocked.Add(ref _rayBytes, (long)slab.Total * slab.Record.Bytes);
+            Interlocked.Add(ref _slabRays, slab.Total);
             Volatile.Write(ref _dispatches, _dispatches + 1);
             if (_inFlight.Count == 0)
             {
@@ -500,6 +666,10 @@ internal sealed class SlabBatcher
     /// <param name="queue">The queue, oldest first.</param>
     /// <param name="mode">The kind this slab carries.</param>
     /// <param name="tminBits">The epsilon this slab carries.</param>
+    /// <param name="uniformReach">
+    /// The reach this slab's rays share, or null for a wide slab; only
+    /// requests with that <see cref="Request.UniformReach"/> join it.
+    /// </param>
     /// <param name="capacity">Rays the slab holds; a multiple of 64.</param>
     /// <param name="slab">Receives the segments.</param>
     /// <returns>Rays the dispatch carries, padding included.</returns>
@@ -510,14 +680,14 @@ internal sealed class SlabBatcher
     /// whose every ray is already on the device is passed over and takes no
     /// room, not even alignment.
     /// </remarks>
-    internal static int Plan(IReadOnlyList<Request> queue, int mode, uint tminBits, int capacity, List<Segment> slab)
+    internal static int Plan(IReadOnlyList<Request> queue, int mode, uint tminBits, uint? uniformReach, int capacity, List<Segment> slab)
     {
         slab.Clear();
         int offset = 0;
         foreach (Request r in queue)
         {
             int remaining = r.Rays.Length - r.Next;
-            if (r.Mode != mode || r.TminBits != tminBits || remaining <= 0)
+            if (r.Mode != mode || r.TminBits != tminBits || r.UniformReach != uniformReach || remaining <= 0)
             {
                 continue;
             }
@@ -550,40 +720,93 @@ internal sealed class SlabBatcher
         return offset;
     }
 
-    // The wire layout: two vec4 per ray, (ox,oy,oz,0) and (dx,dy,dz,tmax),
-    // with the direction unnormalised and tmax the caller's reach. A gap
-    // before an aligned segment repeats that segment's first ray, a valid
-    // query whose answer is masked away.
+    // The wire layout is the slab's RayRecord. A gap before an aligned
+    // segment repeats that segment's first ray, a valid query whose answer
+    // is masked away.
     private void Stage(Slab slab)
     {
-        Span<float> staging = _device.StageRays(slab.Slot, slab.Total);
-        int filled = 0;
-        foreach (Segment s in slab.Segments)
+        Memory<uint> staging = _device.StageRays(slab.Slot, slab.Total, slab.Record);
+        int chunks = (slab.Total + PackChunkRays - 1) / PackChunkRays;
+        if (chunks <= 1)
         {
-            ReadOnlySpan<Ray> rays = s.Request.Rays.Span.Slice(s.Start, s.Count);
-            for (; filled < s.Offset; filled++)
-            {
-                Put(staging, filled, rays[0]);
-            }
-
-            for (int i = 0; i < s.Count; i++)
-            {
-                Put(staging, filled++, rays[i]);
-            }
+            ObservePackChunk?.Invoke(0);
+            Pack(slab.Segments, slab.Record, staging.Span, 0, slab.Total);
+            return;
         }
+
+        // The drainer takes part and never waits on a helper that has not
+        // started (PackCrew), so the pack finishes even if no helper wakes.
+        List<Segment> segments = slab.Segments;
+        RayRecord record = slab.Record;
+        int total = slab.Total;
+        Action<int>? observe = ObservePackChunk;
+        if (_crew is null)
+        {
+            Volatile.Write(ref _crew, new PackCrew(MaxPackThreads - 1));
+        }
+
+        _crew.Run(chunks, c =>
+        {
+            observe?.Invoke(c);
+            Pack(segments, record, staging.Span, c * PackChunkRays, Math.Min(total, (c + 1) * PackChunkRays));
+        });
     }
 
-    private static void Put(Span<float> staging, int at, in Ray r)
+    /// <summary>
+    /// Packs slab positions <paramref name="from"/> to <paramref name="to"/>
+    /// (exclusive) of a planned slab: each segment's rays at its offset, and
+    /// before an aligned segment, copies of its first ray in the gap.
+    /// </summary>
+    /// <param name="segments">The slab's segments, in offset order.</param>
+    /// <param name="record">The slab's record.</param>
+    /// <param name="staging">The whole slab's staging.</param>
+    /// <param name="from">The first position to write.</param>
+    /// <param name="to">One past the last.</param>
+    /// <remarks>
+    /// Any split of a slab into ranges writes the same words as one range,
+    /// because every position's words are a function of the plan alone; a
+    /// fact packs slabs whole and in pieces and compares them.
+    /// </remarks>
+    internal static void Pack(IReadOnlyList<Segment> segments, RayRecord record, Span<uint> staging, int from, int to)
     {
-        int b = at * 8;
-        staging[b] = r.OriginX;
-        staging[b + 1] = r.OriginY;
-        staging[b + 2] = r.OriginZ;
-        staging[b + 3] = 0f;
-        staging[b + 4] = r.DirectionX;
-        staging[b + 5] = r.DirectionY;
-        staging[b + 6] = r.DirectionZ;
-        staging[b + 7] = r.MaxDistance;
+        int words = record.Words;
+        int gapStart = 0;
+        foreach (Segment s in segments)
+        {
+            int end = s.Offset + s.Count;
+            if (end <= from)
+            {
+                gapStart = end;
+                continue;
+            }
+
+            if (gapStart >= to)
+            {
+                break;
+            }
+
+            ReadOnlySpan<Ray> rays = s.Request.Rays.Span.Slice(s.Start, s.Count);
+
+            // The padding before this segment, clipped to the range.
+            int gapFrom = Math.Max(gapStart, from);
+            int gapTo = Math.Min(s.Offset, to);
+            if (gapTo > gapFrom)
+            {
+                record.Fill(rays[0], gapTo - gapFrom, staging.Slice(gapFrom * words, (gapTo - gapFrom) * words));
+            }
+
+            // The segment's own rays, clipped to the range.
+            int runFrom = Math.Max(s.Offset, from);
+            int runTo = Math.Min(end, to);
+            if (runTo > runFrom)
+            {
+                record.Pack(
+                    rays.Slice(runFrom - s.Offset, runTo - runFrom),
+                    staging.Slice(runFrom * words, (runTo - runFrom) * words));
+            }
+
+            gapStart = end;
+        }
     }
 
     private void Scatter(Slab slab, ReadOnlySpan<uint> words)
@@ -649,6 +872,13 @@ internal sealed class SlabBatcher
     {
         public int Mode { get; } = mode;
 
+        /// <summary>
+        /// The reach every one of its rays shares, as float bits, or null
+        /// (<see cref="RayRecord.UniformReachOf"/>). Worked out once, on the
+        /// caller's thread, when the request is made.
+        /// </summary>
+        public uint? UniformReach { get; } = RayRecord.UniformReachOf(rays.Span);
+
         public ReadOnlyMemory<Ray> Rays { get; } = rays;
 
         public Memory<ulong> HitBits { get; } = hitBits;
@@ -683,9 +913,11 @@ internal sealed class SlabBatcher
     /// <param name="Offset">Where they sit in the slab.</param>
     internal readonly record struct Segment(Request Request, int Start, int Count, int Offset);
 
-    /// <summary>One planned slab: its slot, its kind and its segments.</summary>
-    private sealed class Slab(int slot, int mode, uint tminBits)
+    /// <summary>One planned slab: its slot, its kind, its record and its segments.</summary>
+    private sealed class Slab(int slot, int mode, uint tminBits, RayRecord record)
     {
+        public RayRecord Record { get; } = record;
+
         public int Slot { get; } = slot;
 
         public int Mode { get; } = mode;

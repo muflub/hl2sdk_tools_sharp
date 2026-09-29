@@ -103,11 +103,14 @@ public readonly record struct VulkanRayTracerOptions(
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A ray is 32 bytes on the wire, and the KD tracer answers about 80
-    /// million rays a second on 32 threads, so it needs no more than
-    /// 32 B × 80 M/s ≈ 2.56 GB/s worth of time for a batch; a device whose
-    /// upload alone is slower than that cannot finish first, whatever its
-    /// traversal speed (the answers' download only adds to it). The case
+    /// A ray was 32 bytes on the wire when this was set, and the KD tracer
+    /// answers about 80 million rays a second on 32 threads, so it needs no
+    /// more than 32 B × 80 M/s ≈ 2.56 GB/s worth of time for a batch; a
+    /// device whose upload alone is slower than that cannot finish first,
+    /// whatever its traversal speed (the answers' download only adds to it).
+    /// Rays now travel in 24- or 28-byte records (<see cref="RayRecord"/>),
+    /// which moves the break-even to about 2.1 GB/s; the floor is left where
+    /// it was, which errs toward the CPU on a link in between. The case
     /// that set it: an RTX 2070 SUPER in a PCIe Gen2 x1 slot moved about
     /// 23 GB of 2fort's rays at about 0.67 GB/s, 34.3 s of copying against
     /// 0.44 s of tracing, for 43 to 47 s against the CPU's 9 s. A card on a

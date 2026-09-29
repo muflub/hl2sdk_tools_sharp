@@ -30,13 +30,15 @@ internal readonly record struct SlabMemoryLayout(bool DirectRays, bool DirectOut
 /// <remarks>
 /// <para>
 /// <b>Budget.</b> The requested rays per slab are a budget shared by every
-/// slot, not a size each slot gets. A slot holds 40 bytes a ray on the host
-/// (32 of rays, 8 of answers) and as much again on the device when copies
-/// are staged, so the default 4,194,304-ray budget is 160 MB each side, the
-/// same as a single slab took before slabs were pipelined. Giving each of
-/// three slots the full budget would triple that for no gain: vrad's queue
-/// rarely holds more than a few hundred thousand rays, so a third of the
-/// budget (about 1.4 million rays) still fits everything queued in one slab.
+/// slot, not a size each slot gets. A slot holds up to 36 bytes a ray on
+/// the host (28 of rays in the widest <see cref="RayRecord"/>, 8 of
+/// answers) and as much again on the device when copies are staged, so the
+/// default 4,194,304-ray budget is about 151 MB each side, a little under
+/// what a single slab took before slabs were pipelined, when a ray was 32
+/// bytes. Giving each of three slots the full budget would triple that for
+/// no gain: vrad's queue rarely holds more than a few hundred thousand rays,
+/// so a third of the budget (about 1.4 million rays) still fits everything
+/// queued in one slab.
 /// </para>
 /// <para>
 /// <b>Rays read in place.</b> A memory type that is device-local, host
@@ -105,11 +107,12 @@ internal static class SlabMemory
     /// <returns>Rays per slot.</returns>
     public static int RaysPerSlot(long budgetRays, int slots, ulong maxStorageBufferRange)
     {
-        // Rays are 32 bytes and the largest output is 8 bytes a ray, so the
-        // ray buffer is the binding that meets the limit first. The last
-        // clamp keeps a slot's staging (8 floats a ray) one addressable span.
+        // Rays are up to 28 bytes and the largest output is 8 bytes a ray, so
+        // the ray buffer is the binding that meets the limit first. The last
+        // clamp keeps a slot's staging (up to 7 words a ray) one addressable
+        // span, with the old 8-word margin kept rather than moved.
         ulong perSlot = (ulong)Math.Max(0L, budgetRays) / (ulong)Math.Max(1, slots);
-        ulong byBinding = maxStorageBufferRange / 32UL;
+        ulong byBinding = maxStorageBufferRange / RayRecord.MaxBytes;
         ulong byDispatch = (ulong)uint.MaxValue / Workgroup * Workgroup;
         ulong cap = Math.Min(perSlot, Math.Min(byBinding, Math.Min(byDispatch, int.MaxValue / 8)));
         cap &= ~(ulong)(Workgroup - 1);

@@ -117,7 +117,12 @@ public readonly record struct Ray(
 /// the lightmap bytes are IDENTICAL rather than merely close, and the only
 /// possible differences are rays that graze an edge -- which can be counted. A
 /// second implementation of the lighting maths in shader code, to be kept in
-/// parity forever, is exactly what this avoids.
+/// parity forever, is exactly what this avoids. In practice a GPU's bits do
+/// not all equal the CPU's: a hardware ray-triangle test decides edge-grazing
+/// rays its own way (about 0.1 % of 2fort's rays), so a GPU's lightmaps differ
+/// from the CPU tracer's and from another vendor's. Each tracer is still
+/// deterministic, the same bytes run after run, and that difference is the
+/// accepted cost of the opt-in GPU path, not a compliance quirk.
 /// </para>
 /// </remarks>
 public interface IRayTracer

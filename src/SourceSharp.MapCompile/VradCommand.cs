@@ -371,7 +371,9 @@ public static class VradCommand
     /// and not device timestamps -- the host's side of moving the slabs
     /// (<c>pack</c>, writing rays where the device reads them, and
     /// <c>readback</c>, reading the answers out, each in all and per slab),
-    /// whether the rays and the answers stay where the device reads and writes
+    /// the ray bytes packed (<c>raybytes</c>, what an upload moves) and their
+    /// average per ray (<c>raybytes.perray</c>, 24 to 28 by the slabs'
+    /// records), whether the rays and the answers stay where the device reads and writes
     /// them (<c>direct</c>) or are staged and copied by the device each slab
     /// (<c>staged</c>, a device without resizable BAR), the deepest the slot
     /// ring ran against its size, and <c>fallbackrays</c>, the rays the hybrid
@@ -421,6 +423,7 @@ public static class VradCommand
                 + $"fencewait={d.FenceWait.TotalSeconds:F3}s "
                 + $"pack={d.Pack.TotalSeconds:F3}s pack.perslab={d.Pack.TotalMilliseconds / slabs:F3}ms "
                 + $"readback={d.Readback.TotalSeconds:F3}s readback.perslab={d.Readback.TotalMilliseconds / slabs:F3}ms "
+                + $"raybytes={d.RayBytes} raybytes.perray={(double)d.RayBytes / Math.Max(1, d.SlabRays):F2} "
                 + $"rays={(d.RaysInPlace ? "direct" : "staged")} answers={(d.AnswersInPlace ? "direct" : "staged")} "
                 + $"peakinflight={d.PeakSlabsInFlight}/{d.Slots} fallbackrays={report.CpuRays.Rays}"));
         }

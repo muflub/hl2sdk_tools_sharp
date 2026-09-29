@@ -76,11 +76,21 @@ public sealed record VradContext
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A throughput knob and nothing else: the lightmaps are the same bytes
-    /// at every depth (<see cref="Light.RadWorld.LightFacesAsync"/> says
-    /// why). Deeper keeps more rays queued on the device while the workers
-    /// resolve and fill, at a few megabytes of pooled scratch per batch; 1
-    /// lets each worker wait out every batch it traces.
+    /// A throughput knob and nothing else: with a given tracer the lightmaps
+    /// are the same bytes at every depth
+    /// (<see cref="Light.RadWorld.LightFacesAsync"/> says why). Deeper keeps
+    /// more rays queued for the tracer while the workers resolve and fill, at
+    /// a few megabytes of pooled scratch per batch; 1 lets each worker wait
+    /// out every batch it traces.
+    /// </para>
+    /// <para>
+    /// Queued is not on the device. The Vulkan tracer keeps a fixed ring of
+    /// three slabs in flight, and on real hardware the default depth already
+    /// keeps it full (3 of 3 slabs in flight on an RX 9070 and an RTX 2070
+    /// SUPER on 2fort), so a deeper pipeline only means more rays waiting
+    /// each time a slot frees, which the batcher packs into bigger slabs.
+    /// That helps only when the workers cannot keep the ring fed, such as
+    /// with few threads.
     /// </para>
     /// <para>
     /// A tracer that answers inside the call, the CPU tracer, never has a
