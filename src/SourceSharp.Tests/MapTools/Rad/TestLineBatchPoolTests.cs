@@ -203,15 +203,28 @@ public sealed class TestLineBatchPoolTests
     }
 
     /// <summary>Once its calls have completed, a batch that was traced and never ended returns everything.</summary>
+    /// <remarks>
+    /// The call is held until it has been counted as pending. The batch hands
+    /// back only calls that have not already completed successfully, and an
+    /// ungated asynchronous trace runs on the thread pool: if the thread that
+    /// begins the trace is preempted between starting the call and checking
+    /// it, the trace can finish first and the batch rightly hands back
+    /// nothing. That is a scheduling race in this fact, not in the batch, and
+    /// it failed a CI run on a loaded runner; the gate makes the premise (one
+    /// call in flight) hold whatever the scheduler does.
+    /// </remarks>
     [Fact]
     public async Task StorageOfACompletedCallIsReturnedWithoutEndingTheTrace()
     {
         RecyclingScratchPool pool = new();
-        TestLineBatch batch = new(new CountingRayTracer(Tracer, asynchronous: true), pool);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TestLineBatch batch = new(new CountingRayTracer(Tracer, asynchronous: true, release: release.Task), pool);
         batch.Add(Ray.Segment(Vec3.Zero, new Vec3(1, 0, 0), false), RayTraceOptions.TestLine());
         List<Task> pending = [];
         batch.BeginTrace(pending, CancellationToken.None);
-        await Assert.Single(pending);
+        Task call = Assert.Single(pending);
+        release.SetResult();
+        await call;
 
         batch.Dispose();
 

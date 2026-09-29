@@ -1007,18 +1007,68 @@ public class WorkQueueTests
         }
     }
 
+    /// <remarks>
+    /// <para>
+    /// <b>Why the items after the cancelling one wait for it.</b> The fact
+    /// used to let every item run freely and only check that <c>ran</c> ended
+    /// below the item count. That rested on an unstated premise: that the
+    /// thread running item <c>cancelAt</c> gets from claiming it to
+    /// <see cref="CancellationTokenSource.Cancel()"/> before the other workers
+    /// drain the remaining ~990,000 items. The pool here is oversubscribed on
+    /// purpose (<see cref="ContendedDegree"/> threads, twice the cores), so
+    /// the scheduler is free to preempt that one thread for a whole quantum,
+    /// and the others drain the rest in a few hundred milliseconds at most.
+    /// A Windows CI runner did exactly that: the run ended cancelled, and all
+    /// 1,000,000 items had been counted. Sleeping 200 ms before the cancel
+    /// stands in for the preemption and reproduces it on a four-core Linux
+    /// machine (four runs in ten counted every item; with 20 ms, about a
+    /// tenth to a fifth of the items ran). The queue was right: it checks the
+    /// run's token before every slot, every claim and every item. The fact
+    /// was racing the OS scheduler.
+    /// </para>
+    /// <para>
+    /// So every item claimed after <c>cancelAt</c> now holds its worker until
+    /// <see cref="CancellationTokenSource.Cancel()"/> has returned. Items are
+    /// claimed in index order (no costs, one-item chunks), so <c>cancelAt</c>
+    /// is claimed before any of them and its thread is never held: the gate
+    /// cannot deadlock, and it is bounded by <see cref="Patience"/> anyway.
+    /// It waits for <c>Cancel</c> to <i>return</i>, not merely for the token
+    /// to read cancelled, because the token flips at the start of
+    /// <c>Cancel</c> and the queue's own run token is cancelled by the
+    /// registration callback that <c>Cancel</c> runs after that; released on
+    /// the flag alone, a worker could still claim fresh items in the gap.
+    /// </para>
+    /// <para>
+    /// <b>Why the bound is tighter than "fewer than all".</b> With the premise
+    /// made to hold, how many items can run is fixed by the claim protocol,
+    /// not by timing. Each thread holds one job slot, and with one-item chunks
+    /// a slot has at most one item between the run-token check that precedes
+    /// every item and the end of that item. Once <c>Cancel</c> has returned,
+    /// that check fails for every thread that makes it afterwards, and the
+    /// check before a claim and before a slot is taken fail too. So the items
+    /// that run are those at or before <c>cancelAt</c> (at most
+    /// <c>cancelAt + 1</c>, since nothing after it is claimed first), plus, at
+    /// most, one already-checked item in each of the other
+    /// <c>Degree - 1</c> slots. A queue that kept claiming after a cancel, on
+    /// any path, would break that bound by hundreds of thousands of items,
+    /// where the old assertion only noticed a run that finished completely.
+    /// </para>
+    /// </remarks>
     [Fact]
     public async Task ACancelAmongManyTinyItemsEndsTheRunAndLeavesTheQueueFit()
     {
         using CompilePool pool = new(ContendedDegree);
         using var queue = new WorkQueue(new CompileParallelism { MaxDegree = ContendedDegree, Pool = pool });
+        const int chunk = 1;
 
         for (int run = 0; run < 10; run++)
         {
             using var cts = new CancellationTokenSource();
+            using var cancelReturned = new ManualResetEventSlim(false);
             var built = new ConcurrentBag<GuardedScratch>();
             int cancelAt = 1_000 + (run * 997);
             int ran = 0;
+            int gateTimedOut = 0;
             Task cancelled = queue.RunAsync<GuardedScratch, int>(
                 1_000_000,
                 (index, scratch, context) =>
@@ -1028,6 +1078,11 @@ public class WorkQueueTests
                     if (index == cancelAt)
                     {
                         cts.Cancel();
+                        cancelReturned.Set();
+                    }
+                    else if (index > cancelAt && !cancelReturned.Wait(Patience))
+                    {
+                        Interlocked.Exchange(ref gateTimedOut, 1);
                     }
 
                     scratch.Leave();
@@ -1039,12 +1094,17 @@ public class WorkQueueTests
                     built.Add(scratch);
                     return scratch;
                 },
-                new WorkQueueOptions { ChunkSize = 1 },
+                new WorkQueueOptions { ChunkSize = chunk },
                 cts.Token);
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 () => cancelled.WaitAsync(Patience, CancellationToken.None));
-            Assert.True(Volatile.Read(ref ran) < 1_000_000, "the cancel did not stop the run");
+            Assert.True(Volatile.Read(ref gateTimedOut) == 0, "an item after the cancelling one waited out its patience");
+            int bound = cancelAt + 1 + ((queue.Degree - 1) * chunk);
+            int total = Volatile.Read(ref ran);
+            Assert.True(
+                total <= bound,
+                $"the cancel did not stop the run: {total} items ran, at most {bound} may");
             Assert.All(built, s => Assert.False(s.Clashed));
             Assert.All(built, s => Assert.True(s.Disposed));
 
