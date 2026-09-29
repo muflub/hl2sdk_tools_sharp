@@ -125,7 +125,7 @@ public static partial class LevelLinker
                     }
                     else if (!compileOnly && !OmittedModel(item.Pairs, plan, index, droppedFurniture))
                     {
-                        AddUnlessDuplicate(merged, singletons, TranslateEntity(item, plan.Transform, name, plan.OccluderBase, plan.Models), name, index);
+                        AddUnlessDuplicate(merged, singletons, TranslateEntity(item, plan.Transform, name, plan.OccluderBase, plan.Models, plan.OverlayBase), name, index);
                     }
 
                     continue;
@@ -190,7 +190,7 @@ public static partial class LevelLinker
                 AddUnlessDuplicate(
                     merged,
                     singletons,
-                    TranslateEntity(new RoomLinkEntity(false, pairs, null, null), plan.Transform, room, plan.OccluderBase, plan.Models),
+                    TranslateEntity(new RoomLinkEntity(false, pairs, null, null), plan.Transform, room, plan.OccluderBase, plan.Models, plan.OverlayBase),
                     room,
                     entity.Placement);
             }
@@ -400,12 +400,13 @@ public static partial class LevelLinker
     /// The turn (<see cref="TurnEntity"/>, which the room compile stores)
     /// and then the cell (<see cref="TranslateEntity"/>, the link's share).
     /// </remarks>
-    internal static BspEntity MoveEntity(BspEntity entity, RoomTransform transform, string room, int occluderBase = 0) =>
+    internal static BspEntity MoveEntity(BspEntity entity, RoomTransform transform, string room, int occluderBase = 0, int overlayBase = 0) =>
         TranslateEntity(
             new RoomLinkEntity(false, TurnEntity(entity, transform.Placement.NormalizedRotation, room), null, null),
             transform,
             room,
-            occluderBase);
+            occluderBase,
+            overlayBase: overlayBase);
 
     /// <summary>
     /// One entity's keys turned by a quarter turn: the part of moving it
@@ -458,6 +459,7 @@ public static partial class LevelLinker
         Box? ladder = LadderBounds(entity, ladderKeys, turns, room);
         int yawTurns = VmfPlacement.KeepsWorldAngles(entity.ClassName) ? 0 : turns;
         string? brushClass = IsBrushModel(entity.Get("model")) ? entity.ClassName ?? string.Empty : null;
+        bool overlay = string.Equals(entity.ClassName, RoomOverlays.AccessorClass, StringComparison.Ordinal);
         List<RoomLinkPair> pairs = new(entity.Pairs.Count);
         foreach (BspKeyValue pair in entity.Pairs)
         {
@@ -469,7 +471,7 @@ public static partial class LevelLinker
                 continue;
             }
 
-            pairs.Add(TurnPair(pair, turns, yawTurns, room, brushClass));
+            pairs.Add(overlay && TurnOverlayPair(pair, turns, room) is { } basis ? basis : TurnPair(pair, turns, yawTurns, room, brushClass));
         }
 
         return pairs;
@@ -510,7 +512,8 @@ public static partial class LevelLinker
     /// out (the rooms design, 6.4).
     /// </para>
     /// </remarks>
-    private static BspEntity TranslateEntity(RoomLinkEntity entity, RoomTransform transform, string room, int occluderBase, RoomModelLayout? models = null)
+    private static BspEntity TranslateEntity(
+        RoomLinkEntity entity, RoomTransform transform, string room, int occluderBase, RoomModelLayout? models = null, int overlayBase = 0)
     {
         BspEntity moved = new();
         bool brush = models is not null && entity.Pairs.Any(p => IsKey(p.Key, "model") && IsBrushModel(p.Value));
@@ -522,7 +525,14 @@ public static partial class LevelLinker
             }
 
             string value;
-            if (pair.Value is null)
+            if (pair.Value is null && IsKey(pair.Key, RoomOverlays.OriginKey))
+            {
+                // An overlay accessor's basis origin, moved as the flatten
+                // moves it and as the link moves the overlay's record
+                // (LinkOverlay): the turned point plus the translation.
+                value = VmfPlacement.Format(pair.Origin + transform.Apply(Vec3.Zero));
+            }
+            else if (pair.Value is null)
             {
                 Vec3 at = transform.Translate(pair.Origin);
                 value = pair.Component switch
@@ -539,6 +549,12 @@ public static partial class LevelLinker
                 value = k >= 1 && k <= models!.Linked.Length && models.Linked[k - 1] > 0
                     ? string.Create(CultureInfo.InvariantCulture, $"*{models.Linked[k - 1]}")
                     : throw new LinkException($"room {room} has an entity naming model {pair.Value}, which is not one of its linked brush models");
+            }
+            else if (overlayBase != 0 && IsKey(pair.Key, RoomOverlays.IdKey))
+            {
+                value = int.TryParse(pair.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int overlay)
+                    ? (overlay + overlayBase).ToString(CultureInfo.InvariantCulture)
+                    : throw new LinkException($"room {room} has an entity whose \"{RoomOverlays.IdKey}\" holds \"{pair.Value}\", not an overlay id");
             }
             else if (occluderBase != 0 && IsKey(pair.Key, "occludernumber"))
             {
