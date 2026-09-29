@@ -702,8 +702,9 @@ public static class Vrad
             return (empty, TracerKey(empty, digest));
         }
 
-        // The tree's subtrees are built on the queue's workers
-        // (KdTreeBuilder.BuildAsync), node for node the serial tree.
+        // The tree is built on the queue's workers (KdTreeBuilder.BuildAsync):
+        // the top level by level with every node's trials spread out, then
+        // the subtrees below it as jobs; node for node the serial tree.
         // The KD tree is built even under -gpu: the hybrid answers with it
         // every batch whose options the GPU cannot express -- the prop
         // samplers' skipped ids and sky pass-through (HybridRayTracer.TracerFor).
