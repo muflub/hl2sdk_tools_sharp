@@ -401,6 +401,27 @@ public class ContentFileSystemTests
         Assert.Equal("a", Encoding.UTF8.GetString(owner!.Memory.Span));
     }
 
+    /// <summary>
+    /// A shared mount disposed twice (by a host's last compile and again at
+    /// its shutdown), or by two callers at once, disposes each mount once;
+    /// content that does not own its mounts disposes none.
+    /// </summary>
+    [Fact]
+    public async Task DisposingTwiceDisposesEachMountOnce()
+    {
+        InMemoryFileSystem disk = new InMemoryFileSystem().AddText("game/materials/a.vmt", "a");
+        CountingMount owned = new(await DirectoryContentMount.MountAsync(disk, VPath.Create("game")));
+        ContentFileSystem content = new([owned]);
+
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => content.DisposeAsync().AsTask()));
+        await content.DisposeAsync();
+        Assert.Equal(1, owned.Disposed);
+
+        CountingMount borrowed = new(await DirectoryContentMount.MountAsync(disk, VPath.Create("game")));
+        await new ContentFileSystem([borrowed], ownsMounts: false).DisposeAsync();
+        Assert.Equal(0, borrowed.Disposed);
+    }
+
     private static IContentMount Named(IContentMount mount, string name) => new RenamedMount(mount, name);
 
     private static async ValueTask<ContentFileSystem> MountDirectory(InMemoryFileSystem disk)
@@ -447,5 +468,37 @@ public class ContentFileSystemTests
             inner.ReadRangeAsync(actual, offset, length, cancellationToken);
 
         public ValueTask DisposeAsync() => inner.DisposeAsync();
+    }
+
+    // A mount that counts its disposals.
+    private sealed class CountingMount(IContentMount inner) : IContentMount
+    {
+        private int _disposed;
+
+        public int Disposed => Volatile.Read(ref _disposed);
+
+        public string Name => inner.Name;
+
+        public IReadOnlyCollection<VPath> Paths => inner.Paths;
+
+        public bool TryResolve(VPath path, out VPath actual) => inner.TryResolve(path, out actual);
+
+        public ValueTask<IMemoryOwner<byte>?> ReadAsync(
+            VPath actual,
+            CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(actual, cancellationToken);
+
+        public ValueTask<FileRange?> ReadRangeAsync(
+            VPath actual,
+            long offset,
+            int length,
+            CancellationToken cancellationToken = default) =>
+            inner.ReadRangeAsync(actual, offset, length, cancellationToken);
+
+        public ValueTask DisposeAsync()
+        {
+            Interlocked.Increment(ref _disposed);
+            return inner.DisposeAsync();
+        }
     }
 }

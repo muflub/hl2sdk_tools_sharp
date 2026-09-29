@@ -25,11 +25,26 @@ namespace SourceSharp.MapTools.Io;
 /// built when it was mounted. See <see cref="IContentMount"/> for why an index
 /// and not a probe.
 /// </para>
+/// <para>
+/// <b>Sharing.</b> One mounted game can serve any number of compiles at once,
+/// and a long-lived host should mount each game once and hand the same
+/// object to every compile of it: mounting indexes every file of every VPK,
+/// which is the costly part, and nothing a compile does changes a mount.
+/// The indexes are built before the constructor runs and only read after;
+/// loose-directory reads open their own stream per call; a VPK part's one
+/// held stream is read under its own gate (see
+/// <see cref="Vpk.VpkArchive"/>). No compile disposes the content it was
+/// given, so the host disposes it once, after the last compile that uses it.
+/// A dispose that races compiles still reading closes every archive stream
+/// once those reads finish, and later reads fail with
+/// <see cref="ObjectDisposedException"/> rather than reopening anything.
+/// </para>
 /// </remarks>
 public sealed class ContentFileSystem : IContentFileSystem, IAsyncDisposable
 {
     private readonly IReadOnlyList<IContentMount> _mounts;
     private readonly bool _ownsMounts;
+    private int _disposed;
 
     /// <summary>Layers a list of mounts, earliest first.</summary>
     /// <param name="mounts">The mounts, in search-path order.</param>
@@ -161,9 +176,14 @@ public sealed class ContentFileSystem : IContentFileSystem, IAsyncDisposable
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Only the first call disposes the mounts, so a host whose shutdown path
+    /// and whose last compile both dispose the shared content does not ask a
+    /// mount it does not know to be idempotent to dispose twice.
+    /// </remarks>
     public async ValueTask DisposeAsync()
     {
-        if (!_ownsMounts)
+        if (!_ownsMounts || Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }

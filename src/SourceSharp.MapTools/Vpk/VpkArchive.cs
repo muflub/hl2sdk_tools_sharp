@@ -62,7 +62,7 @@ public sealed class VpkArchive : IPackedArchive
     private readonly Dictionary<int, ArchivePart> _parts;
     private readonly Dictionary<VPath, VpkEntry> _entries;
     private readonly IFileSystem _fileSystem;
-    private bool _disposed;
+    private int _disposed;
 
     private VpkArchive(
         string name,
@@ -167,7 +167,7 @@ public sealed class VpkArchive : IPackedArchive
         VPath path,
         CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
         if (!_entries.TryGetValue(path, out VpkEntry? entry))
         {
@@ -228,7 +228,7 @@ public sealed class VpkArchive : IPackedArchive
         int length,
         CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
         ArgumentOutOfRangeException.ThrowIfNegative(length);
 
@@ -295,21 +295,43 @@ public sealed class VpkArchive : IPackedArchive
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// A long-lived host mounts a game once and shares the archive between
+    /// every compile it runs, so a dispose can arrive while other compiles are
+    /// still reading. It takes each part's gate in turn and closes the part
+    /// under it: a read already holding the gate (even one still opening the
+    /// part's stream) finishes first and its stream is then closed, and a read
+    /// that takes the gate afterwards finds the part closed and fails with
+    /// <see cref="ObjectDisposedException"/> instead of opening a stream that
+    /// nothing would ever close. The dispose used to walk the parts without
+    /// the gate, so a read inside the open left its stream behind, and a read
+    /// mid-copy could have its stream closed under it.
+    /// </para>
+    /// <para>
+    /// The gates themselves are not disposed. A <see cref="SemaphoreSlim"/>
+    /// whose wait handle was never asked for holds nothing native, and
+    /// disposing it would turn a waiting reader's release into an
+    /// <see cref="ObjectDisposedException"/> from the wrong place. The part
+    /// table is not cleared either, since readers look parts up without a
+    /// lock; a closed part answers every later read the same way.
+    /// </para>
+    /// <para>
+    /// Disposing again, or from two callers at once, is harmless: only the
+    /// first gets past the flag.
+    /// </para>
+    /// </remarks>
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
 
-        _disposed = true;
-
         foreach (ArchivePart part in _parts.Values)
         {
-            await part.DisposeAsync().ConfigureAwait(false);
+            await part.CloseAsync().ConfigureAwait(false);
         }
-
-        _parts.Clear();
     }
 
     private static VpkArchive Parse(IFileSystem fileSystem, VPath directoryPath, ReadOnlySpan<byte> bytes)
@@ -512,6 +534,10 @@ public sealed class VpkArchive : IPackedArchive
         await archive.Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            // Checked under the gate: a dispose that closed this part while
+            // the read waited must not have a stream reopened behind it.
+            ObjectDisposedException.ThrowIf(archive.Closed, this);
+
             Stream stream = archive.Stream
                 ??= await _fileSystem.OpenReadAsync(archive.Path, cancellationToken).ConfigureAwait(false);
 
@@ -549,9 +575,11 @@ public sealed class VpkArchive : IPackedArchive
     /// chunk. The stream is opened on first use and held, because a compile
     /// reads thousands of entries out of the same handful of parts; the
     /// semaphore is there because a seek-then-read on a shared stream is not
-    /// thread-safe and compile stages read in parallel.
+    /// thread-safe and compile stages (and the compiles sharing a mount) read
+    /// in parallel. <see cref="Stream"/> and <see cref="Closed"/> are only
+    /// touched under <see cref="Gate"/>.
     /// </summary>
-    private sealed class ArchivePart(VPath path, long baseOffset) : IAsyncDisposable
+    private sealed class ArchivePart(VPath path, long baseOffset)
     {
         public VPath Path { get; } = path;
 
@@ -561,15 +589,31 @@ public sealed class VpkArchive : IPackedArchive
 
         public Stream? Stream { get; set; }
 
-        public async ValueTask DisposeAsync()
-        {
-            if (Stream is not null)
-            {
-                await Stream.DisposeAsync().ConfigureAwait(false);
-                Stream = null;
-            }
+        public bool Closed { get; private set; }
 
-            Gate.Dispose();
+        /// <summary>
+        /// Waits for the read holding the gate, if any, then closes the
+        /// stream and marks the part closed for every read after it.
+        /// </summary>
+        /// <returns>A task that completes once the part is closed.</returns>
+        public async ValueTask CloseAsync()
+        {
+            // No token: a dispose that gave up waiting would leave the stream
+            // the running read is using, or about to open, with no owner.
+            await Gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                Closed = true;
+                if (Stream is { } stream)
+                {
+                    Stream = null;
+                    await stream.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                Gate.Release();
+            }
         }
     }
 }
