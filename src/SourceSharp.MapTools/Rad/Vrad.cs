@@ -414,7 +414,7 @@ public static class Vrad
 
         Report(context, StartStage, 0);
         RadWorld world = await RadWorld.StartAsync(
-            bsp, settings, new TextureLightTable(texFile, context.MapName), tracer, parallelism, scratch, cancellationToken)
+            bsp, settings, new TextureLightTable(context.NoTextureLights ? new RadLightFile() : texFile, context.MapName), tracer, parallelism, scratch, cancellationToken)
             .ConfigureAwait(false);
         Report(context, StartStage, 1);
         world.ReuseTransfers = reuseTransfers;
@@ -504,6 +504,7 @@ public static class Vrad
             {
                 RedErrors = options.ShowErrorsInRed,
                 Displacements = dispRadials,
+                BounceObserver = context.BounceObserver is { } bounced ? (face, bump, luxel, light) => bounced(hdr, face, bump, luxel, light) : null,
             };
             FinalLightingResult result = await FinalLighting.RunAsync(finalContext, parallelism, cancellationToken)
                 .ConfigureAwait(false);

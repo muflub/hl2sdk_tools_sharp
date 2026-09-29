@@ -140,6 +140,27 @@ public sealed record VradContext
     /// Null in every other compile.
     /// </summary>
     internal Action<bool, Props.StaticPropLightingResult>? StaticPropLightingObserver { get; init; }
+
+    /// <summary>
+    /// For a room library's door response (the rooms design, 9.1 part 3):
+    /// lights the map with its entity lights alone, no texture light
+    /// emitting. A response run asks what one emitter at a doorway does to
+    /// the room, with every other source dark, and a room's emissive
+    /// materials are sources like its lights; their <c>.rad</c> files are
+    /// still read, because the same files also say which materials cast
+    /// shadows, and that is the room's geometry, which a response keeps.
+    /// False in every other compile.
+    /// </summary>
+    internal bool NoTextureLights { get; init; }
+
+    /// <summary>
+    /// For a room library's door response: told, per range, every luxel's
+    /// bounced light (the HDR flag, face, bump page, luxel, the light) as the
+    /// final pass adds it, from many workers at once, each face on one
+    /// (<see cref="Final.FinalLightContext.BounceObserver"/>). Null in every
+    /// other compile.
+    /// </summary>
+    internal Action<bool, int, int, int, SourceSharp.MapFormats.Geometry.Vec3>? BounceObserver { get; init; }
 }
 
 /// <summary>One pass's counts.</summary>
