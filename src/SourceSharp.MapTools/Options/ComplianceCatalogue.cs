@@ -1301,8 +1301,74 @@ public static class ComplianceCatalogue
             ],
             "One ulp here does not stay one ulp: the split heuristic's epsilon-brush test reads "
             + "the sign of a vertex's residual against the plane, so on 2fort it moves which "
-            + "plane a node splits on and the cluster count with it. On a CPU whose estimate is "
-            + "not the reference's, the Stock side still differs from stock."),
+            + "plane a node splits on and the cluster count with it (SplitEpsilonBrushOnPlane "
+            + "narrows that under Correct). On a CPU whose estimate is not the reference's, the "
+            + "Stock side still differs from stock."),
+
+        StockQuirk.SplitEpsilonBrushOnPlane => new(
+            quirk,
+            "Split heuristic reads an on-plane vertex by its rounding",
+            "TestBrushToPlanenum charges a candidate plane 1000 points for a brush whose furthest "
+            + "vertex is more than 0 and under 1 unit across it, so a vertex lying on the plane is "
+            + "charged or not by the sign of its rounding residual.",
+            "A vertex within 0.1 of the plane, where SplitBrush already stops calling it a "
+            + "crossing, is on the plane, so only a brush crossing by 0.1 to 1 unit is charged and "
+            + "last-bit noise in the windings no longer moves the split.",
+            CompileTools.Vbsp,
+            [
+                "SourceSharp.MapTools.Bsp.Tree.BrushBspTree.TestBrushToPlaneNumber",
+            ],
+            QuirkObservation.Demonstrated,
+            "On 2fort a vertex residual of +6.1e-5 cost one wedge plane the penalty and moved the "
+            + "split; flipping PlaneFromPointsNormalise, BaseWindingNormalise or EdgeBevelNormalise "
+            + "alone moved Correct's cluster count from 2492 to 2476, 2500 or 2495. With this quirk "
+            + "corrected, Correct gives 2473 and the three flips 2475, 2476 and 2473, and the "
+            + "EdgeBevelNormalise flip leaves the tree identical.",
+            [
+                "SplitEpsilonBrushOnPlaneTests.StockCountsAnEdgeAFewUlpsInFrontAndNotOneAFewUlpsBehind",
+                "SplitEpsilonBrushOnPlaneTests.StockCountsAnEdgeAFewUlpsBehindTheMirroredPlaneAndNotOneInFront",
+                "SplitEpsilonBrushOnPlaneTests.CorrectCountsNeitherSideOfTheResidualOnEitherHalfOfTheTest",
+                "SplitEpsilonBrushOnPlaneTests.AnEdgeInsideTheBandCountsOnlyUnderStock",
+                "SplitEpsilonBrushOnPlaneTests.UnderStockTheResidualsSignChangesTheSplitter",
+                "SplitEpsilonBrushOnPlaneTests.UnderCorrectTheSplitterDoesNotDependOnTheResidualsSign",
+            ],
+            "The numbers above are with SplitBrushSliverSides on the stock side. Most of the spread "
+            + "left came from brush splitting, not scoring: a zero-epsilon clip keeps or drops a "
+            + "sliver side on its last bits, so a fragment has one side more or fewer; "
+            + "SplitBrushSliverSides takes that out under Correct."),
+
+        StockQuirk.SplitBrushSliverSides => new(
+            quirk,
+            "Brush split hands out sliver sides by rounding",
+            "SplitBrush divides each side between the two halves with an epsilon of zero, so a side "
+            + "that only touches the splitting plane gives the other half a sliver side a few "
+            + "thousandths wide, or not, by the sign of its edge's rounding residual.",
+            "A side reaching less than 0.1 across the plane, the band SplitBrush already uses for a "
+            + "whole brush, goes whole to the half it is on, so neither half gains a side by noise.",
+            CompileTools.Vbsp,
+            [
+                "SourceSharp.MapTools.Bsp.Csg.BrushGeometry.SplitBrush",
+            ],
+            QuirkObservation.Demonstrated,
+            "On 2fort, with SplitEpsilonBrushOnPlane corrected, flipping PlaneFromPointsNormalise or "
+            + "BaseWindingNormalise alone moved Correct's cluster count from 2473 to 2475 or 2476, with "
+            + "17 and 12 nodes splitting on another plane; at the first of them the two runs' fragments "
+            + "differed by one sliver side. With this quirk corrected too, Correct gives 2455 and the "
+            + "three normalise flips 2456, 2456 and 2455, with 3, 3 and 0 nodes splitting differently.",
+            [
+                "SplitBrushSliverSidesTests.StockPutsTheSliverOnWhicheverHalfTheEdgeRoundedInto",
+                "SplitBrushSliverSidesTests.CorrectGivesNeitherHalfASliverWhicheverWayTheEdgeRounds",
+                "SplitBrushSliverSidesTests.AnEdgeInsideTheBandIsCutOnlyUnderStock",
+                "SplitBrushSliverSidesTests.BothPoliciesCutASideThatCrossesByAQuarterUnit",
+                "SplitBrushSliverSidesTests.UnderStockTheSliverMakesAHalfFaceAPlaneItDoesNotReach",
+                "SplitBrushSliverSidesTests.UnderCorrectNeitherHalfFacesAPlaneItDoesNotReach",
+            ],
+            "The divergence left is not in the splitter. A flipped normalise moves a slanted plane "
+            + "itself by about 0.0016 at a vertex 2000 units out, past the box test's 0.001; it moves "
+            + "two nearly coplanar map planes, 0.012 apart, to within the plane table's 0.01 so they "
+            + "merge; and it adds or drops a near-duplicate edge bevel. Under Correct the halves of a "
+            + "split may reach up to 0.1 past the splitting plane, as a whole brush inside that band "
+            + "already does."),
 
         _ => throw new ArgumentOutOfRangeException(
             nameof(quirk), quirk, "no ComplianceCatalogue entry for this StockQuirk"),

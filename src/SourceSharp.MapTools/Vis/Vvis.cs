@@ -436,6 +436,7 @@ public static class Vvis
     {
         int portalCount = portals.Count;
         int[] sorted = SortPortals(state, portalCount, context.Options.NoSort);
+        VisSeparatorPath separators = ResolveSeparators(context);
 
         Begin(context, FlowStage, portalCount);
 
@@ -471,7 +472,7 @@ public static class Vvis
             await tightening.RunAsync(
                 queue,
                 workers,
-                () => new VisPortalFlow(portals, state, context.Path, stop: stop),
+                () => new VisPortalFlow(portals, state, context.Path, stop: stop, separators: separators),
                 context.Progress,
                 cancellationToken).ConfigureAwait(false);
 
@@ -496,7 +497,7 @@ public static class Vvis
                 },
                 workerIndex =>
                 {
-                    VisPortalFlow flow = new(portals, state, context.Path, stop: stop);
+                    VisPortalFlow flow = new(portals, state, context.Path, stop: stop, separators: separators);
                     workers[workerIndex] = flow;
                     return flow;
                 },
@@ -523,7 +524,7 @@ public static class Vvis
             }
         }
 
-        return new VisFlow(portals, state, radius, deepest, work);
+        return new VisFlow(portals, state, radius, deepest, work) { SeparatorPath = separators };
     }
 
     private static async Task<(VisResult Result, VisLumps Lumps)> TailAsync(
@@ -601,9 +602,26 @@ public static class Vvis
         VisResult result = new(
             clusters, portals.Count, rowBytes, pvs, pas, visLump.Length,
             totalVis, optimized, totalAudible, flow.Radius.Use, flow.Radius.Squared, flow.DeepestFlow, flow.Work,
-            trace: null);
+            trace: null)
+        {
+            SeparatorPath = flow.SeparatorPath,
+        };
         return (result, lumps);
     }
+
+    /// <summary>
+    /// The separator clip a flow runs: <see cref="VvisOptions.SeparatorPath"/>
+    /// resolved against the CPU (<see cref="VisContext.Cpu"/> when a fact set
+    /// one, otherwise the one this process runs on).
+    /// </summary>
+    /// <remarks>
+    /// Called once as each flow starts and handed to its workers, never kept
+    /// in a static: the libraries hold no shared mutable state, and two
+    /// compiles in one process each resolve their own. See
+    /// <see cref="VisSeparatorPaths.Resolve"/> for the rule.
+    /// </remarks>
+    internal static VisSeparatorPath ResolveSeparators(VisContext context) =>
+        VisSeparatorPaths.Resolve(context.Options.SeparatorPath, context.Cpu ?? CpuCapabilities.Detect());
 
     /// <summary>
     /// Announces that a stage is starting, before any of its work runs.
@@ -654,6 +672,7 @@ public static class Vvis
         }
 
         VisTraceSink sink = new(start, stop);
+        VisSeparatorPath separators = ResolveSeparators(context);
 
         // BuildTracePortals: the scheduled portals are exactly the
         // start cluster's, in its own list order.
@@ -666,7 +685,7 @@ public static class Vvis
                 flow.Run(scheduled[index], worker);
                 return 0;
             },
-            _ => new VisPortalFlow(portals, state, context.Path, sink),
+            _ => new VisPortalFlow(portals, state, context.Path, sink, separators: separators),
             new WorkQueueOptions { Stage = FlowStage, Progress = context.Progress },
             cancellationToken).ConfigureAwait(false);
 
@@ -674,7 +693,10 @@ public static class Vvis
             clusters, portalCount, rowBytes, [], [], 0, 0, 0, 0,
             useRadius, radiusSquared, 0,
             new VisWorkCounters(Chains: 0, Candidates: 0, SeparatorClips: 0, BaseRays: baseRays),
-            sink.Points);
+            sink.Points)
+        {
+            SeparatorPath = separators,
+        };
     }
 
     /// <summary>

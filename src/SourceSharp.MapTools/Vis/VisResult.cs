@@ -154,6 +154,20 @@ public sealed class VisResult
     /// </remarks>
     public IReadOnlyList<Vec3>? Trace { get; }
 
+    /// <summary>
+    /// The separator clip the compile ran, resolved from
+    /// <see cref="Options.VvisOptions.SeparatorPath"/>: never
+    /// <see cref="VisSeparatorPath.Auto"/>.
+    /// </summary>
+    /// <remarks>
+    /// The output does not depend on it -- the two paths give the same bytes
+    /// -- so it is here only so a host can say which one ran, as
+    /// <c>ssmap vvis</c> does. <see cref="VisSeparatorPath.Vector256"/> for a
+    /// result that ran no flow of its own (a room loaded from a file, a
+    /// stage-cache replay).
+    /// </remarks>
+    public VisSeparatorPath SeparatorPath { get; internal init; } = VisSeparatorPath.Vector256;
+
     /// <summary>One cluster's potentially visible set, uncompressed.</summary>
     /// <param name="cluster">A cluster index.</param>
     /// <returns><see cref="RowBytes"/> bytes.</returns>

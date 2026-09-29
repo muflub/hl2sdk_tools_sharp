@@ -115,6 +115,18 @@ public sealed record VisContext
     /// </remarks>
     public BitVectorPath Path { get; init; } = BitVectorPath.Auto;
 
+    /// <summary>
+    /// For the facts: the CPU <see cref="VvisOptions.SeparatorPath"/>'s
+    /// <see cref="VisSeparatorPath.Auto"/> is resolved against, or null (every
+    /// real compile) to read the one this process runs on.
+    /// </summary>
+    /// <remarks>
+    /// Read once per flow, when the flow starts, and never stored anywhere
+    /// but the flow's own workers: two compiles in one process each resolve
+    /// their own. The resolution rule is <see cref="VisSeparatorPaths.Resolve"/>.
+    /// </remarks>
+    internal CpuCapabilities? Cpu { get; init; }
+
     /// <summary>Stock's defaults, on every core.</summary>
     public static VisContext Default { get; } = new();
 }

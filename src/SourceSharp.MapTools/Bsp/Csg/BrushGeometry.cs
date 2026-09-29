@@ -64,6 +64,64 @@ public static class BrushGeometry
     public const float PlaneSideEpsilon = 0.001f;
 
     /// <summary>
+    /// How close to the splitting plane a brush side's vertex has to be for
+    /// <see cref="SplitBrush"/> to call it ON the plane when it divides that
+    /// side between the two halves, under <see cref="CompliancePolicy.Correct"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What it guards.</b> Stock clips every side winding against the
+    /// splitting plane with an epsilon of zero. A side that only TOUCHES the
+    /// plane, with an edge or a vertex, while the rest of it is wholly on one
+    /// side, is then divided by the sign of that edge's rounding residual: a
+    /// few ulps across and the side is split into its real part and a sliver
+    /// a few thousandths of a unit wide on the far side; a few ulps short and
+    /// it goes whole to its own side. The sliver is a full brush side of the
+    /// far fragment, with the plane of a face that fragment does not have. So
+    /// the fragment has one side more or fewer by noise, and every later test
+    /// that walks sides sees it: the split heuristic treats a brush that owns
+    /// a candidate plane as facing it and charges it nothing for crossing it,
+    /// a fragment's bounds stretch to the sliver, and the nodes below are
+    /// scored on different brushes. On 2fort, with
+    /// <see cref="StockQuirk.SplitEpsilonBrushOnPlane"/> corrected, this was
+    /// what still moved Correct's cluster count when
+    /// <see cref="StockQuirk.PlaneFromPointsNormalise"/> or
+    /// <see cref="StockQuirk.BaseWindingNormalise"/> was flipped (see
+    /// <see cref="StockQuirk.SplitBrushSliverSides"/>).
+    /// </para>
+    /// <para>
+    /// <b>How big the noise is.</b> Brush windings are cut from base windings
+    /// whose corners sit at <see cref="GeometryEpsilons.BaseWindingExtent"/>
+    /// (65536) units, where a float's ulp is 1/128; each clip rounds a new
+    /// corner's coordinates by up to half of that, about 0.004, which a unit
+    /// normal turns into at most <c>sqrt(3) * 0.004</c>, about 0.007, of
+    /// distance from a plane. Measured on 2fort under Correct: 6143 side
+    /// clips cut off a piece thinner than 0.1; the median piece was 0.0011
+    /// thick, 5787 of them (94%) were under 0.01 and 944 under 1e-4. Those
+    /// are rounding, not geometry.
+    /// </para>
+    /// <para>
+    /// <b>Why 0.1.</b> It is over ten times that noise, and it is the number
+    /// <see cref="SplitBrush"/> already uses for the same question one level
+    /// up: a whole brush whose furthest vertex is under 0.1 across the plane
+    /// is not split at all, but copied whole to the side it lies on. This applies
+    /// that rule to each side: a side that reaches less than 0.1 across the
+    /// plane is not cut either, and goes whole to the half it is on. The half
+    /// it goes to may then reach up to 0.1 past the plane, exactly as a whole
+    /// brush inside the band does. It is also stock's <c>ON_EPSILON</c>, the
+    /// epsilon most of the tool's other winding clips use, and the one the
+    /// split heuristic uses to count a face as split
+    /// (<see cref="Tree.BrushBspTree.SplitOnPlaneEpsilon"/>). A side reaching
+    /// 0.1 or more across is a real piece of face and is cut as before.
+    /// </para>
+    /// <para>
+    /// A side whose every vertex is inside the band goes to the back half,
+    /// as the clip does with any winding that has nothing in front.
+    /// </para>
+    /// </remarks>
+    public const float SliverSideEpsilon = 0.1f;
+
+    /// <summary>
     /// Sets a brush's bounds from its side windings: <c>BoundBrush</c>.
     /// </summary>
     /// <param name="context">The build context.</param>
@@ -572,6 +630,11 @@ public static class BrushGeometry
     /// The midwinding is cut from a base winding by EVERY side, bevels
     /// Included — unlike
     /// <see cref="CreateBrushWindings"/>, which skips them — with epsilon 0.
+    /// The sides themselves are divided between the halves with epsilon 0
+    /// too under <see cref="CompliancePolicy.Stock"/>, and with
+    /// <see cref="SliverSideEpsilon"/> under
+    /// <see cref="CompliancePolicy.Correct"/>
+    /// (<see cref="StockQuirk.SplitBrushSliverSides"/>).
     /// </description></item>
     /// <item><description>
     /// A tiny or absent midwinding sends the whole brush to
@@ -694,6 +757,15 @@ public static class BrushGeometry
             b[i]!.Original = brush.Original;
         }
 
+        // StockQuirk.SplitBrushSliverSides. Stock divides each side with an
+        // epsilon of zero, so a side that only touches the plane is cut or not
+        // by the sign of its rounding, and one fragment gains or loses a
+        // sliver side. Correct calls a vertex within SliverSideEpsilon on the
+        // plane, the same band the whole-brush test above uses.
+        float sideEpsilon = context.Windings.Compliance.Emulates(StockQuirk.SplitBrushSliverSides)
+            ? 0f
+            : SliverSideEpsilon;
+
         for (int i = 0; i < brush.SideCount; i++)
         {
             BspBrushSide s = brush.Sides[i];
@@ -703,7 +775,7 @@ public static class BrushGeometry
             }
 
             arena.ClipEpsilonOffset(
-                s.Winding, plane.Normal, plane.Dist, 0f, offset,
+                s.Winding, plane.Normal, plane.Dist, sideEpsilon, offset,
                 out Winding cwFront, out Winding cwBack);
 
             for (int j = 0; j < 2; j++)
