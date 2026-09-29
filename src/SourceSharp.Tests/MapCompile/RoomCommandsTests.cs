@@ -179,6 +179,106 @@ public sealed class RoomCommandsTests
         Assert.Equal(["CMPL"], (await RoomPack.ReadIndexAsync(stream)).LibrarySections.Select(s => s.Tag));
     }
 
+    /// <summary>
+    /// The level-wide singletons through the commands: a library with a sun
+    /// and a fog controller in its gaps, and an equal copy of the sun in its
+    /// room, packs (the room's copy dropped); <c>ssmap link</c> writes one of
+    /// each at the level's origin, however many rooms it places, and counts
+    /// them in the headroom line; <c>ssmap link --flatten</c> writes the
+    /// same one of each; and <c>ssmap rooms</c> lists them after the budget.
+    /// </summary>
+    [Fact]
+    public async Task TheLibrarysSingletonsAreWrittenOnceAndListed()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        library.Chunks.Add(GapEntity(900101, "light_environment", "-64 -64 128", ("angles", "-45 30 0"), ("_light", "255 255 255 200")));
+        library.Chunks.Add(GapEntity(900102, "env_fog_controller", "-64 0 0", ("fogenable", "1")));
+        library.Chunks.Add(GapEntity(900103, "light_environment", "64 64 128", ("angles", "-45 30 0"), ("_light", "255 255 255 200")));
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
+
+        AddLevel(fs, "/game/maps/level.yaml", "hub@90, hub, hub@270");
+        using StringWriter link = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(fs, ["/game/maps/level.yaml", "-out", "/out/level.bsp"], link));
+        Assert.Contains(
+            "ssmap link: map entities 6 / budget 1536 (reserve 512, cap 2048); 6 entities in the entity list",
+            link.ToString(),
+            StringComparison.Ordinal);
+        List<BspEntity> linked = [.. EntityLump.Parse((await LoadMapAsync(fs, "/out/level.bsp"))[BspLump.Entities])];
+        Assert.Equal(6, linked.Count);
+        BspEntity sun = Assert.Single(linked, e => e.ClassName == "light_environment");
+        Assert.Equal(("0 0 0", "-45 30 0"), (sun.Get("origin"), sun.Get("angles")));
+        Assert.Single(linked, e => e.ClassName == "env_fog_controller");
+
+        using StringWriter flatten = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(fs, ["/game/maps/level.yaml", "--flatten", "-out", "/out/level.vmf"], flatten));
+        VmfDocument flat = await VmfDocument.ParseAsync(fs.GetBytes(VPath.Create(Rooted("/out/level.vmf")))!);
+        List<VmfChunk> flatEntities = [.. flat.GetChunks("entity")];
+        Assert.Equal("0 0 0", Assert.Single(flatEntities, e => e.GetValue("classname") == "light_environment").GetValue("origin"));
+        Assert.Single(flatEntities, e => e.GetValue("classname") == "env_fog_controller");
+
+        using StringWriter rooms = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/game/maps/rooms.vmf"], rooms));
+        string[] lines = rooms.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal("entity budget 1536 (reserve 512, cap 2048)", lines[1]);
+        Assert.Equal("library: 2 entities per level (2 edicts, 0 server-only): light_environment, env_fog_controller", lines[2]);
+        Assert.StartsWith("hub: cell at (0, 0, 0)", lines[3], StringComparison.Ordinal);
+        Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[4]);
+    }
+
+    /// <summary>
+    /// A room whose sun differs from the library's is refused by
+    /// <c>ssmap room</c> with the design's message, naming the room and the
+    /// key, and no pack is written.
+    /// </summary>
+    [Fact]
+    public async Task ARoomWhoseSunDiffersIsRefusedWhenThePackIsBuilt()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        library.Chunks.Add(GapEntity(900101, "light_environment", "-64 -64 128", ("angles", "-45 30 0")));
+        library.Chunks.Add(GapEntity(900103, "light_environment", "64 64 128", ("angles", "-45 120 0")));
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter output = new();
+
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
+        Assert.Contains(
+            "room hub: its light_environment differs from the library's (angles: \"-45 120 0\" against \"-45 30 0\"); the sun is library-wide.",
+            output.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(fs.Paths, p => p.Value.EndsWith(".roompack", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// <c>ssmap layout -entity-budget</c> counts the library's own entities
+    /// once per level: three rooms of one entity, the worldspawn and a sun
+    /// are five edicts, so five makes the level and four is refused saying
+    /// what it counted.
+    /// </summary>
+    [Fact]
+    public async Task LayoutsEntityBudgetCountsTheLibrarysEntities()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Library());
+        library.Chunks.Add(GapEntity(900101, "light_environment", "-64 -64 128", ("angles", "-45 30 0")));
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
+        string[] args = ["/game/maps/rooms.vmf", "-rows", "1", "-columns", "3", "-seed", "2"];
+
+        using StringWriter fits = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLayoutAsync(fs, [.. args, "-entity-budget", "5", "-out", "/levels/five.yaml"], fits));
+
+        using StringWriter over = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLayoutAsync(fs, [.. args, "-entity-budget", "4"], over));
+        Assert.Equal(
+            $"ssmap layout: {Path.GetFullPath("/game/maps/rooms.vmf")}: no level of 1x3 cells keeps within the entity budget of 4 edicts:"
+            + " its 3 room(s) bring at least 5, the worldspawn and the library's own entities included." + Environment.NewLine,
+            over.ToString());
+    }
+
     // ---- real game content ------------------------------------------------------
 
     /// <summary>
