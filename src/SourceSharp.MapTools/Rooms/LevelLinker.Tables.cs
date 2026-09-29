@@ -132,7 +132,13 @@ public static partial class LevelLinker
     /// that name the same material by different room-local texdata indices
     /// are still one texinfo.
     /// </remarks>
-    private static void InternRoomTables(RoomPlan plan, LinkPlanes planes, LinkTextures textures)
+    /// <remarks>
+    /// A placement's cubemap patches (<paramref name="cubemaps"/>) are
+    /// interned under their linked names, which hold the level's name and
+    /// the placement's position, so each placement of a room with patches
+    /// brings its own (<see cref="PlacementCubemaps"/>).
+    /// </remarks>
+    private static void InternRoomTables(RoomPlan plan, LinkPlanes planes, LinkTextures textures, PlacementCubemaps? cubemaps)
     {
         DPlane[] moved = plan.TransformedPlanes;
         int pairs = moved.Length / 2;
@@ -144,7 +150,7 @@ public static partial class LevelLinker
         }
 
         string name = plan.Placement.Room.Definition.Name;
-        plan.StringMap = textures.InternStrings(plan.Bsp, name);
+        plan.StringMap = textures.InternStrings(plan.Bsp, name, cubemaps?.Strings);
         int[] texDatas = textures.InternTexDatas(plan.Bsp, plan.StringMap);
         plan.TexInfoMap = textures.InternTexInfos(plan.TexInfos, texDatas);
         InternLocalTables(plan, planes, textures, texDatas);
@@ -268,14 +274,24 @@ public static partial class LevelLinker
         /// names: indexed by the room's string-table id.
         /// </summary>
         /// <exception cref="LinkException">An entry points outside the room's string data.</exception>
-        public int[] InternStrings(BspData room, string name)
+        public int[] InternStrings(BspData room, string name) => InternStrings(room, name, renamed: null);
+
+        /// <summary>
+        /// Every entry of a room's string table, as the linked string it
+        /// names, the entries in <paramref name="renamed"/> under the name
+        /// given there instead of their own (a placement's cubemap patches,
+        /// <see cref="PlacementCubemaps.Strings"/>).
+        /// </summary>
+        /// <exception cref="LinkException">An entry points outside the room's string data.</exception>
+        public int[] InternStrings(BspData room, string name, IReadOnlyDictionary<int, string>? renamed)
         {
             ReadOnlySpan<int> table = BspStructView.As<int>(room[BspLump.TexDataStringTable]);
             ReadOnlySpan<byte> data = room[BspLump.TexDataStringData].Data.Span;
             int[] map = new int[table.Length];
             for (int i = 0; i < table.Length; i++)
             {
-                map[i] = InternString(TableString(data, table[i], i, name));
+                string text = TableString(data, table[i], i, name);
+                map[i] = InternString(renamed is not null && renamed.TryGetValue(i, out string? linked) ? linked : text);
             }
 
             return map;

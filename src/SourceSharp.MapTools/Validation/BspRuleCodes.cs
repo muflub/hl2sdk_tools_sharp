@@ -138,4 +138,7 @@ public static class BspRuleCodes
 
     /// <summary>A lump of counted runs must frame exactly within its bytes.</summary>
     public const string SubLumpFraming = "BSP0038";
+
+    /// <summary>The map should carry at most <c>MAX_MAP_CUBEMAPSAMPLES</c> cubemap samples.</summary>
+    public const string TooManyCubemaps = "BSP0039";
 }

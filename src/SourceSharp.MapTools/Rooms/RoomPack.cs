@@ -130,6 +130,18 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // it gets no section, so its entry is what it was before transitions.
         IReadOnlyList<RoomPackSectionData> transit = room.TransitOfCompile is { } data ? [data.ToSection()] : [];
 
+        // The cubemap samples likewise, for a room with any: every
+        // placement reads them (the section holds all four turns), and a
+        // room without samples gets no section, so its entry is what it was
+        // before cubemaps were carried.
+        IReadOnlyList<RoomPackSectionData> cubemaps = room.CubemapsOfCompile is { } samples ? [samples.ToSection()] : [];
+
+        // The overlays likewise, for a room whose compile wrote any: every
+        // placement reads them, whatever its turn (the section holds all
+        // four). A room without them gets no section, so its entry is what
+        // it was before overlays were carried.
+        IReadOnlyList<RoomPackSectionData> overlays = room.OverlaysOfCompile is { } carried ? [carried.ToSection()] : [];
+
         // The base lighting likewise, for a room its library compile lit:
         // every placement reads it (all its stored turns are in the one
         // section, 1 or 4, and the link takes the one it places). A room
@@ -137,7 +149,7 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         IReadOnlyList<RoomPackSectionData> lighting = room.LightingOfCompile is { } baked ? [baked.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. props, .. brushModels, .. transit, .. lighting, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -297,7 +309,12 @@ public sealed class RoomPackIndex
 /// in a level, its bounds and collision at all four turns,
 /// <c>RoomBrushModels</c>), when it has a transition role or spawn points
 /// its transition data (<c>TRAN</c>: its role, transition volume, fold
-/// trigger, arrival and spawn points, room-local, <c>RoomTransit</c>), and the link work done ahead for it
+/// trigger, arrival and spawn points, room-local, <c>RoomTransit</c>), when
+/// its compile has <c>env_cubemap</c> samples its cubemaps (<c>CUBE</c>: the
+/// samples at all four turns and the names its compile made after them,
+/// <c>RoomCubemaps</c>), when its compile wrote overlays its overlays
+/// (<c>OVLY</c>: every record's origin and basis at all four turns,
+/// <c>RoomOverlays</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
 /// the room alone, its door visibility (<c>DVIS</c>, <see cref="RoomDoorVisibility"/>),
 /// then per quarter turn <i>r</i> its turned geometry
@@ -868,6 +885,16 @@ public static class RoomPack
                 wanted.Add((name, transit));
             }
 
+            if (entry.Find(RoomCubemaps.SectionTag) is { } cubemaps)
+            {
+                wanted.Add((name, cubemaps));
+            }
+
+            if (entry.Find(RoomOverlays.SectionTag) is { } overlays)
+            {
+                wanted.Add((name, overlays));
+            }
+
             if (entry.Find(RoomLighting.SectionTag) is { } lighting)
             {
                 wanted.Add((name, lighting));
@@ -976,12 +1003,17 @@ public static class RoomPack
             RoomBrushModels? brushModels = RoomBrushModels.Read(Section(name, RoomBrushModels.SectionTag), room.Definition, room.Bsp);
             RoomTransit? transit = RoomTransit.Read(Section(name, RoomTransit.SectionTag), name, room.Bsp);
             RoomLighting? lighting = RoomLighting.Read(Section(name, RoomLighting.SectionTag), room.Definition, room.Bsp);
+            RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
+            RoomOverlays? overlays = RoomOverlays.Read(Section(name, RoomOverlays.SectionTag), name, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
+                && cubemaps is null && overlays is null
                 && lighting is null
                 ? room
                 : room with
                 {
                     Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props, BrushModels = brushModels, Transit = transit,
+                    Cubemaps = cubemaps,
+                    Overlays = overlays,
                     Lighting = lighting,
                 };
         }
@@ -1337,6 +1369,8 @@ public static class RoomPack
         ((byte)'P', (byte)'R', (byte)'O', (byte)'P') => RoomStaticProps.SectionTag,
         ((byte)'B', (byte)'M', (byte)'O', (byte)'D') => RoomBrushModels.SectionTag,
         ((byte)'T', (byte)'R', (byte)'A', (byte)'N') => RoomTransit.SectionTag,
+        ((byte)'C', (byte)'U', (byte)'B', (byte)'E') => RoomCubemaps.SectionTag,
+        ((byte)'O', (byte)'V', (byte)'L', (byte)'Y') => RoomOverlays.SectionTag,
         ((byte)'L', (byte)'I', (byte)'T', (byte)'E') => RoomLighting.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),

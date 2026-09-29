@@ -113,6 +113,7 @@ public static partial class LevelLinker
             Lit = payload,
             VertNormals = lighting is null ? geometry.VertNormals : [.. lighting.VertNormals.Select(n => TurnDirection(n, rotation))],
             FaceVertexStarts = lighting is null ? null : FaceVertexStarts(bsp),
+            Overlays = RoomOverlaysOf(room),
         };
 
         ApplyCensus(plan, shared);
@@ -630,6 +631,8 @@ public static partial class LevelLinker
 
         /// <summary>Where this placement's HDR lightmaps start in the level's HDR lighting lump.</summary>
         public int LightBaseHdr;
+        /// <summary>The room's overlays (<see cref="RoomOverlays"/>), or null for a room with none.</summary>
+        public RoomOverlays? Overlays { get; init; }
 
         /// <summary>How many of the room's nodes the placement keeps: all but an omitted brush model's.</summary>
         public int KeptNodeCount => Models is { } m ? RoomModelLayout.KeptCount(m.OmittedNodes, NodeCount) : NodeCount;
@@ -739,6 +742,9 @@ public static partial class LevelLinker
         public int OccluderBase;
         public int OccluderPolyBase;
         public int OccluderVertexBase;
+
+        /// <summary>The linked id of the room's overlay 0: the overlays of every placement before this one.</summary>
+        public int OverlayBase;
         public int VertexNormalIndexBase;
 
         /// <summary>
