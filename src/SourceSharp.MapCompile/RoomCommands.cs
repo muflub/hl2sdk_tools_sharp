@@ -1658,11 +1658,19 @@ public static class RoomCommands
                 cancellationToken).ConfigureAwait(false);
 
             // What resolving the rooms' names warned of (references to empty
-            // cells dropped, global names repeated), then the budget's
-            // warnings, then the headroom it always reports.
+            // cells dropped, global names repeated), what linking the areas
+            // warned of, then the budget's warnings, then the headroom it
+            // always reports.
             foreach (string nameWarning in link.NameWarnings)
             {
                 await output.WriteLineAsync($"ssmap link: warning: {nameWarning}").ConfigureAwait(false);
+            }
+
+            // An area portal the level joins around (its two sides one area
+            // once linked), which the level lists no portal for.
+            foreach (string areaWarning in link.AreaWarnings)
+            {
+                await output.WriteLineAsync($"ssmap link: warning: {areaWarning}").ConfigureAwait(false);
             }
 
             // With the mod's classes a level's arrival and spawn points are

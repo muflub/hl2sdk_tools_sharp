@@ -1,0 +1,112 @@
+//========= Copyright Valve Corporation, All rights reserved. ============//
+//
+// Inspired by and based on the Half-Life 2 Source SDK 2013 by Valve:
+// https://github.com/ValveSoftware/source-sdk-2013
+//
+//=============================================================================//
+
+using System.Text;
+
+using SourceSharp.MapCompile;
+using SourceSharp.MapFormats.Bsp;
+using SourceSharp.MapFormats.Bsp.Structs;
+using SourceSharp.MapTools.Io;
+using SourceSharp.Tests.MapTools.Rooms;
+
+using Xunit;
+
+namespace SourceSharp.Tests.MapCompile;
+
+/// <summary>
+/// Area portals through the CLI as a user runs it (the rooms design, 4.11):
+/// <c>ssmap room</c> on a library whose split room has a portal,
+/// <c>ssmap link</c> of a level through it and of a ring around it, and
+/// <c>ssmap check</c> on the linked map.
+/// </summary>
+public sealed class RoomsAreaPortalCommandsTests
+{
+    private const string GameInfoText = """
+        "GameInfo"
+        {
+        	game	"Rooms"
+        	FileSystem
+        	{
+        		SearchPaths
+        		{
+        			game	|gameinfo_path|.
+        		}
+        	}
+        }
+        """;
+
+    /// <summary>
+    /// A level through the split room links from the pack alone, carries
+    /// its two areas and the portal between them, and passes
+    /// <c>ssmap check</c> with no error (its one warning is every such
+    /// level's: no cubemap sample); a ring around the portal links too,
+    /// with the portal's warning printed before the headroom line and no
+    /// portal listed.
+    /// </summary>
+    [Fact]
+    public async Task ALevelWithAnAreaPortalLinksAndChecks()
+    {
+        InMemoryFileSystem fs = new();
+        fs.AddText(Rooted("/game/gameinfo.txt"), GameInfoText);
+        foreach ((string path, string text) in new[]
+        {
+            (RoomHarness.Plain, "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n}\n"),
+            (RoomHarness.Trigger, "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compileTrigger\" \"1\"\n}\n"),
+        })
+        {
+            fs.AddText(Rooted($"/game/materials/{path}.vmt"), text);
+        }
+
+        foreach ((string path, byte[] bytes) in RoomAreaPortalHarness.Files())
+        {
+            fs.AddFile(Rooted($"/game/{path}"), bytes);
+        }
+
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), RoomAreaPortalHarness.Library().ToBytes());
+        fs.AddText(Rooted("/levels/line.yaml"), RoomHarness.LevelText("../game/maps/rooms.vmf", "hub, split, hub"));
+        fs.AddText(Rooted("/levels/ring.yaml"), RoomHarness.LevelText("../game/maps/rooms.vmf", "hub, hub, hub", "hub, split, hub"));
+
+        using StringWriter room = new();
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], room);
+        Assert.True(exit == Program.ExitSuccess, room.ToString());
+
+        using StringWriter line = new();
+        exit = await RoomCommands.RunLinkAsync(fs, ["/levels/line.yaml", "-rooms", "/rooms.roompack", "-out", "/out/line.bsp", "-no-nav"], line);
+        Assert.True(exit == Program.ExitSuccess, line.ToString());
+        Assert.DoesNotContain("area portal", line.ToString(), StringComparison.Ordinal);
+        BspData linked = await LoadAsync(fs, "/out/line.bsp");
+        Assert.Equal(3, BspStructView.Count<DArea>(linked[BspLump.Areas]));
+        Assert.Equal(3, BspStructView.Count<DAreaPortal>(linked[BspLump.AreaPortals]));
+
+        using StringWriter check = new();
+        // Warnings make check's exit 1 (the level has no cubemap sample, as
+        // every level of these rooms); what matters is that no error fired.
+        await CheckCommand.RunAsync(fs, [Rooted("/out/line.bsp")], check);
+        Assert.Contains("line.bsp: 0 error(s)", check.ToString(), StringComparison.Ordinal);
+
+        using StringWriter ring = new();
+        exit = await RoomCommands.RunLinkAsync(fs, ["/levels/ring.yaml", "-rooms", "/rooms.roompack", "-out", "/out/ring.bsp", "-no-nav"], ring);
+        Assert.True(exit == Program.ExitSuccess, ring.ToString());
+        string[] lines = ring.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        int warning = Array.IndexOf(lines,
+            "ssmap link: warning: room split at cell (1, 0): area portal 1 has one area on both sides once the level joins the rooms around it;"
+            + " the level keeps its entity but lists no portal for it.");
+        Assert.True(warning >= 0, ring.ToString());
+        Assert.StartsWith("ssmap link: map entities", lines[warning + 1], StringComparison.Ordinal);
+        Assert.Equal(1, BspStructView.Count<DAreaPortal>((await LoadAsync(fs, "/out/ring.bsp"))[BspLump.AreaPortals]));
+    }
+
+    // The CLI hands its commands full host paths (Program resolves them
+    // first), so the fact does the same: on Windows a bare "/x" names no file.
+    private static string Rooted(string path) => VPath.Create(Path.GetFullPath(path)).Value;
+
+    private static async Task<BspData> LoadAsync(InMemoryFileSystem fs, string path)
+    {
+        using MemoryStream stream = new(fs.GetBytes(VPath.Create(Rooted(path)))!);
+        return await BspFile.LoadAsync(stream);
+    }
+}
