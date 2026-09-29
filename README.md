@@ -655,7 +655,8 @@ shows what is available.
 ## Incremental cache
 
 `-incremental` stores cooked collision models in a SQLite database next to
-the map (`<map>.sscache.db`, or under `-cache-dir`). A later compile reuses
+the map (`<map>.sscache.db`, or under `-cache-dir`, which is created if it
+does not exist yet). A later compile reuses
 every model whose inputs have not changed. Brush models are keyed by their
 content, so adding or moving one brush does not invalidate the others.
 `-nocache` turns the cache off for one run. The cache needs a cooker; with

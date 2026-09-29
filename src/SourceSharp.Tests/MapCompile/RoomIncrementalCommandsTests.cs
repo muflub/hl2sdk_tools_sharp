@@ -273,6 +273,30 @@ public sealed class RoomIncrementalCommandsTests
         Assert.Contains($"ssmap room: 0 compiled, {Rooms3x3Kit.Kinds.Count} reused", second.ToString(), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A <c>-cache-dir</c> naming folders that do not exist yet is created,
+    /// not taken as "no cache": the first run stores every room and the next
+    /// reuses them all.
+    /// </summary>
+    [Fact]
+    public async Task AMissingCacheDirIsCreatedAndItsStoreReused()
+    {
+        InMemoryFileSystem fs = Sample();
+        using TempTree tree = new();
+        string cacheDir = Path.Combine(tree.Root, "fresh", "caches");
+
+        using StringWriter first = new();
+        Assert.Equal(
+            Program.ExitSuccess,
+            await RoomCommands.RunRoomAsync(fs, [], [LibraryPath, "-game", "/sample", "-incremental", "-cache-dir", cacheDir], first));
+        Assert.DoesNotContain("opened no store", first.ToString(), StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(cacheDir, "rooms.sscache.db")), first.ToString());
+
+        using StringWriter second = new();
+        await RoomCommands.RunRoomAsync(fs, [], [LibraryPath, "-game", "/sample", "-incremental", "-cache-dir", cacheDir], second);
+        Assert.Contains($"ssmap room: 0 compiled, {Rooms3x3Kit.Kinds.Count} reused", second.ToString(), StringComparison.Ordinal);
+    }
+
     /// <summary>A store that will not open is said once, and the run compiles every room into the clean pack.</summary>
     [Fact]
     public async Task AStoreThatWillNotOpenIsSaidAndEveryRoomCompiles()
