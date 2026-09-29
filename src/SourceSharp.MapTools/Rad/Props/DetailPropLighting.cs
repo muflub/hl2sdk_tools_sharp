@@ -436,12 +436,22 @@ public static class DetailPropLighting
     /// planned into the worker's batch in light order.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The reference implementation walks the whole light list for every
     /// prop, skipping the ambient sky and lights whose PVS does not hold the
     /// prop's cluster (none, for a negative cluster). Both tests depend on
     /// the prop only through its cluster, so the walk here is over
     /// <paramref name="clusterLights"/>' list for that cluster, which holds
     /// exactly the lights the full walk keeps, in the same order.
+    /// </para>
+    /// <para>
+    /// That list's length is the prop's sample count, so the planned samples
+    /// go into an array of exactly that length. A list grown from empty
+    /// allocated about twice as much, all of it garbage by the next batch:
+    /// 31 MB on 2fort. One list per worker for the whole batch was tried
+    /// and was worse: a batch of 256 props of a thousand lights each grows
+    /// it onto the large-object heap, which is what this work is removing.
+    /// </para>
     /// </remarks>
     private static DetailPlan Plan(
         AmbientScene scene,
@@ -469,12 +479,12 @@ public static class DetailPropLighting
             return new DetailPlan(c, origin, []);
         }
 
-        List<(PendingPropSample Sample, PropLight Light)> planned = [];
-        int cluster = ClusterFromPoint(scene, origin);
-        foreach (int i in clusterLights.For(cluster))
+        int[] kept = clusterLights.For(ClusterFromPoint(scene, origin));
+        (PendingPropSample Sample, PropLight Light)[] planned = new (PendingPropSample, PropLight)[kept.Length];
+        for (int k = 0; k < kept.Length; k++)
         {
-            PropLight dl = lights[i];
-            planned.Add((sampler.Plan(dl, origin, normal, lines), dl));
+            PropLight dl = lights[kept[k]];
+            planned[k] = (sampler.Plan(dl, origin, normal, lines), dl);
         }
 
         return new DetailPlan(null, origin, planned);
@@ -507,7 +517,7 @@ public static class DetailPropLighting
     }
 
     /// <summary>A prop between plan and resolve: its debug colours, or its origin and planned samples.</summary>
-    private sealed record DetailPlan(PropColours? Bogus, Vec3 Origin, List<(PendingPropSample Sample, PropLight Light)> Planned);
+    private sealed record DetailPlan(PropColours? Bogus, Vec3 Origin, (PendingPropSample Sample, PropLight Light)[] Planned);
 
     /// <summary>A worker of the stage: its ambient computer and its segment batch.</summary>
     private sealed class DetailWorker(

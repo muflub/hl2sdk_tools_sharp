@@ -83,6 +83,14 @@ public sealed record VradContext
     /// needs a digest of the scene the transfer rays are traced against.
     /// </summary>
     public Bounce.ITransferCache? TransferCache { get; init; }
+
+    /// <summary>
+    /// Makes the compile's scratch pool, or null for a plain new one. For the
+    /// facts only: they keep a reference to the pool to check, after the
+    /// compile, that every array went back and the pool ended empty. The
+    /// compile owns and disposes whatever this returns, as it does its own.
+    /// </summary>
+    internal Func<Bounce.CompileScratchPool>? ScratchPoolFactory { get; init; }
 }
 
 /// <summary>One pass's counts.</summary>

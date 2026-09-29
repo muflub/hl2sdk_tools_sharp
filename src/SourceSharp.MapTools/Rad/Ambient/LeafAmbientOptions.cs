@@ -71,17 +71,43 @@ public sealed record LeafAmbientOptions
     public CompilePool? Pool { get; init; }
 
     /// <summary>
-    /// How many surface-light segments a worker's batch of leaves closes at
-    /// when they are traced through the seam; see
-    /// <see cref="TestLineStage.DefaultBatchSegments"/>. Internal so the facts
-    /// can trace each leaf alone; no answer depends on it.
+    /// The segments a leaf-ambient batch closes at: a quarter of the other
+    /// stages' <see cref="TestLineStage.DefaultBatchSegments"/>.
     /// </summary>
-    internal int BatchSegments { get; init; } = TestLineStage.DefaultBatchSegments;
+    /// <remarks>
+    /// <para>
+    /// A worker's batch storage is this bound plus the largest leaf's
+    /// segments, because a batch closes only between leaves and one more leaf
+    /// may join a batch just short of the bound
+    /// (<see cref="LeafAmbientBuilder.BatchSegmentBound"/>). On a real map the
+    /// largest leaf alone is most of that: on 2fort it is 128 samples times
+    /// 1,188 baked lights, 152,064 segments. With the stages' bound of 65,536
+    /// every worker reserved 217,599 segments, 6.1 MB of rays, which at 32
+    /// workers was 195 MB of large-object heap for this one stage. At 16,384
+    /// the reservation is 168,447 segments, 23 % less, and nothing else
+    /// changes: the large leaves fill a batch on their own either way, and
+    /// the small ones still go out 16,384 segments or 256 leaves at a time.
+    /// </para>
+    /// <para>
+    /// No answer depends on it: every segment is traced on its own, and each
+    /// leaf resolves from its own segments.
+    /// </para>
+    /// </remarks>
+    internal const int DefaultBatchSegments = 1 << 14;
 
     /// <summary>
-    /// Where the stage's per-worker scratch arrays are rented from, or null for
-    /// the process's shared array pool. Internal so the facts can count what
-    /// was rented against what came back, and hand out arrays full of junk.
+    /// How many surface-light segments a worker's batch of leaves closes at
+    /// when they are traced through the seam; <see cref="DefaultBatchSegments"/>
+    /// unless a fact asks for another (to trace each leaf alone, say). No
+    /// answer depends on it.
+    /// </summary>
+    internal int BatchSegments { get; init; } = DefaultBatchSegments;
+
+    /// <summary>
+    /// Where the stage's per-worker scratch arrays are rented from: the
+    /// compile's pool, or a fact's that counts what was rented against what
+    /// came back and hands out arrays full of junk. Null makes the stage a
+    /// pool of its own, dropped when it ends.
     /// </summary>
     /// <remarks>
     /// Null rather than a default instance so that two options that say the

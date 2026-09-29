@@ -5,6 +5,10 @@
 //
 //=============================================================================//
 
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+
 using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Geometry;
@@ -187,6 +191,84 @@ internal sealed class VisFrameStack
     /// whole blocks. Rounding outwards only ever adds words that are zero.
     /// </remarks>
     internal static (int Lo, int Hi) Extent(ReadOnlySpan<ulong> bits, (int Lo, int Hi) within)
+    {
+        const int block = BitVector.WordsPerBlock;
+        if (Vector256.IsHardwareAccelerated
+            && within.Lo % block == 0
+            && within.Hi % block == 0
+            && (uint)within.Lo <= (uint)within.Hi
+            && (uint)within.Hi <= (uint)bits.Length)
+        {
+            return ExtentByBlocks(bits, within);
+        }
+
+        return ExtentScalar(bits, within);
+    }
+
+    /// <summary>
+    /// <see cref="Extent(ReadOnlySpan{ulong}, ValueTuple{int, int})"/> a whole
+    /// block -- two 256-bit loads -- at a time.
+    /// </summary>
+    /// <param name="bits">A block-aligned bit vector.</param>
+    /// <param name="within">A block-aligned range inside it outside which every word is zero.</param>
+    /// <returns>The narrowed range.</returns>
+    /// <remarks>
+    /// <para>
+    /// The answer is a pair of block boundaries -- the start of the first
+    /// block with a set bit and the end of the last -- so the word-by-word
+    /// scan's only use of the exact word it stops at is to round it to its
+    /// block. Asking each block at once whether it has a set bit finds the
+    /// same two blocks, and so the same pair, with a quarter of the loads
+    /// and none of the per-word branches: on 2fort a frame's range averaged
+    /// 49 words of which 9 were set, so the scalar scan's branches were most
+    /// of its cost.
+    /// </para>
+    /// <para>
+    /// The range must start and end on block boundaries for the two to agree
+    /// (a block straddling the range's edge would be rounded differently);
+    /// every caller's range is either a whole vector or an earlier extent,
+    /// both aligned, and <see cref="Extent(ReadOnlySpan{ulong}, ValueTuple{int, int})"/>
+    /// sends anything else to the scalar scan.
+    /// </para>
+    /// </remarks>
+    internal static (int Lo, int Hi) ExtentByBlocks(ReadOnlySpan<ulong> bits, (int Lo, int Hi) within)
+    {
+        const int block = BitVector.WordsPerBlock;
+        ref ulong words = ref MemoryMarshal.GetReference(bits);
+        int lo = within.Lo;
+        int hi = within.Hi;
+        while (lo < hi && !BlockHasBits(ref words, lo))
+        {
+            lo += block;
+        }
+
+        if (lo == hi)
+        {
+            return (0, 0);
+        }
+
+        while (!BlockHasBits(ref words, hi - block))
+        {
+            hi -= block;
+        }
+
+        return (lo, hi);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool BlockHasBits(ref ulong words, int at) =>
+        (Vector256.LoadUnsafe(ref words, (nuint)at) | Vector256.LoadUnsafe(ref words, (nuint)at + 4))
+            != Vector256<ulong>.Zero;
+
+    /// <summary>
+    /// <see cref="Extent(ReadOnlySpan{ulong}, ValueTuple{int, int})"/> one word
+    /// at a time: the definition, and the form any range not on block
+    /// boundaries takes.
+    /// </summary>
+    /// <param name="bits">A block-aligned bit vector.</param>
+    /// <param name="within">A range outside which every word is zero.</param>
+    /// <returns>The narrowed range, still block-aligned.</returns>
+    internal static (int Lo, int Hi) ExtentScalar(ReadOnlySpan<ulong> bits, (int Lo, int Hi) within)
     {
         int lo = within.Lo;
         int hi = within.Hi;

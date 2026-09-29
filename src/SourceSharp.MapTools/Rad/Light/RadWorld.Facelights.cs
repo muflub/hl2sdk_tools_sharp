@@ -33,12 +33,26 @@ public sealed partial class RadWorld
     internal int FacelightBatchRays { get; set; } = RaysPerBatch;
 
     /// <summary>
-    /// Where the face-lighting workers rent their ray logs' storage, or null
-    /// for the process's shared array pool. Internal so the facts can count
-    /// what was rented against what came back, and hand out arrays full of
-    /// junk; the output must not depend on it.
+    /// Where the face-lighting workers rent their ray logs' storage, ahead of
+    /// <see cref="ScratchPool"/>. Internal so the facts can count what was
+    /// rented against what came back, and hand out arrays full of junk; the
+    /// output must not depend on it.
     /// </summary>
     internal IScratchArrayPool? FacelightScratchPool { get; set; }
+
+    /// <summary>
+    /// The compile's scratch pool, which every stage of this world rents its
+    /// large scratch from: the radial sky probe's and the face-lighting
+    /// workers' ray logs, and the transfer build's chunk buffers. Null when
+    /// the world was made outside a compile; each stage then keeps a pool of
+    /// its own for as long as it runs.
+    /// </summary>
+    /// <remarks>
+    /// Set by the driver that owns the pool (<see cref="Vrad"/>), which also
+    /// trims it between stages and drops it when the compile ends; the world
+    /// never empties it itself.
+    /// </remarks>
+    internal IScratchArrayPool? ScratchPool { get; set; }
 
     /// <summary>
     /// How many tape words one worker's batch may hold, whatever its ray
@@ -120,7 +134,11 @@ public sealed partial class RadWorld
             .ThenBy(f => f)];
 
         FacelightShared shared = new(jobs, order, Gatherer, tracer, FacelightBatchRays);
-        IScratchArrayPool pool = FacelightScratchPool ?? new SharedScratchArrayPool();
+        // The compile's pool when there is one, so the outgrown logs of one
+        // worker are what the next worker grows into; otherwise a pool of the
+        // stage's own, dropped when the stage ends.
+        using CompileScratchPool? own = FacelightScratchPool is null && ScratchPool is null ? new() : null;
+        IScratchArrayPool pool = FacelightScratchPool ?? ScratchPool ?? own!;
         FacelightWorker[] workers = new FacelightWorker[queue.Degree];
         int made = 0;
         try

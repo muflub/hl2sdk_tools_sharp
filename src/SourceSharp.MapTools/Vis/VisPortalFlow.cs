@@ -555,13 +555,12 @@ internal sealed class VisPortalFlow
             bool tracked = false;
             if (_tree is not null && depth <= _tree.Levels)
             {
-                child = _tree.Child(node, i, candidates.Length, _atomic);
-                if (_tree.IsComplete(child, _atomic))
+                // One call, and one lock when the walk is shared: see Enter.
+                if (!_tree.Enter(node, i, candidates.Length, _atomic, out child))
                 {
                     continue;
                 }
 
-                _tree.Walk(child, _atomic);
                 tracked = true;
             }
 
