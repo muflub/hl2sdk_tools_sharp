@@ -298,9 +298,9 @@ public static class StaticPropLighting
             chunks.Length,
             null,
             degree,
-            () =>
+            w =>
             {
-                PointWorker worker = new(scene, prepared, chunks, lights, clusterLights, sampler, options);
+                PointWorker worker = new(scene, prepared, chunks, lights, clusterLights, sampler, options, w);
                 lock (workers)
                 {
                     workers.Add(worker);
@@ -896,8 +896,9 @@ public static class StaticPropLighting
         IReadOnlyList<PropLight> lights,
         PropClusterLights clusterLights,
         PropLightSampler sampler,
-        StaticPropLightingOptions options)
-        : TestLineWorker<(int FirstVertex, int Count), bool>(sampler.CreateBatch())
+        StaticPropLightingOptions options,
+        int workerIndex)
+        : TestLineWorker<(int FirstVertex, int Count), bool>(sampler.CreateBatch(workerIndex))
     {
         private readonly bool _stockNormalise = StockNormalise(options.Compliance);
 

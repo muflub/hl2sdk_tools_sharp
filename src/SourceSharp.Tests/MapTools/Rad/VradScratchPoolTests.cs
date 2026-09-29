@@ -50,6 +50,60 @@ public sealed class VradScratchPoolTests
         Assert.Equal(0, pool.Outstanding);
         Assert.Equal(0, pool.IdleArrays);
         Assert.Throws<ObjectDisposedException>(() => pool.Rent<int>(1));
+        Assert.Throws<ObjectDisposedException>(() => pool.ForWorker(0).Rent<int>(1));
+
+        // The stages' workers rented through shards of their own, one per
+        // worker index (the compile runs two), and the counts agree.
+        Assert.Equal(2, pool.WorkerShards);
+        ScratchPoolStatistics stats = pool.Statistics;
+        Assert.Equal(pool.Allocations, stats.Misses);
+        Assert.Equal(pool.Reuses, stats.Hits);
+        Assert.Equal(pool.AllocatedBytes, stats.AllocatedBytes);
+        Assert.Equal(stats.Rentals, stats.ByTypeAndSize.Sum(c => c.Hits + c.Misses));
+        Assert.Equal(stats.AllocatedBytes, stats.ByTypeAndSize.Sum(c => c.AllocatedBytes));
+        Assert.True(stats.TrimmedArrays > 0, "the compile trims between its stages");
+    }
+
+    /// <summary>
+    /// The pool hands out arrays as their last renter left them, never
+    /// cleared. This is the proof that no renter depends on what is in one:
+    /// a compile whose every rented array -- fresh or reused, in every stage
+    /// that rents -- is first filled with garbage (0xCD, or 0xFF, which makes
+    /// every float a NaN) lights exactly the same bytes as one that is not,
+    /// in both compliance modes, with the workers sharded and borrowing.
+    /// </summary>
+    [Theory]
+    [InlineData((byte)0xCD, false, 2)]
+    [InlineData((byte)0xFF, false, 3)]
+    [InlineData((byte)0xCD, true, 3)]
+    [InlineData((byte)0xFF, true, 2)]
+    public async Task APoisonedPoolLightsTheSameBytes(byte poison, bool stock, int degree)
+    {
+        VradOptions options = VradOptions.Default with
+        {
+            Bounces = 1,
+            Range = VradLightingRange.Both,
+            Compliance = stock ? ComplianceOptions.Stock : ComplianceOptions.Correct,
+        };
+        List<CompileScratchPool> pools = [];
+        BspData[] lit = new BspData[2];
+        for (int run = 0; run < 2; run++)
+        {
+            (BspData bsp, IContentFileSystem content) = await RoomAsync();
+            VradContext context = await ContextAsync(bsp, content, pools, null, degree, run == 1 ? poison : null);
+            _ = await Vrad.LightAsync(bsp, context with { Options = options });
+            lit[run] = bsp;
+        }
+
+        Assert.Null(pools[0].PoisonByte);
+        Assert.Equal(poison, pools[1].PoisonByte);
+        Assert.True(pools[1].Statistics.Rentals > 0);
+        for (int lump = 0; lump < BspData.HeaderLumps; lump++)
+        {
+            Assert.True(
+                lit[0][lump].Data.Span.SequenceEqual(lit[1][lump].Data.Span),
+                $"lump {(BspLump)lump} differs when every rented array starts as 0x{poison:X2}");
+        }
     }
 
     /// <summary>
@@ -132,6 +186,46 @@ public sealed class VradScratchPoolTests
         Assert.All(pools, p => Assert.Equal(0, p.Outstanding));
         Assert.All(pools, p => Assert.Equal(0, p.IdleArrays));
         Assert.All(pools, p => Assert.Equal(0, p.IdleBytes));
+
+        // At one worker the rentals are the same sequence both times, so the
+        // second compile is not merely no worse than the first: it is the
+        // first again, rental for rental -- nothing of the first was kept
+        // for it, and nothing it did depended on the first having run.
+        Assert.Equal(pools[0].Statistics.Misses, pools[1].Statistics.Misses);
+        Assert.Equal(pools[0].Statistics.Hits, pools[1].Statistics.Hits);
+        Assert.Equal(pools[0].AllocatedBytes, pools[1].AllocatedBytes);
+    }
+
+    /// <summary>
+    /// The same, with the workers sharded: the first compile's pool, shards
+    /// and all, is ended before the second starts, the second makes shards
+    /// of its own, and both end empty with the same lighting. (How much each
+    /// allocates depends on which worker claims which face, which is the
+    /// scheduler's choice at more than one worker, so the byte bound above
+    /// is checked at one.)
+    /// </summary>
+    [Fact]
+    public async Task BackToBackShardedCompilesShareNothing()
+    {
+        List<CompileScratchPool> pools = [];
+        byte[][] lit = new byte[2][];
+        for (int run = 0; run < 2; run++)
+        {
+            (BspData bsp, IContentFileSystem content) = await RoomAsync();
+            _ = await Vrad.LightAsync(bsp, await ContextAsync(bsp, content, pools, null, degree: 3));
+            lit[run] = bsp[BspLump.Lighting].Data.ToArray();
+            Assert.Throws<ObjectDisposedException>(() => pools[run].ForWorker(0).Rent<int>(1));
+        }
+
+        Assert.Equal(2, pools.Count);
+        Assert.NotSame(pools[0], pools[1]);
+        Assert.NotSame(pools[0].ForWorker(0), pools[1].ForWorker(0));
+        Assert.Equal(lit[0], lit[1]);
+        Assert.All(pools, p => Assert.Equal(3, p.WorkerShards));
+        Assert.All(pools, p => Assert.True(p.Statistics.Misses > 0));
+        Assert.All(pools, p => Assert.Equal(0, p.Outstanding));
+        Assert.All(pools, p => Assert.Equal(0, p.IdleArrays));
+        Assert.All(pools, p => Assert.Equal(0, p.IdleBytes));
     }
 
     /// <summary>
@@ -160,7 +254,8 @@ public sealed class VradScratchPoolTests
         IContentFileSystem content,
         List<CompileScratchPool> pools,
         Func<IRayTracer, IRayTracer>? wrap,
-        int degree = 2)
+        int degree = 2,
+        byte? poison = null)
     {
         ShadowCasterLoadReport casters = await ShadowCasterLoader.LoadAsync(
             bsp, VradOptions.Default, content, NullPropCollisionSource.Instance);
@@ -174,7 +269,7 @@ public sealed class VradScratchPoolTests
             Parallelism = new CompileParallelism { MaxDegree = degree },
             ScratchPoolFactory = () =>
             {
-                CompileScratchPool pool = new();
+                CompileScratchPool pool = new() { PoisonByte = poison };
                 lock (pools)
                 {
                     pools.Add(pool);

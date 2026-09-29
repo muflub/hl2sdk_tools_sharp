@@ -106,8 +106,18 @@ public sealed class PropLightSampler
     /// </returns>
     public TestLineBatch CreateBatch() => ScratchPool is null ? new(_environment) : new(_environment, ScratchPool);
 
+    /// <summary>A batch for worker <paramref name="workerIndex"/> of a stage, renting through that worker's shard.</summary>
+    /// <param name="workerIndex">The worker's index in its stage.</param>
+    /// <returns>An empty batch; the caller disposes it, as for <see cref="CreateBatch()"/>.</returns>
+    /// <remarks>
+    /// The same batch as <see cref="CreateBatch()"/> in every answer; only
+    /// where its storage comes from differs (<see cref="Bounce.IScratchArrayPool.ForWorker"/>).
+    /// </remarks>
+    internal TestLineBatch CreateBatch(int workerIndex) =>
+        ScratchPool is null ? new(_environment) : new(_environment, ScratchPool.ForWorker(workerIndex));
+
     /// <summary>
-    /// The compile's scratch pool, which <see cref="CreateBatch"/> rents its
+    /// The compile's scratch pool, which <see cref="CreateBatch()"/> rents its
     /// batches' storage from, or null for batches that keep their own.
     /// </summary>
     /// <remarks>
