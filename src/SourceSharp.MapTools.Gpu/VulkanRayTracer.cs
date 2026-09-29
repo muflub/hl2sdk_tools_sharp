@@ -533,8 +533,16 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
 
     /// <summary>The rule <see cref="Supports"/> applies, without a device.</summary>
     /// <param name="options">The options.</param>
-    /// <returns>True unless an id is skipped.</returns>
-    internal static bool SupportsOptions(RayTraceOptions options) => options.SkipId is null;
+    /// <returns>True unless an id is skipped or the minimum distance is not a ray-query <c>tmin</c>.</returns>
+    /// <remarks>
+    /// A negative or NaN <see cref="RayTraceOptions.MinDistance"/> is
+    /// refused too: a ray query's <c>tmin</c> must be a non-negative number,
+    /// and the kernel would answer every such ray a miss rather than trace
+    /// a question it cannot ask. The CPU tracer defines the answer, so such
+    /// a batch goes there.
+    /// </remarks>
+    internal static bool SupportsOptions(RayTraceOptions options) =>
+        options.SkipId is null && options.MinDistance >= 0f;
 
     /// <summary>
     /// Turns closest hits into sky-passing visibility bits: a ray is blocked
@@ -619,6 +627,13 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     /// <exception cref="NotSupportedException">An id is skipped.</exception>
     internal static void RequireSupported(RayTraceOptions options)
     {
+        if (options.SkipId is null && !SupportsOptions(options))
+        {
+            throw new NotSupportedException(
+                $"the Vulkan kernel cannot trace with minimum distance {options.MinDistance}: a ray query's "
+                + "tmin must be non-negative; trace this batch on the CPU tracer");
+        }
+
         if (!SupportsOptions(options))
         {
             throw new NotSupportedException(

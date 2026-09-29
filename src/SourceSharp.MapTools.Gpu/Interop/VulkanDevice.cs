@@ -93,6 +93,35 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     private AccelerationStructureKHR _tlasHandle;
     private uint _triangleCount;
 
+    /// <summary>The structure the slots' descriptors were last pointed at.</summary>
+    private AccelerationStructureKHR _bound;
+
+    /// <summary>
+    /// Whether the kernel's scene binding holds the TOP-level structure of
+    /// the current scene: true after every successful scene load. Facts read
+    /// it, because a directly bound BLAS is the one mistake no RADV answer
+    /// shows.
+    /// </summary>
+    internal bool BindsTopLevel => _bound.Handle != 0 && _bound.Handle == _tlasHandle.Handle;
+
+    /// <summary>Buffers allocated so far whose usage lets them be asked for a device address.</summary>
+    internal int AddressableAllocations { get; private set; }
+
+    /// <summary>
+    /// Of <see cref="AddressableAllocations"/>, how many had their memory
+    /// allocated with <c>DEVICE_ADDRESS</c> chained in. Facts check the two agree.
+    /// </summary>
+    internal int DeviceAddressFlaggedAllocations { get; private set; }
+
+    /// <summary>
+    /// The device's <c>minAccelerationStructureScratchOffsetAlignment</c>:
+    /// every build's scratch address is rounded up to it.
+    /// </summary>
+    private ulong _scratchAlignment = 256;
+
+    /// <summary>Vulkan 1.3, the API version the kernel's SPIR-V 1.6 module needs.</summary>
+    internal const uint MinimumApiVersion = (1u << 22) | (3u << 12);
+
     /// <summary>Selected device name, e.g. <c>AMD Radeon RX 9070 XT (RADV GFX1201)</c>.</summary>
     public string DeviceName { get; private set; } = "?";
 
@@ -253,17 +282,28 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             ThrowOn(_vk.EnumeratePhysicalDevices(_instance, &count, p), "vkEnumeratePhysicalDevices");
         }
 
-        PhysicalDeviceRayTracingPipelinePropertiesKHR rtProps = new()
+        // The acceleration-structure properties give the scratch alignment
+        // the builds need (the ray-tracing-PIPELINE properties this chain
+        // used to query belong to an extension the tracer never enables);
+        // the driver properties name the driver. A device without the
+        // extension leaves the acceleration-structure structs untouched,
+        // and such a device is passed over below before anything reads them.
+        PhysicalDeviceAccelerationStructurePropertiesKHR asProps = new()
         {
-            SType = StructureType.PhysicalDeviceRayTracingPipelinePropertiesKhr,
+            SType = StructureType.PhysicalDeviceAccelerationStructurePropertiesKhr,
         };
         PhysicalDeviceDriverProperties drv = new()
         {
             SType = StructureType.PhysicalDeviceDriverProperties,
         };
+        PhysicalDeviceAccelerationStructureFeaturesKHR asFeatures = new()
+        {
+            SType = StructureType.PhysicalDeviceAccelerationStructureFeaturesKhr,
+        };
         PhysicalDeviceRayQueryFeaturesKHR rqFeatures = new()
         {
             SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr,
+            PNext = &asFeatures,
         };
         PhysicalDeviceFeatures2 features = new()
         {
@@ -273,9 +313,9 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         PhysicalDeviceProperties2 props = new()
         {
             SType = StructureType.PhysicalDeviceProperties2,
-            PNext = &rtProps,
+            PNext = &asProps,
         };
-        rtProps.PNext = &drv;
+        asProps.PNext = &drv;
 
         int chosen = -1;
         int bestScore = int.MinValue;
@@ -284,7 +324,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         {
             _vk.GetPhysicalDeviceProperties2(devices[i], &props);
             _vk.GetPhysicalDeviceFeatures2(devices[i], &features);
-            if (!rqFeatures.RayQuery)
+            if (!Traceable(rqFeatures.RayQuery, asFeatures.AccelerationStructure))
             {
                 continue;
             }
@@ -340,6 +380,10 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         DriverName = (SilkMarshal.PtrToString((nint)drv.DriverName) ?? "?") + " / "
                    + (SilkMarshal.PtrToString((nint)drv.DriverInfo) ?? "?");
         IsCpuDevice = props.Properties.DeviceType == PhysicalDeviceType.Cpu;
+
+        // Before anything is created on it (RequireApiVersion says why).
+        RequireApiVersion(DeviceName, props.Properties.ApiVersion);
+        _scratchAlignment = Math.Max(1UL, asProps.MinAccelerationStructureScratchOffsetAlignment);
         // maxStorageBufferRange is the storage-buffer binding limit that
         // matters here; the spec guarantees >= 128 MiB on every conformant
         // device, and we clamp slab sizes to what the device reports.
@@ -428,8 +472,27 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             SType = StructureType.PhysicalDeviceVulkan12Features,
             BufferDeviceAddress = true,
         };
-        rqFeatures.PNext = &vk12;
-        features.PNext = &rqFeatures;
+
+        // The acceleration-structure FEATURE must be enabled for any
+        // structure to be created, built, sized or destroyed; this chain
+        // once enabled only ray query, which radv and llvmpipe tolerated and
+        // the validation layer reports on every structure call. Only the
+        // two features the tracer uses are switched on from these structs,
+        // not whatever else the query reported (capture-replay and host
+        // builds change how a driver treats structures and are not wanted).
+        PhysicalDeviceAccelerationStructureFeaturesKHR asEnable = new()
+        {
+            SType = StructureType.PhysicalDeviceAccelerationStructureFeaturesKhr,
+            PNext = &vk12,
+            AccelerationStructure = true,
+        };
+        PhysicalDeviceRayQueryFeaturesKHR rqEnable = new()
+        {
+            SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr,
+            PNext = &asEnable,
+            RayQuery = true,
+        };
+        features.PNext = &rqEnable;
         byte** devExts = AllocNames(want);
         DeviceCreateInfo dci = new()
         {
@@ -476,6 +539,46 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         BuildPipeline(spirv);
         AllocateSlots(slots, forceStaged);
         CreateDescriptorSets();
+    }
+
+    /// <summary>
+    /// Whether a device can hold and trace the scene: it must offer the
+    /// ray-query feature AND the acceleration-structure feature.
+    /// </summary>
+    /// <param name="rayQuery">The device's <c>rayQuery</c> feature.</param>
+    /// <param name="accelerationStructure">The device's <c>accelerationStructure</c> feature.</param>
+    /// <returns>True when both are offered.</returns>
+    /// <remarks>
+    /// The FEATURE, not only the extension: creating or building a
+    /// structure on a device that did not enable it is invalid usage. A
+    /// device that offers ray query without it cannot hold a scene at all,
+    /// so it is passed over like one without ray query.
+    /// </remarks>
+    internal static bool Traceable(bool rayQuery, bool accelerationStructure) =>
+        rayQuery && accelerationStructure;
+
+    /// <summary>
+    /// Refuses a device whose API version is below <see cref="MinimumApiVersion"/>.
+    /// </summary>
+    /// <param name="deviceName">The device, for the message.</param>
+    /// <param name="apiVersion">The version the device reports.</param>
+    /// <exception cref="NotSupportedException">The version is below Vulkan 1.3.</exception>
+    /// <remarks>
+    /// The kernel is compiled for the Vulkan 1.3 environment (SPIR-V 1.6)
+    /// and the device is created with the Vulkan 1.2 feature struct in its
+    /// chain. A device reporting an older version may be handed neither:
+    /// the module would be one its driver never promised to accept, which
+    /// is undefined behaviour rather than an error, so it is refused here,
+    /// with the version it reported, before anything is created on it.
+    /// </remarks>
+    internal static void RequireApiVersion(string deviceName, uint apiVersion)
+    {
+        if (apiVersion < MinimumApiVersion)
+        {
+            throw new NotSupportedException(
+                $"{deviceName} reports Vulkan {(apiVersion >> 22) & 0x7F}.{(apiVersion >> 12) & 0x3FF}."
+                + $"{apiVersion & 0xFFF}; the ray-query kernel needs Vulkan 1.3 (update the driver)");
+        }
     }
 
     /// <summary>
@@ -743,6 +846,14 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                 MemoryTypeIndex = (uint)type,
             };
             ThrowOn(_vk.AllocateMemory(_device, &mai, null, out memory), "vkAllocateMemory");
+            if ((usage & BufferUsageFlags.ShaderDeviceAddressBit) != 0)
+            {
+                AddressableAllocations++;
+                if (mai.PNext == (void*)&flagsInfo && (flagsInfo.Flags & MemoryAllocateFlags.DeviceAddressBit) != 0)
+                {
+                    DeviceAddressFlaggedAllocations++;
+                }
+            }
             ThrowOn(_vk.BindBufferMemory(_device, buffer, memory, 0), "vkBindBufferMemory");
             nint mapped = 0;
             if ((required & MemoryPropertyFlags.HostVisibleBit) != 0)
@@ -1039,12 +1150,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             CommandBuffer upload = Begin();
             BufferCopy region = new() { SrcOffset = 0, DstOffset = 0, Size = bytes };
             _vk.CmdCopyBuffer(upload, staging.Vk, _vertexBuffer.Vk, 1, &region);
-            Barrier(
-                upload,
-                PipelineStageFlags.TransferBit,
-                AccessFlags.TransferWriteBit,
-                PipelineStageFlags.AccelerationStructureBuildBitKhr,
-                AccessFlags.AccelerationStructureReadBitKhr);
+            Barrier(upload, UploadToBuild);
             End(upload);
             Submit(upload);
             uploaded = true;
@@ -1060,6 +1166,10 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// <summary>Destroys both structures and frees their storage; the TLAS first, since it refers to the BLAS.</summary>
     private void ReleaseScene()
     {
+        // The descriptors name the old TLAS until the next build rebinds
+        // them; nothing dispatches in between (a failed load declines the
+        // device), and the flag says so.
+        _bound = default;
         if (_tlasHandle.Handle != 0)
         {
             _blasApi.DestroyAccelerationStructure(_device, _tlasHandle, null);
@@ -1082,6 +1192,10 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     {
         AccelerationStructureGeometryTrianglesDataKHR tris = new()
         {
+            // The nested struct's sType is required like any other; an
+            // object initializer leaves it zero, which the validation layer
+            // reports on every build and a driver is free to reject.
+            SType = StructureType.AccelerationStructureGeometryTrianglesDataKhr,
             VertexFormat = Format.R32G32B32Sfloat,
             VertexData = new DeviceOrHostAddressConstKHR { DeviceAddress = _vertexBuffer!.DeviceAddress },
             IndexType = IndexType.NoneKhr,
@@ -1127,7 +1241,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.StorageBufferBit
             | BufferUsageFlags.AccelerationStructureStorageBitKhr,
             deviceAddress: false);
-        GpuBuffer scratch = Allocate(ScratchSize(sizes.BuildScratchSize), MemoryPropertyFlags.DeviceLocalBit,
+        GpuBuffer scratch = Allocate(ScratchSize(sizes.BuildScratchSize, _scratchAlignment), MemoryPropertyFlags.DeviceLocalBit,
             BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit,
             deviceAddress: true);
         GpuBuffer? instances = null;
@@ -1146,7 +1260,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             ThrowOn(_blasApi.CreateAccelerationStructure(_device, &asci, null, out _blasHandle),
                 "vkCreateAccelerationStructureKHR");
             info.DstAccelerationStructure = _blasHandle;
-            info.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = scratch.DeviceAddress };
+            info.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = AlignUp(scratch.DeviceAddress, _scratchAlignment) };
 
             // The TLAS: one instance of the BLAS, identity transform, every
             // ray's mask, no culling (the kernel asks for none either). The
@@ -1156,17 +1270,8 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                 SType = StructureType.AccelerationStructureDeviceAddressInfoKhr,
                 AccelerationStructure = _blasHandle,
             };
-            AccelerationStructureInstanceKHR instance = new()
-            {
-                InstanceCustomIndex = 0,
-                Mask = 0xFF,
-                InstanceShaderBindingTableRecordOffset = 0,
-                Flags = GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr,
-                AccelerationStructureReference = _blasApi.GetAccelerationStructureDeviceAddress(_device, &blasAddress),
-            };
-            instance.Transform.Matrix[0] = 1f;
-            instance.Transform.Matrix[5] = 1f;
-            instance.Transform.Matrix[10] = 1f;
+            AccelerationStructureInstanceKHR instance = SceneInstance(
+                _blasApi.GetAccelerationStructureDeviceAddress(_device, &blasAddress));
             instances = Allocate((ulong)sizeof(AccelerationStructureInstanceKHR),
                 MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
                 BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr,
@@ -1202,7 +1307,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                 BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.StorageBufferBit
                 | BufferUsageFlags.AccelerationStructureStorageBitKhr,
                 deviceAddress: false);
-            topScratch = Allocate(ScratchSize(topSizes.BuildScratchSize), MemoryPropertyFlags.DeviceLocalBit,
+            topScratch = Allocate(ScratchSize(topSizes.BuildScratchSize, _scratchAlignment), MemoryPropertyFlags.DeviceLocalBit,
                 BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit,
                 deviceAddress: true);
             Observe?.Invoke(VulkanStep.TopLevelScratchAllocated);
@@ -1216,7 +1321,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             ThrowOn(_blasApi.CreateAccelerationStructure(_device, &topCreate, null, out _tlasHandle),
                 "vkCreateAccelerationStructureKHR");
             topInfo.DstAccelerationStructure = _tlasHandle;
-            topInfo.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = topScratch.DeviceAddress };
+            topInfo.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = AlignUp(topScratch.DeviceAddress, _scratchAlignment) };
 
             // Both builds in one command buffer: the TLAS build reads the
             // BLAS the first build wrote, so a barrier orders them on the
@@ -1229,19 +1334,9 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             AccelerationStructureBuildRangeInfoKHR* topRangePtr = &topRange;
             CommandBuffer cmd = Begin();
             _blasApi.CmdBuildAccelerationStructures(cmd, 1, &info, &rangePtr);
-            Barrier(
-                cmd,
-                PipelineStageFlags.AccelerationStructureBuildBitKhr,
-                AccessFlags.AccelerationStructureWriteBitKhr,
-                PipelineStageFlags.AccelerationStructureBuildBitKhr,
-                AccessFlags.AccelerationStructureReadBitKhr);
+            Barrier(cmd, BlasToTlas);
             _blasApi.CmdBuildAccelerationStructures(cmd, 1, &topInfo, &topRangePtr);
-            Barrier(
-                cmd,
-                PipelineStageFlags.AccelerationStructureBuildBitKhr,
-                AccessFlags.AccelerationStructureWriteBitKhr,
-                PipelineStageFlags.ComputeShaderBit,
-                AccessFlags.AccelerationStructureReadBitKhr);
+            Barrier(cmd, BuildToTrace);
             End(cmd);
             Submit(cmd);
             built = true;
@@ -1263,8 +1358,104 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         UpdateSceneBinding();
     }
 
-    /// <summary>A build's scratch size, rounded up to 256 bytes (and never zero).</summary>
-    private static ulong ScratchSize(ulong required) => Math.Max(16UL, (required + 255UL) & ~255UL);
+    /// <summary>
+    /// The scene's one TLAS instance: the BLAS at
+    /// <paramref name="blasAddress"/> under the identity transform, custom
+    /// index 0, mask 0xFF (every ray's cull mask is 0xFF, so it is never
+    /// masked out), binding-table offset 0, and facing culling disabled
+    /// (the kernel asks for no culling either, so no driver's facing
+    /// convention can enter into an answer).
+    /// </summary>
+    /// <param name="blasAddress">The BLAS's device address.</param>
+    /// <returns>The instance.</returns>
+    /// <remarks>
+    /// The identity transform multiplies each ray component by exactly 1 and
+    /// adds exact zeros, so primitive indices and t stay the BLAS's own; only
+    /// the sign of a zero component can change, and the triangle test's
+    /// comparisons treat the two zeros alike. That is why RADV's output is
+    /// byte-identical with the TLAS.
+    /// </remarks>
+    internal static AccelerationStructureInstanceKHR SceneInstance(ulong blasAddress)
+    {
+        AccelerationStructureInstanceKHR instance = new()
+        {
+            InstanceCustomIndex = 0,
+            Mask = 0xFF,
+            InstanceShaderBindingTableRecordOffset = 0,
+            Flags = GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr,
+            AccelerationStructureReference = blasAddress,
+        };
+        instance.Transform.Matrix[0] = 1f;
+        instance.Transform.Matrix[5] = 1f;
+        instance.Transform.Matrix[10] = 1f;
+        return instance;
+    }
+
+    /// <summary>
+    /// The bytes to allocate for a build's scratch: the size it needs,
+    /// rounded up to 256 bytes (and never zero), plus room to round the
+    /// buffer's address up to <paramref name="alignment"/>.
+    /// </summary>
+    /// <param name="required">The build's scratch size.</param>
+    /// <param name="alignment"><c>minAccelerationStructureScratchOffsetAlignment</c>, a power of two.</param>
+    /// <returns>The allocation size.</returns>
+    /// <remarks>
+    /// The spec asks each build's scratch ADDRESS to be a multiple of the
+    /// device's scratch alignment. A fresh buffer's address follows its
+    /// memory requirements, which drivers commonly make large enough, but
+    /// nothing ties the two numbers together, so the build rounds the
+    /// address up with <see cref="AlignUp"/> and the slack is allocated for
+    /// it. The size alone was rounded before, and the address never looked
+    /// at.
+    /// </remarks>
+    internal static ulong ScratchSize(ulong required, ulong alignment) =>
+        Math.Max(16UL, (required + 255UL) & ~255UL) + (Math.Max(1UL, alignment) - 1);
+
+    /// <summary>Rounds <paramref name="value"/> up to a multiple of <paramref name="alignment"/>.</summary>
+    /// <param name="value">The value.</param>
+    /// <param name="alignment">A power of two; 0 counts as 1.</param>
+    /// <returns>The smallest multiple of the alignment not below the value.</returns>
+    internal static ulong AlignUp(ulong value, ulong alignment)
+    {
+        ulong a = Math.Max(1UL, alignment);
+        return (value + (a - 1)) & ~(a - 1);
+    }
+
+    /// <summary>
+    /// The upload-to-build barrier: the staging copy's write, before the
+    /// BLAS build reads the vertices.
+    /// </summary>
+    /// <remarks>
+    /// A build reads its geometry input as a SHADER read at the build
+    /// stage. The acceleration-structure read access, which this barrier
+    /// once named alone, covers only reads of acceleration structures, so
+    /// nothing promised the build would see the uploaded vertices. Both are
+    /// named; the second is harmless and keeps the old promise.
+    /// </remarks>
+    internal static BarrierMasks UploadToBuild => new(
+        PipelineStageFlags.TransferBit,
+        AccessFlags.TransferWriteBit,
+        PipelineStageFlags.AccelerationStructureBuildBitKhr,
+        AccessFlags.ShaderReadBit | AccessFlags.AccelerationStructureReadBitKhr);
+
+    /// <summary>The BLAS build's write, before the TLAS build reads the BLAS through its instance.</summary>
+    internal static BarrierMasks BlasToTlas => new(
+        PipelineStageFlags.AccelerationStructureBuildBitKhr,
+        AccessFlags.AccelerationStructureWriteBitKhr,
+        PipelineStageFlags.AccelerationStructureBuildBitKhr,
+        AccessFlags.AccelerationStructureReadBitKhr);
+
+    /// <summary>The builds' writes, before the kernel's ray queries read the scene.</summary>
+    /// <remarks>
+    /// A ray query's traversal is an ACCELERATION_STRUCTURE_READ at the
+    /// stage of the shader that runs it, here compute. This barrier once
+    /// named SHADER_READ, which does not cover that access.
+    /// </remarks>
+    internal static BarrierMasks BuildToTrace => new(
+        PipelineStageFlags.AccelerationStructureBuildBitKhr,
+        AccessFlags.AccelerationStructureWriteBitKhr,
+        PipelineStageFlags.ComputeShaderBit,
+        AccessFlags.AccelerationStructureReadBitKhr);
 
     /// <summary>
     /// Creates one descriptor set per slot, binding that slot's kernel ray
@@ -1361,6 +1552,8 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                 _vk.UpdateDescriptorSets(_device, 1, &asBinding, 0, null);
             }
         }
+
+        _bound = _tlasHandle;
     }
 
     /// <summary>
@@ -1556,11 +1749,30 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         }
     }
 
-    /// <summary>Rays the known-hit micro-scene dispatches: 2 real, padded to one workgroup.</summary>
+    /// <summary>
+    /// Rays the known-hit micro-scene's buffer holds: one workgroup's worth,
+    /// of which only <see cref="SelfTestRealRays"/> are dispatched as rays.
+    /// </summary>
     internal const int SelfTestRays = Invocations;
 
-    /// <summary>How many of them are real; the padded lanes are zero and degenerate.</summary>
+    /// <summary>
+    /// How many rays the self-test traces. The dispatch still covers one
+    /// whole workgroup, but the kernel's range guard keeps the other lanes
+    /// from starting a query at all.
+    /// </summary>
+    /// <remarks>
+    /// The self-test used to pass all 64 lanes as rays, 62 of them zeroed:
+    /// zero direction, <c>tmax</c> 0, and the test's <c>tmin</c> of 1e-3. A
+    /// ray query with <c>tmin</c> above <c>tmax</c> is undefined behaviour,
+    /// and those lanes ran in the same workgroup as the two rays that decide
+    /// the gate, and in any-hit mode folded their bits through the same
+    /// shared words. The self-test no longer offers any such ray, and the
+    /// kernel refuses one itself.
+    /// </remarks>
     internal const int SelfTestRealRays = 2;
+
+    /// <summary><c>1e-3f</c> as float bits: the self-test's <c>tmin</c>.</summary>
+    internal const uint SelfTestTminBits = 0x3A83126Fu;
 
     /// <summary>
     /// The capability gate: traces a two-triangle known-hit micro-scene
@@ -1585,18 +1797,19 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// </remarks>
     public (bool Passed, SelfTestOutcome Outcome) RunSelfTest()
     {
-        SelfTestGeometry(out float[] vertices, out float[] rays, out int rayCount);
+        SelfTestGeometry(out float[] vertices, out float[] rays, out _);
         // The self-test runs through the SAME upload + BLAS-build machinery a
         // real trace uses, so an empty BLAS from a bad build fails the gate
         // too (that was the lavapipe all-miss's second contributor).
         LoadScene(vertices);
-        uint tminBits = 0x3A83126Fu; // 1e-3f
+        uint tminBits = SelfTestTminBits;
         const int OutWordsAny = 2;   // one workgroup
+        ReadOnlySpan<float> real = rays.AsSpan(0, SelfTestRealRays * 8);
 
         // Mode 4 first: pure compute-write/copy/readback. If this reads back
         // zeroes, nothing about ray answers means anything yet.
         uint[] w = new uint[Math.Max(OutWordsAny, SelfTestRays * 2)];
-        DispatchWithStagedRays(4, SelfTestRays, rays, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
+        DispatchWithStagedRays(4, SelfTestRealRays, real, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
         bool readbackOk = w[0] == 0xFFFFFFFFu && w[1] == 0xFFFFFFFFu;
 
         bool anyHitOk = false;
@@ -1605,10 +1818,10 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         int cands = 0;
         if (readbackOk)
         {
-            DispatchWithStagedRays(0, SelfTestRays, rays, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
+            DispatchWithStagedRays(0, SelfTestRealRays, real, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
             anyHitOk = (w[0] & 3u) == 3u; // both rays blocked
 
-            DispatchWithStagedRays(1, SelfTestRays, rays, w.AsSpan(0, SelfTestRays * 2), tminBits, TmaxScaleBits);
+            DispatchWithStagedRays(1, SelfTestRealRays, real, w.AsSpan(0, SelfTestRealRays * 2), tminBits, TmaxScaleBits);
             closestOk =
                 w[0] == 0u // ray A hits triangle 0
                 && Math.Abs(BitConverter.Int32BitsToSingle(unchecked((int)w[1])) - 0.5f) < 1e-4f
@@ -1616,8 +1829,8 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                 && Math.Abs(BitConverter.Int32BitsToSingle(unchecked((int)w[3])) - 0.5f) < 1e-4f;
 
             // Telemetry decides WHICH broken device this is, for the report.
-            DispatchWithStagedRays(5, SelfTestRays, rays, w.AsSpan(0, SelfTestRays * 2), tminBits, TmaxScaleBits);
-            for (int i = 0; i < SelfTestRays; i++)
+            DispatchWithStagedRays(5, SelfTestRealRays, real, w.AsSpan(0, SelfTestRealRays * 2), tminBits, TmaxScaleBits);
+            for (int i = 0; i < SelfTestRealRays; i++)
             {
                 iters = Math.Max(iters, unchecked((int)w[i * 2]));
                 cands += w[(i * 2) + 1] != 0 ? 1 : 0;
@@ -1816,6 +2029,9 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// on radv; production never does — every upload→build→dispatch→download
     /// edge gets an explicit <c>vkCmdPipelineBarrier</c>.
     /// </summary>
+    private void Barrier(CommandBuffer cmd, BarrierMasks m) =>
+        Barrier(cmd, m.SrcStage, m.SrcAccess, m.DstStage, m.DstAccess);
+
     private void Barrier(
         CommandBuffer cmd,
         PipelineStageFlags srcStage,
@@ -1973,6 +2189,14 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         _vk.Dispose();
     }
 }
+
+/// <summary>One memory barrier's two stage masks and two access masks.</summary>
+/// <param name="SrcStage">The stage whose work must finish first.</param>
+/// <param name="SrcAccess">The writes made available.</param>
+/// <param name="DstStage">The stage that waits.</param>
+/// <param name="DstAccess">The accesses the writes are made visible to.</param>
+internal readonly record struct BarrierMasks(
+    PipelineStageFlags SrcStage, AccessFlags SrcAccess, PipelineStageFlags DstStage, AccessFlags DstAccess);
 
 /// <summary>One row of the device inventory <see cref="VulkanDevice.ProbeDevices()"/> reports.</summary>
 /// <param name="Index">Physical-device index.</param>
