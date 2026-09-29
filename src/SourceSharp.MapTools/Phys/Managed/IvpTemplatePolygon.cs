@@ -58,6 +58,16 @@ internal sealed class IvpTemplatePolygon<T>
     public static IvpTemplatePolygon<T> Build(List<IvpPoint<T>> unique, List<IvpFacetPolygon<T>> polygons)
     {
         var t = new IvpTemplatePolygon<T>();
+
+        // Sized once from bounds known up front, so none of the lists or the edge set grows
+        // (each growth is a copy through the runtime's memmove and a discarded array): at most
+        // one template point per qhull point, one surface per facet, and no more distinct lines
+        // than facet edges in all (a closed hull has half that, every edge being shared by two
+        // facets, but the bound must hold for any facet list).
+        int edges = EdgeCount(polygons);
+        t.Points.Capacity = unique.Count;
+        t.Lines.Capacity = edges;
+        t.Surfaces.Capacity = polygons.Count;
         foreach (IvpPoint<T> p in unique)
         {
             int found = -1;
@@ -79,7 +89,7 @@ internal sealed class IvpTemplatePolygon<T>
             t.Points.Add(new IvpPoint<T>(p.X, p.Y, p.Z, T.Zero));
         }
 
-        var lineKeys = new HashSet<uint>();
+        var lineKeys = new HashSet<uint>(edges);
         foreach (IvpFacetPolygon<T> poly in polygons)
         {
             int n = poly.Points.Count;
@@ -148,6 +158,23 @@ internal sealed class IvpTemplatePolygon<T>
         }
 
         return t;
+    }
+
+    /// <summary>
+    /// Every facet's edge count summed: an upper bound on the distinct lines
+    /// <see cref="Build"/> can find, since each line is some facet's edge.
+    /// </summary>
+    /// <param name="polygons">The facet polygons.</param>
+    /// <returns>The sum of their point counts.</returns>
+    internal static int EdgeCount(List<IvpFacetPolygon<T>> polygons)
+    {
+        int edges = 0;
+        foreach (IvpFacetPolygon<T> poly in polygons)
+        {
+            edges += poly.Points.Count;
+        }
+
+        return edges;
     }
 
     /// <summary>The reference point lookup: first <c>==</c> match, or 0 when there is none.</summary>

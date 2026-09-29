@@ -125,6 +125,79 @@ public class IvpBuildingBlockTests
     }
 
     [Fact]
+    public void TheTemplateIsSizedOnceForAClosedCube()
+    {
+        // A cube's six quads: 24 facet edges, 12 distinct lines, 8 points. The lists are sized
+        // from the bounds before the build and must not have grown past them.
+        (List<IvpPoint<double>> unique, List<IvpFacetPolygon<double>> faces) = Cube();
+        IvpTemplatePolygon<double> t = IvpTemplatePolygon<double>.Build(unique, faces);
+
+        Assert.Equal(24, IvpTemplatePolygon<double>.EdgeCount(faces));
+        Assert.Equal(12, t.Lines.Count);
+        Assert.Equal(24, t.Lines.Capacity);
+        Assert.Equal(8, t.Points.Count);
+        Assert.Equal(8, t.Points.Capacity);
+        Assert.Equal(6, t.Surfaces.Count);
+        Assert.Equal(6, t.Surfaces.Capacity);
+    }
+
+    [Fact]
+    public void TheTemplateLineBoundIsExactWhenNoFacetsShareAnEdge()
+    {
+        // Two triangles with no edge in common: every facet edge is its own line, so the line
+        // count reaches the bound exactly, and the list is still the size it was given.
+        var p = new List<IvpPoint<double>>
+        {
+            new(0, 0, 0, 0), new(1, 0, 0, 0), new(0, 1, 0, 0),
+            new(5, 5, 5, 0), new(6, 5, 5, 0), new(5, 6, 5, 0),
+        };
+        List<IvpFacetPolygon<double>> faces = [Facet(p, 0, 1, 2), Facet(p, 3, 4, 5)];
+        IvpTemplatePolygon<double> t = IvpTemplatePolygon<double>.Build(p, faces);
+
+        Assert.Equal(6, IvpTemplatePolygon<double>.EdgeCount(faces));
+        Assert.Equal(6, t.Lines.Count);
+        Assert.Equal(6, t.Lines.Capacity);
+    }
+
+    [Fact]
+    public void NoFacetsHaveNoEdgesAndNoLines()
+    {
+        Assert.Equal(0, IvpTemplatePolygon<double>.EdgeCount([]));
+        IvpTemplatePolygon<double> t = IvpTemplatePolygon<double>.Build([], []);
+        Assert.Empty(t.Lines);
+        Assert.Empty(t.Points);
+        Assert.Empty(t.Surfaces);
+    }
+
+    private static (List<IvpPoint<double>> Unique, List<IvpFacetPolygon<double>> Faces) Cube()
+    {
+        var p = new List<IvpPoint<double>>();
+        for (int i = 0; i < 8; i++)
+        {
+            p.Add(new IvpPoint<double>(i & 1, (i >> 1) & 1, (i >> 2) & 1, 0));
+        }
+
+        List<IvpFacetPolygon<double>> faces =
+        [
+            Facet(p, 0, 2, 3, 1), Facet(p, 4, 5, 7, 6), Facet(p, 0, 1, 5, 4),
+            Facet(p, 2, 6, 7, 3), Facet(p, 0, 4, 6, 2), Facet(p, 1, 3, 7, 5),
+        ];
+        return (p, faces);
+    }
+
+    private static IvpFacetPolygon<double> Facet(List<IvpPoint<double>> p, params int[] ids)
+    {
+        var f = new IvpFacetPolygon<double>(0, 0, 1);
+        foreach (int id in ids)
+        {
+            f.Points.Add(p[id]);
+            f.Ids.Add(id);
+        }
+
+        return f;
+    }
+
+    [Fact]
     public void CvttMatchesTheX86IntegerIndefinite()
     {
         Assert.Equal(int.MinValue, IvpVector.CvttToInt32(double.NaN));
