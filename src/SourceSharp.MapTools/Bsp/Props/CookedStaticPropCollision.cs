@@ -7,6 +7,7 @@
 
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Bsp.Collision;
+using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Phys;
 
 namespace SourceSharp.MapTools.Bsp.Props;
@@ -30,10 +31,19 @@ public sealed class CookedStaticPropCollision : IStaticPropCollision
     /// <summary>A seam over one compile's cooker.</summary>
     /// <param name="cooker">The cooker; not disposed here.</param>
     public CookedStaticPropCollision(ICollisionCooker cooker)
+        : this(cooker, null, ComplianceOptions.Correct)
+    {
+    }
+
+    /// <summary>A seam over one compile's cooker, with the host's cross-compile hull cache.</summary>
+    /// <param name="cooker">The cooker; not disposed here.</param>
+    /// <param name="shared">The host's <see cref="PropHullCache"/>, or null to cook every model.</param>
+    /// <param name="compliance">The compile's compliance, part of the shared cache's key.</param>
+    public CookedStaticPropCollision(ICollisionCooker cooker, PropHullCache? shared, ComplianceOptions compliance)
     {
         ArgumentNullException.ThrowIfNull(cooker);
         _cooker = cooker;
-        _cache = new StaticPropHullCache(cooker);
+        _cache = new StaticPropHullCache(cooker, shared, compliance);
     }
 
     /// <inheritdoc/>

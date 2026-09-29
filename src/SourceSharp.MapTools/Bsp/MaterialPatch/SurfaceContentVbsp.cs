@@ -79,6 +79,6 @@ public static class SurfaceContentVbsp
         }
 
         return HostHandoff.ReturnAsync(
-            OnlyEntsUpdate.RunAsync(existing, map, context, [new SurfaceContentExtension(null, cooker)], cancellationToken));
+            OnlyEntsUpdate.RunAsync(existing, map, context, [new SurfaceContentExtension(null, cooker, context.PropHullCache, context.Options.Compliance)], cancellationToken));
     }
 }
