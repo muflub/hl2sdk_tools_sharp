@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Options;
 
 using Xunit;
@@ -181,6 +182,110 @@ public class StockArgsVvisTests
             Assert.True(result.Options.Tighten);
         }
     }
+
+    [Fact]
+    public void FastFlowIsOffUnlessAskedFor()
+    {
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis([Map]);
+
+        Assert.Null(result.Options.FastFlowSteps);
+        Assert.Equal(VvisOptions.Default, result.Options);
+    }
+
+    [Theory]
+    [InlineData("-fastflow", VvisOptions.DefaultFastFlowSteps)]
+    [InlineData("-FastFlow", VvisOptions.DefaultFastFlowSteps)]
+    [InlineData("-fastflow=1000", 1000)]
+    [InlineData("-fastflow=0", 0)]
+    [InlineData("-fastflow=5000", 5000)]
+    [InlineData("-FASTFLOW=20000", 20000)]
+    [InlineData("-fastflow=+7", 7)]
+    [InlineData("-fastflow=007", 7)]
+    [InlineData("-fastflow=2147483647", int.MaxValue)]
+    public void FastFlowParsesItsStepCount(string spelling, int steps)
+    {
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis([spelling, Map]);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(VvisOptions.Default with { FastFlowSteps = steps }, result.Options);
+        Assert.Equal(Map, result.MapPath);
+    }
+
+    [Theory]
+    [InlineData("-fastflow=", StockArgsCodes.MissingValue)]
+    [InlineData("-fastflow=many", StockArgsCodes.MalformedValue)]
+    [InlineData("-fastflow=1.5", StockArgsCodes.MalformedValue)]
+    [InlineData("-fastflow=1e3", StockArgsCodes.MalformedValue)]
+    [InlineData("-fastflow= 5", StockArgsCodes.MalformedValue)]
+    [InlineData("-fastflow=-", StockArgsCodes.MalformedValue)]
+    [InlineData("-fastflow=-1", StockArgsCodes.ValueOutOfRange)]
+    [InlineData("-fastflow=-5000", StockArgsCodes.ValueOutOfRange)]
+    [InlineData("-fastflow=2147483648", StockArgsCodes.ValueOutOfRange)]
+    [InlineData("-fastflow=99999999999999999999", StockArgsCodes.ValueOutOfRange)]
+    [InlineData("-fastflow=-99999999999999999999", StockArgsCodes.ValueOutOfRange)]
+    public void ABadStepCountIsAUsageErrorThatNamesTheFlag(string spelling, string code)
+    {
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis([spelling, Map]);
+
+        CompileDiagnostic diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(code, diagnostic.Code);
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("-fastflow", diagnostic.Message, StringComparison.Ordinal);
+        Assert.True(result.HasErrors);
+        Assert.Null(result.Options.FastFlowSteps);
+
+        // The bad token is not taken for the map.
+        Assert.Equal(Map, result.MapPath);
+    }
+
+    [Fact]
+    public void TheValueIsPartOfTheFlagSoTheNextTokenStaysTheMap()
+    {
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-fastflow", "5000"]);
+
+        // "-fastflow 5000" is -fastflow and a map named 5000, not a count.
+        Assert.Equal(VvisOptions.DefaultFastFlowSteps, result.Options.FastFlowSteps);
+        Assert.Equal("5000", result.MapPath);
+    }
+
+    [Theory]
+    [InlineData(new[] { "-fastflow=5000", "-fastflow" }, VvisOptions.DefaultFastFlowSteps)]
+    [InlineData(new[] { "-fastflow", "-fastflow=5000" }, 5000)]
+    [InlineData(new[] { "-fastflow=0", "-fastflow=20000" }, 20000)]
+    public void GivenTwiceTheLastWins(string[] flags, int steps)
+    {
+        // As every other option here: a later value replaces an earlier one.
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis([.. flags, Map]);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(steps, result.Options.FastFlowSteps);
+    }
+
+    [Fact]
+    public void ABadCountAfterAGoodOneLeavesTheGoodOne()
+    {
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-fastflow=5000", "-fastflow=x", Map]);
+
+        Assert.True(result.HasErrors);
+        Assert.Equal(5000, result.Options.FastFlowSteps);
+    }
+
+    [Fact]
+    public void FastFlowIsNotStocksFast()
+    {
+        // Two different switches: -fast skips the flow, -fastflow shortens it.
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-fastflow", "-fast", Map]);
+
+        Assert.Equal(VvisOptions.DefaultFastFlowSteps, result.Options.FastFlowSteps);
+        Assert.True(result.Options.Fast);
+        Assert.Null(StockArgs.ParseVvis(["-fast", Map]).Options.FastFlowSteps);
+    }
+
+    [Fact]
+    public void AnotherFlagStartingWithFastFlowIsStillUnknown() =>
+        Assert.Equal(
+            StockArgsCodes.UnknownOption,
+            Assert.Single(StockArgs.ParseVvis(["-fastflows", Map]).Diagnostics).Code);
 
     [Fact]
     public void TheFastPresetMatchesParsingTheFastFlag()

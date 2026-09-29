@@ -201,7 +201,7 @@ Each takes the stock tool's options. Accepted flags include:
   set, plus `-cooker`, `-vphysics`, `-compliance`, `-incremental`,
   `-cache-dir` and `-nocache`.
 - **vvis:** `-fast`, `-nosort`, `-radius_override`, `-trace`, `-threads`,
-  `-low`, `-tmpin`, `-compliance`.
+  `-low`, `-tmpin`, `-compliance`, and this port's own `-fastflow[=N]` (below).
 - **vrad:** `-hdr`, `-ldr`, `-both`, `-fast`, `-final`, `-extrasky`,
   `-bounce`, `-smooth`, `-chop`, `-maxchop`, `-dispchop`, `-softsun`,
   `-StaticPropLighting`, `-StaticPropPolys`, `-textureshadows`,
@@ -222,6 +222,60 @@ map is lit with only the level's `.rad` and the `-lights` file, without any
 material's reflectivity, the game's `lights.rad` texlights or prop models.
 The result is not the compile the stock tool would produce, which is why it
 has to be asked for.
+
+#### The fast vvis flow (`-fastflow[=N]`)
+
+`ssmap vvis -fastflow` (or `ssmap all <map> --vvis -fastflow`) runs a faster
+portal flow whose PVS is knowingly approximate, in the spirit of Tools++'s
+vvis. It is off by default, and without it the output is byte-identical to
+a compile that does not know the flag. vvis prints a one-line warning
+(`VVIS0701`) naming the step count when it is on.
+
+The exact flow stops following a chain of portals only when the chain can
+mark no portal it has not marked already. The fast flow stops as soon as
+everything the chain could still reach leads into clusters the portal
+already sees, which leaves that portal's own PVS row as it was. The
+shortened portal vectors are what the portals flowed after it prune with,
+though, so those prune chains the exact flow keeps, and lose clusters.
+
+`N` is how many exact steps each portal's walk takes before it may stop
+early. `-fastflow` alone is `-fastflow=1000`. Walks shorter than `N` stay
+exact, and they are the cheap portals every longer walk prunes with, so a
+larger `N` is slower and loses less. `-fastflow=0` stops everywhere. `N` is
+any whole number from 0 up; anything else is a usage error. Given twice, the
+last one wins.
+
+Measured on 2fort (main's correct-mode vbsp tree: 2492 clusters, 6367
+portals). Pairs lost are counted out of 578,581 visible cluster pairs before
+the symmetric pass and 574,014 after it. CPU is user seconds on a loaded
+4-core box, so read it as a ratio:
+
+| flow | portal-flow chains | CPU-s | pairs lost (before / after the symmetric pass) |
+|---|---:|---:|---:|
+| exact (no flag) | 146.3M | 122 | 0 / 0 |
+| `-fastflow=0` | 61.5M | 53 | 33,432 / 60,786 (5.8 % / 10.6 %) |
+| `-fastflow` (`=1000`) | 71.1M | 62 | 9,599 / 17,622 (1.7 % / 3.1 %) |
+| `-fastflow=5000` | 91.6M | 79 | 3,980 / 7,286 (0.7 % / 1.3 %) |
+| `-fastflow=20000` | 114.3M | 98 | 1,186 / 2,156 (0.2 % / 0.4 %) |
+| `-fastflow=50000` | 128.4M | 108 | 540 / 1,036 (0.1 % / 0.2 %) |
+
+- **Only ever fewer clusters.** At every `N` the PVS is a subset of the
+  exact one: the flag can cull geometry that is in view, and never adds
+  overdraw.
+- **Deterministic.** Each portal is flowed whole on one thread, once every
+  portal it prunes with has finished, so the output is the same at every
+  thread count and on every run (Tools++'s is not).
+- **Against Tools++.** On the same tree Tools++ does about 2.5 times less
+  work than the exact flow, misses 226 of stock's pairs and adds about 700:
+  more accurate than `-fastflow` at a similar speed.
+
+Use it to iterate on a layout, and compile without it for a release. `-fast`
+still skips the flow altogether and wins when both are given; under
+`-loose` (which prunes with no other portal's vector) the early stop is
+exact and only saves work. The mechanism and the other variants measured on
+the way (a depth limit instead of a step count; publishing a conservative
+vector, which keeps every pair but saves only 6 %) are described on
+`VisClusterStop` in `src/SourceSharp.MapTools/Vis/`.
 
 ### `all`
 
@@ -924,6 +978,12 @@ The toolsets:
   The script publishes it unless `--no-build` is given. The chain runs
   one process per stage, as the stock tools do, and AOT skips the .NET
   start-up and JIT that each of those processes otherwise pays.
+- `ssmap-fast` and `ssmap-aot-fast`: the same two builds with vvis
+  `-fastflow` (see [the fast flow](#the-fast-vvis-flow--fastflown)) and
+  nothing else changed. The flag goes on the vvis stage only. Its accuracy
+  cost shows in the `vis bytes` column of `summary.md`, next to plain
+  `ssmap` and `stock`: the fast flow can only drop visible clusters, so its
+  visibility lump is usually smaller.
 
 `--toolsets` picks a subset.
 
