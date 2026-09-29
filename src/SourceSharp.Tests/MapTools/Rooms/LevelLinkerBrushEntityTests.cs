@@ -193,9 +193,22 @@ public sealed class LevelLinkerBrushEntityTests
         Placed trigger = Named(bsp, "targetname", "hub_trigger");
         Assert.Single(ModelBrushes(bsp, trigger.Model));
 
-        // With the north socket jointed too, the trigger inside that doorway stays.
+        // With the north socket jointed, the trigger inside that doorway
+        // stays, whole: its brush, and its faces drawn as they were (the
+        // plug's faces, not the trigger's, turn nodraw).
         LinkedLevel both = await RoomPropHarness.LinkAsync(rooms, level);
-        Assert.Single(ModelBrushes(both.Bsp, Named(both.Bsp, "targetname", "hub_trigger").Model));
+        Placed kept = Named(both.Bsp, "targetname", "hub_trigger");
+        Assert.Single(ModelBrushes(both.Bsp, kept.Model));
+        DModel triggerModel = BspStructView.As<DModel>(both.Bsp[BspLump.Models])[kept.Model];
+        DFace[] drawn = BspStructView.As<DFace>(both.Bsp[BspLump.Faces]).ToArray();
+        DFace[] original = BspStructView.As<DFace>(both.Bsp[BspLump.OriginalFaces]).ToArray();
+        TexInfo[] infos = BspStructView.As<TexInfo>(both.Bsp[BspLump.TexInfo]).ToArray();
+        for (int f = triggerModel.FirstFace; f < triggerModel.FirstFace + triggerModel.NumFaces; f++)
+        {
+            Assert.Equal(0, infos[drawn[f].TexInfo].Flags & (int)SourceSharp.MapTools.Materials.SurfaceFlags.NoDraw);
+            Assert.Equal(0, infos[original[drawn[f].OrigFace].TexInfo].Flags & (int)SourceSharp.MapTools.Materials.SurfaceFlags.NoDraw);
+        }
+
         Assert.Null(BrushEntities(both.Bsp).FirstOrDefault(p => p.Entity.Get("targetname") == "hub_door"));
         Assert.Equal(Observed(await CompileFlatAsync(library, level)), Observed(both.Bsp));
     }
@@ -469,6 +482,34 @@ public sealed class LevelLinkerBrushEntityTests
         LinkedLevel linked = await RoomPropHarness.LinkAsync(rooms, RoomPropHarness.Level("hub@90, other"));
         Assert.Equal(0, linked.Bsp[BspLump.PhysCollide].Length);
         Assert.Equal(5, BspStructView.Count<DModel>(linked.Bsp[BspLump.Models]));
+    }
+
+    /// <summary>
+    /// A room's collision lump with brush model records: the link's world
+    /// merge reads the world's record and leaves the models' to the models;
+    /// a lump whose first record is not the world's, or with a record for a
+    /// model the room does not have, or two for one model, is refused as
+    /// before.
+    /// </summary>
+    [Fact]
+    public async Task AWorldCollisionWithBrushModelRecordsReadsTheWorlds()
+    {
+        RoomObject hub = (await CompileAsync(RoomPropHarness.Library(HubBrushes[..2]))).Get("hub");
+        IReadOnlyList<PhysCollideModel> records = PhysCollideLump.Read(hub.Bsp[BspLump.PhysCollide].Data.Span);
+        Assert.Equal([0, 1, 2], records.Select(r => r.ModelIndex));
+        Assert.Equal(records[0].Solids.Count, LevelLinker.ReadRoomCollide(hub.Bsp, "hub").Solids.Count);
+
+        foreach (PhysCollideModel[] bad in new[]
+        {
+            new[] { records[1], records[0] },
+            new[] { records[0], records[1] with { ModelIndex = 3 } },
+            new[] { records[0], records[1], records[1] },
+        })
+        {
+            RoomObject edited = RoomHarness.WithLumps(hub, b => b.SetLump(BspLump.PhysCollide, PhysCollideLump.Write(bad)));
+            LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.ReadRoomCollide(edited.Bsp, "hub"));
+            Assert.Equal($"room hub's world collision has {bad.Length} records; a linkable room has one, for model 0", refused.Message);
+        }
     }
 
     private static HashSet<int> Reached(BspData bsp, int head)

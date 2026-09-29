@@ -10,6 +10,11 @@ using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
 
+using SourceSharp.MapTools.Bsp;
+using SourceSharp.MapTools.Bsp.Driver;
+using SourceSharp.MapTools.Diagnostics;
+using SourceSharp.MapTools.Options;
+using SourceSharp.MapTools.Phys.Managed;
 using SourceSharp.MapTools.Rooms;
 using SourceSharp.RoomContracts;
 
@@ -276,6 +281,146 @@ public sealed class RoomBrushModelsTests
         }
 
         Assert.Equal(expected, RoomBrushModels.IsOriginRelative(entity));
+    }
+
+    /// <summary>
+    /// The layout the description relies on is vbsp's, and a compile laid
+    /// out otherwise is a bug, reported as one rather than described wrong:
+    /// a model no entity names, a model the loaded map has no entity for,
+    /// a vertex-normal index lump that is not one index per face vertex, a
+    /// tree that reaches a node twice, two models sharing a run, a model
+    /// whose edges another model's face uses.
+    /// </summary>
+    [Fact]
+    public async Task ACompileNotLaidOutAsVbspLaysItOutIsABug()
+    {
+        (BspData bsp, MapFile map) = await CompileHubAsync();
+        RoomDefinition hub = RoomPropHarness.Hub;
+        Assert.NotNull(RoomBrushModels.Build(hub, bsp, map));
+
+        string Bug(BspData edited, MapFile? loaded = null) =>
+            Assert.Throws<MapCompileException>(() => RoomBrushModels.Build(hub, edited, loaded ?? map)).Message;
+
+        const string Tail = "; brush models are not laid out as vbsp lays them out.";
+        Assert.Equal("room hub's compile has no entity naming model *1" + Tail, Bug(Edit(bsp, b =>
+        {
+            List<BspEntity> entities = EntityLump.Parse(b[BspLump.Entities]);
+            entities.Single(e => e.Get("model") == "*1").Pairs.RemoveAll(p => p.Key == "model");
+            b[BspLump.Entities] = EntityLump.Write(entities);
+        })));
+
+        MapFile unnamed = await LoadHubAsync();
+        Assert.Equal("room hub's compile loaded no entity naming model *1" + Tail, Bug(bsp, unnamed));
+
+        Assert.Equal(
+            $"room hub's compile has 3 vertex-normal indices for {BspStructView.As<DFace>(bsp[BspLump.Faces]).ToArray().Sum(f => f.NumEdges)} face vertices" + Tail,
+            Bug(Edit(bsp, b => b.SetLump(BspLump.VertNormalIndices, new byte[6]))));
+
+        DModel[] models = BspStructView.As<DModel>(bsp[BspLump.Models]).ToArray();
+        Assert.Equal("room hub's compile has two brush models sharing one run of a lump" + Tail, Bug(Edit(bsp, b =>
+        {
+            DModel[] shared = [.. models];
+            shared[2].HeadNode = shared[1].HeadNode;
+            b[BspLump.Models] = BspStructView.ToLump<DModel>(shared, b[BspLump.Models].Version);
+        })));
+
+        Assert.StartsWith("room hub's compile model 1's tree reaches node", Bug(Edit(bsp, b =>
+        {
+            DNode[] nodes = BspStructView.As<DNode>(b[BspLump.Nodes]).ToArray();
+            nodes[models[1].HeadNode].Children[0] = models[1].HeadNode;
+            b[BspLump.Nodes] = BspStructView.ToLump<DNode>(nodes, b[BspLump.Nodes].Version);
+        })), StringComparison.Ordinal);
+
+        Assert.Equal("room hub's compile model 1's edges are used by a face of another model" + Tail, Bug(Edit(bsp, b =>
+        {
+            int[] surfEdges = BspStructView.As<int>(b[BspLump.SurfEdges]).ToArray();
+            DFace doorFace = BspStructView.As<DFace>(b[BspLump.Faces])[models[1].FirstFace];
+            surfEdges[0] = surfEdges[doorFace.FirstEdge];
+            b[BspLump.SurfEdges] = BspStructView.ToLump<int>(surfEdges, b[BspLump.SurfEdges].Version);
+        })));
+
+        Assert.Equal("room hub's compile model 1's leaves are not one run" + Tail, Bug(Edit(bsp, b =>
+        {
+            DNode[] nodes = BspStructView.As<DNode>(b[BspLump.Nodes]).ToArray();
+            int child = nodes[models[1].HeadNode].Children[0] < 0 ? 0 : 1;
+            nodes[models[1].HeadNode].Children[child] = -(0 + 1);
+            b[BspLump.Nodes] = BspStructView.ToLump<DNode>(nodes, b[BspLump.Nodes].Version);
+        })));
+    }
+
+    /// <summary>
+    /// The link refuses brush model data whose faces do not follow the
+    /// world's, model by model, which the face order of the linked map
+    /// relies on; it is refused naming the room.
+    /// </summary>
+    [Fact]
+    public async Task TheLinkRefusesModelsWhoseFacesDoNotFollowTheWorlds()
+    {
+        RoomObject hub = await HubWithBrushesAsync();
+        RoomObject moved = RoomHarness.WithLumps(hub, b =>
+        {
+            DModel[] models = BspStructView.As<DModel>(b[BspLump.Models]).ToArray();
+            models[0].FirstFace = 1;
+            b[BspLump.Models] = BspStructView.ToLump<DModel>(models, b[BspLump.Models].Version);
+        });
+        moved = moved with { BrushModels = hub.BrushModels!.For(moved.Bsp), Names = null };
+        LinkException refused = await Assert.ThrowsAsync<LinkException>(
+            () => RoomPropHarness.LinkAsync(RoomPropHarness.RoomsOf(moved), RoomPropHarness.Level("hub")));
+        Assert.Equal(
+            "room hub's brush model 1 does not follow the world's faces; brush models are not laid out as vbsp lays them out",
+            refused.Message);
+    }
+
+    /// <summary>
+    /// The prefix-sum maps an omitted model's runs leave: an index before a
+    /// run keeps its place, one after it moves down by the run's length,
+    /// one inside it is gone (or, for a range start of length 0, takes the
+    /// run's place); and a lump keeps its length less every omitted run.
+    /// </summary>
+    [Fact]
+    public void AnOmittedRunShiftsEveryIndexAfterIt()
+    {
+        RoomRange[] omitted = [new RoomRange(3, 2), new RoomRange(10, 4)];
+        Assert.Equal([0, 1, 2, -1, -1, 3, 4, 5, 6, 7, -1, -1, -1, -1, 8], Enumerable.Range(0, 15).Select(i => LevelLinker.RoomModelLayout.Kept(omitted, i)));
+        Assert.Equal([0, 1, 2, 3, 3, 3, 4, 5, 6, 7, 8, 8, 8, 8, 8], Enumerable.Range(0, 15).Select(i => LevelLinker.RoomModelLayout.KeptOrAt(omitted, i)));
+        Assert.Equal(9, LevelLinker.RoomModelLayout.KeptCount(omitted, 15));
+        Assert.Equal(7, LevelLinker.RoomModelLayout.Kept([], 7));
+        Assert.True(new RoomRange(3, 2).Contains(4));
+        Assert.False(new RoomRange(3, 2).Contains(5));
+        Assert.False(new RoomRange(3, 0).Contains(3));
+    }
+
+    /// <summary>The harness hub with a door and a hinged door, compiled by vbsp directly, with the map it loaded.</summary>
+    private static async Task<(BspData Bsp, MapFile Map)> CompileHubAsync()
+    {
+        await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+        VbspContext context = await ContextAsync("hub", cooker);
+        MapFile map = await LoadHubAsync(context);
+        VbspResult result = await Vbsp.CompileAsync(map, context, CancellationToken.None);
+        return (result.Bsp!, map);
+    }
+
+    private static async Task<MapFile> LoadHubAsync(VbspContext? context = null)
+    {
+        VmfDocument library = RoomPropHarness.Library(
+            (0, Door(700, new Vec3(100, 100, 16), new Vec3(132, 132, 64))),
+            (0, Rotating(701, new Vec3(40, 40, 16), new Vec3(56, 90, 100), new Vec3(44, 44, 20))));
+        MapFile map = await MapFileLoader.LoadAsync(context ?? await ContextAsync("hub", null), RoomLibraryVmf.Split(library)[0].Document, CancellationToken.None);
+        MapFileReader.TakeBounds(map);
+        return map;
+    }
+
+    private static BspData Edit(BspData bsp, Action<BspData> edit)
+    {
+        BspData copy = new() { FileVersion = bsp.FileVersion, MapRevision = bsp.MapRevision };
+        for (int i = 0; i < BspData.HeaderLumps; i++)
+        {
+            copy[i] = bsp[i];
+        }
+
+        copy.GameLumps.AddRange(bsp.GameLumps);
+        edit(copy);
+        return copy;
     }
 
     private static string Describe(RoomBrushModel model) =>
