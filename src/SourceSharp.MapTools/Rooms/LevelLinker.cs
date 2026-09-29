@@ -596,8 +596,12 @@ public static partial class LevelLinker
                 }
 
                 (int keptBrushes, int keptSides) = KeptBrushTotals(room, instance, censuses);
-                LinkCounts added = LinkCounts.Of(room.Bsp, room.ClusterCount) with
+                LinkCounts compiled = LinkCounts.Of(room.Bsp, room.ClusterCount);
+                LinkCounts added = compiled with
                 {
+                    // An origin-relative brush model's vertices are linked
+                    // twice, the second copy in its entity's own frame.
+                    Vertices = compiled.Vertices + LocalVertexCount(room),
                     TexDatas = textures.TexDatas.Count - texDatas,
                     StringTable = textures.StringTable.Count - strings,
                     Brushes = keptBrushes,
