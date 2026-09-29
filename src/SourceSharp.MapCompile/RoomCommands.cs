@@ -26,6 +26,7 @@ using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Phys;
 using SourceSharp.MapTools.Rooms;
+using SourceSharp.RoomContracts;
 
 namespace SourceSharp.MapCompile;
 
@@ -693,6 +694,20 @@ public static class RoomCommands
     /// to where the level is written (or to the current folder, when it is
     /// printed), so <c>ssmap link</c> finds it from the file. The options
     /// take one dash or two.
+    /// <para>
+    /// <b>Transitions</b> (the rooms design, 11.2). A library with role rooms
+    /// places one up room and one down room per level, so the level needs the
+    /// maps above and below: <c>-up-map</c> and <c>-down-map</c>, or
+    /// <c>-no-up</c> and <c>-no-down</c> for the top or bottom level;
+    /// <c>-transition-distance N</c> keeps the two at least N doors apart.
+    /// <c>-sequence K -name &lt;base&gt;</c> writes a run instead:
+    /// <c>&lt;base&gt;_01.yaml</c> to <c>&lt;base&gt;_K.yaml</c> from seeds N,
+    /// N + 1, ..., into <c>-out</c>'s folder (the current one by default),
+    /// each level's <c>down_map</c> the next's name and its <c>up_map</c> the
+    /// previous one's, the first <c>up: none</c> and the last
+    /// <c>down: none</c>. A library without roles writes the levels it always
+    /// wrote unless a transition option is given.
+    /// </para>
     /// </remarks>
     public static async Task<int> RunLayoutAsync(
         IFileSystem disk,
@@ -706,15 +721,30 @@ public static class RoomCommands
 
         const string Usage =
             "usage: ssmap layout <library.vmf> -rows <n> -columns <n> -seed <n> [-empty <ratio>]"
-            + " [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]";
+            + " [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]"
+            + " [-up-map <map> | -no-up] [-down-map <map> | -no-down] [-transition-distance <n>]\n"
+            + "       ssmap layout <library.vmf> -rows <n> -columns <n> -seed <n> -sequence <k> -name <base> [-out <folder>] [...]";
         List<string> rest = [];
         string? rows = null, columns = null, seed = null, empty = null, outPath = null, roomsPack = null, budgetText = null;
-        bool modEntities = false;
+        string? upMap = null, downMap = null, distanceText = null, sequenceText = null, baseName = null;
+        bool modEntities = false, noUp = false, noDown = false;
         for (int i = 0; i < args.Count; i++)
         {
             if (IsFlag(args[i], "mod-entities"))
             {
                 modEntities = true;
+                continue;
+            }
+
+            if (IsFlag(args[i], "no-up"))
+            {
+                noUp = true;
+                continue;
+            }
+
+            if (IsFlag(args[i], "no-down"))
+            {
+                noDown = true;
                 continue;
             }
 
@@ -746,6 +776,26 @@ public static class RoomCommands
             {
                 budgetText = value;
             }
+            else if (Take(args, i, "up-map", out value))
+            {
+                upMap = value;
+            }
+            else if (Take(args, i, "down-map", out value))
+            {
+                downMap = value;
+            }
+            else if (Take(args, i, "transition-distance", out value))
+            {
+                distanceText = value;
+            }
+            else if (Take(args, i, "sequence", out value))
+            {
+                sequenceText = value;
+            }
+            else if (Take(args, i, "name", out value))
+            {
+                baseName = value;
+            }
             else
             {
                 rest.Add(args[i]);
@@ -755,10 +805,37 @@ public static class RoomCommands
             i++;
         }
 
-        if (rest.Count != 1 || rows is null || columns is null || seed is null)
+        if (rest.Count != 1 || rows is null || columns is null || seed is null
+            || (sequenceText is null) != (baseName is null)
+            || (sequenceText is not null && (upMap is not null || downMap is not null || noUp || noDown))
+            || (noUp && upMap is not null) || (noDown && downMap is not null))
         {
             await output.WriteLineAsync(Usage).ConfigureAwait(false);
             return Program.ExitUsage;
+        }
+
+        int sequence = 0;
+        if (sequenceText is not null
+            && (!int.TryParse(sequenceText, NumberStyles.None, CultureInfo.InvariantCulture, out sequence) || sequence < 1 || sequence > 999))
+        {
+            await output.WriteLineAsync("ssmap layout: -sequence is a whole number of levels from 1 to 999").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        int distance = 0;
+        if (distanceText is not null && !int.TryParse(distanceText, NumberStyles.None, CultureInfo.InvariantCulture, out distance))
+        {
+            await output.WriteLineAsync("ssmap layout: -transition-distance is a whole number of doors from 0").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        foreach ((string flag, string? map) in (ReadOnlySpan<(string, string?)>)[("-up-map", upMap), ("-down-map", downMap), ("-name", baseName)])
+        {
+            if (map is not null && LevelTransitions.MapNameProblem(map) is { } problem)
+            {
+                await output.WriteLineAsync($"ssmap layout: {flag} \"{map}\" {problem}").ConfigureAwait(false);
+                return Program.ExitUsage;
+            }
         }
 
         if (!int.TryParse(rows, NumberStyles.None, CultureInfo.InvariantCulture, out int rowCount) || rowCount < 1
@@ -830,6 +907,9 @@ public static class RoomCommands
             return ExitFailed;
         }
 
+        // With -sequence, -out names the folder the levels go to.
+        string? folder = sequenceText is null ? null : target ?? Path.GetFullPath(".");
+        List<(VPath Path, string Text)> files = [];
         string text;
         try
         {
@@ -837,11 +917,46 @@ public static class RoomCommands
                 await ReadVmfAsync(disk, libraryVPath, cancellationToken).ConfigureAwait(false));
             LayoutEntityBudget? budget = await LayoutBudgetAsync(disk, packPath, rooms, explicitBudget, modEntities, cancellationToken)
                 .ConfigureAwait(false);
-            string from = target is null ? Path.GetFullPath(".") : Path.GetDirectoryName(target)!;
+            string from = folder ?? (target is null ? Path.GetFullPath(".") : Path.GetDirectoryName(target)!);
             string library = Path.GetRelativePath(from, libraryPath).Replace('\\', '/');
-            string name = target is null ? "level" : Path.GetFileNameWithoutExtension(target);
-            LevelGrid level = LevelGenerator.Generate([.. rooms.Select(r => r.Definition)], options, name, library, budget);
-            text = LevelYaml.Write(level, LevelGenerator.Header(options, level));
+            RoomDefinition[] definitions = [.. rooms.Select(r => r.Definition)];
+            RoomRole[] roles = [.. rooms.Select(r => r.Role)];
+            if (sequenceText is not null)
+            {
+                foreach (LevelGrid level in LevelGenerator.GenerateSequence(definitions, options, sequence, baseName!, library, budget, roles, distance))
+                {
+                    LevelGeneratorOptions own = options with { Seed = unchecked(options.Seed + (ulong)files.Count) };
+                    string path = Path.Combine(folder!, level.Name + ".yaml");
+                    if (!VPath.TryCreate(path, out VPath levelPath))
+                    {
+                        throw new IOException($"\"{path}\" is not a usable path");
+                    }
+
+                    files.Add((levelPath, LevelYaml.Write(level, LevelGenerator.Header(own, level))));
+                }
+
+                text = string.Empty;
+            }
+            else
+            {
+                string name = target is null ? "level" : Path.GetFileNameWithoutExtension(target);
+                bool hasRoles = roles.Any(r => r != RoomRole.None);
+                LevelTransitions? transitions = hasRoles || noUp || noDown || upMap is not null || downMap is not null
+                    ? new LevelTransitions { NoUp = noUp, NoDown = noDown, UpMap = upMap, DownMap = downMap }
+                    : null;
+                if (hasRoles && ((!noUp && upMap is null) || (!noDown && downMap is null)))
+                {
+                    string role = !noUp && upMap is null ? "up" : "down";
+                    throw new LinkException(
+                        $"the library has role rooms, so the level holds {(role == "up" ? "an" : "a")} {role} room and names its map:"
+                        + $" give -{role}-map <map>, or -no-{role} for a level without one.");
+                }
+
+                LevelGrid level = LevelGenerator.Generate(
+                    definitions, options, name, library, budget,
+                    new LayoutTransitions(roles) { NoUp = noUp, NoDown = noDown, MinDistance = distance }).WithTransitions(transitions);
+                text = LevelYaml.Write(level, LevelGenerator.Header(options, level));
+            }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or ChunkFileException or RoomLibraryException or LinkException or ArgumentException)
@@ -850,27 +965,36 @@ public static class RoomCommands
             return ExitFailed;
         }
 
-        if (target is null)
+        if (sequenceText is null && target is null)
         {
             await output.WriteAsync(text).ConfigureAwait(false);
             return Program.ExitSuccess;
         }
 
-        byte[] bytes = new UTF8Encoding(false).GetBytes(text);
-        try
+        if (sequenceText is null)
         {
-            await disk.ReplaceAsync(
-                targetPath,
-                async (stream, token) => await stream.WriteAsync(bytes, token).ConfigureAwait(false),
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            await output.WriteLineAsync($"ssmap layout: cannot write {target}: {exception.Message}").ConfigureAwait(false);
-            return ExitFailed;
+            files.Add((targetPath, text));
         }
 
-        await output.WriteLineAsync($"ssmap layout: wrote {HostPaths.Display(targetPath)}").ConfigureAwait(false);
+        foreach ((VPath path, string content) in files)
+        {
+            byte[] bytes = new UTF8Encoding(false).GetBytes(content);
+            try
+            {
+                await disk.ReplaceAsync(
+                    path,
+                    async (stream, token) => await stream.WriteAsync(bytes, token).ConfigureAwait(false),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                await output.WriteLineAsync($"ssmap layout: cannot write {HostPaths.Display(path)}: {exception.Message}").ConfigureAwait(false);
+                return ExitFailed;
+            }
+
+            await output.WriteLineAsync($"ssmap layout: wrote {HostPaths.Display(path)}").ConfigureAwait(false);
+        }
+
         return Program.ExitSuccess;
     }
 
@@ -919,7 +1043,7 @@ public static class RoomCommands
             // flags, and without -mod-entities its hub's stock fallback): at
             // most what its names say, so the layout never under-counts.
             int written = counts.Names.GetValueOrDefault(name)?.WrittenEdictsBound(modEntities) ?? 0;
-            edicts.Add(found.Tally(EntityClassTable.Default).Edicts + written);
+            edicts.Add(found.Tally(EntityClassTable.Default).Edicts + written + TransitionEdictsBound(room, modEntities));
         }
 
         int budget = explicitBudget
@@ -928,6 +1052,28 @@ public static class RoomCommands
         // The library's own entities are the level's whatever it places, as
         // the link counts them.
         return new LayoutEntityBudget(budget, edicts) { LevelEdicts = RoomLibraryEntities.Count(counts.LibraryEntities).Tally(EntityClassTable.Default).Edicts };
+    }
+
+    /// <summary>
+    /// What the stock fallback writes for a role room at most, in edicts
+    /// (the rooms design, 11.6): a landmark for either role, and for an up
+    /// room the level's player starts, its arrival and its spawn points. The
+    /// volume becomes the changelevel, one edict for one, and with
+    /// <c>-mod-entities</c> the room's transition costs no edict at all
+    /// (<c>logic_level_transition</c> is server-only), so nothing is added.
+    /// The rooms' own player starts, which the level strips, are still
+    /// counted, so this never under-counts.
+    /// </summary>
+    private static int TransitionEdictsBound(LibraryRoom room, bool modEntities)
+    {
+        if (modEntities || room.Role == RoomRole.None)
+        {
+            return 0;
+        }
+
+        return room.Role == RoomRole.Down
+            ? 1
+            : 2 + RoomPois.Extract(room.Document).Pois.Count(p => p.Type == LevelTransition.Spell(PoiType.Spawn));
     }
 
     /// <summary>
@@ -1223,9 +1369,16 @@ public static class RoomCommands
         {
             RoomDefinition definition = room.Definition;
             float cell = definition.CellSize;
+            // A role room says so; an ordinary room's line is as it was.
+            string role = room.Role switch
+            {
+                RoomRole.Up => ", role up",
+                RoomRole.Down => ", role down",
+                _ => string.Empty,
+            };
             text.Append(CultureInfo.InvariantCulture,
                 $"{definition.Name}: cell at ({Num(room.Corner)}), {Num(cell)} x {Num(cell)} x {Num(cell)}, "
-                + $"{definition.Sockets.Count} door(s)\n");
+                + $"{definition.Sockets.Count} door(s){role}\n");
             if (counts is not null)
             {
                 text.Append(EntityLine(definition.Name, counts, table!));
@@ -1497,6 +1650,17 @@ public static class RoomCommands
             foreach (string nameWarning in link.NameWarnings)
             {
                 await output.WriteLineAsync($"ssmap link: warning: {nameWarning}").ConfigureAwait(false);
+            }
+
+            // With the mod's classes a level's arrival and spawn points are
+            // read from its navigation sidecar (the rooms design, 11.5): a
+            // level with transitions linked without one has none for the mod.
+            if (linkOptions.ModEntities && link.HasTransitions && !navPlan.WritesNavigation)
+            {
+                await output.WriteLineAsync(
+                    $"ssmap link: warning: level {level.Name}: -mod-entities places players at the arrival and spawn points of the"
+                    + " navigation sidecar, and the level links without navigation; build the library's navigation, or link without -mod-entities.")
+                    .ConfigureAwait(false);
             }
 
             LevelEntityReport budget = link.EntityBudget!;

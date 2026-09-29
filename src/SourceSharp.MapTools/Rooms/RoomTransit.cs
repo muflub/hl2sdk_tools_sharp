@@ -174,7 +174,7 @@ internal sealed class RoomTransit
             return spawns.Count == 0 ? null : new RoomTransit(role, -1, default, -1, default, null, spawns);
         }
 
-        string roleName = role == RoomRole.Up ? "up" : "down";
+        string roleName = role == RoomRole.Up ? "an up" : "a down";
         foreach (VmfChunk volume in volumes)
         {
             if (!string.Equals(volume.GetValue("targetname"), VolumeName, StringComparison.Ordinal))
@@ -187,14 +187,14 @@ internal sealed class RoomTransit
         if (volumes.Count != 1)
         {
             throw new RoomLintException(string.Create(CultureInfo.InvariantCulture,
-                $"room {name}: a {roleName} room needs exactly one {VolumeClass} named {VolumeName}; it has {volumes.Count}."));
+                $"room {name}: {roleName} room needs exactly one {VolumeClass} named {VolumeName}; it has {volumes.Count}."));
         }
 
         List<AuthoredPoi> arrivals = [.. pois.Where(p => p.Type == RoomPois.ArrivalType)];
         if (arrivals.Count != 1)
         {
             throw new RoomLintException(string.Create(CultureInfo.InvariantCulture,
-                $"room {name}: a {roleName} room needs exactly one arrival point; it has {arrivals.Count}."));
+                $"room {name}: {roleName} room needs exactly one arrival point; it has {arrivals.Count}."));
         }
 
         VmfChunk transition = volumes[0];

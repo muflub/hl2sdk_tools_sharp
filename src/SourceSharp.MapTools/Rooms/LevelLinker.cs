@@ -412,6 +412,7 @@ public static partial class LevelLinker
             PackedFiles = packedFiles,
             NameWarnings = naming.Result?.Warnings ?? [],
             NameNotes = naming.Result?.Verbose ?? [],
+            HasTransitions = transitions is not null,
         };
     }
 
@@ -1846,4 +1847,13 @@ public sealed record LinkedLevel(BspData Bsp, VisResult Vis, LevelPlan Plan)
     /// expected.
     /// </summary>
     public IReadOnlyList<string> NameNotes { get; init; } = [];
+
+    /// <summary>
+    /// Whether the level has transitions and a spawn (the rooms design,
+    /// section 11: a transition key in its file, or a placed role room), so
+    /// its room starts were stripped and its transitions written. With the
+    /// mod's classes, the arrival and spawn points are the navigation
+    /// sidecar's, so a host that writes none should say so.
+    /// </summary>
+    public bool HasTransitions { get; init; }
 }
