@@ -3,6 +3,8 @@
     python3 -m unittest discover -s tools/tests
 """
 
+import contextlib
+import io
 import os
 import shutil
 import struct
@@ -227,6 +229,34 @@ class ToolsetTests(unittest.TestCase):
         argv, _ = tb.SsmapToolset("ssmap-aot", ["/bin/aot/ssmap"], "/g").stage("vbsp", "/w", "m", ["-threads", "2"])
         self.assertEqual(argv, ["/bin/aot/ssmap", "vbsp", "-game", "/g", "-threads", "2", os.path.join("/w", "m.vmf")])
 
+    def test_fast_toolsets_add_the_flag_to_vvis_only(self):
+        sets = tb.ssmap_toolsets(["ssmap-fast", "ssmap-aot-fast"], "dotnet", "ssmap.dll", "/aot/ssmap", "/g")
+        self.assertEqual(sets["ssmap-fast"].command, ["dotnet", "ssmap.dll"])
+        self.assertEqual(sets["ssmap-aot-fast"].command, ["/aot/ssmap"])
+        for t in sets.values():
+            vbsp, _ = t.stage("vbsp", "/w", "m", ["-threads", "2"])
+            vvis, _ = t.stage("vvis", "/w", "m", ["-threads", "2"])
+            vrad, _ = t.stage("vrad", "/w", "m", ["-threads", "2"])
+            self.assertEqual(vvis[-5:], ["/g", tb.SSMAP_FAST_FLAG, "-threads", "2", os.path.join("/w", "m.bsp")])
+            self.assertNotIn(tb.SSMAP_FAST_FLAG, vbsp)
+            self.assertNotIn(tb.SSMAP_FAST_FLAG, vrad)
+
+    def test_plain_ssmap_toolsets_have_no_flag(self):
+        sets = tb.ssmap_toolsets(["stock", "ssmap", "ssmap-aot"], "dotnet", "ssmap.dll", "/aot/ssmap", "/g")
+        self.assertEqual(sorted(sets), ["ssmap", "ssmap-aot"])
+        for t in sets.values():
+            for stage in tb.STAGES:
+                self.assertNotIn(tb.SSMAP_FAST_FLAG, t.stage(stage, "/w", "m", [])[0])
+
+    def test_toolsets_parse_in_order_and_name_the_unknown(self):
+        self.assertEqual(tb.parse_toolsets("ssmap-fast, stock,,ssmap-aot-fast"),
+                         (["ssmap-fast", "stock", "ssmap-aot-fast"], []))
+        self.assertEqual(tb.parse_toolsets("ssmap,ssmap-slow"), (["ssmap", "ssmap-slow"], ["ssmap-slow"]))
+
+    def test_the_default_toolsets_are_all_six(self):
+        self.assertEqual(tb.parse_toolsets(tb.parse_args([]).toolsets)[0],
+                         ["stock", "pp", "ssmap", "ssmap-aot", "ssmap-fast", "ssmap-aot-fast"])
+
     def test_aot_rid_follows_the_platform(self):
         self.assertEqual(tb.aot_rid("x86_64", "linux"), "linux-x64")
         self.assertEqual(tb.aot_rid("aarch64", "linux"), "linux-arm64")
@@ -236,6 +266,45 @@ class ToolsetTests(unittest.TestCase):
 
     def test_wine_path_is_rooted_at_z(self):
         self.assertTrue(tb.wine_path("/a/b").startswith("Z:"))
+
+
+class DryRunTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.vmf = os.path.join(self.dir, "m.vmf")
+        with open(self.vmf, "w") as f:
+            f.write("versioninfo {}")
+        self.game = os.path.join(self.dir, "game")
+        os.makedirs(self.game)
+        with open(os.path.join(self.game, "gameinfo.txt"), "w") as f:
+            f.write(GAMEINFO)
+
+    def dry_run(self, toolsets):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = tb.main(["--dry-run", "--toolsets", toolsets, "--map", f"m={self.vmf}:{self.game}",
+                            "--out", os.path.join(self.dir, "out"), "--dotnet", "dotnet", "--vvis=-v"])
+        self.assertEqual(code, 0)
+        return out.getvalue().splitlines()
+
+    def test_prints_one_chain_per_toolset_with_the_flag_on_fast_vvis_only(self):
+        lines = self.dry_run("ssmap,ssmap-fast,ssmap-aot-fast")
+        self.assertEqual(len(lines), 9)
+        by = {(line.split("]")[0].split("/")[1], line.split(") ")[1].split()[2 if "dotnet" in line else 1]): line
+              for line in lines}
+        self.assertNotIn(tb.SSMAP_FAST_FLAG, by[("ssmap", "vvis")])
+        self.assertIn(f"-game {self.game} {tb.SSMAP_FAST_FLAG} -v ", by[("ssmap-fast", "vvis")])
+        self.assertIn(f"{tb.SSMAP_FAST_FLAG} -v ", by[("ssmap-aot-fast", "vvis")])
+        for name in ("ssmap-fast", "ssmap-aot-fast"):
+            self.assertNotIn(tb.SSMAP_FAST_FLAG, by[(name, "vbsp")])
+            self.assertNotIn(tb.SSMAP_FAST_FLAG, by[(name, "vrad")])
+
+    def test_an_unknown_toolset_is_a_usage_error(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(tb.main(["--dry-run", "--toolsets", "ssmap-turbo"]), 2)
+        self.assertIn("ssmap-aot-fast", err.getvalue())
 
 
 class FakeToolset(tb.Toolset):
@@ -317,7 +386,18 @@ class SummaryTests(unittest.TestCase):
         md = tb.render_markdown(["h"], tb.summarise(results, ["stock", "ssmap"]), results, ["stock", "ssmap"],
                                 {"m": [("|appid_1|x", "Steam app 1 is not installed")]})
         self.assertIn("| ssmap | 1.00 | 0.50 | 0.50 | 2.00 | 2.00–2.00 | 0.50× | 1/1 |", md)
+        self.assertIn("| ssmap | 1 | 1 | 5 | 0 | 0 |  |", md)
         self.assertIn("Steam app 1 is not installed", md)
+
+    def test_markdown_puts_the_fast_rows_vis_bytes_beside_plain_ssmaps(self):
+        def record(vis):
+            return dict(self.run_record([1, 1, 1]), bsp_bytes=9, vis_bytes=vis, light_bytes=5,
+                        light_hdr_bytes=0, not_found=0)
+        results = {"m": {"ssmap": [record(700)], "ssmap-fast": [record(720)]}}
+        md = tb.render_markdown(["h"], tb.summarise(results, ["ssmap", "ssmap-fast"]), results,
+                                ["ssmap", "ssmap-fast"], {})
+        self.assertIn("| ssmap | 9 | 700 | 5 |", md)
+        self.assertIn("| ssmap-fast | 9 | 720 | 5 |", md)
 
     def test_map_spec_splits_at_the_last_colon(self):
         self.assertEqual(tb.parse_map_spec("a=C:/x.vmf:game/mod"), ("a", "C:/x.vmf", "game/mod"))

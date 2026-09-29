@@ -88,6 +88,15 @@ public sealed record VisContext
     internal Action<int, bool>? TighteningSettleProbe { get; init; }
 
     /// <summary>
+    /// For the facts and the measurement: what a <c>-fastflow</c> portal
+    /// publishes for the portals ranked above it. Only the default,
+    /// <see cref="VisFastFlowFilter.Truncated"/>, is reachable from
+    /// <see cref="VvisOptions.FastFlowSteps"/>; the other arms are the ones it was
+    /// chosen against, kept so the containments between them stay pinned.
+    /// </summary>
+    internal VisFastFlowFilter FastFlowFilter { get; init; } = VisFastFlowFilter.Truncated;
+
+    /// <summary>
     /// Which bit-vector implementation the inner loop runs.
     /// </summary>
     /// <remarks>
