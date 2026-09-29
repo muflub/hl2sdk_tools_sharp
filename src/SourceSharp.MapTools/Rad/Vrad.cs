@@ -86,7 +86,7 @@ public static class Vrad
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return RunAsync(bsp, context, cancellationToken);
+        return HostHandoff.ReturnAsync(RunAsync(bsp, context, cancellationToken));
     }
 
     /// <summary>
@@ -117,7 +117,7 @@ public static class Vrad
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return PrepareCoreAsync(bsp, context, cancellationToken);
+        return HostHandoff.ReturnAsync(PrepareCoreAsync(bsp, context, cancellationToken));
     }
 
     /// <summary>
@@ -144,7 +144,7 @@ public static class Vrad
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return LightCoreAsync(bsp, prepared, context, cancellationToken);
+        return HostHandoff.ReturnAsync(LightCoreAsync(bsp, prepared, context, cancellationToken));
     }
 
     /// <summary>The ranges a compile lights, in stock's order.</summary>

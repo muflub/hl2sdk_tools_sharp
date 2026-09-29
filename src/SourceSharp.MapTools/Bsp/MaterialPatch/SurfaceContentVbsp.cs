@@ -8,6 +8,7 @@
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Text;
 using SourceSharp.MapTools.Bsp.Driver;
+using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Phys;
 
 namespace SourceSharp.MapTools.Bsp.MaterialPatch;
@@ -51,7 +52,7 @@ public static class SurfaceContentVbsp
                 "-onlyents / -onlyprops update an existing BSP; call UpdateAsync", nameof(context));
         }
 
-        return Vbsp.CompileAsync(map, context, document, cooker, cancellationToken);
+        return HostHandoff.ReturnAsync(Vbsp.CompileAsync(map, context, document, cooker, cancellationToken));
     }
 
     /// <summary><c>-onlyents</c> / <c>-onlyprops</c> with the prop lumps rewritten.</summary>
@@ -77,6 +78,7 @@ public static class SurfaceContentVbsp
             throw new ArgumentException("UpdateAsync needs -onlyents or -onlyprops", nameof(context));
         }
 
-        return OnlyEntsUpdate.RunAsync(existing, map, context, [new SurfaceContentExtension(null, cooker)], cancellationToken);
+        return HostHandoff.ReturnAsync(
+            OnlyEntsUpdate.RunAsync(existing, map, context, [new SurfaceContentExtension(null, cooker)], cancellationToken));
     }
 }
