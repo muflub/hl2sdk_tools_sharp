@@ -90,6 +90,13 @@ public sealed class RadPass
 
     /// <summary>Warnings the stages add, reported with the pass.</summary>
     public List<string> Warnings { get; } = [];
+
+    /// <summary>
+    /// The compile's scratch pool, which the built-in stages rent their
+    /// per-worker batches from; null for a pass made outside
+    /// <see cref="Vrad"/>, whose stages then keep pools of their own.
+    /// </summary>
+    internal Bounce.IScratchArrayPool? ScratchPool { get; init; }
 }
 
 /// <summary>

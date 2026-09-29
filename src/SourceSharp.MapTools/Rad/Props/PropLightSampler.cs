@@ -104,7 +104,18 @@ public sealed class PropLightSampler
     /// An empty batch. Its storage is rented, so the caller disposes it: a
     /// stage's worker does through <see cref="TestLineStage"/>.
     /// </returns>
-    public TestLineBatch CreateBatch() => new(_environment);
+    public TestLineBatch CreateBatch() => ScratchPool is null ? new(_environment) : new(_environment, ScratchPool);
+
+    /// <summary>
+    /// The compile's scratch pool, which <see cref="CreateBatch"/> rents its
+    /// batches' storage from, or null for batches that keep their own.
+    /// </summary>
+    /// <remarks>
+    /// Set by the compile's prop stages, so that the batches one stage's
+    /// workers hand back when it ends are what the next stage's workers grow
+    /// into, rather than a fresh set of large arrays each stage.
+    /// </remarks>
+    internal Bounce.IScratchArrayPool? ScratchPool { get; init; }
 
     /// <summary>One light at one point (<c>GatherSampleLightSSE</c>).</summary>
     /// <param name="light">The light.</param>

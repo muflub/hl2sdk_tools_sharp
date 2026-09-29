@@ -57,7 +57,10 @@ internal static class VradBuiltInStages
             Vec3[] centres = await DetailPropLighting.LoadModelCentresAsync(lump, pass.Content, cancellationToken)
                 .ConfigureAwait(false);
             PropLightSampler sampler = new(
-                environment, pass.Options.Compliance, pass.World.Lights.SunAngularExtent, pass.Options.Fast);
+                environment, pass.Options.Compliance, pass.World.Lights.SunAngularExtent, pass.Options.Fast)
+            {
+                ScratchPool = pass.ScratchPool,
+            };
 
             DetailPropLightingResult result = await DetailPropLighting.ComputeAsync(
                 pass.Scene(bsp),
@@ -92,6 +95,7 @@ internal static class VradBuiltInStages
                     FastAmbient = pass.Options.FastAmbient,
                     Parallelism = pass.Parallelism.MaxDegree,
                     Pool = pass.Parallelism.Pool,
+                    ScratchPool = pass.ScratchPool,
                 },
                 new TracerLineVisibility(pass.Tracer, pass.Options.Compliance),
                 cancellationToken).ConfigureAwait(false);
@@ -130,7 +134,10 @@ internal static class VradBuiltInStages
             IReadOnlyList<StaticPropModel> models = await new StaticPropModelLoader(pass.Content, pass.PropCollision)
                 .LoadDictionaryAsync(lump.ModelNames, cancellationToken).ConfigureAwait(false);
             PropLightSampler sampler = new(
-                pass.Tracer, pass.Options.Compliance, pass.World.Lights.SunAngularExtent, pass.Options.Fast);
+                pass.Tracer, pass.Options.Compliance, pass.World.Lights.SunAngularExtent, pass.Options.Fast)
+            {
+                ScratchPool = pass.ScratchPool,
+            };
 
             StaticPropLightingResult result = await StaticPropLighting.ComputeAsync(
                 pass.Scene(bsp),

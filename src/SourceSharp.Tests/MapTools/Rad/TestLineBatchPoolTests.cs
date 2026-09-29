@@ -224,28 +224,43 @@ public sealed class TestLineBatchPoolTests
     /// had already rented, and leaves the batch as it was: its segments
     /// still trace, and disposing it returns the rest.
     /// </summary>
+    /// <param name="failAt">The 1-based rental that fails.</param>
+    /// <param name="heldAfter">The arrays the batch holds once it has failed.</param>
+    /// <remarks>
+    /// The segments are of mixed kinds with payloads, so the batch holds all
+    /// three segment arrays. Rental 1 is the rays; the second segment brings
+    /// the second kind (rental 2, the kinds) and the first payload that is
+    /// not zero (rental 3); the first growth, when the rays array is full,
+    /// rents the three again (4 to 6). A failure among 2 and 3 is the lazy
+    /// start of an array, and leaves the batch holding what it had before.
+    /// </remarks>
     [Theory]
-    [InlineData(5)]
-    [InlineData(6)]
-    [InlineData(7)]
-    [InlineData(8)]
-    public void AFailedRentalWhileGrowingLeaksNothing(int failAt)
+    [InlineData(2, 1)]
+    [InlineData(3, 2)]
+    [InlineData(4, 3)]
+    [InlineData(5, 3)]
+    [InlineData(6, 3)]
+    public void AFailedRentalWhileGrowingLeaksNothing(int failAt, int heldAfter)
     {
-        // The first growth rents four arrays (1..4); the second rents 5..8.
         RecyclingScratchPool pool = new() { FailRentNumber = failAt };
         TestLineBatch batch = new(Tracer, pool);
-        List<(Ray Ray, RayTraceOptions Options, float Payload)> segments = Segments(65, seed: 9, mixed: false);
-        for (int i = 0; i < 64; i++)
+        List<(Ray Ray, RayTraceOptions Options, float Payload)> segments = Segments(300, seed: 9, mixed: true);
+        int added = 0;
+        OutOfMemoryException? failure = null;
+        for (; added < segments.Count && failure is null; added++)
         {
-            batch.Add(segments[i].Ray, segments[i].Options, segments[i].Payload);
+            failure = Record.Exception(() => batch.Add(segments[added].Ray, segments[added].Options, segments[added].Payload))
+                as OutOfMemoryException;
         }
 
-        Assert.Throws<OutOfMemoryException>(() => batch.Add(segments[64].Ray, segments[64].Options));
-
-        Assert.Equal(4, pool.Outstanding);
-        Assert.Equal(64, batch.Count);
+        Assert.NotNull(failure);
+        int kept = added - 1;
+        Assert.Equal(kept, batch.Count);
+        Assert.Equal(heldAfter, pool.Outstanding);
         batch.Trace(CancellationToken.None);
-        Assert.Equal(Fresh(segments.GetRange(0, 64)).Blocked, Enumerable.Range(0, 64).Select(batch.IsBlocked));
+        (bool[] blocked, float[] payload) = Fresh(segments.GetRange(0, kept));
+        Assert.Equal(blocked, Enumerable.Range(0, kept).Select(batch.IsBlocked));
+        Assert.Equal(payload, Enumerable.Range(0, kept).Select(batch.Payload));
         batch.Dispose();
         Assert.Equal(0, pool.Outstanding);
         Assert.Equal(0, pool.BadReturns);
@@ -282,6 +297,132 @@ public sealed class TestLineBatchPoolTests
         (bool[] blocked, float[] payload) = Fresh(segments);
         Assert.Equal(blocked, Enumerable.Range(0, 1_000).Select(batch.IsBlocked));
         Assert.Equal(payload, Enumerable.Range(0, 1_000).Select(batch.Payload));
+    }
+
+    [Fact]
+    public void ReservingZeroRentsNothing()
+    {
+        using CompileScratchPool pool = new();
+        using TestLineBatch batch = new(Tracer, pool);
+
+        batch.Reserve(0);
+
+        Assert.Equal(0, pool.Allocations);
+    }
+
+    /// <summary>
+    /// Growth edges over the compile's pool: filling the first rental exactly
+    /// rents nothing more, one segment past it grows once and hands the
+    /// outgrown array back, and a reservation exactly at the capacity does
+    /// nothing.
+    /// </summary>
+    [Fact]
+    public void ExactlyAtCapacityRentsNothingAndOnePastGrowsOnce()
+    {
+        using CompileScratchPool pool = new();
+        using TestLineBatch batch = new(Tracer, pool);
+        List<(Ray Ray, RayTraceOptions Options, float Payload)> segments = Segments(65, seed: 3, mixed: false);
+        for (int i = 0; i < 64; i++)
+        {
+            batch.Add(segments[i].Ray, segments[i].Options);
+        }
+
+        batch.Reserve(64);
+        Assert.Equal(1, pool.Allocations);
+        Assert.Equal(0, pool.IdleArrays);
+
+        batch.Add(segments[64].Ray, segments[64].Options);
+        Assert.Equal(2, pool.Allocations);
+        Assert.Equal(1, pool.IdleArrays);
+        batch.Trace(CancellationToken.None);
+        Assert.Equal(
+            Fresh([.. segments.Select(s => (s.Ray, s.Options, 0.0f))]).Blocked,
+            Enumerable.Range(0, 65).Select(batch.IsBlocked));
+    }
+
+    /// <summary>
+    /// A longer idle array the pool lends is used whole: the batch's
+    /// capacity is the array's length, not the length it asked for, so it
+    /// does not grow again until that is full.
+    /// </summary>
+    [Fact]
+    public void ALongerIdleArrayIsUsedWhole()
+    {
+        using CompileScratchPool pool = new();
+        pool.Return(pool.Rent<Ray>(1_000));
+        using TestLineBatch batch = new(Tracer, pool);
+        List<(Ray Ray, RayTraceOptions Options, float Payload)> segments = Segments(1_001, seed: 4, mixed: false);
+
+        for (int i = 0; i < 1_000; i++)
+        {
+            batch.Add(segments[i].Ray, segments[i].Options);
+        }
+
+        Assert.Equal(1, pool.Allocations);
+        batch.Add(segments[1_000].Ray, segments[1_000].Options);
+        Assert.Equal(2, pool.Allocations);
+    }
+
+    /// <summary>
+    /// A batch of one kind whose payloads are all zero keeps only its rays
+    /// and the tracer's hit bits: no kinds, no payloads, no blocked flags.
+    /// </summary>
+    [Fact]
+    public void OneKindWithoutPayloadsKeepsOnlyTheRays()
+    {
+        RecyclingScratchPool pool = new();
+        using TestLineBatch batch = new(Tracer, pool);
+        List<(Ray Ray, RayTraceOptions Options, float Payload)> segments =
+            [.. Segments(500, seed: 6, mixed: false).Select(s => (s.Ray, s.Options, 0.0f))];
+
+        (bool[] blocked, float[] payload) = Answer(batch, segments);
+
+        Assert.Equal(Fresh(segments), (blocked, payload), new AnswerComparer());
+        Assert.Equal(0, pool.RentedOf<int>());
+        Assert.Equal(0, pool.RentedOf<float>());
+        Assert.Equal(0, pool.RentedOf<bool>());
+        Assert.True(pool.RentedOf<Ray>() > 0);
+        Assert.True(pool.RentedOf<ulong>() > 0);
+    }
+
+    /// <summary>
+    /// A payload or a second kind that turns up part-way through a batch, in
+    /// arrays full of junk: the segments before it read payload 0 and kind 0,
+    /// a payload of -0 comes back as -0, and every answer is a fresh batch's.
+    /// </summary>
+    [Fact]
+    public void APayloadOrKindThatTurnsUpMidBatchLeavesTheEarlierSegmentsAtZero()
+    {
+        RecyclingScratchPool pool = new();
+        using TestLineBatch batch = new(Tracer, pool);
+
+        // Junk in the pool first: a batch that used payloads and kinds.
+        Answer(batch, Segments(300, seed: 7, mixed: true));
+        List<(Ray Ray, RayTraceOptions Options, float Payload)> plain = Segments(200, seed: 8, mixed: false);
+        List<(Ray Ray, RayTraceOptions Options, float Payload)> later = Segments(100, seed: 9, mixed: true);
+        List<(Ray, RayTraceOptions, float)> segments =
+        [
+            .. plain.Select(s => (s.Ray, s.Options, 0.0f)),
+            (later[0].Ray, later[0].Options, -0.0f),
+            .. later.Skip(1),
+        ];
+
+        (bool[] blocked, float[] payload) = Answer(batch, segments);
+
+        Assert.Equal(Fresh(segments), (blocked, payload), new AnswerComparer());
+        Assert.All(payload.Take(200), p => Assert.Equal(0, BitConverter.SingleToInt32Bits(p)));
+        Assert.Equal(BitConverter.SingleToInt32Bits(-0.0f), BitConverter.SingleToInt32Bits(payload[200]));
+        Assert.Equal(0, pool.BadReturns);
+    }
+
+    /// <summary>Answers compared element by element, payloads by their bits.</summary>
+    private sealed class AnswerComparer : IEqualityComparer<(bool[] Blocked, float[] Payload)>
+    {
+        public bool Equals((bool[] Blocked, float[] Payload) x, (bool[] Blocked, float[] Payload) y) =>
+            x.Blocked.SequenceEqual(y.Blocked)
+            && x.Payload.Select(BitConverter.SingleToInt32Bits).SequenceEqual(y.Payload.Select(BitConverter.SingleToInt32Bits));
+
+        public int GetHashCode((bool[] Blocked, float[] Payload) obj) => obj.Blocked.Length;
     }
 
     [Fact]

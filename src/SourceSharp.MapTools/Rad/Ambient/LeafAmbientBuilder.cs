@@ -106,6 +106,12 @@ public static class LeafAmbientBuilder
         int leafCount = scene.Leaves.Length;
         List<AmbientSample>[] perLeaf;
 
+        // The compile's pool when there is one, so the batches of the stage
+        // before this one are what these workers grow into; otherwise a pool
+        // of the stage's own, dropped when the stage ends.
+        using CompileScratchPool? own = options.ScratchPool is null ? new() : null;
+        options = options with { ScratchPool = options.ScratchPool ?? own };
+
         CompileParallelism parallelism = (options.Parallelism > 0
             ? new CompileParallelism { MaxDegree = options.Parallelism }
             : CompileParallelism.Default) with { Pool = options.Pool };
@@ -123,7 +129,7 @@ public static class LeafAmbientBuilder
 
             // Each worker's batch and sample scratch are rented from this
             // pool and returned when TestLineStage disposes the workers.
-            IScratchArrayPool pool = options.ScratchPool ?? new SharedScratchArrayPool();
+            IScratchArrayPool pool = options.ScratchPool!;
             int reserve = BatchSegmentBound(scene, options, flagged, options.BatchSegments, TestLineStage.DefaultBatchItems);
             perLeaf = await TestLineStage.RunAsync(
                 leafCount,
@@ -204,7 +210,7 @@ public static class LeafAmbientBuilder
 
         // One leaf's scratch, rented for this call and returned by the using
         // however it ends; the traced path keeps one per worker instead.
-        using LeafSampleScratch scratch = new(options.ScratchPool ?? new SharedScratchArrayPool());
+        using LeafSampleScratch scratch = new(options.ScratchPool ?? new UnpooledScratch());
         LeafPlan plan = PlanSamples(scene, sampler, leafIndex, options, scratch, cancellationToken);
         if (plan.Count > 0)
         {
