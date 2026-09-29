@@ -111,6 +111,27 @@ public class BoxBevelWindingBoundsTests
         Assert.Equal(1000f, PlusYBevel(correct, correct.Brushes[0]).Dist);
     }
 
+    /// <summary>
+    /// A brush whose every side clipped away has no corner to solve, and
+    /// Correct leaves its box bevels where stock puts them, at the bounds
+    /// the empty windings left.
+    /// </summary>
+    [Fact]
+    public async Task ABrushWithNoWindingsKeepsStocksBevels()
+    {
+        MapFile correct = await LoadAsync(ComplianceOptions.Correct, height: 16, neighbour: false, inside: true);
+        MapFile stock = await LoadAsync(StockSide, height: 16, neighbour: false, inside: true);
+
+        List<Plane> bevels = BoxBevels(correct, correct.Brushes[0]);
+        Assert.NotEmpty(bevels);
+        Assert.Equal(BoxBevels(stock, stock.Brushes[0]), bevels);
+
+        for (int i = 0; i < correct.Brushes[0].SideCount; i++)
+        {
+            Assert.True(correct.BrushSides[correct.Brushes[0].FirstSide + i].Winding.IsNull);
+        }
+    }
+
     /// <summary>Three axial planes meet at their corner, exactly.</summary>
     [Fact]
     public void ThreeAxialPlanesMeetAtTheirCorner()
@@ -190,6 +211,21 @@ public class BoxBevelWindingBoundsTests
         return -1;
     }
 
+    private static List<Plane> BoxBevels(MapFile map, MapBrush brush)
+    {
+        List<Plane> bevels = [];
+        for (int i = 0; i < brush.SideCount; i++)
+        {
+            MapBrushSide side = map.BrushSides[brush.FirstSide + i];
+            if (side.Bevel && map.Planes[side.PlaneNumber].Type < PlaneType.AnyX)
+            {
+                bevels.Add(map.Planes[side.PlaneNumber]);
+            }
+        }
+
+        return bevels;
+    }
+
     /// <summary>The neighbour box's -y face.</summary>
     private static int NeighbourFace(MapFile map)
     {
@@ -212,9 +248,12 @@ public class BoxBevelWindingBoundsTests
     /// <summary>
     /// The wedge from x = 872 to 1128, sloping from height <paramref name="height"/>
     /// at y = 616 to its thin edge at y = 1000, and, when asked, a box beyond
-    /// the edge from y = 1000 to 1100.
+    /// the edge from y = 1000 to 1100. With <paramref name="inside"/>, every
+    /// face is wound the other way, so every normal faces in and every
+    /// winding clips away.
     /// </summary>
-    private static async Task<MapFile> LoadAsync(ComplianceOptions compliance, float height, bool neighbour)
+    private static async Task<MapFile> LoadAsync(
+        ComplianceOptions compliance, float height, bool neighbour, bool inside = false)
     {
         const float x0 = 872;
         const float x1 = 1128;
@@ -232,11 +271,27 @@ public class BoxBevelWindingBoundsTests
         // Sloping top, bottom, +x, -x, -y: each wound as UnitMap.Box winds the
         // face it stands in for, so every normal faces out. The +x and -x
         // points need only lie on those planes.
-        UnitMap.Add(wedge, UnitMap.Plain, (x0, y1, 0), (x1, y1, 0), (x1, y0, height));
-        UnitMap.Add(wedge, UnitMap.Plain, (x0, y0, 0), (x1, y0, 0), (x1, y1, 0));
-        UnitMap.Add(wedge, UnitMap.Plain, (x1, y1, height), (x1, y1, 0), (x1, y0, 0));
-        UnitMap.Add(wedge, UnitMap.Plain, (x0, y1, 0), (x0, y1, height), (x0, y0, height));
-        UnitMap.Add(wedge, UnitMap.Plain, (x0, y0, height), (x1, y0, height), (x1, y0, 0));
+        (float, float, float)[][] faces =
+        [
+            [(x0, y1, 0), (x1, y1, 0), (x1, y0, height)],
+            [(x0, y0, 0), (x1, y0, 0), (x1, y1, 0)],
+            [(x1, y1, height), (x1, y1, 0), (x1, y0, 0)],
+            [(x0, y1, 0), (x0, y1, height), (x0, y0, height)],
+            [(x0, y0, height), (x1, y0, height), (x1, y0, 0)],
+        ];
+
+        foreach ((float, float, float)[] face in faces)
+        {
+            if (inside)
+            {
+                UnitMap.Add(wedge, UnitMap.Plain, face[2], face[1], face[0]);
+            }
+            else
+            {
+                UnitMap.Add(wedge, UnitMap.Plain, face[0], face[1], face[2]);
+            }
+        }
+
         world.Children.Add(wedge);
 
         if (neighbour)
