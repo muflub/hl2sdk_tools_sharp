@@ -235,29 +235,12 @@ public sealed class DetailFaces
         Vec3 offset = (brush.Maxs + brush.Mins) * -0.5f;
         Face current = _context.Faces.CopyFace(face);
 
-        List<int> sortedSides = [];
-
-        for (int i = 0; i < brush.SideCount; i++)
-        {
-            // don't clip to bevels
-            if (brush.Sides[i].Bevel)
-            {
-                continue;
-            }
-
-            if (_context.Planes[brush.Sides[i].PlaneNumber].Type <= PlaneType.Z)
-            {
-                sortedSides.Insert(0, i);
-            }
-            else
-            {
-                sortedSides.Add(i);
-            }
-        }
+        Span<int> sortedSides = ClipOrderBuffer(brush.SideCount, stackalloc int[StackClipSides]);
+        int sortedCount = OrderClipSides(brush.Sides, _context.Planes, sortedSides);
 
         int index;
 
-        for (index = 0; index < sortedSides.Count; index++)
+        for (index = 0; index < sortedCount; index++)
         {
             int side = sortedSides[index];
 
@@ -300,7 +283,78 @@ public sealed class DetailFaces
 
         // if we made it all the way through and didn't produce any fragments
         // then the whole face was clipped away
-        return output is null && index == sortedSides.Count;
+        return output is null && index == sortedCount;
+    }
+
+    /// <summary>
+    /// How many brush sides <see cref="ClipFaceToBrush"/> orders on the stack; a brush with
+    /// more gets a heap array for that one call.
+    /// </summary>
+    /// <remarks>
+    /// A brush side is one int here, so this is half a kilobyte of stack. Brushes from Hammer
+    /// rarely pass a few dozen sides even after bevels are added, so the heap path is for
+    /// hand-made or generated oddities. It is a local array the collector takes back, and
+    /// nothing is pooled, so there is nothing to return when a compile fails or is cancelled.
+    /// </remarks>
+    internal const int StackClipSides = 128;
+
+    /// <summary>
+    /// The span <see cref="ClipFaceToBrush"/> orders a brush's sides into: the stack buffer
+    /// when <paramref name="sideCount"/> fits in it, else a new array of exactly that length.
+    /// </summary>
+    /// <param name="sideCount">The brush's side count.</param>
+    /// <param name="stack">A <see cref="StackClipSides"/>-long stack buffer.</param>
+    /// <returns>A span at least <paramref name="sideCount"/> long.</returns>
+    internal static Span<int> ClipOrderBuffer(int sideCount, Span<int> stack) =>
+        sideCount <= stack.Length ? stack : new int[sideCount];
+
+    /// <summary>
+    /// The order <see cref="ClipFaceToBrush"/> clips against a brush's sides in: the axial
+    /// sides first, last to first, then the others in side order; bevels are skipped.
+    /// </summary>
+    /// <param name="sides">The brush's sides.</param>
+    /// <param name="planes">The plane table the sides index.</param>
+    /// <param name="order">Receives the side indices; at least as long as <paramref name="sides"/>.</param>
+    /// <returns>How many indices were written.</returns>
+    /// <remarks>
+    /// <para>
+    /// The reference builds this list by inserting each axial side at the head of a growing
+    /// list and appending every other side, which leaves the axial sides in reverse side order
+    /// ahead of the rest in side order. Two passes write that same sequence directly.
+    /// </para>
+    /// <para>
+    /// <b>Why not a list.</b> The port used a <see cref="List{T}"/> and
+    /// <see cref="List{T}.Insert"/> at index 0. Every such insert is an overlapping move of the
+    /// list's contents, and the runtime sends overlapping moves, however short, through a
+    /// P/Invoke to the C library's memmove. This runs for every face against every brush that
+    /// could cut it, tens of thousands of times on 2fort, and each call allocated the list as
+    /// well. A thread returning from that transition while a collection runs waits for the
+    /// collection to end, so on a many-threaded compile the memmove showed up as one of the
+    /// largest leaves of a sampled profile. Writing into a stack span has neither the
+    /// transition nor the allocation.
+    /// </para>
+    /// </remarks>
+    internal static int OrderClipSides(ReadOnlySpan<BspBrushSide> sides, PlaneTable planes, Span<int> order)
+    {
+        int count = 0;
+        for (int i = sides.Length - 1; i >= 0; i--)
+        {
+            // don't clip to bevels
+            if (!sides[i].Bevel && planes[sides[i].PlaneNumber].Type <= PlaneType.Z)
+            {
+                order[count++] = i;
+            }
+        }
+
+        for (int i = 0; i < sides.Length; i++)
+        {
+            if (!sides[i].Bevel && planes[sides[i].PlaneNumber].Type > PlaneType.Z)
+            {
+                order[count++] = i;
+            }
+        }
+
+        return count;
     }
 
     /// <summary>
