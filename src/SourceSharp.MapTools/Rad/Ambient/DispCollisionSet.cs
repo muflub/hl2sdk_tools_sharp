@@ -253,6 +253,20 @@ public sealed class DispCollisionSet
             return;
         }
 
+        // Most leaves a ray walks hold no displacement, and on a map with many
+        // leaves those visits are most of the calls. Leave before the batched
+        // walk builds its per-ray constants (three reciprocals and nine
+        // broadcasts, which the JIT cannot drop because it cannot see the
+        // loop is empty): on 2fort that build was 3.6% of leaf ambient's CPU.
+        // An empty list tests nothing and marks nothing on either walk, so the
+        // answer is the no-hit value set above, as it was.
+        int first = _leafStart[leaf];
+        int count = _leafStart[leaf + 1] - first;
+        if (count == 0)
+        {
+            return;
+        }
+
         if (!Avx.IsSupported)
         {
             foreach (int d in InLeaf(leaf))
@@ -276,8 +290,6 @@ public sealed class DispCollisionSet
         // ray is still skipped before anything else, and one whose box the ray
         // misses is skipped where Ray would have returned false -- so the
         // trees reached, their order and the answer are the scalar walk's.
-        int first = _leafStart[leaf];
-        int count = _leafStart[leaf + 1] - first;
         RayBoxConstants ray = new(start, delta);
         for (int b = 0; b < count; b += BoxBatch)
         {
