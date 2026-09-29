@@ -8,6 +8,7 @@
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Rooms;
@@ -254,6 +255,47 @@ public sealed class LevelLinkerDoorLightTests(LitRoomsFixture fixture, ITestOutp
 
             return sum;
         }
+    }
+
+    /// <summary>
+    /// A face holds at most four styles: five switchable lamps in the other
+    /// room, all seen through the door by the hub's far wall, would give its
+    /// faces six (style 0 and five of the other room's); the link keeps four,
+    /// dropping the weakest of the door's styles with a warning naming the
+    /// room, its cell and the face, and the level passes the loader's checks.
+    /// </summary>
+    [Fact]
+    public async Task AFaceThatWouldNeedMoreThanFourStylesDropsTheWeakestDoorStylesWithAWarning()
+    {
+        VmfDocument library = RoomLightHarness.Library(
+            false,
+            [],
+            (0, RoomLightHarness.Light(800, LitRoomsFixture.HubLight)),
+            (1, RoomLightHarness.Light(810, new Vec3(40, 100, 60), "lamp_a", "255 255 255 400")),
+            (1, RoomLightHarness.Light(811, new Vec3(40, 150, 60), "lamp_b", "255 255 255 300")),
+            (1, RoomLightHarness.Light(812, new Vec3(40, 100, 180), "lamp_c", "255 255 255 200")),
+            (1, RoomLightHarness.Light(813, new Vec3(40, 150, 180), "lamp_d", "255 255 255 100")),
+            (1, RoomLightHarness.Light(814, new Vec3(40, 128, 120), "lamp_e", "255 255 255 50")));
+        RoomLibrary rooms = await RoomLightHarness.CompileAsync(library, doorLight: true);
+        LinkedLevel level = await RoomLightHarness.LinkAsync(rooms, RoomPropHarness.Level("hub@0, other@0"));
+        foreach (string warning in level.LightingWarnings)
+        {
+            output.WriteLine(warning);
+        }
+
+        Assert.NotEmpty(level.LightingWarnings);
+        Assert.All(level.LightingWarnings, w => Assert.Matches(@"^room hub at cell \(0, 0\): face \d+ would need [56] light styles with its neighbours' door light; style \d+ was left out\.$", w));
+
+        DFace[] faces = BspStructView.As<DFace>(level.Bsp[BspLump.Faces]).ToArray();
+        Assert.Contains(faces, f => f.Styles[3] != 255 && RoomHarness.FaceVertices(level.Bsp, f).Average(v => v.X) < RoomHarness.Cell);
+        foreach (DFace face in faces)
+        {
+            byte[] used = [.. Enumerable.Range(0, 4).Select(k => face.Styles[k]).Where(s => s != 255)];
+            Assert.Equal(used.Length, used.Distinct().Count());
+        }
+
+        ValidationReport report = await BspValidator.CheckAsync(level.Bsp, CancellationToken.None);
+        Assert.True(report.ErrorCount == 0, string.Join("; ", report.Diagnostics));
     }
 
     /// <summary>A jointed level lit with its door light passes the loader's checks.</summary>

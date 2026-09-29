@@ -182,13 +182,25 @@ internal static class RoomLightHarness
     }
 
     /// <summary>A compile context with the harness materials, the sky and the prop models.</summary>
-    public static async Task<VbspContext> ContextAsync(string mapBase = "roomtest", int degree = 1)
+    /// <remarks>
+    /// With <paramref name="reflectivity"/> (a VMT vector, <c>".6 .55 .5"</c>),
+    /// the rooms' plain shell material reflects that much, so vrad bounces
+    /// light off it; without, it reflects nothing (the harness has no
+    /// textures), and the rooms' light is direct light alone.
+    /// </remarks>
+    public static async Task<VbspContext> ContextAsync(string mapBase = "roomtest", int degree = 1, string? reflectivity = null)
     {
         Dictionary<string, byte[]> files = new(RoomBrushHarness.Files(), StringComparer.Ordinal)
         {
             [$"materials/{Sky}.vmt"] = "\"UnlitGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compileSky\" \"1\"\n}\n"u8.ToArray(),
             [$"materials/{Sky2D}.vmt"] = "\"UnlitGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compile2DSky\" \"1\"\n}\n"u8.ToArray(),
         };
+        if (reflectivity is not null)
+        {
+            files[$"materials/{RoomHarness.Plain}.vmt"] = System.Text.Encoding.ASCII.GetBytes(
+                "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"$reflectivity\" \"[" + reflectivity + "]\"\n}\n");
+        }
+
         VbspContext context = await RoomHarness.ContextAsync(extraFiles: files);
         context.MapBase = mapBase;
         context.Parallelism = new CompileParallelism { MaxDegree = degree };
@@ -206,7 +218,7 @@ internal static class RoomLightHarness
     /// unless told <c>-nodoorlight</c>; without it the rooms link as PR 9's
     /// did, base only.
     /// </remarks>
-    public static async Task<RoomLibrary> CompileAsync(VmfDocument library, int degree = 1, VradOptions? options = null, bool light = true, bool doorLight = false)
+    public static async Task<RoomLibrary> CompileAsync(VmfDocument library, int degree = 1, VradOptions? options = null, bool light = true, bool doorLight = false, string? reflectivity = null)
     {
         RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
         RoomLibrary compiled = new(split.Rooms[0].Definition.Kit, split.Rooms[0].Definition.CellSize)
@@ -217,7 +229,7 @@ internal static class RoomLightHarness
         RoomLightingSettings settings = Settings(split, options);
         foreach (LibraryRoom room in split.Rooms)
         {
-            VbspContext context = await ContextAsync(room.Definition.Name, degree);
+            VbspContext context = await ContextAsync(room.Definition.Name, degree, reflectivity);
             RoomObject compiledRoom = await RoomCompiler.CompileAsync(room.Document, room.Definition, context);
             if (light)
             {
@@ -280,9 +292,9 @@ internal static class RoomLightHarness
     }
 
     /// <summary>A linked level lit afresh: vrad run on the link's own map, with the switches the rooms were lit with.</summary>
-    public static async Task<BspData> RelightAsync(BspData linked, VradOptions? options = null)
+    public static async Task<BspData> RelightAsync(BspData linked, VradOptions? options = null, string? reflectivity = null)
     {
-        VbspContext context = await ContextAsync("relit");
+        VbspContext context = await ContextAsync("relit", reflectivity: reflectivity);
         BspData copy = RoomLighting.Copy(linked);
         _ = await Vrad.LightAsync(copy, new VradContext { Options = options ?? Options, MapName = "relit", Content = context.Content });
         return copy;

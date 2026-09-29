@@ -41,15 +41,20 @@ internal static class DoorLightCompare
     /// <param name="Darker">Luxels darker by as much.</param>
     /// <param name="Count">Luxels compared.</param>
     /// <param name="Energy">The sum of the level's luxels over the reference's.</param>
+    /// <param name="ExcessP99">
+    /// The 99th percentile over every luxel of how much brighter than the
+    /// reference it is, relative as <see cref="LitCompare.Relative"/> (zero
+    /// for a luxel no brighter): how much light the level invents.
+    /// </param>
     public sealed record Metric(
         int Near, double NearP50, double NearP95, double NearP99, int Far, double FarP50, double FarP95, double FarP99,
-        int Brighter, int Darker, int Count, double Energy)
+        int Brighter, int Darker, int Count, double Energy, double ExcessP99)
     {
         /// <inheritdoc/>
         public override string ToString() => string.Create(
             CultureInfo.InvariantCulture,
             $"near {Near} p50 {NearP50:F3} p95 {NearP95:F3} p99 {NearP99:F3}; far {Far} p50 {FarP50:F3} p95 {FarP95:F3} p99 {FarP99:F3};"
-            + $" brighter {Brighter} darker {Darker} of {Count}; energy {Energy:F3}");
+            + $" brighter {Brighter} darker {Darker} of {Count}; energy {Energy:F3}; excess p99 {ExcessP99:F3}");
     }
 
     /// <summary>Every jointed pair of sockets of a linked level, each direction once.</summary>
@@ -104,7 +109,7 @@ internal static class DoorLightCompare
     public static Metric Measure(BspData level, BspData reference, List<Joint> joints, bool allStyles = false)
     {
         var a = LitCompare.Lattice(level);
-        List<double> near = [], far = [];
+        List<double> near = [], far = [], excess = [];
         int brighter = 0, darker = 0, count = 0;
         double sumA = 0, sumB = 0;
         foreach ((var key, (List<ColorRgbExp32> colours, bool thin)) in LitCompare.Lattice(reference))
@@ -132,6 +137,7 @@ internal static class DoorLightCompare
 
             Vec3 p = new(key.Item1 / 100f, key.Item2 / 100f, key.Item3 / 100f);
             (joints.Any(j => NearJoint(j, p)) ? near : far).Add(LitCompare.Relative(x, y));
+            excess.Add(LitCompare.Relative(new Vec3(MathF.Max(x.X, y.X), MathF.Max(x.Y, y.Y), MathF.Max(x.Z, y.Z)), y));
             count++;
             float sx = x.X + x.Y + x.Z, sy = y.X + y.Y + y.Z;
             brighter += sx > (sy * 1.05f) + 0.01f ? 1 : 0;
@@ -142,10 +148,11 @@ internal static class DoorLightCompare
 
         near.Sort();
         far.Sort();
+        excess.Sort();
         return new Metric(
             near.Count, LitCompare.Quantile(near, .5), LitCompare.Quantile(near, .95), LitCompare.Quantile(near, .99),
             far.Count, LitCompare.Quantile(far, .5), LitCompare.Quantile(far, .95), LitCompare.Quantile(far, .99),
-            brighter, darker, count, sumB == 0 ? 1 : sumA / sumB);
+            brighter, darker, count, sumB == 0 ? 1 : sumA / sumB, LitCompare.Quantile(excess, .99));
     }
 
     /// <summary>Within one door width of a joint's opening.</summary>
