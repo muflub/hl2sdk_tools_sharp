@@ -1553,6 +1553,12 @@ public enum StockQuirk
     /// </para>
     /// </remarks>
     SplitBrushSliverSides,
+
+    /// <summary>WIP</summary>
+    EdgeBevelDuplicateAtOrigin,
+
+    /// <summary>WIP</summary>
+    SplitSideTestBoxEpsilon,
 }
 
 /// <summary>

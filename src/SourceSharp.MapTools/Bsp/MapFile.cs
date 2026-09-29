@@ -762,8 +762,85 @@ public sealed class MapFile
         (_sideBrushTextures[a], _sideBrushTextures[b]) = (_sideBrushTextures[b], _sideBrushTextures[a]);
     }
 
+    /// <summary>
+    /// How close to a candidate edge bevel every vertex of an existing side
+    /// has to be, under <see cref="CompliancePolicy.Correct"/>, for that side
+    /// to count as already lying on the bevel's plane.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What it guards.</b> <see cref="AddBrushBevels"/> adds a bevel along
+    /// an edge unless the brush already has a side on the candidate plane.
+    /// Stock decides "already has" with the plane-equality test at 0.01 on
+    /// every normal component and 0.01 on the distance, and the distance is
+    /// measured at the ORIGIN. A slanted face far from the origin gives two
+    /// planes through the same face whose normals differ by a few millionths,
+    /// one from the face's three map points and one from a winding edge, and
+    /// that angle times the lever arm from the origin to the face is more
+    /// than 0.01: on 2fort, a side (-0.20486315, -0.97879064) at 737.871 and
+    /// a candidate (-0.20486762, -0.9787897) at 737.894 are 0.023 apart at
+    /// the origin and the same plane to a thousandth where the brush is. So
+    /// the brush gains a bevel that duplicates its own face, and whether it
+    /// does depends on the last bits of both normals: flipping one of the
+    /// normalise quirks adds or drops it. The duplicate is not inert. It is a
+    /// new plane in the table, and a later brush's face within 0.01 of it is
+    /// merged onto it rather than onto the face it duplicates, so the tree
+    /// splits on one plane or the other by noise
+    /// (<see cref="StockQuirk.EdgeBevelDuplicateAtOrigin"/>).
+    /// </para>
+    /// <para>
+    /// <b>Why 0.1.</b> It is the resolution the same loop already works at:
+    /// the test right after it calls a vertex outside the candidate only when
+    /// it is more than 0.1 in front of it. A side facing the candidate's way,
+    /// with every vertex within 0.1 of the candidate plane, bounds the brush
+    /// along that plane to that resolution already, so the bevel adds
+    /// nothing. It is also stock's <c>ON_EPSILON</c>, and more than ten times
+    /// the rounding a winding vertex carries from being clipped out of a base
+    /// winding 65536 units across (about 0.007 at worst).
+    /// </para>
+    /// </remarks>
+    public const float BevelOnSideEpsilon = 0.1f;
+
+    /// <summary>
+    /// Whether a side lies on a candidate bevel plane where the side is:
+    /// its normal agrees with the candidate's as closely as stock's own
+    /// duplicate test asks (0.01 per component) and every vertex of its
+    /// winding is within <see cref="BevelOnSideEpsilon"/> of the candidate.
+    /// </summary>
+    /// <param name="side">The side's plane.</param>
+    /// <param name="winding">The side's winding, not null.</param>
+    /// <param name="candidate">The candidate bevel plane.</param>
+    /// <returns>True when the candidate duplicates the side.</returns>
+    /// <remarks>
+    /// This is stock's duplicate test with the distance measured at the side
+    /// rather than at the origin; the normal half is unchanged. Only
+    /// <see cref="CompliancePolicy.Correct"/> asks it, and only in addition to
+    /// stock's test, so Correct never adds a bevel stock would not.
+    /// </remarks>
+    private bool SideLiesOnBevel(Plane side, Winding winding, Plane candidate)
+    {
+        if (Math.Abs(side.Normal.X - candidate.Normal.X) >= 0.01f
+            || Math.Abs(side.Normal.Y - candidate.Normal.Y) >= 0.01f
+            || Math.Abs(side.Normal.Z - candidate.Normal.Z) >= 0.01f)
+        {
+            return false;
+        }
+
+        foreach (Vec3 p in Windings.Points(winding))
+        {
+            if (Math.Abs(Vec3.Dot(p, candidate.Normal) - candidate.Dist) >= BevelOnSideEpsilon)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private void AddEdgeBevels(MapBrush brush, Winding w, int pointIndex, Vec3 edge)
     {
+        bool stockDuplicateTest = Windings.Compliance.Emulates(StockQuirk.EdgeBevelDuplicateAtOrigin);
+
         for (int axis = 0; axis < 3; axis++)
         {
             for (int dir = -1; dir <= 1; dir += 2)
@@ -803,6 +880,16 @@ public sealed class MapFile
                     if (other.Winding.IsNull)
                     {
                         continue;
+                    }
+
+                    // StockQuirk.EdgeBevelDuplicateAtOrigin. Stock compares
+                    // distances at the origin, where a normal a few millionths
+                    // off moves a plane through this brush by more than 0.01;
+                    // Correct also asks whether the side lies on the candidate
+                    // where the side actually is.
+                    if (!stockDuplicateTest && SideLiesOnBevel(Planes[other.PlaneNumber], other.Winding, candidate))
+                    {
+                        break;
                     }
 
                     Span<Vec3> points = Windings.Points(other.Winding);

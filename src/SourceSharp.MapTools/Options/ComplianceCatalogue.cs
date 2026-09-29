@@ -1370,6 +1370,16 @@ public static class ComplianceCatalogue
             + "split may reach up to 0.1 past the splitting plane, as a whole brush inside that band "
             + "already does."),
 
+        StockQuirk.EdgeBevelDuplicateAtOrigin => new(
+            quirk, "WIP", "WIP", "WIP", CompileTools.Vbsp,
+            ["SourceSharp.MapTools.Bsp.MapFile.AddEdgeBevels"],
+            QuirkObservation.Demonstrated, "WIP", [], "WIP"),
+
+        StockQuirk.SplitSideTestBoxEpsilon => new(
+            quirk, "WIP", "WIP", "WIP", CompileTools.Vbsp,
+            ["SourceSharp.MapTools.Bsp.Tree.BrushBspTree.TestBrushToPlaneNumber"],
+            QuirkObservation.Demonstrated, "WIP", [], "WIP"),
+
         _ => throw new ArgumentOutOfRangeException(
             nameof(quirk), quirk, "no ComplianceCatalogue entry for this StockQuirk"),
     };
