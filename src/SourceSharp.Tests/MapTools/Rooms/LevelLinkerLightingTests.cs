@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Text;
 using SourceSharp.MapFormats.Zip;
 
 using SourceSharp.MapTools.Bsp;
@@ -220,5 +221,219 @@ public sealed class LevelLinkerLightingTests(LitRoomsFixture fixture, ITestOutpu
         Assert.Equal(onlyLinked, onlyFlat);
         Assert.True(p99 <= 0.05 && LitCompare.Quantile(relative, 1) <= 0.25, $"{row}: p99 {p99}, max {LitCompare.Quantile(relative, 1)}");
         Assert.True(exact >= relative.Count * 0.98, $"{row}: {exact} of {relative.Count} exact");
+    }
+
+    // ---- a jointed level: the base, and what the doors add later -------------------------------
+
+    /// <summary>
+    /// Two rooms jointed (the hub, lit by a lamp, and the sky room beside it)
+    /// against the full compile of their flattened level, at two turns: the
+    /// base bake is each room lit alone with its doors shut, so the luxels
+    /// the light through the doorway reaches in the full compile (the sun
+    /// through the sky room's ceiling onto the hub's floor, each lamp into
+    /// the other room) are darker in the link, by up to all of their light,
+    /// within a door width of the joint and across the room, which the door
+    /// terms of PR 10 add (the rooms design, 9.1 parts 2 to 4). What the
+    /// base alone must hold, and does: at least half the luxels are exact,
+    /// and it invents no light, no luxel more than 5% brighter than the full
+    /// compile's but one in a thousand (the plug, lit in the room's bake,
+    /// reflects a little light the open doorway does not).
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(90)]
+    public async Task AJointedLevelKeepsEachRoomsBaseAndInventsNoLight(int rotation)
+    {
+        string row = $"hub@{rotation}, other@{rotation}";
+        var linked = LitCompare.Lattice(await fixture.LinkedAsync(row));
+        var flat = LitCompare.Lattice(await fixture.FlatAsync(row));
+        List<double> near = [], far = [];
+        int brighter = 0;
+        foreach ((var key, (List<ColorRgbExp32> colours, bool thin)) in linked)
+        {
+            if (!flat.TryGetValue(key, out var other) || thin || other.Thin)
+            {
+                continue;
+            }
+
+            double r = colours.Min(c => other.Colours.Min(o => LitCompare.Relative(c.ToLinear(), o.ToLinear())));
+            (Math.Abs((key.Item1 / 100.0) - RoomHarness.Cell) <= RoomHarness.WalkableKit.Width ? near : far).Add(r);
+            Vec3 a = colours[0].ToLinear();
+            Vec3 b = other.Colours[0].ToLinear();
+            if (a.X + a.Y + a.Z > ((b.X + b.Y + b.Z) * 1.05) + 0.01)
+            {
+                brighter++;
+            }
+        }
+
+        near.Sort();
+        far.Sort();
+        output.WriteLine(
+            $"{row}: within a door width of the joint {near.Count} luxels, p50 {LitCompare.Quantile(near, .5):G3} p95 {LitCompare.Quantile(near, .95):G3}"
+            + $" p99 {LitCompare.Quantile(near, .99):G3}; elsewhere {far.Count}, p50 {LitCompare.Quantile(far, .5):G3} p95 {LitCompare.Quantile(far, .95):G3}"
+            + $" p99 {LitCompare.Quantile(far, .99):G3}; brighter by 5% {brighter}");
+        Assert.Equal(0, LitCompare.Quantile(near, 0.5));
+        Assert.Equal(0, LitCompare.Quantile(far, 0.5));
+        Assert.True(brighter <= (near.Count + far.Count) / 1000, $"{brighter} luxels brighter");
+    }
+
+    // ---- which stored turn, and stored once --------------------------------------------------------
+
+    /// <summary>
+    /// A placement takes its room's payload <c>rotation mod count</c> (1.1):
+    /// the sky room, stored per turn, links turn <i>r</i>'s luxels at turn
+    /// <i>r</i>; the hub, stored once, links its one payload at every turn;
+    /// either way the level's lighting lump is the payload encoded, byte
+    /// for byte.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RoomsAndTurns))]
+    public async Task APlacementTakesThePayloadOfItsTurn(string room, int rotation)
+    {
+        RoomLighting lighting = fixture.Lit.Get(room).Lighting!;
+        Assert.Equal(room == "hub" ? 1 : 4, lighting.RotationCount);
+        RoomLightingPayload payload = lighting.Payloads[(rotation / 90) % lighting.RotationCount];
+        Assert.Same(payload, lighting.For(rotation / 90));
+        ColorRgbExp32[] expected = new ColorRgbExp32[payload.Ldr!.Luxels.Length / 3];
+        RoomLighting.EncodeColors(payload.Ldr.Luxels, expected);
+        Assert.Equal(expected, LitCompare.Colours(await fixture.LinkedAsync($"{room}@{rotation}")));
+    }
+
+    /// <summary>
+    /// Each stored turn of a room is written once, however many placements
+    /// take it: two hubs share one block of lightmaps (at one turn or two,
+    /// since the hub is stored once), two sky rooms at two turns take two;
+    /// a face of each placement points at its block.
+    /// </summary>
+    [Theory]
+    [InlineData("hub@0, hub@0", 1)]
+    [InlineData("hub@0, hub@90", 1)]
+    [InlineData("other@0, other@0", 1)]
+    [InlineData("other@0, other@90", 2)]
+    public async Task EachStoredTurnIsWrittenOnce(string row, int blocks)
+    {
+        RoomLibrary rooms = RoomLightHarness.RoomsOf(fixture.Lit, "hub", "other");
+        LinkedLevel linked = await RoomLightHarness.LinkAsync(rooms, RoomPropHarness.Level(row));
+        string room = row[..row.IndexOf('@', StringComparison.Ordinal)];
+        int block = fixture.Lit.Get(room).Lighting!.Payloads[0].Ldr!.Luxels.Length / 3 * 4;
+        Assert.Equal(blocks * block, linked.Bsp[BspLump.Lighting].Length);
+        DFace[] faces = BspStructView.As<DFace>(linked.Bsp[BspLump.Faces]).ToArray();
+        int perRoom = BspStructView.As<DModel>(fixture.Lit.Get(room).Bsp[BspLump.Models])[0].NumFaces;
+        int lit = Array.FindIndex(faces, f => f.LightOfs >= 0);
+        Assert.Equal(faces[lit].LightOfs + (blocks == 1 ? 0 : block), faces[lit + perRoom].LightOfs);
+    }
+
+    // ---- sky flags ------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The sky flags (the 2D sky PR's half, the rooms design 4.12): pass one
+    /// from each room's sky leaves, pass two over the linked PVS, so the leaf
+    /// of every point of the level has the flags the full compile gives it:
+    /// the sky room's own leaves, and the hub's, which see the sky room's
+    /// leaves through the doorway, flagged 3D sky; with 2D sky, 2D sky.
+    /// </summary>
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(false, 90)]
+    [InlineData(true, 0)]
+    [InlineData(true, 270)]
+    public async Task SkyFlagsAreTheFullCompilesAtEveryPoint(bool twoD, int rotation)
+    {
+        VmfDocument library = RoomLightHarness.Library(
+            true, [1], twoD ? RoomLightHarness.Sky2D : RoomLightHarness.Sky, (0, RoomLightHarness.Light(800, new Vec3(128, 128, 150))));
+        RoomLibrary rooms = await RoomLightHarness.CompileAsync(library);
+        LevelGrid level = RoomPropHarness.Level($"hub@{rotation}, other@{rotation}");
+        BspData linked = (await RoomLightHarness.LinkAsync(rooms, level)).Bsp;
+        BspData flat = await RoomLightHarness.CompileFlatLitAsync(library, level);
+        int flagged = 0;
+        for (float x = 24; x < 2 * RoomHarness.Cell; x += 40)
+        {
+            for (float y = 24; y < RoomHarness.Cell; y += 40)
+            {
+                Vec3 point = new(x, y, 100);
+                LeafFlags ours = RoomHarness.LeafAt(linked, point).GetFlags() & (LeafFlags.Sky | LeafFlags.Sky2D);
+                LeafFlags theirs = RoomHarness.LeafAt(flat, point).GetFlags() & (LeafFlags.Sky | LeafFlags.Sky2D);
+                if ((RoomHarness.LeafAt(linked, point).Contents & 1) == 0 && (RoomHarness.LeafAt(flat, point).Contents & 1) == 0)
+                {
+                    Assert.True(ours == theirs, $"{point}: {ours} against {theirs}");
+                    flagged += ours == (twoD ? LeafFlags.Sky2D : LeafFlags.Sky) ? 1 : 0;
+                }
+            }
+        }
+
+        Assert.True(flagged > 0);
+    }
+
+    /// <summary>
+    /// Without a library sun there is no sun or sky light: a sky room is
+    /// stored once, and the level's leaf flags are its rooms' compiles', as
+    /// an unlit level's are, since vrad recomputes them only with a sun.
+    /// </summary>
+    [Fact]
+    public async Task WithoutASunTheLeafFlagsAreTheCompiles()
+    {
+        VmfDocument library = RoomLightHarness.Library(false, [1], (0, RoomLightHarness.Light(800, new Vec3(128, 128, 150))));
+        RoomLibrary rooms = await RoomLightHarness.CompileAsync(library);
+        Assert.All(rooms.Rooms, r => Assert.Equal(1, r.Lighting!.RotationCount));
+        Assert.All(rooms.Rooms, r => Assert.False(r.Lighting!.HasSun));
+        BspData linked = (await RoomLightHarness.LinkAsync(rooms, RoomPropHarness.Level("hub, other"))).Bsp;
+        BspData unlit = (await RoomLightHarness.LinkAsync(await RoomLightHarness.CompileAsync(library, light: false), RoomPropHarness.Level("hub, other"))).Bsp;
+        Assert.True(linked[BspLump.Leafs].Data.Span.SequenceEqual(unlit[BspLump.Leafs].Data.Span));
+    }
+
+    // ---- refusals -----------------------------------------------------------------------------
+
+    /// <summary>A level placing a lit room and an unlit one is refused, naming both: one level is lit one way.</summary>
+    [Fact]
+    public async Task ALevelOfLitAndUnlitRoomsIsRefused()
+    {
+        RoomLibrary rooms = RoomPropHarness.RoomsOf(fixture.Lit.Get("hub"), fixture.Unlit.Get("other"));
+        LinkException refused = await Assert.ThrowsAsync<LinkException>(() => RoomLightHarness.LinkAsync(rooms, RoomPropHarness.Level("hub, other")));
+        Assert.Equal(
+            "room other has no baked lighting, but room hub of the same level has; a level's rooms are lit alike. Recompile the library with ssmap room.",
+            refused.Message);
+    }
+
+    /// <summary>Two rooms lit with different settings (here, the map flags vrad writes for static prop lighting) are refused, naming both.</summary>
+    [Fact]
+    public async Task RoomsLitDifferentlyAreRefused()
+    {
+        RoomLibrary plain = await RoomLightHarness.CompileAsync(LitRoomsFixture.Library);
+        RoomLibrary rooms = RoomPropHarness.RoomsOf(fixture.Lit.Get("hub"), plain.Get("other"));
+        LinkException refused = await Assert.ThrowsAsync<LinkException>(() => RoomLightHarness.LinkAsync(rooms, RoomPropHarness.Level("hub, other")));
+        Assert.Equal(
+            "rooms hub and other were lit with different settings (ranges, sun or map flags); a level's rooms are lit alike. Recompile the library with ssmap room.",
+            refused.Message);
+    }
+
+    // ---- a lit level is a map ----------------------------------------------------------------------
+
+    /// <summary>
+    /// A lit level passes the loader's validation at every turn, and its
+    /// carved doorway leaves take their facing leaf's ambient samples (the
+    /// rooms design, 9.4): the leaf at the middle of the doorway, empty in
+    /// the link, points at the same run of samples as the room leaf beside
+    /// it.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(90)]
+    [InlineData(180)]
+    [InlineData(270)]
+    public async Task ALitLevelPassesTheValidatorAndItsDoorwaysTakeTheirFacingLeafsSamples(int rotation)
+    {
+        BspData linked = await fixture.LinkedAsync($"hub@{rotation}, other@{rotation}");
+        ValidationReport report = await BspValidator.CheckAsync(linked, CancellationToken.None);
+        Assert.True(report.ErrorCount == 0, string.Join("; ", report.Diagnostics));
+
+        DLeafAmbientIndex[] index = BspStructView.As<DLeafAmbientIndex>(linked[BspLump.LeafAmbientIndex]).ToArray();
+        Assert.Equal(BspStructView.Count<DLeaf>(linked[BspLump.Leafs]), index.Length);
+        Vec3 doorway = new(RoomHarness.Cell, RoomHarness.Cell / 2, 100);
+        int leaf = LevelLinker.PointInLeaf(linked, doorway);
+        Assert.Equal(0, BspStructView.As<DLeaf>(linked[BspLump.Leafs])[leaf].Contents);
+        Assert.True(index[leaf].AmbientSampleCount > 0);
+        int beside = LevelLinker.PointInLeaf(linked, doorway - new Vec3(RoomHarness.WalkableKit.Depth + 8, 0, 0));
+        int across = LevelLinker.PointInLeaf(linked, doorway + new Vec3(RoomHarness.WalkableKit.Depth + 8, 0, 0));
+        Assert.Contains(index[leaf].FirstAmbientSample, (int[])[index[beside].FirstAmbientSample, index[across].FirstAmbientSample]);
     }
 }

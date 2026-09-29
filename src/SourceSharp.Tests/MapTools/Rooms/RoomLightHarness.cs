@@ -227,6 +227,18 @@ internal static class RoomLightHarness
         return compiled;
     }
 
+    /// <summary>A library of some of another library's rooms, as they are.</summary>
+    public static RoomLibrary RoomsOf(RoomLibrary library, params string[] names)
+    {
+        RoomLibrary rooms = new(library.Kit, library.CellSize) { LibraryEntities = library.LibraryEntities, Options = library.Options };
+        foreach (string name in names)
+        {
+            rooms.Add(library.Get(name));
+        }
+
+        return rooms;
+    }
+
     /// <summary>A level linked from compiled rooms.</summary>
     public static async Task<LinkedLevel> LinkAsync(RoomLibrary library, LevelGrid level, int degree = 1, string mapBase = "")
     {
