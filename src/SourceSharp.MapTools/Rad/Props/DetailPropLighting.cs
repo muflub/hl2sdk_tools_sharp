@@ -215,7 +215,7 @@ public static class DetailPropLighting
             props.Length,
             null,
             degree,
-            () => new DetailWorker(scene, props, modelCentres, spriteCentres, lights, clusterLights, sampler),
+            w => new DetailWorker(scene, props, modelCentres, spriteCentres, lights, clusterLights, sampler, w),
             batchSegments,
             TestLineStage.DefaultBatchItems,
             "detail prop lighting",
@@ -527,8 +527,9 @@ public static class DetailPropLighting
         Vec3[] spriteCentres,
         IReadOnlyList<PropLight> lights,
         PropClusterLights clusterLights,
-        PropLightSampler sampler)
-        : TestLineWorker<DetailPlan, PropColours>(sampler.CreateBatch())
+        PropLightSampler sampler,
+        int workerIndex)
+        : TestLineWorker<DetailPlan, PropColours>(sampler.CreateBatch(workerIndex))
     {
         private readonly PropAmbient _ambient = new(scene);
 

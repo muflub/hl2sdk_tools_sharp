@@ -145,7 +145,7 @@ public sealed partial class RadWorld
         {
             for (; made < workers.Length; made++)
             {
-                workers[made] = new FacelightWorker(shared, Geometry.StockEstimates, pool);
+                workers[made] = new FacelightWorker(shared, Geometry.StockEstimates, pool.ForWorker(made));
             }
 
             List<Task> pending = [];
