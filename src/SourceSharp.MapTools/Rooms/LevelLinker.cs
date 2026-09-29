@@ -302,6 +302,13 @@ public static partial class LevelLinker
         LevelProps? props = PlanProps(resolved, layout, furniture);
         LevelModels models = PlanModels(resolved, layout, furniture, transitions);
 
+        // The library's door portals, one per joint, when it asks for them
+        // (LevelDoorPortals): which door each follows is the socket
+        // furniture rule's, so it is planned with the furniture.
+        IReadOnlyList<LevelDoorPortal>? doors = library.Options.HasDoorPortals
+            ? LevelDoorPortals.Plan(layout, name => library.Get(name).Definition, furniture.Of, (p, socket) => DoorOf(resolved[p], socket))
+            : null;
+
         // The level's cubemaps: every placement's samples at its position,
         // and the names its room made after them renamed for it, which the
         // pak and the texdata strings take (LevelCubemaps). Null for a level
@@ -359,7 +366,7 @@ public static partial class LevelLinker
         // The level's areas: every placement's own joined at its joints,
         // numbered for the level, and the portal numbers based. Null for a
         // level whose rooms have no area portal, which links as before them.
-        LevelAreas? areas = PlanAreas(resolved, plans);
+        LevelAreas? areas = PlanAreas(resolved, plans, doors);
         List<string> areaWarnings = [];
 
         // A lit level's lightmaps: each stored turn of a room once, every
@@ -493,14 +500,55 @@ public static partial class LevelLinker
             layout.Rooms.Select((r, i) => (r.Placement.Room, RoomEntityCounts.FromClasses(byPlacement[i]))),
             reserve,
             classes,
-            LibraryCounts(library));
+            LibraryCounts(library, layout));
     }
 
-    /// <summary>The library's own entities (<see cref="RoomLibrary.LibraryEntities"/>) counted by class, or null when it has none.</summary>
-    private static RoomEntityCounts? LibraryCounts(RoomLibrary library) =>
-        library.LibraryEntities.Count == 0
-            ? null
-            : RoomLibraryEntities.Count(library.LibraryEntities);
+    /// <summary>
+    /// The level's own entities counted by class, or null when it has none:
+    /// the library's (<see cref="RoomLibrary.LibraryEntities"/>), and with
+    /// door portals one <c>func_areaportal</c> per joint of the layout
+    /// (<see cref="LevelDoorPortals"/>: every joint is listed by both its
+    /// rooms).
+    /// </summary>
+    private static RoomEntityCounts? LibraryCounts(RoomLibrary library, LevelLayout layout)
+    {
+        int doors = library.Options.HasDoorPortals ? layout.Rooms.Sum(r => r.Joints.Count) / 2 : 0;
+        if (doors == 0)
+        {
+            return library.LibraryEntities.Count == 0 ? null : RoomLibraryEntities.Count(library.LibraryEntities);
+        }
+
+        IEnumerable<string> own = library.LibraryEntities.Count == 0
+            ? []
+            : RoomLibraryEntities.Count(library.LibraryEntities).Classes.SelectMany(c => Enumerable.Repeat(c.ClassName, c.Count));
+        return RoomEntityCounts.FromClasses([.. own, .. Enumerable.Repeat(LevelDoorPortals.ClassName, doors)]);
+    }
+
+    /// <summary>
+    /// The level name of a placement's door furniture on a socket, from its
+    /// room's entities as compiled (<see cref="LevelDoorPortals.DoorName"/>).
+    /// </summary>
+    private static string? DoorOf(ResolvedPlacement placement, string socket)
+    {
+        IReadOnlyList<RoomLinkEntity> items = EntitiesFor(placement.Room, placement.Instance.Placement.NormalizedRotation).Items;
+        return LevelDoorPortals.DoorName(
+            items.Where(i => !i.IsWorld).Select(i => (Func<string, string?>)(key => ValueOf(i.Pairs, key))),
+            socket,
+            placement.Instance.Placement);
+
+        static string? ValueOf(IReadOnlyList<RoomLinkPair> pairs, string key)
+        {
+            foreach (RoomLinkPair pair in pairs)
+            {
+                if (IsKey(pair.Key, key))
+                {
+                    return pair.Value;
+                }
+            }
+
+            return null;
+        }
+    }
 
     /// <summary>
     /// The prefix sums every index-bearing struct is shifted by, in layout
@@ -690,7 +738,7 @@ public static partial class LevelLinker
             totals.CheckClusters(library.Get(last.Placement.Room).Definition.Name, last.Placement.CellX, last.Placement.CellY);
         }
 
-        return LevelEntityBudget.Check(placements, reserve, classes, LibraryCounts(library));
+        return LevelEntityBudget.Check(placements, reserve, classes, LibraryCounts(library, layout));
     }
 
     /// <summary>

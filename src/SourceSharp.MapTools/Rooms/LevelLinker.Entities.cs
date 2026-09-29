@@ -75,6 +75,11 @@ public static partial class LevelLinker
     /// the logic folded. A level that uses none of it skips the resolver
     /// entirely and links to the bytes it did before names existed.
     /// </para>
+    /// <para>
+    /// <b>Appended.</b> Entities the linker writes for the level after every
+    /// room's (a library's door portals, <see cref="LevelDoorPortals"/>) go
+    /// last, where the flatten writes them.
+    /// </para>
     /// </remarks>
     internal static BspLumpData MergeEntities(
         RoomPlan[] plans,
@@ -83,7 +88,8 @@ public static partial class LevelLinker
         string? mapVersion = null,
         LevelSingletons? singletons = null,
         List<(int Placement, string ClassName)>? droppedFurniture = null,
-        LevelLightStyles? styles = null)
+        LevelLightStyles? styles = null,
+        IReadOnlyList<BspEntity>? appended = null)
     {
         singletons ??= new LevelSingletons([]);
         List<(BspEntity Entity, int Placement)> merged = [];
@@ -243,6 +249,10 @@ public static partial class LevelLinker
         styles ??= new LevelLightStyles();
         styles.Renumber([.. library.Select(e => (e, -1)), .. merged]);
         lump.AddRange(merged.Select(m => m.Entity));
+
+        // What the linker writes after every room's (the door portals'
+        // entities, LevelDoorPortals), as the flatten writes it last.
+        lump.AddRange(appended ?? []);
         return EntityLump.Write(lump);
     }
 

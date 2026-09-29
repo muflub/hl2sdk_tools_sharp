@@ -108,11 +108,16 @@ public static partial class LevelLinker
     /// </remarks>
     /// <param name="resolved">The placements.</param>
     /// <param name="plans">The placements' plans, their censuses applied.</param>
+    /// <param name="doors">
+    /// The level's door portals (<see cref="LevelDoorPortals"/>), or null
+    /// when its library asks for none. With them, no joint joins areas: each
+    /// joint's portal divides them, numbered after every placement's own.
+    /// </param>
     /// <returns>The level's areas, or null.</returns>
-    /// <exception cref="LinkException">The level has more areas than a map holds.</exception>
-    private static LevelAreas? PlanAreas(ResolvedPlacement[] resolved, RoomPlan[] plans)
+    /// <exception cref="LinkException">The level has more areas than a map holds, or more portal numbers than a listing's key holds.</exception>
+    private static LevelAreas? PlanAreas(ResolvedPlacement[] resolved, RoomPlan[] plans, IReadOnlyList<LevelDoorPortal>? doors)
     {
-        if (!plans.Any(p => p.AreaPortals is not null))
+        if (doors is null && !plans.Any(p => p.AreaPortals is not null))
         {
             return null;
         }
@@ -161,7 +166,7 @@ public static partial class LevelLinker
             byCell[(placement.Instance.Placement.CellX, placement.Instance.Placement.CellY)] = placement;
         }
 
-        for (int p = 0; p < plans.Length; p++)
+        for (int p = 0; p < plans.Length && doors is null; p++)
         {
             RoomPlan plan = plans[p];
             foreach ((string socket, string neighborSocket) in plan.Placement.Instance.Joints)
@@ -220,7 +225,25 @@ public static partial class LevelLinker
             plans[p].AreaMap = map[p];
         }
 
-        return new LevelAreas(number.Count);
+        // The door portals after every placement's own, each between the
+        // areas its doorway leaves take on either side (OpenArea).
+        List<PlannedDoor> planned = [];
+        for (int d = 0; d < (doors?.Count ?? 0); d++)
+        {
+            LevelDoorPortal door = doors![d];
+            RoomPlan a = plans[door.Placement];
+            RoomPlan b = plans[door.Neighbour];
+            int doorNumber = portalBase + d + 1;
+            RoomPlacement where = b.Placement.Instance.Placement;
+            AreaPortalLimits(b.Placement.Room.Definition.Name, where.CellX, where.CellY, doorNumber, listings: 1, clipVerts: 0);
+            planned.Add(new PlannedDoor(
+                door,
+                doorNumber,
+                LevelArea(a, OpenArea(a.Leafs, a.JointFacing[door.Socket][0])),
+                LevelArea(b, OpenArea(b.Leafs, b.JointFacing[door.NeighbourSocket][0]))));
+        }
+
+        return new LevelAreas(number.Count, planned);
     }
 
     /// <summary>How many entries a placement's room has in its <c>Areas</c> lump, area 0 included.</summary>
@@ -278,13 +301,24 @@ public static partial class LevelLinker
     /// (<see cref="PlanAreas"/>), and reported once.
     /// </para>
     /// <para>
+    /// <b>A door portal</b> is listed from both its sides with its number:
+    /// the plane the cell face's, the top tree's split between the two cells
+    /// (so it is found in the shared table, never added), each listing
+    /// taking the half that faces into its own area; the outline the
+    /// doorway's rectangle on the face (<see cref="LevelDoorPortals.Doorway"/>),
+    /// in the order vbsp's hull walk would leave it
+    /// (<see cref="Bsp.Portals.AreaPortalGeometry.Hull"/>).
+    /// </para>
+    /// <para>
     /// <b>Limits.</b> <see cref="AreaPortalLimits"/>, after every listing,
     /// naming the placement whose listing crossed one.
     /// </para>
     /// </remarks>
-    private static void WriteAreas(BspData linked, RoomPlan[] plans, LevelAreas areas, List<string> warnings)
+    /// <returns>The three lumps' bytes.</returns>
+    private static (byte[] Areas, byte[] Portals, byte[] ClipVerts) WriteAreas(
+        RoomPlan[] plans, LevelAreas areas, List<string> warnings, LinkPlanes planes)
     {
-        List<(int Key, RoomPlan Plan, int Listing)>[] byArea = new List<(int, RoomPlan, int)>[areas.Count + 1];
+        List<AreaListing>[] byArea = new List<AreaListing>[areas.Count + 1];
         for (int a = 0; a < byArea.Length; a++)
         {
             byArea[a] = [];
@@ -297,6 +331,9 @@ public static partial class LevelLinker
                 continue;
             }
 
+            RoomPlacement where = plan.Placement.Instance.Placement;
+            string name = plan.Placement.Room.Definition.Name;
+            Vec3[] turned = plan.AreaPortals!.ClipVerts(where.NormalizedRotation);
             HashSet<int> sealedNothing = [];
             for (int l = 1; l < lumps.Portals.Length; l++)
             {
@@ -307,17 +344,51 @@ public static partial class LevelLinker
                 {
                     if (sealedNothing.Add(listing.PortalKey))
                     {
-                        RoomPlacement where = plan.Placement.Instance.Placement;
                         warnings.Add(
-                            $"room {plan.Placement.Room.Definition.Name} at cell ({where.CellX}, {where.CellY}): area portal {listing.PortalKey + plan.PortalBase}"
+                            $"room {name} at cell ({where.CellX}, {where.CellY}): area portal {listing.PortalKey + plan.PortalBase}"
                             + " has one area on both sides once the level joins the rooms around it; the level keeps its entity but lists no portal for it.");
                     }
 
                     continue;
                 }
 
-                byArea[from].Add((listing.PortalKey + plan.PortalBase, plan, l));
+                Vec3[] outline = new Vec3[listing.ClipPortalVerts];
+                for (int v = 0; v < outline.Length; v++)
+                {
+                    outline[v] = plan.Transform.Translate(turned[listing.FirstClipPortalVert + v]);
+                }
+
+                byArea[from].Add(new AreaListing(listing.PortalKey + plan.PortalBase, to, plan.PlaneRef(listing.PlaneNum), outline, name, where));
             }
+        }
+
+        foreach (PlannedDoor door in areas.Doors)
+        {
+            RoomPlan plan = plans[door.Portal.Placement];
+            RoomPlacement where = plan.Placement.Instance.Placement;
+            (int axis, int sign, Box face) = LevelDoorPortals.Doorway(plan.Placement.Room.Definition, where, door.Portal.Socket);
+            Vec3 normal = axis == 0 ? new Vec3(1, 0, 0) : new Vec3(0, 1, 0);
+            float at = axis == 0 ? face.Mins.X : face.Mins.Y;
+
+            // The positive half of the cell face's pair (the top tree's split
+            // there, so it is found, not added); each side's listing takes the
+            // half that faces into its own area, as vbsp orients a portal.
+            (int even, bool flipped) = planes.Intern(normal, at);
+            int positive = even + (flipped ? 1 : 0);
+            int negative = even + (flipped ? 0 : 1);
+
+            // The rectangle in the order vbsp's hull walk leaves it, for the
+            // plane as the tree holds it (the positive half).
+            Vec3[] corners = axis == 0
+                ? [new(at, face.Mins.Y, face.Mins.Z), new(at, face.Maxs.Y, face.Mins.Z), new(at, face.Maxs.Y, face.Maxs.Z), new(at, face.Mins.Y, face.Maxs.Z)]
+                : [new(face.Mins.X, at, face.Mins.Z), new(face.Maxs.X, at, face.Mins.Z), new(face.Maxs.X, at, face.Maxs.Z), new(face.Mins.X, at, face.Maxs.Z)];
+            Vec3[] outline = [.. Bsp.Portals.AreaPortalGeometry.Hull(corners, normal)];
+
+            // The earlier placement's side lies against its socket's outward
+            // normal: its listing's plane faces back, into it.
+            string name = plan.Placement.Room.Definition.Name;
+            byArea[door.AreaA].Add(new AreaListing(door.Number, door.AreaB, sign > 0 ? negative : positive, outline, name, where));
+            byArea[door.AreaB].Add(new AreaListing(door.Number, door.AreaA, sign > 0 ? positive : negative, outline, name, where));
         }
 
         List<DArea> areaLump = [default];
@@ -326,34 +397,40 @@ public static partial class LevelLinker
         for (int a = 1; a < byArea.Length; a++)
         {
             areaLump.Add(new DArea { FirstAreaPortal = portalLump.Count, NumAreaPortals = byArea[a].Count });
-            foreach ((int key, RoomPlan plan, int l) in byArea[a].OrderBy(x => x.Key))
+            foreach (AreaListing listing in byArea[a].OrderBy(x => x.Key))
             {
-                DAreaPortal room = plan.AreaLumps!.Portals[l];
-                string name = plan.Placement.Room.Definition.Name;
-                RoomPlacement where = plan.Placement.Instance.Placement;
-                Vec3[] turned = plan.AreaPortals!.ClipVerts(where.NormalizedRotation);
                 int start = verts.Count;
-                for (int v = room.FirstClipPortalVert; v < room.FirstClipPortalVert + room.ClipPortalVerts; v++)
-                {
-                    verts.Add(plan.Transform.Translate(turned[v]));
-                }
-
+                verts.AddRange(listing.Verts);
                 portalLump.Add(new DAreaPortal
                 {
-                    PortalKey = (ushort)key,
-                    OtherArea = (ushort)LevelArea(plan, room.OtherArea),
+                    PortalKey = (ushort)listing.Key,
+                    OtherArea = (ushort)listing.Other,
                     FirstClipPortalVert = (ushort)start,
-                    ClipPortalVerts = room.ClipPortalVerts,
-                    PlaneNum = plan.PlaneRef(room.PlaneNum),
+                    ClipPortalVerts = (ushort)listing.Verts.Length,
+                    PlaneNum = listing.Plane,
                 });
-                AreaPortalLimits(name, where.CellX, where.CellY, portalNumbers: 0, portalLump.Count, verts.Count);
+                AreaPortalLimits(listing.Room, listing.Where.CellX, listing.Where.CellY, portalNumbers: 0, portalLump.Count, verts.Count);
             }
         }
 
-        linked.SetLump(BspLump.Areas, Bytes(areaLump));
-        linked.SetLump(BspLump.AreaPortals, Bytes(portalLump));
-        linked.SetLump(BspLump.ClipPortalVerts, Bytes(verts));
+        return (Bytes(areaLump), Bytes(portalLump), Bytes(verts));
     }
+
+    /// <summary>One listing of the level's portals, before its place in the lumps is known.</summary>
+    /// <param name="Key">Its portal's number.</param>
+    /// <param name="Other">The level area on the other side.</param>
+    /// <param name="Plane">The linked plane, oriented into the listing's own area.</param>
+    /// <param name="Verts">The outline, in world coordinates.</param>
+    /// <param name="Room">The room it came from (a door portal's earlier room), for a limit's message.</param>
+    /// <param name="Where">That room's placement.</param>
+    private sealed record AreaListing(int Key, int Other, int Plane, Vec3[] Verts, string Room, RoomPlacement Where);
+
+    /// <summary>A door portal with its number and the level areas on its two sides.</summary>
+    /// <param name="Portal">The door portal.</param>
+    /// <param name="Number">Its portal number: after every placement's own portals.</param>
+    /// <param name="AreaA">The area on its earlier placement's side.</param>
+    /// <param name="AreaB">The area on its later placement's side.</param>
+    private sealed record PlannedDoor(LevelDoorPortal Portal, int Number, int AreaA, int AreaB);
 
     /// <summary>
     /// Refuses area portal totals past what the format carries: the portal
@@ -378,7 +455,12 @@ public static partial class LevelLinker
         Limit(room, cellX, cellY, "clip portal vertices", clipVerts, ushort.MaxValue + 1);
     }
 
-    /// <summary>The level's areas, once planned: how many there are besides area 0.</summary>
+    /// <summary>The level's areas, once planned: how many there are besides area 0, and its door portals.</summary>
     /// <param name="Count">The level's areas, area 0 not counted.</param>
-    private sealed record LevelAreas(int Count);
+    /// <param name="Doors">The door portals with their numbers and areas; empty without them.</param>
+    private sealed record LevelAreas(int Count, IReadOnlyList<PlannedDoor> Doors)
+    {
+        /// <summary>The door portals' entities, numbered, in the order the level writes them.</summary>
+        public IReadOnlyList<BspEntity> DoorEntities() => [.. Doors.Select(d => LevelDoorPortals.LinkedEntity(d.Portal, d.Number))];
+    }
 }

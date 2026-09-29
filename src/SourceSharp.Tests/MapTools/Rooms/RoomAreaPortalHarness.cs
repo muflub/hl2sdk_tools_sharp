@@ -63,7 +63,20 @@ internal static class RoomAreaPortalHarness
     public static IReadOnlyDictionary<string, byte[]> Files() => new Dictionary<string, byte[]>(StringComparer.Ordinal)
     {
         [$"materials/{PortalMaterial}.vmt"] = Encoding.ASCII.GetBytes("\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compilenodraw\" \"1\"\n}\n"),
+        [$"materials/{LevelDoorPortals.Material}.vmt"] = Encoding.ASCII.GetBytes("\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compilenodraw\" \"1\"\n}\n"),
     };
+
+    /// <summary>A library that asks for door portals: its worldspawn's <c>rooms_door_portals</c> set to 1.</summary>
+    public static VmfDocument WithDoorPortals(VmfDocument library)
+    {
+        library.GetChunk(MapFileLoader.WorldChunk)!.AddKey(RoomLibraryOptions.DoorPortalsKey, "1");
+        return library;
+    }
+
+    /// <summary>A map's area portal entities, each as its pairs but <c>hammerid</c>, in lump order.</summary>
+    public static List<string> PortalEntities(BspData bsp) =>
+        [.. EntityLump.Parse(bsp[BspLump.Entities]).Where(e => MapFileLoader.IsAreaPortal(e.ClassName ?? string.Empty))
+            .Select(e => string.Join(" | ", e.Pairs.Where(p => p.Key != "hammerid").Select(p => $"{p.Key}={p.Value}")))];
 
     /// <summary>A compile context whose content holds the harness materials and the portal's.</summary>
     public static async Task<VbspContext> ContextAsync(string mapBase = "roomtest", int degree = 1)

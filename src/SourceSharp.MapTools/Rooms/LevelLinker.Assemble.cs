@@ -653,8 +653,13 @@ public static partial class LevelLinker
 
         (byte[]? physCollide, byte[]? physDisp) = MergeCollision(plans, context.Options.Compliance, brushMap, cancellationToken);
 
+        // The level's area lumps, when it has area portals: written before the
+        // plane lump, whose table a door portal's plane is found in.
+        (byte[] Areas, byte[] Portals, byte[] ClipVerts)? areaLumps = areas is null ? null : WriteAreas(plans, areas, areaWarnings, planes);
+        Limit(plans[^1], "planes", planes.Count, ushort.MaxValue + 1);
+
         BspData linked = new() { FileVersion = first.Bsp.FileVersion };
-        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion, singletons, droppedFurniture, styles);
+        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion, singletons, droppedFurniture, styles, areas?.DoorEntities());
         linked.SetLump(BspLump.Planes, Bytes(planes.Planes));
         linked.SetLump(BspLump.TexData, Bytes(textures.TexDatas));
         linked.SetLump(
@@ -684,14 +689,16 @@ public static partial class LevelLinker
         linked.SetLump(BspLump.Primitives, Bytes(prims));
         linked.SetLump(BspLump.PrimIndices, Bytes(primIndices));
         linked.SetLump(BspLump.PrimVerts, Bytes(primVerts));
-        if (areas is null)
+        if (areaLumps is not { } written)
         {
             linked[BspLump.Areas] = areaSource.Bsp[BspLump.Areas];
             linked[BspLump.AreaPortals] = areaSource.Bsp[BspLump.AreaPortals];
         }
         else
         {
-            WriteAreas(linked, plans, areas, areaWarnings);
+            linked.SetLump(BspLump.Areas, written.Areas);
+            linked.SetLump(BspLump.AreaPortals, written.Portals);
+            linked.SetLump(BspLump.ClipPortalVerts, written.ClipVerts);
         }
 
         linked[BspLump.Occlusion] = occlusion.Write();

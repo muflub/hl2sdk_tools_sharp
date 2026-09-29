@@ -266,6 +266,17 @@ public static class LevelFlattener
             });
         }
 
+        // The door portals are planned from the rooms' entities as the room
+        // compiles read them, before writing strips the furniture keys.
+        IReadOnlyList<LevelDoorPortal> doors = libraryOptions.HasDoorPortals
+            ? LevelDoorPortals.Plan(
+                layout,
+                name => byName[name].Definition,
+                FurnitureOf,
+                (p, socket) => LevelDoorPortals.DoorName(
+                    placedSides[p].Entities.Select(e => (Func<string, string?>)e.GetValue), socket, layout.Rooms[p].Placement))
+            : [];
+
         LevelResolution? resolution = null;
         if (resolving)
         {
@@ -293,6 +304,14 @@ public static class LevelFlattener
             {
                 flat.Chunks.Add(WithoutFurnitureKeys(resolution is null ? (VmfChunk)entity.Payload! : Write(entity)));
             }
+        }
+
+        // The library's door portals, one per joint, after every other
+        // entity and in the link's order, each with its brush astride the
+        // cell face (LevelDoorPortals), so vbsp numbers them as the link does.
+        foreach (LevelDoorPortal door in doors)
+        {
+            flat.Chunks.Add(LevelDoorPortals.FlatEntity(door, layout, name => byName[name].Definition));
         }
 
         int next = 1;
