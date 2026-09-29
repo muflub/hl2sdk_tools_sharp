@@ -2412,9 +2412,12 @@ compiles without game content, has none.
 model of a room's compile besides the world in one `BMOD` section
 (`RoomBrushModels`, with the 1.1 framing: codec byte, decoded length,
 revision; codec none): per model its entity's class and Hammer id, whether
-it is origin-relative (its entity's `origin` is not zero, so the loader
-rebuilt its brushes in the entity's own frame, from an origin brush or the
-key alike), its `room_needs`, `room_socket` and `socket_priority`, the runs
+it is origin-relative (its entity has an `origin`, from an origin brush
+or the key alike: the loader rebuilt its brushes in the entity's own frame
+when that is not zero, and one at the room's own origin is that frame at
+zero, which a placement moves to the cell, so it too turns and does not
+move; the flattened compile, meeting the moved origin, rebuilds it about
+it), its `room_needs`, `room_socket` and `socket_priority`, the runs
 of the room's lumps it owns (nodes, leaves, faces, leaf faces, brushes and
 with them their sides, edges, original faces, vertex-normal indices; the
 brushes are read from the map the compile loaded, the one place that says
