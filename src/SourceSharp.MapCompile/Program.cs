@@ -428,14 +428,25 @@ public static class Program
                                                        each also: --bench (stage times);
                                                        vrad also: --no-game-content (light even when
                                                        -game cannot be mounted; the default
-                                                       fails, as stock does)
+                                                       fails, as stock does);
+                                                       -gpu <match|auto> traces on the Vulkan
+                                                       device whose name contains <match>
+                                                       (always, if it passes its self-test);
+                                                       -gpu auto tries each capable device in
+                                                       turn (discrete, integrated, virtual; within
+                                                       a type more VRAM, then more shader cores,
+                                                       first), skipping one that is
+                                                       a CPU implementation (llvmpipe), fails
+                                                       its self-test or uploads rays below
+                                                       2.5 GB/s; if none is left it keeps the
+                                                       CPU tracer and says why for each
               all [chain options] <map> [--vbsp ...] [--vvis ...] [--vrad ...]
                                                        vbsp+vvis+vrad, one process, BSP in memory;
                                                        each --stage section takes that stage's
                                                        stock options; chain options: -game -threads
                                                        -compliance -v -fast -tighten -loose -cooker -vphysics
                                                        -listcompliance -nocache -incremental
-                                                       -cache-dir <dir> -gpu <match>
+                                                       -cache-dir <dir> -gpu <match|auto>
                                                        -gpu_slabs <n> -overlap --no-write
                                                        --record-content <zip>: also write every
                                                        game file the compile read, as a game

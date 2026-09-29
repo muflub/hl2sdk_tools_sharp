@@ -127,6 +127,71 @@ public sealed class VulkanDeviceReleaseFacts
         Assert.Equal(0, device.LiveBytes);
     }
 
+    /// <summary>
+    /// A scene load uploads the vertices, then builds a BLAS and a TLAS over
+    /// it, each with its own scratch, and gives every byte back on dispose.
+    /// </summary>
+    [VulkanStageFact(VulkanNeed.RayQueryDevice)]
+    public void ASceneIsBuiltAsABlasWithATlasOverIt()
+    {
+        VulkanDevice device = new();
+        device.Construct(null, -1, SmallSlab, 1);
+        List<VulkanStep> seen = [];
+        device.Observe = seen.Add;
+
+        device.LoadScene(Vertices());
+        device.Dispose();
+
+        Assert.Equal([VulkanStep.StagingAllocated, VulkanStep.ScratchAllocated, VulkanStep.TopLevelScratchAllocated], seen);
+        Assert.Equal(0, device.LiveBytes);
+    }
+
+    /// <summary>
+    /// A load failing once the TLAS's buffers exist (after the BLAS's)
+    /// propagates its own exception and still releases every buffer with the
+    /// device.
+    /// </summary>
+    [VulkanStageFact(VulkanNeed.RayQueryDevice)]
+    public void ASceneLoadFailingAtTheTopLevelReleasesEveryBufferWithTheDevice()
+    {
+        VulkanDevice device = new();
+        device.Construct(null, -1, SmallSlab, 1);
+        InvalidDataException planted = new("planted failure");
+        device.Observe = step =>
+        {
+            if (step == VulkanStep.TopLevelScratchAllocated)
+            {
+                throw planted;
+            }
+        };
+
+        Exception thrown = Assert.ThrowsAny<Exception>(() => device.LoadScene(Vertices()));
+        device.Dispose();
+
+        Assert.Same(planted, thrown);
+        Assert.Equal(0, device.LiveBytes);
+    }
+
+    /// <summary>
+    /// The self-test's scene and then the real one: the second load replaces
+    /// both structures and their buffers instead of adding to them.
+    /// </summary>
+    [VulkanStageFact(VulkanNeed.RayQueryDevice)]
+    public void ASecondSceneReplacesBothStructuresWithoutGrowing()
+    {
+        VulkanDevice device = new();
+        device.Construct(null, -1, SmallSlab, 1);
+        device.LoadScene(Vertices());
+        long once = device.LiveBytes;
+
+        device.LoadScene(Vertices());
+        long twice = device.LiveBytes;
+        device.Dispose();
+
+        Assert.Equal(once, twice);
+        Assert.Equal(0, device.LiveBytes);
+    }
+
     internal static float[] Vertices()
     {
         float[] v = new float[VulkanRayTracerReleaseFacts.TwoTriangles().Length * 9];

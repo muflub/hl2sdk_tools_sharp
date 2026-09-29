@@ -90,11 +90,34 @@ public sealed class VulkanRayTracerFacts
     /// Gate (a) on the spike's lattice — the synthetic scene whose answer is
     /// known by construction, kept as the no-corpus arm of the same contract.
     /// </summary>
-    [HwGpuFact]
+    [HwGpuFact(DeviceMatch = "radv")]
     public void ClosestHitAndAnyHitMatchCpuTracerOnLattice()
     {
         (TracedTriangle[] tris, Ray[] rays) = Lattice(rays: 65_536, planes: 16, seed: 7);
         RunParity(tris, rays, "lattice");
+    }
+
+    /// <summary>
+    /// The lattice parity gate on the NVIDIA device, which reaches it now
+    /// that the kernel is handed a TLAS. Skips where there is none.
+    /// </summary>
+    [HwGpuFact(DeviceMatch = "NVIDIA")]
+    public void ClosestHitAndAnyHitMatchCpuTracerOnLatticeOnNvidia()
+    {
+        (TracedTriangle[] tris, Ray[] rays) = Lattice(rays: 65_536, planes: 16, seed: 7);
+        RunParity(tris, rays, "lattice", "NVIDIA");
+    }
+
+    /// <summary>
+    /// The lattice parity gate on llvmpipe, a second, independent ray-query
+    /// implementation, which reaches it now that the kernel is handed a
+    /// TLAS. Skips where there is none.
+    /// </summary>
+    [HwGpuFact(DeviceMatch = "llvmpipe")]
+    public void ClosestHitAndAnyHitMatchCpuTracerOnLatticeOnLlvmpipe()
+    {
+        (TracedTriangle[] tris, Ray[] rays) = Lattice(rays: 65_536, planes: 16, seed: 7);
+        RunParity(tris, rays, "lattice", "llvmpipe");
     }
 
     /// <summary>
@@ -103,7 +126,7 @@ public sealed class VulkanRayTracerFacts
     /// byte-identical words and identical ids — which is what lets any thread
     /// split of the same rays (the vrad feed, 1 thread vs 32) land identically.
     /// </summary>
-    [HwGpuFact]
+    [HwGpuFact(DeviceMatch = "radv")]
     public void SlabSizeDoesNotChangeAnyAnswer()
     {
         (TracedTriangle[] tris, Ray[] rays) = Lattice(rays: 131_072, planes: 16, seed: 11);
@@ -146,7 +169,7 @@ public sealed class VulkanRayTracerFacts
     /// independently-scheduled chunk batches through the one instance, give
     /// identical results — the property the parallel vrad feed leans on.
     /// </summary>
-    [HwGpuFact]
+    [HwGpuFact(DeviceMatch = "radv")]
     public void ChunkedConcurrentCallsMatchWholeBatch()
     {
         (TracedTriangle[] tris, Ray[] rays) = Lattice(rays: 98_304, planes: 16, seed: 13);
@@ -197,7 +220,7 @@ public sealed class VulkanRayTracerFacts
     /// §10d's gate, good side: the hardware device passes the known-hit
     /// self-test, and its name is quoted so the log says what traced.
     /// </summary>
-    [HwGpuFact]
+    [HwGpuFact(DeviceMatch = "radv")]
     public void SelfTestAcceptsRadv()
     {
         VulkanTracerAttempt a = VulkanRayTracer.TryCreate(
@@ -220,79 +243,55 @@ public sealed class VulkanRayTracerFacts
     }
 
     /// <summary>
-    /// §10d's gate, Mesa side: the llvmpipe pin MUST be rejected by the
-    /// shipped self-test on a box that exposes it, with the root-caused
-    /// candidate→committed signature named in the reason.
-    /// Skips only where no such device exists; this box has one, so this is
-    /// the shipped-code proof the gate closes. It still holds with the
-    /// kernel's undefined terminate after the proceed loop removed, so that
-    /// terminate was not what made llvmpipe commit nothing.
+    /// §10d's gate, Mesa side: llvmpipe passes the known-hit self-test.
+    /// Skips only where no such device exists.
     /// </summary>
+    /// <remarks>
+    /// This fact used to assert llvmpipe's rejection, put down to a Mesa
+    /// candidate-to-committed bug, and its message asked to be replaced once
+    /// llvmpipe passed. It passes because the kernel is now handed a TLAS:
+    /// with the BLAS in the descriptor, where the spec allows only a
+    /// top-level structure, llvmpipe offered the opaque triangles as
+    /// candidates and committed nothing.
+    /// </remarks>
     [HwGpuFact(DeviceMatch = "llvmpipe")]
-    public void SelfTestRejectsLlvmpeWithMesaSignature()
+    public void SelfTestAcceptsLlvmpipe()
     {
         VulkanTracerAttempt a = VulkanRayTracer.TryCreate(
             TwoTriangles(), new VulkanRayTracerOptions(DeviceMatch: "llvmpipe"));
-        Assert.False(a.Success,
-            "llvmpipe passed the self-test — the Mesa candidate->committed bug is gone or the "
-            + "gate regressed; both are news that must change this fact");
-        Assert.Null(a.Tracer);
-        SelfTestRecord rec = a.Report.Selected
-            ?? throw new Xunit.Sdk.XunitException(
-                $"llvmpipe never opened: failure={a.Report.Failure}");
-        Assert.False(rec.Passed);
-        Assert.NotNull(rec.Reason);
-        // The signature, not just "failed": the readback path worked, the
-        // traversal reached candidates, committing is what is broken.
-        Assert.True(rec.ReadbackOk, "the readback leg itself failed — a different bug than the Mesa one");
-        Assert.True(rec.Candidates > 0,
-            $"expected candidates>0 with committed==0 (telemetry iters={rec.Iters}, "
-            + $"candidates={rec.Candidates}): {rec.Reason}");
+        using VulkanRayTracer? tracer = a.Tracer;
+        Assert.True(a.Success, "llvmpipe rejected: " + (a.Report.Selected?.Reason ?? a.Report.Failure));
+        SelfTestRecord rec = a.Report.Selected!.Value;
+        Assert.True(rec.Passed);
+        Assert.True(rec.ReadbackOk, "known-answer write/readback leg failed");
+        Assert.True(rec.AnyHitOk, "any-hit leg failed");
+        Assert.True(rec.ClosestOk, "closest-hit leg failed");
     }
 
     /// <summary>
-    /// §10d's gate, nvidia side: the in-box RTX 2070 failed the known-hit
-    /// self-test, and must be rejected with a reason that says which answer
-    /// was wrong, not hang. Skips where the inventory names no nvidia device.
+    /// §10d's gate, nvidia side: the RTX 2070 SUPER passes the known-hit
+    /// self-test. Skips where the inventory names no nvidia device.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// This fact used to be read as "the device never traverses", from its
-    /// zero proceed iterations. That was a guess: the BLAS is opaque, so
-    /// zero iterations is also what radv, which passes, reports. The fact
-    /// now asserts only what the self-test can observe: the device is
-    /// rejected, the readback leg worked (so the known-answer legs are what
-    /// failed), and the reason names the failed leg without claiming a
-    /// cause.
-    /// </para>
-    /// <para>
-    /// The kernel used to call terminate after its proceed loop had
-    /// finished, which is undefined behaviour and could itself explain a
-    /// wrong answer on one driver and not another. If the device passes now
-    /// that the terminate is gone, this fact fails with that news: the
-    /// rejection was the kernel's, and the device should get the parity
-    /// facts instead of this one.
-    /// </para>
+    /// This fact used to assert the rejection, and its message asked to be
+    /// replaced if the device ever passed, since that would mean the
+    /// rejection had been the kernel's. It was: the kernel was handed the
+    /// BLAS where a ray query needs a TLAS, and NVIDIA's traversal, which
+    /// starts at an instance, found none and reported every ray a miss.
     /// </remarks>
     [HwGpuFact(DeviceMatch = "NVIDIA")]
-    public void SelfTestRejectsNonTraversingDevice()
+    public void SelfTestAcceptsNvidia()
     {
         VulkanTracerAttempt a = VulkanRayTracer.TryCreate(
             TwoTriangles(), new VulkanRayTracerOptions(DeviceMatch: "NVIDIA"));
-        SelfTestRecord rec = a.Report.Selected
-            ?? throw new Xunit.Sdk.XunitException(
-                "the NVIDIA device was never opened: failure=" + a.Report.Failure);
-        a.Tracer?.Dispose();
-        Assert.False(a.Success,
-            "the NVIDIA device passed the self-test now that the kernel no longer terminates a "
-            + "finished ray query: its old rejection was the kernel's undefined behaviour, not the "
-            + $"device (telemetry iters={rec.Iters}, candidates={rec.Candidates}). Run the parity "
-            + "facts pinned to it and replace this fact");
-        Assert.False(rec.Passed);
-        Assert.True(rec.ReadbackOk, "the readback leg failed, which is a different failure: " + rec.Reason);
-        Assert.NotNull(rec.Reason);
-        Assert.Contains(rec.AnyHitOk ? "closest-hit" : "any-hit", rec.Reason);
-        Assert.DoesNotContain("never traverses", rec.Reason, StringComparison.OrdinalIgnoreCase);
+        using VulkanRayTracer? tracer = a.Tracer;
+        Assert.True(a.Success, "the NVIDIA device was rejected: " + (a.Report.Selected?.Reason ?? a.Report.Failure));
+        SelfTestRecord rec = a.Report.Selected!.Value;
+        Assert.True(rec.Passed);
+        Assert.True(rec.ReadbackOk, "known-answer write/readback leg failed");
+        Assert.True(rec.AnyHitOk, "any-hit leg failed");
+        Assert.True(rec.ClosestOk, "closest-hit leg failed");
+        Assert.Contains("NVIDIA", rec.DeviceName, StringComparison.OrdinalIgnoreCase);
     }
 
     // ------------------------------------------------------------------
@@ -448,7 +447,7 @@ public sealed class VulkanRayTracerFacts
     /// legitimately hand empty batches, and the seam's contract is that they
     /// complete rather than throw.
     /// </summary>
-    [HwGpuFact]
+    [HwGpuFact(DeviceMatch = "radv")]
     public void EmptyBatchCompletes()
     {
         using VulkanRayTracer t = RequireHardware(Array.Empty<TracedTriangle>(), MaxRaysPerSlab: null);
@@ -529,8 +528,8 @@ public sealed class VulkanRayTracerFacts
     }
 
     /// <summary>
-    /// The shape llvmpipe gives: every closest-hit word a miss, telemetry
-    /// that differs between rays. Accepted.
+    /// The shape llvmpipe gave while it was handed a BLAS: every closest-hit
+    /// word a miss, telemetry that differs between rays. Accepted.
     /// </summary>
     [Fact]
     public void RawWordsWithAllMissesButVaryingTelemetryAreNotVacuous()
@@ -831,15 +830,15 @@ public sealed class VulkanRayTracerFacts
         }
     }
 
-    private static VulkanRayTracer RequireHardware(TracedTriangle[] tris, int? MaxRaysPerSlab)
+    private static VulkanRayTracer RequireHardware(TracedTriangle[] tris, int? MaxRaysPerSlab, string device = "radv")
     {
         VulkanTracerAttempt a = VulkanRayTracer.TryCreate(
             tris,
-            new VulkanRayTracerOptions(DeviceMatch: "radv", MaxRaysPerSlab: MaxRaysPerSlab ?? 4_194_304));
+            new VulkanRayTracerOptions(DeviceMatch: device, MaxRaysPerSlab: MaxRaysPerSlab ?? 4_194_304));
         if (!a.Success)
         {
             throw new Xunit.Sdk.XunitException(
-                "radv pin rejected: " + (a.Report.Selected?.Reason ?? a.Report.Failure));
+                device + " pin rejected: " + (a.Report.Selected?.Reason ?? a.Report.Failure));
         }
 
         return a.Tracer!;
@@ -851,15 +850,16 @@ public sealed class VulkanRayTracerFacts
     /// difference is only tolerated where the clips legitimately differ —
     /// the CPU KD's leaf test accepts t &gt; 1e-10 (KdRayTracer.cs:918,
     /// stock's FourZeros) while the GPU's ray query culls t &lt; 1e-3, and the
-    /// any-hit kernel scales tmax by 1-2^-23. Outside that band every claim
-    /// is strict: bits equal, hit/miss equal, ids equal or an oracle-witnessed
+    /// any-hit kernel scales tmax by 1-2^-24 (the oracle below uses 1-2^-23,
+    /// one ulp lower, so its band is a shade wider). Outside that band every
+    /// claim is strict: bits equal, hit/miss equal, ids equal or an oracle-witnessed
     /// tie inside the 1e-3 fraction band, worst fraction gap ≤ 1e-3, and each
     /// arm's committed hit equal to its own policy's oracle answer.
     /// </summary>
-    private static void RunParity(TracedTriangle[] tris, Ray[] rays, string scene)
+    private static void RunParity(TracedTriangle[] tris, Ray[] rays, string scene, string device = "radv")
     {
         KdRayTracer cpu = KdRayTracer.Build(tris);
-        using VulkanRayTracer gpu = RequireHardware(tris, MaxRaysPerSlab: null);
+        using VulkanRayTracer gpu = RequireHardware(tris, MaxRaysPerSlab: null, device);
 
         int words = (rays.Length + 63) / 64;
         ulong[] cpuBits = new ulong[words];
@@ -1056,7 +1056,7 @@ public sealed class VulkanRayTracerFacts
         double best = double.PositiveInfinity, second = double.PositiveInfinity;
         int bestId = -1, secondId = -1;
         int nCross = 0;
-        double gpuFar = tmax * (double)(1f - 1f / 8_388_608f); // any-hit kernel's (1-2^-23) tmax scale
+        double gpuFar = tmax * (double)(1f - 1f / 8_388_608f); // 1-2^-23: one ulp below the any-hit kernel's 1-2^-24 tmax scale, a shade wider
         for (int i = 0; i < tris.Length; i++)
         {
             TracedTriangle t = tris[i];

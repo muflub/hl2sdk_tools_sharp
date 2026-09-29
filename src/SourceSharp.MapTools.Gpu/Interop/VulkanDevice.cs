@@ -5,8 +5,10 @@
 //
 //=============================================================================//
 
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
@@ -15,8 +17,9 @@ using Silk.NET.Vulkan.Extensions.KHR;
 namespace SourceSharp.MapTools.Gpu.Interop;
 
 /// <summary>
-/// One Vulkan compute device with the ray-query pipeline, the scene BLAS, and
-/// a ring of pinned slab slots — everything the traced batches need.
+/// One Vulkan compute device with the ray-query pipeline, the scene's
+/// acceleration structures, and a ring of pinned slab slots — everything the
+/// traced batches need.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,6 +33,19 @@ namespace SourceSharp.MapTools.Gpu.Interop;
 /// by same-queue luck; and the probe-only environment hooks are gone — the
 /// modes they selected are reached by explicit
 /// <c>TraceMode</c> calls from the capability self-test.
+/// </para>
+/// <para>
+/// The scene is two structures: a bottom-level one (the BLAS) holding the
+/// triangles, and a top-level one (the TLAS) holding one identity instance
+/// of it, and the kernel's descriptor is the TLAS. A ray query must be given
+/// a top-level structure; the spec does not allow a bottom-level one in that
+/// descriptor. RADV lays both levels out alike, so tracing a BLAS directly
+/// works there, and it was the only arrangement this code had for a long
+/// time. NVIDIA's driver starts every traversal at an instance, finds none
+/// in a BLAS, and reports every ray as a miss: the RTX 2070 SUPER failed the
+/// known-hit self-test with no candidates at all, and passes it with the
+/// TLAS. On RADV the TLAS changes no answer (the output of a whole map is
+/// byte-identical either way).
 /// </para>
 /// <para>
 /// Threading: not thread-safe by design. One tracer instance owns one of
@@ -49,7 +65,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// <summary>Kernel workgroup size; the bit-out layout assumes 64 rays/workgroup.</summary>
     internal const int Invocations = 64;
 
-    /// <summary>The any-hit tmax shrink as float bits: <c>1 - 2^-23</c> = 0x3F7FFFFF. A boundary hit goes to the miss side.</summary>
+    /// <summary>The any-hit tmax shrink as float bits: <c>1 - 2^-24</c> = 0x3F7FFFFF, the largest float below 1. A boundary hit goes to the miss side.</summary>
     internal const uint TmaxScaleBits = 0x3F7FFFFFu;
 
     private readonly Vk _vk = Vk.GetApi();
@@ -73,15 +89,53 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
 
     private GpuBuffer? _vertexBuffer;
     private GpuBuffer? _asBuffer;
+    private GpuBuffer? _tlasBuffer;
     private SlabSlot[] _slots = [];
     private AccelerationStructureKHR _blasHandle;
+    private AccelerationStructureKHR _tlasHandle;
     private uint _triangleCount;
+
+    /// <summary>The structure the slots' descriptors were last pointed at.</summary>
+    private AccelerationStructureKHR _bound;
+
+    /// <summary>
+    /// Whether the kernel's scene binding holds the TOP-level structure of
+    /// the current scene: true after every successful scene load. Facts read
+    /// it, because a directly bound BLAS is the one mistake no RADV answer
+    /// shows.
+    /// </summary>
+    internal bool BindsTopLevel => _bound.Handle != 0 && _bound.Handle == _tlasHandle.Handle;
+
+    /// <summary>Buffers allocated so far whose usage lets them be asked for a device address.</summary>
+    internal int AddressableAllocations { get; private set; }
+
+    /// <summary>
+    /// Of <see cref="AddressableAllocations"/>, how many had their memory
+    /// allocated with <c>DEVICE_ADDRESS</c> chained in. Facts check the two agree.
+    /// </summary>
+    internal int DeviceAddressFlaggedAllocations { get; private set; }
+
+    /// <summary>
+    /// The device's <c>minAccelerationStructureScratchOffsetAlignment</c>:
+    /// every build's scratch address is rounded up to it.
+    /// </summary>
+    private ulong _scratchAlignment = 256;
+
+    /// <summary>Vulkan 1.3, the API version the kernel's SPIR-V 1.6 module needs.</summary>
+    internal const uint MinimumApiVersion = (1u << 22) | (3u << 12);
 
     /// <summary>Selected device name, e.g. <c>AMD Radeon RX 9070 XT (RADV GFX1201)</c>.</summary>
     public string DeviceName { get; private set; } = "?";
 
     /// <summary>Driver name and info string.</summary>
     public string DriverName { get; private set; } = "?";
+
+    /// <summary>
+    /// What the selected device and its driver say about themselves, for the
+    /// self-test report; <see cref="DeviceIdentity.Unknown"/> until
+    /// <see cref="Construct"/> selects one.
+    /// </summary>
+    public DeviceIdentity Identity { get; private set; } = DeviceIdentity.Unknown;
 
     /// <summary>Whether the selected device presents as a CPU rasteriser (llvmpipe).</summary>
     public bool IsCpuDevice { get; private set; }
@@ -182,6 +236,10 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// Keep the upload and download copies even where the device could read
     /// rays and write answers in place; facts use it to compare the two paths.
     /// </param>
+    /// <param name="physicalDevice">
+    /// A physical-device index (loader order) to open exactly, overriding
+    /// the pins, or −1. An unpinned walk uses it to try each device in turn.
+    /// </param>
     /// <exception cref="VulkanException">Any driver refusal, with the failing call and result.</exception>
     /// <exception cref="NotSupportedException">No device matches and exposes ray query.</exception>
     public void Construct(
@@ -189,7 +247,8 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         int deviceIndex,
         int maxRaysPerSlab,
         int slots = SlabMemory.DefaultSlots,
-        bool forceStaged = false)
+        bool forceStaged = false,
+        int physicalDevice = -1)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(slots, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(slots, SlabMemory.MaxSlots);
@@ -237,17 +296,28 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             ThrowOn(_vk.EnumeratePhysicalDevices(_instance, &count, p), "vkEnumeratePhysicalDevices");
         }
 
-        PhysicalDeviceRayTracingPipelinePropertiesKHR rtProps = new()
+        // The acceleration-structure properties give the scratch alignment
+        // the builds need (the ray-tracing-PIPELINE properties this chain
+        // used to query belong to an extension the tracer never enables);
+        // the driver properties name the driver. A device without the
+        // extension leaves the acceleration-structure structs untouched,
+        // and such a device is passed over below before anything reads them.
+        PhysicalDeviceAccelerationStructurePropertiesKHR asProps = new()
         {
-            SType = StructureType.PhysicalDeviceRayTracingPipelinePropertiesKhr,
+            SType = StructureType.PhysicalDeviceAccelerationStructurePropertiesKhr,
         };
         PhysicalDeviceDriverProperties drv = new()
         {
             SType = StructureType.PhysicalDeviceDriverProperties,
         };
+        PhysicalDeviceAccelerationStructureFeaturesKHR asFeatures = new()
+        {
+            SType = StructureType.PhysicalDeviceAccelerationStructureFeaturesKhr,
+        };
         PhysicalDeviceRayQueryFeaturesKHR rqFeatures = new()
         {
             SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr,
+            PNext = &asFeatures,
         };
         PhysicalDeviceFeatures2 features = new()
         {
@@ -257,59 +327,29 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         PhysicalDeviceProperties2 props = new()
         {
             SType = StructureType.PhysicalDeviceProperties2,
-            PNext = &rtProps,
+            PNext = &asProps,
         };
-        rtProps.PNext = &drv;
+        asProps.PNext = &drv;
 
-        int chosen = -1;
-        int bestScore = int.MinValue;
-        int rqSeen = 0;
+        DeviceCandidate[] candidates = new DeviceCandidate[devices.Length];
         for (int i = 0; i < devices.Length; i++)
         {
             _vk.GetPhysicalDeviceProperties2(devices[i], &props);
             _vk.GetPhysicalDeviceFeatures2(devices[i], &features);
-            if (!rqFeatures.RayQuery)
-            {
-                continue;
-            }
-
-            string name = SilkMarshal.PtrToString((nint)props.Properties.DeviceName) ?? "unknown";
-            if (deviceIndex >= 0)
-            {
-                // An explicit pin picks the index among ray-query-capable
-                // devices in instance order — diagnostics must be able to
-                // reach a device a name substring cannot (or must reach a
-                // known-broken one on purpose).
-                if (rqSeen != deviceIndex)
-                {
-                    rqSeen++;
-                    continue;
-                }
-            }
-            else if (deviceMatch is { Length: > 0 }
-                     && !name.Contains(deviceMatch, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            int score = props.Properties.DeviceType switch
-            {
-                PhysicalDeviceType.DiscreteGpu => 5,
-                PhysicalDeviceType.IntegratedGpu => 4,
-                PhysicalDeviceType.VirtualGpu => 3,
-                PhysicalDeviceType.Cpu => 2,
-                _ => 1,
-            };
-            if (score > bestScore)
-            {
-                bestScore = score;
-                chosen = i;
-            }
+            candidates[i] = new DeviceCandidate(
+                SilkMarshal.PtrToString((nint)props.Properties.DeviceName) ?? "unknown",
+                props.Properties.DeviceType,
+                Traceable(rqFeatures.RayQuery, asFeatures.AccelerationStructure));
         }
 
+        int chosen = physicalDevice >= 0
+            ? ChoosePhysical(candidates, physicalDevice)
+            : ChooseDevice(candidates, deviceMatch, deviceIndex);
         if (chosen < 0)
         {
-            string what = deviceIndex >= 0
+            string what = physicalDevice >= 0
+                ? $"at physical-device index {physicalDevice}"
+                : deviceIndex >= 0
                 ? $"physical-device index {deviceIndex} among ray-query-capable devices"
                 : $"with name matching '{deviceMatch}'";
             throw new NotSupportedException(
@@ -324,6 +364,22 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         DriverName = (SilkMarshal.PtrToString((nint)drv.DriverName) ?? "?") + " / "
                    + (SilkMarshal.PtrToString((nint)drv.DriverInfo) ?? "?");
         IsCpuDevice = props.Properties.DeviceType == PhysicalDeviceType.Cpu;
+        Identity = new DeviceIdentity(
+            DeviceName,
+            props.Properties.VendorID,
+            props.Properties.DeviceID,
+            drv.DriverID.ToString(),
+            SilkMarshal.PtrToString((nint)drv.DriverName) ?? "?",
+            SilkMarshal.PtrToString((nint)drv.DriverInfo) ?? "?",
+            props.Properties.DriverVersion,
+            props.Properties.ApiVersion,
+            string.Create(CultureInfo.InvariantCulture,
+                $"{drv.ConformanceVersion.Major}.{drv.ConformanceVersion.Minor}."
+                + $"{drv.ConformanceVersion.Subminor}.{drv.ConformanceVersion.Patch}"));
+
+        // Before anything is created on it (RequireApiVersion says why).
+        RequireApiVersion(DeviceName, props.Properties.ApiVersion);
+        _scratchAlignment = Math.Max(1UL, asProps.MinAccelerationStructureScratchOffsetAlignment);
         // maxStorageBufferRange is the storage-buffer binding limit that
         // matters here; the spec guarantees >= 128 MiB on every conformant
         // device, and we clamp slab sizes to what the device reports.
@@ -412,8 +468,27 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             SType = StructureType.PhysicalDeviceVulkan12Features,
             BufferDeviceAddress = true,
         };
-        rqFeatures.PNext = &vk12;
-        features.PNext = &rqFeatures;
+
+        // The acceleration-structure FEATURE must be enabled for any
+        // structure to be created, built, sized or destroyed; this chain
+        // once enabled only ray query, which radv and llvmpipe tolerated and
+        // the validation layer reports on every structure call. Only the
+        // two features the tracer uses are switched on from these structs,
+        // not whatever else the query reported (capture-replay and host
+        // builds change how a driver treats structures and are not wanted).
+        PhysicalDeviceAccelerationStructureFeaturesKHR asEnable = new()
+        {
+            SType = StructureType.PhysicalDeviceAccelerationStructureFeaturesKhr,
+            PNext = &vk12,
+            AccelerationStructure = true,
+        };
+        PhysicalDeviceRayQueryFeaturesKHR rqEnable = new()
+        {
+            SType = StructureType.PhysicalDeviceRayQueryFeaturesKhr,
+            PNext = &asEnable,
+            RayQuery = true,
+        };
+        features.PNext = &rqEnable;
         byte** devExts = AllocNames(want);
         DeviceCreateInfo dci = new()
         {
@@ -460,6 +535,132 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         BuildPipeline(spirv);
         AllocateSlots(slots, forceStaged);
         CreateDescriptorSets();
+    }
+
+    /// <summary>
+    /// Picks the device to open from what the loader listed: among the
+    /// traceable ones, the one an index pin names, else the most GPU-like
+    /// one whose name contains the match (any name when there is none).
+    /// </summary>
+    /// <param name="candidates">Every physical device, in the loader's order.</param>
+    /// <param name="deviceMatch">Name substring pin, case-insensitive, or null/empty.</param>
+    /// <param name="deviceIndex">Index pin among traceable devices, or −1; wins over the match.</param>
+    /// <returns>The chosen device's position in <paramref name="candidates"/>, or −1.</returns>
+    /// <remarks>
+    /// <para>
+    /// The ranking is discrete, integrated, virtual, CPU, other: the first
+    /// of the best type wins. A CPU implementation such as llvmpipe is still
+    /// a candidate here, so a pin can reach it and a machine that has
+    /// nothing else still opens it; whether an UNPINNED attempt should use
+    /// it is the tracer's policy
+    /// (<see cref="VulkanRayTracerOptions.DeclineSlowDevicesUnlessPinned"/>),
+    /// decided after this choice so the decline can name the device.
+    /// </para>
+    /// <para>
+    /// An index pin skips that many traceable devices and ranks the rest,
+    /// so it picks the best-ranked device from that index on. That is how
+    /// the loop this was lifted out of behaved, and it is kept on purpose:
+    /// a defaulted <see cref="VulkanRayTracerOptions"/> holds index 0, and
+    /// hosts and facts that pass <c>default</c> rely on it meaning "the best
+    /// device", not "whichever device the loader lists first".
+    /// </para>
+    /// </remarks>
+    internal static int ChooseDevice(ReadOnlySpan<DeviceCandidate> candidates, string? deviceMatch, int deviceIndex)
+    {
+        int chosen = -1;
+        int bestScore = int.MinValue;
+        int traceableSeen = 0;
+        for (int i = 0; i < candidates.Length; i++)
+        {
+            DeviceCandidate c = candidates[i];
+            if (!c.Traceable)
+            {
+                continue;
+            }
+
+            if (deviceIndex >= 0)
+            {
+                // An index pin skips the traceable devices before it in
+                // instance order, then ranks the rest (see the remarks).
+                if (traceableSeen < deviceIndex)
+                {
+                    traceableSeen++;
+                    continue;
+                }
+            }
+            else if (deviceMatch is { Length: > 0 } && !c.Name.Contains(deviceMatch, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            int score = DeviceScore(c.Type);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                chosen = i;
+            }
+        }
+
+        return chosen;
+    }
+
+    /// <summary>The device at <paramref name="physicalDevice"/> when it is traceable, else −1.</summary>
+    /// <param name="candidates">Every physical device, in the loader's order.</param>
+    /// <param name="physicalDevice">The index to open.</param>
+    /// <returns><paramref name="physicalDevice"/>, or −1 when it is out of range or cannot trace.</returns>
+    internal static int ChoosePhysical(ReadOnlySpan<DeviceCandidate> candidates, int physicalDevice) =>
+        physicalDevice < candidates.Length && candidates[physicalDevice].Traceable ? physicalDevice : -1;
+
+    /// <summary>How GPU-like a device type is, for <see cref="ChooseDevice"/>: higher wins.</summary>
+    /// <param name="type">The device's type.</param>
+    /// <returns>5 discrete, 4 integrated, 3 virtual, 2 CPU, 1 other.</returns>
+    internal static int DeviceScore(PhysicalDeviceType type) => type switch
+    {
+        PhysicalDeviceType.DiscreteGpu => 5,
+        PhysicalDeviceType.IntegratedGpu => 4,
+        PhysicalDeviceType.VirtualGpu => 3,
+        PhysicalDeviceType.Cpu => 2,
+        _ => 1,
+    };
+
+    /// <summary>
+    /// Whether a device can hold and trace the scene: it must offer the
+    /// ray-query feature AND the acceleration-structure feature.
+    /// </summary>
+    /// <param name="rayQuery">The device's <c>rayQuery</c> feature.</param>
+    /// <param name="accelerationStructure">The device's <c>accelerationStructure</c> feature.</param>
+    /// <returns>True when both are offered.</returns>
+    /// <remarks>
+    /// The FEATURE, not only the extension: creating or building a
+    /// structure on a device that did not enable it is invalid usage. A
+    /// device that offers ray query without it cannot hold a scene at all,
+    /// so it is passed over like one without ray query.
+    /// </remarks>
+    internal static bool Traceable(bool rayQuery, bool accelerationStructure) =>
+        rayQuery && accelerationStructure;
+
+    /// <summary>
+    /// Refuses a device whose API version is below <see cref="MinimumApiVersion"/>.
+    /// </summary>
+    /// <param name="deviceName">The device, for the message.</param>
+    /// <param name="apiVersion">The version the device reports.</param>
+    /// <exception cref="NotSupportedException">The version is below Vulkan 1.3.</exception>
+    /// <remarks>
+    /// The kernel is compiled for the Vulkan 1.3 environment (SPIR-V 1.6)
+    /// and the device is created with the Vulkan 1.2 feature struct in its
+    /// chain. A device reporting an older version may be handed neither:
+    /// the module would be one its driver never promised to accept, which
+    /// is undefined behaviour rather than an error, so it is refused here,
+    /// with the version it reported, before anything is created on it.
+    /// </remarks>
+    internal static void RequireApiVersion(string deviceName, uint apiVersion)
+    {
+        if (apiVersion < MinimumApiVersion)
+        {
+            throw new NotSupportedException(
+                $"{deviceName} reports Vulkan {DeviceIdentity.FormatApiVersion(apiVersion)}; "
+                + "the ray-query kernel needs Vulkan 1.3 (update the driver)");
+        }
     }
 
     /// <summary>
@@ -559,11 +760,24 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                     PhysicalDeviceProperties2 props = new() { SType = StructureType.PhysicalDeviceProperties2 };
                     vk.GetPhysicalDeviceProperties2(devices[i], &props);
                     vk.GetPhysicalDeviceFeatures2(devices[i], &f);
+                    PhysicalDeviceMemoryProperties memory = vk.GetPhysicalDeviceMemoryProperties(devices[i]);
+                    ulong[] heapSizes = new ulong[memory.MemoryHeapCount];
+                    bool[] heapLocal = new bool[memory.MemoryHeapCount];
+                    for (int h = 0; h < heapSizes.Length; h++)
+                    {
+                        heapSizes[h] = memory.MemoryHeaps[h].Size;
+                        heapLocal[h] = (memory.MemoryHeaps[h].Flags & MemoryHeapFlags.DeviceLocalBit) != 0;
+                    }
+
                     rows.Add(new VulkanDeviceInfo(
                         i,
                         SilkMarshal.PtrToString((nint)props.Properties.DeviceName) ?? "unknown",
                         props.Properties.DeviceType.ToString(),
-                        rq.RayQuery));
+                        rq.RayQuery)
+                    {
+                        DeviceLocalBytes = LargestDeviceLocalHeap(heapSizes, heapLocal),
+                        ShaderCores = ShaderCoreCount(vk, devices[i]),
+                    });
                 }
             }
             finally
@@ -580,6 +794,152 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             observe?.Invoke(VulkanStep.ProbeApiReleased);
         }
     }
+
+    /// <summary>The size of the largest <c>DEVICE_LOCAL</c> memory heap, or 0 when there is none.</summary>
+    /// <param name="sizes">Each heap's size.</param>
+    /// <param name="deviceLocal">Whether each heap is device-local.</param>
+    /// <returns>The largest device-local heap's size.</returns>
+    /// <remarks>
+    /// The largest heap, not the sum: a card with resizable BAR reports
+    /// its VRAM again as a small host-visible device-local heap (or the
+    /// whole of it twice), and a sum would count it twice. The largest
+    /// device-local heap is the card's VRAM on a discrete GPU, and the
+    /// carve-out or shared pool the driver reports on an integrated one.
+    /// </remarks>
+    internal static ulong LargestDeviceLocalHeap(ReadOnlySpan<ulong> sizes, ReadOnlySpan<bool> deviceLocal)
+    {
+        ulong largest = 0;
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            if (deviceLocal[i] && sizes[i] > largest)
+            {
+                largest = sizes[i];
+            }
+        }
+
+        return largest;
+    }
+
+    /// <summary>The vendor extensions that report a shader-core count, in the order they are read.</summary>
+    internal const string AmdCoreProperties2 = "VK_AMD_shader_core_properties2";
+
+    /// <summary>AMD's first shader-core properties extension: engines, arrays and compute units per array.</summary>
+    internal const string AmdCoreProperties = "VK_AMD_shader_core_properties";
+
+    /// <summary>NVIDIA's streaming-multiprocessor builtins, whose properties give the SM count.</summary>
+    internal const string NvSmBuiltins = "VK_NV_shader_sm_builtins";
+
+    /// <summary>Arm's shader-core builtins, whose properties give the core count.</summary>
+    internal const string ArmCoreBuiltins = "VK_ARM_shader_core_builtins";
+
+    /// <summary>
+    /// The device's shader-core count as its vendor extension reports it:
+    /// AMD compute units, NVIDIA streaming multiprocessors, Arm shader
+    /// cores; 0 when the device offers none of those extensions.
+    /// </summary>
+    /// <param name="vk">The API.</param>
+    /// <param name="device">The physical device.</param>
+    /// <returns>The count, or 0.</returns>
+    /// <remarks>
+    /// <para>
+    /// This is the throughput tie-breaker of the unpinned ranking. Core
+    /// Vulkan exposes no clock speed at all, and no extension exposes one
+    /// portably either; what the vendors do expose is how many shader cores
+    /// the device has, which with the device type and memory is the best
+    /// portable proxy for how much it can trace at once. Nothing is read
+    /// from sysfs or vendor tools: the answer must be the same on every OS
+    /// and deterministic for the same device and driver.
+    /// </para>
+    /// <para>
+    /// Sources, first found wins: <c>VK_AMD_shader_core_properties2</c>
+    /// (active compute units, which excludes harvested ones),
+    /// <c>VK_AMD_shader_core_properties</c> (engines × arrays per engine ×
+    /// compute units per array), <c>VK_NV_shader_sm_builtins</c> (SM count)
+    /// and <c>VK_ARM_shader_core_builtins</c> (core count).
+    /// <c>VK_ARM_shader_core_properties</c> reports per-core pixel, texel
+    /// and FMA rates but no core count, so it cannot rank on its own and is
+    /// not read. A struct is chained only for an extension the device lists,
+    /// as the spec requires. The counts are not comparable across vendors
+    /// (a compute unit is not an SM); they only ever break ties between
+    /// devices of the same type and memory size.
+    /// </para>
+    /// </remarks>
+    private static uint ShaderCoreCount(Vk vk, PhysicalDevice device)
+    {
+        uint count = 0;
+        vk.EnumerateDeviceExtensionProperties(device, (byte*)null, &count, (ExtensionProperties*)null);
+        ExtensionProperties[] ep = new ExtensionProperties[count];
+        fixed (ExtensionProperties* p = ep)
+        {
+            vk.EnumerateDeviceExtensionProperties(device, (byte*)null, &count, p);
+        }
+
+        HashSet<string> have = [];
+        for (int i = 0; i < (int)count; i++)
+        {
+            fixed (ExtensionProperties* e = &ep[i])
+            {
+                have.Add(SilkMarshal.PtrToString((nint)e) ?? string.Empty);
+            }
+        }
+
+        PhysicalDeviceShaderCoreProperties2AMD amd2 = new() { SType = StructureType.PhysicalDeviceShaderCoreProperties2Amd };
+        PhysicalDeviceShaderCorePropertiesAMD amd = new() { SType = StructureType.PhysicalDeviceShaderCorePropertiesAmd };
+        PhysicalDeviceShaderSMBuiltinsPropertiesNV nv = new() { SType = StructureType.PhysicalDeviceShaderSMBuiltinsPropertiesNV };
+        PhysicalDeviceShaderCoreBuiltinsPropertiesARM arm = new() { SType = StructureType.PhysicalDeviceShaderCoreBuiltinsPropertiesArm };
+        PhysicalDeviceProperties2 props = new() { SType = StructureType.PhysicalDeviceProperties2 };
+        void* chain = null;
+        if (have.Contains(AmdCoreProperties2))
+        {
+            amd2.PNext = chain;
+            chain = &amd2;
+        }
+
+        if (have.Contains(AmdCoreProperties))
+        {
+            amd.PNext = chain;
+            chain = &amd;
+        }
+
+        if (have.Contains(NvSmBuiltins))
+        {
+            nv.PNext = chain;
+            chain = &nv;
+        }
+
+        if (have.Contains(ArmCoreBuiltins))
+        {
+            arm.PNext = chain;
+            chain = &arm;
+        }
+
+        if (chain == null)
+        {
+            return 0;
+        }
+
+        props.PNext = chain;
+        vk.GetPhysicalDeviceProperties2(device, &props);
+        return FirstCoreCount(
+            have.Contains(AmdCoreProperties2) ? amd2.ActiveComputeUnitCount : 0,
+            have.Contains(AmdCoreProperties)
+                ? amd.ShaderEngineCount * amd.ShaderArraysPerEngineCount * amd.ComputeUnitsPerShaderArray
+                : 0,
+            have.Contains(NvSmBuiltins) ? nv.ShaderSmcount : 0,
+            have.Contains(ArmCoreBuiltins) ? arm.ShaderCoreCount : 0);
+    }
+
+    /// <summary>The first non-zero count, in the order <see cref="ShaderCoreCount"/> prefers them.</summary>
+    /// <param name="amdActiveComputeUnits">From <c>VK_AMD_shader_core_properties2</c>, or 0.</param>
+    /// <param name="amdComputeUnits">From <c>VK_AMD_shader_core_properties</c>, or 0.</param>
+    /// <param name="nvSmCount">From <c>VK_NV_shader_sm_builtins</c>, or 0.</param>
+    /// <param name="armCoreCount">From <c>VK_ARM_shader_core_builtins</c>, or 0.</param>
+    /// <returns>The count, or 0 when every source is 0.</returns>
+    internal static uint FirstCoreCount(uint amdActiveComputeUnits, uint amdComputeUnits, uint nvSmCount, uint armCoreCount) =>
+        amdActiveComputeUnits != 0 ? amdActiveComputeUnits
+        : amdComputeUnits != 0 ? amdComputeUnits
+        : nvSmCount != 0 ? nvSmCount
+        : armCoreCount;
 
     private void BuildPipeline(byte[] spirv)
     {
@@ -714,13 +1074,27 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                 throw new NotSupportedException($"{DeviceName}: no memory type with {required}");
             }
 
+            MemoryAllocateFlagsInfo flagsInfo = new()
+            {
+                SType = StructureType.MemoryAllocateFlagsInfo,
+                Flags = AllocateFlagsFor(usage),
+            };
             MemoryAllocateInfo mai = new()
             {
                 SType = StructureType.MemoryAllocateInfo,
+                PNext = flagsInfo.Flags != 0 ? &flagsInfo : null,
                 AllocationSize = req.Size,
                 MemoryTypeIndex = (uint)type,
             };
             ThrowOn(_vk.AllocateMemory(_device, &mai, null, out memory), "vkAllocateMemory");
+            if ((usage & BufferUsageFlags.ShaderDeviceAddressBit) != 0)
+            {
+                AddressableAllocations++;
+                if (mai.PNext == (void*)&flagsInfo && (flagsInfo.Flags & MemoryAllocateFlags.DeviceAddressBit) != 0)
+                {
+                    DeviceAddressFlaggedAllocations++;
+                }
+            }
             ThrowOn(_vk.BindBufferMemory(_device, buffer, memory, 0), "vkBindBufferMemory");
             nint mapped = 0;
             if ((required & MemoryPropertyFlags.HostVisibleBit) != 0)
@@ -766,6 +1140,20 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             throw;
         }
     }
+
+    /// <summary>The memory-allocate flags a buffer with <paramref name="usage"/> needs.</summary>
+    /// <param name="usage">The buffer's usage.</param>
+    /// <returns><c>DEVICE_ADDRESS</c> for a buffer whose device address is taken, otherwise none.</returns>
+    /// <remarks>
+    /// A buffer created with <c>SHADER_DEVICE_ADDRESS</c> usage must be bound
+    /// to memory allocated with <c>VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT</c>.
+    /// That covers the vertex, scratch and instance buffers whose addresses
+    /// go to the builds, and the structures' own storage, whose address the
+    /// TLAS instance holds. RADV makes every allocation addressable, so
+    /// leaving the flag off worked there; the spec does not promise it.
+    /// </remarks>
+    internal static MemoryAllocateFlags AllocateFlagsFor(BufferUsageFlags usage) =>
+        (usage & BufferUsageFlags.ShaderDeviceAddressBit) != 0 ? MemoryAllocateFlags.DeviceAddressBit : 0;
 
     /// <summary>Frees a temporary buffer whose work finished, or parks it until <see cref="Dispose"/> when it failed.</summary>
     /// <param name="b">The buffer.</param>
@@ -968,21 +1356,15 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         }
 
         // A second LoadScene — the self-test's two-triangle scene and then
-        // the real one — replaces the vertex buffer and the BLAS; release
-        // the old pair instead of leaking them. The queue is idle here (the
-        // last dispatch's fence signalled), so the descriptor refresh in
-        // BuildBlas is safe.
+        // the real one — replaces the vertex buffer and both structures;
+        // release the old ones instead of leaking them. The queue is idle
+        // here (the last dispatch's fence signalled), so the descriptor
+        // refresh in BuildScene is safe.
+        ReleaseScene();
         if (_vertexBuffer is not null)
         {
             Free(_vertexBuffer);
             _vertexBuffer = null;
-        }
-
-        if (_asBuffer is not null)
-        {
-            _blasApi.DestroyAccelerationStructure(_device, _blasHandle, null);
-            Free(_asBuffer);
-            _asBuffer = null;
         }
 
         _triangleCount = (uint)(vertices.Length / 9);
@@ -1009,12 +1391,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             CommandBuffer upload = Begin();
             BufferCopy region = new() { SrcOffset = 0, DstOffset = 0, Size = bytes };
             _vk.CmdCopyBuffer(upload, staging.Vk, _vertexBuffer.Vk, 1, &region);
-            Barrier(
-                upload,
-                PipelineStageFlags.TransferBit,
-                AccessFlags.TransferWriteBit,
-                PipelineStageFlags.AccelerationStructureBuildBitKhr,
-                AccessFlags.AccelerationStructureReadBitKhr);
+            Barrier(upload, UploadToBuild);
             End(upload);
             Submit(upload);
             uploaded = true;
@@ -1024,13 +1401,42 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             FreeOrPark(staging, uploaded);
         }
 
-        BuildBlas();
+        BuildScene();
     }
 
-    private void BuildBlas()
+    /// <summary>Destroys both structures and frees their storage; the TLAS first, since it refers to the BLAS.</summary>
+    private void ReleaseScene()
+    {
+        // The descriptors name the old TLAS until the next build rebinds
+        // them; nothing dispatches in between (a failed load declines the
+        // device), and the flag says so.
+        _bound = default;
+        if (_tlasHandle.Handle != 0)
+        {
+            _blasApi.DestroyAccelerationStructure(_device, _tlasHandle, null);
+            _tlasHandle = default;
+        }
+
+        Free(_tlasBuffer);
+        _tlasBuffer = null;
+        if (_blasHandle.Handle != 0)
+        {
+            _blasApi.DestroyAccelerationStructure(_device, _blasHandle, null);
+            _blasHandle = default;
+        }
+
+        Free(_asBuffer);
+        _asBuffer = null;
+    }
+
+    private void BuildScene()
     {
         AccelerationStructureGeometryTrianglesDataKHR tris = new()
         {
+            // The nested struct's sType is required like any other; an
+            // object initializer leaves it zero, which the validation layer
+            // reports on every build and a driver is free to reject.
+            SType = StructureType.AccelerationStructureGeometryTrianglesDataKhr,
             VertexFormat = Format.R32G32B32Sfloat,
             VertexData = new DeviceOrHostAddressConstKHR { DeviceAddress = _vertexBuffer!.DeviceAddress },
             IndexType = IndexType.NoneKhr,
@@ -1067,18 +1473,20 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         AccelerationStructureBuildSizesInfoKHR sizes = _blasApi.GetAccelerationStructureBuildSizes(
             _device, AccelerationStructureBuildTypeKHR.DeviceKhr, &info, &primCount);
         ulong asSize = Math.Max(16UL, sizes.AccelerationStructureSize);
-        ulong scratchSize = Math.Max(16UL, ((ulong)sizes.BuildScratchSize + 255UL) & ~255UL);
 
         // ACCELERATION_STRUCTURE_STORAGE_BIT_KHR on the backing buffer is spec
         // required; lavapipe silently produced an empty BLAS without it (the
-        // all-miss blocker's second contributor).
+        // all-miss blocker's second contributor). SHADER_DEVICE_ADDRESS is
+        // there because the TLAS instance refers to the BLAS by address.
         _asBuffer = Allocate(asSize, MemoryPropertyFlags.DeviceLocalBit,
             BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.StorageBufferBit
             | BufferUsageFlags.AccelerationStructureStorageBitKhr,
             deviceAddress: false);
-        GpuBuffer scratch = Allocate(scratchSize, MemoryPropertyFlags.DeviceLocalBit,
+        GpuBuffer scratch = Allocate(ScratchSize(sizes.BuildScratchSize, _scratchAlignment), MemoryPropertyFlags.DeviceLocalBit,
             BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit,
             deviceAddress: true);
+        GpuBuffer? instances = null;
+        GpuBuffer? topScratch = null;
         bool built = false;
         try
         {
@@ -1092,21 +1500,84 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             };
             ThrowOn(_blasApi.CreateAccelerationStructure(_device, &asci, null, out _blasHandle),
                 "vkCreateAccelerationStructureKHR");
+            info.DstAccelerationStructure = _blasHandle;
+            info.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = AlignUp(scratch.DeviceAddress, _scratchAlignment) };
 
+            // The TLAS: one instance of the BLAS, identity transform, every
+            // ray's mask, no culling (the kernel asks for none either). The
+            // BLAS's address is valid once it is created, before its build.
+            AccelerationStructureDeviceAddressInfoKHR blasAddress = new()
+            {
+                SType = StructureType.AccelerationStructureDeviceAddressInfoKhr,
+                AccelerationStructure = _blasHandle,
+            };
+            AccelerationStructureInstanceKHR instance = SceneInstance(
+                _blasApi.GetAccelerationStructureDeviceAddress(_device, &blasAddress));
+            instances = Allocate((ulong)sizeof(AccelerationStructureInstanceKHR),
+                MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
+                BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr,
+                deviceAddress: true);
+            *(AccelerationStructureInstanceKHR*)instances.Mapped = instance;
+
+            AccelerationStructureGeometryKHR top = new()
+            {
+                SType = StructureType.AccelerationStructureGeometryKhr,
+                GeometryType = GeometryTypeKHR.InstancesKhr,
+                Flags = GeometryFlagsKHR.OpaqueBitKhr,
+            };
+            top.Geometry.Instances = new AccelerationStructureGeometryInstancesDataKHR
+            {
+                SType = StructureType.AccelerationStructureGeometryInstancesDataKhr,
+                ArrayOfPointers = false,
+                Data = new DeviceOrHostAddressConstKHR { DeviceAddress = instances.DeviceAddress },
+            };
+            AccelerationStructureBuildGeometryInfoKHR topInfo = new()
+            {
+                SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+                Type = AccelerationStructureTypeKHR.TopLevelKhr,
+                Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
+                Mode = BuildAccelerationStructureModeKHR.BuildKhr,
+                GeometryCount = 1,
+                PGeometries = &top,
+            };
+            uint instanceCount = 1;
+            AccelerationStructureBuildSizesInfoKHR topSizes = _blasApi.GetAccelerationStructureBuildSizes(
+                _device, AccelerationStructureBuildTypeKHR.DeviceKhr, &topInfo, &instanceCount);
+            ulong tlasSize = Math.Max(16UL, topSizes.AccelerationStructureSize);
+            _tlasBuffer = Allocate(tlasSize, MemoryPropertyFlags.DeviceLocalBit,
+                BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.StorageBufferBit
+                | BufferUsageFlags.AccelerationStructureStorageBitKhr,
+                deviceAddress: false);
+            topScratch = Allocate(ScratchSize(topSizes.BuildScratchSize, _scratchAlignment), MemoryPropertyFlags.DeviceLocalBit,
+                BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit,
+                deviceAddress: true);
+            Observe?.Invoke(VulkanStep.TopLevelScratchAllocated);
+            AccelerationStructureCreateInfoKHR topCreate = new()
+            {
+                SType = StructureType.AccelerationStructureCreateInfoKhr,
+                Buffer = _tlasBuffer.Vk,
+                Size = tlasSize,
+                Type = AccelerationStructureTypeKHR.TopLevelKhr,
+            };
+            ThrowOn(_blasApi.CreateAccelerationStructure(_device, &topCreate, null, out _tlasHandle),
+                "vkCreateAccelerationStructureKHR");
+            topInfo.DstAccelerationStructure = _tlasHandle;
+            topInfo.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = AlignUp(topScratch.DeviceAddress, _scratchAlignment) };
+
+            // Both builds in one command buffer: the TLAS build reads the
+            // BLAS the first build wrote, so a barrier orders them on the
+            // device (submission order alone makes no memory promise), and
+            // the second barrier makes the TLAS visible to the kernel's
+            // ray queries, which read it as an acceleration structure.
             AccelerationStructureBuildRangeInfoKHR range = new() { PrimitiveCount = _triangleCount };
             AccelerationStructureBuildRangeInfoKHR* rangePtr = &range;
-            info.DstAccelerationStructure = _blasHandle;
-            info.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = scratch.DeviceAddress };
-
+            AccelerationStructureBuildRangeInfoKHR topRange = new() { PrimitiveCount = 1 };
+            AccelerationStructureBuildRangeInfoKHR* topRangePtr = &topRange;
             CommandBuffer cmd = Begin();
             _blasApi.CmdBuildAccelerationStructures(cmd, 1, &info, &rangePtr);
-            // The build's write must be visible to the kernel's AS reads.
-            Barrier(
-                cmd,
-                PipelineStageFlags.AccelerationStructureBuildBitKhr,
-                AccessFlags.AccelerationStructureWriteBitKhr,
-                PipelineStageFlags.ComputeShaderBit,
-                AccessFlags.ShaderReadBit);
+            Barrier(cmd, BlasToTlas);
+            _blasApi.CmdBuildAccelerationStructures(cmd, 1, &topInfo, &topRangePtr);
+            Barrier(cmd, BuildToTrace);
             End(cmd);
             Submit(cmd);
             built = true;
@@ -1114,15 +1585,123 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         finally
         {
             FreeOrPark(scratch, built);
+            if (instances is not null)
+            {
+                FreeOrPark(instances, built);
+            }
+
+            if (topScratch is not null)
+            {
+                FreeOrPark(topScratch, built);
+            }
         }
 
-        UpdateBlasBinding();
+        UpdateSceneBinding();
     }
 
     /// <summary>
+    /// The scene's one TLAS instance: the BLAS at
+    /// <paramref name="blasAddress"/> under the identity transform, custom
+    /// index 0, mask 0xFF (every ray's cull mask is 0xFF, so it is never
+    /// masked out), binding-table offset 0, and facing culling disabled
+    /// (the kernel asks for no culling either, so no driver's facing
+    /// convention can enter into an answer).
+    /// </summary>
+    /// <param name="blasAddress">The BLAS's device address.</param>
+    /// <returns>The instance.</returns>
+    /// <remarks>
+    /// The identity transform multiplies each ray component by exactly 1 and
+    /// adds exact zeros, so primitive indices and t stay the BLAS's own; only
+    /// the sign of a zero component can change, and the triangle test's
+    /// comparisons treat the two zeros alike. That is why RADV's output is
+    /// byte-identical with the TLAS.
+    /// </remarks>
+    internal static AccelerationStructureInstanceKHR SceneInstance(ulong blasAddress)
+    {
+        AccelerationStructureInstanceKHR instance = new()
+        {
+            InstanceCustomIndex = 0,
+            Mask = 0xFF,
+            InstanceShaderBindingTableRecordOffset = 0,
+            Flags = GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr,
+            AccelerationStructureReference = blasAddress,
+        };
+        instance.Transform.Matrix[0] = 1f;
+        instance.Transform.Matrix[5] = 1f;
+        instance.Transform.Matrix[10] = 1f;
+        return instance;
+    }
+
+    /// <summary>
+    /// The bytes to allocate for a build's scratch: the size it needs,
+    /// rounded up to 256 bytes (and never zero), plus room to round the
+    /// buffer's address up to <paramref name="alignment"/>.
+    /// </summary>
+    /// <param name="required">The build's scratch size.</param>
+    /// <param name="alignment"><c>minAccelerationStructureScratchOffsetAlignment</c>, a power of two.</param>
+    /// <returns>The allocation size.</returns>
+    /// <remarks>
+    /// The spec asks each build's scratch ADDRESS to be a multiple of the
+    /// device's scratch alignment. A fresh buffer's address follows its
+    /// memory requirements, which drivers commonly make large enough, but
+    /// nothing ties the two numbers together, so the build rounds the
+    /// address up with <see cref="AlignUp"/> and the slack is allocated for
+    /// it. The size alone was rounded before, and the address never looked
+    /// at.
+    /// </remarks>
+    internal static ulong ScratchSize(ulong required, ulong alignment) =>
+        Math.Max(16UL, (required + 255UL) & ~255UL) + (Math.Max(1UL, alignment) - 1);
+
+    /// <summary>Rounds <paramref name="value"/> up to a multiple of <paramref name="alignment"/>.</summary>
+    /// <param name="value">The value.</param>
+    /// <param name="alignment">A power of two; 0 counts as 1.</param>
+    /// <returns>The smallest multiple of the alignment not below the value.</returns>
+    internal static ulong AlignUp(ulong value, ulong alignment)
+    {
+        ulong a = Math.Max(1UL, alignment);
+        return (value + (a - 1)) & ~(a - 1);
+    }
+
+    /// <summary>
+    /// The upload-to-build barrier: the staging copy's write, before the
+    /// BLAS build reads the vertices.
+    /// </summary>
+    /// <remarks>
+    /// A build reads its geometry input as a SHADER read at the build
+    /// stage. The acceleration-structure read access, which this barrier
+    /// once named alone, covers only reads of acceleration structures, so
+    /// nothing promised the build would see the uploaded vertices. Both are
+    /// named; the second is harmless and keeps the old promise.
+    /// </remarks>
+    internal static BarrierMasks UploadToBuild => new(
+        PipelineStageFlags.TransferBit,
+        AccessFlags.TransferWriteBit,
+        PipelineStageFlags.AccelerationStructureBuildBitKhr,
+        AccessFlags.ShaderReadBit | AccessFlags.AccelerationStructureReadBitKhr);
+
+    /// <summary>The BLAS build's write, before the TLAS build reads the BLAS through its instance.</summary>
+    internal static BarrierMasks BlasToTlas => new(
+        PipelineStageFlags.AccelerationStructureBuildBitKhr,
+        AccessFlags.AccelerationStructureWriteBitKhr,
+        PipelineStageFlags.AccelerationStructureBuildBitKhr,
+        AccessFlags.AccelerationStructureReadBitKhr);
+
+    /// <summary>The builds' writes, before the kernel's ray queries read the scene.</summary>
+    /// <remarks>
+    /// A ray query's traversal is an ACCELERATION_STRUCTURE_READ at the
+    /// stage of the shader that runs it, here compute. This barrier once
+    /// named SHADER_READ, which does not cover that access.
+    /// </remarks>
+    internal static BarrierMasks BuildToTrace => new(
+        PipelineStageFlags.AccelerationStructureBuildBitKhr,
+        AccessFlags.AccelerationStructureWriteBitKhr,
+        PipelineStageFlags.ComputeShaderBit,
+        AccessFlags.AccelerationStructureReadBitKhr);
+
+    /// <summary>
     /// Creates one descriptor set per slot, binding that slot's kernel ray
-    /// and output buffers. Runs once at construction. The BLAS binding is
-    /// written by <see cref="UpdateBlasBinding"/> on each build (self-test
+    /// and output buffers. Runs once at construction. The TLAS binding is
+    /// written by <see cref="UpdateSceneBinding"/> on each build (self-test
     /// scene, then the real scene), which always comes before the first
     /// dispatch.
     /// </summary>
@@ -1186,13 +1765,13 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     }
 
     /// <summary>
-    /// Points every slot's set at the BLAS after a build. Legal because no
+    /// Points every slot's set at the TLAS after a build. Legal because no
     /// slot is in flight then: builds happen only while the device is being
     /// set up, and every self-test dispatch has been waited for.
     /// </summary>
-    private void UpdateBlasBinding()
+    private void UpdateSceneBinding()
     {
-        fixed (AccelerationStructureKHR* blasPtr = &_blasHandle)
+        fixed (AccelerationStructureKHR* tlasPtr = &_tlasHandle)
         {
             foreach (SlabSlot slot in _slots)
             {
@@ -1200,7 +1779,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                 {
                     SType = StructureType.WriteDescriptorSetAccelerationStructureKhr,
                     AccelerationStructureCount = 1,
-                    PAccelerationStructures = blasPtr,
+                    PAccelerationStructures = tlasPtr,
                 };
                 WriteDescriptorSet asBinding = new()
                 {
@@ -1214,6 +1793,8 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                 _vk.UpdateDescriptorSets(_device, 1, &asBinding, 0, null);
             }
         }
+
+        _bound = _tlasHandle;
     }
 
     /// <summary>
@@ -1254,7 +1835,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// <param name="rayCount">Rays staged.</param>
     /// <param name="outWordCount">Raw out words: 2/ray for modes 1/5, 2/workgroup for 0/4.</param>
     /// <param name="tminBits">Ray epsilon as float bits.</param>
-    /// <param name="tmaxScaleBits">Any-hit tmax scale (<c>1 - 2^-23</c>) as float bits.</param>
+    /// <param name="tmaxScaleBits">Any-hit tmax scale (<c>1 - 2^-24</c>) as float bits.</param>
     /// <exception cref="VulkanException">
     /// Recording or submission failed (the slot stays free), or the slot's
     /// last slab failed its wait and still has not finished.
@@ -1409,11 +1990,30 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         }
     }
 
-    /// <summary>Rays the known-hit micro-scene dispatches: 2 real, padded to one workgroup.</summary>
+    /// <summary>
+    /// Rays the known-hit micro-scene's buffer holds: one workgroup's worth,
+    /// of which only <see cref="SelfTestRealRays"/> are dispatched as rays.
+    /// </summary>
     internal const int SelfTestRays = Invocations;
 
-    /// <summary>How many of them are real; the padded lanes are zero and degenerate.</summary>
+    /// <summary>
+    /// How many rays the self-test traces. The dispatch still covers one
+    /// whole workgroup, but the kernel's range guard keeps the other lanes
+    /// from starting a query at all.
+    /// </summary>
+    /// <remarks>
+    /// The self-test used to pass all 64 lanes as rays, 62 of them zeroed:
+    /// zero direction, <c>tmax</c> 0, and the test's <c>tmin</c> of 1e-3. A
+    /// ray query with <c>tmin</c> above <c>tmax</c> is undefined behaviour,
+    /// and those lanes ran in the same workgroup as the two rays that decide
+    /// the gate, and in any-hit mode folded their bits through the same
+    /// shared words. The self-test no longer offers any such ray, and the
+    /// kernel refuses one itself.
+    /// </remarks>
     internal const int SelfTestRealRays = 2;
+
+    /// <summary><c>1e-3f</c> as float bits: the self-test's <c>tmin</c>.</summary>
+    internal const uint SelfTestTminBits = 0x3A83126Fu;
 
     /// <summary>
     /// The capability gate: traces a two-triangle known-hit micro-scene
@@ -1422,11 +2022,11 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// (modes 4, 0 and 1). The telemetry (mode 5) is recorded for the report
     /// and decides nothing: the BLAS is opaque, so a conformant driver offers
     /// no candidates and reports zero proceed iterations, the same numbers a
-    /// device that never traversed would give. llvmpipe is the one device
-    /// seen to report candidates, and it fails the known answers (modes 0/1
-    /// commit nothing).
+    /// device that never traversed would give. While the kernel was handed a
+    /// BLAS, llvmpipe reported candidates and NVIDIA reported none, and both
+    /// failed the known answers; with the TLAS both pass.
     /// </summary>
-    /// <returns>Whether to trust the device, and the telemetry either way.</returns>
+    /// <returns>Whether to trust the device, and every ray's raw answers either way.</returns>
     /// <remarks>
     /// The scene is exact by construction: one unit quad on x=0 split into
     /// triangles 0 (the y&#8805;z half) and 1 (the z&#8805;y half), and two
@@ -1438,47 +2038,108 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// </remarks>
     public (bool Passed, SelfTestOutcome Outcome) RunSelfTest()
     {
-        SelfTestGeometry(out float[] vertices, out float[] rays, out int rayCount);
-        // The self-test runs through the SAME upload + BLAS-build machinery a
-        // real trace uses, so an empty BLAS from a bad build fails the gate
-        // too (that was the lavapipe all-miss's second contributor).
+        SelfTestGeometry(out float[] vertices, out float[] rays, out _);
+        // The self-test runs through the SAME upload + BLAS/TLAS-build
+        // machinery a real trace uses, so an empty structure from a bad
+        // build fails the gate too (that was the lavapipe all-miss's second
+        // contributor).
         LoadScene(vertices);
-        uint tminBits = 0x3A83126Fu; // 1e-3f
+        uint tminBits = SelfTestTminBits;
         const int OutWordsAny = 2;   // one workgroup
+        ReadOnlySpan<float> real = rays.AsSpan(0, SelfTestRealRays * 8);
 
         // Mode 4 first: pure compute-write/copy/readback. If this reads back
         // zeroes, nothing about ray answers means anything yet.
-        uint[] w = new uint[Math.Max(OutWordsAny, SelfTestRays * 2)];
-        DispatchWithStagedRays(4, SelfTestRays, rays, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
-        bool readbackOk = w[0] == 0xFFFFFFFFu && w[1] == 0xFFFFFFFFu;
+        uint[] w = new uint[Math.Max(OutWordsAny, SelfTestRealRays * 2)];
+        DispatchWithStagedRays(4, SelfTestRealRays, real, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
+        (uint First, uint Second) readback = (w[0], w[1]);
+        bool readbackOk = readback == (0xFFFFFFFFu, 0xFFFFFFFFu);
 
         bool anyHitOk = false;
         bool closestOk = false;
         int iters = 0;
         int cands = 0;
+        SelfTestRayResult[] results = [];
         if (readbackOk)
         {
-            DispatchWithStagedRays(0, SelfTestRays, rays, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
-            anyHitOk = (w[0] & 3u) == 3u; // both rays blocked
+            DispatchWithStagedRays(0, SelfTestRealRays, real, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
+            uint anyBits = w[0];
 
-            DispatchWithStagedRays(1, SelfTestRays, rays, w.AsSpan(0, SelfTestRays * 2), tminBits, TmaxScaleBits);
-            closestOk =
-                w[0] == 0u // ray A hits triangle 0
-                && Math.Abs(BitConverter.Int32BitsToSingle(unchecked((int)w[1])) - 0.5f) < 1e-4f
-                && w[2] == 1u // ray B hits triangle 1
-                && Math.Abs(BitConverter.Int32BitsToSingle(unchecked((int)w[3])) - 0.5f) < 1e-4f;
+            DispatchWithStagedRays(1, SelfTestRealRays, real, w.AsSpan(0, SelfTestRealRays * 2), tminBits, TmaxScaleBits);
+            uint[] closest = w[..(SelfTestRealRays * 2)];
 
-            // Telemetry decides WHICH broken device this is, for the report.
-            DispatchWithStagedRays(5, SelfTestRays, rays, w.AsSpan(0, SelfTestRays * 2), tminBits, TmaxScaleBits);
-            for (int i = 0; i < SelfTestRays; i++)
+            // Telemetry says what the traversal offered, for the report.
+            DispatchWithStagedRays(5, SelfTestRealRays, real, w.AsSpan(0, SelfTestRealRays * 2), tminBits, TmaxScaleBits);
+            results = new SelfTestRayResult[SelfTestRealRays];
+            for (int i = 0; i < SelfTestRealRays; i++)
             {
-                iters = Math.Max(iters, unchecked((int)w[i * 2]));
-                cands += w[(i * 2) + 1] != 0 ? 1 : 0;
+                results[i] = new SelfTestRayResult(
+                    i,
+                    (anyBits & (1u << i)) != 0,
+                    closest[i * 2],
+                    closest[(i * 2) + 1],
+                    unchecked((int)w[i * 2]),
+                    unchecked((int)w[(i * 2) + 1]));
+                iters = Math.Max(iters, results[i].Iterations);
+                cands += results[i].Candidates != 0 ? 1 : 0;
             }
+
+            // Ray i must hit triangle i at t = 0.5 in both modes.
+            anyHitOk = Array.TrueForAll(results, r => r.AnyHit);
+            closestOk = Array.TrueForAll(results, r => r.ClosestMatches);
         }
 
         bool passed = readbackOk && anyHitOk && closestOk;
-        return (passed, new SelfTestOutcome(readbackOk, anyHitOk, closestOk, iters, cands));
+        return (passed, new SelfTestOutcome(readbackOk, anyHitOk, closestOk, iters, cands)
+        {
+            Rays = results,
+            ReadbackWords = readback,
+        });
+    }
+
+    /// <summary>
+    /// The geometry and flags the self-test traces with, in words, for the
+    /// report: what the structures are built from and what each kernel mode
+    /// asks the ray query for.
+    /// </summary>
+    /// <remarks>
+    /// Kept beside the code that sets these values, and a fact checks each
+    /// number against the constant or code that sets it, so the report
+    /// cannot quietly describe a configuration other than the one that ran.
+    /// </remarks>
+    internal const string SelfTestConfiguration =
+        "scene: 2 triangles in 1 OPAQUE geometry, R32G32B32_SFLOAT vertices, stride 12, no index buffer, "
+        + "no geometry transform, PREFER_FAST_TRACE; TLAS: 1 instance, identity transform, mask 0xFF, "
+        + "custom index 0, binding-table offset 0, flags TRIANGLE_FACING_CULL_DISABLE; "
+        + "rays: tmin 0.001 (0x3A83126F), cull mask 0xFF; any-hit ray flags TerminateOnFirstHit with tmax "
+        + "scaled by the largest float below 1 (0x3F7FFFFF); closest-hit and telemetry ray flags None";
+
+    /// <summary>
+    /// The self-test in full for the report: the device and driver build,
+    /// the configuration, and each ray's expected and actual answer in every
+    /// mode.
+    /// </summary>
+    /// <param name="identity">The device and driver.</param>
+    /// <param name="outcome">What the self-test saw.</param>
+    /// <returns>The detail, on one line, clauses separated by semicolons.</returns>
+    internal static string SelfTestDetail(DeviceIdentity identity, SelfTestOutcome outcome)
+    {
+        StringBuilder sb = new();
+        sb.Append(identity.Describe()).Append("; ").Append(SelfTestConfiguration);
+        sb.Append(CultureInfo.InvariantCulture,
+            $"; readback words 0x{outcome.ReadbackWords.First:X8} 0x{outcome.ReadbackWords.Second:X8}");
+        sb.Append(" (expected 0xFFFFFFFF 0xFFFFFFFF)");
+        if (outcome.Rays.Count == 0)
+        {
+            sb.Append("; no ray was traced");
+        }
+
+        foreach (SelfTestRayResult r in outcome.Rays)
+        {
+            sb.Append("; ").Append(r.Describe());
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>
@@ -1516,6 +2177,90 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         rays[12] = -1f;
         rays[15] = 1f;
     }
+
+    /// <summary>The most bytes one upload-probe copy moves: 64 MiB, or the slot's ray buffer if smaller.</summary>
+    internal const ulong UploadProbeBytes = 64UL << 20;
+
+    /// <summary>How many copies the upload probe times; the fastest counts.</summary>
+    internal const int UploadProbeRepetitions = 3;
+
+    /// <summary>
+    /// Measures how fast rays reach the device on the path slabs use: slot
+    /// 0's host ray buffer copied into its device ray buffer, the same
+    /// command the slab upload records, timed from submit to fence.
+    /// </summary>
+    /// <returns>
+    /// The best of <see cref="UploadProbeRepetitions"/> rates in bytes per
+    /// second, or null when the kernel reads rays in place (there is no
+    /// upload to measure, so the link costs nothing a probe could see).
+    /// </returns>
+    /// <exception cref="VulkanException">Recording, submission or the wait failed.</exception>
+    /// <remarks>
+    /// <para>
+    /// Why a probe at all: on a card with a slow link the upload, not the
+    /// traversal, sets the pace. An RTX 2070 SUPER in a PCIe Gen2 x1 slot
+    /// (about 0.5 GB/s, no resizable BAR, so rays are staged) spent 34.3 s
+    /// of a 2fort light copying rays against 0.44 s tracing them, and lost
+    /// to the CPU tracer by a factor of five. Only a measurement shows that:
+    /// the device's name and type look like any other discrete GPU.
+    /// </para>
+    /// <para>
+    /// It allocates nothing. It borrows slot 0's buffers, command buffer
+    /// and fence exactly as a slab would, while no slab is in flight (the
+    /// probe runs during set-up), so there is nothing of its own to release
+    /// on success or failure; a wait that fails leaves the slot pending,
+    /// which the slab path and dispose already handle. The copied bytes are
+    /// whatever the buffer holds: no reader looks at them.
+    /// </para>
+    /// </remarks>
+    public double? MeasureUploadRate()
+    {
+        SlabSlot s = _slots[0];
+        if (ReferenceEquals(s.HostRays, s.KernelRays))
+        {
+            return null;
+        }
+
+        Retire(s);
+        ulong bytes = Math.Min(UploadProbeBytes, s.HostRays!.Size);
+        double best = 0;
+        for (int rep = 0; rep < UploadProbeRepetitions; rep++)
+        {
+            CommandBuffer cmd = s.Commands;
+            ThrowOn(_vk.ResetCommandBuffer(cmd, 0), "vkResetCommandBuffer");
+            CommandBufferBeginInfo cbbi = new()
+            {
+                SType = StructureType.CommandBufferBeginInfo,
+                Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
+            };
+            ThrowOn(_vk.BeginCommandBuffer(cmd, &cbbi), "vkBeginCommandBuffer");
+            BufferCopy upload = new() { SrcOffset = 0, DstOffset = 0, Size = bytes };
+            _vk.CmdCopyBuffer(cmd, s.HostRays.Vk, s.KernelRays!.Vk, 1, &upload);
+            End(cmd);
+            Observe?.Invoke(VulkanStep.UploadProbeRecorded);
+            SubmitInfo si = new()
+            {
+                SType = StructureType.SubmitInfo,
+                CommandBufferCount = 1,
+                PCommandBuffers = &cmd,
+            };
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
+            ThrowOn(_vk.QueueSubmit(_queue, 1, &si, s.Fence), "vkQueueSubmit");
+            s.Pending = true;
+            Retire(s);
+            double seconds = System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalSeconds;
+            best = Math.Max(best, UploadRate(bytes, seconds));
+        }
+
+        return best;
+    }
+
+    /// <summary>Bytes per second for <paramref name="bytes"/> moved in <paramref name="seconds"/>.</summary>
+    /// <param name="bytes">Bytes copied.</param>
+    /// <param name="seconds">Wall time from submit to fence.</param>
+    /// <returns>The rate; a copy too fast for the clock counts as infinitely fast.</returns>
+    internal static double UploadRate(ulong bytes, double seconds) =>
+        seconds > 0 ? bytes / seconds : double.PositiveInfinity;
 
     /// <summary>Stages pre-built wire rays in slot 0 and traces them to completion (the self-test's path).</summary>
     /// <param name="mode">Kernel mode.</param>
@@ -1669,6 +2414,9 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// on radv; production never does — every upload→build→dispatch→download
     /// edge gets an explicit <c>vkCmdPipelineBarrier</c>.
     /// </summary>
+    private void Barrier(CommandBuffer cmd, BarrierMasks m) =>
+        Barrier(cmd, m.SrcStage, m.SrcAccess, m.DstStage, m.DstAccess);
+
     private void Barrier(
         CommandBuffer cmd,
         PipelineStageFlags srcStage,
@@ -1778,8 +2526,11 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         }
 
         _parked.Clear();
-        _blasApi?.DestroyAccelerationStructure(_device, _blasHandle, null);
-        Free(_asBuffer);
+        if (_blasApi is not null)
+        {
+            ReleaseScene();
+        }
+
         FreeSlots();
         Free(_vertexBuffer);
         if (_descriptorPool.Handle != 0)
@@ -1824,12 +2575,36 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     }
 }
 
+/// <summary>What device selection knows of one physical device.</summary>
+/// <param name="Name">The device's name.</param>
+/// <param name="Type">The device's type.</param>
+/// <param name="Traceable">Whether it offers ray query and acceleration structures.</param>
+internal readonly record struct DeviceCandidate(string Name, PhysicalDeviceType Type, bool Traceable);
+
+/// <summary>One memory barrier's two stage masks and two access masks.</summary>
+/// <param name="SrcStage">The stage whose work must finish first.</param>
+/// <param name="SrcAccess">The writes made available.</param>
+/// <param name="DstStage">The stage that waits.</param>
+/// <param name="DstAccess">The accesses the writes are made visible to.</param>
+internal readonly record struct BarrierMasks(
+    PipelineStageFlags SrcStage, AccessFlags SrcAccess, PipelineStageFlags DstStage, AccessFlags DstAccess);
+
 /// <summary>One row of the device inventory <see cref="VulkanDevice.ProbeDevices()"/> reports.</summary>
 /// <param name="Index">Physical-device index.</param>
 /// <param name="Name">Device name.</param>
 /// <param name="DeviceType">What the device presents as.</param>
 /// <param name="RayQuery">Whether <c>VK_KHR_ray_query</c> is feature-enabled.</param>
-public readonly record struct VulkanDeviceInfo(int Index, string Name, string DeviceType, bool RayQuery);
+public readonly record struct VulkanDeviceInfo(int Index, string Name, string DeviceType, bool RayQuery)
+{
+    /// <summary>The size of the device's largest device-local memory heap, in bytes; 0 when unknown.</summary>
+    public ulong DeviceLocalBytes { get; init; }
+
+    /// <summary>
+    /// Shader cores as the vendor's extension counts them (AMD compute
+    /// units, NVIDIA SMs, Arm cores); 0 when the device reports none.
+    /// </summary>
+    public uint ShaderCores { get; init; }
+}
 
 /// <summary>A Vulkan call the driver or loader refused.</summary>
 public sealed class VulkanException : Exception
@@ -1854,4 +2629,52 @@ public sealed class VulkanException : Exception
 /// <param name="ClosestOk">Mode 1: both known-hit rays returned their expected primitive at t≈0.5.</param>
 /// <param name="Iters">Mode 5: max proceed-iterations any telemetry ray counted.</param>
 /// <param name="Candidates">Mode 5: how many telemetry rays reached a candidate intersection.</param>
-public readonly record struct SelfTestOutcome(bool ReadbackOk, bool AnyHitOk, bool ClosestOk, int Iters, int Candidates);
+public readonly record struct SelfTestOutcome(bool ReadbackOk, bool AnyHitOk, bool ClosestOk, int Iters, int Candidates)
+{
+    /// <summary>Each traced ray's raw answers, in ray order; empty when the readback leg failed first.</summary>
+    public IReadOnlyList<SelfTestRayResult> Rays { get; init; } = [];
+
+    /// <summary>The two words mode 4 read back (all-ones on a working device).</summary>
+    public (uint First, uint Second) ReadbackWords { get; init; }
+}
+
+/// <summary>
+/// One self-test ray's raw answers in every mode, beside what the scene's
+/// construction says they must be: ray <c>i</c> hits triangle <c>i</c> at
+/// t = 0.5.
+/// </summary>
+/// <param name="Ray">The ray's index, which is also the primitive it must hit.</param>
+/// <param name="AnyHit">Mode 0's bit.</param>
+/// <param name="Primitive">Mode 1's committed primitive, 0xFFFFFFFF for a miss.</param>
+/// <param name="TBits">Mode 1's committed t, as float bits (0 for a miss).</param>
+/// <param name="Iterations">Mode 5's proceed iterations.</param>
+/// <param name="Candidates">Mode 5's candidate count (0 or 1: the kernel stops at the first).</param>
+public readonly record struct SelfTestRayResult(
+    int Ray, bool AnyHit, uint Primitive, uint TBits, int Iterations, int Candidates)
+{
+    /// <summary>The distance every self-test ray's crossing sits at.</summary>
+    public const float ExpectedT = 0.5f;
+
+    /// <summary>How far a reported t may sit from <see cref="ExpectedT"/> and still count.</summary>
+    public const float TTolerance = 1e-4f;
+
+    /// <summary>Mode 1's t as a float.</summary>
+    public float T => BitConverter.UInt32BitsToSingle(TBits);
+
+    /// <summary>Whether mode 1 committed the expected primitive at the expected distance.</summary>
+    public bool ClosestMatches => Primitive == (uint)Ray && Math.Abs(T - ExpectedT) < TTolerance;
+
+    /// <summary>The ray's expected and actual answers, in words.</summary>
+    /// <returns>One clause for the report.</returns>
+    public string Describe()
+    {
+        string got = Primitive == 0xFFFFFFFFu
+            ? string.Create(CultureInfo.InvariantCulture, $"a miss (t bits 0x{TBits:X8})")
+            : string.Create(CultureInfo.InvariantCulture, $"primitive {Primitive} at t={T:R} (0x{TBits:X8})");
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"ray {Ray}: any-hit expected hit, got {(AnyHit ? "hit" : "miss")}; closest-hit expected "
+            + $"primitive {Ray} at t=0.5 (0x3F000000), got {got}; telemetry {Iterations} proceed "
+            + $"iteration(s), {Candidates} candidate(s)");
+    }
+}
