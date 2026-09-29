@@ -30,12 +30,168 @@ namespace SourceSharp.MapTools.Compile.Cache;
 /// a failure (or an injected one) between staging and commit leaves the live
 /// tables exactly as they were.
 /// </para>
+/// <para>
+/// <b>Bound.</b> A long-lived host keeps one store for every compile it runs,
+/// so the store holds its own ceiling, <see cref="MaxBytes"/>, rather than
+/// leaving it to <see cref="CacheCollector"/> alone. The collector trims to
+/// <see cref="CachePolicy.MaxStoreBytes"/> after a commit, but only when the
+/// committing compile is the only one in flight
+/// (<see cref="ICacheStore.RunsInFlight"/>): a service whose compiles always
+/// overlap never gets that quiet moment, and its store used to grow for as
+/// long as the process lived. The ceiling here is applied inside every
+/// <see cref="CommitAsync"/>, whoever else is running, and it counts what the
+/// process actually holds: every committed blob's bytes plus an estimate of
+/// every row (<see cref="RowCost"/>), so a store of many small rows is bounded
+/// too and not only one of large blobs.
+/// </para>
+/// <para>
+/// When a commit leaves the store above the ceiling, the least recently
+/// committed entries go first until it is back at
+/// <see cref="CacheCollector.TrimTarget"/> of it (the collector's headroom,
+/// so a store sitting at its ceiling is not trimmed again on every commit).
+/// "Recently committed" is recently used: the seams re-stage every row a hit
+/// replays (<see cref="CacheBlobReader.RenewAsync"/>), so a row that keeps
+/// being hit keeps moving to the young end. A lookup alone does not count as
+/// a use, because the collector reads every row to plan its work, and that
+/// must not make every row look young. Dropping a row drops the blobs no
+/// remaining row names; a blob a newer row still names stays. Committed blobs
+/// that no row names at all (left by a discarded run) are dropped in the same
+/// age order. Ties are broken by key, so the order is the same on every run.
+/// </para>
+/// <para>
+/// Unlike the collector, this ceiling protects no generation: it is the
+/// process's memory limit, and a row it drops costs a miss, never a wrong
+/// hit, because every blob is content-addressed. A compile in flight that
+/// found a blob stored, and so did not stage it again, may commit a row whose
+/// blob was dropped meanwhile; the next read of that row finds the blob gone
+/// and treats it as a miss, exactly as the collector's deletions are treated.
+/// </para>
+/// <para>
+/// <b>Concurrency.</b> Staging is lock-free; commits, clears and the trim run
+/// one at a time under one lock, and a commit publishes only what it found
+/// staged when it started: something another compile stages while the commit
+/// runs stays staged for the next commit instead of being cleared unseen.
+/// Reads never take the lock.
+/// </para>
 /// </remarks>
 public sealed class InMemoryCacheStore : ICacheStore
 {
-    private sealed record Blob(string Key, byte[] Data, string ToolId, long CreatedAtMs);
+    /// <summary>The default ceiling: the same 1 GiB as <see cref="CachePolicy.DefaultMaxStoreBytes"/>.</summary>
+    public const long DefaultMaxBytes = CachePolicy.DefaultMaxStoreBytes;
 
-    private sealed record Row(string Key, CacheRecord Record);
+    /// <summary>
+    /// What each committed row is charged besides the text it carries: its
+    /// record, dictionaries and list nodes, rounded up (see <see cref="RowCost"/>).
+    /// </summary>
+    public const int RowOverheadBytes = 256;
+
+    // Seq is the commit that last published the entry: the trim's age order.
+    private sealed record Blob(string Key, byte[] Data, string ToolId, long CreatedAtMs, long Seq);
+
+    private sealed record Row(string Key, CacheRecord Record, long Seq, long Cost);
+
+    private readonly Lock _gate = new();
+    private long _commitSeq;
+    private long _bytes;
+    private long _rowsEvicted;
+    private long _blobsEvicted;
+
+    /// <summary>Creates a store with the <see cref="DefaultMaxBytes"/> ceiling.</summary>
+    public InMemoryCacheStore()
+        : this(DefaultMaxBytes)
+    {
+    }
+
+    /// <summary>Creates a store with a ceiling of its own.</summary>
+    /// <param name="maxBytes">
+    /// The most the committed rows and blobs may hold together (see
+    /// <see cref="MaxBytes"/>); zero or less for no ceiling, which only a
+    /// short-lived owner (one command, one test) should choose.
+    /// </param>
+    public InMemoryCacheStore(long maxBytes) => MaxBytes = maxBytes;
+
+    /// <summary>
+    /// The ceiling, in bytes, on what the committed entries hold: every blob's
+    /// length plus every row's <see cref="RowCost"/>. Zero or less is none.
+    /// </summary>
+    public long MaxBytes { get; }
+
+    /// <summary>What the committed entries are charged against <see cref="MaxBytes"/> now.</summary>
+    public long Bytes
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _bytes;
+            }
+        }
+    }
+
+    /// <summary>Rows the ceiling has dropped since the store was made or last cleared.</summary>
+    public long RowsEvicted
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _rowsEvicted;
+            }
+        }
+    }
+
+    /// <summary>Blobs the ceiling has dropped since the store was made or last cleared.</summary>
+    public long BlobsEvicted
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _blobsEvicted;
+            }
+        }
+    }
+
+    /// <summary>
+    /// What one row is charged against <see cref="MaxBytes"/>: two bytes per
+    /// character of every string it carries (key, stage, tool, tags, key
+    /// parts, blob roles and keys, dependency paths and hashes) plus
+    /// <see cref="RowOverheadBytes"/>.
+    /// </summary>
+    /// <param name="record">The row.</param>
+    /// <returns>Its charge.</returns>
+    /// <remarks>
+    /// An estimate, deliberately simple and stable: what matters for a bound
+    /// is that a row's charge grows with what it really holds (a vbsp row
+    /// records hundreds of dependency paths), not that it matches the
+    /// allocator to the byte.
+    /// </remarks>
+    public static long RowCost(CacheRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        long chars = record.Key.Length + record.Stage.Length + record.ToolId.Length;
+        foreach (string tag in record.ContextTags)
+        {
+            chars += tag.Length;
+        }
+
+        foreach ((string name, string value) in record.Parts)
+        {
+            chars += name.Length + value.Length;
+        }
+
+        foreach ((string role, string blob) in record.Blobs)
+        {
+            chars += role.Length + blob.Length;
+        }
+
+        foreach ((string path, string? hash) in record.Dependencies)
+        {
+            chars += path.Length + (hash?.Length ?? 0);
+        }
+
+        return RowOverheadBytes + (2 * chars);
+    }
 
     private readonly ConcurrentDictionary<string, Row> _rows = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Blob> _blobs = new(StringComparer.Ordinal);
@@ -130,7 +286,7 @@ public sealed class InMemoryCacheStore : ICacheStore
         ArgumentNullException.ThrowIfNull(record);
         cancellationToken.ThrowIfCancellationRequested();
         ThrowIfUnusable();
-        _pendingRows[record.Key] = new Row(record.Key, record);
+        _pendingRows[record.Key] = new Row(record.Key, record, 0, RowCost(record));
         return default;
     }
 
@@ -141,7 +297,7 @@ public sealed class InMemoryCacheStore : ICacheStore
         ArgumentException.ThrowIfNullOrEmpty(toolId);
         cancellationToken.ThrowIfCancellationRequested();
         ThrowIfUnusable();
-        _pendingBlobs[blobKey] = new Blob(blobKey, data.ToArray(), toolId, createdAtMs);
+        _pendingBlobs[blobKey] = new Blob(blobKey, data.ToArray(), toolId, createdAtMs, 0);
         return default;
     }
 
@@ -189,52 +345,188 @@ public sealed class InMemoryCacheStore : ICacheStore
         return default;
     }
 
-    /// <summary>Publishes the staged generation atomically.</summary>
+    /// <summary>Publishes the staged generation atomically, then holds the store to <see cref="MaxBytes"/>.</summary>
     public ValueTask CommitAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ThrowIfUnusable();
 
-        if (FailNextCommit is Exception failure)
+        lock (_gate)
         {
-            FailNextCommit = null;
-            throw failure;
+            if (FailNextCommit is Exception failure)
+            {
+                FailNextCommit = null;
+                throw failure;
+            }
+
+            // What is staged now is this commit; each entry is taken out of
+            // staging only if it is still the one read here, so a concurrent
+            // compile's later staging survives for the next commit.
+            // ConcurrentDictionary.ToArray is an atomic snapshot; a collection
+            // expression would copy by a count taken before the copy and
+            // throw when a writer adds in between.
+            KeyValuePair<string, byte>[] deletedRows = _deletedRows.ToArray();
+            KeyValuePair<string, byte>[] deletedGenerations = _deletedGenerations.ToArray();
+            KeyValuePair<string, byte>[] deletedBlobs = _deletedBlobs.ToArray();
+            KeyValuePair<string, Blob>[] pendingBlobs = _pendingBlobs.ToArray();
+            KeyValuePair<string, Row>[] pendingRows = _pendingRows.ToArray();
+            KeyValuePair<string, byte>[] pendingGenerations = _pendingGenerations.ToArray();
+            long seq = ++_commitSeq;
+
+            // Single publish point: every staged mutation becomes visible here
+            // and nowhere else. Deletions first, so a row re-staged after a
+            // delete wins, as in the SQLite store.
+            foreach (KeyValuePair<string, byte> entry in deletedRows)
+            {
+                if (_rows.TryRemove(entry.Key, out Row? gone))
+                {
+                    _bytes -= gone.Cost;
+                }
+
+                _deletedRows.TryRemove(entry);
+            }
+
+            foreach (KeyValuePair<string, byte> entry in deletedGenerations)
+            {
+                _generations.TryRemove(entry.Key, out _);
+                _deletedGenerations.TryRemove(entry);
+            }
+
+            foreach (KeyValuePair<string, byte> entry in deletedBlobs)
+            {
+                if (_blobs.TryRemove(entry.Key, out Blob? gone))
+                {
+                    _bytes -= gone.Data.LongLength;
+                }
+
+                _deletedBlobs.TryRemove(entry);
+            }
+
+            foreach (KeyValuePair<string, Blob> entry in pendingBlobs)
+            {
+                if (_blobs.TryGetValue(entry.Key, out Blob? before))
+                {
+                    _bytes -= before.Data.LongLength;
+                }
+
+                _blobs[entry.Key] = entry.Value with { Seq = seq };
+                _bytes += entry.Value.Data.LongLength;
+                _pendingBlobs.TryRemove(entry);
+            }
+
+            foreach (KeyValuePair<string, Row> entry in pendingRows)
+            {
+                if (_rows.TryGetValue(entry.Key, out Row? before))
+                {
+                    _bytes -= before.Cost;
+                }
+
+                _rows[entry.Key] = entry.Value with { Seq = seq };
+                _bytes += entry.Value.Cost;
+                _pendingRows.TryRemove(entry);
+            }
+
+            foreach (KeyValuePair<string, byte> entry in pendingGenerations)
+            {
+                _generations[entry.Key] = 0;
+                _pendingGenerations.TryRemove(entry);
+            }
+
+            TrimToBound();
         }
 
-        // Single publish point: every staged mutation becomes visible here
-        // and nowhere else, so the live tables never show a partial state.
-        foreach (string key in _deletedRows.Keys)
-        {
-            _rows.TryRemove(key, out _);
-        }
-
-        foreach (string generation in _deletedGenerations.Keys)
-        {
-            _generations.TryRemove(generation, out _);
-        }
-
-        foreach (string blobKey in _deletedBlobs.Keys)
-        {
-            _blobs.TryRemove(blobKey, out _);
-        }
-
-        foreach (Blob blob in _pendingBlobs.Values)
-        {
-            _blobs[blob.Key] = blob;
-        }
-
-        foreach (Row row in _pendingRows.Values)
-        {
-            _rows[row.Key] = row;
-        }
-
-        foreach (string generation in _pendingGenerations.Keys)
-        {
-            _generations[generation] = 0;
-        }
-
-        DiscardStaged();
         return default;
+    }
+
+    /// <summary>
+    /// Drops the least recently committed entries until the store is back at
+    /// <see cref="CacheCollector.TrimTarget"/> of <see cref="MaxBytes"/>, when
+    /// it is above the ceiling. Runs under the gate.
+    /// </summary>
+    private void TrimToBound()
+    {
+        if (MaxBytes <= 0 || _bytes <= MaxBytes)
+        {
+            return;
+        }
+
+        long target = (long)(MaxBytes * CacheCollector.TrimTarget);
+
+        // How many rows name each blob: a blob goes only when none is left.
+        Dictionary<string, int> references = new(StringComparer.Ordinal);
+        foreach (Row row in _rows.Values)
+        {
+            foreach (string blob in row.Record.Blobs.Values.Distinct(StringComparer.Ordinal))
+            {
+                references[blob] = references.GetValueOrDefault(blob) + 1;
+            }
+        }
+
+        // Rows, and blobs no row names, oldest commit first; ties by key,
+        // rows before blobs, so the order never depends on hashing.
+        List<(long Seq, bool IsBlob, string Key)> order = [];
+        foreach (Row row in _rows.Values)
+        {
+            order.Add((row.Seq, false, row.Key));
+        }
+
+        foreach (Blob blob in _blobs.Values)
+        {
+            if (!references.ContainsKey(blob.Key))
+            {
+                order.Add((blob.Seq, true, blob.Key));
+            }
+        }
+
+        order.Sort(static (a, b) =>
+        {
+            int bySeq = a.Seq.CompareTo(b.Seq);
+            if (bySeq != 0)
+            {
+                return bySeq;
+            }
+
+            int byKind = a.IsBlob.CompareTo(b.IsBlob);
+            return byKind != 0 ? byKind : string.CompareOrdinal(a.Key, b.Key);
+        });
+
+        foreach ((_, bool isBlob, string key) in order)
+        {
+            if (_bytes <= target)
+            {
+                break;
+            }
+
+            if (isBlob)
+            {
+                DropBlob(key);
+                continue;
+            }
+
+            if (!_rows.TryRemove(key, out Row? row))
+            {
+                continue;
+            }
+
+            _bytes -= row.Cost;
+            _rowsEvicted++;
+            foreach (string blob in row.Record.Blobs.Values.Distinct(StringComparer.Ordinal))
+            {
+                if (--references[blob] == 0)
+                {
+                    DropBlob(blob);
+                }
+            }
+        }
+    }
+
+    private void DropBlob(string key)
+    {
+        if (_blobs.TryRemove(key, out Blob? blob))
+        {
+            _bytes -= blob.Data.LongLength;
+            _blobsEvicted++;
+        }
     }
 
     /// <summary>Throws away the staged generation.</summary>
@@ -252,10 +544,17 @@ public sealed class InMemoryCacheStore : ICacheStore
     public ValueTask ClearAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        _rows.Clear();
-        _blobs.Clear();
-        _generations.Clear();
-        DiscardStaged();
+        lock (_gate)
+        {
+            _rows.Clear();
+            _blobs.Clear();
+            _generations.Clear();
+            DiscardStaged();
+            _bytes = 0;
+            _rowsEvicted = 0;
+            _blobsEvicted = 0;
+        }
+
         return default;
     }
 
@@ -381,11 +680,16 @@ public sealed class InMemoryCacheStore : ICacheStore
     /// <summary>Releases everything.</summary>
     public ValueTask DisposeAsync()
     {
-        IsUsable = false;
-        _rows.Clear();
-        _blobs.Clear();
-        _generations.Clear();
-        DiscardStaged();
+        lock (_gate)
+        {
+            IsUsable = false;
+            _rows.Clear();
+            _blobs.Clear();
+            _generations.Clear();
+            DiscardStaged();
+            _bytes = 0;
+        }
+
         return default;
     }
 
