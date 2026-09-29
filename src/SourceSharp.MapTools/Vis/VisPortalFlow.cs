@@ -92,6 +92,13 @@ internal sealed class VisPortalFlow
     private readonly VisTraceSink? _trace;
     private readonly List<Vec3[]>? _chain;
 
+    // -fastflow (see VisClusterStop): null on every exact walk, which then
+    // pays one null test per candidate and per mark for them.
+    private readonly VisClusterStop? _stop;
+    private readonly ulong[]? _cover;
+    private readonly ulong[]? _cut;
+    private readonly bool[]? _seen;
+
     private int[]? _rank;
     private VisRepairTree? _tree;
     private IVisFlowSplitter? _splitter;
@@ -115,11 +122,17 @@ internal sealed class VisPortalFlow
     /// Where a <c>-trace</c> route goes, or null for an ordinary run. When it
     /// is null nothing on the hot path pays for it.
     /// </param>
+    /// <param name="stop">
+    /// The <c>-fastflow</c> cluster-granular stop, or null for the exact walk.
+    /// A flow with a stop must be run whole by one worker with every
+    /// neighbour it reads finished: it neither speculates nor splits.
+    /// </param>
     internal VisPortalFlow(
         PortalSet portals,
         VisPortalState state,
         BitVectorPath path,
-        VisTraceSink? trace = null)
+        VisTraceSink? trace = null,
+        VisClusterStop? stop = null)
     {
         _portals = portals;
         _state = state;
@@ -127,6 +140,13 @@ internal sealed class VisPortalFlow
         _trace = trace;
         _chain = trace is null ? null : [];
         _frames = new VisFrameStack(portals.Count);
+        _stop = stop;
+        if (stop is not null)
+        {
+            _cover = new ulong[state.Words];
+            _cut = new ulong[state.Words];
+            _seen = new bool[stop.ClusterCount];
+        }
     }
 
     /// <summary>
@@ -299,6 +319,16 @@ internal sealed class VisPortalFlow
 
     private void Begin(int limit, VisRepairTree? tree, IVisFlowSplitter? splitter, VisFrameTask? task)
     {
+        if (_stop is not null && (tree is not null || splitter is not null || task is not null))
+        {
+            // The stop's cover is this worker's alone and depends on the order
+            // the walk met clusters in, so a speculative run (re-run keeping
+            // its bits) or a shared one would publish a schedule-dependent
+            // vector. VisTightening never asks for either in -fastflow.
+            throw new InvalidOperationException(
+                "a -fastflow walk must run whole on one worker, with every neighbour it reads finished");
+        }
+
         _limit = limit;
         _tree = tree;
         _splitter = splitter;
@@ -344,6 +374,11 @@ internal sealed class VisPortalFlow
         _chain?.Clear();
         _chain?.Add(source.ToArray());
 
+        if (_stop is not null)
+        {
+            BeginCover(portalIndex);
+        }
+
         Flow(
             _portals.Leaf(portalIndex),
             depth: 1,
@@ -356,6 +391,81 @@ internal sealed class VisPortalFlow
             from: 0,
             to: -1,
             context);
+
+        if (_stop is not null)
+        {
+            Publish(portalIndex);
+        }
+    }
+
+    /// <summary>
+    /// Starts a <c>-fastflow</c> walk's cover: whatever <c>portalvis</c>
+    /// already holds, and every portal into the cluster the base portal looks
+    /// into, which its row always contains.
+    /// </summary>
+    private void BeginCover(int portalIndex)
+    {
+        ReadOnlySpan<ulong> vis = _state.Vis(portalIndex);
+        vis.CopyTo(_cover);
+        Array.Clear(_cut!);
+        Array.Clear(_seen!);
+        Cover(_portals.Leaf(portalIndex));
+        for (int w = 0; w < vis.Length; w++)
+        {
+            ulong bits = vis[w];
+            while (bits != 0)
+            {
+                Cover(_portals.Leaf((w << 6) + System.Numerics.BitOperations.TrailingZeroCount(bits)));
+                bits &= bits - 1;
+            }
+        }
+    }
+
+    /// <summary>Adds every portal into a newly seen cluster to the cover.</summary>
+    private void Cover(int cluster)
+    {
+        if (_seen![cluster])
+        {
+            return;
+        }
+
+        _seen[cluster] = true;
+        foreach (int portal in _stop!.PortalsInto(cluster))
+        {
+            BitVectorOps.SetBit(_cover, portal);
+        }
+    }
+
+    /// <summary>
+    /// Turns a finished <c>-fastflow</c> walk's marks into the vector the
+    /// portals ranked above it prune with (see <see cref="VisFastFlowFilter"/>).
+    /// </summary>
+    /// <remarks>
+    /// Every bit added here leads into a cluster the walk already sees -- a
+    /// cut's might-see is inside the cover, and the cover's portals beyond the
+    /// marked ones all lead into seen clusters -- so the portal's own PVS row
+    /// is the same whichever vector is published; only what the portals above
+    /// it prune with changes.
+    /// </remarks>
+    private void Publish(int portalIndex)
+    {
+        Span<ulong> vis = _state.Vis(portalIndex);
+        switch (_stop!.Filter)
+        {
+            case VisFastFlowFilter.Conservative:
+                BitVectorOps.OrInto(vis, _cut, _path);
+                break;
+            case VisFastFlowFilter.ClusterGranular:
+                ReadOnlySpan<ulong> flood = _state.Flood(portalIndex);
+                for (int w = 0; w < vis.Length; w++)
+                {
+                    vis[w] = flood[w] & _cover![w];
+                }
+
+                break;
+            default:
+                break;
+        }
     }
 
     private void Flow(
@@ -421,7 +531,14 @@ internal sealed class VisPortalFlow
             VisFrameStack.ClipOffset, VisClip.MaxPointsOnWinding);
 
         Span<ulong> vis = _state.Vis(basePortal);
-        ReadOnlySpan<ulong> visSpan = vis[mightExtent.Lo..mightExtent.Hi];
+
+        // What a candidate must add to be worth recursing into: portalvis on
+        // the exact walk, and on the -fastflow one until the walk has taken
+        // VisClusterStop.MinChains steps; the cluster cover after that. Read
+        // once per frame, so a frame is cut by one rule throughout.
+        bool stopping = _cover is not null && _chains >= _stop!.MinChains;
+        ReadOnlySpan<ulong> known = stopping ? _cover : vis;
+        ReadOnlySpan<ulong> visSpan = known[mightExtent.Lo..mightExtent.Hi];
         Vec3 basePlaneNormal = _portals.Normal(basePortal);
         float basePlaneDistance = _portals.Distance(basePortal);
         Vec3 baseOrigin = _portals.Origin(basePortal);
@@ -588,8 +705,18 @@ internal sealed class VisPortalFlow
                     prevSpan, _state.Flood(pnum)[mightExtent.Lo..mightExtent.Hi], visSpan, mightSpan, _path);
             }
 
-            if (!more && BitVectorOps.GetBit(vis, pnum))
+            if (!more && BitVectorOps.GetBit(known, pnum))
             {
+                if (stopping && _stop!.Filter == VisFastFlowFilter.Conservative)
+                {
+                    // Everything the abandoned subtree could have marked is
+                    // in its might-see (and the candidate itself): kept, so
+                    // the conservative arm publishes every portal the exact
+                    // walk could have reached.
+                    BitVectorOps.SetBit(_cut, pnum);
+                    BitVectorOps.OrInto(_cut.AsSpan(mightExtent.Lo, mightExtent.Hi - mightExtent.Lo), mightSpan, _path);
+                }
+
                 if (tracked)
                 {
                     // Nothing below can add a bit: whatever an earlier run
@@ -784,6 +911,12 @@ internal sealed class VisPortalFlow
     /// </summary>
     private void SetVisible(Span<ulong> vis, int portal)
     {
+        if (_cover is not null)
+        {
+            BitVectorOps.SetBit(_cover, portal);
+            Cover(_portals.Leaf(portal));
+        }
+
         if (!_atomic)
         {
             BitVectorOps.SetBit(vis, portal);

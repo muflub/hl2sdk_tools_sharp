@@ -282,6 +282,10 @@ public static class MapCompiler
             {
                 if (vbsp.Portals is { } portalFile)
                 {
+                    // Before the stage, and on a cache hit too: an approximate
+                    // PVS is a property of the options, not of the run.
+                    chain.Report(Vvis.OptionWarnings(request.Vvis));
+
                     byte[] prt = portalFile.ToBytes(PortalLineEnding.CrLf);
                     await chain.WriteAsync(output.PathFor(name, ".prt"), prt, cancellationToken).ConfigureAwait(false);
 
