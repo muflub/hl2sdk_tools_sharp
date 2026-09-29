@@ -84,8 +84,10 @@ public static class BrushGeometry
     /// a fragment's bounds stretch to the sliver, and the nodes below are
     /// scored on different brushes. On 2fort, with
     /// <see cref="StockQuirk.SplitEpsilonBrushOnPlane"/> corrected, this was
-    /// what still moved Correct's cluster count when any one of the normalise
-    /// quirks was flipped (see <see cref="StockQuirk.SplitBrushSliverSides"/>).
+    /// what still moved Correct's cluster count when
+    /// <see cref="StockQuirk.PlaneFromPointsNormalise"/> or
+    /// <see cref="StockQuirk.BaseWindingNormalise"/> was flipped (see
+    /// <see cref="StockQuirk.SplitBrushSliverSides"/>).
     /// </para>
     /// <para>
     /// <b>How big the noise is.</b> Brush windings are cut from base windings
@@ -102,7 +104,7 @@ public static class BrushGeometry
     /// <b>Why 0.1.</b> It is over ten times that noise, and it is the number
     /// <see cref="SplitBrush"/> already uses for the same question one level
     /// up: a whole brush whose furthest vertex is under 0.1 across the plane
-    /// is not split at all, but copied whole to the other side. This applies
+    /// is not split at all, but copied whole to the side it lies on. This applies
     /// that rule to each side: a side that reaches less than 0.1 across the
     /// plane is not cut either, and goes whole to the half it is on. The half
     /// it goes to may then reach up to 0.1 past the plane, exactly as a whole
