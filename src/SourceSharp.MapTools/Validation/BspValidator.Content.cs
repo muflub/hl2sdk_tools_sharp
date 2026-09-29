@@ -20,6 +20,9 @@ namespace SourceSharp.MapTools.Validation;
 /// </content>
 public static partial class BspValidator
 {
+    /// <summary><c>MAX_MAP_CUBEMAPSAMPLES</c>: the most cubemap samples the SDK's vbsp writes.</summary>
+    private const int MaxMapCubemapSamples = Bsp.Write.WriteLimits.MaxMapCubemapSamples;
+
     private static void CheckContent(
         BspData bsp,
         Counts counts,
@@ -40,6 +43,18 @@ public static partial class BspValidator
                 BspRuleCodes.NoCubemaps,
                 "the map has no cubemap samples; the engine falls back to a default cubemap for "
                 + "every reflective surface, and stops outright under -requirecubemaps");
+        }
+
+        // The SDK's vbsp holds at most MAX_MAP_CUBEMAPSAMPLES samples, so no
+        // map it compiles carries more. Whether the engine reads past it is
+        // not settled here, so a map with more (from a linker, an editor) is
+        // reported rather than refused.
+        if (counts.Cubemaps > MaxMapCubemapSamples)
+        {
+            findings.Add(
+                BspRuleCodes.TooManyCubemaps,
+                $"the map has {counts.Cubemaps} cubemap samples, more than the {MaxMapCubemapSamples} (MAX_MAP_CUBEMAPSAMPLES)"
+                + " the SDK's vbsp writes");
         }
 
         CheckPhysics(bsp, counts, findings);

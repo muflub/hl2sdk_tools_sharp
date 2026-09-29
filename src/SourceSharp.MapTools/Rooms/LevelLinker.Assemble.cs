@@ -25,7 +25,9 @@ public static partial class LevelLinker
     /// plugs stripped (their brushes dropped, their faces drawn nodraw), and
     /// the lumps that exist once per map merged: <paramref name="mergedPak"/>
     /// is the rooms' packed files (<see cref="LevelPakFiles"/>'s merge), or
-    /// null when no room packs one.
+    /// null when no room packs one; <paramref name="cubemaps"/> the level's
+    /// cubemap samples and each placement's renamed patch strings, or null
+    /// when no room has a sample.
     /// </summary>
     /// <returns>The map, and how many brushes the fold removed (0 when it did not run).</returns>
     private static (BspData Map, int FoldedBrushes) Assemble(
@@ -39,6 +41,7 @@ public static partial class LevelLinker
         string? mapVersion,
         bool foldBrushes,
         byte[]? mergedPak,
+        LevelCubemaps? cubemaps,
         List<(int Placement, string ClassName)> droppedFurniture,
         CancellationToken cancellationToken)
     {
@@ -53,9 +56,9 @@ public static partial class LevelLinker
         // copies last, as they are made.
         LinkPlanes planes = new();
         LinkTextures textures = new();
-        foreach (RoomPlan plan in plans)
+        for (int p = 0; p < plans.Length; p++)
         {
-            InternRoomTables(plan, planes, textures);
+            InternRoomTables(plans[p], planes, textures, cubemaps?.At(p));
         }
 
         List<Plane> topPlanes = [];
@@ -656,6 +659,13 @@ public static partial class LevelLinker
         {
             linked[BspLump.PakFile] = first.Bsp[BspLump.PakFile];
         }
+        // The rooms' cubemap samples at their linked positions, when any
+        // room has some; a level without them writes no lump, as before.
+        if (cubemaps is not null)
+        {
+            linked.SetLump(BspLump.Cubemaps, cubemaps.Lump());
+        }
+
         linked[BspLump.MapFlags] = first.Bsp[BspLump.MapFlags];
         foreach (GameLumpEntry entry in first.Bsp.GameLumps)
         {
