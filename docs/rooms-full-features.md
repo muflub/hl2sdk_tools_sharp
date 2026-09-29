@@ -56,8 +56,8 @@ Terms used throughout:
 | Split | `RoomLibraryVmf.Split`, `VmfPlacement` | Cuts the library VMF into room-local documents. World brushes and brush entities belong to the cell their brushes are in; a point entity belongs to the cell its `origin` is in (`RoomLibraryVmf.EntityOwner`). Point entities in the gaps between cells are ignored, and the `info_room` markers are left out. Each room is moved by `-corner` with `VmfPlacement.MoveSolid` / `MoveEntity`. |
 | Model lint | `RoomLinter.CheckModel` | Every brush (world and entity) inside its cell; trigger world brushes are exactly the kit's plug boxes. |
 | Compile | `RoomCompiler.CompileAsync` | `Vbsp.CompileAsync`, then `RoomLinter.CheckCompiled` (sealed, interior inside the cell, every socket plugged), then `Vvis.ComputeAsync`. **No vrad.** `RoomLibraryCompiler.CompileRoomAsync` sets `VbspContext.MapBase` to the room's name, lower-cased. |
-| Pack | `RoomPack`, `RoomObjectStore` | One `SSROOM01` container per room (manifest, the BSP's lumps and game lumps byte for byte, vis rows). The pack has typed per-room sections and a library section table, both empty past the container today; readers skip unknown tags. |
-| Link | `LevelLinker.LinkAsync` | `RoomLinter.CheckLayout`, `CheckCapacity`, `ValidateJoints`, `RoomLinter.CheckReachable`, the pak merge (`LevelPakFiles`, PR 5; `RefusePackedFilesAsync` before it), `PlanRoom` per room (refusals, transforms), `AssignBases`, door-graph vis (`DoorEdges`, `CloseRows`), `Assemble` (top tree, plug carve, merges), `MergeEntities`, `MergeCollision`. |
+| Pack | `RoomPack`, `RoomObjectStore` | One `SSROOM01` container per room (manifest, the BSP's lumps and game lumps byte for byte, vis rows). The pack has typed per-room sections (entity counts, the link profile, the door visibility `DVIS` of Q3, names, navigation) and a library section table; readers skip unknown tags. |
+| Link | `LevelLinker.LinkAsync` | `RoomLinter.CheckLayout`, `CheckCapacity`, `ValidateJoints`, `RoomLinter.CheckReachable`, the pak merge (`LevelPakFiles`, PR 5; `RefusePackedFilesAsync` before it), `PlanRoom` per room (refusals, transforms), `AssignBases`, door visibility (`LevelDoorVisibility`, Q3; the door graph's closure, `DoorEdges` and `CloseRows`, with `-nodoorvis`), `Assemble` (top tree, plug carve, merges), `MergeEntities`, `MergeCollision`. |
 | Flatten | `LevelFlattener.Flatten` | The level as one VMF: rooms copied with `VmfPlacement`, joined plugs left out, every `id` renumbered (`LevelFlattener.Renumber`). |
 
 The relocation is exact: a quarter turn permutes and negates components and
@@ -2621,6 +2621,142 @@ Decisions taken where this document is open, or where it left a detail:
 Not done here: `ssmap rooms` lists roles but not arrival or spawn points;
 the stress library has no roles; the navigation sidecar is unchanged (it
 already carried the arrival points by role from PR 2's store).
+
+**Q3 landed** (door-to-door visibility for the linked PVS). The link used
+to close the door graph transitively (`DoorEdges`, `CloseRows`), and every
+room of a level is reachable, so every cluster saw every other. It now
+composes the PVS through the doorways (`LevelDoorVisibility`) from what
+`ssmap room` stores per room (`RoomDoorVisibility`, the `DVIS` section),
+without flooding the level or running vvis on it:
+
+- **Per room, at pack time**, from the room's own vvis and plug census:
+  per socket, the clusters that see its doorway (a cluster that sees, or is
+  seen by, one of the socket's facing clusters); per socket pair, whether
+  a line can cross the room from one doorway to the other (some facing
+  cluster of one sees some facing cluster of the other, or the plugs
+  touch); per cluster, the bounds of its open leaves. All three are
+  rotation-free and conservative: vvis keeps every sight line, and each is
+  a necessary condition for one.
+- **At link**, per jointed doorway looked through from one side, a flow in
+  the manner of vvis's portal flow over the doorway rectangles alone (on
+  the cell faces, where the two plugs meet), treating each room as its
+  empty convex cell: the next doorway is cut to what lies in front of the
+  first, the first to what lies behind the next, and from the third on the
+  next is clipped by the planes separating the first from the last
+  (`VisClip`, vvis's own predicates, the separators memoised per frame as
+  vvis does). A room is entered at most once per chain (a line crosses a
+  convex cell once), and the flow only turns from one doorway of a room to
+  another where the room's pair relation allows. Each room entered marks
+  the clusters that see its entry doorway and whose bounds are not wholly
+  behind the first doorway's plane or any separating plane (by a margin of
+  one unit). A cluster sees what the flows out of the doorways it sees
+  mark, and a pair is kept only when both directions keep it (vvis makes
+  its rows symmetric the same way). Two rooms that share a cell face make
+  one convex box, so a pair across it is kept only if a segment between
+  the two clusters' bounds can cross the doorway (the plane's cut through
+  the two boxes' hull must meet the doorway), and a pair across a face with
+  no doorway is dropped. Inside a room the rows are its own vvis, the
+  carved doorway joined to the socket's first facing cluster (which sees,
+  and is seen by, whatever sees the doorway, and whose bounds take the plug
+  box). The PAS is vvis's: the union of the rows a cluster sees.
+- **Exact, rotation-free, deterministic.** Each flow runs in the frame of
+  the room it starts from (`RoomTransform.Unapply`), and every doorway and
+  box is moved into it by quarter turns and whole cells, which round
+  nothing on integer geometry; so a level turned as a whole runs the same
+  numbers and composes the same rows (the turned 3x3 samples are held to
+  that, cluster for cluster), and each room's flows write only its own
+  rows, so any thread count writes the same bytes. A flow that would enter
+  more than 2^22 rooms gives up and marks every cluster (never reached;
+  a fact lowers the cap to exercise it).
+- **Conservative, and how it is proved.** A linked PVS cannot be checked
+  against vvis on the flattened level pointwise: that map's clusters are not
+  the linked map's, and a monolithic cluster pair that sees each other says
+  only that some point of one sees some point of the other, which only the
+  old closure ever satisfied everywhere. The facts check the claim itself:
+  for pairs of sample points (nine in each open leaf of the flattened
+  level's compile) joined by a segment through open leaves only, vvis on the
+  flattened level keeps the pair (so these are lines vvis must keep) and
+  so does the linked PVS; on all sixteen 3x3 cases, on generated 4x4, 5x4
+  and 5x5 levels of the sample's rooms, and on a U-turn whose ends no line
+  joins. The linked PVS also always lies within the door graph's closure and
+  keeps every room's own rows.
+- **Gains.** Cluster pairs marked visible, before (the closure, every pair)
+  and after, with the visibility lump's bytes; vvis on the flattened level
+  for comparison where it was run (it has more, smaller clusters):
+
+  | Level | Clusters | Before: pairs, bytes | After: pairs, bytes | vvis on the flattened level: clusters, pairs, bytes |
+  | --- | --- | --- | --- | --- |
+  | 3x3 sample (the four turns alike) | 32 | 1,024, 516 | 564, 518 to 522 | 43, 855 to 959, 865 to 902 |
+  | 3x3 seeded levels (12) | 16 to 34 | all pairs, 196 to 616 | 56% to 83% of the pairs, the lump within +48 bytes | 27 to 55 |
+  | generated 5 x 5 of the sample's rooms | 66 | 4,356 | 1,918, 1,741 | 111, 3,904, 3,872 |
+  | stress 8 x 8 | 315 | 99,225, 27,724 | 31,435, 26,386 | 429, 38,983, 43,817 |
+  | stress 12 x 12 | 676 | 456,976, 120,332 | 58,186, 87,842 | 917, 76,296, 143,373 |
+  | stress 24 x 24 | 2,682 | 7,193,124, 1,823,764 | 281,908, 665,441 | |
+  | stress 33 x 33 | 5,133 | 26,347,689, 6,631,840 | 686,929, 1,958,372 | |
+
+  On a large level the lump shrinks about threefold and the pairs
+  thirty-fold; per cluster the linked map sees about what vvis on the
+  flattened map sees (86 clusters on average at 12 x 12, against vvis's 83
+  of its smaller clusters). On a level as small as the 3x3 sample the lump
+  need not shrink: a row of 32 clusters is four bytes all ones, and the
+  run-length code spends two bytes on each zero byte it gains.
+- **Link time** (the 256-room stress library, pack in the page cache):
+  medians and minimums of 11 warm links in one process, and of three
+  cold `ssmap link -no-nav` runs, on a 4-core box shared with other work
+  (load 30 to 40, so the spread is wide):
+
+  | Level | Warm, main | Warm, Q3 | Cold `ssmap link`, main | Cold, Q3 |
+  | --- | --- | --- | --- | --- |
+  | 24 x 24 | 68 to 98 ms min, 109 to 230 median | 117 to 175 ms min, 154 to 232 median | 1.02 to 1.10 s | 1.23 to 1.60 s |
+  | 33 x 33 | 153 to 236 ms min, 205 to 308 median | 300 to 367 ms min, 343 to 446 median | 1.45 to 1.74 s | 1.92 to 2.08 s |
+
+  The door flows cost about 110 ms of one thread at 33 x 33 (about 54,000
+  rooms entered from 2,800 doorways), the rows (a bit-matrix transpose and
+  the neighbour tables) about 35 ms, the PAS about 15 ms; the flows run one
+  room per work item on the link's thread pool. The written map is smaller
+  (33 x 33: 19,084,940 bytes to 14,411,580), and `ssmap check` passes it
+  with the one warning main's map has (no cubemap samples).
+- **Pack.** Version 4. `DVIS` follows `LNKA` (read with it), carries the
+  codec byte and decoded length every link section starts with (none by
+  default: 70 to 298 bytes a room, 41,878 bytes for the stress library's
+  256 rooms, 0.15% of its pack), a revision,
+  then the rotation count and that many payloads: cluster count, socket
+  count, the per-socket bit sets, the pair flags, and per cluster a flag and
+  its box. The relations do not change with a turn, and turning a room's few
+  cluster boxes at link is a handful of negations per placement, so it is
+  stored once; a count of 4 (each payload's boxes turned) is read, its four
+  payloads' relations must agree, and a fact holds it to the same link
+  bytes (the choice can move on measurement alone). Version 4 promises
+  `DVIS` for every room with link sections, and a version 4 room without it
+  is refused as damaged; a version 3 pack still links, its door visibility
+  worked out at link from the rooms it holds, to the same bytes (a fact).
+  Damaged sections are refused naming the room and section. PR 6's
+  `PROP`, PR 7's `BMOD` and PR 8's `TRAN` stay optional tags (their notes
+  above say why they needed no version): a version 3 pack that has them
+  still reads, and links to the same bytes it did, `DVIS` worked out at
+  link. Transition rooms are ordinary rooms to the door visibility: their
+  sockets and clusters are read the same way.
+- **Brush entities and props.** `DVIS` is read off the room's own vvis
+  and the world's plug census, and the link's flows use only the world's
+  clusters and doorways, so neither PR 7's brush models (kept or omitted
+  as furniture: an omitted model's leaves hold no cluster of their own,
+  and vis is the world's) nor PR 6's props change a room's door
+  visibility or the flows; a brush door hung in a doorway, like any brush
+  entity, does not block vis, as it does not in vvis.
+
+Decisions taken where this document is open: the conservative claim is
+about sight lines (as above), not pointwise containment of the flattened
+compile's rows; the doorway is the plug's face on the cell face, not the
+tunnel of the two plugs' inner faces, which would be tighter but holds only
+where a room's wall is at least the plug's depth all round the socket, which
+nothing checks; the per-room relations are read off the room's vvis rather
+than recomputed with a flow inside the room, so they carry vvis's own
+slack; the PAS is vvis's radius-two union, not the PVS; the closure is
+kept behind `-nodoorvis` (`LevelLinkOptions.DoorVisibility`) as the
+measure and for hosts that want the old bytes; the `ssmap link` line
+reporting the map is followed by one reporting the visible pairs and the
+lump's size. Area portals (PR 13) can now take the doorway flow's per-joint
+cones as the place to start.
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity

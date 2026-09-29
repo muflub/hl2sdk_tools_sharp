@@ -165,6 +165,32 @@ public sealed class Rooms3x3Fixture : IAsyncLifetime
         return new Rooms3x3Pair(found, level, layout, flattened, linked, monolithic, vis);
     }
 
+    /// <summary>
+    /// A level of the sample's rooms generated larger than the sample's 3 x 3,
+    /// both ways: linked from the library (at the given thread count), and
+    /// flattened, compiled whole and vvis'd, as <see cref="BuildAsync"/> does
+    /// for an arrangement.
+    /// </summary>
+    internal async Task<(LevelLayout Layout, LinkedLevel Linked, VbspResult Monolithic, VisResult MonolithicVis)> GeneratedAsync(
+        int rows, int columns, ulong seed, double empty, int degree)
+    {
+        string name = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"gen_{rows}x{columns}_{seed}");
+        LevelGrid generated = LevelGenerator.Generate(
+            [.. Rooms3x3Kit.Kinds.Select(Rooms3x3Kit.Definition)],
+            new LevelGeneratorOptions(rows, columns, seed, empty),
+            name,
+            Rooms3x3Sample.LibraryFromLevels);
+        LevelGrid level = LevelYaml.Parse(LevelYaml.Write(generated), name);
+        LevelLayout layout = level.ToLayout(n => Library.Find(n)?.Definition, Library.CellSize, Library.Kit);
+        VbspContext context = Context(name);
+        context.Parallelism = new SourceSharp.MapTools.Parallel.CompileParallelism { MaxDegree = degree };
+        LinkedLevel linked = await LevelLinker.LinkAsync(layout, Library, context);
+
+        VbspResult monolithic = await CompileAsync(LevelFlattener.Flatten(level, LibraryVmf), name);
+        VisResult vis = await RoomHarness.VisAsync(monolithic.Bsp!, PortalSet.FromPortalFile(monolithic.Portals!));
+        return (layout, linked, monolithic, vis);
+    }
+
     /// <summary>An arrangement's flattened level through the ordinary vbsp path; it must not leak.</summary>
     internal async Task<VbspResult> MonolithicAsync(Rooms3x3Arrangement arrangement, string mapBase)
     {

@@ -17,6 +17,7 @@ using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Phys.Managed;
 using SourceSharp.MapTools.Rooms;
+using SourceSharp.MapTools.Vis;
 using SourceSharp.MapTools.Validation;
 using SourceSharp.Tests.MapTools.Io;
 using SourceSharp.Tests.MapTools.Rooms;
@@ -1405,6 +1406,62 @@ public sealed class RoomCommandsTests
         Assert.Equal(0, (await BspValidator.CheckAsync(unfoldedMap, CancellationToken.None)).ErrorCount);
     }
 
+    /// <summary>
+    /// The link reports the cluster pairs its visibility marks and the lump's
+    /// size, from the map it wrote; <c>-nodoorvis</c> writes the door graph's
+    /// closure instead, in which every cluster sees every other, and says so
+    /// with the same line.
+    /// </summary>
+    [Fact]
+    public async Task ALinkReportsItsVisibilityAndNodoorvisWritesTheDoorGraph()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
+        AddLevel(fs, "/levels/level.yaml", "hub, hub");
+
+        foreach (bool doorVis in new[] { true, false })
+        {
+            using StringWriter link = new();
+            string[] args = doorVis
+                ? ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-no-nav", "-out", "/out/level.bsp"]
+                : ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-no-nav", "-nodoorvis", "-out", "/out/level.bsp"];
+            Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(fs, args, link));
+
+            BspData map = await LoadMapAsync(fs, "/out/level.bsp");
+            ReadOnlySpan<byte> lump = map[BspLump.Visibility].Data.Span;
+            int clusters = BitConverter.ToInt32(lump[..4]);
+            int rowBytes = (clusters + 7) >> 3;
+            int visible = 0;
+            for (int c = 0; c < clusters; c++)
+            {
+                byte[] row = new byte[rowBytes];
+                VisRunLength.Decompress(lump[BitConverter.ToInt32(lump.Slice(4 + (c * 8), 4))..], row);
+                visible += row.Sum(b => System.Numerics.BitOperations.PopCount(b));
+            }
+
+            Assert.Contains(
+                $"ssmap link: visibility {visible} of {clusters * clusters} cluster pairs, {lump.Length} bytes",
+                link.ToString(),
+                StringComparison.Ordinal);
+            if (!doorVis)
+            {
+                Assert.Equal(clusters * clusters, visible);
+            }
+        }
+    }
+
+    /// <summary><c>--flatten</c> leaves visibility to vvis, so it takes no <c>-nodoorvis</c>.</summary>
+    [Fact]
+    public async Task NodoorvisWithFlattenIsAUsageError()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        AddLevel(fs, "/levels/level.yaml", "hub, hub");
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "--flatten", "-nodoorvis"], output));
+        Assert.StartsWith("usage: ssmap link", output.ToString(), StringComparison.Ordinal);
+    }
+
     /// <summary><c>--flatten</c> writes brushes for vbsp to compile, so it takes no <c>-nofold</c>.</summary>
     [Fact]
     public async Task NofoldWithFlattenIsAUsageError()
@@ -1496,7 +1553,7 @@ public sealed class RoomCommandsTests
     [InlineData("-1", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
     [InlineData("2049", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
     [InlineData("half", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
-    [InlineData("flatten", "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-out <map.bsp>]")]
+    [InlineData("flatten", "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>]")]
     public async Task ABadEntityReserveIsAUsageError(string value, string expected)
     {
         string[] args = value == "flatten"

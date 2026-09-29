@@ -239,7 +239,7 @@ public sealed class NavCommandsTests
         Assert.All(index.Entries, e => Assert.Equal(
             [
                 "ROOM", "ECNT", .. e.Name == "hall" ? Array.Empty<string>() : ["BMOD", "TRAN"],
-                "LNKA", "GEO0", "NAM0", "NVR0", "GEO1", "NAM1", "NVR1", "GEO2", "NAM2", "NVR2", "GEO3", "NAM3", "NVR3",
+                "LNKA", "DVIS", "GEO0", "NAM0", "NVR0", "GEO1", "NAM1", "NVR1", "GEO2", "NAM2", "NVR2", "GEO3", "NAM3", "NVR3",
             ],
             e.Sections.Select(s => s.Tag)));
         Assert.Equal(["CMPL"], index.LibrarySections.Select(s => s.Tag));
@@ -353,13 +353,15 @@ public sealed class NavCommandsTests
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
         // The index, the library's sections, and per placed room its
         // container, its entity counts, its brush models and transition data
-        // when it has them, its shared link section, and its turn's link,
-        // name and navigation sections: none of the other turns'.
+        // when it has them, its shared link section and door visibility, and
+        // its turn's link, name and navigation sections: none of the other
+        // turns'.
         long expected = index.IndexEnd + index.LibrarySections.Sum(s => s.Length);
         foreach ((string room, int turn) in new[] { ("up", 0), ("hall", 2) })
         {
             RoomPackEntry entry = index.Find(room)!;
-            expected += entry.Room.Length + entry.Find("ECNT")!.Value.Length + entry.Find("LNKA")!.Value.Length + entry.Find($"GEO{turn}")!.Value.Length
+            expected += entry.Room.Length + entry.Find("ECNT")!.Value.Length + entry.Find("LNKA")!.Value.Length
+                + entry.Find("DVIS")!.Value.Length + entry.Find($"GEO{turn}")!.Value.Length
                 + entry.Find($"NAM{turn}")!.Value.Length + entry.Find($"NVR{turn}")!.Value.Length
                 + (entry.Find("BMOD")?.Length ?? 0) + (entry.Find("TRAN")?.Length ?? 0);
         }

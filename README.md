@@ -412,7 +412,7 @@ ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <codec>
            [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
 ssmap rooms <library.vmf> [-rooms <pack.roompack>]
 ssmap rooms -rooms <pack.roompack>
-ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
+ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
 ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
              [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
@@ -568,6 +568,27 @@ the internal seam between the pieces, so a sweep that starts inside one
 piece and ends in the next is now all solid rather than leaving the first
 at the seam. The link reports the brushes it wrote and how many it folded
 away; with `-nofold` it writes the unfolded brushes byte for byte.
+
+**Visibility.** The link composes the level's PVS without running vvis
+on it. Each room's own vvis is kept for sight inside the room, and
+`ssmap room` stores per room which of its clusters see each doorway and
+which of its doorways see each other through it (the pack's `DVIS`
+section). At link, a flow like vvis's portal flow runs over the doorway
+rectangles alone, treating each room as its empty cell: two rooms see each
+other only where a straight line gets through the chain of doorways
+between them, each room on the way lets a line from one of its doorways to
+the next, and each end cluster's bounds lie in the cone of lines the chain
+lets through, tested from both ends. Neighbouring rooms see each other only
+through their shared doorway, and not at all across a wall. The result
+keeps every sight line of the same level compiled whole (the facts check
+this against vvis on the flattened level), is the same bytes at any thread
+count and for a level turned as a whole, and replaces what the link wrote
+before, in which every cluster of a level saw every other (`-nodoorvis`
+still writes that). On the stress library at 33 x 33 the cluster pairs
+marked visible fall from 26,347,689 (all of them) to 686,929 and the
+visibility lump from 6,631,840 bytes to 1,958,372; at 24 x 24 from
+7,193,124 to 281,908 pairs and 1,823,764 to 665,441 bytes. The link reports
+the pairs and the lump's size on a line of its own.
 
 On a generated stress library of 256 rooms (`ssmap layout -seed 1`), the
 largest square level that links goes from 24 x 24 (brushes) to 27 x 27 with
