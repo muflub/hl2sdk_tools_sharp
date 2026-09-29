@@ -86,7 +86,10 @@ public sealed class RoomsCubemapCommandsTests
         Assert.DoesNotContain(linkedFiles.Keys, n => n.StartsWith("materials/maps/hall/", StringComparison.Ordinal));
 
         using StringWriter check = new();
-        exit = await CheckCommand.RunAsync(fs, [$"/sample/out/{level}.bsp"], check);
+        // The CLI hands check full host paths (Program resolves them first), so
+        // the fact does the same: on Windows the link wrote under the drive
+        // letter, and a bare "/sample/..." names no file there.
+        exit = await CheckCommand.RunAsync(fs, [Rooted($"/sample/out/{level}.bsp")], check);
         Assert.True(exit == Program.ExitSuccess, check.ToString());
         Assert.EndsWith(": clean", check.ToString().TrimEnd(), StringComparison.Ordinal);
         Assert.True((await BspValidator.CheckAsync(linked, CancellationToken.None)).ForCode(BspRuleCodes.NoCubemaps).IsEmpty);
