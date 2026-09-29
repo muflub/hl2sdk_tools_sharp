@@ -1236,6 +1236,49 @@ public sealed class RoomCommandsTests
     }
 
     /// <summary>
+    /// The link folds touching box brushes by default and says so on the
+    /// line that reports the map; <c>-nofold</c> writes the unfolded brushes,
+    /// exactly as many more as the fold reported, and both maps load.
+    /// </summary>
+    [Fact]
+    public async Task ALinkFoldsByDefaultAndNofoldKeepsTheBrushes()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
+        AddLevel(fs, "/levels/level.yaml", "hub, hub");
+
+        using StringWriter folded = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-no-nav", "-out", "/out/folded.bsp"], folded));
+        using StringWriter unfolded = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-no-nav", "-nofold", "-out", "/out/unfolded.bsp"], unfolded));
+
+        BspData foldedMap = await LoadMapAsync(fs, "/out/folded.bsp");
+        BspData unfoldedMap = await LoadMapAsync(fs, "/out/unfolded.bsp");
+        int foldedBrushes = BspStructView.Count<DBrush>(foldedMap[BspLump.Brushes]);
+        int unfoldedBrushes = BspStructView.Count<DBrush>(unfoldedMap[BspLump.Brushes]);
+        Assert.True(foldedBrushes < unfoldedBrushes, $"{foldedBrushes} folded, {unfoldedBrushes} not");
+        Assert.Contains(
+            $" clusters, {foldedBrushes} brushes ({unfoldedBrushes - foldedBrushes} folded away))",
+            folded.ToString(),
+            StringComparison.Ordinal);
+        Assert.Contains($" clusters, {unfoldedBrushes} brushes)", unfolded.ToString(), StringComparison.Ordinal);
+        Assert.Equal(0, (await BspValidator.CheckAsync(foldedMap, CancellationToken.None)).ErrorCount);
+        Assert.Equal(0, (await BspValidator.CheckAsync(unfoldedMap, CancellationToken.None)).ErrorCount);
+    }
+
+    /// <summary><c>--flatten</c> writes brushes for vbsp to compile, so it takes no <c>-nofold</c>.</summary>
+    [Fact]
+    public async Task NofoldWithFlattenIsAUsageError()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        AddLevel(fs, "/levels/level.yaml", "hub, hub");
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "--flatten", "-nofold"], output));
+        Assert.StartsWith("usage: ssmap link", output.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The library's reserve (its worldspawn key) travels in the pack's
     /// library section: <c>ssmap room</c> writes it, and <c>ssmap link</c>
     /// budgets with it, here warning that the level eats into it with the
@@ -1315,7 +1358,7 @@ public sealed class RoomCommandsTests
     [InlineData("-1", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
     [InlineData("2049", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
     [InlineData("half", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
-    [InlineData("flatten", "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-out <map.bsp>]")]
+    [InlineData("flatten", "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-out <map.bsp>]")]
     public async Task ABadEntityReserveIsAUsageError(string value, string expected)
     {
         string[] args = value == "flatten"

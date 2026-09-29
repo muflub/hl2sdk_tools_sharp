@@ -265,7 +265,7 @@ ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <codec>
            [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
 ssmap rooms <library.vmf> [-rooms <pack.roompack>]
 ssmap rooms -rooms <pack.roompack>
-ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
+ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
 ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
              [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
@@ -395,7 +395,31 @@ removes the plug at a joined socket (the doorway becomes open space, its
 brush leaves the map and the world collision, and its faces stop drawing)
 and keeps it at a capped one. Dropping those brushes matters for size: on a
 generated stress library a quarter of the rooms' brushes are plugs, and the
-engine loads at most 8192 brushes (`MAX_MAP_BRUSHES`). The rooms' world collision, entities and areas are merged into
+engine loads at most 8192 brushes (`MAX_MAP_BRUSHES`).
+
+**Brush fold.** Rooms meet cell to cell, so a linked level is full of pairs
+that are one box in two brushes: floors and ceilings across every shared
+boundary, walls and jambs back to back, pieces in line. The link merges
+them (`-nofold` turns it off): two world brushes that are exact axis-aligned
+boxes (six sides, no bevel, no displacement) merge when their extents are
+identical on two axes and they touch on the third, their contents are
+identical, and every side that coalesces has the same material and surface
+flags. Floors and ceilings go first, into rows and then sheets; then the
+shell pieces, back to back and in line. A merged box reuses the planes its
+pieces had, and the leaves' brush lists and the world collision's brush
+numbers follow it; the collision's convexes themselves are untouched. The
+solid is the same to every trace and to physics; what the fold removes is
+the internal seam between the pieces, so a sweep that starts inside one
+piece and ends in the next is now all solid rather than leaving the first
+at the seam. The link reports the brushes it wrote and how many it folded
+away; with `-nofold` it writes the unfolded brushes byte for byte.
+
+On a generated stress library of 256 rooms (`ssmap layout -seed 1`), the
+largest square level that links goes from 24 x 24 (brushes) to 27 x 27 with
+the plugs dropped, and to 33 x 33 with the fold (7,029 brushes of 8,192).
+There the brushes no longer bind: a primitive's first index is a 16-bit
+field, and the level's primitive indices pass 65,536 at 34 x 34, and at 33 x
+33 already on some seeds. The rooms' world collision, entities and areas are merged into
 the map's own. Planes, materials (texdata and their names) and texture
 axes (texinfo) are shared: an entry another room already brought is named,
 not copied, so the engine's 2048-texdata cap counts the level's distinct

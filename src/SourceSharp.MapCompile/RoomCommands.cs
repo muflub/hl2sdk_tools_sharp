@@ -9,6 +9,7 @@ using System.Globalization;
 using System.Text;
 
 using SourceSharp.MapFormats.Bsp;
+using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Nav;
 using SourceSharp.MapFormats.Text;
@@ -509,6 +510,14 @@ public static class RoomCommands
     /// another, and 512 when neither does. <c>--flatten</c> budgets
     /// nothing, so it takes no reserve.
     /// </para>
+    /// <para>
+    /// <b>Brush fold.</b> The link merges touching box brushes of the world
+    /// into larger boxes (<see cref="LevelLinkOptions.FoldBrushes"/>), and
+    /// the line that reports the map written gives its brushes and how many
+    /// the fold merged away; <c>-nofold</c> writes the rooms' brushes as
+    /// compiled. <c>--flatten</c> writes brushes for vbsp, so it takes no
+    /// <c>-nofold</c>.
+    /// </para>
     /// </remarks>
     public static async Task<int> RunLinkAsync(
         IFileSystem disk,
@@ -526,6 +535,7 @@ public static class RoomCommands
         string? reserveText = null;
         bool flatten = false;
         bool modEntities = false;
+        bool noFold = false;
         LinkNavOptions nav = new();
         for (int i = 0; i < args.Count; i++)
         {
@@ -572,16 +582,20 @@ public static class RoomCommands
             {
                 modEntities = true;
             }
+            else if (IsFlag(args[i], "nofold"))
+            {
+                noFold = true;
+            }
             else
             {
                 rest.Add(args[i]);
             }
         }
 
-        if (rest.Count != 1 || (flatten && (roomsPack is not null || reserveText is not null)))
+        if (rest.Count != 1 || (flatten && (roomsPack is not null || reserveText is not null || noFold)))
         {
             await output.WriteLineAsync(
-                "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
+                "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
                 + "       ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
@@ -651,7 +665,7 @@ public static class RoomCommands
             ? await FlattenAsync(disk, level, levelPath, libraryPath, targetPath, modEntities, output, cancellationToken).ConfigureAwait(false)
             : await LinkAsync(
                 disk, level, levelBytes, levelPath, libraryPath, roomsPack,
-                new LevelLinkOptions { EntityReserve = reserve, ModEntities = modEntities }, targetPath, nav, output, cancellationToken)
+                new LevelLinkOptions { EntityReserve = reserve, ModEntities = modEntities, FoldBrushes = !noFold }, targetPath, nav, output, cancellationToken)
                 .ConfigureAwait(false);
     }
 
@@ -1422,9 +1436,14 @@ public static class RoomCommands
             }
 
             await output.WriteLineAsync($"ssmap link: {budget.Headroom}").ConfigureAwait(false);
+
+            // The brush count, and how many the fold merged away: the brush
+            // cap is what a large level meets first, so it is worth seeing.
+            int brushes = BspStructView.Count<DBrush>(link.Bsp[BspLump.Brushes]);
             await output.WriteLineAsync(
                 $"ssmap link: wrote {HostPaths.Display(mapPath)}"
-                + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters"
+                + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters, {brushes} brushes"
+                + (link.FoldedBrushes > 0 ? $" ({link.FoldedBrushes} folded away)" : string.Empty)
                 + (navPlan.WritesNavigation ? $", level id {navPlan.LevelId:D})" : ")"))
                 .ConfigureAwait(false);
             if (navPlan.WritesNavigation)

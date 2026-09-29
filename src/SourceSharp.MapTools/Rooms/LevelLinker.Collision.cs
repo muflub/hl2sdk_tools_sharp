@@ -69,8 +69,17 @@ public static partial class LevelLinker
     /// </para>
     /// </remarks>
     /// <returns>The <c>PhysCollide</c> and <c>PhysDisp</c> lumps, each null when no room had one.</returns>
+    /// <param name="plans">The placements, in layout order.</param>
+    /// <param name="compliance">The precision the surfaces are rebuilt at.</param>
+    /// <param name="brushMap">
+    /// The brush fold's map from linked brush to folded brush, or null when
+    /// the link did not fold: a ledge cooked from a brush that joined a box
+    /// names the box, which has the brush's contents (a fold merges only
+    /// brushes of equal contents). The ledge's own geometry is untouched.
+    /// </param>
+    /// <param name="cancellationToken">Cancels between rooms and solids.</param>
     internal static (byte[]? PhysCollide, byte[]? PhysDisp) MergeCollision(
-        RoomPlan[] plans, ComplianceOptions compliance, CancellationToken cancellationToken)
+        RoomPlan[] plans, ComplianceOptions compliance, int[]? brushMap, CancellationToken cancellationToken)
     {
         List<RoomPlan> with = [.. plans.Where(p => p.Bsp[BspLump.PhysCollide].Length > 0)];
         byte[]? physDisp = plans.Any(p => p.Bsp[BspLump.PhysDisp].Length > 0) ? PhysDispLump.Write([]) : null;
@@ -137,7 +146,8 @@ public static partial class LevelLinker
                     // placement at this turn and every later link.
                     IvpCompactLedge ledge = new(turned.ToArray());
                     TranslateLedge(ledge, plan.Transform);
-                    ledge.ClientData = plan.LinkedBrush(ledge.ClientData);
+                    int linkedBrush = plan.LinkedBrush(ledge.ClientData);
+                    ledge.ClientData = brushMap is null ? linkedBrush : brushMap[linkedBrush];
                     RemapMaterials(ledge, remap, plan);
                     group.Add(ledge);
                 }

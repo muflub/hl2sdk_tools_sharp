@@ -135,11 +135,14 @@ public sealed class LevelLinkerScaleTests
             .MinBy(f => f.crossing);
         Assert.Equal("brushes", what); // the hub's binding total, which the stripped plugs move
 
+        // Without the fold: with it, the brush caps are held after the
+        // fold, in the assembly, where the folded totals are known.
+        LevelLinkOptions noFold = new() { FoldBrushes = false };
         LevelLayout under = Line(library, (int)crossing - 1);
-        LevelLinker.CheckCapacity(under, library);
+        LevelLinker.CheckCapacity(under, library, noFold);
 
         LevelLayout over = Line(library, (int)crossing);
-        LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(over, library));
+        LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(over, library, noFold));
         Assert.StartsWith($"room hub at cell ({crossing - 1}, 0) pushes the link to ", refused.Message, StringComparison.Ordinal);
         Assert.Contains($" {what}; the ", refused.Message, StringComparison.Ordinal);
     }

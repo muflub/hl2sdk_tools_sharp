@@ -500,9 +500,10 @@ public sealed class LevelLinkerSharedTablesTests
         library.Add(compiled.Get("hub") with { Link = null });
         LevelLayout layout = Layout(library, TurnedRows);
 
-        LinkedLevel one = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 1));
-        LinkedLevel eight = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 8));
-        LinkedLevel again = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 8));
+        LevelLinkOptions noFold = new() { FoldBrushes = false }; // as TurnedLevelAsync links
+        LinkedLevel one = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 1), noFold);
+        LinkedLevel eight = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 8), noFold);
+        LinkedLevel again = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 8), noFold);
         LinkedLevel stored = (await TurnedLevelAsync()).Link;
         foreach (LinkedLevel other in (LinkedLevel[])[eight, again, stored])
         {
@@ -539,8 +540,12 @@ public sealed class LevelLinkerSharedTablesTests
         return (await LinkRowsAsync(library, TurnedRows), library);
     }
 
+    /// <summary>
+    /// Links rows of rooms without the brush fold: these facts compare every
+    /// brush side with its room's, one for one, which a merged box is not.
+    /// </summary>
     private static async Task<LinkedLevel> LinkRowsAsync(RoomLibrary library, params string[] rows) =>
-        await LevelLinker.LinkAsync(Layout(library, rows), library, await RoomHarness.ContextAsync());
+        await LevelLinker.LinkAsync(Layout(library, rows), library, await RoomHarness.ContextAsync(), new LevelLinkOptions { FoldBrushes = false });
 
     private static LevelLayout Layout(RoomLibrary library, string[] rows) =>
         LevelYaml.Parse(RoomHarness.LevelText("rooms.vmf", rows), "shared")

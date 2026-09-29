@@ -548,7 +548,7 @@ public sealed class LevelLinkerRelocationTests
         });
         RoomLibrary library = RoomHarness.Library(unset);
         LinkedLevel link = await LevelLinker.LinkAsync(
-            RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, 0)), library, await RoomHarness.ContextAsync());
+            RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, 0)), library, await RoomHarness.ContextAsync(), NoFold);
 
         DBrushSide[] linkedSides = BspStructView.As<DBrushSide>(link.Bsp[BspLump.BrushSides]).ToArray();
         DFace[] linkedFaces = BspStructView.As<DFace>(link.Bsp[BspLump.OriginalFaces]).ToArray();
@@ -839,8 +839,14 @@ public sealed class LevelLinkerRelocationTests
     {
         RoomLibrary library = await RoomHarness.LibraryAsync(cook, RoomHarness.Hub());
         LevelLayout layout = RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, turns));
-        return (await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync()), library);
+        return (await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(), NoFold), library);
     }
+
+    /// <summary>
+    /// The pair facts follow each room's brushes into the link one for one,
+    /// so they link without the brush fold (<see cref="LevelLinkerFoldTests"/>).
+    /// </summary>
+    private static LevelLinkOptions NoFold { get; } = new() { FoldBrushes = false };
 
     private static float Coordinate(FloatArray8 vecs, int row, Vec3 p) =>
         (vecs[row * 4] * p.X) + (vecs[(row * 4) + 1] * p.Y) + (vecs[(row * 4) + 2] * p.Z) + vecs[(row * 4) + 3];

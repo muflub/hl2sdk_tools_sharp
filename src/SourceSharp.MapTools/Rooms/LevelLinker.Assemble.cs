@@ -25,7 +25,8 @@ public static partial class LevelLinker
     /// plugs stripped (their brushes dropped, their faces drawn nodraw), and
     /// the lumps that exist once per map merged.
     /// </summary>
-    private static BspData Assemble(
+    /// <returns>The map, and how many brushes the fold removed (0 when it did not run).</returns>
+    private static (BspData Map, int FoldedBrushes) Assemble(
         RoomPlan[] plans,
         LevelLayout layout,
         byte[] visibilityLump,
@@ -33,6 +34,7 @@ public static partial class LevelLinker
         EntityClassTable classes,
         LevelNaming naming,
         string? mapVersion,
+        bool foldBrushes,
         CancellationToken cancellationToken)
     {
         float cell = layout.CellSize;
@@ -120,7 +122,9 @@ public static partial class LevelLinker
             Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, cell)),
             LeafWaterDataId = -1,
         }];
-        List<ushort> leafBrushes = [];
+        // Linked brush indices, held as ints until the fold (which may
+        // renumber them) is done; a leaf brush entry is a ushort in the lump.
+        List<int> leafBrushes = [];
         foreach (RoomPlan plan in plans)
         {
             ReadOnlySpan<ushort> roomLeafBrushes = BspStructView.As<ushort>(plan.Bsp[BspLump.LeafBrushes]);
@@ -140,7 +144,7 @@ public static partial class LevelLinker
                     int brush = roomLeafBrushes[leaf.FirstLeafBrush + b];
                     if (!plan.StrippedBrushes.Contains(brush))
                     {
-                        leafBrushes.Add((ushort)plan.LinkedBrush(brush));
+                        leafBrushes.Add(plan.LinkedBrush(brush));
                     }
                 }
 
@@ -331,6 +335,44 @@ public static partial class LevelLinker
             }
         }
 
+        // The fold: touching box brushes of the world become one box
+        // (LinkBrushFold). The linked map has one model, the world (a room
+        // with a second is refused), so every brush may fold. Leaf brush
+        // runs and ledge client data follow the new numbering.
+        int[]? brushMap = null;
+        int folded = 0;
+        if (foldBrushes)
+        {
+            BrushFoldResult fold = LinkBrushFold.Fold(
+                brushes, brushSides, planes.Planes, texInfos, Enumerable.Repeat(true, brushes.Count).ToArray());
+            brushes = [.. fold.Brushes];
+            brushSides = [.. fold.Sides];
+            brushMap = fold.Map;
+            folded = fold.Removed;
+            RemapLeafBrushes(leafs, leafBrushes, brushMap);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        // Exact totals: the capacity check counted the kept brushes before
+        // any room was planned, but with the fold on it leaves the brush
+        // caps to here, where the folded totals are known.
+        LoaderLimit(
+            plans[^1].Placement.Room.Definition.Name,
+            plans[^1].Placement.Instance.Placement.CellX,
+            plans[^1].Placement.Instance.Placement.CellY,
+            "brushes",
+            brushes.Count,
+            BspLimits.Caps.First(c => c.Lump == BspLump.Brushes).Max,
+            "MAX_MAP_BRUSHES");
+        LoaderLimit(
+            plans[^1].Placement.Room.Definition.Name,
+            plans[^1].Placement.Instance.Placement.CellX,
+            plans[^1].Placement.Instance.Placement.CellY,
+            "brush sides",
+            brushSides.Count,
+            BspLimits.Caps.First(c => c.Lump == BspLump.BrushSides).Max,
+            "MAX_MAP_BRUSHSIDES");
+
         // Face ids and macro textures: ids are opaque, macro names index the
         // shared string table (0xFFFF is "none" and stays 0xFFFF; so does a
         // name outside the room's table, which names nothing).
@@ -448,7 +490,7 @@ public static partial class LevelLinker
             },
         ];
 
-        (byte[]? physCollide, byte[]? physDisp) = MergeCollision(plans, context.Options.Compliance, cancellationToken);
+        (byte[]? physCollide, byte[]? physDisp) = MergeCollision(plans, context.Options.Compliance, brushMap, cancellationToken);
 
         BspData linked = new() { FileVersion = first.Bsp.FileVersion };
         linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion);
@@ -464,7 +506,7 @@ public static partial class LevelLinker
         linked.SetLump(BspLump.Edges, Bytes(edges));
         linked.SetLump(BspLump.Models, MemoryMarshal.AsBytes(models.AsSpan()).ToArray());
         linked.SetLump(BspLump.LeafFaces, Bytes(leafFaces));
-        linked.SetLump(BspLump.LeafBrushes, Bytes(leafBrushes));
+        linked.SetLump(BspLump.LeafBrushes, Bytes(leafBrushes.ConvertAll(b => (ushort)b)));
         linked.SetLump(BspLump.Brushes, Bytes(brushes));
         linked.SetLump(BspLump.BrushSides, Bytes(brushSides));
         linked.SetLump(BspLump.TexDataStringData, textures.StringData.ToArray());
@@ -503,7 +545,58 @@ public static partial class LevelLinker
             linked.SetLump(BspLump.PhysDisp, physDisp);
         }
 
-        return linked;
+        return (linked, folded);
+    }
+
+    /// <summary>
+    /// Renumbers every leaf's brush run through the fold's map, each run
+    /// once however many leaves share it (a carve's solid fragments share
+    /// their leaf's), dropping a repeat within a run: two constituents of one
+    /// merged box in one leaf are one brush there now.
+    /// </summary>
+    /// <remarks>
+    /// The runs keep their order, so the lump is the same list with its
+    /// entries renamed and its repeats removed, and a leaf's run keeps the
+    /// order its brushes had (the first constituent's place).
+    /// </remarks>
+    internal static void RemapLeafBrushes(List<DLeaf> leafs, List<int> leafBrushes, int[] map)
+    {
+        List<int> remapped = new(leafBrushes.Count);
+        Dictionary<(int First, int Count), (int First, int Count)> runs = [];
+        HashSet<int> inRun = [];
+        for (int l = 0; l < leafs.Count; l++)
+        {
+            DLeaf leaf = leafs[l];
+            if (leaf.NumLeafBrushes == 0)
+            {
+                continue;
+            }
+
+            (int, int) old = (leaf.FirstLeafBrush, leaf.NumLeafBrushes);
+            if (!runs.TryGetValue(old, out (int First, int Count) run))
+            {
+                int start = remapped.Count;
+                inRun.Clear();
+                for (int i = 0; i < leaf.NumLeafBrushes; i++)
+                {
+                    int brush = map[leafBrushes[leaf.FirstLeafBrush + i]];
+                    if (inRun.Add(brush))
+                    {
+                        remapped.Add(brush);
+                    }
+                }
+
+                run = (start, remapped.Count - start);
+                runs[old] = run;
+            }
+
+            leaf.FirstLeafBrush = (ushort)run.First;
+            leaf.NumLeafBrushes = (ushort)run.Count;
+            leafs[l] = leaf;
+        }
+
+        leafBrushes.Clear();
+        leafBrushes.AddRange(remapped);
     }
 
     /// <summary>One drawn or original face through its room's bases.</summary>
