@@ -111,7 +111,7 @@ public static partial class LevelLinker
             Models = models,
             Lighting = lighting,
             Lit = payload,
-            VertNormals = lighting is null ? geometry.VertNormals : RotateAll(lighting.VertNormals, rotation),
+            VertNormals = lighting is null ? geometry.VertNormals : [.. lighting.VertNormals.Select(n => TurnDirection(n, rotation))],
             FaceVertexStarts = lighting is null ? null : FaceVertexStarts(bsp),
         };
 

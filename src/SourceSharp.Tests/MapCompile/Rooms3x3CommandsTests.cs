@@ -47,7 +47,10 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
     {
         InMemoryFileSystem fs = Sample();
         using StringWriter output = new();
-        int exit = await RoomCommands.RunRoomAsync(fs, [], ["/sample/rooms.vmf", "-game", "/sample", "-out", "/sample/rooms.roompack"], output);
+        // Unlit, as the equivalence fixture compiles the rooms: this fact
+        // holds the CLI to the linker API byte for byte; the lit sample has
+        // its own (TheSampleLinksLit).
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["/sample/rooms.vmf", "-game", "/sample", "-out", "/sample/rooms.roompack", "-nolight"], output);
         Assert.True(exit == Program.ExitSuccess, output.ToString());
         IReadOnlyDictionary<string, RoomEntityCounts> counts;
         using (MemoryStream pack = new(fs.GetBytes(VPath.Create(Rooted("/sample/rooms.roompack")))!))

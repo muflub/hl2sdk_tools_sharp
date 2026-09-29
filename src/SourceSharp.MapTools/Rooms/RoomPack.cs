@@ -1170,6 +1170,46 @@ public static class RoomPack
     }
 
     /// <summary>
+    /// How many turns each lit room of a pack stores its base lighting for
+    /// (<see cref="RoomLighting.RotationCount"/>: 1, or 4 when sun or sky
+    /// light reaches it), by name: what <c>ssmap rooms</c> shows. A room
+    /// without a lighting section (an unlit library) is not listed.
+    /// </summary>
+    /// <param name="r">The pack.</param>
+    /// <param name="index">Its index.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The counts, by room name.</returns>
+    /// <exception cref="LinkException">A lighting section is damaged.</exception>
+    public static async Task<IReadOnlyDictionary<string, int>> ReadLightingTurnsAsync(
+        Stream r, RoomPackIndex index, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(r);
+        ArgumentNullException.ThrowIfNull(index);
+        List<(string Name, RoomPackSection Section)> wanted = [];
+        foreach (RoomPackEntry entry in index.Entries)
+        {
+            if (entry.Find(RoomLighting.SectionTag) is { } section)
+            {
+                wanted.Add((entry.Name, section));
+            }
+        }
+
+        Dictionary<(string, string), ArraySegment<byte>> read = await ReadSectionsAsync(r, index, wanted, cancellationToken)
+            .ConfigureAwait(false);
+        Dictionary<string, int> turns = new(StringComparer.Ordinal);
+        foreach (RoomPackEntry entry in index.Entries)
+        {
+            if (read.TryGetValue((entry.Name, RoomLighting.SectionTag), out ArraySegment<byte> bytes)
+                && RoomLighting.ReadRotationCount(bytes, entry.Name) is int count)
+            {
+                turns[entry.Name] = count;
+            }
+        }
+
+        return turns;
+    }
+
+    /// <summary>
     /// Reads the given sections, in pack order whatever order they are
     /// given in: sought to on a stream that can seek, reached by skipping
     /// forward on one that cannot.

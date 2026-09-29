@@ -361,7 +361,6 @@ internal sealed class RoomLighting
         ArgumentNullException.ThrowIfNull(parallelism);
 
         BspData source = room.Bsp;
-        string name = room.Definition.Name;
         int faceCount = BspStructView.Count<DFace>(source[BspLump.Faces]);
         int leafCount = BspStructView.Count<DLeaf>(source[BspLump.Leafs]);
         bool sun = settings.Sun is not null;
@@ -374,50 +373,80 @@ internal sealed class RoomLighting
         DWorldLight[]? skyLdr = null, skyHdr = null;
         for (int turn = 0; turn < turns; turn++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            BspData lit = Copy(source);
-            if (settings.Sun is { } library)
-            {
-                AddSun(lit, library);
-            }
-
-            List<(bool Hdr, StaticPropLightingResult Result)> props = [];
-            VradContext context = new()
-            {
-                Options = settings.Options,
-#pragma warning disable CA1308 // vbsp names a map's files in lower case; the bake reads the room's as the room compile named them
-                MapName = name.ToLowerInvariant(),
-#pragma warning restore CA1308
-                Content = content,
-                Parallelism = parallelism,
-                FrameTurns = turn,
-                StaticPropLightingObserver = (hdr, result) =>
-                {
-                    lock (props)
-                    {
-                        props.Add((hdr, result));
-                    }
-                },
-            };
-
-            _ = await Vrad.LightAsync(lit, context, cancellationToken).ConfigureAwait(false);
-            RequireSameGeometry(name, source, lit);
-
-            (RoomLightRange? ldr, DWorldLight[]? sunLdr) = ExtractRange(lit, hdr: false, faceCount, leafCount, props);
-            (RoomLightRange? hdrRange, DWorldLight[]? sunHdr) = ExtractRange(lit, hdr: true, faceCount, leafCount, props);
-            payloads[turn] = new RoomLightingPayload(ldr, hdrRange);
+            RoomLightingTurn baked = await BakeTurnAsync(room, settings, content, parallelism, turn, cancellationToken).ConfigureAwait(false);
+            payloads[turn] = baked.Payload;
             if (turn == 0)
             {
-                normals = BspStructView.As<Vec3>(lit[BspLump.VertNormals]).ToArray();
-                normalIndices = BspStructView.As<ushort>(lit[BspLump.VertNormalIndices]).ToArray();
-                mapFlags = lit[BspLump.MapFlags].Length >= 4 ? BinaryPrimitives.ReadUInt32LittleEndian(lit[BspLump.MapFlags].Data.Span) : 0u;
-                skyLdr = sunLdr;
-                skyHdr = sunHdr;
+                normals = baked.VertNormals;
+                normalIndices = baked.VertNormalIndices;
+                mapFlags = baked.MapFlags;
+                skyLdr = baked.SkyLdr;
+                skyHdr = baked.SkyHdr;
             }
         }
 
         IReadOnlyList<(int, LeafFlags)> skyLeaves = sun ? PassOne(source) : [];
         return new RoomLighting(faceCount, leafCount, normals, normalIndices, sun, skyLeaves, mapFlags, payloads, skyLdr, skyHdr, source);
+    }
+
+    /// <summary>
+    /// One vrad run of a room for a placement at <paramref name="turn"/>
+    /// quarter turns: the room as compiled, the sun added, the world-fixed
+    /// directions turned into the room's frame. What
+    /// <see cref="BakeAsync"/> runs once per stored turn; the facts run it at
+    /// every turn of a room that stores one, to hold the turns to one another.
+    /// </summary>
+    internal static async Task<RoomLightingTurn> BakeTurnAsync(
+        RoomObject room,
+        RoomLightingSettings settings,
+        IContentFileSystem content,
+        CompileParallelism parallelism,
+        int turn,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        BspData source = room.Bsp;
+        string name = room.Definition.Name;
+        int faceCount = BspStructView.Count<DFace>(source[BspLump.Faces]);
+        int leafCount = BspStructView.Count<DLeaf>(source[BspLump.Leafs]);
+        BspData lit = Copy(source);
+        if (settings.Sun is { } library)
+        {
+            AddSun(lit, library);
+        }
+
+        List<(bool Hdr, StaticPropLightingResult Result)> props = [];
+        VradContext context = new()
+        {
+            Options = settings.Options,
+#pragma warning disable CA1308 // vbsp names a map's files in lower case; the bake reads the room's as the room compile named them
+            MapName = name.ToLowerInvariant(),
+#pragma warning restore CA1308
+            Content = content,
+            Parallelism = parallelism,
+            FrameTurns = turn,
+            StaticPropLightingObserver = (hdr, result) =>
+            {
+                lock (props)
+                {
+                    props.Add((hdr, result));
+                }
+            },
+        };
+
+        _ = await Vrad.LightAsync(lit, context, cancellationToken).ConfigureAwait(false);
+        RequireSameGeometry(name, source, lit);
+
+        (RoomLightRange? ldr, DWorldLight[]? sunLdr) = ExtractRange(lit, hdr: false, faceCount, leafCount, props);
+        (RoomLightRange? hdrRange, DWorldLight[]? sunHdr) = ExtractRange(lit, hdr: true, faceCount, leafCount, props);
+        return new RoomLightingTurn(
+            new RoomLightingPayload(ldr, hdrRange),
+            BspStructView.As<Vec3>(lit[BspLump.VertNormals]).ToArray(),
+            BspStructView.As<ushort>(lit[BspLump.VertNormalIndices]).ToArray(),
+            lit[BspLump.MapFlags].Length >= 4 ? BinaryPrimitives.ReadUInt32LittleEndian(lit[BspLump.MapFlags].Data.Span) : 0u,
+            sunLdr,
+            sunHdr,
+            lit);
     }
 
     /// <summary>A copy of a map whose lumps a vrad run may replace without touching the original's.</summary>
@@ -772,6 +801,22 @@ internal sealed class RoomLighting
             skyLdr.Length == 0 ? null : skyLdr, skyHdr.Length == 0 ? null : skyHdr, bsp);
     }
 
+    /// <summary>
+    /// A lighting section's rotation count alone (1 or 4), for a listing:
+    /// null for a section of a revision this build does not read.
+    /// </summary>
+    /// <exception cref="LinkException">The section is damaged.</exception>
+    public static int? ReadRotationCount(ArraySegment<byte> section, string room)
+    {
+        if (RoomLinkSections.Open(section, room, SectionTag) is not { } r)
+        {
+            return null;
+        }
+
+        int turns = r.Int();
+        return turns is 1 or 4 ? turns : throw r.Mismatch($"a rotation count of {turns}; a section stores 1 or 4");
+    }
+
     private static void Expect(RoomLinkSections.Reader r, string what, int expected)
     {
         int count = r.Int();
@@ -807,11 +852,18 @@ internal sealed class RoomLighting
         int samples = r.Count("ambient samples");
         Half[] cubes = r.Structs<Half>("ambient cubes", samples * AmbientHalves, counted: false);
         byte[] positions = r.Structs<byte>("ambient positions", samples * 4, counted: false);
+        // A leaf with samples names its run; one without names the nearest
+        // leaf with samples (vrad's NearestNeighborWithLight), a leaf index.
         foreach (DLeafAmbientIndex entry in index)
         {
-            if (entry.FirstAmbientSample + entry.AmbientSampleCount > samples)
+            if (entry.AmbientSampleCount > 0 && entry.FirstAmbientSample + entry.AmbientSampleCount > samples)
             {
                 throw r.Mismatch($"a leaf's samples {entry.FirstAmbientSample} to {entry.FirstAmbientSample + entry.AmbientSampleCount}; it holds {samples}");
+            }
+
+            if (entry.AmbientSampleCount == 0 && entry.FirstAmbientSample >= leafCount)
+            {
+                throw r.Mismatch($"an empty leaf naming leaf {entry.FirstAmbientSample}; the room has {leafCount} leaves");
             }
         }
 
@@ -840,6 +892,23 @@ internal sealed class RoomLighting
         return new RoomLightRange(styles, offsets, luxels, lights, index, cubes, positions, props);
     }
 }
+
+/// <summary>What one vrad run of a room gave (<see cref="RoomLighting.BakeTurnAsync"/>).</summary>
+/// <param name="Payload">The turn's ranges.</param>
+/// <param name="VertNormals">The vertex normals vrad wrote.</param>
+/// <param name="VertNormalIndices">Their indices.</param>
+/// <param name="MapFlags">The map flags vrad wrote.</param>
+/// <param name="SkyLdr">The sun's LDR world lights, or null.</param>
+/// <param name="SkyHdr">The sun's HDR world lights, or null.</param>
+/// <param name="Lit">The lit copy of the room's map, for the facts.</param>
+internal sealed record RoomLightingTurn(
+    RoomLightingPayload Payload,
+    Vec3[] VertNormals,
+    ushort[] VertNormalIndices,
+    uint MapFlags,
+    DWorldLight[]? SkyLdr,
+    DWorldLight[]? SkyHdr,
+    BspData Lit);
 
 /// <summary>One stored turn of a room's lighting: its LDR and HDR ranges, each null when the bake did not light it.</summary>
 /// <param name="Ldr">The LDR range, or null.</param>

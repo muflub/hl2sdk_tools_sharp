@@ -164,6 +164,8 @@ public static class RoomCommands
         string? cacheDirectory = null;
         bool incremental = false;
         bool noCache = false;
+        bool light = true;
+        string? vradLine = null;
         RoomNavPackOptions navOptions = new();
         for (int i = 0; i < args.Count; i++)
         {
@@ -201,10 +203,47 @@ public static class RoomCommands
             {
                 navOptions = navOptions with { StoreAllTurns = false };
             }
+            else if (IsFlag(args[i], "nolight"))
+            {
+                light = false;
+            }
+            else if (Take(args, i, "vrad", out string vrad))
+            {
+                vradLine = vrad;
+                i++;
+            }
             else
             {
                 stock.Add(args[i]);
             }
+        }
+
+        // The base bake's vrad switches (-vrad "<stock vrad options>"),
+        // parsed as ssmap vrad parses its own line; stock's defaults without.
+        VradOptions? vradOptions = null;
+        if (light)
+        {
+            StockArgsResult<VradOptions> vradParsed = StockArgs.ParseVrad(
+                [.. (vradLine ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries), "room"]);
+            foreach (CompileDiagnostic diagnostic in vradParsed.Diagnostics)
+            {
+                await output.WriteLineAsync($"{diagnostic.Code}: {diagnostic.Message}").ConfigureAwait(false);
+            }
+
+            if (vradParsed.HasErrors || vradParsed.Options.LuxelDensity < 1.0f)
+            {
+                await output.WriteLineAsync(
+                    $"ssmap room: -vrad \"{vradLine}\" is not a vrad line a room can be lit with (-luxeldensity below 1 changes the room's geometry)")
+                    .ConfigureAwait(false);
+                return Program.ExitUsage;
+            }
+
+            vradOptions = vradParsed.Options;
+        }
+        else if (vradLine is not null)
+        {
+            await output.WriteLineAsync("ssmap room: -vrad sets how the rooms are lit, and -nolight lights none").ConfigureAwait(false);
+            return Program.ExitUsage;
         }
 
         StockArgsResult<VbspOptions> parsed = StockArgs.ParseVbsp(stock);
@@ -217,7 +256,7 @@ public static class RoomCommands
         {
             await output.WriteLineAsync(
                 "usage: ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <none|deflate[:n]|brotli[:n]>]"
-                + " [-incremental [-cache-dir <dir>] | -nocache] [stock vbsp options]")
+                + " [-nolight | -vrad \"<stock vrad options>\"] [-incremental [-cache-dir <dir>] | -nocache] [stock vbsp options]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
         }
@@ -246,6 +285,7 @@ public static class RoomCommands
         Guid packId;
         IReadOnlyList<VmfChunk> libraryEntities;
         RoomLibraryOptions libraryOptions;
+        RoomLightingSettings? lighting;
         try
         {
             byte[] libraryBytes = await ReadBytesAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false);
@@ -265,7 +305,18 @@ public static class RoomCommands
 
             // The pack's id: a function of what shapes it, so a rebuild of the
             // same library writes the same pack (RoomCompileIds).
-            packId = RoomCompileIds.PackId(libraryBytes, PackIdOptions(stock, parsed.MapPath), Describe(navSettings, navOptions));
+            // Lit rooms add how they were lit to the id; an unlit pack keeps
+            // the id it had before the bake existed.
+            lighting = vradOptions is null
+                ? null
+                : new RoomLightingSettings(vradOptions with { Compliance = parsed.Options.Compliance })
+                {
+                    Sun = RoomLightingSettings.SunOf(libraryEntities),
+                };
+            packId = RoomCompileIds.PackId(
+                libraryBytes,
+                [.. PackIdOptions(stock, parsed.MapPath), .. (lighting is null ? Array.Empty<string>() : [lighting.Describe()])],
+                Describe(navSettings, navOptions));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or ChunkFileException or RoomLibraryException)
@@ -329,6 +380,7 @@ public static class RoomCommands
             PropHullCache = hulls,
             Nav = navSettings,
             NameKeys = libraryOptions.NameKeySet,
+            Lighting = lighting,
             Parallelism = parsed.Threads is int degree && degree > 0
                 ? new CompileParallelism { MaxDegree = degree }
                 : CompileParallelism.Default,
@@ -363,6 +415,7 @@ public static class RoomCommands
                     Nav = navSettings,
                     PackOptions = navOptions,
                     NameKeys = libraryOptions.NameKeySet,
+                    Lighting = lighting,
                     ContextTags = HostBackends.ContextTagsFor(options.Format.PresetName, cooker),
                 },
                 mounted.Content);
@@ -1195,7 +1248,7 @@ public static class RoomCommands
 
         await output.WriteAsync(counts is null
             ? DescribeLibrary(rooms)
-            : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default, counts.Names, counts.LibraryEntities)).ConfigureAwait(false);
+            : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default, counts.Names, counts.LibraryEntities, counts.Lighting)).ConfigureAwait(false);
         return Program.ExitSuccess;
     }
 
@@ -1352,13 +1405,48 @@ public static class RoomCommands
         return Describe(rooms, counts, options, table, names, libraryEntities);
     }
 
+    /// <summary>
+    /// The listing <c>ssmap rooms</c> prints for a lit library: the listing
+    /// with the library's entities, and after each lit room's entity line how
+    /// many turns its base lighting is stored for (the rooms design, 1.1:
+    /// <c>lighting: 1 turn, no sun or sky reaches it</c>, or <c>lighting: 4
+    /// turns, sun or sky reaches it</c>). A room without lighting gets no
+    /// line, so an unlit library lists as it did before the bake.
+    /// </summary>
+    /// <param name="rooms">The library's rooms.</param>
+    /// <param name="counts">The rooms' entity counts from the pack.</param>
+    /// <param name="options">The library's settings from the pack.</param>
+    /// <param name="table">The class table.</param>
+    /// <param name="names">The rooms' names from the pack.</param>
+    /// <param name="libraryEntities">The library-wide entities from the pack.</param>
+    /// <param name="lighting">Per lit room, its lighting's rotation count (<see cref="RoomPack.ReadLightingTurnsAsync"/>).</param>
+    /// <returns>The listing.</returns>
+    public static string DescribeLibrary(
+        IReadOnlyList<LibraryRoom> rooms,
+        IReadOnlyDictionary<string, RoomEntityCounts?> counts,
+        RoomLibraryOptions options,
+        EntityClassTable table,
+        IReadOnlyDictionary<string, RoomNameSummary> names,
+        IReadOnlyList<VmfChunk> libraryEntities,
+        IReadOnlyDictionary<string, int> lighting)
+    {
+        ArgumentNullException.ThrowIfNull(counts);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(names);
+        ArgumentNullException.ThrowIfNull(libraryEntities);
+        ArgumentNullException.ThrowIfNull(lighting);
+        return Describe(rooms, counts, options, table, names, libraryEntities, lighting);
+    }
+
     private static string Describe(
         IReadOnlyList<LibraryRoom> rooms,
         IReadOnlyDictionary<string, RoomEntityCounts?>? counts,
         RoomLibraryOptions options,
         EntityClassTable? table,
         IReadOnlyDictionary<string, RoomNameSummary>? names = null,
-        IReadOnlyList<VmfChunk>? libraryEntities = null)
+        IReadOnlyList<VmfChunk>? libraryEntities = null,
+        IReadOnlyDictionary<string, int>? lighting = null)
     {
         ArgumentNullException.ThrowIfNull(rooms);
 
@@ -1400,6 +1488,13 @@ public static class RoomCommands
             if (names?.GetValueOrDefault(definition.Name) is { } summary)
             {
                 text.Append(summary.Describe());
+            }
+
+            if (lighting?.GetValueOrDefault(definition.Name) is int turns and > 0)
+            {
+                text.Append(turns == 1
+                    ? "  lighting: 1 turn, no sun or sky reaches it\n"
+                    : string.Create(CultureInfo.InvariantCulture, $"  lighting: {turns} turns, sun or sky reaches it\n"));
             }
 
             foreach (RoomSocket socket in definition.Sockets)
@@ -1447,11 +1542,13 @@ public static class RoomCommands
     /// </param>
     /// <param name="Names">Per room of the pack that has them, its names (<see cref="RoomNameSummary"/>).</param>
     /// <param name="LibraryEntities">The library-wide entities from the pack's library section, in library order.</param>
+    /// <param name="Lighting">Per lit room, how many turns its base lighting is stored for.</param>
     private sealed record PackCounts(
         RoomLibraryOptions Options,
         IReadOnlyDictionary<string, RoomEntityCounts?> Counts,
         IReadOnlyDictionary<string, RoomNameSummary> Names,
-        IReadOnlyList<VmfChunk> LibraryEntities);
+        IReadOnlyList<VmfChunk> LibraryEntities,
+        IReadOnlyDictionary<string, int> Lighting);
 
     /// <summary>The pack's settings and counts, or null when there is no pack at <paramref name="packPath"/>.</summary>
     private static async Task<PackCounts?> ReadPackCountsAsync(IFileSystem disk, VPath packPath, CancellationToken cancellationToken)
@@ -1476,7 +1573,8 @@ public static class RoomCommands
 
         IReadOnlyDictionary<string, RoomNameSummary> names = await RoomPack.ReadNameSummariesAsync(stream, index, cancellationToken)
             .ConfigureAwait(false);
-        return new PackCounts(options, counts, names, libraryEntities);
+        IReadOnlyDictionary<string, int> lighting = await RoomPack.ReadLightingTurnsAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        return new PackCounts(options, counts, names, libraryEntities, lighting);
     }
 
     private static string Num(float value) => value.ToString("0.##", CultureInfo.InvariantCulture);

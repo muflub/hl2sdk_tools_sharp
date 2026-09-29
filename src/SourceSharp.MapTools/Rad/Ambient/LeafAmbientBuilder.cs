@@ -246,7 +246,7 @@ public static class LeafAmbientBuilder
         CancellationToken cancellationToken)
     {
         List<LeafPlane> leafPlanes = scratch.Planes;
-        LeafSampler positions = new(scene, sampler.Displacements);
+        LeafSampler positions = new(scene, sampler.Displacements) { FrameTurns = options.FrameTurns };
         LeafBoundaryPlanes.Gather(leafIndex, scene.Nodes, scene.Planes, scene.Parents, leafPlanes);
 
         int sampleCount = CandidateSampleCount(scene, leafIndex, options);

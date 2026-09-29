@@ -1567,7 +1567,8 @@ public sealed class RoomCommandsTests
     /// <summary>
     /// With the library's pack beside it, <c>ssmap rooms</c> opens with the
     /// entity budget and lists each room's entities, edicts and server-only
-    /// ones; <c>-rooms</c> names another pack.
+    /// ones, and how many turns its base lighting is stored for (one: no
+    /// sun or sky reaches these rooms); <c>-rooms</c> names another pack.
     /// </summary>
     [Fact]
     public async Task RoomsListsEachRoomsEntitiesFromThePack()
@@ -1583,8 +1584,10 @@ public sealed class RoomCommandsTests
         Assert.Equal("entity budget 1536 (reserve 512, cap 2048)", lines[1]);
         Assert.StartsWith("hub: cell at (0, 0, 0)", lines[2], StringComparison.Ordinal);
         Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[3]);
-        Assert.StartsWith("end: cell at", lines[8], StringComparison.Ordinal);
-        Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[9]);
+        Assert.Equal("  lighting: 1 turn, no sun or sky reaches it", lines[4]);
+        Assert.StartsWith("end: cell at", lines[9], StringComparison.Ordinal);
+        Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[10]);
+        Assert.Equal("  lighting: 1 turn, no sun or sky reaches it", lines[11]);
 
         fs.AddFile(Rooted("/elsewhere/other.roompack"), fs.GetBytes(VPath.Create(Rooted("/game/maps/rooms.roompack")))!);
         await fs.DeleteAsync(VPath.Create(Rooted("/game/maps/rooms.roompack")));

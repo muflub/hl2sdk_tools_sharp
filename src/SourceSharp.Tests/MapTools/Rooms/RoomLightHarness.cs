@@ -36,6 +36,9 @@ internal static class RoomLightHarness
     /// <summary>The sky material: 3D sky, as a game's <c>tools/toolsskybox</c> is.</summary>
     public const string Sky = "unit/sky";
 
+    /// <summary>The 2D sky material: <c>%compile2DSky</c>, as <c>tools/toolsskybox2d</c> is.</summary>
+    public const string Sky2D = "unit/sky2d";
+
     /// <summary>The vrad switches the facts bake with: stock's, a few bounces so a bake stays quick.</summary>
     public static VradOptions Options { get; } = VradOptions.Default with { Bounces = 4 };
 
@@ -66,7 +69,11 @@ internal static class RoomLightHarness
     /// given entities, each ceiling's underside made sky in the rooms listed,
     /// and the sun in the gap when asked.
     /// </summary>
-    public static VmfDocument Library(bool sun, int[] skyRooms, params (int Room, VmfChunk Entity)[] extra)
+    public static VmfDocument Library(bool sun, int[] skyRooms, params (int Room, VmfChunk Entity)[] extra) =>
+        Library(sun, skyRooms, Sky, extra);
+
+    /// <summary><see cref="Library(bool, int[], ValueTuple{int, VmfChunk}[])"/> with the sky ceilings of the given material.</summary>
+    public static VmfDocument Library(bool sun, int[] skyRooms, string skyMaterial, params (int Room, VmfChunk Entity)[] extra)
     {
         VmfDocument library = RoomPropHarness.Library(extra);
         if (sun)
@@ -76,10 +83,57 @@ internal static class RoomLightHarness
 
         foreach (int room in skyRooms)
         {
-            SkyCeiling(library, room);
+            SkyCeiling(library, room, skyMaterial);
         }
 
+        WorldAlign(library);
         return library;
+    }
+
+    /// <summary>
+    /// Gives every brush side the texture axes Hammer's world alignment
+    /// gives it: the two world axes of the axis plane nearest its own. The
+    /// room model's slabs give every side the floor's axes, which leaves a
+    /// wall's lightmap a line (its luxel axis along the wall's normal), a
+    /// face vrad cannot sample; lit rooms need walls a real map would have.
+    /// </summary>
+    public static void WorldAlign(VmfDocument library)
+    {
+        foreach (VmfChunk chunk in library.Chunks)
+        {
+            Align(chunk);
+        }
+
+        static void Align(VmfChunk chunk)
+        {
+            if (string.Equals(chunk.Name, "side", StringComparison.Ordinal))
+            {
+                Vec3[] p = Points(chunk.GetValue("plane")!);
+                Vec3 n = Vec3.Cross(p[1] - p[0], p[2] - p[0]);
+                float ax = Math.Abs(n.X), ay = Math.Abs(n.Y), az = Math.Abs(n.Z);
+                (string u, string v) = az >= ax && az >= ay
+                    ? ("[1 0 0 0] 0.25", "[0 -1 0 0] 0.25")
+                    : ax >= ay
+                        ? ("[0 1 0 0] 0.25", "[0 0 -1 0] 0.25")
+                        : ("[1 0 0 0] 0.25", "[0 0 -1 0] 0.25");
+                foreach (VmfKey key in chunk.Keys)
+                {
+                    if (string.Equals(key.Name, "uaxis", StringComparison.Ordinal))
+                    {
+                        key.Value = u;
+                    }
+                    else if (string.Equals(key.Name, "vaxis", StringComparison.Ordinal))
+                    {
+                        key.Value = v;
+                    }
+                }
+            }
+
+            foreach (VmfChunk child in chunk.Chunks)
+            {
+                Align(child);
+            }
+        }
     }
 
     /// <summary>
@@ -87,7 +141,7 @@ internal static class RoomLightHarness
     /// brush side of the world whose three points lie on the ceiling's lower
     /// plane, inside that room's cell, takes <see cref="Sky"/>.
     /// </summary>
-    public static void SkyCeiling(VmfDocument library, int room)
+    public static void SkyCeiling(VmfDocument library, int room, string material = Sky)
     {
         float x0 = room * (RoomHarness.Cell + RoomHarness.LibraryGap);
         float z = RoomHarness.Cell - RoomHarness.WalkableKit.Depth;
@@ -103,7 +157,7 @@ internal static class RoomLightHarness
                     {
                         if (string.Equals(key.Name, "material", StringComparison.Ordinal))
                         {
-                            key.Value = Sky;
+                            key.Value = material;
                         }
                     }
                 }
@@ -130,9 +184,10 @@ internal static class RoomLightHarness
     /// <summary>A compile context with the harness materials, the sky and the prop models.</summary>
     public static async Task<VbspContext> ContextAsync(string mapBase = "roomtest", int degree = 1)
     {
-        Dictionary<string, byte[]> files = new(RoomPropHarness.Models(), StringComparer.Ordinal)
+        Dictionary<string, byte[]> files = new(RoomBrushHarness.Files(), StringComparer.Ordinal)
         {
             [$"materials/{Sky}.vmt"] = "\"UnlitGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compileSky\" \"1\"\n}\n"u8.ToArray(),
+            [$"materials/{Sky2D}.vmt"] = "\"UnlitGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compile2DSky\" \"1\"\n}\n"u8.ToArray(),
         };
         VbspContext context = await RoomHarness.ContextAsync(extraFiles: files);
         context.MapBase = mapBase;

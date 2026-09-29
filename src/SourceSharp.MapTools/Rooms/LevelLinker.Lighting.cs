@@ -123,6 +123,20 @@ public static partial class LevelLinker
     }
 
     /// <summary>
+    /// A baked direction (a vertex normal, a light's) turned with its
+    /// placement, a negative zero written as zero: a quarter turn negates a
+    /// component, and negating a zero gives the negative zero, where vrad,
+    /// lighting the turned map, computes each direction afresh from the
+    /// turned planes and writes a plain zero. Adding zero changes nothing
+    /// else (the sum of a nonzero float and zero is that float).
+    /// </summary>
+    internal static Vec3 TurnDirection(Vec3 direction, int rotation)
+    {
+        Vec3 turned = RoomTransform.Rotate(direction, rotation);
+        return new Vec3(turned.X + 0f, turned.Y + 0f, turned.Z + 0f);
+    }
+
+    /// <summary>
     /// Where each placement's lightmaps start in the level's lighting lumps:
     /// every stored turn of a room is written once, however many placements
     /// take it (a room placed five times at one turn, or a room no sun reaches
@@ -357,7 +371,7 @@ public static partial class LevelLinker
                 moved.Origin = plan.Transform.Apply(light.Origin);
                 if (light.Type is (int)EmitType.Spotlight or (int)EmitType.Surface)
                 {
-                    moved.Normal = RoomTransform.Rotate(light.Normal, rotation);
+                    moved.Normal = TurnDirection(light.Normal, rotation);
                 }
 
                 moved.Cluster = light.Cluster < 0 ? light.Cluster : light.Cluster + plan.ClusterBase;
