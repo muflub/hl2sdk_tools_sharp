@@ -288,6 +288,7 @@ internal sealed class SlabBatcher
     private readonly List<Page> _open = [];
     private int _writers;
     private long _nextSeq;
+    private bool _awaitingWriters;
 
     // The drainer's own state, touched only under the device lock: the slabs
     // on the device, oldest first.
@@ -533,6 +534,13 @@ internal sealed class SlabBatcher
     internal Action<int>? ObserveCallerWrite { get; set; }
 
     /// <summary>
+    /// A hook the drainer calls with a slot it has just put back on the free
+    /// list, outside the queue lock and before the slab's requests are
+    /// finished; for facts that make a caller take the slot at that moment.
+    /// </summary>
+    internal Action<int>? ObserveSlotFreed { get; set; }
+
+    /// <summary>
     /// Reservations currently being written by callers, for the facts that
     /// check none is left behind.
     /// </summary>
@@ -543,6 +551,21 @@ internal sealed class SlabBatcher
             lock (_queueLock)
             {
                 return _writers;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether the drainer has claimed an open slab and is waiting for the
+    /// callers still writing into it, for facts.
+    /// </summary>
+    internal bool AwaitingWriters
+    {
+        get
+        {
+            lock (_queueLock)
+            {
+                return _awaitingWriters;
             }
         }
     }
@@ -836,9 +859,13 @@ internal sealed class SlabBatcher
         }
     }
 
-    // Under the queue lock, with a slot free on the device: the oldest work
+    // Under the queue lock, with room on the device: the oldest work
     // waiting, whether an open slab the callers wrote or rays left for the
-    // drainer to pack, or null.
+    // drainer to pack, or null. Rays left over wait for a slot, and when
+    // every slot off the device is an open slab, the oldest slab goes first
+    // even if they are older: it is what frees a slot for them. Returning
+    // null with a slab still open and nothing on the device would leave the
+    // drainer asleep with work nobody else will wake it for.
     private Slab? NextSlab()
     {
         Page? page = null;
@@ -851,53 +878,43 @@ internal sealed class SlabBatcher
         }
 
         Request? head = _queue.Find(r => r.Next < r.Rays.Length);
-        if (page is not null && (head is null || page.Seq <= head.Seq))
+        bool slotForHead = _freeSlots.Count > 0 || _suspectSlots.Count > 0;
+        if (head is not null && slotForHead && (page is null || head.Seq < page.Seq))
         {
-            // Closed to new reservations first, so the writers still copying
-            // into it are the last; each copy is short and never blocks.
-            page.Sealed = true;
-            page.Claimed = true;
-            while (page.Writers > 0)
-            {
-                Monitor.Wait(_queueLock);
-            }
-
-            if (_closed)
-            {
-                // Close came in while the writers finished and dropped the
-                // other open slabs; this one goes the same way.
-                DropPage(page);
-                return null;
-            }
-
-            _open.Remove(page);
-            Slab slab = new(page.Slot, page.Mode, page.TminBits, page.Record) { Total = page.Used, WrittenByCallers = true };
-            slab.Segments.AddRange(page.Segments);
-            return slab;
+            int slot = _freeSlots.Count > 0 ? _freeSlots.Dequeue() : _suspectSlots.Dequeue();
+            return PlanNext(slot, head);
         }
 
-        if (head is null)
+        if (page is null)
         {
+            // Nothing written, and rays left over only if every slot is on
+            // the device: the drainer lands one and comes back.
             return null;
         }
 
-        int slot;
-        if (_freeSlots.Count > 0)
+        // Closed to new reservations first, so the writers still copying
+        // into it are the last; each copy is short and never blocks.
+        page.Sealed = true;
+        page.Claimed = true;
+        while (page.Writers > 0)
         {
-            slot = _freeSlots.Dequeue();
+            _awaitingWriters = true;
+            Monitor.Wait(_queueLock);
         }
-        else if (_suspectSlots.Count > 0)
+
+        _awaitingWriters = false;
+        if (_closed)
         {
-            slot = _suspectSlots.Dequeue();
-        }
-        else
-        {
-            // Every slot off the device is an open slab of another kind; the
-            // rays wait for one to land.
+            // Close came in while the writers finished and dropped the
+            // other open slabs; this one goes the same way.
+            DropPage(page);
             return null;
         }
 
-        return PlanNext(slot, head);
+        _open.Remove(page);
+        Slab slab = new(page.Slot, page.Mode, page.TminBits, page.Record) { Total = page.Used, WrittenByCallers = true };
+        slab.Segments.AddRange(page.Segments);
+        return slab;
     }
 
     // Under the queue lock: an open slab that will never be submitted, whose
@@ -1075,6 +1092,8 @@ internal sealed class SlabBatcher
 
             _freeSlots.Enqueue(slot);
         }
+
+        ObserveSlotFreed?.Invoke(slot);
     }
 
     private void Finish(Slab slab, Exception? failure)

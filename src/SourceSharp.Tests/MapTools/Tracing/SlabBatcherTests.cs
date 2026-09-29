@@ -22,7 +22,7 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// still gets exactly its own answer, and cancellation, failure and closing
 /// touch only the requests they should.
 /// </summary>
-public sealed class SlabBatcherTests
+public sealed partial class SlabBatcherTests
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
 
@@ -106,7 +106,8 @@ public sealed class SlabBatcherTests
         {
             using Call call = Enter();
             Assert.Null(_slots[slot]); // a slot in flight must never be handed out
-            if (FailOpen is { } f && f.Index == OpenCalls++)
+            int index = OpenCalls++;
+            if (FailOpen is { } f && f.Index == index)
             {
                 throw f.Error;
             }
