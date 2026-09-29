@@ -3325,6 +3325,16 @@ link` places it from the pack alone. Not done here: the 3x3 sample did not
 grow a skybox (its digests show a library without one links as before),
 `ssmap rooms` does not list it, and the stress library has none.
 
+Measured against the base (PR 9's head), the whole `ssmap` process on a busy
+4-core machine: the 3x3 and transit samples pack, link (both modes for the
+transit run) and pass `ssmap check` with its one warning (no cubemap
+sample), their linked maps the same bytes but for the pack and level ids
+stamped in the worldspawn (the pack id records the build); the 256-room
+stress library's 33 x 33 level links in 1.5 to 1.7 s against 1.6 to 1.7 s,
+to the same bytes, and passes `ssmap check`; `ssmap all` on 2fort and the
+sandbox writes the same maps as before. The link spends nothing on areas
+for a level without area portals, door portals or a skybox.
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
