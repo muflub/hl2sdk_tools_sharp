@@ -2803,17 +2803,17 @@ game file is read at link.
   ambient position bytes permute and flip (`255 - b`), world light origins
   and spot and surface normals turn and move, vertex normals turn (a
   negative zero written as zero, as vrad writes a turned map's). Measured on
-  the 256-room stress library, the link's whole lighting work at 33 x 33 is
-  a few hundred milliseconds (below), so pre-turned copies were not worth
-  their bytes.
+  the 256-room stress library, the link's whole lighting work at 33 x 33,
+  turns, encodes and ambient included, is about 0.6 s (below), so
+  pre-turned copies were not worth four times the bytes.
 - **Written once per stored turn.** Every placement of a room at one stored
   turn points its faces at one block of lightmaps, and every placement of a
   room at one turn at one run of ambient samples; a face reads only its own
   luxels, so sharing changes nothing a face sees. Vertex normals are
   interned by value across the level, since the 16-bit normal index would
-  not hold a large level's rooms end to end. Without the sharing the stress
-  library's 33 x 33 level would pass the 65,536 ambient samples a leaf index
-  can address.
+  not hold a large level's rooms end to end; a level past a field (65,536
+  ambient samples, normals or leaves an index names, 8,192 world lights) is
+  refused naming the placement that crossed it.
 - **The level's lumps.** Faces (and `FacesHdr`) take the stored styles and
   offsets; original faces keep their compile's; the world lights are listed
   as vrad lists a full compile's (every placement's entity lights, the last
