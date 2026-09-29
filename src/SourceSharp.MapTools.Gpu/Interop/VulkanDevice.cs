@@ -760,11 +760,24 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                     PhysicalDeviceProperties2 props = new() { SType = StructureType.PhysicalDeviceProperties2 };
                     vk.GetPhysicalDeviceProperties2(devices[i], &props);
                     vk.GetPhysicalDeviceFeatures2(devices[i], &f);
+                    PhysicalDeviceMemoryProperties memory = vk.GetPhysicalDeviceMemoryProperties(devices[i]);
+                    ulong[] heapSizes = new ulong[memory.MemoryHeapCount];
+                    bool[] heapLocal = new bool[memory.MemoryHeapCount];
+                    for (int h = 0; h < heapSizes.Length; h++)
+                    {
+                        heapSizes[h] = memory.MemoryHeaps[h].Size;
+                        heapLocal[h] = (memory.MemoryHeaps[h].Flags & MemoryHeapFlags.DeviceLocalBit) != 0;
+                    }
+
                     rows.Add(new VulkanDeviceInfo(
                         i,
                         SilkMarshal.PtrToString((nint)props.Properties.DeviceName) ?? "unknown",
                         props.Properties.DeviceType.ToString(),
-                        rq.RayQuery));
+                        rq.RayQuery)
+                    {
+                        DeviceLocalBytes = LargestDeviceLocalHeap(heapSizes, heapLocal),
+                        ShaderCores = ShaderCoreCount(vk, devices[i]),
+                    });
                 }
             }
             finally
@@ -781,6 +794,152 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             observe?.Invoke(VulkanStep.ProbeApiReleased);
         }
     }
+
+    /// <summary>The size of the largest <c>DEVICE_LOCAL</c> memory heap, or 0 when there is none.</summary>
+    /// <param name="sizes">Each heap's size.</param>
+    /// <param name="deviceLocal">Whether each heap is device-local.</param>
+    /// <returns>The largest device-local heap's size.</returns>
+    /// <remarks>
+    /// The largest heap, not the sum: a card with resizable BAR reports
+    /// its VRAM again as a small host-visible device-local heap (or the
+    /// whole of it twice), and a sum would count it twice. The largest
+    /// device-local heap is the card's VRAM on a discrete GPU, and the
+    /// carve-out or shared pool the driver reports on an integrated one.
+    /// </remarks>
+    internal static ulong LargestDeviceLocalHeap(ReadOnlySpan<ulong> sizes, ReadOnlySpan<bool> deviceLocal)
+    {
+        ulong largest = 0;
+        for (int i = 0; i < sizes.Length; i++)
+        {
+            if (deviceLocal[i] && sizes[i] > largest)
+            {
+                largest = sizes[i];
+            }
+        }
+
+        return largest;
+    }
+
+    /// <summary>The vendor extensions that report a shader-core count, in the order they are read.</summary>
+    internal const string AmdCoreProperties2 = "VK_AMD_shader_core_properties2";
+
+    /// <summary>AMD's first shader-core properties extension: engines, arrays and compute units per array.</summary>
+    internal const string AmdCoreProperties = "VK_AMD_shader_core_properties";
+
+    /// <summary>NVIDIA's streaming-multiprocessor builtins, whose properties give the SM count.</summary>
+    internal const string NvSmBuiltins = "VK_NV_shader_sm_builtins";
+
+    /// <summary>Arm's shader-core builtins, whose properties give the core count.</summary>
+    internal const string ArmCoreBuiltins = "VK_ARM_shader_core_builtins";
+
+    /// <summary>
+    /// The device's shader-core count as its vendor extension reports it:
+    /// AMD compute units, NVIDIA streaming multiprocessors, Arm shader
+    /// cores; 0 when the device offers none of those extensions.
+    /// </summary>
+    /// <param name="vk">The API.</param>
+    /// <param name="device">The physical device.</param>
+    /// <returns>The count, or 0.</returns>
+    /// <remarks>
+    /// <para>
+    /// This is the throughput tie-breaker of the unpinned ranking. Core
+    /// Vulkan exposes no clock speed at all, and no extension exposes one
+    /// portably either; what the vendors do expose is how many shader cores
+    /// the device has, which with the device type and memory is the best
+    /// portable proxy for how much it can trace at once. Nothing is read
+    /// from sysfs or vendor tools: the answer must be the same on every OS
+    /// and deterministic for the same device and driver.
+    /// </para>
+    /// <para>
+    /// Sources, first found wins: <c>VK_AMD_shader_core_properties2</c>
+    /// (active compute units, which excludes harvested ones),
+    /// <c>VK_AMD_shader_core_properties</c> (engines × arrays per engine ×
+    /// compute units per array), <c>VK_NV_shader_sm_builtins</c> (SM count)
+    /// and <c>VK_ARM_shader_core_builtins</c> (core count).
+    /// <c>VK_ARM_shader_core_properties</c> reports per-core pixel, texel
+    /// and FMA rates but no core count, so it cannot rank on its own and is
+    /// not read. A struct is chained only for an extension the device lists,
+    /// as the spec requires. The counts are not comparable across vendors
+    /// (a compute unit is not an SM); they only ever break ties between
+    /// devices of the same type and memory size.
+    /// </para>
+    /// </remarks>
+    private static uint ShaderCoreCount(Vk vk, PhysicalDevice device)
+    {
+        uint count = 0;
+        vk.EnumerateDeviceExtensionProperties(device, (byte*)null, &count, (ExtensionProperties*)null);
+        ExtensionProperties[] ep = new ExtensionProperties[count];
+        fixed (ExtensionProperties* p = ep)
+        {
+            vk.EnumerateDeviceExtensionProperties(device, (byte*)null, &count, p);
+        }
+
+        HashSet<string> have = [];
+        for (int i = 0; i < (int)count; i++)
+        {
+            fixed (ExtensionProperties* e = &ep[i])
+            {
+                have.Add(SilkMarshal.PtrToString((nint)e) ?? string.Empty);
+            }
+        }
+
+        PhysicalDeviceShaderCoreProperties2AMD amd2 = new() { SType = StructureType.PhysicalDeviceShaderCoreProperties2Amd };
+        PhysicalDeviceShaderCorePropertiesAMD amd = new() { SType = StructureType.PhysicalDeviceShaderCorePropertiesAmd };
+        PhysicalDeviceShaderSMBuiltinsPropertiesNV nv = new() { SType = StructureType.PhysicalDeviceShaderSMBuiltinsPropertiesNV };
+        PhysicalDeviceShaderCoreBuiltinsPropertiesARM arm = new() { SType = StructureType.PhysicalDeviceShaderCoreBuiltinsPropertiesArm };
+        PhysicalDeviceProperties2 props = new() { SType = StructureType.PhysicalDeviceProperties2 };
+        void* chain = null;
+        if (have.Contains(AmdCoreProperties2))
+        {
+            amd2.PNext = chain;
+            chain = &amd2;
+        }
+
+        if (have.Contains(AmdCoreProperties))
+        {
+            amd.PNext = chain;
+            chain = &amd;
+        }
+
+        if (have.Contains(NvSmBuiltins))
+        {
+            nv.PNext = chain;
+            chain = &nv;
+        }
+
+        if (have.Contains(ArmCoreBuiltins))
+        {
+            arm.PNext = chain;
+            chain = &arm;
+        }
+
+        if (chain == null)
+        {
+            return 0;
+        }
+
+        props.PNext = chain;
+        vk.GetPhysicalDeviceProperties2(device, &props);
+        return FirstCoreCount(
+            have.Contains(AmdCoreProperties2) ? amd2.ActiveComputeUnitCount : 0,
+            have.Contains(AmdCoreProperties)
+                ? amd.ShaderEngineCount * amd.ShaderArraysPerEngineCount * amd.ComputeUnitsPerShaderArray
+                : 0,
+            have.Contains(NvSmBuiltins) ? nv.ShaderSmcount : 0,
+            have.Contains(ArmCoreBuiltins) ? arm.ShaderCoreCount : 0);
+    }
+
+    /// <summary>The first non-zero count, in the order <see cref="ShaderCoreCount"/> prefers them.</summary>
+    /// <param name="amdActiveComputeUnits">From <c>VK_AMD_shader_core_properties2</c>, or 0.</param>
+    /// <param name="amdComputeUnits">From <c>VK_AMD_shader_core_properties</c>, or 0.</param>
+    /// <param name="nvSmCount">From <c>VK_NV_shader_sm_builtins</c>, or 0.</param>
+    /// <param name="armCoreCount">From <c>VK_ARM_shader_core_builtins</c>, or 0.</param>
+    /// <returns>The count, or 0 when every source is 0.</returns>
+    internal static uint FirstCoreCount(uint amdActiveComputeUnits, uint amdComputeUnits, uint nvSmCount, uint armCoreCount) =>
+        amdActiveComputeUnits != 0 ? amdActiveComputeUnits
+        : amdComputeUnits != 0 ? amdComputeUnits
+        : nvSmCount != 0 ? nvSmCount
+        : armCoreCount;
 
     private void BuildPipeline(byte[] spirv)
     {
@@ -2435,7 +2594,17 @@ internal readonly record struct BarrierMasks(
 /// <param name="Name">Device name.</param>
 /// <param name="DeviceType">What the device presents as.</param>
 /// <param name="RayQuery">Whether <c>VK_KHR_ray_query</c> is feature-enabled.</param>
-public readonly record struct VulkanDeviceInfo(int Index, string Name, string DeviceType, bool RayQuery);
+public readonly record struct VulkanDeviceInfo(int Index, string Name, string DeviceType, bool RayQuery)
+{
+    /// <summary>The size of the device's largest device-local memory heap, in bytes; 0 when unknown.</summary>
+    public ulong DeviceLocalBytes { get; init; }
+
+    /// <summary>
+    /// Shader cores as the vendor's extension counts them (AMD compute
+    /// units, NVIDIA SMs, Arm cores); 0 when the device reports none.
+    /// </summary>
+    public uint ShaderCores { get; init; }
+}
 
 /// <summary>A Vulkan call the driver or loader refused.</summary>
 public sealed class VulkanException : Exception

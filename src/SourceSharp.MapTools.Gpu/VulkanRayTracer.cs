@@ -459,21 +459,52 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     }
 
     /// <summary>
-    /// The physical-device indices an unpinned walk tries, best first: the
-    /// ray-query devices, ranked by type as selection ranks them (discrete,
-    /// integrated, virtual, CPU, other), loader order within a type.
+    /// The physical-device indices an unpinned walk tries, best first.
     /// </summary>
     /// <param name="rows">The probe's inventory.</param>
     /// <returns>Physical-device indices in the order to try them.</returns>
+    /// <remarks>
+    /// <para>
+    /// Only ray-query devices are tried, ranked by, in turn:
+    /// </para>
+    /// <list type="number">
+    /// <item><description>
+    /// the device type, as selection ranks it: discrete, integrated,
+    /// virtual, CPU, other. A discrete card beats an integrated one whatever
+    /// their memory, because an integrated GPU's "memory" is a share of the
+    /// system's;
+    /// </description></item>
+    /// <item><description>
+    /// the largest device-local heap, larger first: more VRAM is the
+    /// strongest portable sign of the bigger card within a type;
+    /// </description></item>
+    /// <item><description>
+    /// the shader-core count the vendor's extension reports, more first.
+    /// Core Vulkan has no clock speed, and no extension reports one
+    /// portably, so cores stand in for throughput (the device's probe
+    /// remarks list the sources). Counts from different vendors are not
+    /// comparable, which is why this only breaks memory ties;
+    /// </description></item>
+    /// <item><description>the loader's enumeration order.</description></item>
+    /// </list>
+    /// <para>
+    /// CPU-type devices stay in the list, last, so an unpinned walk that
+    /// reaches one declines it with its reason instead of silently skipping
+    /// it. The ranking only orders the walk: every device still has to pass
+    /// the self-test and the upload floor to be used.
+    /// </para>
+    /// </remarks>
     internal static int[] RankedDevices(IReadOnlyList<VulkanDeviceInfo> rows) =>
     [
         .. rows
             .Where(r => r.RayQuery && r.Index >= 0)
-            .Select((r, position) => (r.Index, Score: VulkanDevice.DeviceScore(
-                Enum.TryParse(r.DeviceType, out Silk.NET.Vulkan.PhysicalDeviceType t) ? t : Silk.NET.Vulkan.PhysicalDeviceType.Other), position))
+            .Select((r, position) => (Row: r, Position: position, Score: VulkanDevice.DeviceScore(
+                Enum.TryParse(r.DeviceType, out Silk.NET.Vulkan.PhysicalDeviceType t) ? t : Silk.NET.Vulkan.PhysicalDeviceType.Other)))
             .OrderByDescending(x => x.Score)
-            .ThenBy(x => x.position)
-            .Select(x => x.Index),
+            .ThenByDescending(x => x.Row.DeviceLocalBytes)
+            .ThenByDescending(x => x.Row.ShaderCores)
+            .ThenBy(x => x.Position)
+            .Select(x => x.Row.Index),
     ];
 
     /// <summary>

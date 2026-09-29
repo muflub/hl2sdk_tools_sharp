@@ -432,8 +432,10 @@ public static class Program
                                                        -gpu <match|auto> traces on the Vulkan
                                                        device whose name contains <match>
                                                        (always, if it passes its self-test);
-                                                       -gpu auto tries each capable device,
-                                                       most GPU-like first, skipping one that is
+                                                       -gpu auto tries each capable device in
+                                                       turn (discrete, integrated, virtual; within
+                                                       a type more VRAM, then more shader cores,
+                                                       first), skipping one that is
                                                        a CPU implementation (llvmpipe), fails
                                                        its self-test or uploads rays below
                                                        2.5 GB/s; if none is left it keeps the

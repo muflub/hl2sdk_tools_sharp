@@ -194,8 +194,109 @@ public sealed class VulkanDevicePolicyFacts(Xunit.Abstractions.ITestOutputHelper
     // The unpinned walk
     // ------------------------------------------------------------------
 
-    private static VulkanDeviceInfo Row(int index, string name, PhysicalDeviceType type, bool rayQuery = true) =>
-        new(index, name, type.ToString(), rayQuery);
+    private const ulong GiB = 1UL << 30;
+
+    private static VulkanDeviceInfo Row(
+        int index, string name, PhysicalDeviceType type, bool rayQuery = true, ulong vram = 0, uint cores = 0) =>
+        new(index, name, type.ToString(), rayQuery) { DeviceLocalBytes = vram, ShaderCores = cores };
+
+    /// <summary>Within a type, the device with more device-local memory is tried first.</summary>
+    [Fact]
+    public void MoreVramWinsWithinAType()
+    {
+        VulkanDeviceInfo[] rows =
+        [
+            Row(0, "NVIDIA GeForce RTX 2070 SUPER", PhysicalDeviceType.DiscreteGpu, vram: 8 * GiB, cores: 40),
+            Row(1, "AMD Radeon RX 9070 XT", PhysicalDeviceType.DiscreteGpu, vram: 16 * GiB, cores: 64),
+        ];
+
+        Assert.Equal([1, 0], VulkanRayTracer.RankedDevices(rows));
+    }
+
+    /// <summary>With equal memory, more shader cores go first; with both equal, loader order decides.</summary>
+    [Fact]
+    public void ShaderCoresBreakVramTies()
+    {
+        VulkanDeviceInfo[] rows =
+        [
+            Row(0, "fewer cores", PhysicalDeviceType.DiscreteGpu, vram: 8 * GiB, cores: 36),
+            Row(1, "more cores", PhysicalDeviceType.DiscreteGpu, vram: 8 * GiB, cores: 60),
+            Row(2, "same again, later", PhysicalDeviceType.DiscreteGpu, vram: 8 * GiB, cores: 60),
+            Row(3, "unknown cores", PhysicalDeviceType.DiscreteGpu, vram: 8 * GiB),
+        ];
+
+        Assert.Equal([1, 2, 0, 3], VulkanRayTracer.RankedDevices(rows));
+    }
+
+    /// <summary>A discrete device beats an integrated one whatever their memory, and the CPU type goes last.</summary>
+    [Fact]
+    public void DiscreteBeatsIntegratedRegardlessOfVram()
+    {
+        VulkanDeviceInfo[] rows =
+        [
+            Row(0, "llvmpipe", PhysicalDeviceType.Cpu, vram: 64 * GiB),
+            Row(1, "iGPU with a big shared pool", PhysicalDeviceType.IntegratedGpu, vram: 32 * GiB, cores: 16),
+            Row(2, "small discrete", PhysicalDeviceType.DiscreteGpu, vram: 4 * GiB, cores: 8),
+        ];
+
+        Assert.Equal([2, 1, 0], VulkanRayTracer.RankedDevices(rows));
+    }
+
+    /// <summary>The walk moves past a bigger card that is declined to the smaller one that passes.</summary>
+    [Fact]
+    public void TheWalkContinuesPastADeclinedBiggerCard()
+    {
+        VulkanDeviceInfo[] rows =
+        [
+            Row(0, "small but fast link", PhysicalDeviceType.DiscreteGpu, vram: 8 * GiB),
+            Row(1, "big on a Gen2 x1 slot", PhysicalDeviceType.DiscreteGpu, vram: 24 * GiB),
+        ];
+        List<int> opened = [];
+
+        VulkanTracerAttempt a = VulkanRayTracer.Walk(
+            VulkanRayTracer.RankedDevices(rows),
+            i =>
+            {
+                opened.Add(i);
+                return i == 1 ? Fake(rows, rows[1].Name, ": rays upload at 0.50 GB/s") : Fake(rows, rows[0].Name, null);
+            },
+            rows,
+            CancellationToken.None);
+
+        Assert.True(a.Success);
+        Assert.Equal([1, 0], opened);
+    }
+
+    /// <summary>The largest device-local heap counts, not the sum and not a host heap.</summary>
+    [Fact]
+    public void TheLargestDeviceLocalHeapIsTheVram()
+    {
+        // VRAM, system RAM, and the BAR window reported as a small device-local heap.
+        Assert.Equal(16 * GiB, VulkanDevice.LargestDeviceLocalHeap([16 * GiB, 64 * GiB, 256UL << 20], [true, false, true]));
+        Assert.Equal(0UL, VulkanDevice.LargestDeviceLocalHeap([64 * GiB], [false]));
+        Assert.Equal(0UL, VulkanDevice.LargestDeviceLocalHeap([], []));
+    }
+
+    /// <summary>The core count comes from the first vendor source that reports one.</summary>
+    [Fact]
+    public void TheCoreCountComesFromTheFirstSourceThatHasOne()
+    {
+        Assert.Equal(64u, VulkanDevice.FirstCoreCount(64, 72, 0, 0));
+        Assert.Equal(72u, VulkanDevice.FirstCoreCount(0, 72, 0, 0));
+        Assert.Equal(40u, VulkanDevice.FirstCoreCount(0, 0, 40, 0));
+        Assert.Equal(12u, VulkanDevice.FirstCoreCount(0, 0, 0, 12));
+        Assert.Equal(0u, VulkanDevice.FirstCoreCount(0, 0, 0, 0));
+    }
+
+    /// <summary>The probe reads every device's device-local memory from the driver.</summary>
+    [VulkanStageFact(VulkanNeed.RayQueryDevice)]
+    public void TheProbeReportsDeviceLocalMemory()
+    {
+        IReadOnlyList<VulkanDeviceInfo> rows = VulkanRayTracer.ProbeDevices();
+
+        // The spec guarantees every device at least one device-local heap.
+        Assert.All(rows.Where(r => r.Index >= 0), r => Assert.True(r.DeviceLocalBytes > 0, r.Name));
+    }
 
     /// <summary>A fake attempt: accepted, or declined with a reason that starts with the device's name.</summary>
     private static VulkanTracerAttempt Fake(IReadOnlyList<VulkanDeviceInfo> rows, string name, string? why) =>

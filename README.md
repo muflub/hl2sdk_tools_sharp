@@ -688,9 +688,14 @@ found, vrad reports that it declined the GPU and falls back to the CPU
 KD-tree tracer, so a run never fails for lack of a GPU.
 
 `-gpu auto` asks for no particular device and means "use the faster one":
-it tries the capable devices one at a time, most GPU-like first (discrete,
-then integrated, virtual, CPU), and uses the first that passes. A device is
-passed over, and released before the next is opened, when
+it tries the capable devices one at a time and uses the first that passes.
+The order is by type first (discrete, then integrated, virtual, CPU: a
+discrete card goes before an integrated one whatever their memory), then,
+within a type, the larger device-local memory heap (VRAM), then the larger
+shader-core count the vendor reports (AMD compute units, NVIDIA SMs, Arm
+cores; core Vulkan exposes no clock speed, so cores stand in for
+throughput), then the loader's order. A device is passed over, and released
+before the next is opened, when
 
 - it is a CPU implementation of Vulkan (llvmpipe), which the built-in CPU
   tracer beats;
