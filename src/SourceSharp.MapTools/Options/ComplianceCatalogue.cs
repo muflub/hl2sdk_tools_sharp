@@ -1363,27 +1363,106 @@ public static class ComplianceCatalogue
                 "SplitBrushSliverSidesTests.UnderStockTheSliverMakesAHalfFaceAPlaneItDoesNotReach",
                 "SplitBrushSliverSidesTests.UnderCorrectNeitherHalfFacesAPlaneItDoesNotReach",
             ],
-            "The divergence left is not in the splitter. A flipped normalise moves a slanted plane "
-            + "itself by about 0.0016 at a vertex 2000 units out, past the box test's 0.001; it moves "
-            + "two nearly coplanar map planes, 0.012 apart, to within the plane table's 0.01 so they "
-            + "merge; and it adds or drops a near-duplicate edge bevel. Under Correct the halves of a "
-            + "split may reach up to 0.1 past the splitting plane, as a whole brush inside that band "
-            + "already does."),
+            "The divergence left was not in the splitter: SplitSideTestBoxEpsilon, "
+            + "EdgeBevelDuplicateAtOrigin and BoxBevelWindingBounds take out what remained. Under "
+            + "Correct the halves of a split may reach up to 0.1 past the splitting plane, as a whole "
+            + "brush inside that band already does."),
 
         StockQuirk.EdgeBevelDuplicateAtOrigin => new(
-            quirk, "WIP", "WIP", "WIP", CompileTools.Vbsp,
-            ["SourceSharp.MapTools.Bsp.MapFile.AddEdgeBevels"],
-            QuirkObservation.Demonstrated, "WIP", [], "WIP"),
+            quirk,
+            "Edge bevel duplicates a far face it misjudges",
+            "AddBrushBevels skips a candidate edge bevel only when a side matches it to 0.01 in "
+            + "normal and in distance at the origin, so a slanted face thousands of units out, whose "
+            + "normal differs from the edge's by a few millionths, gets a bevel on top of itself.",
+            "A candidate is also already present when a side facing the same way (0.01 per normal "
+            + "component) has every vertex within 0.1 of it, the distance measured where the side is; "
+            + "stock's test still applies, so no bevel stock would skip is added.",
+            CompileTools.Vbsp,
+            [
+                "SourceSharp.MapTools.Bsp.MapFile.AddEdgeBevels",
+            ],
+            QuirkObservation.Demonstrated,
+            "On 2fort under Correct, 1145 candidate bevels lay on a face of their own brush to within "
+            + "0.1 (median 0.0011) but more than 0.01 from it at the origin (median 0.033, up to 4.2); "
+            + "stock's test lets them through, adding 924 bevel sides and 1552 planes. One, 0.0118 "
+            + "from its wall face at the origin, took the next wall face's plane merge; flipping "
+            + "PlaneFromPointsNormalise or BaseWindingNormalise brought it inside 0.01, so it was not "
+            + "added, and the node that split on it chose the other face's plane. A 300-unit slab 3000 units out gets two to four of these bevels "
+            + "and none at the origin.",
+            [
+                "EdgeBevelDuplicateAtOriginTests.StockSideGivesAFarSlantedSlabBevelsOnItsOwnFaces",
+                "EdgeBevelDuplicateAtOriginTests.CorrectGivesTheFarSlabNoBevelOnItsOwnFaces",
+                "EdgeBevelDuplicateAtOriginTests.NearTheOriginStocksOwnTestAlreadyCatchesThem",
+                "EdgeBevelDuplicateAtOriginTests.BothPoliciesKeepTheOctahedronsTwelveBevels",
+            ],
+            "Found while chasing a pair of wall planes 0.012 apart that merged when a normalise quirk "
+            + "was flipped: one of the two was this duplicate bevel, not a map face, and once it is "
+            + "gone the wall's faces land on one plane in every run. The plane table's own 0.01 merge "
+            + "is left as it is."),
 
         StockQuirk.SplitSideTestBoxEpsilon => new(
-            quirk, "WIP", "WIP", "WIP", CompileTools.Vbsp,
-            ["SourceSharp.MapTools.Bsp.Tree.BrushBspTree.TestBrushToPlaneNumber"],
-            QuirkObservation.Demonstrated, "WIP", [], "WIP"),
+            quirk,
+            "Split heuristic sides a touching brush by 0.001",
+            "TestBrushToPlanenum sides a brush by its bounding box with PLANESIDE_EPSILON (0.001), so "
+            + "a brush with a corner on the candidate plane is behind or both-sided by that corner's "
+            + "rounding residual, and a both-sided brush counts on each side of the score.",
+            "A side is counted only when the box reaches 0.1 or more across the plane, SplitBrush's own "
+            + "line for a cut; a box inside the band on both sides is behind, where SplitBrush sends it.",
+            CompileTools.Vbsp,
+            [
+                "SourceSharp.MapTools.Bsp.Tree.BrushBspTree.TestBrushToPlaneNumber",
+            ],
+            QuirkObservation.Demonstrated,
+            "On 2fort, with the other quirks here corrected, flipping PlaneFromPointsNormalise moved a "
+            + "slanted plane by about 0.0016 at a brush corner 2000 units out; the brush went from "
+            + "behind to both-sided and a node at depth 13 split on that plane instead of y = 2588. "
+            + "Correcting this changes 12 nodes of Correct's 2fort tree and none of its clusters.",
+            [
+                "SplitSideTestBoxEpsilonTests.StockSidesATouchingBrushByItsCornersRounding",
+                "SplitSideTestBoxEpsilonTests.CorrectCallsATouchingBrushBehindWhicheverWayItsCornerRounds",
+                "SplitSideTestBoxEpsilonTests.AgainstTheMirroredPlaneStockCallsItBothAndCorrectInFront",
+                "SplitSideTestBoxEpsilonTests.ABoxInsideTheBandIsOneSidedOnlyUnderCorrect",
+                "SplitSideTestBoxEpsilonTests.BothPoliciesCallABoxAQuarterUnitAcrossBothSided",
+                "SplitSideTestBoxEpsilonTests.TheAxialPathUsesTheSameBand",
+                "SplitSideTestBoxEpsilonTests.UnderStockTheCornersRoundingChangesTheSplitter",
+                "SplitSideTestBoxEpsilonTests.WithOnlyThisQuirkCorrectedTheSplitterDoesNotDependOnIt",
+                "SplitSideTestBoxEpsilonTests.TheListsTheNodeIsSplitIntoAreTheSameEitherWay",
+            ],
+            "Widening PLANESIDE_EPSILON alone is not this fix: the slanted-plane box test is "
+            + "asymmetric (back is 'trailing corner under +eps'), so a wider epsilon calls boxes lying "
+            + "wholly in front both-sided, and the same function also routes entities to leaves."),
 
         StockQuirk.BoxBevelWindingBounds => new(
-            quirk, "WIP", "WIP", "WIP", CompileTools.Vbsp,
-            ["SourceSharp.MapTools.Bsp.MapFile.AddBrushBevels"],
-            QuirkObservation.Demonstrated, "WIP", [], "WIP"),
+            quirk,
+            "Box bevel placed at rounded winding bounds",
+            "AddBrushBevels puts a box bevel at the brush's mins or maxs, which come from windings "
+            + "clipped out of 65536-unit base windings, so a corner meant to be on an integer plane is "
+            + "a few hundredths off along a glancing edge and snaps onto that plane or not by noise.",
+            "The bevel goes at the furthest corner where three of the brush's own planes meet, solved "
+            + "in double from the plane table, so its distance depends on the planes and not on how "
+            + "the windings were cut.",
+            CompileTools.Vbsp,
+            [
+                "SourceSharp.MapTools.Bsp.MapFile.AddBrushBevels",
+            ],
+            QuirkObservation.Demonstrated,
+            "On 2fort, with the other quirks here corrected, every node that still split differently "
+            + "under a flipped normalise was a box bevel: a wedge's thin edge at y = -512 read -511.99x, "
+            + "or -511.98654 with PlaneFromPointsNormalise flipped, and bevels at 640 and 464 read "
+            + "640.0117 and 464.0156 with BaseWindingNormalise flipped. Snapped, the bevel shares a "
+            + "neighbour's face plane and the heuristic counts its brush as facing it. With this "
+            + "corrected, Correct gives 2460 clusters and each of the three normalise flips gives the "
+            + "same tree.",
+            [
+                "BoxBevelWindingBoundsTests.StockSidePutsTheWedgesBevelWhereItsWindingsEnd",
+                "BoxBevelWindingBoundsTests.CorrectPutsTheWedgesBevelWhereItsPlanesMeet",
+                "BoxBevelWindingBoundsTests.UnderCorrectTheBevelSharesItsNeighboursFacePlane",
+                "BoxBevelWindingBoundsTests.OnTheStockSideTheBevelIsAPlaneOfItsOwn",
+                "BoxBevelWindingBoundsTests.AVertexATenthOfAUnitAlongItsEdgeStillFindsItsCorner",
+            ],
+            "A corner is where the stored planes meet, and the plane table's own snap can move a "
+            + "plane: a wedge whose top plane's distance was snapped by 0.006 has its thin edge 0.38 "
+            + "along, and the bevel follows the plane there."),
 
         _ => throw new ArgumentOutOfRangeException(
             nameof(quirk), quirk, "no ComplianceCatalogue entry for this StockQuirk"),
