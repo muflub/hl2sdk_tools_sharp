@@ -395,6 +395,45 @@ public sealed class LevelLinkerCubemapTests : IClassFixture<LevelLinkerCubemapTe
     // ---- helpers -------------------------------------------------------------------------------
 
     /// <summary>The library: the hub with two specular slab tops, two samples and a sky.</summary>
+    /// <summary>
+    /// The same room lit (the base bake, PR 9: a lamp added, the room baked
+    /// as <c>ssmap room</c> bakes it), placed twice with the first turned:
+    /// the lit level links at every turn, passes <c>ssmap check</c> with no
+    /// error and no cubemap warning, carries its lightmaps, and holds the
+    /// very samples, patched materials and overlays the unlit link holds.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Rotations))]
+    public async Task ALitRoomWithACubemapAndAnOverlayLinks(int rotation)
+    {
+        VmfDocument library = LibraryVmf(overlay: true);
+        library.Chunks.Add(Entity("light", 700013, ("origin", "128 128 150"), ("_light", "255 240 220 200")));
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
+        LibraryRoom room = split.Rooms.Single();
+        VbspContext context = await ContextAsync(room.Definition.Name);
+        RoomObject unlit = await RoomCompiler.CompileAsync(room.Document, room.Definition, context);
+        RoomObject lit = unlit with
+        {
+            Lighting = await RoomLighting.BakeAsync(
+                unlit, new RoomLightingSettings(RoomLightHarness.Options), context.Content!, context.Parallelism, CancellationToken.None),
+        };
+
+        (string, int, int, int)[] cells = [("hub", 0, 0, rotation / 90), ("hub", 1, 0, 0)];
+        BspData map = (await LinkAsync(lit, lit, Level, cells)).Bsp;
+        BspData plain = (await LinkAsync(unlit, unlit, Level, cells)).Bsp;
+
+        Assert.False(map[BspLump.Lighting].IsEmpty);
+        Assert.True(plain[BspLump.Lighting].IsEmpty);
+        foreach (BspLump lump in (ReadOnlySpan<BspLump>)[BspLump.Cubemaps, BspLump.Overlays, BspLump.TexDataStringData, BspLump.PakFile])
+        {
+            Assert.True(map[lump].Data.Span.SequenceEqual(plain[lump].Data.Span), $"{lump}");
+        }
+
+        ValidationReport report = await BspValidator.CheckAsync(map, CancellationToken.None);
+        Assert.True(report.ErrorCount == 0, string.Join("\n", report.Diagnostics));
+        Assert.True(report.ForCode(BspRuleCodes.NoCubemaps).IsEmpty);
+    }
+
     private static VmfDocument LibraryVmf(bool overlay = false)
     {
         VmfDocument library = RoomHarness.LibraryVmf(HubDefinition);
