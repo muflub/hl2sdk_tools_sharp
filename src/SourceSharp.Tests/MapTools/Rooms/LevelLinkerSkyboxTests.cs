@@ -10,6 +10,7 @@ using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
 
+using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Materials;
 using SourceSharp.MapTools.Rooms;
 using SourceSharp.MapTools.Validation;
@@ -187,6 +188,68 @@ public sealed class LevelLinkerSkyboxTests
         Assert.Equal(
             "the room library has no room \"nowhere\".",
             (await Assert.ThrowsAsync<LinkException>(() => RoomPropHarness.LinkAsync(rooms, RoomPropHarness.Level("hub")))).Message);
+    }
+
+    /// <summary>
+    /// The skybox's static props (a skybox's usual content) are carried with
+    /// it: the linked level holds them where the flattened level's compile
+    /// does, each listed in the skybox's leaves, and they cost no entity.
+    /// </summary>
+    [Fact]
+    public async Task TheSkyboxsPropsAreCarried()
+    {
+        VmfDocument library = Library(true, RoomPropHarness.Prop(700700, RoomPropHarness.BoxModel, new Vec3(180, 180, 16)));
+        LevelGrid level = RoomPropHarness.Level("hub@90, other");
+        LinkedLevel linked = await RoomPropHarness.LinkAsync(await CompileAsync(library), level);
+        BspData flat = await CompileFlatAsync(library, level);
+        Assert.Equal(RoomPropHarness.Observed(flat), RoomPropHarness.Observed(linked.Bsp));
+        StaticPropLump props = RoomPropHarness.Props(linked.Bsp);
+        StaticProp prop = Assert.Single(props.Props);
+        DLeaf[] leafs = BspStructView.As<DLeaf>(linked.Bsp[BspLump.Leafs]).ToArray();
+        Assert.All(RoomPropHarness.LeavesOf(props, prop), l => Assert.Equal(2, leafs[l].GetArea()));
+        Assert.Equal(EntityLump.Parse(linked.Bsp[BspLump.Entities]).Count, linked.EntityBudget!.Listed);
+    }
+
+    /// <summary>
+    /// A lit library (the base bake, PR 9) with a sun, a sky ceiling in the
+    /// hub and the skybox: every room and the skybox baked as <c>ssmap
+    /// room</c> bakes them, and the level links with the skybox below it,
+    /// the skybox's leaves flagged as seeing 3D sky (their own shell) by the
+    /// link's sky pass, as the hub's under its ceiling are, and passes the
+    /// loader checks. (The bake of each room does not include the skybox's
+    /// geometry: the rooms design's 4.12 lighting line waits for the door
+    /// terms, and the PR 13 note says so.)
+    /// </summary>
+    [Fact]
+    public async Task ALitLevelWithTheSkyboxLinks()
+    {
+        VmfDocument library = AddSkybox(RoomLightHarness.Library(true, [0]));
+        RoomLightHarness.WorldAlign(library);
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
+        RoomLibrary lit = new(split.Rooms[0].Definition.Kit, split.Rooms[0].Definition.CellSize)
+        {
+            LibraryEntities = split.LibraryEntities,
+            Options = split.Options,
+            SkyboxRoom = split.Skybox!.Definition.Name,
+        };
+        foreach (LibraryRoom room in (IEnumerable<LibraryRoom>)[.. split.Rooms, split.Skybox])
+        {
+            SourceSharp.MapTools.Bsp.VbspContext context = await RoomLightHarness.ContextAsync(room.Definition.Name);
+            RoomObject compiled = await RoomCompiler.CompileAsync(room.Document, room.Definition, context);
+            lit.Add(compiled with
+            {
+                Lighting = await RoomLighting.BakeAsync(compiled, RoomLightHarness.Settings(split), context.Content!, context.Parallelism, CancellationToken.None),
+            });
+        }
+
+        LinkedLevel linked = await RoomPropHarness.LinkAsync(lit, RoomPropHarness.Level("hub, other"));
+        DLeaf sky = RoomHarness.LeafAt(linked.Bsp, new Vec3(128 + 100, 128, -128));
+        Assert.Equal(2, sky.GetArea());
+        Assert.True((sky.GetFlags() & LeafFlags.Sky) != 0);
+        Assert.True((RoomHarness.LeafAt(linked.Bsp, new Vec3(128, 128, 200)).GetFlags() & LeafFlags.Sky) != 0);
+        Assert.True(linked.Bsp[BspLump.Lighting].Length > 0);
+        ValidationReport report = await BspValidator.CheckAsync(linked.Bsp, CancellationToken.None);
+        Assert.True(report.ErrorCount == 0, string.Join("\n", report.Diagnostics));
     }
 
     // ---- the split -----------------------------------------------------------------------------

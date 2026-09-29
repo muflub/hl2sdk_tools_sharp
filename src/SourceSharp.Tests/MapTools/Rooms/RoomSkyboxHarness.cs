@@ -52,9 +52,15 @@ internal static class RoomSkyboxHarness
     /// its shell (sky inside), its block, its marker and, unless left out,
     /// its camera; each extra entity at a skybox-local point.
     /// </summary>
-    public static VmfDocument Library(bool camera = true, params VmfChunk[] extra)
+    public static VmfDocument Library(bool camera = true, params VmfChunk[] extra) => AddSkybox(RoomPropHarness.Library(), camera, extra);
+
+    /// <summary>
+    /// Adds the skybox cell to a library of the prop harness's two rooms (a
+    /// lit one included): its shell, block, marker and, unless left out, its
+    /// camera, and each extra entity at a skybox-local point.
+    /// </summary>
+    public static VmfDocument AddSkybox(VmfDocument library, bool camera = true, params VmfChunk[] extra)
     {
-        VmfDocument library = RoomPropHarness.Library();
         VmfChunk world = library.GetChunk(MapFileLoader.WorldChunk)!;
         QuarterTurn move = QuarterTurn.Translation(Corner);
         VmfDocument shell = RoomModel.Build(Definition, RoomHarness.WalkableKit.Depth, RoomLightHarness.Sky);
