@@ -147,9 +147,15 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // section, 1 or 4, and the link takes the one it places). A room
         // compiled unlit gets none, so an unlit library packs as before.
         IReadOnlyList<RoomPackSectionData> lighting = room.LightingOfCompile is { } baked ? [baked.ToSection()] : [];
+
+        // And its door light, for a lit room whose library compile recorded
+        // it (what leaves through each opening and what light entering one
+        // does): the link adds each joint's light from it. None for an unlit
+        // room, or one compiled with the door light off.
+        IReadOnlyList<RoomPackSectionData> doorLight = room.DoorLightOfCompile is { } door ? [door.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -900,6 +906,11 @@ public static class RoomPack
                 wanted.Add((name, lighting));
             }
 
+            if (entry.Find(RoomDoorLight.SectionTag) is { } doorLight)
+            {
+                wanted.Add((name, doorLight));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -1003,11 +1014,12 @@ public static class RoomPack
             RoomBrushModels? brushModels = RoomBrushModels.Read(Section(name, RoomBrushModels.SectionTag), room.Definition, room.Bsp);
             RoomTransit? transit = RoomTransit.Read(Section(name, RoomTransit.SectionTag), name, room.Bsp);
             RoomLighting? lighting = RoomLighting.Read(Section(name, RoomLighting.SectionTag), room.Definition, room.Bsp);
+            RoomDoorLight? doorLight = RoomDoorLight.Read(Section(name, RoomDoorLight.SectionTag), room.Definition, room.Bsp, lighting);
             RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
             RoomOverlays? overlays = RoomOverlays.Read(Section(name, RoomOverlays.SectionTag), name, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
                 && cubemaps is null && overlays is null
-                && lighting is null
+                && lighting is null && doorLight is null
                 ? room
                 : room with
                 {
@@ -1015,6 +1027,7 @@ public static class RoomPack
                     Cubemaps = cubemaps,
                     Overlays = overlays,
                     Lighting = lighting,
+                    DoorLight = doorLight,
                 };
         }
 
@@ -1372,6 +1385,7 @@ public static class RoomPack
         ((byte)'C', (byte)'U', (byte)'B', (byte)'E') => RoomCubemaps.SectionTag,
         ((byte)'O', (byte)'V', (byte)'L', (byte)'Y') => RoomOverlays.SectionTag,
         ((byte)'L', (byte)'I', (byte)'T', (byte)'E') => RoomLighting.SectionTag,
+        ((byte)'D', (byte)'L', (byte)'I', (byte)'T') => RoomDoorLight.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),

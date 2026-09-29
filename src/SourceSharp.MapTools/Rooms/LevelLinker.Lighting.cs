@@ -227,6 +227,8 @@ public static partial class LevelLinker
     /// <param name="styles">The level's switchable styles.</param>
     /// <param name="pvs">The linked PVS, one row a cluster.</param>
     /// <param name="rowBytes">Bytes a row.</param>
+    /// <param name="door">The level's door light, or null: what jointed neighbours add to each placement (<see cref="PlanDoorLightAsync"/>).</param>
+    /// <param name="warnings">Where a face that would need more than four styles is told of.</param>
     internal static void WriteLighting(
         BspData linked,
         RoomPlan[] plans,
@@ -235,7 +237,9 @@ public static partial class LevelLinker
         List<(int Leaf, int Placement, int Cluster)> doorways,
         LevelLightStyles styles,
         byte[] pvs,
-        int rowBytes)
+        int rowBytes,
+        LevelDoorLight? door = null,
+        List<string>? warnings = null)
     {
         List<(RoomPlan Plan, int Face)> faceOwners = FaceOwners(plans);
         DFace[] faces = BspStructView.As<DFace>(linked[BspLump.Faces]).ToArray();
@@ -261,8 +265,6 @@ public static partial class LevelLinker
                     MemoryMarshal.Cast<byte, ColorRgbExp32>(lighting.AsSpan(at, range.Luxels.Length / 3 * RoomLighting.LuxelBytes)));
             }
 
-            linked.SetLump(hdr ? BspLump.LightingHdr : BspLump.Lighting, lighting, Rad.Final.RadLumpWriter.LightingVersion);
-
             // The faces: the LDR lump already has the bake's offsets moved
             // (the overlay); both take the level's switchable styles, and the
             // HDR lump is the linked faces with the HDR range's.
@@ -287,6 +289,16 @@ public static partial class LevelLinker
                 }
             }
 
+            // A face the door light reaches takes a block of its own after
+            // the shared ones: its stored styles and the neighbours' door
+            // styles, summed in linear light and encoded once.
+            if (door is not null)
+            {
+                lighting = DoorFaces(linked, faceOwners, rangeFaces, lighting, hdr, door, styles, warnings);
+            }
+
+            linked.SetLump(hdr ? BspLump.LightingHdr : BspLump.Lighting, lighting, Rad.Final.RadLumpWriter.LightingVersion);
+
             linked.SetLump(hdr ? BspLump.FacesHdr : BspLump.Faces, MemoryMarshal.AsBytes(rangeFaces.AsSpan()).ToArray(), facesVersion);
 
             linked.SetLump(
@@ -294,7 +306,7 @@ public static partial class LevelLinker
                 MemoryMarshal.AsBytes(WorldLights(plans, lit, hdr, styles).AsSpan()).ToArray(),
                 0);
 
-            (DLeafAmbientIndex[] index, DLeafAmbientLighting[] samples) = LeafAmbient(linked, plans, hdr, doorways);
+            (DLeafAmbientIndex[] index, DLeafAmbientLighting[] samples) = LeafAmbient(linked, plans, hdr, doorways, door);
             linked.SetLump(hdr ? BspLump.LeafAmbientIndexHdr : BspLump.LeafAmbientIndex, MemoryMarshal.AsBytes(index.AsSpan()).ToArray(), 0);
             linked.SetLump(hdr ? BspLump.LeafAmbientLightingHdr : BspLump.LeafAmbientLighting, MemoryMarshal.AsBytes(samples.AsSpan()).ToArray(), 1);
         }
@@ -417,7 +429,7 @@ public static partial class LevelLinker
     /// leaf (the shared solid leaf, the carve's solid fragments) none.
     /// </summary>
     private static (DLeafAmbientIndex[] Index, DLeafAmbientLighting[] Samples) LeafAmbient(
-        BspData linked, RoomPlan[] plans, bool hdr, List<(int Leaf, int Placement, int Cluster)> doorways)
+        BspData linked, RoomPlan[] plans, bool hdr, List<(int Leaf, int Placement, int Cluster)> doorways, LevelDoorLight? door = null)
     {
         int leafCount = BspStructView.Count<DLeaf>(linked[BspLump.Leafs]);
         DLeafAmbientIndex[] index = new DLeafAmbientIndex[leafCount];
@@ -434,14 +446,22 @@ public static partial class LevelLinker
 
             int rotation = plan.Transform.Placement.NormalizedRotation;
             (string, int) key = (plan.Placement.Room.Definition.Name, rotation);
-            if (!bases.TryGetValue(key, out int first))
+
+            // A placement the door light reached has a run of its own: its
+            // stored samples with the neighbours' light added before the turn.
+            Vec3[]?[]? added = door?.For(hdr, plan.Placement.Index) is { } terms && terms.Ambient.Any(a => a is not null) ? terms.Ambient : null;
+            if (added is not null || !bases.TryGetValue(key, out int first))
             {
                 first = samples.Count;
-                bases[key] = first;
+                if (added is null)
+                {
+                    bases[key] = first;
+                }
+
                 int count = range.AmbientPositions.Length / 4;
                 for (int s = 0; s < count; s++)
                 {
-                    samples.Add(TurnSample(range, s, rotation));
+                    samples.Add(TurnSample(range, s, rotation, added is not null && s < added.Length ? added[s] : null));
                 }
 
                 Limit(plan, "leaf ambient samples", samples.Count, ushort.MaxValue + 1);
@@ -559,7 +579,7 @@ public static partial class LevelLinker
     /// are exact: faces move whole, and <c>255 - b</c> is the byte for one
     /// minus its fraction of the box.
     /// </summary>
-    internal static DLeafAmbientLighting TurnSample(RoomLightRange range, int sample, int rotation)
+    internal static DLeafAmbientLighting TurnSample(RoomLightRange range, int sample, int rotation, Vec3[]? added = null)
     {
         // Room faces +x, -x, +y, -y, +z, -z; the world face at each index.
         ReadOnlySpan<int> source = (rotation & 3) switch
@@ -574,7 +594,19 @@ public static partial class LevelLinker
         Span<ColorRgbExp32> colour = stackalloc ColorRgbExp32[1];
         for (int side = 0; side < 6; side++)
         {
-            RoomLighting.EncodeColors(range.AmbientCubes.AsSpan((sample * RoomLighting.AmbientHalves) + (source[side] * 3), 3), colour);
+            ReadOnlySpan<Half> stored = range.AmbientCubes.AsSpan((sample * RoomLighting.AmbientHalves) + (source[side] * 3), 3);
+            if (added is { } more)
+            {
+                // The door light's addition, room-local like the stored cube:
+                // summed with it in linear light, then encoded once.
+                Vec3 sum = new Vec3((float)stored[0], (float)stored[1], (float)stored[2]) + more[source[side]];
+                colour[0] = Rad.Ambient.StockLightColor.Encode(sum);
+            }
+            else
+            {
+                RoomLighting.EncodeColors(stored, colour);
+            }
+
             turned.Cube.Color[side] = colour[0];
         }
 
@@ -696,7 +728,7 @@ public static partial class LevelLinker
     /// placement (<see cref="StaticPropLighting.EncodeVhv"/>, from the linear
     /// colours, which give back vrad's bytes) and named by its linked index.
     /// </summary>
-    internal static List<(string Room, string Name, byte[] Data)> BakedPropFiles(ResolvedPlacement[] resolved, LevelProps props)
+    internal static List<(string Room, string Name, byte[] Data)> BakedPropFiles(ResolvedPlacement[] resolved, LevelProps props, LevelDoorLight? door = null)
     {
         List<(string, string, byte[])> files = [];
         for (int k = 0; k < props.Props.Count; k++)
@@ -716,6 +748,9 @@ public static partial class LevelLinker
                     continue;
                 }
 
+                // The door light's addition to the prop's vertices, when a
+                // neighbour's light reached it, summed before the encode.
+                Vec3[]? added = door?.For(hdr, prop.Placement) is { } terms && terms.Props.TryGetValue(prop.RoomProp, out Vec3[]? more) ? more : null;
                 List<(int Lod, Vec3[] Colors)> meshes = [];
                 int at = 0;
                 for (int m = 0; m < colours.Lods.Length; m++)
@@ -724,6 +759,10 @@ public static partial class LevelLinker
                     for (int v = 0; v < mesh.Length; v++, at += 3)
                     {
                         mesh[v] = new Vec3((float)colours.Colors[at], (float)colours.Colors[at + 1], (float)colours.Colors[at + 2]);
+                        if (added is not null && at / 3 < added.Length)
+                        {
+                            mesh[v] += added[at / 3];
+                        }
                     }
 
                     meshes.Add((colours.Lods[m], mesh));
