@@ -366,8 +366,21 @@ public static class RoomLibraryCompiler
         try
         {
             (VmfDocument document, IReadOnlyList<AuthoredPoi> pois) = RoomPois.Extract(room.Document);
+
+            // The room's part in its level's transitions and spawn (its role,
+            // transition volume, fold trigger, arrival and spawn points),
+            // from the VMF before any compile time is spent: the points of
+            // interest never reach the compile, and the transition rules
+            // (the rooms design, 11.3) are about what the author wrote.
+            RoomTransit? transit = RoomTransit.FromVmf(room.Definition, room.Role, room.Document);
             RoomObject compiled = await RoomCompiler
                 .CompileAsync(document, room.Definition, context, settings.NameKeys, cancellationToken).ConfigureAwait(false);
+            if (transit is not null)
+            {
+                // The arrival's clearance needs the compiled brushes.
+                RoomTransit.CheckClearance(room.Definition, transit, compiled);
+                compiled = compiled with { Transit = transit.For(compiled.Bsp) };
+            }
 
             // The link work that depends only on the room and its turn,
             // done here, on the room's own thread, so it runs side by side

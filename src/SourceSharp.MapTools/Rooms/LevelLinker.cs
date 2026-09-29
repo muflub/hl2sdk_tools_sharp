@@ -237,6 +237,13 @@ public static partial class LevelLinker
 
         ResolvedPlacement[] resolved = [.. layout.Rooms.Select((p, i) => Resolve(p, i, library))];
 
+        // The level's transitions and spawn (the rooms design, section 11):
+        // the level rule checked, and what each transition room writes
+        // decided, from the rooms' stored transition data. Null for a level
+        // without transitions, which links exactly as before them.
+        LevelTransitionPlan? transitions = LevelTransitionPlan.Make(
+            layout, [.. resolved.Select(p => TransitOf(p.Room))], name => library.Get(name).Definition, options.ModEntities);
+
         // The level's one pak: every placed room's packed files, merged by
         // name (LevelPakFiles). Each room's pak is a zip, and reading it is
         // async, so it is read here rather than inside the planning
@@ -264,7 +271,7 @@ public static partial class LevelLinker
         // them.
         LevelFurniture furniture = new(resolved, layout);
         LevelProps? props = PlanProps(resolved, layout, furniture);
-        LevelModels models = PlanModels(resolved, layout, furniture);
+        LevelModels models = PlanModels(resolved, layout, furniture, transitions);
         (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(paks, context.MapBase, props?.Files, cancellationToken);
 
         // Per-room work: validate the compile against the relocation set and
@@ -358,7 +365,7 @@ public static partial class LevelLinker
         LimitVisibility(plans[^1].Placement.Room.Definition.Name, lastRoom.Placement.CellX, lastRoom.Placement.CellY, visibilityLump.Length);
 
         LevelNaming naming = new(
-            new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows),
+            new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows, transitions),
             library.Options.NameKeySet);
         LevelSingletons singletons = new(library.LibraryEntities);
         List<(int Placement, string ClassName)> droppedFurniture = [];

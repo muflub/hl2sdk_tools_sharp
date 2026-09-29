@@ -45,7 +45,8 @@ public sealed class LevelFileException : Exception
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The schema</b>, every key required and no other allowed:
+/// <b>The schema</b>: these four keys required, the transition keys below
+/// optional, and no other allowed:
 /// </para>
 /// <code>
 /// # the sample level
@@ -66,6 +67,14 @@ public sealed class LevelFileException : Exception
 /// <c>y = 0</c>; each line runs west to east. Joints are never written: two
 /// sockets that face each other across a shared wall are joined, and every
 /// other socket is capped (<see cref="LevelGrid.ToLayout"/>).
+/// </para>
+/// <para>
+/// <b>Transitions</b> (<see cref="LevelTransitions"/>, the rooms design's
+/// section 11), each optional: <c>up: none</c> and <c>down: none</c>,
+/// <c>up_map: &lt;map&gt;</c> and <c>down_map: &lt;map&gt;</c>,
+/// <c>spawn: [column, row]</c> and <c>spawn_count: K</c>. They are written
+/// between <c>columns</c> and <c>grid</c>, in that order, and only when the
+/// level has them.
 /// </para>
 /// <para>
 /// <b>Why <c>~</c> for an empty cell</b>: the owner's choice, YAML's own
@@ -106,6 +115,27 @@ public static class LevelYaml
 
     /// <summary>The key holding the grid.</summary>
     public const string GridKey = "grid";
+
+    /// <summary>The key switching the up role off: <c>up: none</c> (<see cref="LevelTransitions"/>).</summary>
+    public const string UpKey = "up";
+
+    /// <summary>The key switching the down role off: <c>down: none</c>.</summary>
+    public const string DownKey = "down";
+
+    /// <summary>The key naming the map above.</summary>
+    public const string UpMapKey = "up_map";
+
+    /// <summary>The key naming the map below.</summary>
+    public const string DownMapKey = "down_map";
+
+    /// <summary>The key naming the spawn cell of a level with <c>up: none</c>, as <c>[column, row]</c>.</summary>
+    public const string SpawnKey = "spawn";
+
+    /// <summary>The key giving the fewest spawn points the level's spawn room must have.</summary>
+    public const string SpawnCountKey = "spawn_count";
+
+    /// <summary>The only value <see cref="UpKey"/> and <see cref="DownKey"/> take.</summary>
+    public const string None = "none";
 
     /// <summary>The cell that holds no room.</summary>
     public const string Empty = "~";
@@ -154,6 +184,7 @@ public static class LevelYaml
 
         YamlScalarNode? library = null, rows = null, columns = null;
         YamlNode? grid = null;
+        LevelTransitions? transitions = null;
         // A key given twice never gets here: the reader refuses a duplicate
         // key as it builds the mapping, and that refusal is the "not YAML"
         // above, at the second key.
@@ -174,8 +205,12 @@ public static class LevelYaml
                 case GridKey:
                     grid = value;
                     break;
+                case UpKey or DownKey or UpMapKey or DownMapKey or SpawnKey or SpawnCountKey:
+                    transitions = Transition(transitions ?? new LevelTransitions(), key, value);
+                    break;
                 default:
-                    throw At(keyNode, $"unknown key \"{key}\"; a level has {LibraryKey}, {RowsKey}, {ColumnsKey} and {GridKey}.");
+                    throw At(keyNode, $"unknown key \"{key}\"; a level has {LibraryKey}, {RowsKey}, {ColumnsKey} and {GridKey},"
+                        + $" and may have {UpKey}, {DownKey}, {UpMapKey}, {DownMapKey}, {SpawnKey} and {SpawnCountKey}.");
             }
         }
 
@@ -248,7 +283,50 @@ public static class LevelYaml
             }
         }
 
-        return new LevelGrid(name, library.Value!, rowCount, columnCount, cells);
+        if (transitions?.SpawnCell is (int spawnColumn, int spawnRow) && (spawnColumn >= columnCount || spawnRow >= rowCount))
+        {
+            YamlNode spawnNode = root.Children.First(c => c.Key is YamlScalarNode { Value: SpawnKey }).Value;
+            throw At(spawnNode, string.Create(CultureInfo.InvariantCulture,
+                $"{SpawnKey} names cell ({spawnColumn}, {spawnRow}), which is off the {rowCount}x{columnCount} grid."));
+        }
+
+        return new LevelGrid(name, library.Value!, rowCount, columnCount, cells) { Transitions = transitions };
+    }
+
+    /// <summary>One transition key read into the level's transitions (<see cref="LevelTransitions"/>).</summary>
+    private static LevelTransitions Transition(LevelTransitions transitions, string key, YamlNode value)
+    {
+        switch (key)
+        {
+            case UpKey or DownKey:
+                YamlScalarNode off = Scalar(value, key);
+                if (off.Value != None)
+                {
+                    throw At(off, $"{key} is \"{off.Value}\"; the only value it takes is {None}, which switches the role off.");
+                }
+
+                return key == UpKey ? transitions with { NoUp = true } : transitions with { NoDown = true };
+            case UpMapKey or DownMapKey:
+                YamlScalarNode map = Scalar(value, key);
+                if (LevelTransitions.MapNameProblem(map.Value) is { } problem)
+                {
+                    throw At(map, $"{key} \"{map.Value}\" {problem}.");
+                }
+
+                return key == UpMapKey ? transitions with { UpMap = map.Value } : transitions with { DownMap = map.Value };
+            case SpawnKey:
+                if (value is not YamlSequenceNode { Children.Count: 2 } pair
+                    || pair.Children[0] is not YamlScalarNode column || pair.Children[1] is not YamlScalarNode row
+                    || !int.TryParse(column.Value, NumberStyles.None, CultureInfo.InvariantCulture, out int x)
+                    || !int.TryParse(row.Value, NumberStyles.None, CultureInfo.InvariantCulture, out int y))
+                {
+                    throw At(value, $"{SpawnKey} is a cell, [column, row], each a whole number from 0 (column from the west, row from the south).");
+                }
+
+                return transitions with { SpawnCell = (x, y) };
+            default:
+                return transitions with { SpawnCount = Count(Scalar(value, key), key) };
+        }
     }
 
     /// <summary>Writes a level file: the schema's shape, deterministic, LF line ends.</summary>
@@ -269,6 +347,11 @@ public static class LevelYaml
         text.Append(LibraryKey).Append(": ").Append(Quote(grid.Library)).Append('\n');
         text.Append(RowsKey).Append(": ").Append(grid.Rows.ToString(CultureInfo.InvariantCulture)).Append('\n');
         text.Append(ColumnsKey).Append(": ").Append(grid.Columns.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        if (grid.Transitions is { } transitions)
+        {
+            WriteTransitions(text, transitions);
+        }
+
         text.Append(GridKey).Append(":\n");
 
         string[,] tokens = new string[grid.Columns, grid.Rows];
@@ -307,6 +390,45 @@ public static class LevelYaml
         }
 
         return text.ToString();
+    }
+
+    /// <summary>
+    /// The transition keys, between the grid's size and the grid, in a fixed
+    /// order: the roles switched off, the maps, then the spawn settings.
+    /// Nothing is written for a level without transitions, so every level
+    /// file written before them is written as it was.
+    /// </summary>
+    private static void WriteTransitions(StringBuilder text, LevelTransitions transitions)
+    {
+        if (transitions.NoUp)
+        {
+            text.Append(UpKey).Append(": ").Append(None).Append('\n');
+        }
+
+        if (transitions.NoDown)
+        {
+            text.Append(DownKey).Append(": ").Append(None).Append('\n');
+        }
+
+        if (transitions.UpMap is { } up)
+        {
+            text.Append(UpMapKey).Append(": ").Append(Quote(up)).Append('\n');
+        }
+
+        if (transitions.DownMap is { } down)
+        {
+            text.Append(DownMapKey).Append(": ").Append(Quote(down)).Append('\n');
+        }
+
+        if (transitions.SpawnCell is (int x, int y))
+        {
+            text.Append(SpawnKey).Append(": ").Append(string.Create(CultureInfo.InvariantCulture, $"[{x}, {y}]")).Append('\n');
+        }
+
+        if (transitions.SpawnCount is int count)
+        {
+            text.Append(SpawnCountKey).Append(": ").Append(count.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        }
     }
 
     /// <summary>

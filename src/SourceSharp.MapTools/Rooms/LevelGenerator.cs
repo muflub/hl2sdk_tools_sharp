@@ -43,6 +43,30 @@ public sealed record LayoutEntityBudget(int Budget, IReadOnlyList<int> RoomEdict
     public int LevelEdicts { get; init; }
 }
 
+/// <summary>What the generator is asked for about transition rooms (the rooms design, 11.2).</summary>
+/// <param name="Roles">Each room's role, in the library order of the rooms the generator is given.</param>
+/// <remarks>
+/// A library with role rooms places exactly one up room and one down room
+/// per level, unless <see cref="NoUp"/> or <see cref="NoDown"/> switches the
+/// role off (the top and bottom levels of a run), and never a role room
+/// anywhere else. A library without role rooms ignores all of this.
+/// </remarks>
+public sealed record LayoutTransitions(IReadOnlyList<RoomRole> Roles)
+{
+    /// <summary>The level holds no up room (<c>up: none</c>).</summary>
+    public bool NoUp { get; init; }
+
+    /// <summary>The level holds no down room (<c>down: none</c>).</summary>
+    public bool NoDown { get; init; }
+
+    /// <summary>
+    /// The fewest doors on the shortest path between the up and down rooms
+    /// (<c>-transition-distance</c>), so the player crosses the level; 0 for
+    /// no minimum. Only read when the level has both.
+    /// </summary>
+    public int MinDistance { get; init; }
+}
+
 /// <summary>
 /// Makes a valid level of a library's rooms from a seed: every shared wall
 /// between two rooms has a socket on both sides or on neither, and every
@@ -76,6 +100,20 @@ public sealed record LayoutEntityBudget(int Budget, IReadOnlyList<int> RoomEdict
 /// its step budget gives up on that tree and draws another.</item>
 /// </list>
 /// <para>
+/// <para>
+/// <b>Transition rooms</b> (<see cref="LayoutTransitions"/>) come from a
+/// <b>second</b> <see cref="SplitMix64"/> sequence, seeded from the seed and
+/// a fixed constant (<see cref="RoleStream"/>), created only when the library
+/// has role rooms and the level keeps a role. After each tree is drawn it
+/// picks the role cells among the occupied ones (the down cell at least the
+/// minimum number of tree doors from the up cell), and the fill then offers
+/// only a role's rooms in its cell and only ordinary rooms elsewhere; a
+/// level whose joints bring the two closer than the minimum is refused like
+/// a failed fill, and the next tree is drawn. The first sequence's draws are
+/// untouched by any of it: a library without role rooms never creates the
+/// second sequence, offers the candidates it always offered, and gets the
+/// level it always got from a seed.
+/// </para>
 /// This replaces the sample's exhaustive enumerator for drawing levels: the
 /// enumerator can only permute a fixed set of rooms on a full 3x3 grid,
 /// where this places any of the library's rooms, as often as it likes, on
@@ -126,6 +164,14 @@ public static class LevelGenerator
     /// line that explains why, not at a level that quietly never succeeds.
     /// </remarks>
     internal const uint StepBudgetCoversTheLargestGrid = StepBudget - LevelYaml.MaxCells;
+
+    /// <summary>
+    /// What the transition sequence's seed is the level's seed exclusive-or'd
+    /// with: a fixed constant (the first 64 bits of the golden ratio's
+    /// fraction, reversed), so the role cells are a function of the seed and
+    /// never share a draw with the main sequence.
+    /// </summary>
+    public const ulong RoleStream = 0x7F4A7C159E3779B9UL;
 
     private const int East = 1, West = 2, North = 4, South = 8;
 
@@ -250,7 +296,30 @@ public static class LevelGenerator
     /// </para>
     /// </remarks>
     public static LevelGrid Generate(
-        IReadOnlyList<RoomDefinition> rooms, LevelGeneratorOptions options, string name, string library, LayoutEntityBudget? budget)
+        IReadOnlyList<RoomDefinition> rooms, LevelGeneratorOptions options, string name, string library, LayoutEntityBudget? budget) =>
+        Generate(rooms, options, name, library, budget, transitions: null);
+
+    /// <summary>Generates a level that places a library's transition rooms, within an entity budget.</summary>
+    /// <param name="rooms">The library's rooms, in library order.</param>
+    /// <param name="options">The grid, the seed and the empty share.</param>
+    /// <param name="name">The level's name.</param>
+    /// <param name="library">The library as the level file should name it.</param>
+    /// <param name="budget">The entity budget, or null for none.</param>
+    /// <param name="transitions">The rooms' roles and the level's role settings, or null for a library without roles.</param>
+    /// <returns>The level. Its <see cref="LevelGrid.Transitions"/> is not set: the maps above and below are the caller's.</returns>
+    /// <exception cref="ArgumentException">As for the overload without transitions; or roles that are not one per room.</exception>
+    /// <exception cref="LinkException">
+    /// As for the overload without transitions; or the library has no room
+    /// of a role the level keeps; or no level of the grid and seed places
+    /// the up and down rooms the minimum distance apart.
+    /// </exception>
+    public static LevelGrid Generate(
+        IReadOnlyList<RoomDefinition> rooms,
+        LevelGeneratorOptions options,
+        string name,
+        string library,
+        LayoutEntityBudget? budget,
+        LayoutTransitions? transitions)
     {
         ArgumentNullException.ThrowIfNull(rooms);
         ArgumentNullException.ThrowIfNull(options);
@@ -306,6 +375,56 @@ public static class LevelGenerator
 
         int[] candidates = [.. candidateList];
 
+        // The roles: which candidates are role rooms, and which cells must
+        // hold one. Null for a library without roles, whose fill is exactly
+        // what it always was.
+        int[]? roleOf = null;
+        int[]? cellRole = null;
+        SplitMix64? roleDraws = null;
+        bool wantUp = false, wantDown = false;
+        int minDistance = 0;
+        if (transitions is not null)
+        {
+            if (transitions.Roles is null || transitions.Roles.Count != rooms.Count || transitions.MinDistance < 0)
+            {
+                throw new ArgumentException(
+                    $"the transitions give one role for each of the {rooms.Count} room(s) and a distance of 0 or more", nameof(transitions));
+            }
+
+            if (transitions.Roles.Any(r => r != RoomRole.None))
+            {
+                roleOf = new int[maskOf.Length];
+                foreach (int candidate in candidates)
+                {
+                    roleOf[candidate] = (int)transitions.Roles[candidate / 4];
+                }
+
+                cellRole = new int[cellCount];
+                wantUp = !transitions.NoUp;
+                wantDown = !transitions.NoDown;
+                foreach ((bool wanted, RoomRole role) in (ReadOnlySpan<(bool, RoomRole)>)[(wantUp, RoomRole.Up), (wantDown, RoomRole.Down)])
+                {
+                    if (wanted && !candidates.Any(c => roleOf[c] == (int)role))
+                    {
+                        string spelled = role == RoomRole.Up ? "up" : "down";
+                        throw new LinkException(
+                            $"the library has no {spelled} room with a socket, so a level of {placed} rooms cannot hold one; switch the role off ({spelled}: none) or add one.");
+                    }
+                }
+
+                if (wantUp && wantDown && placed < 2)
+                {
+                    throw new LinkException(string.Create(CultureInfo.InvariantCulture,
+                        $"a level of {placed} room(s) cannot hold both an up and a down room; they stand in different cells."));
+                }
+
+                minDistance = wantUp && wantDown ? transitions.MinDistance : 0;
+                roleDraws = wantUp || wantDown ? new SplitMix64(options.Seed ^ RoleStream) : null;
+            }
+        }
+
+        bool distanceFailed = false;
+
         // Each candidate's edicts, by candidate, when there is a budget; and
         // the refusal of a level whose cheapest rooms already pass it, which
         // no search could make.
@@ -355,7 +474,26 @@ public static class LevelGenerator
                 }
             }
 
-            if (Fill(occupied, order, required, maskOf, columns, chosen, masks, next, costOf, (budget?.Budget ?? 0) - (budget?.LevelEdicts ?? 0), spent))
+            bool rolesPlaced = true;
+            if (roleDraws is not null)
+            {
+                rolesPlaced = PickRoleCells(roleDraws, occupied, required, columns, wantUp, wantDown, minDistance, cellRole!);
+                distanceFailed |= !rolesPlaced;
+            }
+
+            bool filled = rolesPlaced
+                && Fill(occupied, order, required, maskOf, columns, chosen, masks, next, costOf, (budget?.Budget ?? 0) - (budget?.LevelEdicts ?? 0), spent, roleOf, cellRole);
+
+            // The tree's doors are a bound, not the level's: the fill may
+            // join walls the tree left out, so the distance is measured again
+            // on the level's own joints.
+            if (filled && minDistance > 0 && RoleDistance(occupied, masks, rows, columns, cellRole!) < minDistance)
+            {
+                distanceFailed = true;
+                filled = false;
+            }
+
+            if (filled)
             {
                 LevelCell?[] cells = new LevelCell?[cellCount];
                 for (int cell = 0; cell < cellCount; cell++)
@@ -369,6 +507,12 @@ public static class LevelGenerator
 
                 return new LevelGrid(name, library, rows, columns, cells);
             }
+        }
+
+        if (distanceFailed && minDistance > 0)
+        {
+            throw new LinkException(string.Create(CultureInfo.InvariantCulture,
+                $"layout: no level of {rows}x{columns} with seed {options.Seed} places the up and down rooms at least {minDistance} doors apart."));
         }
 
         throw new LinkException(budget is null
@@ -425,7 +569,9 @@ public static class LevelGenerator
         int[] next,
         int[]? costOf = null,
         long budget = 0,
-        long[]? spent = null)
+        long[]? spent = null,
+        int[]? roleOf = null,
+        int[]? cellRole = null)
     {
         int cellCount = occupied.Length;
         int steps = 0;
@@ -454,7 +600,8 @@ public static class LevelGenerator
 
                 int mask = maskOf[tries[i]];
                 if (Fits(occupied, required, masks, columns, cell, mask)
-                    && (costOf is null || spent![cell] + costOf[tries[i]] <= budget))
+                    && (costOf is null || spent![cell] + costOf[tries[i]] <= budget)
+                    && (roleOf is null || roleOf[tries[i]] == cellRole![cell]))
                 {
                     chosen[cell] = i;
                     masks[cell] = mask;
@@ -495,6 +642,165 @@ public static class LevelGenerator
                 return false;
             }
         }
+    }
+
+    /// <summary>
+    /// Picks the role cells for one tree from the transition sequence: the
+    /// occupied cells in one shuffled order, the up cell the first of them
+    /// and the down cell the first other one at least
+    /// <paramref name="minDistance"/> tree doors from it, trying the next up
+    /// cell when none is; one draw per tree whatever the grid.
+    /// </summary>
+    /// <returns>Whether the cells were picked; false when no pair is far enough apart on this tree.</returns>
+    internal static bool PickRoleCells(
+        SplitMix64 draws, bool[] occupied, int[] required, int columns, bool wantUp, bool wantDown, int minDistance, int[] cellRole)
+    {
+        Array.Clear(cellRole);
+        List<int> cells = [.. Enumerable.Range(0, occupied.Length).Where(c => occupied[c])];
+        draws.Shuffle(cells);
+        if (!(wantUp && wantDown))
+        {
+            cellRole[cells[0]] = (int)(wantUp ? RoomRole.Up : RoomRole.Down);
+            return true;
+        }
+
+        foreach (int up in cells)
+        {
+            int[] doors = minDistance > 0 ? TreeDistances(required, columns, occupied.Length, up) : [];
+            foreach (int down in cells)
+            {
+                if (down != up && (minDistance == 0 || doors[down] >= minDistance))
+                {
+                    cellRole[up] = (int)RoomRole.Up;
+                    cellRole[down] = (int)RoomRole.Down;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Every cell's distance in doors from one cell along the tree's walls; -1 where the tree does not reach.</summary>
+    private static int[] TreeDistances(int[] required, int columns, int cellCount, int from)
+    {
+        int[] distance = new int[cellCount];
+        Array.Fill(distance, -1);
+        distance[from] = 0;
+        Queue<int> queue = new([from]);
+        while (queue.Count > 0)
+        {
+            int at = queue.Dequeue();
+            foreach ((int bit, int step) in (ReadOnlySpan<(int, int)>)[(East, 1), (West, -1), (North, columns), (South, -columns)])
+            {
+                int there = at + step;
+                if ((required[at] & bit) != 0 && distance[there] < 0)
+                {
+                    distance[there] = distance[at] + 1;
+                    queue.Enqueue(there);
+                }
+            }
+        }
+
+        return distance;
+    }
+
+    /// <summary>
+    /// The doors between the filled level's up and down cells: the shortest
+    /// path through its joints, a joint being a shared wall with a socket on
+    /// both sides (what <see cref="LevelGrid.ToLayout"/> joins).
+    /// </summary>
+    internal static int RoleDistance(bool[] occupied, int[] masks, int rows, int columns, int[] cellRole)
+    {
+        int up = Array.IndexOf(cellRole, (int)RoomRole.Up), down = Array.IndexOf(cellRole, (int)RoomRole.Down);
+        int[] distance = new int[occupied.Length];
+        Array.Fill(distance, -1);
+        distance[up] = 0;
+        Queue<int> queue = new([up]);
+        while (queue.Count > 0)
+        {
+            int at = queue.Dequeue();
+            int x = at % columns, y = at / columns;
+            foreach ((int bit, int back, int dx, int dy) in (ReadOnlySpan<(int, int, int, int)>)[(East, West, 1, 0), (West, East, -1, 0), (North, South, 0, 1), (South, North, 0, -1)])
+            {
+                int nx = x + dx, ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= columns || ny >= rows)
+                {
+                    continue;
+                }
+
+                int there = (ny * columns) + nx;
+                if (occupied[there] && distance[there] < 0 && (masks[at] & bit) != 0 && (masks[there] & back) != 0)
+                {
+                    distance[there] = distance[at] + 1;
+                    queue.Enqueue(there);
+                }
+            }
+        }
+
+        return distance[down];
+    }
+
+    /// <summary>
+    /// Generates a run of <paramref name="count"/> levels from consecutive
+    /// seeds, chained through their map names (<c>ssmap layout -sequence</c>,
+    /// the rooms design, 11.2).
+    /// </summary>
+    /// <param name="rooms">The library's rooms, in library order.</param>
+    /// <param name="options">The grid, the first level's seed (level <i>i</i> takes seed + <i>i</i> − 1) and the empty share.</param>
+    /// <param name="count">How many levels, 1 or more.</param>
+    /// <param name="baseName">The levels' base name: level <i>i</i> is <c>&lt;base&gt;_&lt;i&gt;</c>, <i>i</i> padded to two digits or more.</param>
+    /// <param name="library">The library as each level file should name it.</param>
+    /// <param name="budget">The entity budget, or null for none.</param>
+    /// <param name="roles">Each room's role, in library order.</param>
+    /// <param name="minDistance">The fewest doors between a level's up and down rooms; 0 for no minimum.</param>
+    /// <returns>
+    /// The levels, top first: level <i>i</i>'s <c>down_map</c> is level
+    /// <i>i</i> + 1's name and its <c>up_map</c> level <i>i</i> − 1's; the
+    /// first says <c>up: none</c> and the last <c>down: none</c>.
+    /// </returns>
+    /// <exception cref="ArgumentException">As for <see cref="Generate(IReadOnlyList{RoomDefinition}, LevelGeneratorOptions, string, string, LayoutEntityBudget?, LayoutTransitions?)"/>, or a count below 1.</exception>
+    /// <exception cref="LinkException">As for that overload, for the first level that cannot be made.</exception>
+    public static IReadOnlyList<LevelGrid> GenerateSequence(
+        IReadOnlyList<RoomDefinition> rooms,
+        LevelGeneratorOptions options,
+        int count,
+        string baseName,
+        string library,
+        LayoutEntityBudget? budget,
+        IReadOnlyList<RoomRole> roles,
+        int minDistance = 0)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(baseName);
+        ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
+        string[] names = [.. Enumerable.Range(1, count).Select(i => SequenceName(baseName, i, count))];
+        List<LevelGrid> levels = new(count);
+        for (int i = 0; i < count; i++)
+        {
+            LayoutTransitions transitions = new(roles) { NoUp = i == 0, NoDown = i == count - 1, MinDistance = minDistance };
+            LevelGrid level = Generate(rooms, options with { Seed = unchecked(options.Seed + (ulong)i) }, names[i], library, budget, transitions);
+            levels.Add(level.WithTransitions(new LevelTransitions
+            {
+                NoUp = i == 0,
+                NoDown = i == count - 1,
+                UpMap = i > 0 ? names[i - 1] : null,
+                DownMap = i < count - 1 ? names[i + 1] : null,
+            }));
+        }
+
+        return levels;
+    }
+
+    /// <summary>A sequence level's name: the base, an underscore and its 1-based number, at least two digits, padded to the widest.</summary>
+    /// <param name="baseName">The base name.</param>
+    /// <param name="index">The level's number, from 1.</param>
+    /// <param name="count">How many levels the sequence has.</param>
+    /// <returns>The name, such as <c>run_01</c>.</returns>
+    public static string SequenceName(string baseName, int index, int count)
+    {
+        int width = Math.Max(2, count.ToString(CultureInfo.InvariantCulture).Length);
+        return baseName + "_" + index.ToString(CultureInfo.InvariantCulture).PadLeft(width, '0');
     }
 
     /// <summary>The first occupied cell at or after <paramref name="cell"/>, or the cell count when there is none.</summary>

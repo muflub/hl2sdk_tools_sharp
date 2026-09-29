@@ -97,6 +97,20 @@ public sealed class LevelGrid
     /// <summary>The cells, row by row from the south-west, x fastest.</summary>
     public IReadOnlyList<LevelCell?> Cells => _cells;
 
+    /// <summary>
+    /// What the level file says about its transitions (<c>up</c>,
+    /// <c>down</c>, <c>up_map</c>, <c>down_map</c>, <c>spawn</c>,
+    /// <c>spawn_count</c>), or null when it says nothing of them, as every
+    /// level file written before transitions.
+    /// </summary>
+    public LevelTransitions? Transitions { get; init; }
+
+    /// <summary>The same level with other transition settings (the level file's <c>up</c>, <c>down</c>, map and spawn keys).</summary>
+    /// <param name="transitions">The settings, or null for none.</param>
+    /// <returns>A new grid with the same name, library and cells.</returns>
+    public LevelGrid WithTransitions(LevelTransitions? transitions) =>
+        new(Name, Library, Rows, Columns, _cells) { Transitions = transitions };
+
     /// <summary>The cell at a column and row, or null for no room.</summary>
     /// <param name="x">The column, from the west.</param>
     /// <param name="y">The row, from the south.</param>
@@ -172,7 +186,7 @@ public sealed class LevelGrid
             instances.Add(new RoomInstance(new RoomPlacement(cell.Room, x, y, cell.Rotation), joints, capped));
         }
 
-        return new LevelLayout(Name, cellSize, kit, instances) { Columns = Columns, Rows = Rows };
+        return new LevelLayout(Name, cellSize, kit, instances) { Columns = Columns, Rows = Rows, Transitions = Transitions };
     }
 
     private static RoomDefinition Definition(Func<string, RoomDefinition?> rooms, LevelCell cell) =>
