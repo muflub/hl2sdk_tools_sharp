@@ -245,6 +245,15 @@ public sealed record StockArgsResult<TOptions>(
     /// </summary>
     public int? GpuRaysPerSlab { get; init; }
 
+    /// <summary>
+    /// The batches each face-lighting worker may keep in flight on the GPU,
+    /// as <c>-gpu_depth</c> asked, or null for the default
+    /// (<see cref="Rad.VradContext.GpuPipelineDepth"/>). A throughput knob:
+    /// the lightmaps are the same at every depth. Only meaningful with
+    /// <see cref="GpuDeviceMatch"/>.
+    /// </summary>
+    public int? GpuPipelineDepth { get; init; }
+
 
     /// <summary>
     /// Whether any diagnostic is an error, and so whether the command line

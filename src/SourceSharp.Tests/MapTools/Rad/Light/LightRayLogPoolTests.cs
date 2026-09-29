@@ -331,6 +331,12 @@ public sealed class LightRayLogPoolTests
                 catch (IOException)
                 {
                 }
+                catch (OperationCanceledException)
+                {
+                    // A stage that fails cancels the calls it still has in
+                    // flight (their token is the stage's run, which the
+                    // first failure stops); a call that sees it ends here.
+                }
             }
         }
 

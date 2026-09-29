@@ -8,6 +8,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
+using SourceSharp.MapTools.Gpu.Interop;
 using SourceSharp.MapTools.Tracing;
 
 namespace SourceSharp.MapTools.Gpu;
@@ -49,7 +50,20 @@ internal interface ISlabDevice
     /// <summary>Waits for a submitted slot and reads its answers back; the slot is free afterwards.</summary>
     /// <param name="slot">The slot.</param>
     /// <param name="outWords">Receives the words its submit promised.</param>
-    void Complete(int slot, Span<uint> outWords);
+    /// <returns>
+    /// <see cref="System.Diagnostics.Stopwatch"/> ticks spent reading the
+    /// answers out once the wait was over, for the bench; the rest of the
+    /// call is the wait.
+    /// </returns>
+    long Complete(int slot, Span<uint> outWords);
+
+    /// <summary>
+    /// Whether the kernel reads rays where <see cref="StageRays"/> hands them
+    /// out (no upload copy), and writes answers where
+    /// <see cref="Complete"/> reads them (no download copy). For the bench:
+    /// a device that stages both ways moves every slab twice.
+    /// </summary>
+    SlabMemoryLayout Layout => default;
 }
 
 /// <summary>
@@ -170,6 +184,8 @@ internal sealed class SlabBatcher
     private long _busyTicks;
     private long _fenceWaitTicks;
     private long _busySince;
+    private long _packTicks;
+    private long _readbackTicks;
     private int _peakInFlight;
 
     /// <summary>What the device has done so far: the bench's GPU line.</summary>
@@ -197,7 +213,11 @@ internal sealed class SlabBatcher
                 Stopwatch.GetElapsedTime(0, busy),
                 Stopwatch.GetElapsedTime(0, Interlocked.Read(ref _fenceWaitTicks)),
                 Volatile.Read(ref _peakInFlight),
-                _device.SlotCount);
+                _device.SlotCount,
+                Stopwatch.GetElapsedTime(0, Interlocked.Read(ref _packTicks)),
+                Stopwatch.GetElapsedTime(0, Interlocked.Read(ref _readbackTicks)),
+                _device.Layout.DirectRays,
+                _device.Layout.DirectOut);
         }
     }
 
@@ -371,7 +391,9 @@ internal sealed class SlabBatcher
     {
         try
         {
+            long packStart = Stopwatch.GetTimestamp();
             Stage(slab);
+            Interlocked.Add(ref _packTicks, Stopwatch.GetTimestamp() - packStart);
             _device.Submit(slab.Slot, slab.Mode, slab.Total, slab.WordCount, slab.TminBits, _tmaxScaleBits);
             Volatile.Write(ref _dispatches, _dispatches + 1);
             if (_inFlight.Count == 0)
@@ -400,13 +422,17 @@ internal sealed class SlabBatcher
         {
             Span<uint> words = _words.AsSpan(0, slab.WordCount);
             long waitStart = Stopwatch.GetTimestamp();
+            long readback = 0;
             try
             {
-                _device.Complete(slab.Slot, words);
+                readback = _device.Complete(slab.Slot, words);
             }
             finally
             {
-                Interlocked.Add(ref _fenceWaitTicks, Stopwatch.GetTimestamp() - waitStart);
+                // The call is the fence wait and then the copy out; the
+                // device says how long the copy took.
+                Interlocked.Add(ref _readbackTicks, readback);
+                Interlocked.Add(ref _fenceWaitTicks, Stopwatch.GetTimestamp() - waitStart - readback);
                 if (_inFlight.Count == 0)
                 {
                     // The device is empty again: close the busy span. Land

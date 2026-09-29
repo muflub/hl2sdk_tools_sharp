@@ -396,6 +396,10 @@ public static class Vrad
         world.ReuseTransfers = reuseTransfers;
         world.TransferCache = context.TransferCache;
         world.TransferTracerDigest = tracerDigest;
+        if (context.GpuPipelineDepth != 0)
+        {
+            world.FacelightPipelineDepth = context.GpuPipelineDepth;
+        }
 
         RadPass pass = new(
             world, tracer, options, content, parallelism, context.MapName,

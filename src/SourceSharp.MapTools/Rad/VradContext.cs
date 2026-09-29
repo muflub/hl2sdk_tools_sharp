@@ -69,6 +69,27 @@ public sealed record VradContext
     public IGpuTracerFactory? GpuTracerFactory { get; init; }
 
     /// <summary>
+    /// How many batches each face-lighting worker may keep traced and not yet
+    /// resolved on a tracer that answers asynchronously (<c>-gpu_depth</c>),
+    /// 1 to <see cref="Light.RadWorld.MaxFacelightPipelineDepth"/>; 0, the
+    /// default, means <see cref="Light.RadWorld.DefaultFacelightPipelineDepth"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A throughput knob and nothing else: the lightmaps are the same bytes
+    /// at every depth (<see cref="Light.RadWorld.LightFacesAsync"/> says
+    /// why). Deeper keeps more rays queued on the device while the workers
+    /// resolve and fill, at a few megabytes of pooled scratch per batch; 1
+    /// lets each worker wait out every batch it traces.
+    /// </para>
+    /// <para>
+    /// A tracer that answers inside the call, the CPU tracer, never has a
+    /// batch in flight, so the depth changes nothing for it.
+    /// </para>
+    /// </remarks>
+    public int GpuPipelineDepth { get; init; }
+
+    /// <summary>
     /// Where static props' collision triangles come from, for their shadows;
     /// null for <see cref="NullPropCollisionSource"/> (stock's AABB fallback).
     /// </summary>

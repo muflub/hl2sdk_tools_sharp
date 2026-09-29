@@ -87,6 +87,23 @@ public readonly record struct RayRouteCounts(long Visibility, long Closest, long
 /// </param>
 /// <param name="PeakSlabsInFlight">The most slabs that were on the device at once.</param>
 /// <param name="Slots">How many slabs the device may hold at once.</param>
+/// <param name="Pack">
+/// Host time spent writing slabs' rays into the memory the device reads them
+/// from: over the bus into device memory when <paramref name="RaysInPlace"/>,
+/// into a host staging buffer (which the device then copies itself) when not.
+/// </param>
+/// <param name="Readback">
+/// Host time spent reading slabs' answers out of the memory the device wrote
+/// them to, after the fence; from device memory when
+/// <paramref name="AnswersInPlace"/>, from a host buffer the device copied
+/// them into when not.
+/// </param>
+/// <param name="RaysInPlace">
+/// Whether the kernel reads rays where the host packs them (a device heap
+/// the host can map: resizable BAR or an integrated GPU), so a slab has no
+/// upload copy; false when every slab is staged and copied by the device.
+/// </param>
+/// <param name="AnswersInPlace">Whether the kernel writes answers where the host reads them, so a slab has no download copy.</param>
 /// <remarks>
 /// <para>
 /// <b>Why the fence span and not device timestamps.</b> Timestamps would time
@@ -101,6 +118,17 @@ public readonly record struct RayRouteCounts(long Visibility, long Closest, long
 /// while the drainer was still packing the next one is counted until the
 /// drainer lands it.
 /// </para>
+/// <para>
+/// <b>The copies.</b> <paramref name="Pack"/> and <paramref name="Readback"/>
+/// are the host's side of moving a slab, timed on the host, so they are
+/// exact. The device's own staging copies, when the layout is not in place,
+/// run in the slab's command buffer between the host's submit and the
+/// fence, and are inside <paramref name="Busy"/> without being separable
+/// from the trace (that would take the device timestamps above). The layout
+/// flags say whether there are any: a device without resizable BAR stages
+/// every slab both ways, and a slab's rays cross the bus twice as long a
+/// path.
+/// </para>
 /// </remarks>
 public readonly record struct GpuTraceStatistics(
     long Requests,
@@ -108,7 +136,11 @@ public readonly record struct GpuTraceStatistics(
     TimeSpan Busy,
     TimeSpan FenceWait,
     int PeakSlabsInFlight,
-    int Slots);
+    int Slots,
+    TimeSpan Pack = default,
+    TimeSpan Readback = default,
+    bool RaysInPlace = false,
+    bool AnswersInPlace = false);
 
 /// <summary>A tracer that can say what its device did, for the bench.</summary>
 /// <remarks>

@@ -6,7 +6,10 @@
 //=============================================================================//
 
 
+using System.Diagnostics;
+
 using SourceSharp.MapTools.Gpu;
+using SourceSharp.MapTools.Gpu.Interop;
 using SourceSharp.MapTools.Tracing;
 
 using Xunit;
@@ -104,7 +107,13 @@ public sealed class SlabBatcherTests
             MaxInFlight = Math.Max(MaxInFlight, Interlocked.Increment(ref _inFlight));
         }
 
-        public void Complete(int slot, Span<uint> outWords)
+        /// <summary>What <see cref="Complete"/> reports as its readback time, in ticks.</summary>
+        public long ReadbackTicks { get; set; }
+
+        /// <summary>The slab memory layout reported to the bench.</summary>
+        public SlabMemoryLayout Layout { get; set; }
+
+        public long Complete(int slot, Span<uint> outWords)
         {
             using Call call = Enter();
             Submitted sub = _slots[slot] ?? throw new InvalidOperationException("completed a slot never submitted");
@@ -147,6 +156,8 @@ public sealed class SlabBatcherTests
                     outWords[(i * 2) + 1] = (uint)BitConverter.SingleToInt32Bits(staging[b + 1]);
                 }
             }
+
+            return ReadbackTicks;
         }
 
         // The batcher promises one caller at a time; overlapping calls fail the fact.
@@ -339,6 +350,7 @@ public sealed class SlabBatcherTests
         device.Gate.Reset();
         SlabBatcher batcher = new(device, Ids, 0);
         Assert.Equal(new GpuTraceStatistics(0, 0, TimeSpan.Zero, TimeSpan.Zero, 0, 3), batcher.Statistics);
+        Assert.False(batcher.Statistics.RaysInPlace);
 
         // 1000 closest rays are 16 slabs of 64; the drainer fills all three
         // slots before it waits on the first, and waits behind a closed gate.
@@ -370,6 +382,30 @@ public sealed class SlabBatcherTests
         Assert.True(after.Busy >= after.FenceWait, $"busy {after.Busy} < fence wait {after.FenceWait}");
         Thread.Sleep(20);
         Assert.Equal(after.Busy, batcher.Statistics.Busy);
+    }
+
+    [Fact]
+    public async Task ThePackAndReadbackTimesAreTheHostsCopiesAndTheLayoutIsTheDevices()
+    {
+        long tick = Stopwatch.Frequency / 1000;
+        FakeDevice device = new(64, 2) { ReadbackTicks = 3 * tick, Layout = new SlabMemoryLayout(true, false) };
+        device.Gate.Reset();
+        SlabBatcher batcher = new(device, Ids, 0);
+
+        Task closest = batcher.TraceClosestAsync(Rays(200, 1), new HitId[200], 0, CancellationToken.None);
+        await device.DrainerWaiting.Task.WaitAsync(Patience);
+        Thread.Sleep(30);
+        device.Gate.Set();
+        await closest.WaitAsync(Patience);
+        GpuTraceStatistics stats = batcher.Statistics;
+
+        // Four slabs, each reporting 3 ms of readback; the fence wait is the
+        // rest of each Complete, so it does not count the readback twice.
+        Assert.Equal(4, stats.Slabs);
+        Assert.Equal(TimeSpan.FromMilliseconds(12), stats.Readback);
+        Assert.True(stats.FenceWait >= TimeSpan.FromMilliseconds(20), $"fence wait {stats.FenceWait}");
+        Assert.True(stats.RaysInPlace);
+        Assert.False(stats.AnswersInPlace);
     }
 
     [Fact]

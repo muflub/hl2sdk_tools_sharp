@@ -270,6 +270,7 @@ public static class MapCompiler
                 Progress = progress,
                 Tracer = request.Tracer,
                 GpuTracerFactory = request.TracerFactory,
+                GpuPipelineDepth = request.GpuPipelineDepth,
                 TransferCache = chain.TransferCache,
             };
 

@@ -74,6 +74,12 @@ public sealed record AllArgs(
     public int? GpuRaysPerSlab { get; init; }
 
     /// <summary>
+    /// The <c>-gpu_depth</c> batches each face-lighting worker keeps in flight
+    /// on the GPU, or null for the default (<see cref="VradContext.GpuPipelineDepth"/>).
+    /// </summary>
+    public int? GpuPipelineDepth { get; init; }
+
+    /// <summary>
     /// Whether <c>-overlap</c> was given: each stage starts when its inputs exist
     /// (<see cref="CompileRequest.Overlap"/>).
     /// </summary>
@@ -199,6 +205,7 @@ public static class AllCommand
     string? cacheDir = null;
     string? gpuDeviceMatch = null;
     int? gpuRaysPerSlab = null;
+    int? gpuPipelineDepth = null;
     bool overlap = false;
     string? recordContent = null;
 
@@ -337,6 +344,24 @@ public static class AllCommand
 
                     break;
 
+                case "-GPU_DEPTH":
+                    if (TakeValue(out string depthText))
+                    {
+                        if (int.TryParse(depthText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int depth)
+                            && depth >= 1 && depth <= MapTools.Rad.Light.RadWorld.MaxFacelightPipelineDepth)
+                        {
+                            gpuPipelineDepth = depth;
+                        }
+                        else
+                        {
+                            Problem(
+                                $"-gpu_depth \"{depthText}\" is not a whole number from 1 to "
+                                + $"{MapTools.Rad.Light.RadWorld.MaxFacelightPipelineDepth}");
+                        }
+                    }
+
+                    break;
+
                 default:
                     if (string.Equals(arg, NoWriteSwitch, StringComparison.Ordinal))
                     {
@@ -466,6 +491,7 @@ public static class AllCommand
             CacheDir = vbsp.CachePath ?? cacheDir,
             GpuDeviceMatch = vrad.GpuDeviceMatch ?? gpuDeviceMatch,
             GpuRaysPerSlab = vrad.GpuRaysPerSlab ?? gpuRaysPerSlab,
+            GpuPipelineDepth = vrad.GpuPipelineDepth ?? gpuPipelineDepth,
             Overlap = overlap,
             RecordContent = recordContent,
         };
@@ -546,6 +572,7 @@ public static class AllCommand
             Cache = cache,
             ContextTags = HostBackends.ContextTagsFor(presetName, request.CollisionCooker),
             TracerFactory = gpuFactory,
+            GpuPipelineDepth = parsed.GpuPipelineDepth ?? 0,
         };
     }
 

@@ -28,10 +28,69 @@ public sealed partial class RadWorld
     internal const int RaysPerBatch = 16 * 1024;
 
     /// <summary>
+    /// How many batches one face-lighting worker keeps in flight on a tracer
+    /// that answers asynchronously, unless the compile asks for another depth.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Enough that a worker always has a batch the device is working on
+    /// while it resolves the last one and fills the next: one in flight, one
+    /// answered and waiting to be resolved, one being filled, and one more to
+    /// cover a round trip that runs longer than a fill. At 16,384 rays a
+    /// batch, 32 workers at this depth keep about two million rays queued,
+    /// which is a slab and a half of the Vulkan tracer's default budget, so
+    /// its slot ring stays full without any one worker holding more than
+    /// four logs of scratch.
+    /// </para>
+    /// <para>
+    /// A tracer that answers inside the call (the CPU tracer) never has a
+    /// batch in flight, so the depth costs it nothing: each worker's pipeline
+    /// then holds one batch at a time, exactly as before pipelining.
+    /// </para>
+    /// </remarks>
+    public const int DefaultFacelightPipelineDepth = 4;
+
+    /// <summary>The deepest a face-lighting worker's pipeline may be asked to run.</summary>
+    /// <remarks>
+    /// A bound, not a target: every batch in flight holds its worker's
+    /// pooled rays, tape and answers, a few megabytes each, and past a few
+    /// batches per worker a device's queue is already full.
+    /// </remarks>
+    public const int MaxFacelightPipelineDepth = 64;
+
+    private int _facelightPipelineDepth = DefaultFacelightPipelineDepth;
+
+    /// <summary>
     /// The batch size the face lighting uses, <see cref="RaysPerBatch"/> unless
     /// a test asks for another: the output must not depend on it.
     /// </summary>
     internal int FacelightBatchRays { get; set; } = RaysPerBatch;
+
+    /// <summary>
+    /// How many batches each face-lighting worker may have traced and not yet
+    /// resolved: <see cref="DefaultFacelightPipelineDepth"/> unless the
+    /// compile (<see cref="VradContext.GpuPipelineDepth"/>) or a fact asks
+    /// for another. The output must not depend on it.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">Less than 1, or more than <see cref="MaxFacelightPipelineDepth"/>.</exception>
+    internal int FacelightPipelineDepth
+    {
+        get => _facelightPipelineDepth;
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(value, 1);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, MaxFacelightPipelineDepth);
+            _facelightPipelineDepth = value;
+        }
+    }
+
+    /// <summary>
+    /// The most batches any one face-lighting worker had traced and not yet
+    /// resolved at once, in the last <see cref="LightFacesAsync"/>: never
+    /// more than <see cref="FacelightPipelineDepth"/>, and 1 with a tracer
+    /// that answers inside the call. For the facts that hold the bound.
+    /// </summary>
+    internal int FacelightPeakBatchesInFlight { get; private set; }
 
     /// <summary>
     /// Where the face-lighting workers rent their ray logs' storage, ahead of
@@ -75,27 +134,53 @@ public sealed partial class RadWorld
     /// <remarks>
     /// <para>
     /// Every face is prepared first (its samples and luxels), then the faces
-    /// are handed out LARGEST FIRST to workers that each run their own
-    /// pipeline with no barrier between them: a worker emits the next items of
-    /// the faces it holds (and claims more faces) into its own pooled
+    /// are handed out LARGEST FIRST to pipelines, one per worker, that each
+    /// run with no barrier between them: a pipeline emits the next items of
+    /// the faces it holds (and claims more faces) into a pooled
     /// <see cref="LightRayLog"/> until it holds <see cref="RaysPerBatch"/>
-    /// rays, traces them in one slab per kind, traces the skybox rays the
+    /// rays, traces them in one call per kind, traces the skybox rays the
     /// answers call for, resolves every item in emission order, and repeats.
     /// </para>
     /// <para>
-    /// A face's result depends only on its own inputs and on its rays'
-    /// answers, and those do not depend on which batch they were traced in:
-    /// every item's rays start a packet of their own (see
-    /// <see cref="LightRayLog"/>), and one skybox camera's rays are one packet.
-    /// So the output is byte-identical at any degree of parallelism and under
-    /// any batching. Faces, warnings and statistics are committed in face order.
+    /// <b>Pipelined.</b> With a tracer that answers asynchronously (a GPU),
+    /// a pipeline does not wait for a batch it has traced: it fills and traces
+    /// the next, up to <see cref="FacelightPipelineDepth"/> batches traced and
+    /// not yet resolved, and resolves each as its answers arrive. An earlier
+    /// driver let each worker hold one batch and park it, and ran the workers
+    /// again only once every worker had parked and every slab had come back:
+    /// the device idled while the workers filled and resolved, and the
+    /// workers idled while it traced, which measured about 6 % device
+    /// occupancy on a 16-thread run and made direct light slower on the GPU
+    /// than on the CPU. Now a pipeline stalls only when its every batch is in
+    /// flight, and the resolve of one batch runs while later ones trace.
     /// </para>
     /// <para>
-    /// With a tracer that answers asynchronously (a GPU), a worker whose slab
-    /// is still in flight parks its batch and returns; the driver awaits the
-    /// slabs outside the workers and runs the workers again, and each resumes
-    /// where it parked. The CPU tracer completes every slab in the call, so a
-    /// CPU run is one pass over the workers.
+    /// <b>Pipelines are not threads.</b> The workers draw from every pipeline
+    /// (<see cref="WorkQueue.RunLoopAsync{TScratch}"/>): a worker prefers its
+    /// own, takes any other that has something to do and is not taken, and
+    /// when none has, leaves the run until an answer arrives and wakes one.
+    /// So no thread is ever blocked on a device, and a worker whose pipeline
+    /// is waiting keeps the others going instead. A face stays with the
+    /// pipeline that claimed it for its whole life.
+    /// </para>
+    /// <para>
+    /// <b>Determinism.</b> A face's result depends only on its own inputs and
+    /// on its rays' answers, and those do not depend on which batch they were
+    /// traced in, or when: every item's rays start a packet of their own (see
+    /// <see cref="LightRayLog"/>), one skybox camera's rays are one packet,
+    /// and each batch's answers land in that batch's own log, by ray index.
+    /// A pipeline resolves its batches strictly in the order it filled them,
+    /// whatever order they came back in, so every face resolves its items in
+    /// emission order and allocates its styles and sums its lights in the
+    /// same order as a single-threaded run with the CPU tracer. The output
+    /// is byte-identical at any degree of parallelism, any batching, any
+    /// depth and any timing of the answers. Faces, warnings and statistics
+    /// are committed in face order.
+    /// </para>
+    /// <para>
+    /// The CPU tracer completes every call inside it, so a CPU pipeline holds
+    /// one batch at a time and runs fill, trace and resolve back to back, as
+    /// the unpipelined driver did.
     /// </para>
     /// </remarks>
     public async Task LightFacesAsync(
@@ -134,58 +219,40 @@ public sealed partial class RadWorld
             .OrderByDescending(f => jobs[f].SampleCount)
             .ThenBy(f => f)];
 
-        FacelightShared shared = new(jobs, order, Gatherer, tracer, FacelightBatchRays);
+        LoopWaker waker = new();
+        FacelightShared shared = new(jobs, order, Gatherer, tracer, FacelightBatchRays, FacelightPipelineDepth, waker);
         // The compile's pool when there is one, so the outgrown logs of one
         // worker are what the next worker grows into; otherwise a pool of the
         // stage's own, dropped when the stage ends.
         using CompileScratchPool? own = FacelightScratchPool is null && ScratchPool is null ? new() : null;
         IScratchArrayPool pool = FacelightScratchPool ?? ScratchPool ?? own!;
-        FacelightWorker[] workers = new FacelightWorker[queue.Degree];
+        FacelightPipeline[] pipelines = new FacelightPipeline[queue.Degree];
         int made = 0;
         try
         {
-            for (; made < workers.Length; made++)
+            for (; made < pipelines.Length; made++)
             {
-                workers[made] = new FacelightWorker(shared, Geometry.StockEstimates, pool);
+                pipelines[made] = new FacelightPipeline(shared, Geometry.StockEstimates, pool);
             }
 
-            List<Task> pending = [];
-            while (true)
-            {
-                await queue.RunAsync(
-                    workers.Length,
-                    (w, worker) => workers[w].Run(worker),
-                    stage with { ChunkSize = 1 },
-                    cancellationToken).ConfigureAwait(false);
-
-                pending.Clear();
-                foreach (FacelightWorker worker in workers)
-                {
-                    pending.AddRange(worker.TakePending());
-                }
-
-                if (pending.Count == 0)
-                {
-                    break;
-                }
-
-                foreach (Task task in pending)
-                {
-                    await task.ConfigureAwait(false);
-                }
-            }
+            await queue.RunLoopAsync(
+                (index, worker) => Serve(pipelines, index, worker),
+                static index => index,
+                waker,
+                stage,
+                cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            // Every worker's rented ray log goes back however the stage ends.
-            // A stage that failed or was cancelled may leave slabs in flight
-            // (another worker's, or ones the failing await never reached):
-            // each is awaited first, because it still reads its worker's rays
-            // and writes its answers. Their own failures are not reported --
-            // the stage's first failure already is.
-            for (int w = 0; w < made; w++)
+            // Every pipeline's rented ray logs go back however the stage ends.
+            // The run is over, so no worker is inside a pipeline; but a stage
+            // that failed or was cancelled may leave batches in flight (any
+            // pipeline's), and each is awaited first, because it still reads
+            // its batch's rays and writes its answers. Their own failures are
+            // not reported -- the stage's first failure already is.
+            for (int p = 0; p < made; p++)
             {
-                foreach (Task call in workers[w].Started)
+                foreach (Task call in pipelines[p].InFlightCalls())
                 {
                     try
                     {
@@ -198,20 +265,22 @@ public sealed partial class RadWorld
                 }
             }
 
-            for (int w = 0; w < made; w++)
+            for (int p = 0; p < made; p++)
             {
-                workers[w].Dispose();
+                pipelines[p].Dispose();
             }
         }
 
         FaceLights = new FaceLight?[faceCount];
         RayTraceMeter? meter = RayTraceMeter.Of(tracer);
-        foreach (FacelightWorker worker in workers)
+        FacelightPeakBatchesInFlight = 0;
+        foreach (FacelightPipeline pipeline in pipelines)
         {
-            meter?.AddParked(TraceWaitStage.Facelights, worker.ParkedTicks);
-            Statistics.VisibilityRays += worker.VisibilityRays;
-            Statistics.SkyRays += worker.SkyRays;
-            Statistics.Batches += worker.Batches;
+            meter?.AddParked(TraceWaitStage.Facelights, pipeline.ParkedTicks);
+            Statistics.VisibilityRays += pipeline.VisibilityRays;
+            Statistics.SkyRays += pipeline.SkyRays;
+            Statistics.Batches += pipeline.Batches;
+            FacelightPeakBatchesInFlight = Math.Max(FacelightPeakBatchesInFlight, pipeline.PeakInFlight);
         }
 
         foreach (FaceLightJob job in jobs)
@@ -238,17 +307,71 @@ public sealed partial class RadWorld
         Layout = LightmapOffsets.Compute(Geometry, FaceLights, Settings.SeparateDirectLightmap);
     }
 
-    /// <summary>What every face-lighting worker shares: the jobs and the claim counter.</summary>
+    /// <summary>
+    /// One unit of face lighting for the worker at <paramref name="index"/>:
+    /// its own pipeline first, then any other that is free and has something
+    /// to do.
+    /// </summary>
+    /// <returns>
+    /// <see cref="LoopStep.Worked"/> when a pipeline moved; <see cref="LoopStep.Finished"/>
+    /// when every pipeline is done; otherwise <see cref="LoopStep.Idle"/>, and
+    /// the worker leaves until an answer arrives (a pipeline's completion
+    /// callback wakes one) or a pipeline another worker held is let go with
+    /// work in it (<see cref="FacelightPipeline.Exit"/> wakes one).
+    /// </returns>
+    private static LoopStep Serve(FacelightPipeline[] pipelines, int index, WorkerContext worker)
+    {
+        int n = pipelines.Length;
+        for (int k = 0; k < n; k++)
+        {
+            FacelightPipeline pipeline = pipelines[(index + k) % n];
+            if (pipeline.IsFinished || !pipeline.TryEnter())
+            {
+                continue;
+            }
+
+            bool worked;
+            try
+            {
+                worked = pipeline.Step(worker);
+            }
+            finally
+            {
+                pipeline.Exit();
+            }
+
+            if (worked)
+            {
+                return LoopStep.Worked;
+            }
+        }
+
+        foreach (FacelightPipeline pipeline in pipelines)
+        {
+            if (!pipeline.IsFinished)
+            {
+                return LoopStep.Idle;
+            }
+        }
+
+        return LoopStep.Finished;
+    }
+
+    /// <summary>What every face-lighting pipeline shares: the jobs, the claim counter and the waker.</summary>
     private sealed class FacelightShared(
-        FaceLightJob[] jobs, int[] order, DirectLightGatherer gatherer, IRayTracer tracer, int batchRays)
+        FaceLightJob[] jobs, int[] order, DirectLightGatherer gatherer, IRayTracer tracer, int batchRays, int depth, LoopWaker waker)
     {
         private int _next;
 
         public int BatchRays { get; } = batchRays;
 
+        public int Depth { get; } = depth;
+
         public DirectLightGatherer Gatherer { get; } = gatherer;
 
         public IRayTracer Tracer { get; } = tracer;
+
+        public LoopWaker Waker { get; } = waker;
 
         /// <summary>The next unclaimed face, largest first; null when none is left.</summary>
         public FaceLightJob? Claim()
@@ -258,52 +381,133 @@ public sealed partial class RadWorld
         }
     }
 
-    /// <summary>
-    /// One worker's face-lighting pipeline and its pooled buffers: a ray log
-    /// (rays, tape, answers), the faces it holds, and where it parked.
-    /// </summary>
-    private sealed class FacelightWorker : IDisposable
+    /// <summary>Where one batch of a pipeline is.</summary>
+    private enum BatchState
     {
-        private readonly FacelightShared _shared;
-        private readonly LightRayLog _rays;
-        private readonly List<FaceLightJob> _active = [];
-        private readonly List<(FaceLightJob Job, int Items)> _batch = [];
-        private readonly List<Task> _pending = [];
+        /// <summary>The slot holds nothing; its log may be reused.</summary>
+        Free,
 
-        // Every call the current batch started that had not finished inside
-        // the call. Unlike _pending, which the driver takes, these are kept
-        // until the next batch begins, so Dispose can tell whether a call may
-        // still be reading the log's rays or writing its answers.
-        private readonly List<Task> _started = [];
-        private Step _step = Step.Fill;
+        /// <summary>Its visibility and sky rays are being traced.</summary>
+        FirstStage,
 
-        public FacelightWorker(FacelightShared shared, bool stockRays, IScratchArrayPool pool)
+        /// <summary>Its skybox rays, chosen from the first answers, are being traced.</summary>
+        SecondStage,
+
+        /// <summary>Every answer is in; it waits its turn to be resolved.</summary>
+        Answered,
+    }
+
+    /// <summary>
+    /// One batch: a pooled ray log (rays, tape, answers), the items it
+    /// carries, and the tracer calls of its current stage that had not
+    /// finished inside the call.
+    /// </summary>
+    private sealed class FacelightBatch(LightRayLog log) : IDisposable
+    {
+        public LightRayLog Log { get; } = log;
+
+        /// <summary>The faces whose items this batch carries, in emission order, and how many of each.</summary>
+        public List<(FaceLightJob Job, int Items)> Items { get; } = [];
+
+        /// <summary>
+        /// The current stage's calls that had not finished inside the call.
+        /// Kept until every one of them has finished and been checked, so the
+        /// driver can tell, however the stage ends, whether a call may still
+        /// be reading the log's rays or writing its answers.
+        /// </summary>
+        public List<Task> Calls { get; } = [];
+
+        public BatchState State { get; set; }
+
+        /// <summary>Whether every call of the current stage has finished.</summary>
+        public bool CallsDone
         {
-            _shared = shared;
-            _rays = new LightRayLog { StockRays = stockRays, DeferRecursion = true, PadCalls = true, Pool = pool };
+            get
+            {
+                foreach (Task call in Calls)
+                {
+                    if (!call.IsCompleted)
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
         }
 
-        /// <summary>The calls the current batch started that did not finish inside the call.</summary>
-        public IReadOnlyList<Task> Started => _started;
+        /// <summary>Throws the first failure or cancellation among the finished calls, then forgets them.</summary>
+        public void TakeCalls(CancellationToken cancellationToken)
+        {
+            foreach (Task call in Calls)
+            {
+                TestLineBatch.RethrowIfFailed(call, cancellationToken);
+            }
+
+            Calls.Clear();
+        }
 
         /// <summary>
         /// Returns the log's rented storage. Only once every call in
-        /// <see cref="Started"/> has completed -- the driver awaits them
-        /// first -- because the pool would lend the storage out while a call
-        /// still read the rays or wrote the answers.
+        /// <see cref="Calls"/> has finished -- the driver awaits them first --
+        /// because the pool would lend the storage out while a call still
+        /// read the rays or wrote the answers.
         /// </summary>
         public void Dispose()
         {
-            _started.Clear();
-            _rays.Dispose();
+            Calls.Clear();
+            Log.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// One worker's face-lighting pipeline: the faces it holds, a ring of up
+    /// to <see cref="FacelightShared.Depth"/> batches traced and not yet
+    /// resolved, oldest first, and its counters. One worker at a time runs
+    /// it (<see cref="TryEnter"/>); completions of its calls only flag it and
+    /// wake a worker.
+    /// </summary>
+    private sealed class FacelightPipeline : IDisposable
+    {
+        private readonly FacelightShared _shared;
+        private readonly bool _stockRays;
+        private readonly IScratchArrayPool _pool;
+        private readonly List<FaceLightJob> _active = [];
+        private readonly FacelightBatch?[] _ring;
+        private readonly Action _answered;
+        private int _head;
+        private int _count;
+        private bool _exhausted;
+        private int _busy;
+        private int _signal;
+        private volatile bool _finished;
+
+        // When the pipeline last found every batch it could move in flight,
+        // in Stopwatch ticks, or 0: the span to the next move it makes is
+        // parked time (RayTraceMeter's remarks).
+        private long _stalledSince;
+
+        public FacelightPipeline(FacelightShared shared, bool stockRays, IScratchArrayPool pool)
+        {
+            _shared = shared;
+            _stockRays = stockRays;
+            _pool = pool;
+            _ring = new FacelightBatch?[shared.Depth];
+
+            // One delegate for the pipeline's life, handed to every call that
+            // is still running when the pipeline moves on: it flags the
+            // pipeline and wakes a worker to move it. The flag is what Exit
+            // reads, so an answer that lands while a worker is inside is not
+            // lost when that worker leaves.
+            _answered = () =>
+            {
+                Volatile.Write(ref _signal, 1);
+                _shared.Waker.Wake(1);
+            };
         }
 
-        private enum Step
-        {
-            Fill,
-            FirstStageTraced,
-            SecondStageTraced,
-        }
+        /// <summary>Whether every face this pipeline claimed is lit and no more are left to claim.</summary>
+        public bool IsFinished => _finished;
 
         public long VisibilityRays { get; private set; }
 
@@ -311,183 +515,321 @@ public sealed partial class RadWorld
 
         public int Batches { get; private set; }
 
+        /// <summary>The most batches it held traced and not yet resolved.</summary>
+        public int PeakInFlight { get; private set; }
+
         /// <summary>
-        /// Stopwatch ticks this worker spent parked on a slab in flight: from
-        /// the return that parked it to the run that resumed it.
+        /// Stopwatch ticks it spent with nothing it could do but wait for a
+        /// batch in flight: from the step that found it so to the step that
+        /// could move it again.
         /// </summary>
         public long ParkedTicks { get; private set; }
 
-        private long _parkedAt;
+        /// <summary>Takes the pipeline for one step; false when another worker has it.</summary>
+        public bool TryEnter() => Interlocked.CompareExchange(ref _busy, 1, 0) == 0;
 
-        /// <summary>The slabs still in flight; the driver awaits them before running the worker again.</summary>
-        public List<Task> TakePending()
+        /// <summary>
+        /// Lets the pipeline go. If an answer arrived while it was held, a
+        /// worker is woken for it: the worker that answer woke may have found
+        /// the pipeline taken and left.
+        /// </summary>
+        public void Exit()
         {
-            List<Task> tasks = [.. _pending];
-            _pending.Clear();
-            return tasks;
+            Volatile.Write(ref _busy, 0);
+            if (Volatile.Read(ref _signal) != 0)
+            {
+                _shared.Waker.Wake(1);
+            }
         }
 
-        /// <summary>Runs batches until no face is left, or a slab is in flight.</summary>
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        public void Run(WorkerContext worker)
-        {
-            if (_parkedAt != 0)
-            {
-                ParkedTicks += Stopwatch.GetTimestamp() - _parkedAt;
-                _parkedAt = 0;
-            }
+        /// <summary>Every call of every batch that has not been checked yet: the ones the driver must await.</summary>
+        public IEnumerable<Task> InFlightCalls() =>
+            _ring.Where(static b => b is not null).SelectMany(static b => b!.Calls);
 
+        /// <summary>
+        /// Moves the pipeline as far as it can without waiting: advances every
+        /// batch whose calls have finished, resolves the answered batches at
+        /// the head in order, and fills and traces new batches while the ring
+        /// has room.
+        /// </summary>
+        /// <param name="worker">The worker running it: cancellation, and the token the calls carry.</param>
+        /// <returns>Whether it moved at all.</returns>
+        /// <remarks>
+        /// It returns after the first batch it resolves once it has traced a
+        /// new one behind it, so a worker gives the others a turn (and its
+        /// pool thread to other stages) about once a batch, and leaves the
+        /// device with work when it does.
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        public bool Step(WorkerContext worker)
+        {
+            CancellationToken cancellationToken = worker.CancellationToken;
+
+            // Cleared before anything is looked at: an answer after this line
+            // sets it again, and Exit sees it.
+            Volatile.Write(ref _signal, 0);
+            bool worked = false;
+            bool resolved = false;
             while (true)
             {
                 worker.ThrowIfShouldStop();
-                switch (_step)
+                bool moved = Advance(cancellationToken);
+                while (_count > 0 && _ring[_head]!.State == BatchState.Answered)
                 {
-                    case Step.Fill:
-                        if (!Fill())
-                        {
-                            return;
-                        }
-
-                        _step = Step.FirstStageTraced;
-                        if (TraceFirstStage(worker.CancellationToken))
-                        {
-                            _parkedAt = Stopwatch.GetTimestamp();
-                            return;
-                        }
-
-                        break;
-
-                    case Step.FirstStageTraced:
-                        _shared.Gatherer.EmitDeferredRecursion(_rays);
-                        _step = Step.SecondStageTraced;
-                        if (TraceSecondStage(worker.CancellationToken))
-                        {
-                            _parkedAt = Stopwatch.GetTimestamp();
-                            return;
-                        }
-
-                        break;
-
-                    case Step.SecondStageTraced:
-                        Resolve();
-                        _step = Step.Fill;
-                        break;
+                    Resolve(_ring[_head]!);
+                    _head = (_head + 1) % _ring.Length;
+                    _count--;
+                    moved = true;
+                    resolved = true;
                 }
-            }
-        }
 
-        // Emits into a fresh batch: the faces already held first, then newly
-        // claimed ones. False when there is nothing left to light.
-        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private bool Fill()
-        {
-            // The last batch's calls were all awaited before this worker ran
-            // again, so none can still be using the log.
-            _started.Clear();
-            _rays.Reset();
-            _batch.Clear();
+                bool launched = false;
+                if (!moved && _count < _ring.Length)
+                {
+                    launched = Launch(cancellationToken);
+                    moved = launched;
+                }
 
-            foreach (FaceLightJob job in _active)
-            {
-                if (Full)
+                if (!moved)
                 {
                     break;
                 }
 
-                Add(job);
+                worked = true;
+                if (_stalledSince != 0)
+                {
+                    ParkedTicks += Stopwatch.GetTimestamp() - _stalledSince;
+                    _stalledSince = 0;
+                }
+
+                if (resolved && launched)
+                {
+                    return true;
+                }
             }
 
-            while (!Full && _shared.Claim() is FaceLightJob claimed)
+            if (_count == 0 && _active.Count == 0 && _exhausted)
             {
+                _finished = true;
+                return true;
+            }
+
+            if (_count == 0)
+            {
+                // Faces held, nothing in flight, and none of them could emit:
+                // no answer will ever arrive to move this pipeline, so waiting
+                // would hang the stage. A face's next round always has items
+                // once its last one is resolved, so this is a broken
+                // invariant, reported rather than waited on.
+                throw new InvalidOperationException(
+                    $"the face lighting holds {_active.Count} face(s) with nothing in flight and nothing to emit");
+            }
+
+            // Nothing moves until an answer arrives.
+            if (_count > 0 && _stalledSince == 0)
+            {
+                _stalledSince = Stopwatch.GetTimestamp();
+            }
+
+            return worked;
+        }
+
+        // Moves every batch whose current stage's calls have all finished to
+        // its next stage; true when any moved. Each batch's stages depend
+        // only on its own answers, so the order batches move in here decides
+        // nothing; only the resolve order does, and that is the ring's.
+        private bool Advance(CancellationToken cancellationToken)
+        {
+            bool moved = false;
+            for (int k = 0; k < _count; k++)
+            {
+                FacelightBatch batch = _ring[(_head + k) % _ring.Length]!;
+                if (batch.State == BatchState.FirstStage && batch.CallsDone)
+                {
+                    batch.TakeCalls(cancellationToken);
+                    _shared.Gatherer.EmitDeferredRecursion(batch.Log);
+                    batch.State = BatchState.SecondStage;
+                    TraceSecondStage(batch, cancellationToken);
+                    moved = true;
+                }
+
+                if (batch.State == BatchState.SecondStage && batch.CallsDone)
+                {
+                    batch.TakeCalls(cancellationToken);
+                    batch.State = BatchState.Answered;
+                    moved = true;
+                }
+            }
+
+            return moved;
+        }
+
+        // Fills the next ring slot and traces its first stage; false when
+        // nothing could be emitted (every face held waits on a batch in
+        // flight, and none is left to claim), leaving the slot free.
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private bool Launch(CancellationToken cancellationToken)
+        {
+            int slot = (_head + _count) % _ring.Length;
+            FacelightBatch batch = _ring[slot] ??= new FacelightBatch(new LightRayLog
+            {
+                StockRays = _stockRays,
+                DeferRecursion = true,
+                PadCalls = true,
+                Pool = _pool,
+            });
+
+            if (!Fill(batch))
+            {
+                return false;
+            }
+
+            _count++;
+            PeakInFlight = Math.Max(PeakInFlight, _count);
+            batch.State = BatchState.FirstStage;
+            TraceFirstStage(batch, cancellationToken);
+            return true;
+        }
+
+        // Emits into a fresh batch: the faces already held first, then newly
+        // claimed ones. False when there is nothing to emit.
+        [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+        private bool Fill(FacelightBatch batch)
+        {
+            LightRayLog rays = batch.Log;
+            rays.Reset();
+            batch.Items.Clear();
+
+            foreach (FaceLightJob job in _active)
+            {
+                if (Full(rays))
+                {
+                    break;
+                }
+
+                Add(batch, job);
+            }
+
+            while (!Full(rays) && !_exhausted)
+            {
+                if (_shared.Claim() is not FaceLightJob claimed)
+                {
+                    _exhausted = true;
+                    break;
+                }
+
                 if (claimed.Done)
                 {
                     continue;
                 }
 
                 _active.Add(claimed);
-                Add(claimed);
+                Add(batch, claimed);
             }
 
-            return _batch.Count > 0;
+            return batch.Items.Count > 0;
         }
 
-        private bool Full => _rays.TotalCount >= _shared.BatchRays || _rays.Tape.Length >= TapeWordsPerBatch;
+        private bool Full(LightRayLog rays) =>
+            rays.TotalCount >= _shared.BatchRays || rays.Tape.Length >= TapeWordsPerBatch;
 
-        private void Add(FaceLightJob job)
+        // A face waiting on the end of a round that is still in flight emits
+        // nothing and is left out of the batch.
+        private void Add(FacelightBatch batch, FaceLightJob job)
         {
-            int items = job.EmitItems(_rays, _shared.BatchRays, TapeWordsPerBatch);
+            int items = job.EmitItems(batch.Log, _shared.BatchRays, TapeWordsPerBatch);
             if (items > 0)
             {
-                _batch.Add((job, items));
+                batch.Items.Add((job, items));
             }
         }
 
-        // Returns true when a slab is still in flight (the worker parks).
-        private bool TraceFirstStage(CancellationToken cancellationToken)
+        private void TraceFirstStage(FacelightBatch batch, CancellationToken cancellationToken)
         {
+            LightRayLog rays = batch.Log;
             Batches++;
-            VisibilityRays += _rays.VisibilityCount;
-            SkyRays += _rays.SkyCount;
-            (Memory<ulong> bits, Memory<HitId> hits) = _rays.FirstStageAnswers();
+            VisibilityRays += rays.VisibilityCount;
+            SkyRays += rays.SkyCount;
+            (Memory<ulong> bits, Memory<HitId> hits) = rays.FirstStageAnswers();
 
             // The tracer answers for the SEGMENT (IRayTracer.TraceVisibilityAsync),
             // which is TestLine's HitDistance < len.
-            if (_rays.VisibilityCount > 0)
+            if (rays.VisibilityCount > 0)
             {
-                Keep(_shared.Tracer.TraceVisibilityAsync(
-                    _rays.VisibilityMemory, bits, RayTraceOptions.StockExact, cancellationToken));
+                Keep(batch, _shared.Tracer.TraceVisibilityAsync(
+                    rays.VisibilityMemory, bits, RayTraceOptions.StockExact, cancellationToken));
             }
 
-            if (_rays.SkyCount > 0)
+            if (rays.SkyCount > 0)
             {
-                Keep(_shared.Tracer.TraceClosestAsync(
-                    _rays.SkyMemory, hits, RayTraceOptions.StockExact, cancellationToken));
+                Keep(batch, _shared.Tracer.TraceClosestAsync(
+                    rays.SkyMemory, hits, RayTraceOptions.StockExact, cancellationToken));
             }
-
-            return _pending.Count > 0;
         }
 
-        private bool TraceSecondStage(CancellationToken cancellationToken)
+        private void TraceSecondStage(FacelightBatch batch, CancellationToken cancellationToken)
         {
-            if (_rays.Sky2Count == 0)
+            LightRayLog rays = batch.Log;
+            if (rays.Sky2Count == 0)
             {
-                return false;
+                return;
             }
 
-            SkyRays += _rays.Sky2Count;
-            Keep(_shared.Tracer.TraceClosestAsync(
-                _rays.Sky2Memory, _rays.SecondStageAnswers(), RayTraceOptions.StockExact, cancellationToken));
-            return _pending.Count > 0;
+            SkyRays += rays.Sky2Count;
+            Keep(batch, _shared.Tracer.TraceClosestAsync(
+                rays.Sky2Memory, rays.SecondStageAnswers(), RayTraceOptions.StockExact, cancellationToken));
         }
 
         // A CPU tracer finishes inside the call; an asynchronous one returns
-        // an incomplete task, kept for the driver to await.
-        private void Keep(ValueTask task)
+        // an incomplete task, kept on its batch and, when it finishes, flags
+        // the pipeline and wakes a worker to move it.
+        private void Keep(FacelightBatch batch, ValueTask task)
         {
-            if (!task.IsCompletedSuccessfully)
+            if (task.IsCompletedSuccessfully)
             {
-                Task call = task.AsTask();
-                _pending.Add(call);
-                _started.Add(call);
+                return;
+            }
+
+            Task call = task.AsTask();
+            batch.Calls.Add(call);
+            if (!call.IsCompleted)
+            {
+                call.ConfigureAwait(false).GetAwaiter().UnsafeOnCompleted(_answered);
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-        private void Resolve()
+        private void Resolve(FacelightBatch batch)
         {
-            _rays.BeginResolve();
-            foreach ((FaceLightJob job, int items) in _batch)
+            LightRayLog rays = batch.Log;
+            rays.BeginResolve();
+            foreach ((FaceLightJob job, int items) in batch.Items)
             {
-                job.ResolveItems(_rays, items);
+                job.ResolveItems(rays, items);
             }
 
-            if (!_rays.ReplayComplete)
+            if (!rays.ReplayComplete)
             {
                 throw new InvalidOperationException(
                     "the face lighting resolved a different set of rays than it emitted");
             }
 
+            batch.Items.Clear();
+            batch.State = BatchState.Free;
             _active.RemoveAll(static j => j.Done);
+        }
+
+        /// <summary>
+        /// Returns every batch's rented storage. Only once no call of any
+        /// batch can still be running -- the driver awaits
+        /// <see cref="InFlightCalls"/> first.
+        /// </summary>
+        public void Dispose()
+        {
+            foreach (FacelightBatch? batch in _ring)
+            {
+                batch?.Dispose();
+            }
         }
     }
 }

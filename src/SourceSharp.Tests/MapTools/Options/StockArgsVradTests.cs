@@ -356,6 +356,32 @@ public class StockArgsVradTests
         Assert.Contains(result.Diagnostics, d => d.Code == StockArgsCodes.UnknownOption);
     }
 
+    [Theory]
+    [InlineData("1", 1)]
+    [InlineData("6", 6)]
+    [InlineData("64", 64)]
+    public void GpuDepthIsRecordedForTheHostAndChangesNoLightingOption(string value, int expected)
+    {
+        StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-gpu", "radv", "-gpu_depth", value, Map]);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(expected, result.GpuPipelineDepth);
+        Assert.Equal(VradOptions.Default, result.Options);
+        Assert.Null(StockArgs.ParseVrad([Map]).GpuPipelineDepth);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-3")]
+    [InlineData("65")]
+    public void GpuDepthOutsideOneToTheMaximumIsOutOfRange(string value)
+    {
+        StockArgsResult<VradOptions> result = StockArgs.ParseVrad(["-gpu_depth", value, Map]);
+
+        Assert.Equal(StockArgsCodes.ValueOutOfRange, Assert.Single(result.Diagnostics).Code);
+        Assert.Null(result.GpuPipelineDepth);
+    }
+
     [Fact]
     public void TheFinalPresetMatchesParsingBothAndFinal()
     {

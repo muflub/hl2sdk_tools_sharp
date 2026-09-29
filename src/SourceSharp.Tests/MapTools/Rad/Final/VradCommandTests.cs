@@ -298,16 +298,29 @@ public sealed class VradCommandTests
             new RayRouteCounts(4_000_000, 500_000, 0, 900),
             new RayRouteCounts(0, 0, 70_000, 40),
             [TimeSpan.FromSeconds(12.25), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.5)],
-            new GpuTraceStatistics(940, 310, TimeSpan.FromSeconds(3.5), TimeSpan.FromSeconds(1.25), 3, 3));
+            new GpuTraceStatistics(
+                940, 310, TimeSpan.FromSeconds(3.5), TimeSpan.FromSeconds(1.25), 3, 3,
+                TimeSpan.FromSeconds(0.62), TimeSpan.FromSeconds(0.031), RaysInPlace: false, AnswersInPlace: true));
 
         Assert.Equal(
             [
                 "bench trace tracer=gpu-vulkan+kd-fallback gpu=on rays=4570000 gpu.visibility=4000000 gpu.closest=500000 gpu.sky=0 "
                 + "cpu.visibility=0 cpu.closest=0 cpu.sky=70000 batches.gpu=900 batches.cpu=40 "
                 + "parked=13.750s parked.facelights=12.250s parked.bounce=1.000s parked.other=0.500s",
-                "bench gpu requests=940 slabs=310 busy=3.500s fencewait=1.250s peakinflight=3/3 fallbackrays=70000",
+                "bench gpu requests=940 slabs=310 busy=3.500s fencewait=1.250s pack=0.620s pack.perslab=2.000ms "
+                + "readback=0.031s readback.perslab=0.100ms rays=staged answers=direct peakinflight=3/3 fallbackrays=70000",
             ],
             VradCommand.FormatTraceBench(report));
+
+        // No slab yet divides by one, not zero; a device with every buffer in place says so.
+        Assert.EndsWith(
+            "pack=0.000s pack.perslab=0.000ms readback=0.000s readback.perslab=0.000ms rays=direct answers=direct "
+            + "peakinflight=0/2 fallbackrays=70000",
+            VradCommand.FormatTraceBench(report with
+            {
+                Device = new GpuTraceStatistics(0, 0, TimeSpan.Zero, TimeSpan.Zero, 0, 2, RaysInPlace: true, AnswersInPlace: true),
+            })[1],
+            StringComparison.Ordinal);
 
         // A host's GPU tracer with no statistics: the trace line alone.
         Assert.Single(VradCommand.FormatTraceBench(report with { Device = null }));

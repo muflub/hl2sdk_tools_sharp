@@ -93,6 +93,14 @@ public sealed record CompileRequest
     public Rad.IGpuTracerFactory? TracerFactory { get; init; }
 
     /// <summary>
+    /// How many batches each face-lighting worker keeps in flight on an
+    /// asynchronous tracer; 0 for the default. Passed to vrad as
+    /// <see cref="Rad.VradContext.GpuPipelineDepth"/>, which says what it
+    /// changes (throughput only, never a byte).
+    /// </summary>
+    public int GpuPipelineDepth { get; init; }
+
+    /// <summary>
     /// The cooker vbsp's collision lumps are made with, or null for a map with
     /// no PHYSCOLLIDE or PHYSDISP: stock's road when <c>vphysics.dll</c> does
     /// Not load.

@@ -206,6 +206,7 @@ public static class VradCommand
             {
                 GpuTracerFactory = new HostBackends.GpuFactory(
                     parsed.GpuDeviceMatch, parsed.GpuRaysPerSlab),
+                GpuPipelineDepth = parsed.GpuPipelineDepth ?? 0,
             };
 
         RadResult result;
@@ -367,10 +368,15 @@ public static class VradCommand
     /// (<c>requests</c>), the slabs submitted, the host-side span with a slab
     /// on the device (<c>busy</c>) and the part of it spent blocked on a fence
     /// (<c>fencewait</c>) -- <see cref="GpuTraceStatistics"/> says why the span
-    /// and not device timestamps -- the deepest the slot ring ran against its
-    /// size, and <c>fallbackrays</c>, the rays the hybrid sent to the CPU
-    /// because the kernel cannot express their options. For a declined GPU,
-    /// the backend's reason.
+    /// and not device timestamps -- the host's side of moving the slabs
+    /// (<c>pack</c>, writing rays where the device reads them, and
+    /// <c>readback</c>, reading the answers out, each in all and per slab),
+    /// whether the rays and the answers stay where the device reads and writes
+    /// them (<c>direct</c>) or are staged and copied by the device each slab
+    /// (<c>staged</c>, a device without resizable BAR), the deepest the slot
+    /// ring ran against its size, and <c>fallbackrays</c>, the rays the hybrid
+    /// sent to the CPU because the kernel cannot express their options. For a
+    /// declined GPU, the backend's reason.
     /// </para>
     /// <para>
     /// Every number is invariant-culture and every duration seconds to three
@@ -408,11 +414,15 @@ public static class VradCommand
         }
         else if (report.Gpu == GpuTraceStatus.On && report.Device is { } d)
         {
+            double slabs = Math.Max(1, d.Slabs);
             lines.Add(string.Create(
                 CultureInfo.InvariantCulture,
                 $"bench gpu requests={d.Requests} slabs={d.Slabs} busy={d.Busy.TotalSeconds:F3}s "
-                + $"fencewait={d.FenceWait.TotalSeconds:F3}s peakinflight={d.PeakSlabsInFlight}/{d.Slots} "
-                + $"fallbackrays={report.CpuRays.Rays}"));
+                + $"fencewait={d.FenceWait.TotalSeconds:F3}s "
+                + $"pack={d.Pack.TotalSeconds:F3}s pack.perslab={d.Pack.TotalMilliseconds / slabs:F3}ms "
+                + $"readback={d.Readback.TotalSeconds:F3}s readback.perslab={d.Readback.TotalMilliseconds / slabs:F3}ms "
+                + $"rays={(d.RaysInPlace ? "direct" : "staged")} answers={(d.AnswersInPlace ? "direct" : "staged")} "
+                + $"peakinflight={d.PeakSlabsInFlight}/{d.Slots} fallbackrays={report.CpuRays.Rays}"));
         }
 
         return lines;
