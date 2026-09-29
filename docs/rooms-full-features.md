@@ -2211,6 +2211,11 @@ One PR per feature or small group. Already queued, and assumed:
   per-rotation work moved into the pack. Every precompute item above is a
   Q1-style pack section, per rotation or once as 1.1 decides.
 - **Q2, library-wide shared tables** for planes, texdata and texinfo.
+  Landed as level-wide sharing at link time: the link interns every
+  room's moved planes, strings, texdata and texinfo by content
+  (`LevelLinker.Tables.cs`), which took the stress library's largest
+  linkable square from 20 x 20 (refused at `MAX_MAP_TEXDATA`) to 24 x 24
+  (now refused at `MAX_MAP_BRUSHES`).
 - **Q3, door-to-door visibility** for the linked PVS (line of sight through
   doorways, precomputed per room).
 - **Q4, option C lighting** (section 9).

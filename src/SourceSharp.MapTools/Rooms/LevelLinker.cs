@@ -353,31 +353,29 @@ public static partial class LevelLinker
     /// The totals were measured against the format's fields before any room
     /// was planned (<see cref="CheckCapacity"/>, over the same counts in the
     /// same order), so every base here fits the field that carries it. The
-    /// planes, texinfos, leaves, leaf brushes and nodes the plug carve and
-    /// the nodraw copies add are checked where they are added.
+    /// leaves, leaf brushes and nodes the plug carve adds are checked where
+    /// they are added. The planes, texinfos, texdatas and strings have no
+    /// base: they are shared tables, and a room's entries are found by
+    /// content when the assembly builds them (<see cref="LinkPlanes"/>,
+    /// <see cref="LinkTextures"/>), and checked there.
     /// </remarks>
     private static void AssignBases(RoomPlan[] plans)
     {
-        long vertices = 0, edges = 0, surfEdges = 0, texInfos = 0, texDatas = 0, planes = 2,
+        long vertices = 0, edges = 0, surfEdges = 0,
              faces = 0, origFaces = 0, brushes = 0, brushSides = 0, leafFaces = 0,
-             leaves = 1, lighting = 0, stringTable = 0, stringData = 0,
+             leaves = 1, lighting = 0,
              primVerts = 0, primIndices = 0, prims = 0, vertNormals = 0, vertNormalIndices = 0,
              occluders = 0, occluderPolys = 0, occluderVerts = 0;
         foreach (RoomPlan plan in plans)
         {
             plan.VertexBase = (int)vertices;
             plan.EdgeBase = (int)edges;
-            plan.TexInfoBase = (int)texInfos;
-            plan.TexDataBase = (int)texDatas;
-            plan.PlaneBase = (int)planes;
             plan.FaceBase = (int)faces;
             plan.BrushBase = (int)brushes;
             plan.BrushSideBase = (int)brushSides;
             plan.LeafFaceBase = (int)leafFaces;
             plan.LeafBase = (int)leaves;
             plan.LightBase = (int)lighting;
-            plan.StringTableBase = (int)stringTable;
-            plan.StringDataBase = (int)stringData;
             plan.SurfEdgeBase = (int)surfEdges;
             plan.OrigFaceBase = (int)origFaces;
             plan.PrimBase = (int)prims;
@@ -391,17 +389,12 @@ public static partial class LevelLinker
 
             vertices += plan.Vertices.Length;
             edges += plan.EdgeCount;
-            texInfos += plan.TexInfos.Length;
-            texDatas += plan.TexDataCount;
-            planes += plan.TransformedPlanes.Length;
             faces += plan.FaceCount;
             brushes += plan.BrushCount;
             brushSides += plan.BrushSideCount;
             leafFaces += plan.LeafFaceCount;
             leaves += plan.Leafs.Length;
             lighting += plan.LightingLength;
-            stringTable += plan.StringTableCount;
-            stringData += plan.StringDataLength;
             surfEdges += plan.SurfEdgeCount;
             origFaces += plan.OrigFaceCount;
             prims += plan.PrimCount;
@@ -412,7 +405,6 @@ public static partial class LevelLinker
             occluders += plan.Occlusion?.Occluders.Count ?? 0;
             occluderPolys += plan.Occlusion?.Polys.Count ?? 0;
             occluderVerts += plan.Occlusion?.VertexIndices.Count ?? 0;
-
         }
     }
 
@@ -435,7 +427,12 @@ public static partial class LevelLinker
     /// What the plug carve and the nodraw copies add during assembly (planes,
     /// texinfos, leaves, leaf brushes, nodes), and the top tree's nodes past
     /// their floor, are not known until then, and are checked where they are
-    /// added.
+    /// added. So are the rooms' own planes and texinfos: they are shared by
+    /// content, and what a room shares depends on its cell
+    /// (<see cref="CheckSharedTables"/>). The texdatas and strings are shared
+    /// too, but do not depend on the cell, so they are counted here exactly,
+    /// each room's the first time it is placed, with the same
+    /// <see cref="LinkTextures"/> the assembly builds them with.
     /// </para>
     /// <para>
     /// The entity budget is checked here too, after the lump totals
@@ -459,15 +456,28 @@ public static partial class LevelLinker
         {
             LinkTotals totals = new();
             Dictionary<string, RoomEntityCounts> counted = new(StringComparer.Ordinal);
+            LinkTextures textures = new();
             foreach (RoomInstance instance in layout.Rooms)
             {
                 RoomObject room = library.Get(instance.Placement.Room);
                 string name = room.Definition.Name;
-                totals.Add(LinkCounts.Of(room.Bsp, room.ClusterCount), name, instance.Placement.CellX, instance.Placement.CellY);
+                int texDatas = textures.TexDatas.Count;
+                int strings = textures.StringTable.Count;
                 if (!counted.TryGetValue(name, out RoomEntityCounts? counts))
                 {
+                    // The material tables are shared by content and a room's
+                    // texdata does not depend on its placement, so only the
+                    // first placement of a room can add to them.
+                    textures.InternTexDatas(room.Bsp, textures.InternStrings(room.Bsp, name));
                     counted[name] = counts = room.CountEntities();
                 }
+
+                LinkCounts added = LinkCounts.Of(room.Bsp, room.ClusterCount) with
+                {
+                    TexDatas = textures.TexDatas.Count - texDatas,
+                    StringTable = textures.StringTable.Count - strings,
+                };
+                totals.Add(added, name, instance.Placement.CellX, instance.Placement.CellY);
 
                 placements.Add((name, counts));
             }
@@ -481,15 +491,22 @@ public static partial class LevelLinker
 
     /// <summary>
     /// What one room adds to each total the format limits: the lengths of the
-    /// lumps its plan carries, and its clusters.
+    /// lumps its plan appends, its clusters, and what it adds to the shared
+    /// material tables.
     /// </summary>
+    /// <remarks>
+    /// The planes and texinfos are not here: they are shared by content
+    /// (<see cref="LinkPlanes"/>, <see cref="LinkTextures"/>), and a room's
+    /// share of them depends on its placement (the translation is in every
+    /// plane distance and texture offset), so what a room adds is only known
+    /// once it is moved, and the assembly checks them there. The texdatas
+    /// and string-table entries are shared too, but a texdata does not
+    /// depend on the placement, so <see cref="CheckCapacity"/> works out
+    /// exactly what each room adds before any room is planned.
+    /// </remarks>
     internal readonly record struct LinkCounts
     {
         public int Vertices { get; init; }
-
-        public int Planes { get; init; }
-
-        public int TexInfos { get; init; }
 
         public int Faces { get; init; }
 
@@ -497,12 +514,14 @@ public static partial class LevelLinker
 
         public int BrushSides { get; init; }
 
+        /// <summary>The texdatas no earlier room brought; not set by <see cref="Of"/>.</summary>
         public int TexDatas { get; init; }
 
         public int LeafFaces { get; init; }
 
         public int Leaves { get; init; }
 
+        /// <summary>The string-table entries no earlier room brought; not set by <see cref="Of"/>.</summary>
         public int StringTable { get; init; }
 
         public int Primitives { get; init; }
@@ -517,19 +536,19 @@ public static partial class LevelLinker
 
         public int Clusters { get; init; }
 
-        /// <summary>A compiled room's counts, read as <see cref="PlanRoom"/> reads them.</summary>
+        /// <summary>
+        /// A compiled room's counts of the lumps it appends, read as
+        /// <see cref="PlanRoom"/> reads them; the shared tables' counts are
+        /// the caller's to add.
+        /// </summary>
         public static LinkCounts Of(BspData bsp, int clusters) => new()
         {
             Vertices = BspStructView.Count<Vec3>(bsp[BspLump.Vertexes]),
-            Planes = BspStructView.Count<DPlane>(bsp[BspLump.Planes]),
-            TexInfos = BspStructView.Count<TexInfo>(bsp[BspLump.TexInfo]),
             Faces = BspStructView.Count<DFace>(bsp[BspLump.Faces]),
             Brushes = BspStructView.Count<DBrush>(bsp[BspLump.Brushes]),
             BrushSides = BspStructView.Count<DBrushSide>(bsp[BspLump.BrushSides]),
-            TexDatas = BspStructView.Count<DTexData>(bsp[BspLump.TexData]),
             LeafFaces = BspStructView.Count<ushort>(bsp[BspLump.LeafFaces]),
             Leaves = BspStructView.Count<DLeaf>(bsp[BspLump.Leafs]),
-            StringTable = BspStructView.Count<int>(bsp[BspLump.TexDataStringTable]),
             Primitives = BspStructView.Count<DPrimitive>(bsp[BspLump.Primitives]),
             PrimitiveIndices = BspStructView.Count<ushort>(bsp[BspLump.PrimIndices]),
             PrimitiveVertices = BspStructView.Count<Vec3>(bsp[BspLump.PrimVerts]),
@@ -546,22 +565,29 @@ public static partial class LevelLinker
     /// <remarks>
     /// <para>
     /// Most limits are the narrowest field that holds an index into (or a
-    /// count of) that lump: a face's plane number and a brush side's are
-    /// <c>ushort</c>, a face's and a brush side's texinfo is <c>short</c>, a
-    /// leaf's cluster is <c>short</c>, an edge's vertices, a leaf's face and
+    /// count of) that lump: a leaf's cluster is <c>short</c>, an edge's vertices, a leaf's face and
     /// brush runs, a node's first face, a face's first primitive, a
     /// primitive's first index and vertex, a vertex-normal index and a macro
     /// texture's name id are <c>ushort</c>. A sum past its field would wrap
     /// silently in the cast that writes it and point into some other room.
     /// </para>
     /// <para>
-    /// Four totals the engine's loader caps below their field's width
+    /// Three totals the engine's loader caps below their field's width
     /// (<see cref="BspLimits.Caps"/>, what <c>ssmap check</c> reports):
-    /// texdatas, brushes, brush sides and texinfos; and one it caps that no
-    /// narrower field carries, the nodes. Every room brings its own
-    /// texdata and brushes, so a level of a few hundred rooms passes
-    /// <c>MAX_MAP_TEXDATA</c> (2048) and <c>MAX_MAP_BRUSHES</c> (8192) long
+    /// texdatas, brushes and brush sides; and one it caps that no narrower
+    /// field carries, the nodes. Every room brings its own brushes, so a
+    /// level of a few hundred rooms passes <c>MAX_MAP_BRUSHES</c> (8192) long
     /// before any field fills, and the engine would refuse to load the map.
+    /// The texdatas are shared by content, so what counts toward
+    /// <c>MAX_MAP_TEXDATA</c> (2048) is the level's distinct materials, which
+    /// the caller works out (<see cref="LinkCounts.TexDatas"/>).
+    /// </para>
+    /// <para>
+    /// The planes (a <c>ushort</c> in every face and brush side) and the
+    /// texinfos (<c>MAX_MAP_TEXINFO</c>, 12,288) are not totalled here: they
+    /// are shared by content, and how much a room shares depends on where it
+    /// stands, so the assembly checks them exactly as it builds them
+    /// (<see cref="CheckSharedTables"/>).
     /// </para>
     /// <para>
     /// The nodes are the fifth: a node's children are <c>int</c>, so no field
@@ -578,8 +604,7 @@ public static partial class LevelLinker
     /// included, is checked again once assembly has built them.
     /// </para>
     /// <para>
-    /// The planes start at 2 (the top tree's first pair) and the leaves at 1
-    /// (the shared solid leaf), as the bases do.
+    /// The leaves start at 1 (the shared solid leaf), as the bases do.
     /// </para>
     /// </remarks>
     internal sealed class LinkTotals
@@ -589,18 +614,15 @@ public static partial class LevelLinker
         private readonly int _texDataCap = Cap(BspLump.TexData);
         private readonly int _brushCap = Cap(BspLump.Brushes);
         private readonly int _brushSideCap = Cap(BspLump.BrushSides);
-        private readonly int _texInfoCap = Cap(BspLump.TexInfo);
         private readonly int _nodeCap = Cap(BspLump.Nodes);
 
-        private long _vertices, _planes = 2, _texInfos, _texDatas, _faces, _brushes, _brushSides, _leafFaces, _leaves = 1,
+        private long _vertices, _texDatas, _faces, _brushes, _brushSides, _leafFaces, _leaves = 1,
             _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters, _nodes = -1;
 
         /// <summary>Adds one room, refusing the first total it pushes past its limit.</summary>
         public void Add(LinkCounts counts, string room, int cellX, int cellY)
         {
             _vertices += counts.Vertices;
-            _planes += counts.Planes;
-            _texInfos += counts.TexInfos;
             _texDatas += counts.TexDatas;
             _faces += counts.Faces;
             _brushes += counts.Brushes;
@@ -616,8 +638,6 @@ public static partial class LevelLinker
             _clusters += counts.Clusters;
 
             Limit(room, cellX, cellY, "vertices", _vertices, ushort.MaxValue + 1);
-            Limit(room, cellX, cellY, "planes", _planes, ushort.MaxValue + 1);
-            LoaderLimit(room, cellX, cellY, "texinfos", _texInfos, _texInfoCap, "MAX_MAP_TEXINFO");
             LoaderLimit(room, cellX, cellY, "texdatas", _texDatas, _texDataCap, "MAX_MAP_TEXDATA");
             Limit(room, cellX, cellY, "faces", _faces, ushort.MaxValue + 1);
             LoaderLimit(room, cellX, cellY, "brushes", _brushes, _brushCap, "MAX_MAP_BRUSHES");
@@ -865,7 +885,7 @@ public static partial class LevelLinker
     {
         ArgumentNullException.ThrowIfNull(layout);
         List<Plane> planes = [];
-        BuildTopNodes(layout, cellSize, planes, topPlaneBase: 0);
+        BuildTopNodes(layout, cellSize, planes);
         return planes;
     }
 
@@ -885,15 +905,17 @@ public static partial class LevelLinker
     /// room root, and the room's own tree — carried from vbsp — does the rest.
     /// </para>
     /// <para>
-    /// Every node bounds its region, planes are recorded in node order so the
-    /// caller appends them to the plane lump as pairs (the format demands
-    /// pairs: <c>(x &amp; ~1)</c> and <c>(x &amp; ~1) + 1</c> are each other's
-    /// flip, positive normal first), and child node indices name nodes already
+    /// Every node bounds its region, planes are recorded in node order and
+    /// each node names its plane as pair <c>i</c> of that list (plane number
+    /// <c>2i</c>), which the caller replaces with the plane's pair in the
+    /// shared table (<see cref="LinkPlanes"/>; the format demands pairs:
+    /// <c>(x &amp; ~1)</c> and <c>(x &amp; ~1) + 1</c> are each other's flip,
+    /// positive normal first), and child node indices name nodes already
     /// built (pre-order: a parent's children have larger indices than it, and
     /// the root is node 0, which is what makes <c>model0.HeadNode = 0</c>).
     /// </para>
     /// </remarks>
-    internal static List<DNode> BuildTopNodes(LevelLayout layout, float cellSize, List<Plane> planes, int topPlaneBase)
+    internal static List<DNode> BuildTopNodes(LevelLayout layout, float cellSize, List<Plane> planes)
     {
         Dictionary<(int, int), int> occupants = [];
         int order = 0;
@@ -904,7 +926,7 @@ public static partial class LevelLinker
 
         (int minx, int miny, int maxx, int maxy) = Extent(layout);
         List<DNode> nodes = [];
-        BuildRegion(nodes, occupants, (minx, miny, maxx, maxy), cellSize, planes, topPlaneBase);
+        BuildRegion(nodes, occupants, (minx, miny, maxx, maxy), cellSize, planes);
         return nodes;
     }
 
@@ -1432,8 +1454,7 @@ public static partial class LevelLinker
         Dictionary<(int, int), int> occupants,
         (int minx, int miny, int maxx, int maxy) rect,
         float cellSize,
-        List<Plane> planes,
-        int topPlaneBase)
+        List<Plane> planes)
     {
         int index = nodes.Count;
         nodes.Add(default);
@@ -1451,7 +1472,7 @@ public static partial class LevelLinker
             solidChildren[1] = MarkerSolidLeaf;
             nodes[index] = new DNode
             {
-                PlaneNum = TopPlaneNum(topPlaneBase, planes.Count - 1),
+                PlaneNum = TopPlaneNum(planes.Count - 1),
                 Children = solidChildren,
                 Mins = Short3(mins),
                 Maxs = Short3(maxs),
@@ -1471,7 +1492,7 @@ public static partial class LevelLinker
             roomChildren[1] = MarkerRoomLeaf;  // back: this cell's room root
             nodes[index] = new DNode
             {
-                PlaneNum = TopPlaneNum(topPlaneBase, planes.Count - 1),
+                PlaneNum = TopPlaneNum(planes.Count - 1),
                 Children = roomChildren,
                 Mins = Short3(mins),
                 Maxs = Short3(maxs),
@@ -1501,9 +1522,9 @@ public static partial class LevelLinker
         }
 
         planes.Add(split);
-        int planeNumber = TopPlaneNum(topPlaneBase, planes.Count - 1);
-        int front = BuildRegion(nodes, occupants, frontRect, cellSize, planes, topPlaneBase);
-        int back = BuildRegion(nodes, occupants, backRect, cellSize, planes, topPlaneBase);
+        int planeNumber = TopPlaneNum(planes.Count - 1);
+        int front = BuildRegion(nodes, occupants, frontRect, cellSize, planes);
+        int back = BuildRegion(nodes, occupants, backRect, cellSize, planes);
         IntArray2 children = default;
         children[0] = front;
         children[1] = back;
@@ -1519,7 +1540,12 @@ public static partial class LevelLinker
         return index;
     }
 
-    private static int TopPlaneNum(int topPlaneBase, int index) => topPlaneBase + (2 * index);
+    /// <summary>
+    /// The provisional plane number of the top tree's <paramref name="index"/>th
+    /// plane: the even half of pair <paramref name="index"/> counted from 0,
+    /// which the assembly replaces with the plane's shared pair.
+    /// </summary>
+    private static int TopPlaneNum(int index) => 2 * index;
 
     // ---- small helpers -------------------------------------------------
 
