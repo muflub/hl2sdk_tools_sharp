@@ -1350,7 +1350,11 @@ public static class ComplianceCatalogue
                 "SourceSharp.MapTools.Bsp.Csg.BrushGeometry.SplitBrush",
             ],
             QuirkObservation.Demonstrated,
-            "@@OBSERVED@@",
+            "On 2fort, with SplitEpsilonBrushOnPlane corrected, flipping PlaneFromPointsNormalise or "
+            + "BaseWindingNormalise alone moved Correct's cluster count from 2473 to 2475 or 2476, with "
+            + "17 and 12 nodes splitting on another plane; at the first of them the two runs' fragments "
+            + "differed by one sliver side. With this quirk corrected too, Correct gives 2455 and the "
+            + "three normalise flips 2456, 2456 and 2455, with 3, 3 and 0 nodes splitting differently.",
             [
                 "SplitBrushSliverSidesTests.StockPutsTheSliverOnWhicheverHalfTheEdgeRoundedInto",
                 "SplitBrushSliverSidesTests.CorrectGivesNeitherHalfASliverWhicheverWayTheEdgeRounds",
@@ -1359,7 +1363,12 @@ public static class ComplianceCatalogue
                 "SplitBrushSliverSidesTests.UnderStockTheSliverMakesAHalfFaceAPlaneItDoesNotReach",
                 "SplitBrushSliverSidesTests.UnderCorrectNeitherHalfFacesAPlaneItDoesNotReach",
             ],
-            "@@NOTE@@"),
+            "The divergence left is not in the splitter. A flipped normalise moves a slanted plane "
+            + "itself by about 0.0016 at a vertex 2000 units out, past the box test's 0.001; it moves "
+            + "two nearly coplanar map planes, 0.012 apart, to within the plane table's 0.01 so they "
+            + "merge; and it adds or drops a near-duplicate edge bevel. Under Correct the halves of a "
+            + "split may reach up to 0.1 past the splitting plane, as a whole brush inside that band "
+            + "already does."),
 
         _ => throw new ArgumentOutOfRangeException(
             nameof(quirk), quirk, "no ComplianceCatalogue entry for this StockQuirk"),
