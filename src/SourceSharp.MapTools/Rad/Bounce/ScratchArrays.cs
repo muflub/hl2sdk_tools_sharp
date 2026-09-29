@@ -36,6 +36,22 @@ internal interface IScratchArrayPool
 
     /// <summary>Gives back an array <see cref="Rent{T}"/> handed out.</summary>
     void Return<T>(T[] array);
+
+    /// <summary>
+    /// The view worker <paramref name="workerIndex"/> of a stage should rent
+    /// through: for <see cref="CompileScratchPool"/>, that worker's own shard,
+    /// so the workers of a stage do not queue on one lock.
+    /// </summary>
+    /// <param name="workerIndex">The worker's index in its stage, from zero.</param>
+    /// <returns>A pool whose arrays are this pool's; by default this pool itself.</returns>
+    /// <remarks>
+    /// Only a hint about who is renting: an array rented through one view
+    /// may be returned through another, or through the pool itself, and a
+    /// view may be used by any thread. A pool with nothing to shard (a
+    /// fact's counting pool, <see cref="UnpooledScratch"/>) keeps the
+    /// default.
+    /// </remarks>
+    IScratchArrayPool ForWorker(int workerIndex) => this;
 }
 
 /// <summary>

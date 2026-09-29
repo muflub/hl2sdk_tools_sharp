@@ -135,7 +135,7 @@ public static class LeafAmbientBuilder
                 leafCount,
                 order,
                 parallelism,
-                () => new LeafWorker(scene, worldLights, traced, options, pool, reserve),
+                w => new LeafWorker(scene, worldLights, traced, options, pool.ForWorker(w), reserve),
                 options.BatchSegments,
                 TestLineStage.DefaultBatchItems,
                 "leaf ambient",

@@ -139,7 +139,15 @@ internal static class TestLineStage
     /// <param name="itemCount">How many items.</param>
     /// <param name="order">The order items are claimed in (largest first, say), or null for index order.</param>
     /// <param name="parallelism">The compile's parallelism.</param>
-    /// <param name="workerFactory">Makes one worker; called once per worker, before any runs.</param>
+    /// <param name="workerFactory">
+    /// Makes worker <c>w</c> of the stage; called once per worker, in index
+    /// order, before any runs. The index is for the worker's scratch: a
+    /// worker renting from the compile's pool rents through
+    /// <see cref="Bounce.IScratchArrayPool.ForWorker"/> with it, so the
+    /// stage's workers each have a shard of their own instead of all taking
+    /// from one list, and worker <c>w</c> of the next stage finds this one's
+    /// arrays first.
+    /// </param>
     /// <param name="batchSegments">The segments a batch closes at.</param>
     /// <param name="batchItems">The items a batch closes at.</param>
     /// <param name="stage">The stage's name, for progress and diagnostics.</param>
@@ -149,7 +157,7 @@ internal static class TestLineStage
         int itemCount,
         int[]? order,
         CompileParallelism parallelism,
-        Func<TestLineWorker<TState, TResult>> workerFactory,
+        Func<int, TestLineWorker<TState, TResult>> workerFactory,
         int batchSegments,
         int batchItems,
         string stage,
@@ -175,7 +183,7 @@ internal static class TestLineStage
         {
             for (; made < runners.Length; made++)
             {
-                runners[made] = new Runner<TState, TResult>(workerFactory(), claims, results, batchSegments, batchItems);
+                runners[made] = new Runner<TState, TResult>(workerFactory(made), claims, results, batchSegments, batchItems);
             }
 
             return await DriveAsync(queue, runners, results, stage, cancellationToken).ConfigureAwait(false);

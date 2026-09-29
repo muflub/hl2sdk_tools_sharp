@@ -240,7 +240,7 @@ public sealed partial class RadWorld
         {
             for (; made < pipelines.Length; made++)
             {
-                pipelines[made] = new FacelightPipeline(shared, Geometry.StockEstimates, pool);
+                pipelines[made] = new FacelightPipeline(shared, Geometry.StockEstimates, pool.ForWorker(made));
             }
 
             await queue.RunLoopAsync(

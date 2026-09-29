@@ -40,7 +40,7 @@ public sealed class TestLineStageTests
             items,
             order,
             new CompileParallelism { MaxDegree = degree },
-            () => new Counter(new TestLineBatch(tracer)),
+            _ => new Counter(new TestLineBatch(tracer)),
             batchSegments,
             batchItems,
             "test",
@@ -184,6 +184,38 @@ public sealed class TestLineStageTests
         Assert.Empty(tracer.VisibilityCalls);
     }
 
+    /// <summary>
+    /// Each worker is made with its index in the stage, once and in order, so
+    /// it can rent through its own shard of the compile's pool; the workers
+    /// still share the items as before.
+    /// </summary>
+    [Fact]
+    public async Task EachWorkerIsMadeWithItsIndex()
+    {
+        List<int> made = [];
+
+        int[] results = await TestLineStage.RunAsync(
+            40,
+            null,
+            new CompileParallelism { MaxDegree = 3 },
+            w =>
+            {
+                lock (made)
+                {
+                    made.Add(w);
+                }
+
+                return new Counter(new TestLineBatch(Floor));
+            },
+            8,
+            TestLineStage.DefaultBatchItems,
+            "test",
+            CancellationToken.None);
+
+        Assert.Equal([0, 1, 2], made);
+        Assert.Equal(40, results.Length);
+    }
+
     [Fact]
     public async Task BadBoundsAreRefused()
     {
@@ -224,7 +256,7 @@ public sealed class TestLineStageTests
             200,
             null,
             new CompileParallelism { MaxDegree = 3 },
-            () =>
+            _ =>
             {
                 Disposing w = new(new TestLineBatch(tracer, pool), tracer);
                 lock (workers)
@@ -271,7 +303,7 @@ public sealed class TestLineStageTests
             10,
             null,
             new CompileParallelism { MaxDegree = 3 },
-            () =>
+            _ =>
             {
                 if (workers.Count == 2)
                 {
@@ -323,7 +355,7 @@ public sealed class TestLineStageTests
             50,
             null,
             new CompileParallelism { MaxDegree = 2 },
-            () =>
+            _ =>
             {
                 Disposing w = new(new TestLineBatch(Floor, new RecyclingScratchPool()), null);
                 lock (workers)
@@ -345,7 +377,7 @@ public sealed class TestLineStageTests
             items,
             null,
             new CompileParallelism { MaxDegree = degree },
-            () =>
+            _ =>
             {
                 Counter c = new FullAt(new TestLineBatch(tracer), fullAtItems);
                 lock (workers)
