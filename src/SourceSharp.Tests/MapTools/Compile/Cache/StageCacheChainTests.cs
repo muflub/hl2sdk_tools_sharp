@@ -127,6 +127,47 @@ public sealed class StageCacheChainTests
         Assert.Equal(fresh.Vis.Pvs(0).ToArray(), replayed.Vis.Pvs(0).ToArray());
     }
 
+    [Fact]
+    public async Task ConcurrentCompilesOnOneSharedStoreWriteTheUncachedMap()
+    {
+        // What a service does: one store for every compile, compiles
+        // overlapping. Every one of them, cold or warm, writes the map a
+        // compile with no store writes.
+        InMemoryCacheStore store = await StoreAsync();
+        byte[] fresh = await BytesAsync((await CompileAsync(Room(), null)).Bsp!);
+
+        CompileResult[] cold = await Task.WhenAll(Enumerable.Range(0, 3).Select(_ => Task.Run(() => CompileAsync(Room(), store))));
+        CompileResult[] warm = await Task.WhenAll(Enumerable.Range(0, 3).Select(_ => Task.Run(() => CompileAsync(Room(), store))));
+
+        foreach (CompileResult result in cold.Concat(warm))
+        {
+            Assert.Equal(fresh, await BytesAsync(result.Bsp!));
+        }
+
+        Assert.Contains(warm, r => r.Cache!.StageHits.Count > 0);
+        Assert.Equal(0, store.RunsInFlight);
+    }
+
+    [Fact]
+    public async Task AStoreWithACeilingBelowOneCompileStaysUnderItAndChangesNoOutput()
+    {
+        // A ceiling too small for even one compile's rows: every commit
+        // trims, the store never holds more than the ceiling, and the maps
+        // are still the uncached ones.
+        InMemoryCacheStore store = new(4096);
+        await store.OpenAsync("memory");
+        byte[] fresh = await BytesAsync((await CompileAsync(Room(), null)).Bsp!);
+
+        for (int i = 0; i < 2; i++)
+        {
+            CompileResult result = await CompileAsync(Room(), store);
+            Assert.Equal(fresh, await BytesAsync(result.Bsp!));
+            Assert.True(store.Bytes <= store.MaxBytes);
+        }
+
+        Assert.True(store.RowsEvicted > 0);
+    }
+
     // Content, never mtimes: no key and no re-hash may read a modification
     // time. The two facts below pin both directions of the rule, the files'
     // times coming from a clock the fact sets.

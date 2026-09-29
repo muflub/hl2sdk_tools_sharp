@@ -164,7 +164,7 @@ public static class Vvis
         ArgumentNullException.ThrowIfNull(context);
 
         cancellationToken.ThrowIfCancellationRequested();
-        return RunAsync(bsp, portals, context, cancellationToken);
+        return HostHandoff.ReturnAsync(RunAsync(bsp, portals, context, cancellationToken));
     }
 
     /// <summary>
@@ -199,7 +199,7 @@ public static class Vvis
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        return FlowCoreAsync(portals, radius, context, cancellationToken);
+        return HostHandoff.ReturnAsync(FlowCoreAsync(portals, radius, context, cancellationToken));
     }
 
     /// <summary>
@@ -217,7 +217,7 @@ public static class Vvis
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="InvalidBspException">As <see cref="ComputeAsync"/>.</exception>
     /// <exception cref="OperationCanceledException">The compile was cancelled.</exception>
-    public static async Task<VisResult> FinishAsync(
+    public static Task<VisResult> FinishAsync(
         BspData bsp,
         VisFlow flow,
         VisContext context,
@@ -228,6 +228,16 @@ public static class Vvis
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
 
+        return HostHandoff.ReturnAsync(FinishWrittenAsync(bsp, flow, context, cancellationToken));
+    }
+
+    // FinishAsync's work: the tail, then its lumps into the BSP.
+    private static async Task<VisResult> FinishWrittenAsync(
+        BspData bsp,
+        VisFlow flow,
+        VisContext context,
+        CancellationToken cancellationToken)
+    {
         (VisResult result, VisLumps lumps) = await FinishCoreAsync(bsp, flow, context, cancellationToken)
             .ConfigureAwait(false);
         lumps.WriteTo(bsp);

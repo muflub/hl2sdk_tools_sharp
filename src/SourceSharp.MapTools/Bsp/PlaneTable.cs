@@ -222,9 +222,32 @@ public sealed class PlaneTable
     /// INSERTION is the half stock keeps here, and it is the half that decides
     /// the index this returns.
     /// </remarks>
-    public int FromPoints(Vec3 p0, Vec3 p1, Vec3 p2, bool snapAxialPlanes)
+    public int FromPoints(Vec3 p0, Vec3 p1, Vec3 p2, bool snapAxialPlanes) =>
+        FromPoints(p0, p1, p2, snapAxialPlanes, estimateNormalise: false);
+
+    /// <summary>
+    /// Finds the plane through three points, or appends it, choosing how the
+    /// normal is normalised.
+    /// </summary>
+    /// <param name="p0">The first point.</param>
+    /// <param name="p1">The second point, the corner the edges meet at.</param>
+    /// <param name="p2">The third point.</param>
+    /// <param name="snapAxialPlanes">
+    /// Stock's <c>g_snapAxialPlanes</c> (<c>-snapaxial</c>).
+    /// </param>
+    /// <param name="estimateNormalise">
+    /// True for stock's estimate-based normalise, false for the exact divide:
+    /// the two sides of <c>StockQuirk.PlaneFromPointsNormalise</c>, which the
+    /// map loader decides. See <see cref="Plane.FromPoints(Vec3, Vec3, Vec3, bool)"/>.
+    /// </param>
+    /// <returns>The plane's index in this table.</returns>
+    /// <exception cref="MapCompileException">
+    /// The three points are colinear enough that the normal is shorter than
+    /// 0.5, or the table is full.
+    /// </exception>
+    public int FromPoints(Vec3 p0, Vec3 p1, Vec3 p2, bool snapAxialPlanes, bool estimateNormalise)
     {
-        Plane plane = Plane.FromPoints(p0, p1, p2)
+        Plane plane = Plane.FromPoints(p0, p1, p2, estimateNormalise)
             .SnappedThroughPoints(p0, p1, p2, snapAxialPlanes);
 
         // Stock reaches FindFloatPlane, whose own SnapPlane then runs a second

@@ -89,6 +89,16 @@ jobs:
           dotnet build tools/RoomsSample/RoomsSample.csproj -c Release
           dotnet tools/RoomsSample/bin/Release/net10.0/RoomsSample.dll --check samples/rooms-3x3
 
+      # WarmBench (tools/WarmBench) is outside the solution too, and drives
+      # MapTools through its public API only, the way a third-party host
+      # would; building it here keeps that API sufficient for a host, and
+      # --help checks that it starts. It compiles nothing here: a warm run
+      # takes minutes and needs a game directory.
+      - name: WarmBench builds
+        run: |
+          dotnet build tools/WarmBench/WarmBench.csproj -c Release
+          dotnet tools/WarmBench/bin/Release/net10.0/WarmBench.dll --help
+
       - name: Test
         env:
           SS_CAPTURE_VENDOR_GOLDENS: ${{ inputs.capture && '1' || '' }}

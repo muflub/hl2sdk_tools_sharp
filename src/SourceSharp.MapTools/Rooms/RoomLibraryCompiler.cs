@@ -77,6 +77,19 @@ public sealed class RoomLibraryCompileSettings(VbspOptions options, IContentFile
     public ICollisionCooker? CollisionCooker { get; init; }
 
     /// <summary>
+    /// A static-prop hull cache every room shares, or null for each room to
+    /// cook every prop model it names. The caller owns it.
+    /// </summary>
+    /// <remarks>
+    /// A library's rooms are furnished from one set of models, so most of
+    /// them name the same few: with the cache each distinct model is cooked
+    /// about once for the library rather than once per room. It keys hulls
+    /// on their vertices and cooker, not on the room, so every room still
+    /// gets the bytes it would get alone (see <see cref="Bsp.Collision.PropHullCache"/>).
+    /// </remarks>
+    public Bsp.Collision.PropHullCache? PropHullCache { get; init; }
+
+    /// <summary>
     /// The library's navigation settings (<see cref="NavSettings.FromLibrary"/>),
     /// or null to build none. With settings, each room's
     /// <see cref="RoomPois"/> are taken out of its VMF before it compiles and
@@ -129,6 +142,7 @@ public sealed class RoomLibraryCompileSettings(VbspOptions options, IContentFile
     internal RoomLibraryCompileSettings WithContent(IContentFileSystem content) => new(Options, content)
     {
         CollisionCooker = CollisionCooker,
+        PropHullCache = PropHullCache,
         Nav = Nav,
         NameKeys = NameKeys,
         Parallelism = Parallelism,
@@ -219,11 +233,20 @@ public static class RoomLibraryCompiler
     /// <returns>A task that completes once every room has been delivered.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="OperationCanceledException">The token fired; rooms not yet delivered never will be.</exception>
-    public static async Task CompileAsync(
+    public static Task CompileAsync(
         IReadOnlyList<LibraryRoom> rooms,
         RoomLibraryCompileSettings settings,
         Func<RoomCompileOutcome, CancellationToken, ValueTask> roomFinished,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        // The host resumes on a fresh stack, not on the worker the last room
+        // finished on (HostHandoff says why).
+        HostHandoff.ReturnAsync(CompileCoreAsync(rooms, settings, roomFinished, cancellationToken));
+
+    private static async Task CompileCoreAsync(
+        IReadOnlyList<LibraryRoom> rooms,
+        RoomLibraryCompileSettings settings,
+        Func<RoomCompileOutcome, CancellationToken, ValueTask> roomFinished,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rooms);
         ArgumentNullException.ThrowIfNull(settings);
@@ -336,6 +359,7 @@ public static class RoomLibraryCompiler
             MapBase = room.Definition.Name.ToLowerInvariant(),
 #pragma warning restore CA1308
             CollisionCooker = cooker,
+            PropHullCache = settings.PropHullCache,
             Parallelism = parallelism,
         };
 

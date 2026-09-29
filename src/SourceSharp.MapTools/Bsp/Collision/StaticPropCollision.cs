@@ -7,6 +7,7 @@
 
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Phys;
 
 namespace SourceSharp.MapTools.Bsp.Collision;
@@ -255,17 +256,41 @@ public static class StaticPropCollision
 /// retried. One instance per compile; not shared between compiles, because
 /// the content that answers a model name belongs to the compile.
 /// </summary>
+/// <remarks>
+/// A compile may also be given a host's <see cref="PropHullCache"/>, which
+/// is shared between compiles and keyed by what a cook reads rather than by
+/// name. This per-compile cache still sits in front of it: the name decides
+/// which model a compile means, the shared cache only saves cooking the
+/// meshes that name loaded.
+/// </remarks>
 public sealed class StaticPropHullCache
 {
     private readonly Dictionary<string, Task<StaticPropHull>> _hulls = new(StringComparer.Ordinal);
     private readonly ICollisionCooker _cooker;
+    private readonly PropHullCache? _shared;
+    private readonly byte[]? _sharedContext;
 
     /// <summary>Creates a cache over a cooker.</summary>
     /// <param name="cooker">The cooker hulls are made with.</param>
     public StaticPropHullCache(ICollisionCooker cooker)
+        : this(cooker, null, ComplianceOptions.Correct)
+    {
+    }
+
+    /// <summary>Creates a cache over a cooker, backed by a host's cache shared between compiles.</summary>
+    /// <param name="cooker">The cooker hulls are made with.</param>
+    /// <param name="shared">The host's cross-compile cache, or null to cook every model this compile names.</param>
+    /// <param name="compliance">The compile's compliance, folded into the shared cache's keys.</param>
+    public StaticPropHullCache(ICollisionCooker cooker, PropHullCache? shared, ComplianceOptions compliance)
     {
         ArgumentNullException.ThrowIfNull(cooker);
+        ArgumentNullException.ThrowIfNull(compliance);
         _cooker = cooker;
+        _shared = shared;
+
+        // Once per compile: the cooker and the compliance do not change
+        // within one, and the identity strings are the costly part to fold.
+        _sharedContext = shared is null ? null : PropHullKey.Context(cooker.CookerIdentity, compliance);
     }
 
     /// <summary>How many models have an entry.</summary>
@@ -306,8 +331,31 @@ public sealed class StaticPropHullCache
         CancellationToken cancellationToken)
     {
         IReadOnlyList<Vec3[]>? meshes = await loadMeshes(cancellationToken).ConfigureAwait(false);
-        return meshes is null
-            ? new StaticPropHull(name, null)
-            : await StaticPropCollision.CookHullAsync(_cooker, name, meshes, cancellationToken).ConfigureAwait(false);
+        if (meshes is null)
+        {
+            return new StaticPropHull(name, null);
+        }
+
+        if (_shared is null)
+        {
+            return await StaticPropCollision.CookHullAsync(_cooker, name, meshes, cancellationToken).ConfigureAwait(false);
+        }
+
+        PropHullKey key = PropHullKey.Of(_sharedContext!, meshes);
+        if (_shared.TryGet(key, out byte[]? cached))
+        {
+            return new StaticPropHull(name, cached);
+        }
+
+        StaticPropHull hull = await StaticPropCollision.CookHullAsync(_cooker, name, meshes, cancellationToken)
+            .ConfigureAwait(false);
+
+        // A cancelled compile leaves nothing in shared state. A cook whose
+        // token fired while it ran is dropped even though its bytes are
+        // probably right: "probably" is not what a cache other compiles
+        // replay without checking should be built on.
+        cancellationToken.ThrowIfCancellationRequested();
+        _shared.Add(key, hull.Blob);
+        return hull;
     }
 }

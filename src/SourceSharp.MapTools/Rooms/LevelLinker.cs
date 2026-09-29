@@ -190,12 +190,23 @@ public static partial class LevelLinker
     /// As for the overload without options, and a level whose edicts pass
     /// the cap or whose entity list passes what a map may hold.
     /// </exception>
-    public static async Task<LinkedLevel> LinkAsync(
+    public static Task<LinkedLevel> LinkAsync(
         LevelLayout layout,
         RoomLibrary library,
         VbspContext context,
         LevelLinkOptions options,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        // The host resumes on a fresh stack, not on the planning worker the
+        // link finished on, whose frames hold the link's scratch until they
+        // return (HostHandoff says why).
+        HostHandoff.ReturnAsync(LinkCoreAsync(layout, library, context, options, cancellationToken));
+
+    private static async Task<LinkedLevel> LinkCoreAsync(
+        LevelLayout layout,
+        RoomLibrary library,
+        VbspContext context,
+        LevelLinkOptions options,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(library);

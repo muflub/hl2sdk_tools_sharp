@@ -12,6 +12,7 @@ using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Materials;
+using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Phys;
 
 namespace SourceSharp.MapTools.Bsp;
@@ -526,8 +527,16 @@ public static class MapFileLoader
             side.Contents = 0;
         }
 
+        // StockQuirk.PlaneFromPointsNormalise: stock normalises the side's
+        // cross product with the estimate, so under Stock the table holds
+        // the estimate's bits and every later epsilon match is made against
+        // them.
         int planeNumber = map.Planes.FromPoints(
-            planePoints[0], planePoints[1], planePoints[2], context.Options.SnapAxialPlanes);
+            planePoints[0],
+            planePoints[1],
+            planePoints[2],
+            context.Options.SnapAxialPlanes,
+            context.Options.Compliance.Emulates(StockQuirk.PlaneFromPointsNormalise));
 
         for (int k = 0; k < brush.SideCount; k++)
         {

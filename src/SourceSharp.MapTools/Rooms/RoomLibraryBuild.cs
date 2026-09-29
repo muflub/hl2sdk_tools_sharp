@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using SourceSharp.MapTools.Nav;
+using SourceSharp.MapTools.Parallel;
 
 namespace SourceSharp.MapTools.Rooms;
 
@@ -116,13 +117,24 @@ public static class RoomLibraryBuild
     /// <returns>A task that completes once every room has been delivered.</returns>
     /// <exception cref="ArgumentNullException">An argument other than <paramref name="cache"/> is null.</exception>
     /// <exception cref="OperationCanceledException">The token fired.</exception>
-    public static async Task BuildAsync(
+    public static Task BuildAsync(
         IReadOnlyList<LibraryRoom> rooms,
         RoomLibraryCompileSettings settings,
         RoomNavPackOptions packOptions,
         RoomCompileCache? cache,
         Func<RoomBuildOutcome, CancellationToken, ValueTask> roomFinished,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        // The host resumes on a fresh stack, not on the worker the last room
+        // finished on (HostHandoff says why).
+        HostHandoff.ReturnAsync(BuildCoreAsync(rooms, settings, packOptions, cache, roomFinished, cancellationToken));
+
+    private static async Task BuildCoreAsync(
+        IReadOnlyList<LibraryRoom> rooms,
+        RoomLibraryCompileSettings settings,
+        RoomNavPackOptions packOptions,
+        RoomCompileCache? cache,
+        Func<RoomBuildOutcome, CancellationToken, ValueTask> roomFinished,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rooms);
         ArgumentNullException.ThrowIfNull(settings);
