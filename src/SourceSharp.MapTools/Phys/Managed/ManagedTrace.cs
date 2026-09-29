@@ -36,9 +36,11 @@ internal static class ManagedTrace
     /// later gives the same bits as asking at once.
     /// </para>
     /// <para>
-    /// A convex lives only inside the one query (or the one <see cref="LedgeTree"/>) that made
+    /// A convex lives only inside the session (or the one <see cref="LedgeTree"/>) that made
     /// it, on the thread that made it, so the qhull storage it builds its hull with later is
-    /// still that thread's and still idle between builds.
+    /// still that thread's and still idle between builds. A session reuses a collide's placed
+    /// convexes across its queries (<c>ManagedCollisionSession.PlacedConvexes</c>), which is
+    /// safe because nothing a query does changes a convex other than building its planes once.
     /// </para>
     /// </remarks>
     internal sealed class Convex
@@ -365,6 +367,14 @@ internal static class ManagedTrace
         var tree = new LedgeTree(surface, doublePrecision, hulls);
         float[] areas = [1f, 1f, 1f];
         float halfSide = (float)(side * 0.5);
+
+        // The ray's two ends, reused for every ray of the grid: each ray sets
+        // all three of their components (axis, u and v are a permutation of
+        // 0, 1, 2), so nothing carries over from the ray before. Two arrays
+        // per ray was the largest allocation site in a 2fort vbsp, about
+        // 65 MB of garbage over the drag areas of all its collides.
+        Span<float> s = stackalloc float[3];
+        Span<float> e = stackalloc float[3];
         for (int axis = 0; axis < 3; axis++)
         {
             int u = (axis + 1) % 3;
@@ -375,8 +385,6 @@ internal static class ManagedTrace
             {
                 for (float v0 = mins[v] + halfSide; v0 < maxs[v]; v0 += side)
                 {
-                    float[] s = new float[3];
-                    float[] e = new float[3];
                     s[axis] = mins[axis] - 1;
                     e[axis] = maxs[axis] + 1;
                     s[u] = u0;

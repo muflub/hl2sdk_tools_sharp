@@ -425,8 +425,8 @@ public static class Program
             usage: ssmap <command> [options]
 
               vbsp|vvis|vrad <stock-compatible args>   one stage, stock spelling
-                                                       vrad also: --bench (stage times),
-                                                       --no-game-content (light even when
+                                                       each also: --bench (stage times);
+                                                       vrad also: --no-game-content (light even when
                                                        -game cannot be mounted; the default
                                                        fails, as stock does)
               all [chain options] <map> [--vbsp ...] [--vvis ...] [--vrad ...]

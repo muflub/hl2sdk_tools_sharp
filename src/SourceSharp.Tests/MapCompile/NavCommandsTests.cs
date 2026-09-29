@@ -5,7 +5,9 @@
 //
 //=============================================================================//
 
+using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 using SourceSharp.MapCompile;
 using SourceSharp.MapFormats.Bsp;
@@ -18,6 +20,7 @@ using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Nav;
 using SourceSharp.MapTools.Rooms;
+using SourceSharp.Tests.MapTools.Compile;
 using SourceSharp.Tests.MapTools.Rooms;
 
 using Xunit;
@@ -115,10 +118,21 @@ public sealed class NavCommandsTests
         Assert.True(exit == Program.ExitSuccess, log);
         (exit, log) = await LinkAsync(fs);
         Assert.True(exit == Program.ExitSuccess, log);
-        Assert.Contains($"ssmap link: wrote {Path.GetFullPath("/out/level.nav3d")} (2 agents, 11 points of interest)", log, StringComparison.Ordinal);
+        // Three authored points and one per door (two joins, a door each side).
+        Match wrote = Regex.Match(log, $@"ssmap link: wrote {Regex.Escape(Path.GetFullPath("/out/level.nav3d"))} \((\d+) leaves, 2 presets, 7 points of interest, (\d+) jump links, (\d+) bytes\)");
+        Assert.True(wrote.Success, log);
         Assert.DoesNotContain("warning", log, StringComparison.Ordinal);
 
-        Nav3dReader nav = Nav3dReader.Open(fs.GetBytes(At("/out/level.nav3d"))!);
+        // The map's line comes first: it is written before the navigation is stitched.
+        Assert.True(log.IndexOf("ssmap link: wrote " + Path.GetFullPath("/out/level.bsp"), StringComparison.Ordinal) < wrote.Index);
+
+        byte[] file = fs.GetBytes(At("/out/level.nav3d"))!;
+        Nav3dReader nav = Nav3dReader.Open(file);
+        Assert.Equal((nav.LeafCount, nav.JumpCount, file.Length), (int.Parse(wrote.Groups[1].Value, CultureInfo.InvariantCulture),
+            int.Parse(wrote.Groups[2].Value, CultureInfo.InvariantCulture), int.Parse(wrote.Groups[3].Value, CultureInfo.InvariantCulture)));
+
+        // Stored with the default codec, Brotli.
+        Assert.Equal(LevelNavFromPack.DefaultCompression.Codec, nav.Codec);
         BspData map = await MapAsync(fs);
         BspEntity world = EntityLump.Parse(map[BspLump.Entities])[0];
         Assert.True(nav.MatchesMap(world.Get(RoomCompileIds.LevelIdKey)));
@@ -129,7 +143,7 @@ public sealed class NavCommandsTests
         Assert.Equal(3, NavInspector.Stats(nav, 0).RoomsInLargestComponent);
 
         // The points: two arrivals (the up room's is the spawn), the cover
-        // point named for its cell, and a door point per door and agent.
+        // point named for its cell, and a door point per door for every preset.
         Assert.True(nav.TryGetSpawn(out Vec3 spawn, out float yaw));
         Assert.Equal((new Vec3(100, 128, 16), 0f), (spawn, yaw));
         Assert.Equal(Nav3dRoomRole.Down, nav.Poi(nav.DownArrivalPoi).Role);
@@ -138,7 +152,43 @@ public sealed class NavCommandsTests
         Assert.Equal("c1r0_cover", cover.Name);
         Assert.Equal(new Vec3(256 + 128, 100, 16), cover.Position);
         Assert.All(Enumerable.Range(0, nav.PoiCount).Select(nav.Poi).Where(p => p.Type == RoomPois.DoorType),
-            p => Assert.True((p.Flags & Nav3dPoiFlags.Joined) != 0));
+            p => Assert.True((p.Flags & Nav3dPoiFlags.Joined) != 0 && p.AgentMask == 0b11));
+        Assert.Equal(4, Enumerable.Range(0, nav.PoiCount).Count(p => nav.Poi(p).Type == RoomPois.DoorType));
+    }
+
+    /// <summary>
+    /// <c>ssmap link</c> writes the map, then stitches and writes the
+    /// navigation: when the navigation's write fails, the map is already on
+    /// disk, whole, and the link says so and fails.
+    /// </summary>
+    [Fact]
+    public async Task TheMapIsWrittenBeforeTheNavigationAndSurvivesItsFailure()
+    {
+        InMemoryFileSystem fs = Game();
+        Assert.Equal(Program.ExitSuccess, (await RoomAsync(fs)).Exit);
+        List<string> order = [];
+        ProbeFileSystem probe = new(fs)
+        {
+            BeforeReplace = path =>
+            {
+                order.Add(path.ToString());
+                if (path.ToString().EndsWith(".nav3d", StringComparison.Ordinal))
+                {
+                    Assert.NotNull(fs.GetBytes(At("/out/level.bsp")));
+                    throw new IOException("the disk is full");
+                }
+
+                return Task.CompletedTask;
+            },
+        };
+        (int exit, string log) = await LinkAsync(probe);
+        Assert.Equal(RoomCommands.ExitFailed, exit);
+        Assert.Equal(2, order.Count);
+        Assert.EndsWith("level.bsp", order[0], StringComparison.Ordinal);
+        Assert.EndsWith("level.nav3d", order[1], StringComparison.Ordinal);
+        Assert.Contains("the map was written, but its navigation failed: the disk is full", log, StringComparison.Ordinal);
+        Assert.Null(fs.GetBytes(At("/out/level.nav3d")));
+        Assert.NotNull(RoomCompileIds.LevelIdOf(await MapAsync(fs)));
     }
 
     [Fact]
@@ -350,7 +400,7 @@ public sealed class NavCommandsTests
         Assert.Equal(Program.ExitSuccess, await NavCommand.RunAsync(fs, ["/levels/level.yaml", "-rooms", "/rooms.roompack", "--obj", "/out/boxes.obj"], fromLevel));
         Assert.Equal(fromFile.ToString().Split('\n')[..^1].Where(l => !l.StartsWith("ssmap", StringComparison.Ordinal)),
             fromLevel.ToString().Split('\n')[..^1].Where(l => !l.StartsWith("ssmap", StringComparison.Ordinal)));
-        Assert.Contains("free leaves", Encoding.UTF8.GetString(fs.GetBytes(At("/out/boxes.obj"))!), StringComparison.Ordinal);
+        Assert.StartsWith("# ssmap nav: every leaf, leaves\n", Encoding.UTF8.GetString(fs.GetBytes(At("/out/boxes.obj"))!), StringComparison.Ordinal);
     }
 
     [Theory]

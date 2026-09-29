@@ -173,24 +173,19 @@ public static class StaticPropCollision
             DNode n = w.Nodes[node];
             DPlane plane = w.Planes[n.PlaneNum];
 
-            // "Arbitrary split plane here"
-            float[] cmin = new float[3], cmax = new float[3];
-            for (int i = 0; i < 3; i++)
-            {
-                if (plane.Normal[i] >= 0)
-                {
-                    cmin[i] = mins[i];
-                    cmax[i] = maxs[i];
-                }
-                else
-                {
-                    cmin[i] = maxs[i];
-                    cmax[i] = mins[i];
-                }
-            }
-
-            Vec3 cornerMin = new(cmin[0], cmin[1], cmin[2]);
-            Vec3 cornerMax = new(cmax[0], cmax[1], cmax[2]);
+            // "Arbitrary split plane here": the box's corners nearest and
+            // farthest along the normal, chosen per axis by the normal's
+            // sign. Built in place rather than in two arrays per node, which
+            // were garbage for every node of every prop's walk.
+            Vec3 normal = plane.Normal;
+            Vec3 cornerMin = new(
+                normal.X >= 0 ? mins.X : maxs.X,
+                normal.Y >= 0 ? mins.Y : maxs.Y,
+                normal.Z >= 0 ? mins.Z : maxs.Z);
+            Vec3 cornerMax = new(
+                normal.X >= 0 ? maxs.X : mins.X,
+                normal.Y >= 0 ? maxs.Y : mins.Y,
+                normal.Z >= 0 ? maxs.Z : mins.Z);
 
             if (Vec3.Dot(plane.Normal, cornerMax) <= plane.Dist)
             {

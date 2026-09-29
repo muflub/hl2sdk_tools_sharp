@@ -918,27 +918,39 @@ public static class BrushBspTree
             && HasAtLeast(backList, parallel.MinBrushes))
         {
             BspBuildContext fork = context.Fork();
-            fork.TakeWindings(context, backList, backVolume);
+            try
+            {
+                fork.TakeWindings(context, backList, backVolume);
 
-            CallerParallelFor.For(
-                2,
-                2,
-                scheduler,
-                static () => 0,
-                (half, _) =>
-                {
-                    if (half == 0)
+                CallerParallelFor.For(
+                    2,
+                    2,
+                    scheduler,
+                    static () => 0,
+                    (half, _) =>
                     {
-                        BuildTree(context, front, frontList, parallel, forkDepth + 1);
-                    }
-                    else
-                    {
-                        BuildTree(fork, back, backList, parallel, forkDepth + 1);
-                    }
-                },
-                parallel.CancellationToken);
+                        if (half == 0)
+                        {
+                            BuildTree(context, front, frontList, parallel, forkDepth + 1);
+                        }
+                        else
+                        {
+                            BuildTree(fork, back, backList, parallel, forkDepth + 1);
+                        }
+                    },
+                    parallel.CancellationToken);
 
-            context.Join(fork, back);
+                context.Join(fork, back);
+            }
+            finally
+            {
+                // Joined, failed or cancelled, the fork's windings are read
+                // no more (Join copied the live ones home; a failed subtree
+                // is never joined) and no helper is still running, so its
+                // arena goes back for the next fork.
+                fork.ReleaseForkWindings();
+            }
+
             return node;
         }
 

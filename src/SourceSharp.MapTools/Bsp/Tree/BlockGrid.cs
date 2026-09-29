@@ -183,24 +183,60 @@ public static class BlockGrid
 
         if (brushes is null)
         {
-            BspNode empty = context.AllocNode();
-            empty.PlaneNumber = BspNode.Leaf;
-            empty.Contents = (int)BrushContents.Solid;
             statistics = new BlockBuildStatistics(blockX, blockY, null, null);
-            return empty;
+            return SolidBlock(context);
         }
 
+        return CarveBlock(context, blockX, blockY, brushes, mins, maxs, out statistics);
+    }
+
+    /// <summary>
+    /// The leaf that stands for a block whose brush list came out empty: a
+    /// solid one (see <see cref="ProcessBlock"/>).
+    /// </summary>
+    /// <param name="context">The context to allocate it in.</param>
+    /// <returns>The leaf.</returns>
+    internal static BspNode SolidBlock(BspBuildContext context)
+    {
+        BspNode empty = context.AllocNode();
+        empty.PlaneNumber = BspNode.Leaf;
+        empty.Contents = (int)BrushContents.Solid;
+        return empty;
+    }
+
+    /// <summary>
+    /// The rest of <see cref="ProcessBlock"/> once a block has brushes: the
+    /// areaportal-water fixup, the CSG chop and the block's tree.
+    /// </summary>
+    /// <param name="context">The context to build in.</param>
+    /// <param name="blockX">The block's X.</param>
+    /// <param name="blockY">The block's Y.</param>
+    /// <param name="brushes">The block's brush list, not empty.</param>
+    /// <param name="mins">The block's minimum.</param>
+    /// <param name="maxs">The block's maximum.</param>
+    /// <param name="statistics">The block's record.</param>
+    /// <returns>The block tree's head node.</returns>
+    internal static BspNode CarveBlock(
+        BspBuildContext context,
+        int blockX,
+        int blockY,
+        BspBrush brushes,
+        Vec3 mins,
+        Vec3 maxs,
+        out BlockBuildStatistics statistics)
+    {
         AreaportalWaterFixup.FixupAreaportalWaterBrushes(context, brushes);
 
+        BspBrush? list = brushes;
         ChopStatistics? chop = null;
         if (!context.Options.NoCsg)
         {
-            int input = BrushCsg.CountBrushList(brushes);
-            brushes = BrushCsg.ChopBrushes(context, brushes);
-            chop = new ChopStatistics(input, BrushCsg.CountBrushList(brushes));
+            int input = BrushCsg.CountBrushList(list);
+            list = BrushCsg.ChopBrushes(context, list);
+            chop = new ChopStatistics(input, BrushCsg.CountBrushList(list));
         }
 
-        BspTree tree = BrushBspTree.BrushBsp(context, brushes, mins, maxs);
+        BspTree tree = BrushBspTree.BrushBsp(context, list, mins, maxs);
         statistics = new BlockBuildStatistics(blockX, blockY, chop, tree.Statistics);
 
         return tree.HeadNode!;
@@ -348,14 +384,21 @@ public static class BlockGrid
 
         int count = (grid.MaxX - grid.MinX + 1) * (grid.MaxY - grid.MinY + 1);
 
-        for (int blockNumber = 0; blockNumber < count; blockNumber++)
+        if (ParallelWorldPass.Applies(context, count))
         {
-            int blockY = grid.MinY + (blockNumber / (grid.MaxX - grid.MinX + 1));
-            int blockX = grid.MinX + (blockNumber % (grid.MaxX - grid.MinX + 1));
+            records.AddRange(ParallelWorldPass.BuildBlocks(context, grid, blocks));
+        }
+        else
+        {
+            for (int blockNumber = 0; blockNumber < count; blockNumber++)
+            {
+                int blockY = grid.MinY + (blockNumber / (grid.MaxX - grid.MinX + 1));
+                int blockX = grid.MinX + (blockNumber % (grid.MaxX - grid.MinX + 1));
 
-            BspNode head = ProcessBlock(context, blockX, blockY, out BlockBuildStatistics record);
-            blocks[blockX - BlockMin + 1, blockY - BlockMin + 1] = head;
-            records.Add(record);
+                BspNode head = ProcessBlock(context, blockX, blockY, out BlockBuildStatistics record);
+                blocks[blockX - BlockMin + 1, blockY - BlockMin + 1] = head;
+                records.Add(record);
+            }
         }
 
         BspTree tree = new()

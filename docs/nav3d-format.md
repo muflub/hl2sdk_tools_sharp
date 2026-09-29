@@ -1,11 +1,11 @@
 # The `.nav3d` level navigation file
 
 `ssmap link` writes `<map>.nav3d` beside every linked `<map>.bsp`: a 3D
-navigation of the level's free space, for agents that walk, climb and fly.
-This document is the file's specification. It is written so a reader can be
-built from it alone, in any language; the C# reader in
-`SourceSharp.MapFormats` (`Nav3dReader`) is one such reader, and the facts
-check the two against each other.
+navigation of the level's free space for agents that walk, climb, jump,
+swim and fly, of any box size. This document is the file's specification,
+version **2**. It is written so a reader can be built from it alone, in any
+language; the C# reader in `SourceSharp.MapFormats` (`Nav3dReader`) is one
+such reader, and the facts check the two against each other.
 
 Contents:
 
@@ -13,16 +13,20 @@ Contents:
 2. [Coordinates and conventions](#2-coordinates-and-conventions)
 3. [Layout](#3-layout): envelope, header, section directory
 4. [Sections](#4-sections): every record, byte by byte
-5. [Octree nodes and point lookup](#5-octree-nodes-and-point-lookup)
-6. [Leaves, flags and neighbours](#6-leaves-flags-and-neighbours)
-7. [Points of interest, the spawn and arrivals](#7-points-of-interest-the-spawn-and-arrivals)
-8. [Ids: tying the navigation to its map](#8-ids-tying-the-navigation-to-its-map)
-9. [How a reader walks it](#9-how-a-reader-walks-it) (C++-style pseudocode)
-10. [Using the reader from the mod (C#)](#10-using-the-reader-from-the-mod-c)
-11. [A worked example](#11-a-worked-example)
-12. [Versioning](#12-versioning)
-13. [Where the data comes from](#13-where-the-data-comes-from): configuration, room pack sections, seams
-14. [Measurements and the choices they made](#14-measurements-and-the-choices-they-made)
+5. [Clearance records](#5-clearance-records): one record answers every agent size, and why it is exact
+6. [Columns, leaves and point lookup](#6-columns-leaves-and-point-lookup)
+7. [Queries: fit, standing, head room, steps](#7-queries-fit-standing-head-room-steps)
+8. [What a reader derives at load](#8-what-a-reader-derives-at-load): neighbours, components, points' and obstacles' leaves
+9. [Traversal: steps, jumps, ladders, water, costs](#9-traversal-steps-jumps-ladders-water-costs)
+10. [Dynamic obstacles](#10-dynamic-obstacles): doors, movers, breakables, props at run time
+11. [Points of interest, the spawn and arrivals](#11-points-of-interest-the-spawn-and-arrivals)
+12. [Ids: tying the navigation to its map](#12-ids-tying-the-navigation-to-its-map)
+13. [How a reader walks it](#13-how-a-reader-walks-it) (C++-style walk-through)
+14. [Using the reader from the mod (C#)](#14-using-the-reader-from-the-mod-c)
+15. [A worked example](#15-a-worked-example), byte by byte
+16. [Versioning](#16-versioning)
+17. [Where the data comes from](#17-where-the-data-comes-from): configuration, the room pack, seams, the map-first link
+18. [Measurements and the choices they made](#18-measurements-and-the-choices-they-made)
 
 ---
 
@@ -30,60 +34,72 @@ Contents:
 
 A level is a grid of cubic **cells**, one room per cell (some cells empty).
 Each cell is split into **voxels**, `cellVoxels` along each edge (16 by
-default: a 256-unit cell, 16-unit voxels).
+default: a 256-unit cell, 16-unit voxels). Each voxel **column** of a placed
+cell lists its free space as **leaves**: runs of voxels, bottom to top, each
+run a stretch of the column where everything the file knows is the same.
+Solid is simply not listed.
 
-For each **agent** (a box size and the contents it collides with), and each
-placed cell, the file holds a **sparse voxel octree** of that cell. An octree
-node is either split into eight children, or is uniform: **free**, **blocked**
-or **outside** the cell. A uniform free node is a **leaf**: a cube of voxels
-the agent is free in everywhere, with the same **contact flags** everywhere.
-Open space far from surfaces merges into large leaves; space next to a floor,
-wall or ceiling stays at the voxel size, where its flags differ.
+Every leaf carries two **clearance records**, one for each **clip class**
+(player clip or monster clip; everything else solid stops both). A record
+answers, for **every** axis-aligned agent box at once, whether the agent fits
+in a voxel of the leaf: the file does not depend on which agents a game
+uses. The **presets** the file names (`standing`, `flyer`, ...) are a
+convenience recorded for the runtime; the grid is the same with none.
 
-**Free means the agent fits.** A voxel is free when the agent's box, placed
-with its origin *anywhere* in the voxel, overlaps no solid it collides with:
-the solids grown by the agent's box (a Minkowski sum), tested exactly. So a
-free leaf is a guarantee, not a likelihood.
+A leaf also carries its **floor** per class (the height of the solid right
+under its bottom voxel, and whether it is walkable), its **water** and
+**ladder** flags, and a **cost** multiplier.
 
-Across leaves the file holds **adjacency** (every pair of leaves that share
-part of a face, including pairs in two rooms joined through a door),
-**connected components**, the level's **doors**, and **points of interest**.
+Beside the grid the file holds the level's **doors**, **points of
+interest**, **dynamic obstacles** (doors, movers, breakables, props: open
+space in the grid, tagged so the runtime can block them), **jump links**
+between floors, and the few **overhanging brushes** whose shape a record's
+corners cannot state.
 
-The file does not choose how agents move. A walker restricts itself to leaves
-with the `Floor` flag; a climber to `Floor`, `Wall` and `Ceiling` leaves; a
-flyer uses any free leaf. The graph is the same for all three.
+It does **not** hold adjacency or components: they are a pure function of
+the columns, so every reader derives them at load, deterministically
+(section 8). Version 1 stored them, at about half its size.
+
+**Free means the agent fits.** An agent fits in a voxel when its box, with
+its origin *anywhere* in the voxel, overlaps no solid of its class. That is
+exact, not sampled: facts compare it voxel for voxel with a direct box sweep
+of the compiled map (section 5.4).
+
+The file does not choose how agents move. A walker stands on walkable
+floors and steps by the step height; a jumper also takes jump links; a
+climber uses ladder leaves; a flyer goes anywhere it fits.
 
 ## 2. Coordinates and conventions
 
 - **Units** are Source units (inches). **Z is up.** Rotation is
   counter-clockwise seen from above.
-- **Endianness**: every multi-byte value is **little-endian**. Floats are IEEE
-  754 binary32. Ids are 16 bytes in RFC 9562 (big-endian, "network") order.
+- **Endianness**: every multi-byte value is **little-endian**. Floats are
+  IEEE 754 binary32, `±∞` allowed where stated. Ids are 16 bytes in RFC 9562
+  (big-endian, "network") order.
 - **The grid**: `columns` cells west to east (+x), `rows` south to north
   (+y). Cell `(column, row)` has index `row × columns + column` and spans
-  `origin + (column × cellSize, row × cellSize, 0)` to that plus `cellSize` on
-  every axis. The linker's origin is `(0, 0, 0)`.
-- **Voxels**: `voxelSize = cellSize / cellVoxels`. A **level voxel coordinate**
-  counts voxels from the origin: voxel `(X, Y, Z)` spans
-  `origin + (X, Y, Z) × voxelSize` to that plus `voxelSize`. Cell `c`'s voxels
-  are `X` in `[column × cellVoxels, (column + 1) × cellVoxels)`, likewise `Y`,
-  and `Z` in `[0, cellVoxels)`.
+  `origin + (column × cellSize, row × cellSize, 0)` to that plus `cellSize`
+  on every axis. The linker's origin is `(0, 0, 0)`.
+- **Voxels**: `voxelSize = cellSize / cellVoxels`, `cellVoxels` at most 128.
+  Voxel `(x, y, z)` of a cell spans `cellCorner + (x, y, z) × voxelSize` to
+  that plus `voxelSize`; a voxel's **top** is `origin.z + (z + 1) × voxelSize`.
 - **Half-open**: a point on a voxel boundary belongs to the voxel above it on
-  each axis: `X = floor((p.x − origin.x) / voxelSize)`.
-- **An agent's origin** is the point a leaf is free for. The agents
-  `ssmap` builds by default stand on their origin: the box runs from
-  `(−w/2, −w/2, 0)` to `(w/2, w/2, h)`, as a Source player's or NPC's does, so
-  a `Floor` leaf's bottom is where the feet stand.
-- **Directions** (doors, side flags): 0 east (+x), 1 north (+y), 2 west (−x),
-  3 south (−y). Yaw is degrees counter-clockwise from +x, `[0, 360)`.
+  each axis: `x = floor((p.x − origin.x) / voxelSize)`.
+- **An agent** is a box of width `w` (and depth `w`: square seen from above),
+  height `h`, standing on its origin: `(−w/2, −w/2, 0)` to `(w/2, w/2, h)`,
+  as a Source player's or NPC's hull is. `r = w/2` is its **half-width**.
+- **Directions**: 0 east (+x), 1 north (+y), 2 west (−x), 3 south (−y),
+  4 up, 5 down. Yaw is degrees counter-clockwise from +x, `[0, 360)`.
 - **Strings** are offsets into the string table; `0xFFFFFFFF` means none.
+- **ε** is `0.001` units, the tolerance every overlap test uses: a box must
+  reach more than ε into a solid to overlap it.
 
 ## 3. Layout
 
 ```
 envelope (24 bytes, never compressed)
 stored image (raw, or compressed by the envelope's codec)
-    header (headerBytes, 112 in version 1)
+    header (headerBytes, 160 in version 2)
     section directory (sectionCount × 16 bytes)
     sections (each starting on a 4-byte boundary, zero padding between)
 ```
@@ -93,40 +109,49 @@ stored image (raw, or compressed by the envelope's codec)
 | Offset | Type | Field |
 | --- | --- | --- |
 | 0 | `char[8]` | magic `SSNAV3D\0` (`53 53 4E 41 56 33 44 00`) |
-| 8 | `int32` | version, **1** |
+| 8 | `int32` | version, **2** |
 | 12 | `uint8` | codec: 0 none, 1 Deflate (raw RFC 1951), 2 Brotli (RFC 7932) |
 | 13 | `uint8[3]` | zero |
 | 16 | `int32` | `imageLength`: the image's length after decoding |
 | 20 | `int32` | `storedLength`: bytes that follow the envelope; the file is exactly `24 + storedLength` bytes |
 
-With codec 0 the stored bytes are the image (`storedLength == imageLength`),
-and a reader may use them in place. Otherwise the reader decodes them into a
-buffer of `imageLength` bytes, once, at load; every offset below is from the
-start of the **image**.
+With codec 0 the stored bytes are the image and a reader may use them in
+place. Otherwise the reader decodes them into a buffer of `imageLength`
+bytes, once, at load. `ssmap link` writes **Brotli** (quality 5) by
+default (section 18). Every offset below is from the start of the
+**image**.
 
 ### 3.2 Header (image offset 0)
 
 | Offset | Type | Field |
 | --- | --- | --- |
-| 0 | `int32` | `headerBytes`: the header's size; 112 in version 1. The directory starts here. |
+| 0 | `int32` | `headerBytes`: 160 in version 2. The directory starts here. |
 | 4 | `int32` | `sectionCount` |
-| 8 | `int32` | `agentCount`, 0 to 32 |
+| 8 | `int32` | `presetCount`, 0 to 32 |
 | 12 | `float32` | `cellSize` |
 | 16 | `float32` | `voxelSize` |
-| 20 | `int32` | `cellVoxels` |
-| 24 | `int32` | `octreeDepth`: the least D with 2^D ≥ `cellVoxels` |
-| 28 | `int32` | `columns` |
-| 32 | `int32` | `rows` |
-| 36 | `float32[3]` | `origin` |
-| 48 | `float32` | `floorNormalZ`: a surface with normal z at least this is a floor (0.7 by default) |
-| 52 | `int32` | `poiCount` |
-| 56 | `int32` | `doorCount` |
-| 60 | `int32` | `spawnPoi`, or −1 |
-| 64 | `int32` | `upArrivalPoi`, or −1 |
-| 68 | `int32` | `downArrivalPoi`, or −1 |
-| 72 | `byte[16]` | `levelId` (section 8) |
-| 88 | `byte[16]` | `packId` (section 8) |
-| 104 | `byte[8]` | zero, reserved |
+| 20 | `int32` | `cellVoxels`, 1 to 128 |
+| 24 | `int32` | `columns` (cells west to east) |
+| 28 | `int32` | `rows` (cells south to north) |
+| 32 | `float32[3]` | `origin` |
+| 44 | `float32` | `floorNormalZ`: a floor is walkable when its normal z is at least this (0.7 by default) |
+| 48 | `float32` | `stepHeight` (18) |
+| 52 | `float32` | `jumpHeight` (56) |
+| 56 | `float32` | `jumpDistance` (100) |
+| 60 | `int32` | `poiCount` |
+| 64 | `int32` | `doorCount` |
+| 68 | `int32` | `spawnPoi`, or −1 |
+| 72 | `int32` | `upArrivalPoi`, or −1 |
+| 76 | `int32` | `downArrivalPoi`, or −1 |
+| 80 | `int32` | `columnCount`: placed cells × `cellVoxels²` |
+| 84 | `int32` | `leafCount` |
+| 88 | `int32` | `obstacleCount` |
+| 92 | `int32` | `brushCount` |
+| 96 | `int32` | `jumpCount` |
+| 100 | `int32` | `clearanceBytes`: the `CLRS` section's length |
+| 104 | `byte[16]` | `levelId` (section 12) |
+| 120 | `byte[16]` | `packId` (section 12) |
+| 136 | `byte[24]` | zero, reserved |
 
 ### 3.3 Section directory
 
@@ -135,46 +160,39 @@ start of the **image**.
 | Offset | Type | Field |
 | --- | --- | --- |
 | 0 | `char[4]` | tag, ASCII |
-| 4 | `uint32` | index: `0xFFFFFFFF` for a level section, else the agent the section belongs to |
-| 8 | `uint32` | offset of the section, from the image's start; a multiple of 4 |
+| 4 | `uint32` | index: `0xFFFFFFFF` (every section of version 2 belongs to the level) |
+| 8 | `uint32` | offset of the section from the image's start; a multiple of 4 |
 | 12 | `uint32` | length in bytes |
 
-A reader looks sections up by `(tag, index)` and **ignores tags it does not
-know**. Each `(tag, index)` appears at most once.
+A reader looks sections up by tag and **ignores tags it does not know**.
 
 ## 4. Sections
 
-Level sections (index `0xFFFFFFFF`):
-
 | Tag | Record | Count |
 | --- | --- | --- |
-| `STRS` | bytes | string table: NUL-terminated UTF-8 strings; offset 0 is the empty string |
-| `AGNT` | 32 bytes | `agentCount` |
+| `STRS` | bytes | string table: NUL-terminated UTF-8; offset 0 is the empty string |
+| `AGNT` | 16 bytes | `presetCount` |
 | `CELL` | 8 bytes | `columns × rows` |
 | `DOOR` | 16 bytes | `doorCount` |
 | `POIS` | 48 bytes | `poiCount` |
+| `ROOT` | `int32` | `columns × rows`: each cell's first voxel column, −1 for an empty cell |
+| `COLS` | `uint32` | `columnCount + 1`: column `j`'s leaves are `[COLS[j], COLS[j+1])` |
+| `LEAF` | 24 bytes | `leafCount` |
+| `CLRS` | bytes | the clearance records (section 5), each 4-byte aligned |
+| `DYNO` | 48 bytes | `obstacleCount` |
+| `BRSI` | `uint32` | `brushCount + 1`: brush `b`'s planes are `[BRSI[b], BRSI[b+1])` |
+| `BRSP` | 16 bytes | the overhanging brushes' planes: `float32` normal x, y, z, distance |
+| `JUMP` | 16 bytes | `jumpCount` |
 
-Agent sections (index = agent):
-
-| Tag | Record | Count |
-| --- | --- | --- |
-| `ROOT` | `int32` | one per cell: the cell's root node, −1 for an empty cell |
-| `NODE` | `uint32` | the octree nodes of every cell, back to back (section 5) |
-| `LEAF` | 16 bytes | the free leaves |
-| `ADJS` | `uint32` | `leafCount + 1`: where each leaf's neighbours start in `ADJN` |
-| `ADJN` | `uint32` | the neighbour lists (section 6) |
-| `LINK` | 12 bytes | leaf pairs joined through doors |
-| `COMP` | 8 bytes | connected components |
-| `POIL` | `int32` | one per point of interest: its leaf for this agent, or −1 |
-
-**`AGNT`** (per agent)
+**`AGNT`** (per preset)
 
 | Offset | Type | Field |
 | --- | --- | --- |
 | 0 | `uint32` | name (string) |
-| 4 | `float32[3]` | box mins, relative to the agent's origin |
-| 16 | `float32[3]` | box maxs |
-| 28 | `int32` | contents mask: the `CONTENTS_*` bits the agent collides with (player `0x0201400B`, NPC `0x0202400B`) |
+| 4 | `float32` | width |
+| 8 | `float32` | height |
+| 12 | `uint8` | clip class: 0 player, 1 NPC |
+| 13 | `uint8[3]` | zero |
 
 **`CELL`** (per cell, `row × columns + column`)
 
@@ -197,22 +215,6 @@ Agent sections (index = agent):
 | 8 | `uint32` | socket name (string) |
 | 12 | `int32` | the facing door's index when joined, else −1 |
 
-**`LEAF`** (per free leaf)
-
-| Offset | Type | Field |
-| --- | --- | --- |
-| 0 | `uint16[3]` | the leaf's low corner, in level voxel coordinates |
-| 6 | `uint8` | `sizeLog2`: the leaf is `2^sizeLog2` voxels on a side |
-| 7 | `uint8` | flags (section 6) |
-| 8 | `uint32` | component |
-| 12 | `uint32` | cell |
-
-**`LINK`** (per door link): `uint32` leaf A, `uint32` leaf B, `uint32` door
-(the `DOOR` record on A's side).
-
-**`COMP`** (per component): `uint32` leaves in it, `uint32` voxels in it
-(volume = voxels × voxelSize³).
-
 **`POIS`** (per point)
 
 | Offset | Type | Field |
@@ -223,463 +225,716 @@ Agent sections (index = agent):
 | 20 | `uint32` | type (string) |
 | 24 | `uint32` | tags (string, comma-separated as authored) |
 | 28 | `uint32` | name (string, room-local names resolved), or `0xFFFFFFFF` |
-| 32 | `uint32` | cell |
-| 36 | `uint32` | agent mask: bit a set when the point applies to agent a |
+| 32 | `uint32` | cell of the room it belongs to |
+| 36 | `uint32` | preset mask: bit p set when the point applies to preset p |
 | 40 | `int32` | door record for a door point, else −1 |
 | 44 | `uint16` | flags: 1 has facing, 2 door point, 4 joined (door point on a joined door), 8 arrival |
-| 46 | `uint8` | role of the room it is in: 0 none, 1 up, 2 down |
+| 46 | `uint8` | role of its room: 0 none, 1 up, 2 down |
 | 47 | `uint8` | zero |
 
-## 5. Octree nodes and point lookup
+**`LEAF`** (per leaf; a column's leaves are low to high and never overlap)
 
-A node is one `uint32`. Its top two bits are its kind; the low 30 its payload.
-
-| Kind | Bits 31-30 | Payload |
+| Offset | Type | Field |
 | --- | --- | --- |
-| inner | `00` | index of the first of its **eight children**, stored back to back in `NODE` |
-| free | `01` | the leaf's index in `LEAF` |
-| blocked | `10` | zero |
-| outside | `11` | zero: the cube lies beyond the cell (only when `cellVoxels` is not a power of two) |
+| 0 | `uint8` | `zLo`: the run's bottom voxel, in the cell |
+| 1 | `uint8` | `height`: voxels in the run, at least 1 |
+| 2 | `uint16` | flags (section 9): 1 water, 2 ladder, 4 grounded (player), 8 grounded (NPC), 16 walkable (player), 32 walkable (NPC) |
+| 4 | `uint16` | cost, 8.8 fixed point (256 = 1.0) |
+| 6 | `uint16` | zero |
+| 8 | `uint32` | player class's clearance record: byte offset into `CLRS` |
+| 12 | `uint32` | NPC class's clearance record |
+| 16 | `float32` | player floor height (when grounded for the player class, else 0) |
+| 20 | `float32` | NPC floor height |
 
-A cell's root (`ROOT[cell]`) covers `2^octreeDepth` voxels on a side from the
-cell's low corner. An inner node of edge `s` has children of edge `s/2`,
-ordered by **octant**: bit 0 set for the upper half along x, bit 1 along y,
-bit 2 along z. Child `c` of a node at `(x0, y0, z0)` sits at
-`(x0 + (c & 1) × s/2, y0 + ((c >> 1) & 1) × s/2, z0 + ((c >> 2) & 1) × s/2)`.
-Children always follow their parent in the array, so a walk from a root
-never loops; a lookup descends at most `octreeDepth` levels.
+Many leaves share a record: the two offsets are often equal, and a room has
+a few hundred distinct records against thousands of leaves.
 
-**Point lookup** (`FindLeaf`): compute the level voxel `(X, Y, Z)` of the
-point; the cell is `(X / cellVoxels, Y / cellVoxels)`; outside the grid, or in
-a cell whose root is −1, there is no leaf. Descend from the root with the
-voxel's in-cell coordinates, choosing the child whose octant holds them,
-until the node is not inner. A free node gives the leaf; any other kind
-means the agent does not fit there.
+**`DYNO`** (per dynamic obstacle, section 10)
 
-## 6. Leaves, flags and neighbours
-
-**Flags** (`LEAF` byte 7):
-
-| Bit | Name | Meaning |
+| Offset | Type | Field |
 | --- | --- | --- |
-| 0 | `Floor` | something walkable is directly under the agent: a surface whose normal z ≥ `floorNormalZ` |
-| 1 | `Wall` | a surface too steep to walk on touches the agent: a wall, or a slope past the limit |
-| 2 | `Ceiling` | a surface facing down (normal z ≤ −`floorNormalZ`) is directly over the agent |
-| 3 | `SidePositiveX` | the face neighbour to the east is blocked |
-| 4 | `SidePositiveY` | north is blocked |
-| 5 | `SideNegativeX` | west is blocked |
-| 6 | `SideNegativeY` | south is blocked |
-| 7 | `Door` | the leaf is joined to a leaf of another room through a door |
+| 0 | `uint32` | name: its `targetname` with room-local names resolved, or `0xFFFFFFFF` |
+| 4 | `uint32` | classname (string) |
+| 8 | `uint32` | cell of the room it belongs to |
+| 12 | `int32` | its `hammerid` in the room, or −1 |
+| 16 | `uint8` | kind: 1 door, 2 mover, 3 toggle, 4 breakable, 5 physics, 6 prop |
+| 17 | `uint8[3]` | zero |
+| 20 | `float32[3]` | bounds' low corner, level coordinates |
+| 32 | `float32[3]` | bounds' high corner |
+| 44 | `uint32` | zero |
 
-Contact is judged per voxel against its six face neighbours: a blocked
-neighbour is a contact, and the brush face that separates the agent's box
-from the obstacle says which kind by its normal. A voxel over a gentle slope
-is a floor voxel; over a steep one, a wall voxel. A leaf is merged only from
-voxels with equal flags, so a leaf's flags hold for every voxel in it.
+**`BRSP`**: a brush is the intersection of the half-spaces
+`n · p ≤ d` of its planes.
 
-**Adjacency.** Two leaves are neighbours when they share part of a face (an
-area, not an edge or a corner), whether they are the same size or not, and
-also when they are in two rooms joined through a door and their voxels meet
-face to face on the shared cell face. `ADJN[ADJS[l] .. ADJS[l+1])` lists leaf
-`l`'s neighbours in ascending leaf order; each entry is a leaf index, with
-**bit 31 set when the step crosses a door**. The relation is symmetric. The
-file lists neighbours explicitly so a reader never has to search the tree for
-them; a reader that wants to derive them anyway finds, for each face of a
-leaf, the leaves holding the voxels just beyond it (`FindLeaf` on each), within
-the cell, and across a joined door the other room's portal voxels (`LINK`).
+**`JUMP`** (per jump link, section 9.2)
 
-**Components** are the connected components of that graph, numbered in order
-of their first leaf. Two leaves in one component are connected by free space
-for that agent; different components are not, whatever the movement rule.
+| Offset | Type | Field |
+| --- | --- | --- |
+| 0 | `uint32` | leaf A (the lower-numbered) |
+| 4 | `uint32` | leaf B |
+| 8 | `float32` | rise: B's floor minus A's |
+| 12 | `uint8` | class mask: bit 0 player, bit 1 NPC |
+| 13 | `uint8` | direction from A to B (0-3) |
+| 14 | `uint8` | columns apart: 1 for a ledge, more across a gap |
+| 15 | `uint8` | zero |
 
-## 7. Points of interest, the spawn and arrivals
+## 5. Clearance records
 
-Points come from two places:
+### 5.1 What a record answers
 
-- **Authored**: `info_poi` point entities in a room of the library (section 13).
-  Their position and yaw turn with the room, and a room-local name
-  (`cxry_…`) is resolved to the cell (`c<column>r<row>_…`), its `±1` offsets
-  turned with the room.
-- **Door points**: one per door and per agent that fits through it, at the
-  door's centre on the cell face, on the lowest voxel of the doorway, facing
-  out of the room (type `door`, flag 2, flag 4 when the level joins the door).
-  A capped doorway is solid, so its door point's `POIL` is −1.
+An agent of half-width `r` and height `h` fits in a voxel spanning
+`[x0, x1] × [y0, y1] × [z0, z1]` when the **swept box**
+`[x0 − r, x1 + r] × [y0 − r, y1 + r] × [z0, z1 + h]` overlaps no solid of
+its class: that is the box with its origin anywhere in the voxel. A record
+answers this for every `(r, h)`.
 
-Well-known types: `cover`, `vantage`, `spawn`, `patrol`, `interaction`,
-`arrival`, `custom`, and `door` (compile-made only). Any other string is the
-author's.
+### 5.2 Layout
 
-**Arrivals.** An `arrival` point is where a player appears on arriving from
-another level. It has a facing, applies to the player's agent alone, and
-stands on a floor where the player fits. Its record carries the role of its
-room; the header's `upArrivalPoi` and `downArrivalPoi` index the first
-arrival in an up room and in a down room (rooms in the level's placement
-order), or −1.
+A record is a multiple of four bytes:
 
-**The spawn.** `spawnPoi` is where a player spawns on a fresh start: the up
-room's arrival. A level with no up room has −1 until the level-transition
-design names another rule; the field is there so that rule needs no format
-change.
+| Bytes | Field |
+| --- | --- |
+| 2 | `uint16` static corner count `S` |
+| 2 | `uint16` dynamic corner count `D` |
+| 2 | `uint16` brush count `B` |
+| 2 | zero |
+| 8 × S | static corners: `float32` width threshold `R`, `float32` top threshold `T`; `R` strictly rising, `T` strictly falling |
+| 12 × D | dynamic corners: `uint32` obstacle, `float32` `R`, `float32` `T`; by obstacle, then `R` |
+| 4 × B | overhanging brushes: `uint32` index into `BRSI`, ascending |
 
-## 8. Ids: tying the navigation to its map
+A **corner** `(R, T)` blocks an agent in a voxel of top `z1` exactly when
 
-The game loads `level.bsp` and, beside it, `level.nav3d`; nothing stops the
-two coming from different links. So the link writes one **level id** into
-both: the map's worldspawn key `ss_level_id` and the header's `levelId`.
-The keys are written only when the link writes a `.nav3d`: a link without
-navigation (`-no-nav`, or a pack without it) writes byte for byte the map it
-did before navigation existed.
-The mod checks they are equal (`Nav3dReader.MatchesMap`) before trusting the
-navigation. The map's `ss_pack_id` and the header's `packId` name the room
-compile the level's rooms came from.
+```
+r > R + ε   and   z1 + h > T + ε
+```
 
-Both ids are **RFC 9562 version 8** UUIDs whose free bits are the first bits
-of a SHA-256 over their inputs, so the same inputs always give the same id
-and the outputs stay reproducible byte for byte. The pack id hashes the
-library VMF's bytes, the room options, the navigation settings and the tool
-version; the level id hashes the pack id, the level file's bytes and the link
-options. The room pack stores its id in a library section tagged `CMPL`.
+`R = −∞` means "any width", `T = −∞` "any height". The record that blocks
+everything, even a point, is the single corner `(−∞, −∞)`; its 16 bytes are
+`01 00 00 00 00 00 00 00 00 00 80 FF 00 00 80 FF`. A dynamic corner blocks
+only while its obstacle does (section 10). An overhanging brush is tested
+directly (5.3).
 
-## 9. How a reader walks it
+### 5.3 Why a staircase of corners is exact
+
+Take one solid brush of the agent's class. If it lies wholly below the
+voxel it never blocks (the box starts at the voxel's floor). Otherwise:
+
+- **Axis-aligned brush.** The swept box overlaps it exactly when the box's
+  footprint, widened by `r`, reaches it on both horizontal axes, and the
+  box's top rises past the brush's bottom. The first condition is
+  `r > g`, where `g` is the **Chebyshev gap** from the voxel's footprint to
+  the brush's: `max(x0 − maxX, minX − x1, y0 − maxY, minY − y1)`. The second
+  is `z1 + h > minZ`. So the brush is the corner `(g, minZ)`, with `ε` on
+  both sides as every overlap test has it.
+- **Not axis-aligned, no downward sloped face** (a ramp, an angled wall).
+  Its bottom is flat or it rests on the ground, so it grows no wider going
+  up: once the box's top reaches the brush, whether they overlap depends
+  on the box's width alone. The separating-axis test gives the exact
+  width `R` at which the widened box first overlaps (`NavBrush.
+  GrowthThreshold`), and the brush is the corner `(R, minZ)`.
+- **A brush with a sloped face turned downward** (the underside of a stair,
+  an overhang): under it, a wider agent has less head room. No single
+  corner states that slanted edge, so the record lists the brush by index,
+  and the reader runs the separating-axis test on the swept box itself. The
+  builder keeps every voxel such a brush reaches a leaf of its own.
+
+A voxel is blocked iff some brush blocks it, so it is blocked iff some
+corner blocks. A corner **dominates** another when it is no wider and no
+higher (`R₁ ≤ R₂`, `T₁ ≤ T₂`): whatever the second blocks, the first does.
+Dropping dominated corners loses nothing, and the rest form a staircase,
+widths rising and tops falling. Nothing is approximated, so the record's
+answer equals the direct box test for every width and height.
+
+Two canonical rules make equal clearance give equal bytes, so records can
+be shared: a corner whose width is below zero (`R + ε < 0`: it blocks even a
+point horizontally) is stored as `R = −∞`, and one whose top the voxel's
+floor already exceeds (`z0 > T + ε`: it blocks at any height) as `T = −∞`.
+Every threshold is rounded **down** to `float32`, so a rounding can only
+block an agent a builder would have let through by less than a float's
+last bit, never the reverse.
+
+### 5.4 The evidence
+
+- **Direct sweep.** On every one of the 16 default 3x3 sample levels, for
+  the two presets and three sizes no preset names (24 × 150 NPC, 90 × 40
+  NPC, 6 × 10 player), every voxel of every placed room fits exactly when a
+  direct box sweep against the flattened level's compiled world brushes
+  says it does (`Rooms3x3NavTests.EveryAgentSizeFitsExactlyWhere…`). The
+  unit facts do the same over random boxes against ramps, overhangs, clips
+  and pillars (`NavClearanceBuilderTests`).
+- **Flatten equivalence.** On the same 16 levels, the stitched file's
+  columns equal, run for run and record for record, the grid built straight
+  from the flattened level's whole-map compile: bounds, flags, costs,
+  floors, both classes' corners, dynamic corners and overhang brushes.
+
+### 5.5 Clip classes
+
+Player clip stops players and not NPCs, monster clip the reverse, and all
+else solid stops both. So there are exactly two worlds an axis-aligned
+agent can live in, and a leaf has one record for each (often the same
+record). Contents masks: player `0x0201400B`, NPC `0x0202400B`. A water or
+slime brush (`0x30`) and a ladder brush (`0x20000000`) are flags, never
+solid.
+
+## 6. Columns, leaves and point lookup
+
+A placed cell's columns are stored as one block, x fastest, starting at
+`ROOT[cell]`: column `(x, y)` of the cell is `ROOT[cell] + y × cellVoxels + x`.
+
+A leaf is a run of voxels with one key: the same two records, flags (floor
+flags aside, which describe the run's bottom) and cost. Every voxel of the
+run fits the same set of agents **from the bottom up**: the thresholds are
+absolute altitudes, so a higher voxel is only more constrained. An agent's
+room in a leaf is therefore a prefix of the run (7.2).
+
+**Point lookup** (`FindLeaf`): compute the level voxel of the point; the
+cell is `(X / cellVoxels, Y / cellVoxels)`; outside the grid or in an empty
+cell there is no leaf. Scan the column's leaves for the one whose
+`[zLo, zLo + height)` holds `z`; none means solid there.
+
+## 7. Queries: fit, standing, head room, steps
+
+### 7.1 Passable
+
+`Passable(leaf, z, w, h, class, blocking)`: the voxel `z` of the leaf, its
+top `z1 = origin.z + (z + 1) × voxelSize`, `r = w/2`. Not passable when any
+static corner blocks, or any dynamic corner whose obstacle is `blocking`
+blocks, or any listed brush overlaps the swept box.
+
+### 7.2 Fit top
+
+The highest voxel of a leaf an agent fits in; it fits in every voxel from
+`zLo` to there. For records without brushes, the lowest `T` among the
+corners wider than the agent bounds it: `z1 + h ≤ T + ε`. A record with a
+brush is a one-voxel leaf, tested directly.
+
+### 7.3 Standing
+
+An agent **stands** in a leaf when it fits in the leaf's bottom voxel and
+cannot sink: either the leaf is **grounded** for its class (solid right
+under the bottom voxel; then the floor must be **walkable**), or the leaf
+below does not fit it (it rests on the rim of a hole too narrow or low for
+it, which counts as walkable). Only a run's bottom voxel can be stood in.
+
+### 7.4 Head room and width room
+
+`VerticalClearance(leaf, z, w)`: the most height an agent of width `w` has
+in the voxel; `HorizontalClearance(leaf, z, h)`: the most width an agent
+of height `h` has. Both read the staircase, and the brush tests' growth
+thresholds, so they are exact too.
+
+### 7.5 Steps
+
+The **floor** of a grounded leaf is the exact height of the solid under
+its bottom voxel for that class: the highest point of the brushes the
+voxel's column rests on (a slope's highest point under the voxel). The
+step from leaf A to B is `floor(B) − floor(A)`; a walker takes it when it
+is at most `stepHeight` (18 by default: exactly 18 walks, 18.001 does not),
+and down any drop. More, and it needs a jump link.
+
+## 8. What a reader derives at load
+
+All of it in a fixed order, so every load of a file gives the same arrays.
+
+**Neighbours.** Two leaves neighbour when they are in the same column and
+touch (`Up`/`Down`: one's top voxel is right under the other's bottom), or
+in columns side by side (east, north, west, south; across a cell face
+too) and their voxel runs overlap in z. A neighbour in another cell is
+**through a door**: the kit's walls leave no other opening between cells.
+Per leaf, the list is east, north, west, south (each low to high), up,
+down. The relation is agent-independent; whether an agent can make a
+step is its fit in both leaves: two leaves connect for an agent when its
+fitting prefixes overlap (sideways) or the lower one fits right to its top
+(vertically).
+
+**Components**, per preset: the connected components of that relation
+over the leaves the preset fits in, numbered in order of first leaf; −1
+for a leaf it fits nowhere in. Every obstacle open. A fact checks, on all
+16 sample levels, that these partitions equal version 1's: the direct
+sweep's free voxels joined face to face.
+
+**A point's leaf**: the leaf of its own room's cell holding its position,
+the voxel clamped into that cell (a door point stands on the cell face;
+on an east or north face the half-open rule would otherwise put it in
+the neighbour). −1 when that voxel is solid.
+
+**An obstacle's leaves**: the leaves whose records name it.
+
+**A leaf's jump links**: the `JUMP` records naming it at either end.
+
+## 9. Traversal: steps, jumps, ladders, water, costs
+
+### 9.1 Floors and flags
+
+Per leaf and class: **grounded** when solid of the class is right under
+the bottom voxel; **walkable** when that surface's normal z is at least
+`floorNormalZ`. **Water** when the leaf's voxels overlap a water or slime
+brush; **ladder** when they overlap a `CONTENTS_LADDER` brush, an
+`info_ladder`'s box (`mins`/`maxs` or the `mins.x` ... keys) or a
+`func_useableladder`'s climb (the box spanning `point0` and `point1`,
+widened 16 units, a player's half-width). Water and ladders are free
+space.
+
+**Cost** is `nav_cost_water` (2) for water, `nav_cost_ladder` (1.5) for a
+ladder, their product for both, 1 otherwise; stored ×256.
+
+### 9.2 Jump links
+
+For each class, every walkable floor (a leaf grounded and walkable) is
+paired with the walkable floors up to `floor(jumpDistance / voxelSize)`
+columns away along each axis when:
+
+- their floors differ by at most `jumpHeight` (56: a crouch jump);
+- a walk does not already join them (adjacent columns with a rise within
+  the step height);
+- every column between is open at the higher floor's standing voxel;
+- no column between has a floor within the step height of the range the
+  jump spans (a walker would use that floor instead).
+
+A link is bidirectional: up by jumping, down by dropping. Whether a given
+agent clears the arc is its own clearance's answer at run time. Links of
+both classes with the same floors are one record with both mask bits.
+Defaults: 100 units reach (a Half-Life 2 player at 190 u/s stays about
+0.53 s in the air on its 21-unit jump under gravity 600).
+
+## 10. Dynamic obstacles
+
+Doors (`func_door`, `func_door_rotating`, `prop_door_rotating`), movers
+(`func_movelinear`, `func_train`, `func_tracktrain`, `func_rotating`,
+`func_plat`, `func_platrot`), toggles (`func_brush`, `func_wall_toggle`),
+breakables (`func_breakable`, `func_breakable_surf`), physics
+(`func_physbox*`, `prop_physics*`) and props (`prop_dynamic*`) are **not
+solid** in the grid. A brush entity's own brushes are its solids; a prop's
+model hull (from the game's content), turned by its angles, is its box; a
+prop whose model the content lacks is left out with a warning.
+
+Each becomes a `DYNO` record, and each voxel it could block carries its
+**dynamic corners** in the record (a corner a static one dominates is
+dropped: it can never be the reason). The name is the entity's
+`targetname` resolved the way the link names entities (`cxry_gate` in cell
+(2, 0) is `c2r0_gate`, turned with the room), so the runtime finds the
+entity by the same name the map gives it. An unnamed one is found by cell
+and `hammerid`.
+
+**At run time**: keep a `bool` per obstacle (`blocking[o]`: the door is
+closed, the breakable intact, the prop where it was placed), and pass it
+to the queries. `ObstacleLeaves(o)` names the leaves whose answer can
+change when `o` does, so a planner invalidates only those. A
+`func_door` in a socket's doorway is tagged when the door is joined and
+gone with the doorway when the level caps it.
+
+## 11. Points of interest, the spawn and arrivals
+
+- **Authored**: `info_poi` point entities in a room (17.2). Their position
+  and yaw turn with the room; a room-local name (`cxry_…`) is resolved to
+  the cell (`c<column>r<row>_…`), as the link resolves entity names.
+- **Door points**: one per door record, at the door's centre on the cell
+  face, on the doorway's floor, facing out of the room (type `door`, flag
+  2, flag 4 when joined). It applies to every preset (the mask has every
+  preset's bit): whether an agent fits through is its clearance's answer.
+  A capped doorway is solid, so its point's leaf is −1.
+
+**A point in a capped doorway is refused.** An authored point that stands
+in a socket's doorway (the plug's box) is fine while the level joins the
+door, but where the level caps it the point would be inside the plug. The
+link refuses before writing the map:
+`room "hall" at cell (1, 0): info_poi 42 "cxry_sentry" (vantage) stands in
+the doorway of socket "east", which the level caps; a capped doorway is
+filled by its plug, so the point would be inside the wall.`
+
+**Arrivals.** An `arrival` point is where a player appears arriving from
+another level: it has a facing, applies to the player presets, and stands
+on a walkable floor where they fit. `upArrivalPoi` and `downArrivalPoi`
+index the first arrival in an up room and a down room, or −1.
+**The spawn**, `spawnPoi`, is the up room's arrival.
+
+## 12. Ids: tying the navigation to its map
+
+The link writes one **level id** into the map's worldspawn key
+`ss_level_id` and the header's `levelId`; the mod checks they are equal
+(`MatchesMap`) before trusting the navigation. `ss_pack_id` / `packId` name
+the room compile. Both are RFC 9562 version 8 UUIDs from a SHA-256 of their
+inputs (pack: library bytes, room options, navigation settings, tool
+version; level: pack id, level file bytes, link options). The keys are
+written only when the link writes a `.nav3d`: a link without navigation
+writes byte for byte the map a link wrote before navigation existed.
+
+## 13. How a reader walks it
 
 ```c++
-// Load: read the whole file into memory.
+// Load.
 struct Envelope { char magic[8]; int32_t version; uint8_t codec, pad[3]; int32_t imageLength, storedLength; };
 const Envelope* e = (const Envelope*)file;
-check(memcmp(e->magic, "SSNAV3D\0", 8) == 0 && e->version == 1 && 24 + e->storedLength == fileSize);
+check(memcmp(e->magic, "SSNAV3D\0", 8) == 0 && e->version == 2 && 24 + e->storedLength == fileSize);
 const uint8_t* image = file + 24;
-if (e->codec == 1) image = inflateRaw(file + 24, e->storedLength, e->imageLength);   // zlib, windowBits = -15
+if (e->codec == 1) image = inflateRaw(file + 24, e->storedLength, e->imageLength);  // zlib windowBits -15
 if (e->codec == 2) image = brotliDecode(file + 24, e->storedLength, e->imageLength);
-
-int32_t headerBytes = rd32(image + 0), sectionCount = rd32(image + 4);
-// ... read the rest of the header, then the directory:
+int32_t headerBytes = rd32(image), sectionCount = rd32(image + 4);
 for (int i = 0; i < sectionCount; i++) {
     const uint8_t* d = image + headerBytes + 16 * i;
-    remember(tag(d), rdu32(d + 4) /* index */, rdu32(d + 8) /* offset */, rdu32(d + 12) /* length */);
+    remember(tag(d), rdu32(d + 8) /* offset */, rdu32(d + 12) /* length */);
 }
-// Validate once: every section inside the image, record counts matching the
-// header, every node's child block and leaf index in range, every adjacency
-// entry < leafCount. After that no query can read out of bounds.
+// Validate once: sections inside the image and sized to the header's counts,
+// ROOT and COLS in range and rising, every leaf inside the cell, runs of a
+// column rising and apart, every CLRS offset at a whole record, every
+// obstacle and brush index a record names in range, every jump's leaves.
 
-// Which leaf holds point p, for agent a?
-int FindLeaf(int a, Vec3 p) {
+// Which leaf holds point p?
+int FindLeaf(Vec3 p) {
     double lx = p.x - origin.x, ly = p.y - origin.y, lz = p.z - origin.z;
     if (lx < 0 || ly < 0 || lz < 0) return -1;
     int64_t X = floor(lx / voxelSize), Y = floor(ly / voxelSize), Z = floor(lz / voxelSize);
     if (X >= columns * cellVoxels || Y >= rows * cellVoxels || Z >= cellVoxels) return -1;
-    int cell = (Y / cellVoxels) * columns + (X / cellVoxels);
-    int x = X % cellVoxels, y = Y % cellVoxels, z = (int)Z;
-    int32_t root = ROOT[a][cell];
+    int cell = (Y / cellVoxels) * columns + X / cellVoxels;
+    int32_t root = ROOT[cell];
     if (root < 0) return -1;
-    uint32_t node = NODE[a][root];
-    int half = (1 << octreeDepth) >> 1, x0 = 0, y0 = 0, z0 = 0;
-    while ((node >> 30) == 0 /* inner */ && half > 0) {
-        int oct = 0;
-        if (x >= x0 + half) { oct |= 1; x0 += half; }
-        if (y >= y0 + half) { oct |= 2; y0 += half; }
-        if (z >= z0 + half) { oct |= 4; z0 += half; }
-        node = NODE[a][(node & 0x3FFFFFFF) + oct];
-        half >>= 1;
+    int column = root + (Y % cellVoxels) * cellVoxels + X % cellVoxels;
+    for (uint32_t l = COLS[column]; l < COLS[column + 1]; l++) {
+        if (Z < LEAF[l].zLo) return -1;
+        if (Z < LEAF[l].zLo + LEAF[l].height) return l;
     }
-    return (node >> 30) == 1 /* free */ ? (int)(node & 0x3FFFFFFF) : -1;
+    return -1;
 }
 
-// A* over leaves: neighbours come straight from the CSR arrays.
-for (uint32_t i = ADJS[a][l]; i < ADJS[a][l + 1]; i++) {
-    uint32_t entry = ADJN[a][i];
-    int next = entry & 0x7FFFFFFF;
-    bool throughDoor = entry >> 31;
-    if (walker && !(LEAF[a][next].flags & FLOOR)) continue;   // the movement rule is the caller's
-    // cost: distance between leaf centres, e.g. centre = (corner + size / 2) * voxelSize + origin
+// Does an agent (w, h, class) fit in voxel z of leaf l, with these obstacles shut?
+bool Passable(int l, int z, float w, float h, int cls, const bool* blocking) {
+    const uint8_t* rec = CLRS + (cls ? LEAF[l].npcClearance : LEAF[l].playerClearance);
+    uint16_t S = rd16(rec), D = rd16(rec + 2), B = rd16(rec + 4);
+    double r = w * 0.5, top = origin.z + (z + 1) * voxelSize + h;
+    const uint8_t* c = rec + 8;
+    for (int i = 0; i < S; i++, c += 8)
+        if (r > rdf(c) + EPS && top > rdf(c + 4) + EPS) return false;   // -inf compares as expected
+    for (int i = 0; i < D; i++, c += 12)
+        if (blocking[rdu32(c)] && r > rdf(c + 4) + EPS && top > rdf(c + 8) + EPS) return false;
+    for (int i = 0; i < B; i++, c += 4)
+        if (BrushOverlaps(rdu32(c), SweptBox(l, z, r, h))) return false; // separating axes, EPS
+    return true;
 }
 
-// Quick rejection: two leaves in different components are never connected.
-if (LEAF[a][from].component != LEAF[a][to].component) return NO_PATH;
+// Neighbours, derived once at load: for each leaf, the touching leaf above
+// and below in its column, and in each of the four side columns (the next
+// cell's edge column across a cell face) every leaf whose run overlaps it.
+// Store as CSR: start[leafCount + 1], entries (leaf << 3 | direction).
+
+// A* over leaves for a walker of preset p:
+//   stand in leaf l  :  Standable(l)  (bottom voxel fits, grounded & walkable or on a rim)
+//   step to n        :  n a side neighbour, Standable(n), StepUp(l, n) <= stepHeight
+//   jump / drop      :  JUMP records at l, class bit set, agent fits at both ends
+//   cost             :  distance x LEAF[n].cost / 256
+// Quick rejection: Component(p, from) != Component(p, to) means no walk or flight joins them.
 ```
 
-## 10. Using the reader from the mod (C#)
+## 14. Using the reader from the mod (C#)
 
-The mod references `SourceSharp.MapFormats`, which has no dependencies. The
-reader validates the file once and then answers from its bytes: point lookups,
-neighbour walks and leaf reads allocate nothing (a fact checks it).
+The mod references `SourceSharp.MapFormats`, which has no dependencies.
+After `Open`, point lookups, neighbour walks, clearance tests and leaf
+reads allocate nothing (a fact checks it).
 
 ```csharp
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Nav;
 
-byte[] bytes = File.ReadAllBytes("maps/level.nav3d");
-Nav3dReader nav = Nav3dReader.Open(bytes);             // throws InvalidDataException on a bad file
-
-// Is this the navigation of the map we loaded? (the worldspawn's ss_level_id)
+Nav3dReader nav = Nav3dReader.Open(File.ReadAllBytes("maps/level.nav3d"));  // InvalidDataException on a bad file
 if (!nav.MatchesMap(worldspawn["ss_level_id"]))
     throw new InvalidOperationException("level.nav3d belongs to another build of the map");
 
-// Where does the player start?
 if (nav.TryGetSpawn(out Vec3 spawn, out float yaw))
     SpawnPlayer(spawn, yaw);
 
-int standing = nav.FindAgent("standing");
-int leaf = nav.FindLeaf(standing, npc.Origin);          // -1: the NPC is where it does not fit
-foreach (Nav3dNeighbour n in nav.Neighbours(standing, leaf))
+// Doors and other obstacles: one flag each, kept current from game events.
+bool[] shut = new bool[nav.ObstacleCount];
+for (int o = 0; o < nav.ObstacleCount; o++)
+    shut[o] = IsClosed(nav.Obstacle(o).Name);            // e.g. "c2r0_gate"
+
+// Any size, not only a preset: a hunched 24 x 40 NPC.
+int leaf = nav.FindLeaf(npc.Origin);
+foreach (Nav3dNeighbour n in nav.Neighbours(leaf))
 {
-    Nav3dLeaf next = nav.Leaf(standing, n.Leaf);
-    if ((next.Flags & Nav3dLeafFlags.Floor) == 0) continue;   // walkers stay on floors
-    Vec3 corner = nav.LeafMins(standing, n.Leaf);
-    float size = nav.LeafSize(standing, n.Leaf);
-    // ... A* bookkeeping
+    if (n.Direction >= Nav3dDirection.Up) continue;
+    if (!nav.Standable(n.Leaf, nav.Leaf(n.Leaf).ZLo, 24, 40, Nav3dClipClass.Npc, shut)) continue;
+    float rise = nav.StepUp(leaf, n.Leaf, Nav3dClipClass.Npc);
+    if (rise > nav.StepHeight) continue;                 // a jump link, if any, covers it
+    // ... A* bookkeeping, cost scaled by nav.Leaf(n.Leaf).CostMultiplier
+}
+foreach (int j in nav.Jumps(leaf))
+{
+    Nav3dJump jump = nav.Jump(j);                         // rise, columns apart, direction, class mask
 }
 
-// Points of interest: cheap fields without strings, the full record when needed.
-for (int p = 0; p < nav.PoiCount; p++)
-{
-    if (nav.PoiTypeUtf8(p).SequenceEqual("cover"u8))
-        cover.Add((nav.PoiPosition(p), nav.PoiLeaf(standing, p)));
-}
+// Presets are names for sizes; components are derived per preset at load.
+int standing = nav.FindPreset("standing");
+bool sameArea = nav.Component(standing, a) == nav.Component(standing, b);
 ```
 
-`Nav3dReader.ToLevel()` reads everything into objects (`Nav3dLevel`) for tools;
-`Nav3dWriter.Write` writes one. A compressed file is decoded once, in `Open`.
+`Nav3dReader.ToLevel()` reads everything into objects (`Nav3dLevel`) for
+tools; `Nav3dWriter.Write` writes one.
 
-## 11. A worked example
+## 15. A worked example
 
-A two-cell level, one agent, built by hand in the facts
-(`Nav3dFileTests.Sample`): cells of 32 units, two voxels a side (voxel 16),
-two columns and one row. Cell 0 is one free leaf of the whole cell; cell 1 is
-split, its two low-x, low-z voxels free as two leaves, the rest blocked. A
-door joins them. Raw, the file is 724 bytes:
-
-```
-0000  53 53 4e 41 56 33 44 00 01 00 00 00 00 00 00 00   magic, version 1, codec 0
-0010  bc 02 00 00 bc 02 00 00                            imageLength = storedLength = 700
-                              70 00 00 00 0d 00 00 00   image: headerBytes 112, 13 sections
-0020  01 00 00 00 00 00 00 42 00 00 80 41 02 00 00 00   1 agent, cellSize 32.0, voxelSize 16.0, cellVoxels 2
-0030  01 00 00 00 02 00 00 00 01 00 00 00 00 00 00 00   depth 1, columns 2, rows 1, origin.x 0
-0040  00 00 00 00 00 00 00 00 33 33 33 3f 02 00 00 00   origin.y, .z, floorNormalZ 0.7, 2 points
-0050  02 00 00 00 00 00 00 00 00 00 00 00 ff ff ff ff   2 doors, spawn 0, up arrival 0, down -1
-0060  0f 1e 2d 3c 4b 5a 89 78 86 85 f4 e3 d2 c1 b0 a9   levelId 0f1e2d3c-4b5a-8978-8685-f4e3d2c1b0a9
-0070  01 23 45 67 89 ab 8d ef 81 23 45 67 89 ab cd ef   packId
-0080  00 00 00 00 00 00 00 00                            reserved
-                              53 54 52 53 ff ff ff ff   directory: "STRS", level
-0090  40 01 00 00 30 00 00 00                            at image 0x140, 48 bytes
-      ...                                                AGNT, CELL, DOOR, POIS, then ROOT NODE LEAF ADJS ADJN LINK COMP POIL for agent 0
-```
-
-(File offsets; the image starts at file offset `0x18`, so image offset
-`0x140` is file offset `0x158`.) The `NODE` section of agent 0, at image
-`0x228`, holds ten words:
+`Nav3dFileTests.Sample`: cells of 32 units, two voxels a side (voxel 16),
+two columns and one row, two presets (`standing` 8 × 20 player, `crawler`
+4 × 4 NPC). Cell 0 has three voxel columns with leaves; cell 1 one. Raw,
+the file is 1,048 bytes (Brotli 9: 502; Deflate 6: 524). File offsets, the
+image starting at `0x18`:
 
 ```
-00 00 00 40   node 0  0x40000000  free, leaf 0: cell 0's root, the whole cell one leaf
-02 00 00 00   node 1  0x00000002  inner, children at 2-9: cell 1's root
-01 00 00 40   node 2  0x40000001  octant 0 (low x, low y, low z): free, leaf 1
-00 00 00 80   node 3  0x80000000  octant 1 (high x): blocked
-02 00 00 40   node 4  0x40000002  octant 2 (high y): free, leaf 2
-00 00 00 80   nodes 5-9           octants 3-7: blocked
+0000  53 53 4e 41 56 33 44 00 02 00 00 00 00 00 00 00   magic, version 2, codec 0
+0010  00 04 00 00 00 04 00 00                            imageLength = storedLength = 1024
+                              a0 00 00 00 0d 00 00 00   headerBytes 160, 13 sections
+0020  02 00 00 00 00 00 00 42 00 00 80 41 02 00 00 00   2 presets, cell 32.0, voxel 16.0, cellVoxels 2
+0030  02 00 00 00 01 00 00 00 00 00 00 00 00 00 00 00   columns 2, rows 1, origin (0,
+0040  00 00 00 00 33 33 33 3f 00 00 90 41 00 00 60 42   0, 0), floorNormalZ 0.7, step 18, jump height 56
+0050  00 00 c8 42 02 00 00 00 02 00 00 00 00 00 00 00   jump distance 100, 2 points, 2 doors, spawn 0
+0060  00 00 00 00 ff ff ff ff 08 00 00 00 05 00 00 00   up arrival 0, down -1, 8 columns, 5 leaves
+0070  01 00 00 00 01 00 00 00 01 00 00 00 48 00 00 00   1 obstacle, 1 brush, 1 jump, CLRS 72 bytes
+0080  0f 1e 2d 3c 4b 5a 89 78 86 85 f4 e3 d2 c1 b0 a9   levelId
+0090  01 23 45 67 89 ab 8d ef 81 23 45 67 89 ab cd ef   packId
+00a0  00 ... 00                                          reserved to 0xb7
+00b8  53 54 52 53 ff ff ff ff 70 01 00 00 4c 00 00 00   directory: STRS at image 0x170, 76 bytes
+      ...                                                AGNT CELL DOOR POIS ROOT COLS LEAF CLRS DYNO BRSI BRSP JUMP
 ```
 
-Looking up the point `(40, 20, 5)` for agent 0: voxel `X = 2, Y = 1, Z = 0`,
-so cell `1` (column 1, row 0) and in-cell voxel `(0, 1, 0)`. `ROOT[1] = 1`;
-node 1 is inner with `half = 1`; `y ≥ 1` sets octant bit 1, so the child is
-node `2 + 2 = 4`: free, leaf 2. Leaf 2's record reads corner `(2, 1, 0)`,
-`sizeLog2 0`, flags `0x09` (`Floor | SidePositiveX`), component 0, cell 1.
-Its neighbours, `ADJN[ADJS[2] .. ADJS[3]) = ADJN[3..4)`, are `{1}`: leaf 1,
-not through a door. Leaf 1's neighbours are `0x80000000 | 0` (leaf 0, through
-the door) and `2`.
+`ROOT` (image `0x26c`) is `0, 4`: cell 0's columns start at 0, cell 1's at
+4. `COLS` (image `0x274`) is `0 1 3 3 4 5 5 5 5`: cell 0's column (0,0)
+has leaf 0, (1,0) leaves 1 and 2, (0,1) none, (1,1) leaf 3; cell 1's (0,0)
+leaf 4. `CLRS` (image `0x310`, file `0x328`) holds three records:
 
-## 12. Versioning
+```
+0328  01 00 00 00 00 00 00 00 00 00 80 ff 00 00 80 ff   offset  0: blocked, (-inf, -inf)
+0338  02 00 00 00 00 00 00 00 00 00 80 ff 00 00 20 42   offset 16: 2 corners: (-inf, 40)
+0348  00 00 80 40 00 00 80 ff                                      and (4, -inf)
+0350  01 00 01 00 01 00 00 00 00 00 80 ff 00 00 20 42   offset 40: 1 corner (-inf, 40), 1 dynamic,
+0360  00 00 00 00 00 00 80 ff 00 00 80 ff 00 00 00 00              obstacle 0 at (-inf, -inf), brush 0
+```
 
-- The **envelope's version** changes only for a change an older reader must
-  not read around: a record that changes size or meaning, a section it
-  cannot ignore. A reader refuses any version it does not know.
-- A **new optional section** gets a new tag and changes no version: older
-  readers skip it.
-- The **header** records its own size, so fields can be added at its end
-  without moving the directory; a reader uses `headerBytes` to find the
-  directory, never the constant 112.
-- The room pack's navigation sections (section 13) carry their own version.
+Leaf 2's record (`LEAF` + 48, file `0x2e0`):
 
-## 13. Where the data comes from
+```
+02e0  01 01 00 00 00 01 00 00 28 00 00 00 28 00 00 00   zLo 1, height 1, flags 0, cost 256, records 40 / 40
+02f0  00 00 00 00 00 00 00 00                            floors 0, 0 (not grounded)
+```
 
-### 13.1 Configuration: the library's worldspawn
+**Looking up** `(20, 5, 16)`: voxel `(1, 0, 1)`, cell 0, column
+`ROOT[0] + 0 × 2 + 1 = 1`, leaves `COLS[1]..COLS[2]` = 1, 2; leaf 1 is
+`z 0..0`, leaf 2 is `z 1..1`: **leaf 2**.
 
-The settings belong to the whole library (every room must be voxelised on
-one grid for one set of agents, or the link could not stitch them), so they
-are keys of the library VMF's worldspawn, which Hammer edits in Map
-Properties and every room's own VMF inherits:
+**Does `standing` (8 × 20, player) fit there?** `r = 4`, the voxel's top is
+32: the corner `(−∞, 40)` has `4 > −∞` and `32 + 20 = 52 > 40.001`:
+**no**. **`crawler` (4 × 4, NPC)?** `32 + 4 = 36 ≤ 40.001`, so the corner
+lets it through; the dynamic corner `(−∞, −∞)` of obstacle 0 (`c0r0_gate`,
+a `func_door`) blocks it **while the door is shut**; the brush (an overhang
+whose underside is `z = x/2 + 32`) does not reach the swept box
+`[14, 34] × [−2, 18] × [16, 36]`, whose lowest underside point is 39. So
+the crawler fits with the door open, not with it shut, and
+`ObstacleLeaves(0)` is `{2}`.
+
+**Neighbours derived at load**: leaf 2's are leaf 4 (east, through the
+door into cell 1), leaf 0 (west) and leaf 1 (down). Leaf 1 and leaf 4 share
+jump link 0 (`rise 18.5`, player, east, 1 column): 18.5 is over the 18
+step, so the walk needs the jump.
+
+## 16. Versioning
+
+- The **envelope's version** changes only for a change an older reader
+  must not read around. **Version 2** replaced version 1's per-agent octrees,
+  stored adjacency and components with the shared clearance grid; a version
+  1 file is refused, not misread.
+- A **new optional section** gets a new tag and changes no version.
+- The **header** records its size; a reader finds the directory by
+  `headerBytes`, never the constant 160.
+- The room pack's navigation sections carry their own **revision**, now
+  **2**. A pack with revision 1 sections reads as having no navigation:
+  `ssmap link` writes the map, no `.nav3d`, and warns
+  `the room pack holds no navigation for "…"; the level is linked without a
+  .nav3d (compile the library with a build that writes navigation)`;
+  `-require-nav` makes that an error.
+
+## 17. Where the data comes from
+
+### 17.1 Configuration: the library's worldspawn
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `nav` | on | `0` builds no navigation |
-| `nav_voxel_size` | `16` | voxel edge; must divide the cell, at most 128 voxels a side |
-| `nav_max_slope` | (normal z ≥ 0.7) | steepest walkable floor in degrees |
-| `nav_agents` | `standing 32 72 player; flyer 32 32 npc` | `name width height [mask]` entries; mask `player`, `npc` or a number |
+| `nav_voxel_size` | `16` | voxel edge; must divide the cell, at most 128 a side |
+| `nav_max_slope` | (normal z ≥ 0.7) | steepest walkable floor, degrees |
+| `nav_step_height` | `18` | highest step walked |
+| `nav_jump_height` | `56` | highest ledge a jump link climbs, deepest drop it stands for |
+| `nav_jump_distance` | `100` | farthest a jump link reaches, column centre to centre |
+| `nav_cost_water` | `2` | cost multiplier of water |
+| `nav_cost_ladder` | `1.5` | cost multiplier of ladders |
+| `nav_agents` | `standing 32 72 player; flyer 32 32 npc` | presets `name width height [class]`; class `player`, `npc`, or a number equal to one of their masks; may be empty |
 
-The **player's agent** is the first whose mask is `player`: arrivals must fit
-it. Agents are square seen from above, so a quarter-turned room gives the
-same free space as the room turned.
+The grid does not depend on the presets. Points of interest name the
+presets they apply to, and a room compile checks they fit there.
 
-### 13.2 Authoring points of interest
+### 17.2 Authoring points of interest
 
 An `info_poi` point entity inside a room's cell: `poi_type`, `poi_tags`,
-optional `poi_radius`, optional `angles` (its yaw is the facing),
-optional `poi_agents` (comma-separated agent names; default all), optional
-`targetname` (`cxry_` names are room-local). A point must stand where every
-agent it applies to fits, or the room fails to compile with a message naming
-the entity. `info_poi` entities are **taken out of the map**: they cost no
-entity at run time, and live only in the navigation. An `info_room`'s
-`room_role` key (`up`, `down`) gives the room's role.
+optional `poi_radius`, `angles`, `poi_agents` (preset names; default all)
+and `targetname` (`cxry_` names are room-local). A point must stand where
+every preset it applies to fits, or the room fails naming the entity.
+`info_poi` entities are taken out of the map. An `info_room`'s `room_role`
+(`up`, `down`) gives the room's role.
 
-### 13.3 The room pack's sections
+### 17.3 The room pack's sections
 
-`ssmap room` precomputes each room's navigation and stores it in the
-`.roompack` beside the room's container, under tags `NVR0` (the room as
-authored) and `NVR1`-`NVR3` (turned one, two and three quarter turns). Each
-`NVR`*r* sits right after that turn's link sections (`GEO`*r*, `COL`*r*,
-`ENT`*r*), so the pack order of a room is `ROOM`, `LNKA`, then per turn its
-link sections and its navigation. The link asks for navigation through the
-pack's own room requests (`RoomPackRequest.Navigation`), so for each placed
-room it reads its container, its link sections and its navigation for the
-turns it places, one run of bytes per room, and nothing else of the pack.
+`ssmap room` builds each room's navigation once, at turn 0, and stores it
+under `NVR0`, and the same room turned one to three quarter turns under
+`NVR1`-`NVR3` (a turn is an exact permutation of voxels: a fact builds a
+room compiled turned and compares it bit for bit with the stored turn-0
+navigation turned, at all four turns). Per turn a room's sections are
+`ROOM, ECNT, LNKA, GEO`*r*`, [COL`*r*`], NAM`*r*`, NVR`*r*, so the link reads
+one run of bytes per placed room.
 
-The sections are framed as the link sections are, so every per-room
-section of a pack reads the same way. All integers are **big-endian** (the
-pack's convention):
+Framing, big-endian as the pack is: `uint8` codec (0 none, 1 Deflate, 2
+Brotli; **none by default**, `-nav-codec` for another), `int64` decoded length, payload. The
+payload: `int32` revision (2), `uint8` turn; `float32` cell size, voxel
+size, `int32` voxels per edge, `float32` floor normal z, step height, jump
+height, jump distance, water cost, ladder cost, `uint8` role; presets
+(`uint8` count; string name, `float32` width, height, `int32` mask);
+sockets (`uint8` count; `uint8` facing, string name, `float32[3]` door
+point); points (`int32` count; `float32` x, y, z, yaw, `uint8` has-facing,
+`float32` radius, string type, string tags, `uint8` has-name and name,
+`uint32` preset mask, string entity id); records (`int32` count; each three
+`uint16` counts, no padding word, then the entries of 5.2, big-endian); columns (`int32` run count; per column, x fastest,
+`uint16` count and the runs: `uint8` low voxel, height, key); per socket its
+capped keys (`int32` count; `int32` voxel, key); obstacles (`int32` count;
+string classname, `uint8` has-name and name, `int32` hammer id, `uint8`
+kind, `float32[6]` bounds); overhang brushes (`int32` count; `int32` plane
+count, `float32[4]` per plane). A key is `int32` player and NPC record
+index, `uint16` flags and cost, `float32` player and NPC floor. A string is
+`uint16` length and UTF-8.
 
-| Bytes | Field |
-| --- | --- |
-| 1 | codec (0 none, 1 Deflate, 2 Brotli; as the link sections' and the `.nav3d` envelope's) |
-| 8 | `int64` the payload's decoded length |
-| rest | payload, stored by the codec |
+**Caps.** The room is built with every door open, and once more per socket
+with that door capped (the plug put back, the neighbour's side solid); the
+section stores only the voxels whose key the cap changes. Capping adds
+solids and removes none the grid counts, so a placement with several doors
+capped is the open grid with each capped socket's records merged
+(union of corners, re-reduced to a staircase), and the link merges exactly
+that way; a fact checks it against building the room with every door shut.
 
-The decoded payload starts with an `int32` **revision** (1) and a `uint8`
-**turn**, 0-3, which must match the tag. As with the link sections, a
-section of a revision the reader does not know reads as absent (the link
-goes on without navigation, with its warning); an unknown codec or a
-payload of the wrong length is refused naming the room and section.
+### 17.4 Seams: rooms stitched against the whole map
 
-Payload, after the revision and turn: `float32` cell size, voxel size, `int32` voxels per edge, `float32`
-floor normal z, `uint8` role; agents (`uint8` count; each a string name,
-`float32` width, height, `int32` mask); sockets (`uint8` count; each `uint8`
-turn-0 facing, string name); points (`int32` count; each `float32` x, y, z,
-yaw, `uint8` has-facing, `float32` radius, string type, string tags, `uint8`
-has-name then the name, `uint32` agent mask); then per agent the octree
-(`int32` node count and the node words, as in section 5, root at 0; `int32`
-leaf count and leaves of five bytes: x, y, z, sizeLog2, flags, in the cell's
-voxels), and per socket its **portal** (`int32` count, voxels of three bytes:
-the doorway's free voxels in the boundary layer) and its **cap** (`int32`
-count, changes of five bytes: voxel, 1 when capping blocks it, the flags
-capping adds). A string is `uint16` length and UTF-8.
+A room is built without its neighbours. Outside its cell it assumes the
+kit: solid, except behind each open door, where the neighbour's wall has
+the same opening `wall_depth` deep and beyond it the neighbour's room is
+open. That is exact at the seams: a voxel's record lists only the
+obstacles no nearer one dominates, and beside a doorway the door's jambs
+(the wall either side of the opening, floor to top) are at most half the
+opening's width away and block every height, so anything in the
+neighbour's room farther than the jambs is dominated. The stitched grid
+therefore equals the whole level's wherever a room keeps the inside of
+each door clear out to the jambs' distance plus a voxel. The flatten
+equivalence fact (5.4) checks it on every 3x3 sample level, records
+included.
 
-The octree is built with **every door open**: opening is the one state a room
-cannot know alone. Capping a door only adds solids, so a placement with some
-doors capped is the open octree with those sockets' cap changes applied, and
-the changes of different doors never disagree.
+### 17.5 The map first, the navigation after
 
-The library section `CMPL` holds the pack id's 16 bytes. It stands beside
-the library-wide entities section `LENT` (when the library has any); the
-pack's library sections are looked up by tag.
+`ssmap link` writes the `.bsp` first, then stitches and writes the
+`.nav3d`. A library host does the same through two calls:
 
-**Why the navigation lives in the pack.** The owner's decision: the pack
-already has typed per-room sections that readers skip when unknown, so an
-older build still links a newer pack (without navigation), and the link
-seeks straight to the placed rooms' sections. A pack built with `nav 0`, or
-before navigation existed, links with one warning and no `.nav3d`;
-`ssmap link -require-nav` makes that an error.
+```csharp
+LevelNavPlan plan = LevelNavFromPack.Plan(layout, columns, rows, rooms, packId, levelFile,
+    LevelNavFromPack.IdOptions(true, LevelNavFromPack.DefaultCompression));   // cheap; refuses capped-doorway points
+if (plan.WritesNavigation) RoomCompileIds.Stamp(map, plan.PackId, plan.LevelId);
+await WriteMapAsync(map);                                                     // the map never waits for navigation
+if (plan.WritesNavigation)
+{
+    Nav3dLevel nav = await plan.BuildAsync(cancellationToken);                 // thread pool; cancellable; re-runnable
+    await LevelNavPlan.WriteAsync(disk, navPath, nav, LevelNavFromPack.DefaultCompression, cancellationToken);
+}
+```
 
-### 13.4 Seams: rooms stitched against the whole map
+The build holds only memory it allocates: no file, handle, pooled buffer or
+shared state, so a cancelled or failed build leaves nothing behind and the
+plan can be built again. The write goes through the file system's replace,
+so a cancelled or failed write leaves the previous file, never half of one.
+When the navigation fails after the map is written, `ssmap link` says `the
+map was written, but its navigation failed: …` and exits with failure.
 
-A room is voxelised without its neighbours. Outside its cell it assumes the
-kit: solid everywhere except behind each open door, where the neighbour's
-wall has the same opening, `wall_depth` deep, and beyond it the neighbour's
-room is taken to be open near its door. The link joins two rooms only where
-both sides' doorway voxels are free, so this never invents a passage.
+## 18. Measurements and the choices they made
 
-A fact voxelises every 3x3 sample level straight from its flattened
-whole-map compile and compares every voxel of every placed room, for both
-default agents, with the stitched file: they are **identical, seams
-included**. In general the stitched result is exact when an agent's
-half-width is at most `wall_depth` and a room keeps the inside of each door
-clear for half an agent plus one voxel. Beyond that, a doorway voxel's side
-flag facing the neighbour can differ, and a doorway voxel's own class can be
-optimistic for an agent wider than twice the wall is deep; neither changes
-which rooms connect.
+A 4-core machine shared with other work, Microsoft's .NET 10 runtime; wall
+times are noisy and given as ranges or medians of interleaved runs.
+Version 1 is `main` before this change.
 
-## 14. Measurements and the choices they made
+**Byte identity.** `ssmap link -no-nav` on the eight sample levels gives the
+same map as version 1 (SHA-256 `174b2214…` rooms3x3, `3d6975b2…` turn1,
+`1f7982a0…` turn2, `d403c169…` turn3, `b1010f30…` seed_1, `7be65827…`
+seed_10, `2e1cca13…` seed_2, `db77def5…` seed_9), and the 256-room stress
+level's `-no-nav` map is `2776687167…` with both.
 
-Measured on a 4-core machine shared with other work (load average 20-40
-during the runs), on Microsoft's .NET 10.0.12 runtime. Wall times under that
-load are noisy; CPU times and in-process timings are steadier.
+**The 3x3 sample** (5-room library, 9-room levels):
 
-**The 3x3 sample** (5-room library, 9-room level, both default agents):
-
-| | without navigation | with navigation |
+| | version 1 | version 2 |
 | --- | --- | --- |
-| `ssmap room` (5 rooms) | 0.85-0.97 s | 0.90-0.92 s |
-| `.roompack` | 69 KB | 211 KB (turn 0 only), 637 KB (all four turns) |
-| `ssmap link` | 0.34-0.58 s | 0.55-0.63 s |
-| stitching in process | | 12.7 ms (read 3.4, stitch 6.5, write 0.9) |
-| `.nav3d` | | 932 KB: 8,544 standing leaves, 10,174 flyer leaves |
+| `ssmap room` | 0.87 s | 1.00-1.09 s |
+| `.roompack` | 772 KB | 517 KB (raw sections, the default); 223 KB with Brotli 5 |
+| `ssmap link` (8 levels) | 0.44-0.66 s | 0.44-0.64 s |
+| `.nav3d` | 717-941 KB (raw) | 3.5-4.5 KB (Brotli 5); 59.6 KB raw for rooms3x3 |
 
-**The stress library** (`tools/RoomsSample --stress`, 256 rooms, a 16x16
-level from `ssmap layout -seed 1`, 256 rooms placed, 861 doors):
+**The stress library** (256 rooms, a 16x16 level from `ssmap layout -seed 1`):
 
-| | without navigation | with navigation |
+| | version 1 | version 2 |
 | --- | --- | --- |
-| `ssmap room` (256 rooms, wall) | 6.5-9.7 s | 7.0-8.0 s (the machine's load dominates the spread) |
-| room navigation build, per room | | 2.1 ms warm, 3.5 ms in a cold `ssmap room` (the room's own compile: ~3 ms) |
-| `.roompack` | 3.71 MB | 11.05 MB (turn 0 only), 33.07 MB (all four turns: the default) |
-| `ssmap link` (median wall) | ~0.8 s | ~1.3 s with all turns stored, ~1.7 s turning at link |
-| stitching in process (warm) | | ~210 ms: read 41-55, stitch 120-150, write 30-45 |
-| `.nav3d` | | 28.3 MB: 260k standing leaves, 306k flyer leaves, 1 component each |
+| `ssmap room` (wall) | 7.9 s | 10.2-11.4 s (5.0-5.4 s with `nav 0`) |
+| `.roompack` | 40.3 MB | 27.1 MB (raw sections, the default); 11.9 MB with Brotli 5 |
+| `ssmap link` (wall) | 1.43-1.59 s | 1.11-1.25 s (`-no-nav`: 0.71 s) |
+| `.nav3d` | 28.3 MB | 117 KB (Brotli 5), 1.85 MB raw: 62,602 leaves, 861 points, 1,300 jump links |
 
-**Voxel size.** 16 is the default: the largest voxel that keeps the sample kit
-exact (wall depth 16, player half-width 16, a 96-wide door leaves four voxels
-of centre line). At 32 the lowest free voxel floats 16 units over the floor
-and the floor contact is lost; at 8 the answer on this kit is the same with
-more leaves. Per room, stress library, in a warm process: 32 gives 313
-leaves, a 5.6 KB section and 0.8 ms of build; 16 gives 2,172 leaves, 28.8 KB
-and 2.1 ms; 8 gives 11,608 leaves, 142 KB and 12.1 ms.
+The room build costs more than version 1's (about 21 ms a room in a cold
+process against 11 ms): each socket's capped state is a full rebuild,
+chosen because it is the plain statement of what capping means and is
+what the facts compare with. The link, which runs far more often, is
+faster, and the file is 240 times smaller.
 
-**Turns stored ×4 or turned at link.** Turning is a lossless permutation of
-voxels and costs little, but the link from a pack with all four turns was
-measurably faster (16x16: 1.32 s against 1.74 s median wall, 0.86 s against
-1.0 s user CPU, in a fresh process), and the owner's rule is that disk is
-cheap and link time decides. So `ssmap room` stores all four turns by default
-(`-nav-turn0` stores turn 0 only). A fact proves the link writes the same
-file from either pack, and another that voxelising a room turned equals
-turning its stored navigation, at all four turns.
+**`.nav3d` codecs** (16x16 stress level; decode is the codec alone, open is
+`Nav3dReader.Open` including validation and everything derived at load,
+medians in a warm process):
 
-**Compression.** Both artifacts carry a codec byte; the default is **none**,
-because decoding raw data was faster than decoding compressed data in both
-places it matters (the pack warm in the page cache):
+| codec | bytes | saving | encode | decode | open |
+| --- | --- | --- | --- | --- | --- |
+| none | 1,845,448 | 0% | 9 ms | 0.3 ms | 20 ms |
+| deflate:1 | 547,081 | 70.4% | 13 ms | 2.5 ms | 19 ms |
+| deflate:6 | 185,492 | 89.9% | 18 ms | 1.3 ms | 21 ms |
+| deflate:9 | 134,427 | 92.7% | 81 ms | 1.3 ms | 20 ms |
+| brotli:1 | 247,871 | 86.6% | 10 ms | 2.7 ms | 24 ms |
+| **brotli:5** | **117,330** | **93.6%** | 29 ms | 2.2 ms | 17 ms |
+| brotli:9 | 97,684 | 94.7% | 54 ms | 1.6 ms | 17 ms |
+| brotli:11 | 79,895 | 95.7% | 1,710 ms | 1.8 ms | 21 ms |
 
-| 256 rooms' `NVR0` sections | size | read (median, all rooms) |
-| --- | --- | --- |
-| none | 7.34 MB | 23.6 ms |
-| deflate:1 | 3.36 MB | 37.9 ms |
-| deflate:6 | 2.23 MB | 38.6 ms |
-| brotli:1 | 2.29 MB | 48.4 ms |
-| brotli:5 | 1.56 MB | 44.3 ms |
+The owner's rule was to compress by default if it saves more than 30%;
+every codec saves over 70%, and decoding is a few milliseconds against the
+load's derivation. Brotli 5 is the default: 94% smaller, 29 ms to encode,
+where Brotli 11 saves 2 points more for 60 times the encode.
 
-| 16x16 `.nav3d` | size | write | load (read + open, warm) |
-| --- | --- | --- | --- |
-| none | 28.3 MB | 69 ms | 24 ms |
-| deflate:1 | 15.2 MB | 242 ms | 99 ms |
-| deflate:6 | 9.7 MB | 791 ms | 76 ms |
-| deflate:9 | 8.1 MB | 2193 ms | 66 ms |
-| brotli:1 | 10.7 MB | 161 ms | 104 ms |
-| brotli:5 | 7.9 MB | 1009 ms | 90 ms |
-| brotli:9 | 7.4 MB | 5574 ms | 90 ms |
+**Room pack `NVR` sections** (the same library's 1,024 sections, four turns;
+read is `RoomNavSection.Read` of all of them):
+
+| codec | bytes | saving | encode | read |
+| --- | --- | --- | --- | --- |
+| none | 16,218,544 | 0% | 61 ms | 21 ms |
+| deflate:1 | 2,385,620 | 85.3% | 64 ms | 31 ms |
+| deflate:6 | 1,435,943 | 91.1% | 128 ms | 31 ms |
+| deflate:9 | 1,422,423 | 91.2% | 433 ms | 34 ms |
+| brotli:1 | 1,535,194 | 90.5% | 84 ms | 42 ms |
+| **brotli:5** | **981,159** | **94.0%** | 188 ms | 35 ms |
+| brotli:9 | 969,080 | 94.0% | 2,129 ms | 35 ms |
+| brotli:11 | 914,405 | 94.4% | 26,220 ms | 39 ms |
+
+The pack's sections stay **raw by default**: the owner's rule for the pack
+is that link speed beats disk size, and raw is the faster read (21 ms
+against 35 ms for every section). Whole cold links of the 16x16 level tied
+inside their noise (medians 1.43 s raw, 1.47 s from a Brotli 5 pack, 1.50 s
+from a turn-0-only pack), which does not override the rule;
+`ssmap room -nav-codec brotli` gives the fifteenfold smaller pack (27.1 MB
+to 11.9 MB) to a host that wants it. The four turns stay stored. All three give the same `.nav3d` apart from
+the ids (the pack id covers the pack options).
 
 `-nav-codec none|deflate[:0-9]|brotli[:0-11]` on `ssmap room` and
 `ssmap link` chooses otherwise. Compressed bytes are the same on every run
-and at any thread count. Brotli and raw bytes are pinned by the facts; the
-Deflate pin is Microsoft's runtime's, which carries its own zlib-ng on every
-OS (a distribution's packaged runtime that links the system zlib writes
-other, equally valid, Deflate bytes). Equality across operating systems is
-expected and is checked by CI's Windows and macOS runners, not yet here.
-
-**Separate files or the pack.** Navigation is about three times a room's
-container (28.7 KB against 14.5 KB per stress room, turn 0), not "trivially
-small"; it lives in the pack anyway by the owner's decision (13.3), in its
-own sections, read only for the placed rooms.
+and at any thread count (a fact runs the room compile and link at 1 and 4
+threads, twice each, and compares the pack, the `.nav3d` and the map);
+Brotli and raw bytes are pinned by the facts, and the Deflate pin is
+Microsoft's runtime's zlib-ng.

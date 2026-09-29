@@ -369,7 +369,9 @@ public static class BrushCsg
         {
             if (!newBrush.Sides[j].Winding.IsNull)
             {
-                newBrush.Sides[j].Winding = context.Windings.Copy(newBrush.Sides[j].Winding);
+                // The map's side windings live in the compile's arena; a
+                // block of the parallel world pass copies them into its own.
+                newBrush.Sides[j].Winding = context.Windings.CopyFrom(context.Compile.Windings, newBrush.Sides[j].Winding);
             }
 
             if ((newBrush.Sides[j].Surface & (int)SurfaceFlags.Hint) != 0)

@@ -39,6 +39,11 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
     private readonly Dictionary<nint, List<CollideHandle>> _vcollides = [];
     private nint _next = 16;
 
+    // The placed leaf convexes of a collide, by handle and placement: see
+    // PlacedConvexes. Made on first use; a destroyed collide's entries go
+    // with it.
+    private Dictionary<PlacementKey, List<ManagedTrace.Convex>>? _placed;
+
     /// <summary>A session over one thread's builders.</summary>
     /// <param name="build">The IVP builders at the cooker's precision.</param>
     /// <param name="surfaceProps">The cooker's surface-property table.</param>
@@ -374,7 +379,79 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
     }
 
     /// <inheritdoc/>
-    public void DestroyCollide(CollideHandle collide) => _collides.Remove(collide.Value);
+    public void DestroyCollide(CollideHandle collide)
+    {
+        _collides.Remove(collide.Value);
+        if (_placed is { Count: > 0 } placed)
+        {
+            foreach (PlacementKey key in placed.Keys)
+            {
+                if (key.Handle == collide.Value)
+                {
+                    placed.Remove(key);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The leaf convexes of a collide placed at an origin and angles, made
+    /// once per session and placement and then reused.
+    /// </summary>
+    /// <param name="collide">The collide.</param>
+    /// <param name="origin">Where it is placed.</param>
+    /// <param name="angles">How it is turned.</param>
+    /// <returns>The convexes, shared by every caller asking for the same placement.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Why.</b> A static prop's leaf list is one session: its hull's box,
+    /// then one overlap test (<see cref="TraceCollide"/>) per BSP leaf the
+    /// box reaches. Every one of those rebuilt the prop's placed convexes from
+    /// the surface bytes, copying each ledge, transforming its points and
+    /// allocating them anew, for the same prop at the same place; on 2fort
+    /// that was tens of megabytes of garbage and most of the leaf traces'
+    /// time. A convex is a pure function of the surface's points and the
+    /// placement, so the first one made serves them all.
+    /// </para>
+    /// <para>
+    /// <b>The key is exact.</b> The placement is compared bit for bit, so
+    /// <c>-0</c> and <c>+0</c> (which turn to different rotations) are
+    /// different placements. The surface's points never change once a
+    /// collide exists: the writes a session makes to a surface are its
+    /// materials and header values, which no convex reads. A convex's
+    /// planes, built on first use with this session's qhull storage, are
+    /// likewise a pure function of its points. The cache is the session's,
+    /// on the session's one thread, and goes with it.
+    /// </para>
+    /// </remarks>
+    internal List<ManagedTrace.Convex> PlacedConvexes(CollideHandle collide, Vec3 origin, Vec3 angles)
+    {
+        PlacementKey key = new(collide.Value, origin, angles);
+        _placed ??= [];
+        if (!_placed.TryGetValue(key, out List<ManagedTrace.Convex>? convexes))
+        {
+            convexes = ManagedTrace.Convexes(Collide(collide).RequireSurface(), Placement(origin, angles), Hulls);
+            _placed[key] = convexes;
+        }
+
+        return convexes;
+    }
+
+    /// <summary>A collide and a placement, the placement's floats by their bits.</summary>
+    private readonly record struct PlacementKey(nint Handle, int Ox, int Oy, int Oz, int Ax, int Ay, int Az)
+    {
+        public PlacementKey(nint handle, Vec3 origin, Vec3 angles)
+            : this(
+                handle,
+                BitConverter.SingleToInt32Bits(origin.X),
+                BitConverter.SingleToInt32Bits(origin.Y),
+                BitConverter.SingleToInt32Bits(origin.Z),
+                BitConverter.SingleToInt32Bits(angles.X),
+                BitConverter.SingleToInt32Bits(angles.Y),
+                BitConverter.SingleToInt32Bits(angles.Z))
+        {
+        }
+    }
 
     /// <inheritdoc/>
     public int CollideSize(CollideHandle collide) => Collide(collide).SerializedSize;
@@ -404,7 +481,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
     public Vec3 CollideGetExtent(CollideHandle collide, Vec3 origin, Vec3 angles, Vec3 direction)
     {
         byte[] surface = Collide(collide).RequireSurface();
-        if (Placement(origin, angles) is not { } t)
+        if (Placement(origin, angles) is null)
         {
             (float x, float y, float z) = IvpCollideQueries.SurfaceExtent(surface, (direction.X, direction.Y, direction.Z));
             return new Vec3(x, y, z);
@@ -412,7 +489,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
 
         Vec3 best = origin;
         float bestDot = float.NegativeInfinity;
-        foreach (ManagedTrace.Convex c in ManagedTrace.Convexes(surface, t, Hulls))
+        foreach (ManagedTrace.Convex c in PlacedConvexes(collide, origin, angles))
         {
             foreach (double[] p in c.Points)
             {
@@ -432,7 +509,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
     public (Vec3 Mins, Vec3 Maxs) CollideGetAABB(CollideHandle collide, Vec3 origin, Vec3 angles)
     {
         byte[] surface = Collide(collide).RequireSurface();
-        if (Placement(origin, angles) is not { } t)
+        if (Placement(origin, angles) is null)
         {
             ((float X, float Y, float Z) mn, (float X, float Y, float Z) mx) = IvpCollideQueries.SurfaceAabb(surface);
             return (new Vec3(mn.X, mn.Y, mn.Z), new Vec3(mx.X, mx.Y, mx.Z));
@@ -440,7 +517,7 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
 
         float x0 = float.MaxValue, y0 = float.MaxValue, z0 = float.MaxValue;
         float x1 = -float.MaxValue, y1 = -float.MaxValue, z1 = -float.MaxValue;
-        foreach (ManagedTrace.Convex c in ManagedTrace.Convexes(surface, t, Hulls))
+        foreach (ManagedTrace.Convex c in PlacedConvexes(collide, origin, angles))
         {
             foreach (double[] p in c.Points)
             {
@@ -509,8 +586,8 @@ internal sealed class ManagedCollisionSession : ICollisionSession, IConcurrentCo
                 "the managed cooker answers zero-length TraceCollide (an overlap test) only; vbsp's path never sweeps a collide");
         }
 
-        List<ManagedTrace.Convex> a = ManagedTrace.Convexes(Collide(sweep).RequireSurface(), Placement(start, sweepAngles), Hulls);
-        List<ManagedTrace.Convex> b = ManagedTrace.Convexes(Collide(collide).RequireSurface(), Placement(origin, angles), Hulls);
+        List<ManagedTrace.Convex> a = PlacedConvexes(sweep, start, sweepAngles);
+        List<ManagedTrace.Convex> b = PlacedConvexes(collide, origin, angles);
         bool overlap = ManagedTrace.Overlaps(a, b);
         return new CollisionTrace(start, end, default, overlap ? 0f : 1f, overlap, overlap);
     }

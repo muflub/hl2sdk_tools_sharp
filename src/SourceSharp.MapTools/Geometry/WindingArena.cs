@@ -26,24 +26,36 @@ namespace SourceSharp.MapTools.Geometry;
 /// worker as scratch.
 /// </para>
 /// <para>
-/// <b>Spans are invalidated by allocation.</b> <see cref="Points"/> and
-/// <see cref="Storage"/> hand out a window onto the backing slab, and the slab
-/// is grown by copying. Any <see cref="Alloc"/>, <see cref="Copy"/> or
-/// operation that allocates may therefore invalidate a span taken before it.
-/// Take spans after the last allocation, as every method below does.
+/// <b>Take spans after the last allocation.</b> <see cref="Points"/> and
+/// <see cref="Storage"/> hand out a window onto the backing slab. Growth no
+/// longer moves points (below), so a span taken before an allocation stays
+/// valid today; every method here still takes its spans after its last
+/// allocation, which keeps it correct whatever the growth policy becomes.
 /// </para>
 /// <para>
-/// <b>The slab is a list of segments.</b> An arena that keeps its windings --
-/// vbsp's, or the patch windings vrad keeps for the whole bounce -- can hold
-/// millions of points, and growing one array by doubling made every array it
-/// outgrew garbage on the large-object heap: about as much again as the final
-/// slab, copied point by point on the way. So the first segment starts at the
-/// requested capacity and doubles, as before, but only up to
-/// <see cref="SegmentLength"/> points; after that the arena adds whole new
-/// segments and never copies a full one. A winding never straddles two
-/// segments (the unused tail of a segment, at most a winding's worth, is
-/// skipped), so a winding's storage is still one span. Only the first
-/// segment's growth moves points, which is why the rule above still holds.
+/// <b>The slab is a list of segments that is never copied.</b> An arena that
+/// keeps its windings -- vbsp's, or the patch windings vrad keeps for the
+/// whole bounce -- can hold millions of points, and growing one array by
+/// doubling made every array it outgrew garbage on the large-object heap:
+/// about as much again as the final slab, copied point by point on the way.
+/// The first version of this fix still doubled the first segment in place up
+/// to <see cref="SegmentLength"/> points, which cost every new arena some
+/// 1.4 MB of large-object garbage on its way to a full segment; the parallel
+/// tree build makes an arena per fork and per block, so on a 32-thread
+/// compile that alone could be a hundred megabytes. Now growth only ever adds
+/// a segment: segment <c>k</c> holds the first segment's length times
+/// <c>2^k</c> points, up to <see cref="SegmentLength"/>, so an arena of any
+/// size has allocated exactly its segments and nothing else. A winding never
+/// straddles two segments (the unused tail of a segment, at most a winding's
+/// worth, is skipped, and a reservation larger than a segment skips to the
+/// first one large enough), so a winding's storage is still one span.
+/// </para>
+/// <para>
+/// A segment's length depends only on its index and on the first segment's
+/// length, never on the reservations that happened to reach it, so where a
+/// winding lands is a function of the reservations before it alone. That is
+/// what lets <see cref="Reset"/> hand out exactly the handles a new arena
+/// would.
 /// </para>
 /// <para>
 /// The arithmetic is a faithful port. The operand order, the epsilons and the
@@ -92,6 +104,11 @@ public sealed class WindingArena
 
     private const int SegmentMask = SegmentLength - 1;
 
+    // The length of the first segment when it is allocated (the constructor's
+    // capacity, or DefaultFirstSegment for an arena made with none); segment
+    // k holds this times 2^k points, capped at SegmentLength.
+    private readonly int _firstLength;
+
     private Vec3[][] _slab;
     private bool[][] _live;
     private int _used;
@@ -99,9 +116,15 @@ public sealed class WindingArena
 
     /// <summary>Creates an arena with a default starting capacity.</summary>
     public WindingArena()
-        : this(4096)
+        : this(DefaultFirstSegment)
     {
     }
+
+    /// <summary>
+    /// The first segment's length for an arena that asked for none: 4096
+    /// points, 48 KB, under the large-object threshold.
+    /// </summary>
+    private const int DefaultFirstSegment = 4096;
 
     /// <summary>
     /// The compliance this arena's polylib operations run under.
@@ -136,6 +159,7 @@ public sealed class WindingArena
         ArgumentOutOfRangeException.ThrowIfNegative(initialPointCapacity);
 
         int first = Math.Min(initialPointCapacity, SegmentLength);
+        _firstLength = first == 0 ? DefaultFirstSegment : first;
         _slab = [new Vec3[first]];
         _live = [new bool[first]];
         _free = new Stack<int>[MaxPointsOnWinding + 8];
@@ -182,6 +206,67 @@ public sealed class WindingArena
 
             return capacity;
         }
+    }
+
+    /// <summary>
+    /// Forgets every winding, keeping the storage, so the arena can be used
+    /// again as though it were new.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why an arena is reused at all.</b> The parallel tree build gives
+    /// every fork an arena of its own, a couple of hundred of them in a 2fort
+    /// compile, and a new arena grows its first segment by doubling: every
+    /// array it outgrows is garbage, and from 8192 points on each one is a
+    /// large-object-heap array. Those were the compile's largest source of
+    /// large-object garbage (about 145 MB of 345 MB on 2fort), and
+    /// large-object allocation is what triggers the gen2 collections that
+    /// park every compile thread. A <see cref="WindingArenaPool"/> hands a
+    /// finished fork's arena to the next fork instead, which finds its first
+    /// segment already grown.
+    /// </para>
+    /// <para>
+    /// <b>A reset arena is indistinguishable from a new one.</b> Every
+    /// handle it gives out afterwards has the offset a new arena would have
+    /// given: allocation starts again at offset zero, the free lists are
+    /// empty, and where the next reservation lands never depends on how
+    /// large the first segment already is, only on the points reserved
+    /// before it (see <see cref="EnsureRoom"/>). The counters start again
+    /// from zero too. So nothing a compile computes can tell a pooled arena
+    /// from a fresh one; only the allocations it no longer makes differ.
+    /// </para>
+    /// <para>
+    /// Every handle taken before the reset is dead afterwards, and freeing
+    /// one is caught as a double free only if its slot has not been handed
+    /// out again. The caller must hold none: the pool resets an arena only
+    /// when its fork has been joined and its windings copied home.
+    /// </para>
+    /// </remarks>
+    internal void Reset()
+    {
+        // Only the segments allocation has reached can hold a live flag. The
+        // one _used points into is cleared whole: that costs at most one
+        // segment's worth of bytes, and saves reasoning about a reservation
+        // that skipped a segment's tail.
+        int lastSegment = Math.Min(_used >> SegmentShift, _live.Length - 1);
+        for (int i = 0; i <= lastSegment; i++)
+        {
+            if (_live[i] is { } live)
+            {
+                Array.Clear(live);
+            }
+        }
+
+        foreach (Stack<int>? bucket in _free)
+        {
+            bucket?.Clear();
+        }
+
+        _used = 0;
+        ActiveWindings = 0;
+        PeakWindings = 0;
+        TotalAllocations = 0;
+        RecycledAllocations = 0;
     }
 
     /// <summary>Reserves storage for a winding with no points in it yet.</summary>
@@ -334,6 +419,43 @@ public sealed class WindingArena
     {
         Winding c = Alloc(winding.Count);
         Points(winding).CopyTo(Storage(c));
+        return SetCount(c, winding.Count);
+    }
+
+    /// <summary>
+    /// <see cref="Copy"/> of a winding that lives in another arena: a new
+    /// winding in this one, whose capacity is the source's point count.
+    /// </summary>
+    /// <param name="source">The arena the winding lives in; this arena itself is allowed.</param>
+    /// <param name="winding">The winding to copy.</param>
+    /// <returns>The copy.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="source"/> is null.</exception>
+    /// <remarks>
+    /// <para>
+    /// Exactly <see cref="Copy"/>, compaction and all, only reading the
+    /// points from <paramref name="source"/>: with <c>source == this</c> it
+    /// IS <see cref="Copy"/>. It exists for a block of the parallel world
+    /// pass, which carves copies of the map's brush sides into its own
+    /// arena while the sides' windings stay in the compile's.
+    /// </para>
+    /// <para>
+    /// <b>Reading another thread's arena.</b> The source is only read, and
+    /// only at windings that were written before the reading thread was
+    /// started, while the source's owner may be appending to it. That is
+    /// safe because appending never changes storage in place: points are
+    /// written only into slots nobody has been handed, a segment is never
+    /// moved or copied, and when the table of segments fills up it is copied
+    /// into a new array that is then published, so a reader sees either the
+    /// old table or the new one, and a segment made before either is in
+    /// both. An object reference store is a release under the .NET memory
+    /// model, so the copy is visible before the reference to it is.
+    /// </para>
+    /// </remarks>
+    internal Winding CopyFrom(WindingArena source, Winding winding)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        Winding c = Alloc(winding.Count);
+        source.Points(winding).CopyTo(Storage(c));
         return SetCount(c, winding.Count);
     }
 
@@ -1438,45 +1560,46 @@ public sealed class WindingArena
     private ref bool Live(int offset) => ref _live[offset >> SegmentShift][offset & SegmentMask];
 
     // Where a new reservation of `capacity` points goes: after the last one
-    // when it fits in that segment, else at the start of the next segment.
-    // Grows the first segment by doubling, or adds a whole segment.
+    // when it fits in that segment, else at the start of the next segment it
+    // fits in whole. Adds segments as it needs them and never copies one;
+    // only the (small) table of segments is copied when it fills up.
     private int EnsureRoom(int capacity)
     {
         int segment = _used >> SegmentShift;
         int local = _used & SegmentMask;
-        if (local + capacity > SegmentLength)
+        while (local + capacity > SegmentSize(segment))
         {
             segment++;
             local = 0;
         }
 
-        if (segment == 0)
+        if (segment >= _slab.Length)
         {
-            Vec3[] first = _slab[0];
-            if (local + capacity > first.Length)
+            int length = _slab.Length;
+            while (length <= segment)
             {
-                int want = Math.Min(
-                    Math.Max(first.Length == 0 ? 4096 : first.Length * 2, local + capacity),
-                    SegmentLength);
-                Array.Resize(ref _slab[0], want);
-                Array.Resize(ref _live[0], want);
-            }
-        }
-        else
-        {
-            if (segment == _slab.Length)
-            {
-                Array.Resize(ref _slab, _slab.Length * 2);
-                Array.Resize(ref _live, _live.Length * 2);
+                length *= 2;
             }
 
-            if (_slab[segment] is null)
-            {
-                _slab[segment] = new Vec3[SegmentLength];
-                _live[segment] = new bool[SegmentLength];
-            }
+            Array.Resize(ref _slab, length);
+            Array.Resize(ref _live, length);
+        }
+
+        // A segment is allocated the first time a reservation lands in it.
+        // The first segment of an arena made with no capacity is an empty
+        // array until then, and holds nothing to keep.
+        if (_slab[segment] is not { Length: > 0 })
+        {
+            int size = SegmentSize(segment);
+            _slab[segment] = new Vec3[size];
+            _live[segment] = new bool[size];
         }
 
         return (segment << SegmentShift) | local;
     }
+
+    // How many points segment k holds: the first segment's length doubled k
+    // times, capped at a full segment.
+    private int SegmentSize(int segment) =>
+        segment >= SegmentShift ? SegmentLength : (int)Math.Min(SegmentLength, (long)_firstLength << segment);
 }

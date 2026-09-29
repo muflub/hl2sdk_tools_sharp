@@ -9,34 +9,81 @@ using SourceSharp.MapFormats.Geometry;
 
 namespace SourceSharp.MapFormats.Nav;
 
-/// <summary>One free leaf: a cube of voxels an agent is free in everywhere, with what it touches.</summary>
-/// <param name="X">The leaf's low corner, in level voxels from the level's origin, along x.</param>
-/// <param name="Y">The low corner along y.</param>
-/// <param name="Z">The low corner along z.</param>
-/// <param name="SizeLog2">The leaf's edge is <c>2^SizeLog2</c> voxels.</param>
-/// <param name="Flags">What the leaf touches.</param>
-/// <param name="Component">The connected component the leaf belongs to.</param>
-/// <param name="Cell">The grid cell holding the leaf: <c>row × columns + column</c>.</param>
+/// <summary>
+/// One leaf: a vertical run of voxels in one column, every voxel of it with
+/// the same clearance, flags and cost.
+/// </summary>
+/// <param name="ZLo">The run's lowest voxel, counted from the cell's floor.</param>
+/// <param name="Height">How many voxels the run holds, at least 1.</param>
+/// <param name="Flags">Water, ladder, and per clip class whether it stands on a floor and whether that floor is walkable.</param>
+/// <param name="Cost">The traversal cost multiplier in 8.8 fixed point: 256 is 1.0.</param>
+/// <param name="PlayerClearance">The player class's clearance record: its offset in the clearance section.</param>
+/// <param name="NpcClearance">The NPC class's clearance record.</param>
+/// <param name="PlayerFloorZ">For the player class, the altitude of the surface under the run when <see cref="Nav3dLeafFlags.GroundedPlayer"/>; else 0.</param>
+/// <param name="NpcFloorZ">For the NPC class, likewise.</param>
 public readonly record struct Nav3dLeaf(
-    ushort X, ushort Y, ushort Z, byte SizeLog2, Nav3dLeafFlags Flags, uint Component, uint Cell)
+    byte ZLo, byte Height, Nav3dLeafFlags Flags, ushort Cost, uint PlayerClearance, uint NpcClearance, float PlayerFloorZ, float NpcFloorZ)
 {
-    /// <summary>The leaf's edge in voxels.</summary>
-    public int Size => 1 << SizeLog2;
+    /// <summary>The run's highest voxel.</summary>
+    public int ZHi => ZLo + Height - 1;
 
-    /// <summary>How many voxels the leaf holds.</summary>
-    public long Voxels => 1L << (3 * SizeLog2);
+    /// <summary>The cost as a multiplier.</summary>
+    public float CostMultiplier => Cost / 256f;
+
+    /// <summary>A clip class's clearance record offset.</summary>
+    /// <param name="clipClass">The class.</param>
+    /// <returns>The offset.</returns>
+    public uint Clearance(Nav3dClipClass clipClass) => clipClass == Nav3dClipClass.Npc ? NpcClearance : PlayerClearance;
+
+    /// <summary>Whether the run stands on solid for a clip class.</summary>
+    /// <param name="clipClass">The class.</param>
+    /// <returns>True when grounded.</returns>
+    public bool IsGrounded(Nav3dClipClass clipClass) =>
+        (Flags & (clipClass == Nav3dClipClass.Npc ? Nav3dLeafFlags.GroundedNpc : Nav3dLeafFlags.GroundedPlayer)) != 0;
+
+    /// <summary>Whether the run's floor is walkable for a clip class (grounded, and not too steep).</summary>
+    /// <param name="clipClass">The class.</param>
+    /// <returns>True when walkable.</returns>
+    public bool IsWalkable(Nav3dClipClass clipClass) =>
+        (Flags & (clipClass == Nav3dClipClass.Npc ? Nav3dLeafFlags.WalkableNpc : Nav3dLeafFlags.WalkablePlayer)) != 0;
+
+    /// <summary>The floor's altitude for a clip class, meaningful when <see cref="IsGrounded"/>.</summary>
+    /// <param name="clipClass">The class.</param>
+    /// <returns>The altitude.</returns>
+    public float FloorZ(Nav3dClipClass clipClass) => clipClass == Nav3dClipClass.Npc ? NpcFloorZ : PlayerFloorZ;
 }
 
-/// <summary>A pair of leaves in two rooms joined through a door.</summary>
-/// <param name="LeafA">The leaf on the door's side.</param>
-/// <param name="LeafB">The leaf on the other side.</param>
-/// <param name="Door">The door record, on <paramref name="LeafA"/>'s side.</param>
-public readonly record struct Nav3dDoorLink(uint LeafA, uint LeafB, uint Door);
+/// <summary>An agent preset: a size and clip class the level's author named, recorded for the runtime's convenience.</summary>
+/// <param name="Name">The preset's name.</param>
+/// <param name="Width">The box's width and depth.</param>
+/// <param name="Height">The box's height, from the origin (the feet) up.</param>
+/// <param name="ClipClass">Which clip brushes it collides with.</param>
+/// <remarks>
+/// The grid does not depend on presets: any size is answered exactly. A
+/// reader derives its connected components per preset at load, and a point
+/// of interest's agent mask names presets.
+/// </remarks>
+public sealed record Nav3dPreset(string Name, float Width, float Height, Nav3dClipClass ClipClass);
 
-/// <summary>A connected component's size.</summary>
-/// <param name="Leaves">How many leaves it holds.</param>
-/// <param name="Voxels">How many voxels those leaves hold.</param>
-public readonly record struct Nav3dComponent(uint Leaves, uint Voxels);
+/// <summary>A dynamic obstacle: an entity the grid treats as open space, whose leaves the runtime blocks while it is in the way.</summary>
+/// <param name="Name">Its <c>targetname</c>, room-local names resolved for its cell, or null when it has none.</param>
+/// <param name="ClassName">Its classname.</param>
+/// <param name="Cell">The cell of the room it belongs to.</param>
+/// <param name="HammerId">Its <c>hammerid</c> in the room, or -1: with the cell, what finds an unnamed entity.</param>
+/// <param name="Kind">What it is.</param>
+/// <param name="Mins">Its bounds' low corner, level coordinates, where the map places it.</param>
+/// <param name="Maxs">Its bounds' high corner.</param>
+public sealed record Nav3dObstacle(
+    string? Name, string ClassName, uint Cell, int HammerId, Nav3dObstacleKind Kind, Vec3 Mins, Vec3 Maxs);
+
+/// <summary>A jump link: two floors a jumping agent can travel between, up by jumping, down by dropping.</summary>
+/// <param name="LeafA">The lower-numbered leaf.</param>
+/// <param name="LeafB">The other.</param>
+/// <param name="Rise">B's floor minus A's, for the classes in the mask (the floors are the same for both when both are set).</param>
+/// <param name="ClassMask">Bit 0 when the link holds for the player class, bit 1 for the NPC class.</param>
+/// <param name="Direction">The horizontal direction from A to B (<see cref="Nav3dDirection"/>, 0 to 3).</param>
+/// <param name="Columns">How many columns apart the two are: 1 for a ledge, more across a gap.</param>
+public readonly record struct Nav3dJump(uint LeafA, uint LeafB, float Rise, byte ClassMask, Nav3dDirection Direction, byte Columns);
 
 /// <summary>One grid cell of the level.</summary>
 /// <param name="Room">The placed room's name, or null for an empty cell.</param>
@@ -62,7 +109,7 @@ public sealed record Nav3dDoor(uint Cell, byte Direction, bool Joined, string Na
 /// <param name="Tags">Its tags as written: comma-separated, possibly empty.</param>
 /// <param name="Name">Its name with any room-local prefix resolved, or null.</param>
 /// <param name="Cell">The cell of the room it belongs to.</param>
-/// <param name="AgentMask">Bit <c>a</c> set when the point applies to agent <c>a</c>.</param>
+/// <param name="AgentMask">Bit <c>a</c> set when the point applies to preset <c>a</c>.</param>
 /// <param name="Door">For a door point, its door record; else -1.</param>
 /// <param name="Flags">What the point is.</param>
 /// <param name="Role">The transition role of the room it is in.</param>
@@ -79,50 +126,27 @@ public sealed record Nav3dPoi(
     Nav3dPoiFlags Flags,
     Nav3dRoomRole Role);
 
-/// <summary>One agent size and its navigation graph.</summary>
-/// <param name="Name">The agent's name, as the library configures it.</param>
-/// <param name="Mins">The agent's box, relative to its origin (the point a leaf is free for).</param>
-/// <param name="Maxs">The box's far corner.</param>
-/// <param name="ContentsMask">The <c>CONTENTS_*</c> bits the agent collides with.</param>
-public sealed record Nav3dAgent(string Name, Vec3 Mins, Vec3 Maxs, int ContentsMask)
-{
-    /// <summary>Each cell's root node, -1 for a cell with no room; <c>row × columns + column</c>.</summary>
-    public int[] Roots { get; init; } = [];
-
-    /// <summary>The octree nodes of every cell, back to back.</summary>
-    public uint[] Nodes { get; init; } = [];
-
-    /// <summary>The free leaves.</summary>
-    public Nav3dLeaf[] Leaves { get; init; } = [];
-
-    /// <summary>Where each leaf's neighbours start in <see cref="Adjacency"/>; one more entry than leaves.</summary>
-    public uint[] AdjacencyStart { get; init; } = [0];
-
-    /// <summary>The neighbour lists: a leaf index, with <see cref="Nav3dFormat.ThroughDoorBit"/> when the step crosses a door.</summary>
-    public uint[] Adjacency { get; init; } = [];
-
-    /// <summary>The leaf pairs joined through doors.</summary>
-    public Nav3dDoorLink[] Links { get; init; } = [];
-
-    /// <summary>The connected components.</summary>
-    public Nav3dComponent[] Components { get; init; } = [];
-
-    /// <summary>Each point of interest's leaf for this agent, -1 when it does not apply or lies in no free leaf.</summary>
-    public int[] PoiLeaves { get; init; } = [];
-}
-
 /// <summary>
 /// A whole <c>.nav3d</c> file as data: what the linker builds and
 /// <see cref="Nav3dWriter"/> writes, and what <see cref="Nav3dReader.ToLevel"/>
 /// reads back.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The level is a grid of cubic cells, <see cref="Columns"/> west to east by
 /// <see cref="Rows"/> south to north, each <see cref="CellSize"/> units on a
 /// side and split into <see cref="CellVoxels"/> voxels along each edge. Cell
 /// (column, row) spans <c>Origin + (column × CellSize, row × CellSize, 0)</c>
-/// to that plus <c>CellSize</c> on every axis. Each agent has one octree per
-/// occupied cell.
+/// to that plus <c>CellSize</c> on every axis.
+/// </para>
+/// <para>
+/// Each placed cell has <c>CellVoxels²</c> voxel columns, stored as a block
+/// in <see cref="ColumnStarts"/> from the cell's <see cref="Roots"/> entry,
+/// x fastest. A column's free space is a list of leaves, each a run of voxels
+/// with one clearance, low to high; solid is simply not listed. Nothing in
+/// the level depends on the agent presets: they are recorded for the
+/// runtime's convenience.
+/// </para>
 /// </remarks>
 public sealed class Nav3dLevel
 {
@@ -144,8 +168,17 @@ public sealed class Nav3dLevel
     /// <summary>The grid's low corner in level coordinates.</summary>
     public Vec3 Origin { get; init; }
 
-    /// <summary>The least normal z a floor may have: the cosine of the steepest walkable slope.</summary>
+    /// <summary>The least normal z a walkable floor may have: the cosine of the steepest walkable slope.</summary>
     public float FloorNormalZ { get; init; }
+
+    /// <summary>The highest step an agent walks up without jumping: floors of neighbouring leaves this far apart or less are one walk.</summary>
+    public float StepHeight { get; init; }
+
+    /// <summary>The highest ledge a jump reaches, and the deepest drop a jump link stands for.</summary>
+    public float JumpHeight { get; init; }
+
+    /// <summary>The farthest a jump carries, between column centres.</summary>
+    public float JumpDistance { get; init; }
 
     /// <summary>The cells, <c>row × columns + column</c>.</summary>
     public IReadOnlyList<Nav3dCell> Cells { get; init; } = [];
@@ -156,8 +189,29 @@ public sealed class Nav3dLevel
     /// <summary>The points of interest.</summary>
     public IReadOnlyList<Nav3dPoi> Pois { get; init; } = [];
 
-    /// <summary>The agents and their graphs.</summary>
-    public IReadOnlyList<Nav3dAgent> Agents { get; init; } = [];
+    /// <summary>The agent presets.</summary>
+    public IReadOnlyList<Nav3dPreset> Presets { get; init; } = [];
+
+    /// <summary>Each cell's first column, -1 for a cell with no room; <c>row × columns + column</c>.</summary>
+    public int[] Roots { get; init; } = [];
+
+    /// <summary>Where each column's leaves start in <see cref="Leaves"/>; one more entry than columns.</summary>
+    public uint[] ColumnStarts { get; init; } = [0];
+
+    /// <summary>The leaves, column after column, each column's low to high.</summary>
+    public Nav3dLeaf[] Leaves { get; init; } = [];
+
+    /// <summary>The clearance records the leaves point into, back to back (<see cref="Nav3dClearance"/>).</summary>
+    public byte[] Clearance { get; init; } = [];
+
+    /// <summary>The dynamic obstacles the clearance records name.</summary>
+    public IReadOnlyList<Nav3dObstacle> Obstacles { get; init; } = [];
+
+    /// <summary>The overhanging brushes the clearance records name: each four <c>float32</c> per plane.</summary>
+    public IReadOnlyList<float[]> Brushes { get; init; } = [];
+
+    /// <summary>The jump links.</summary>
+    public IReadOnlyList<Nav3dJump> Jumps { get; init; } = [];
 
     /// <summary>
     /// The point a player spawns at on a fresh start, or -1. The linker sets
@@ -181,7 +235,4 @@ public sealed class Nav3dLevel
 
     /// <summary>The id of the room pack the level's rooms came from (<c>ss_pack_id</c>), or <see cref="Guid.Empty"/>.</summary>
     public Guid PackId { get; init; }
-
-    /// <summary>The octree depth each cell's root has.</summary>
-    public int OctreeDepth => Nav3dFormat.DepthFor(Math.Max(1, CellVoxels));
 }

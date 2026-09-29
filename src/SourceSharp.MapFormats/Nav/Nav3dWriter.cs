@@ -15,19 +15,27 @@ namespace SourceSharp.MapFormats.Nav;
 /// <para>
 /// <b>One layout per level.</b> The envelope (magic, version, codec,
 /// lengths), then the image, stored raw or compressed: the image is the
-/// header, then the section directory,
-/// then the sections in a fixed order (the level's, then each agent's), each
-/// padded with zeros to a four-byte boundary. Strings are interned in the
-/// order they are first met, walking agents, cells, doors and points in that
-/// order. Nothing depends on a clock, a hash seed or a thread, so a level
-/// writes the same bytes on every run and machine, which is what lets the
-/// link's determinism facts compare files byte for byte.
+/// header, then the section directory, then the sections in a fixed order,
+/// each padded with zeros to a four-byte boundary. Strings are interned in
+/// the order they are first met, walking presets, cells, doors, points and
+/// obstacles in that order. Nothing depends on a clock, a hash seed or a
+/// thread, so a level writes the same bytes on every run and machine, which
+/// is what lets the link's determinism facts compare files byte for byte.
+/// </para>
+/// <para>
+/// <b>What is not written.</b> Version 2 writes only what a reader cannot
+/// cheaply work out: the leaves, their clearance, floors and costs, the jump
+/// links and the level's records. Which leaves neighbour which, the
+/// connected components of each preset, each point's leaf, each obstacle's
+/// leaves: the reader derives them once, at load (<see cref="Nav3dReader"/>),
+/// from what is here, the same way every time.
 /// </para>
 /// <para>
 /// The writer checks the level's own consistency (every array the length the
-/// others imply, every index in range) before it writes a byte, so a bug in
-/// whatever built the level surfaces here as an exception naming the field
-/// rather than as a file a game misreads.
+/// others imply, every index in range, every clearance record well formed)
+/// before it writes a byte, so a bug in whatever built the level surfaces
+/// here as an exception naming the field rather than as a file a game
+/// misreads.
 /// </para>
 /// </remarks>
 public static class Nav3dWriter
@@ -41,7 +49,7 @@ public static class Nav3dWriter
 
     /// <summary>The file's bytes, with the image stored by a codec.</summary>
     /// <param name="level">The level.</param>
-    /// <param name="compression">How the image is stored. <see cref="NavCompression.None"/> is the default <c>ssmap link</c> writes: the runtime load measured fastest raw (see <c>docs/nav3d-format.md</c>).</param>
+    /// <param name="compression">How the image is stored.</param>
     /// <returns>The <c>.nav3d</c> bytes.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="level"/> is null.</exception>
     /// <exception cref="ArgumentException">The level is inconsistent; the message names the field.</exception>
@@ -51,9 +59,9 @@ public static class Nav3dWriter
         Check(level);
 
         Strings strings = new();
-        foreach (Nav3dAgent agent in level.Agents)
+        foreach (Nav3dPreset preset in level.Presets)
         {
-            strings.Add(agent.Name);
+            strings.Add(preset.Name);
         }
 
         foreach (Nav3dCell cell in level.Cells)
@@ -73,28 +81,34 @@ public static class Nav3dWriter
             strings.Add(poi.Name);
         }
 
-        List<(string Tag, uint Index, byte[] Bytes)> sections =
-        [
-            (Nav3dFormat.StringsTag, Nav3dFormat.LevelIndex, strings.Bytes()),
-            (Nav3dFormat.AgentsTag, Nav3dFormat.LevelIndex, AgentRecords(level, strings)),
-            (Nav3dFormat.CellsTag, Nav3dFormat.LevelIndex, CellRecords(level, strings)),
-            (Nav3dFormat.DoorsTag, Nav3dFormat.LevelIndex, DoorRecords(level, strings)),
-            (Nav3dFormat.PoisTag, Nav3dFormat.LevelIndex, PoiRecords(level, strings)),
-        ];
-
-        for (int a = 0; a < level.Agents.Count; a++)
+        foreach (Nav3dObstacle obstacle in level.Obstacles)
         {
-            Nav3dAgent agent = level.Agents[a];
-            uint index = (uint)a;
-            sections.Add((Nav3dFormat.RootsTag, index, Int32s(agent.Roots)));
-            sections.Add((Nav3dFormat.NodesTag, index, UInt32s(agent.Nodes)));
-            sections.Add((Nav3dFormat.LeavesTag, index, LeafRecords(agent.Leaves)));
-            sections.Add((Nav3dFormat.AdjacencyStartTag, index, UInt32s(agent.AdjacencyStart)));
-            sections.Add((Nav3dFormat.AdjacencyTag, index, UInt32s(agent.Adjacency)));
-            sections.Add((Nav3dFormat.LinksTag, index, LinkRecords(agent.Links)));
-            sections.Add((Nav3dFormat.ComponentsTag, index, ComponentRecords(agent.Components)));
-            sections.Add((Nav3dFormat.PoiLeavesTag, index, Int32s(agent.PoiLeaves)));
+            strings.Add(obstacle.Name);
+            strings.Add(obstacle.ClassName);
         }
+
+        uint[] brushStarts = new uint[level.Brushes.Count + 1];
+        for (int b = 0; b < level.Brushes.Count; b++)
+        {
+            brushStarts[b + 1] = brushStarts[b] + (uint)(level.Brushes[b].Length / 4);
+        }
+
+        List<(string Tag, byte[] Bytes)> sections =
+        [
+            (Nav3dFormat.StringsTag, strings.Bytes()),
+            (Nav3dFormat.PresetsTag, PresetRecords(level, strings)),
+            (Nav3dFormat.CellsTag, CellRecords(level, strings)),
+            (Nav3dFormat.DoorsTag, DoorRecords(level, strings)),
+            (Nav3dFormat.PoisTag, PoiRecords(level, strings)),
+            (Nav3dFormat.RootsTag, Int32s(level.Roots)),
+            (Nav3dFormat.ColumnsTag, UInt32s(level.ColumnStarts)),
+            (Nav3dFormat.LeavesTag, LeafRecords(level.Leaves)),
+            (Nav3dFormat.ClearanceTag, level.Clearance),
+            (Nav3dFormat.ObstaclesTag, ObstacleRecords(level, strings)),
+            (Nav3dFormat.BrushIndexTag, UInt32s(brushStarts)),
+            (Nav3dFormat.BrushPlanesTag, Floats(level.Brushes)),
+            (Nav3dFormat.JumpsTag, JumpRecords(level.Jumps)),
+        ];
 
         long offset = Nav3dFormat.HeaderBytes + ((long)sections.Count * Nav3dFormat.DirectoryEntryBytes);
         long[] offsets = new long[sections.Count];
@@ -113,30 +127,38 @@ public static class Nav3dWriter
         Span<byte> h = image;
         BinaryPrimitives.WriteInt32LittleEndian(h, Nav3dFormat.HeaderBytes);
         BinaryPrimitives.WriteInt32LittleEndian(h[4..], sections.Count);
-        BinaryPrimitives.WriteInt32LittleEndian(h[8..], level.Agents.Count);
+        BinaryPrimitives.WriteInt32LittleEndian(h[8..], level.Presets.Count);
         BinaryPrimitives.WriteSingleLittleEndian(h[12..], level.CellSize);
         BinaryPrimitives.WriteSingleLittleEndian(h[16..], level.VoxelSize);
         BinaryPrimitives.WriteInt32LittleEndian(h[20..], level.CellVoxels);
-        BinaryPrimitives.WriteInt32LittleEndian(h[24..], level.OctreeDepth);
-        BinaryPrimitives.WriteInt32LittleEndian(h[28..], level.Columns);
-        BinaryPrimitives.WriteInt32LittleEndian(h[32..], level.Rows);
-        BinaryPrimitives.WriteSingleLittleEndian(h[36..], level.Origin.X);
-        BinaryPrimitives.WriteSingleLittleEndian(h[40..], level.Origin.Y);
-        BinaryPrimitives.WriteSingleLittleEndian(h[44..], level.Origin.Z);
-        BinaryPrimitives.WriteSingleLittleEndian(h[48..], level.FloorNormalZ);
-        BinaryPrimitives.WriteInt32LittleEndian(h[52..], level.Pois.Count);
-        BinaryPrimitives.WriteInt32LittleEndian(h[56..], level.Doors.Count);
-        BinaryPrimitives.WriteInt32LittleEndian(h[60..], level.SpawnPoi);
-        BinaryPrimitives.WriteInt32LittleEndian(h[64..], level.UpArrivalPoi);
-        BinaryPrimitives.WriteInt32LittleEndian(h[68..], level.DownArrivalPoi);
-        _ = level.LevelId.TryWriteBytes(h.Slice(72, 16), bigEndian: true, out _);
-        _ = level.PackId.TryWriteBytes(h.Slice(88, 16), bigEndian: true, out _);
+        BinaryPrimitives.WriteInt32LittleEndian(h[24..], level.Columns);
+        BinaryPrimitives.WriteInt32LittleEndian(h[28..], level.Rows);
+        BinaryPrimitives.WriteSingleLittleEndian(h[32..], level.Origin.X);
+        BinaryPrimitives.WriteSingleLittleEndian(h[36..], level.Origin.Y);
+        BinaryPrimitives.WriteSingleLittleEndian(h[40..], level.Origin.Z);
+        BinaryPrimitives.WriteSingleLittleEndian(h[44..], level.FloorNormalZ);
+        BinaryPrimitives.WriteSingleLittleEndian(h[48..], level.StepHeight);
+        BinaryPrimitives.WriteSingleLittleEndian(h[52..], level.JumpHeight);
+        BinaryPrimitives.WriteSingleLittleEndian(h[56..], level.JumpDistance);
+        BinaryPrimitives.WriteInt32LittleEndian(h[60..], level.Pois.Count);
+        BinaryPrimitives.WriteInt32LittleEndian(h[64..], level.Doors.Count);
+        BinaryPrimitives.WriteInt32LittleEndian(h[68..], level.SpawnPoi);
+        BinaryPrimitives.WriteInt32LittleEndian(h[72..], level.UpArrivalPoi);
+        BinaryPrimitives.WriteInt32LittleEndian(h[76..], level.DownArrivalPoi);
+        BinaryPrimitives.WriteInt32LittleEndian(h[80..], level.ColumnStarts.Length - 1);
+        BinaryPrimitives.WriteInt32LittleEndian(h[84..], level.Leaves.Length);
+        BinaryPrimitives.WriteInt32LittleEndian(h[88..], level.Obstacles.Count);
+        BinaryPrimitives.WriteInt32LittleEndian(h[92..], level.Brushes.Count);
+        BinaryPrimitives.WriteInt32LittleEndian(h[96..], level.Jumps.Count);
+        BinaryPrimitives.WriteInt32LittleEndian(h[100..], level.Clearance.Length);
+        _ = level.LevelId.TryWriteBytes(h.Slice(104, 16), bigEndian: true, out _);
+        _ = level.PackId.TryWriteBytes(h.Slice(120, 16), bigEndian: true, out _);
 
         for (int i = 0; i < sections.Count; i++)
         {
             Span<byte> entry = h.Slice(Nav3dFormat.HeaderBytes + (i * Nav3dFormat.DirectoryEntryBytes), Nav3dFormat.DirectoryEntryBytes);
             Encoding.ASCII.GetBytes(sections[i].Tag, entry);
-            BinaryPrimitives.WriteUInt32LittleEndian(entry[4..], sections[i].Index);
+            BinaryPrimitives.WriteUInt32LittleEndian(entry[4..], Nav3dFormat.LevelIndex);
             BinaryPrimitives.WriteUInt32LittleEndian(entry[8..], (uint)offsets[i]);
             BinaryPrimitives.WriteUInt32LittleEndian(entry[12..], (uint)sections[i].Bytes.Length);
             sections[i].Bytes.CopyTo(image, offsets[i]);
@@ -163,20 +185,21 @@ public static class Nav3dWriter
             throw new ArgumentException("the cell and voxel sizes are positive finite numbers.", nameof(level));
         }
 
-        if (level.CellVoxels < 1 || level.Columns < 1 || level.Rows < 1)
+        if (level.CellVoxels is < 1 or > Nav3dFormat.MaxCellVoxels || level.Columns < 1 || level.Rows < 1)
         {
-            throw new ArgumentException("the level has at least one cell of at least one voxel.", nameof(level));
+            throw new ArgumentException(
+                $"the level has at least one cell of 1 to {Nav3dFormat.MaxCellVoxels} voxels a side.", nameof(level));
         }
 
         int cells = checked(level.Columns * level.Rows);
-        if (level.Cells.Count != cells)
+        if (level.Cells.Count != cells || level.Roots.Length != cells)
         {
-            throw new ArgumentException($"the level has {cells} cells but {level.Cells.Count} cell records.", nameof(level));
+            throw new ArgumentException($"the level has {cells} cells but {level.Cells.Count} cell records and {level.Roots.Length} roots.", nameof(level));
         }
 
-        if (level.Agents.Count > Nav3dFormat.MaxAgents)
+        if (level.Presets.Count > Nav3dFormat.MaxPresets)
         {
-            throw new ArgumentException($"the level has {level.Agents.Count} agents; a file holds at most {Nav3dFormat.MaxAgents}.", nameof(level));
+            throw new ArgumentException($"the level has {level.Presets.Count} presets; a file holds at most {Nav3dFormat.MaxPresets}.", nameof(level));
         }
 
         CheckPoi(level.SpawnPoi, level.Pois.Count, nameof(Nav3dLevel.SpawnPoi));
@@ -198,40 +221,88 @@ public static class Nav3dWriter
             }
         }
 
-        foreach (Nav3dAgent agent in level.Agents)
+        foreach (Nav3dObstacle obstacle in level.Obstacles)
         {
-            string who = $"agent \"{agent.Name}\"";
-            if (agent.Roots.Length != cells)
+            if (obstacle.Cell >= cells)
             {
-                throw new ArgumentException($"{who} has {agent.Roots.Length} roots for {cells} cells.", nameof(level));
+                throw new ArgumentException($"obstacle \"{obstacle.ClassName}\" names cell {obstacle.Cell} of {cells}.", nameof(level));
+            }
+        }
+
+        int block = level.CellVoxels * level.CellVoxels;
+        int columnCount = level.ColumnStarts.Length - 1;
+        if (columnCount < 0 || level.ColumnStarts[0] != 0 || level.ColumnStarts[^1] != level.Leaves.Length)
+        {
+            throw new ArgumentException($"the column starts do not frame the {level.Leaves.Length} leaves.", nameof(level));
+        }
+
+        for (int j = 0; j < columnCount; j++)
+        {
+            if (level.ColumnStarts[j + 1] < level.ColumnStarts[j])
+            {
+                throw new ArgumentException($"column {j}'s leaves end before they start.", nameof(level));
+            }
+        }
+
+        bool[] used = new bool[columnCount / Math.Max(1, block) + 1];
+        int placed = 0;
+        foreach (int root in level.Roots)
+        {
+            if (root == -1)
+            {
+                continue;
             }
 
-            if (agent.AdjacencyStart.Length != agent.Leaves.Length + 1
-                || agent.AdjacencyStart[0] != 0
-                || agent.AdjacencyStart[^1] != agent.Adjacency.Length)
+            if (root < 0 || root % block != 0 || root + block > columnCount || used[root / block])
             {
-                throw new ArgumentException($"{who}'s adjacency starts do not frame its {agent.Adjacency.Length} entries.", nameof(level));
+                throw new ArgumentException($"a root {root} is not the start of its own block of {block} columns within {columnCount}.", nameof(level));
             }
 
-            if (agent.PoiLeaves.Length != level.Pois.Count)
+            used[root / block] = true;
+            placed++;
+        }
+
+        if ((long)placed * block != columnCount)
+        {
+            throw new ArgumentException($"{placed} placed cells own {(long)placed * block} columns, not {columnCount}.", nameof(level));
+        }
+
+        if (level.Clearance.Length % 4 != 0)
+        {
+            throw new ArgumentException("the clearance section is not a whole number of four-byte words.", nameof(level));
+        }
+
+        foreach (Nav3dLeaf leaf in level.Leaves)
+        {
+            if (leaf.Height < 1 || leaf.ZLo + leaf.Height > level.CellVoxels)
             {
-                throw new ArgumentException($"{who} has {agent.PoiLeaves.Length} point leaves for {level.Pois.Count} points.", nameof(level));
+                throw new ArgumentException($"a leaf from voxel {leaf.ZLo}, {leaf.Height} high, leaves its cell.", nameof(level));
             }
 
-            foreach (int root in agent.Roots)
+            foreach (uint offset in new[] { leaf.PlayerClearance, leaf.NpcClearance })
             {
-                if (root < -1 || root >= agent.Nodes.Length)
+                if (offset % 4 != 0 || offset >= level.Clearance.Length
+                    || Nav3dClearance.Problem(level.Clearance.AsSpan((int)offset), level.Obstacles.Count, level.Brushes.Count) is not null)
                 {
-                    throw new ArgumentException($"{who} has a root {root} beyond its {agent.Nodes.Length} nodes.", nameof(level));
+                    throw new ArgumentException($"a leaf's clearance record at {offset} is out of range or malformed.", nameof(level));
                 }
             }
+        }
 
-            foreach (Nav3dLeaf leaf in agent.Leaves)
+        foreach (float[] brush in level.Brushes)
+        {
+            if (brush.Length < 16 || brush.Length % 4 != 0)
             {
-                if (leaf.Component >= agent.Components.Length || leaf.Cell >= cells)
-                {
-                    throw new ArgumentException($"{who} has a leaf naming a component or cell out of range.", nameof(level));
-                }
+                throw new ArgumentException("a brush has at least four planes of four floats.", nameof(level));
+            }
+        }
+
+        foreach (Nav3dJump jump in level.Jumps)
+        {
+            if (jump.LeafA >= level.Leaves.Length || jump.LeafB >= level.Leaves.Length || jump.LeafA >= jump.LeafB
+                || (byte)jump.Direction > 3 || jump.ClassMask is 0 or > 3 || jump.Columns < 1)
+            {
+                throw new ArgumentException($"a jump link ({jump.LeafA}, {jump.LeafB}) is out of range or out of order.", nameof(level));
             }
         }
     }
@@ -244,21 +315,17 @@ public static class Nav3dWriter
         }
     }
 
-    private static byte[] AgentRecords(Nav3dLevel level, Strings strings)
+    private static byte[] PresetRecords(Nav3dLevel level, Strings strings)
     {
-        byte[] bytes = new byte[level.Agents.Count * Nav3dFormat.AgentRecordBytes];
-        for (int i = 0; i < level.Agents.Count; i++)
+        byte[] bytes = new byte[level.Presets.Count * Nav3dFormat.PresetRecordBytes];
+        for (int i = 0; i < level.Presets.Count; i++)
         {
-            Nav3dAgent agent = level.Agents[i];
-            Span<byte> r = bytes.AsSpan(i * Nav3dFormat.AgentRecordBytes);
-            BinaryPrimitives.WriteUInt32LittleEndian(r, strings.Offset(agent.Name));
-            BinaryPrimitives.WriteSingleLittleEndian(r[4..], agent.Mins.X);
-            BinaryPrimitives.WriteSingleLittleEndian(r[8..], agent.Mins.Y);
-            BinaryPrimitives.WriteSingleLittleEndian(r[12..], agent.Mins.Z);
-            BinaryPrimitives.WriteSingleLittleEndian(r[16..], agent.Maxs.X);
-            BinaryPrimitives.WriteSingleLittleEndian(r[20..], agent.Maxs.Y);
-            BinaryPrimitives.WriteSingleLittleEndian(r[24..], agent.Maxs.Z);
-            BinaryPrimitives.WriteInt32LittleEndian(r[28..], agent.ContentsMask);
+            Nav3dPreset preset = level.Presets[i];
+            Span<byte> r = bytes.AsSpan(i * Nav3dFormat.PresetRecordBytes);
+            BinaryPrimitives.WriteUInt32LittleEndian(r, strings.Offset(preset.Name));
+            BinaryPrimitives.WriteSingleLittleEndian(r[4..], preset.Width);
+            BinaryPrimitives.WriteSingleLittleEndian(r[8..], preset.Height);
+            r[12] = (byte)preset.ClipClass;
         }
 
         return bytes;
@@ -330,40 +397,55 @@ public static class Nav3dWriter
         {
             Nav3dLeaf leaf = leaves[i];
             Span<byte> r = bytes.AsSpan(i * Nav3dFormat.LeafRecordBytes);
-            BinaryPrimitives.WriteUInt16LittleEndian(r, leaf.X);
-            BinaryPrimitives.WriteUInt16LittleEndian(r[2..], leaf.Y);
-            BinaryPrimitives.WriteUInt16LittleEndian(r[4..], leaf.Z);
-            r[6] = leaf.SizeLog2;
-            r[7] = (byte)leaf.Flags;
-            BinaryPrimitives.WriteUInt32LittleEndian(r[8..], leaf.Component);
-            BinaryPrimitives.WriteUInt32LittleEndian(r[12..], leaf.Cell);
+            r[0] = leaf.ZLo;
+            r[1] = leaf.Height;
+            BinaryPrimitives.WriteUInt16LittleEndian(r[2..], (ushort)leaf.Flags);
+            BinaryPrimitives.WriteUInt16LittleEndian(r[4..], leaf.Cost);
+            BinaryPrimitives.WriteUInt32LittleEndian(r[8..], leaf.PlayerClearance);
+            BinaryPrimitives.WriteUInt32LittleEndian(r[12..], leaf.NpcClearance);
+            BinaryPrimitives.WriteSingleLittleEndian(r[16..], leaf.PlayerFloorZ);
+            BinaryPrimitives.WriteSingleLittleEndian(r[20..], leaf.NpcFloorZ);
         }
 
         return bytes;
     }
 
-    private static byte[] LinkRecords(Nav3dDoorLink[] links)
+    private static byte[] ObstacleRecords(Nav3dLevel level, Strings strings)
     {
-        byte[] bytes = new byte[links.Length * Nav3dFormat.LinkRecordBytes];
-        for (int i = 0; i < links.Length; i++)
+        byte[] bytes = new byte[level.Obstacles.Count * Nav3dFormat.ObstacleRecordBytes];
+        for (int i = 0; i < level.Obstacles.Count; i++)
         {
-            Span<byte> r = bytes.AsSpan(i * Nav3dFormat.LinkRecordBytes);
-            BinaryPrimitives.WriteUInt32LittleEndian(r, links[i].LeafA);
-            BinaryPrimitives.WriteUInt32LittleEndian(r[4..], links[i].LeafB);
-            BinaryPrimitives.WriteUInt32LittleEndian(r[8..], links[i].Door);
+            Nav3dObstacle o = level.Obstacles[i];
+            Span<byte> r = bytes.AsSpan(i * Nav3dFormat.ObstacleRecordBytes);
+            BinaryPrimitives.WriteUInt32LittleEndian(r, strings.Offset(o.Name));
+            BinaryPrimitives.WriteUInt32LittleEndian(r[4..], strings.Offset(o.ClassName));
+            BinaryPrimitives.WriteUInt32LittleEndian(r[8..], o.Cell);
+            BinaryPrimitives.WriteInt32LittleEndian(r[12..], o.HammerId);
+            r[16] = (byte)o.Kind;
+            BinaryPrimitives.WriteSingleLittleEndian(r[20..], o.Mins.X);
+            BinaryPrimitives.WriteSingleLittleEndian(r[24..], o.Mins.Y);
+            BinaryPrimitives.WriteSingleLittleEndian(r[28..], o.Mins.Z);
+            BinaryPrimitives.WriteSingleLittleEndian(r[32..], o.Maxs.X);
+            BinaryPrimitives.WriteSingleLittleEndian(r[36..], o.Maxs.Y);
+            BinaryPrimitives.WriteSingleLittleEndian(r[40..], o.Maxs.Z);
         }
 
         return bytes;
     }
 
-    private static byte[] ComponentRecords(Nav3dComponent[] components)
+    private static byte[] JumpRecords(IReadOnlyList<Nav3dJump> jumps)
     {
-        byte[] bytes = new byte[components.Length * Nav3dFormat.ComponentRecordBytes];
-        for (int i = 0; i < components.Length; i++)
+        byte[] bytes = new byte[jumps.Count * Nav3dFormat.JumpRecordBytes];
+        for (int i = 0; i < jumps.Count; i++)
         {
-            Span<byte> r = bytes.AsSpan(i * Nav3dFormat.ComponentRecordBytes);
-            BinaryPrimitives.WriteUInt32LittleEndian(r, components[i].Leaves);
-            BinaryPrimitives.WriteUInt32LittleEndian(r[4..], components[i].Voxels);
+            Nav3dJump j = jumps[i];
+            Span<byte> r = bytes.AsSpan(i * Nav3dFormat.JumpRecordBytes);
+            BinaryPrimitives.WriteUInt32LittleEndian(r, j.LeafA);
+            BinaryPrimitives.WriteUInt32LittleEndian(r[4..], j.LeafB);
+            BinaryPrimitives.WriteSingleLittleEndian(r[8..], j.Rise);
+            r[12] = j.ClassMask;
+            r[13] = (byte)j.Direction;
+            r[14] = j.Columns;
         }
 
         return bytes;
@@ -386,6 +468,30 @@ public static class Nav3dWriter
         for (int i = 0; i < values.Length; i++)
         {
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(i * 4), values[i]);
+        }
+
+        return bytes;
+    }
+
+    private static byte[] Floats(IReadOnlyList<float[]> brushes)
+    {
+        // Loops rather than a lambda: a non-capturing lambda is cached in a
+        // static field, which the no-mutable-statics rule counts.
+        int count = 0;
+        foreach (float[] brush in brushes)
+        {
+            count += brush.Length;
+        }
+
+        byte[] bytes = new byte[count * 4];
+        int at = 0;
+        foreach (float[] brush in brushes)
+        {
+            foreach (float value in brush)
+            {
+                BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(at), value);
+                at += 4;
+            }
         }
 
         return bytes;

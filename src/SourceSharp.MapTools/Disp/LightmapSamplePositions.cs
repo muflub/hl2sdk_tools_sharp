@@ -70,6 +70,7 @@ public static class LightmapSamplePositions
 
         int width = lightmapSizeU + 1;
         int height = lightmapSizeV + 1;
+        TriangleUv[] triangles = Triangles(disp);
 
         for (int y = 0; y < height; y++)
         {
@@ -77,7 +78,7 @@ public static class LightmapSamplePositions
             {
                 DispUv sample = new(x + 0.5f, y + 0.5f);
 
-                if (!FindTriangleByUv(disp, sample, out int triangle, out Barycentric bary))
+                if (!FindTriangle(triangles, sample, out int triangle, out Barycentric bary))
                 {
                     output.Add(0);
                     output.Add(0);
@@ -166,6 +167,75 @@ public static class LightmapSamplePositions
                 barycentric = bary;
                 return true;
             }
+        }
+
+        triangle = -1;
+        barycentric = default;
+        return false;
+    }
+
+    /// <summary>
+    /// A triangle of the power info in luxel coordinates, with the reciprocal
+    /// of its doubled area: the parts of <see cref="BarycentricCoords2D"/>
+    /// that do not depend on the sample.
+    /// </summary>
+    private readonly record struct TriangleUv(DispUv A, DispUv B, DispUv C, float InverseArea);
+
+    // Every triangle of the displacement's power info, in its order.
+    private static TriangleUv[] Triangles(CoreDispInfo disp)
+    {
+        PowerInfo info = disp.PowerInfo;
+        TriangleUv[] triangles = new TriangleUv[info.NumTriInfos];
+        for (int i = 0; i < triangles.Length; i++)
+        {
+            TriInfo tri = info.TriInfos[i];
+            DispUv a = disp.LuxelCoord(0, tri.A);
+            DispUv b = disp.LuxelCoord(0, tri.B);
+            DispUv c = disp.LuxelCoord(0, tri.C);
+            triangles[i] = new TriangleUv(a, b, c, 1.0f / TriArea2DTimesTwo(a, b, c));
+        }
+
+        return triangles;
+    }
+
+    // FindTriangleByUv over triangles worked out once per displacement.
+    //
+    // Every displacement has (U + 1) x (V + 1) samples and each searched all
+    // of its triangles from the first, fetching the three luxel coordinates
+    // and dividing for the area again for every triangle of every sample:
+    // most of vbsp's displacement stage. The coordinates and the reciprocal
+    // are the same for every sample, so they are made once, with the same
+    // expressions, and each weight is then exactly BarycentricCoords2D's.
+    // The weights are tested one at a time, and a triangle is left at the
+    // first one outside [0, 1]: all three must be inside for a match, each is
+    // computed from the sample and the triangle alone, so which are computed
+    // for a triangle that fails changes nothing.
+    private static bool FindTriangle(TriangleUv[] triangles, DispUv sample, out int triangle, out Barycentric barycentric)
+    {
+        for (int i = 0; i < triangles.Length; i++)
+        {
+            ref readonly TriangleUv t = ref triangles[i];
+            float a = TriArea2DTimesTwo(t.B, t.C, sample) * t.InverseArea;
+            if (a is not (>= 0.0f and <= 1.0f))
+            {
+                continue;
+            }
+
+            float b = TriArea2DTimesTwo(t.C, t.A, sample) * t.InverseArea;
+            if (b is not (>= 0.0f and <= 1.0f))
+            {
+                continue;
+            }
+
+            float c = TriArea2DTimesTwo(t.A, t.B, sample) * t.InverseArea;
+            if (c is not (>= 0.0f and <= 1.0f))
+            {
+                continue;
+            }
+
+            triangle = i;
+            barycentric = new Barycentric(a, b, c);
+            return true;
         }
 
         triangle = -1;

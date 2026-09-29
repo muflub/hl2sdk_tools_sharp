@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using System.Numerics;
+using System.Runtime.Intrinsics;
 
 namespace SourceSharp.MapTools.Phys.Managed;
 
@@ -192,14 +193,41 @@ internal static class IvpHalfspaceSoup<T, TP>
     /// degenerate, near-coplanar, brush and prop-hull soups at both precisions, pin this.
     /// </para>
     /// </remarks>
-    public static List<IvpPoint<T>> CornerPoints(List<IvpPoint<T>> soup, T merge)
+    public static List<IvpPoint<T>> CornerPoints(List<IvpPoint<T>> soup, T merge) =>
+        CornerPoints(soup, merge, Vector512.IsHardwareAccelerated ? CornerLanes.Wide512 : CornerLanes.Vector);
+
+    /// <summary>
+    /// <see cref="CornerPoints(List{IvpPoint{T}}, T)"/> with the lane width chosen by the
+    /// caller, so the facts can run every width on one machine and compare them.
+    /// </summary>
+    /// <param name="soup">The halfspaces.</param>
+    /// <param name="merge">Merge distance, IVP units.</param>
+    /// <param name="lanes">How many third planes to solve at once.</param>
+    /// <returns>The corner points, in discovery order.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Why a 512-bit path.</b> Prop hull cooking is the largest CPU consumer of a vbsp
+    /// compile (a quarter of 2fort's on one thread), and the triple loop's block solve is its
+    /// hottest function. <see cref="Vector{T}"/> is 256 bits wide even on a CPU with AVX-512,
+    /// four doubles; where 512-bit vectors are accelerated, eight third planes are solved at
+    /// once instead.
+    /// </para>
+    /// <para>
+    /// The width cannot change the answer: every lane holds the scalar expression's value to
+    /// the bit whatever the width (a vector add, subtract, multiply or divide rounds each lane
+    /// as the scalar operation does), survivors are finished in <c>k</c> order either way, and
+    /// the recent-rejecter filter only chooses which lanes reach the full scan, which decides
+    /// each one on its own.
+    /// </para>
+    /// </remarks>
+    internal static List<IvpPoint<T>> CornerPoints(List<IvpPoint<T>> soup, T merge, CornerLanes lanes)
     {
         T merge2 = merge * merge;
         var rows = new RowScratch(soup);
         var points = new List<IvpPoint<T>>();
         for (int i = 0; i + 1 < soup.Count; i++)
         {
-            FindRow(rows, i, points, merge2);
+            FindRow(rows, i, points, merge2, lanes);
         }
 
         // Second pass: drop later points within the merge distance of an earlier one. The inner
@@ -236,7 +264,8 @@ internal static class IvpHalfspaceSoup<T, TP>
     /// <param name="i">The first plane.</param>
     /// <param name="points">The kept points so far.</param>
     /// <param name="merge2">Merge distance squared.</param>
-    private static void FindRow(RowScratch s, int i, List<IvpPoint<T>> points, T merge2)
+    /// <param name="width">How many third planes to solve at once.</param>
+    private static void FindRow(RowScratch s, int i, List<IvpPoint<T>> points, T merge2, CornerLanes width)
     {
         int n = s.Count;
         T[] xs = s.X, ys = s.Y, zs = s.Z, ws = s.W;
@@ -254,11 +283,21 @@ internal static class IvpHalfspaceSoup<T, TP>
         }
 
         int lanes = Vector<T>.Count;
-        bool wide = Vector.IsHardwareAccelerated && lanes > 1;
+        bool wide = width != CornerLanes.Scalar && Vector.IsHardwareAccelerated && lanes > 1;
+        bool wide512 = width == CornerLanes.Wide512 && Vector512.IsHardwareAccelerated;
+        int lanes512 = Vector512<T>.Count;
         for (int j = i + 1; j + 1 < n; j++)
         {
             var row = new Row(ax, ay, az, ha, xs[j], ys[j], zs[j], -ws[j]);
             int k = j + 1;
+            if (wide512)
+            {
+                for (; k + lanes512 <= n; k += lanes512)
+                {
+                    FindBlock512(s, row, k, points, merge2);
+                }
+            }
+
             if (wide)
             {
                 for (; k + lanes <= n; k += lanes)
@@ -341,6 +380,69 @@ internal static class IvpHalfspaceSoup<T, TP>
             if (live[lane] != T.Zero)
             {
                 Finish(s, px[lane], py[lane], pz[lane], points, merge2);
+            }
+        }
+    }
+
+    /// <summary>
+    /// <see cref="FindBlock"/> over <see cref="Vector512{T}"/>: the same expressions, in the
+    /// same order, eight doubles (or sixteen floats) at a time.
+    /// </summary>
+    private static void FindBlock512(RowScratch s, in Row r, int k, List<IvpPoint<T>> points, T merge2)
+    {
+        Vector512<T> cx = Vector512.Create(new ReadOnlySpan<T>(s.X, k, Vector512<T>.Count));
+        Vector512<T> cy = Vector512.Create(new ReadOnlySpan<T>(s.Y, k, Vector512<T>.Count));
+        Vector512<T> cz = Vector512.Create(new ReadOnlySpan<T>(s.Z, k, Vector512<T>.Count));
+        Vector512<T> bx = Vector512.Create(r.Bx);
+        Vector512<T> by = Vector512.Create(r.By);
+        Vector512<T> bz = Vector512.Create(r.Bz);
+
+        Vector512<T> c0 = (by * cz) - (cy * bz);
+        Vector512<T> c1 = (bz * cx) - (cz * bx);
+        Vector512<T> c2 = (cy * bx) - (by * cx);
+        Vector512<T> det = ((Vector512.Create(r.Ax) * c0) + (Vector512.Create(r.Ay) * c1)) + (Vector512.Create(r.Az) * c2);
+
+        // Intersect's test is |det| < eps; a NaN determinant passes it, and passes here too.
+        Vector512<T> live = ~Vector512.LessThan(Vector512.Abs(det), Vector512.Create(Epsilon));
+        if (live == Vector512<T>.Zero)
+        {
+            return;
+        }
+
+        Vector512<T> inv = Vector512<T>.One / det;
+        Vector512<T> i00 = c0 * inv;
+        Vector512<T> i01 = Vector512.Create(new ReadOnlySpan<T>(s.R01, k, Vector512<T>.Count)) * inv;
+        Vector512<T> i02 = Vector512.Create(r.N02) * inv;
+        Vector512<T> i10 = c1 * inv;
+        Vector512<T> i11 = Vector512.Create(new ReadOnlySpan<T>(s.R11, k, Vector512<T>.Count)) * inv;
+        Vector512<T> i12 = Vector512.Create(r.N12) * inv;
+        Vector512<T> i20 = c2 * inv;
+        Vector512<T> i21 = Vector512.Create(new ReadOnlySpan<T>(s.R21, k, Vector512<T>.Count)) * inv;
+        Vector512<T> i22 = Vector512.Create(r.N22) * inv;
+        Vector512<T> ha = Vector512.Create(r.Ha);
+        Vector512<T> hb = Vector512.Create(r.Hb);
+        Vector512<T> hc = -Vector512.Create(new ReadOnlySpan<T>(s.W, k, Vector512<T>.Count));
+        Vector512<T> px = ((hc * i02) + (i01 * hb)) + (ha * i00);
+        Vector512<T> py = (i10 * ha) + ((i11 * hb) + (i12 * hc));
+        Vector512<T> pz = (i20 * ha) + ((i21 * hb) + (i22 * hc));
+
+        Vector512<T> outside = Vector512.Create(Outside);
+        foreach (int h in s.Recent)
+        {
+            Vector512<T> v = ((Vector512.Create(s.Z[h]) * pz) + Vector512.Create(s.W[h])) +
+                ((Vector512.Create(s.Y[h]) * py) + (Vector512.Create(s.X[h]) * px));
+            live = Vector512.AndNot(live, Vector512.GreaterThan(outside, v));
+            if (live == Vector512<T>.Zero)
+            {
+                return;
+            }
+        }
+
+        for (int lane = 0; lane < Vector512<T>.Count; lane++)
+        {
+            if (live.GetElement(lane) != T.Zero)
+            {
+                Finish(s, px.GetElement(lane), py.GetElement(lane), pz.GetElement(lane), points, merge2);
             }
         }
     }
@@ -577,4 +679,17 @@ internal static class IvpHalfspaceSoup<T, TP>
         z = (i20 * ha) + ((i21 * hb) + (i22 * hc));
         return true;
     }
+}
+
+/// <summary>How many third planes the corner search solves at once.</summary>
+internal enum CornerLanes
+{
+    /// <summary>One at a time.</summary>
+    Scalar,
+
+    /// <summary><see cref="Vector{T}"/> at a time, then one at a time.</summary>
+    Vector,
+
+    /// <summary>Eight doubles or sixteen floats at a time where 512-bit vectors are accelerated, then as <see cref="Vector"/>.</summary>
+    Wide512,
 }

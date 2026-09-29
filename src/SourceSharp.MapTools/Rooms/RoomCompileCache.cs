@@ -264,7 +264,13 @@ internal static class RoomOptionsDigest
 /// <param name="Item">The room's pack item, section for section the bytes its compile wrote.</param>
 /// <param name="ClusterCount">The room's vis cluster count, as its compile reported it.</param>
 /// <param name="NameWarnings">What the naming rule warned of when the room compiled.</param>
-public sealed record RoomCacheHit(RoomPackItem Item, int ClusterCount, IReadOnlyList<string> NameWarnings);
+/// <param name="NavWarnings">
+/// What the room's navigation build warned of when the room compiled (a prop
+/// whose model the content lacked), so a reused room prints the lines its
+/// compile printed.
+/// </param>
+public sealed record RoomCacheHit(
+    RoomPackItem Item, int ClusterCount, IReadOnlyList<string> NameWarnings, IReadOnlyList<string> NavWarnings);
 
 /// <summary>What <see cref="RoomCompileCache.CommitAsync"/> did.</summary>
 /// <param name="RowsStored">Room rows written this run.</param>
@@ -284,7 +290,7 @@ public sealed record RoomCacheCommit(int RowsStored, long BytesStored, CacheGcRe
 /// then <c>ECNT</c>, <c>LNKA</c>, the per-turn <c>GEO</c>, <c>COL</c>,
 /// <c>ENT</c>, <c>NAM</c> and <c>NVR</c> sections), one content-addressed
 /// blob per section, plus a small <c>meta</c> blob with the section tags in
-/// order, the cluster count and the naming warnings that
+/// order, the cluster count, and the naming and navigation warnings that
 /// <c>ssmap room</c> prints. A hit rebuilds the pack item from those bytes
 /// and nothing else, so the pack a run with hits writes is byte for byte the
 /// pack a clean run writes: the sections are copied, not recomputed, and
@@ -339,7 +345,7 @@ public sealed record RoomCacheCommit(int RowsStored, long BytesStored, CacheGcRe
 public sealed class RoomCompileCache : IDisposable
 {
     private const string MetaRole = "meta";
-    private const int MetaRevision = 1;
+    private const int MetaRevision = 2;
     private const string ResolvedMarker = "resolved";
 
     private readonly ICacheStore _store;
@@ -450,15 +456,18 @@ public sealed class RoomCompileCache : IDisposable
     /// <param name="item">The pack item written for it.</param>
     /// <param name="clusterCount">Its vis cluster count.</param>
     /// <param name="nameWarnings">What the naming rule warned of.</param>
+    /// <param name="navWarnings">What the room's navigation build warned of; empty when the library builds none.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public void Add(LibraryRoom room, RoomPackItem item, int clusterCount, IReadOnlyList<string> nameWarnings)
+    public void Add(
+        LibraryRoom room, RoomPackItem item, int clusterCount, IReadOnlyList<string> nameWarnings, IReadOnlyList<string> navWarnings)
     {
         ArgumentNullException.ThrowIfNull(room);
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(nameWarnings);
+        ArgumentNullException.ThrowIfNull(navWarnings);
         lock (_gate)
         {
-            _pending.Add(new Pending(room, item, clusterCount, [.. nameWarnings]));
+            _pending.Add(new Pending(room, item, clusterCount, [.. nameWarnings], [.. navWarnings]));
         }
     }
 
@@ -659,7 +668,7 @@ public sealed class RoomCompileCache : IDisposable
         }
 
         RoomPackItem item = new(room.Definition.Name, sections[0].Bytes) { Extra = sections[1..] };
-        return new RoomCacheHit(item, meta.ClusterCount, meta.Warnings);
+        return new RoomCacheHit(item, meta.ClusterCount, meta.Warnings, meta.NavWarnings);
     }
 
     /// <summary>Stages one room's row and blobs; the section bytes stored, or -1 when a section is over the blob cap.</summary>
@@ -667,7 +676,7 @@ public sealed class RoomCompileCache : IDisposable
         Pending room, IReadOnlyList<(string Path, string? ContentHash)> dependencies, CancellationToken cancellationToken)
     {
         List<RoomPackSectionData> sections = [new(RoomPack.RoomSection, room.Item.Room), .. room.Item.Extra];
-        byte[] meta = Meta.Write(new Meta([.. sections.Select(s => s.Tag)], room.ClusterCount, room.Warnings));
+        byte[] meta = Meta.Write(new Meta([.. sections.Select(s => s.Tag)], room.ClusterCount, room.Warnings, room.NavWarnings));
         if (meta.LongLength > _policy.MaxBlobBytes || sections.Any(s => s.Bytes.Length > _policy.MaxBlobBytes))
         {
             return -1;
@@ -704,15 +713,40 @@ public sealed class RoomCompileCache : IDisposable
 
     private static string SectionRole(int index) => "s" + index.ToString("D2", CultureInfo.InvariantCulture);
 
-    private sealed record Pending(LibraryRoom Room, RoomPackItem Item, int ClusterCount, IReadOnlyList<string> Warnings);
+    private sealed record Pending(
+        LibraryRoom Room, RoomPackItem Item, int ClusterCount, IReadOnlyList<string> Warnings, IReadOnlyList<string> NavWarnings);
 
     /// <summary>
     /// A row's <c>meta</c> blob: an <c>int32</c> revision, the cluster count,
-    /// the section count and each section's four tag bytes, then the warning
-    /// count and each warning (an <c>int32</c> byte length and UTF-8); all
-    /// integers big-endian, as in the pack.
+    /// the section count and each section's four tag bytes, then the naming
+    /// warnings and the navigation warnings, each list as its count and each
+    /// warning (an <c>int32</c> byte length and UTF-8); all integers
+    /// big-endian, as in the pack.
     /// </summary>
-    internal sealed record Meta(IReadOnlyList<string> Tags, int ClusterCount, IReadOnlyList<string> Warnings)
+    /// <remarks>
+    /// <para>
+    /// <b>Why the warnings are here at all.</b> They are what the room's
+    /// compile said, not what it wrote: no pack section holds them, so a hit,
+    /// which rebuilds the item from the stored sections and compiles nothing,
+    /// would otherwise print a quieter log than the clean run it stands in
+    /// for. Keeping them beside the sections makes a reused room print the
+    /// lines its compile printed, in the same order.
+    /// </para>
+    /// <para>
+    /// <b>Revisions.</b> Revision 1 carried the naming warnings only.
+    /// Revision 2 appends the navigation warnings (a prop whose model the
+    /// content lacks, left out of the obstacles). A reader refuses every
+    /// revision but its own rather than reading an old blob with an empty
+    /// navigation list: an old row's room may well have had navigation
+    /// warnings, and serving it would silently drop them from the log, so
+    /// an old row is a miss and the room compiles once more under the new
+    /// layout. The cost is one compile per room the first run after an
+    /// upgrade, which a new build pays anyway since the tool identity is
+    /// part of the key.
+    /// </para>
+    /// </remarks>
+    internal sealed record Meta(
+        IReadOnlyList<string> Tags, int ClusterCount, IReadOnlyList<string> Warnings, IReadOnlyList<string> NavWarnings)
     {
         public static byte[] Write(Meta meta)
         {
@@ -725,14 +759,8 @@ public sealed class RoomCompileCache : IDisposable
                 w.Write(Encoding.ASCII.GetBytes(tag));
             }
 
-            Int(w, meta.Warnings.Count);
-            foreach (string warning in meta.Warnings)
-            {
-                byte[] text = Encoding.UTF8.GetBytes(warning);
-                Int(w, text.Length);
-                w.Write(text);
-            }
-
+            Strings(w, meta.Warnings);
+            Strings(w, meta.NavWarnings);
             return w.ToArray();
         }
 
@@ -754,24 +782,46 @@ public sealed class RoomCompileCache : IDisposable
                 tags.Add(Encoding.ASCII.GetString(bytes.Slice(at, 4)));
             }
 
-            if (!TryInt(bytes, ref at, out int warnings) || warnings < 0)
+            return TryStrings(bytes, ref at, out List<string>? text)
+                && TryStrings(bytes, ref at, out List<string>? nav)
+                && at == bytes.Length
+                ? new Meta(tags, clusters, text, nav)
+                : null;
+        }
+
+        private static void Strings(MemoryStream w, IReadOnlyList<string> list)
+        {
+            Int(w, list.Count);
+            foreach (string item in list)
             {
-                return null;
+                byte[] text = Encoding.UTF8.GetBytes(item);
+                Int(w, text.Length);
+                w.Write(text);
+            }
+        }
+
+        private static bool TryStrings(ReadOnlySpan<byte> bytes, ref int at, [NotNullWhen(true)] out List<string>? list)
+        {
+            list = null;
+            if (!TryInt(bytes, ref at, out int count) || count < 0)
+            {
+                return false;
             }
 
-            List<string> text = [];
-            for (int i = 0; i < warnings; i++)
+            List<string> read = [];
+            for (int i = 0; i < count; i++)
             {
                 if (!TryInt(bytes, ref at, out int length) || length < 0 || bytes.Length - at < length)
                 {
-                    return null;
+                    return false;
                 }
 
-                text.Add(Encoding.UTF8.GetString(bytes.Slice(at, length)));
+                read.Add(Encoding.UTF8.GetString(bytes.Slice(at, length)));
                 at += length;
             }
 
-            return at == bytes.Length ? new Meta(tags, clusters, text) : null;
+            list = read;
+            return true;
         }
 
         private static void Int(MemoryStream w, int value)

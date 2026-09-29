@@ -191,6 +191,9 @@ public class IvpCornerPointsTests(ITestOutputHelper output)
         }
 
         var clock = Stopwatch.StartNew();
+        List<IvpPoint<double>> narrow = IvpHalfspaceSoup<double, CorrectPrecision>.CornerPoints(soup, 0.01, CornerLanes.Vector);
+        double narrowMs = clock.Elapsed.TotalMilliseconds;
+        clock.Restart();
         List<IvpPoint<double>> fast = IvpHalfspaceSoup<double, CorrectPrecision>.CornerPoints(soup, 0.01);
         double fastMs = clock.Elapsed.TotalMilliseconds;
         clock.Restart();
@@ -198,9 +201,10 @@ public class IvpCornerPointsTests(ITestOutputHelper output)
         double referenceMs = clock.Elapsed.TotalMilliseconds;
 
         output.WriteLine(
-            $"{soup.Count} planes, {fast.Count} corners: optimised {fastMs:F1} ms, reference {referenceMs:F1} ms " +
-            $"({Vector<double>.Count} lanes, accelerated: {Vector.IsHardwareAccelerated})");
+            $"{soup.Count} planes, {fast.Count} corners: optimised {fastMs:F1} ms, {Vector<double>.Count} lanes {narrowMs:F1} ms, reference {referenceMs:F1} ms " +
+            $"(accelerated: {Vector.IsHardwareAccelerated}, 512-bit: {System.Runtime.Intrinsics.Vector512.IsHardwareAccelerated})");
         AssertBits(reference, fast, "heavy prop");
+        AssertBits(reference, narrow, "heavy prop, narrow");
     }
 
     // ---------------------------------------------------------------- helpers
@@ -223,17 +227,30 @@ public class IvpCornerPointsTests(ITestOutputHelper output)
         AssertSame(Soup<float>(planes), (float)merge, what + " (float)");
     }
 
-    private static void AssertSame(List<IvpPoint<double>> soup, double merge, string what) =>
-        AssertBits(
-            Canonical(IvpCornerPointsReference<double, CorrectPrecision>.CornerPoints(soup, merge)),
-            IvpHalfspaceSoup<double, CorrectPrecision>.CornerPoints(soup, merge),
-            what);
+    // Every lane width the loop can take (one at a time, Vector<T> at a time, 512 bits at a
+    // time where the CPU has them), each against the reference loop, so a machine with
+    // AVX-512 checks the narrower paths too.
+    private static readonly CornerLanes[] Widths = [CornerLanes.Scalar, CornerLanes.Vector, CornerLanes.Wide512];
 
-    private static void AssertSame(List<IvpPoint<float>> soup, float merge, string what) =>
-        AssertBits(
-            Canonical(IvpCornerPointsReference<float, StockPrecision>.CornerPoints(soup, merge)),
-            IvpHalfspaceSoup<float, StockPrecision>.CornerPoints(soup, merge),
-            what);
+    private static void AssertSame(List<IvpPoint<double>> soup, double merge, string what)
+    {
+        List<IvpPoint<double>> reference = Canonical(IvpCornerPointsReference<double, CorrectPrecision>.CornerPoints(soup, merge));
+        AssertBits(reference, IvpHalfspaceSoup<double, CorrectPrecision>.CornerPoints(soup, merge), what);
+        foreach (CornerLanes width in Widths)
+        {
+            AssertBits(reference, IvpHalfspaceSoup<double, CorrectPrecision>.CornerPoints(soup, merge, width), what + " " + width);
+        }
+    }
+
+    private static void AssertSame(List<IvpPoint<float>> soup, float merge, string what)
+    {
+        List<IvpPoint<float>> reference = Canonical(IvpCornerPointsReference<float, StockPrecision>.CornerPoints(soup, merge));
+        AssertBits(reference, IvpHalfspaceSoup<float, StockPrecision>.CornerPoints(soup, merge), what);
+        foreach (CornerLanes width in Widths)
+        {
+            AssertBits(reference, IvpHalfspaceSoup<float, StockPrecision>.CornerPoints(soup, merge, width), what + " " + width);
+        }
+    }
 
     /// <summary>
     /// The reference's corners with every NaN coordinate written as <c>T.NaN</c>, the one
