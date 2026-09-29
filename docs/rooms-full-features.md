@@ -144,7 +144,9 @@ In the order it checks:
    `ClipPortalVerts`, `Cubemaps`, `Overlays`, `OverlayFades`,
    `WaterOverlays`, `LeafAmbientIndex(Hdr)`, `LeafAmbientLighting(Hdr)`,
    `LightingHdr`, `FacesHdr`;
-2. more than one model, or a world model whose head node is not 0;
+2. more than one model, or a world model whose head node is not 0 (since
+   PR 7 brush models are carried, and a room with them is refused only when
+   it carries no brush model data from its compile);
 3. a leaf with `LeafWaterDataId != -1`;
 4. more than two areas or more than one area portal (`RefuseAreaPortals`);
 5. any non-zero byte in any game lump (`RefuseGameLumpContent`: static and
@@ -226,7 +228,9 @@ order in [section 13](#13-implementation-order).
    are also turned. For a class that applies `angles` to its model at spawn
    that is a double turn; for one that reads it as a direction it is right.
    Which classes do which is game code. The safe rule is in
-   [4.1](#41-brush-entities).
+   [4.1](#41-brush-entities). **Fixed by PR 7** (section 13, its landed
+   note): a brush entity's `angles` are carried as written, and refused
+   unless zero, for any class outside the known-direction table.
 10. **Real game content makes every room unlinkable.** With a game whose sky
     VTFs resolve, `DefaultCubemapBuilder.CreateAsync` writes
     `materials/maps/<room>/cubemapdefault.vtf` (and `.hdr.vtf`) into every
@@ -252,7 +256,7 @@ or research).
 | Feature | Today | Pack (per room / rotation) | Link | Entities | Size |
 | --- | --- | --- | --- | --- | --- |
 | Point entities | carried (origin, yaw); names duplicated | name and I/O positions, parsed placeholders | resolve names, drop/keep, fold, singletons | 1 each; logic may fold to 0 | M |
-| Brush entities | refused (`models != 1`) | models, subtrees, per-model collision, origin class | rebase models, `model` keys, texinfo split for origin models | 1 each | L |
+| Brush entities | carried since PR 7 (own models, origin-relative in the entity's frame, per-model collision, (c) omission, socket furniture) | models, subtrees, per-model collision, origin class | rebase models, `model` keys, texinfo split for origin models | 1 each | L |
 | `func_ladder` | silently wrong (`info_ladder` bounds) | bounds per rotation | none | 1 (`info_ladder`) | S |
 | Static props | carried since PR 6 (moved, filtered, dictionaries merged, leaves recomputed, `.vhv` renamed) | props per rotation, dictionary, hulls; lighting ×1, or ×4 if sunlit | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
 | Detail props | refused (game lump) | props per rotation, leaf-local runs; lighting ×1, or ×4 if sunlit | renumber leaves, re-sort, merge dictionaries | 0 | M |
@@ -301,9 +305,10 @@ and the entity keeps `origin`. `PhysCollisionEmitter` writes one
 vvis ignores brush entity models. vrad lights their faces; they cast
 shadows only when asked to.
 
-**Today.** Refused: `PlanRoom` stops at `models.Length != 1`. The split and
-the flatten carry brush entities, turning their brushes and (finding 9)
-their `angles`.
+**Today.** Carried since PR 7 (section 13, its landed note). Before it,
+`PlanRoom` stopped at `models.Length != 1`, and the split and the flatten
+carried brush entities, turning their brushes and (finding 9) their
+`angles`.
 
 **Pack vs link.** Everything per model is room-only and precomputed per
 rotation: moved bounds, subtree, faces, brushes, collision record, and
@@ -2402,6 +2407,107 @@ across the level by the flattened compile's, so the two can light a prop
 from different points; a room-local name (`cxry_...`) agrees. Not done
 here: `ssmap rooms` does not list props, and the stress library, which
 compiles without game content, has none.
+
+**PR 7 landed** (brush entities). `ssmap room` describes every brush
+model of a room's compile besides the world in one `BMOD` section
+(`RoomBrushModels`, with the 1.1 framing: codec byte, decoded length,
+revision; codec none): per model its entity's class and Hammer id, whether
+it is origin-relative (its entity has an `origin`, from an origin brush
+or the key alike: the loader rebuilt its brushes in the entity's own frame
+when that is not zero, and one at the room's own origin is that frame at
+zero, which a placement moves to the cell, so it too turns and does not
+move; the flattened compile, meeting the moved origin, rebuilds it about
+it), its `room_needs`, `room_socket` and `socket_priority`, the runs
+of the room's lumps it owns (nodes, leaves, faces, leaf faces, brushes and
+with them their sides, edges, original faces, vertex-normal indices; the
+brushes are read from the map the compile loaded, the one place that says
+a brush vbsp chopped away is still the entity's), and its collision
+record's key data and per solid whether it was built with an outer hull;
+then the rotation count (4) and per turn every model's bounds and
+collision convexes turned, drag areas with x and y swapped on odd turns.
+vbsp lays models out world first and model after model in every lump, and
+the build checks that and reports anything else as a bug. The link plans
+the models before the tree (`LevelLinker.PlanModels`): the world is model
+0, then every placement's brush models in link order, each kept when its
+`room_needs` holds (`RoomNeeds.Hold`, the resolver's (c) rule, which drops
+its entity in the same case) and, for socket furniture, when the level
+keeps that side's furniture (`SocketFurniture`, over a side's props and
+brush entities together, `LevelLinker.LevelFurniture`); past
+`MAX_MAP_MODELS` (1024, the world included) the link refuses naming the
+placement that crossed it. A kept model's nodes, leaves, leaf faces, faces
+and brushes are carried with the room's, its tree hanging from its own
+head node; an omitted one's runs are left out of every lump that indexes
+them and everything after shifts down (a prefix sum over the room's few
+omitted runs), with its collision record and its entity. The linked face
+lump is every placement's world faces, then every kept model's, so model
+0's face range is the world's alone as in a map vbsp writes; the face ids,
+macro textures and vertex-normal index runs follow that order. An
+origin-relative model keeps its entity's frame: its vertices are linked
+again, turned and not moved, after the room's own (vbsp shares one vertex
+table among its models), and its planes and texinfos are interned in the
+shared tables turned and not moved, which is the texinfo split of 4.1 done
+as a lookup (a plane or texinfo both frames use is linked twice); its node,
+leaf and model bounds turn and do not move, and its entity's moved `origin`
+places it. A world-coordinate model is moved as the world is. A brush
+model's brushes never fold into the world's boxes. Each kept model's
+collision record is rebuilt from its stored convexes (moved for a
+world-coordinate model), their client data renumbered to the linked
+brushes, with the outer hull and drag areas its compile had, and its key
+data (mass, material, volume) carried; a room compiled without a cooker has
+none, as before. The plug census now takes only the world's brushes,
+leaves and faces, so a door hung in a doorway or a trigger inside one is
+never stripped or carved as the plug. Each brush entity's `model` key names
+its linked model, and the furniture keys (`room_socket`,
+`socket_priority`) are stripped from brush entities in the link and the
+flatten alike (6.4); an entity whose furniture model the level omits is
+dropped and leaves the entity budget. The flatten treats brush entities as
+furniture by the same rule and drops them with their brushes. Omission
+leaves the model's vertices, edges, surfedges, original faces, primitives
+and lightmap bytes in place, unreachable (vertices may be shared, and the
+rest is addressed only through the dropped faces), and the facts hold the
+tree, faces, brushes, models, vis and collision of a level that omits a
+model to those of the same level whose room never had it; the orphan
+fallback of 5.8 was not needed and is not built. Decisions taken where
+this document is open: O15 as recommended, with the known-direction table
+empty (as far as this repository can tell, stock brush classes that move
+take a direction from a key of their own, `movedir`, `pushdir` or `gibdir`,
+and those that rotate start from `angles` as the model's orientation; a
+class joins the table once checked in game, 15.8), so a brush entity's
+`angles` and `angle` are carried as written and a room whose brush entity
+(of a class vbsp does not consume) has them non-zero is refused by the
+split, and so by the pack and the flatten, and by a room compile, with the
+15.4 text (finding 9 and fact 9 of 15.3); the direction keys `movedir`,
+`pushdir` and `gibdir` turn as a yaw on every brush entity, in the link and
+the flatten (on point entities they are left as they were); O5 extends to
+brush entities as PR 6 describes, a brush entity with `room_socket` being
+furniture whose brushes the cell rule holds as any brush (inside the cell,
+or crossing a cell face only as kit hardware), and a `room_socket` naming
+no socket or a `socket_priority` that is no number refused with the prop's
+text, the class in place of `prop_static`; storage is four turns, the
+1.1 default (measured on a 16 x 16 level of two rooms of three brush
+entities each, on a busy 4-core machine, the two storages link in times
+within the run-to-run noise, the four-turn one no slower). The cell rule of
+the model lint read an origin-relative entity's brushes in its own frame
+and refused a door whose frame reaches below zero; it now reads them where
+they stand. The pack format version stays 3: `BMOD` is a tag an older build
+skips, and that build refuses a room with brush models by its model count;
+a pack written before this PR has no `BMOD`, and this build refuses its
+rooms with brush models with `room {room} has {k} brush entity models but
+no brush entity data from its compile (...); recompile the library with
+ssmap room.`. The capacity check counts a room's structures as compiled
+(an upper bound when the level omits a model) plus its origin-relative
+vertex copies. Brush entities cost one entity each (the class table's
+default, an edict), less the ones `room_needs` and the furniture rule omit,
+and the link's budget counts exactly the entities its lump holds. A known
+difference, not refused: an origin brush whose centre is off whole units
+gives the room compile and the flattened compile each their own truncation
+of the centre (vbsp writes `origin` as whole units), so the axis can differ
+by a unit between the two maps; on whole units they agree. Not done here:
+the 3x3 sample's `cross` room did not grow its door and trigger (as PR 6
+left the `tee` prop), since the harness levels carry the end-to-end facts
+at every rotation and the sample's unchanged digests are what shows a
+level without brush entities links as before; `ssmap rooms` does not list
+brush models; and the stress library has none.
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity

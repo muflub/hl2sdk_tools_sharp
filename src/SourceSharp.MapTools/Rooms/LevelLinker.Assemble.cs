@@ -39,6 +39,7 @@ public static partial class LevelLinker
         string? mapVersion,
         bool foldBrushes,
         byte[]? mergedPak,
+        List<(int Placement, string ClassName)> droppedFurniture,
         CancellationToken cancellationToken)
     {
         float cell = layout.CellSize;
@@ -80,25 +81,32 @@ public static partial class LevelLinker
             RoomPlan plan = plans[r];
             plan.NodeBase = nodes.Count;
             ReadOnlySpan<DNode> roomNodes = BspStructView.As<DNode>(plan.Bsp[BspLump.Nodes]);
-            roomNodeCounts[r] = roomNodes.Length;
+            roomNodeCounts[r] = plan.KeptNodeCount;
+            RoomModelLayout? models = plan.Models;
             for (int i = 0; i < roomNodes.Length; i++)
             {
+                // A brush model's node: skipped when the level omits the
+                // model; in its entity's own frame when origin-relative.
+                RoomBrushModel? owner = models?.Owner(m => m.Nodes, i);
+                if (owner is not null && models!.Linked[owner.Model - 1] < 0)
+                {
+                    continue;
+                }
+
+                bool local = owner is { OriginRelative: true };
                 DNode n = roomNodes[i];
                 DNode shifted = n;
-                (int planeNum, bool flip) = plan.NodePlane(n.PlaneNum);
+                (int planeNum, bool flip) = plan.NodePlane(n.PlaneNum, local);
                 shifted.PlaneNum = planeNum;
                 IntArray2 children = default;
                 for (int side = 0; side < 2; side++)
                 {
-                    int child = n.Children[side];
-                    children[side ^ (flip ? 1 : 0)] = child >= 0
-                        ? child + plan.NodeBase
-                        : -(plan.LeafBase + ~child + 1);
+                    children[side ^ (flip ? 1 : 0)] = plan.LinkedChild(n.Children[side]);
                 }
 
                 shifted.Children = children;
-                shifted.FirstFace = (ushort)(n.FirstFace + plan.FaceBase);
-                Box box = plan.Transform.TranslateBox(plan.Geometry.NodeBoxes[i]);
+                shifted.FirstFace = (ushort)plan.LinkedFace(n.FirstFace, owner);
+                Box box = local ? plan.Geometry.NodeBoxes[i] : plan.Transform.TranslateBox(plan.Geometry.NodeBoxes[i]);
                 shifted.Mins = Short3(box.Mins);
                 shifted.Maxs = Short3(box.Maxs);
                 nodes.Add(shifted);
@@ -132,8 +140,15 @@ public static partial class LevelLinker
         foreach (RoomPlan plan in plans)
         {
             ReadOnlySpan<ushort> roomLeafBrushes = BspStructView.As<ushort>(plan.Bsp[BspLump.LeafBrushes]);
+            RoomModelLayout? models = plan.Models;
             for (int l = 0; l < plan.Leafs.Length; l++)
             {
+                RoomBrushModel? owner = models?.Owner(m => m.Leaves, l);
+                if (owner is not null && models!.Linked[owner.Model - 1] < 0)
+                {
+                    continue;
+                }
+
                 DLeaf leaf = plan.Leafs[l];
                 DLeaf shifted = leaf;
                 if (shifted.Cluster >= 0)
@@ -141,7 +156,7 @@ public static partial class LevelLinker
                     shifted.Cluster = (short)(leaf.Cluster + plan.ClusterBase);
                 }
 
-                shifted.FirstLeafFace = (ushort)(leaf.FirstLeafFace + plan.LeafFaceBase);
+                shifted.FirstLeafFace = (ushort)plan.LinkedLeafFace(leaf.FirstLeafFace);
                 int start = leafBrushes.Count;
                 for (int b = 0; b < leaf.NumLeafBrushes; b++)
                 {
@@ -155,7 +170,7 @@ public static partial class LevelLinker
                 Limit(plan, "leaf brushes", leafBrushes.Count, ushort.MaxValue + 1);
                 shifted.FirstLeafBrush = (ushort)(leafBrushes.Count == start ? 0 : start);
                 shifted.NumLeafBrushes = (ushort)(leafBrushes.Count - start);
-                Box box = plan.Transform.TranslateBox(plan.Geometry.LeafBoxes[l]);
+                Box box = owner is { OriginRelative: true } ? plan.Geometry.LeafBoxes[l] : plan.Transform.TranslateBox(plan.Geometry.LeafBoxes[l]);
                 shifted.Mins = Short3(box.Mins);
                 shifted.Maxs = Short3(box.Maxs);
                 leafs.Add(shifted);
@@ -177,7 +192,14 @@ public static partial class LevelLinker
                         $"room {plan.Placement.Room.Definition.Name}'s LeafMinDistToWater holds {dists.Length} bytes for {plan.Leafs.Length} leaves");
                 }
 
-                leafMinDist.AddRange(BspStructView.As<ushort>(dists));
+                ReadOnlySpan<ushort> roomDists = BspStructView.As<ushort>(dists);
+                for (int l = 0; l < roomDists.Length; l++)
+                {
+                    if (plan.Models is not { } models || RoomModelLayout.Kept(models.OmittedLeaves, l) >= 0)
+                    {
+                        leafMinDist.Add(roomDists[l]);
+                    }
+                }
             }
         }
 
@@ -206,12 +228,18 @@ public static partial class LevelLinker
             "MAX_MAP_NODES");
         cancellationToken.ThrowIfCancellationRequested();
 
+        // Leaf faces: every kept leaf's run, each entry the linked face it
+        // names; an omitted brush model's runs are left out.
         List<ushort> leafFaces = [];
         foreach (RoomPlan plan in plans)
         {
-            foreach (ushort face in BspStructView.As<ushort>(plan.Bsp[BspLump.LeafFaces]))
+            ReadOnlySpan<ushort> roomLeafFaces = BspStructView.As<ushort>(plan.Bsp[BspLump.LeafFaces]);
+            for (int i = 0; i < roomLeafFaces.Length; i++)
             {
-                leafFaces.Add((ushort)(face + plan.FaceBase));
+                if (plan.Models is not { } models || RoomModelLayout.Kept(models.OmittedLeafFaces, i) >= 0)
+                {
+                    leafFaces.Add((ushort)plan.LinkedFace(roomLeafFaces[i]));
+                }
             }
         }
 
@@ -246,17 +274,33 @@ public static partial class LevelLinker
             return copy;
         }
 
+        // Drawn faces: every placement's world faces, then every kept brush
+        // model's (the model lump's own ranges follow the world's). A face
+        // keeps its lightmap offset, so the lighting is the rooms' bytes in
+        // room order whatever the face order.
         List<DFace> faces = [];
         List<byte> lighting = [];
         foreach (RoomPlan plan in plans)
         {
             ReadOnlySpan<DFace> roomFaces = BspStructView.As<DFace>(plan.Bsp[BspLump.Faces]);
-            for (int f = 0; f < roomFaces.Length; f++)
+            for (int f = 0; f < plan.WorldFaceCount; f++)
             {
                 faces.Add(ShiftFace(plan, roomFaces[f], plan.StrippedFaces.Contains(f), NoDraw, original: false));
             }
 
             lighting.AddRange(plan.Bsp[BspLump.Lighting].Data.Span);
+        }
+
+        foreach (RoomPlan plan in plans)
+        {
+            ReadOnlySpan<DFace> roomFaces = BspStructView.As<DFace>(plan.Bsp[BspLump.Faces]);
+            foreach (RoomBrushModel model in KeptModels(plan))
+            {
+                for (int f = model.Faces.First; f < model.Faces.End; f++)
+                {
+                    faces.Add(ShiftFace(plan, roomFaces[f], stripped: false, NoDraw, original: false, model.OriginRelative));
+                }
+            }
         }
 
         List<DFace> origFaces = [];
@@ -276,18 +320,33 @@ public static partial class LevelLinker
                     face.TexInfo = drawnTexInfo;
                 }
 
-                origFaces.Add(ShiftFace(plan, face, stripped, NoDraw, original: true));
+                bool local = plan.Models is { } models && models.IsLocal(m => m.OrigFaces, f);
+                origFaces.Add(ShiftFace(plan, face, stripped, NoDraw, original: true, local));
             }
         }
 
+        // Edges: an origin-relative brush model's name the untranslated
+        // copies of their vertices, after the room's own.
         List<DEdge> edges = [];
         foreach (RoomPlan plan in plans)
         {
-            foreach (DEdge edge in BspStructView.As<DEdge>(plan.Bsp[BspLump.Edges]))
+            ReadOnlySpan<DEdge> roomEdges = BspStructView.As<DEdge>(plan.Bsp[BspLump.Edges]);
+            for (int e = 0; e < roomEdges.Length; e++)
             {
+                DEdge edge = roomEdges[e];
                 DEdge shifted = edge;
-                shifted.V[0] = (ushort)(edge.V[0] + plan.VertexBase);
-                shifted.V[1] = (ushort)(edge.V[1] + plan.VertexBase);
+                if (plan.Models is { } models && models.IsLocal(m => m.Edges, e))
+                {
+                    int copies = plan.VertexBase + plan.Vertices.Length;
+                    shifted.V[0] = (ushort)(copies + models.LocalVertex[edge.V[0]]);
+                    shifted.V[1] = (ushort)(copies + models.LocalVertex[edge.V[1]]);
+                }
+                else
+                {
+                    shifted.V[0] = (ushort)(edge.V[0] + plan.VertexBase);
+                    shifted.V[1] = (ushort)(edge.V[1] + plan.VertexBase);
+                }
+
                 edges.Add(shifted);
             }
         }
@@ -310,6 +369,7 @@ public static partial class LevelLinker
         // brush cap.
         List<DBrush> brushes = [];
         List<DBrushSide> brushSides = [];
+        List<bool> foldable = [];
         foreach (RoomPlan plan in plans)
         {
             ReadOnlySpan<DBrushSide> roomSides = BspStructView.As<DBrushSide>(plan.Bsp[BspLump.BrushSides]);
@@ -321,34 +381,40 @@ public static partial class LevelLinker
                     continue;
                 }
 
+                // A brush model's brushes are its entity's: never folded
+                // into the world's boxes, and in the entity's own frame when
+                // the model is origin-relative.
+                RoomBrushModel? owner = plan.Models?.Owner(m => m.Brushes, b);
+                bool local = owner is { OriginRelative: true };
                 DBrush shifted = roomBrushes[b];
                 shifted.FirstSide = brushSides.Count;
                 foreach (DBrushSide side in roomSides.Slice(roomBrushes[b].FirstSide, roomBrushes[b].NumSides))
                 {
                     DBrushSide moved = side;
-                    moved.PlaneNum = (ushort)plan.PlaneRef(side.PlaneNum);
+                    moved.PlaneNum = (ushort)plan.PlaneRef(side.PlaneNum, local);
                     if (side.TexInfo >= 0)
                     {
-                        moved.TexInfo = (short)plan.TexInfoRef(side.TexInfo);
+                        moved.TexInfo = (short)plan.TexInfoRef(side.TexInfo, local);
                     }
 
                     brushSides.Add(moved);
                 }
 
                 brushes.Add(shifted);
+                foldable.Add(owner is null);
             }
         }
 
         // The fold: touching box brushes of the world become one box
-        // (LinkBrushFold). The linked map has one model, the world (a room
-        // with a second is refused), so every brush may fold. Leaf brush
-        // runs and ledge client data follow the new numbering.
+        // (LinkBrushFold); a brush entity's brushes are its model's and never
+        // fold. Leaf brush runs and ledge client data follow the new
+        // numbering.
         int[]? brushMap = null;
         int folded = 0;
         if (foldBrushes)
         {
             BrushFoldResult fold = LinkBrushFold.Fold(
-                brushes, brushSides, planes.Planes, texInfos, Enumerable.Repeat(true, brushes.Count).ToArray());
+                brushes, brushSides, planes.Planes, texInfos, [.. foldable]);
             brushes = [.. fold.Brushes];
             brushSides = [.. fold.Sides];
             brushMap = fold.Map;
@@ -379,35 +445,58 @@ public static partial class LevelLinker
 
         // Face ids and macro textures: ids are opaque, macro names index the
         // shared string table (0xFFFF is "none" and stays 0xFFFF; so does a
-        // name outside the room's table, which names nothing).
+        // name outside the room's table, which names nothing). Both are one
+        // entry per drawn face, so they follow the faces' order: every world
+        // run, then every kept brush model's.
         List<DFaceId> faceIds = [];
         List<FaceMacroTextureInfo> macroTextures = [];
-        foreach (RoomPlan plan in plans)
+        foreach (bool modelPass in (ReadOnlySpan<bool>)[false, true])
         {
-            faceIds.AddRange(BspStructView.As<DFaceId>(plan.Bsp[BspLump.FaceIds]));
-            foreach (FaceMacroTextureInfo macro in BspStructView.As<FaceMacroTextureInfo>(plan.Bsp[BspLump.FaceMacroTextureInfo]))
+            foreach (RoomPlan plan in plans)
             {
-                FaceMacroTextureInfo shifted = macro;
-                if (macro.MacroTextureNameId != 0xFFFF)
+                ReadOnlySpan<DFaceId> roomIds = BspStructView.As<DFaceId>(plan.Bsp[BspLump.FaceIds]);
+                ReadOnlySpan<FaceMacroTextureInfo> roomMacros = BspStructView.As<FaceMacroTextureInfo>(plan.Bsp[BspLump.FaceMacroTextureInfo]);
+                foreach (RoomRange run in FaceRuns(plan, modelPass))
                 {
-                    shifted.MacroTextureNameId = (ushort)Remap(plan.StringMap, macro.MacroTextureNameId);
-                }
+                    faceIds.AddRange(Clip(roomIds, run));
+                    foreach (FaceMacroTextureInfo macro in Clip(roomMacros, run))
+                    {
+                        FaceMacroTextureInfo shifted = macro;
+                        if (macro.MacroTextureNameId != 0xFFFF)
+                        {
+                            shifted.MacroTextureNameId = (ushort)Remap(plan.StringMap, macro.MacroTextureNameId);
+                        }
 
-                macroTextures.Add(shifted);
+                        macroTextures.Add(shifted);
+                    }
+                }
             }
         }
 
         // Vert normals: phong normals rotate with the room but never
-        // translate, so the turned normals are already final.
+        // translate, so the turned normals are already final. The engine
+        // walks the vertex-normal indices in face order, one run per face,
+        // so they follow the faces: every world's, then every kept brush
+        // model's run.
         List<Vec3> vertNormals = [];
         List<ushort> vertNormalIndices = [];
         foreach (RoomPlan plan in plans)
         {
             vertNormals.AddRange(plan.Geometry.VertNormals);
+        }
 
-            foreach (ushort index in BspStructView.As<ushort>(plan.Bsp[BspLump.VertNormalIndices]))
+        foreach (bool modelPass in (ReadOnlySpan<bool>)[false, true])
+        {
+            foreach (RoomPlan plan in plans)
             {
-                vertNormalIndices.Add((ushort)(index + plan.VertNormalBase));
+                ReadOnlySpan<ushort> roomIndices = BspStructView.As<ushort>(plan.Bsp[BspLump.VertNormalIndices]);
+                foreach (RoomRange run in VertNormalRuns(plan, modelPass, roomIndices.Length))
+                {
+                    foreach (ushort index in roomIndices.Slice(run.First, run.Count))
+                    {
+                        vertNormalIndices.Add((ushort)(index + plan.VertNormalBase));
+                    }
+                }
             }
         }
 
@@ -428,9 +517,10 @@ public static partial class LevelLinker
             }
 
             primIndices.AddRange(BspStructView.As<ushort>(plan.Bsp[BspLump.PrimIndices]));
-            foreach (Vec3 vertex in plan.Geometry.PrimVerts)
+            for (int v = 0; v < plan.Geometry.PrimVerts.Length; v++)
             {
-                primVerts.Add(plan.Transform.Translate(vertex));
+                Vec3 vertex = plan.Geometry.PrimVerts[v];
+                primVerts.Add(plan.Models is { } models && models.LocalPrimVerts[v] ? vertex : plan.Transform.Translate(vertex));
             }
         }
 
@@ -481,7 +571,11 @@ public static partial class LevelLinker
             world = Union(world, plan.Transform.TranslateBox(plan.Geometry.ModelBox));
         }
 
-        DModel[] models =
+        // Then every kept brush model, in link order: its tree's head, its
+        // faces' linked range, its bounds turned and, for a
+        // world-coordinate model, moved (an origin-relative model's bounds
+        // are its entity's own frame, and the entity's origin places it).
+        List<DModel> modelLump =
         [
             new DModel
             {
@@ -490,17 +584,42 @@ public static partial class LevelLinker
                 Origin = Vec3.Zero,
                 HeadNode = 0,
                 FirstFace = 0,
-                NumFaces = faces.Count,
+                NumFaces = plans.Sum(p => p.WorldFaceCount),
             },
         ];
+        foreach (RoomPlan plan in plans)
+        {
+            foreach (RoomBrushModel model in KeptModels(plan))
+            {
+                DModel room = BspStructView.As<DModel>(plan.Bsp[BspLump.Models])[model.Model];
+                Box bounds = plan.Models!.Turn[model.Model - 1].Bounds;
+                if (!model.OriginRelative)
+                {
+                    bounds = plan.Transform.TranslateBox(bounds);
+                }
+
+                modelLump.Add(new DModel
+                {
+                    Mins = bounds.Mins,
+                    Maxs = bounds.Maxs,
+                    Origin = Vec3.Zero,
+                    HeadNode = plan.LinkedChild(room.HeadNode),
+                    FirstFace = plan.LinkedFace(model.Faces.First, model),
+                    NumFaces = model.Faces.Count,
+                });
+            }
+        }
 
         (byte[]? physCollide, byte[]? physDisp) = MergeCollision(plans, context.Options.Compliance, brushMap, cancellationToken);
 
         BspData linked = new() { FileVersion = first.Bsp.FileVersion };
-        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion, singletons);
+        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion, singletons, droppedFurniture);
         linked.SetLump(BspLump.Planes, Bytes(planes.Planes));
         linked.SetLump(BspLump.TexData, Bytes(textures.TexDatas));
-        linked.SetLump(BspLump.Vertexes, plans.SelectMany(p => MemoryMarshal.AsBytes(p.Vertices.AsSpan()).ToArray()).ToArray());
+        linked.SetLump(
+            BspLump.Vertexes,
+            plans.SelectMany(p => MemoryMarshal.AsBytes(p.Vertices.AsSpan()).ToArray()
+                .Concat(MemoryMarshal.AsBytes((p.Models?.LocalVertices ?? []).AsSpan()).ToArray())).ToArray());
         linked.SetLump(BspLump.Visibility, visibilityLump);
         linked.SetLump(BspLump.Nodes, Bytes(nodes));
         linked.SetLump(BspLump.TexInfo, Bytes(texInfos));
@@ -508,7 +627,7 @@ public static partial class LevelLinker
         linked.SetLump(BspLump.Lighting, lighting.ToArray());
         linked.SetLump(BspLump.Leafs, Bytes(leafs), first.LeafsVersion);
         linked.SetLump(BspLump.Edges, Bytes(edges));
-        linked.SetLump(BspLump.Models, MemoryMarshal.AsBytes(models.AsSpan()).ToArray());
+        linked.SetLump(BspLump.Models, Bytes(modelLump));
         linked.SetLump(BspLump.LeafFaces, Bytes(leafFaces));
         linked.SetLump(BspLump.LeafBrushes, Bytes(leafBrushes.ConvertAll(b => (ushort)b)));
         linked.SetLump(BspLump.Brushes, Bytes(brushes));
@@ -619,13 +738,19 @@ public static partial class LevelLinker
     /// <c>LightOfs</c> is a byte offset in which 0 is the first luxel and -1
     /// is "unlit"; only the latter is kept as is.
     /// </remarks>
-    private static DFace ShiftFace(RoomPlan plan, DFace face, bool stripped, Func<RoomPlan, int, int> noDraw, bool original)
+    /// <param name="plan">The face's placement.</param>
+    /// <param name="face">The room's face.</param>
+    /// <param name="stripped">Whether it is a jointed plug's face, drawn nodraw.</param>
+    /// <param name="noDraw">The nodraw copy of a linked texinfo.</param>
+    /// <param name="original">Whether it is an original face (no primitives, no original face of its own).</param>
+    /// <param name="local">Whether it is an origin-relative brush model's, in its entity's own frame.</param>
+    private static DFace ShiftFace(RoomPlan plan, DFace face, bool stripped, Func<RoomPlan, int, int> noDraw, bool original, bool local = false)
     {
         DFace shifted = face;
-        shifted.PlaneNum = (ushort)plan.PlaneRef(face.PlaneNum);
+        shifted.PlaneNum = (ushort)plan.PlaneRef(face.PlaneNum, local);
         if (face.TexInfo >= 0)
         {
-            int texInfo = plan.TexInfoRef(face.TexInfo);
+            int texInfo = plan.TexInfoRef(face.TexInfo, local);
             shifted.TexInfo = (short)(stripped && texInfo >= 0 ? noDraw(plan, texInfo) : texInfo);
         }
 
@@ -712,7 +837,7 @@ public static partial class LevelLinker
 
         foreach ((int roomLeaf, List<(Box, int)> leafPlugs) in byLeaf.OrderBy(kv => kv.Key))
         {
-            int linkedLeaf = plan.LeafBase + roomLeaf;
+            int linkedLeaf = plan.LinkedLeaf(roomLeaf);
             int head = CarveLeaf(plan.ClusterBase, plan.Leafs, linkedLeaf, leafPlugs, nodes, leafs, planes, leafMinDist);
             if (head == -(linkedLeaf + 1))
             {
@@ -893,6 +1018,54 @@ public static partial class LevelLinker
             new Vec3(Math.Max(a.Maxs.X, b.Maxs.X), Math.Max(a.Maxs.Y, b.Maxs.Y), Math.Max(a.Maxs.Z, b.Maxs.Z)));
 
     private static Vec3 ToVec(ShortArray3 s) => new(s[0], s[1], s[2]);
+
+    /// <summary>The brush models a placement keeps, in model order; none for a room with only the world.</summary>
+    private static IEnumerable<RoomBrushModel> KeptModels(RoomPlan plan) =>
+        plan.Models is { } models ? models.Source.Models.Where((_, i) => models.Linked[i] >= 0) : [];
+
+    /// <summary>
+    /// The runs of a placement's drawn faces one pass of the face-order
+    /// lumps takes: its world faces, or its kept brush models' faces.
+    /// </summary>
+    /// <remarks>
+    /// A room with only the world takes its lumps whole, as the link always
+    /// did, whatever their length.
+    /// </remarks>
+    private static IEnumerable<RoomRange> FaceRuns(RoomPlan plan, bool models) =>
+        models ? KeptModels(plan).Select(m => m.Faces)
+        : plan.Models is null ? [new RoomRange(0, int.MaxValue)]
+        : [new RoomRange(0, plan.WorldFaceCount)];
+
+    /// <summary>
+    /// The runs of a placement's vertex-normal indices one pass takes: the
+    /// world's (every index before the first brush model's run, or all of
+    /// them), or its kept brush models'. A room whose compile wrote none has
+    /// none.
+    /// </summary>
+    private static IEnumerable<RoomRange> VertNormalRuns(RoomPlan plan, bool models, int length)
+    {
+        if (length == 0)
+        {
+            return [];
+        }
+
+        if (models)
+        {
+            return KeptModels(plan).Select(m => m.VertNormalIndices);
+        }
+
+        int world = plan.Models is { } layout && layout.Source.Models.Count > 0
+            ? layout.Source.Models.Min(m => m.VertNormalIndices.Count > 0 ? m.VertNormalIndices.First : length)
+            : length;
+        return [new RoomRange(0, world)];
+    }
+
+    /// <summary>The part of a per-face lump a run covers; nothing past the lump's end (a lump vbsp left short).</summary>
+    private static T[] Clip<T>(ReadOnlySpan<T> items, RoomRange run)
+    {
+        int first = Math.Min(run.First, items.Length);
+        return items.Slice(first, (int)Math.Min((long)run.Count, items.Length - first)).ToArray();
+    }
 
     private static byte[] Bytes<T>(List<T> items)
         where T : unmanaged =>

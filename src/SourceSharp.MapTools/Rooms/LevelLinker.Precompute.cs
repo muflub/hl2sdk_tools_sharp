@@ -32,7 +32,7 @@ public static partial class LevelLinker
     /// bytes it becomes, are the same at any thread count.
     /// </para>
     /// <para>
-    /// A room the link refuses (a second model, a water leaf, a pak that is
+    /// A room the link refuses (a water leaf, a pak that is
     /// not a zip, collision or entities it cannot read, ...) gets no link
     /// data rather than failing its compile: it is still packed as before,
     /// and a level that places it is refused at link time with the same
@@ -96,11 +96,17 @@ public static partial class LevelLinker
             }
         }
 
+        // A room's brush entities are carried as their own models, from the
+        // brush model data its compile left (RoomBrushModels); a room with
+        // models and none of that is refused, and a room with no model at
+        // all is not a room.
         ReadOnlySpan<DModel> models = BspStructView.As<DModel>(bsp[BspLump.Models]);
-        if (models.Length != 1)
+        if (models.Length == 0)
         {
             throw new LinkException($"room {name} has {models.Length} models; a linkable room is one world model");
         }
+
+        RefuseUndescribedModels(room);
 
         if (models[0].HeadNode != 0)
         {
@@ -283,7 +289,14 @@ public static partial class LevelLinker
     /// room's turn, or 0 for the sun; <see cref="TurnEntity"/> decides),
     /// anything else as written.
     /// </summary>
-    private static RoomLinkPair TurnPair(BspKeyValue pair, int turns, int yawTurns, string room)
+    /// <remarks>
+    /// On a brush entity (<paramref name="brushClass"/> not null) the rule is
+    /// <see cref="BrushEntityDirections"/>': <c>angles</c> and <c>angle</c>
+    /// turn only for a class in its known-direction table, and the direction
+    /// keys (<c>movedir</c>, <c>pushdir</c>, <c>gibdir</c>) always turn, each
+    /// as a yaw.
+    /// </remarks>
+    private static RoomLinkPair TurnPair(BspKeyValue pair, int turns, int yawTurns, string room, string? brushClass = null)
     {
         if (IsKey(pair.Key, "origin"))
         {
@@ -291,6 +304,17 @@ public static partial class LevelLinker
         }
 
         string value = pair.Value;
+        if (brushClass is not null && (IsKey(pair.Key, "angles") || IsKey(pair.Key, "angle")) && !BrushEntityDirections.ReadsAnglesAsDirection(brushClass))
+        {
+            return new RoomLinkPair(pair.Key, value, default);
+        }
+
+        if (brushClass is not null && yawTurns != 0 && BrushEntityDirections.IsDirectionKey(pair.Key))
+        {
+            Vec3 direction = ParseVec(value, pair.Key, room);
+            return new RoomLinkPair(pair.Key, FormatVec(new Vec3(direction.X, TurnYaw(direction.Y, yawTurns), direction.Z)), default);
+        }
+
         if (yawTurns != 0 && IsKey(pair.Key, "angles"))
         {
             Vec3 angles = ParseVec(value, "angles", room);
@@ -341,11 +365,16 @@ public static partial class LevelLinker
 
         int[] facing = Facing(leafs, plug);
 
+        // The plug is the world's: a brush entity in the doorway (a door, a
+        // trigger) is its own model, which a joint does not strip, and its
+        // solid leaves are its model's, which the doorway carve does not cut.
+        IReadOnlyList<RoomBrushModel> models = room.BrushModelsOfCompile?.Models ?? [];
         List<int> stripped = [];
         for (int b = 0; b < brushes.Length; b++)
         {
             if (IsTriggerBrush(brushes[b], sides, texInfos)
-                && BrushBox(brushes[b], sides, planes).ContainsWithin(plug, RoomLinter.CellEpsilon))
+                && BrushBox(brushes[b], sides, planes).ContainsWithin(plug, RoomLinter.CellEpsilon)
+                && !models.Any(m => m.Brushes.Contains(b)))
             {
                 stripped.Add(b);
             }
@@ -356,7 +385,8 @@ public static partial class LevelLinker
         {
             DLeaf leaf = leafs[l];
             if ((leaf.Contents & (int)BrushContents.Solid) != 0
-                && BoxOf(leaf).Overlaps(plug, RoomLinter.CellEpsilon))
+                && BoxOf(leaf).Overlaps(plug, RoomLinter.CellEpsilon)
+                && !models.Any(m => m.Leaves.Contains(l)))
             {
                 carves.Add(l);
             }
@@ -364,6 +394,7 @@ public static partial class LevelLinker
 
         HashSet<int> faces = [];
         MarkPlugFaces(bsp, plug, faces);
+        faces.RemoveWhere(f => models.Any(m => m.Faces.Contains(f)));
         return new SocketCensus(facing, [.. stripped], [.. carves], [.. faces.Order()]);
     }
 

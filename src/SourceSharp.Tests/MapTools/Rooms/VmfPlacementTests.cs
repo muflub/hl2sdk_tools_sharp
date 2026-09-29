@@ -183,20 +183,20 @@ public sealed class VmfPlacementTests
     // ---- entities --------------------------------------------------------------------
 
     /// <summary>
-    /// An entity moved: its origin through the transform, its yaw turned in
-    /// <c>angles</c> and <c>angle</c> — except the -1 and -2 up and down
-    /// codes — its brushes moved, everything else copied.
+    /// A point entity moved: its origin through the transform, its yaw
+    /// turned in <c>angles</c> and <c>angle</c> — except the -1 and -2 up and
+    /// down codes — its connections and everything else copied.
     /// </summary>
     [Fact]
-    public void AMovedEntityHasItsOriginYawAndBrushesMoved()
+    public void AMovedEntityHasItsOriginAndYawMoved()
     {
         VmfChunk entity = new("entity");
-        entity.AddKey("classname", "func_door");
+        entity.AddKey("classname", "info_target");
         entity.AddKey("origin", "16 32 8");
         entity.AddKey("angles", "10 45 5");
         entity.AddKey("angle", "300");
+        entity.AddKey("movedir", "0 10 0");
         entity.AddKey("targetname", "door");
-        entity.Children.Add(Solid());
         entity.AddChunk("connections").AddKey("OnOpen", "a,b,,0,-1");
 
         VmfChunk moved = VmfPlacement.MoveEntity(entity, new QuarterTurn(1, new Vec3(256, 0, 0)));
@@ -204,8 +204,8 @@ public sealed class VmfPlacementTests
         Assert.Equal("224 16 8", moved.GetValue("origin"));
         Assert.Equal("10 135 5", moved.GetValue("angles"));
         Assert.Equal("30", moved.GetValue("angle"));
+        Assert.Equal("0 10 0", moved.GetValue("movedir"));
         Assert.Equal("door", moved.GetValue("targetname"));
-        Assert.Equal(new Vec3(224, 0, 0), VmfPlacement.Bounds(moved.GetChunk("solid")!).Mins);
         Assert.Equal("a,b,,0,-1", moved.GetChunk("connections")!.GetValue("OnOpen"));
 
         entity.Keys.Single(k => k.Name == "angle").Value = "-1";
@@ -216,6 +216,46 @@ public sealed class VmfPlacementTests
         // No turn: the angles are left as written, whatever they hold.
         entity.Keys.Single(k => k.Name == "angles").Value = "0 not-a-number 0";
         Assert.Equal("0 not-a-number 0", VmfPlacement.MoveEntity(entity, QuarterTurn.Translation(Vec3.Zero)).GetValue("angles"));
+    }
+
+    /// <summary>
+    /// A brush entity moved (open point O15 of the rooms design): its brushes
+    /// turn and move, so its <c>angles</c> and <c>angle</c> are carried as
+    /// written for a class outside the known-direction table, and its
+    /// direction keys (<c>movedir</c>, <c>pushdir</c>, <c>gibdir</c>) turn
+    /// as a yaw; a class vbsp consumes keeps the point entity's rule.
+    /// </summary>
+    [Fact]
+    public void AMovedBrushEntityTurnsItsBrushesAndDirectionKeysNotItsAngles()
+    {
+        VmfChunk entity = new("entity");
+        entity.AddKey("classname", "func_door");
+        entity.AddKey("origin", "16 32 8");
+        entity.AddKey("angles", "0 0 0");
+        entity.AddKey("angle", "0");
+        entity.AddKey("movedir", "0 45 0");
+        entity.AddKey("PushDir", "-90 300 0");
+        entity.AddKey("gibdir", "10 0 5");
+        entity.Children.Add(Solid());
+
+        VmfChunk moved = VmfPlacement.MoveEntity(entity, new QuarterTurn(1, new Vec3(256, 0, 0)));
+
+        Assert.Equal("224 16 8", moved.GetValue("origin"));
+        Assert.Equal("0 0 0", moved.GetValue("angles"));
+        Assert.Equal("0", moved.GetValue("angle"));
+        Assert.Equal("0 135 0", moved.GetValue("movedir"));
+        Assert.Equal("-90 30 0", moved.GetValue("PushDir"));
+        Assert.Equal("10 90 5", moved.GetValue("gibdir"));
+        Assert.Equal(new Vec3(224, 0, 0), VmfPlacement.Bounds(moved.GetChunk("solid")!).Mins);
+
+        // Unturned, the direction keys stay as written.
+        Assert.Equal("0 45 0", VmfPlacement.MoveEntity(entity, QuarterTurn.Translation(new Vec3(1, 1, 1))).GetValue("movedir"));
+
+        // A class vbsp consumes turns its angles as a point entity does.
+        entity.Keys.Single(k => k.Name == "classname").Value = "func_detail";
+        entity.Keys.Single(k => k.Name == "angles").Value = "0 45 0";
+        Assert.Equal("0 135 0", VmfPlacement.MoveEntity(entity, new QuarterTurn(1, Vec3.Zero)).GetValue("angles"));
+        Assert.Equal("0 45 0", VmfPlacement.MoveEntity(entity, new QuarterTurn(1, Vec3.Zero)).GetValue("movedir"));
     }
 
     [Theory]

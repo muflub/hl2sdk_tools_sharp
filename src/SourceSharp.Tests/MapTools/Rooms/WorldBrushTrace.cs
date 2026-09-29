@@ -59,6 +59,12 @@ internal sealed class WorldBrushTrace
     private readonly int[] _reachable;
 
     public WorldBrushTrace(BspData bsp)
+        : this(bsp, null)
+    {
+    }
+
+    /// <summary>A trace over some of a map's brushes: a brush model's, say; null for every brush a leaf lists.</summary>
+    public WorldBrushTrace(BspData bsp, IReadOnlyCollection<int>? brushes)
     {
         _planes = BspStructView.As<DPlane>(bsp[BspLump.Planes]).ToArray();
         _brushes = BspStructView.As<DBrush>(bsp[BspLump.Brushes]).ToArray();
@@ -75,10 +81,13 @@ internal sealed class WorldBrushTrace
             _surfaceOf[t] = $"{Encoding.ASCII.GetString(strings, at, end - at)}|{infos[t].Flags}";
         }
 
-        SortedSet<int> reachable = [];
-        foreach (ushort brush in BspStructView.As<ushort>(bsp[BspLump.LeafBrushes]))
+        SortedSet<int> reachable = [.. brushes ?? []];
+        if (brushes is null)
         {
-            reachable.Add(brush);
+            foreach (ushort brush in BspStructView.As<ushort>(bsp[BspLump.LeafBrushes]))
+            {
+                reachable.Add(brush);
+            }
         }
 
         _reachable = [.. reachable];

@@ -77,7 +77,12 @@ public static partial class LevelLinker
     /// </para>
     /// </remarks>
     internal static BspLumpData MergeEntities(
-        RoomPlan[] plans, EntityClassTable classes, LevelNaming? naming = null, string? mapVersion = null, LevelSingletons? singletons = null)
+        RoomPlan[] plans,
+        EntityClassTable classes,
+        LevelNaming? naming = null,
+        string? mapVersion = null,
+        LevelSingletons? singletons = null,
+        List<(int Placement, string ClassName)>? droppedFurniture = null)
     {
         singletons ??= new LevelSingletons([]);
         List<BspEntity> merged = [];
@@ -118,9 +123,9 @@ public static partial class LevelLinker
                         // the room's lump; a compile-only one is removed.
                         entities.Add(compileOnly ? Removed(LevelEntity.FromLink(item, index, i)) : LevelEntity.FromLink(item, index, i));
                     }
-                    else if (!compileOnly)
+                    else if (!compileOnly && !OmittedModel(item.Pairs, plan, index, droppedFurniture))
                     {
-                        AddUnlessDuplicate(merged, singletons, TranslateEntity(item, plan.Transform, name, plan.OccluderBase), name, index);
+                        AddUnlessDuplicate(merged, singletons, TranslateEntity(item, plan.Transform, name, plan.OccluderBase, plan.Models), name, index);
                     }
 
                     continue;
@@ -176,11 +181,16 @@ public static partial class LevelLinker
             {
                 RoomPlan plan = plans[entity.Placement];
                 List<RoomLinkPair> pairs = [.. entity.Pairs.Select(p => p.Position ?? new RoomLinkPair(p.Key, p.Value!, default))];
+                if (OmittedModel(pairs, plan, entity.Placement, droppedFurniture))
+                {
+                    continue;
+                }
+
                 string room = plan.Placement.Room.Definition.Name;
                 AddUnlessDuplicate(
                     merged,
                     singletons,
-                    TranslateEntity(new RoomLinkEntity(false, pairs, null, null), plan.Transform, room, plan.OccluderBase),
+                    TranslateEntity(new RoomLinkEntity(false, pairs, null, null), plan.Transform, room, plan.OccluderBase, plan.Models),
                     room,
                     entity.Placement);
             }
@@ -239,6 +249,43 @@ public static partial class LevelLinker
         {
             merged.Add(entity);
         }
+    }
+
+    /// <summary>
+    /// Whether an entity names a brush model its placement omits, and then
+    /// records it among the dropped: a (c) condition drops such an entity in
+    /// the resolver already (the same rule, <see cref="PlanModels"/>), so
+    /// what reaches here is socket furniture the level does not keep, which
+    /// the flatten leaves out too and the entity budget no longer counts.
+    /// </summary>
+    private static bool OmittedModel(IReadOnlyList<RoomLinkPair> pairs, RoomPlan plan, int placement, List<(int Placement, string ClassName)>? dropped)
+    {
+        if (plan.Models is not { } models)
+        {
+            return false;
+        }
+
+        string? model = null, className = null;
+        foreach (RoomLinkPair pair in pairs)
+        {
+            if (model is null && IsKey(pair.Key, "model"))
+            {
+                model = pair.Value;
+            }
+            else if (className is null && string.Equals(pair.Key, "classname", StringComparison.Ordinal))
+            {
+                className = pair.Value;
+            }
+        }
+
+        if (!IsBrushModel(model) || int.Parse(model.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture) is not (> 0 and var k)
+            || k > models.Linked.Length || models.Linked[k - 1] >= 0)
+        {
+            return false;
+        }
+
+        dropped?.Add((placement, className ?? string.Empty));
+        return true;
     }
 
     private static LevelEntity Removed(LevelEntity entity)
@@ -380,6 +427,13 @@ public static partial class LevelLinker
     /// origin still turns.
     /// </para>
     /// <para>
+    /// <b>A brush entity</b> (its <c>model</c> names a brush model, <c>*N</c>)
+    /// follows <see cref="BrushEntityDirections"/>: its model is already
+    /// turned with the room, so its <c>angles</c> and <c>angle</c> turn only
+    /// for a class that reads them as a direction, and its direction keys
+    /// (<c>movedir</c>, <c>pushdir</c>, <c>gibdir</c>) turn as a yaw.
+    /// </para>
+    /// <para>
     /// <b>An <c>info_ladder</c>'s bounds</b> are a world-space box written as
     /// six separate keys (<see cref="LadderKeys"/>), room-local in the room
     /// compile; a whole-map compile of the level measures them from the
@@ -403,6 +457,7 @@ public static partial class LevelLinker
         string[] ladderKeys = LadderKeys;
         Box? ladder = LadderBounds(entity, ladderKeys, turns, room);
         int yawTurns = VmfPlacement.KeepsWorldAngles(entity.ClassName) ? 0 : turns;
+        string? brushClass = IsBrushModel(entity.Get("model")) ? entity.ClassName ?? string.Empty : null;
         List<RoomLinkPair> pairs = new(entity.Pairs.Count);
         foreach (BspKeyValue pair in entity.Pairs)
         {
@@ -414,11 +469,20 @@ public static partial class LevelLinker
                 continue;
             }
 
-            pairs.Add(TurnPair(pair, turns, yawTurns, room));
+            pairs.Add(TurnPair(pair, turns, yawTurns, room, brushClass));
         }
 
         return pairs;
     }
+
+    /// <summary>
+    /// Whether an entity's <c>model</c> value names a brush model of its
+    /// map (<c>*N</c>, as vbsp numbers them), which is what makes it a brush
+    /// entity once compiled: its brushes are that model.
+    /// </summary>
+    internal static bool IsBrushModel(string? model) =>
+        model is { Length: > 1 } && model[0] == '*'
+        && int.TryParse(model.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out _);
 
     /// <summary>
     /// A turned entity moved to the placement's cell: its origin through
@@ -427,6 +491,7 @@ public static partial class LevelLinker
     /// base, every other key as the turn left it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A <c>func_occluder</c>'s <c>occludernumber</c> is an index into the
     /// occlusion lump, which every room compile numbers from 0. The linker
     /// appends the rooms' occluders in layout order
@@ -436,12 +501,26 @@ public static partial class LevelLinker
     /// The base depends on the level, not the room, so this is the link's
     /// step, never stored; the first room's key (base 0) is carried as
     /// written.
+    /// </para>
+    /// <para>
+    /// A brush entity's <c>model</c> (<c>*k</c>, its room's model number)
+    /// becomes the model's linked number (<see cref="PlanModels"/>), and its
+    /// socket furniture keys (<c>room_socket</c>, <c>socket_priority</c>),
+    /// which only the link reads, are left out, as the flatten leaves them
+    /// out (the rooms design, 6.4).
+    /// </para>
     /// </remarks>
-    private static BspEntity TranslateEntity(RoomLinkEntity entity, RoomTransform transform, string room, int occluderBase)
+    private static BspEntity TranslateEntity(RoomLinkEntity entity, RoomTransform transform, string room, int occluderBase, RoomModelLayout? models = null)
     {
         BspEntity moved = new();
+        bool brush = models is not null && entity.Pairs.Any(p => IsKey(p.Key, "model") && IsBrushModel(p.Value));
         foreach (RoomLinkPair pair in entity.Pairs)
         {
+            if (brush && (IsKey(pair.Key, RoomStaticProps.SocketKey) || IsKey(pair.Key, RoomStaticProps.PriorityKey)))
+            {
+                continue;
+            }
+
             string value;
             if (pair.Value is null)
             {
@@ -453,6 +532,13 @@ public static partial class LevelLinker
                     2 => F2(at.Z),
                     _ => FormatVec(at),
                 };
+            }
+            else if (brush && IsKey(pair.Key, "model") && IsBrushModel(pair.Value))
+            {
+                int k = int.Parse(pair.Value.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture);
+                value = k >= 1 && k <= models!.Linked.Length && models.Linked[k - 1] > 0
+                    ? string.Create(CultureInfo.InvariantCulture, $"*{models.Linked[k - 1]}")
+                    : throw new LinkException($"room {room} has an entity naming model {pair.Value}, which is not one of its linked brush models");
             }
             else if (occluderBase != 0 && IsKey(pair.Key, "occludernumber"))
             {

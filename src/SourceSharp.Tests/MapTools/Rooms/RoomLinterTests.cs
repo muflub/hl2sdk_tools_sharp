@@ -215,4 +215,35 @@ public class RoomLinterTests
             + " mins (240 80 80) maxs (264 176 176) against the cell 0..256.",
             error.Message);
     }
+
+    /// <summary>
+    /// An origin-relative brush entity (a hinged door, whose origin brush
+    /// makes the loader rebuild its brushes in the entity's own frame) is
+    /// held to its cell where it stands, not where its own frame puts it: a
+    /// door inside the cell whose frame-local box reaches below zero is
+    /// accepted, and one standing across the cell face is refused, its
+    /// world bounds named. Before the fix the rule read the frame-local box
+    /// and refused the first.
+    /// </summary>
+    [Fact]
+    public async Task AnOriginRelativeBrushEntityIsHeldToItsCellWhereItStands()
+    {
+        RoomDefinition room = RoomHarness.Room("hinged", RoomFacing.PositiveX);
+        VbspContext context = await RoomHarness.ContextAsync(extraFiles: RoomBrushHarness.Files());
+
+        VmfDocument inside = RoomHarness.BuildRoomModel(room);
+        inside.Chunks.Add(RoomBrushHarness.Rotating(4300, new Vec3(200, 40, 16), new Vec3(240, 48, 100), new Vec3(236, 44, 20)));
+        RoomObject compiled = await RoomCompiler.CompileAsync(inside, room, context, default);
+        Assert.True(compiled.BrushModelsOfCompile!.Models[0].OriginRelative);
+
+        VmfDocument across = RoomHarness.BuildRoomModel(room);
+        across.Chunks.Add(RoomBrushHarness.Rotating(4310, new Vec3(40, 250, 16), new Vec3(60, 270, 100), new Vec3(44, 254, 20)));
+        VbspContext second = await RoomHarness.ContextAsync(extraFiles: RoomBrushHarness.Files());
+        RoomLintException error = await Assert.ThrowsAsync<RoomLintException>(
+            () => RoomCompiler.CompileAsync(across, room, second, default));
+        Assert.Equal(
+            "rule 1 (BrushesInsideOwnCells): a brush of room hinged crosses a cell face outside the socket kit:"
+            + " mins (40 250 16) maxs (60 270 100) against the cell 0..256.",
+            error.Message);
+    }
 }

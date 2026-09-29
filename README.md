@@ -598,7 +598,19 @@ it is dropped. A prop's `.vhv` lighting files are renamed to its index in
 the level. `ssmap room` refuses a prop whose hull reaches outside its cell,
 unless it is socket furniture reaching only into the doorway beyond its
 socket, and a prop that asks for texel lighting (`generatelightmaps`),
-which the port's vrad does not bake. The
+which the port's vrad does not bake.
+Brush entities (`func_door`, `func_brush`, triggers and the rest) are
+carried as their own models, each with its tree, faces, brushes and
+collision, numbered after the world in link order, with their `model` keys
+following. One with an origin (an origin brush, or an `origin` key) keeps
+its entity's frame and is placed by its moved origin; any other is moved
+with its room. `room_needs` and `room_socket` work on them as on props:
+an entity whose condition fails, or whose side of a joint gives up its
+furniture, is left out of the level with its whole model. A brush entity's
+`movedir`, `pushdir` and `gibdir` turn with its room; its `angles` do not,
+since its brushes already turn, and `ssmap room` refuses one whose
+`angles` are not zero. The engine loads at most 1024 models
+(`MAX_MAP_MODELS`), and the link refuses a level past that. The
 link refuses what it cannot carry: area portals, detail props,
 displacements, water, and a mix of cooked and `-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a

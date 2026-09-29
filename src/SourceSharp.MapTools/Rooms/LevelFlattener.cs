@@ -149,7 +149,8 @@ public static class LevelFlattener
         Dictionary<string, RoomNameTurn[]> names = new(StringComparer.Ordinal);
         bool resolving = options.ModEntities;
 
-        // Socket furniture (static props with room_socket), by placement:
+        // Socket furniture (static props and brush entities with
+        // room_socket), by placement:
         // the link's rule decides which side of a joint keeps its pieces and
         // drops them at a cap (SocketFurniture), so both maps hold the same.
         List<Dictionary<string, int>> furniture = [.. layout.Rooms.Select(i => Furniture(byName[i.Placement.Room]))];
@@ -263,7 +264,7 @@ public static class LevelFlattener
 
             if (singletons.Keep(room, entity.Placement, entity.ClassName, [.. entity.Pairs.Select(p => new KeyValuePair<string, string>(p.Key, p.Value ?? string.Empty))]))
             {
-                flat.Chunks.Add(resolution is null ? (VmfChunk)entity.Payload! : Write(entity));
+                flat.Chunks.Add(WithoutFurnitureKeys(resolution is null ? (VmfChunk)entity.Payload! : Write(entity)));
             }
         }
 
@@ -304,17 +305,19 @@ public static class LevelFlattener
     }
 
     /// <summary>
-    /// The socket a static prop is furniture of, and its priority, when it
-    /// names one of its room's sockets in <c>room_socket</c> (as the room
-    /// compile reads it, <see cref="RoomStaticProps"/>); else null. A key
-    /// naming no socket, which <c>ssmap room</c> refuses, is not furniture
-    /// here: the flatten reads the library, not the rooms' verdicts.
+    /// The socket a static prop or a brush entity is furniture of, and its
+    /// priority, when it names one of its room's sockets in
+    /// <c>room_socket</c> (as the room compile reads it,
+    /// <see cref="RoomStaticProps"/>, <see cref="RoomBrushModels"/>); else
+    /// null. A key naming no socket, which <c>ssmap room</c> refuses, is not
+    /// furniture here: the flatten reads the library, not the rooms' verdicts.
     /// </summary>
     private static (string Socket, int Priority)? FurnitureSocket(VmfChunk entity, RoomDefinition definition)
     {
         string? className = entity.GetValue("classname");
         if (!string.Equals(className, "prop_static", StringComparison.Ordinal)
-            && !string.Equals(className, "static_prop", StringComparison.Ordinal))
+            && !string.Equals(className, "static_prop", StringComparison.Ordinal)
+            && !IsModelEntity(entity))
         {
             return null;
         }
@@ -326,6 +329,38 @@ public static class LevelFlattener
         }
 
         return (socket, int.TryParse(entity.GetValue(RoomStaticProps.PriorityKey)?.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int priority) ? priority : 0);
+    }
+
+    /// <summary>
+    /// Whether a VMF entity becomes a brush model of its own when compiled:
+    /// it carries brushes and its class is not one vbsp consumes.
+    /// </summary>
+    private static bool IsModelEntity(VmfChunk entity) =>
+        BrushEntityDirections.IsBrushEntity(entity) && !BrushEntityDirections.IsConsumed(entity.GetValue("classname"));
+
+    /// <summary>
+    /// A brush entity without its socket furniture keys (<c>room_socket</c>,
+    /// <c>socket_priority</c>), which only the link reads: the link leaves
+    /// them out of its entity lump (the rooms design, 6.4), so the
+    /// flattened compile must not carry them either. Any other entity is
+    /// returned as it is.
+    /// </summary>
+    private static VmfChunk WithoutFurnitureKeys(VmfChunk entity)
+    {
+        if (IsModelEntity(entity))
+        {
+            for (int i = entity.Children.Count - 1; i >= 0; i--)
+            {
+                if (entity.Children[i] is VmfKey key
+                    && (string.Equals(key.Name, RoomStaticProps.SocketKey, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(key.Name, RoomStaticProps.PriorityKey, StringComparison.OrdinalIgnoreCase)))
+                {
+                    entity.Children.RemoveAt(i);
+                }
+            }
+        }
+
+        return entity;
     }
 
     /// <summary>

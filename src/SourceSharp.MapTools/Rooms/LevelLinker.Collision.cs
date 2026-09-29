@@ -10,6 +10,7 @@ using System.Globalization;
 using System.Text;
 
 using SourceSharp.MapFormats.Bsp;
+using SourceSharp.MapFormats.Bsp.Structs;
 
 using SourceSharp.MapTools.Bsp.Collision;
 using SourceSharp.MapTools.Diagnostics;
@@ -171,9 +172,10 @@ public static partial class LevelLinker
             }
         }
 
+        List<PhysCollideModel> modelRecords = BrushModelCollision(plans, compliance, brushMap, cancellationToken);
         if (solids.Count == 0)
         {
-            return (null, physDisp);
+            return (modelRecords.Count == 0 ? null : PhysCollideLump.Write(modelRecords), physDisp);
         }
 
         if (virtualTerrain)
@@ -193,7 +195,79 @@ public static partial class LevelLinker
         }
 
         text.Terminate();
-        return (PhysCollideLump.Write([new PhysCollideModel(0, solids, text.ToArray())]), physDisp);
+        return (PhysCollideLump.Write([new PhysCollideModel(0, solids, text.ToArray()), .. modelRecords]), physDisp);
+    }
+
+    /// <summary>
+    /// The collision records of every kept brush model, in linked model
+    /// order: each solid's convexes (stored turned) moved with a
+    /// world-coordinate model's placement, their client data renumbered to
+    /// the linked brushes, and rebuilt into the surface the room's compile
+    /// made (<see cref="Phys.Managed.ManagedCollisionCooker.CompileLedges(List{IvpCompactLedge}, bool, ValueTuple{float, float, float})"/>);
+    /// the record's key data (mass, material, volume) is the room's, which a
+    /// turn does not change.
+    /// </summary>
+    /// <remarks>
+    /// An origin-relative model's convexes are in its entity's frame, which
+    /// the entity's moved origin places, so they are only turned. A model
+    /// the room compiled no record for (nothing solid to cook) gets none,
+    /// as it had none.
+    /// </remarks>
+    private static List<PhysCollideModel> BrushModelCollision(
+        RoomPlan[] plans, ComplianceOptions compliance, int[]? brushMap, CancellationToken cancellationToken)
+    {
+        List<PhysCollideModel> records = [];
+        if (!plans.Any(p => KeptModels(p).Any(m => m.KeyData is not null)))
+        {
+            return records;
+        }
+
+        using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(compliance);
+        foreach (RoomPlan plan in plans)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (RoomBrushModel model in KeptModels(plan))
+            {
+                if (model.KeyData is not { } keyData)
+                {
+                    continue;
+                }
+
+                RoomBrushModelTurn turn = plan.Models!.Turn[model.Model - 1];
+                List<byte[]> blobs = new(turn.Solids.Count);
+                for (int s = 0; s < turn.Solids.Count; s++)
+                {
+                    RoomModelSolid solid = turn.Solids[s];
+                    List<IvpCompactLedge> ledges = new(solid.Ledges.Starts.Length);
+                    for (int l = 0; l < solid.Ledges.Starts.Length; l++)
+                    {
+                        // A copy: the stored ledge is the room's, shared by
+                        // every placement at this turn.
+                        IvpCompactLedge ledge = new(solid.Ledges.Ledge(l).ToArray());
+                        if (!model.OriginRelative)
+                        {
+                            TranslateLedge(ledge, plan.Transform);
+                        }
+
+                        if ((uint)ledge.ClientData < (uint)plan.BrushMap.Length && plan.BrushMap[ledge.ClientData] >= 0)
+                        {
+                            int linkedBrush = plan.LinkedBrush(ledge.ClientData);
+                            ledge.ClientData = brushMap is null ? linkedBrush : brushMap[linkedBrush];
+                        }
+
+                        ledges.Add(ledge);
+                    }
+
+                    byte[] blob = cooker.CompileLedges(ledges, model.OuterHulls[s], (solid.DragAreas.X, solid.DragAreas.Y, solid.DragAreas.Z))
+                        ?? throw new LinkException($"room {plan.Placement.Room.Definition.Name}'s brush model {model.Model} collision builds no surface");
+                    blobs.Add(blob);
+                }
+
+                records.Add(new PhysCollideModel(plan.Models.Linked[model.Model - 1], blobs, keyData));
+            }
+        }
+
+        return records;
     }
 
     /// <summary>One room's world collision, read and checked.</summary>
@@ -215,7 +289,13 @@ public static partial class LevelLinker
             throw new LinkException($"room {name}'s world collision is not a collision lump: {exception.Message}");
         }
 
-        if (records.Count != 1 || records[0].ModelIndex != 0)
+        // The world's record, and one per brush model at most: those are
+        // carried with the models (RoomBrushModels), not merged here.
+        int models = BspStructView.Count<DModel>(bsp[BspLump.Models]);
+        bool brushRecords = models > 1 && records.Count >= 1 && records[0].ModelIndex == 0
+            && records.Skip(1).Select(r => r.ModelIndex).Distinct().Count() == records.Count - 1
+            && records.Skip(1).All(r => r.ModelIndex > 0 && r.ModelIndex < models);
+        if (!brushRecords && (records.Count != 1 || records[0].ModelIndex != 0))
         {
             throw new LinkException(
                 $"room {name}'s world collision has {records.Count} records; a linkable room has one, for model 0");

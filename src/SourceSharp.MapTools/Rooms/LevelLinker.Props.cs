@@ -49,6 +49,7 @@ public static partial class LevelLinker
     /// </summary>
     /// <param name="resolved">The placements, in link order.</param>
     /// <param name="layout">The level.</param>
+    /// <param name="furniture">The level's socket furniture, props and brush entities together; null to gather it from the placements.</param>
     /// <returns>The plan, or null.</returns>
     /// <exception cref="LinkException">
     /// A room's lump has props but no prop data bound to its compile, or the
@@ -70,7 +71,7 @@ public static partial class LevelLinker
     /// (<see cref="WritePropsAsync"/>).
     /// </para>
     /// </remarks>
-    internal static LevelProps? PlanProps(ResolvedPlacement[] resolved, LevelLayout layout)
+    internal static LevelProps? PlanProps(ResolvedPlacement[] resolved, LevelLayout layout, LevelFurniture? furniture = null)
     {
         RoomStaticProps?[] rooms = new RoomStaticProps?[resolved.Length];
         bool any = false;
@@ -86,27 +87,7 @@ public static partial class LevelLinker
         }
 
         HashSet<(int, int)> occupied = [.. layout.Rooms.Select(r => (r.Placement.CellX, r.Placement.CellY))];
-        int? Furniture(int placement, string socketName)
-        {
-            RoomStaticProps? props = rooms[placement];
-            if (props is null)
-            {
-                return null;
-            }
-
-            RoomDefinition definition = resolved[placement].Room.Definition;
-            int socket = SocketIndex(definition, socketName);
-            int? priority = null;
-            foreach (RoomProp prop in props.Props)
-            {
-                if (prop.Socket == socket)
-                {
-                    priority = Math.Max(priority ?? int.MinValue, prop.Priority);
-                }
-            }
-
-            return priority;
-        }
+        furniture ??= new LevelFurniture(resolved, layout);
 
         List<LinkedProp> kept = [];
         List<string> models = [];
@@ -133,8 +114,7 @@ public static partial class LevelLinker
             {
                 RoomProp prop = props.Props[i];
                 bool keep = RoomNeeds.Hold(prop.Needs, where.NormalizedRotation, where.CellX, where.CellY, occupied.Contains, joined)
-                    && (prop.Socket < 0
-                        || SocketFurniture.Keeps(layout, index => resolved[index].Room.Definition, p, definition.Sockets[prop.Socket].Name, Furniture));
+                    && (prop.Socket < 0 || furniture.Keeps(p, prop.Socket));
                 if (!keep)
                 {
                     continue;
@@ -226,7 +206,7 @@ public static partial class LevelLinker
                 leaves = new List<ushort>(record.LeafCount);
                 for (int l = 0; l < record.LeafCount; l++)
                 {
-                    leaves.Add((ushort)(props.Lump.LeafEntries[record.FirstLeaf + l] + roomPlan.LeafBase));
+                    leaves.Add((ushort)roomPlan.LinkedLeaf(props.Lump.LeafEntries[record.FirstLeaf + l]));
                 }
             }
             else
