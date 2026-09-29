@@ -65,7 +65,6 @@ public static class KdTreeBuilder
     /// </remarks>
     private const float Huge = 1.0e23f;
 
-
     /// <summary>A subtree is only a job when it is at least this big.</summary>
     internal const int ParallelMinimumTriangles = 512;
 
@@ -165,12 +164,15 @@ public static class KdTreeBuilder
     /// <para>
     /// <b>The top.</b> Every node bigger than a job is refined level by level
     /// (<see cref="TopLevels"/>), each level spread over the workers: the
-    /// per-axis extents of every node, then every split trial of every node,
-    /// then every node's partition. The decisions between those steps are
-    /// taken serially, in the same order the serial build takes them, from
-    /// numbers each computed exactly as the serial build computes them. Nothing
-    /// is summed across items, so no float depends on how the work was cut up
-    /// or who did it. Nodes that are small enough become frontier jobs.
+    /// per-axis extents of every node in fixed-size chunks, then every split
+    /// trial of every node, then every node's decision and partition. The
+    /// choice between trials is the serial build's scan in the serial build's
+    /// order, over numbers each computed exactly as the serial build computes
+    /// them. Nothing is summed across items; the only fold across them is a
+    /// min and a max, which are exact and associative, over chunks of a
+    /// constant size in a fixed order; so no float depends on how the work
+    /// was cut up or who did it. Nodes that are small enough become frontier
+    /// jobs.
     /// </para>
     /// <para>
     /// <b>The frontier.</b> Each job is built by the serial
@@ -213,11 +215,33 @@ public static class KdTreeBuilder
         ArgumentNullException.ThrowIfNull(queue);
         ArgumentOutOfRangeException.ThrowIfLessThan(minimumJob, 1);
 
+        RefuseEmpty(triangles.Length);
+
+        // Everything that costs anything runs inside a run of the queue, never
+        // in the continuations between runs: those are scheduled wherever the
+        // awaiting code's context sends them, which for a library awaiting
+        // with ConfigureAwait(false) is the host's thread pool. So even the
+        // big allocations -- zeroing about 130 MB for 2fort with prop polys --
+        // are an item of their own; what is left between the runs is
+        // bookkeeping over the top's few hundred nodes.
+        KdBuildTriangle[] build = [];
+        int[] rootList = [];
+        KdTriangle[] intersect = [];
+        WorkQueueOptions single = new() { Stage = Stage };
+        await queue.RunAsync(
+                1,
+                (_, _) =>
+                {
+                    build = new KdBuildTriangle[triangles.Length];
+                    rootList = new int[triangles.Length];
+                    intersect = new KdTriangle[triangles.Length];
+                },
+                single,
+                cancellationToken)
+            .ConfigureAwait(false);
+
         // The preparation: the scene box, one item per axis, and the copy
         // into build form in chunks.
-        RefuseEmpty(triangles.Length);
-        KdBuildTriangle[] build = new KdBuildTriangle[triangles.Length];
-        int[] rootList = new int[triangles.Length];
         float[] extent = new float[6];
         int copies = Chunks(triangles.Length);
         await queue.RunAsync(
@@ -239,10 +263,7 @@ public static class KdTreeBuilder
         Vec3 min = new(extent[0], extent[1], extent[2]);
         Vec3 max = new(extent[3], extent[4], extent[5]);
 
-        int jobSize = queue.Degree > 1
-            ? Math.Max(minimumJob, rootList.Length / (queue.Degree * JobsPerWorker))
-            : int.MaxValue;
-        TopLevels top = new(build, jobSize);
+        TopLevels top = new(build, JobSize(rootList.Length, queue.Degree, minimumJob));
         Skeleton root = top.Add(rootList, 0, rootList.Length, min, max, 0);
         while (top.HasLevel)
         {
@@ -266,11 +287,13 @@ public static class KdTreeBuilder
                 cancellationToken)
             .ConfigureAwait(false);
 
-        // The assembly: the skeleton is laid out serially (it is small), which
-        // places every subtree; the subtrees are then copied into place, and
-        // the triangles converted to intersection format, in parallel.
-        Layout layout = Layout.Place(root, built);
-        KdTriangle[] intersect = new KdTriangle[build.Length];
+        // The assembly: the skeleton is laid out on one worker (it is small,
+        // but the two arrays it allocates are not), which places every
+        // subtree; the subtrees are then copied into place, and the triangles
+        // converted to intersection format, in parallel.
+        Layout layout = null!;
+        await queue.RunAsync(1, (_, _) => layout = Layout.Place(root, built), single, cancellationToken)
+            .ConfigureAwait(false);
         await queue.RunAsync(
                 built.Length + Chunks(build.Length),
                 (i, _) =>
@@ -288,6 +311,99 @@ public static class KdTreeBuilder
                 cancellationToken)
             .ConfigureAwait(false);
         return new KdBuildResult(layout.Nodes, layout.Indices, intersect, min, max);
+    }
+
+    /// <summary>
+    /// The largest node that becomes a frontier job rather than a node of the
+    /// level-by-level top.
+    /// </summary>
+    /// <remarks>
+    /// One worker has no top at all: the whole scene is one job, which is
+    /// <see cref="Build"/> on the worker. Otherwise the scene's share of
+    /// <see cref="JobsPerWorker"/> jobs per worker, but never below
+    /// <paramref name="minimumJob"/>, since a node smaller than that costs
+    /// less to build whole than to spread.
+    /// </remarks>
+    internal static int JobSize(int triangles, int degree, int minimumJob) =>
+        degree > 1 ? Math.Max(minimumJob, triangles / (degree * JobsPerWorker)) : int.MaxValue;
+
+    /// <summary>
+    /// How many triangles one extent item of the level-by-level top takes.
+    /// </summary>
+    /// <remarks>
+    /// A constant, not a share of the worker count: the chunks' extents are
+    /// folded in chunk order (<see cref="FoldChunkExtents"/>), and a fold
+    /// whose grouping followed the worker count would be a fold whose
+    /// grouping could matter. It happens not to (the fold is exact), but a
+    /// constant keeps the question from arising.
+    /// </remarks>
+    internal const int ExtentChunk = 16384;
+
+    /// <summary>
+    /// Which node an item of a level's extent run belongs to, given where
+    /// each node's items start (<paramref name="firstItem"/>, one entry per
+    /// node plus the total).
+    /// </summary>
+    /// <remarks>
+    /// A node with no items (a leaf outright) starts where the next one does,
+    /// so the owner is the LAST node whose first item is at or before
+    /// <paramref name="item"/>, which is what the search finds.
+    /// </remarks>
+    internal static int ItemOwner(int[] firstItem, int item)
+    {
+        int lo = 0;
+        int hi = firstItem.Length - 2;
+        while (lo < hi)
+        {
+            int mid = (lo + hi + 1) >> 1;
+            if (firstItem[mid] <= item)
+            {
+                lo = mid;
+            }
+            else
+            {
+                hi = mid - 1;
+            }
+        }
+
+        return lo;
+    }
+
+    /// <summary>
+    /// A node's lowest and highest coordinate on an axis, from its chunks'
+    /// (<see cref="AxisExtents"/> run over each chunk), folded in chunk order.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The serial build folds every vertex into one running value starting
+    /// from <see cref="Huge"/>; this folds each chunk from <see cref="Huge"/>
+    /// and then the chunks' results from <see cref="Huge"/>. That is the same
+    /// sequence with extra <see cref="Huge"/>s in it, and it gives the same
+    /// bits because <see cref="MathF.Min(float, float)"/> and
+    /// <see cref="MathF.Max(float, float)"/> are associative and a running
+    /// value never moves past <see cref="Huge"/>, so meeting it again is a
+    /// no-op. Associative including the corner cases: the IEEE 2019
+    /// operations order -0 below +0 whichever comes first, and a NaN
+    /// propagates, the first one met winning, so the first NaN of the first
+    /// chunk that has one is the first NaN of the scene. The facts check all
+    /// of that against the serial fold rather than trusting it.
+    /// </para>
+    /// <para>
+    /// The pair only matters when a trial grows an empty side out to the
+    /// node's extent, and then it becomes the split value in the tree.
+    /// </para>
+    /// </remarks>
+    internal static (float Min, float Max) FoldChunkExtents(ReadOnlySpan<float> chunkMin, ReadOnlySpan<float> chunkMax)
+    {
+        float min = Huge;
+        float max = -Huge;
+        for (int c = 0; c < chunkMin.Length; c++)
+        {
+            min = MathF.Min(min, chunkMin[c]);
+            max = MathF.Max(max, chunkMax[c]);
+        }
+
+        return (min, max);
     }
 
     /// <summary>The progress stage every run of a build reports under.</summary>
@@ -486,7 +602,11 @@ public static class KdTreeBuilder
     /// one trial leaves behind in the serial build is its labels, which the
     /// partition re-derives for the winner -- so they are the parallel items.
     /// A hundred trials per node is plenty to spread over any worker count,
-    /// even at the root.
+    /// even at the root. Before the trials, each axis's extents are taken in
+    /// chunks of <see cref="ExtentChunk"/> triangles, because at the root they
+    /// are three passes over the whole scene and three items would leave
+    /// every other worker idle; after them, one item per node decides and
+    /// partitions it.
     /// </para>
     /// <para>
     /// <b>Why it is the same tree.</b> Each trial's cost comes from the one
@@ -494,8 +614,12 @@ public static class KdTreeBuilder
     /// the same bit for bit whichever worker ran it; the choice is then the
     /// serial build's strictly-less scan over those costs in the serial
     /// build's order, on one thread; the partition is the serial build's
-    /// partition. The counts are integers, and nothing else is combined
-    /// across items. The level order is only the order the work is DONE in;
+    /// partition. The counts are integers. The one float combined across
+    /// items is an axis's lowest and highest coordinate, folded from its
+    /// chunks in chunk order by an exact, associative operation
+    /// (<see cref="FoldChunkExtents"/>), and the chunks are a constant size,
+    /// so not even the grouping depends on the worker count. The level order
+    /// is only the order the work is DONE in;
     /// the skeleton records the shape, and the assembly lays it out in the
     /// serial order regardless.
     /// </para>
@@ -537,28 +661,42 @@ public static class KdTreeBuilder
             _level = [];
             WorkQueueOptions options = new() { Stage = Stage };
 
-            // Extents: one item per node and axis.
+            // Buffers and trial planes: one item per node and axis.
             await queue.RunAsync(
                     level.Length * 3,
-                    (i, _) => level[i / 3].Extents(tris, i % 3),
+                    (i, _) => level[i / 3].Prepare(tris, i % 3),
                     options,
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            // Trials: listed serially (a few dozen per node, in the serial
-            // build's order), costed in parallel.
-            List<TrialRef> trials = [];
+            // Extents: one item per node, axis and ExtentChunk triangles, so
+            // the root's three passes over the scene are not three items.
+            int[] firstItem = new int[level.Length + 1];
             for (int n = 0; n < level.Length; n++)
             {
-                level[n].CollectTrials(tris, n, trials);
+                firstItem[n + 1] = firstItem[n] + level[n].ExtentItems;
             }
 
             await queue.RunAsync(
-                    trials.Count,
+                    firstItem[^1],
                     (i, _) =>
                     {
-                        TrialRef t = trials[i];
-                        level[t.Node].Cost(t.Axis, t.Trial);
+                        int n = ItemOwner(firstItem, i);
+                        level[n].Extents(tris, i - firstItem[n]);
+                    },
+                    options,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            // Trials: a fixed slot for every trial a node could have, so the
+            // items need no list built between the runs; a slot beyond its
+            // axis's trials is an item that does nothing.
+            await queue.RunAsync(
+                    level.Length * 3 * MaxTrialsPerAxis,
+                    (i, _) =>
+                    {
+                        int slot = i % (3 * MaxTrialsPerAxis);
+                        level[i / (3 * MaxTrialsPerAxis)].Cost(slot / MaxTrialsPerAxis, slot % MaxTrialsPerAxis);
                     },
                     options,
                     cancellationToken)
@@ -588,9 +726,6 @@ public static class KdTreeBuilder
         }
     }
 
-    /// <summary>One trial of one node of a level: which node, which axis, which of its trials.</summary>
-    private readonly record struct TrialRef(int Node, int Axis, int Trial);
-
     /// <summary>One costed trial: what <see cref="CalculateCostsOfSplit"/> returned for it.</summary>
     private readonly record struct TrialResult(float Cost, float Value, int NLeft, int NRight, int NBoth);
 
@@ -603,8 +738,9 @@ public static class KdTreeBuilder
     {
         private readonly float[][] _mins = new float[3][];
         private readonly float[][] _maxs = new float[3][];
-        private readonly float[] _minCoord = new float[3];
-        private readonly float[] _maxCoord = new float[3];
+        private readonly float[][] _chunkMin = [[], [], []];
+        private readonly float[][] _chunkMax = [[], [], []];
+        private readonly int _chunks = IsLeafWithoutTrials(count, depth) ? 0 : (count + ExtentChunk - 1) / ExtentChunk;
         private readonly float[][] _splits = [[], [], []];
         private readonly TrialResult[][] _results = [[], [], []];
 
@@ -626,7 +762,16 @@ public static class KdTreeBuilder
         /// <summary>Whether the node is a leaf without trying anything.</summary>
         private bool IsLeafOutright => IsLeafWithoutTrials(count, depth);
 
-        public void Extents(KdBuildTriangle[] tris, int axis)
+        /// <summary>How many extent items the node has: its chunks on each axis, or none for a leaf outright.</summary>
+        public int ExtentItems => 3 * _chunks;
+
+        /// <summary>
+        /// One axis of the node before its extents: the buffers they go in,
+        /// and the trial planes (<see cref="CollectTrialSplits"/>), which the
+        /// serial build takes at the start of the axis and which read only
+        /// the node's box and a few sampled triangles.
+        /// </summary>
+        public void Prepare(KdBuildTriangle[] tris, int axis)
         {
             if (IsLeafOutright)
             {
@@ -635,34 +780,45 @@ public static class KdTreeBuilder
 
             _mins[axis] = new float[count];
             _maxs[axis] = new float[count];
-            (_minCoord[axis], _maxCoord[axis]) = AxisExtents(tris, list, offset, count, axis, _mins[axis], _maxs[axis]);
+            _chunkMin[axis] = new float[_chunks];
+            _chunkMax[axis] = new float[_chunks];
+
+            Span<float> splits = stackalloc float[MaxTrialsPerAxis];
+            int n = CollectTrialSplits(tris, list, offset, count, minBound, maxBound, axis, splits);
+            _splits[axis] = splits[..n].ToArray();
+            _results[axis] = new TrialResult[n];
         }
 
-        public void CollectTrials(KdBuildTriangle[] tris, int node, List<TrialRef> trials)
+        /// <summary>
+        /// One chunk of one axis's extents (<see cref="AxisExtents"/>): the
+        /// triangles' own, and the chunk's lowest and highest coordinate,
+        /// which <see cref="FoldChunkExtents"/> folds into the node's.
+        /// </summary>
+        /// <param name="tris">The scene.</param>
+        /// <param name="item">The axis times the chunk count, plus the chunk.</param>
+        public void Extents(KdBuildTriangle[] tris, int item)
         {
-            if (IsLeafOutright)
+            int axis = item / _chunks;
+            int chunk = item % _chunks;
+            int start = chunk * ExtentChunk;
+            int length = Math.Min(ExtentChunk, count - start);
+            (_chunkMin[axis][chunk], _chunkMax[axis][chunk]) = AxisExtents(
+                tris, list, offset + start, length, axis,
+                _mins[axis].AsSpan(start, length), _maxs[axis].AsSpan(start, length));
+        }
+
+        /// <summary>Costs one trial, if the axis has that many.</summary>
+        public void Cost(int axis, int trial)
+        {
+            if (trial >= _splits[axis].Length)
             {
                 return;
             }
 
-            Span<float> splits = stackalloc float[MaxTrialsPerAxis];
-            for (int axis = 0; axis < 3; axis++)
-            {
-                int n = CollectTrialSplits(tris, list, offset, count, minBound, maxBound, axis, splits);
-                _splits[axis] = splits[..n].ToArray();
-                _results[axis] = new TrialResult[n];
-                for (int k = 0; k < n; k++)
-                {
-                    trials.Add(new TrialRef(node, axis, k));
-                }
-            }
-        }
-
-        public void Cost(int axis, int trial)
-        {
+            (float minCoord, float maxCoord) = FoldChunkExtents(_chunkMin[axis], _chunkMax[axis]);
             float value = _splits[axis][trial];
             float cost = CalculateCostsOfSplit(
-                _mins[axis], _maxs[axis], axis, _minCoord[axis], _maxCoord[axis], minBound, maxBound,
+                _mins[axis], _maxs[axis], axis, minCoord, maxCoord, minBound, maxBound,
                 ref value, out int nl, out int nr, out int nb);
             _results[axis][trial] = new TrialResult(cost, value, nl, nr, nb);
         }
@@ -693,6 +849,8 @@ public static class KdTreeBuilder
             {
                 _mins[axis] = null!;
                 _maxs[axis] = null!;
+                _chunkMin[axis] = [];
+                _chunkMax[axis] = [];
                 _splits[axis] = [];
                 _results[axis] = [];
             }
@@ -826,7 +984,7 @@ public static class KdTreeBuilder
     /// payload where stock would leave it.
     /// </para>
     /// </remarks>
-    private static (float MinCoord, float MaxCoord) AxisExtents(
+    internal static (float MinCoord, float MaxCoord) AxisExtents(
         KdBuildTriangle[] tris, int[] list, int offset, int count, int axis, Span<float> mins, Span<float> maxs)
     {
         float minCoord = Huge;
