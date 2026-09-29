@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using SourceSharp.MapTools.Vis;
+
 namespace SourceSharp.MapTools.Options;
 
 /// <summary>
@@ -196,6 +198,45 @@ public sealed record VvisOptions
             _fastFlowSteps = value;
         }
     }
+
+    /// <summary>
+    /// Which implementation of the portal flow's separator clip to run:
+    /// <see cref="VisSeparatorPath.Auto"/> (the default) picks per CPU.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Not a stock option, and not an option of the OUTPUT: every value
+    /// writes the same bytes, which the equivalence facts hold on random
+    /// portal sets, the vvis fixtures, the sandbox map and 2fort. It chooses
+    /// only how fast the flow runs, and which is faster depends on the CPU:
+    /// the <see cref="VisSeparatorPath.Vector512"/> path was 4.6 % less wall
+    /// time on 2fort on a Zen 5 and about 10 % more on an Ice Lake-class Xeon
+    /// (the measurements and <see cref="VisSeparatorPath.Auto"/>'s rule are on
+    /// <see cref="VisSeparatorPath"/> and <see cref="VisSeparatorPaths.Resolve"/>).
+    /// </para>
+    /// <para>
+    /// Because it cannot change a byte it is left out of the vvis stage
+    /// cache's key: a map compiled on one path is served to a compile that
+    /// asked for the other. <c>ssmap</c> spells it <c>-separator
+    /// auto|256|512</c> and lets the per-machine config set its default.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not a defined path.</exception>
+    public VisSeparatorPath SeparatorPath
+    {
+        get => _separatorPath;
+        init
+        {
+            if (!Enum.IsDefined(value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(SeparatorPath), value, "not a separator path");
+            }
+
+            _separatorPath = value;
+        }
+    }
+
+    private readonly VisSeparatorPath _separatorPath;
 
     /// <summary>
     /// Whether to reproduce the stock tools' defects or do the right thing.

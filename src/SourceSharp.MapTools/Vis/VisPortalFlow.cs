@@ -5,6 +5,8 @@
 //
 //=============================================================================//
 
+using System.Runtime.Intrinsics;
+
 using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Geometry;
@@ -89,6 +91,12 @@ internal sealed class VisPortalFlow
     private readonly VisPortalState _state;
     private readonly VisFrameStack _frames;
     private readonly BitVectorPath _path;
+
+    // The separator clip this compile runs (VisSeparatorPath, resolved once
+    // per compile by Vvis): true for the columnar Vector512 path. And, for
+    // that path, whether its batches are eight planes wide.
+    private readonly bool _columnSeparators;
+    private readonly bool _wideBatches;
     private readonly VisTraceSink? _trace;
     private readonly List<Vec3[]>? _chain;
 
@@ -127,16 +135,35 @@ internal sealed class VisPortalFlow
     /// A flow with a stop must be run whole by one worker with every
     /// neighbour it reads finished: it neither speculates nor splits.
     /// </param>
+    /// <param name="separators">
+    /// Which separator clip to run: <see cref="VisSeparatorPath.Vector256"/>
+    /// (the default) or <see cref="VisSeparatorPath.Vector512"/>, already
+    /// resolved from <see cref="VisSeparatorPath.Auto"/> by the caller, which
+    /// is why <see cref="VisSeparatorPath.Auto"/> is refused here. The two
+    /// give the same bits; see <see cref="VisSeparatorPath"/>.
+    /// </param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="separators"/> is not a concrete path.
+    /// </exception>
     internal VisPortalFlow(
         PortalSet portals,
         VisPortalState state,
         BitVectorPath path,
         VisTraceSink? trace = null,
-        VisClusterStop? stop = null)
+        VisClusterStop? stop = null,
+        VisSeparatorPath separators = VisSeparatorPath.Vector256)
     {
+        if (separators is not (VisSeparatorPath.Vector256 or VisSeparatorPath.Vector512))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(separators), separators, "a flow runs a resolved separator path");
+        }
+
         _portals = portals;
         _state = state;
         _path = path;
+        _columnSeparators = separators == VisSeparatorPath.Vector512;
+        _wideBatches = Vector256.IsHardwareAccelerated;
         _trace = trace;
         _chain = trace is null ? null : [];
         _frames = new VisFrameStack(portals.Count);
@@ -577,6 +604,11 @@ internal sealed class VisPortalFlow
         VisSeparatorMemo forward = default;
         VisSeparatorMemo reverse = default;
 
+        // The same two lists for the Vector512 path, as columns; a compile
+        // uses one pair or the other, never both.
+        VisSeparatorColumns forwardColumns = default;
+        VisSeparatorColumns reverseColumns = default;
+
         ReadOnlySpan<int> candidates = _portals.ClusterPortals(cluster);
         int end = to < 0 ? candidates.Length : to;
         VisFrameLedger? ledger = _splitter is null ? null : _ledger;
@@ -829,14 +861,52 @@ internal sealed class VisPortalFlow
                 // let sight lines through. `cacheable` bounds this product by
                 // the slab's cap.
                 int room = prevSource.Length * prevPass.Length;
-                forward = new VisSeparatorMemo(
-                    _frames.SeparatorNormals(depth, 0, room), _frames.SeparatorDistances(depth, 0, room));
-                reverse = new VisSeparatorMemo(
-                    _frames.SeparatorNormals(depth, 1, room), _frames.SeparatorDistances(depth, 1, room));
+                if (_columnSeparators)
+                {
+                    int stride = VisSeparatorColumns.StrideFor(room);
+                    forwardColumns = new VisSeparatorColumns(_frames.SeparatorPlanes(depth, 0, stride), stride);
+                    reverseColumns = new VisSeparatorColumns(_frames.SeparatorPlanes(depth, 1, stride), stride);
+                }
+                else
+                {
+                    forward = new VisSeparatorMemo(
+                        _frames.SeparatorNormals(depth, 0, room), _frames.SeparatorDistances(depth, 0, room));
+                    reverse = new VisSeparatorMemo(
+                        _frames.SeparatorNormals(depth, 1, room), _frames.SeparatorDistances(depth, 1, room));
+                }
+
                 memoReady = true;
             }
 
-            if (useCache)
+            if (useCache && _columnSeparators)
+            {
+                if (!VisClipLanes512.ClipToSeparators(
+                    ref forwardColumns,
+                    prevSource,
+                    prevPass,
+                    pass,
+                    flipClip: false,
+                    _wideBatches,
+                    clipBuffer,
+                    out firstCount))
+                {
+                    continue;
+                }
+
+                if (!VisClipLanes512.ClipToSeparators(
+                    ref reverseColumns,
+                    prevPass,
+                    prevSource,
+                    clipBuffer[..firstCount],
+                    flipClip: true,
+                    _wideBatches,
+                    clipBuffer,
+                    out secondCount))
+                {
+                    continue;
+                }
+            }
+            else if (useCache)
             {
                 if (!VisClipLanes.ClipToSeparators(
                     ref forward,

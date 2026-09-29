@@ -1047,10 +1047,12 @@ internal static class VisClipLanes
     /// in as three floats rather than a <see cref="Vec3"/>: the calling
     /// convention packs a Vec3 argument into registers by storing its fields
     /// and reloading two of them as one wider load, a store-forwarding stall
-    /// on every call.
+    /// on every call. Internal rather than private so the
+    /// <see cref="VisSeparatorPath.Vector512"/> clip
+    /// (<see cref="VisClipLanes512"/>) cuts with this same code.
     /// </remarks>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static VisChopResult Cut(
+    internal static VisChopResult Cut(
         ReadOnlySpan<Vec3> input,
         float normalX,
         float normalY,
