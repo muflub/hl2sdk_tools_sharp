@@ -38,19 +38,30 @@ public static partial class LevelLinker
         RoomPlan first = plans[0];
         RequireAgreement(plans);
 
-        // Planes: [0],[1] the null pair; every room's transformed planes in
-        // layout order; the top tree's cell-face planes; the carve planes.
-        List<DPlane> planes = [new(), new()];
+        // The shared tables: [0],[1] the null pair, then every room's moved
+        // planes, strings, texdatas and texinfos in layout order, each found
+        // by content and added only when no earlier room brought it; then
+        // the top tree's cell-face planes; the carve planes and the nodraw
+        // copies last, as they are made.
+        LinkPlanes planes = new();
+        LinkTextures textures = new();
         foreach (RoomPlan plan in plans)
         {
-            planes.AddRange(plan.TransformedPlanes);
+            InternRoomTables(plan, planes, textures);
         }
 
         List<Plane> topPlanes = [];
-        List<DNode> top = BuildTopNodes(layout, cell, topPlanes, planes.Count);
-        foreach (Plane p in topPlanes)
+        List<DNode> top = BuildTopNodes(layout, cell, topPlanes);
+        for (int i = 0; i < top.Count; i++)
         {
-            AddPlanePair(planes, p.Normal, p.Dist);
+            // BuildTopNodes numbered its planes as pairs from 0; each takes
+            // its shared pair's index now.
+            DNode node = top[i];
+            Plane split = topPlanes[node.PlaneNum / 2];
+            (int even, bool flipped) = planes.Intern(split.Normal, split.Dist);
+            node.PlaneNum = even;
+            node.Children = Orient(node.Children, flipped);
+            top[i] = node;
         }
 
         // Nodes: the top tree first (so model 0's head node is 0), then every
@@ -170,6 +181,7 @@ public static partial class LevelLinker
 
         Limit(plans[^1], "leaves", leafs.Count, ushort.MaxValue + 1);
         Limit(plans[^1], "planes", planes.Count, ushort.MaxValue + 1);
+        cancellationToken.ThrowIfCancellationRequested();
 
         // The node total up front counted the top tree at its floor and no
         // carve chains (LinkTotals); here both are built, so the exact total
@@ -194,19 +206,9 @@ public static partial class LevelLinker
             }
         }
 
-        // Texinfos first, so the nodraw copies of the plug faces' texinfos
-        // go after every room's.
-        List<TexInfo> texInfos = [];
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (TexInfo info in plan.TexInfos)
-            {
-                TexInfo shifted = info;
-                shifted.TexData += plan.TexDataBase;
-                texInfos.Add(shifted);
-            }
-        }
-
+        // The rooms' texinfos are all in the shared table already, so the
+        // nodraw copies of the plug faces' texinfos go after every room's.
+        List<TexInfo> texInfos = textures.TexInfos;
         Dictionary<int, int> nodrawOf = [];
         int NoDraw(RoomPlan plan, int linkedTexInfo)
         {
@@ -215,11 +217,12 @@ public static partial class LevelLinker
                 // A stripped plug's face stays in the face list (renumbering
                 // faces would touch every node, leaf and primitive range), but
                 // it is now a sheet of trigger material hanging in an open
-                // doorway: drawn nodraw, it is gone for the renderer.
+                // doorway: drawn nodraw, it is gone for the renderer. The
+                // copy is shared like any texinfo: every doorway of one
+                // material in one alignment is one nodraw texinfo.
                 TexInfo hidden = texInfos[linkedTexInfo];
                 hidden.Flags |= (int)SurfaceFlags.NoDraw;
-                copy = texInfos.Count;
-                texInfos.Add(hidden);
+                copy = textures.InternTexInfo(hidden);
                 LoaderLimit(
                     plan.Placement.Room.Definition.Name,
                     plan.Placement.Instance.Placement.CellX,
@@ -300,7 +303,7 @@ public static partial class LevelLinker
                 shifted.PlaneNum = (ushort)plan.PlaneRef(side.PlaneNum);
                 if (side.TexInfo >= 0)
                 {
-                    shifted.TexInfo = (short)(side.TexInfo + plan.TexInfoBase);
+                    shifted.TexInfo = (short)plan.TexInfoRef(side.TexInfo);
                 }
 
                 brushSides.Add(shifted);
@@ -323,31 +326,9 @@ public static partial class LevelLinker
             }
         }
 
-        List<DTexData> texDatas = [];
-        List<int> stringTable = [];
-        List<byte> stringData = [];
-        foreach (RoomPlan plan in plans)
-        {
-            foreach (DTexData data in BspStructView.As<DTexData>(plan.Bsp[BspLump.TexData]))
-            {
-                DTexData shifted = data;
-                shifted.NameStringTableId += plan.StringTableBase;
-                texDatas.Add(shifted);
-            }
-
-            // The table's entries are int byte offsets into the room's OWN
-            // string data; the data is concatenated too, so every entry
-            // shifts by the preceding rooms' bytes.
-            foreach (int entry in BspStructView.As<int>(plan.Bsp[BspLump.TexDataStringTable]))
-            {
-                stringTable.Add(entry + plan.StringDataBase);
-            }
-
-            stringData.AddRange(plan.Bsp[BspLump.TexDataStringData].Data.Span);
-        }
-
         // Face ids and macro textures: ids are opaque, macro names index the
-        // shared string table (0xFFFF is "none" and stays 0xFFFF).
+        // shared string table (0xFFFF is "none" and stays 0xFFFF; so does a
+        // name outside the room's table, which names nothing).
         List<DFaceId> faceIds = [];
         List<FaceMacroTextureInfo> macroTextures = [];
         foreach (RoomPlan plan in plans)
@@ -358,7 +339,7 @@ public static partial class LevelLinker
                 FaceMacroTextureInfo shifted = macro;
                 if (macro.MacroTextureNameId != 0xFFFF)
                 {
-                    shifted.MacroTextureNameId = (ushort)(macro.MacroTextureNameId + plan.StringTableBase);
+                    shifted.MacroTextureNameId = (ushort)Remap(plan.StringMap, macro.MacroTextureNameId);
                 }
 
                 macroTextures.Add(shifted);
@@ -466,8 +447,8 @@ public static partial class LevelLinker
 
         BspData linked = new() { FileVersion = first.Bsp.FileVersion };
         linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion);
-        linked.SetLump(BspLump.Planes, Bytes(planes));
-        linked.SetLump(BspLump.TexData, Bytes(texDatas));
+        linked.SetLump(BspLump.Planes, Bytes(planes.Planes));
+        linked.SetLump(BspLump.TexData, Bytes(textures.TexDatas));
         linked.SetLump(BspLump.Vertexes, plans.SelectMany(p => MemoryMarshal.AsBytes(p.Vertices.AsSpan()).ToArray()).ToArray());
         linked.SetLump(BspLump.Visibility, visibilityLump);
         linked.SetLump(BspLump.Nodes, Bytes(nodes));
@@ -481,8 +462,8 @@ public static partial class LevelLinker
         linked.SetLump(BspLump.LeafBrushes, Bytes(leafBrushes));
         linked.SetLump(BspLump.Brushes, Bytes(brushes));
         linked.SetLump(BspLump.BrushSides, Bytes(brushSides));
-        linked.SetLump(BspLump.TexDataStringData, stringData.ToArray());
-        linked.SetLump(BspLump.TexDataStringTable, Bytes(stringTable));
+        linked.SetLump(BspLump.TexDataStringData, textures.StringData.ToArray());
+        linked.SetLump(BspLump.TexDataStringTable, Bytes(textures.StringTable));
         linked.SetLump(BspLump.SurfEdges, Bytes(surfEdges));
         linked.SetLump(BspLump.FaceIds, Bytes(faceIds));
         linked.SetLump(BspLump.FaceMacroTextureInfo, Bytes(macroTextures));
@@ -533,8 +514,8 @@ public static partial class LevelLinker
         shifted.PlaneNum = (ushort)plan.PlaneRef(face.PlaneNum);
         if (face.TexInfo >= 0)
         {
-            int texInfo = face.TexInfo + plan.TexInfoBase;
-            shifted.TexInfo = (short)(stripped ? noDraw(plan, texInfo) : texInfo);
+            int texInfo = plan.TexInfoRef(face.TexInfo);
+            shifted.TexInfo = (short)(stripped && texInfo >= 0 ? noDraw(plan, texInfo) : texInfo);
         }
 
         shifted.FirstEdge = face.FirstEdge + plan.SurfEdgeBase;
@@ -597,14 +578,14 @@ public static partial class LevelLinker
     /// leaf now names the chain's head.
     /// </para>
     /// <para>
-    /// The planes are world-space axial planes with positive normals, added as
-    /// pairs; the solid copies keep the full brush run, which is exact because
+    /// The planes are world-space axial planes with positive normals, shared
+    /// with every other plane of the map (<see cref="LinkPlanes"/>); the solid copies keep the full brush run, which is exact because
     /// brush tests are per brush, and each copy is carved again if another
     /// jointed plug of the room reaches into it.
     /// </para>
     /// </remarks>
     private static void CarvePlugs(
-        RoomPlan plan, int roomNodeCount, List<DNode> nodes, List<DLeaf> leafs, List<DPlane> planes, List<ushort>? leafMinDist)
+        RoomPlan plan, int roomNodeCount, List<DNode> nodes, List<DLeaf> leafs, LinkPlanes planes, List<ushort>? leafMinDist)
     {
         Dictionary<int, List<(Box, int)>> byLeaf = [];
         foreach (PlugCarve carve in plan.Carves)
@@ -651,7 +632,7 @@ public static partial class LevelLinker
     /// <param name="plugs">The world-space plug boxes that may reach into it, and their room-local clusters.</param>
     /// <param name="nodes">The linked nodes; the chain is appended.</param>
     /// <param name="leafs">The linked leaves; the solid fragments are appended.</param>
-    /// <param name="planes">The linked planes; the chain's planes are appended as pairs.</param>
+    /// <param name="planes">The linked planes; the chain's planes join them as shared pairs.</param>
     /// <param name="leafMinDist">The per-leaf water distances, extended for every fragment, or null.</param>
     /// <returns>The child reference that replaces the leaf: a node index, or the leaf itself.</returns>
     internal static int CarveLeaf(
@@ -661,7 +642,7 @@ public static partial class LevelLinker
         List<(Box Plug, int Cluster)> plugs,
         List<DNode> nodes,
         List<DLeaf> leafs,
-        List<DPlane> planes,
+        LinkPlanes planes,
         List<ushort>? leafMinDist)
     {
         DLeaf template = leafs[linkedLeaf];
@@ -708,13 +689,20 @@ public static partial class LevelLinker
                 int fragmentRef = CarveLeaf(clusterBase, roomLeafs, fragment, others, nodes, leafs, planes, leafMinDist);
 
                 int node = nodes.Count;
+                int inward = bound == 0 ? 0 : 1;
                 IntArray2 children = default;
-                children[bound == 0 ? 1 : 0] = fragmentRef;
-                children[bound == 0 ? 0 : 1] = -(linkedLeaf + 1); // filled by the next step or left as the doorway
+                children[1 - inward] = fragmentRef;
+                children[inward] = -(linkedLeaf + 1); // filled by the next step or left as the doorway
+                (int plane, bool flipped) = planes.Intern(Axis(axis), at);
+                if (flipped)
+                {
+                    inward = 1 - inward;
+                }
+
                 nodes.Add(new DNode
                 {
-                    PlaneNum = AddPlanePair(planes, Axis(axis), at),
-                    Children = children,
+                    PlaneNum = plane,
+                    Children = Orient(children, flipped),
                     Mins = Short3(current.Mins),
                     Maxs = Short3(current.Maxs),
                     Area = -1,
@@ -734,7 +722,7 @@ public static partial class LevelLinker
                 }
 
                 pendingNode = node;
-                pendingSide = bound == 0 ? 0 : 1;
+                pendingSide = inward;
                 current = inside;
             }
         }
@@ -766,16 +754,6 @@ public static partial class LevelLinker
         }
 
         return 0;
-    }
-
-    /// <summary>Appends a plane and its flip; returns the even index.</summary>
-    private static int AddPlanePair(List<DPlane> planes, Vec3 normal, float dist)
-    {
-        int type = (int)new Plane(normal, dist).Type;
-        int index = planes.Count;
-        planes.Add(new DPlane { Normal = normal, Dist = dist, Type = type });
-        planes.Add(new DPlane { Normal = -normal, Dist = -dist, Type = type });
-        return index;
     }
 
     private static Vec3 Axis(int axis) => axis switch

@@ -117,6 +117,12 @@ public sealed class LevelLinkerRefusalTests
     /// Two rooms whose planes together pass the <c>ushort</c> a face's plane
     /// number is stored in are refused, naming the room that crossed it.
     /// </summary>
+    /// <remarks>
+    /// The planes are shared by content, so the padding is distinct planes
+    /// that the placement does not bring onto each other: x planes a
+    /// 1/1024 apart within the first 17 units, which the second room's
+    /// one-cell translation moves clear of the first room's.
+    /// </remarks>
     [Fact]
     public async Task PlanesPastAFacesPlaneNumberAreRefused()
     {
@@ -127,61 +133,80 @@ public sealed class LevelLinkerRefusalTests
             DPlane[] padded = new DPlane[34_000];
             for (int i = 0; i < padded.Length; i++)
             {
-                padded[i] = i < planes.Length ? planes[i] : planes[i & 1];
+                float dist = (i >> 1) / 1024f;
+                padded[i] = i < planes.Length
+                    ? planes[i]
+                    : (i & 1) == 0
+                        ? new DPlane { Normal = new Vec3(1, 0, 0), Dist = dist, Type = 0 }
+                        : new DPlane { Normal = new Vec3(-1, 0, 0), Dist = -dist, Type = 0 };
             }
 
             bsp.SetLump(BspLump.Planes, BspStructView.ToLump<DPlane>(padded, 0).Data);
         });
 
         LinkException refused = await LinkPairAsync(big);
-        Assert.Contains("planes", refused.Message, StringComparison.Ordinal);
-        Assert.Contains("at most 65536", refused.Message, StringComparison.Ordinal);
+        Assert.Matches(
+            @"^room hub at cell \(\d, 0\) pushes the link to \d+ planes; the format carries at most 65536\.$",
+            refused.Message);
     }
 
-    /// <summary>Texinfos past the <c>short</c> a face's texinfo is stored in are refused.</summary>
+    /// <summary>
+    /// Texinfos past <c>MAX_MAP_TEXINFO</c> (which is below the <c>short</c>
+    /// a face's texinfo is stored in) are refused as the room that brings
+    /// them is shared in, before its faces are written.
+    /// </summary>
     [Fact]
     public async Task TexinfosPastAFacesTexinfoAreRefused()
     {
-        RoomObject hub = await HubAsync();
-        RoomObject big = RoomHarness.WithLumps(hub, bsp =>
-        {
-            TexInfo[] infos = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]).ToArray();
-            TexInfo[] padded = new TexInfo[17_000];
-            for (int i = 0; i < padded.Length; i++)
-            {
-                padded[i] = infos[i % infos.Length];
-            }
-
-            bsp.SetLump(BspLump.TexInfo, BspStructView.ToLump<TexInfo>(padded, 0).Data);
-        });
+        RoomObject big = WithDistinctTexInfos(await HubAsync(), 17_000);
 
         LinkException refused = await LinkPairAsync(big);
-        Assert.Contains("texinfos", refused.Message, StringComparison.Ordinal);
+        Assert.Equal(
+            "room hub at cell (0, 0) pushes the link to 17000 texinfos; the engine loads at most 12288 (MAX_MAP_TEXINFO).",
+            refused.Message);
     }
+
+    /// <summary>
+    /// A room whose texinfo lump is padded to <paramref name="count"/>
+    /// entries that are all distinct, and stay distinct from a second copy
+    /// of the room one cell along +x.
+    /// </summary>
+    /// <remarks>
+    /// The texinfos are shared by content, so repeating the room's own would
+    /// pad nothing. Every entry's s axis is made +x with an offset of
+    /// <c>i / 1024</c> (exact, under 17 texels): distinct within the room,
+    /// and the neighbour's translation takes a cell off every offset, which
+    /// puts its set wholly below this one's.
+    /// </remarks>
+    private static RoomObject WithDistinctTexInfos(RoomObject room, int count) => RoomHarness.WithLumps(room, bsp =>
+    {
+        TexInfo[] infos = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]).ToArray();
+        TexInfo[] padded = new TexInfo[count];
+        for (int i = 0; i < padded.Length; i++)
+        {
+            padded[i] = infos[i % infos.Length];
+            padded[i].TextureVecsTexelsPerWorldUnits[0] = 1;
+            padded[i].TextureVecsTexelsPerWorldUnits[1] = 0;
+            padded[i].TextureVecsTexelsPerWorldUnits[2] = 0;
+            padded[i].TextureVecsTexelsPerWorldUnits[3] = i / 1024f;
+        }
+
+        bsp.SetLump(BspLump.TexInfo, BspStructView.ToLump<TexInfo>(padded, 0).Data);
+    });
 
     /// <summary>
     /// The nodraw copies the assembly adds for stripped plug faces count
     /// toward <c>MAX_MAP_TEXINFO</c> too: two rooms whose own texinfos are
-    /// exactly the cap between them pass the check made before planning,
-    /// and the first nodraw copy of a doorway's face is refused, naming the
-    /// loader's constant.
+    /// exactly the cap between them (distinct, so sharing folds none of
+    /// them) pass the check made as each room is shared in, and the first
+    /// nodraw copy of a doorway's face is refused, naming the loader's
+    /// constant.
     /// </summary>
     [Fact]
     public async Task NodrawCopiesPastTheTexinfoCapAreRefused()
     {
         const int cap = 12288;
-        RoomObject hub = await HubAsync();
-        RoomObject full = RoomHarness.WithLumps(hub, bsp =>
-        {
-            TexInfo[] infos = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]).ToArray();
-            TexInfo[] padded = new TexInfo[cap / 2];
-            for (int i = 0; i < padded.Length; i++)
-            {
-                padded[i] = infos[i % infos.Length];
-            }
-
-            bsp.SetLump(BspLump.TexInfo, BspStructView.ToLump<TexInfo>(padded, 0).Data);
-        });
+        RoomObject full = WithDistinctTexInfos(await HubAsync(), cap / 2);
 
         RoomLibrary library = RoomHarness.Library(full);
         LevelLayout layout = RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, 0));

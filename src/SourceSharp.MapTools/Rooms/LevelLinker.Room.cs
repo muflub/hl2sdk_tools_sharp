@@ -79,7 +79,6 @@ public static partial class LevelLinker
             TexInfos = texInfos,
             Leafs = leafs,
             EdgeCount = BspStructView.Count<DEdge>(bsp[BspLump.Edges]),
-            TexDataCount = BspStructView.Count<DTexData>(bsp[BspLump.TexData]),
             FaceCount = BspStructView.Count<DFace>(bsp[BspLump.Faces]),
             BrushCount = BspStructView.Count<DBrush>(bsp[BspLump.Brushes]),
             BrushSideCount = BspStructView.Count<DBrushSide>(bsp[BspLump.BrushSides]),
@@ -95,8 +94,6 @@ public static partial class LevelLinker
             FacesVersion = bsp[BspLump.Faces].Version,
             LeafsVersion = bsp[BspLump.Leafs].Version,
             LightingLength = bsp[BspLump.Lighting].Length,
-            StringTableCount = BspStructView.Count<int>(bsp[BspLump.TexDataStringTable]),
-            StringDataLength = bsp[BspLump.TexDataStringData].Length,
         };
 
         ApplyCensus(plan, shared);
@@ -455,14 +452,11 @@ public static partial class LevelLinker
         public required TexInfo[] TexInfos { get; init; }
         public required DLeaf[] Leafs { get; init; }
         public required int EdgeCount { get; init; }
-        public required int TexDataCount { get; init; }
         public required int FaceCount { get; init; }
         public required int BrushCount { get; init; }
         public required int BrushSideCount { get; init; }
         public required int LeafFaceCount { get; init; }
         public required int LightingLength { get; init; }
-        public required int StringTableCount { get; init; }
-        public required int StringDataLength { get; init; }
         public required int SurfEdgeCount { get; init; }
         public required int OrigFaceCount { get; init; }
         public required int VertNormalCount { get; init; }
@@ -495,9 +489,6 @@ public static partial class LevelLinker
 
         public int VertexBase;
         public int EdgeBase;
-        public int TexInfoBase;
-        public int TexDataBase;
-        public int PlaneBase;
         public int FaceBase;
         public int BrushBase;
         public int BrushSideBase;
@@ -505,8 +496,6 @@ public static partial class LevelLinker
         public int NodeBase;
         public int LeafBase;
         public int LightBase;
-        public int StringTableBase;
-        public int StringDataBase;
         public int ClusterBase;
         public int SurfEdgeBase;
         public int OrigFaceBase;
@@ -520,19 +509,57 @@ public static partial class LevelLinker
         public int VertexNormalIndexBase;
 
         /// <summary>
+        /// Per room plane pair, the linked even index of the shared pair that
+        /// holds it (<see cref="LinkPlanes"/>); set when the assembly interns
+        /// the room's planes.
+        /// </summary>
+        public int[] PlanePairs = [];
+
+        /// <summary>
+        /// Per room plane pair, whether the shared pair's even half is the
+        /// flip of this room's stored even half (a non-axial pair another
+        /// room brought in the opposite order).
+        /// </summary>
+        public bool[] PlanePairFlipped = [];
+
+        /// <summary>Per room texinfo, the shared texinfo with its content (<see cref="LinkTextures"/>).</summary>
+        public int[] TexInfoMap = [];
+
+        /// <summary>Per room string-table entry, the shared entry naming the same string.</summary>
+        public int[] StringMap = [];
+
+        /// <summary>
         /// The linked index of the plane a face, brush side or occluder of
         /// this room names: the same oriented plane, wherever its pair was
-        /// stored.
+        /// stored and whichever half of the shared pair holds it.
         /// </summary>
-        public int PlaneRef(int roomPlane) =>
-            PlaneBase + (PlaneSwapped[roomPlane >> 1] ? roomPlane ^ 1 : roomPlane);
+        /// <remarks>
+        /// The room's plane <c>p</c> is half <c>p &amp; 1</c> of its pair. The
+        /// relocation stored the pair swapped (<see cref="PlaneSwapped"/>) when
+        /// a turn brought its negative axial half to the front, and the shared
+        /// table may hold the pair flipped (<see cref="PlanePairFlipped"/>);
+        /// each moves the same oriented plane to the other half, so the half
+        /// is the parity of all three.
+        /// </remarks>
+        public int PlaneRef(int roomPlane)
+        {
+            int pair = roomPlane >> 1;
+            bool other = PlaneSwapped[pair] != PlanePairFlipped[pair];
+            return PlanePairs[pair] + ((roomPlane & 1) ^ (other ? 1 : 0));
+        }
 
         /// <summary>
         /// The linked plane a node of this room splits on, always the even
         /// (positive-first) half, and whether the node's children must swap
         /// because that half is the flip of the plane the node was built on.
         /// </summary>
-        public (int Plane, bool FlipChildren) NodePlane(int roomPlane) =>
-            (PlaneBase + (roomPlane & ~1), ((roomPlane & 1) == 1) != PlaneSwapped[roomPlane >> 1]);
+        public (int Plane, bool FlipChildren) NodePlane(int roomPlane)
+        {
+            int pair = roomPlane >> 1;
+            return (PlanePairs[pair], ((roomPlane & 1) == 1) != PlaneSwapped[pair] != PlanePairFlipped[pair]);
+        }
+
+        /// <summary>The linked texinfo a face or brush side of this room names (<see cref="Remap"/>).</summary>
+        public int TexInfoRef(int roomTexInfo) => Remap(TexInfoMap, roomTexInfo);
     }
 }

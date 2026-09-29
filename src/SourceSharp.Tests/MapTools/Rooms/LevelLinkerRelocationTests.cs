@@ -576,7 +576,10 @@ public sealed class LevelLinkerRelocationTests
     /// texinfo past it. The plug's original faces are
     /// found through the stripped drawn faces that name them, and take their
     /// nodraw texinfo; reading the stale index used to throw
-    /// <see cref="IndexOutOfRangeException"/> out of the link.
+    /// <see cref="IndexOutOfRangeException"/> out of the link. Every other
+    /// stale index is written as -1: the texinfos are shared, so there is no
+    /// room base to shift it by, and shifted it only ever pointed into some
+    /// other room's entries.
     /// </summary>
     [Fact]
     public async Task AStaleOriginalFaceTexinfoDoesNotDecideWhichFacesAreThePlug()
@@ -594,13 +597,12 @@ public sealed class LevelLinkerRelocationTests
             bsp.SetLump(BspLump.OriginalFaces, BspStructView.ToLump<DFace>(faces, 0).Data);
         });
         RoomLibrary library = RoomHarness.Library(stale);
-        int roomTexInfos = BspStructView.Count<TexInfo>(stale.Bsp[BspLump.TexInfo]);
         LinkedLevel link = await LevelLinker.LinkAsync(
             RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, 0)), library, await RoomHarness.ContextAsync());
 
         // The original faces of the stripped plug faces are drawn nodraw
-        // through a texinfo that exists; every other original face keeps its
-        // relocated index, stale as it came.
+        // through a texinfo that exists; every other original face's index
+        // named nothing in its room, and names nothing linked: -1.
         TexInfo[] infos = BspStructView.As<TexInfo>(link.Bsp[BspLump.TexInfo]).ToArray();
         DFace[] drawn = BspStructView.As<DFace>(link.Bsp[BspLump.Faces]).ToArray();
         DFace[] originals = BspStructView.As<DFace>(link.Bsp[BspLump.OriginalFaces]).ToArray();
@@ -620,15 +622,15 @@ public sealed class LevelLinkerRelocationTests
             }
             else
             {
-                int room = o < originals.Length / 2 ? 0 : 1;
-                Assert.Equal(roomTexInfos + 7 + (room * roomTexInfos), originals[o].TexInfo);
+                Assert.Equal(-1, originals[o].TexInfo);
             }
         }
     }
 
     /// <summary>
     /// A stripped drawn face that names no original face (<c>OrigFace</c> -1)
-    /// strips none, and every original face keeps its relocated texinfo.
+    /// strips none, and every original face keeps its relocated texinfo: the
+    /// shared entry with its room texinfo's moved content.
     /// </summary>
     [Fact]
     public async Task APlugFaceWithNoOriginalFaceStripsNone()
@@ -648,23 +650,51 @@ public sealed class LevelLinkerRelocationTests
         LinkedLevel link = await LevelLinker.LinkAsync(
             RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, 0)), library, await RoomHarness.ContextAsync());
 
-        int roomTexInfos = BspStructView.Count<TexInfo>(orphan.Bsp[BspLump.TexInfo]);
         DFace[] room = BspStructView.As<DFace>(orphan.Bsp[BspLump.OriginalFaces]).ToArray();
         DFace[] originals = BspStructView.As<DFace>(link.Bsp[BspLump.OriginalFaces]).ToArray();
         Assert.Equal(2 * room.Length, originals.Length);
         for (int o = 0; o < originals.Length; o++)
         {
-            int copy = o / room.Length;
-            Assert.Equal(room[o % room.Length].TexInfo + (copy * roomTexInfos), originals[o].TexInfo);
+            RoomTransform transform = new(link.Plan.Layout.Rooms[o / room.Length].Placement, RoomHarness.Cell);
+            AssertMovedTexInfo(orphan.Bsp, room[o % room.Length].TexInfo, transform, link.Bsp, originals[o].TexInfo);
         }
     }
 
     /// <summary>
-    /// Every linked texdata names its room's material: the string table is
-    /// int offsets into the concatenated string data, one per texdata. Read
-    /// as ushort pairs it both miscounts the table (so the second room's
-    /// texdata point at the wrong entries) and adds the base to the high
-    /// halves (so the offsets land far past the data).
+    /// A linked texinfo is the room's texinfo moved by the placement: the
+    /// same axes, offsets and flags as the room's put through the transform,
+    /// and a texdata naming the same material; a room index that names no
+    /// texinfo of the room is -1.
+    /// </summary>
+    private static void AssertMovedTexInfo(BspData room, int roomIndex, RoomTransform transform, BspData linked, int linkedIndex)
+    {
+        TexInfo[] roomInfos = BspStructView.As<TexInfo>(room[BspLump.TexInfo]).ToArray();
+        if (roomIndex < 0 || roomIndex >= roomInfos.Length)
+        {
+            Assert.Equal(-1, linkedIndex);
+            return;
+        }
+
+        TexInfo expected = LevelLinker.TransformTexInfos([roomInfos[roomIndex]], transform)[0];
+        TexInfo actual = BspStructView.As<TexInfo>(linked[BspLump.TexInfo])[linkedIndex];
+        for (int i = 0; i < 8; i++)
+        {
+            Assert.Equal(expected.TextureVecsTexelsPerWorldUnits[i], actual.TextureVecsTexelsPerWorldUnits[i]);
+            Assert.Equal(expected.LightmapVecsLuxelsPerWorldUnits[i], actual.LightmapVecsLuxelsPerWorldUnits[i]);
+        }
+
+        Assert.Equal(expected.Flags, actual.Flags);
+        Assert.Equal(TexDataName(room, expected.TexData), TexDataName(linked, actual.TexData));
+    }
+
+    /// <summary>
+    /// Every linked face's material is its room face's material: the face's
+    /// texinfo, its texdata, the string table entry and the string data
+    /// resolve in the linked map to the name they resolved to in the room.
+    /// The string table is int offsets into the string data; read as ushort
+    /// pairs it both miscounts the table and lands offsets far past the data.
+    /// The tables are shared, so each material is there once: as many
+    /// texdatas and string entries as the rooms have distinct names.
     /// </summary>
     [Fact]
     public async Task EveryTexdataNameIsItsRoomsMaterial()
@@ -674,21 +704,34 @@ public sealed class LevelLinkerRelocationTests
         LevelLayout layout = RoomHarness.AutoLayout("two", library, ("hub", 0, 0, 0), ("corner", 1, 0, 2));
         LinkedLevel link = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync());
 
-        int linked = 0;
+        TexInfo[] linkedInfos = BspStructView.As<TexInfo>(link.Bsp[BspLump.TexInfo]).ToArray();
+        DFace[] linkedFaces = BspStructView.As<DFace>(link.Bsp[BspLump.Faces]).ToArray();
+        HashSet<string> names = new(StringComparer.Ordinal);
+        int faceBase = 0;
         foreach (RoomInstance instance in layout.Rooms)
         {
             BspData room = library.Get(instance.Placement.Room).Bsp;
-            int count = BspStructView.Count<DTexData>(room[BspLump.TexData]);
-            for (int t = 0; t < count; t++)
+            TexInfo[] roomInfos = BspStructView.As<TexInfo>(room[BspLump.TexInfo]).ToArray();
+            DFace[] roomFaces = BspStructView.As<DFace>(room[BspLump.Faces]).ToArray();
+            for (int f = 0; f < roomFaces.Length; f++)
             {
-                Assert.Equal(TexDataName(room, t), TexDataName(link.Bsp, linked + t));
+                Assert.Equal(
+                    TexDataName(room, roomInfos[roomFaces[f].TexInfo].TexData),
+                    TexDataName(link.Bsp, linkedInfos[linkedFaces[faceBase + f].TexInfo].TexData));
             }
 
-            linked += count;
+            for (int t = 0; t < BspStructView.Count<DTexData>(room[BspLump.TexData]); t++)
+            {
+                names.Add(TexDataName(room, t));
+            }
+
+            faceBase += roomFaces.Length;
         }
 
-        Assert.Equal(linked, BspStructView.Count<DTexData>(link.Bsp[BspLump.TexData]));
-        Assert.Equal(linked, BspStructView.Count<int>(link.Bsp[BspLump.TexDataStringTable]));
+        int count = BspStructView.Count<DTexData>(link.Bsp[BspLump.TexData]);
+        Assert.Equal(names.Count, count);
+        Assert.Equal(names.Count, BspStructView.Count<int>(link.Bsp[BspLump.TexDataStringTable]));
+        Assert.Equal(names.Order(StringComparer.Ordinal), Enumerable.Range(0, count).Select(t => TexDataName(link.Bsp, t)).Order(StringComparer.Ordinal));
     }
 
     /// <summary>
@@ -698,8 +741,16 @@ public sealed class LevelLinkerRelocationTests
     /// empty leaf of the doorway's cluster while every point outside them
     /// stays in a solid leaf with the original brush run.
     /// </summary>
-    [Fact]
-    public void ASolidLeafTwoPlugsReachIntoIsCarvedForBoth()
+    /// <param name="flipped">
+    /// Whether the plane table already holds every carve plane's flip as a
+    /// pair's even half, so each carve node lands on a pair shared flipped
+    /// and must swap its children (and continue its chain on the other
+    /// side) to keep the same doorway.
+    /// </param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ASolidLeafTwoPlugsReachIntoIsCarvedForBoth(bool flipped)
     {
         DLeaf solid = new()
         {
@@ -715,7 +766,19 @@ public sealed class LevelLinkerRelocationTests
         open.SetAreaFlags(1, LeafFlags.None);
         List<DLeaf> leafs = [solid];
         List<DNode> nodes = [];
-        List<DPlane> planes = [new(), new()];
+        LevelLinker.LinkPlanes planes = new();
+        if (flipped)
+        {
+            foreach (Vec3 axis in (Vec3[])[new(1, 0, 0), new(0, 1, 0), new(0, 0, 1)])
+            {
+                foreach (float at in (float[])[0, 10, 20, 60, 70, 100])
+                {
+                    _ = planes.Intern(new DPlane { Normal = -axis, Dist = -at, Type = (int)new Plane(axis, at).Type });
+                }
+            }
+        }
+
+        int stored = planes.Count;
         List<ushort> leafMinDist = [7];
         List<(Box, int)> plugs =
         [
@@ -730,8 +793,12 @@ public sealed class LevelLinkerRelocationTests
         Assert.All(leafMinDist, d => Assert.Equal(7, d));
         for (int p = 2; p < planes.Count; p += 2)
         {
-            Assert.True(planes[p].Type < 3 && Vec3.Dot(planes[p].Normal, new Vec3(1, 1, 1)) == 1, "a carve plane is not a positive axis");
+            DPlane even = planes.Planes[p];
+            Assert.True(even.Type < 3 && Vec3.Dot(even.Normal, new Vec3(1, 1, 1)) == (flipped ? -1 : 1), "a carve plane is not the expected axis");
         }
+
+        // Shared flipped, the carve adds no plane: it names the stored pairs.
+        Assert.Equal(flipped, planes.Count == stored);
 
         foreach (Vec3 inside in (Vec3[])[new(15, 15, 15), new(11, 19, 11), new(65, 1, 65), new(65, 99, 69)])
         {
@@ -755,7 +822,7 @@ public sealed class LevelLinkerRelocationTests
             int index = head;
             while (index >= 0)
             {
-                DPlane plane = planes[nodes[index].PlaneNum];
+                DPlane plane = planes.Planes[nodes[index].PlaneNum];
                 index = Vec3.Dot(point, plane.Normal) - plane.Dist < 0 ? nodes[index].Children[1] : nodes[index].Children[0];
             }
 
