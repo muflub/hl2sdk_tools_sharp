@@ -109,6 +109,13 @@ namespace SourceSharp.MapTools.Rooms;
 /// room's, merged by name, the room's default cubemaps renamed to the
 /// level's map name (<see cref="LevelPakFiles"/>).
 /// </para>
+/// <para>
+/// <b>Overlays</b> are carried: every placed room's <c>info_overlay</c>
+/// records in link order, each moved and turned with its room, its id,
+/// texinfo and faces rebased, a named one's accessor renumbered to match
+/// (<see cref="LinkOverlays"/>, <see cref="RoomOverlays"/>). Water overlays
+/// are refused with water.
+/// </para>
 /// </remarks>
 public static partial class LevelLinker
 {
@@ -134,6 +141,12 @@ public static partial class LevelLinker
     /// linked positions (<see cref="LevelCubemaps"/>).
     /// <see cref="BspLump.ClipPortalVerts"/> is not in the set: its vertices
     /// only exist for area portals, which are refused.
+    /// <see cref="BspLump.Overlays"/> and <see cref="BspLump.OverlayFades"/>
+    /// are rebuilt for the level from the rooms' (<see cref="LinkOverlays"/>),
+    /// when the room's compile left its overlay data with it
+    /// (<see cref="RoomOverlaysOf"/>); <see cref="BspLump.WaterOverlays"/>
+    /// is not in the set: water overlays are drawn along water, which is
+    /// refused.
     /// </remarks>
     private static readonly ImmutableHashSet<BspLump> CarriedLumps =
         ImmutableHashSet.CreateRange([
@@ -149,6 +162,7 @@ public static partial class LevelLinker
         BspLump.Areas, BspLump.AreaPortals,
         BspLump.Occlusion, BspLump.PakFile, BspLump.MapFlags, BspLump.Cubemaps,
         BspLump.PhysCollide, BspLump.PhysDisp,
+        BspLump.Overlays, BspLump.OverlayFades,
         ]);
 
     /// <summary>Links <paramref name="layout"/>'s rooms into one map.</summary>
@@ -476,7 +490,7 @@ public static partial class LevelLinker
              faces = 0, origFaces = 0, brushes = 0, leafFaces = 0,
              leaves = 1, lighting = 0,
              primVerts = 0, primIndices = 0, prims = 0, vertNormals = 0, vertNormalIndices = 0,
-             occluders = 0, occluderPolys = 0, occluderVerts = 0;
+             occluders = 0, occluderPolys = 0, occluderVerts = 0, overlays = 0;
 
         // The world faces of every placement come first, then every kept
         // brush model's, as a map's own model 0 range is its first faces.
@@ -515,6 +529,7 @@ public static partial class LevelLinker
             plan.OccluderBase = (int)occluders;
             plan.OccluderPolyBase = (int)occluderPolys;
             plan.OccluderVertexBase = (int)occluderVerts;
+            plan.OverlayBase = (int)overlays;
 
             vertices += plan.Vertices.Length + (plan.Models?.LocalVertices.Length ?? 0);
             edges += plan.EdgeCount;
@@ -533,6 +548,7 @@ public static partial class LevelLinker
             occluders += plan.Occlusion?.Occluders.Count ?? 0;
             occluderPolys += plan.Occlusion?.Polys.Count ?? 0;
             occluderVerts += plan.Occlusion?.VertexIndices.Count ?? 0;
+            overlays += plan.Overlays?.Count ?? 0;
         }
     }
 
@@ -755,6 +771,9 @@ public static partial class LevelLinker
 
         public int Clusters { get; init; }
 
+        /// <summary>The room's overlays (<c>info_overlay</c> records), which the link appends as they are.</summary>
+        public int Overlays { get; init; }
+
         /// <summary>
         /// A compiled room's counts of the lumps it appends, read as
         /// <see cref="PlanRoom"/> reads them; the shared tables' counts are
@@ -774,6 +793,7 @@ public static partial class LevelLinker
             VertexNormals = BspStructView.Count<Vec3>(bsp[BspLump.VertNormals]),
             Nodes = BspStructView.Count<DNode>(bsp[BspLump.Nodes]),
             Clusters = clusters,
+            Overlays = BspStructView.Count<DOverlay>(bsp[BspLump.Overlays]),
         };
     }
 
@@ -828,6 +848,12 @@ public static partial class LevelLinker
     /// <para>
     /// The leaves start at 1 (the shared solid leaf), as the bases do.
     /// </para>
+    /// <para>
+    /// The overlays are a sixth kind of cap: no field narrower than their
+    /// ids holds them, but vbsp refuses a map with more than
+    /// <c>MAX_MAP_OVERLAYS</c> (512), so the flattened level would not
+    /// compile (<see cref="OverlayLimit"/>).
+    /// </para>
     /// </remarks>
     internal sealed class LinkTotals(bool checkBrushes = true)
     {
@@ -848,7 +874,7 @@ public static partial class LevelLinker
         private readonly int _nodeCap = Cap(BspLump.Nodes);
 
         private long _vertices, _texDatas, _faces, _brushes, _brushSides, _leafFaces, _leaves = 1,
-            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters, _nodes = -1;
+            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters, _nodes = -1, _overlays;
 
         /// <summary>Adds one room, refusing the first total it pushes past its limit.</summary>
         public void Add(LinkCounts counts, string room, int cellX, int cellY)
@@ -867,6 +893,7 @@ public static partial class LevelLinker
             _vertexNormals += counts.VertexNormals;
             _nodes += counts.Nodes + 2;
             _clusters += counts.Clusters;
+            _overlays += counts.Overlays;
 
             Limit(room, cellX, cellY, "vertices", _vertices, ushort.MaxValue + 1);
             LoaderLimit(room, cellX, cellY, "texdatas", _texDatas, _texDataCap, "MAX_MAP_TEXDATA");
@@ -884,6 +911,7 @@ public static partial class LevelLinker
             Limit(room, cellX, cellY, "primitive vertices", _primitiveVertices, ushort.MaxValue + 1);
             Limit(room, cellX, cellY, "vertex normals", _vertexNormals, ushort.MaxValue + 1);
             LoaderLimit(room, cellX, cellY, "nodes", _nodes, _nodeCap, "MAX_MAP_NODES");
+            OverlayLimit(room, cellX, cellY, _overlays);
         }
 
         /// <summary>

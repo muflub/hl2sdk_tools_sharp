@@ -186,6 +186,23 @@ public sealed record RoomObject(
     internal RoomCubemaps? CubemapsOfCompile => Cubemaps is { } cubemaps && cubemaps.IsFor(this) ? cubemaps : null;
 
     /// <summary>
+    /// The room's overlays as the link carries them (<see cref="RoomOverlays"/>:
+    /// every record's origin and basis at each quarter turn), or null: made
+    /// by the room compile for a room whose compile wrote overlays, and
+    /// stored by the pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Props"/>, not only a shortcut: it is what says the room
+    /// was held to the pack's overlay rules when it was compiled, so a room
+    /// whose lump has overlays and none of this bound to its compile
+    /// (<see cref="OverlaysOfCompile"/>) is refused by the link, naming the room.
+    /// </remarks>
+    internal RoomOverlays? Overlays { get; init; }
+
+    /// <summary>The room's overlays while they describe this compile, else null.</summary>
+    internal RoomOverlays? OverlaysOfCompile => Overlays is { } overlays && overlays.IsFor(this) ? overlays : null;
+
+    /// <summary>
     /// The room's navigation, or null: built beside the link work by a
     /// library compile whose library builds navigation, and read by a pack
     /// load that asks for it (<see cref="RoomPackRequest.Navigation"/>), at

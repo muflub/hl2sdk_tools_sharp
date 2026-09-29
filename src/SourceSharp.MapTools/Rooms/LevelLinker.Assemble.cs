@@ -687,6 +687,14 @@ public static partial class LevelLinker
             linked.SetLump(BspLump.PhysDisp, physDisp);
         }
 
+        // Overlays: every placement's, rebased and moved; a level whose rooms
+        // have none carries neither lump, as before overlays were carried.
+        if (LinkOverlays(plans) is { } overlays)
+        {
+            linked.SetLump(BspLump.Overlays, overlays.Overlays, overlays.Version);
+            linked.SetLump(BspLump.OverlayFades, overlays.Fades);
+        }
+
         return (linked, folded);
     }
 

@@ -141,9 +141,11 @@ In the order it checks:
 1. any non-empty lump outside `LevelLinker.CarriedLumps`. Not in the set:
    `WorldLights(Hdr)`, `DispInfo`, `DispVerts`, `DispTris`,
    `DispLightmapAlphas`, `DispLightmapSamplePositions`, `LeafWaterData`,
-   `ClipPortalVerts`, `Overlays`, `OverlayFades`,
-   `WaterOverlays`, `LeafAmbientIndex(Hdr)`, `LeafAmbientLighting(Hdr)`,
-   `LightingHdr`, `FacesHdr` (`Cubemaps` left the list with PR 12);
+   `ClipPortalVerts`, `WaterOverlays`, `LeafAmbientIndex(Hdr)`,
+   `LeafAmbientLighting(Hdr)`, `LightingHdr`, `FacesHdr` (`Cubemaps` left
+   the list with PR 12; since PR 11 `Overlays` and `OverlayFades` are
+   carried, and a room with overlays is refused only when it carries no
+   overlay data from its compile);
 2. more than one model, or a world model whose head node is not 0 (since
    PR 7 brush models are carried, and a room with them is refused only when
    it carries no brush model data from its compile);
@@ -262,7 +264,7 @@ or research).
 | Detail props | refused (game lump) | props per rotation, leaf-local runs; lighting ×1, or ×4 if sunlit | renumber leaves, re-sort, merge dictionaries | 0 | M |
 | Displacements | refused at split (`VmfPlacement.MoveSide`) | lumps and collision per rotation, sample positions | rebase; cross-room neighbours only if allowed | 0 | L |
 | Water | refused (water leaf, lump) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
-| Overlays | refused (`Overlays` lump); split misplaces them | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
+| Overlays | carried since PR 11 (moved and turned, ids, texinfos and faces rebased, accessors renumbered; water overlays refused with water) | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
 | Decals (`infodecal`) | carried | nothing | nothing | 1 each (**uncertain** after spawn) | S |
 | `env_cubemap` | carried since PR 12 (samples moved, patches and copies renamed to the level) | samples per rotation, patch list | rename VTFs and patched VMTs to the level | 0 | M-L |
 | Area portals | refused | areas, portals, clip verts | area union across joints, optional door portals | 1 per portal | L |
@@ -656,8 +658,9 @@ V-flip flag in the fourth, origin, basis normal), `OverlayFades`,
 overlay becomes an `info_overlay_accessor` with `OverlayID`, an unnamed one
 is cleared (`OverlaySet.AddFromEntity`, `EmitAsync`, `FillUv`).
 
-**Today.** Refused (`Overlays` lump), and misplaced at the split (finding 4)
-and in the flatten (findings 3 and 4).
+**Today.** Carried since PR 11 (section 13, its landed note). Before it,
+refused (`Overlays` lump), and misplaced at the split (finding 4) and in the
+flatten (findings 3 and 4) until PR 1.
 
 **Pack vs link.** Per rotation: the moved overlays. At link: rebase face
 indices (dropping stripped plug faces), texinfo, ids, `OverlayID` keys,
@@ -2863,6 +2866,105 @@ rooms` does not list samples; the stress library has none; and whether
 `buildcubemaps` on a linked map writes the names the patches expect stays
 on the in-game checklist (15.8).
 
+**PR 11 landed** (overlays). `ssmap room` describes a room whose compile
+wrote overlays in one `OVLY` section (`RoomOverlays`, with the 1.1 framing:
+codec byte, decoded length, revision; codec none): the overlay count, then
+the rotation count (4) and per turn every record's origin turned (not yet
+moved), its `BasisU` and its basis normal turned, each turned direction's
+zeros unsigned as the flatten writes them. The records and the fade lump
+stay in the room's container byte for byte; a room without overlays gets no
+section, so a library without them packs to the same bytes. The link
+carries the `Overlays` and `OverlayFades` lumps (`LevelLinker.LinkOverlays`):
+every placement's records in link order, the placement's overlay `k` taking
+id `OverlayBase + k` (vbsp numbers a map's overlays in entity order, and the
+flatten writes the placements' entities in link order, so its compile
+numbers them the same way), its texinfo the shared table's (an overlay's
+texinfo has zero axes and a -99999 offset, which no turn or move changes,
+so every placement of a material names one entry), its origin the turned
+origin plus the placement's translation added as one vector, exactly as the
+flatten moves `BasisOrigin` (`QuarterTurn.Apply`), zeros unsigned, its basis
+normal and `BasisU` the stored turn's, and its face list each room face's
+linked face; the UV points' `x` and `y`, the handedness flag, the extents,
+the render order and the fades are the room's. A face the level does not
+draw is left out of the list: a jointed plug's (kept in the face list,
+drawn nodraw) and a face of a brush model the level omits (`room_needs`,
+socket furniture), neither of which the flattened level has; the second is
+what an overlay on a dropped door comes to, and the flatten's compile drops
+it the same way. A level whose rooms have no overlays carries neither lump,
+so no linked map without overlays moved and no digest changed. A named
+overlay's `info_overlay_accessor` keeps the overlay's keys: the link
+rebases its `OverlayID` by the placement's base, moves its `BasisOrigin` as
+the record's and turns its `BasisU`, `BasisV` and `BasisNormal` as the
+flatten does (on that class only, so a room without overlays turns its
+entities exactly as before). Facts hold link and flatten at every rotation
+to the same overlays, bit for bit but the face lists, and to the same area
+of each overlay's square covered by its faces (each face clipped to the
+square in the overlay's basis, summed: the union polygon of 4.9, whatever
+faces the two compiles cut), and the accessor to the same keys but one; a room with both an overlay and
+a cubemap sample (the overlay on a face a sample patches) links as it
+flattens at every turn and passes `ssmap check`.
+The pack format version stays 4: `OVLY` is a tag an older build skips, and
+that build refuses a room with overlays by its lump; a pack written before
+this PR has no `OVLY`, and this build refuses its rooms with overlays with
+`room {room} has {k} overlays but no overlay data from its compile (a pack
+written before the link carried overlays, or a room built without ssmap
+room); recompile the library with ssmap room.`, which also guarantees every
+linked overlay was held to the rules below when its room was packed.
+Overlays cost what 15.6 says, 1 per named overlay (the accessor, a default
+`edict` class) and 0 otherwise (`info_overlay` is compile-only), and the
+counts already came from the compiled lump, so the budget needed no
+change. Stored four turns, the 1.1 default: measured on a 16 x 16 level of
+the two harness rooms (384 overlays) on a busy 4-core machine, the
+minimum of nine warm links is 62 to 74 ms with either storage, the same
+within the noise; a count of 1 is read and linked to the same bytes (a
+fact). Decisions taken where this document is open, or where it left a
+detail:
+
+- **The plug refusal** is 15.4's text, made by the split
+  (`RoomOverlays.PlugProblem`), so by the pack and the flatten alike, and
+  by a room compile given a VMF: an `info_overlay` whose `sides` (read as
+  vbsp reads the list) names a side of a world brush whose box is a
+  socket's plug box, the rule the flatten leaves joined plugs out by. A
+  side id the room does not have (another room's, or a stale one) is not
+  refused: vbsp ignores it, in the room's compile and in the flattened
+  level's alike, so the two maps agree.
+- **`room_needs` on an overlay** is refused, with a message of its own
+  (`room {room}: entity {id} (info_overlay) has room_needs, but an overlay
+  is built into its room's compile and cannot be dropped.`): an unnamed
+  overlay leaves no entity for the resolver to drop, and dropping one
+  would renumber every later overlay the accessors name.
+- **Water overlays** (`overlaytransition`, the `WaterOverlays` lump) are
+  not carried and stay refused by their lump until water (PR 14): they are
+  drawn along water, which the link refuses, and the split carries neither
+  a world-level `overlaytransition` chunk nor moves its bracketed basis
+  keys.
+- **The link's cap** is 512 overlays (`MAX_MAP_OVERLAYS`), counted in
+  `CheckCapacity` before any room is planned: `room {room} at cell ({x},
+  {y}) pushes the link to {n} overlays; a map holds at most 512
+  (MAX_MAP_OVERLAYS).` vbsp refuses a map past it, so the flattened level
+  would not compile. The 64 faces an overlay holds need no check: the link
+  only drops faces. Two lumps vbsp would not write are refused as damaged,
+  naming the room: a record whose id is not its place, and a fade lump of
+  another length.
+- **A known difference, not refused:** the accessor's `sides` holds the
+  room's side ids in the link and the flattened map's renumbered ones in
+  the flatten (its `hammerid` differs as every entity's does). The game
+  finds the overlay by `OverlayID`; that nothing reads `sides` at runtime
+  is **uncertain** and belongs to the 15.8 checklist.
+- **Fact 3 of 15.3** named a joined plug from its `info_overlay`, which is
+  now refused; the plug is named by its `info_no_dynamic_shadow` instead,
+  which still exercises the flatten dropping a joined plug's side.
+
+Not done here: the 3x3 sample's `tee` did not grow its overlay (as PR 6
+and PR 7 left the sample alone), since the harness levels carry the
+end-to-end facts at every rotation and the sample's unchanged digests are
+what shows a level without overlays links as before; the stress library has
+none; `ssmap rooms` does not list overlays. An authoring note the facts
+met: vbsp finds a side by the first side with its id once the loader has
+sorted each brush's sides, so a hand-built brush whose sides share one id
+(as the room model's do) is named by whichever side sorts first; Hammer
+gives every side its own id.
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
@@ -3141,6 +3243,9 @@ default is relied on:
       occluder toggling by input after the rebase (4.7).
 - [ ] `infodecal` near a joined doorway lands on the right face, and is
       removed after applying (4.8).
+- [ ] A named overlay toggled through its `info_overlay_accessor` after the
+      link renumbered its `OverlayID`, and the accessor's `sides` key not
+      read at runtime (4.9).
 - [ ] A relay without fast retrigger drops a second `Trigger` inside its
       longest delay; same-tick event order after folding (6.5).
 - [ ] `func_door_rotating` and `func_rotating` axis flags read in the

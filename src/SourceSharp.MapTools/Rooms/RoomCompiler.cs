@@ -152,6 +152,13 @@ public static class RoomCompiler
             }
         }
 
+        // An overlay on a socket's plug (the rooms design, 4.9), refused
+        // before the compile as the split refuses it for a library's rooms.
+        if (RoomOverlays.PlugProblem(definition, document) is { } overlayProblem)
+        {
+            throw new RoomLintException(overlayProblem);
+        }
+
         // The room packs what vbsp packs for any map, the default cubemaps
         // named after the room included: the link carries every room's
         // files and renames those to the level's map name (LevelPakFiles),
@@ -228,6 +235,10 @@ public static class RoomCompiler
         RoomCubemaps? cubemaps = await RoomCubemaps
             .BuildAsync(vbsp.Bsp, context.CubemapSamples, context.MapBase, cancellationToken).ConfigureAwait(false);
 
+        // The overlays the link carries: every record's origin and basis
+        // turned four ways (the face lists, texinfos and ids are the link's).
+        RoomOverlays? overlays = RoomOverlays.Build(definition.Name, vbsp.Bsp);
+
         return new RoomObject(
             definition,
             vbsp.Bsp,
@@ -239,6 +250,7 @@ public static class RoomCompiler
             Props = staticProps,
             BrushModels = brushModels,
             Cubemaps = cubemaps,
+            Overlays = overlays,
         };
     }
 

@@ -303,6 +303,15 @@ public static class RoomLibraryVmf
 
             RoomDefinition definition = new(marker.Name, marker.CellSize, marker.Kit, Sockets(marker, localSolids));
             definition.Validate();
+
+            // An overlay on a socket's plug (the rooms design, 4.9): refused
+            // here, where the plugs are known, so the pack and the flatten,
+            // which both split the library, refuse it alike.
+            if (RoomOverlays.PlugProblem(definition, document) is { } overlayProblem)
+            {
+                throw new RoomLibraryException(overlayProblem);
+            }
+
             rooms.Add(new LibraryRoom(definition, marker.Corner, document) { Role = marker.Role });
         }
 
