@@ -807,6 +807,102 @@ The SQLite backend lives in its own assembly so the core libraries carry no
 package references. If it cannot be loaded, `ssmap` says so instead of
 silently compiling without a cache.
 
+## Running as a service
+
+The libraries are built to be hosted in one long-lived process that runs
+many compiles, one after another and several at once, without restarting.
+`MapCompiler.CompileAsync` is the whole chain; everything below is what the
+host owns and passes in through `CompileRequest`. None of it changes the
+output: every setup here writes the same BSP as a one-shot `ssmap all`.
+
+```csharp
+// At start-up, once per game the service compiles for.
+GameContentMounter.Result game = await GameContentMounter.MountAsync(
+    disk, gameInfoPath, baseDirectory, cancellationToken: stopping);
+await using ContentFileSystem content = game.Content;
+
+// Once per process: the cooker, the stage cache and the prop hull cache.
+await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+await using InMemoryCacheStore stages = new(maxBytes: 2L * 1024 * 1024 * 1024);
+await stages.OpenAsync("memory", stopping);
+using PropHullCache hulls = new(maxBytes: 64L * 1024 * 1024);
+
+// Per compile: the same objects every time.
+CompileRequest request = new()
+{
+    Source = MapSource.FromVmf(disk, vmfPath),
+    Content = content,
+    CollisionCooker = cooker,
+    Cache = stages,
+    PropHullCache = hulls, // see "The prop hull cache" below
+    Output = CompileOutput.ToDirectory(disk, outputDirectory),
+};
+CompileResult result = await MapCompiler.CompileAsync(request, null, jobToken);
+```
+
+**Warm up.** The first compile in a process pays for JIT compilation: on
+`sdk_ctf_2fort` (4 threads, `-fast` vvis, `-ldr -fast` vrad) it takes
+89-92 CPU-s, and every later compile of the same map 75-78 CPU-s. A
+service that cares about its first job's latency compiles a small map once
+at start-up, before it takes work.
+
+**One mount per game.** Mounting a game indexes every file of every VPK on
+its search path, and nothing a compile does changes the mount, so mount
+each game once and hand the same `ContentFileSystem` to every compile of
+it, concurrent ones included. The indexes are read-only after mounting,
+loose files are opened per read, and each VPK part keeps one stream that
+reads take turns on. No compile disposes the content it is given. Dispose
+the mount once, after the last compile that uses it; a dispose that
+overlaps a compile still reading waits for the read in progress, closes
+every archive stream, and makes later reads fail rather than reopen a
+file. On 2fort's content packed into VPKs, sharing the mount saved the
+0.3-0.5 CPU-s and 150 MB of allocation each compile spent mounting, and
+kept about 90 MB live for as long as the mount is held. Two compiles at
+once over one mount wrote the same bytes as two over mounts of their own,
+at 153 against 155 CPU-s per pair and 4.0 against 4.3 GB allocated.
+
+**A bounded stage cache.** With `CompileRequest.Cache` set, a compile
+whose inputs have not changed since an earlier compile replays that
+compile's vvis and much of its vrad instead of running them.
+`InMemoryCacheStore` keeps everything in the process and is bounded by
+its own `maxBytes` ceiling (1 GiB by default): every commit counts its
+blobs' bytes plus an estimate per row, and when a commit goes over, the
+least recently committed rows go first, down to 90% of the ceiling. A hit
+re-commits the rows it replays, so rows in use stay young. The ceiling is
+applied at every commit, including while other compiles are running, so a
+service whose compiles always overlap stays bounded. A row that has been
+evicted costs a miss, never a wrong hit, because every blob is
+content-addressed. A 2fort recompile against a warm shared store took
+67.2 CPU-s against 77.8 CPU-s without the store, with the same bytes. For
+a cache that survives restarts, use the SQLite store (`-incremental` in
+`ssmap`) instead; its size is managed by the collector (`CachePolicy`).
+
+**The prop hull cache.** `PropHullCache`
+(`CompileRequest.PropHullCache`) keeps cooked static-prop hulls
+between compiles, keyed by what the cook reads rather than by model name,
+and bounded in bytes. It saves most of vbsp's prop cooking (about 1.3 of
+2fort's 5 warm vbsp CPU-s) on every compile that names a model an earlier
+compile cooked, edited map or not. See [Collision cooking](#collision-cooking).
+
+**GC settings.** These belong to the host process (its `runtimeconfig.json`
+or `DOTNET_` environment variables); the libraries never change them.
+Measured on 2fort in one process:
+
+| Setup | Peak RSS | GC pauses | Notes |
+| --- | --- | --- | --- |
+| Workstation, concurrent (the default), sequential compiles | 1.08-1.17 GB | 1.0 s per compile | |
+| The same, plus a compacting `GC.Collect` between compiles | 0.83-0.84 GB | 0.9-1.3 s | -28% peak |
+| Server GC with DATAS (the .NET 10 default for server GC), sequential | 0.89-0.92 GB | 0.9-1.6 s | -25% peak |
+| Workstation, 2 concurrent compiles | 1.41-1.63 GB | 2.4-2.8 s per pair | |
+| Server GC without DATAS (`GCDynamicAdaptationMode=0`), 2 concurrent | 1.80-2.15 GB | 0.93 s per pair | 3x shorter pauses, +30% memory |
+| Server GC with DATAS, 2 concurrent | 1.42-1.48 GB | 3.8-4.2 s per pair | wall time 60% longer; avoid |
+
+So, for compiles run one at a time, either call
+`GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true)`
+(with `GCSettings.LargeObjectHeapCompactionMode = CompactOnce`) between
+compiles, or run with server GC and DATAS. For compiles run concurrently
+where pauses matter more than memory, use server GC with DATAS turned off.
+
 ## GPU ray tracing
 
 `SourceSharp.MapTools.Gpu` is an optional Vulkan ray tracer (via Silk.NET)
