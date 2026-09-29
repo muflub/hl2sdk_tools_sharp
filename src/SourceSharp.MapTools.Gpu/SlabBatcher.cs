@@ -125,13 +125,28 @@ internal interface ISlabDevice
 /// only how many bytes carry the question.
 /// </para>
 /// <para>
-/// A big slab is packed by several threads (<see cref="PackChunkRays"/>).
-/// The drainer is one thread, and with one thread packing every slab the
-/// host's writes were the pace-setter on a device that reads rays in place:
-/// on an RX 9070 on 2fort the pack took about 1.65 s of a 2.08 s facelights
-/// stage while the device was seldom waited on. The chunks are disjoint
+/// <b>Its own threads.</b> The drainer is a thread the batcher owns, not a
+/// pool work item: it blocks on fences for as long as slabs are on the
+/// device, which is most of a GPU compile's lighting, and a compile never
+/// holds the host's thread pool (<see cref="Parallel.CompileParallelism"/>;
+/// the host may be a web service). It starts with the first request and is
+/// joined by <see cref="Close"/>.
+/// </para>
+/// <para>
+/// A big slab is packed by the drainer and up to
+/// <see cref="MaxPackThreads"/> - 1 helpers (<see cref="PackCrew"/>), in
+/// chunks of <see cref="PackChunkRays"/>. With one thread packing every slab
+/// the host's writes were the pace-setter on a device that reads rays in
+/// place: on an RX 9070 on 2fort the pack took about 1.65 s of a 2.08 s
+/// facelights stage while the device was seldom waited on. The helpers are
+/// the batcher's too, for the same reason, made the first time a slab is big
+/// enough to share and joined with the drainer. The chunks are disjoint
 /// ranges of the slab and each is a pure copy from the callers' rays, so the
-/// bytes do not depend on how many threads wrote them.
+/// bytes do not depend on how many threads wrote them. Having vrad's workers
+/// pack their own rays into the slab would take the pack off the drainer
+/// altogether, but the slab is only planned once the drainer has a free
+/// slot, long after the workers have handed their rays over, so that is a
+/// different design rather than a change to this one.
 /// </para>
 /// <para>
 /// A request larger than a slab is split across slabs, and those slabs may
@@ -154,10 +169,10 @@ internal sealed class SlabBatcher
     internal const int PackChunkRays = 8192;
 
     /// <summary>
-    /// The most threads that pack one slab. A few writers already saturate
-    /// what a bus or a memory controller takes from one socket; more would
-    /// only take threads from vrad's workers, which are packing requests of
-    /// their own for the next slab.
+    /// The most threads that pack one slab, the drainer included. A few
+    /// writers already saturate what a bus or a memory controller takes from
+    /// one socket; more would only take cores from vrad's workers, which are
+    /// filling the next requests meanwhile.
     /// </summary>
     internal const int MaxPackThreads = 4;
 
@@ -177,6 +192,16 @@ internal sealed class SlabBatcher
     private readonly Queue<Slab> _inFlight = new();
     private bool _draining;
     private bool _closed;
+
+    // The drainer thread, started under the queue lock by the first request
+    // and woken once per start; the pack helpers, made by the drainer.
+    // Both are joined by Close. The semaphore is never disposed: it holds no
+    // handle unless one is asked for, and a request racing Close may still
+    // release it.
+    private readonly SemaphoreSlim _wake = new(0);
+    private Thread? _drainer;
+    private PackCrew? _crew;
+    private volatile bool _stopping;
 
     /// <summary>Wraps a device.</summary>
     /// <param name="device">The device; its calls are made only from the drainer.</param>
@@ -325,6 +350,53 @@ internal sealed class SlabBatcher
         {
             release();
         }
+
+        // The device is released and the drainer has nothing to launch: stop
+        // it, then the pack helpers, so no thread of the batcher's outlives
+        // the tracer, whether its compile succeeded, failed or was cancelled.
+        _stopping = true;
+        _wake.Release();
+        Thread? drainer;
+        lock (_queueLock)
+        {
+            drainer = _drainer;
+        }
+
+        if (drainer is not null && drainer != Thread.CurrentThread)
+        {
+            drainer.Join();
+        }
+
+        _crew?.Dispose();
+    }
+
+    /// <summary>
+    /// A hook the pack calls with each chunk's index, on the thread packing
+    /// it; for the fact that no packing runs on the thread pool.
+    /// </summary>
+    internal Action<int>? ObservePackChunk { get; set; }
+
+    /// <summary>The threads the batcher has started so far: the drainer, then any pack helpers.</summary>
+    internal IReadOnlyList<Thread> Threads
+    {
+        get
+        {
+            List<Thread> threads = [];
+            lock (_queueLock)
+            {
+                if (_drainer is not null)
+                {
+                    threads.Add(_drainer);
+                }
+            }
+
+            if (Volatile.Read(ref _crew) is { } crew)
+            {
+                threads.AddRange(crew.Threads);
+            }
+
+            return threads;
+        }
     }
 
     private Task Enqueue(Request request)
@@ -340,6 +412,13 @@ internal sealed class SlabBatcher
         lock (_queueLock)
         {
             ObjectDisposedException.ThrowIf(_closed, typeof(VulkanRayTracer));
+            if (_drainer is null)
+            {
+                Thread drainer = new(DrainerLoop) { IsBackground = true, Name = "ssmap gpu drainer" };
+                drainer.Start();
+                _drainer = drainer;
+            }
+
             _queue.Add(request);
             start = !_draining;
             _draining = true;
@@ -347,12 +426,54 @@ internal sealed class SlabBatcher
 
         if (start)
         {
-            // One drainer at a time, on the pool; it exits when the queue has
-            // nothing to launch and nothing is on the device.
-            _ = Task.Run(Drain);
+            // One drain at a time; it ends when the queue has nothing to
+            // launch and nothing is on the device, and the next request that
+            // finds it ended wakes the drainer again.
+            _wake.Release();
         }
 
         return request.Done.Task;
+    }
+
+    private void DrainerLoop()
+    {
+        while (true)
+        {
+            _wake.Wait();
+            if (_stopping)
+            {
+                return;
+            }
+
+            try
+            {
+                Drain();
+            }
+            catch (Exception e)
+            {
+                // Launch and Land catch everything a slab can throw, so this
+                // is a broken invariant, not a device fault. On the pool it
+                // would have been an unobserved task and a hung queue; here
+                // the queued requests fail with it and the drainer lives on.
+                FailQueued(e);
+            }
+        }
+    }
+
+    private void FailQueued(Exception e)
+    {
+        List<Request> failed;
+        lock (_queueLock)
+        {
+            failed = [.. _queue];
+            _queue.Clear();
+            _draining = false;
+        }
+
+        foreach (Request r in failed)
+        {
+            r.Done.TrySetException(e);
+        }
     }
 
     private void Drain()
@@ -608,20 +729,27 @@ internal sealed class SlabBatcher
         int chunks = (slab.Total + PackChunkRays - 1) / PackChunkRays;
         if (chunks <= 1)
         {
+            ObservePackChunk?.Invoke(0);
             Pack(slab.Segments, slab.Record, staging.Span, 0, slab.Total);
             return;
         }
 
-        // The drainer takes part, so a pool with no thread to spare still
-        // finishes: the loop never waits on a thread that is not coming.
+        // The drainer takes part and never waits on a helper that has not
+        // started (PackCrew), so the pack finishes even if no helper wakes.
         List<Segment> segments = slab.Segments;
         RayRecord record = slab.Record;
         int total = slab.Total;
-        System.Threading.Tasks.Parallel.For(
-            0,
-            chunks,
-            new ParallelOptions { MaxDegreeOfParallelism = MaxPackThreads },
-            c => Pack(segments, record, staging.Span, c * PackChunkRays, Math.Min(total, (c + 1) * PackChunkRays)));
+        Action<int>? observe = ObservePackChunk;
+        if (_crew is null)
+        {
+            Volatile.Write(ref _crew, new PackCrew(MaxPackThreads - 1));
+        }
+
+        _crew.Run(chunks, c =>
+        {
+            observe?.Invoke(c);
+            Pack(segments, record, staging.Span, c * PackChunkRays, Math.Min(total, (c + 1) * PackChunkRays));
+        });
     }
 
     /// <summary>

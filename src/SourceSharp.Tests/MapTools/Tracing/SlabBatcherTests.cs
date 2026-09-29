@@ -898,6 +898,90 @@ public sealed class SlabBatcherTests
         }
     }
 
+    /// <summary>
+    /// Packing, serial or shared, runs on the batcher's own threads and never
+    /// on the thread pool, even when every request comes from a pool thread.
+    /// </summary>
+    [Fact]
+    public async Task NoPackingRunsOnTheThreadPool()
+    {
+        int n = (3 * SlabBatcher.PackChunkRays) + 100;
+        FakeDevice device = new(n + 60);
+        SlabBatcher batcher = new(device, Ids, 0);
+        System.Collections.Concurrent.ConcurrentBag<(int Chunk, bool Pool, int Thread)> seen = [];
+        batcher.ObservePackChunk = c => seen.Add((c, Thread.CurrentThread.IsThreadPoolThread, Environment.CurrentManagedThreadId));
+        Ray[] big = Rays(n, 3);
+        Ray[] small = Rays(100, 4);
+        try
+        {
+            await Task.Run(() => batcher.TraceClosestAsync(big, new HitId[n], 0, CancellationToken.None)).WaitAsync(Patience);
+            await Task.Run(() => batcher.TraceClosestAsync(small, new HitId[100], 0, CancellationToken.None)).WaitAsync(Patience);
+        }
+        finally
+        {
+            batcher.Close(() => { });
+        }
+
+        // Four chunks of the big slab and the small slab's one.
+        Assert.Equal([0, 0, 1, 2, 3], seen.Select(x => x.Chunk).Order());
+        Assert.All(seen, x => Assert.False(x.Pool, $"chunk {x.Chunk} was packed on a pool thread"));
+        int[] ours = [.. batcher.Threads.Select(t => t.ManagedThreadId)];
+        Assert.All(seen, x => Assert.Contains(x.Thread, ours));
+    }
+
+    /// <summary>
+    /// Close joins every thread the batcher started, the drainer and the
+    /// pack helpers, whether its slabs succeeded or failed.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task TheBatchersThreadsAreGoneAfterClose(int failure)
+    {
+        int n = (2 * SlabBatcher.PackChunkRays) + 7;
+        FakeDevice device = new(n + 57);
+        if (failure == 1)
+        {
+            device.FailSubmit = (1, new InvalidOperationException("submit"));
+        }
+        else if (failure == 2)
+        {
+            device.FailComplete = (1, new InvalidOperationException("complete"));
+        }
+
+        SlabBatcher batcher = new(device, Ids, 0);
+        Task first = batcher.TraceClosestAsync(Rays(n, 5), new HitId[n], 0, CancellationToken.None);
+        await first.WaitAsync(Patience);
+        Task second = batcher.TraceClosestAsync(Rays(n, 6), new HitId[n], 0, CancellationToken.None);
+        if (failure == 0)
+        {
+            await second.WaitAsync(Patience);
+        }
+        else
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => second.WaitAsync(Patience));
+        }
+
+        IReadOnlyList<Thread> threads = batcher.Threads;
+        Assert.Equal(SlabBatcher.MaxPackThreads, threads.Count); // the drainer and its helpers
+        Assert.All(threads, t => Assert.True(t.IsAlive));
+
+        batcher.Close(() => { });
+
+        Assert.All(threads, t => Assert.False(t.IsAlive, $"{t.Name} outlived Close"));
+        batcher.Close(() => { }); // a second close finds nothing to do
+    }
+
+    [Fact]
+    public void ABatcherThatNeverTracedStartsNoThreads()
+    {
+        SlabBatcher batcher = new(new FakeDevice(64), Ids, 0);
+        batcher.Close(() => { });
+
+        Assert.Empty(batcher.Threads);
+    }
+
     [Fact]
     public void ADeviceWithNoSlotsIsRefused() =>
         Assert.Throws<ArgumentOutOfRangeException>(() => new SlabBatcher(new FakeDevice(64, 0), Ids, 0));
