@@ -7,6 +7,7 @@
 
 using SourceSharp.MapFormats.Text;
 
+using SourceSharp.MapTools.Bsp.Collision;
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Geometry;
 using SourceSharp.MapTools.Io;
@@ -336,6 +337,19 @@ public sealed class VbspContext
     /// bytes instead of cooking them.
     /// </summary>
     public ICollisionModelCache? CollisionModelCache { get; set; }
+
+    /// <summary>
+    /// The host's cross-compile static-prop hull cache, or null to cook
+    /// every prop model this compile names (the default, and what stock does).
+    /// </summary>
+    /// <remarks>
+    /// Owned by the host like the cooker, and meant to be shared by every
+    /// compile the host runs; see <see cref="PropHullCache"/> for what it
+    /// keys on and why a hit is the same bytes as a cook. Only a compile with
+    /// a <see cref="CollisionCooker"/> cooks hulls, so without one this is
+    /// not consulted.
+    /// </remarks>
+    public PropHullCache? PropHullCache { get; set; }
 
     /// <summary>
     /// Called once the world model's portal file is final, long before the

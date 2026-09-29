@@ -148,6 +148,7 @@ public static class MapCompiler
             CollisionCooker = request.CollisionCooker,
             Parallelism = request.Parallel,
             CollisionModelCache = chain.CollisionCache,
+            PropHullCache = request.PropHullCache,
             PortalFileReady = request.Overlap ? portals => portalsReady.TrySetResult(portals) : null,
         };
 

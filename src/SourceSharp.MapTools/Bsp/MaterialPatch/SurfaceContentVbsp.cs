@@ -77,6 +77,6 @@ public static class SurfaceContentVbsp
             throw new ArgumentException("UpdateAsync needs -onlyents or -onlyprops", nameof(context));
         }
 
-        return OnlyEntsUpdate.RunAsync(existing, map, context, [new SurfaceContentExtension(null, cooker)], cancellationToken);
+        return OnlyEntsUpdate.RunAsync(existing, map, context, [new SurfaceContentExtension(null, cooker, context.PropHullCache, context.Options.Compliance)], cancellationToken);
     }
 }

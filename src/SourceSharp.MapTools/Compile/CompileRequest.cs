@@ -107,6 +107,29 @@ public sealed record CompileRequest
     /// </summary>
     public ICollisionCooker? CollisionCooker { get; init; }
 
+    /// <summary>
+    /// A static-prop hull cache the host shares between compiles, or null for
+    /// none: every compile then cooks each prop model it names, as before.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Owned by the host, like <see cref="CollisionCooker"/>: create one
+    /// <see cref="Bsp.Collision.PropHullCache"/> with the byte bound you can
+    /// afford, pass it to every compile, dispose it at shutdown. It keys each
+    /// hull on the model's collision vertices, the cooker's identity and the
+    /// compliance, never on the model's name, so compiles of different maps,
+    /// different games and different cookers share it safely; a hit is the
+    /// same bytes a cook would give, so the BSP does not change.
+    /// </para>
+    /// <para>
+    /// Unlike <see cref="Cache"/>, which replays whole stages from a store
+    /// and needs the chain's inputs to be unchanged, this saves the hull cooks
+    /// of any compile that names a model some earlier compile cooked, edited
+    /// map or not. The two work together.
+    /// </para>
+    /// </remarks>
+    public Bsp.Collision.PropHullCache? PropHullCache { get; init; }
+
     /// <summary>What is written, if anything. Defaults to nothing.</summary>
     public CompileOutput Output { get; init; } = CompileOutput.InMemory;
 
