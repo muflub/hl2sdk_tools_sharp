@@ -148,9 +148,19 @@ public static class LevelFlattener
         List<ResolverRoom> resolverRooms = [];
         Dictionary<string, RoomNameTurn[]> names = new(StringComparer.Ordinal);
         bool resolving = options.ModEntities;
+
+        // Socket furniture (static props with room_socket), by placement:
+        // the link's rule decides which side of a joint keeps its pieces and
+        // drops them at a cap (SocketFurniture), so both maps hold the same.
+        List<Dictionary<string, int>> furniture = [.. layout.Rooms.Select(i => Furniture(byName[i.Placement.Room]))];
+        int? FurnitureOf(int placement, string socket) =>
+            furniture[placement].TryGetValue(socket, out int priority) ? priority : null;
+        HashSet<VmfChunk> droppedFurniture = new(ReferenceEqualityComparer.Instance);
+
         foreach (RoomInstance instance in layout.Rooms)
         {
             LibraryRoom room = byName[instance.Placement.Room];
+            int placementIndex = placedSides.Count;
             QuarterTurn turn = QuarterTurn.Of(new RoomTransform(instance.Placement, layout.CellSize));
             List<Box> opened = [.. instance.Joints.Select(j => RoomLinter.SealBox(
                 room.Definition, room.Definition.Sockets.First(s => s.Name == j.Socket), room.Definition.CellSize))];
@@ -182,6 +192,17 @@ public static class LevelFlattener
                 }
 
                 VmfChunk moved = VmfPlacement.MoveEntity(entity, turn);
+
+                // Furniture the level does not keep stays in the resolver's
+                // list, so every placement of a room lists the same entities
+                // (its names are read once per room), and is left out of the
+                // VMF where the entities are written.
+                if (FurnitureSocket(entity, room.Definition) is { } socket
+                    && !SocketFurniture.Keeps(layout, i => byName[layout.Rooms[i].Placement.Room].Definition, placementIndex, socket.Socket, FurnitureOf))
+                {
+                    droppedFurniture.Add(moved);
+                }
+
                 foreach (VmfChunk solid in moved.GetChunks(MapFileLoader.SolidChunk))
                 {
                     placed.AddSides(solid);
@@ -235,6 +256,11 @@ public static class LevelFlattener
         LevelSingletons singletons = new(split.LibraryEntities);
         foreach ((LevelEntity entity, string room) in entities)
         {
+            if (entity.Payload is VmfChunk payload && droppedFurniture.Contains(payload))
+            {
+                continue;
+            }
+
             if (singletons.Keep(room, entity.Placement, entity.ClassName, [.. entity.Pairs.Select(p => new KeyValuePair<string, string>(p.Key, p.Value ?? string.Empty))]))
             {
                 flat.Chunks.Add(resolution is null ? (VmfChunk)entity.Payload! : Write(entity));
@@ -257,6 +283,49 @@ public static class LevelFlattener
             Warnings = resolution?.Warnings ?? [],
             Notes = resolution?.Verbose ?? [],
         };
+    }
+
+    /// <summary>
+    /// A room's socket furniture: per socket its pieces name, the highest
+    /// <c>socket_priority</c> among them (<see cref="SocketFurniture"/>).
+    /// </summary>
+    private static Dictionary<string, int> Furniture(LibraryRoom room)
+    {
+        Dictionary<string, int> sockets = new(StringComparer.Ordinal);
+        foreach (VmfChunk entity in room.Document.GetChunks(MapFileLoader.EntityChunk))
+        {
+            if (FurnitureSocket(entity, room.Definition) is { } piece)
+            {
+                sockets[piece.Socket] = sockets.TryGetValue(piece.Socket, out int held) ? Math.Max(held, piece.Priority) : piece.Priority;
+            }
+        }
+
+        return sockets;
+    }
+
+    /// <summary>
+    /// The socket a static prop is furniture of, and its priority, when it
+    /// names one of its room's sockets in <c>room_socket</c> (as the room
+    /// compile reads it, <see cref="RoomStaticProps"/>); else null. A key
+    /// naming no socket, which <c>ssmap room</c> refuses, is not furniture
+    /// here: the flatten reads the library, not the rooms' verdicts.
+    /// </summary>
+    private static (string Socket, int Priority)? FurnitureSocket(VmfChunk entity, RoomDefinition definition)
+    {
+        string? className = entity.GetValue("classname");
+        if (!string.Equals(className, "prop_static", StringComparison.Ordinal)
+            && !string.Equals(className, "static_prop", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        string? socket = entity.GetValue(RoomStaticProps.SocketKey);
+        if (socket is null || !definition.Sockets.Any(s => string.Equals(s.Name, socket, StringComparison.Ordinal)))
+        {
+            return null;
+        }
+
+        return (socket, int.TryParse(entity.GetValue(RoomStaticProps.PriorityKey)?.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int priority) ? priority : 0);
     }
 
     /// <summary>
