@@ -62,8 +62,11 @@ internal static class IvpPointSoup<T, TP>
     {
         // Bit-exact de-duplication (the IVP point hash compares the coordinate bytes, so +0 and -0
         // are different points here).
+        // The set is sized for every input point, the most it can hold, so it never rehashes:
+        // a prop hull brings hundreds of points, and each growth copied the whole table
+        // through the runtime's native memmove and left the old one as garbage.
         var unique = new List<IvpPoint<T>>(input.Count);
-        var seen = new HashSet<(T, T, T)>(new BitwiseTripleComparer());
+        var seen = new HashSet<(T, T, T)>(input.Count, new BitwiseTripleComparer());
         foreach (IvpPoint<T> p in input)
         {
             p.W = T.Zero;
