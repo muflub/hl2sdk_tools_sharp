@@ -45,7 +45,7 @@ internal readonly record struct RoomRange(int First, int Count)
 /// <param name="OriginRelative">
 /// Whether its geometry is in the entity's own frame (the entity has an
 /// <c>origin</c>, from an origin brush or its key, and vbsp rebuilt its
-/// brushes relative to it when that is not zero; <see cref="IsOriginRelative"/>
+/// brushes relative to it when that is not zero; <see cref="RoomBrushModels.IsOriginRelative"/>
 /// says why zero counts): then its vertices, planes, texture axes, bounds
 /// and collision turn with the placement and take no translation, the
 /// entity's moved <c>origin</c> supplying it. A world-coordinate model (no
