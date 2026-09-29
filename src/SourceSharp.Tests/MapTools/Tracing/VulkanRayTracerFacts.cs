@@ -707,6 +707,82 @@ public sealed class VulkanRayTracerFacts
         Assert.Equal(one.Hits, three.Hits);
     }
 
+    /// <summary>
+    /// The real device, the callers' way: rays written into the slot memory
+    /// <see cref="VulkanDevice.OpenRays"/> hands out give every raw mode the
+    /// words the drainer's staging call gives them, wide and narrow, on one
+    /// staged slot and on three slots read in place. Telemetry varies per ray
+    /// on llvmpipe, so a lane that read another ray's record would show.
+    /// </summary>
+    [VulkanStageFact(VulkanNeed.PassingDevice)]
+    public void RaysWrittenIntoOpenSlotsGiveTheWordsOfStagedRays()
+    {
+        (TracedTriangle[] tris, Ray[] rays) = Lattice(rays: 4608, planes: 16, seed: 29);
+        for (int i = 1024; i < 2048; i++)
+        {
+            rays[i] = rays[i] with { MaxDistance = 1.0f };
+        }
+
+        Assert.Equal(0x3F800000u, RayRecord.UniformReachOf(rays.AsSpan(1024, 512)));
+        foreach ((int slots, bool staged) in new[] { (1, true), (3, false) })
+        {
+            uint[][] byStage = RawWords(tris, rays, slots, staged, out _, packed: true);
+            uint[][] byOpen = RawWords(tris, rays, slots, staged, out SlabMemoryLayout layout, packed: true, open: true);
+            uint[][] wideOpen = RawWords(tris, rays, slots, staged, out _, open: true);
+            Assert.Equal(staged, !layout.DirectRays);
+            for (int m = 0; m < RawModes.Length; m++)
+            {
+                Assert.True(byStage[m].AsSpan().SequenceEqual(byOpen[m]),
+                    $"mode {RawModes[m]} differs between staged and open-slot writes ({slots} slots, staged: {staged})");
+                Assert.True(byStage[m].AsSpan().SequenceEqual(wideOpen[m]),
+                    $"mode {RawModes[m]} differs between packed and wide open-slot writes ({slots} slots, staged: {staged})");
+            }
+
+            Assert.Null(WhyRawWordsAreVacuous(byOpen[1], byOpen[3]));
+        }
+    }
+
+    /// <summary>
+    /// End to end through <see cref="SlabBatcher"/> on the real device, the
+    /// callers writing their own rays into open slots against the drainer
+    /// packing them: the same bits and hits, one staged slot or three read
+    /// in place, with wide and narrow requests mixed.
+    /// </summary>
+    [HwGpuFact]
+    public async Task CallerWrittenSlabsAnswerAsTheDrainersPackOnTheDevice()
+    {
+        (TracedTriangle[] tris, Ray[] rays) = Lattice(rays: 16_384, planes: 16, seed: 37);
+
+        // Every third 64-ray block shares a reach of 1, so some requests go
+        // narrow and share slabs only with each other.
+        for (int i = 0; i < rays.Length; i++)
+        {
+            if (i / 64 % 3 == 0)
+            {
+                rays[i] = rays[i] with { MaxDistance = 1.0f };
+            }
+        }
+
+        foreach ((int slots, bool staged) in new[] { (1, true), (3, false) })
+        {
+            (ulong[] Bits, HitId[] Hits) packed = await TraceThroughBatcher(tris, rays, slots, staged);
+            GpuTraceStatistics? stats = null;
+            (ulong[] Bits, HitId[] Hits) written = await TraceThroughBatcher(
+                tris, rays, slots, staged, SlabWrites.Callers, s => stats = s);
+
+            Assert.Equal(packed.Bits, written.Bits);
+            Assert.Equal(packed.Hits, written.Hits);
+
+            // Not vacuous: the lattice both blocks and passes rays, and has closest hits and misses.
+            Assert.Contains(written.Bits, w => w != 0);
+            Assert.Contains(written.Bits, w => w != ulong.MaxValue);
+            Assert.Contains(written.Hits, h => h.IsHit);
+            Assert.Contains(written.Hits, h => !h.IsHit);
+            Assert.True(stats!.Value.CallerRays > 0, "no ray was written by a caller");
+            Assert.Equal(slots, stats.Value.Slots);
+        }
+    }
+
     private static readonly int[] RawModes = [4, 5, 0, 1];
 
     private static float[] Vertices(TracedTriangle[] tris)
@@ -726,16 +802,18 @@ public sealed class VulkanRayTracerFacts
         return v;
     }
 
-    private static VulkanDevice OpenRaw(TracedTriangle[] tris, int slots, bool forceStaged)
+    private static VulkanDevice OpenRaw(TracedTriangle[] tris, int slots, bool forceStaged, int openSlots = 0)
     {
-        // 512 rays a slot: the lattice batches cross many slabs.
+        // 512 rays a slot: the lattice batches cross many slabs. The open
+        // slots share the budget like the rest.
         VulkanDevice device = new();
         try
         {
-            device.Construct(null, -1, 512 * slots, slots, forceStaged);
+            device.Construct(null, -1, 512 * (slots + openSlots), slots, forceStaged, openSlots: openSlots);
             device.LoadScene(Vertices(tris));
             Assert.Equal(512, device.MaxSlabRays);
-            Assert.Equal(slots, device.SlotCount);
+            Assert.Equal(slots + openSlots, device.SlotCount);
+            Assert.Equal(slots, device.MaxSlabsInFlight);
             return device;
         }
         catch
@@ -749,10 +827,14 @@ public sealed class VulkanRayTracerFacts
     /// <remarks>
     /// Wide records unless <paramref name="packed"/>, which packs each slab
     /// in the record the batcher would choose for it: 24 bytes where the
-    /// slab's rays share a reach, 28 where they do not.
+    /// slab's rays share a reach, 28 where they do not. Written through the
+    /// staging call, as the drainer packs, unless <paramref name="open"/>,
+    /// which writes each slab into the whole slot memory
+    /// <see cref="VulkanDevice.OpenRays"/> hands out, as a caller does.
     /// </remarks>
     private static uint[][] RawWords(
-        TracedTriangle[] tris, Ray[] rays, int slots, bool forceStaged, out SlabMemoryLayout layout, bool packed = false)
+        TracedTriangle[] tris, Ray[] rays, int slots, bool forceStaged, out SlabMemoryLayout layout, bool packed = false,
+        bool open = false)
     {
         using VulkanDevice device = OpenRaw(tris, slots, forceStaged);
         layout = device.SlabLayout;
@@ -773,7 +855,10 @@ public sealed class VulkanRayTracerFacts
                     int count = Math.Min(slab, rays.Length - start);
                     ReadOnlySpan<Ray> slabRays = rays.AsSpan(start, count);
                     RayRecord record = packed ? RayRecord.For(RayRecord.UniformReachOf(slabRays)) : RayRecord.Wide;
-                    record.Pack(slabRays, device.StageRays(s, count, record).Span);
+                    Span<uint> into = open
+                        ? device.OpenRays(s).Span[..(count * record.Words)]
+                        : device.StageRays(s, count, record).Span;
+                    record.Pack(slabRays, into);
                     device.Submit(s, mode, count, WordsFor(count), SelfIntersectionTminBits, VulkanDevice.TmaxScaleBits, record);
                     launched.Add((s, start, count));
                 }
@@ -794,10 +879,11 @@ public sealed class VulkanRayTracerFacts
     private const uint SelfIntersectionTminBits = 0x3A83126Fu; // 1e-3f
 
     private static async Task<(ulong[] Bits, HitId[] Hits)> TraceThroughBatcher(
-        TracedTriangle[] tris, Ray[] rays, int slots, bool forceStaged)
+        TracedTriangle[] tris, Ray[] rays, int slots, bool forceStaged, SlabWrites writes = SlabWrites.Drainer,
+        Action<GpuTraceStatistics>? inspect = null)
     {
-        VulkanDevice device = OpenRaw(tris, slots, forceStaged);
-        SlabBatcher batcher = new(device, [.. tris.Select(t => t.Id)], VulkanDevice.TmaxScaleBits);
+        VulkanDevice device = OpenRaw(tris, slots, forceStaged, writes == SlabWrites.Callers ? SlabBatcher.OpenSlabs : 0);
+        SlabBatcher batcher = new(device, [.. tris.Select(t => t.Id)], VulkanDevice.TmaxScaleBits, writes);
         try
         {
             ulong[] bits = new ulong[(rays.Length + 63) / 64];
@@ -817,6 +903,7 @@ public sealed class VulkanRayTracerFacts
             }
 
             await Task.WhenAll(calls).WaitAsync(TimeSpan.FromMinutes(5));
+            inspect?.Invoke(batcher.Statistics);
             return (bits, hits);
         }
         finally

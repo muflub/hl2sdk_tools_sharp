@@ -188,10 +188,15 @@ public sealed class VulkanDeviceSlotRingFacts
             Assert.Equal(Result.Timeout, Assert.Throws<VulkanException>(() => device.StageRays(0, 64, RayRecord.Wide)).Result);
             Assert.Equal(Result.Timeout, Assert.Throws<VulkanException>(
                 () => device.Submit(0, 4, 64, 2, 0, VulkanDevice.TmaxScaleBits, RayRecord.Wide)).Result);
-            Assert.Equal(4, fences.Waits);
+
+            // Nor is its memory handed to callers to write into.
+            Assert.Equal(Result.Timeout, Assert.Throws<VulkanException>(() => device.OpenRays(0)).Result);
+            Assert.Equal(5, fences.Waits);
             Assert.Equal(0, fences.Resets);
 
             fences.Signalled = true;
+            Assert.Equal(SmallSlab * RayRecord.WideWords, device.OpenRays(0).Length);
+            Assert.Equal(1, fences.Resets);
             _ = device.StageRays(0, 64, RayRecord.Wide);
             Assert.Equal(1, fences.Resets);
 
@@ -205,6 +210,32 @@ public sealed class VulkanDeviceSlotRingFacts
             device.FenceWaits = driver;
             device.Dispose();
         }
+    }
+
+    /// <summary>
+    /// The open slots callers write into are slots like the rest, beyond the
+    /// ones that may be on the device together, and share the ray budget:
+    /// more slots, smaller slabs, the same memory. More open slots than the
+    /// batcher uses, or fewer than none, are refused.
+    /// </summary>
+    [VulkanStageFact(VulkanNeed.RayQueryDevice)]
+    public void OpenSlotsAreExtraSlotsThatShareTheBudget()
+    {
+        using VulkanDevice device = new();
+        device.Construct(null, -1, 5 * SmallSlab, 3, openSlots: SlabBatcher.OpenSlabs);
+        Assert.Equal(3 + SlabBatcher.OpenSlabs, device.SlotCount);
+        Assert.Equal(3, device.MaxSlabsInFlight);
+        Assert.Equal(SmallSlab, device.MaxSlabRays);
+        for (int slot = 0; slot < device.SlotCount; slot++)
+        {
+            Assert.Equal(SmallSlab * RayRecord.WideWords, device.OpenRays(slot).Length);
+        }
+
+        using VulkanDevice tooMany = new();
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => tooMany.Construct(null, -1, SmallSlab, 1, openSlots: SlabBatcher.OpenSlabs + 1));
+        using VulkanDevice negative = new();
+        Assert.Throws<ArgumentOutOfRangeException>(() => negative.Construct(null, -1, SmallSlab, 1, openSlots: -1));
     }
 
     /// <summary>

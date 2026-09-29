@@ -26,12 +26,15 @@ namespace SourceSharp.MapTools.Gpu;
 /// index pin. Takes effect before <paramref name="DeviceMatch"/>.
 /// </param>
 /// <param name="MaxRaysPerSlab">
-/// The ray budget for the slabs in flight together: each of the
-/// <see cref="SlabsInFlight"/> slabs holds an equal share, and the device's
-/// buffer-binding limit can only lower that. 4,194,304 rays = 128 MB of ray
-/// bytes, the spec's minimum <c>maxStorageBufferBindingSize</c> and what a
-/// single slab held before slabs were pipelined, so pipelining costs no
-/// extra memory.
+/// The ray budget for every slab slot together: each of the
+/// <see cref="SlabsInFlight"/> slabs, and each of the
+/// <c>SlabBatcher.OpenSlabs</c> slots vrad's workers write their rays into
+/// meanwhile, holds an equal share, and the device's buffer-binding limit
+/// can only lower that. 4,194,304 rays = 128 MB of ray bytes, the spec's
+/// minimum <c>maxStorageBufferBindingSize</c> and what a single slab held
+/// before slabs were pipelined, so neither pipelining nor the open slots
+/// cost extra memory: 4,194,304 over five slots is 838,848 rays a slab,
+/// still several times what vrad queues at once.
 /// </param>
 /// <param name="DispatchTimeoutSeconds">
 /// How long a dispatched slab may leave its fence unsignalled before the
@@ -300,7 +303,7 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
     public int MaxRaysPerSlab => _device.MaxSlabRays;
 
     /// <summary>How many slabs this tracer keeps on the device at once.</summary>
-    public int SlabsInFlight => _device.SlotCount;
+    public int SlabsInFlight => _device.MaxSlabsInFlight;
 
     /// <summary>Triangles in the loaded BLAS.</summary>
     public int TriangleCount => (int)_device.TriangleCount;
@@ -323,9 +326,10 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
         _device = device;
         _triangleIds = triangleIds;
         SelfTest = selfTest;
-        // Every batch goes through one drainer that packs concurrent callers'
-        // rays into shared slabs (SlabBatcher's remarks say why).
-        _batcher = new SlabBatcher(device, triangleIds, TmaxScaleBits);
+        // Every batch goes through one drainer that submits concurrent
+        // callers' rays in shared slabs, and each caller writes its own rays
+        // into the slab it joins (SlabBatcher's remarks say why).
+        _batcher = new SlabBatcher(device, triangleIds, TmaxScaleBits, SlabWrites.Callers);
         TracerIdentity = string.Concat(
             "gpu-vulkan-rayquery-",
             device.DeviceName.Replace(' ', '-'),
@@ -628,7 +632,8 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
             // the box really has (the device-pin diagnostic the tools owe).
             inventory.AddRange(VulkanDevice.ProbeDevices());
             device.Construct(
-                options.DeviceMatch, options.DeviceIndex, options.MaxRaysPerSlab, slots, physicalDevice: physicalDevice);
+                options.DeviceMatch, options.DeviceIndex, options.MaxRaysPerSlab, slots, physicalDevice: physicalDevice,
+                openSlots: SlabBatcher.OpenSlabs);
             cancellationToken.ThrowIfCancellationRequested();
 
             observe?.Invoke(TryCreateStage.Constructed);
