@@ -207,7 +207,7 @@ Each takes the stock tool's options. Accepted flags include:
   `-StaticPropLighting`, `-StaticPropPolys`, `-textureshadows`,
   `-ambientocclusion` (with `-aoradius`, `-aoscale` and friends),
   `-lights`, `-scale`, `-ambient`, `-threads`, `-compliance`, `-gpu`,
-  `-gpu_slabs`.
+  `-gpu_slabs`, `-gpu_depth`.
 
 The authoritative list for each stage is the parser in
 `src/SourceSharp.MapTools/Options/StockArgs.cs`.
@@ -234,7 +234,7 @@ Runs the three stages in one process with the BSP in memory. Each
 Chain options apply to every stage: `-game`, `-threads`, `-compliance`, `-v`,
 `-fast`, `-tighten`, `-loose`, `-cooker`, `-vphysics`, `-listcompliance`,
 `-nocache`, `-incremental`, `-cache-dir <dir>`, `-gpu <match|auto>`,
-`-gpu_slabs <n>`, `--no-write` (compile without writing the map) and
+`-gpu_slabs <n>`, `-gpu_depth <n>`, `--no-write` (compile without writing the map) and
 `--record-content <zip>`.
 
 `--record-content <zip>` records every game file the compile looked up and
@@ -724,6 +724,23 @@ answer, the driver name and version, and the flags used, in the warning.
 Hosts using the library get the same policy with
 `VulkanRayTracerOptions.DeclineSlowDevicesUnlessPinned` (off by default)
 and can move the floor with `MinUploadBytesPerSecond`.
+
+Direct light keeps the GPU fed by pipelining: each worker keeps up to four
+batches of 16,384 rays traced and not yet resolved (`-gpu_depth <n>`, 1 to
+64), filling the next while earlier ones trace and resolving each as its
+answers arrive, in the order it filled them, so the lightmaps are the same
+bytes at every depth and on every tracer. `vrad --bench` prints where the
+rays went and what the device did:
+
+    bench trace tracer=<id> gpu=on rays=N gpu.visibility=... cpu.sky=... parked=...s parked.facelights=...s ...
+    bench gpu requests=N slabs=N busy=...s fencewait=...s pack=...s readback=...s rays=direct|staged ... peakinflight=3/3 fallbackrays=N
+
+`gpu=off`, `gpu=declined` (with the reason on the `bench gpu` line) or
+`gpu=on` says whether the GPU answered at all; `parked` is worker time spent
+waiting on a batch in flight, per stage; `busy` is the host-side span with a
+slab on the device, `pack` and `readback` the host's copies, and
+`rays=staged` a device without resizable BAR, where every slab is also
+copied on the device.
 
 ## Measuring performance
 

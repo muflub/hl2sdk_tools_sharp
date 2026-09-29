@@ -243,7 +243,10 @@ public static class Vrad
             }
         }
 
-        IRayTracer tracer = prepared.Tracer;
+        // Every batch of the compile is counted on its way to the tracer
+        // (MeteredRayTracer); the meter is this compile's and goes with it.
+        RayTraceMeter meter = new();
+        MeteredRayTracer tracer = new(prepared.Tracer, meter);
 
         // The compile's scratch: every stage's large per-worker buffers come
         // from here and go back here, so one stage's outgrown or finished
@@ -279,7 +282,54 @@ public static class Vrad
             passes.Add(pass);
         }
 
-        return new RadResult(passes, diagnostics, notYet);
+        return new RadResult(passes, diagnostics, notYet)
+        {
+            Tracing = meter.Report(tracer, GpuStatusOf(context, prepared.Tracer), DeclineReason(diagnostics)),
+        };
+    }
+
+    /// <summary>Whether this compile's batches could go to a GPU, and whether they did.</summary>
+    /// <param name="context">The compile's context: was a GPU asked for?</param>
+    /// <param name="tracer">The tracer the compile traced with, unwrapped.</param>
+    /// <returns>On when a GPU tracer answered, Declined when one was asked for and refused, else Off.</returns>
+    /// <remarks>
+    /// A host's own tracer (<see cref="VradContext.Tracer"/>) is On when it
+    /// reports GPU statistics: the host asked for no factory, but its tracer
+    /// may still be a device.
+    /// </remarks>
+    internal static GpuTraceStatus GpuStatusOf(VradContext context, IRayTracer tracer) => tracer switch
+    {
+        HybridRayTracer or IGpuTraceStatistics => GpuTraceStatus.On,
+        _ when context.GpuTracerFactory is not null && context.Tracer is null => GpuTraceStatus.Declined,
+        _ => GpuTraceStatus.Off,
+    };
+
+    // The decline warning's wording around the backend's own reason.
+    private const string DeclinedPrefix = "gpu tracer declined: ";
+    private const string DeclinedSuffix = " — CPU KD tracer for this run";
+
+    /// <summary>
+    /// The backend's own reason, out of the decline warning BuildTracerAsync
+    /// wrote (the bench line says "declined" itself); null when there was none.
+    /// </summary>
+    /// <param name="diagnostics">The compile's diagnostics.</param>
+    /// <returns>The reason, without the warning's wording around it.</returns>
+    internal static string? DeclineReason(IEnumerable<CompileDiagnostic> diagnostics)
+    {
+        string? message = diagnostics.FirstOrDefault(d => d.Code == VradCodes.GpuTracerDeclined)?.Message;
+        if (message is null)
+        {
+            return null;
+        }
+
+        if (message.StartsWith(DeclinedPrefix, StringComparison.Ordinal))
+        {
+            message = message[DeclinedPrefix.Length..];
+        }
+
+        return message.EndsWith(DeclinedSuffix, StringComparison.Ordinal)
+            ? message[..^DeclinedSuffix.Length]
+            : message;
     }
 
     // A pass's head: RadWorld_Start's -luxeldensity edit, the range's
@@ -369,6 +419,10 @@ public static class Vrad
         world.ReuseTransfers = reuseTransfers;
         world.TransferCache = context.TransferCache;
         world.TransferTracerDigest = tracerDigest;
+        if (context.GpuPipelineDepth != 0)
+        {
+            world.FacelightPipelineDepth = context.GpuPipelineDepth;
+        }
 
         RadPass pass = new(
             world, tracer, options, content, parallelism, context.MapName,
@@ -673,8 +727,7 @@ public static class Vrad
 
             warn(
                 VradCodes.GpuTracerDeclined,
-                $"gpu tracer declined: {offer.DeclineReason ?? "the factory offered nothing"} — "
-                + "CPU KD tracer for this run");
+                DeclinedPrefix + (offer.DeclineReason ?? "the factory offered nothing") + DeclinedSuffix);
         }
 
         return (cpu, TracerKey(cpu, digest));

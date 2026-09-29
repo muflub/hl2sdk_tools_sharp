@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 
 using SourceSharp.MapTools.Parallel;
@@ -281,7 +282,12 @@ internal static class TestLineStage
         TestLineWorker<TState, TResult> worker, Claims claims, TResult[] results, int batchSegments, int batchItems)
     {
         private readonly List<(int Item, TState State)> _planned = [];
+        private readonly RayTraceMeter? _meter = RayTraceMeter.Of(worker.Lines.Tracer);
         private bool _parked;
+
+        // When this runner parked on its batch, in Stopwatch ticks; the span
+        // to its next run is parked worker time (RayTraceMeter's remarks).
+        private long _parkedAt;
 
         /// <summary>The worker this runner drives; the stage disposes it.</summary>
         public TestLineWorker<TState, TResult> Worker => worker;
@@ -291,6 +297,11 @@ internal static class TestLineStage
 
         public void Run(WorkerContext context)
         {
+            if (_parked && _meter is not null)
+            {
+                _meter.AddParked(TraceWaitStage.Other, Stopwatch.GetTimestamp() - _parkedAt);
+            }
+
             while (true)
             {
                 context.ThrowIfShouldStop();
@@ -316,6 +327,7 @@ internal static class TestLineStage
                     if (Pending.Count > 0)
                     {
                         _parked = true;
+                        _parkedAt = Stopwatch.GetTimestamp();
                         return;
                     }
                 }

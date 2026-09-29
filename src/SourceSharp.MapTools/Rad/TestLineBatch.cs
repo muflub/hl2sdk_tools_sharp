@@ -119,6 +119,9 @@ public sealed class TestLineBatch : IDisposable
     private State _state;
     private bool _disposed;
 
+    /// <summary>The tracer the batch traces with; its meter, if any, counts the stage's parked time.</summary>
+    internal IRayTracer Tracer => _tracer;
+
     /// <summary>Makes an empty batch over a tracer, its storage its own.</summary>
     /// <param name="tracer">The tracer every trace asks.</param>
     /// <exception cref="ArgumentNullException"><paramref name="tracer"/> is null.</exception>

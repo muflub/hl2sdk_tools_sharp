@@ -218,6 +218,9 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// <summary>Where the slab buffers live; see <see cref="SlabMemory"/>.</summary>
     public SlabMemoryLayout SlabLayout { get; private set; }
 
+    /// <inheritdoc/>
+    SlabMemoryLayout ISlabDevice.Layout => SlabLayout;
+
     /// <summary>How many triangles the BLAS was built from.</summary>
     public uint TriangleCount => _triangleCount;
 
@@ -1963,7 +1966,8 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// may still be using its buffers.
     /// </exception>
     /// <exception cref="InvalidOperationException">The slot was not submitted.</exception>
-    public void Complete(int slot, Span<uint> outWords)
+    /// <returns>Stopwatch ticks the copy out of the slot's host memory took, after the wait.</returns>
+    public long Complete(int slot, Span<uint> outWords)
     {
         SlabSlot s = _slots[slot];
         if (!s.Pending)
@@ -1972,7 +1976,9 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         }
 
         Retire(s);
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
         new ReadOnlySpan<uint>((void*)s.HostOut!.Mapped, outWords.Length).CopyTo(outWords);
+        return System.Diagnostics.Stopwatch.GetTimestamp() - start;
     }
 
     /// <summary>

@@ -586,6 +586,7 @@ public static class StockArgs
         VradOptions options = VradOptions.Default;
         string? gpuDeviceMatch = null;
         int? gpuRaysPerSlab = null;
+        int? gpuPipelineDepth = null;
 
         while (cursor.MoveNext(out string arg))
         {
@@ -1006,6 +1007,22 @@ public static class StockArgs
                     }
                 }
             }
+            else if (Is(arg, "-gpu_depth"))
+            {
+                // Batches each face-lighting worker keeps in flight on the
+                // GPU (VradContext.GpuPipelineDepth); not stock's vocabulary.
+                if (cursor.TryInt(arg, out int depth))
+                {
+                    if (depth < 1 || depth > Rad.Light.RadWorld.MaxFacelightPipelineDepth)
+                    {
+                        cursor.OutOfRange(arg, $"must be 1 to {Rad.Light.RadWorld.MaxFacelightPipelineDepth}");
+                    }
+                    else
+                    {
+                        gpuPipelineDepth = depth;
+                    }
+                }
+            }
             else
             {
                 Common(cursor, arg, options.Verbose);
@@ -1018,6 +1035,7 @@ public static class StockArgs
             Threads = requestedThreads,
             GpuDeviceMatch = gpuDeviceMatch,
             GpuRaysPerSlab = gpuRaysPerSlab,
+            GpuPipelineDepth = gpuPipelineDepth,
         };
     }
 

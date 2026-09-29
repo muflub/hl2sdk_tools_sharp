@@ -113,6 +113,9 @@ public sealed class HybridRayTracer : IRayTracer, IDisposable
     /// <summary>The KD tracer that answers the batches the GPU cannot.</summary>
     public KdRayTracer CpuTracer { get; }
 
+    /// <summary>The GPU tracer that answers every batch it honours; the bench reads its statistics.</summary>
+    public IRayTracer GpuTracer => _gpu;
+
     /// <inheritdoc/>
     public string TracerIdentity => _gpu.TracerIdentity + "+kd-fallback";
 

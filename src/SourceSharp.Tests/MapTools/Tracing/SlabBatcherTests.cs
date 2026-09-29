@@ -6,7 +6,10 @@
 //=============================================================================//
 
 
+using System.Diagnostics;
+
 using SourceSharp.MapTools.Gpu;
+using SourceSharp.MapTools.Gpu.Interop;
 using SourceSharp.MapTools.Tracing;
 
 using Xunit;
@@ -104,7 +107,13 @@ public sealed class SlabBatcherTests
             MaxInFlight = Math.Max(MaxInFlight, Interlocked.Increment(ref _inFlight));
         }
 
-        public void Complete(int slot, Span<uint> outWords)
+        /// <summary>What <see cref="Complete"/> reports as its readback time, in ticks.</summary>
+        public long ReadbackTicks { get; set; }
+
+        /// <summary>The slab memory layout reported to the bench.</summary>
+        public SlabMemoryLayout Layout { get; set; }
+
+        public long Complete(int slot, Span<uint> outWords)
         {
             using Call call = Enter();
             Submitted sub = _slots[slot] ?? throw new InvalidOperationException("completed a slot never submitted");
@@ -147,6 +156,18 @@ public sealed class SlabBatcherTests
                     outWords[(i * 2) + 1] = (uint)BitConverter.SingleToInt32Bits(staging[b + 1]);
                 }
             }
+
+            // A real device's readback is part of the time Complete takes, and
+            // the batcher subtracts it from that time to get the fence wait.
+            // Reporting it without spending it would make the fence wait come
+            // out short by the whole readback, so spend it here.
+            long readbackEnd = Stopwatch.GetTimestamp() + ReadbackTicks;
+            while (Stopwatch.GetTimestamp() < readbackEnd)
+            {
+                Thread.SpinWait(64);
+            }
+
+            return ReadbackTicks;
         }
 
         // The batcher promises one caller at a time; overlapping calls fail the fact.
@@ -330,6 +351,86 @@ public sealed class SlabBatcherTests
 
         Assert.Equal([10, 600], device.RaysPerDispatch);
         Assert.Equal(2, batcher.Dispatches);
+    }
+
+    [Fact]
+    public async Task TheStatisticsCountRequestsSlabsThePeakAndTheSpansTheDeviceWasBusy()
+    {
+        FakeDevice device = new(64, 3);
+        device.Gate.Reset();
+        SlabBatcher batcher = new(device, Ids, 0);
+        Assert.Equal(new GpuTraceStatistics(0, 0, TimeSpan.Zero, TimeSpan.Zero, 0, 3), batcher.Statistics);
+        Assert.False(batcher.Statistics.RaysInPlace);
+
+        // 1000 closest rays are 16 slabs of 64; the drainer fills all three
+        // slots before it waits on the first, and waits behind a closed gate.
+        Task closest = batcher.TraceClosestAsync(Rays(1000, 1), new HitId[1000], 0, CancellationToken.None);
+        Task empty = batcher.TraceClosestAsync(ReadOnlyMemory<Ray>.Empty, Memory<HitId>.Empty, 0, CancellationToken.None);
+        await device.DrainerWaiting.Task.WaitAsync(Patience);
+
+        // A span still open is counted up to the read.
+        Thread.Sleep(20);
+        GpuTraceStatistics during = batcher.Statistics;
+        Assert.True(during.Busy >= TimeSpan.FromMilliseconds(15), $"busy {during.Busy} while a slab waits");
+        Assert.Equal(3, during.PeakSlabsInFlight);
+
+        device.Gate.Set();
+        await Task.WhenAll(closest, empty).WaitAsync(Patience);
+        GpuTraceStatistics after = batcher.Statistics;
+
+        // An empty request is answered without the device and is not counted.
+        Assert.Equal(1, after.Requests);
+        Assert.Equal(16, after.Slabs);
+        Assert.Equal(batcher.Dispatches, after.Slabs);
+        Assert.Equal(3, after.PeakSlabsInFlight);
+        Assert.Equal(3, after.Slots);
+
+        // The wait behind the gate was the drainer blocked on a fence, inside
+        // the span the device was busy; with nothing in flight the span is
+        // closed, so a later read does not grow it.
+        Assert.True(after.FenceWait >= TimeSpan.FromMilliseconds(15), $"fence wait {after.FenceWait}");
+        Assert.True(after.Busy >= after.FenceWait, $"busy {after.Busy} < fence wait {after.FenceWait}");
+        Thread.Sleep(20);
+        Assert.Equal(after.Busy, batcher.Statistics.Busy);
+    }
+
+    [Fact]
+    public async Task ThePackAndReadbackTimesAreTheHostsCopiesAndTheLayoutIsTheDevices()
+    {
+        long tick = Stopwatch.Frequency / 1000;
+        FakeDevice device = new(64, 2) { ReadbackTicks = 3 * tick, Layout = new SlabMemoryLayout(true, false) };
+        device.Gate.Reset();
+        SlabBatcher batcher = new(device, Ids, 0);
+
+        Task closest = batcher.TraceClosestAsync(Rays(200, 1), new HitId[200], 0, CancellationToken.None);
+        await device.DrainerWaiting.Task.WaitAsync(Patience);
+        Thread.Sleep(30);
+        device.Gate.Set();
+        await closest.WaitAsync(Patience);
+        GpuTraceStatistics stats = batcher.Statistics;
+
+        // Four slabs, each reporting 3 ms of readback; the fence wait is the
+        // rest of each Complete, so it does not count the readback twice.
+        Assert.Equal(4, stats.Slabs);
+        Assert.Equal(TimeSpan.FromMilliseconds(12), stats.Readback);
+        Assert.True(stats.FenceWait >= TimeSpan.FromMilliseconds(20), $"fence wait {stats.FenceWait}");
+        Assert.True(stats.RaysInPlace);
+        Assert.False(stats.AnswersInPlace);
+    }
+
+    [Fact]
+    public async Task AFailedCompletionStillClosesTheBusySpan()
+    {
+        FakeDevice device = new(256) { FailComplete = (0, new InvalidOperationException("device lost")) };
+        SlabBatcher batcher = new(device, Ids, 0);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => batcher.TraceClosestAsync(Rays(10, 1), new HitId[10], 0, CancellationToken.None).WaitAsync(Patience));
+
+        TimeSpan busy = batcher.Statistics.Busy;
+        Thread.Sleep(20);
+        Assert.Equal(busy, batcher.Statistics.Busy);
+        Assert.Equal(1, batcher.Statistics.Slabs);
     }
 
     [Fact]

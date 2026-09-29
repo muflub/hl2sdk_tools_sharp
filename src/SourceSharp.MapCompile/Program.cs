@@ -447,7 +447,8 @@ public static class Program
                                                        -compliance -v -fast -tighten -loose -cooker -vphysics
                                                        -listcompliance -nocache -incremental
                                                        -cache-dir <dir> -gpu <match|auto>
-                                                       -gpu_slabs <n> -overlap --no-write
+                                                       -gpu_slabs <n> -gpu_depth <n> -overlap
+                                                       --no-write
                                                        --record-content <zip>: also write every
                                                        game file the compile read, as a game
                                                        directory with its own gameinfo.txt

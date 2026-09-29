@@ -265,7 +265,7 @@ public readonly record struct VulkanTracerAttempt(
 /// rays.
 /// </para>
 /// </remarks>
-public sealed class VulkanRayTracer : IRayTracer, IDisposable
+public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposable
 {
     /// <summary>The kernel's any-hit tmax shrink as float bits: <c>1 - 2^-24</c>, the largest float below 1.</summary>
     private const uint TmaxScaleBits = 0x3F7FFFFFu;
@@ -304,6 +304,16 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
 
     /// <summary>Peak bytes of Vulkan memory this instance has had allocated at once.</summary>
     public long PeakDeviceBytes => _device.PeakAllocationBytes;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// The slab batcher's counters: slabs submitted, the host-side span with
+    /// a slab on the device, the drainer's fence waits and the deepest the
+    /// slot ring ran. Readable while the tracer works and after it is
+    /// disposed, so the bench can print them once the compile has released
+    /// the device.
+    /// </remarks>
+    public GpuTraceStatistics GpuStatistics => _batcher.Statistics;
 
     private VulkanRayTracer(VulkanDevice device, int[] triangleIds, SelfTestRecord selfTest)
     {

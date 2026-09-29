@@ -162,6 +162,25 @@ public sealed class FaceLightPacketTests
     }
 
     [Fact]
+    public async Task WorkersParkedOnLateSlabsAreMeteredAsFacelightTimeAndEveryRayIsCounted()
+    {
+        LightTestMap map = SpotAndOccluderBox();
+        FaceLight?[] expected = await LightAsync(map, new PacketLaneTracer(), 2, 40);
+
+        RayTraceMeter late = new();
+        ScrambledRayTracer scrambled = new(new PacketLaneTracer(), seed: 2);
+        AssertSameLight(expected, await LightAsync(map, new MeteredRayTracer(scrambled, late), 2, 40));
+        Assert.True(late.Parked(TraceWaitStage.Facelights) > TimeSpan.Zero);
+        Assert.Equal(scrambled.TotalRays, late.Route(gpu: false).Rays);
+        Assert.Equal(scrambled.Calls, late.Route(gpu: false).Batches);
+
+        RayTraceMeter prompt = new();
+        AssertSameLight(expected, await LightAsync(map, new MeteredRayTracer(new PacketLaneTracer(), prompt), 2, 40));
+        Assert.Equal(TimeSpan.Zero, prompt.Parked(TraceWaitStage.Facelights));
+        Assert.Equal(late.Route(gpu: false).Rays, prompt.Route(gpu: false).Rays);
+    }
+
+    [Fact]
     public async Task APreCancelledTokenLightsNothing()
     {
         LightTestMap map = SpotAndOccluderBox();

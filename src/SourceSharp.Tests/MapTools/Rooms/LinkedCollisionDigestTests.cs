@@ -32,6 +32,14 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// holding them afterwards is what shows that change moved nothing.
 /// </para>
 /// <para>
+/// The whole-BSP digests were recaptured when the link began sharing
+/// planes, texdata, texinfo and strings across rooms: that renumbers the
+/// tables and every reference into them, so the file's bytes move while the
+/// collision digests, which the sharing does not reach, stay as they were.
+/// The new values are the same with the three-pass inertia and with the
+/// one-pass, so they still pin both changes.
+/// </para>
+/// <para>
 /// The compile runs under <c>ComplianceOptions.Correct</c>, whose collision
 /// arithmetic is double and takes no CPU estimate, so each digest is one
 /// string on every runner. Any intended change to the link's or the room
@@ -44,9 +52,9 @@ public sealed class LinkedCollisionDigestTests(Rooms3x3Fixture fixture) : IClass
     /// <summary>Each case with the SHA-256 of its linked BSP (canonical) and of its <c>PhysCollide</c> lump.</summary>
     public static TheoryData<string, string, string> Digests => new()
     {
-        { "rooms3x3", "174B22147BF2F84B784C369D79AC4152BB5807D4E931B08EAFCA97D958EFF447", "4A83B0D1DD9F1EDA93533C46AA1F4A9B9B58B1032F451618C883353679F8E1EA" },
-        { "rooms3x3_turn1", "3D6975B2AE93DF7E2A480B62699906F434D07F9B606C931D7A886F2899412F09", "C9E5B9A4AD15C92CDCBCE1F6E68E9CAC7BD1490707CE6AC9FB961EDFC56F14D4" },
-        { "seed_9", "DB77DEF5CD71BD6D4EE9E6B9BF6432AB1FAECB761045EA2004370AF89934011D", "27515AC3F80C818514521B8ACA31FFC64C144EF9A74B32BFD330ACDB9EA73F85" },
+        { "rooms3x3", "DC40723B4CBE9780F2BE605FEA5363E64A6904F94D0BA96ECB0ACF82CE0AFD91", "4A83B0D1DD9F1EDA93533C46AA1F4A9B9B58B1032F451618C883353679F8E1EA" },
+        { "rooms3x3_turn1", "79C79B641F9C09F9803E322C821CD0B65CDFC6A4D0CBFF9AA44EE8A868B30B71", "C9E5B9A4AD15C92CDCBCE1F6E68E9CAC7BD1490707CE6AC9FB961EDFC56F14D4" },
+        { "seed_9", "2A4B73C07F88FE83D4494B7A77E477D317FD7DA2D6BE884D272C28DE22EA2108", "27515AC3F80C818514521B8ACA31FFC64C144EF9A74B32BFD330ACDB9EA73F85" },
     };
 
     /// <summary>A case links to its pinned bytes.</summary>
