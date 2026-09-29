@@ -284,7 +284,7 @@ public sealed class LevelLinkerDoorLightTests(LitRoomsFixture fixture, ITestOutp
         }
 
         Assert.NotEmpty(level.LightingWarnings);
-        Assert.All(level.LightingWarnings, w => Assert.Matches(@"^room hub at cell \(0, 0\): face \d+ would need [56] light styles with its neighbours' door light; style \d+ was left out\.$", w));
+        Assert.All(level.LightingWarnings, w => Assert.Matches(@"^face \d+ of room hub at cell \(0, 0\) needs [56] light styles; the lightest door style \d+ was dropped\.$", w));
 
         DFace[] faces = BspStructView.As<DFace>(level.Bsp[BspLump.Faces]).ToArray();
         Assert.Contains(faces, f => f.Styles[3] != 255 && RoomHarness.FaceVertices(level.Bsp, f).Average(v => v.X) < RoomHarness.Cell);

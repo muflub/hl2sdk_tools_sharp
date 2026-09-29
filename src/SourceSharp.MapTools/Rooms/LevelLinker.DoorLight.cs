@@ -561,8 +561,8 @@ public static partial class LevelLinker
 
                 warnings?.Add(string.Create(
                     System.Globalization.CultureInfo.InvariantCulture,
-                    $"room {plan.Placement.Room.Definition.Name} at cell ({plan.Placement.Instance.Placement.CellX}, {plan.Placement.Instance.Placement.CellY}):"
-                    + $" face {roomFace} would need {slots.Count} light styles with its neighbours' door light; style {slots[weakest].Style} was left out."));
+                    $"face {roomFace} of room {plan.Placement.Room.Definition.Name} at cell ({plan.Placement.Instance.Placement.CellX}, {plan.Placement.Instance.Placement.CellY})"
+                    + $" needs {slots.Count} light styles; the lightest door style {slots[weakest].Style} was dropped."));
                 slots.RemoveAt(weakest);
             }
 

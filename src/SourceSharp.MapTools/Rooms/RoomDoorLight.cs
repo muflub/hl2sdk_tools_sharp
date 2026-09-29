@@ -490,7 +490,7 @@ internal sealed partial class RoomDoorLight
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 (DoorResponseEmitter? l, DoorResponseEmitter? h) = await RespondAsync(
-                    room, open, frames[s], e, settings, content, parallelism, transfers, cancellationToken).ConfigureAwait(false);
+                    room, open, frames[s], e, settings, content, parallelism, transfers, 0, cancellationToken).ConfigureAwait(false);
                 if (ldr)
                 {
                     responses[0][s][e] = l ?? throw new InvalidOperationException($"room {definition.Name}'s response run lit no LDR range");
@@ -919,7 +919,16 @@ internal sealed partial class RoomDoorLight
     /// the room's leaf ambient samples and its props' colours, per unit of
     /// the emitter's intensity.
     /// </summary>
-    private static async Task<(DoorResponseEmitter? Ldr, DoorResponseEmitter? Hdr)> RespondAsync(
+    /// <remarks>
+    /// The runs light the room in its own frame at turn 0, and the link
+    /// applies them at every turn (O14: one response set per door). Nothing
+    /// in a run is fixed in the world but the directions vrad samples leaf
+    /// ambient and props along, which the bake frame turns
+    /// (<paramref name="turn"/>, for the fact that holds the four turns to
+    /// agree): the bounced light is the same at every turn, and the samples
+    /// agree to their sampling noise.
+    /// </remarks>
+    internal static async Task<(DoorResponseEmitter? Ldr, DoorResponseEmitter? Hdr)> RespondAsync(
         RoomObject room,
         BspData open,
         DoorFrame frame,
@@ -927,7 +936,8 @@ internal sealed partial class RoomDoorLight
         RoomLightingSettings settings,
         IContentFileSystem content,
         CompileParallelism parallelism,
-        ITransferCache transfers,
+        ITransferCache? transfers,
+        int turn,
         CancellationToken cancellationToken)
     {
         RoomDefinition definition = room.Definition;
@@ -940,7 +950,7 @@ internal sealed partial class RoomDoorLight
         light.Pairs.Add(new BspKeyValue("_light", "255 255 255 255"));
         light.Pairs.Add(new BspKeyValue(flat ? "_constant_attn" : "_quadratic_attn", "1"));
         entities.Insert(Math.Min(1, entities.Count), light);
-        OpenRun run = await LightAsync(open, definition.Name, entities, settings, content, parallelism, transfers, noTextureLights: true, 0, cancellationToken)
+        OpenRun run = await LightAsync(open, definition.Name, entities, settings, content, parallelism, transfers, noTextureLights: true, turn, cancellationToken)
             .ConfigureAwait(false);
 
         DoorResponseEmitter? Range(bool hdr)
