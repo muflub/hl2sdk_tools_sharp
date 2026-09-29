@@ -386,6 +386,15 @@ public static class RoomCommands
                     await output.WriteLineAsync($"ssmap room: warning: {warning}").ConfigureAwait(false);
                 }
 
+                // What the navigation could not read (a prop whose model the
+                // content lacks): the room compiles without that obstacle. A
+                // reused room replays the list its compile stored, so the log
+                // is the clean run's whichever rooms came from the cache.
+                foreach (string warning in outcome.NavWarnings)
+                {
+                    await output.WriteLineAsync($"ssmap room: warning: room \"{definition.Name}\": {warning}").ConfigureAwait(false);
+                }
+
                 return;
             }
 
@@ -1281,7 +1290,8 @@ public static class RoomCommands
 
         string pack = HostPaths.Display(packPath);
         RoomLibrary library;
-        LevelNavLink navLink;
+        LevelNavPlan navPlan;
+        Guid? packId;
         try
         {
             if (!await disk.ExistsAsync(packPath, cancellationToken).ConfigureAwait(false))
@@ -1326,10 +1336,7 @@ public static class RoomCommands
             // The navigation came with the rooms, at the turns they are placed
             // (RoomPackRequest.Navigation); the pack's id is its one library
             // section more, and only read when the link writes navigation.
-            Guid? packId = nav.Skip ? null : await RoomNavPack.ReadPackIdAsync(stream, index, cancellationToken).ConfigureAwait(false);
-            LevelLayout navLayout = level.ToLayout(name => library.Find(name)?.Definition, library.CellSize, library.Kit);
-            navLink = LevelNavFromPack.Link(
-                navLayout, level.Columns, level.Rows, library.Get, packId, levelBytes, nav.IdOptions, !nav.Skip, cancellationToken);
+            packId = nav.Skip ? null : await RoomNavPack.ReadPackIdAsync(stream, index, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -1346,6 +1353,21 @@ public static class RoomCommands
             return ExitFailed;
         }
 
+        // The navigation is planned before the map is linked (ids, and a point
+        // of interest in a capped doorway refused), and built after the map
+        // is written: the map never waits for navigation work.
+        try
+        {
+            LevelLayout navLayout = level.ToLayout(name => library.Find(name)?.Definition, library.CellSize, library.Kit);
+            navPlan = LevelNavFromPack.Plan(
+                navLayout, level.Columns, level.Rows, library.Get, packId, levelBytes, nav.IdOptions, !nav.Skip);
+        }
+        catch (Exception exception) when (exception is LinkException or ArgumentException)
+        {
+            await output.WriteLineAsync($"ssmap link: {levelPath}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
+
         // The link reads no content — only the context's parallelism — so the
         // context needs mounts for none. A linked map carries no content lump
         // for the link to want.
@@ -1359,7 +1381,7 @@ public static class RoomCommands
                 .LinkAsync(layout, library, context, linkOptions, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (navLink.Warning is { } warning)
+            if (navPlan.Warning is { } warning)
             {
                 await output.WriteLineAsync($"ssmap link: {(nav.Require ? "error" : "warning")}: {warning}").ConfigureAwait(false);
                 if (nav.Require)
@@ -1370,9 +1392,9 @@ public static class RoomCommands
 
             // The ids tie the map to its .nav3d, so they are written only
             // with one: a link without navigation writes the map it always did.
-            if (navLink.Nav is not null)
+            if (navPlan.WritesNavigation)
             {
-                RoomCompileIds.Stamp(link.Bsp, navLink.PackId, navLink.LevelId);
+                RoomCompileIds.Stamp(link.Bsp, navPlan.PackId, navPlan.LevelId);
             }
 
             using MemoryStream buffer = new();
@@ -1403,19 +1425,31 @@ public static class RoomCommands
             await output.WriteLineAsync(
                 $"ssmap link: wrote {HostPaths.Display(mapPath)}"
                 + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters"
-                + (navLink.Nav is null ? ")" : $", level id {navLink.LevelId:D})"))
+                + (navPlan.WritesNavigation ? $", level id {navPlan.LevelId:D})" : ")"))
                 .ConfigureAwait(false);
-            if (navLink.Nav is { } levelNav)
+            if (navPlan.WritesNavigation)
             {
-                VPath navPath = NavPathOf(mapPath);
-                byte[] navBytes = Nav3dWriter.Write(levelNav, nav.Compression);
-                await disk.ReplaceAsync(
-                    navPath,
-                    async (stream, token) => await stream.WriteAsync(navBytes, token).ConfigureAwait(false),
-                    cancellationToken).ConfigureAwait(false);
-                await output.WriteLineAsync(
-                    $"ssmap link: wrote {HostPaths.Display(navPath)} ({levelNav.Agents.Count} agents, {levelNav.Pois.Count} points of interest)")
-                    .ConfigureAwait(false);
+                // The map is on disk; now the navigation. A failure here
+                // leaves the map as written and no .nav3d (the file is
+                // replaced whole or not at all).
+                try
+                {
+                    Nav3dLevel levelNav = await navPlan.BuildAsync(cancellationToken).ConfigureAwait(false);
+                    VPath navPath = NavPathOf(mapPath);
+                    long written = await LevelNavPlan.WriteAsync(disk, navPath, levelNav, nav.Compression, cancellationToken).ConfigureAwait(false);
+                    await output.WriteLineAsync(
+                        $"ssmap link: wrote {HostPaths.Display(navPath)} ({levelNav.Leaves.Length} leaves, {levelNav.Presets.Count} presets,"
+                        + $" {levelNav.Pois.Count} points of interest, {levelNav.Jumps.Count} jump links, {written} bytes)")
+                        .ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is LinkException or ArgumentException or IOException
+                    or UnauthorizedAccessException)
+                {
+                    await output.WriteLineAsync(
+                        $"ssmap link: {levelPath}: the map was written, but its navigation failed: {exception.Message}")
+                        .ConfigureAwait(false);
+                    return ExitFailed;
+                }
             }
 
             return Program.ExitSuccess;
@@ -1508,7 +1542,7 @@ public static class RoomCommands
         public bool Require { get; init; }
 
         /// <summary><c>-nav-codec</c>: how the <c>.nav3d</c> image is stored.</summary>
-        public NavCompression Compression { get; init; } = NavCompression.None;
+        public NavCompression Compression { get; init; } = LevelNavFromPack.DefaultCompression;
 
         /// <summary>The switches that shape the outputs, as level id inputs.</summary>
         public IReadOnlyList<string> IdOptions => LevelNavFromPack.IdOptions(!Skip, Compression);

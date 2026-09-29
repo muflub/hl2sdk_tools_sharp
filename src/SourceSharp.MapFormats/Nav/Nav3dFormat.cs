@@ -26,7 +26,9 @@ namespace SourceSharp.MapFormats.Nav;
 /// reader must not read around: a record that changes size or meaning, or a
 /// section an older reader cannot ignore. A new optional section is added
 /// under a new tag without a version change; readers skip tags they do not
-/// know, as the room pack's readers do.
+/// know, as the room pack's readers do. Version 2 replaced version 1's
+/// per-agent octrees with one clearance grid shared by every agent size, so
+/// a version 1 file is refused rather than misread.
 /// </para>
 /// </remarks>
 public static class Nav3dFormat
@@ -35,7 +37,7 @@ public static class Nav3dFormat
     public static ReadOnlySpan<byte> Magic => "SSNAV3D\0"u8;
 
     /// <summary>The only version this build reads and writes.</summary>
-    public const int Version = 1;
+    public const int Version = 2;
 
     /// <summary>The file extension <c>ssmap link</c> writes beside the map.</summary>
     public const string Extension = ".nav3d";
@@ -48,64 +50,64 @@ public static class Nav3dFormat
     public const int EnvelopeBytes = 24;
 
     /// <summary>The image header's size in this version; the header records its own size so a later one may grow.</summary>
-    public const int HeaderBytes = 112;
+    public const int HeaderBytes = 160;
 
     /// <summary>One entry of the section directory: tag, index, offset, length.</summary>
     public const int DirectoryEntryBytes = 16;
 
-    /// <summary>The directory index of a section that belongs to the level rather than to one agent.</summary>
+    /// <summary>The directory index every section of this version carries: they all belong to the level.</summary>
     public const uint LevelIndex = 0xFFFFFFFFu;
 
     /// <summary>A string reference, or a cell's room name, that is absent.</summary>
     public const uint NoString = 0xFFFFFFFFu;
 
-    /// <summary>The most agents a file may describe: an agent mask is 32 bits.</summary>
-    public const int MaxAgents = 32;
+    /// <summary>The most agent presets a file may carry: a point's agent mask is 32 bits.</summary>
+    public const int MaxPresets = 32;
 
-    /// <summary>The largest level voxel coordinate a leaf can store (16 bits).</summary>
-    public const int MaxVoxelCoordinate = ushort.MaxValue;
+    /// <summary>The most voxels along a cell's edge: a leaf's height is one byte.</summary>
+    public const int MaxCellVoxels = 128;
 
-    /// <summary>Level section: the string table (NUL-terminated UTF-8; offset 0 is the empty string).</summary>
+    /// <summary>Section: the string table (NUL-terminated UTF-8; offset 0 is the empty string).</summary>
     public const string StringsTag = "STRS";
 
-    /// <summary>Level section: one <see cref="AgentRecordBytes"/>-byte record per agent.</summary>
-    public const string AgentsTag = "AGNT";
+    /// <summary>Section: one <see cref="PresetRecordBytes"/>-byte record per agent preset.</summary>
+    public const string PresetsTag = "AGNT";
 
-    /// <summary>Level section: one <see cref="CellRecordBytes"/>-byte record per grid cell.</summary>
+    /// <summary>Section: one <see cref="CellRecordBytes"/>-byte record per grid cell.</summary>
     public const string CellsTag = "CELL";
 
-    /// <summary>Level section: one <see cref="DoorRecordBytes"/>-byte record per socket of a placed room.</summary>
+    /// <summary>Section: one <see cref="DoorRecordBytes"/>-byte record per socket of a placed room.</summary>
     public const string DoorsTag = "DOOR";
 
-    /// <summary>Level section: one <see cref="PoiRecordBytes"/>-byte record per point of interest.</summary>
+    /// <summary>Section: one <see cref="PoiRecordBytes"/>-byte record per point of interest.</summary>
     public const string PoisTag = "POIS";
 
-    /// <summary>Agent section: each cell's root node, <c>int32</c>, -1 for a cell with no room.</summary>
+    /// <summary>Section: each cell's first column, <c>int32</c>, -1 for a cell with no room.</summary>
     public const string RootsTag = "ROOT";
 
-    /// <summary>Agent section: the octree nodes, one <c>uint32</c> each (<see cref="NodeKindShift"/>).</summary>
-    public const string NodesTag = "NODE";
+    /// <summary>Section: <c>columnCount + 1</c> <c>uint32</c> starts: a column's leaves are <c>[COLS[j], COLS[j+1])</c>.</summary>
+    public const string ColumnsTag = "COLS";
 
-    /// <summary>Agent section: one <see cref="LeafRecordBytes"/>-byte record per free leaf.</summary>
+    /// <summary>Section: one <see cref="LeafRecordBytes"/>-byte record per leaf.</summary>
     public const string LeavesTag = "LEAF";
 
-    /// <summary>Agent section: <c>leafCount + 1</c> <c>uint32</c> starts into <see cref="AdjacencyTag"/>.</summary>
-    public const string AdjacencyStartTag = "ADJS";
+    /// <summary>Section: the clearance records, each four-byte aligned, that leaves point into (<see cref="Nav3dClearance"/>).</summary>
+    public const string ClearanceTag = "CLRS";
 
-    /// <summary>Agent section: the neighbour lists, one <c>uint32</c> each (<see cref="ThroughDoorBit"/>).</summary>
-    public const string AdjacencyTag = "ADJN";
+    /// <summary>Section: one <see cref="ObstacleRecordBytes"/>-byte record per dynamic obstacle.</summary>
+    public const string ObstaclesTag = "DYNO";
 
-    /// <summary>Agent section: one <see cref="LinkRecordBytes"/>-byte record per leaf pair joined through a door.</summary>
-    public const string LinksTag = "LINK";
+    /// <summary>Section: <c>brushCount + 1</c> <c>uint32</c> starts into <see cref="BrushPlanesTag"/>, in planes.</summary>
+    public const string BrushIndexTag = "BRSI";
 
-    /// <summary>Agent section: one <see cref="ComponentRecordBytes"/>-byte record per connected component.</summary>
-    public const string ComponentsTag = "COMP";
+    /// <summary>Section: the overhanging brushes' planes, four <c>float32</c> each (normal, distance).</summary>
+    public const string BrushPlanesTag = "BRSP";
 
-    /// <summary>Agent section: each point of interest's leaf, <c>int32</c>, -1 where it does not apply or lies in no free leaf.</summary>
-    public const string PoiLeavesTag = "POIL";
+    /// <summary>Section: one <see cref="JumpRecordBytes"/>-byte record per jump link.</summary>
+    public const string JumpsTag = "JUMP";
 
-    /// <summary>The size of an <see cref="AgentsTag"/> record.</summary>
-    public const int AgentRecordBytes = 32;
+    /// <summary>The size of a <see cref="PresetsTag"/> record.</summary>
+    public const int PresetRecordBytes = 16;
 
     /// <summary>The size of a <see cref="CellsTag"/> record.</summary>
     public const int CellRecordBytes = 8;
@@ -117,22 +119,13 @@ public static class Nav3dFormat
     public const int PoiRecordBytes = 48;
 
     /// <summary>The size of a <see cref="LeavesTag"/> record.</summary>
-    public const int LeafRecordBytes = 16;
+    public const int LeafRecordBytes = 24;
 
-    /// <summary>The size of a <see cref="LinksTag"/> record.</summary>
-    public const int LinkRecordBytes = 12;
+    /// <summary>The size of an <see cref="ObstaclesTag"/> record.</summary>
+    public const int ObstacleRecordBytes = 48;
 
-    /// <summary>The size of a <see cref="ComponentsTag"/> record.</summary>
-    public const int ComponentRecordBytes = 8;
-
-    /// <summary>A node word's kind sits in its top two bits.</summary>
-    public const int NodeKindShift = 30;
-
-    /// <summary>A node word's payload: the low 30 bits.</summary>
-    public const uint NodePayloadMask = (1u << NodeKindShift) - 1;
-
-    /// <summary>An adjacency entry's top bit: the neighbour is reached through a door between two rooms.</summary>
-    public const uint ThroughDoorBit = 0x80000000u;
+    /// <summary>The size of a <see cref="JumpsTag"/> record.</summary>
+    public const int JumpRecordBytes = 16;
 
     /// <summary>The standard <c>CONTENTS_*</c> bits a standing player collides with in the world: solid, window, grate, moveable, monster and player clip.</summary>
     public const int PlayerSolidMask = 0x1 | 0x2 | 0x8 | 0x4000 | 0x2000000 | 0x10000;
@@ -140,93 +133,106 @@ public static class Nav3dFormat
     /// <summary>The standard <c>CONTENTS_*</c> bits an NPC collides with: as <see cref="PlayerSolidMask"/>, but monster clip instead of player clip.</summary>
     public const int NpcSolidMask = 0x1 | 0x2 | 0x8 | 0x4000 | 0x2000000 | 0x20000;
 
-    /// <summary>A node word.</summary>
-    /// <param name="kind">What the node is.</param>
-    /// <param name="payload">The first child's index for an inner node, the leaf's index for a free leaf, 0 otherwise.</param>
-    /// <returns>The packed word.</returns>
-    public static uint Node(Nav3dNodeKind kind, uint payload) => ((uint)kind << NodeKindShift) | (payload & NodePayloadMask);
+    /// <summary><c>CONTENTS_SLIME</c> and <c>CONTENTS_WATER</c>: a brush of either makes the voxels it overlaps water.</summary>
+    public const int WaterContents = 0x10 | 0x20;
 
-    /// <summary>A node word's kind.</summary>
-    /// <param name="node">The packed word.</param>
-    /// <returns>Its kind.</returns>
-    public static Nav3dNodeKind KindOf(uint node) => (Nav3dNodeKind)(node >> NodeKindShift);
+    /// <summary><c>CONTENTS_LADDER</c>: a brush of it makes the voxels it overlaps a ladder.</summary>
+    public const int LadderContents = 0x20000000;
 
-    /// <summary>A node word's payload.</summary>
-    /// <param name="node">The packed word.</param>
-    /// <returns>Its low 30 bits.</returns>
-    public static uint PayloadOf(uint node) => node & NodePayloadMask;
-
-    /// <summary>The octree depth a cell of <paramref name="cellVoxels"/> voxels a side needs: the least D with 2^D at least that.</summary>
-    /// <param name="cellVoxels">Voxels along a cell's edge, at least 1.</param>
-    /// <returns>The depth.</returns>
-    public static int DepthFor(int cellVoxels)
-    {
-        ArgumentOutOfRangeException.ThrowIfLessThan(cellVoxels, 1);
-        int depth = 0;
-        while ((1 << depth) < cellVoxels)
-        {
-            depth++;
-        }
-
-        return depth;
-    }
-}
-
-/// <summary>What an octree node is: the top two bits of its word.</summary>
-public enum Nav3dNodeKind : byte
-{
-    /// <summary>Eight children, stored back to back from the payload's index, in octant order.</summary>
-    Inner = 0,
-
-    /// <summary>A cube the agent is free in everywhere; the payload is its leaf's index.</summary>
-    Free = 1,
-
-    /// <summary>A cube the agent is blocked in somewhere in every voxel.</summary>
-    Blocked = 2,
-
-    /// <summary>A cube beyond the cell, when a cell's voxel count is not a power of two.</summary>
-    Outside = 3,
+    /// <summary>The <c>CONTENTS_*</c> bits a clip class collides with.</summary>
+    /// <param name="clipClass">The class.</param>
+    /// <returns><see cref="PlayerSolidMask"/> or <see cref="NpcSolidMask"/>.</returns>
+    public static int SolidMask(Nav3dClipClass clipClass) => clipClass == Nav3dClipClass.Npc ? NpcSolidMask : PlayerSolidMask;
 }
 
 /// <summary>
-/// What a free leaf touches: the bits of a leaf's flags byte.
+/// Which clip brushes an agent collides with: the one per-agent property the
+/// shared grid keeps apart, as two clearance records per leaf.
 /// </summary>
 /// <remarks>
-/// A leaf is merged from smaller ones only when all of them carry the same
-/// flags, so a leaf's flags hold for every voxel in it. Contact is judged
-/// per voxel against its six face neighbours: a neighbour the agent is
-/// blocked in is a contact, and the surface that blocks it (the brush face
-/// that separates the agent from the obstacle) says which kind by its normal.
+/// Player clip stops players and not NPCs, monster clip the other way round,
+/// and everything else solid stops both. So there are exactly two worlds an
+/// axis-aligned agent can live in, and each leaf carries one clearance record
+/// for each (often the same record, stored once). Any agent size is then
+/// answered exactly in its class's world.
 /// </remarks>
-[Flags]
-public enum Nav3dLeafFlags : byte
+public enum Nav3dClipClass : byte
 {
-    /// <summary>No contact: open space.</summary>
+    /// <summary>Collides with player clip: <see cref="Nav3dFormat.PlayerSolidMask"/>.</summary>
+    Player = 0,
+
+    /// <summary>Collides with monster clip: <see cref="Nav3dFormat.NpcSolidMask"/>.</summary>
+    Npc = 1,
+}
+
+/// <summary>What a leaf is, beyond its clearance: the bits of its flags.</summary>
+[Flags]
+public enum Nav3dLeafFlags : ushort
+{
+    /// <summary>Nothing special.</summary>
     None = 0,
 
-    /// <summary>Something walkable is directly under the agent: a surface whose normal is within the level's slope of straight up.</summary>
-    Floor = 1 << 0,
+    /// <summary>The leaf's voxels overlap a water or slime brush.</summary>
+    Water = 1 << 0,
 
-    /// <summary>A surface too steep to walk on touches the agent: a wall, or a slope beyond the limit.</summary>
-    Wall = 1 << 1,
+    /// <summary>The leaf's voxels overlap a ladder: a <c>CONTENTS_LADDER</c> brush, an <c>info_ladder</c> or a <c>func_useableladder</c>'s volume.</summary>
+    Ladder = 1 << 1,
 
-    /// <summary>A surface facing down, within the slope of straight down, is directly over the agent.</summary>
-    Ceiling = 1 << 2,
+    /// <summary>For the player class, solid lies directly under the leaf's bottom voxel: the leaf stands on a floor at its player floor height.</summary>
+    GroundedPlayer = 1 << 2,
 
-    /// <summary>The face neighbour toward +x (east) is blocked.</summary>
-    SidePositiveX = 1 << 3,
+    /// <summary>For the NPC class, solid lies directly under the leaf's bottom voxel.</summary>
+    GroundedNpc = 1 << 3,
 
-    /// <summary>The face neighbour toward +y (north) is blocked.</summary>
-    SidePositiveY = 1 << 4,
+    /// <summary>The player class's floor is walkable: its surface's normal z is at least the level's floor threshold.</summary>
+    WalkablePlayer = 1 << 4,
 
-    /// <summary>The face neighbour toward -x (west) is blocked.</summary>
-    SideNegativeX = 1 << 5,
+    /// <summary>The NPC class's floor is walkable.</summary>
+    WalkableNpc = 1 << 5,
+}
 
-    /// <summary>The face neighbour toward -y (south) is blocked.</summary>
-    SideNegativeY = 1 << 6,
+/// <summary>What kind of thing a dynamic obstacle is, so the runtime knows what state to watch.</summary>
+public enum Nav3dObstacleKind : byte
+{
+    /// <summary>A door: <c>func_door</c>, <c>func_door_rotating</c>, <c>prop_door_rotating</c>. Blocks while closed.</summary>
+    Door = 1,
 
-    /// <summary>The leaf is joined to a leaf of another room through a door (set by the link).</summary>
-    Door = 1 << 7,
+    /// <summary>A brush that moves along a path: <c>func_movelinear</c>, <c>func_train</c>, <c>func_tracktrain</c>, <c>func_rotating</c> and the like.</summary>
+    Mover = 2,
+
+    /// <summary>A brush the map turns solid or not: <c>func_brush</c>, <c>func_wall_toggle</c>. Blocks while enabled.</summary>
+    Toggle = 3,
+
+    /// <summary>Something that breaks: <c>func_breakable</c>, <c>func_breakable_surf</c>. Blocks until broken.</summary>
+    Breakable = 4,
+
+    /// <summary>A physics object: <c>func_physbox</c>, <c>prop_physics</c> and its variants. Blocks where it rests.</summary>
+    Physics = 5,
+
+    /// <summary>A model that may animate or be moved by the map: <c>prop_dynamic</c> and its variants.</summary>
+    Prop = 6,
+}
+
+/// <summary>The direction of a step from a leaf to a neighbour.</summary>
+public enum Nav3dDirection : byte
+{
+    /// <summary>+x, into the column to the east.</summary>
+    East = 0,
+
+    /// <summary>+y, north.</summary>
+    North = 1,
+
+    /// <summary>-x, west.</summary>
+    West = 2,
+
+    /// <summary>-y, south.</summary>
+    South = 3,
+
+    /// <summary>+z: the leaf directly above in the same column, touching.</summary>
+    Up = 4,
+
+    /// <summary>-z: the leaf directly below, touching.</summary>
+    Down = 5,
 }
 
 /// <summary>What a point of interest is, beyond its type string: the bits of its flags.</summary>
@@ -239,7 +245,7 @@ public enum Nav3dPoiFlags : ushort
     /// <summary>The yaw is meaningful: the author gave the point a facing.</summary>
     HasFacing = 1 << 0,
 
-    /// <summary>The point was made by the compile at a door's centre, one per agent that fits through it.</summary>
+    /// <summary>The point was made by the compile at a door's centre.</summary>
     Door = 1 << 1,
 
     /// <summary>A door point whose door the level joins to a neighbour (clear: the door is capped).</summary>

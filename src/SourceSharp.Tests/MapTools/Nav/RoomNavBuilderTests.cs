@@ -16,19 +16,47 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Nav;
 
 /// <summary>
-/// A room's navigation from its compile: turned rooms give the turned
-/// answer, door portals and caps are where the kit says, and points of
-/// interest are checked against the agents they apply to.
+/// A room's navigation from its compile: a turned room gives the turned
+/// answer bit for bit, doorways let through exactly the agents that fit, caps
+/// change what the plug changes and compose, and points of interest are
+/// checked against the presets they apply to.
 /// </summary>
 public sealed class RoomNavBuilderTests(NavRoomsFixture fixture) : IClassFixture<NavRoomsFixture>
 {
     private static AuthoredPoi Poi(Vec3 at, string type = "cover", IReadOnlyList<string>? agents = null, bool facing = true, string? name = null) =>
         new("7", at, 30f, facing, 64f, type, "a,b", name, agents ?? []);
 
+    /// <summary>A room navigation's open grid, as dense voxels.</summary>
+    internal static NavGrid Grid(RoomNav nav, IEnumerable<NavCapChange>? changes = null)
+    {
+        NavRecordTable table = new();
+        for (int r = 1; r < nav.Records.Count; r++)
+        {
+            Assert.Equal(r, table.Add(nav.Records[r]));
+        }
+
+        NavVoxelKey[] keys = nav.Columns.Expand(nav.CellVoxels);
+        foreach (NavCapChange change in changes ?? [])
+        {
+            keys[change.Voxel] = change.Key;
+        }
+
+        int n = nav.CellVoxels;
+        return new NavGrid(new NavRegion(0, 0, 0, n, n, n, nav.VoxelSize), table, keys);
+    }
+
+    /// <summary>A run or a capped voxel with its records as their bytes: what two builds agree on whatever order their tables are in.</summary>
+    private static string Bytes(RoomNav nav, int at, int height, NavVoxelKey key) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"{at}+{height} {Convert.ToHexString(nav.Records[key.PlayerRecord])} {Convert.ToHexString(nav.Records[key.NpcRecord])} {key.Flags} {key.Cost} {key.PlayerFloorZ:R} {key.NpcFloorZ:R}");
+
+    private static bool Fits(NavGrid grid, int x, int y, int z, NavAgentSpec agent) => RoomNavBuilder.Fits(grid, [], x, y, z, agent);
+
     /// <summary>
     /// Compiling the corner room turned, and building its navigation, gives
-    /// exactly the stored turn-0 navigation turned: the grids, every portal,
-    /// every cap change and every point, at all four turns.
+    /// exactly the stored turn-0 navigation turned: every record, every
+    /// column's runs, every capped key, every door point and every point of
+    /// interest, bit for bit, at all four turns.
     /// </summary>
     [Theory]
     [InlineData(0)]
@@ -48,114 +76,125 @@ public sealed class RoomNavBuilderTests(NavRoomsFixture fixture) : IClassFixture
         RoomNav direct = RoomNavBuilder.Build(definition, compiled.Bsp, [turnedPoi], RoomRole.None, NavRoomsFixture.Settings);
         RoomNav turned = stored.Turned(turns);
 
+        // The record tables hold the same records; each numbers them in the
+        // order its build met them, so keys are compared by record bytes.
+        Assert.Equal(direct.Records.Count, turned.Records.Count);
+        Assert.Equal(direct.Records.Select(Convert.ToHexString).Order(StringComparer.Ordinal),
+            turned.Records.Select(Convert.ToHexString).Order(StringComparer.Ordinal));
         Assert.Equal(turns, turned.Turn);
-        for (int a = 0; a < NavRoomsFixture.Settings.Agents.Count; a++)
+        Assert.Equal(direct.Columns.ColumnStarts, turned.Columns.ColumnStarts);
+        Assert.Equal(direct.Columns.Runs.Select(r => Bytes(direct, r.ZLo, r.Height, r.Key)), turned.Columns.Runs.Select(r => Bytes(turned, r.ZLo, r.Height, r.Key)));
+        for (int s = 0; s < definition.Sockets.Count; s++)
         {
-            Assert.Equal(
-                NavOctree.Expand(direct.AgentData[a].Nodes, direct.AgentData[a].Leaves, 16),
-                NavOctree.Expand(turned.AgentData[a].Nodes, turned.AgentData[a].Leaves, 16));
-            Assert.Equal(direct.AgentData[a].Nodes, turned.AgentData[a].Nodes);
-            for (int s = 0; s < definition.Sockets.Count; s++)
-            {
-                Assert.Equal(direct.AgentData[a].Sockets[s].Portal, turned.AgentData[a].Sockets[s].Portal);
-                Assert.Equal(direct.AgentData[a].Sockets[s].Capped, turned.AgentData[a].Sockets[s].Capped);
-            }
+            Assert.Equal(direct.SocketData[s].Capped.Select(c => Bytes(direct, c.Voxel, 0, c.Key)), turned.SocketData[s].Capped.Select(c => Bytes(turned, c.Voxel, 0, c.Key)));
+            Assert.Equal(direct.SocketData[s].DoorPoint, turned.SocketData[s].DoorPoint);
         }
 
         Assert.Equal(direct.Pois.Single().Position, turned.Pois.Single().Position);
         Assert.Equal(direct.Pois.Single().Yaw, turned.Pois.Single().Yaw);
+        Assert.Equal(direct.Obstacles, turned.Obstacles);
+        Assert.Empty(turned.Brushes);
     }
 
     [Fact]
-    public void ADoorPortalIsTheDoorwaysFreeVoxelsForAnAgentThatFitsAndEmptyForOneThatDoesNot()
+    public void ADoorwayLetsThroughTheAgentsThatFitAndNotOnesThatDoNot()
     {
         RoomNav nav = fixture.Nav("east");
+        NavGrid grid = Grid(nav);
+        NavAgentSpec standing = NavRoomsFixture.Settings.Agents[NavRoomsFixture.StandingAgent];
+        NavAgentSpec wide = NavRoomsFixture.Settings.Agents[NavRoomsFixture.WideAgent];
 
         // Standing: origin y from 96 to 160 (voxels 6 to 9) and feet from 16
         // to 168 (voxels 1 to 9), in the boundary layer x = 15.
-        IReadOnlyList<NavVoxel> standing = nav.AgentData[NavRoomsFixture.StandingAgent].Sockets[0].Portal;
-        Assert.Equal(36, standing.Count);
-        Assert.All(standing, v => Assert.True(v.X == 15 && v.Y is >= 6 and <= 9 && v.Z is >= 1 and <= 9, v.ToString()));
+        List<(int Y, int Z)> fits = [];
+        for (int z = 0; z < 16; z++)
+        {
+            for (int y = 0; y < 16; y++)
+            {
+                if (Fits(grid, 15, y, z, standing))
+                {
+                    fits.Add((y, z));
+                }
 
-        // A 112-wide agent cannot pass a 96-wide door.
-        Assert.Empty(nav.AgentData[NavRoomsFixture.WideAgent].Sockets[0].Portal);
+                // A 112-wide agent cannot pass a 96-wide door.
+                Assert.False(Fits(grid, 15, y, z, wide));
+            }
+        }
+
+        Assert.Equal(36, fits.Count);
+        Assert.All(fits, v => Assert.True(v.Y is >= 6 and <= 9 && v.Z is >= 1 and <= 9, v.ToString()));
     }
 
     [Fact]
-    public void CappingADoorBlocksItsDoorwayAndWallsTheVoxelsInFrontOfIt()
+    public void CappingADoorFillsItsDoorwayAndBringsTheWallCloserInFrontOfIt()
     {
         RoomNav nav = fixture.Nav("east");
-        IReadOnlyList<NavCapChange> capped = nav.AgentData[NavRoomsFixture.StandingAgent].Sockets[0].Capped;
-        Assert.Contains(capped, c => c.Voxel == new NavVoxel(15, 7, 1) && c.Blocks);
-        Assert.Contains(capped, c => c.Voxel == new NavVoxel(14, 7, 1) && c.Blocks);
-        Assert.Contains(capped, c => c.Voxel == new NavVoxel(13, 7, 1) && !c.Blocks
-            && c.AddFlags == (Nav3dLeafFlags.Wall | Nav3dLeafFlags.SidePositiveX));
-        Assert.Equal(capped.OrderBy(c => RoomNav.Index(c.Voxel, 16)), capped);
+        IReadOnlyList<NavCapChange> capped = nav.SocketData[0].Capped;
+        NavGrid open = Grid(nav);
+        NavGrid shut = Grid(nav, capped);
+        NavAgentSpec standing = NavRoomsFixture.Settings.Agents[NavRoomsFixture.StandingAgent];
+        Assert.Contains(capped, c => c.Voxel == (((1 * 16) + 7) * 16) + 15 && c.Key.IsSolid);
+        Assert.True(Fits(open, 14, 7, 1, standing));
+        Assert.False(Fits(shut, 14, 7, 1, standing));
+
+        // Two voxels in, the plug is 16 away: exactly the standing agent's half-width, so it still fits.
+        Assert.True(Fits(shut, 13, 7, 1, standing));
+        Assert.Equal(capped.OrderBy(c => c.Voxel), capped);
+
+        // Every change is near the door: within the opening's half-width (48)
+        // and a voxel of the wall, where the jambs no longer dominate the plug.
+        Assert.All(capped, c => Assert.True(c.Voxel % 16 >= 16 - 5, $"voxel {c.Voxel}"));
     }
 
     /// <summary>
-    /// A cap is classified over the slab of voxels near its wall only; that
-    /// gives exactly the changes classifying the whole cell capped gives, for
-    /// every room, socket and agent (the wide one included, whose reach is
-    /// the largest).
+    /// Caps compose: a room alone in a level has every socket capped, and the
+    /// link merges the sockets' capped keys voxel by voxel; the result is
+    /// exactly the room built with every door shut, run for run and record
+    /// for record.
     /// </summary>
     [Theory]
     [InlineData("east")]
     [InlineData("hall")]
     [InlineData("corner")]
-    public void TheCapsSlabGivesTheWholeCellsChanges(string name)
+    public void EveryCapMergedIsTheRoomBuiltWithEveryDoorShut(string name)
     {
         RoomDefinition definition = fixture.Definition(name);
-        RoomNav nav = fixture.Nav(name);
-        List<NavBrush> all = NavBrush.FromBsp(fixture.Room(name).Bsp);
-        bool IsPlug(NavBrush b, int socket)
-        {
-            Box plug = RoomLinter.SealBox(definition, definition.Sockets[socket], 256);
-            return Math.Abs(b.MinX - plug.Mins.X) < 0.01 && Math.Abs(b.MaxX - plug.Maxs.X) < 0.01
-                && Math.Abs(b.MinY - plug.Mins.Y) < 0.01 && Math.Abs(b.MaxY - plug.Maxs.Y) < 0.01
-                && Math.Abs(b.MinZ - plug.Mins.Z) < 0.01 && Math.Abs(b.MaxZ - plug.Maxs.Z) < 0.01;
-        }
+        Nav3dReader linked = Nav3dReader.Open(Nav3dWriter.Write(fixture.Link(fixture.Layout((name, 0, 0, 0)), 1, 1)));
 
-        NavRegion cell = new(0, 0, 0, 16, 16, 16, 16);
-        for (int a = 0; a < NavRoomsFixture.Settings.Agents.Count; a++)
+        NavGeometry geometry = NavGeometry.FromBsp(fixture.Room(name).Bsp);
+        List<NavBrush> outside = RoomNavBuilder.Outside(definition with { Sockets = [] }, -1);
+        NavGrid whole = NavClearanceBuilder.Build(geometry.With(outside), new NavRegion(0, 0, 0, 16, 16, 16, 16), NavRoomsFixture.Settings);
+        NavColumns columns = NavColumns.Of(whole);
+        for (int y = 0; y < 16; y++)
         {
-            NavAgentSpec agent = NavRoomsFixture.Settings.Agents[a];
-            List<NavBrush> fixedBrushes = [.. all.Where(b => !Enumerable.Range(0, definition.Sockets.Count).Any(s => IsPlug(b, s)))];
-            NavVoxelGrid open = NavVoxeliser.Classify([.. fixedBrushes, .. RoomNavBuilder.Outside(definition, -1)], cell, agent, 0.7f);
-            for (int s = 0; s < definition.Sockets.Count; s++)
+            for (int x = 0; x < 16; x++)
             {
-                NavVoxelGrid closed = NavVoxeliser.Classify(
-                    [.. fixedBrushes, .. all.Where(b => IsPlug(b, s)), .. RoomNavBuilder.Outside(definition, s)], cell, agent, 0.7f);
-                List<NavCapChange> whole = [];
-                for (int i = 0; i < 4096; i++)
+                NavRun[] expected = columns.Column(x, y).ToArray();
+                List<int> leaves = [.. Enumerable.Range(0, linked.LeafCount).Where(l => linked.LeafColumn(l) == (0, x, y))];
+                Assert.Equal(expected.Length, leaves.Count);
+                for (int i = 0; i < leaves.Count; i++)
                 {
-                    ushort before = open.Cells[i];
-                    ushort after = closed.Cells[i];
-                    if (before != after)
-                    {
-                        NavVoxel v = new((byte)(i % 16), (byte)(i / 16 % 16), (byte)(i / 256));
-                        whole.Add((after & NavVoxelGrid.FreeBit) == 0
-                            ? new NavCapChange(v, true, Nav3dLeafFlags.None)
-                            : new NavCapChange(v, false, (Nav3dLeafFlags)(after & ~before & 0xFF)));
-                    }
+                    Nav3dLeaf leaf = linked.Leaf(leaves[i]);
+                    NavRun run = expected[i];
+                    Assert.Equal((run.ZLo, run.Height, run.Key.Flags, run.Key.Cost, run.Key.PlayerFloorZ, run.Key.NpcFloorZ),
+                        (leaf.ZLo, leaf.Height, leaf.Flags, leaf.Cost, leaf.PlayerFloorZ, leaf.NpcFloorZ));
+                    byte[] player = whole.Records[run.Key.PlayerRecord];
+                    byte[] npc = whole.Records[run.Key.NpcRecord];
+                    Assert.True(player.AsSpan().SequenceEqual(linked.ClearanceRecord(leaves[i], Nav3dClipClass.Player)[..player.Length]), $"column {x} {y}");
+                    Assert.True(npc.AsSpan().SequenceEqual(linked.ClearanceRecord(leaves[i], Nav3dClipClass.Npc)[..npc.Length]), $"column {x} {y}");
                 }
-
-                Assert.True(whole.Count > 0 || nav.AgentData[a].Sockets[s].Portal.Count == 0);
-                Assert.Equal(whole, nav.AgentData[a].Sockets[s].Capped);
             }
         }
     }
 
     [Fact]
-    public void TheCapSlabIsTheLayersAnAgentCanReachFromTheWall()
+    public void ADoorPointIsOnTheFaceAtTheOpeningsMiddleOnItsFloor()
     {
-        NavRegion cell = new(0, 0, 0, 16, 16, 16, 16);
-        NavAgentSpec standing = NavRoomsFixture.Settings.Agents[NavRoomsFixture.StandingAgent];
-        Assert.Equal(cell with { OriginX = 192, SizeX = 4 }, RoomNavBuilder.CapRegion(cell, RoomFacing.PositiveX, 16, standing));
-        Assert.Equal(cell with { SizeX = 4 }, RoomNavBuilder.CapRegion(cell, RoomFacing.NegativeX, 16, standing));
-        Assert.Equal(cell with { OriginY = 192, SizeY = 4 }, RoomNavBuilder.CapRegion(cell, RoomFacing.PositiveY, 16, standing));
-        Assert.Equal(cell with { SizeY = 4 }, RoomNavBuilder.CapRegion(cell, RoomFacing.NegativeY, 16, standing));
-        Assert.Equal(cell with { SizeX = 16 }, RoomNavBuilder.CapRegion(cell, RoomFacing.NegativeX, 16, new NavAgentSpec("huge", 900, 10, 1)));
+        RoomNav nav = fixture.Nav("corner");
+        Assert.Equal(new Vec3(256, 128, 16), nav.SocketData[0].DoorPoint);
+        Assert.Equal(new Vec3(128, 256, 16), nav.SocketData[1].DoorPoint);
+        Assert.Equal(new Vec3(128, 0, 16), RoomNavBuilder.DoorPoint(
+            RoomHarnessDefinitions.South, new RoomSocket(RoomFacing.NegativeY, "south"), Grid(fixture.Nav("east"))));
     }
 
     [Fact]
@@ -168,6 +207,7 @@ public sealed class RoomNavBuilderTests(NavRoomsFixture fixture) : IClassFixture
         Assert.Equal(RoomRole.Up, nav.Role);
         Assert.Equal(1u << NavRoomsFixture.FlyerAgent, nav.Pois[0].AgentMask);
         Assert.Equal("cxry_guard", nav.Pois[0].Name);
+        Assert.Equal("7", nav.Pois[0].EntityId);
         Assert.Equal(0b111u, nav.Pois[1].AgentMask);
         Assert.Equal((30f, true, 64f, "cover", "a,b"), (nav.Pois[1].Yaw, nav.Pois[1].HasFacing, nav.Pois[1].Radius, nav.Pois[1].Type, nav.Pois[1].Tags));
     }
@@ -229,8 +269,15 @@ public sealed class RoomNavBuilderTests(NavRoomsFixture fixture) : IClassFixture
         RoomNav nav = RoomNavBuilder.Build(
             fixture.Definition("corner"), fixture.Room("corner").Bsp, [], RoomRole.None, NavSettings.Default with { VoxelSize = 32 });
         Assert.Equal(8, nav.CellVoxels);
-        Assert.Equal(nav.AgentData[0].Nodes, nav.Turned(4).AgentData[0].Nodes);
+        Assert.Equal(nav.Columns.Runs, nav.Turned(4).Columns.Runs);
         Assert.Same(nav, nav.Turned(0));
-        Assert.Equal(nav.Turned(1).Turned(3).AgentData[0].Nodes, nav.AgentData[0].Nodes);
+        Assert.Equal(nav.Turned(1).Turned(3).Columns.Runs, nav.Columns.Runs);
+        Assert.Equal(nav.Turned(2).Columns.Runs, nav.Turned(1).Turned(1).Columns.Runs);
     }
+}
+
+/// <summary>Room definitions the builder facts need beyond the fixture's.</summary>
+internal static class RoomHarnessDefinitions
+{
+    public static RoomDefinition South => Rooms.RoomHarness.WalkableRoom("south", RoomFacing.NegativeY);
 }

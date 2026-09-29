@@ -22,48 +22,56 @@ namespace SourceSharp.MapTools.Nav;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Layout, revision 1.</b> Big-endian, as every integer of a room pack is,
-/// and framed as the pack's link sections are (<c>RoomLinkSections</c>), so
-/// every per-room section of a pack reads the same way: a codec byte
-/// (<see cref="NavCodec"/>: 0 none, 1 Deflate, 2 Brotli, the same values
-/// as the link sections' codec), the payload's decoded length as an
-/// <c>int64</c>, and the payload, stored by the codec. The decoded payload
-/// starts with an <c>int32</c> revision (<see cref="Revision"/>) and a
-/// <c>uint8</c> turn, 0 to 3, which must match the tag. As with the link
-/// sections, a section of a revision this build does not know reads as
-/// absent (the link goes on without navigation and says so), a codec it does
-/// not know, or a payload that does not decode to its recorded length, is
-/// refused. The codec byte and revision replace the earlier nav-only
-/// version and codec header, so there is one convention in the pack.
+/// <b>Framing.</b> Big-endian, as every integer of a room pack is, and
+/// framed as the pack's link sections are, so every per-room section of a
+/// pack reads the same way: a codec byte (<see cref="NavCodec"/>: 0 none,
+/// 1 Deflate, 2 Brotli), the payload's decoded length as an <c>int64</c>,
+/// and the payload, stored by the codec. The decoded payload starts with an
+/// <c>int32</c> revision (<see cref="Revision"/>) and a <c>uint8</c> turn,
+/// 0 to 3, which must match the tag. As with the link sections, a section of
+/// a revision this build does not know reads as absent (the link goes on
+/// without navigation and says so); a codec it does not know, or a payload
+/// that does not decode to its recorded length, is refused.
 /// </para>
 /// <para>
-/// The payload after the revision and turn: <c>float32</c> cell size, voxel size, <c>int32</c> voxels
-/// per cell edge, <c>float32</c> floor normal z, <c>uint8</c> role; the
-/// agents (<c>uint8</c> count, each a string name, <c>float32</c> width and
+/// <b>Revision 2</b> holds the shared clearance grid (revision 1 held an
+/// octree per agent, so a revision 1 section reads as absent). After the
+/// revision and turn: <c>float32</c> cell size and voxel size, <c>int32</c>
+/// voxels per cell edge, <c>float32</c> floor normal z, step height, jump
+/// height, jump distance, water cost and ladder cost, <c>uint8</c> role; the
+/// presets (<c>uint8</c> count, each a string name, <c>float32</c> width and
 /// height, <c>int32</c> contents mask); the sockets (<c>uint8</c> count, each
-/// <c>uint8</c> turn-0 facing and a string name); the points of interest
-/// (<c>int32</c> count, each <c>float32</c> x y z yaw, <c>uint8</c> has-facing,
-/// <c>float32</c> radius, string type, string tags, <c>uint8</c> has-name
-/// then the name, <c>uint32</c> agent mask); then per agent: <c>int32</c>
-/// node count and the node words, <c>int32</c> leaf count and the leaves (x,
-/// y, z, size log2, flags: five bytes each), and per socket <c>int32</c>
-/// portal voxel count and the voxels (x, y, z), <c>int32</c> cap change
-/// count and the changes (x, y, z, 1 when it blocks else 0, the flags it
-/// adds). A string is a <c>uint16</c> byte count and UTF-8.
+/// <c>uint8</c> turn-0 facing, a string name and the door point's
+/// <c>float32</c> x, y, z); the points of interest (<c>int32</c> count, each
+/// <c>float32</c> x, y, z, yaw, <c>uint8</c> has-facing, <c>float32</c>
+/// radius, string type, string tags, <c>uint8</c> has-name then the name,
+/// <c>uint32</c> preset mask, string entity id); the records (<c>int32</c>
+/// count, each <c>uint16</c> static, dynamic and brush counts, then the
+/// static corners as <c>float32</c> width and top, the dynamic ones as
+/// <c>uint32</c> obstacle and two <c>float32</c>, the brushes as
+/// <c>uint32</c>); the columns (<c>int32</c> run count, then per column,
+/// x fastest, a <c>uint16</c> count, then the runs, each <c>uint8</c> low
+/// voxel and height and a key); per socket its capped keys (<c>int32</c>
+/// count, each <c>int32</c> voxel and a key); the obstacles (<c>int32</c>
+/// count, each string classname, <c>uint8</c> has-name then the name,
+/// <c>int32</c> hammer id, <c>uint8</c> kind, six <c>float32</c> bounds); and
+/// the overhanging brushes (<c>int32</c> count, each <c>int32</c> plane count
+/// and four <c>float32</c> per plane). A key is <c>int32</c> player and NPC
+/// record, <c>uint16</c> flags and cost, <c>float32</c> player and NPC floor.
+/// A string is a <c>uint16</c> byte count and UTF-8.
 /// </para>
 /// <para>
 /// <b>Why one section per turn.</b> The link reads only the section for the
 /// turn a placement uses, when the pack has it, and turns the <c>NVR0</c>
 /// copy itself otherwise. Whether the pack carries the turned copies is the
-/// writer's choice (<see cref="RoomNavPackOptions.StoreAllTurns"/>, on by
-/// default because it links faster): the link gives the same file either
-/// way, and the measured trade is in <c>docs/nav3d-format.md</c>.
+/// writer's choice (<see cref="RoomNavPackOptions.StoreAllTurns"/>): the link
+/// gives the same file either way.
 /// </para>
 /// </remarks>
 public static class RoomNavSection
 {
     /// <summary>The payload revision this build writes and reads; a section of another reads as absent.</summary>
-    public const int Revision = 1;
+    public const int Revision = 2;
 
     /// <summary>The codec byte and the <c>int64</c> decoded length every section starts with.</summary>
     private const int HeaderBytes = 1 + 8;
@@ -97,6 +105,11 @@ public static class RoomNavSection
         w.F32(nav.VoxelSize);
         w.I32(nav.CellVoxels);
         w.F32(nav.FloorNormalZ);
+        w.F32(nav.StepHeight);
+        w.F32(nav.JumpHeight);
+        w.F32(nav.JumpDistance);
+        w.F32(nav.WaterCost);
+        w.F32(nav.LadderCost);
         w.U8((byte)nav.Role);
         w.U8((byte)nav.Agents.Count);
         foreach (NavAgentSpec agent in nav.Agents)
@@ -108,65 +121,95 @@ public static class RoomNavSection
         }
 
         w.U8((byte)nav.Sockets.Count);
-        foreach (RoomSocket socket in nav.Sockets)
+        for (int s = 0; s < nav.Sockets.Count; s++)
         {
-            w.U8((byte)socket.Facing);
-            w.Str(socket.Name);
+            w.U8((byte)nav.Sockets[s].Facing);
+            w.Str(nav.Sockets[s].Name);
+            w.Vec(nav.SocketData[s].DoorPoint);
         }
 
         w.I32(nav.Pois.Count);
         foreach (RoomNavPoi poi in nav.Pois)
         {
-            w.F32(poi.Position.X);
-            w.F32(poi.Position.Y);
-            w.F32(poi.Position.Z);
+            w.Vec(poi.Position);
             w.F32(poi.Yaw);
             w.U8(poi.HasFacing ? (byte)1 : (byte)0);
             w.F32(poi.Radius);
             w.Str(poi.Type);
             w.Str(poi.Tags);
-            w.U8(poi.Name is null ? (byte)0 : (byte)1);
-            if (poi.Name is not null)
-            {
-                w.Str(poi.Name);
-            }
-
+            w.OptStr(poi.Name);
             w.U32(poi.AgentMask);
+            w.Str(poi.EntityId);
         }
 
-        foreach (RoomNavAgent agent in nav.AgentData)
+        w.I32(nav.Records.Count);
+        foreach (byte[] bytes in nav.Records)
         {
-            w.I32(agent.Nodes.Length);
-            foreach (uint node in agent.Nodes)
+            NavRecord record = NavRecord.Decode(bytes);
+            w.U16((ushort)record.Corners.Count);
+            w.U16((ushort)record.Dynamics.Count);
+            w.U16((ushort)record.Brushes.Count);
+            foreach (Nav3dCorner corner in record.Corners)
             {
-                w.U32(node);
+                w.F32(corner.Width);
+                w.F32(corner.Top);
             }
 
-            w.I32(agent.Leaves.Length);
-            foreach (RoomNavLeaf leaf in agent.Leaves)
+            foreach (Nav3dDynamicCorner dynamic in record.Dynamics)
             {
-                w.U8(leaf.X);
-                w.U8(leaf.Y);
-                w.U8(leaf.Z);
-                w.U8(leaf.SizeLog2);
-                w.U8((byte)leaf.Flags);
+                w.U32((uint)dynamic.Obstacle);
+                w.F32(dynamic.Corner.Width);
+                w.F32(dynamic.Corner.Top);
             }
 
-            foreach (RoomNavSocket socket in agent.Sockets)
+            foreach (int brush in record.Brushes)
             {
-                w.I32(socket.Portal.Count);
-                foreach (NavVoxel v in socket.Portal)
-                {
-                    w.Voxel(v);
-                }
+                w.U32((uint)brush);
+            }
+        }
 
-                w.I32(socket.Capped.Count);
-                foreach (NavCapChange change in socket.Capped)
-                {
-                    w.Voxel(change.Voxel);
-                    w.U8(change.Blocks ? (byte)1 : (byte)0);
-                    w.U8((byte)change.AddFlags);
-                }
+        NavColumns columns = nav.Columns;
+        w.I32(columns.Runs.Length);
+        for (int c = 0; c < columns.SizeX * columns.SizeY; c++)
+        {
+            w.U16((ushort)(columns.ColumnStarts[c + 1] - columns.ColumnStarts[c]));
+        }
+
+        foreach (NavRun run in columns.Runs)
+        {
+            w.U8(run.ZLo);
+            w.U8(run.Height);
+            w.Key(run.Key);
+        }
+
+        foreach (RoomNavSocket socket in nav.SocketData)
+        {
+            w.I32(socket.Capped.Count);
+            foreach (NavCapChange change in socket.Capped)
+            {
+                w.I32(change.Voxel);
+                w.Key(change.Key);
+            }
+        }
+
+        w.I32(nav.Obstacles.Count);
+        foreach (RoomNavObstacle obstacle in nav.Obstacles)
+        {
+            w.Str(obstacle.ClassName);
+            w.OptStr(obstacle.TargetName);
+            w.I32(obstacle.HammerId);
+            w.U8((byte)obstacle.Kind);
+            w.Vec(obstacle.Bounds.Mins);
+            w.Vec(obstacle.Bounds.Maxs);
+        }
+
+        w.I32(nav.Brushes.Count);
+        foreach (float[] planes in nav.Brushes)
+        {
+            w.I32(planes.Length / 4);
+            foreach (float value in planes)
+            {
+                w.F32(value);
             }
         }
 
@@ -213,6 +256,11 @@ public static class RoomNavSection
         float voxel = r.F32();
         int n = r.I32();
         float floor = r.F32();
+        float step = r.F32();
+        float jumpHeight = r.F32();
+        float jumpDistance = r.F32();
+        float waterCost = r.F32();
+        float ladderCost = r.F32();
         if (n is < 1 or > NavSettings.MaxCellVoxels || !(cell > 0) || !(voxel > 0))
         {
             throw new InvalidDataException($"a room nav section of {n} voxels a side; a cell has 1 to {NavSettings.MaxCellVoxels}.");
@@ -226,9 +274,9 @@ public static class RoomNavSection
 
         List<NavAgentSpec> agents = [];
         int agentCount = r.U8();
-        if (agentCount is < 1 or > Nav3dFormat.MaxAgents)
+        if (agentCount > Nav3dFormat.MaxPresets)
         {
-            throw new InvalidDataException($"a room nav section with {agentCount} agents.");
+            throw new InvalidDataException($"a room nav section with {agentCount} presets.");
         }
 
         for (int a = 0; a < agentCount; a++)
@@ -237,6 +285,7 @@ public static class RoomNavSection
         }
 
         List<RoomSocket> sockets = [];
+        List<Vec3> doorPoints = [];
         int socketCount = r.U8();
         for (int s = 0; s < socketCount; s++)
         {
@@ -247,63 +296,154 @@ public static class RoomNavSection
             }
 
             sockets.Add(new RoomSocket((RoomFacing)facing, r.Str()));
+            doorPoints.Add(r.Vec());
         }
 
         List<RoomNavPoi> pois = [];
         int poiCount = r.Count(22);
         for (int p = 0; p < poiCount; p++)
         {
-            Vec3 position = new(r.F32(), r.F32(), r.F32());
+            Vec3 position = r.Vec();
             float yaw = r.F32();
             bool hasFacing = r.U8() != 0;
             float radius = r.F32();
             string type = r.Str();
             string tags = r.Str();
-            string? name = r.U8() != 0 ? r.Str() : null;
-            pois.Add(new RoomNavPoi(position, yaw, hasFacing, radius, type, tags, name, r.U32()));
+            string? name = r.OptStr();
+            uint mask = r.U32();
+            pois.Add(new RoomNavPoi(position, yaw, hasFacing, radius, type, tags, name, mask, r.Str()));
         }
 
-        List<RoomNavAgent> data = [];
-        for (int a = 0; a < agentCount; a++)
+        int recordCount = r.Count(6);
+        List<byte[]> records = new(recordCount);
+        for (int i = 0; i < recordCount; i++)
         {
-            uint[] nodes = new uint[r.Count(4)];
-            for (int i = 0; i < nodes.Length; i++)
+            int statics = r.U16();
+            int dynamics = r.U16();
+            int brushCount = r.U16();
+            Nav3dCorner[] corners = new Nav3dCorner[statics];
+            for (int k = 0; k < statics; k++)
             {
-                nodes[i] = r.U32();
+                corners[k] = new Nav3dCorner(r.F32(), r.F32());
             }
 
-            RoomNavLeaf[] leaves = new RoomNavLeaf[r.Count(5)];
-            for (int i = 0; i < leaves.Length; i++)
+            Nav3dDynamicCorner[] dynamic = new Nav3dDynamicCorner[dynamics];
+            for (int k = 0; k < dynamics; k++)
             {
-                leaves[i] = new RoomNavLeaf(r.U8(), r.U8(), r.U8(), r.U8(), (Nav3dLeafFlags)r.U8());
+                dynamic[k] = new Nav3dDynamicCorner((int)r.U32(), new Nav3dCorner(r.F32(), r.F32()));
             }
 
-            List<RoomNavSocket> socketData = [];
-            for (int s = 0; s < socketCount; s++)
+            int[] brushes = new int[brushCount];
+            for (int k = 0; k < brushCount; k++)
             {
-                NavVoxel[] portal = new NavVoxel[r.Count(3)];
-                for (int i = 0; i < portal.Length; i++)
+                brushes[k] = (int)r.U32();
+            }
+
+            try
+            {
+                records.Add(Nav3dClearance.Encode(corners, dynamic, brushes));
+            }
+            catch (ArgumentException exception)
+            {
+                throw new InvalidDataException($"a room nav section's record {i}: {exception.Message}");
+            }
+        }
+
+        if (records.Count == 0 || !records[0].AsSpan().SequenceEqual(Nav3dClearance.BlockedRecord))
+        {
+            throw new InvalidDataException("a room nav section's first record is not the one that blocks everything.");
+        }
+
+        int runCount = r.Count(22);
+        int[] starts = new int[(n * n) + 1];
+        for (int c = 0; c < n * n; c++)
+        {
+            starts[c + 1] = starts[c] + r.U16();
+        }
+
+        if (starts[^1] != runCount)
+        {
+            throw new InvalidDataException($"a room nav section's columns hold {starts[^1]} runs, not {runCount}.");
+        }
+
+        NavRun[] runs = new NavRun[runCount];
+        for (int c = 0; c < n * n; c++)
+        {
+            int top = -1;
+            for (int i = starts[c]; i < starts[c + 1]; i++)
+            {
+                byte zLo = r.U8();
+                byte height = r.U8();
+                if (height < 1 || zLo <= top || zLo + height > n)
                 {
-                    portal[i] = r.Voxel(n);
+                    throw new InvalidDataException($"a room nav run from voxel {zLo} for {height} overlaps its column's last or leaves the cell.");
                 }
 
-                NavCapChange[] capped = new NavCapChange[r.Count(5)];
-                for (int i = 0; i < capped.Length; i++)
+                top = zLo + height - 1;
+                runs[i] = new NavRun(zLo, height, r.Key(records.Count));
+            }
+        }
+
+        List<List<NavCapChange>> caps = [];
+        for (int s = 0; s < socketCount; s++)
+        {
+            int count = r.Count(24);
+            List<NavCapChange> capped = new(count);
+            for (int i = 0; i < count; i++)
+            {
+                int voxelIndex = r.I32();
+                if (voxelIndex < 0 || voxelIndex >= n * n * n)
                 {
-                    capped[i] = new NavCapChange(r.Voxel(n), r.U8() != 0, (Nav3dLeafFlags)r.U8());
+                    throw new InvalidDataException($"a room nav cap change at voxel {voxelIndex}, outside a cell of {n}.");
                 }
 
-                socketData.Add(new RoomNavSocket(portal, capped));
+                capped.Add(new NavCapChange(voxelIndex, r.Key(records.Count)));
             }
 
-            // Checked here so the link can trust the tree's shape.
-            _ = NavOctree.LeafMap(nodes, leaves.Length, n);
-            data.Add(new RoomNavAgent(nodes, leaves, socketData));
+            caps.Add(capped);
+        }
+
+        List<RoomNavObstacle> obstacles = [];
+        int obstacleCount = r.Count(32);
+        for (int o = 0; o < obstacleCount; o++)
+        {
+            string className = r.Str();
+            string? targetName = r.OptStr();
+            int hammerId = r.I32();
+            Nav3dObstacleKind kind = (Nav3dObstacleKind)r.U8();
+            obstacles.Add(new RoomNavObstacle(className, targetName, hammerId, kind, new Box(r.Vec(), r.Vec())));
+        }
+
+        List<float[]> brushPlanes = [];
+        int brushTotal = r.Count(4);
+        for (int b = 0; b < brushTotal; b++)
+        {
+            int planes = r.Count(16);
+            float[] floats = new float[planes * 4];
+            for (int i = 0; i < floats.Length; i++)
+            {
+                floats[i] = r.F32();
+            }
+
+            if (NavBrush.FromPlaneFloats(floats, 1) is null)
+            {
+                throw new InvalidDataException($"a room nav section's brush {b} bounds no volume.");
+            }
+
+            brushPlanes.Add(floats);
+        }
+
+        foreach (byte[] record in records)
+        {
+            if (Nav3dClearance.Problem(record, obstacles.Count, brushPlanes.Count) is { } problem)
+            {
+                throw new InvalidDataException($"a room nav section's record {problem}.");
+            }
         }
 
         if (!r.AtEnd)
         {
-            throw new InvalidDataException("a room nav section has bytes after its last agent.");
+            throw new InvalidDataException("a room nav section has bytes after its last brush.");
         }
 
         return new RoomNav
@@ -312,12 +452,21 @@ public static class RoomNavSection
             VoxelSize = voxel,
             CellVoxels = n,
             FloorNormalZ = floor,
+            StepHeight = step,
+            JumpHeight = jumpHeight,
+            JumpDistance = jumpDistance,
+            WaterCost = waterCost,
+            LadderCost = ladderCost,
             Turn = turn,
             Role = role,
             Agents = agents,
             Sockets = sockets,
             Pois = pois,
-            AgentData = data,
+            Records = records,
+            Columns = new NavColumns(n, n, starts, runs),
+            SocketData = [.. caps.Select((c, s) => new RoomNavSocket(c, doorPoints[s]))],
+            Obstacles = obstacles,
+            Brushes = brushPlanes,
         };
     }
 
@@ -326,6 +475,13 @@ public static class RoomNavSection
         private readonly MemoryStream _bytes = new();
 
         public void U8(byte value) => _bytes.WriteByte(value);
+
+        public void U16(ushort value)
+        {
+            Span<byte> b = stackalloc byte[2];
+            BinaryPrimitives.WriteUInt16BigEndian(b, value);
+            _bytes.Write(b);
+        }
 
         public void I32(int value)
         {
@@ -348,6 +504,13 @@ public static class RoomNavSection
             _bytes.Write(b);
         }
 
+        public void Vec(Vec3 value)
+        {
+            F32(value.X);
+            F32(value.Y);
+            F32(value.Z);
+        }
+
         public void Str(string value)
         {
             byte[] utf8 = Encoding.UTF8.GetBytes(value);
@@ -356,17 +519,27 @@ public static class RoomNavSection
                 throw new ArgumentException($"a string of {utf8.Length} bytes; a room nav string is at most {ushort.MaxValue}.", nameof(value));
             }
 
-            Span<byte> b = stackalloc byte[2];
-            BinaryPrimitives.WriteUInt16BigEndian(b, (ushort)utf8.Length);
-            _bytes.Write(b);
+            U16((ushort)utf8.Length);
             _bytes.Write(utf8);
         }
 
-        public void Voxel(NavVoxel v)
+        public void OptStr(string? value)
         {
-            U8(v.X);
-            U8(v.Y);
-            U8(v.Z);
+            U8(value is null ? (byte)0 : (byte)1);
+            if (value is not null)
+            {
+                Str(value);
+            }
+        }
+
+        public void Key(NavVoxelKey key)
+        {
+            I32(key.PlayerRecord);
+            I32(key.NpcRecord);
+            U16((ushort)key.Flags);
+            U16(key.Cost);
+            F32(key.PlayerFloorZ);
+            F32(key.NpcFloorZ);
         }
 
         public byte[] ToArray() => _bytes.ToArray();
@@ -381,13 +554,31 @@ public static class RoomNavSection
 
         public byte U8() => Take(1)[0];
 
+        public ushort U16() => BinaryPrimitives.ReadUInt16BigEndian(Take(2));
+
         public int I32() => BinaryPrimitives.ReadInt32BigEndian(Take(4));
 
         public uint U32() => BinaryPrimitives.ReadUInt32BigEndian(Take(4));
 
         public float F32() => BinaryPrimitives.ReadSingleBigEndian(Take(4));
 
-        public string Str() => Encoding.UTF8.GetString(Take(BinaryPrimitives.ReadUInt16BigEndian(Take(2))));
+        public Vec3 Vec() => new(F32(), F32(), F32());
+
+        public string Str() => Encoding.UTF8.GetString(Take(U16()));
+
+        public string? OptStr() => U8() != 0 ? Str() : null;
+
+        public NavVoxelKey Key(int records)
+        {
+            int player = I32();
+            int npc = I32();
+            if (player < 0 || player >= records || npc < 0 || npc >= records)
+            {
+                throw new InvalidDataException($"a room nav key names records {player} and {npc} of {records}.");
+            }
+
+            return new NavVoxelKey(player, npc, (Nav3dLeafFlags)U16(), U16(), F32(), F32());
+        }
 
         /// <summary>A count of records of at least <paramref name="each"/> bytes, refused when the bytes left cannot hold them.</summary>
         public int Count(int each)
@@ -399,17 +590,6 @@ public static class RoomNavSection
             }
 
             return count;
-        }
-
-        public NavVoxel Voxel(int n)
-        {
-            NavVoxel v = new(U8(), U8(), U8());
-            if (v.X >= n || v.Y >= n || v.Z >= n)
-            {
-                throw new InvalidDataException($"a room nav voxel ({v.X}, {v.Y}, {v.Z}) outside a cell of {n}.");
-            }
-
-            return v;
         }
 
         private ReadOnlySpan<byte> Take(int count)

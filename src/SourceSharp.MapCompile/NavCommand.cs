@@ -119,10 +119,10 @@ public static class NavCommand
             return Program.ExitSuccess;
         }
 
-        int agent = agentText is null ? 0
+        int agent = agentText is null ? -1
             : int.TryParse(agentText, NumberStyles.None, CultureInfo.InvariantCulture, out int index) ? index
-            : nav.FindAgent(agentText);
-        if (agent < 0 || agent >= nav.AgentCount || !VPath.TryCreate(Path.GetFullPath(obj), out VPath objPath))
+            : nav.FindPreset(agentText);
+        if ((agentText is not null && (agent < 0 || agent >= nav.PresetCount)) || !VPath.TryCreate(Path.GetFullPath(obj), out VPath objPath))
         {
             await output.WriteLineAsync($"ssmap nav: no agent \"{agentText}\", or --obj \"{obj}\" is not a usable path").ConfigureAwait(false);
             return Program.ExitUsage;
@@ -167,10 +167,16 @@ public static class NavCommand
         RoomDefinition first = loaded[0].Definition;
         LevelLayout layout = level.ToLayout(name => byName.GetValueOrDefault(name)?.Definition, first.CellSize, first.Kit);
         Guid? packId = await RoomNavPack.ReadPackIdAsync(stream, index, cancellationToken).ConfigureAwait(false);
-        LevelNavLink link = LevelNavFromPack.Link(
+        LevelNavPlan plan = LevelNavFromPack.Plan(
             layout, level.Columns, level.Rows, name => byName[name], packId, levelBytes,
-            LevelNavFromPack.IdOptions(true, NavCompression.None), includeNavigation: true, cancellationToken);
-        return link.Nav is null ? (null, link.Warning) : (Nav3dReader.Open(Nav3dWriter.Write(link.Nav)), null);
+            LevelNavFromPack.IdOptions(true, LevelNavFromPack.DefaultCompression), includeNavigation: true);
+        if (!plan.WritesNavigation)
+        {
+            return (null, plan.Warning);
+        }
+
+        Nav3dLevel stitched = await plan.BuildAsync(cancellationToken).ConfigureAwait(false);
+        return (Nav3dReader.Open(Nav3dWriter.Write(stitched, LevelNavFromPack.DefaultCompression)), null);
     }
 
     private static async Task<byte[]> ReadAsync(IFileSystem disk, VPath path, CancellationToken cancellationToken)

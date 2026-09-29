@@ -17,54 +17,55 @@ namespace SourceSharp.Tests.MapTools.Nav;
 
 /// <summary>
 /// Stitching placed rooms: joined doors connect, capped doors and doors too
-/// small for an agent do not, the points of interest land where they
-/// should, and the file is the same every time.
+/// small for a preset do not, points of interest land where they should (and
+/// one in a capped doorway is refused), obstacles take the level's names, and
+/// the file is the same every time.
 /// </summary>
 public sealed class LevelNavLinkerTests(NavRoomsFixture fixture) : IClassFixture<NavRoomsFixture>
 {
     private static Nav3dReader Read(Nav3dLevel level) => Nav3dReader.Open(Nav3dWriter.Write(level));
 
-    /// <summary>The components holding leaves of the two cells, for an agent.</summary>
-    private static (uint A, uint B) Components(Nav3dReader nav, int agent, int cellA, int cellB)
+    /// <summary>The components holding the standing floor leaves of two cells, for a preset.</summary>
+    private static (int A, int B) Components(Nav3dReader nav, int preset, int cellA, int cellB)
     {
-        uint Of(int cell)
+        int Of(int cell)
         {
-            for (int l = 0; l < nav.LeafCount(agent); l++)
+            for (int l = 0; l < nav.LeafCount; l++)
             {
-                Nav3dLeaf leaf = nav.Leaf(agent, l);
-                if (leaf.Cell == cell && (leaf.Flags & Nav3dLeafFlags.Floor) != 0)
+                if (nav.LeafColumn(l).Cell == cell && nav.Component(preset, l) >= 0 && nav.Leaf(l).IsGrounded(Nav3dClipClass.Player))
                 {
-                    return leaf.Component;
+                    return nav.Component(preset, l);
                 }
             }
 
-            throw new InvalidOperationException($"cell {cell} has no floor leaf for agent {agent}");
+            throw new InvalidOperationException($"cell {cell} has no floor leaf for preset {preset}");
         }
 
         return (Of(cellA), Of(cellB));
     }
 
     [Fact]
-    public void TwoRoomsJoinedThroughADoorAreOneComponentPerAgent()
+    public void TwoRoomsJoinedThroughADoorAreOneComponentPerPreset()
     {
         Nav3dReader nav = Read(fixture.Link(fixture.Layout(("east", 0, 0, 0), ("west", 1, 0, 0)), 2, 1));
-        foreach (int agent in new[] { NavRoomsFixture.StandingAgent, NavRoomsFixture.FlyerAgent })
+        foreach (int preset in new[] { NavRoomsFixture.StandingAgent, NavRoomsFixture.FlyerAgent })
         {
-            (uint a, uint b) = Components(nav, agent, 0, 1);
+            (int a, int b) = Components(nav, preset, 0, 1);
             Assert.Equal(a, b);
-            Assert.Equal(1, nav.ComponentCount(agent));
-            Assert.True(nav.LinkCount(agent) > 0);
-            Nav3dDoorLink link = nav.Link(agent, 0);
-            Assert.True((nav.Leaf(agent, (int)link.LeafA).Flags & Nav3dLeafFlags.Door) != 0);
-            bool through = false;
-            foreach (Nav3dNeighbour neighbour in nav.Neighbours(agent, (int)link.LeafA))
-            {
-                through |= neighbour.Leaf == (int)link.LeafB && neighbour.ThroughDoor;
-            }
-
-            Assert.True(through);
+            Assert.Equal(1, nav.ComponentCount(preset));
         }
 
+        // The doorway's boundary leaves neighbour each other across the cell face, through the door.
+        int here = nav.FindLeaf(0, 15, 7, 1);
+        int there = nav.FindLeaf(1, 0, 7, 1);
+        Assert.True(here >= 0 && there >= 0);
+        bool through = false;
+        foreach (Nav3dNeighbour neighbour in nav.Neighbours(here))
+        {
+            through |= neighbour.Leaf == there && neighbour.ThroughDoor && neighbour.Direction == Nav3dDirection.East;
+        }
+
+        Assert.True(through);
         Assert.True(nav.Door(0).Joined && nav.Door(1).Joined);
         Assert.Equal((1, 0), (nav.Door(0).Other, nav.Door(1).Other));
     }
@@ -74,27 +75,37 @@ public sealed class LevelNavLinkerTests(NavRoomsFixture fixture) : IClassFixture
     {
         // The second room's door faces the grid's edge, not the first room's.
         Nav3dReader nav = Read(fixture.Link(fixture.Layout(("east", 0, 0, 0), ("east", 1, 0, 0)), 2, 1));
-        foreach (int agent in new[] { NavRoomsFixture.StandingAgent, NavRoomsFixture.FlyerAgent })
+        foreach (int preset in new[] { NavRoomsFixture.StandingAgent, NavRoomsFixture.FlyerAgent })
         {
-            (uint a, uint b) = Components(nav, agent, 0, 1);
+            (int a, int b) = Components(nav, preset, 0, 1);
             Assert.NotEqual(a, b);
-            Assert.Equal(0, nav.LinkCount(agent));
         }
 
         // Capped: the doorway is solid, so no leaf reaches the cell face there.
-        Assert.Equal(-1, nav.FindLeaf(NavRoomsFixture.StandingAgent, 0, 15, 7, 1));
+        Assert.Equal(-1, nav.FindLeaf(0, 15, 7, 1));
         Assert.False(nav.Door(0).Joined);
+        for (int l = 0; l < nav.LeafCount; l++)
+        {
+            foreach (Nav3dNeighbour neighbour in nav.Neighbours(l))
+            {
+                Assert.False(neighbour.ThroughDoor);
+            }
+        }
     }
 
     [Fact]
-    public void ADoorNarrowerThanAnAgentDoesNotConnectForIt()
+    public void ADoorNarrowerThanAPresetDoesNotConnectForIt()
     {
         Nav3dReader nav = Read(fixture.Link(fixture.Layout(("east", 0, 0, 0), ("west", 1, 0, 0)), 2, 1));
-        (uint a, uint b) = Components(nav, NavRoomsFixture.WideAgent, 0, 1);
+        (int a, int b) = Components(nav, NavRoomsFixture.WideAgent, 0, 1);
         Assert.NotEqual(a, b);
-        Assert.Equal(0, nav.LinkCount(NavRoomsFixture.WideAgent));
         (a, b) = Components(nav, NavRoomsFixture.StandingAgent, 0, 1);
         Assert.Equal(a, b);
+
+        // The door's leaves are there; the wide preset fits in none of them.
+        int doorway = nav.FindLeaf(0, 15, 7, 1);
+        Assert.Equal(-1, nav.FitTop(doorway, 112, 32, Nav3dClipClass.Npc));
+        Assert.True(nav.FitTop(doorway, 32, 72, Nav3dClipClass.Player) >= 1);
     }
 
     [Fact]
@@ -108,20 +119,21 @@ public sealed class LevelNavLinkerTests(NavRoomsFixture fixture) : IClassFixture
     }
 
     [Fact]
-    public void DoorPointsAreMadePerAgentThatFitsAndMarkedJoinedOrCapped()
+    public void ADoorPointIsMadePerDoorAndMarkedJoinedOrCapped()
     {
         Nav3dReader nav = Read(fixture.Link(fixture.Layout(("east", 0, 0, 0), ("west", 1, 0, 0), ("east", 1, 1, 0)), 2, 2));
         List<Nav3dPoi> doors = [.. Enumerable.Range(0, nav.PoiCount).Select(nav.Poi).Where(p => (p.Flags & Nav3dPoiFlags.Door) != 0)];
 
-        // Three doors, two agents each fit (the wide one fits none).
-        Assert.Equal(6, doors.Count);
+        // Three doors, one point each, for every preset (fit is the clearance's answer).
+        Assert.Equal(3, doors.Count);
         Assert.All(doors, p => Assert.Equal(RoomPois.DoorType, p.Type));
-        Assert.DoesNotContain(doors, p => p.AgentMask == 1u << NavRoomsFixture.WideAgent);
+        Assert.All(doors, p => Assert.Equal(0b111u, p.AgentMask));
 
         Nav3dPoi joined = doors.First(p => p.Cell == 0);
         Assert.True((joined.Flags & Nav3dPoiFlags.Joined) != 0);
         Assert.Equal(new Vec3(256, 128, 16), joined.Position);
         Assert.Equal(0f, joined.Yaw);
+        Assert.Equal(0, joined.Door);
         Nav3dPoi capped = doors.First(p => p.Cell == 3);
         Assert.True((capped.Flags & Nav3dPoiFlags.Joined) == 0);
         Assert.Equal(new Vec3(512, 384, 16), capped.Position);
@@ -129,9 +141,8 @@ public sealed class LevelNavLinkerTests(NavRoomsFixture fixture) : IClassFixture
         // A joined door's point is in the doorway's leaf; a capped doorway is
         // solid, so its point is in none.
         int Index(Nav3dPoi p) => Enumerable.Range(0, nav.PoiCount).Single(i => nav.Poi(i) == p);
-        Assert.True(nav.PoiLeaf(NavRoomsFixture.StandingAgent, Index(joined)) >= 0);
-        Assert.Equal(-1, nav.PoiLeaf(NavRoomsFixture.StandingAgent, Index(capped)));
-        Assert.Equal(-1, nav.PoiLeaf(NavRoomsFixture.FlyerAgent, Index(joined)));
+        Assert.True(nav.PoiLeaf(Index(joined)) >= 0);
+        Assert.Equal(-1, nav.PoiLeaf(Index(capped)));
     }
 
     [Fact]
@@ -151,7 +162,40 @@ public sealed class LevelNavLinkerTests(NavRoomsFixture fixture) : IClassFixture
         Assert.Equal("c1r3_guard", placed.Name);
         Assert.Equal((uint)((2 * 2) + 1), placed.Cell);
         int poi = Enumerable.Range(0, nav.PoiCount).Single(p => nav.Poi(p).Type == "patrol");
-        Assert.True(nav.PoiLeaf(NavRoomsFixture.StandingAgent, poi) >= 0);
+        Assert.True(nav.PoiLeaf(poi) >= 0);
+    }
+
+    /// <summary>
+    /// A point of interest in a doorway the level caps stands inside the
+    /// plug: the link refuses it, naming the point and the door. The same
+    /// point in a joined doorway is fine.
+    /// </summary>
+    [Fact]
+    public void APointInACappedDoorwayIsRefusedNamingThePointAndTheDoor()
+    {
+        AuthoredPoi sentry = new("42", new Vec3(248, 128, 16), 0f, true, 0f, "vantage", "", "cxry_sentry", ["standing"]);
+        RoomNav east = RoomNavBuilder.Build(fixture.Definition("east"), fixture.Room("east").Bsp, [sentry], RoomRole.None, NavRoomsFixture.Settings);
+
+        // Joined: the doorway is open, the point stands in it.
+        Nav3dReader joined = Read(fixture.Link(fixture.Layout(("east", 0, 0, 0), ("west", 1, 0, 0)), 2, 1, room => room == "east" ? east : fixture.Nav(room)));
+        int point = Enumerable.Range(0, joined.PoiCount).Single(p => joined.Poi(p).Type == "vantage");
+        Assert.True(joined.PoiLeaf(point) >= 0);
+
+        // Capped, at any turn: refused, naming both.
+        foreach (int turn in new[] { 0, 1, 2, 3 })
+        {
+            LinkException refused = Assert.Throws<LinkException>(() =>
+                fixture.Link(fixture.Layout(("east", 0, 0, turn)), 1, 1, room => east));
+            Assert.Contains("room \"east\" at cell (0, 0): info_poi 42 \"cxry_sentry\" (vantage)", refused.Message, StringComparison.Ordinal);
+            Assert.Contains("doorway of socket \"east\", which the level caps", refused.Message, StringComparison.Ordinal);
+            Assert.Throws<LinkException>(() => LevelNavLinker.CheckCappedDoorways(fixture.Layout(("east", 0, 0, turn)), [east.Turned(turn)]));
+        }
+
+        // Just inside the room, in front of the plug, it is not in the doorway.
+        AuthoredPoi inside = sentry with { Origin = new Vec3(232, 128, 16) };
+        RoomNav clear = RoomNavBuilder.Build(fixture.Definition("east"), fixture.Room("east").Bsp, [inside], RoomRole.None, NavRoomsFixture.Settings);
+        _ = fixture.Link(fixture.Layout(("east", 0, 0, 0)), 1, 1, room => clear);
+        LevelNavLinker.CheckCappedDoorways(fixture.Layout(("east", 0, 0, 0)), [clear]);
     }
 
     [Fact]
@@ -207,6 +251,9 @@ public sealed class LevelNavLinkerTests(NavRoomsFixture fixture) : IClassFixture
             NavRoomsFixture.Settings with { FloorNormalZ = 0.5f });
         Assert.Contains("other settings", Assert.Throws<LinkException>(() =>
             fixture.Link(layout, 2, 1, room => room == "west" ? coarse : fixture.Nav(room))).Message, StringComparison.Ordinal);
+        RoomNav steps = fixture.Nav("west") with { StepHeight = 12 };
+        Assert.Contains("traversal limits", Assert.Throws<LinkException>(() =>
+            fixture.Link(layout, 2, 1, room => room == "west" ? steps : fixture.Nav(room))).Message, StringComparison.Ordinal);
         Assert.Contains("outside the 1 x 1 grid", Assert.Throws<LinkException>(() => fixture.Link(layout, 1, 1)).Message, StringComparison.Ordinal);
         Assert.Throws<LinkException>(() =>
             LevelNavLinker.Link(layout with { Rooms = [] }, 2, 1, (room, turn) => fixture.Nav(room), null, Guid.Empty));
@@ -221,7 +268,7 @@ public sealed class LevelNavLinkerTests(NavRoomsFixture fixture) : IClassFixture
     }
 
     [Fact]
-    public void TheIdsAndCellsAreCarried()
+    public void TheIdsCellsPresetsAndLimitsAreCarried()
     {
         Guid pack = Guid.Parse("11111111-2222-8333-8444-555555555555");
         Guid levelId = Guid.Parse("aaaaaaaa-bbbb-8ccc-8ddd-eeeeeeeeeeee");
@@ -234,7 +281,45 @@ public sealed class LevelNavLinkerTests(NavRoomsFixture fixture) : IClassFixture
         Assert.Equal(new Nav3dCell("east", 0, Nav3dRoomRole.None, 0b0001, 0), nav.Cell(0));
         Assert.Equal(new Nav3dCell("west", 0, Nav3dRoomRole.None, 0b0100, 0), nav.Cell(1));
         Assert.Null(nav.Cell(2).Room);
-        Assert.Equal(-1, nav.CellRoot(0, 2));
-        Assert.Equal(-1, nav.FindLeaf(0, new Vec3(700, 100, 50)));
+        Assert.Equal(-1, nav.CellRoot(2));
+        Assert.Equal(-1, nav.FindLeaf(new Vec3(700, 100, 50)));
+        Assert.Equal(new Nav3dPreset("wide", 112, 32, Nav3dClipClass.Npc), nav.Preset(NavRoomsFixture.WideAgent));
+        Assert.Equal((18f, 56f, 100f), (nav.StepHeight, nav.JumpHeight, nav.JumpDistance));
     }
+
+    /// <summary>
+    /// A room's dynamic obstacles take the level's names (a room-local name
+    /// resolved for the cell and turn, as the link's naming does), move to the
+    /// cell, and the records of a second room name the level's index of its
+    /// own obstacles.
+    /// </summary>
+    [Fact]
+    public void ObstaclesTakeTheLevelsNamesAndIndexes()
+    {
+        RoomDefinition east = RoomHarness_East;
+        RoomDefinition west = RoomHarness_West;
+        NavObstacleSource Door(string name) => new("func_door", name, 5, Nav3dObstacleKind.Door, [NavBrush.Box(new Vec3(100, 100, 16), new Vec3(116, 140, 120), 1)]);
+        RoomNav a = NavTestRooms.Nav(east, NavTestRooms.Geometry(east, obstacles: [Door("cxry_gate")]));
+        RoomNav b = NavTestRooms.Nav(west, NavTestRooms.Geometry(west, obstacles: [Door("gate_global"), Door("cx-1ry_back")]));
+        Nav3dReader nav = NavTestRooms.Link((east, a, 0, 0, 0), (west, b, 1, 0, 1));
+        Assert.Equal(3, nav.ObstacleCount);
+        Assert.Equal(new Nav3dObstacle("c0r0_gate", "func_door", 0, 5, Nav3dObstacleKind.Door, new Vec3(100, 100, 16), new Vec3(116, 140, 120)), nav.Obstacle(0));
+        Assert.Equal("gate_global", nav.Obstacle(1).Name);
+
+        // The west room is turned 90° in cell (1, 0): its -x neighbour is the level's -y one.
+        Assert.Equal("c1r-1_back", nav.Obstacle(2).Name);
+        Assert.Equal(1u, nav.Obstacle(2).Cell);
+        Assert.Equal(new Vec3(256 + 256 - 140, 100, 16), nav.Obstacle(2).Mins);
+
+        // Each obstacle names only leaves of its own cell.
+        for (int o = 0; o < 3; o++)
+        {
+            Assert.NotEmpty(nav.ObstacleLeaves(o).ToArray());
+            Assert.All(nav.ObstacleLeaves(o).ToArray(), l => Assert.Equal((int)nav.Obstacle(o).Cell, nav.LeafColumn(l).Cell));
+        }
+    }
+
+    private static RoomDefinition RoomHarness_East => Rooms.RoomHarness.WalkableRoom("east", RoomFacing.PositiveX);
+
+    private static RoomDefinition RoomHarness_West => Rooms.RoomHarness.WalkableRoom("west", RoomFacing.NegativeX);
 }

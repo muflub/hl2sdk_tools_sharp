@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp;
@@ -352,9 +353,17 @@ public static class RoomLibraryCompiler
             // (per room, per turn, read by the link instead of redone), so
             // it is done here too, beside it.
             RoomLinkData? link = await LevelLinker.TryPrecomputeAsync(compiled, cancellationToken).ConfigureAwait(false);
-            RoomNav? nav = settings.Nav is { } navSettings
-                ? RoomNavBuilder.Build(room.Definition, compiled.Bsp, pois, room.Role, navSettings, cancellationToken)
-                : null;
+            RoomNav? nav = null;
+            if (settings.Nav is { } navSettings)
+            {
+                // The props' model hulls first (the build reads nothing), so
+                // a door or crate prop becomes a dynamic obstacle its size.
+                IReadOnlyDictionary<string, (Vec3 Mins, Vec3 Maxs)?> hulls = await NavModelBounds
+                    .LoadAsync(settings.Content, NavModelBounds.PropModels(compiled.Bsp), cancellationToken).ConfigureAwait(false);
+                nav = RoomNavBuilder.Build(
+                    room.Definition, compiled.Bsp, pois, room.Role, navSettings, m => hulls.GetValueOrDefault(m), cancellationToken);
+            }
+
             RoomObject delivered = link is null ? compiled : compiled with { Link = link };
             return new RoomCompileOutcome(index, room, nav is null ? delivered : delivered with { Nav = RoomNavTurns.Of(nav) }, null);
         }

@@ -13,7 +13,14 @@ namespace SourceSharp.MapTools.Rooms;
 public sealed class RoomBuildOutcome
 {
     internal RoomBuildOutcome(
-        int index, LibraryRoom room, RoomPackItem? item, bool reused, int clusterCount, IReadOnlyList<string> nameWarnings, Exception? error)
+        int index,
+        LibraryRoom room,
+        RoomPackItem? item,
+        bool reused,
+        int clusterCount,
+        IReadOnlyList<string> nameWarnings,
+        IReadOnlyList<string> navWarnings,
+        Exception? error)
     {
         Index = index;
         Room = room;
@@ -21,6 +28,7 @@ public sealed class RoomBuildOutcome
         Reused = reused;
         ClusterCount = clusterCount;
         NameWarnings = nameWarnings;
+        NavWarnings = navWarnings;
         Error = error;
     }
 
@@ -41,6 +49,20 @@ public sealed class RoomBuildOutcome
 
     /// <summary>What the naming rule warned of when the room compiled (replayed on a reuse).</summary>
     public IReadOnlyList<string> NameWarnings { get; }
+
+    /// <summary>
+    /// What the room's navigation build warned of when the room compiled
+    /// (replayed on a reuse), such as a prop whose model the content lacks
+    /// and which the navigation therefore leaves out of its obstacles.
+    /// </summary>
+    /// <remarks>
+    /// Empty when the library builds no navigation. A reused room carries the
+    /// list its compile stored, so a host that prints it prints the same
+    /// lines whether the room compiled or came from the cache; the warnings
+    /// are the build's, not the pack's, so they are not in any section and
+    /// must travel beside the item for that to hold.
+    /// </remarks>
+    public IReadOnlyList<string> NavWarnings { get; }
 
     /// <summary>Why the room failed, or null: as <see cref="RoomCompileOutcome.Error"/>.</summary>
     public Exception? Error { get; }
@@ -129,7 +151,8 @@ public static class RoomLibraryBuild
                 RoomCacheHit hit = hits[next]!;
                 hits[next] = null;
                 await roomFinished(
-                    new RoomBuildOutcome(next, rooms[next], hit.Item, reused: true, hit.ClusterCount, hit.NameWarnings, null), token)
+                    new RoomBuildOutcome(
+                        next, rooms[next], hit.Item, reused: true, hit.ClusterCount, hit.NameWarnings, hit.NavWarnings, null), token)
                     .ConfigureAwait(false);
             }
         }
@@ -148,13 +171,14 @@ public static class RoomLibraryBuild
                     if (outcome.Compiled is { } compiled)
                     {
                         RoomPackItem item = await RoomPackItem.CreateAsync(compiled, packOptions, token).ConfigureAwait(false);
-                        cache?.Add(outcome.Room, item, compiled.ClusterCount, compiled.NameWarnings);
+                        IReadOnlyList<string> navWarnings = compiled.Nav?.Base.Warnings ?? [];
+                        cache?.Add(outcome.Room, item, compiled.ClusterCount, compiled.NameWarnings, navWarnings);
                         built = new RoomBuildOutcome(
-                            index, outcome.Room, item, reused: false, compiled.ClusterCount, compiled.NameWarnings, null);
+                            index, outcome.Room, item, reused: false, compiled.ClusterCount, compiled.NameWarnings, navWarnings, null);
                     }
                     else
                     {
-                        built = new RoomBuildOutcome(index, outcome.Room, null, reused: false, 0, [], outcome.Error);
+                        built = new RoomBuildOutcome(index, outcome.Room, null, reused: false, 0, [], [], outcome.Error);
                     }
 
                     next = index + 1;

@@ -301,6 +301,106 @@ public sealed class RoomCacheKeyTests
         }));
     }
 
+    /// <summary>
+    /// Every navigation setting is an input on its own, the traversal limits
+    /// and costs included (the step, the jump's height and reach, the water
+    /// and ladder multipliers): each shapes the room's navigation sections.
+    /// The fact walks the settings record, so a setting added later is
+    /// covered, and one whose type the fact cannot vary fails it until
+    /// someone decides.
+    /// </summary>
+    [Fact]
+    public void EveryNavigationSettingChangesTheKey()
+    {
+        LibraryRoom room = Split(Library())[0];
+        RoomCacheInputs nav = Inputs with { Nav = NavSettings.Default };
+        string on = Key(room, nav);
+        List<string> varied = [];
+        foreach (PropertyInfo property in typeof(NavSettings).GetProperties(BindingFlags.Instance | BindingFlags.Public))
+        {
+            if (!property.CanWrite)
+            {
+                continue;
+            }
+
+            NavSettings changed = NavSettings.Default with { };
+            object? value = property.GetValue(changed);
+            property.SetValue(changed, value switch
+            {
+                float f => f + 1f,
+                IReadOnlyList<NavAgentSpec> agents => agents.Take(agents.Count - 1).ToList(),
+                _ => throw new InvalidOperationException($"the fact does not know how to vary {property.Name}, a {property.PropertyType.Name}; add it"),
+            });
+            Assert.True(on != Key(room, nav with { Nav = changed }), $"{property.Name} does not change the key");
+            varied.Add(property.Name);
+        }
+
+        Assert.Superset(
+            new HashSet<string>
+            {
+                nameof(NavSettings.StepHeight), nameof(NavSettings.JumpHeight), nameof(NavSettings.JumpDistance),
+                nameof(NavSettings.WaterCost), nameof(NavSettings.LadderCost),
+            },
+            varied.ToHashSet());
+    }
+
+    /// <summary>
+    /// Each field of an agent preset is an input: its name (points of
+    /// interest name the presets they apply to), its width and height, and
+    /// its class (the contents mask, which picks the clip world it lives in).
+    /// </summary>
+    [Fact]
+    public void EachAgentPresetFieldChangesTheKey()
+    {
+        LibraryRoom room = Split(Library())[0];
+        RoomCacheInputs nav = Inputs with { Nav = NavSettings.Default };
+        string on = Key(room, nav);
+        NavAgentSpec first = NavSettings.Default.Agents[0];
+        NavAgentSpec[] variants =
+        [
+            first with { Name = first.Name + "x" },
+            first with { Width = first.Width + 1 },
+            first with { Height = first.Height + 1 },
+            first with { ContentsMask = Nav3dFormat.NpcSolidMask },
+        ];
+        foreach (NavAgentSpec variant in variants)
+        {
+            NavSettings changed = NavSettings.Default with { Agents = [variant, .. NavSettings.Default.Agents.Skip(1)] };
+            Assert.True(on != Key(room, nav with { Nav = changed }), variant.ToString());
+        }
+
+        NavSettings swapped = NavSettings.Default with { Agents = [.. NavSettings.Default.Agents.Reverse()] };
+        Assert.NotEqual(on, Key(room, nav with { Nav = swapped }));
+    }
+
+    /// <summary>
+    /// Each navigation key of the library's worldspawn, read the way
+    /// <c>ssmap room</c> reads it (<see cref="NavSettings.FromLibrary"/>),
+    /// changes the key through the navigation settings alone: the room is
+    /// held fixed, so the fact sees the settings fold and nothing else.
+    /// </summary>
+    [Theory]
+    [InlineData(NavSettings.VoxelKey, "8")]
+    [InlineData(NavSettings.SlopeKey, "30")]
+    [InlineData(NavSettings.StepKey, "24")]
+    [InlineData(NavSettings.JumpHeightKey, "64")]
+    [InlineData(NavSettings.JumpDistanceKey, "120")]
+    [InlineData(NavSettings.WaterCostKey, "3")]
+    [InlineData(NavSettings.LadderCostKey, "2")]
+    [InlineData(NavSettings.AgentsKey, "standing 32 72 player; flyer 32 40 npc")]
+    [InlineData(NavSettings.EnabledKey, "0")]
+    public void EachLibraryNavigationKeyChangesTheKey(string worldKey, string value)
+    {
+        LibraryRoom room = Split(Library())[0];
+        NavSettings? defaults = NavSettings.FromLibrary(Library());
+        Assert.NotNull(defaults);
+        Assert.Equal(NavSettings.DefaultStepHeight, defaults.StepHeight);
+        VmfDocument edited = Library();
+        edited.GetChunk("world")!.AddKey(worldKey, value);
+        NavSettings? read = NavSettings.FromLibrary(edited);
+        Assert.NotEqual(Key(room, Inputs with { Nav = defaults }), Key(room, Inputs with { Nav = read }));
+    }
+
     /// <summary><c>-nav-turn0</c> and <c>-nav-codec</c> change what the pack stores, so they are inputs.</summary>
     [Fact]
     public void TheNavigationStorageChangesTheKey()
