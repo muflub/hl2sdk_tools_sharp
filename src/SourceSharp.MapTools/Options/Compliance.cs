@@ -1553,6 +1553,128 @@ public enum StockQuirk
     /// </para>
     /// </remarks>
     SplitBrushSliverSides,
+
+    /// <summary>
+    /// vbsp's edge-bevel pass decides whether a brush already has a side on a
+    /// candidate bevel plane by comparing the two planes' distances at the
+    /// origin, so a far-away slanted face gets a bevel that duplicates it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// For every non-axial edge of a brush, <c>AddBrushBevels</c> tries the
+    /// planes through the edge along each axis and adds one as a bevel side
+    /// unless the brush already has it. "Already has" is the plane-equality
+    /// test with 0.01 on each normal component and 0.01 on the distance. The
+    /// candidate's normal comes from the edge of a winding, which carries the
+    /// clipping's rounding, and the side's from its three map points, so the
+    /// two differ by a few millionths; the distance is compared at the
+    /// origin, a few thousand units from the face, where that angle has
+    /// grown to more than 0.01. The candidate passes, and the brush gets a
+    /// bevel on its own face.
+    /// </para>
+    /// <para>
+    /// <b>Why this is a defect.</b> The duplicate adds nothing a bevel is for,
+    /// since the face already bounds the brush there, and it is a plane of
+    /// its own in the table that later faces are merged onto. Whether it is
+    /// added depends on the last bits of both normals. On 2fort under Correct,
+    /// 1145 candidates lay on one of their brush's faces to within 0.1 (half
+    /// of them to 0.0011) yet were more than 0.01 from it at the origin, by up
+    /// to 4.2 units. One of them, 0.0118 from its face at the origin, was
+    /// added, and the next brush's face along the same wall merged onto it
+    /// rather than onto the face it duplicates; flipping
+    /// <see cref="PlaneFromPointsNormalise"/> or <see cref="BaseWindingNormalise"/>
+    /// brought it within 0.01, it was not added, the wall's two faces shared
+    /// one plane, and the tree split on the other one. Under the Stock policy
+    /// those normalises are the CPU's <c>rsqrtss</c> estimate.
+    /// </para>
+    /// <para>
+    /// <see cref="CompliancePolicy.Correct"/> also treats the candidate as
+    /// present when a side facing the same way (stock's 0.01 per normal
+    /// component) has every winding vertex within
+    /// <c>MapFile.BevelOnSideEpsilon</c> (0.1) of it: the distance measured
+    /// where the side is. Stock's test still applies, so Correct never adds a
+    /// bevel stock would not. <see cref="CompliancePolicy.Stock"/> uses only
+    /// stock's test.
+    /// </para>
+    /// </remarks>
+    EdgeBevelDuplicateAtOrigin,
+
+    /// <summary>
+    /// vbsp's split heuristic calls a brush in front of or behind a candidate
+    /// plane when its bounding box reaches 0.001 across it, so a brush that
+    /// only touches the plane is counted on one side or both by the rounding
+    /// of its touching corner.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>TestBrushToPlanenum</c> starts from <c>BrushBspBoxOnPlaneSide</c>:
+    /// front when the box's leading corner is <c>PLANESIDE_EPSILON</c>
+    /// (0.001) or more in front, back when its trailing corner is under
+    /// +0.001 on a slanted plane or more than 0.001 behind an axial one. The
+    /// split score counts a both-sided brush in front and behind, and sends
+    /// it on to the vertex test that can charge the plane 1000 points. A brush
+    /// with a corner on the plane has that corner a rounding residual away
+    /// from it, a few ten-thousandths to a few thousandths either way.
+    /// </para>
+    /// <para>
+    /// <b>Why this is a defect.</b> The residual is noise, and 0.001 sits
+    /// inside it. On 2fort a slanted plane (0, -0.8437, -0.5369) at -1884.74
+    /// moved by about 0.0016 at a brush corner 2000 units out when
+    /// <see cref="PlaneFromPointsNormalise"/> was flipped: the brush went
+    /// from behind to both, the plane's <c>abs(front - back)</c> moved by
+    /// one, and another plane won the node. And the both-sided answer
+    /// predicts a split that never happens: <c>SplitBrush</c> copies a brush
+    /// whose vertices reach less than 0.1 across whole to the other side.
+    /// </para>
+    /// <para>
+    /// <see cref="CompliancePolicy.Correct"/> counts a side only when the box
+    /// reaches <c>BrushBspTree.SplitOnPlaneEpsilon</c> (0.1, SplitBrush's own
+    /// line) or more across it, and calls a box inside the band on both sides
+    /// behind, as SplitBrush does
+    /// (<c>BrushBspTree.BoxOnPlaneSideBeyondBand</c>). The brush lists the
+    /// node is split into are unchanged; only the score's counts are.
+    /// <see cref="CompliancePolicy.Stock"/> keeps the box test.
+    /// </para>
+    /// </remarks>
+    SplitSideTestBoxEpsilon,
+
+    /// <summary>
+    /// vbsp places a box bevel at the brush's bounds, read off windings that
+    /// carry the clipping's rounding, so whether the bevel snaps onto the
+    /// integer plane a neighbour's face uses depends on that rounding.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A brush with no side facing along an axis is given a box bevel there,
+    /// at <c>mins</c> or <c>maxs</c>, and the plane table snaps its distance
+    /// to an integer when it is within 0.01 of one. The bounds come from the
+    /// brush's windings, cut from base windings 65536 units across in single
+    /// precision: a few thousandths off at a plain corner, and more along a
+    /// glancing edge, where the error is divided by the sine of the angle the
+    /// two planes meet at. A wedge 384 units long and 16 high, at y = 1000,
+    /// has its thin edge at 1000.03125 in its windings.
+    /// </para>
+    /// <para>
+    /// <b>Why this is a defect.</b> The snap is a cliff at 0.01 and the noise
+    /// straddles it. On 2fort the thin edge of a wedge at y = -512 read
+    /// -511.99x under Correct and -511.98654 with
+    /// <see cref="PlaneFromPointsNormalise"/> flipped; bevels at 640 and 464
+    /// read 640.0117 and 464.0156 with <see cref="BaseWindingNormalise"/>
+    /// flipped. Snapped, the bevel is on the plane a neighbouring brush's face
+    /// uses, and the split heuristic counts the brush as facing that plane
+    /// (five points each); unsnapped, it is a plane of its own. Those three
+    /// were every node that still split differently once the other quirks
+    /// here were corrected.
+    /// </para>
+    /// <para>
+    /// <see cref="CompliancePolicy.Correct"/> places the bevel at the
+    /// furthest corner where three of the brush's own planes meet, solved in
+    /// double from the plane table (<c>MapFile.AddBrushBevels</c>), so its
+    /// distance depends on the planes and not on how the windings were cut.
+    /// <see cref="CompliancePolicy.Stock"/> uses the winding bounds.
+    /// </para>
+    /// </remarks>
+    BoxBevelWindingBounds,
 }
 
 /// <summary>
