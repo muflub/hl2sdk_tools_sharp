@@ -62,7 +62,8 @@ namespace SourceSharp.MapTools.Rooms;
 /// cell, so floors, ceilings and back-to-back walls are one box in two
 /// brushes, and the brush cap is otherwise the first limit a large level
 /// meets. The leaves' brush runs and the ledges' client data follow the
-/// new numbering; nothing else changes.
+/// new numbering; nothing else changes. A brush entity's brushes are its
+/// model's and never fold.
 /// </para>
 /// <para>
 /// <b>Visibility</b> is composed through the doorways, never flooded and
@@ -82,10 +83,26 @@ namespace SourceSharp.MapTools.Rooms;
 /// other side), in which every cluster of a level sees every other.
 /// </para>
 /// <para>
-/// A room whose compile left anything outside the relocation set — a second
-/// model, a water leaf, a real area portal, displacements, static or detail
-/// props — is refused rather than silently dropped: the linked map must be
-/// the rooms, not an approximation of them.
+/// A room whose compile left anything outside the relocation set — a water
+/// leaf, a real area portal, displacements, detail props — is refused
+/// rather than silently dropped: the linked map must be the rooms, not an
+/// approximation of them.
+/// </para>
+/// <para>
+/// <b>Brush entities</b> are carried as their own models: every placed
+/// room's brush models after the world, in link order, each with its tree,
+/// faces, brushes and collision record, an origin-relative one in its
+/// entity's frame, and one that <c>room_needs</c> or the socket furniture
+/// rule drops omitted whole (<see cref="PlanModels"/>, <see cref="RoomModelLayout"/>,
+/// <see cref="RoomBrushModels"/>).
+/// </para>
+/// <para>
+/// <b>Static props</b> are carried: every placed room's records, moved
+/// with the room, kept or dropped by <c>room_needs</c> and the socket
+/// furniture rule, their dictionaries merged, and each prop's leaves
+/// listed by walking the linked tree with the hull the pack stores
+/// (<see cref="PlanProps"/>, <see cref="WritePropsAsync"/>). They cost
+/// the level no entity.
 /// </para>
 /// <para>
 /// <b>Packed files</b> are carried: the level's one pak holds every placed
@@ -108,8 +125,10 @@ public static partial class LevelLinker
     /// Several of these are carried only in their empty form, and
     /// <see cref="PlanRoom"/> checks that: <see cref="BspLump.AreaPortals"/>
     /// holds only the reserved portal 0, <see cref="BspLump.PhysDisp"/> counts
-    /// no displacement, and every game lump is all zeros (no static or detail
-    /// props). <see cref="BspLump.PakFile"/> is carried whole: the rooms'
+    /// no displacement, and every game lump but the static props' is all
+    /// zeros (no detail props); the static prop lump is rebuilt for the
+    /// level from the rooms' (<see cref="WritePropsAsync"/>).
+    /// <see cref="BspLump.PakFile"/> is carried whole: the rooms'
     /// archives are merged (<see cref="LevelPakFiles"/>).
     /// <see cref="BspLump.ClipPortalVerts"/> is not in the set: its vertices
     /// only exist for area portals, which are refused.
@@ -241,7 +260,17 @@ public static partial class LevelLinker
             }
         }
 
-        (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(paks, context.MapBase, cancellationToken);
+        // The level's static props: which it keeps and their linked indices
+        // depend on the layout alone, and the pak names each prop's lighting
+        // files by that index; the leaves wait for the linked tree.
+        // Socket furniture is a side's props and brush entities together;
+        // which brush models the level keeps, and their linked numbers,
+        // depend on the layout alone too, and every placement's plan needs
+        // them.
+        LevelFurniture furniture = new(resolved, layout);
+        LevelProps? props = PlanProps(resolved, layout, furniture);
+        LevelModels models = PlanModels(resolved, layout, furniture);
+        (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(paks, context.MapBase, props?.Files, cancellationToken);
 
         // Per-room work: validate the compile against the relocation set and
         // move the turned structs to the cell. Each item writes only its own
@@ -265,7 +294,7 @@ public static partial class LevelLinker
             for (int index = 0; index < resolved.Length; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                plans[index] = PlanRoom(resolved[index]);
+                plans[index] = PlanRoom(resolved[index], models.Linked[index]);
             }
         }
         else
@@ -275,7 +304,7 @@ public static partial class LevelLinker
                 resolved.Length,
                 (index, _) =>
                 {
-                    plans[index] = PlanRoom(resolved[index]);
+                    plans[index] = PlanRoom(resolved[index], models.Linked[index]);
                 },
                 options: null,
                 cancellationToken).ConfigureAwait(false);
@@ -311,8 +340,14 @@ public static partial class LevelLinker
             new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows),
             library.Options.NameKeySet);
         LevelSingletons singletons = new(library.LibraryEntities);
+        List<(int Placement, string ClassName)> droppedFurniture = [];
         (BspData linked, int foldedBrushes) = Assemble(
-            plans, layout, visibilityLump, context, classes, naming, singletons, library.Options.MapVersion, options.FoldBrushes, mergedPak, cancellationToken);
+            plans, layout, visibilityLump, context, classes, naming, singletons, library.Options.MapVersion, options.FoldBrushes, mergedPak,
+            droppedFurniture, cancellationToken);
+        if (props is not null)
+        {
+            await WritePropsAsync(linked, props, plans, cancellationToken).ConfigureAwait(false);
+        }
 
         // The budget checked before planning counted the rooms as compiled.
         // When the naming resolver ran, what the level holds is what it left
@@ -320,9 +355,10 @@ public static partial class LevelLinker
         // and a duplicate singleton the merge dropped is gone too, so the
         // level is budgeted again from what it holds, and refused if that is
         // over the cap; its report is the one the link returns.
-        if (naming.Result is not null || singletons.Dropped.Count > 0)
+        if (naming.Result is not null || singletons.Dropped.Count > 0 || droppedFurniture.Count > 0)
         {
-            entities = BudgetLinked(layout, library, naming.Result, singletons.Dropped, LevelEntityBudget.ReserveFor(options, library.Options), classes);
+            entities = BudgetLinked(
+                layout, library, naming.Result, [.. singletons.Dropped, .. droppedFurniture], LevelEntityBudget.ReserveFor(options, library.Options), classes);
         }
 
         VisResult vis = new(
@@ -423,6 +459,25 @@ public static partial class LevelLinker
              leaves = 1, lighting = 0,
              primVerts = 0, primIndices = 0, prims = 0, vertNormals = 0, vertNormalIndices = 0,
              occluders = 0, occluderPolys = 0, occluderVerts = 0;
+
+        // The world faces of every placement come first, then every kept
+        // brush model's, as a map's own model 0 range is its first faces.
+        long modelFaces = plans.Sum(p => (long)p.WorldFaceCount);
+        foreach (RoomPlan plan in plans)
+        {
+            if (plan.Models is not { } models)
+            {
+                continue;
+            }
+
+            models.LinkedFaceStart = new int[models.Linked.Length];
+            for (int m = 0; m < models.Linked.Length; m++)
+            {
+                models.LinkedFaceStart[m] = models.Linked[m] < 0 ? -1 : (int)modelFaces;
+                modelFaces += models.Linked[m] < 0 ? 0 : models.Source.Models[m].Faces.Count;
+            }
+        }
+
         foreach (RoomPlan plan in plans)
         {
             plan.VertexBase = (int)vertices;
@@ -443,12 +498,12 @@ public static partial class LevelLinker
             plan.OccluderPolyBase = (int)occluderPolys;
             plan.OccluderVertexBase = (int)occluderVerts;
 
-            vertices += plan.Vertices.Length;
+            vertices += plan.Vertices.Length + (plan.Models?.LocalVertices.Length ?? 0);
             edges += plan.EdgeCount;
-            faces += plan.FaceCount;
+            faces += plan.WorldFaceCount;
             brushes += plan.KeptBrushCount;
-            leafFaces += plan.LeafFaceCount;
-            leaves += plan.Leafs.Length;
+            leafFaces += plan.KeptLeafFaceCount;
+            leaves += plan.KeptLeafCount;
             lighting += plan.LightingLength;
             surfEdges += plan.SurfEdgeCount;
             origFaces += plan.OrigFaceCount;
@@ -529,8 +584,12 @@ public static partial class LevelLinker
                 }
 
                 (int keptBrushes, int keptSides) = KeptBrushTotals(room, instance, censuses);
-                LinkCounts added = LinkCounts.Of(room.Bsp, room.ClusterCount) with
+                LinkCounts compiled = LinkCounts.Of(room.Bsp, room.ClusterCount);
+                LinkCounts added = compiled with
                 {
+                    // An origin-relative brush model's vertices are linked
+                    // twice, the second copy in its entity's own frame.
+                    Vertices = compiled.Vertices + LocalVertexCount(room),
                     TexDatas = textures.TexDatas.Count - texDatas,
                     StringTable = textures.StringTable.Count - strings,
                     Brushes = keptBrushes,

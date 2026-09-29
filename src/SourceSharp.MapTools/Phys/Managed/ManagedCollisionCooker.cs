@@ -47,9 +47,45 @@ public sealed class ManagedCollisionCooker : ICollisionCooker, IDisposable
         _contexts = new ThreadLocal<IvpCookContext>(
             () => new IvpCookContext(new Qhull.QhullRunner()) { SkipZeroLengthInertiaEdges = skipZeroLengthEdges },
             trackAllValues: false);
-        CookerIdentity = useDouble
+        CookerIdentity = IdentityOf(useDouble, skipZeroLengthEdges, fixPolysoupMaterialWalk);
+    }
+
+    /// <summary>
+    /// The identity string for one configuration: the arithmetic, plus any
+    /// of the two other cook-reaching quirks that departs from what that
+    /// arithmetic's policy normally pairs it with.
+    /// </summary>
+    /// <param name="useDouble">TF2's double precision (Correct) or stock's float.</param>
+    /// <param name="skipZeroLengthEdges">The Correct side of <see cref="StockQuirk.CollisionInertiaZeroLengthEdge"/>.</param>
+    /// <param name="fixPolysoupMaterialWalk">The Correct side of <see cref="StockQuirk.CollisionPolysoupMaterialOverrun"/>.</param>
+    /// <returns>The identity.</returns>
+    /// <remarks>
+    /// The identity is what the caches key cooked bytes on
+    /// (<see cref="Compile.Cache.CollisionModelCache"/>,
+    /// <see cref="Bsp.Collision.PropHullCache"/>), so it must separate every
+    /// configuration that cooks differently. It used to name the precision
+    /// only, which two cookers built from <c>correct</c> and from
+    /// <c>correct,+CollisionInertiaZeroLengthEdge</c> share although their
+    /// bytes differ. The two plain policies keep their historical strings, so
+    /// existing cache rows and logs read the same; only a mixed policy gets a
+    /// suffix.
+    /// </remarks>
+    internal static string IdentityOf(bool useDouble, bool skipZeroLengthEdges, bool fixPolysoupMaterialWalk)
+    {
+        string identity = useDouble
             ? "managed-ivp " + CorrectPrecision.Name + " (double-precision reference arithmetic)"
             : "managed-ivp " + StockPrecision.Name + " (float-precision reference arithmetic)";
+        if (skipZeroLengthEdges != useDouble)
+        {
+            identity += skipZeroLengthEdges ? " +inertia-edge:correct" : " +inertia-edge:stock";
+        }
+
+        if (fixPolysoupMaterialWalk != useDouble)
+        {
+            identity += fixPolysoupMaterialWalk ? " +polysoup-material:correct" : " +polysoup-material:stock";
+        }
+
+        return identity;
     }
 
     /// <summary>
@@ -231,6 +267,34 @@ public sealed class ManagedCollisionCooker : ICollisionCooker, IDisposable
     {
         ArgumentNullException.ThrowIfNull(ledges);
         return ledges.Count == 0 ? null : Serialize(Build().Compile(ledges, false));
+    }
+
+    /// <summary>
+    /// <see cref="CompileLedges(List{IvpCompactLedge})"/> for a movable
+    /// solid: the surface built with or without an outer convex hull, as
+    /// the cook that first made it was, and the header carrying the drag
+    /// areas given rather than computed.
+    /// </summary>
+    /// <param name="ledges">The convexes; the compile takes them.</param>
+    /// <param name="buildOuterConvexHull">Whether to build the root's convex hull, as a brush model of several convexes is cooked.</param>
+    /// <param name="dragAxisAreas">The orthographic areas for the header.</param>
+    /// <returns>The VPHY blob, or null when IVP builds nothing.</returns>
+    /// <remarks>
+    /// The room linker's brush models: a model's convexes, turned and moved
+    /// with its placement, rebuilt into the surface its own compile made,
+    /// with the areas that compile measured turned with it (a quarter turn
+    /// only swaps which axis each belongs to).
+    /// </remarks>
+    internal byte[]? CompileLedges(List<IvpCompactLedge> ledges, bool buildOuterConvexHull, (float X, float Y, float Z) dragAxisAreas)
+    {
+        ArgumentNullException.ThrowIfNull(ledges);
+        if (ledges.Count == 0)
+        {
+            return null;
+        }
+
+        byte[]? surface = Build().Compile(ledges, buildOuterConvexHull);
+        return surface is null ? null : VphyWriter.Serialize(surface, dragAxisAreas);
     }
 
     private static byte[]? Serialize(byte[]? surface) =>

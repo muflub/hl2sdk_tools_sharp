@@ -131,8 +131,10 @@ internal sealed class RoomLinkData
 /// <param name="Sockets">The plug census of every socket, in the definition's socket order.</param>
 /// <remarks>
 /// Its existence is also a verdict: it is only made for a room whose compile
-/// passed every check the link makes of one room (the lumps it carries, one
-/// world model, no water, no area portal, empty game lumps, no displacement
+/// passed every check the link makes of one room (the lumps it carries, a
+/// world model and the brush models its compile described, no water, no area
+/// portal, no game-lump content but the static props its compile described,
+/// no displacement
 /// collision, its vis numbering its leaves, an empty pak).
 /// </remarks>
 internal sealed record RoomLinkShared(IReadOnlyList<SocketCensus> Sockets);

@@ -423,30 +423,57 @@ public sealed class StaticPropEmitter
     // own list and reach the compile's when its first prop is committed.
     private async ValueTask LoadAsync(ModelEntry model, CancellationToken cancellationToken)
     {
+        model.Meshes = await LoadMeshesAsync(_context, model.Name, model.Diagnostics, cancellationToken).ConfigureAwait(false);
+        if (model.Meshes is not null)
+        {
+            model.CookCost = CookCost(model.Meshes);
+        }
+    }
+
+    /// <summary>
+    /// A model's mesh positions as the hull build reads them (model space,
+    /// one array per mesh, in body part, model and mesh order): what
+    /// <c>GetCollisionModel</c> loads before it cooks.
+    /// </summary>
+    /// <param name="context">The compile whose content the model is read from.</param>
+    /// <param name="modelName">The model, as the entity spells it.</param>
+    /// <param name="diagnostics">Where the load's warnings go.</param>
+    /// <param name="cancellationToken">Cancels the reads.</param>
+    /// <returns>The meshes, or null when the model does not load (a warning says why).</returns>
+    /// <exception cref="MapCompileException">The model's vertex file is missing, bad or of another checksum.</exception>
+    /// <remarks>
+    /// Shared with the room compile, which stores each prop model's meshes
+    /// in the room's pack so that the link can list a prop's leaves in the
+    /// linked tree without the game's files (<c>RoomStaticProps</c>): the
+    /// same read, so the pack holds the meshes the compile's hull was built
+    /// from.
+    /// </remarks>
+    internal static async Task<List<Vec3[]>?> LoadMeshesAsync(
+        VbspContext context, string modelName, List<CompileDiagnostic> diagnostics, CancellationToken cancellationToken)
+    {
         StudioModelLoad load = await StudioModelCheck.LoadAsync(
-            _context.Content, model.Name, "prop_static", model.Diagnostics, _context.Options.Compliance, cancellationToken)
+            context.Content, modelName, "prop_static", diagnostics, context.Options.Compliance, cancellationToken)
             .ConfigureAwait(false);
 
         if (!load.IsValid)
         {
-            model.Diagnostics.Add(new CompileDiagnostic(
+            diagnostics.Add(new CompileDiagnostic(
                 SurfaceContentDiagnostics.StudioModelLoadFailed,
                 DiagnosticSeverity.Warning,
-                $"Error loading studio model \"{model.Name}\"!"));
-            return;
+                $"Error loading studio model \"{modelName}\"!"));
+            return null;
         }
 
         // The vertex file's bytes are read in place and released as soon as
         // the mesh positions are copied out of them: MeshHulls keeps nothing
         // of the file, and a copy of it per model was about 18 MB of
         // large-object garbage on 2fort.
-        (IMemoryOwner<byte> bytes, VvdFile vvd) = await LoadVertexFileAsync(load.Mdl!, cancellationToken)
+        (IMemoryOwner<byte> bytes, VvdFile vvd) = await LoadVertexFileAsync(context, load.Mdl!, cancellationToken)
             .ConfigureAwait(false);
         using (bytes)
         {
-            model.Meshes = StudioModelCheck.MeshHulls(load.Mdl!, vvd);
+            return StudioModelCheck.MeshHulls(load.Mdl!, vvd);
         }
-        model.CookCost = CookCost(model.Meshes);
     }
 
     // A hull cook's cost, to order the cooks by: the sum over meshes of the
@@ -533,8 +560,8 @@ public sealed class StaticPropEmitter
     // The file is parsed over the content's own buffer, which the caller
     // owns and disposes once it is done with the returned file; on a
     // failure here it is disposed before the throw.
-    private async ValueTask<(IMemoryOwner<byte> Bytes, VvdFile Vvd)> LoadVertexFileAsync(
-        MdlFile mdl, CancellationToken cancellationToken)
+    private static async ValueTask<(IMemoryOwner<byte> Bytes, VvdFile Vvd)> LoadVertexFileAsync(
+        VbspContext context, MdlFile mdl, CancellationToken cancellationToken)
     {
         string name = "models/" + mdl.Name;
         int dot = name.LastIndexOf('.');
@@ -542,7 +569,7 @@ public sealed class StaticPropEmitter
         string path = (dot > slash ? name[..dot] : name) + ".vvd";
 
         IMemoryOwner<byte>? owner = VPath.TryCreate(path, out VPath vpath) && !vpath.IsEmpty
-            ? await _context.Content.ReadAsync(vpath, cancellationToken).ConfigureAwait(false)
+            ? await context.Content.ReadAsync(vpath, cancellationToken).ConfigureAwait(false)
             : null;
 
         try

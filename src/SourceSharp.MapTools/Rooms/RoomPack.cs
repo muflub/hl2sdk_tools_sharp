@@ -115,9 +115,18 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // them (the link's verdict does not matter to a count), and a link
         // reads them with the container and the link sections in one run.
         RoomPackSectionData counts = RoomEntityCounts.Of(room.Bsp).ToSection();
+
+        // The static props, when the room has any, right after the counts:
+        // the link reads them for every placement whatever its turn (the
+        // section holds all four), so with the container and the counts.
+        IReadOnlyList<RoomPackSectionData> props = room.StaticProps is { } staticProps ? [staticProps.ToSection()] : [];
+
+        // The brush models likewise: every placement reads them, whatever
+        // its turn, so they follow the props.
+        IReadOnlyList<RoomPackSectionData> brushModels = room.BrushModelsOfCompile is { } models ? [models.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. props, .. brushModels, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -269,7 +278,13 @@ public sealed class RoomPackIndex
 /// <see cref="RoomSection"/>, exactly the bytes
 /// <see cref="RoomObjectStore.SaveAsync"/> writes for it (the room container).
 /// A room <c>ssmap room</c> packs then has its entity counts
-/// (<c>ECNT</c>, <see cref="RoomEntityCounts"/>) and the link work done ahead for it
+/// (<c>ECNT</c>, <see cref="RoomEntityCounts"/>), when its compile emitted static
+/// props its props as the link carries them (<c>PROP</c>: the models' hulls,
+/// the keys vbsp consumed and every prop's pose at all four turns,
+/// <c>RoomStaticProps</c>), when its compile has brush models besides the
+/// world its brush models (<c>BMOD</c>: the runs each owns, what keeps it
+/// in a level, its bounds and collision at all four turns,
+/// <c>RoomBrushModels</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
 /// the room alone, its door visibility (<c>DVIS</c>, <see cref="RoomDoorVisibility"/>),
 /// then per quarter turn <i>r</i> its turned geometry
@@ -825,6 +840,16 @@ public static class RoomPack
                 wanted.Add((name, counts));
             }
 
+            if (entry.Find(RoomStaticProps.SectionTag) is { } props)
+            {
+                wanted.Add((name, props));
+            }
+
+            if (entry.Find(RoomBrushModels.SectionTag) is { } brushModels)
+            {
+                wanted.Add((name, brushModels));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -924,9 +949,11 @@ public static class RoomPack
             RoomNavTurns? nav = navigation.Contains(name) ? RoomNavPack.FromSections(name, tag => Section(name, tag)) : null;
             RoomNameTurn?[] turned = [.. Enumerable.Range(0, 4).Select(t => RoomNameTurn.Read(Section(name, RoomNameTurn.Tag(t)), name, t))];
             RoomNameTables? names = turned.Any(t => t is not null) ? new RoomNameTables(turned, room.Bsp) : null;
-            loaded[name] = link is null && nav is null && counts is null && names is null
+            RoomStaticProps? props = RoomStaticProps.Read(Section(name, RoomStaticProps.SectionTag), room.Definition, room.Bsp);
+            RoomBrushModels? brushModels = RoomBrushModels.Read(Section(name, RoomBrushModels.SectionTag), room.Definition, room.Bsp);
+            loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null
                 ? room
-                : room with { Link = link, Nav = nav, EntityCounts = counts, Names = names };
+                : room with { Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props, BrushModels = brushModels };
         }
 
         return [.. requests.Select(request => loaded[request.Name])];
@@ -1237,6 +1264,8 @@ public static class RoomPack
         ((byte)'L', (byte)'N', (byte)'K', (byte)'A') => RoomLinkSections.SharedTag,
         ((byte)'E', (byte)'C', (byte)'N', (byte)'T') => RoomEntityCounts.SectionTag,
         ((byte)'D', (byte)'V', (byte)'I', (byte)'S') => RoomDoorVisibility.SectionTag,
+        ((byte)'P', (byte)'R', (byte)'O', (byte)'P') => RoomStaticProps.SectionTag,
+        ((byte)'B', (byte)'M', (byte)'O', (byte)'D') => RoomBrushModels.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),

@@ -238,6 +238,47 @@ public sealed class LevelDoorVisibilityTests
         RoomHarness.Room("down", RoomFacing.NegativeY));
 
     /// <summary>
+    /// Brush entities do not touch door visibility: a room's door
+    /// visibility is read off its own vvis and the world's plug census, and
+    /// a brush model's leaves hold no cluster. Two rooms with a door hung in
+    /// their shared doorway (socket furniture: one kept, the other's model
+    /// omitted) store the same door visibility as the same rooms without the
+    /// doors, and link to the same visibility, row for row; so does a room
+    /// whose lone door is omitted at a cap.
+    /// </summary>
+    [Fact]
+    public async Task BrushEntitiesKeptOrOmittedLeaveTheVisibilityAlone()
+    {
+        RoomDefinition definition = RoomPropHarness.Hub;
+        Box east = RoomLinter.SealBox(definition, definition.Sockets.First(s => s.Name == "east"), RoomHarness.Cell);
+        Box west = RoomLinter.SealBox(definition, definition.Sockets.First(s => s.Name == "west"), RoomHarness.Cell);
+        VmfChunk hubDoor = RoomBrushHarness.Door(700, east.Mins, east.Maxs, ("targetname", "hub_door"), (RoomStaticProps.SocketKey, "east"));
+        VmfChunk otherDoor = RoomBrushHarness.Door(710, west.Mins, west.Maxs, ("targetname", "other_door"), (RoomStaticProps.SocketKey, "west"));
+
+        RoomLibrary doors = await RoomBrushHarness.CompileAsync(RoomPropHarness.Library((0, hubDoor), (1, otherDoor)));
+        RoomLibrary bare = await RoomBrushHarness.CompileAsync(RoomPropHarness.Library());
+        foreach (RoomObject room in bare.Rooms)
+        {
+            RoomObject withDoor = doors.Get(room.Definition.Name);
+            Assert.NotEmpty(withDoor.BrushModelsOfCompile!.Models);
+            Assert.True(
+                RoomDoorVisibility.Compute(room, LevelLinker.ComputeShared(room))
+                    .SameAs(RoomDoorVisibility.Compute(withDoor, LevelLinker.ComputeShared(withDoor))),
+                $"room {room.Definition.Name}'s door visibility moved with its door");
+        }
+
+        foreach (string[] rows in new[] { new[] { "hub, other" }, new[] { "hub" } })
+        {
+            LinkedLevel withDoors = await RoomPropHarness.LinkAsync(doors, RoomPropHarness.Level(rows));
+            LinkedLevel without = await RoomPropHarness.LinkAsync(bare, RoomPropHarness.Level(rows));
+            Assert.Equal(without.Vis.ClusterCount, withDoors.Vis.ClusterCount);
+            Assert.True(
+                without.Bsp[BspLump.Visibility].Data.Span.SequenceEqual(withDoors.Bsp[BspLump.Visibility].Data.Span),
+                $"{string.Join("/", rows)}: the visibility lump moved with the doors");
+        }
+    }
+
+    /// <summary>
     /// The composition is a function of the level alone: the same rows and
     /// the same visibility lump on one thread and on many, run twice.
     /// </summary>

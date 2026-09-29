@@ -513,8 +513,33 @@ the library's sky, `materials/maps/<room>/cubemapdefault.vtf` and its HDR
 twin) are renamed to the level's map name, the output file's name, which is
 where the engine looks for them; so renaming a linked `.bsp` afterwards
 loses its default cubemaps, as it does for any map. Other files named after
-a room (patched materials) keep the room's name, which its faces use. The
-link refuses what it cannot carry: area portals, static or detail props,
+a room (patched materials) keep the room's name, which its faces use.
+Static props (`prop_static`) are carried and cost the level no entity: each
+placed room's props are moved and turned with it, their model dictionaries
+merged, and each prop's leaves listed by walking the linked tree with the
+prop's hull, which `ssmap room` reads from the model and stores in the pack
+(the link reads no game files). A prop with `room_needs` is kept only where
+its condition holds, and a prop with `room_socket` naming a socket is socket
+furniture (a door frame): at a joint the room earlier in the level keeps its
+furniture unless the other side's `socket_priority` is higher, and at a cap
+it is dropped. A prop's `.vhv` lighting files are renamed to its index in
+the level. `ssmap room` refuses a prop whose hull reaches outside its cell,
+unless it is socket furniture reaching only into the doorway beyond its
+socket, and a prop that asks for texel lighting (`generatelightmaps`),
+which the port's vrad does not bake.
+Brush entities (`func_door`, `func_brush`, triggers and the rest) are
+carried as their own models, each with its tree, faces, brushes and
+collision, numbered after the world in link order, with their `model` keys
+following. One with an origin (an origin brush, or an `origin` key) keeps
+its entity's frame and is placed by its moved origin; any other is moved
+with its room. `room_needs` and `room_socket` work on them as on props:
+an entity whose condition fails, or whose side of a joint gives up its
+furniture, is left out of the level with its whole model. A brush entity's
+`movedir`, `pushdir` and `gibdir` turn with its room; its `angles` do not,
+since its brushes already turn, and `ssmap room` refuses one whose
+`angles` are not zero. The engine loads at most 1024 models
+(`MAX_MAP_MODELS`), and the link refuses a level past that. The
+link refuses what it cannot carry: area portals, detail props,
 displacements, water, and a mix of cooked and `-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a
 gap unless something placed in the socket (a door frame model, say) covers
@@ -807,6 +832,65 @@ cookers can build them, chosen with `-cooker`:
 Different vphysics builds cook the same shape to different bytes, so the
 physics lump depends on which game's library was used. `ssmap phys list`
 shows what is available.
+
+### Sharing cooked prop hulls between compiles
+
+With a cooker, vbsp cooks one convex hull per distinct `prop_static`
+model. On `sdk_ctf_2fort` that is 317 models and about 2.4 CPU-s, some 40%
+of a warm vbsp. A program that hosts the libraries and runs many compiles
+can keep those hulls between compiles with a `PropHullCache`
+(`SourceSharp.MapTools.Bsp.Collision`):
+
+```csharp
+// One per process (or per group of compiles that should share it),
+// created at start-up and disposed at shutdown.
+using PropHullCache hulls = new(maxBytes: 64L * 1024 * 1024);
+
+CompileRequest request = new(/* ... */)
+{
+    CollisionCooker = cooker,
+    PropHullCache = hulls, // the same instance for every compile
+};
+```
+
+`VbspContext.PropHullCache` and `RoomLibraryCompileSettings.PropHullCache`
+take the same object when vbsp or a room library is driven directly.
+
+- **It never changes the output.** A hull is keyed by a SHA-256 of what the
+  cook reads: every collision mesh's vertices (their raw bits and the mesh
+  boundaries), the cooker's `CookerIdentity` (the managed cooker's names its
+  arithmetic and every cook-reaching quirk; the native cooker's names its
+  library build), the build of the libraries, and the compile's whole
+  compliance setting. The model's name is not in the key, so two games'
+  `models/crate.mdl` that differ get two entries. A hit hands back the
+  bytes a cook would produce, and 2fort compiles with and without the cache,
+  cold and warm, write the same BSP.
+- **It is bounded.** `maxBytes` caps the cooked bytes plus a fixed 128-byte
+  charge per entry; past it the least recently used hulls are evicted, and
+  a hull larger than the whole bound is not stored. 2fort's 317 hulls take
+  0.9 MB, so the 64 MiB default holds the props of dozens of maps.
+  `Statistics` reports count, bytes, hits, misses and evictions; `Clear()`
+  empties it at any time.
+- **It is safe to share.** Any number of concurrent compiles can use one
+  cache. Two compiles that miss on the same hull each cook it and the first
+  insert wins; there is no shared in-flight cook, so one compile's
+  cancellation never fails another compile's hull. A cook that throws, or
+  whose compile is cancelled while it runs, stores nothing. Every hit is a
+  private copy. Disposing the cache while compiles still hold it turns it
+  into a pass-through: they keep compiling and simply cook.
+- **Without one, nothing changes.** A null `PropHullCache` (the default)
+  cooks every model, as before. `ssmap` compiles one map per run, so it
+  only uses the cache inside `ssmap room`/`rooms`, where a library's rooms
+  share their prop models.
+
+Measured on a warm 2fort compile (4 threads, managed cooker, `-fast` vvis,
+`-ldr -fast` vrad), mean of waves 2 to 4 of 5 in one process: vbsp CPU
+5.1 s without the cache and 3.8 s with it, and whole-compile CPU 73.5 s
+against 69.2 s. Two compiles at a time on one shared cache (2 threads
+each, waves 2 and 3 of 3) used 146 CPU-s per pair against 153 s without,
+the two racing cold compiles cooking 431 hulls between them and every warm
+compile hitting all 317. The BSP hash was the same in every compile of
+every run, with and without the cache.
 
 ## Incremental cache
 

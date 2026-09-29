@@ -860,6 +860,91 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture, ITestOutpu
         }
     }
 
+    // ---- 10. static props ---------------------------------------------------------------
+
+    /// <summary>
+    /// The sample library with a static prop in the <c>tee</c> (section 4.3
+    /// of the rooms design, the static props row of its test matrix and its
+    /// <c>tee</c> fixture): at every turn of the sample level, the linked
+    /// map and the flattened map's compile hold the same props (model,
+    /// origin, angles, skin, solidity, flags, fades), one per placed
+    /// <c>tee</c>; each linked prop's leaves are the leaves its hull touches
+    /// in the linked tree; and the props cost the level no entity, its
+    /// entity lump and budget being the fixture's link's. The <c>tee</c> is
+    /// recompiled with the prop against a synthetic model; the other rooms
+    /// are the fixture's.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Turns))]
+    public async Task ATeesStaticPropIsTheSameInBothMaps(int turns)
+    {
+        VmfDocument library = await VmfDocument.ParseAsync(fixture.LibraryVmf.ToBytes());
+        VmfChunk marker = library.GetChunks(SourceSharp.MapTools.Bsp.MapFileLoader.EntityChunk)
+            .Single(e => e.GetValue("classname") == RoomLibraryVmf.RoomEntity && e.GetValue(RoomLibraryVmf.NameKey) == "tee");
+        Vec3 corner = VmfPlacement.Origin(marker)!.Value;
+        VmfChunk prop = RoomPropHarness.Prop(990100, RoomPropHarness.BoxModel, new Vec3(192, 48, 16), "0 20 0", ("skin", "0"), ("solid", "6"));
+        library.Chunks.Add(VmfPlacement.MoveEntity(prop, QuarterTurn.Translation(corner)));
+
+        SourceSharp.MapTools.Io.InMemoryFileSystem disk = new();
+        foreach ((string path, byte[] bytes) in Rooms3x3Sample.Build())
+        {
+            if (path.StartsWith("materials/", StringComparison.Ordinal))
+            {
+                disk.AddFile(path, bytes);
+            }
+        }
+
+        foreach ((string path, byte[] bytes) in RoomPropHarness.Models())
+        {
+            disk.AddFile(path, bytes);
+        }
+
+        await using SourceSharp.MapTools.Io.ContentFileSystem mounted = new(
+            [await SourceSharp.MapTools.Io.DirectoryContentMount.MountAsync(disk, SourceSharp.MapTools.Io.VPath.Empty)]);
+        SourceSharp.MapTools.Bsp.VbspContext Context(string mapBase) => new(SourceSharp.MapTools.Options.VbspOptions.Default, mounted)
+        {
+            MapBase = mapBase,
+            CollisionCooker = fixture.Context(mapBase).CollisionCooker,
+        };
+
+        LibraryRoom tee = RoomLibraryVmf.SplitLibrary(library).Rooms.Single(r => r.Definition.Name == "tee");
+        RoomObject teeRoom = await RoomCompiler.CompileAsync(tee.Document, tee.Definition, Context("tee"));
+        Assert.Single(teeRoom.StaticProps!.Props);
+        RoomLibrary rooms = new(fixture.Library.Kit, fixture.Library.CellSize) { Options = fixture.Library.Options };
+        foreach (RoomObject room in fixture.Library.Rooms)
+        {
+            rooms.Add(room.Definition.Name == "tee" ? teeRoom : room);
+        }
+
+        string name = Rooms3x3Permutations.TurnName(turns);
+        Rooms3x3Case found = Rooms3x3Fixture.Cases.Single(c => c.Name == name);
+        LevelGrid level = LevelYaml.Parse(found.Arrangement.LevelYaml(name, Rooms3x3Sample.LibraryFromLevels), name);
+        LevelLayout layout = level.ToLayout(n => rooms.Find(n)?.Definition, rooms.CellSize, rooms.Kit);
+        LinkedLevel linked = await LevelLinker.LinkAsync(layout, rooms, fixture.Context(name));
+        VbspResult whole = await RoomHarness.CompileAsync(LevelFlattener.Flatten(level, library), Context(name));
+        Assert.NotNull(whole.Bsp);
+
+        List<string> props = RoomPropHarness.Observed(linked.Bsp);
+        Assert.NotEmpty(props);
+        Assert.Equal(layout.Rooms.Count(r => r.Placement.Room == "tee"), props.Count);
+        Assert.Equal(RoomPropHarness.Observed(whole.Bsp!), props);
+
+        StaticPropLump lump = RoomPropHarness.Props(linked.Bsp);
+        SourceSharp.MapTools.Bsp.Props.BspTreeView tree = SourceSharp.MapTools.Bsp.Props.BspTreeView.FromBsp(linked.Bsp);
+        List<Vec3[]> meshes = (await SourceSharp.MapTools.Bsp.Props.StaticPropEmitter.LoadMeshesAsync(Context(name), RoomPropHarness.BoxModel, [], CancellationToken.None))!;
+        SourceSharp.MapTools.Bsp.Props.IStaticPropHull hull = (await new SourceSharp.MapTools.Bsp.Props.ManagedStaticPropCollision().BuildHullAsync(meshes))!;
+        foreach (StaticProp placed in lump.Props)
+        {
+            List<ushort> walked = await SourceSharp.MapTools.Bsp.Props.StaticPropLeaves.ComputeAsync(tree, hull, placed.Origin, placed.Angles);
+            Assert.Equal([.. walked.Select(l => (int)l)], RoomPropHarness.LeavesOf(lump, placed));
+        }
+
+        Rooms3x3Pair pair = await fixture.PairAsync(name);
+        Assert.Equal(pair.Linked.Bsp[BspLump.Entities].Data.ToArray(), linked.Bsp[BspLump.Entities].Data.ToArray());
+        Assert.Equal(pair.Linked.EntityBudget!.Edicts, linked.EntityBudget!.Edicts);
+        Assert.Equal(pair.Linked.EntityBudget.Listed, linked.EntityBudget.Listed);
+    }
+
     // ---- helpers -----------------------------------------------------------------
 
     internal static IEnumerable<Vec3> Lattice()

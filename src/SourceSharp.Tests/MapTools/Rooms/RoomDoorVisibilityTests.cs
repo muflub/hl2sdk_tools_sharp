@@ -9,6 +9,7 @@ using System.Buffers.Binary;
 
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Parallel;
@@ -211,6 +212,69 @@ public sealed class RoomDoorVisibilityTests(RoomLinkDataFixture fixture) : IClas
         RoomPackItem item = await RoomPackItem.CreateAsync(hub with { Link = withoutDoors });
         RoomPackSectionData section = item.Extra.Single(s => s.Tag == RoomDoorVisibility.SectionTag);
         Assert.True(data.Doors!.SameAs(RoomDoorVisibility.Read(section.Bytes.ToArray(), hub)!));
+    }
+
+    /// <summary>
+    /// Rooms with static props (<c>PROP</c>, PR 6) and brush entities
+    /// (<c>BMOD</c>, PR 7) pack as version 4 with those sections beside
+    /// <c>DVIS</c>; the same pack as version 3 (no <c>DVIS</c>) still reads
+    /// both optional sections and links to the same bytes.
+    /// </summary>
+    [Fact]
+    public async Task AVersionThreePackWithPropsAndBrushModelsLinksToTheSameBytes()
+    {
+        RoomDefinition definition = RoomPropHarness.Hub;
+        Box east = RoomLinter.SealBox(definition, definition.Sockets.First(s => s.Name == "east"), RoomHarness.Cell);
+        VmfChunk door = RoomBrushHarness.Door(700, east.Mins, east.Maxs, ("targetname", "hub_door"), (RoomStaticProps.SocketKey, "east"));
+        VmfChunk prop = RoomPropHarness.Prop(720, RoomPropHarness.BarModel, new Vec3(128, 128, 100));
+        RoomLibrary library = await RoomBrushHarness.CompileAsync(RoomPropHarness.Library((0, door), (0, prop)));
+
+        List<RoomPackItem> items = [];
+        foreach (RoomObject room in library.Rooms)
+        {
+            items.Add(await RoomPackItem.CreateAsync(room));
+        }
+
+        Assert.Contains(items, i => i.Extra.Any(x => x.Tag == RoomStaticProps.SectionTag));
+        Assert.Contains(items, i => i.Extra.Any(x => x.Tag == RoomBrushModels.SectionTag));
+        Assert.All(items, i => Assert.Contains(i.Extra, x => x.Tag == RoomDoorVisibility.SectionTag));
+
+        byte[] current = await SaveAsync(items);
+        byte[] old = await SaveAsync([.. items.Select(i => i with { Extra = [.. i.Extra.Where(x => x.Tag != RoomDoorVisibility.SectionTag)] })]);
+        BinaryPrimitives.WriteInt32BigEndian(old.AsSpan(8), RoomPack.OldestReadVersion);
+
+        LevelGrid level = RoomPropHarness.Level("hub, other");
+        byte[] fromCurrent = await BytesAsync(await RoomPropHarness.LinkAsync(await LoadKitAsync(current), level));
+        byte[] fromOld = await BytesAsync(await RoomPropHarness.LinkAsync(await LoadKitAsync(old), level));
+        Assert.True(fromCurrent.AsSpan().SequenceEqual(fromOld));
+
+        static async Task<byte[]> SaveAsync(IReadOnlyList<RoomPackItem> items)
+        {
+            using MemoryStream pack = new();
+            await RoomPack.SaveAsync(items, pack);
+            return pack.ToArray();
+        }
+
+        async Task<RoomLibrary> LoadKitAsync(byte[] pack)
+        {
+            using MemoryStream stream = new(pack);
+            RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+            IReadOnlyList<RoomObject> rooms = await RoomPack.LoadRoomsAsync(stream, index, [.. index.Entries.Select(e => e.Name)]);
+            RoomLibrary loaded = new(library.Kit, library.CellSize) { LibraryEntities = library.LibraryEntities, Options = library.Options };
+            foreach (RoomObject room in rooms)
+            {
+                loaded.Add(room);
+            }
+
+            return loaded;
+        }
+
+        static async Task<byte[]> BytesAsync(LinkedLevel linked)
+        {
+            using MemoryStream bytes = new();
+            await BspFile.SaveAsync(linked.Bsp, bytes, BspWriteMode.Canonical);
+            return bytes.ToArray();
+        }
     }
 
     // ---- helpers ----------------------------------------------------------------

@@ -45,9 +45,14 @@ internal static class RoomHarness
     /// <summary>Player clip: <c>CONTENTS_PLAYERCLIP</c>, not solid.</summary>
     public const string PlayerClip = "unit/playerclip";
 
-    public static async Task<VbspContext> ContextAsync(VbspOptions? options = null, int degree = 1)
+    public static async Task<VbspContext> ContextAsync(VbspOptions? options = null, int degree = 1, IReadOnlyDictionary<string, byte[]>? extraFiles = null)
     {
         InMemoryFileSystem files = new();
+        foreach ((string path, byte[] bytes) in extraFiles ?? new Dictionary<string, byte[]>())
+        {
+            files.AddFile(path, bytes);
+        }
+
         files.AddText(
             $"materials/{PlayerClip}.vmt",
             "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%playerClip\" \"1\"\n}\n");

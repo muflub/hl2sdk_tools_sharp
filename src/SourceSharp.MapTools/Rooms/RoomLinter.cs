@@ -151,9 +151,24 @@ public static class RoomLinter
             CheckSocketGeometry(definition, socket, cell);
         }
 
-        foreach (MapBrush brush in map.Brushes)
+        // A brush entity with an origin (an origin brush, or an origin key)
+        // has its brushes rebuilt relative to that origin by the loader, so
+        // their bounds are the entity's own frame; the cell rule is about
+        // where they stand, which is the bounds moved back by the origin.
+        Vec3[] offsets = new Vec3[map.Brushes.Count];
+        for (int e = 1; e < map.Entities.Count; e++)
         {
-            Box box = new(brush.Mins, brush.Maxs);
+            MapEntity entity = map.Entities[e];
+            for (int b = entity.FirstBrush; b < entity.FirstBrush + entity.BrushCount && b < offsets.Length; b++)
+            {
+                offsets[b] = entity.Origin;
+            }
+        }
+
+        for (int b = 0; b < map.Brushes.Count; b++)
+        {
+            MapBrush brush = map.Brushes[b];
+            Box box = new(brush.Mins + offsets[b], brush.Maxs + offsets[b]);
             CheckBrush(definition, box, cellBox, cell, "brush");
         }
 

@@ -228,10 +228,22 @@ internal static class VmfPlacement
     /// the overlay's own basis and stay as written, and so does its handedness:
     /// a quarter turn about +z is a proper rotation.
     /// </para>
+    /// <para>
+    /// <b>Brush entities</b> follow the rule the link follows
+    /// (<see cref="BrushEntityDirections"/>): their brushes are turned, so
+    /// their <c>angles</c> and <c>angle</c> turn only for a class that reads
+    /// them as a direction and are carried as written otherwise, and their
+    /// direction keys (<c>movedir</c>, <c>pushdir</c>, <c>gibdir</c>) turn as
+    /// a yaw. A class vbsp consumes keeps the point entity's rule: its angles
+    /// mean nothing to the map it compiles to.
+    /// </para>
     /// </remarks>
     public static VmfChunk MoveEntity(VmfChunk entity, QuarterTurn turn)
     {
-        int turns = KeepsWorldAngles(entity.GetValue("classname")) ? 0 : ((turn.Rotation % 4) + 4) % 4;
+        string? className = entity.GetValue("classname");
+        int turns = KeepsWorldAngles(className) ? 0 : ((turn.Rotation % 4) + 4) % 4;
+        bool brush = BrushEntityDirections.IsBrushEntity(entity) && !BrushEntityDirections.IsConsumed(className);
+        int angleTurns = brush && !BrushEntityDirections.ReadsAnglesAsDirection(className) ? 0 : turns;
         VmfChunk moved = new(entity.Name);
         foreach (VmfNode node in entity.Children)
         {
@@ -253,12 +265,17 @@ internal static class VmfPlacement
             {
                 value = Format(turn.Rotate(Vector(value, key.Name, entity)));
             }
-            else if (turns != 0 && IsKey(key.Name, "angles"))
+            else if (angleTurns != 0 && IsKey(key.Name, "angles"))
             {
                 Vec3 angles = Vector(value, "angles", entity);
                 value = Format(new Vec3(angles.X, turn.TurnYaw(angles.Y), angles.Z));
             }
-            else if (turns != 0 && IsKey(key.Name, "angle"))
+            else if (brush && turns != 0 && BrushEntityDirections.IsDirectionKey(key.Name))
+            {
+                Vec3 direction = Vector(value, key.Name, entity);
+                value = Format(new Vec3(direction.X, turn.TurnYaw(direction.Y), direction.Z));
+            }
+            else if (angleTurns != 0 && IsKey(key.Name, "angle"))
             {
                 float yaw = Number(value, "angle", entity);
                 value = yaw is -1f or -2f ? value : Format(turn.TurnYaw(yaw));
