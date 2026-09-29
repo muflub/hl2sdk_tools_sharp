@@ -47,10 +47,22 @@ namespace SourceSharp.MapTools.Gpu.Interop;
 /// is what a working device reports too, and the telemetry cannot tell a
 /// device that never traverses from one that traverses and commits the
 /// wrong answer. What it can show is a driver offering opaque triangles as
-/// candidates (llvmpipe does), which is worth naming beside a failed
-/// known-hit test. The
+/// candidates (llvmpipe did while the kernel was handed a BLAS), which is
+/// worth naming beside a failed known-hit test. The
 /// spike's diagnostic modes 2 (no-TOFH) and 3 (in-kernel Möller–Trumbore)
 /// were probe scaffolding and are not productized.
+/// </para>
+/// <para>
+/// <b>Only defined queries run.</b> A ray query is defined only for a
+/// finite origin and direction and <c>0 &lt;= tmin &lt;= tmax</c>. Every
+/// query goes through <c>query_defined</c> first, and a ray outside those
+/// rules is answered as a miss without a query: an empty interval holds no
+/// hit, and a non-finite ray has no place to hit from. Such rays used to
+/// reach the driver (the self-test itself dispatched 62 zeroed lanes with
+/// <c>tmax</c> 0 below its <c>tmin</c>), where each driver was free to do
+/// anything with them, including disturbing the lanes beside them in the
+/// same workgroup. The binding is still named <c>BLAS</c>; it holds the
+/// scene's one-instance TLAS.
 /// </para>
 /// <para>
 /// Output layout is sample-major and deterministic with NO global atomics:
@@ -80,6 +92,17 @@ layout(push_constant) uniform Args {
 } PC;
 shared uint s_bits[2];
 
+// A ray query is only defined for finite origin and direction components
+// and 0 <= tmin <= tmax; anything else is undefined behaviour. Such a ray
+// is answered here as the miss it is (its interval holds no t, or it has
+// no position to hit from), so no driver's reading of the undefined case
+// can reach an answer. The comparisons are written so NaN fails them.
+bool query_defined(vec3 origin, vec3 dir, float tmin, float tmax) {
+    return tmin >= 0.0 && tmax >= tmin
+        && !any(isnan(origin)) && !any(isinf(origin))
+        && !any(isnan(dir)) && !any(isinf(dir));
+}
+
 void trace_one(bool anyMode, out bool hit, out uint prim, out float t) {
     uint index = (gl_WorkGroupID.x * 64u) + gl_LocalInvocationIndex;
     uint rb = index * 2u;
@@ -97,14 +120,16 @@ void trace_one(bool anyMode, out bool hit, out uint prim, out float t) {
     uint qflags = anyMode ? gl_RayFlagsTerminateOnFirstHitEXT : 0u;
     // IRayTracer: a visibility hit must be STRICTLY short of the segment end.
     // The driver culls to t <= tmax, so any-hit scales tmax down one ulp
-    // class (host passes 1 - 2^-23) and a t at the boundary falls to the miss
+    // class (host passes 1 - 2^-24) and a t at the boundary falls to the miss
     // side; the parity facts count that eps-band explicitly.
     float tmaxEff = anyMode ? tmax * uintBitsToFloat(PC.tmaxScaleBits) : tmax;
+    hit = false;
+    prim = 0xFFFFFFFFu;
+    t = 0.0;
+    if (!query_defined(origin, dir, tmin, tmaxEff)) { return; }
     rayQueryInitializeEXT(rq, BLAS, qflags, 0xFFu, origin, tmin, dir, tmaxEff);
     while (rayQueryProceedEXT(rq)) { }
     hit = rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionNoneEXT;
-    prim = 0xFFFFFFFFu;
-    t = 0.0;
     if (hit && !anyMode) {
         prim = rayQueryGetIntersectionPrimitiveIndexEXT(rq, true);
         t = rayQueryGetIntersectionTEXT(rq, true);
@@ -136,8 +161,9 @@ void main() {
     if (PC.mode == 5u) {
         uint iters = 0u;
         uint cands = 0u;
-        if (inRange) {
-            uint rb5 = index * 2u;
+        uint rb5 = index * 2u;
+        if (inRange && query_defined(RAYS.data[rb5 + 0u].xyz, RAYS.data[rb5 + 1u].xyz,
+                uintBitsToFloat(PC.tminBits), RAYS.data[rb5 + 1u].w)) {
             rayQueryEXT rq5;
             rayQueryInitializeEXT(rq5, BLAS, 0u, 0xFFu,
                 RAYS.data[rb5 + 0u].xyz, uintBitsToFloat(PC.tminBits),

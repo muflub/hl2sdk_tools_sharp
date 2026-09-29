@@ -431,13 +431,43 @@ public static class HostBackends
         Type options = VulkanTracer!.Assembly.GetType(GpuOptionsType, throwOnError: true)!;
         object?[] arguments =
         [
-            string.IsNullOrEmpty(deviceMatch) ? null : deviceMatch,
+            GpuDevicePin(deviceMatch),
             -1,
             raysPerSlab ?? 4_194_304,
             120,
         ];
-        return Activator.CreateInstance(options, arguments)!;
+        object made = Activator.CreateInstance(options, arguments)!;
+
+        // "Use the faster one by default": an unpinned -gpu declines a CPU
+        // implementation of Vulkan and a device whose ray upload is slower
+        // than the CPU tracer could use; a pinned one is always used. The
+        // policy only acts when unpinned, so it is always switched on here.
+        SetProperty(made, "DeclineSlowDevicesUnlessPinned", true);
+        return made;
     }
+
+    /// <summary>
+    /// The value of <c>-gpu</c> that asks for no particular device: take the
+    /// fastest capable one, and keep the CPU tracer when that is faster.
+    /// </summary>
+    public const string GpuAnyDevice = "auto";
+
+    /// <summary>
+    /// The device pin a <c>-gpu</c> value stands for: null (no pin) for
+    /// <see cref="GpuAnyDevice"/> or an empty value, else the value itself,
+    /// matched as a case-insensitive substring of the device name.
+    /// </summary>
+    /// <param name="deviceMatch">The <c>-gpu</c> value.</param>
+    /// <returns>The pin, or null for none.</returns>
+    public static string? GpuDevicePin(string? deviceMatch) =>
+        string.IsNullOrEmpty(deviceMatch) || deviceMatch.Equals(GpuAnyDevice, StringComparison.OrdinalIgnoreCase)
+            ? null
+            : deviceMatch;
+
+    [UnconditionalSuppressMessage("Trimming", "IL2075:NullabilityMismatchOnThis",
+        Justification = "The target is the Gpu package's own public VulkanRayTracerOptions record — trim-immune in the JIT posture (the linker never sees the package), rooted by name in aot-packages-gpu.rd.xml in the AOT posture, whose Dynamic=Required All keeps its init setters.")]
+    private static void SetProperty(object target, string name, object value) =>
+        target.GetType().GetProperty(name)?.SetValue(target, value);
 
     private static string? DeclineReason(object attempt)
     {
@@ -446,9 +476,24 @@ public static class HostBackends
         object? selected = Property(report!, "Selected");
         string? selfTest = selected is null ? null : Property(selected, "Reason") as string;
         string? device = selected is null ? null : Property(selected, "DeviceName") as string;
-        string reason = failure ?? selfTest ?? "the self-test did not clear";
-        return device is null ? reason : $"{device}: {reason}";
+        return FormatDecline(device, failure ?? selfTest ?? "the self-test did not clear");
     }
+
+    /// <summary>
+    /// The decline line vrad prints: the reason, led by the device's name
+    /// exactly once.
+    /// </summary>
+    /// <param name="device">The device the attempt opened, or null when none was.</param>
+    /// <param name="reason">The backend's reason.</param>
+    /// <returns>The line.</returns>
+    /// <remarks>
+    /// The backend's reasons already start with the device's name (a failed
+    /// self-test, a CPU implementation, a slow link), and prefixing it again
+    /// printed it twice; a reason that does not start with it (a driver
+    /// refusal) still gets it.
+    /// </remarks>
+    public static string FormatDecline(string? device, string reason) =>
+        device is null || reason.StartsWith(device, StringComparison.Ordinal) ? reason : $"{device}: {reason}";
 
     [UnconditionalSuppressMessage("Trimming", "IL2075:NullabilityMismatchOnThis",
         Justification = "The targets are the Gpu package's own public records (VulkanTracerAttempt, VulkanDeviceReport, SelfTestRecord) — trim-immune in the JIT posture (the linker never sees the package), rooted by name in aot-packages-gpu.rd.xml in the AOT posture, whose Dynamic=Required All keeps exactly this property metadata.")]

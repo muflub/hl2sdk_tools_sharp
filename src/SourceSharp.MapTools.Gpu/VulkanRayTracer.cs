@@ -17,8 +17,9 @@ namespace SourceSharp.MapTools.Gpu;
 /// <summary>How <see cref="VulkanRayTracer.TryCreateAsync"/> should pick and size the device.</summary>
 /// <param name="DeviceMatch">
 /// Device-name substring pin (case-insensitive), or null to prefer the most
-/// GPU-like ray-query-capable device. Diagnostics pin <c>"llvmpipe"</c> and
-/// <c>"NVIDIA"</c> to watch the self-test's verdict on those devices.
+/// GPU-like ray-query-capable device. Facts pin <c>"radv"</c>,
+/// <c>"NVIDIA"</c> and <c>"llvmpipe"</c> to check the self-test and parity
+/// on each of those devices.
 /// </param>
 /// <param name="DeviceIndex">
 /// Physical-device index pin among ray-query-capable devices, or −1 for no
@@ -57,6 +58,79 @@ public readonly record struct VulkanRayTracerOptions(
     /// keep working.
     /// </remarks>
     public int SlabsInFlight { get; init; }
+
+    /// <summary>
+    /// When true, and the device is not pinned (<see cref="IsPinned"/>), decline a device the CPU tracer
+    /// would beat: a CPU implementation of Vulkan, or a device whose
+    /// measured ray upload rate is below <see cref="MinUploadBytesPerSecond"/>.
+    /// A pinned device is always used. False (the default) keeps every
+    /// device that passes the self-test.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// "Use the faster one by default." <c>ssmap</c>'s unpinned
+    /// <c>-gpu auto</c> sets it: a user who asked for the GPU without
+    /// naming one wants the run to go faster, and on a machine whose only
+    /// Vulkan device is llvmpipe, or whose card sits behind a slow link, the
+    /// KD tracer is the faster one. Naming the device is how to say "this
+    /// one anyway", which diagnostics and the device facts do.
+    /// </para>
+    /// <para>
+    /// Unpinned with this on, an attempt walks every ray-query device in
+    /// ranking order and takes the first one that is not a CPU
+    /// implementation, passes the self-test and clears the upload floor;
+    /// only when none does is the attempt declined, with each device's
+    /// reason. A declined device is released before the next is opened.
+    /// </para>
+    /// <para>
+    /// An init property, off by default, rather than a change of the
+    /// default: a host that already relies on "any device that passes"
+    /// keeps that, and one that wants the policy says so.
+    /// </para>
+    /// </remarks>
+    public bool DeclineSlowDevicesUnlessPinned { get; init; }
+
+    /// <summary>
+    /// The upload-rate floor for <see cref="DeclineSlowDevicesUnlessPinned"/>,
+    /// in bytes per second; 0 (what a defaulted value holds) means
+    /// <see cref="DefaultMinUploadBytesPerSecond"/>.
+    /// </summary>
+    public double MinUploadBytesPerSecond { get; init; }
+
+    /// <summary>
+    /// 2.5 GB/s: the upload rate below which tracing on a device that
+    /// stages its rays plausibly loses to the CPU KD tracer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A ray is 32 bytes on the wire, and the KD tracer answers about 80
+    /// million rays a second on 32 threads, so it needs no more than
+    /// 32 B × 80 M/s ≈ 2.56 GB/s worth of time for a batch; a device whose
+    /// upload alone is slower than that cannot finish first, whatever its
+    /// traversal speed (the answers' download only adds to it). The case
+    /// that set it: an RTX 2070 SUPER in a PCIe Gen2 x1 slot moved about
+    /// 23 GB of 2fort's rays at about 0.67 GB/s, 34.3 s of copying against
+    /// 0.44 s of tracing, for 43 to 47 s against the CPU's 9 s. A card on a
+    /// full-width Gen3 or better link measures several times the floor, and
+    /// one that reads rays in place is not probed at all.
+    /// </para>
+    /// <para>
+    /// The number is rounded down to 2.5 so the floor errs toward using a
+    /// GPU on a borderline link; a host whose CPU is much faster or slower
+    /// than 32 threads can set <see cref="MinUploadBytesPerSecond"/>.
+    /// </para>
+    /// </remarks>
+    public const double DefaultMinUploadBytesPerSecond = 2.5e9;
+
+    /// <summary>Whether the options name the device, by name or by an index past the first.</summary>
+    /// <remarks>
+    /// Index 0 is not a pin: it is what a defaulted options value holds, and
+    /// selection reads it as "rank every device", the same as −1.
+    /// </remarks>
+    public bool IsPinned => DeviceMatch is { Length: > 0 } || DeviceIndex > 0;
+
+    /// <summary>The upload floor in force: <see cref="MinUploadBytesPerSecond"/>, or the default for 0.</summary>
+    public double UploadFloor => MinUploadBytesPerSecond > 0 ? MinUploadBytesPerSecond : DefaultMinUploadBytesPerSecond;
 }
 
 /// <summary>
@@ -82,8 +156,8 @@ public readonly record struct VulkanRayTracerOptions(
 /// </param>
 /// <param name="Candidates">
 /// Telemetry rays that reached a candidate intersection. A conformant driver
-/// offers none for an opaque BLAS; llvmpipe offers them, and fails the
-/// known-answer legs.
+/// offers none for opaque geometry. llvmpipe offered them only while the
+/// kernel was handed a BLAS instead of a TLAS, and passes with the TLAS.
 /// </param>
 /// <param name="Reason">
 /// Why the device was rejected, in terms of the legs that failed and what the
@@ -98,7 +172,29 @@ public readonly record struct SelfTestRecord(
     bool ClosestOk,
     int Iters,
     int Candidates,
-    string? Reason);
+    string? Reason)
+{
+    /// <summary>
+    /// The self-test in full, passed or not: the device, the driver name and
+    /// version, the Vulkan and conformance versions, the flags the scene and
+    /// the rays were built with, and each ray's expected and actual hit,
+    /// primitive, t and proceed iterations. Null only when no self-test ran.
+    /// </summary>
+    /// <remarks>
+    /// A rejected device's <see cref="Reason"/> ends with this text too, so
+    /// the one warning a host prints is enough to diagnose a device nobody
+    /// here can run: that is what the NVIDIA rejection lacked. It names the
+    /// driver build and nothing that identifies the machine.
+    /// </remarks>
+    public string? Detail { get; init; }
+
+    /// <summary>
+    /// The measured ray upload rate in bytes per second, or null when the
+    /// device reads rays in place (nothing to upload, so nothing probed) or
+    /// the self-test failed before the probe.
+    /// </summary>
+    public double? UploadBytesPerSecond { get; init; }
+}
 
 /// <summary>A device inventory row set plus the self-test outcome of the last attempt.</summary>
 /// <param name="Devices">Every physical device the loader exposed, even rejected ones.</param>
@@ -154,7 +250,7 @@ public readonly record struct VulkanTracerAttempt(
 /// <b>THE GATE.</b> Construction traces a known-hit micro-scene (two
 /// triangles, two rays whose answers are exact by construction) through every
 /// kernel mode before the tracer is handed out. A driver that gets either
-/// known answer wrong (llvmpipe commits nothing) is REJECTED, with the legs
+/// known answer wrong is REJECTED, with the legs
 /// that failed and the telemetry in the reason, but no cause the test cannot
 /// tell apart (<see cref="ReasonFor"/> says why);
 /// <see cref="TryCreateAsync"/> never throws a driver failure — it
@@ -171,11 +267,8 @@ public readonly record struct VulkanTracerAttempt(
 /// </remarks>
 public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposable
 {
-    /// <summary>The kernel's any-hit tmax shrink as float bits: <c>1 - 2^-23</c>.</summary>
+    /// <summary>The kernel's any-hit tmax shrink as float bits: <c>1 - 2^-24</c>, the largest float below 1.</summary>
     private const uint TmaxScaleBits = 0x3F7FFFFFu;
-
-    /// <summary><c>1e-3f</c> as float bits — the epsilon the self-test ray traces with.</summary>
-    private const uint SelfTestTminBits = 0x3A83126Fu;
 
     private readonly VulkanDevice _device;
     private readonly int[] _triangleIds;
@@ -326,6 +419,24 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
     /// <param name="options">Device pin and sizing.</param>
     /// <param name="cancellationToken">Checked at each stage boundary.</param>
     /// <returns>The tracer or the reason it was not created.</returns>
+    /// <remarks>
+    /// <para>
+    /// Pinned, or without
+    /// <see cref="VulkanRayTracerOptions.DeclineSlowDevicesUnlessPinned"/>,
+    /// this is one attempt on the device selection picks. Unpinned with the
+    /// policy on, it WALKS the ranking: every ray-query device, most
+    /// GPU-like first, until one is fast enough (<see cref="Walk"/>). "Use
+    /// the faster one by default" means the next device, not the CPU, when
+    /// the best-ranked one loses: the owner's machine lists an RTX 2070 on a
+    /// Gen2 x1 link beside an RX 9070, and the 2070 being declined for its
+    /// link must lead to the 9070.
+    /// </para>
+    /// <para>
+    /// Each device is opened, tested and, when declined, released before
+    /// the next is opened, so a walk never holds two devices and a declined
+    /// one leaves nothing behind.
+    /// </para>
+    /// </remarks>
     internal static VulkanTracerAttempt TryCreate(
         ReadOnlyMemory<TracedTriangle> triangles,
         Action<TryCreateStage>? observe,
@@ -335,6 +446,153 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
     {
         // Checked before anything native is opened, so a bad value cannot
         // leave a device behind.
+        _ = SlotsFor(options);
+        if (!options.DeclineSlowDevicesUnlessPinned || options.IsPinned)
+        {
+            return TryOne(triangles, observe, open, options, -1, cancellationToken);
+        }
+
+        IReadOnlyList<VulkanDeviceInfo> rows = VulkanDevice.ProbeDevices();
+        int[] order = RankedDevices(rows);
+        if (order.Length == 0)
+        {
+            // Nothing to walk (no loader, or no ray-query device): one
+            // ordinary attempt says why in its own words.
+            return TryOne(triangles, observe, open, options, -1, cancellationToken);
+        }
+
+        return Walk(
+            order,
+            physical => TryOne(triangles, observe, open, options, physical, cancellationToken),
+            rows,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The physical-device indices an unpinned walk tries, best first.
+    /// </summary>
+    /// <param name="rows">The probe's inventory.</param>
+    /// <returns>Physical-device indices in the order to try them.</returns>
+    /// <remarks>
+    /// <para>
+    /// Only ray-query devices are tried, ranked by, in turn:
+    /// </para>
+    /// <list type="number">
+    /// <item><description>
+    /// the device type, as selection ranks it: discrete, integrated,
+    /// virtual, CPU, other. A discrete card beats an integrated one whatever
+    /// their memory, because an integrated GPU's "memory" is a share of the
+    /// system's;
+    /// </description></item>
+    /// <item><description>
+    /// the largest device-local heap, larger first: more VRAM is the
+    /// strongest portable sign of the bigger card within a type;
+    /// </description></item>
+    /// <item><description>
+    /// the shader-core count the vendor's extension reports, more first.
+    /// Core Vulkan has no clock speed, and no extension reports one
+    /// portably, so cores stand in for throughput (the device's probe
+    /// remarks list the sources). Counts from different vendors are not
+    /// comparable, which is why this only breaks memory ties;
+    /// </description></item>
+    /// <item><description>the loader's enumeration order.</description></item>
+    /// </list>
+    /// <para>
+    /// CPU-type devices stay in the list, last, so an unpinned walk that
+    /// reaches one declines it with its reason instead of silently skipping
+    /// it. The ranking only orders the walk: every device still has to pass
+    /// the self-test and the upload floor to be used.
+    /// </para>
+    /// </remarks>
+    internal static int[] RankedDevices(IReadOnlyList<VulkanDeviceInfo> rows) =>
+    [
+        .. rows
+            .Where(r => r.RayQuery && r.Index >= 0)
+            .Select((r, position) => (Row: r, Position: position, Score: VulkanDevice.DeviceScore(
+                Enum.TryParse(r.DeviceType, out Silk.NET.Vulkan.PhysicalDeviceType t) ? t : Silk.NET.Vulkan.PhysicalDeviceType.Other)))
+            .OrderByDescending(x => x.Score)
+            .ThenByDescending(x => x.Row.DeviceLocalBytes)
+            .ThenByDescending(x => x.Row.ShaderCores)
+            .ThenBy(x => x.Position)
+            .Select(x => x.Row.Index),
+    ];
+
+    /// <summary>
+    /// Tries devices in <paramref name="order"/> until one is accepted, and
+    /// otherwise declines with every device's reason on one line.
+    /// </summary>
+    /// <param name="order">Physical-device indices, best first.</param>
+    /// <param name="tryOne">
+    /// One attempt on a physical device. It must release the device itself
+    /// when it does not hand it to a tracer, as <see cref="TryOne"/> does, so
+    /// the next attempt opens on a clean slate.
+    /// </param>
+    /// <param name="inventory">The probe's rows, for the combined report.</param>
+    /// <param name="cancellationToken">Checked before each attempt.</param>
+    /// <returns>The first accepted attempt, or a decline naming each device's reason.</returns>
+    internal static VulkanTracerAttempt Walk(
+        IReadOnlyList<int> order,
+        Func<int, VulkanTracerAttempt> tryOne,
+        IReadOnlyList<VulkanDeviceInfo> inventory,
+        CancellationToken cancellationToken)
+    {
+        List<string> declined = [];
+        foreach (int physical in order)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            VulkanTracerAttempt attempt = tryOne(physical);
+            if (attempt.Success)
+            {
+                return attempt;
+            }
+
+            string name = inventory.FirstOrDefault(r => r.Index == physical).Name ?? $"device {physical}";
+            declined.Add(DeclineLine(name, attempt.Report));
+        }
+
+        return new VulkanTracerAttempt(
+            null,
+            new VulkanDeviceReport(
+                inventory,
+                null,
+                "no Vulkan device here is faster than the built-in CPU tracer: " + string.Join(" | ", declined)),
+            false);
+    }
+
+    /// <summary>
+    /// One declined device's reason, starting with the device's name exactly
+    /// once: the reasons the attempt writes already start with it, and a
+    /// reason that does not (a driver refusal) gets it prefixed.
+    /// </summary>
+    /// <param name="deviceName">The device the attempt was for.</param>
+    /// <param name="report">The attempt's report.</param>
+    /// <returns>The line.</returns>
+    internal static string DeclineLine(string deviceName, VulkanDeviceReport report)
+    {
+        string reason = report.Failure ?? report.Selected?.Reason ?? "declined without a reason";
+        return reason.StartsWith(deviceName, StringComparison.Ordinal) ? reason : deviceName + ": " + reason;
+    }
+
+    /// <summary>
+    /// One attempt: open a device (the one <paramref name="physicalDevice"/>
+    /// names, or the one selection picks for −1), gate it, and hand it to a
+    /// tracer or release it.
+    /// </summary>
+    /// <param name="triangles">The scene.</param>
+    /// <param name="observe">Called at each stage, or null.</param>
+    /// <param name="open">Creates the device object.</param>
+    /// <param name="options">Device pin, sizing and policy.</param>
+    /// <param name="physicalDevice">A physical-device index to open exactly, or −1.</param>
+    /// <param name="cancellationToken">Checked at each stage boundary.</param>
+    /// <returns>The tracer or the reason it was not created.</returns>
+    internal static VulkanTracerAttempt TryOne(
+        ReadOnlyMemory<TracedTriangle> triangles,
+        Action<TryCreateStage>? observe,
+        Func<VulkanDevice> open,
+        VulkanRayTracerOptions options,
+        int physicalDevice,
+        CancellationToken cancellationToken)
+    {
         int slots = SlotsFor(options);
         TracedTriangle[] scene = triangles.ToArray();
         List<VulkanDeviceInfo> inventory = [];
@@ -366,13 +624,23 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
             // The inventory comes first so even a total failure reports what
             // the box really has (the device-pin diagnostic the tools owe).
             inventory.AddRange(VulkanDevice.ProbeDevices());
-            device.Construct(options.DeviceMatch, options.DeviceIndex, options.MaxRaysPerSlab, slots);
+            device.Construct(
+                options.DeviceMatch, options.DeviceIndex, options.MaxRaysPerSlab, slots, physicalDevice: physicalDevice);
             cancellationToken.ThrowIfCancellationRequested();
 
             observe?.Invoke(TryCreateStage.Constructed);
+
+            // A CPU implementation is turned away before the self-test: its
+            // answer would not change the decision, and it is not free.
+            if (SlowDeviceReason(options, device.DeviceName, device.IsCpuDevice, null) is { } cpu)
+            {
+                return new VulkanTracerAttempt(null, new VulkanDeviceReport(inventory, null, cpu), false);
+            }
+
             // The gate runs before real geometry: two triangles whose answer
             // is known by construction, through every kernel mode.
             (bool ready, SelfTestOutcome outcome) = device.RunSelfTest();
+            string detail = VulkanDevice.SelfTestDetail(device.Identity, outcome);
             SelfTestRecord record = new(
                 ready,
                 device.DeviceName,
@@ -382,11 +650,22 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
                 outcome.ClosestOk,
                 outcome.Iters,
                 outcome.Candidates,
-                ReasonFor(ready, device.DeviceName, outcome));
+                ReasonFor(ready, device.DeviceName, outcome, detail))
+            {
+                Detail = detail,
+            };
             observe?.Invoke(TryCreateStage.SelfTested);
             if (!ready)
             {
                 return new VulkanTracerAttempt(null, new VulkanDeviceReport(inventory, record, null), false);
+            }
+
+            // Measured whether or not it decides anything, so a pinned
+            // device's report still says how fast its link is.
+            record = record with { UploadBytesPerSecond = device.MeasureUploadRate() };
+            if (SlowDeviceReason(options, device.DeviceName, device.IsCpuDevice, record.UploadBytesPerSecond) is { } slow)
+            {
+                return new VulkanTracerAttempt(null, new VulkanDeviceReport(inventory, record, slow), false);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -440,6 +719,47 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
         }
     }
 
+    /// <summary>
+    /// Why a device that works should still not be used, under
+    /// <see cref="VulkanRayTracerOptions.DeclineSlowDevicesUnlessPinned"/>:
+    /// a CPU implementation of Vulkan, or an upload rate below the floor.
+    /// </summary>
+    /// <param name="options">The attempt's options: the policy switch, the pin and the floor.</param>
+    /// <param name="deviceName">The device, quoted in the reason.</param>
+    /// <param name="isCpuDevice">Whether the device's type is CPU.</param>
+    /// <param name="uploadBytesPerSecond">The measured upload rate, or null when not measured.</param>
+    /// <returns>The reason to decline, or null to use the device.</returns>
+    /// <remarks>
+    /// A pinned device, or any device when the policy is off, is always
+    /// used. An unmeasured rate (rays read in place, or not probed yet)
+    /// never declines: there is no upload to be slow. Each reason says what
+    /// was seen and how to trace on the device anyway.
+    /// </remarks>
+    internal static string? SlowDeviceReason(
+        VulkanRayTracerOptions options, string deviceName, bool isCpuDevice, double? uploadBytesPerSecond)
+    {
+        if (!options.DeclineSlowDevicesUnlessPinned || options.IsPinned)
+        {
+            return null;
+        }
+
+        if (isCpuDevice)
+        {
+            return $"{deviceName} is a CPU implementation of Vulkan; the built-in CPU tracer is faster, "
+                + "so it is used instead. Pin the device by name to trace on it anyway";
+        }
+
+        if (uploadBytesPerSecond is double rate && rate < options.UploadFloor)
+        {
+            System.Globalization.CultureInfo inv = System.Globalization.CultureInfo.InvariantCulture;
+            return $"{deviceName}: rays upload at {(rate / 1e9).ToString("F2", inv)} GB/s, below the "
+                + $"{(options.UploadFloor / 1e9).ToString("F2", inv)} GB/s at which tracing on it could beat the "
+                + "CPU; the built-in CPU tracer is faster; pin the device by name to trace on it anyway";
+        }
+
+        return null;
+    }
+
     /// <summary>The slot count <paramref name="options"/> asks for, 0 meaning the default.</summary>
     /// <param name="options">The options.</param>
     /// <returns>1 to <see cref="SlabMemory.MaxSlots"/>.</returns>
@@ -459,6 +779,11 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
     /// <param name="ready">Whether the device passed.</param>
     /// <param name="deviceName">The device's name, quoted first.</param>
     /// <param name="o">What the kernel modes observed.</param>
+    /// <param name="detail">
+    /// The self-test's full detail (<see cref="SelfTestRecord.Detail"/>),
+    /// appended to a rejection so the one warning a host prints carries
+    /// every ray's answer and the driver build; null appends nothing.
+    /// </param>
     /// <returns>Null when the device passed; otherwise the reason.</returns>
     /// <remarks>
     /// <para>
@@ -470,31 +795,34 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
     /// telemetry adds one more observation, but it cannot say why.
     /// </para>
     /// <para>
-    /// The BLAS is built opaque, so a conformant driver commits every
+    /// The geometry is built opaque, so a conformant driver commits every
     /// triangle inside traversal and its first <c>rayQueryProceedEXT</c>
     /// returns false: zero proceed iterations and zero candidates is what a
     /// WORKING device reports (radv does, and passes). Zero iterations on a
     /// failing device therefore cannot tell a driver that never traverses
-    /// from one that traverses and commits the wrong thing, or from a BLAS
-    /// that came out empty; an earlier version named a vendor for it, which
-    /// was a guess, and one that the kernel's own undefined terminate after
-    /// the proceed loop could have explained just as well. Candidates on an
-    /// opaque BLAS ARE unusual (llvmpipe reports them), so they are quoted
-    /// as an observation, again without a cause.
+    /// from one that traverses and commits the wrong thing, or from a scene
+    /// that came out empty. NVIDIA's zeroes show why the reason must not
+    /// guess: they were first put down to the device, then to the kernel's
+    /// undefined terminate after the proceed loop, and the real cause was
+    /// neither: the BLAS sat in the descriptor where a ray query needs a
+    /// TLAS. Candidates on opaque geometry ARE unusual (llvmpipe reported
+    /// them under that same mistake), so they are quoted as an observation,
+    /// again without a cause.
     /// </para>
     /// </remarks>
-    internal static string? ReasonFor(bool ready, string deviceName, SelfTestOutcome o)
+    internal static string? ReasonFor(bool ready, string deviceName, SelfTestOutcome o, string? detail = null)
     {
         if (ready)
         {
             return null;
         }
 
+        string tail = detail is null ? string.Empty : ". Self-test detail: " + detail;
         if (!o.ReadbackOk)
         {
             return $"{deviceName}: the compute write/readback path itself is broken "
                 + "(mode 4 wrote all-ones and they did not read back) — no ray answer from this "
-                + "device can be trusted";
+                + "device can be trusted" + tail;
         }
 
         List<string> wrong = [];
@@ -516,7 +844,7 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
               + "what a working device reports for an opaque BLAS, so it cannot say where the "
               + "answer went wrong";
         return $"{deviceName}: {legs} on the two-triangle self-test scene; {telemetry}. "
-            + "Rejecting the device";
+            + "Rejecting the device" + tail;
     }
 
     /// <inheritdoc />
@@ -540,8 +868,16 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
 
     /// <summary>The rule <see cref="Supports"/> applies, without a device.</summary>
     /// <param name="options">The options.</param>
-    /// <returns>True unless an id is skipped.</returns>
-    internal static bool SupportsOptions(RayTraceOptions options) => options.SkipId is null;
+    /// <returns>True unless an id is skipped or the minimum distance is not a ray-query <c>tmin</c>.</returns>
+    /// <remarks>
+    /// A negative or NaN <see cref="RayTraceOptions.MinDistance"/> is
+    /// refused too: a ray query's <c>tmin</c> must be a non-negative number,
+    /// and the kernel would answer every such ray a miss rather than trace
+    /// a question it cannot ask. The CPU tracer defines the answer, so such
+    /// a batch goes there.
+    /// </remarks>
+    internal static bool SupportsOptions(RayTraceOptions options) =>
+        options.SkipId is null && options.MinDistance >= 0f;
 
     /// <summary>
     /// Turns closest hits into sky-passing visibility bits: a ray is blocked
@@ -626,6 +962,13 @@ public sealed class VulkanRayTracer : IRayTracer, IGpuTraceStatistics, IDisposab
     /// <exception cref="NotSupportedException">An id is skipped.</exception>
     internal static void RequireSupported(RayTraceOptions options)
     {
+        if (options.SkipId is null && !SupportsOptions(options))
+        {
+            throw new NotSupportedException(
+                $"the Vulkan kernel cannot trace with minimum distance {options.MinDistance}: a ray query's "
+                + "tmin must be non-negative; trace this batch on the CPU tracer");
+        }
+
         if (!SupportsOptions(options))
         {
             throw new NotSupportedException(
