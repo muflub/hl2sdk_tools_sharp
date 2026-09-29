@@ -48,7 +48,8 @@ internal sealed class ResolverRoom
 /// <param name="FoldLogic">Fold stateless logic away (the library's <c>rooms_fold_logic</c>, on by default).</param>
 /// <param name="Columns">The level's columns, or null when unknown (only a negative column is then off the grid).</param>
 /// <param name="Rows">The level's rows, or null when unknown.</param>
-internal sealed record LevelNamingOptions(bool ModEntities, bool FoldLogic, int? Columns, int? Rows);
+/// <param name="Transitions">The level's transitions and spawn (<see cref="LevelTransitionPlan"/>), or null for a level without them.</param>
+internal sealed record LevelNamingOptions(bool ModEntities, bool FoldLogic, int? Columns, int? Rows, LevelTransitionPlan? Transitions = null);
 
 /// <summary>What the resolver made of a level's entities.</summary>
 internal sealed class LevelResolution
@@ -169,6 +170,15 @@ internal static class LevelEntityResolver
             {
                 level.ExpandLogicRoom(room);
             }
+        }
+
+        // The transitions and the spawn (the rooms design, 11.4 and 11.5),
+        // after the names, so the volume and every output to it carry their
+        // resolved names, and before the fold, so a relay the fold removes
+        // passes on the rewritten input.
+        if (options.Transitions is { } transitions)
+        {
+            level.ApplyTransitions(transitions);
         }
 
         List<LevelEntity> all = level.Ordered();
@@ -836,6 +846,151 @@ internal static class LevelEntityResolver
             (int dx, int dy) = RoomDirections.Offset(flag.Direction);
             (int tx, int ty) = RoomNameAnalysis.Turn(dx, dy, room.Turns);
             return cells.ContainsKey((room.Column + tx, room.Row + ty));
+        }
+
+        /// <summary>
+        /// The level's transitions and spawn: every room's
+        /// <c>info_player_start</c> stripped; per transition room, with
+        /// <c>-mod-entities</c>, its volume replaced by a
+        /// <c>logic_level_transition</c> at the volume's centre; without,
+        /// the volume (or the hallway trigger folded in its place) made the
+        /// <c>trigger_changelevel</c>, with an <c>info_landmark</c>; and the
+        /// stock fallback's <c>info_player_start</c>s at the spawn points.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>The changelevel.</b> Unfolded, the volume keeps its model and
+        /// name and gets "disable touch", since the player's action (a
+        /// button, a door, a hallway trigger that could not fold) fires it:
+        /// every output in the level that fires <c>Transition</c> at it fires
+        /// the stock <c>ChangeLevel</c> instead. Folded, the author's
+        /// <c>trigger_once</c> becomes the changelevel with touch enabled
+        /// (its own "disable touch" bit, which on a <c>trigger_once</c> means
+        /// something else, cleared), its one output (the transition) goes,
+        /// and the volume is dropped with its model.
+        /// </para>
+        /// <para>
+        /// <b>Player starts.</b> Every <c>info_player_start</c> the rooms
+        /// hold is stripped in both modes (decision D15): the level's spawn
+        /// is its up room's arrival, which the mod reads from the navigation
+        /// and the stock fallback writes here, after the spawn room's own
+        /// entities.
+        /// </para>
+        /// </remarks>
+        public void ApplyTransitions(LevelTransitionPlan plan)
+        {
+            foreach (RoomState state in States)
+            {
+                foreach (LevelEntity entity in state.Room.Entities)
+                {
+                    if (!entity.Removed && string.Equals(entity.ClassName, LevelTransitionPlan.PlayerStartClass, StringComparison.Ordinal))
+                    {
+                        entity.Removed = true;
+                    }
+                }
+            }
+
+            HashSet<string> changeLevels = new(StringComparer.Ordinal);
+            for (int p = 0; p < States.Length; p++)
+            {
+                if (plan.Placements[p] is not { } transition)
+                {
+                    continue;
+                }
+
+                RoomState state = States[p];
+                LevelEntity volume = ById(state, transition.VolumeId);
+                string name = volume.TargetName ?? state.Name(RoomLinkerNames.Transition);
+                if (plan.ModEntities)
+                {
+                    volume.Removed = true;
+                    List<(string, string)> keys =
+                    [
+                        ("classname", LevelTransition.ClassName),
+                        (LevelTransition.TargetNameKey, name),
+                        (LevelTransition.DirectionKey, LevelTransition.Spell(transition.Direction)),
+                        (LevelTransition.MapKey, transition.Map),
+                    ];
+                    if (volume.Get(LevelTransition.StartDisabledKey) is { } disabled)
+                    {
+                        keys.Add((LevelTransition.StartDisabledKey, disabled));
+                    }
+
+                    keys.Add(("origin", transition.Centre));
+                    Write(state, [.. keys]);
+                    continue;
+                }
+
+                LevelEntity changeLevel = volume;
+                if (transition.FoldId >= 0)
+                {
+                    changeLevel = ById(state, transition.FoldId);
+                    volume.Removed = true;
+                    foreach (LevelPair pair in changeLevel.Pairs)
+                    {
+                        if (!pair.Deleted && RoomOutput.TryParse(pair.Value, out RoomOutput output)
+                            && string.Equals(output.Target, name, StringComparison.Ordinal)
+                            && string.Equals(output.Input, LevelTransition.TransitionInput, StringComparison.OrdinalIgnoreCase))
+                        {
+                            pair.Deleted = true;
+                        }
+                    }
+
+                    if (changeLevel.Get("spawnflags") is { } flags)
+                    {
+                        changeLevel.Set("spawnflags", (Bsp.Write.EntityStage.Atoi(flags) & ~LevelTransitionPlan.DisableTouch).ToString(CultureInfo.InvariantCulture));
+                    }
+                }
+                else
+                {
+                    changeLevels.Add(name);
+                    int flags = Bsp.Write.EntityStage.Atoi(volume.Get("spawnflags") ?? "0");
+                    volume.Set("spawnflags", (flags | LevelTransitionPlan.DisableTouch).ToString(CultureInfo.InvariantCulture));
+                }
+
+                changeLevel.Set("classname", LevelTransitionPlan.ChangeLevelClass);
+                changeLevel.Set("map", transition.Map);
+                changeLevel.Set("landmark", transition.Landmark!);
+                Write(state, ("classname", LevelTransitionPlan.LandmarkClass), ("targetname", transition.Landmark!), ("origin", transition.LandmarkOrigin!));
+            }
+
+            if (changeLevels.Count > 0)
+            {
+                foreach (RoomState state in States)
+                {
+                    foreach (LevelEntity entity in state.Room.Entities.Concat(state.Written))
+                    {
+                        if (entity.Removed)
+                        {
+                            continue;
+                        }
+
+                        foreach (LevelPair pair in entity.Pairs)
+                        {
+                            if (!pair.Deleted && RoomOutput.TryParse(pair.Value, out RoomOutput output)
+                                && changeLevels.Contains(output.Target)
+                                && string.Equals(output.Input, LevelTransition.TransitionInput, StringComparison.OrdinalIgnoreCase))
+                            {
+                                pair.Value = (output with { Input = LevelTransitionPlan.ChangeLevelInput }).Format();
+                            }
+                        }
+                    }
+                }
+            }
+
+            foreach (LevelSpawnPoint spawn in plan.Spawns)
+            {
+                Write(States[spawn.Placement], ("classname", LevelTransitionPlan.PlayerStartClass), ("origin", spawn.Origin), ("angles", spawn.Angles));
+            }
+        }
+
+        /// <summary>A placement's entity by its Hammer id: what the room's transition data names it by.</summary>
+        private static LevelEntity ById(RoomState state, int id)
+        {
+            string text = id.ToString(CultureInfo.InvariantCulture);
+            return state.Room.Entities.FirstOrDefault(e => !IsWorld(e) && e.Id == text)
+                ?? throw new LinkException(
+                    $"room {state.Room.Room} at cell {state.Cell}: its transition data names entity {text}, which its entity list does not hold.");
         }
 
         /// <summary>A kept entity of the room's own with this resolved name, or null.</summary>

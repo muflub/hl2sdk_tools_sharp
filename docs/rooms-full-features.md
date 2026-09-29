@@ -2509,6 +2509,119 @@ at every rotation and the sample's unchanged digests are what shows a
 level without brush entities links as before; `ssmap rooms` does not list
 brush models; and the stress library has none.
 
+**PR 8 landed** (transition rooms and the level spawn). A room's part in
+its level's transitions is read from its VMF at pack time by one function
+(`RoomTransit.FromVmf`), which `ssmap room` stores in a `TRAN` section and
+`--flatten` calls on the same library: its role (the `info_room`'s
+`room_role`, which `LibraryRoom` already carried for navigation), its
+transition volume's Hammer id and centre, the hallway `trigger_once` the
+stock fallback folds (when every condition holds) and its centre, its
+arrival and its `spawn` points, room-local. Only a room with a role or
+spawn points has it, so a library without either packs to the same bytes.
+The 11.3 refusals run there, before the room compiles, and the arrival's
+clearance after it, against the compiled world's player-blocking brushes
+(solid, window, grate, moveable, player clip, monster; a brush entity's
+brushes do not block) and the cell. The level rule (11.1) and the spawn
+(11.5) are decided once per link or flatten (`LevelTransitionPlan`), and
+the one resolver (5.9) writes the result: with `-mod-entities` each volume
+is dropped and a `logic_level_transition` stands at its centre (`direction`,
+`map`, and `StartDisabled` carried from the volume when set); without it
+the volume becomes the `trigger_changelevel` (touch disabled, and every
+`Transition` output in the level that names it fires `ChangeLevel`), or
+the hallway `trigger_once` becomes it (touch enabled, its transition
+output gone, its own spawn flag 2, which on a `trigger_once` means NPCs,
+cleared) and the volume is dropped; one `info_landmark` per transition
+room, named `<upper>__<lower>`, at the down room's changelevel centre
+(the folded trigger's when it folds) and at the up room's arrival; and
+one `info_player_start` per spawn point after the spawn room's entities.
+The link omits a dropped volume's model as it omits any (`PlanModels`), and
+the flatten leaves the entity out with its brushes, so the two maps carry
+the same entities and model count in both modes at every turn. Every
+`info_player_start` the rooms hold is stripped, in both modes. `ssmap
+layout` places the roles from a second `SplitMix64` stream seeded with the
+seed exclusive-or'd with a fixed constant (`LevelGenerator.RoleStream`):
+per spanning tree it shuffles the occupied cells, takes the first as the up
+cell and the first other one at least `-transition-distance` tree doors
+away as the down cell, the fill offers only a role's rooms in its cell and
+only ordinary rooms elsewhere, and a filled level whose own joints bring
+the two closer is treated as a failed fill. `-sequence K -name <base>`
+writes the chained run. `samples/rooms-transit` is the transit sibling
+(15.7), a fact holding it to its generator and another to what `ssmap
+layout` writes for its run; the whole run was built end to end through the
+CLI in both modes, each map passing `ssmap check` and agreeing with its
+flattened compile. The contract version stays 1: section 7, which version
+1 names as the contract, specified `logic_level_transition` from the start,
+so a mod built to it already knows the class; the linker only began writing
+it now. The pack format version stays 3: `TRAN` is a tag an older build
+skips (such a build never applies the level rule), and a room whose compile
+has a `trigger_room_transition` but no transition data (a pack written
+before this PR) is refused at link with `room {room} has a
+trigger_room_transition but no transition data from its compile (...);
+recompile the library with ssmap room.`. Stored once, not per turn: a
+handful of points the link turns as it turns every point entity.
+Decisions taken where this document is open, or where it left a detail:
+
+- **When a level has transitions.** A level whose file has a transition
+  key, or that places a role room, is a level of a run: the rule holds, the
+  transitions and spawn are written and the room starts stripped. Any other
+  level is a standalone map and links and flattens exactly as before (every
+  level of a role-less library; the 3x3 sample's digests do not move).
+- **O20, O21, O22, O23 as recommended.** `up_map` / `down_map`; the
+  `spawn` key is `spawn: [column, row]`, and without it the spawn points of
+  the room farthest in doors from the down room (ties to the earlier in
+  link order; with no down room, the first room in link order with spawn
+  points); `-sequence` is built; `spawn_count: K` counts the spawn points
+  the stock fallback writes, which for an up room are its arrival and its
+  `spawn` points (so K = 1 + the room's spawn points, and the stock
+  fallback writes K starts). Refusals the tables do not list: a `spawn`
+  cell whose room has no spawn point (`level {level}: spawn names cell
+  ({x}, {y}), which holds no room with a spawn point.`), a `spawn` cell in a
+  level with an up room (`level {level}: names spawn cell ({x}, {y}), but a
+  level with an up room spawns at its arrival point.`), and `spawn_count`
+  on a top level names the spawn room (`... but spawn room {room} has {m}
+  spawn points.`).
+- **The fold** takes one more condition than 11.4 gives: the trigger must
+  be the only thing that fires the transition, since the fold drops the
+  volume and another caller's output would then name nothing. A hallway
+  that fails any condition stays a caller like a button or a door.
+- **More 11.3 refusals:** a `trigger_room_transition` named other than
+  `cxry_transition`, one without brushes, and one in a room without a
+  role, each with its own message (`RoomTransit`).
+- **The landmark** is exactly 11.4's, one per transition room. As 11.4
+  says of the facing, the upward trip is the uncertain one: the upper
+  level's landmark of the pair stands at its down room's changelevel, so a
+  player going up arrives there, offset, rather than at the down room's
+  arrival; the mod mode places the player at the arrival. To be checked in
+  game (15.8) before relying on the stock upward trip.
+- **With `-mod-entities`** nothing is written for the spawn, and a link
+  with transitions that writes no `.nav3d` warns that the mod has no
+  arrival or spawn point for the level. Which room a top level spawns in
+  is not carried to the mod (the stock fallback writes it); the mod picks
+  from the navigation's spawn points until the contract says more.
+- **Messages.** The 15.4 texts as written, with three spellings settled:
+  a role's article (`an up room`, `a down room`) in the 11.1 map-key and
+  the 11.3 volume and arrival messages, a final period on the map-key
+  messages, and `none` for the cells of a role that has no room.
+- **The level file.** A map name is letters, digits, `_`, `-` and `.`,
+  since it is written into keys and landmark names; `spawn` is checked
+  against the grid when read; the unknown-key message now names the
+  optional keys too. The keys are written between `columns` and `grid`, and
+  only when the level has them, so every level file written before is
+  written as it was.
+- **`ssmap layout`** with a role library and one level needs
+  `-up-map`/`-down-map` or `-no-up`/`-no-down`; `-sequence` takes the maps
+  from the run, up to 999 levels, names padded to two digits or more, and
+  `-out` is then the folder. The minimum distance applies only when a level
+  has both roles; a library lacking a role a level keeps is refused. The
+  layout's entity budget adds, per role room in the stock fallback, its
+  landmark and, for the up room, its starts (the arrival and spawn points);
+  the stripped room starts are still counted, so it never under-counts.
+  The header lines are unchanged.
+
+Not done here: `ssmap rooms` lists roles but not arrival or spawn points;
+the stress library has no roles; the navigation sidecar is unchanged (it
+already carried the arrival points by role from PR 2's store).
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
@@ -2697,11 +2810,11 @@ then.
 | 10.4 binding | R | `{roomnav} was written for another pack than {roompack}; recompile the library with ssmap room.` |
 | 10.4 missing | W | `{roompack} has no {roomnav} beside it; the level links without navigation, and rooms {rooms} have points of interest.` |
 | 4.14 cordon | R | `the room library has a cordon; rooms are cut by their cells, not by cordons.` |
-| 11.1 count | R | `level {level}: {k} {up/down} rooms ({cells}); a level has exactly one unless it says "{up/down}: none".` |
+| 11.1 count | R | `level {level}: {k} {up/down} rooms ({cells}, or none); a level has exactly one unless it says "{up/down}: none".` |
 | 11.1 switched off | R | `level {level}: says "{role}: none" but places {role} room {room} at cell ({x}, {y}).` |
-| 11.1 map key | R | `level {level}: has a{n} {role} room but no {role}_map` / `says "{role}: none" and also names {role}_map.` |
-| 11.3 volume | R | `room {room}: a {role} room needs exactly one trigger_room_transition named cxry_transition; it has {k}.` |
-| 11.3 arrival | R | `room {room}: a {role} room needs exactly one arrival point; it has {k}.` |
+| 11.1 map key | R | `level {level}: has a{n} {role} room but no {role}_map.` / `level {level}: says "{role}: none" and also names {role}_map.` |
+| 11.3 volume | R | `room {room}: a{n} {role} room needs exactly one trigger_room_transition named cxry_transition; it has {k}.` |
+| 11.3 arrival | R | `room {room}: a{n} {role} room needs exactly one arrival point; it has {k}.` |
 | 11.3 clearance | R | `room {room}: the arrival point at ({x}, {y}, {z}) has no room for a standing player (32 x 32 x 72).` |
 | 11.3 wiring | R | `room {room}: nothing fires Transition at cxry_transition.` |
 | 11.5 spawn | R | `level {level}: says "up: none" and no room has a spawn point; add an info_poi of type spawn or a spawn cell.` |

@@ -59,5 +59,15 @@ public static class ModEntityContract
     public const string Stock = "stock";
 
     /// <summary>Every class the linker can emit under <c>-mod-entities</c>, with what it costs.</summary>
-    public static ImmutableArray<ModEntityClass> Classes { get; } = [new ModEntityClass(LogicRoom.ClassName, LogicRoom.Networked)];
+    /// <remarks>
+    /// <c>logic_level_transition</c> joined the list with the transition rooms
+    /// without a version bump: the design's section 7, which version 1 names
+    /// as the contract, specified it from the start, so a mod built to
+    /// version 1 already knows it; the linker only began writing it later.
+    /// </remarks>
+    public static ImmutableArray<ModEntityClass> Classes { get; } =
+    [
+        new ModEntityClass(LogicRoom.ClassName, LogicRoom.Networked),
+        new ModEntityClass(LevelTransition.ClassName, LevelTransition.Networked),
+    ];
 }

@@ -19,6 +19,14 @@ samples/rooms-3x3/maps/
 samples/rooms-3x3/*.roompack
 samples/rooms-3x3/levels/*.bsp
 samples/rooms-3x3/levels/*.vmf
+samples/rooms-transit/out/
+samples/rooms-transit/maps/
+samples/rooms-transit/*.roompack
+samples/rooms-transit/*.roomnav
+samples/rooms-transit/levels/*.bsp
+samples/rooms-transit/levels/*.vmf
+samples/rooms-transit/levels/*.nav3d
+samples/rooms-transit/levels/*.prt
 # Compile output beside the corpus maps: maps/ is test corpus, and a compile
 # run in place (ssmap all maps/ss_sandbox.vmf) writes these next to the .vmf.
 maps/*.bsp
