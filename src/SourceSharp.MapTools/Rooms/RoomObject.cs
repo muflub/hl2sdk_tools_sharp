@@ -112,6 +112,24 @@ public sealed record RoomObject(
             : RoomNameAnalysis.Analyse(Definition.Name, Bsp, nameKeys)[turn];
 
     /// <summary>
+    /// The room's static props as the link carries them
+    /// (<see cref="RoomStaticProps"/>: model hulls, the keys vbsp consumed,
+    /// poses per turn), or null: made by the room compile for a room whose
+    /// compile emitted props, and stored by the pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// Unlike the other stored work this is not only a shortcut: it holds
+    /// what the compiled lump does not (the models' hulls, <c>room_needs</c>,
+    /// socket furniture), so a room whose lump has props and that has none of
+    /// this bound to its compile (<see cref="StaticProps"/>) is refused by
+    /// the link, naming the room.
+    /// </remarks>
+    internal RoomStaticProps? Props { get; init; }
+
+    /// <summary>The room's static props while they describe this compile, else null.</summary>
+    internal RoomStaticProps? StaticProps => Props is { } props && props.IsFor(this) ? props : null;
+
+    /// <summary>
     /// The room's navigation, or null: built beside the link work by a
     /// library compile whose library builds navigation, and read by a pack
     /// load that asks for it (<see cref="RoomPackRequest.Navigation"/>), at

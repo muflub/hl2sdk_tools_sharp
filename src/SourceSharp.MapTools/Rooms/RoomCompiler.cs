@@ -151,6 +151,13 @@ public static class RoomCompiler
         MapFileReader.TakeBounds(map);
         RoomLinter.CheckModel(definition, map);
 
+        // The static props as the loader read them: vbsp turns each into a
+        // record and drops the entity with the keys the link still needs
+        // (room_needs, socket furniture), so they are taken now. A prop
+        // asking for texel lighting is refused before the compile (O13).
+        IReadOnlyList<RoomPropSource> props = RoomStaticProps.Sources(map.Entities);
+        RoomStaticProps.RefuseTexelLighting(definition.Name, props);
+
         // The compile. A room that leaks is not a room.
         VbspResult vbsp = await Vbsp.CompileAsync(map, context, cancellationToken).ConfigureAwait(false);
         if (vbsp.Bsp is null || vbsp.Portals is null)
@@ -191,6 +198,12 @@ public static class RoomCompiler
         // nothing more.
         RoomNameTurn[] names = RoomNameAnalysis.Analyse(definition.Name, vbsp.Bsp, nameKeys);
 
+        // The static props the link carries: each record matched to its
+        // entity, its model's hull read from the content (the link has no
+        // game files), the cell rule checked (O6), its pose turned four ways.
+        RoomStaticProps? staticProps = await RoomStaticProps
+            .BuildAsync(definition, vbsp.Bsp, props, context, cancellationToken).ConfigureAwait(false);
+
         return new RoomObject(
             definition,
             vbsp.Bsp,
@@ -199,6 +212,7 @@ public static class RoomCompiler
             InputKeysOf(document, definition, context))
         {
             Names = new RoomNameTables(names, vbsp.Bsp),
+            Props = staticProps,
         };
     }
 

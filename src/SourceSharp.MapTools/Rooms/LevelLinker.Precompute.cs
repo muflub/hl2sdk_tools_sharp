@@ -117,7 +117,7 @@ public static partial class LevelLinker
         }
 
         RefuseAreaPortals(name, bsp);
-        RefuseGameLumpContent(name, bsp);
+        RefuseGameLumpContent(room);
         RefuseDisplacementCollision(name, bsp);
 
         // The vis has to number the compile's own leaves before its rows are

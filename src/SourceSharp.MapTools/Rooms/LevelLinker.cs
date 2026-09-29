@@ -78,9 +78,17 @@ namespace SourceSharp.MapTools.Rooms;
 /// </para>
 /// <para>
 /// A room whose compile left anything outside the relocation set — a second
-/// model, a water leaf, a real area portal, displacements, static or detail
+/// model, a water leaf, a real area portal, displacements, detail
 /// props — is refused rather than silently dropped: the linked map must be
 /// the rooms, not an approximation of them.
+/// </para>
+/// <para>
+/// <b>Static props</b> are carried: every placed room's records, moved
+/// with the room, kept or dropped by <c>room_needs</c> and the socket
+/// furniture rule, their dictionaries merged, and each prop's leaves
+/// listed by walking the linked tree with the hull the pack stores
+/// (<see cref="PlanProps"/>, <see cref="WritePropsAsync"/>). They cost
+/// the level no entity.
 /// </para>
 /// <para>
 /// <b>Packed files</b> are carried: the level's one pak holds every placed
@@ -225,7 +233,11 @@ public static partial class LevelLinker
             }
         }
 
-        (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(paks, context.MapBase, cancellationToken);
+        // The level's static props: which it keeps and their linked indices
+        // depend on the layout alone, and the pak names each prop's lighting
+        // files by that index; the leaves wait for the linked tree.
+        LevelProps? props = PlanProps(resolved, layout);
+        (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(paks, context.MapBase, props?.Files, cancellationToken);
 
         // Per-room work: validate the compile against the relocation set and
         // move the turned structs to the cell. Each item writes only its own
@@ -323,6 +335,10 @@ public static partial class LevelLinker
         LevelSingletons singletons = new(library.LibraryEntities);
         (BspData linked, int foldedBrushes) = Assemble(
             plans, layout, visibilityLump, context, classes, naming, singletons, library.Options.MapVersion, options.FoldBrushes, mergedPak, cancellationToken);
+        if (props is not null)
+        {
+            await WritePropsAsync(linked, props, plans, cancellationToken).ConfigureAwait(false);
+        }
 
         // The budget checked before planning counted the rooms as compiled.
         // When the naming resolver ran, what the level holds is what it left
