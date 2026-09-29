@@ -16,6 +16,7 @@ using SourceSharp.MapFormats.Text;
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Bsp.Driver;
 using SourceSharp.MapTools.Diagnostics;
+using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Vis;
 
 namespace SourceSharp.MapTools.Rooms;
@@ -64,7 +65,8 @@ public static class RoomCompiler
         RoomDefinition definition,
         VbspContext context,
         CancellationToken cancellationToken = default) =>
-        CompileCoreAsync(document, definition, context, nameKeys: null, tighteningClaimProbe: null, tighteningSettleProbe: null, cancellationToken);
+        HostHandoff.ReturnAsync(
+            CompileCoreAsync(document, definition, context, nameKeys: null, tighteningClaimProbe: null, tighteningSettleProbe: null, cancellationToken));
 
     /// <summary>
     /// <see cref="CompileAsync(VmfDocument, RoomDefinition, VbspContext, CancellationToken)"/>
