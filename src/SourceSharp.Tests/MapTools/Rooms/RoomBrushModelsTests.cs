@@ -263,15 +263,18 @@ public sealed class RoomBrushModelsTests
         Assert.Equal(message, refused.Message);
     }
 
-    /// <summary>A compiled brush entity is origin-relative exactly when its <c>origin</c> is not zero, as the map loader decides.</summary>
+    /// <summary>
+    /// A compiled brush entity is origin-relative exactly when it has an
+    /// <c>origin</c>: a zero one is its frame at the room's origin, which a
+    /// placement moves to the cell.
+    /// </summary>
     [Theory]
     [InlineData(null, false)]
-    [InlineData("0 0 0", false)]
-    [InlineData("-0 0 0.0", false)]
+    [InlineData("0 0 0", true)]
+    [InlineData("-0 0 0.0", true)]
     [InlineData("44 44 20", true)]
     [InlineData("0 0 -1", true)]
-    [InlineData("x y z", false)]
-    public void ABrushEntityIsOriginRelativeWhenItsOriginIsNotZero(string? origin, bool expected)
+    public void ABrushEntityIsOriginRelativeWhenItHasAnOrigin(string? origin, bool expected)
     {
         BspEntity entity = new();
         entity.Pairs.Add(new BspKeyValue("classname", "func_door"));

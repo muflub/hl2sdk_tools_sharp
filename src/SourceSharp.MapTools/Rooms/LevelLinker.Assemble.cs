@@ -445,9 +445,9 @@ public static partial class LevelLinker
 
         // Face ids and macro textures: ids are opaque, macro names index the
         // shared string table (0xFFFF is "none" and stays 0xFFFF; so does a
-        // name outside the room's table, which names nothing).
-        // Both are one entry per drawn face, so they follow the faces'
-        // order: every world run, then every kept brush model's.
+        // name outside the room's table, which names nothing). Both are one
+        // entry per drawn face, so they follow the faces' order: every world
+        // run, then every kept brush model's.
         List<DFaceId> faceIds = [];
         List<FaceMacroTextureInfo> macroTextures = [];
         foreach (bool modelPass in (ReadOnlySpan<bool>)[false, true])
@@ -474,10 +474,10 @@ public static partial class LevelLinker
         }
 
         // Vert normals: phong normals rotate with the room but never
-        // translate, so the turned normals are already final.
-        // The engine walks the vertex-normal indices in face order, one run
-        // per face, so they follow the faces: every world's, then every
-        // kept brush model's run.
+        // translate, so the turned normals are already final. The engine
+        // walks the vertex-normal indices in face order, one run per face,
+        // so they follow the faces: every world's, then every kept brush
+        // model's run.
         List<Vec3> vertNormals = [];
         List<ushort> vertNormalIndices = [];
         foreach (RoomPlan plan in plans)

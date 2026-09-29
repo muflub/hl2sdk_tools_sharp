@@ -43,12 +43,13 @@ internal readonly record struct RoomRange(int First, int Count)
 /// <param name="Id">The brush entity's Hammer id, for messages; -1 when it had none.</param>
 /// <param name="ClassName">The brush entity's class.</param>
 /// <param name="OriginRelative">
-/// Whether its geometry is in the entity's own frame (the entity has a
-/// non-zero <c>origin</c>, from an origin brush or its key, and vbsp rebuilt
-/// its brushes relative to it): then its vertices, planes, texture axes,
-/// bounds and collision turn with the placement and take no translation, the
-/// entity's moved <c>origin</c> supplying it. A world-coordinate model is
-/// moved as the world is.
+/// Whether its geometry is in the entity's own frame (the entity has an
+/// <c>origin</c>, from an origin brush or its key, and vbsp rebuilt its
+/// brushes relative to it when that is not zero; <see cref="IsOriginRelative"/>
+/// says why zero counts): then its vertices, planes, texture axes, bounds
+/// and collision turn with the placement and take no translation, the
+/// entity's moved <c>origin</c> supplying it. A world-coordinate model (no
+/// <c>origin</c> at all) is moved as the world is.
 /// </param>
 /// <param name="Needs">Its entity's <c>room_needs</c> conditions in the room's authored frame; empty when it has none.</param>
 /// <param name="Socket">The index of the socket its entity's <c>room_socket</c> names, or -1 when it is not socket furniture.</param>
@@ -586,27 +587,29 @@ internal sealed class RoomBrushModels
     ];
 
     /// <summary>
-    /// Whether a compiled brush entity's geometry is in its own frame: the
-    /// loader rebuilds an entity's brushes relative to its <c>origin</c>
-    /// whenever that is not zero, whether an origin brush wrote it or the
-    /// author did.
+    /// Whether a compiled brush entity's geometry is in its own frame: it
+    /// has an <c>origin</c> key, whatever its value.
     /// </summary>
-    internal static bool IsOriginRelative(BspEntity entity)
-    {
-        if (entity.Get("origin") is not { } text)
-        {
-            return false;
-        }
-
-        string[] parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        bool any = false;
-        foreach (string part in parts.Take(3))
-        {
-            any |= float.TryParse(part, NumberStyles.Float, CultureInfo.InvariantCulture, out float value) && value != 0f;
-        }
-
-        return any;
-    }
+    /// <remarks>
+    /// <para>
+    /// The loader rebuilds an entity's brushes relative to its <c>origin</c>
+    /// whenever that is not zero, whether an origin brush wrote it or the
+    /// author did, and the engine places the model at the entity's origin.
+    /// </para>
+    /// <para>
+    /// <b>A zero origin is a frame too.</b> Hammer writes an <c>origin</c> on
+    /// many brush entities, and one at the room's own origin leaves the
+    /// brushes where they are, which is the entity's frame at zero. A
+    /// placement moves that key like any other, to the cell's corner, and
+    /// the engine places the model there; so its geometry must turn and not
+    /// move, as an origin-relative model's does, or the model would be moved
+    /// twice. The flattened compile agrees: it meets the moved origin, which
+    /// is no longer zero, and rebuilds the brushes relative to it. Only a
+    /// brush entity with no <c>origin</c> at all is placed by its geometry
+    /// alone, moved with the world.
+    /// </para>
+    /// </remarks>
+    internal static bool IsOriginRelative(BspEntity entity) => entity.Get("origin") is not null;
 
     /// <summary>The nodes and leaves one model's head reaches, as runs; refused unless each is one run.</summary>
     private static (RoomRange Nodes, RoomRange Leaves) TreeRuns(string room, int model, int head, ReadOnlySpan<DNode> nodes)

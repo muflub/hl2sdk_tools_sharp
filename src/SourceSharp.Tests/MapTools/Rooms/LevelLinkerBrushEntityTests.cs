@@ -36,13 +36,18 @@ public sealed class LevelLinkerBrushEntityTests
     /// <summary>The four quarter turns every placement-dependent fact runs at, in degrees.</summary>
     public static TheoryData<int> Rotations => new() { 0, 90, 180, 270 };
 
-    /// <summary>The hub's brush entities: a door, a hinged door, a trigger and a wall brush.</summary>
+    /// <summary>
+    /// The hub's brush entities: a door, a hinged door, a trigger, a wall
+    /// brush, and a veil whose <c>origin</c> is written at the room's own
+    /// origin (as Hammer writes one on many brush entities).
+    /// </summary>
     private static (int, VmfChunk)[] HubBrushes =>
     [
         (0, Door(700, new Vec3(100, 100, 16), new Vec3(132, 132, 64), ("targetname", "hub_door"))),
         (0, Rotating(701, new Vec3(40, 40, 16), new Vec3(56, 90, 100), new Vec3(44, 44, 20), ("targetname", "hub_hinged"))),
         (0, Trigger(702, new Vec3(150, 40, 16), new Vec3(200, 90, 100), ("targetname", "hub_trigger"))),
         (0, Brush("func_brush", 703, new Vec3(60, 160, 16), new Vec3(80, 200, 48), keys: ("targetname", "hub_wall"))),
+        (0, Brush("func_illusionary", 704, new Vec3(160, 160, 16), new Vec3(200, 200, 48), keys: [("targetname", "hub_veil"), ("origin", "0 0 0")])),
     ];
 
     /// <summary>
@@ -67,9 +72,9 @@ public sealed class LevelLinkerBrushEntityTests
         LinkedLevel linked = await RoomPropHarness.LinkAsync(rooms, level);
         BspData flat = await CompileFlatAsync(library, level);
 
-        Assert.Equal(6, BspStructView.Count<DModel>(linked.Bsp[BspLump.Models]));
+        Assert.Equal(7, BspStructView.Count<DModel>(linked.Bsp[BspLump.Models]));
         Assert.Equal(Observed(flat), Observed(linked.Bsp));
-        foreach (string name in new[] { "hub_door", "hub_hinged", "hub_trigger", "hub_wall", "other_hinged" })
+        foreach (string name in new[] { "hub_door", "hub_hinged", "hub_trigger", "hub_wall", "hub_veil", "other_hinged" })
         {
             Placed ours = Named(linked.Bsp, "targetname", name);
             Placed theirs = Named(flat, "targetname", name);
@@ -152,6 +157,68 @@ public sealed class LevelLinkerBrushEntityTests
         Assert.Equal((moved.Mins, moved.Maxs), (models[door.Model].Mins, models[door.Model].Maxs));
         Assert.All(BrushEntities(bsp), p => Assert.Null(p.Entity.Get(RoomStaticProps.PriorityKey)));
         Assert.Equal("0 " + ((90 + rotation) % 360).ToString(CultureInfo.InvariantCulture) + " 0", door.Entity.Get("movedir"));
+    }
+
+    /// <summary>
+    /// The texinfo split of 4.1, and the planes' with it: a world pillar and
+    /// a brush entity in the room's own frame (its <c>origin</c> written at
+    /// the room's origin) that touch share a plane and a texinfo in the
+    /// room's compile; linked into a turned, moved placement, the world's
+    /// faces take the placement's translation and the entity's do not (its
+    /// moved origin places it), so each is linked twice, once per frame.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Rotations))]
+    public async Task AnEntitysFrameLinksTheWorldsSharedPlanesAndTexinfosAgain(int rotation)
+    {
+        VmfChunk pillar = RoomModel.Slab(RoomHarness.Plain, new Vec3(60, 100, 16), new Vec3(80, 140, 64), 9500);
+        VmfChunk veil = Brush("func_illusionary", 704, new Vec3(80, 100, 16), new Vec3(100, 140, 64), keys: [("targetname", "veil"), ("origin", "0 0 0")]);
+        VmfDocument library = RoomPropHarness.Library((0, veil));
+        library.GetChunk(MapFileLoader.WorldChunk)!.Children.Add(pillar);
+        RoomLibrary rooms = await CompileAsync(library);
+        RoomObject hub = rooms.Get("hub");
+
+        // In the room's compile the two share a plane and a texinfo.
+        BspData own = hub.Bsp;
+        DModel[] ownModels = BspStructView.As<DModel>(own[BspLump.Models]).ToArray();
+        DFace[] ownFaces = BspStructView.As<DFace>(own[BspLump.Faces]).ToArray();
+        DPlane[] ownPlanes = BspStructView.As<DPlane>(own[BspLump.Planes]).ToArray();
+        int VeilFace(DFace[] faces, DPlane[] planes, DModel model, Vec3 normal) =>
+            Enumerable.Range(model.FirstFace, model.NumFaces).Single(f => planes[faces[f].PlaneNum].Normal == normal);
+        DFace ownVeil = ownFaces[VeilFace(ownFaces, ownPlanes, ownModels[1], new Vec3(-1, 0, 0))];
+        DFace ownPillar = ownFaces.Where((f, i) => i < ownModels[0].NumFaces).First(f => (f.PlaneNum >> 1) == (ownVeil.PlaneNum >> 1) && f.PlaneNum != ownVeil.PlaneNum);
+        Assert.Equal(ownPillar.TexInfo, ownVeil.TexInfo);
+
+        LinkedLevel linked = await RoomPropHarness.LinkAsync(rooms, RoomPropHarness.Level($"other, hub@{rotation}", "other, other"));
+        BspData bsp = linked.Bsp;
+        DModel[] models = BspStructView.As<DModel>(bsp[BspLump.Models]).ToArray();
+        DFace[] faces = BspStructView.As<DFace>(bsp[BspLump.Faces]).ToArray();
+        DPlane[] planes = BspStructView.As<DPlane>(bsp[BspLump.Planes]).ToArray();
+        TexInfo[] infos = BspStructView.As<TexInfo>(bsp[BspLump.TexInfo]).ToArray();
+        RoomTransform transform = new(new RoomPlacement("hub", 1, 1, rotation / 90), RoomHarness.Cell);
+        Vec3 normal = LevelLinker.ApplyNormal(new Vec3(-1, 0, 0), rotation / 90);
+        Placed placed = Named(bsp, "targetname", "veil");
+        Assert.Equal(transform.Apply(Vec3.Zero), placed.Origin);
+
+        DFace linkedVeil = faces[VeilFace(faces, planes, models[placed.Model], normal)];
+        DPlane veilPlane = planes[linkedVeil.PlaneNum];
+        Assert.Equal(-80f, veilPlane.Dist);
+
+        // The pillar's face on the same plane, moved with the world.
+        Vec3 onPillar = transform.Apply(new Vec3(80, 120, 40));
+        DFace linkedPillar = faces[..models[0].NumFaces].First(f =>
+            planes[f.PlaneNum].Normal == -normal && MathF.Abs(Vec3.Dot(planes[f.PlaneNum].Normal, onPillar) - planes[f.PlaneNum].Dist) < 0.01f);
+        Assert.NotEqual(linkedPillar.PlaneNum >> 1, linkedVeil.PlaneNum >> 1);
+        Assert.NotEqual(linkedPillar.TexInfo, linkedVeil.TexInfo);
+
+        // The entity's texinfo is the room's turned and not moved: every
+        // vertex keeps its texture coordinate in the entity's frame.
+        TexInfo local = infos[linkedVeil.TexInfo];
+        TexInfo room = LevelLinker.RotateTexInfos([BspStructView.As<TexInfo>(own[BspLump.TexInfo])[ownVeil.TexInfo]], rotation / 90)[0];
+        for (int i = 0; i < 8; i++)
+        {
+            Assert.Equal(room.TextureVecsTexelsPerWorldUnits[i] + 0f, local.TextureVecsTexelsPerWorldUnits[i] + 0f);
+        }
     }
 
     // ---- doors in doorways ----------------------------------------------------------------------
@@ -370,7 +437,7 @@ public sealed class LevelLinkerBrushEntityTests
         LinkException refused = await Assert.ThrowsAsync<LinkException>(
             () => RoomPropHarness.LinkAsync(RoomPropHarness.RoomsOf(bare, rooms.Get("other")), RoomPropHarness.Level("hub, other")));
         Assert.Equal(
-            "room hub has 4 brush entity models but no brush entity data from its compile (a pack written before the link carried brush entities,"
+            "room hub has 5 brush entity models but no brush entity data from its compile (a pack written before the link carried brush entities,"
             + " or a room built without ssmap room); recompile the library with ssmap room.",
             refused.Message);
 
@@ -481,7 +548,7 @@ public sealed class LevelLinkerBrushEntityTests
         Assert.All(rooms.Get("hub").BrushModelsOfCompile!.Models, m => Assert.Null(m.KeyData));
         LinkedLevel linked = await RoomPropHarness.LinkAsync(rooms, RoomPropHarness.Level("hub@90, other"));
         Assert.Equal(0, linked.Bsp[BspLump.PhysCollide].Length);
-        Assert.Equal(5, BspStructView.Count<DModel>(linked.Bsp[BspLump.Models]));
+        Assert.Equal(6, BspStructView.Count<DModel>(linked.Bsp[BspLump.Models]));
     }
 
     /// <summary>
