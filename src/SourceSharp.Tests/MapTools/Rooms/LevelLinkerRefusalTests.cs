@@ -19,8 +19,8 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 
 /// <summary>
 /// What the linker refuses, and that each refusal names its cause: content
-/// the relocation cannot carry (area portals, props, packed files,
-/// displacement collision), levels past a field of the format, grids that
+/// the relocation cannot carry (area portals, props, a pak that is not a
+/// zip, displacement collision), levels past a field of the format, grids that
 /// are not the library's, vis that does not number its own compile, joints
 /// that join nothing, and placements that are not quarter-turn counts.
 /// </summary>
@@ -65,17 +65,24 @@ public sealed class LevelLinkerRefusalTests
         Assert.Contains("game lump 'sprp'", refused.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>A room whose pak file holds a file is refused, naming the count.</summary>
+    /// <summary>
+    /// A room whose pak file holds a file is no longer refused (the refusal
+    /// "pak file holds N files; the relocation carries only an empty pak" is
+    /// gone with the packed-files feature): the file is in the linked pak.
+    /// </summary>
     [Fact]
-    public async Task ARoomWithAPackedFileIsRefused()
+    public async Task ARoomWithAPackedFileIsNoLongerRefused()
     {
         RoomObject hub = await HubAsync();
         ZipArchiveWriter zip = new();
         zip.Add("materials/x.vmt", [1, 2, 3]);
         RoomObject packed = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.PakFile, zip.ToBytes()));
 
-        LinkException refused = await LinkPairAsync(packed);
-        Assert.Contains("pak file holds 1 files", refused.Message, StringComparison.Ordinal);
+        RoomLibrary library = RoomHarness.Library(packed);
+        LevelLayout layout = RoomHarness.AutoLayout("pair", library, ("hub", 0, 0, 0), ("hub", 1, 0, 0));
+        LinkedLevel linked = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync());
+        ZipArchiveReader pak = await ZipArchiveReader.ParseAsync(linked.Bsp[BspLump.PakFile].Data);
+        Assert.Equal([1, 2, 3], Assert.Single(pak.Entries, e => e.Name == "materials/x.vmt").Data);
     }
 
     /// <summary>A pak that is not a zip is refused rather than carried.</summary>
