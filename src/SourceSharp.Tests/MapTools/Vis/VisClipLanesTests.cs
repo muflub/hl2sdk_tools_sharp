@@ -592,6 +592,47 @@ public class VisClipLanesTests
         }
     }
 
+    [Theory]
+    [InlineData(91)]
+    [InlineData(92)]
+    public void AnEdgePairSkipsEachEdgesOwnEndpointsFarFromTheOrigin(int seed)
+    {
+        // Each half's source scan must pass over ITS edge's endpoints and no
+        // others: edge A's first vertex is a point edge B tests, and edge B's
+        // far vertex is one edge A tests. Near the origin an edge's own
+        // endpoints land within the epsilon of its plane, so scanning them
+        // would change nothing; a million units out, rounding puts
+        // them past it and the first one scanned decides the side. Windings
+        // there, skewed off every axis, are what tell the per-half masks
+        // from a shared skip list.
+        Random random = new(seed);
+        int planes = 0;
+        for (int trial = 0; trial < 400; trial++)
+        {
+            int sourceLength = 3 + random.Next(5);
+            int passLength = 1 + random.Next(8);
+            Vec3 far = new(Next(random, 1_000_000f), Next(random, 1_000_000f), Next(random, 1_000_000f));
+            Vec3[] source = Scatter(random, sourceLength);
+            Vec3[] pass = Scatter(random, passLength);
+            for (int k = 0; k < sourceLength; k++)
+            {
+                source[k] = far + (source[k] * 0.05f);
+            }
+
+            for (int k = 0; k < passLength; k++)
+            {
+                pass[k] = far + (pass[k] * 0.05f) + new Vec3(0f, 0f, 64f);
+            }
+
+            for (int i = 0; i + 1 < sourceLength; i++)
+            {
+                planes += AssertPairMatchesSingles(source, pass, i, alreadyFound: 0);
+            }
+        }
+
+        Assert.True(planes > 500, $"only {planes} planes derived");
+    }
+
     [Fact]
     public void AnEdgePairNeedsASecondEdge()
     {
