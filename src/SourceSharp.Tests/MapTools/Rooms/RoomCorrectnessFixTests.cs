@@ -185,6 +185,9 @@ public sealed class RoomCorrectnessFixTests
     /// the same side of the same placement, and a side the flatten left out
     /// (a joined plug's) must be dropped rather than left to name whatever
     /// took its number. Before the fix the lists kept the library's ids.
+    /// The plug is named by the <c>info_no_dynamic_shadow</c>: an overlay
+    /// naming a plug is refused by the split since overlays are carried
+    /// (the rooms design, 4.9).
     /// </summary>
     [Theory]
     [MemberData(nameof(Rotations))]
@@ -209,8 +212,8 @@ public sealed class RoomCorrectnessFixTests
             .GetChunks("side").First().GetValue("id")!;
 
         library.Chunks.Add(Entity("env_cubemap", 700003, ("origin", "120 120 100"), ("sides", "71001 71002")));
-        library.Chunks.Add(Entity("info_overlay", 700004, ("origin", "116 116 64"), ("material", RoomHarness.Plain), ("sides", $"71001 {eastPlugSide}")));
-        library.Chunks.Add(Entity("info_no_dynamic_shadow", 700005, ("origin", "110 110 20"), ("sides", "71003 71004 71005")));
+        library.Chunks.Add(Entity("info_overlay", 700004, ("origin", "116 116 64"), ("material", RoomHarness.Plain), ("sides", "71001")));
+        library.Chunks.Add(Entity("info_no_dynamic_shadow", 700005, ("origin", "110 110 20"), ("sides", $"71003 71004 71005 {eastPlugSide}")));
 
         LevelGrid level = LevelYaml.Parse(RoomHarness.LevelText("rooms.vmf", $"hub@{rotation}, hub"), "sides");
         VmfDocument flat = LevelFlattener.Flatten(level, library);
@@ -265,7 +268,7 @@ public sealed class RoomCorrectnessFixTests
                     Assert.Equal(Moved(expected[i], k), sidesById[ids[i]].GetValue("plane"));
                 }
 
-                if (classname != "info_overlay")
+                if (classname != "info_no_dynamic_shadow")
                 {
                     Assert.Equal(expected.Length, ids.Length);
                     continue;
@@ -275,10 +278,10 @@ public sealed class RoomCorrectnessFixTests
                 // the flatten leaves out; at any other turn, and in the east
                 // hub, the east plug is capped and kept.
                 bool plugLeftOut = k == 0 && rotation == 0;
-                Assert.Equal(plugLeftOut ? 1 : 2, ids.Length);
+                Assert.Equal(plugLeftOut ? 3 : 4, ids.Length);
                 if (!plugLeftOut)
                 {
-                    Assert.Equal(RoomHarness.Trigger, sidesById[ids[1]].GetValue("material"));
+                    Assert.Equal(RoomHarness.Trigger, sidesById[ids[3]].GetValue("material"));
                 }
             }
         }
