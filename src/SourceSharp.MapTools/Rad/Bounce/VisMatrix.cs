@@ -776,33 +776,6 @@ public sealed class VisMatrix
     }
 
     /// <summary>
-    /// <c>BuildVisRow</c>, <c>TestPatchToFace</c> and <c>TestPatchToPatch</c>
-    /// For one worker: which patches one
-    /// receiver tests, in stock's order.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <c>face_tested</c>/<c>disp_tested</c> are stock's per-call
-    /// <c>memset</c> byte arrays; here they are stamps, so nothing is cleared.
-    /// </para>
-    /// <para>
-    /// THE FACE LIST IS THE CLUSTER'S, NOT THE RECEIVER'S. Stock walks the
-    /// receiver's PVS row for every receiver: each visible cluster's leaves,
-    /// each leaf's faces (skipping a face already seen), then the cluster's
-    /// displacement faces (skipping one already seen among those). Nothing in
-    /// that walk depends on the receiver except the row, which is its
-    /// cluster's, and the one face it then skips, its own -- and that skip
-    /// comes after the face is marked seen, so it changes nothing else. So the
-    /// walk is made once per cluster, into <see cref="_faces"/>, and every
-    /// receiver of the cluster runs down that list, skipping its own face:
-    /// the same faces in the same order. Receivers come in cluster order
-    /// (<see cref="ReceiverOrder"/>) and a worker takes consecutive ones, so
-    /// the list is rebuilt about once per cluster per worker instead of the
-    /// walk being made once per patch, twice over (the count pass and the
-    /// fill pass). On 2fort the walk was most of this class's time.
-    /// </para>
-    /// </remarks>
-    /// <summary>
     /// Copies what the candidate enumeration reads of each patch into
     /// <paramref name="sources"/>.
     /// </summary>
@@ -856,6 +829,33 @@ public sealed class VisMatrix
         public float PlaneDist { get; } = planeDist;
     }
 
+    /// <summary>
+    /// <c>BuildVisRow</c>, <c>TestPatchToFace</c> and <c>TestPatchToPatch</c>
+    /// For one worker: which patches one
+    /// receiver tests, in stock's order.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>face_tested</c>/<c>disp_tested</c> are stock's per-call
+    /// <c>memset</c> byte arrays; here they are stamps, so nothing is cleared.
+    /// </para>
+    /// <para>
+    /// THE FACE LIST IS THE CLUSTER'S, NOT THE RECEIVER'S. Stock walks the
+    /// receiver's PVS row for every receiver: each visible cluster's leaves,
+    /// each leaf's faces (skipping a face already seen), then the cluster's
+    /// displacement faces (skipping one already seen among those). Nothing in
+    /// that walk depends on the receiver except the row, which is its
+    /// cluster's, and the one face it then skips, its own -- and that skip
+    /// comes after the face is marked seen, so it changes nothing else. So the
+    /// walk is made once per cluster, into <see cref="_faces"/>, and every
+    /// receiver of the cluster runs down that list, skipping its own face:
+    /// the same faces in the same order. Receivers come in cluster order
+    /// (<see cref="ReceiverOrder"/>) and a worker takes consecutive ones, so
+    /// the list is rebuilt about once per cluster per worker instead of the
+    /// walk being made once per patch, twice over (the count pass and the
+    /// fill pass). On 2fort the walk was most of this class's time.
+    /// </para>
+    /// </remarks>
     private sealed class Enumerator
     {
         private readonly VisMatrix _owner;
