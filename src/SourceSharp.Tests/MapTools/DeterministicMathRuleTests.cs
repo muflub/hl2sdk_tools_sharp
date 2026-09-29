@@ -72,7 +72,20 @@ public class DeterministicMathRuleTests
         "System.Numerics.Complex",
     ];
 
-    public static TheoryData<string> LibraryAssemblies => ["SourceSharp.MapFormats", "SourceSharp.MapTools", "SourceSharp.RoomContracts"];
+    /// <summary>The assemblies whose output must not depend on the OS.</summary>
+    /// <remarks>
+    /// <c>SourceSharp.MapGen</c> is not a library a compile runs, but it
+    /// writes the synthetic models, textures and sandbox map that the pinned
+    /// digests compile, so its output is compile input: a platform sine there
+    /// moves a golden on one OS as surely as one in vrad. It did once. The
+    /// oil drum's 16-sided cylinder took <c>MathF.Sin</c>, and macOS's arm64
+    /// library returns <c>-0.38268346</c> for the sine of <c>2*pi*9/16</c>
+    /// where the correctly rounded value (glibc's, the UCRT's and Intel
+    /// macOS's) is <c>-0.38268343</c>. The drum's vertices, and every static
+    /// prop lit near it, came out different on Apple Silicon.
+    /// </remarks>
+    public static TheoryData<string> LibraryAssemblies =>
+        ["SourceSharp.MapFormats", "SourceSharp.MapTools", "SourceSharp.RoomContracts", "SourceSharp.MapGen"];
 
     [Theory]
     [MemberData(nameof(LibraryAssemblies))]
@@ -149,6 +162,7 @@ public class DeterministicMathRuleTests
     {
         "SourceSharp.MapFormats" => typeof(BspData).Assembly,
         "SourceSharp.RoomContracts" => typeof(SourceSharp.RoomContracts.LogicRoom).Assembly,
+        "SourceSharp.MapGen" => typeof(SourceSharp.MapGen.Content.SyntheticContent).Assembly,
         _ => typeof(VPath).Assembly,
     };
 
