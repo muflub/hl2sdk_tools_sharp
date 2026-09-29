@@ -1424,6 +1424,51 @@ public enum StockQuirk
     /// </para>
     /// </remarks>
     SkyWindingNormalise,
+
+    /// <summary>
+    /// vbsp's <c>PlaneFromPoints</c> normalises each brush side's cross
+    /// product with the <c>rsqrtss</c> estimate, so the normal of every
+    /// slanted side, and every plane later matched against it, depends on
+    /// the CPU.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The loader turns a side's three points into a plane with
+    /// <c>(p0 - p1) x (p2 - p1)</c>, a <c>VectorNormalize</c>, and a dot for
+    /// the distance, then snaps it and inserts it into the plane table. The
+    /// normalise is the same estimate-plus-one-Newton-step sequence as
+    /// <see cref="BaseWindingNormalise"/> and <see cref="VbspVectorNormalise"/>,
+    /// over a squared length biased by <c>1e-10</c>. An axial side is snapped
+    /// and loses the estimate's bits, so only slanted sides carry them.
+    /// </para>
+    /// <para>
+    /// <b>Measured</b> on stock's 2fort BSP. Of the load-time planes this
+    /// port numbers the same as stock, 122 slanted ones, stock's normal is
+    /// the estimate's Newton step from an estimate inside the instruction's
+    /// error bound for every one. The exact divide reproduces 72, and 24 are
+    /// the answer of no exact formula at all (divide, double-precision
+    /// divide, reciprocal multiply, reciprocal of the length plus
+    /// <c>FLT_EPSILON</c>). A side with the cross product (3072, 3072, 0) is
+    /// 0x3F3504F3 in stock and 0x3F3504F4 divided.
+    /// </para>
+    /// <para>
+    /// <b>Why this is a defect.</b> The estimate's last bits are the CPU's,
+    /// and they do not stay in the last bits. The plane table merges later
+    /// planes into these within an epsilon, and the BSP's split heuristic
+    /// counts a brush as "only just clipped" when a vertex lies any positive
+    /// distance in front of a candidate plane, so a vertex on the plane
+    /// reads as a residual like 6e-5 of either sign and can cost the plane
+    /// 1000 points. On 2fort that decides which of two wedge faces splits a
+    /// node, and with it the clusters and portals below.
+    /// </para>
+    /// <para>
+    /// <see cref="CompliancePolicy.Correct"/> divides exactly
+    /// (<c>Vec3.Normalise</c>). <see cref="CompliancePolicy.Stock"/> routes
+    /// through <c>Vec3.NormaliseLikeStock</c>, which reproduces stock on the
+    /// same CPU family and nowhere else.
+    /// </para>
+    /// </remarks>
+    PlaneFromPointsNormalise,
 }
 
 /// <summary>

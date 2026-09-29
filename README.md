@@ -681,9 +681,20 @@ are as accurate as x86's.
 What moves between the rows:
 
 - **`-compliance stock`**: every quantity downstream of a stock normalise or
-  reciprocal. This includes plane distances, displacement normals, cooked
+  reciprocal. This includes brush-side plane normals
+  (`PlaneFromPointsNormalise`), plane distances, displacement normals, cooked
   collision data, leaf ambient and static-prop lighting. On one CPU family
   the output is still deterministic from run to run.
+
+  These bits do not stay in the low bits. vbsp's split heuristic penalises
+  a candidate plane when any brush lies a positive distance under one unit
+  in front of it, so a vertex that lies on the plane is decided by the sign
+  of a residual like 6e-5. On Valve's 2fort, turning any one of
+  `PlaneFromPointsNormalise`, `BaseWindingNormalise` or `EdgeBevelNormalise`
+  to the stock side on an Intel Xeon gives 2476, 2500 or 2495 visibility
+  clusters, against 2492 under `correct` and stock's 2480 on AMD. Cluster
+  and portal counts are therefore comparable with stock's only on the CPU
+  vendor stock ran on.
 - **`-compliance correct`** (the default) uses exact IEEE arithmetic in
   place of every one of these estimates, so vbsp and vvis write the same
   bytes on every CPU, and so does vrad with one known exception below.
