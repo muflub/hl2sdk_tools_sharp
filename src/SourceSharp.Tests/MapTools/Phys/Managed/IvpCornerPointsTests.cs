@@ -288,6 +288,34 @@ public class IvpCornerPointsTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// The recent-rejecter shift moves every entry down one place in managed code, the last
+    /// falling off, and puts the new rejecter first: the result the overlapping
+    /// <see cref="Array.Copy(Array, int, Array, int, int)"/> it replaced gave, at the real
+    /// length of eight, at one (nothing to move) and at zero (nothing to write).
+    /// </summary>
+    [Fact]
+    public void PushRecentShiftsLikeTheOverlappingCopyItReplaced()
+    {
+        int[] recent = [10, 11, 12, 13, 14, 15, 16, 17];
+        int[] expected = (int[])recent.Clone();
+        for (int h = 0; h < 20; h++)
+        {
+            Array.Copy(expected, 0, expected, 1, expected.Length - 1);
+            expected[0] = h;
+            IvpHalfspaceSoup<double, CorrectPrecision>.PushRecent(recent, h);
+            Assert.Equal(expected, recent);
+        }
+
+        int[] one = [5];
+        IvpHalfspaceSoup<double, CorrectPrecision>.PushRecent(one, 9);
+        Assert.Equal([9], one);
+
+        int[] none = [];
+        IvpHalfspaceSoup<double, CorrectPrecision>.PushRecent(none, 9);
+        Assert.Empty(none);
+    }
+
     private static void AssertBits<T>(List<IvpPoint<T>> expected, List<IvpPoint<T>> actual, string what)
         where T : unmanaged, IBinaryFloatingPointIeee754<T>
     {

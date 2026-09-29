@@ -497,14 +497,49 @@ internal static class IvpHalfspaceSoup<T, TP>
         {
             if (Outside > s.Value(h, px, py, pz))
             {
-                int[] recent = s.Recent;
-                Array.Copy(recent, 0, recent, 1, recent.Length - 1);
-                recent[0] = h;
+                PushRecent(s.Recent, h);
                 return;
             }
         }
 
         InsertMerged(new IvpPoint<T>(Canonical(px), Canonical(py), Canonical(pz), T.Zero), points, merge2);
+    }
+
+    /// <summary>
+    /// Make <paramref name="h"/> the most recent rejecter: every entry moves down one place, the
+    /// last falls off, and <paramref name="h"/> goes first.
+    /// </summary>
+    /// <param name="recent">The rejecters, most recent first.</param>
+    /// <param name="h">The halfspace that just rejected a point.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>Why a loop and not <see cref="Array.Copy(Array, int, Array, int, int)"/>.</b> The shift
+    /// is an overlapping copy of seven ints, and the runtime's managed memmove hands every
+    /// overlapping copy, however small, to the C library through a P/Invoke. That transition is
+    /// cheap on its own, but it runs a few hundred thousand times per 2fort compile, and a thread
+    /// returning from it while a collection is under way waits there for the collection to end.
+    /// A sampling profile of a many-threaded vbsp therefore showed the runtime's memmove as one
+    /// of the largest leaves, although the bytes copied were only a few megabytes in all. Moving
+    /// seven ints in managed code, highest index first so no entry is overwritten before it is
+    /// read, has no transition and the same result.
+    /// </para>
+    /// <para>
+    /// Which halfspaces are listed only chooses the order the inside test tries them in, never
+    /// the answer (see <see cref="CornerPoints(List{IvpPoint{T}}, T, CornerLanes)"/>), so this is
+    /// safe for output bytes even if it were wrong; it is exact regardless, and a fact pins it.
+    /// </para>
+    /// </remarks>
+    internal static void PushRecent(int[] recent, int h)
+    {
+        for (int m = recent.Length - 1; m > 0; m--)
+        {
+            recent[m] = recent[m - 1];
+        }
+
+        if (recent.Length > 0)
+        {
+            recent[0] = h;
+        }
     }
 
     /// <summary>
