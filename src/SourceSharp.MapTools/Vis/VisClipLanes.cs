@@ -423,19 +423,6 @@ internal static class VisClipLanes
         scoped ReadOnlySpan<Vec3> current = target;
         int padded = Transpose(current, xs, ys, zs);
 
-        // The columns of a target of at most four points, held in registers
-        // across planes (see the classification below); refreshed with every
-        // transposition.
-        ref float x0 = ref MemoryMarshal.GetReference(xs);
-        ref float y0 = ref MemoryMarshal.GetReference(ys);
-        ref float z0 = ref MemoryMarshal.GetReference(zs);
-        Vector128<float> tx = Vector128.LoadUnsafe(ref x0);
-        Vector128<float> ty = Vector128.LoadUnsafe(ref y0);
-        Vector128<float> tz = Vector128.LoadUnsafe(ref z0);
-        Vector128<float> dot = default;
-        Vector128<float> above = Vector128.Create(EpsilonSingle);
-        Vector128<float> below = Vector128.Create(-EpsilonSingle);
-
         for (int p = 0; ; p++)
         {
             while (p == memo.Count)
@@ -474,28 +461,7 @@ internal static class VisClipLanes
             // and reloads it as one wider load the store cannot forward to --
             // measured at a tenth of the whole flow on 2fort. Only a plane
             // that actually cuts (a fifth of them) pays for a call.
-            //
-            // A target of at most four points -- most of them -- skips even
-            // Classify's loop: its three columns are one register each, held
-            // across planes rather than reloaded for every one, and its
-            // distances are stored only for a plane that actually cuts. The
-            // arithmetic is Classify's, lane for lane, so the bits are too
-            // (the facts hold both shapes to the scalar clip).
-            int flags;
-            if (padded == 4)
-            {
-                dot =
-                    (tx * Vector128.Create(planeNormal.X))
-                    + (ty * Vector128.Create(planeNormal.Y))
-                    + (tz * Vector128.Create(planeNormal.Z));
-                dot -= Vector128.Create(planeDist);
-                flags = (Vector128.GreaterThan(dot, above) != Vector128<float>.Zero ? 1 : 0)
-                    | (Vector128.LessThan(dot, below) != Vector128<float>.Zero ? 2 : 0);
-            }
-            else
-            {
-                flags = Classify(xs, ys, zs, padded, planeNormal, planeDist, dists);
-            }
+            int flags = Classify(xs, ys, zs, padded, planeNormal, planeDist, dists);
 
             if ((flags & 2) == 0)
             {
@@ -509,11 +475,6 @@ internal static class VisClipLanes
                 return false;
             }
 
-            if (padded == 4)
-            {
-                dot.StoreUnsafe(ref MemoryMarshal.GetReference(dists));
-            }
-
             Span<Vec3> destination = usePing ? ping : pong;
             if (Cut(current, planeNormal.X, planeNormal.Y, planeNormal.Z, planeDist, dists, sides, destination, out int count)
                 == VisChopResult.Clipped)
@@ -521,9 +482,6 @@ internal static class VisClipLanes
                 current = destination[..count];
                 usePing = !usePing;
                 padded = Transpose(current, xs, ys, zs);
-                tx = Vector128.LoadUnsafe(ref x0);
-                ty = Vector128.LoadUnsafe(ref y0);
-                tz = Vector128.LoadUnsafe(ref z0);
             }
         }
     }

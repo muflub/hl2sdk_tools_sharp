@@ -131,6 +131,63 @@ internal sealed class VisRepairTree
         }
     }
 
+    /// <summary>
+    /// <see cref="Child"/>, <see cref="IsComplete"/> and, unless the child is
+    /// complete, <see cref="Walk"/>, in one step: what the flow does for every
+    /// candidate of a tracked frame.
+    /// </summary>
+    /// <param name="node">A tracked frame's node.</param>
+    /// <param name="index">The candidate's position in the frame's cluster list.</param>
+    /// <param name="count">How many candidates that list has.</param>
+    /// <param name="shared">Whether another worker may be walking this portal too.</param>
+    /// <param name="child">The candidate's node.</param>
+    /// <returns>
+    /// False when an earlier run proved the child's subtree complete, so the
+    /// candidate is skipped and nothing was marked; true when the child is
+    /// now marked as being walked.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Why one step.</b> A split walk takes the tree's lock for each of
+    /// the three calls, and on 2fort at sixteen threads those were 560,000
+    /// acquisitions and the tree lock's 8,000 waits -- more than the
+    /// schedule's gate saw. Taking it once does the same three things.
+    /// </para>
+    /// <para>
+    /// <b>Why it cannot change the answer.</b> The three operations run in
+    /// the same order on the same node; the only difference is that no other
+    /// worker can act on the tree between them. Every execution of the
+    /// combined step is therefore one the three separate steps could already
+    /// have produced (the one where the other workers happened to wait), and
+    /// <see cref="VisTightening"/> accepts a run's result whatever the
+    /// interleaving of its pieces was.
+    /// </para>
+    /// </remarks>
+    internal bool Enter(int node, int index, int count, bool shared, out int child)
+    {
+        if (!shared)
+        {
+            return EnterUnlocked(node, index, count, out child);
+        }
+
+        lock (_lock)
+        {
+            return EnterUnlocked(node, index, count, out child);
+        }
+    }
+
+    private bool EnterUnlocked(int node, int index, int count, out int child)
+    {
+        child = ChildUnlocked(node, index, count);
+        if (_walked[child] && !_dirty[child] && _dirtyBelow[child] == 0)
+        {
+            return false;
+        }
+
+        WalkUnlocked(child);
+        return true;
+    }
+
     private int ChildUnlocked(int node, int index, int count)
     {
         int block = _block[node];

@@ -333,6 +333,92 @@ public class VisSpeculationTests
         Assert.Equal([5, 6], pending);
     }
 
+    [Theory]
+    [InlineData(81, false)]
+    [InlineData(82, true)]
+    public void EnteringACandidateIsChildThenIsCompleteThenWalk(int seed, bool shared)
+    {
+        // Two trees driven through the same seeded runs -- walks three levels
+        // deep, reads charged to random nodes, judgements that dirty some of
+        // them, prunes -- one entering each candidate in one step, the other
+        // with the three separate calls. They must agree on every child, on
+        // every skip, and on what each later run finds complete.
+        Random random = new(seed);
+        VisRepairTree combined = NewTree();
+        VisRepairTree separate = NewTree();
+        int skipped = 0;
+        int entered = 0;
+        for (int run = 0; run < 40; run++)
+        {
+            List<int> frontier = [VisRepairTree.Root];
+            List<int> walked = [];
+            for (int level = 0; level < 3; level++)
+            {
+                List<int> next = [];
+                foreach (int node in frontier)
+                {
+                    int count = 1 + random.Next(6);
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (random.Next(3) == 0)
+                        {
+                            continue;
+                        }
+
+                        bool went = combined.Enter(node, i, count, shared, out int child);
+                        int expected = separate.Child(node, i, count, shared);
+                        bool complete = separate.IsComplete(expected, shared);
+                        if (!complete)
+                        {
+                            separate.Walk(expected, shared);
+                        }
+
+                        Assert.Equal(expected, child);
+                        Assert.Equal(!complete, went);
+                        if (!went)
+                        {
+                            skipped++;
+                            continue;
+                        }
+
+                        entered++;
+                        walked.Add(child);
+                        if (random.Next(5) == 0)
+                        {
+                            combined.Prune(child, shared);
+                            separate.Prune(child, shared);
+                        }
+                        else
+                        {
+                            next.Add(child);
+                        }
+                    }
+                }
+
+                frontier = next;
+            }
+
+            // Some reads missed a bit that turns out final, some did not.
+            foreach (int node in walked)
+            {
+                if (random.Next(2) == 0)
+                {
+                    int portal = random.Next(2);
+                    Absorb(combined, node, portal, Vector(portal));
+                    Absorb(separate, node, portal, Vector(portal));
+                }
+            }
+
+            int finalBit = random.Next(2);
+            Assert.Equal(
+                separate.Validate((_, missed) => VisRepairTree.MissedAnything(missed, Vector(finalBit))),
+                combined.Validate((_, missed) => VisRepairTree.MissedAnything(missed, Vector(finalBit))));
+        }
+
+        Assert.True(skipped > 20, $"only {skipped} candidates skipped");
+        Assert.True(entered > 60, $"only {entered} candidates entered");
+    }
+
     private static void Absorb(VisRepairTree tree, int node, int portal, ulong[] missed)
     {
         VisSpeculativeReads reads = new(Words, () => new ulong[Words]);
