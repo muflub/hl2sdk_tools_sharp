@@ -131,8 +131,7 @@ public sealed class HostHandoffTests
             BspData bsp = vbsp.Bsp!;
             PortalFile prt = await PortalFile.ParseAsync(vbsp.Portals!.ToBytes(PortalLineEnding.CrLf));
             CompileParallelism degree = new() { MaxDegree = 2 };
-            _ = await Vvis.ComputeAsync(bsp, PortalSet.FromPortalFile(prt), new VisContext { Parallelism = degree })
-                ;
+            _ = await Vvis.ComputeAsync(bsp, PortalSet.FromPortalFile(prt), new VisContext { Parallelism = degree });
             HostStack.AssertOffCompileStack();
 
             VradContext rad = new()
