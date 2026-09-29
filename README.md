@@ -394,7 +394,11 @@ Every room is compiled sealed, with a plug brush in each socket; the link
 removes the plug at a joined socket (the doorway becomes open space, drops
 out of the world collision and its faces stop drawing) and keeps it at a
 capped one. The rooms' world collision, entities and areas are merged into
-the map's own. The link refuses what it cannot carry: area portals, static
+the map's own. Planes, materials (texdata and their names) and texture
+axes (texinfo) are shared: an entry another room already brought is named,
+not copied, so the engine's 2048-texdata cap counts the level's distinct
+materials rather than every room's, and the plane and texinfo tables grow
+only with what the rooms do not have in common. The link refuses what it cannot carry: area portals, static
 or detail props, packed files, displacements, water, and a mix of cooked
 and `-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a

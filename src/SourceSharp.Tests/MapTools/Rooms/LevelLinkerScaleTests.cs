@@ -64,10 +64,11 @@ public sealed class LevelLinkerScaleTests
         });
         RoomLibrary library = RoomHarness.Library(hub, bad);
 
-        // Enough hubs to pass the plane limit, which every room adds to.
-        int planes = SourceSharp.MapFormats.Bsp.Structs.BspStructView.Count<SourceSharp.MapFormats.Bsp.Structs.DPlane>(
-            hub.Bsp[SourceSharp.MapFormats.Bsp.BspLump.Planes]);
-        int size = (int)Math.Ceiling(Math.Sqrt((65536.0 / planes) + 2));
+        // Enough hubs to pass the vertex limit, which every room adds to
+        // (the planes are shared, so a grid of one room never fills them).
+        int vertices = SourceSharp.MapFormats.Bsp.Structs.BspStructView.Count<SourceSharp.MapFormats.Geometry.Vec3>(
+            hub.Bsp[SourceSharp.MapFormats.Bsp.BspLump.Vertexes]);
+        int size = (int)Math.Ceiling(Math.Sqrt((65536.0 / vertices) + 2));
         LevelCell?[] cells = new LevelCell?[size * size];
         Array.Fill(cells, new LevelCell("hub", 0));
         cells[0] = new LevelCell("bad", 0);
@@ -93,17 +94,17 @@ public sealed class LevelLinkerScaleTests
         LevelLinker.LinkCounts counts = LevelLinker.LinkCounts.Of(hub.Bsp, hub.ClusterCount);
 
         // The field every hub fills fastest crosses first; the room that
-        // crosses it is the first whose running total passes the limit.
+        // crosses it is the first whose running total passes the limit. The
+        // shared tables are not in the race: a line of one room brings its
+        // materials once, and its planes and texinfos are checked as the
+        // assembly shares them (LevelLinkerSharedTablesTests).
         (string what, long perRoom, long start, long max)[] fields =
         [
             ("vertices", counts.Vertices, 0, ushort.MaxValue + 1),
-            ("planes", counts.Planes, 2, ushort.MaxValue + 1),
             ("faces", counts.Faces, 0, ushort.MaxValue + 1),
             ("leaves", counts.Leaves, 1, ushort.MaxValue + 1),
             ("leaf faces", counts.LeafFaces, 0, ushort.MaxValue + 1),
             ("primitive indices", counts.PrimitiveIndices, 0, ushort.MaxValue + 1),
-            ("texinfos", counts.TexInfos, 0, 12288),
-            ("texdatas", counts.TexDatas, 0, 2048),
             ("brushes", counts.Brushes, 0, 8192),
             ("brush sides", counts.BrushSides, 0, 65536),
             ("nodes", counts.Nodes + 2, -1, 65536),
@@ -144,24 +145,22 @@ public sealed class LevelLinkerScaleTests
     /// <summary>
     /// Totals the engine's loader caps below their field's width are refused
     /// at the loader's cap, not the field's: a linked map past
-    /// <c>MAX_MAP_TEXDATA</c>, <c>MAX_MAP_BRUSHES</c>,
-    /// <c>MAX_MAP_BRUSHSIDES</c> or <c>MAX_MAP_TEXINFO</c> is one the engine
-    /// refuses to load (and <c>ssmap check</c> reports), so the link must not
-    /// write it.
+    /// <c>MAX_MAP_TEXDATA</c>, <c>MAX_MAP_BRUSHES</c> or
+    /// <c>MAX_MAP_BRUSHSIDES</c> is one the engine refuses to load (and
+    /// <c>ssmap check</c> reports), so the link must not write it.
+    /// (<c>MAX_MAP_TEXINFO</c> is held where the texinfos are shared.)
     /// </summary>
     [Theory]
     [InlineData("texdatas", 2048, "MAX_MAP_TEXDATA")]
     [InlineData("brushes", 8192, "MAX_MAP_BRUSHES")]
     [InlineData("brush sides", 65536, "MAX_MAP_BRUSHSIDES")]
-    [InlineData("texinfos", 12288, "MAX_MAP_TEXINFO")]
     public void TotalsPastTheLoadersCapsAreRefused(string what, int cap, string constant)
     {
         LevelLinker.LinkCounts Half() => what switch
         {
             "texdatas" => new() { TexDatas = cap / 2 },
             "brushes" => new() { Brushes = cap / 2 },
-            "brush sides" => new() { BrushSides = cap / 2 },
-            _ => new() { TexInfos = cap / 2 },
+            _ => new() { BrushSides = cap / 2 },
         };
 
         LevelLinker.LinkTotals totals = new();
@@ -172,7 +171,6 @@ public sealed class LevelLinkerScaleTests
             TexDatas = what == "texdatas" ? 1 : 0,
             Brushes = what == "brushes" ? 1 : 0,
             BrushSides = what == "brush sides" ? 1 : 0,
-            TexInfos = what == "texinfos" ? 1 : 0,
         }, "c", 2, 0));
         Assert.Equal(
             $"room c at cell (2, 0) pushes the link to {cap + 1} {what}; the engine loads at most {cap} ({constant}).",
