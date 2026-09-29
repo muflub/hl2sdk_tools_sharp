@@ -86,8 +86,8 @@ internal sealed class LevelLightStyles
                 if (_names.Count == Bsp.Write.WriteLimits.MaxSwitchedLights)
                 {
                     throw new LinkException(
-                        $"the level has more than {Bsp.Write.WriteLimits.MaxSwitchedLights} switched light names (the {_names.Count + 1}th is {name});"
-                        + " a map holds at most that many.");
+                        $"the level names more than {Bsp.Write.WriteLimits.MaxSwitchedLights} switched lights ({name} is one too many);"
+                        + $" a map holds at most {Bsp.Write.WriteLimits.MaxSwitchedLights}.");
                 }
 
                 j = _names.Count;
