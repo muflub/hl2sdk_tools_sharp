@@ -252,6 +252,33 @@ public sealed class LevelLinkerTransitionTests
     }
 
     /// <summary>
+    /// A pack of transition rooms is the same bytes whether its rooms compiled
+    /// on one thread or on four, run after run (the rooms design, 15.5): the
+    /// transition data is a function of the room's VMF.
+    /// </summary>
+    [Fact]
+    public async Task APackOfTransitionRoomsIsTheSameBytesAtAnyThreadCount()
+    {
+        async Task<byte[]> PackAsync(int degree)
+        {
+            RoomLibrary rooms = await CompileAsync(Library(), degree);
+            List<RoomPackItem> items = [];
+            foreach (string name in new[] { "up", "down", "plain" })
+            {
+                items.Add(await RoomPackItem.CreateAsync(rooms.Find(name)!));
+            }
+
+            using MemoryStream pack = new();
+            await RoomPack.SaveAsync(items, pack);
+            return pack.ToArray();
+        }
+
+        byte[] serial = await PackAsync(1);
+        Assert.Equal(serial, await PackAsync(4));
+        Assert.Equal(serial, await PackAsync(1));
+    }
+
+    /// <summary>
     /// The transition data rides in the pack (<c>TRAN</c>, for the role rooms
     /// and the room with a spawn point), and a link of the packed rooms is the
     /// same bytes as a link of the rooms in memory.
