@@ -108,6 +108,11 @@ public sealed partial class SqliteCacheStore : ICacheStore
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (!ReadOnly)
+            {
+                CreateParentDirectory(location);
+            }
+
             SqliteConnectionStringBuilder builder = new() { DataSource = location, Pooling = false };
             if (ReadOnly)
             {
@@ -146,6 +151,44 @@ public sealed partial class SqliteCacheStore : ICacheStore
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Creates the folder a writable store's file goes in, when it does not
+    /// exist yet.
+    /// </summary>
+    /// <param name="location">The store's location, as <see cref="OpenAsync"/> was given it.</param>
+    /// <remarks>
+    /// <para>
+    /// SQLite creates a missing database file but not a missing folder: it
+    /// fails the open with "unable to open database file". Hosts pass the
+    /// location straight through from the user (<c>-cache-dir</c> on
+    /// <c>ssmap all</c> and <c>ssmap room</c>), and the caller treats a store
+    /// that will not open as "no cache" and compiles everything. So a
+    /// <c>-cache-dir</c> naming a folder that did not exist yet turned the
+    /// cache off without anyone asking, one warning line in a long log. The
+    /// folder is the store's to make, as the file is, so every host gets the
+    /// same answer rather than each remembering to create it.
+    /// </para>
+    /// <para>
+    /// A read-only store creates nothing: it has nothing to read in a folder
+    /// that is not there, and a read-only open must not change the disk.
+    /// SQLite's in-memory database and <c>file:</c> URIs are not paths and are
+    /// passed through untouched.
+    /// </para>
+    /// </remarks>
+    private static void CreateParentDirectory(string location)
+    {
+        if (location == ":memory:" || location.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        string? parent = Path.GetDirectoryName(Path.GetFullPath(location));
+        if (!string.IsNullOrEmpty(parent))
+        {
+            Directory.CreateDirectory(parent);
         }
     }
 
