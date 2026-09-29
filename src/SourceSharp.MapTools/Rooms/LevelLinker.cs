@@ -44,7 +44,8 @@ namespace SourceSharp.MapTools.Rooms;
 /// its door-shut visibility. At a <em>jointed</em> socket the linker strips
 /// the plug (see <c>LevelLinker.Plugs</c>): the solid leaves the plug made are
 /// split so the doorway box becomes an empty leaf, the plug brush leaves every
-/// leaf's brush list and the world collision, and its faces are drawn as
+/// leaf's brush list, the world collision and the brush lump (the brushes
+/// after it are renumbered), and its faces are drawn as
 /// nodraw. A <em>capped</em> socket keeps its plug, so it stays a wall.
 /// Stripping at link time rather than compiling each room twice (sealed for
 /// vis, open for geometry) keeps one compile per room, at one cost: the
@@ -362,7 +363,7 @@ public static partial class LevelLinker
     private static void AssignBases(RoomPlan[] plans)
     {
         long vertices = 0, edges = 0, surfEdges = 0,
-             faces = 0, origFaces = 0, brushes = 0, brushSides = 0, leafFaces = 0,
+             faces = 0, origFaces = 0, brushes = 0, leafFaces = 0,
              leaves = 1, lighting = 0,
              primVerts = 0, primIndices = 0, prims = 0, vertNormals = 0, vertNormalIndices = 0,
              occluders = 0, occluderPolys = 0, occluderVerts = 0;
@@ -372,7 +373,6 @@ public static partial class LevelLinker
             plan.EdgeBase = (int)edges;
             plan.FaceBase = (int)faces;
             plan.BrushBase = (int)brushes;
-            plan.BrushSideBase = (int)brushSides;
             plan.LeafFaceBase = (int)leafFaces;
             plan.LeafBase = (int)leaves;
             plan.LightBase = (int)lighting;
@@ -390,8 +390,7 @@ public static partial class LevelLinker
             vertices += plan.Vertices.Length;
             edges += plan.EdgeCount;
             faces += plan.FaceCount;
-            brushes += plan.BrushCount;
-            brushSides += plan.BrushSideCount;
+            brushes += plan.KeptBrushCount;
             leafFaces += plan.LeafFaceCount;
             leaves += plan.Leafs.Length;
             lighting += plan.LightingLength;
@@ -456,6 +455,7 @@ public static partial class LevelLinker
         {
             LinkTotals totals = new();
             Dictionary<string, RoomEntityCounts> counted = new(StringComparer.Ordinal);
+            Dictionary<(string Room, int Socket), SocketCensus> censuses = [];
             LinkTextures textures = new();
             foreach (RoomInstance instance in layout.Rooms)
             {
@@ -472,10 +472,13 @@ public static partial class LevelLinker
                     counted[name] = counts = room.CountEntities();
                 }
 
+                (int keptBrushes, int keptSides) = KeptBrushTotals(room, instance, censuses);
                 LinkCounts added = LinkCounts.Of(room.Bsp, room.ClusterCount) with
                 {
                     TexDatas = textures.TexDatas.Count - texDatas,
                     StringTable = textures.StringTable.Count - strings,
+                    Brushes = keptBrushes,
+                    BrushSides = keptSides,
                 };
                 totals.Add(added, name, instance.Placement.CellX, instance.Placement.CellY);
 
@@ -487,6 +490,63 @@ public static partial class LevelLinker
         }
 
         return LevelEntityBudget.Check(placements, reserve, classes);
+    }
+
+    /// <summary>
+    /// The brushes and brush sides one placement adds to the link: the room's
+    /// own, less the plug brushes of the sockets the level joints
+    /// (<see cref="KeptBrushes"/>), exactly what the assembly will write.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The census that names the plug brushes depends on the room alone, so
+    /// it is known before any room is planned: from the room's stored link
+    /// data when it has some, else made here per socket, once per room and
+    /// socket for the whole check (<paramref name="censuses"/>, which the
+    /// caller drops when the check ends). Counting the rooms as compiled
+    /// would refuse levels that load: on the stress library a quarter of the
+    /// brushes are jointed plugs.
+    /// </para>
+    /// <para>
+    /// A joint naming a socket the room does not have strips nothing here;
+    /// the joint check that runs next refuses it by name.
+    /// </para>
+    /// </remarks>
+    private static (int Brushes, int Sides) KeptBrushTotals(
+        RoomObject room, RoomInstance instance, Dictionary<(string Room, int Socket), SocketCensus> censuses)
+    {
+        RoomDefinition definition = room.Definition;
+        RoomLinkData? stored = StoredLink(room);
+        HashSet<int> stripped = [];
+        foreach ((string socketName, _) in instance.Joints)
+        {
+            int socket = -1;
+            for (int s = 0; s < definition.Sockets.Count && socket < 0; s++)
+            {
+                socket = definition.Sockets[s].Name == socketName ? s : -1;
+            }
+
+            if (socket < 0)
+            {
+                continue;
+            }
+
+            SocketCensus census;
+            if (stored is not null)
+            {
+                census = stored.Shared.Sockets[socket];
+            }
+            else if (!censuses.TryGetValue((definition.Name, socket), out census!))
+            {
+                census = CensusSocket(room, BspStructView.As<DLeaf>(room.Bsp[BspLump.Leafs]), definition.Sockets[socket]);
+                censuses[(definition.Name, socket)] = census;
+            }
+
+            stripped.UnionWith(census.StrippedBrushes);
+        }
+
+        (_, int brushes, int sides) = KeptBrushes(BspStructView.As<DBrush>(room.Bsp[BspLump.Brushes]), stripped);
+        return (brushes, sides);
     }
 
     /// <summary>
@@ -510,8 +570,14 @@ public static partial class LevelLinker
 
         public int Faces { get; init; }
 
+        /// <summary>
+        /// The brushes: <see cref="Of"/> counts the room's as compiled, and
+        /// <see cref="CheckCapacity"/> replaces that with what the placement
+        /// keeps once its jointed plugs are dropped (<see cref="KeptBrushTotals"/>).
+        /// </summary>
         public int Brushes { get; init; }
 
+        /// <summary>The sides of <see cref="Brushes"/>, counted the same way.</summary>
         public int BrushSides { get; init; }
 
         /// <summary>The texdatas no earlier room brought; not set by <see cref="Of"/>.</summary>
@@ -578,6 +644,9 @@ public static partial class LevelLinker
     /// field carries, the nodes. Every room brings its own brushes, so a
     /// level of a few hundred rooms passes <c>MAX_MAP_BRUSHES</c> (8192) long
     /// before any field fills, and the engine would refuse to load the map.
+    /// The brushes counted are the ones the link writes: a jointed socket's
+    /// plug brushes are dropped from the brush lump, so they are not counted
+    /// (<see cref="KeptBrushTotals"/>).
     /// The texdatas are shared by content, so what counts toward
     /// <c>MAX_MAP_TEXDATA</c> (2048) is the level's distinct materials, which
     /// the caller works out (<see cref="LinkCounts.TexDatas"/>).

@@ -275,9 +275,10 @@ public sealed class LevelLinkerRelocationTests
     }
 
     /// <summary>
-    /// A stripped plug leaves nothing behind: its brush is in no leaf's brush
-    /// list and is empty in the brush lump, and the plug's faces are drawn
-    /// nodraw, while a capped plug's faces still draw.
+    /// A stripped plug leaves nothing behind: its brush is gone from the
+    /// brush lump (two fewer brushes than the rooms compiled, none of them
+    /// empty), every leaf's brush list names a brush that exists, and the
+    /// plug's faces are drawn nodraw, while a capped plug's faces still draw.
     /// </summary>
     [Fact]
     public async Task AStrippedPlugLeavesNoBrushAndNoDrawnFace()
@@ -285,26 +286,17 @@ public sealed class LevelLinkerRelocationTests
         (LinkedLevel link, RoomLibrary library) = await PairWithLibraryAsync(0, cook: false);
         DBrush[] brushes = BspStructView.As<DBrush>(link.Bsp[BspLump.Brushes]).ToArray();
         ReadOnlySpan<ushort> leafBrushes = BspStructView.As<ushort>(link.Bsp[BspLump.LeafBrushes]);
-        HashSet<int> listed = [];
         foreach (DLeaf leaf in BspStructView.As<DLeaf>(link.Bsp[BspLump.Leafs]))
         {
             for (int b = 0; b < leaf.NumLeafBrushes; b++)
             {
-                listed.Add(leafBrushes[leaf.FirstLeafBrush + b]);
+                Assert.InRange(leafBrushes[leaf.FirstLeafBrush + b], 0, brushes.Length - 1);
             }
         }
 
-        int stripped = 0;
-        for (int b = 0; b < brushes.Length; b++)
-        {
-            if (brushes[b].Contents == 0)
-            {
-                stripped++;
-                Assert.DoesNotContain(b, listed);
-            }
-        }
-
-        Assert.Equal(2, stripped); // one plug on each side of the one joint
+        Assert.DoesNotContain(brushes, b => b.Contents == 0);
+        int compiled = 2 * BspStructView.Count<DBrush>(library.Get("hub").Bsp[BspLump.Brushes]);
+        Assert.Equal(compiled - 2, brushes.Length); // one plug on each side of the one joint
 
         TexInfo[] infos = BspStructView.As<TexInfo>(link.Bsp[BspLump.TexInfo]).ToArray();
         int hidden = 0, drawn = 0;

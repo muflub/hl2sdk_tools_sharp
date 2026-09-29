@@ -45,7 +45,9 @@ public static partial class LevelLinker
     /// The merge takes every leaf ledge out of every room's surface, drops
     /// the ledges of jointed plug brushes (the doorway must be passable to
     /// physics as well as to traces), moves each remaining ledge's points by
-    /// the placement, renumbers its game data to the linked brush index and
+    /// the placement, renumbers its game data to the linked brush index (the
+    /// stripped plugs are not in the linked brush lump, so each room's kept
+    /// brushes are numbered without them: <see cref="KeptBrushes"/>) and
     /// its triangles' materials to the linked material table, and compiles
     /// the ledges of each contents class into one surface — which rebuilds
     /// the ledge tree, bounding radius and mass properties for the level.
@@ -135,7 +137,7 @@ public static partial class LevelLinker
                     // placement at this turn and every later link.
                     IvpCompactLedge ledge = new(turned.ToArray());
                     TranslateLedge(ledge, plan.Transform);
-                    ledge.ClientData += plan.BrushBase;
+                    ledge.ClientData = plan.LinkedBrush(ledge.ClientData);
                     RemapMaterials(ledge, remap, plan);
                     group.Add(ledge);
                 }
