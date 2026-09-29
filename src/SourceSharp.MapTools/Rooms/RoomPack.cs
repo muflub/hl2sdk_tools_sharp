@@ -289,9 +289,10 @@ public sealed class RoomPackIndex
 /// the like from the gaps between cells). A reader looks sections up by tag
 /// and ignores tags it does not know, so a pack that gains an optional
 /// section is still read by an older build, and that is why neither the
-/// link sections nor the library-wide entities changed
+/// link sections nor the library-wide entities section changed
 /// <see cref="Version"/>; a change an older build must not read around (a
-/// different container, a section it cannot ignore) raises it.
+/// different container, a section it cannot ignore, a promise about the
+/// rooms the link relies on, as version 2's below) raises it.
 /// </para>
 /// <para>
 /// <b>One layout per set of rooms.</b> The writer puts the rooms in the
