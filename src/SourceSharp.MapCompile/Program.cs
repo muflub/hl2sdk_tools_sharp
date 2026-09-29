@@ -72,7 +72,15 @@ public static class Program
         Console.CancelKeyPress += onCancel;
         try
         {
-            return await RunAsync(args, Console.Out, cancellation.Token).ConfigureAwait(false);
+            // The machine config's default location is host knowledge: the
+            // environment is read here, in the exe, and nowhere below it.
+            MachineConfigLocation config = new(
+                new PhysicalFileSystem("/"),
+                MachineConfig.DefaultPath(
+                    Environment.GetEnvironmentVariable,
+                    OperatingSystem.IsWindows(),
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)));
+            return await RunAsync(args, Console.Out, config, cancellationToken: cancellation.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -105,15 +113,74 @@ public static class Program
     /// console (the CLI has little logic by construction,
     /// and what it has is tested).
     /// </remarks>
+    public static Task<int> RunAsync(
+        string[] args,
+        TextWriter output,
+        CancellationToken cancellationToken = default) =>
+        RunAsync(args, output, new MachineConfigLocation(new PhysicalFileSystem("/"), DefaultPath: null), cancellationToken);
+
+    /// <summary>
+    /// Dispatches one command with the machine config read from
+    /// <paramref name="config"/>.
+    /// </summary>
+    /// <param name="args">
+    /// The command line, without the program name. <see cref="MachineConfig.ConfigSwitch"/>
+    /// and <see cref="MachineConfig.NoConfigSwitch"/> may appear anywhere in
+    /// it and are taken out before the verb sees it.
+    /// </param>
+    /// <param name="output">Where ordinary output goes.</param>
+    /// <param name="config">
+    /// The disk the config is read from and its default location; the
+    /// overload without it reads a config only when the line names one, so
+    /// a fact never picks up the machine's own.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <returns>The process exit code.</returns>
+    /// <remarks>
+    /// For <c>vbsp</c>, <c>vvis</c>, <c>vrad</c> and <c>all</c> the config's
+    /// defaults are added to the command line where it does not give their
+    /// flags (<see cref="MachineConfig.Apply"/>), and one line says which file
+    /// was read and what it added; with no file there is no line. A config
+    /// that cannot be read stops the command with <see cref="ExitUsage"/> and
+    /// a message naming the file and line. Other verbs read no config.
+    /// </remarks>
     public static async Task<int> RunAsync(
         string[] args,
         TextWriter output,
+        MachineConfigLocation config,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(config);
 
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (Array.Exists(args, a => a is MachineConfig.ConfigSwitch or MachineConfig.NoConfigSwitch)
+            || (args.Length > 0 && MachineConfig.Verbs.Contains(args[0])))
+        {
+            MachineConfig? machine;
+            try
+            {
+                (machine, args) = await MachineConfig.LoadAsync(
+                    config.FileSystem, args, config.DefaultPath, cancellationToken).ConfigureAwait(false);
+            }
+            catch (MachineConfigException exception)
+            {
+                await output.WriteLineAsync($"ssmap: config: {exception.Message}").ConfigureAwait(false);
+                return ExitUsage;
+            }
+
+            if (machine is not null && args.Length > 0 && MachineConfig.Verbs.Contains(args[0]))
+            {
+                (string[] applied, string[] added) = machine.Apply(args[0], args[1..]);
+                args = [args[0], .. applied];
+                await output.WriteLineAsync(
+                    added.Length == 0
+                        ? $"ssmap: config {machine.Source} (nothing to add)"
+                        : $"ssmap: config {machine.Source}: {string.Join(' ', added)}").ConfigureAwait(false);
+            }
+        }
 
         if (args.Length == 0)
         {
@@ -432,6 +499,10 @@ public static class Program
                                                        steps, 1000 by default, 0 everywhere;
                                                        larger N is slower and loses less;
                                                        it warns, and is off by default);
+                                                       vvis also: -separator auto|256|512 (the
+                                                       separator clip; same output, speed only;
+                                                       auto takes 512 on AMD Zen 5 or later with
+                                                       AVX-512, 256 everywhere else);
                                                        vrad also: --no-game-content (light even when
                                                        -game cannot be mounted; the default
                                                        fails, as stock does);
@@ -449,7 +520,8 @@ public static class Program
               all [chain options] <map> [--vbsp ...] [--vvis ...] [--vrad ...]
                                                        vbsp+vvis+vrad, one process, BSP in memory;
                                                        each --stage section takes that stage's
-                                                       stock options (--vvis also -fastflow[=N]);
+                                                       stock options (--vvis also -fastflow[=N]
+                                                       and -separator auto|256|512);
                                                        chain options: -game -threads
                                                        -compliance -v -fast -tighten -loose -cooker -vphysics
                                                        -listcompliance -nocache -incremental
@@ -499,6 +571,12 @@ public static class Program
               phys list | phys select <game>           which vphysics library to cook with
               phys cook <game>                         load one and cook a test cube
               compliance [vbsp|vvis|vrad]              the stock quirks -compliance switches
+
+            Machine defaults: vbsp, vvis, vrad and all read key = value lines from
+            $XDG_CONFIG_HOME/ssmap/config (else ~/.config/ssmap/config; on Windows
+            %APPDATA%\ssmap\config), in [vbsp] [vvis] [vrad] [all] sections or before
+            them for every verb: threads, separator, gpu, gpu_depth. A flag on the
+            command line always wins. --config <file> reads another, --no-config none.
 
             Two builds of vphysics cook the same shape to different bytes, so the
             physics lump depends on which game's library was used. `phys list` shows

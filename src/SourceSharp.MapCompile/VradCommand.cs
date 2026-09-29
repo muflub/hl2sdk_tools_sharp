@@ -369,8 +369,12 @@ public static class VradCommand
     /// on the device (<c>busy</c>) and the part of it spent blocked on a fence
     /// (<c>fencewait</c>) -- <see cref="GpuTraceStatistics"/> says why the span
     /// and not device timestamps -- the host's side of moving the slabs
-    /// (<c>pack</c>, writing rays where the device reads them, and
+    /// (<c>pack</c>, the drainer writing rays where the device reads them, and
     /// <c>readback</c>, reading the answers out, each in all and per slab),
+    /// the worker time spent writing their own rays there instead
+    /// (<c>write</c>, summed over the workers) and the share of the slabs'
+    /// rays written that way (<c>written.bycallers</c>: 100 % when the
+    /// drainer packed nothing, so <c>pack</c> is 0),
     /// the ray bytes packed (<c>raybytes</c>, what an upload moves) and their
     /// average per ray (<c>raybytes.perray</c>, 24 to 28 by the slabs'
     /// records), whether the rays and the answers stay where the device reads and writes
@@ -422,6 +426,7 @@ public static class VradCommand
                 $"bench gpu requests={d.Requests} slabs={d.Slabs} busy={d.Busy.TotalSeconds:F3}s "
                 + $"fencewait={d.FenceWait.TotalSeconds:F3}s "
                 + $"pack={d.Pack.TotalSeconds:F3}s pack.perslab={d.Pack.TotalMilliseconds / slabs:F3}ms "
+                + $"write={d.Write.TotalSeconds:F3}s written.bycallers={100.0 * d.CallerRays / Math.Max(1, d.SlabRays):F1}% "
                 + $"readback={d.Readback.TotalSeconds:F3}s readback.perslab={d.Readback.TotalMilliseconds / slabs:F3}ms "
                 + $"raybytes={d.RayBytes} raybytes.perray={(double)d.RayBytes / Math.Max(1, d.SlabRays):F2} "
                 + $"rays={(d.RaysInPlace ? "direct" : "staged")} answers={(d.AnswersInPlace ? "direct" : "staged")} "

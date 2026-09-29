@@ -201,7 +201,8 @@ Each takes the stock tool's options. Accepted flags include:
   set, plus `-cooker`, `-vphysics`, `-compliance`, `-incremental`,
   `-cache-dir` and `-nocache`.
 - **vvis:** `-fast`, `-nosort`, `-radius_override`, `-trace`, `-threads`,
-  `-low`, `-tmpin`, `-compliance`, and this port's own `-fastflow[=N]` (below).
+  `-low`, `-tmpin`, `-compliance`, and this port's own `-fastflow[=N]` and
+  `-separator auto|256|512` (below).
 - **vrad:** `-hdr`, `-ldr`, `-both`, `-fast`, `-final`, `-extrasky`,
   `-bounce`, `-smooth`, `-chop`, `-maxchop`, `-dispchop`, `-softsun`,
   `-StaticPropLighting`, `-StaticPropPolys`, `-textureshadows`,
@@ -277,6 +278,44 @@ the way (a depth limit instead of a step count; publishing a conservative
 vector, which keeps every pair but saves only 6 %) are described on
 `VisClusterStop` in `src/SourceSharp.MapTools/Vis/`.
 
+#### The vvis separator path (`-separator auto|256|512`)
+
+Most of vvis's time goes into the separator clip: deriving the planes that
+separate a frame's source and pass portals, and chopping each candidate by
+them. There are two implementations, and they write the same bytes.
+`-separator` only chooses how fast the flow runs.
+
+- **`256`** derives a frame's planes lazily, one or two source edges at a
+  time as a clip reaches them (two at once in the halves of a 256-bit
+  register), and chops by one plane at a time. This was the only path
+  before the flag existed.
+- **`512`** stores the planes as columns, derives a frame's whole list at
+  the first clip that needs it, four source edges at once in the quarters of
+  a 512-bit register, and tests each candidate against eight planes at once.
+- **`auto`** (the default) picks `512` only when .NET accelerates 512-bit
+  vectors (`Vector512.IsHardwareAccelerated`) and the CPU is AMD family
+  `1Ah` (Zen 5) or later. Everything else gets `256`: every Intel CPU, Zen 4
+  (family `19h`, which splits 512-bit operations into two 256-bit halves and
+  has not been measured), and any CPU without AVX-512.
+
+The rule comes from measurements on 2fort, where both paths give the same
+vvis output (`303f56e0…`):
+
+| CPU | threads | `512` against `256` |
+|---|---:|---|
+| Ryzen 9 9950X (Zen 5) | 16 | 4.6 % less wall time, CPU down by the same |
+| Ryzen 9 9950X (Zen 5) | 32 | 2.9 % less wall time, CPU down by the same |
+| Ice Lake-class Xeon | 4 | about 10 % more CPU in the study; 8.6 % more (134.5 s against 123.9 s, mean of four interleaved runs) when re-measured for this flag |
+
+The Xeon has AVX-512 but runs 512-bit double-precision square root and
+divide at reduced throughput, and the derivation is built on them. `-separator
+512` forces the wide path anywhere, including on a CPU with no AVX-512, where
+.NET runs it in software: slowly, but with the same result. `ssmap vvis`
+prints which path ran (`separator: 256 (auto)`). The flag is last-wins like
+the rest, and `ssmap all` takes it in the `--vvis` section. Libraries set it
+as `VvisOptions.SeparatorPath`. It is left out of the incremental cache's key,
+because it changes no byte.
+
 ### `all`
 
 ```sh
@@ -290,6 +329,8 @@ Chain options apply to every stage: `-game`, `-threads`, `-compliance`, `-v`,
 `-nocache`, `-incremental`, `-cache-dir <dir>`, `-gpu <match|auto>`,
 `-gpu_slabs <n>`, `-gpu_depth <n>`, `--no-write` (compile without writing the map) and
 `--record-content <zip>`.
+
+A `--vvis` section also takes `-fastflow[=N]` and `-separator auto|256|512`.
 
 `--record-content <zip>` records every game file the compile looked up and
 writes the ones it found to a zip, whether the compile succeeds or fails part
@@ -311,6 +352,58 @@ way. The zip is a game directory:
 
 Unzip it anywhere and compile against it with no Steam install:
 `ssmap all <map> -game <unzipped dir>`.
+
+### Per-machine defaults
+
+`vbsp`, `vvis`, `vrad` and `all` read defaults for this machine from a small
+config file, if one exists:
+
+- `$XDG_CONFIG_HOME/ssmap/config` when `XDG_CONFIG_HOME` is an absolute
+  path, else `~/.config/ssmap/config` (Linux and macOS);
+- `%APPDATA%\ssmap\config` (Windows).
+
+`--config <file>` reads another file instead, and `--no-config` reads none.
+Either can go anywhere on the line. When a file is read, `ssmap` prints one
+line naming it and the flags it added; with no file it prints nothing.
+
+```ini
+# every verb: sixteen threads
+threads = 16
+
+[vvis]
+# auto | 256 | 512
+separator = auto
+
+[vrad]
+gpu = auto
+gpu_depth = 3
+
+[all]
+threads = 32
+```
+
+The keys are `threads` (`-threads`, every verb), `separator` (`-separator`;
+`vvis` and `all`), `gpu` (`-gpu`; `vrad` and `all`) and `gpu_depth`
+(`-gpu_depth`; `vrad` and `all`). Keys before the first `[section]` apply to
+every verb that takes them. A verb uses its own section first; `all` then
+uses the section of the stage a key belongs to (`separator` from `[vvis]`,
+`gpu` and `gpu_depth` from `[vrad]`), then the keys at the top. Comments are
+whole lines starting with `#` or `;`, and keys and section names ignore case.
+
+**Precedence is flag, then config, then the built-in default.** A config
+value is used only when the command line does not give its flag, and it is
+applied by adding that flag to the command line. So `ssmap vvis -separator
+256 map` runs `256` whatever the config says, and a config `threads` never
+conflicts with a `-threads` given in an `all` section.
+
+A malformed file is an error naming the file and line, and the command does
+not run. That includes an unknown key or section, a key in a section whose
+verb does not take it, a key given twice in one section, and a bad value.
+Unknown keys are errors, not warnings, because a typo in a file nobody
+rereads would otherwise leave the default silently in place. Another default
+(`-fastflow`, say) is one more row in the key table in
+`src/SourceSharp.MapCompile/MachineConfig.cs`. The file belongs to the CLI:
+the libraries only ever see options.
 
 ### `room`, `rooms`, `link` and `layout`
 
@@ -492,8 +585,33 @@ the library's sky, `materials/maps/<room>/cubemapdefault.vtf` and its HDR
 twin) are renamed to the level's map name, the output file's name, which is
 where the engine looks for them; so renaming a linked `.bsp` afterwards
 loses its default cubemaps, as it does for any map. Other files named after
-a room (patched materials) keep the room's name, which its faces use. The
-link refuses what it cannot carry: area portals, static or detail props,
+a room (patched materials) keep the room's name, which its faces use.
+Static props (`prop_static`) are carried and cost the level no entity: each
+placed room's props are moved and turned with it, their model dictionaries
+merged, and each prop's leaves listed by walking the linked tree with the
+prop's hull, which `ssmap room` reads from the model and stores in the pack
+(the link reads no game files). A prop with `room_needs` is kept only where
+its condition holds, and a prop with `room_socket` naming a socket is socket
+furniture (a door frame): at a joint the room earlier in the level keeps its
+furniture unless the other side's `socket_priority` is higher, and at a cap
+it is dropped. A prop's `.vhv` lighting files are renamed to its index in
+the level. `ssmap room` refuses a prop whose hull reaches outside its cell,
+unless it is socket furniture reaching only into the doorway beyond its
+socket, and a prop that asks for texel lighting (`generatelightmaps`),
+which the port's vrad does not bake.
+Brush entities (`func_door`, `func_brush`, triggers and the rest) are
+carried as their own models, each with its tree, faces, brushes and
+collision, numbered after the world in link order, with their `model` keys
+following. One with an origin (an origin brush, or an `origin` key) keeps
+its entity's frame and is placed by its moved origin; any other is moved
+with its room. `room_needs` and `room_socket` work on them as on props:
+an entity whose condition fails, or whose side of a joint gives up its
+furniture, is left out of the level with its whole model. A brush entity's
+`movedir`, `pushdir` and `gibdir` turn with its room; its `angles` do not,
+since its brushes already turn, and `ssmap room` refuses one whose
+`angles` are not zero. The engine loads at most 1024 models
+(`MAX_MAP_MODELS`), and the link refuses a level past that. The
+link refuses what it cannot carry: area portals, detail props,
 displacements, water, and a mix of cooked and `-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a
 gap unless something placed in the socket (a door frame model, say) covers
@@ -969,9 +1087,13 @@ for vrad. It is off unless asked for: `-gpu <match>` turns it on and picks
 the first capable device whose name contains `<match>` (`-gpu auto` takes
 any capable device), and `-gpu_slabs <n>` sets the ray budget for the
 batches ("slabs") on the GPU. The tracer keeps three slabs in flight, so the
-GPU traces one while the next waits behind it and the CPU packs or unpacks a
-third, and each slab holds a third of the budget (the default, 4,194,304
-rays, is at most 117 MB of rays in all). A ray goes to the device in 28
+GPU traces one while the next waits behind it and the CPU unpacks a third,
+plus two open slabs that vrad's workers fill meanwhile, and each of the five
+holds a fifth of the budget (the default, 4,194,304 rays, is at most 117 MB
+of rays in all, 838,848 rays a slab). A worker writes its own rays into an
+open slab of their kind when it hands them over, on its own thread, so the
+tracer only submits them; only when both open slabs are full or taken by
+other kinds does the tracer pack the rest itself. A ray goes to the device in 28
 bytes (origin, direction, reach), or 24 when every ray in its slab has the
 same reach, which then travels once per slab: 79 % of 2fort's rays in the
 default compliance mode, almost none in `-compliance stock`, whose rays
@@ -1022,8 +1144,8 @@ Direct light keeps the GPU fed by pipelining: each worker keeps up to four
 batches of 16,384 rays traced and not yet resolved (`-gpu_depth <n>`, 1 to
 64), filling the next while earlier ones trace and resolving each as its
 answers arrive, in the order it filled them. The depth sets how many rays
-the workers have queued, not how many slabs are on the device: that ring
-is three slots, and on real hardware it is already full at the default
+the workers have queued, not how many slabs are on the device: that is
+three, and on real hardware it is already full at the default
 (`peakinflight=3/3` on both an RX 9070 and an RTX 2070 SUPER). A deeper
 pipeline therefore makes the slabs bigger, because more rays are waiting
 each time a slot frees up, and puts nothing more on the device. It helps
@@ -1046,16 +1168,20 @@ match stock or another machine byte for byte is compiled without `-gpu`.
 `vrad --bench` prints where the rays went and what the device did:
 
     bench trace tracer=<id> gpu=on rays=N gpu.visibility=... cpu.sky=... parked=...s parked.facelights=...s ...
-    bench gpu requests=N slabs=N busy=...s fencewait=...s pack=...s readback=...s raybytes=N raybytes.perray=24.00..28.00 rays=direct|staged ... peakinflight=3/3 fallbackrays=N
+    bench gpu requests=N slabs=N busy=...s fencewait=...s pack=...s write=...s written.bycallers=100.0% readback=...s raybytes=N raybytes.perray=24.00..28.00 rays=direct|staged ... peakinflight=3/3 fallbackrays=N
 
 `gpu=off`, `gpu=declined` (with the reason on the `bench gpu` line) or
 `gpu=on` says whether the GPU answered at all; `parked` is worker time spent
 waiting on a batch in flight, per stage; `busy` is the host-side span with a
-slab on the device, `pack` and `readback` the host's copies, `raybytes`
-the bytes of rays packed (what an upload moves) and their average per ray,
-and `rays=staged` a device without resizable BAR, where every slab is also
-copied on the device. A big slab is packed by up to four threads, so
-`pack` is wall time, not thread time.
+slab on the device, `pack` and `readback` the tracer's own copies, `write`
+the workers' time writing their own rays (summed over the workers, and
+spread across them rather than in line between them and the device),
+`written.bycallers` the share of the slabs' rays the workers wrote (100 %
+and `pack=0.000s` when the tracer packed none), `raybytes` the bytes of
+rays sent (what an upload moves) and their average per ray, and
+`rays=staged` a device without resizable BAR, where every slab is also
+copied on the device. A big slab the tracer packs is packed by up to four
+threads, so `pack` is wall time, not thread time.
 
 ## Measuring performance
 

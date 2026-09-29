@@ -36,7 +36,9 @@ public static partial class LevelLinker
     /// the texture offsets, and which sockets the level joints.
     /// </para>
     /// </remarks>
-    private static RoomPlan PlanRoom(ResolvedPlacement placement)
+    /// <param name="placement">The placement.</param>
+    /// <param name="linkedModels">Per brush model of the room, its linked index or -1 (<see cref="PlanModels"/>); null for a room with none.</param>
+    private static RoomPlan PlanRoom(ResolvedPlacement placement, int[]? linkedModels)
     {
         RoomObject room = placement.Room;
         BspData bsp = room.Bsp;
@@ -53,6 +55,7 @@ public static partial class LevelLinker
         }
 
         RoomLinkGeometry geometry = GeometryFor(room, rotation);
+        RoomModelLayout? models = LayoutModels(room, rotation, linkedModels, geometry.Vertices);
 
         // Only the placement's translation is left to do to the geometry.
         Vec3[] vertices = new Vec3[geometry.Vertices.Length];
@@ -92,6 +95,7 @@ public static partial class LevelLinker
             FacesVersion = bsp[BspLump.Faces].Version,
             LeafsVersion = bsp[BspLump.Leafs].Version,
             LightingLength = bsp[BspLump.Lighting].Length,
+            Models = models,
         };
 
         ApplyCensus(plan, shared);
@@ -126,21 +130,39 @@ public static partial class LevelLinker
     }
 
     /// <summary>
-    /// Refuses static and detail props (and any other game-lump content): the
-    /// game lumps are carried only when every room's are all zeros.
+    /// Refuses detail props (and any other game-lump content but the static
+    /// props the room's compile described): the game lumps are carried only
+    /// when every room's are all zeros, except the static prop lump, which
+    /// the link rebuilds for the level (<see cref="WritePropsAsync"/>).
     /// </summary>
     /// <remarks>
     /// vbsp always writes the static-prop and detail-prop game lumps, even
     /// empty; empty is every count zero, which for these formats is every byte
-    /// zero. Relocating real props would mean moving their origins and angles,
-    /// merging their model dictionaries and renumbering the leaf lists they
-    /// carry — none of which the linker does — so a room with any is refused
-    /// by name rather than having its props silently dropped.
+    /// zero. Relocating detail props would mean moving their origins and
+    /// angles, merging their dictionaries and renumbering their leaves, which
+    /// the link does not do yet, so a room with any is refused by name rather
+    /// than having them silently dropped. Static props are carried when the
+    /// room's compile left their data with the room
+    /// (<see cref="RoomObject.Props"/>): the models' hulls and the keys vbsp
+    /// consumed are not in the lump, so a room without it is refused
+    /// (<see cref="RefuseUndescribedProps"/>).
     /// </remarks>
-    private static void RefuseGameLumpContent(string name, BspData bsp)
+    private static void RefuseGameLumpContent(RoomObject room)
     {
-        foreach (GameLumpEntry entry in bsp.GameLumps)
+        string name = room.Definition.Name;
+        int staticProps = GameLumpId.MakeId(GameLumpId.StaticProps);
+        foreach (GameLumpEntry entry in room.Bsp.GameLumps)
         {
+            if (entry.Id == staticProps)
+            {
+                if (room.StaticProps is null)
+                {
+                    RefuseUndescribedProps(room);
+                }
+
+                continue;
+            }
+
             if (entry.Data.Span.ContainsAnyExcept((byte)0))
             {
                 throw new LinkException(
@@ -326,8 +348,25 @@ public static partial class LevelLinker
         }
 
         MarkPlugOriginalFaces(plan);
+
+        // An omitted brush model's brushes leave the brush lump with the
+        // plugs: nothing the level keeps names them.
+        HashSet<int> dropped = plan.StrippedBrushes;
+        if (plan.Models is { } models)
+        {
+            dropped = [.. plan.StrippedBrushes];
+            for (int m = 0; m < models.Linked.Length; m++)
+            {
+                RoomRange brushes = models.Source.Models[m].Brushes;
+                for (int b = brushes.First; models.Linked[m] < 0 && b < brushes.End; b++)
+                {
+                    dropped.Add(b);
+                }
+            }
+        }
+
         (plan.BrushMap, plan.KeptBrushCount, _) =
-            KeptBrushes(BspStructView.As<DBrush>(plan.Bsp[BspLump.Brushes]), plan.StrippedBrushes);
+            KeptBrushes(BspStructView.As<DBrush>(plan.Bsp[BspLump.Brushes]), dropped);
     }
 
     /// <summary>The linked index of a kept room brush: its kept index plus the room's brush base.</summary>
@@ -533,6 +572,62 @@ public static partial class LevelLinker
         public required int FacesVersion { get; init; }
         public required int LeafsVersion { get; init; }
 
+        /// <summary>The room's brush models as this placement links them, or null for a room with only the world.</summary>
+        public RoomModelLayout? Models { get; init; }
+
+        /// <summary>How many of the room's nodes the placement keeps: all but an omitted brush model's.</summary>
+        public int KeptNodeCount => Models is { } m ? RoomModelLayout.KeptCount(m.OmittedNodes, NodeCount) : NodeCount;
+
+        /// <summary>How many of the room's leaves the placement keeps.</summary>
+        public int KeptLeafCount => Models is { } m ? RoomModelLayout.KeptCount(m.OmittedLeaves, Leafs.Length) : Leafs.Length;
+
+        /// <summary>How many of the room's leaf-face entries the placement keeps.</summary>
+        public int KeptLeafFaceCount => Models is { } m ? RoomModelLayout.KeptCount(m.OmittedLeafFaces, LeafFaceCount) : LeafFaceCount;
+
+        /// <summary>The room's world faces: all its faces when it has no brush model.</summary>
+        public int WorldFaceCount => Models?.WorldFaces ?? FaceCount;
+
+        /// <summary>The room's node count.</summary>
+        public int NodeCount => BspStructView.Count<DNode>(Bsp[BspLump.Nodes]);
+
+        /// <summary>The linked index of a room node the placement keeps.</summary>
+        public int LinkedNode(int roomNode) =>
+            NodeBase + (Models is { } m ? RoomModelLayout.Kept(m.OmittedNodes, roomNode) : roomNode);
+
+        /// <summary>The linked index of a room leaf the placement keeps.</summary>
+        public int LinkedLeaf(int roomLeaf) =>
+            LeafBase + (Models is { } m ? RoomModelLayout.Kept(m.OmittedLeaves, roomLeaf) : roomLeaf);
+
+        /// <summary>A node's child reference, rebased: a node through <see cref="LinkedNode"/>, a leaf through <see cref="LinkedLeaf"/>.</summary>
+        public int LinkedChild(int child) => child >= 0 ? LinkedNode(child) : -(LinkedLeaf(~child) + 1);
+
+        /// <summary>The linked offset of a room leaf-face entry the placement keeps.</summary>
+        /// <remarks>
+        /// A leaf with no faces may name any offset, one inside an omitted
+        /// run included; it takes the place that run would have had.
+        /// </remarks>
+        public int LinkedLeafFace(int roomOffset) =>
+            LeafFaceBase + (Models is { } m ? RoomModelLayout.KeptOrAt(m.OmittedLeafFaces, roomOffset) : roomOffset);
+
+        /// <summary>
+        /// The linked index of a room face the placement keeps, or of the
+        /// face-range start a node of the room names: a world face after the
+        /// room's world face base, a brush model's after its model's first
+        /// linked face (the model lump's faces follow every room's world).
+        /// </summary>
+        /// <param name="roomFace">The room face.</param>
+        /// <param name="owner">The brush model the face or node belongs to, or null for the world's.</param>
+        public int LinkedFace(int roomFace, RoomBrushModel? owner = null)
+        {
+            if (Models is not { } m || (owner is null && roomFace < m.WorldFaces))
+            {
+                return FaceBase + roomFace;
+            }
+
+            owner ??= m.Owner(x => x.Faces, roomFace)!;
+            return m.LinkedFaceStart[owner.Model - 1] + (roomFace - owner.Faces.First);
+        }
+
         /// <summary>Per jointed socket, the open room-local clusters facing it.</summary>
         public Dictionary<string, int[]> JointFacing { get; } = new(StringComparer.Ordinal);
 
@@ -629,6 +724,39 @@ public static partial class LevelLinker
             bool other = PlaneSwapped[pair] != PlanePairFlipped[pair];
             return PlanePairs[pair] + ((roomPlane & 1) ^ (other ? 1 : 0));
         }
+
+        /// <summary>
+        /// <see cref="PlaneRef(int)"/> for a structure of the room, in its
+        /// entity's own frame when <paramref name="local"/> (an
+        /// origin-relative brush model's: turned, never moved).
+        /// </summary>
+        public int PlaneRef(int roomPlane, bool local)
+        {
+            if (!local)
+            {
+                return PlaneRef(roomPlane);
+            }
+
+            int pair = roomPlane >> 1;
+            bool other = PlaneSwapped[pair] != Models!.LocalPlanePairFlipped[pair];
+            return Models.LocalPlanePairs[pair] + ((roomPlane & 1) ^ (other ? 1 : 0));
+        }
+
+        /// <summary><see cref="NodePlane(int)"/> in an origin-relative model's own frame when <paramref name="local"/>.</summary>
+        public (int Plane, bool FlipChildren) NodePlane(int roomPlane, bool local)
+        {
+            if (!local)
+            {
+                return NodePlane(roomPlane);
+            }
+
+            int pair = roomPlane >> 1;
+            return (Models!.LocalPlanePairs[pair], ((roomPlane & 1) == 1) != PlaneSwapped[pair] != Models.LocalPlanePairFlipped[pair]);
+        }
+
+        /// <summary><see cref="TexInfoRef(int)"/> in an origin-relative model's own frame when <paramref name="local"/>.</summary>
+        public int TexInfoRef(int roomTexInfo, bool local) =>
+            local ? Remap(Models!.LocalTexInfoMap, roomTexInfo) : TexInfoRef(roomTexInfo);
 
         /// <summary>
         /// The linked plane a node of this room splits on, always the even

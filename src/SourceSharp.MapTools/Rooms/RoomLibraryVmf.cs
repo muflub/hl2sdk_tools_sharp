@@ -248,6 +248,17 @@ public static class RoomLibraryVmf
         {
             string room = markers[i].Name;
             owned[i].RemoveAll(entity => !RoomLibraryEntities.KeepInRoom(room, entity, libraryWide));
+
+            // A brush entity whose angles a turn could not treat right
+            // (open point O15): refused here, so the pack and the flatten,
+            // which both split the library, refuse it alike.
+            foreach (VmfChunk entity in owned[i])
+            {
+                if (BrushEntityDirections.Problem(room, entity) is { } problem)
+                {
+                    throw new RoomLibraryException(problem);
+                }
+            }
         }
 
         VmfChunk? version = library.GetChunk("versioninfo");

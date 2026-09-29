@@ -340,7 +340,7 @@ public class VisClipLanesTests
         AssertSameDerivation(source, pass);
     }
 
-    private static (float S, float Q) SquaresSummingToTheEpsilon()
+    internal static (float S, float Q) SquaresSummingToTheEpsilon()
     {
         float s = 0.06f;
         for (int i = 0; i < 4000; i++)
@@ -694,7 +694,7 @@ public class VisClipLanesTests
         AssertSameDistanceBits(distances.AsSpan(0, all), paired.Distances.AsSpan(0, all));
     }
 
-    private static Vec3[] TargetKilledAt(Vec3[] normals, float[] distances, int killer, Random random)
+    internal static Vec3[] TargetKilledAt(Vec3[] normals, float[] distances, int killer, Random random)
     {
         for (int attempt = 0; attempt < 100_000; attempt++)
         {
@@ -743,7 +743,7 @@ public class VisClipLanesTests
         return single - alreadyFound;
     }
 
-    private static void AssertSameDistanceBits(ReadOnlySpan<float> expected, ReadOnlySpan<float> actual)
+    internal static void AssertSameDistanceBits(ReadOnlySpan<float> expected, ReadOnlySpan<float> actual)
     {
         Assert.Equal(expected.Length, actual.Length);
         for (int i = 0; i < expected.Length; i++)
@@ -835,7 +835,7 @@ public class VisClipLanesTests
         return lazySurvived;
     }
 
-    private static void AssertSameBits(ReadOnlySpan<Vec3> expected, ReadOnlySpan<Vec3> actual)
+    internal static void AssertSameBits(ReadOnlySpan<Vec3> expected, ReadOnlySpan<Vec3> actual)
     {
         Assert.Equal(expected.Length, actual.Length);
         for (int i = 0; i < expected.Length; i++)
@@ -847,13 +847,13 @@ public class VisClipLanesTests
     }
 
     /// <summary>A planar convex polygon, the shape a portal is.</summary>
-    private static Vec3[] Polygon(Random random, int length, bool quantize)
+    internal static Vec3[] Polygon(Random random, int length, bool quantize)
     {
         Vec3 centre = new(Next(random, 512f), Next(random, 512f), Next(random, 512f));
         return PolygonAround(random, centre, RandomUnit(random, axial: quantize), length, quantize);
     }
 
-    private static Vec3[] PolygonAround(Random random, Vec3 centre, Vec3 normal, int length, bool quantize)
+    internal static Vec3[] PolygonAround(Random random, Vec3 centre, Vec3 normal, int length, bool quantize)
     {
         Vec3 helper = MathF.Abs(normal.X) < 0.9f ? new Vec3(1f, 0f, 0f) : new Vec3(0f, 1f, 0f);
         Vec3 u = Normalize(Vec3.Cross(normal, helper));
@@ -875,7 +875,7 @@ public class VisClipLanesTests
     }
 
     /// <summary>Two portals facing each other across a gap, like a source and a pass.</summary>
-    private static (Vec3[] Source, Vec3[] Pass) FacingPair(Random random, int sourceLength, int passLength, bool quantize)
+    internal static (Vec3[] Source, Vec3[] Pass) FacingPair(Random random, int sourceLength, int passLength, bool quantize)
     {
         Vec3 axis = RandomUnit(random, axial: quantize);
         Vec3 centre = new(Next(random, 256f), Next(random, 256f), Next(random, 256f));
@@ -887,7 +887,7 @@ public class VisClipLanesTests
     }
 
     /// <summary>A target beyond the pass, sometimes in line and sometimes off to one side.</summary>
-    private static Vec3[] Beyond(Random random, Vec3[] source, Vec3[] pass, int length)
+    internal static Vec3[] Beyond(Random random, Vec3[] source, Vec3[] pass, int length)
     {
         Vec3 from = Centroid(source);
         Vec3 to = Centroid(pass);
@@ -897,7 +897,7 @@ public class VisClipLanesTests
         return PolygonAround(random, centre, axis, length, quantize: random.Next(2) == 0);
     }
 
-    private static (Vec3[] Source, Vec3[] Pass) Coplanar(Random random, int sourceLength, int passLength)
+    internal static (Vec3[] Source, Vec3[] Pass) Coplanar(Random random, int sourceLength, int passLength)
     {
         Vec3 normal = RandomUnit(random, axial: true);
         Vec3 centre = new(Next(random, 256f), Next(random, 256f), Next(random, 256f));
@@ -906,7 +906,7 @@ public class VisClipLanesTests
             PolygonAround(random, centre + new Vec3(normal.Y, normal.Z, normal.X) * 32f, normal, passLength, quantize: true));
     }
 
-    private static Vec3[] Scatter(Random random, int length)
+    internal static Vec3[] Scatter(Random random, int length)
     {
         Vec3[] points = new Vec3[length];
         for (int i = 0; i < length; i++)
@@ -921,7 +921,7 @@ public class VisClipLanesTests
     /// A clipping plane for a winding: through one of its points, on an
     /// epsilon from one, or anywhere, with axial normals among them.
     /// </summary>
-    private static (Vec3 Normal, float Distance) Plane(Random random, Vec3[] winding, int trial)
+    internal static (Vec3 Normal, float Distance) Plane(Random random, Vec3[] winding, int trial)
     {
         Vec3 normal = RandomUnit(random, axial: trial % 3 == 0);
         if (winding.Length == 0)
@@ -941,7 +941,7 @@ public class VisClipLanesTests
         return (normal, distance);
     }
 
-    private static Vec3 RandomUnit(Random random, bool axial)
+    internal static Vec3 RandomUnit(Random random, bool axial)
     {
         if (axial)
         {
@@ -964,9 +964,9 @@ public class VisClipLanesTests
         return Normalize(v);
     }
 
-    private static Vec3 Normalize(Vec3 v) => v * (1f / MathF.Sqrt(Vec3.Dot(v, v)));
+    internal static Vec3 Normalize(Vec3 v) => v * (1f / MathF.Sqrt(Vec3.Dot(v, v)));
 
-    private static Vec3 Centroid(Vec3[] points)
+    internal static Vec3 Centroid(Vec3[] points)
     {
         Vec3 sum = Vec3.Zero;
         foreach (Vec3 p in points)
@@ -977,14 +977,14 @@ public class VisClipLanesTests
         return sum * (1f / points.Length);
     }
 
-    private static float Next(Random random, float extent) => ((random.NextSingle() * 2f) - 1f) * extent;
+    internal static float Next(Random random, float extent) => ((random.NextSingle() * 2f) - 1f) * extent;
 
     /// <summary>
     /// The sine and cosine of a fraction of a turn, interpolated from a
     /// sixteen-entry table: good enough for a convex polygon, and no platform
     /// math.
     /// </summary>
-    private static (float Sin, float Cos) Turn(float fraction)
+    internal static (float Sin, float Cos) Turn(float fraction)
     {
         ReadOnlySpan<float> sines =
         [

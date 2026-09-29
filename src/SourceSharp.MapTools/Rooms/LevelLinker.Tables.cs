@@ -147,6 +147,7 @@ public static partial class LevelLinker
         plan.StringMap = textures.InternStrings(plan.Bsp, name);
         int[] texDatas = textures.InternTexDatas(plan.Bsp, plan.StringMap);
         plan.TexInfoMap = textures.InternTexInfos(plan.TexInfos, texDatas);
+        InternLocalTables(plan, planes, textures, texDatas);
 
         CheckSharedTables(
             name,

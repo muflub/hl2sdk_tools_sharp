@@ -350,6 +350,8 @@ public static class VvisCommand
             }
 
             await WriteStatisticsAsync(result, output).ConfigureAwait(false);
+            await output.WriteLineAsync(SeparatorLine(context.Options.SeparatorPath, result.SeparatorPath))
+                .ConfigureAwait(false);
 
             await output.WriteLineAsync($"writing {bspPath}").ConfigureAwait(false);
             await using Stream write =
@@ -585,6 +587,24 @@ public static class VvisCommand
         }
 
         private StageSlot Slot(string stage) => Volatile.Read(ref _slots)[stage];
+    }
+
+    /// <summary>
+    /// The line saying which separator clip the flow ran: <c>separator: 512</c>,
+    /// with <c>(auto)</c> after it when the CPU chose.
+    /// </summary>
+    /// <param name="requested">What the options asked for.</param>
+    /// <param name="ran">What the flow resolved it to (<see cref="VisResult.SeparatorPath"/>).</param>
+    /// <returns>The line.</returns>
+    /// <remarks>
+    /// Printed because the choice is invisible in the output -- both paths
+    /// write the same bytes -- and a person timing a compile needs to know
+    /// which one they timed.
+    /// </remarks>
+    public static string SeparatorLine(VisSeparatorPath requested, VisSeparatorPath ran)
+    {
+        string width = ran == VisSeparatorPath.Vector512 ? "512" : "256";
+        return requested == VisSeparatorPath.Auto ? $"separator: {width} (auto)" : $"separator: {width}";
     }
 
     private static async Task WriteStatisticsAsync(VisResult result, TextWriter output)

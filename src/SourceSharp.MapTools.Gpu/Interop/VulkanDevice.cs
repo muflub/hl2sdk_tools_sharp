@@ -214,8 +214,15 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// <summary>The largest ray batch one slot's dispatch may hold, from the budget and the device's buffer-size limits.</summary>
     public int MaxSlabRays { get; private set; }
 
-    /// <summary>How many slabs may be on the device at once.</summary>
+    /// <summary>How many slab slots the device has: the ones that may be on it at once, and the open ones callers fill.</summary>
     public int SlotCount => _slots.Length;
+
+    /// <summary>
+    /// How many slabs may be on the device at once: the <c>slots</c> asked
+    /// of <see cref="Construct"/>. The <c>openSlots</c> beyond them are for
+    /// callers to fill meanwhile (<see cref="SlabWrites.Callers"/>).
+    /// </summary>
+    public int MaxSlabsInFlight { get; private set; } = 1;
 
     /// <summary>Where the slab buffers live; see <see cref="SlabMemory"/>.</summary>
     public SlabMemoryLayout SlabLayout { get; private set; }
@@ -245,6 +252,13 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// A physical-device index (loader order) to open exactly, overriding
     /// the pins, or −1. An unpinned walk uses it to try each device in turn.
     /// </param>
+    /// <param name="openSlots">
+    /// Slots beyond <paramref name="slots"/>, 0 to <see cref="SlabBatcher.OpenSlabs"/>,
+    /// that are never on the device together with all the others: the ones
+    /// callers write their rays into while the others are traced. They share
+    /// the ray budget with the rest, so they make each slab smaller, not the
+    /// memory larger.
+    /// </param>
     /// <exception cref="VulkanException">Any driver refusal, with the failing call and result.</exception>
     /// <exception cref="NotSupportedException">No device matches and exposes ray query.</exception>
     public void Construct(
@@ -253,10 +267,15 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         int maxRaysPerSlab,
         int slots = SlabMemory.DefaultSlots,
         bool forceStaged = false,
-        int physicalDevice = -1)
+        int physicalDevice = -1,
+        int openSlots = 0)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(slots, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(slots, SlabMemory.MaxSlots);
+        ArgumentOutOfRangeException.ThrowIfNegative(openSlots);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(openSlots, SlabBatcher.OpenSlabs);
+        MaxSlabsInFlight = slots;
+        slots += openSlots;
         byte* appName = (byte*)SilkMarshal.StringToPtr("maptools-gpu");
         ApplicationInfo app = new()
         {
@@ -1963,6 +1982,31 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         };
         ThrowOn(_vk.QueueSubmit(_queue, 1, &si, s.Fence), "vkQueueSubmit");
         s.Pending = true;
+    }
+
+    /// <summary>
+    /// Hands out the whole of a slot's host ray memory, for callers that
+    /// write their own rays into it (<see cref="SlabWrites.Callers"/>): the
+    /// staging buffer the upload copy reads, or, when the kernel reads rays
+    /// in place, the device memory itself, written across the bus.
+    /// </summary>
+    /// <param name="slot">The slot; not in flight.</param>
+    /// <returns>
+    /// <see cref="MaxSlabRays"/> times <see cref="RayRecord.WideWords"/>
+    /// words, which the slot's next <see cref="Submit(int, int, int, int, uint, uint, RayRecord)"/> reads from word 0.
+    /// The mapping lives as long as the device.
+    /// </returns>
+    /// <exception cref="VulkanException">The slot's last slab failed its wait and still has not finished.</exception>
+    /// <remarks>
+    /// Mapped write-combined memory on a device with resizable BAR, so the
+    /// callers only ever store into it, in address order, and never load
+    /// from it (<see cref="RayRecord.Pack"/>).
+    /// </remarks>
+    public Memory<uint> OpenRays(int slot)
+    {
+        SlabSlot s = _slots[slot];
+        Retire(s);
+        return s.HostRayWords!.Memory;
     }
 
     /// <summary>

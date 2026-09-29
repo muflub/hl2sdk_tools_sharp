@@ -672,6 +672,60 @@ public sealed class RoomCorrectnessFixTests
                 : (ArraySegment<byte>?)null);
     }
 
+    // ---- 9. brush entity angles -----------------------------------------------
+
+    /// <summary>
+    /// Fact 9 of the rooms design (15.3, open point O15): a brush entity of a
+    /// class outside the known-direction table whose <c>angles</c> are not
+    /// zero is refused, by the split (and so by the pack) and by the
+    /// flatten, and by a room compile, with the 15.4 text. Before the fix
+    /// its angles were turned with the room, a second turn for a class that
+    /// applies them to its already turned model.
+    /// </summary>
+    [Fact]
+    public async Task ABrushEntityWithAnglesOfAnUnknownClassIsRefused()
+    {
+        const string Message = "room hub: brush entity 700 (func_brush) has angles \"0 30 0\"; a turned room cannot tell whether"
+            + " func_brush applies them to its model. Use 0 0 0, or add func_brush to the known-direction table.";
+        VmfChunk brush = RoomBrushHarness.Brush("func_brush", 700, new Vec3(60, 160, 16), new Vec3(80, 200, 48), keys: ("angles", "0 30 0"));
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        library.Chunks.Add(brush);
+
+        Assert.Equal(Message, Assert.Throws<RoomLibraryException>(() => RoomLibraryVmf.Split(library)).Message);
+        LevelGrid level = LevelYaml.Parse(RoomHarness.LevelText("rooms.vmf", "hub"), "fixes");
+        Assert.Equal(Message, Assert.Throws<RoomLibraryException>(() => LevelFlattener.Flatten(level, library)).Message);
+
+        VmfDocument room = RoomHarness.BuildRoomModel(Hub);
+        room.Chunks.Add(brush);
+        RoomLintException compiled = await Assert.ThrowsAsync<RoomLintException>(
+            async () => await RoomCompiler.CompileAsync(room, Hub, await RoomHarness.ContextAsync()));
+        Assert.Equal(Message, compiled.Message);
+    }
+
+    /// <summary>
+    /// With its angles zero, the same brush entity links and flattens at
+    /// every rotation with its angles as written, never turned, while its
+    /// brushes turn: the link's model and the flattened compile's agree.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Rotations))]
+    public async Task ABrushEntitysZeroAnglesAreNotTurned(int rotation)
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        library.Chunks.Add(RoomBrushHarness.Brush(
+            "func_brush", 700, new Vec3(60, 160, 16), new Vec3(80, 200, 48), keys: [("angles", "0 0 0"), ("targetname", "wall")]));
+
+        (BspData linked, BspData whole) = await LinkAndCompileFlatAsync(library, $"hub@{rotation}");
+
+        foreach (BspData bsp in new[] { linked, whole })
+        {
+            BspEntity wall = EntityLump.Parse(bsp[BspLump.Entities]).Single(e => e.ClassName == "func_brush");
+            Assert.Equal("0 0 0", wall.Get("angles"));
+        }
+
+        Assert.Equal(RoomBrushHarness.Observed(whole), RoomBrushHarness.Observed(linked));
+    }
+
     // ---- helpers ---------------------------------------------------------------
 
     /// <summary>A point or brush entity chunk with an id and a class.</summary>

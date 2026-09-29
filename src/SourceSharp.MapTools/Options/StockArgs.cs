@@ -8,6 +8,7 @@
 using System.Globalization;
 
 using SourceSharp.MapTools.Diagnostics;
+using SourceSharp.MapTools.Vis;
 
 namespace SourceSharp.MapTools.Options;
 
@@ -528,6 +529,25 @@ public static class StockArgs
                 if (TryFastFlowSteps(cursor, arg, out int steps))
                 {
                     options = options with { FastFlowSteps = steps };
+                }
+            }
+            else if (Is(arg, SeparatorFlag))
+            {
+                // Not stock's: which separator clip the flow runs
+                // (VvisOptions.SeparatorPath). Parsed here, like -fastflow,
+                // so every host that reads a vvis line can spell it. It
+                // changes no byte of the output, only the speed; the last one
+                // given wins, like every other option here.
+                if (cursor.TryValue(arg, out string value))
+                {
+                    if (TryParseSeparatorPath(value, out VisSeparatorPath path))
+                    {
+                        options = options with { SeparatorPath = path };
+                    }
+                    else
+                    {
+                        cursor.Malformed(arg, value, "auto, 256 or 512");
+                    }
                 }
             }
             else if (Is(arg, "-radius_override"))
@@ -1238,6 +1258,45 @@ public static class StockArgs
 
     /// <summary><c>-fastflow=N</c>'s spelling up to the value.</summary>
     private const string FastFlowPrefix = "-fastflow=";
+
+    /// <summary>
+    /// vvis's <c>-separator auto|256|512</c>: <see cref="VvisOptions.SeparatorPath"/>.
+    /// </summary>
+    public const string SeparatorFlag = "-separator";
+
+    /// <summary>
+    /// Reads a <see cref="VisSeparatorPath"/> as <c>-separator</c> and the
+    /// <c>ssmap</c> machine config spell it: <c>auto</c>, <c>256</c> or
+    /// <c>512</c>, in any case.
+    /// </summary>
+    /// <param name="text">The value.</param>
+    /// <param name="path">The path it names.</param>
+    /// <returns>False when <paramref name="text"/> names none.</returns>
+    /// <remarks>
+    /// The widths rather than the enum's names because that is what a person
+    /// types and what the paths are called in the measurements; the enum's
+    /// own names (<c>Vector256</c>, <c>Vector512</c>) are accepted too, so a
+    /// value printed from a <see cref="VisResult.SeparatorPath"/> reads
+    /// back.
+    /// </remarks>
+    public static bool TryParseSeparatorPath(string? text, out VisSeparatorPath path)
+    {
+        switch (text?.Trim().ToUpperInvariant())
+        {
+            case "AUTO":
+                path = VisSeparatorPath.Auto;
+                return true;
+            case "256" or "VECTOR256":
+                path = VisSeparatorPath.Vector256;
+                return true;
+            case "512" or "VECTOR512":
+                path = VisSeparatorPath.Vector512;
+                return true;
+            default:
+                path = VisSeparatorPath.Auto;
+                return false;
+        }
+    }
 
     /// <summary>
     /// Reads the N of <c>-fastflow=N</c>: a whole number from zero up, in

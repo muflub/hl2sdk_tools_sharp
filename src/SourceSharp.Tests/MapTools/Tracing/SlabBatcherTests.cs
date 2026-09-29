@@ -22,7 +22,7 @@ namespace SourceSharp.Tests.MapTools.Tracing;
 /// still gets exactly its own answer, and cancellation, failure and closing
 /// touch only the requests they should.
 /// </summary>
-public sealed class SlabBatcherTests
+public sealed partial class SlabBatcherTests
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
 
@@ -42,10 +42,11 @@ public sealed class SlabBatcherTests
         private int _submits;
         private int _completesEntered;
 
-        public FakeDevice(int maxSlabRays, int slots = 1)
+        public FakeDevice(int maxSlabRays, int slots = 1, int? maxInFlight = null)
         {
             MaxSlabRays = maxSlabRays;
             SlotCount = slots;
+            MaxSlabsInFlight = maxInFlight ?? slots;
             _staging = [.. Enumerable.Range(0, slots).Select(_ => new uint[maxSlabRays * RayRecord.WideWords])];
             _slots = new Submitted?[slots];
         }
@@ -53,6 +54,17 @@ public sealed class SlabBatcherTests
         public int MaxSlabRays { get; }
 
         public int SlotCount { get; }
+
+        public int MaxSlabsInFlight { get; }
+
+        /// <summary>Times the drainer staged a slot to pack it: each is a host copy of rays by the drainer.</summary>
+        public int StageCalls { get; private set; }
+
+        /// <summary>Times a slot's whole memory was handed out for callers to write.</summary>
+        public int OpenCalls { get; private set; }
+
+        /// <summary>Fails the <see cref="OpenRays"/> call with this index (0-based), as a slot whose wait failed does.</summary>
+        public (int Index, Exception Error)? FailOpen { get; set; }
 
         /// <summary>Rays per submitted slab, in submission order; read once the drainer is parked.</summary>
         public List<int> RaysPerDispatch { get; } = [];
@@ -90,11 +102,27 @@ public sealed class SlabBatcherTests
         /// <summary>Sleeps a random 0-1 ms in each completion, to vary how the queue and the slots interleave.</summary>
         public bool Jitter { get; set; }
 
+        public Memory<uint> OpenRays(int slot)
+        {
+            using Call call = Enter();
+            Assert.Null(_slots[slot]); // a slot in flight must never be handed out
+            int index = OpenCalls++;
+            if (FailOpen is { } f && f.Index == index)
+            {
+                throw f.Error;
+            }
+
+            // Poison the whole slot, so a word the callers fail to write shows.
+            Array.Fill(_staging[slot], 0xDEADBEEFu);
+            return _staging[slot];
+        }
+
         public Memory<uint> StageRays(int slot, int rayCount, RayRecord record)
         {
             using Call call = Enter();
             Assert.Null(_slots[slot]); // a slot in flight must never be restaged
             Assert.InRange(rayCount, 1, MaxSlabRays);
+            StageCalls++;
 
             // Poison the slot, so a word the batcher fails to write shows.
             Array.Fill(_staging[slot], 0xDEADBEEFu);
