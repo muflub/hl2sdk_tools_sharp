@@ -254,5 +254,15 @@ public sealed class LevelLinkerDoorPortalTests
         Assert.Equal(corners.Select(v => v.ToString()).Order(), hull.Select(v => v.ToString()).Order());
     }
 
+    /// <summary>A room's bound on its door portal entities is half its sockets, rounded up.</summary>
+    [Fact]
+    public void ARoomsDoorPortalBoundIsHalfItsSockets()
+    {
+        Assert.Equal(2, LevelDoorPortals.EdictsBound(RoomPropHarness.Hub));
+        Assert.Equal(1, LevelDoorPortals.EdictsBound(Split));
+        Assert.Equal(1, LevelDoorPortals.EdictsBound(RoomHarness.WalkableRoom("end", RoomFacing.PositiveX)));
+        Assert.Equal(2, LevelDoorPortals.EdictsBound(RoomHarness.WalkableRoom("tee", RoomFacing.PositiveX, RoomFacing.NegativeX, RoomFacing.PositiveY)));
+    }
+
     private static RoomDefinition Definition(string name) => name == "split" ? Split : RoomPropHarness.Hub;
 }

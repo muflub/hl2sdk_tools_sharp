@@ -1109,7 +1109,10 @@ public static class RoomCommands
             // flags, and without -mod-entities its hub's stock fallback): at
             // most what its names say, so the layout never under-counts.
             int written = counts.Names.GetValueOrDefault(name)?.WrittenEdictsBound(modEntities) ?? 0;
-            edicts.Add(found.Tally(EntityClassTable.Default).Edicts + written + TransitionEdictsBound(room, modEntities));
+            // And, when the library asks for door portals, its share of its
+            // joints' portals: half its sockets, rounded up.
+            int doors = counts.Options.HasDoorPortals ? LevelDoorPortals.EdictsBound(room.Definition) : 0;
+            edicts.Add(found.Tally(EntityClassTable.Default).Edicts + written + TransitionEdictsBound(room, modEntities) + doors);
         }
 
         int budget = explicitBudget

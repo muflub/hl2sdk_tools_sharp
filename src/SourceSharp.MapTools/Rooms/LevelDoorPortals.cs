@@ -94,6 +94,23 @@ public static class LevelDoorPortals
         string.Equals(className, "func_door", StringComparison.Ordinal)
         || string.Equals(className, "func_door_rotating", StringComparison.Ordinal);
 
+    /// <summary>
+    /// What one placement of a room can bring a level in door portal
+    /// entities at most, for a budget made before the level exists
+    /// (<c>ssmap layout</c>): half its sockets, rounded up. Every joint's
+    /// portal is shared by the two rooms it joins, so the rooms' halves
+    /// cover every joint, and a socket that is capped, or joined, pays at
+    /// most half an entity; the estimate never under-counts (the rooms
+    /// design, 6.2: over-counting is the safe direction).
+    /// </summary>
+    /// <param name="definition">The room.</param>
+    /// <returns>The bound, in edicts (a <c>func_areaportal</c> takes one).</returns>
+    public static int EdictsBound(RoomDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        return (definition.Sockets.Count + 1) / 2;
+    }
+
     /// <summary>Plans a level's door portals: one per joint, in the order the link and the flatten write them.</summary>
     /// <param name="layout">The level.</param>
     /// <param name="definitionOf">A room's definition, by name.</param>

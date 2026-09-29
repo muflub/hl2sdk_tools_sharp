@@ -1708,6 +1708,31 @@ public sealed class RoomCommandsTests
     }
 
     /// <summary>
+    /// With door portals asked for, <c>-entity-budget</c> counts each room's
+    /// share of its joints' portals, half its sockets rounded up: the
+    /// cheapest rooms are one entity and one portal share, so three of them
+    /// with the worldspawn are at least seven, and six is refused.
+    /// </summary>
+    [Fact]
+    public async Task LayoutsEntityBudgetCountsDoorPortals()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Library());
+        library.GetChunk(MapFileLoader.WorldChunk)!.AddKey(RoomLibraryOptions.DoorPortalsKey, "1");
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
+        string[] args = ["/game/maps/rooms.vmf", "-rows", "1", "-columns", "3", "-seed", "2"];
+
+        using StringWriter over = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLayoutAsync(fs, [.. args, "-entity-budget", "6"], over));
+        Assert.Equal(
+            $"ssmap layout: {Path.GetFullPath("/game/maps/rooms.vmf")}: no level of 1x3 cells keeps within the entity budget of 6 edicts:"
+            + " its 3 room(s) bring at least 7, the worldspawn included." + Environment.NewLine,
+            over.ToString());
+    }
+
+    /// <summary>
     /// <c>-entity-budget</c> holds the level to it: three rooms of one
     /// entity each are four edicts with the worldspawn, so a budget of four
     /// makes the level and three is refused with the generator's message.
