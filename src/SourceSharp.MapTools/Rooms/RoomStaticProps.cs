@@ -405,7 +405,11 @@ internal sealed class RoomStaticProps
             List<CompileDiagnostic> ignored = [];
             List<Vec3[]> meshes = await StaticPropEmitter.LoadMeshesAsync(context, model, ignored, cancellationToken).ConfigureAwait(false)
                 ?? throw new MapCompileException($"room {room}: the static prop model {model} loaded for the compile and not since");
-            Vec3[][] distinct = [.. meshes.Where(m => m.Length >= 4).Select(m => m.Distinct().ToArray())];
+            // A mesh of fewer than four points makes no convex, as the hull
+            // build skips it; a repeated point changes no convex, so the
+            // pack keeps each once, unless that would leave a kept mesh
+            // under the four points the rebuilt hull asks for.
+            Vec3[][] distinct = [.. meshes.Where(m => m.Length >= 4).Select(m => m.Distinct().ToArray() is { Length: >= 4 } d ? d : m)];
             hulls.Add(distinct);
             built.Add(await collision.BuildHullAsync(distinct, cancellationToken).ConfigureAwait(false)
                 ?? throw new MapCompileException($"room {room}: the static prop model {model} has no hull"));
