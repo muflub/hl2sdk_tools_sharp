@@ -973,6 +973,83 @@ Other switches:
 
 `tools/compile-perf.sh --help` lists every option.
 
+### In a long-lived process
+
+`compile-perf.sh` and `ssmap bench` measure compiles one after another. The
+libraries' main host is a service that keeps one process for many compiles,
+several at a time, and some costs only show there: scratch a finished compile
+keeps alive, pools that grow run to run, handles that are not released,
+compiles contending for one mount. `tools/WarmBench` is that host:
+
+    dotnet build tools/WarmBench/WarmBench.csproj -c Release
+    dotnet tools/WarmBench/bin/Release/net10.0/WarmBench.dll \
+        --map maps/ss_sandbox.vmf --game <dir> --runs 6 --leak
+
+It compiles the map through `MapCompiler.CompileAsync`, using only the public
+API, in waves of `--concurrency` compiles (default 1) with `--threads`
+workers each, `--runs` times. Other switches:
+
+- `--mount shared|per`: one game mount for every compile, or one each.
+- `--cooker shared|per`: the same for the collision cooker.
+- `--cache mem`: one in-memory incremental cache for the whole process, so
+  the second wave onwards replays from it.
+- `--vbsp`, `--vvis`, `--vrad` take stock arguments as one quoted string,
+  for example `--vrad "-bounce 2 -compliance stock"`.
+- `--substages` prints the time under each progress stage.
+- `--gc-between` forces a compacting full GC between waves.
+- `--help` lists them all.
+
+Each line starts with a tag:
+
+- `R`, one per compile: its wall time, each stage's wall and CPU seconds
+  (CPU only with `--concurrency 1`, since it is the process's), the output
+  BSP's SHA-256 and whether it matches the first run's, and what it read
+  from the game content.
+- `W`, one per wave: wall, CPU, bytes allocated, gen0/1/2 collections, total
+  GC pause and that wave's peak RSS.
+- `L`, with `--leak`, after each wave: the live heap before and after the
+  host yields, committed memory, LOH, POH, RSS, open descriptors, threads and
+  memory mappings, after full compacting collections.
+- `LEAK`: the trend from wave 1 to the last. Wave 0 is the warm-up, where the
+  JIT runs and every pool is sized for the first time. `verdict=GROWING`
+  means the heap grew by more than 1 MB a wave, a descriptor stayed open, or
+  the thread count grew by a compile pool's worth.
+- `SUMMARY`: the median compile wall and wave CPU without wave 0, and
+  whether every output was the same. The exit code is 1 when a compile failed
+  or two outputs differed.
+
+The game directory is mounted without a Steam locator, so use a copy
+without the `|appid_N|` lines ([Without the Steam content](#without-the-steam-content)).
+
+**GC mode.** The GC is the host's choice, so neither the libraries nor
+WarmBench set it; pass it in the environment when starting the process.
+The first `#` line prints the mode the runtime actually chose and every
+`DOTNET_GC*` variable it saw.
+
+The runtime reads these values as hexadecimal.
+
+| Variable | Effect |
+| --- | --- |
+| (none) | Workstation GC, concurrent: the console-app default. |
+| `DOTNET_gcServer=1` | Server GC, as ASP.NET hosts run by default. On .NET 10 it comes with DATAS, which starts with one heap and adds heaps as load grows. |
+| `DOTNET_GCDynamicAdaptationMode=0` | With server GC, DATAS off: a heap per core from the start. |
+| `DOTNET_GCHeapCount=N` | With server GC, N heaps instead of one per core. |
+| `DOTNET_gcConcurrent=0` | No background GC; every gen2 collection blocks. |
+| `DOTNET_GCgen0size=4000000` | The gen0 budget in bytes (here 64 MB). |
+| `DOTNET_GCConserveMemory=N` | 1 to 9: compact more often to keep the heap smaller. |
+
+For example, a service-like run, two compiles at a time on one mount:
+
+    DOTNET_gcServer=1 dotnet tools/WarmBench/bin/Release/net10.0/WarmBench.dll \
+        --map maps/ss_sandbox.vmf --game <dir> --concurrency 2 --threads 2 --mount shared --leak
+
+**Where the time went.** `--marks <file>` records when each compile entered
+each stage, in the clock `perf` uses. `tools/WarmBench/perf_by_stage.py`
+puts every `perf` sample in the stage that was running when it was taken and
+prints each stage's hottest functions. The script's docstring has the
+`perf record` line to use. It is optional; the `R` lines already give each
+stage's time.
+
 ### Against the stock tools and Tools++
 
 `tools/toolchain-bench.sh` compiles the same maps with the stock SDK 2013
