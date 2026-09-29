@@ -5,6 +5,9 @@
 //
 //=============================================================================//
 
+using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
+
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Parallel;
@@ -37,12 +40,27 @@ namespace SourceSharp.MapTools.Rad.Bounce;
 /// stock's is, so the per-bounce total is the same float sum at any thread
 /// count.
 /// </para>
+/// <para>
+/// <b>Locality.</b> A transfer names its shooter by index, so every transfer
+/// of every bounce is a random read of the shooter. Stock reads the
+/// shooter's whole <c>CPatch</c> for its reflectivity (and, for a bumped
+/// receiver, its origin): a structure of some three hundred bytes, one or
+/// two cache lines per transfer out of an array far larger than the cache.
+/// Here the two things the gather needs are kept in dense arrays instead --
+/// each patch's <c>emit * reflectivity</c>, the product stock forms per
+/// transfer, formed once per bounce where the emission is written; and each
+/// patch's origin, fixed for the whole bounce -- so a transfer costs one
+/// twelve-byte read. The product is the same three float multiplies stock
+/// makes, so the sums are the same bits.
+/// </para>
 /// </remarks>
 public sealed class Radiosity
 {
     private readonly BounceContext _context;
     private readonly TransferSet _transfers;
     private readonly Vec3[] _emit;
+    private readonly Vec3[] _shoot;
+    private readonly Vec3[] _origins;
     private readonly BumpLights[] _add;
     private readonly Vec3[] _normals;
     private readonly int[] _normalBase;
@@ -60,7 +78,13 @@ public sealed class Radiosity
         _transfers = transfers;
         int count = context.Patches.Count;
         _emit = new Vec3[count];
+        _shoot = new Vec3[count];
+        _origins = new Vec3[count];
         _add = new BumpLights[count];
+        for (int i = 0; i < count; i++)
+        {
+            _origins[i] = context.Patches.At(i).Origin;
+        }
 
         // Bumped patches with transfers need four normals each; they do not
         // change between bounces, so they are computed once.
@@ -81,6 +105,12 @@ public sealed class Radiosity
 
     /// <summary><c>emitlight</c>: what each patch sends in the current bounce.</summary>
     public ReadOnlySpan<Vec3> EmitLight => _emit;
+
+    /// <summary>
+    /// Gather every bumped patch's transfers one at a time, never four at
+    /// once -- for the facts that hold the two paths to the same bits.
+    /// </summary>
+    internal bool ScalarBumpedGather { get; init; }
 
     /// <summary><c>addlight</c>: what each patch received in the current bounce.</summary>
     public ReadOnlySpan<BumpLights> AddLight => _add;
@@ -151,9 +181,17 @@ public sealed class Radiosity
         {
             ref Patch patch = ref patches.At(i);
             _emit[i] = patch.TotalLight.Flat;
+            _shoot[i] = Shoot(_emit[i], patch.Reflectivity);
             patch.TotalLight.Flat = Vec3.Zero;
         }
     }
+
+    /// <summary>
+    /// What a patch sends down each of its transfers before the transfer's
+    /// weight: its emission times its reflectivity, per channel, as stock
+    /// forms it inside <c>GatherLight</c>.
+    /// </summary>
+    private static Vec3 Shoot(Vec3 e, Vec3 r) => new(e.X * r.X, e.Y * r.Y, e.Z * r.Z);
 
     /// <summary>
     /// <c>GatherLight</c> for one patch: the light it
@@ -183,41 +221,29 @@ public sealed class Radiosity
 
         if (patch.NeedsBumpmap)
         {
-            Vec3 sum0 = Vec3.Zero, sum1 = Vec3.Zero, sum2 = Vec3.Zero, sum3 = Vec3.Zero;
+            BumpLights bumped = default;
             if (trans.Length > 0)
             {
                 ReadOnlySpan<Vec3> normals = _normals.AsSpan(_normalBase[j], BumpBasis.Count + 1);
                 bool stock = _context.Settings.StockNormalise;
-                for (int k = 0; k < trans.Length; k++)
+                if (stock || ScalarBumpedGather)
                 {
-                    int source = trans[k].Patch;
-                    ref Patch patch2 = ref patches.At(source);
-
-                    (Vec3 delta, _) = FormFactors.Normalise(patch2.Origin - patch.Origin, stock);
-                    Vec3 e = _emit[source];
-                    Vec3 v = new(e.X * patch2.Reflectivity.X, e.Y * patch2.Reflectivity.Y, e.Z * patch2.Reflectivity.Z);
-
-                    float scale = 1.0f / Vec3.Dot(delta, patch.Normal);
-                    v *= trans[k].Weight * scale;
-
-                    Accumulate(ref sum0, v, delta, normals[0]);
-                    Accumulate(ref sum1, v, delta, normals[1]);
-                    Accumulate(ref sum2, v, delta, normals[2]);
-                    Accumulate(ref sum3, v, delta, normals[3]);
+                    GatherBumpedScalar(trans, patch.Origin, patch.Normal, normals, stock, ref bumped);
+                }
+                else
+                {
+                    GatherBumpedFour(trans, patch.Origin, patch.Normal, normals, ref bumped);
                 }
             }
 
-            _add[j] = new BumpLights { Flat = sum0, Bump1 = sum1, Bump2 = sum2, Bump3 = sum3 };
+            _add[j] = bumped;
             return;
         }
 
         Vec3 sum = Vec3.Zero;
         for (int k = 0; k < trans.Length; k++)
         {
-            int source = trans[k].Patch;
-            Vec3 e = _emit[source];
-            Vec3 r = patches.At(source).Reflectivity;
-            Vec3 v = new(e.X * r.X, e.Y * r.Y, e.Z * r.Z);
+            Vec3 v = _shoot[trans[k].Patch];
             v *= trans[k].Weight;
             sum += v;
         }
@@ -252,6 +278,7 @@ public sealed class Radiosity
             if (patch.Sky)
             {
                 _emit[i] = Vec3.Zero;
+                _shoot[i] = Shoot(_emit[i], patch.Reflectivity);
             }
             else if (patch.Child1 == Patch.Invalid)
             {
@@ -261,6 +288,7 @@ public sealed class Radiosity
                 }
 
                 _emit[i] = _add[i].Flat;
+                _shoot[i] = Shoot(_emit[i], patch.Reflectivity);
                 total += _emit[i];
             }
             else
@@ -278,6 +306,7 @@ public sealed class Radiosity
                 }
 
                 _emit[i] = (_emit[patch.Child1] * s1) + (_emit[patch.Child2] * s2);
+                _shoot[i] = Shoot(_emit[i], patch.Reflectivity);
             }
 
             _add[i] = default;
@@ -370,9 +399,129 @@ public sealed class Radiosity
         return (u, v);
     }
 
-    private static void Accumulate(ref Vec3 sum, Vec3 v, Vec3 delta, Vec3 normal)
+    /// <summary>
+    /// A bumped receiver's gather, one transfer at a time: stock's loop, on
+    /// either side of the normalise fork.
+    /// </summary>
+    private void GatherBumpedScalar(
+        ReadOnlySpan<Transfer> trans, Vec3 origin, Vec3 normal, ReadOnlySpan<Vec3> normals, bool stock, ref BumpLights sums)
     {
-        float dot = Vec3.Dot(delta, normal);
+        for (int k = 0; k < trans.Length; k++)
+        {
+            int source = trans[k].Patch;
+            (Vec3 delta, _) = FormFactors.Normalise(_origins[source] - origin, stock);
+            float scale = 1.0f / Vec3.Dot(delta, normal);
+            Vec3 v = _shoot[source] * (trans[k].Weight * scale);
+
+            Accumulate(ref sums.Flat, v, Vec3.Dot(delta, normals[0]));
+            Accumulate(ref sums.Bump1, v, Vec3.Dot(delta, normals[1]));
+            Accumulate(ref sums.Bump2, v, Vec3.Dot(delta, normals[2]));
+            Accumulate(ref sums.Bump3, v, Vec3.Dot(delta, normals[3]));
+        }
+    }
+
+    /// <summary>
+    /// <see cref="GatherBumpedScalar"/> on the exact side, with the geometry of
+    /// four transfers at a time.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Why it exists. Per transfer, a bumped receiver normalises the direction
+    /// to its shooter -- a square root and three divides -- divides once more
+    /// by the cosine it removes, and takes four dot products, all before any
+    /// light is summed. None of that depends on the bounce's light, and on the
+    /// exact side all of it is lane-wise IEEE arithmetic, so it is done here
+    /// four transfers to a vector: one square root and four divides per four
+    /// transfers instead of per one.
+    /// </para>
+    /// <para>
+    /// Why it gives the same bits. Each lane makes the scalar path's
+    /// operations in the scalar path's order: the same left-to-right sum of
+    /// squares, an exact square root, three true divides (not a reciprocal
+    /// and three multiplies), a zero length giving the zero vector as
+    /// <see cref="Vec3.Normalise"/> does, the same dot products, and
+    /// <c>weight * scale</c> formed before it scales the light. The
+    /// accumulation -- the only part where order matters, because float
+    /// addition is not associative -- stays scalar, transfer after transfer in
+    /// list order, with the scalar path's test (<c>!(dot &lt;= 0)</c>, so a
+    /// NaN cosine is summed as the scalar path sums it). A short last block
+    /// repeats its final transfer in the unused lanes, whose answers are never
+    /// read.
+    /// </para>
+    /// </remarks>
+    [SkipLocalsInit]
+    private void GatherBumpedFour(
+        ReadOnlySpan<Transfer> trans, Vec3 origin, Vec3 normal, ReadOnlySpan<Vec3> normals, ref BumpLights sums)
+    {
+        const int L = 4;
+        Span<float> weight = stackalloc float[L];
+        Span<float> d0 = stackalloc float[L];
+        Span<float> d1 = stackalloc float[L];
+        Span<float> d2 = stackalloc float[L];
+        Span<float> d3 = stackalloc float[L];
+        Span<int> source = stackalloc int[L];
+
+        Vector128<float> ox = Vector128.Create(origin.X);
+        Vector128<float> oy = Vector128.Create(origin.Y);
+        Vector128<float> oz = Vector128.Create(origin.Z);
+        Vector128<float> zero = Vector128<float>.Zero;
+        Vector128<float> one = Vector128.Create(1.0f);
+
+        for (int k = 0; k < trans.Length; k += L)
+        {
+            int live = Math.Min(L, trans.Length - k);
+            for (int lane = 0; lane < L; lane++)
+            {
+                source[lane] = trans[k + Math.Min(lane, live - 1)].Patch;
+            }
+
+            Vec3 a = _origins[source[0]], b = _origins[source[1]], c = _origins[source[2]], d = _origins[source[3]];
+            Vector128<float> dx = Vector128.Create(a.X, b.X, c.X, d.X) - ox;
+            Vector128<float> dy = Vector128.Create(a.Y, b.Y, c.Y, d.Y) - oy;
+            Vector128<float> dz = Vector128.Create(a.Z, b.Z, c.Z, d.Z) - oz;
+
+            // Vec3.Normalise: an exact length, three true divides, and the
+            // zero vector for a zero length.
+            Vector128<float> length = Vector128.Sqrt(((dx * dx) + (dy * dy)) + (dz * dz));
+            Vector128<float> nonzero = ~Vector128.Equals(length, zero);
+            dx = Vector128.ConditionalSelect(nonzero, dx / length, zero);
+            dy = Vector128.ConditionalSelect(nonzero, dy / length, zero);
+            dz = Vector128.ConditionalSelect(nonzero, dz / length, zero);
+
+            Vector128<float> scale = one / Dot(dx, dy, dz, normal);
+            Vector128<float> w = Vector128.Create(
+                trans[k].Weight,
+                trans[k + Math.Min(1, live - 1)].Weight,
+                trans[k + Math.Min(2, live - 1)].Weight,
+                trans[k + Math.Min(3, live - 1)].Weight);
+            (w * scale).CopyTo(weight);
+            Dot(dx, dy, dz, normals[0]).CopyTo(d0);
+            Dot(dx, dy, dz, normals[1]).CopyTo(d1);
+            Dot(dx, dy, dz, normals[2]).CopyTo(d2);
+            Dot(dx, dy, dz, normals[3]).CopyTo(d3);
+
+            for (int lane = 0; lane < live; lane++)
+            {
+                Vec3 v = _shoot[source[lane]] * weight[lane];
+                Accumulate(ref sums.Flat, v, d0[lane]);
+                Accumulate(ref sums.Bump1, v, d1[lane]);
+                Accumulate(ref sums.Bump2, v, d2[lane]);
+                Accumulate(ref sums.Bump3, v, d3[lane]);
+            }
+        }
+    }
+
+    /// <summary><see cref="Vec3.Dot"/>'s order, four lanes against one vector.</summary>
+    private static Vector128<float> Dot(Vector128<float> x, Vector128<float> y, Vector128<float> z, Vec3 n) =>
+        ((x * Vector128.Create(n.X)) + (y * Vector128.Create(n.Y))) + (z * Vector128.Create(n.Z));
+
+    /// <summary>
+    /// Adds one transfer's light along one normal, unless the shooter is
+    /// behind it. The test is stock's <c>dot &lt;= 0</c> skip, so a NaN
+    /// cosine is summed rather than skipped.
+    /// </summary>
+    private static void Accumulate(ref Vec3 sum, Vec3 v, float dot)
+    {
         if (dot <= 0)
         {
             return;
