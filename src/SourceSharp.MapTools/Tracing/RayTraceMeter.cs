@@ -88,9 +88,11 @@ public readonly record struct RayRouteCounts(long Visibility, long Closest, long
 /// <param name="PeakSlabsInFlight">The most slabs that were on the device at once.</param>
 /// <param name="Slots">How many slabs the device may hold at once.</param>
 /// <param name="Pack">
-/// Host time spent writing slabs' rays into the memory the device reads them
-/// from: over the bus into device memory when <paramref name="RaysInPlace"/>,
-/// into a host staging buffer (which the device then copies itself) when not.
+/// Host time the tracer's drainer spent writing slabs' rays into the memory
+/// the device reads them from: over the bus into device memory when
+/// <paramref name="RaysInPlace"/>, into a host staging buffer (which the
+/// device then copies itself) when not. Rays the callers wrote themselves
+/// are not in it (<see cref="Write"/>): where they write every ray, it is 0.
 /// </param>
 /// <param name="Readback">
 /// Host time spent reading slabs' answers out of the memory the device wrote
@@ -150,7 +152,29 @@ public readonly record struct GpuTraceStatistics(
     bool RaysInPlace = false,
     bool AnswersInPlace = false,
     long RayBytes = 0,
-    long SlabRays = 0);
+    long SlabRays = 0)
+{
+    /// <summary>
+    /// Worker time spent writing rays into the memory the device reads them
+    /// from, summed over the workers that wrote: the part of the slabs'
+    /// rays the callers wrote themselves when they handed them over, so the
+    /// tracer's drainer did not have to (<see cref="CallerRays"/>). It is
+    /// spread over every worker and overlaps the device and the other
+    /// workers, where <see cref="Pack"/> is one stage in line between them.
+    /// </summary>
+    /// <remarks>
+    /// Init properties rather than constructor parameters, so a host that
+    /// builds the statistics positionally keeps compiling.
+    /// </remarks>
+    public TimeSpan Write { get; init; }
+
+    /// <summary>
+    /// Of <see cref="SlabRays"/>, the rays (padding included) the callers
+    /// wrote into the device's memory themselves; the rest were packed by
+    /// the drainer (<see cref="Pack"/>).
+    /// </summary>
+    public long CallerRays { get; init; }
+}
 
 /// <summary>A tracer that can say what its device did, for the bench.</summary>
 /// <remarks>
