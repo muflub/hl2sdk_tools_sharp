@@ -781,7 +781,7 @@ internal sealed class VisTightening : IVisFlowSplitter
         _spareTrees.Push(tree);
     }
 
-    private ulong[] RentVector()
+    internal ulong[] RentVector()
     {
         int live = Interlocked.Increment(ref _vectorsOut);
         int peak;
@@ -790,12 +790,24 @@ internal sealed class VisTightening : IVisFlowSplitter
         {
         }
 
-        return _vectors.TryPop(out ulong[]? vector) ? vector : new ulong[_state.Words];
+        if (_vectors.TryPop(out ulong[]? vector))
+        {
+            // Cleared here, by the flow worker that rents it, and not when it
+            // was given back: vectors come back from Settle, Judge and
+            // Release, all under the gate, and a run's tree can hold hundreds
+            // of them, so clearing on return held every other worker off the
+            // gate for a pass over each one. A vector's contents between
+            // return and rent are never read.
+            Array.Clear(vector);
+            return vector;
+        }
+
+        return new ulong[_state.Words];
     }
 
-    private void ReturnVector(ulong[] vector)
+    /// <summary>Takes a record vector back; see <see cref="RentVector"/> for why it is not cleared here.</summary>
+    internal void ReturnVector(ulong[] vector)
     {
-        Array.Clear(vector);
         Interlocked.Decrement(ref _vectorsOut);
         _vectors.Push(vector);
     }

@@ -363,9 +363,11 @@ public class VisClipLanesTests
     }
 
     [Theory]
-    [InlineData(21)]
-    [InlineData(22)]
-    public void TheLazyClipMatchesTheEagerAndTheFusedClips(int seed)
+    [InlineData(21, false)]
+    [InlineData(22, false)]
+    [InlineData(21, true)]
+    [InlineData(22, true)]
+    public void TheLazyClipMatchesTheEagerAndTheFusedClips(int seed, bool pairEdges)
     {
         // One memo per ordering, shared by a run of targets -- the way a
         // frame's candidates share it -- so later targets see a list an
@@ -387,14 +389,14 @@ public class VisClipLanesTests
             {
                 Vec3[] target = Beyond(random, source, pass, 3 + random.Next(10));
 
-                bool lazyFirst = AssertSameClip(ref forward, source, pass, target, flipClip: false, out Vec3[] first);
+                bool lazyFirst = AssertSameClip(ref forward, source, pass, target, flipClip: false, pairEdges, out Vec3[] first);
                 if (!lazyFirst)
                 {
                     blocked++;
                     continue;
                 }
 
-                if (AssertSameClip(ref reverse, pass, source, first, flipClip: true, out _))
+                if (AssertSameClip(ref reverse, pass, source, first, flipClip: true, pairEdges, out _))
                 {
                     survived++;
                 }
@@ -457,6 +459,299 @@ public class VisClipLanesTests
         Assert.Equal(square.Length, memo.NextEdge);
     }
 
+    [Theory]
+    [InlineData(41)]
+    [InlineData(42)]
+    [InlineData(43)]
+    public void AnEdgePairWritesWhatTwoSingleEdgesWrite(int seed)
+    {
+        // Every source length from two (the pair is both edges of a
+        // degenerate two-point winding, and wraps to vertex 0) upwards, every
+        // pair position including the one that wraps, and every pass length
+        // to sixteen -- so the four-lane chunks end on every remainder and
+        // the second edge's planes are held back across up to four chunks.
+        // The lists start part-full, as they do in a memo.
+        Random random = new(seed);
+        int planes = 0;
+        for (int sourceLength = 2; sourceLength <= 9; sourceLength++)
+        {
+            for (int passLength = 1; passLength <= 16; passLength++)
+            {
+                for (int trial = 0; trial < 8; trial++)
+                {
+                    (Vec3[] source, Vec3[] pass) = trial switch
+                    {
+                        < 4 => FacingPair(random, sourceLength, passLength, quantize: trial % 2 == 0),
+                        < 7 => (Scatter(random, sourceLength), Scatter(random, passLength)),
+                        _ => Coplanar(random, sourceLength, passLength),
+                    };
+
+                    for (int i = 0; i + 1 < sourceLength; i++)
+                    {
+                        planes += AssertPairMatchesSingles(source, pass, i, alreadyFound: trial % 3);
+                        if (i + 1 < passLength)
+                        {
+                            planes += AssertPairMatchesSingles(pass, source, i, alreadyFound: 0);
+                        }
+                    }
+                }
+            }
+        }
+
+        Assert.True(planes > 5_000, $"only {planes} planes derived");
+    }
+
+    [Theory]
+    [InlineData(51)]
+    [InlineData(52)]
+    public void ADerivationByPairsMatchesTheScalarDerivationOnOddAndEvenEdgeCounts(int seed)
+    {
+        // A whole list built the way the paired memo builds it -- pairs from
+        // edge 0, and a single edge for the tail when the count is odd --
+        // against the scalar code's list.
+        Random random = new(seed);
+        int odd = 0;
+        int even = 0;
+        for (int sourceLength = 1; sourceLength <= 9; sourceLength++)
+        {
+            for (int passLength = 1; passLength <= 12; passLength++)
+            {
+                for (int trial = 0; trial < 6; trial++)
+                {
+                    (Vec3[] source, Vec3[] pass) = trial < 4
+                        ? FacingPair(random, sourceLength, passLength, quantize: trial % 2 == 0)
+                        : (Scatter(random, sourceLength), Scatter(random, passLength));
+
+                    int room = Math.Max(1, sourceLength * passLength);
+                    Vec3[] scalarNormals = new Vec3[room];
+                    float[] scalarDistances = new float[room];
+                    int scalar = VisClip.BuildSeparators(source, pass, scalarNormals, scalarDistances);
+
+                    Vec3[] pairNormals = new Vec3[room];
+                    float[] pairDistances = new float[room];
+                    int paired = 0;
+                    for (int i = 0; i < sourceLength; i += 2)
+                    {
+                        paired = i + 1 < sourceLength
+                            ? VisClipLanes.DeriveEdgePair(source, pass, i, pairNormals, pairDistances, paired)
+                            : VisClipLanes.DeriveEdge(source, pass, i, pairNormals, pairDistances, paired);
+                    }
+
+                    Assert.Equal(scalar, paired);
+                    AssertSameBits(scalarNormals.AsSpan(0, scalar), pairNormals.AsSpan(0, paired));
+                    AssertSameDistanceBits(scalarDistances.AsSpan(0, scalar), pairDistances.AsSpan(0, paired));
+                    if (sourceLength % 2 == 1)
+                    {
+                        odd += scalar;
+                    }
+                    else
+                    {
+                        even += scalar;
+                    }
+                }
+            }
+        }
+
+        Assert.True(odd > 500, $"only {odd} planes from odd edge counts");
+        Assert.True(even > 500, $"only {even} planes from even edge counts");
+    }
+
+    [Fact]
+    public void AnEdgePairMatchesOnDegenerateAndNaNWindings()
+    {
+        Vec3 a = new(0f, 0f, 0f);
+        Vec3 b = new(16f, 0f, 0f);
+        Vec3 c = new(16f, 16f, 0f);
+        Vec3 d = new(0f, 16f, 0f);
+        Vec3[] square = [a, b, c, d];
+        Vec3[] far = [new(0f, 0f, 64f), new(0f, 16f, 64f), new(16f, 16f, 64f), new(16f, 0f, 64f)];
+
+        // The same windings as the single-edge fact, at every pair position:
+        // a zero-length edge in either half, NaN in either half's scan, a
+        // sub-epsilon sliver, a pass of one point, and a source of two.
+        Vec3[][] sources =
+        [
+            square,
+            [a, a, b, c],
+            [a, b, b, c],
+            [a, new(0.05f, 0f, 0f), new(0.05f, 0.05f, 0f)],
+            [a, b, new(float.NaN, 16f, 0f), d],
+            [new(float.NaN, 0f, 0f), b, c, d],
+            [a, b],
+        ];
+        Vec3[][] passes = [far, square, [far[0], far[0], far[1], far[2], far[3]], [far[0], new(0f, float.NaN, 64f), far[2], far[3]], [far[0]]];
+        foreach (Vec3[] source in sources)
+        {
+            foreach (Vec3[] pass in passes)
+            {
+                for (int i = 0; i + 1 < source.Length; i++)
+                {
+                    AssertPairMatchesSingles(source, pass, i, alreadyFound: 1);
+                }
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(91)]
+    [InlineData(92)]
+    public void AnEdgePairSkipsEachEdgesOwnEndpointsFarFromTheOrigin(int seed)
+    {
+        // Each half's source scan must pass over ITS edge's endpoints and no
+        // others: edge A's first vertex is a point edge B tests, and edge B's
+        // far vertex is one edge A tests. Near the origin an edge's own
+        // endpoints land within the epsilon of its plane, so scanning them
+        // would change nothing; a million units out, rounding puts
+        // them past it and the first one scanned decides the side. Windings
+        // there, skewed off every axis, are what tell the per-half masks
+        // from a shared skip list.
+        Random random = new(seed);
+        int planes = 0;
+        for (int trial = 0; trial < 400; trial++)
+        {
+            int sourceLength = 3 + random.Next(5);
+            int passLength = 1 + random.Next(8);
+            Vec3 far = new(Next(random, 1_000_000f), Next(random, 1_000_000f), Next(random, 1_000_000f));
+            Vec3[] source = Scatter(random, sourceLength);
+            Vec3[] pass = Scatter(random, passLength);
+            for (int k = 0; k < sourceLength; k++)
+            {
+                source[k] = far + (source[k] * 0.05f);
+            }
+
+            for (int k = 0; k < passLength; k++)
+            {
+                pass[k] = far + (pass[k] * 0.05f) + new Vec3(0f, 0f, 64f);
+            }
+
+            for (int i = 0; i + 1 < sourceLength; i++)
+            {
+                planes += AssertPairMatchesSingles(source, pass, i, alreadyFound: 0);
+            }
+        }
+
+        Assert.True(planes > 500, $"only {planes} planes derived");
+    }
+
+    [Fact]
+    public void AnEdgePairNeedsASecondEdge()
+    {
+        Vec3[] square = [new(0f, 0f, 0f), new(16f, 0f, 0f), new(16f, 16f, 0f), new(0f, 16f, 0f)];
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            VisClipLanes.DeriveEdgePair(square, square, 3, new Vec3[16], new float[16], 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            VisClipLanes.DeriveEdgePair([new Vec3(0f, 0f, 0f)], square, 0, new Vec3[4], new float[4], 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            VisClipLanes.DeriveEdgePair(square, square, -1, new Vec3[16], new float[16], 0));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AClipThatEndsInsideAPairDerivesOnlyThatPair(bool firstPlaneOfTheSecondEdge)
+    {
+        // The memo stops between the two edges of a pair: a target killed by
+        // a plane of edge 0 (or of edge 1) leaves edges 0 and 1 derived and
+        // nothing after them, and a later target that survives every plane
+        // still sees the full list in the full order.
+        Vec3[] source = [new(0f, 0f, 0f), new(16f, 0f, 0f), new(16f, 16f, 0f), new(0f, 16f, 0f), new(-8f, 8f, 0f)];
+        Vec3[] pass = [new(-8f, -8f, 64f), new(-8f, 24f, 64f), new(24f, 24f, 64f), new(24f, -8f, 64f)];
+        int room = source.Length * pass.Length;
+        Vec3[] normals = new Vec3[room];
+        float[] distances = new float[room];
+        int all = VisClip.BuildSeparators(source, pass, normals, distances);
+        int edge0 = VisClipLanes.DeriveEdge(source, pass, 0, new Vec3[room], new float[room], 0);
+        int pair01 = VisClipLanes.DeriveEdgePair(source, pass, 0, new Vec3[room], new float[room], 0);
+        Assert.True(edge0 > 0 && pair01 > edge0 && all > pair01, $"edge 0: {edge0}, pair: {pair01}, all: {all}");
+
+        // A small target behind the killing plane and well in front of every
+        // plane before it, found by a seeded search so the clip provably
+        // ends at that plane and not earlier.
+        int killer = firstPlaneOfTheSecondEdge ? edge0 : 0;
+        Vec3[] dead = TargetKilledAt(normals, distances, killer, new Random(61));
+
+        VisSeparatorMemo paired = NewMemo(source, pass);
+        VisSeparatorMemo single = NewMemo(source, pass);
+        Assert.False(AssertSameClip(ref paired, source, pass, dead, flipClip: false, pairEdges: true, out _));
+        Assert.False(AssertSameClip(ref single, source, pass, dead, flipClip: false, pairEdges: false, out _));
+        Assert.Equal(2, paired.NextEdge);
+        Assert.Equal(pair01, paired.Count);
+        Assert.Equal(firstPlaneOfTheSecondEdge ? 2 : 1, single.NextEdge);
+
+        // Then a target that nothing separates, through the same memos: the
+        // walk resumes from the pair's end, takes edges 2-3 as a pair and
+        // edge 4 alone.
+        Vec3 middle = new(8f, 8f, 256f);
+        Vec3[] visible = [middle, middle + new Vec3(0.25f, 0f, 0f), middle + new Vec3(0f, 0.25f, 0f)];
+        bool pairedSurvived = AssertSameClip(ref paired, source, pass, visible, flipClip: false, pairEdges: true, out Vec3[] pairedSurvivor);
+        bool singleSurvived = AssertSameClip(ref single, source, pass, visible, flipClip: false, pairEdges: false, out Vec3[] singleSurvivor);
+        Assert.True(pairedSurvived);
+        Assert.True(singleSurvived);
+        AssertSameBits(singleSurvivor, pairedSurvivor);
+        Assert.Equal(source.Length, paired.NextEdge);
+        Assert.Equal(all, paired.Count);
+        AssertSameBits(normals.AsSpan(0, all), paired.Normals.AsSpan(0, all));
+        AssertSameDistanceBits(distances.AsSpan(0, all), paired.Distances.AsSpan(0, all));
+    }
+
+    private static Vec3[] TargetKilledAt(Vec3[] normals, float[] distances, int killer, Random random)
+    {
+        for (int attempt = 0; attempt < 100_000; attempt++)
+        {
+            Vec3 p = new(Next(random, 200f), Next(random, 200f), 64f + (random.NextSingle() * 400f));
+            Vec3[] target = [p, p + new Vec3(0.5f, 0f, 0f), p + new Vec3(0f, 0.5f, 0f)];
+            bool fits = true;
+            for (int k = 0; k <= killer && fits; k++)
+            {
+                foreach (Vec3 point in target)
+                {
+                    float d = Vec3.Dot(point, normals[k]) - distances[k];
+                    fits &= k < killer ? d > 1f : d < -1f;
+                }
+            }
+
+            if (fits)
+            {
+                return target;
+            }
+        }
+
+        throw new InvalidOperationException($"no target is killed exactly at plane {killer}");
+    }
+
+    private static int AssertPairMatchesSingles(Vec3[] source, Vec3[] pass, int i, int alreadyFound)
+    {
+        int room = alreadyFound + (2 * Math.Max(1, pass.Length));
+        Vec3[] singleNormals = new Vec3[room];
+        float[] singleDistances = new float[room];
+        Vec3[] pairNormals = new Vec3[room];
+        float[] pairDistances = new float[room];
+        for (int k = 0; k < alreadyFound; k++)
+        {
+            // A prefix the derivation must leave alone.
+            singleNormals[k] = pairNormals[k] = new Vec3(k, -k, 0.5f);
+            singleDistances[k] = pairDistances[k] = k;
+        }
+
+        int single = VisClipLanes.DeriveEdge(source, pass, i, singleNormals, singleDistances, alreadyFound);
+        single = VisClipLanes.DeriveEdge(source, pass, i + 1, singleNormals, singleDistances, single);
+        int paired = VisClipLanes.DeriveEdgePair(source, pass, i, pairNormals, pairDistances, alreadyFound);
+
+        Assert.Equal(single, paired);
+        AssertSameBits(singleNormals.AsSpan(0, single), pairNormals.AsSpan(0, paired));
+        AssertSameDistanceBits(singleDistances.AsSpan(0, single), pairDistances.AsSpan(0, paired));
+        return single - alreadyFound;
+    }
+
+    private static void AssertSameDistanceBits(ReadOnlySpan<float> expected, ReadOnlySpan<float> actual)
+    {
+        Assert.Equal(expected.Length, actual.Length);
+        for (int i = 0; i < expected.Length; i++)
+        {
+            Assert.Equal(BitConverter.SingleToInt32Bits(expected[i]), BitConverter.SingleToInt32Bits(actual[i]));
+        }
+    }
+
     private static VisSeparatorMemo NewMemo(Vec3[] source, Vec3[] pass) =>
         new(new Vec3[source.Length * pass.Length], new float[source.Length * pass.Length]);
 
@@ -502,7 +797,7 @@ public class VisClipLanesTests
     }
 
     private static bool AssertSameClip(
-        ref VisSeparatorMemo memo, Vec3[] source, Vec3[] pass, Vec3[] target, bool flipClip, out Vec3[] survivor)
+        ref VisSeparatorMemo memo, Vec3[] source, Vec3[] pass, Vec3[] target, bool flipClip, bool pairEdges, out Vec3[] survivor)
     {
         int room = source.Length * pass.Length;
         Vec3[] normals = new Vec3[room];
@@ -518,7 +813,7 @@ public class VisClipLanesTests
 
         Vec3[] lazy = new Vec3[VisClip.MaxPointsOnWinding];
         bool lazySurvived = VisClipLanes.ClipToSeparators(
-            ref memo, source, pass, target, flipClip, lazy, out int lazyCount);
+            ref memo, source, pass, target, flipClip, pairEdges, lazy, out int lazyCount);
 
         Assert.Equal(eagerSurvived, lazySurvived);
         Assert.Equal(fusedSurvived, lazySurvived);

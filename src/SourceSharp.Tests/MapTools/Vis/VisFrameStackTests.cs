@@ -60,6 +60,65 @@ public class VisFrameStackTests
         Assert.Equal((0, 0), VisFrameStack.Extent(bits, (3 * Block, 5 * Block)));
     }
 
+    [Theory]
+    [InlineData(71)]
+    [InlineData(72)]
+    public void TheBlockScanFindsTheWordScansExtent(int seed)
+    {
+        // Seeded sparse vectors -- a few set bits, in any word of any block,
+        // including a block's first and last words and the vector's -- and
+        // every block-aligned search range, against the word-by-word scan.
+        Random random = new(seed);
+        int nonEmpty = 0;
+        for (int trial = 0; trial < 2_000; trial++)
+        {
+            int blocks = 1 + random.Next(8);
+            ulong[] bits = new ulong[blocks * Block];
+            int set = random.Next(4);
+            for (int k = 0; k < set; k++)
+            {
+                int word = random.Next(4) switch
+                {
+                    0 => 0,
+                    1 => bits.Length - 1,
+                    2 => (random.Next(blocks) * Block) + (Block - 1),
+                    _ => random.Next(bits.Length),
+                };
+                bits[word] |= 1UL << random.Next(64);
+            }
+
+            for (int from = 0; from <= blocks; from++)
+            {
+                for (int to = from; to <= blocks; to++)
+                {
+                    // The contract: every word outside the range is zero.
+                    ulong[] inside = new ulong[bits.Length];
+                    bits.AsSpan(from * Block, (to - from) * Block).CopyTo(inside.AsSpan(from * Block));
+                    (int Lo, int Hi) within = (from * Block, to * Block);
+
+                    (int Lo, int Hi) scalar = VisFrameStack.ExtentScalar(inside, within);
+                    Assert.Equal(scalar, VisFrameStack.ExtentByBlocks(inside, within));
+                    Assert.Equal(scalar, VisFrameStack.Extent(inside, within));
+                    nonEmpty += scalar.Hi > scalar.Lo ? 1 : 0;
+                }
+            }
+        }
+
+        Assert.True(nonEmpty > 10_000, $"only {nonEmpty} non-empty extents");
+    }
+
+    [Fact]
+    public void ARangeOffTheBlockBoundariesTakesTheWordScan()
+    {
+        // Not a range the flow ever passes, but the entry point must still
+        // give the definition's answer for it rather than the block scan's.
+        ulong[] bits = new ulong[3 * Block];
+        bits[Block + 2] = 1;
+        (int Lo, int Hi) within = (Block + 1, (2 * Block) + 3);
+        Assert.Equal(VisFrameStack.ExtentScalar(bits, within), VisFrameStack.Extent(bits, within));
+        Assert.Equal((Block, 2 * Block), VisFrameStack.Extent(bits, within));
+    }
+
     [Fact]
     public void AFrameBufferIsZeroOutsideTheExtentItIsHanded()
     {

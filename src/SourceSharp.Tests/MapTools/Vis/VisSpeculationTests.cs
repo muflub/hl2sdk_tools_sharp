@@ -48,6 +48,56 @@ public class VisSpeculationTests
 
     private static VisRepairTree NewTree(int levels = 3) => new(_ => { }, levels);
 
+    // ---- the record vectors' pool -----------------------------------------
+
+    [Fact]
+    public void ARecordVectorGivenBackDirtyIsRentedOutClean()
+    {
+        // Vectors are cleared when rented rather than when given back (the
+        // giving back happens under the schedule's gate), so a vector a run
+        // filled comes out of the pool empty all the same.
+        VisTightening ranking = new Grid().Ranking;
+        ulong[] first = ranking.RentVector();
+        Assert.All(first, w => Assert.Equal(0UL, w));
+        Array.Fill(first, ulong.MaxValue);
+        ranking.ReturnVector(first);
+
+        ulong[] again = ranking.RentVector();
+        Assert.Same(first, again);
+        Assert.All(again, w => Assert.Equal(0UL, w));
+        Assert.Equal(1, ranking.VectorsPeak);
+    }
+
+    [Fact]
+    public void MissedAnythingAgreesWithTheWordByWordTestOnEveryLengthAndBit()
+    {
+        // The four-word form against the definition: every length up to 21
+        // words (so the four-word loop ends on every remainder), a single
+        // shared bit at every position, and vectors that overlap nowhere.
+        for (int length = 0; length <= 21; length++)
+        {
+            ulong[] none = new ulong[length];
+            ulong[] all = new ulong[length];
+            Array.Fill(all, ulong.MaxValue);
+            Assert.False(VisRepairTree.MissedAnything(none, all));
+            Assert.False(VisRepairTree.MissedAnything(all, none));
+
+            for (int bit = 0; bit < length * 64; bit += 7)
+            {
+                ulong[] missed = new ulong[length];
+                ulong[] final = new ulong[length];
+                BitVectorOps.SetBit(missed, bit);
+                BitVectorOps.SetBit(final, bit);
+                Assert.True(VisRepairTree.MissedAnything(missed, final));
+
+                // The neighbouring bit instead: disjoint, so nothing missed.
+                BitVectorOps.ClearBit(final, bit);
+                BitVectorOps.SetBit(final, bit ^ 1);
+                Assert.False(VisRepairTree.MissedAnything(missed, final));
+            }
+        }
+    }
+
     // ---- VisSpeculativeReads ------------------------------------------------
 
     [Fact]
@@ -281,6 +331,92 @@ public class VisSpeculationTests
         tree.CollectPending(pending);
 
         Assert.Equal([5, 6], pending);
+    }
+
+    [Theory]
+    [InlineData(81, false)]
+    [InlineData(82, true)]
+    public void EnteringACandidateIsChildThenIsCompleteThenWalk(int seed, bool shared)
+    {
+        // Two trees driven through the same seeded runs -- walks three levels
+        // deep, reads charged to random nodes, judgements that dirty some of
+        // them, prunes -- one entering each candidate in one step, the other
+        // with the three separate calls. They must agree on every child, on
+        // every skip, and on what each later run finds complete.
+        Random random = new(seed);
+        VisRepairTree combined = NewTree();
+        VisRepairTree separate = NewTree();
+        int skipped = 0;
+        int entered = 0;
+        for (int run = 0; run < 40; run++)
+        {
+            List<int> frontier = [VisRepairTree.Root];
+            List<int> walked = [];
+            for (int level = 0; level < 3; level++)
+            {
+                List<int> next = [];
+                foreach (int node in frontier)
+                {
+                    int count = 1 + random.Next(6);
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (random.Next(3) == 0)
+                        {
+                            continue;
+                        }
+
+                        bool went = combined.Enter(node, i, count, shared, out int child);
+                        int expected = separate.Child(node, i, count, shared);
+                        bool complete = separate.IsComplete(expected, shared);
+                        if (!complete)
+                        {
+                            separate.Walk(expected, shared);
+                        }
+
+                        Assert.Equal(expected, child);
+                        Assert.Equal(!complete, went);
+                        if (!went)
+                        {
+                            skipped++;
+                            continue;
+                        }
+
+                        entered++;
+                        walked.Add(child);
+                        if (random.Next(5) == 0)
+                        {
+                            combined.Prune(child, shared);
+                            separate.Prune(child, shared);
+                        }
+                        else
+                        {
+                            next.Add(child);
+                        }
+                    }
+                }
+
+                frontier = next;
+            }
+
+            // Some reads missed a bit that turns out final, some did not.
+            foreach (int node in walked)
+            {
+                if (random.Next(2) == 0)
+                {
+                    int portal = random.Next(2);
+                    Absorb(combined, node, portal, Vector(portal));
+                    Absorb(separate, node, portal, Vector(portal));
+                }
+            }
+
+            int finalBit = random.Next(2);
+            Assert.Equal(
+                separate.Validate((_, missed) => VisRepairTree.MissedAnything(missed, Vector(finalBit))),
+                combined.Validate((_, missed) => VisRepairTree.MissedAnything(missed, Vector(finalBit))));
+        }
+
+        Assert.True(skipped > 20, $"only {skipped} candidates skipped");
+        Assert.True(entered > 60, $"only {entered} candidates entered");
     }
 
     private static void Absorb(VisRepairTree tree, int node, int portal, ulong[] missed)
