@@ -141,9 +141,15 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // four). A room without them gets no section, so its entry is what
         // it was before overlays were carried.
         IReadOnlyList<RoomPackSectionData> overlays = room.OverlaysOfCompile is { } carried ? [carried.ToSection()] : [];
+
+        // The base lighting likewise, for a room its library compile lit:
+        // every placement reads it (all its stored turns are in the one
+        // section, 1 or 4, and the link takes the one it places). A room
+        // compiled unlit gets none, so an unlit library packs as before.
+        IReadOnlyList<RoomPackSectionData> lighting = room.LightingOfCompile is { } baked ? [baked.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -889,6 +895,11 @@ public static class RoomPack
                 wanted.Add((name, overlays));
             }
 
+            if (entry.Find(RoomLighting.SectionTag) is { } lighting)
+            {
+                wanted.Add((name, lighting));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -991,16 +1002,19 @@ public static class RoomPack
             RoomStaticProps? props = RoomStaticProps.Read(Section(name, RoomStaticProps.SectionTag), room.Definition, room.Bsp);
             RoomBrushModels? brushModels = RoomBrushModels.Read(Section(name, RoomBrushModels.SectionTag), room.Definition, room.Bsp);
             RoomTransit? transit = RoomTransit.Read(Section(name, RoomTransit.SectionTag), name, room.Bsp);
+            RoomLighting? lighting = RoomLighting.Read(Section(name, RoomLighting.SectionTag), room.Definition, room.Bsp);
             RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
             RoomOverlays? overlays = RoomOverlays.Read(Section(name, RoomOverlays.SectionTag), name, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
                 && cubemaps is null && overlays is null
+                && lighting is null
                 ? room
                 : room with
                 {
                     Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props, BrushModels = brushModels, Transit = transit,
                     Cubemaps = cubemaps,
                     Overlays = overlays,
+                    Lighting = lighting,
                 };
         }
 
@@ -1188,6 +1202,46 @@ public static class RoomPack
     }
 
     /// <summary>
+    /// How many turns each lit room of a pack stores its base lighting for
+    /// (<see cref="RoomLighting.RotationCount"/>: 1, or 4 when sun or sky
+    /// light reaches it), by name: what <c>ssmap rooms</c> shows. A room
+    /// without a lighting section (an unlit library) is not listed.
+    /// </summary>
+    /// <param name="r">The pack.</param>
+    /// <param name="index">Its index.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The counts, by room name.</returns>
+    /// <exception cref="LinkException">A lighting section is damaged.</exception>
+    public static async Task<IReadOnlyDictionary<string, int>> ReadLightingTurnsAsync(
+        Stream r, RoomPackIndex index, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(r);
+        ArgumentNullException.ThrowIfNull(index);
+        List<(string Name, RoomPackSection Section)> wanted = [];
+        foreach (RoomPackEntry entry in index.Entries)
+        {
+            if (entry.Find(RoomLighting.SectionTag) is { } section)
+            {
+                wanted.Add((entry.Name, section));
+            }
+        }
+
+        Dictionary<(string, string), ArraySegment<byte>> read = await ReadSectionsAsync(r, index, wanted, cancellationToken)
+            .ConfigureAwait(false);
+        Dictionary<string, int> turns = new(StringComparer.Ordinal);
+        foreach (RoomPackEntry entry in index.Entries)
+        {
+            if (read.TryGetValue((entry.Name, RoomLighting.SectionTag), out ArraySegment<byte> bytes)
+                && RoomLighting.ReadRotationCount(bytes, entry.Name) is int count)
+            {
+                turns[entry.Name] = count;
+            }
+        }
+
+        return turns;
+    }
+
+    /// <summary>
     /// Reads the given sections, in pack order whatever order they are
     /// given in: sought to on a stream that can seek, reached by skipping
     /// forward on one that cannot.
@@ -1317,6 +1371,7 @@ public static class RoomPack
         ((byte)'T', (byte)'R', (byte)'A', (byte)'N') => RoomTransit.SectionTag,
         ((byte)'C', (byte)'U', (byte)'B', (byte)'E') => RoomCubemaps.SectionTag,
         ((byte)'O', (byte)'V', (byte)'L', (byte)'Y') => RoomOverlays.SectionTag,
+        ((byte)'L', (byte)'I', (byte)'T', (byte)'E') => RoomLighting.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),

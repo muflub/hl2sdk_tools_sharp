@@ -56,7 +56,24 @@ public static class PropIndirectLighting
         bool ignoreNormals,
         DispTestedScratch scratch,
         ComplianceOptions compliance,
-        int staticPropIndirectMode = 0)
+        int staticPropIndirectMode = 0) =>
+        Compute(scene, position, normal, forceFast, ignoreNormals, scratch, compliance, staticPropIndirectMode, frameTurns: 0);
+
+    /// <summary>
+    /// <see cref="Compute(AmbientScene, Vec3, Vec3, bool, bool, DispTestedScratch, ComplianceOptions, int)"/>
+    /// with its sampling directions, fixed in the world, turned into the
+    /// frame the map is lit in (<see cref="Light.BakeFrame"/>).
+    /// </summary>
+    internal static Vec3 Compute(
+        AmbientScene scene,
+        Vec3 position,
+        Vec3 normal,
+        bool forceFast,
+        bool ignoreNormals,
+        DispTestedScratch scratch,
+        ComplianceOptions compliance,
+        int staticPropIndirectMode,
+        int frameTurns)
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(scratch);
@@ -77,7 +94,7 @@ public static class PropIndirectLighting
 
         for (int j = 0; j < nSamples; j++)
         {
-            Vec3 samplingNormal = sampler.NextValue();
+            Vec3 samplingNormal = Light.BakeFrame.ToRoom(sampler.NextValue(), frameTurns);
             float dot = ignoreNormals
                 ? IgnoreNormalsDot
                 : (normal.X * samplingNormal.X) + (normal.Y * samplingNormal.Y) + (normal.Z * samplingNormal.Z);

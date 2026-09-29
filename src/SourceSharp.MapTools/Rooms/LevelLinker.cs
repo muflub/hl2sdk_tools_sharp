@@ -265,6 +265,11 @@ public static partial class LevelLinker
         LevelTransitionPlan? transitions = LevelTransitionPlan.Make(
             layout, [.. resolved.Select(p => TransitOf(p.Room))], name => library.Get(name).Definition, options.ModEntities);
 
+        // Whether the level is lit (its rooms' base bakes, the rooms design,
+        // section 9), and what its rooms agree on: null for a level of unlit
+        // rooms, which links exactly as it did before the bake.
+        LevelLight? lit = PlanLighting(resolved);
+
         // The level's one pak: every placed room's packed files, merged by
         // name (LevelPakFiles). Each room's pak is a zip, and reading it is
         // async, so it is read here rather than inside the planning
@@ -300,7 +305,13 @@ public static partial class LevelLinker
         // without samples, which links exactly as before them.
         LevelCubemaps? cubemaps = LevelCubemaps.Plan(
             [.. resolved.Select(p => (p.Room, new RoomTransform(p.Instance.Placement, p.Room.Definition.CellSize)))], context.MapBase);
-        (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(paks, context.MapBase, props?.Files, cubemaps?.ByRoom(), cancellationToken);
+        (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(
+            paks,
+            context.MapBase,
+            props?.Files,
+            cubemaps?.ByRoom(),
+            lit is not null && props is not null ? BakedPropFiles(resolved, props) : null,
+            cancellationToken);
 
         // Per-room work: validate the compile against the relocation set and
         // move the turned structs to the cell. Each item writes only its own
@@ -342,6 +353,10 @@ public static partial class LevelLinker
 
         AssignBases(plans);
 
+        // A lit level's lightmaps: each stored turn of a room once, every
+        // placement of it pointing there.
+        List<(RoomLightingPayload Payload, int LdrBase, int HdrBase)>? lightBlocks = lit is null ? null : AssignLightBases(plans);
+
         // Cluster space: room r's room-local cluster c is clusterBase_r + c;
         // solid leaves (plugs, shared void) stay cluster -1 and get no row.
         int clusterCursor = 0;
@@ -371,12 +386,19 @@ public static partial class LevelLinker
             library.Options.NameKeySet);
         LevelSingletons singletons = new(library.LibraryEntities);
         List<(int Placement, string ClassName)> droppedFurniture = [];
+        LevelLightStyles styles = new();
+        List<(int Leaf, int Placement, int Cluster)> doorways = [];
         (BspData linked, int foldedBrushes) = Assemble(
             plans, layout, visibilityLump, context, classes, naming, singletons, library.Options.MapVersion, options.FoldBrushes, mergedPak,
-            cubemaps, droppedFurniture, cancellationToken);
+            cubemaps, droppedFurniture, styles, doorways, cancellationToken);
         if (props is not null)
         {
             await WritePropsAsync(linked, props, plans, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (lit is not null)
+        {
+            WriteLighting(linked, plans, lit, lightBlocks!, doorways, styles, pvs, rowBytes);
         }
 
         // The budget checked before planning counted the rooms as compiled.

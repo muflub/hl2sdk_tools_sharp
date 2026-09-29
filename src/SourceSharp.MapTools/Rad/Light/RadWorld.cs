@@ -333,6 +333,7 @@ public sealed partial class RadWorld
                 DLightThreshold = s.DLightThreshold,
                 SunAngularExtent = s.SunAngularExtent,
                 Compliance = s.Compliance,
+                FrameTurns = s.FrameTurns,
             },
             SkyLeaves);
         Statistics.DirectLights = Lights.Count;
@@ -495,7 +496,8 @@ public sealed partial class RadWorld
         LeafInfo info = Geometry.Leaves[leaf];
         Vec3 center = (info.Mins + info.Maxs) * 0.5f;
 
-        ReadOnlySpan<Vec3> anorms = VertexNormals.All;
+        // World-fixed probe directions, in the frame the map is lit in.
+        ReadOnlySpan<Vec3> anorms = Settings.FrameTurns == 0 ? VertexNormals.All : BakeFrame.ToRoom(VertexNormals.All, Settings.FrameTurns);
         Span<Vec3> start = stackalloc Vec3[SampleGroup.Lanes];
         Span<Vec3> stop = stackalloc Vec3[SampleGroup.Lanes];
         Span<float> fraction = stackalloc float[SampleGroup.Lanes];

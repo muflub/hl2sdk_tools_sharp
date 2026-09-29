@@ -22,7 +22,7 @@ namespace SourceSharp.MapTools.Rad.Ambient;
 /// reconstructs the light arriving at a point from any direction by blending the
 /// three that face it. <c>ComputeAmbientFromSphericalSamples</c>
 /// Builds one by firing 162 rays, then
-/// projecting what came back onto those six axes (<see cref="Project"/>) and
+/// projecting what came back onto those six axes (<see cref="Project(ReadOnlySpan{Vec3}, Span{Vec3})"/>) and
 /// adding the baked surface lights (<see cref="AddEmitSurfaceLights"/>).
 /// <see cref="AmbientSampler"/> strings the three together per sample.
 /// </para>
@@ -77,12 +77,24 @@ public static class AmbientCube
     /// inner order is part of the output. The total is divided as
     /// <c>lightBoxColor[j] *= 1/t</c>: a reciprocal, then a multiply.
     /// </remarks>
-    public static void Project(ReadOnlySpan<Vec3> radColor, Span<Vec3> cube)
+    public static void Project(ReadOnlySpan<Vec3> radColor, Span<Vec3> cube) =>
+        Project(radColor, cube, VertexNormals.All);
+
+    /// <summary>
+    /// <see cref="Project(ReadOnlySpan{Vec3}, Span{Vec3})"/> for rays cast
+    /// along <paramref name="anorms"/>: the table turned into the frame a room
+    /// is lit in (<see cref="Light.BakeFrame"/>). The cube's faces stay on the
+    /// frame's axes, so a turned table gives the turned room's cube with its
+    /// faces permuted, float for float.
+    /// </summary>
+    /// <param name="radColor">What each ray brought back.</param>
+    /// <param name="cube">Receives the six colours. Overwritten.</param>
+    /// <param name="anorms">The directions the rays were cast along.</param>
+    internal static void Project(ReadOnlySpan<Vec3> radColor, Span<Vec3> cube, ReadOnlySpan<Vec3> anorms)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(radColor.Length, VertexNormals.Count);
         ArgumentOutOfRangeException.ThrowIfLessThan(cube.Length, Sides);
-
-        ReadOnlySpan<Vec3> anorms = VertexNormals.All;
+        ArgumentOutOfRangeException.ThrowIfLessThan(anorms.Length, VertexNormals.Count);
         ReadOnlySpan<Vec3> box = BoxDirections;
         for (int j = Sides; --j >= 0;)
         {

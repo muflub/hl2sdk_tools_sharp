@@ -71,6 +71,13 @@ public sealed record LeafAmbientOptions
     public CompilePool? Pool { get; init; }
 
     /// <summary>
+    /// The quarter turns of the frame the map is lit in
+    /// (<see cref="Light.BakeFrame"/>); 0 for every compile but a room's bake
+    /// for a turned placement.
+    /// </summary>
+    internal int FrameTurns { get; init; }
+
+    /// <summary>
     /// The segments a leaf-ambient batch closes at: a quarter of the other
     /// stages' <see cref="TestLineStage.DefaultBatchSegments"/>.
     /// </summary>

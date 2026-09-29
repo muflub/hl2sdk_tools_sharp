@@ -2965,6 +2965,148 @@ sorted each brush's sides, so a hand-built brush whose sides share one id
 (as the room model's do) is named by whichever side sorts first; Hammer
 gives every side its own id.
 
+**PR 9 landed** (the Q4 base bake and the 2D sky flags). `ssmap room`
+lights every room after its compile (`RoomLighting`, from
+`RoomLibraryCompileSettings.Lighting`): one vrad run of the room exactly as
+compiled, sealed by its plugs, with the library's `light_environment` added
+right after the worldspawn at the level's origin, as the link and the flatten
+write it (D3). Everything vrad lights is stored: per face its four styles and
+lightmap offset and its luxels (bump pages and the per-style average luxels
+included), the room's world lights, the leaf ambient index and samples, the
+static props' vertex colours (when the switches ask for static prop
+lighting), and for the room as a whole vrad's vertex normals and their
+indices, the map flags, pass one of the sky test (each leaf holding a sky
+face) and the sun's two world lights. Detail prop and displacement lighting
+wait for the PRs that lift those refusals (15, 16). The link lays a
+placement's stored turn over its compile (`LevelLinker.PlanRoom`) and writes
+the level's lighting (`LevelLinker.WriteLighting`); nothing is traced and no
+game file is read at link.
+
+- **Once or four times (1.1, D16).** A room with a sky face (`SURF_SKY` or
+  `SURF_SKY2D`; pass one flags exactly the leaves holding one, so the two
+  halves of 1.1's rule are one test) in a library with a sun is lit four
+  times; any other room once. A library without a `light_environment` has no
+  sun or sky light at all, so its sky rooms are stored once too (a case the
+  rule did not name). The link takes payload `rotation mod count`.
+- **The bake frame.** Each run lights the room in its own frame, which keeps
+  the lightmap layout, with everything vrad holds fixed in the world turned
+  into that frame by the inverse of the placement's turn (`BakeFrame`, a
+  `VradContext.FrameTurns` the room bake alone sets): the sun's direction,
+  the sky-ambient sampling directions, the sun's area jitter, the leaf sky
+  probe, the direction tables of the leaf ambient cubes and of prop direct
+  and indirect lighting, and the order leaf ambient candidates are drawn in.
+  Turning only the sun, as 9.2 put it, is not enough: the sky's sampling
+  directions are a fixed, not quarter-turn symmetric set, so a turned room
+  saw a different sky. Turn 0 is the arithmetic vrad always ran.
+- **Linear values (9.3).** Luxels, ambient cube faces and vertex colours are
+  stored as half floats of the exact value of the `ColorRGBExp32` vrad wrote
+  (an 8-bit mantissa times a power of two, which a half holds exactly for
+  exponents -24 to 8), and encoded once at link with vrad's own encoder,
+  which gives vrad's bytes back; a fact holds every canonical encoding in
+  that range and every stored value of a real bake to it. PR 10 sums door
+  terms onto these before the one encode.
+- **Stored once, turned at link.** Every payload is in the room's frame;
+  what has a direction in it is turned at link: ambient cube faces permute,
+  ambient position bytes permute and flip (`255 - b`), world light origins
+  and spot and surface normals turn and move, vertex normals turn (a
+  negative zero written as zero, as vrad writes a turned map's). Measured on
+  the 256-room stress library, the link's whole lighting work at 33 x 33,
+  turns, encodes and ambient included, is about 0.6 s (below), so
+  pre-turned copies were not worth four times the bytes.
+- **Written once per stored turn.** Every placement of a room at one stored
+  turn points its faces at one block of lightmaps, and every placement of a
+  room at one turn at one run of ambient samples; a face reads only its own
+  luxels, so sharing changes nothing a face sees. Vertex normals are
+  interned by value across the level, since the 16-bit normal index would
+  not hold a large level's rooms end to end; a level past a field (65,536
+  ambient samples, normals or leaves an index names, 8,192 world lights) is
+  refused naming the placement that crossed it.
+- **The level's lumps.** Faces (and `FacesHdr`) take the stored styles and
+  offsets; original faces keep their compile's; the world lights are listed
+  as vrad lists a full compile's (every placement's entity lights, the last
+  placement first, then the sun's two, then the surface lights), clusters
+  rebased; a leaf with samples names its run, an empty leaf the nearest leaf
+  with samples (vrad's rule, remapped; for the link's own new leaves found
+  in the linked tree), and a carved doorway the facing leaf's run (9.4); the
+  map flags are the bake's. With a sun, the sky flags are pass one from the
+  rooms and pass two over the linked PVS (per cluster, which is vrad's
+  per-leaf walk to the same answer), 3D sky clearing 2D; without a sun the
+  leaves keep their compiles' flags, as vrad leaves a map's.
+- **Switchable styles (section 8, finding 8, 15.3 fact 8).** The link
+  renumbers every named light's `style` over the linked entity lump in its
+  order, one style from 32 per distinct name as vbsp numbers the flattened
+  map (`LevelLightStyles`), and a lit level's faces and world lights follow
+  their lights. The fact was red first (both lights kept style 32). This is
+  done whether or not the level is lit, so an unlit level whose rooms name
+  lights in two placements now carries distinct styles; every other unlit
+  level links to the bytes it did.
+- **Exactness, measured (9.7 check 5, 9.8).** A room alone, every socket
+  capped, links to vrad of its own linked map at every quarter turn, byte
+  for byte on every luxel, face style, world light, leaf ambient index,
+  vertex normal, prop colour, sky flag and map flag, for a room lit once (a
+  lamp, a static prop, a door) and a sunlit one (a sky ceiling, stored per
+  turn). Leaf ambient samples are the same bytes at turn 0; at a turn, a
+  room stored once gives each leaf exactly the turned room's mean light, and
+  a sunlit room within 0.23 of it (p95), because which of a leaf's
+  candidates vrad keeps depends on their last bits. Against the full compile
+  of the flattened level (vbsp, vvis, vrad, same switches), the maps are the
+  same luxels at turn 0; at a turn vbsp compiling the turned VMF places some
+  walls' lightmap grids elsewhere (vbsp is not quarter-turn invariant), and
+  where the grids meet at least 98% of luxels are exact and the rest within
+  0.2 (a prop shadow's edge). A jointed level of the two rooms lacks the light
+  its doorway lets through (the sun onto the hub's floor, each lamp into the
+  other room): half its luxels and more are exact, p95 of the rest near 97%
+  darker within a door width of the joint and elsewhere alike, which the door
+  terms of PR 10 add; it invents no light (one luxel in a thousand at most
+  is more than 5% brighter, where the room's own plug reflected a little).
+- **Test rooms need real texture axes.** `RoomModel`'s slabs give every
+  side the floor's texture axes, which leaves every wall's lightmap a line
+  vrad cannot sample (it paints such a face red); the lit facts' harness
+  world-aligns its sides, as Hammer does.
+
+Storage: an optional `LITE` section per lit room, after its whole-room
+sections, with the 1.1 framing (codec byte, decoded length, revision 1;
+codec none), then the rotation count and that many payloads in turn order,
+each behind its byte length, then the room-wide part (`RoomLighting`'s
+remarks give the layout). The pack format version stays 4: `LITE` is a tag an
+older build skips, and a pack written before this PR simply has unlit rooms.
+A damaged section is refused naming the room and `LITE` (15.9's texts). A
+level of lit and unlit rooms, or of rooms lit differently, is refused:
+`room {room} has no baked lighting, but room {other} of the same level has;
+a level's rooms are lit alike. Recompile the library with ssmap room.` and
+`rooms {a} and {b} were lit with different settings (ranges, sun or map
+flags); ...`.
+
+Decisions taken where this document is open, or where it left a detail:
+lighting is on by default in `ssmap room`, with `-nolight` as the off switch
+(a pack and every level linked from it the same bytes as before, but for the
+build identity each container records) and `-vrad "<stock vrad options>"`
+for the switches, `-luxeldensity` below 1 refused since it would change the
+room's geometry; the library compile's `-compliance` applies to the bake; a
+host's settings default to unlit; the pack id and the incremental cache's
+key carry the switches and the sun; HDR, LDR or both as `-vrad` asks, each
+range linked; `ssmap rooms` lists each lit room's `lighting: 1 turn, no sun
+or sky reaches it` or `lighting: 4 turns, sun or sky reaches it`; a point
+light's normal (the direction of its entity's angles, which nothing lights
+by) is kept as baked; a library's per-map `.rad` file is read under each
+room's name, as the room compile names it. 15.9's "the four bakes of a
+sunless room are the same bytes" holds for every face style, offset and
+luxel, the world lights and the vertex normals; its leaf ambient and prop
+colours come from world-fixed sampling directions and are the turned room's
+own at link, as the capped-room facts show. Not done here: the door capture
+and response (PR 10), the 3x3 sample's `end` room did not grow its sky
+opening and switchable light (the harness levels carry both at every turn,
+and the sample's digests stay those of an unlit link), and the stress
+library has no sun.
+
+Measured (4-core machine, the whole `ssmap` process, three runs each): the
+256-room stress library packs in 15.6 s lit against 11.4 s unlit, 29.4 MB
+against 27.2 MB (+8%); its 33 x 33 level links in 2.5 to 2.7 s lit against
+1.7 to 2.0 s unlit, 15.4 MB against 14.4 MB, both clean under `ssmap check`.
+The 3x3 sample packs to 561 KB lit against 518 KB, its level to 125 KB
+against 98 KB; every level of the 3x3 and transit samples links lit and
+passes `ssmap check`, in both emission modes for the transit run.
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other

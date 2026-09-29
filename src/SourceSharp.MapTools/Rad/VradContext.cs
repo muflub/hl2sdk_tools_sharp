@@ -122,6 +122,24 @@ public sealed record VradContext
     /// compile owns and disposes whatever this returns, as it does its own.
     /// </summary>
     internal Func<Bounce.CompileScratchPool>? ScratchPoolFactory { get; init; }
+
+    /// <summary>
+    /// For a room library's bake: the quarter turns of the placement the
+    /// room is lit for (<see cref="Light.BakeFrame"/>). The map stays in the
+    /// room's frame; the sun and every direction vrad holds fixed in the
+    /// world are turned into it instead, so the bake is the bake of the room
+    /// physically turned, and its lightmaps keep the room's layout. 0, the
+    /// default, lights the map as it stands.
+    /// </summary>
+    internal int FrameTurns { get; init; }
+
+    /// <summary>
+    /// For a room library's bake: told each pass's static prop lighting
+    /// (the HDR flag, then the result) before its files go into the pak, so
+    /// the bake can keep the linear colours the files are encoded from.
+    /// Null in every other compile.
+    /// </summary>
+    internal Action<bool, Props.StaticPropLightingResult>? StaticPropLightingObserver { get; init; }
 }
 
 /// <summary>One pass's counts.</summary>
