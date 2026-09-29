@@ -427,6 +427,13 @@ public static partial class LevelLinker
     /// origin still turns.
     /// </para>
     /// <para>
+    /// <b>A brush entity</b> (its <c>model</c> names a brush model, <c>*N</c>)
+    /// follows <see cref="BrushEntityDirections"/>: its model is already
+    /// turned with the room, so its <c>angles</c> and <c>angle</c> turn only
+    /// for a class that reads them as a direction, and its direction keys
+    /// (<c>movedir</c>, <c>pushdir</c>, <c>gibdir</c>) turn as a yaw.
+    /// </para>
+    /// <para>
     /// <b>An <c>info_ladder</c>'s bounds</b> are a world-space box written as
     /// six separate keys (<see cref="LadderKeys"/>), room-local in the room
     /// compile; a whole-map compile of the level measures them from the

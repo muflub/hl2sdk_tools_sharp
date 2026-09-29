@@ -31,8 +31,9 @@ namespace SourceSharp.MapTools.Rooms;
 /// alone, and a piece the (c) mechanism drops is simply not drawn.
 /// </para>
 /// <para>
-/// Static props are the furniture this reads today; brush entities join it
-/// when the link carries them.
+/// Static props and brush entities are the furniture this reads; a side's
+/// priority is the highest of all its pieces on the socket, of both kinds
+/// (<c>LevelLinker.LevelFurniture</c>, and the flatten's own tally).
 /// </para>
 /// </remarks>
 internal static class SocketFurniture

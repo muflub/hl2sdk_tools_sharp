@@ -32,7 +32,7 @@ public static partial class LevelLinker
     /// bytes it becomes, are the same at any thread count.
     /// </para>
     /// <para>
-    /// A room the link refuses (a second model, a water leaf, a pak that is
+    /// A room the link refuses (a water leaf, a pak that is
     /// not a zip, collision or entities it cannot read, ...) gets no link
     /// data rather than failing its compile: it is still packed as before,
     /// and a level that places it is refused at link time with the same

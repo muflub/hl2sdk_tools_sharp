@@ -266,7 +266,10 @@ public sealed class RoomPackIndex
 /// (<c>ECNT</c>, <see cref="RoomEntityCounts"/>), when its compile emitted static
 /// props its props as the link carries them (<c>PROP</c>: the models' hulls,
 /// the keys vbsp consumed and every prop's pose at all four turns,
-/// <c>RoomStaticProps</c>), and the link work done ahead for it
+/// <c>RoomStaticProps</c>), when its compile has brush models besides the
+/// world its brush models (<c>BMOD</c>: the runs each owns, what keeps it
+/// in a level, its bounds and collision at all four turns,
+/// <c>RoomBrushModels</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
 /// the room alone, then per quarter turn <i>r</i> its turned geometry
 /// (<c>GEO</c><i>r</i>) and world collision (<c>COL</c><i>r</i>), and

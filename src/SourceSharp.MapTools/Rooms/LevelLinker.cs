@@ -62,7 +62,8 @@ namespace SourceSharp.MapTools.Rooms;
 /// cell, so floors, ceilings and back-to-back walls are one box in two
 /// brushes, and the brush cap is otherwise the first limit a large level
 /// meets. The leaves' brush runs and the ledges' client data follow the
-/// new numbering; nothing else changes.
+/// new numbering; nothing else changes. A brush entity's brushes are its
+/// model's and never fold.
 /// </para>
 /// <para>
 /// <b>Visibility</b> is composed from the door graph, never flooded. A room's
@@ -77,10 +78,18 @@ namespace SourceSharp.MapTools.Rooms;
 /// clusters, which after the closure sees everything that side sees.
 /// </para>
 /// <para>
-/// A room whose compile left anything outside the relocation set — a second
-/// model, a water leaf, a real area portal, displacements, detail
-/// props — is refused rather than silently dropped: the linked map must be
-/// the rooms, not an approximation of them.
+/// A room whose compile left anything outside the relocation set — a water
+/// leaf, a real area portal, displacements, detail props — is refused
+/// rather than silently dropped: the linked map must be the rooms, not an
+/// approximation of them.
+/// </para>
+/// <para>
+/// <b>Brush entities</b> are carried as their own models: every placed
+/// room's brush models after the world, in link order, each with its tree,
+/// faces, brushes and collision record, an origin-relative one in its
+/// entity's frame, and one that <c>room_needs</c> or the socket furniture
+/// rule drops omitted whole (<see cref="PlanModels"/>, <see cref="RoomModelLayout"/>,
+/// <see cref="RoomBrushModels"/>).
 /// </para>
 /// <para>
 /// <b>Static props</b> are carried: every placed room's records, moved
