@@ -40,10 +40,13 @@ namespace SourceSharp.MapFormats.Geometry;
 /// Newton-Raphson step, and <c>_mm_rsqrt_ss</c> is an approximation whose
 /// result is permitted to differ between CPU vendors. Off that path it is
 /// <c>1.f / (sqrtf(len) + FLT_EPSILON)</c> and three multiplies. Neither is
-/// <c>x / len</c>, and the first is not reproducible at all. Matching stock bit
-/// for bit here is therefore impossible in principle, and this implementation
-/// takes the exact divide instead: a documented, deterministic divergence
-/// rather than an undocumented, machine-dependent one.
+/// <c>x / len</c>, and the first is not reproducible across machines. So the
+/// exact divide is the default: a documented, deterministic divergence rather
+/// than an undocumented, machine-dependent one. Where a caller must reproduce
+/// stock anyway, the estimate is an explicit opt-in
+/// (<see cref="FromPoints(Vec3, Vec3, Vec3, bool)"/>, <see cref="Vec3.NormaliseLikeStock"/>)
+/// that a compliance switch decides, and it matches stock only on a CPU
+/// whose estimate is the one stock ran on.
 /// </para>
 /// </remarks>
 public readonly struct Plane : IEquatable<Plane>
@@ -313,11 +316,54 @@ public readonly struct Plane : IEquatable<Plane>
     /// the table is not.
     /// </para>
     /// </remarks>
-    public static Plane FromPoints(Vec3 p0, Vec3 p1, Vec3 p2)
+    public static Plane FromPoints(Vec3 p0, Vec3 p1, Vec3 p2) =>
+        FromPoints(p0, p1, p2, estimateNormalise: false);
+
+    /// <summary>
+    /// Derives a plane from three points on it, before any snapping, choosing
+    /// how the cross product is normalised.
+    /// </summary>
+    /// <param name="p0">The first point.</param>
+    /// <param name="p1">The second point, the corner the edges meet at.</param>
+    /// <param name="p2">The third point.</param>
+    /// <param name="estimateNormalise">
+    /// True to normalise as stock does, with the reciprocal-square-root
+    /// estimate and one Newton step (<see cref="Vec3.NormaliseLikeStock"/>);
+    /// false to divide exactly (<see cref="Vec3.Normalise"/>).
+    /// </param>
+    /// <returns>The plane through the three points.</returns>
+    /// <exception cref="PlatformNotSupportedException">
+    /// <paramref name="estimateNormalise"/> is true and the CPU has no
+    /// estimate instruction.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Why the choice exists.</b> The reference's <c>PlaneFromPoints</c>
+    /// normalises its cross product with the same <c>VectorNormalize</c> as
+    /// every other vbsp site, so the normal of every slanted brush side
+    /// carries the estimate's last bits. Those bits are the CPU's: a side
+    /// through (688, 2320) and (704, 2304) has a cross product of
+    /// (3072, 3072, 0), whose exact normal component is 0x3F3504F4 and whose
+    /// estimated one is 0x3F3504F3 in stock's own 2fort BSP (compiled on an
+    /// AMD part) and 0x3F3504F2 on an Intel Xeon. The plane table then dedups later
+    /// planes against these within an epsilon, and the BSP's split heuristic
+    /// reads the sign of residuals as small as 6e-5 against them, so one ulp
+    /// here can change which plane a node splits on. The compliance switch
+    /// that decides this argument is the loader's.
+    /// </para>
+    /// <para>
+    /// The distance is <c>Dot(p0, normal)</c> either way, taken from
+    /// whichever normal was produced.
+    /// </para>
+    /// </remarks>
+    public static Plane FromPoints(Vec3 p0, Vec3 p1, Vec3 p2, bool estimateNormalise)
     {
         Vec3 t1 = p0 - p1;
         Vec3 t2 = p2 - p1;
-        (Vec3 normal, _) = Vec3.Cross(t1, t2).Normalise();
+        Vec3 cross = Vec3.Cross(t1, t2);
+        Vec3 normal = estimateNormalise
+            ? cross.NormaliseLikeStock().Normalised
+            : cross.Normalise().Normalised;
         return new Plane(normal, Vec3.Dot(p0, normal));
     }
 

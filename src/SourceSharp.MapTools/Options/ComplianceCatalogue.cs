@@ -1275,6 +1275,35 @@ public static class ComplianceCatalogue
             + "walk and the generic surface tracer, so the windings and the test on them always "
             + "follow the same side."),
 
+        StockQuirk.PlaneFromPointsNormalise => new(
+            quirk,
+            "Brush side planes normalised with the rsqrt estimate",
+            "PlaneFromPoints normalises each brush side's cross product with the rsqrtss "
+            + "estimate plus a Newton step, so every slanted side's normal, and every plane later "
+            + "merged into it, depends on the CPU.",
+            "PlaneFromPoints divides exactly, so the plane table and the tree built on it are the "
+            + "same on every CPU.",
+            CompileTools.Vbsp,
+            [
+                "SourceSharp.MapTools.Bsp.MapFileLoader.LoadSideAsync",
+            ],
+            QuirkObservation.Measured,
+            "Of the 122 slanted load-time planes this port numbers the same as stock's 2fort BSP, "
+            + "the exact divide gives stock's normal for 72; 24 are no exact formula's answer, and "
+            + "every one is the Newton step from an estimate inside rsqrtss's error bound.",
+            [
+                "PlaneFromPointsNormaliseTests.StocksSlantedPlanesAreTheEstimatesNewtonStep",
+                "PlaneFromPointsNormaliseTests.SomeOfStocksPlanesAreNoExactFormulasAnswer",
+                "PlaneFromPointsNormaliseTests.StockModeReproducesStocksPlanes",
+                "PlaneFromPointsNormaliseTests.StockLoadTakesTheEstimatedNormal",
+                "PlaneFromPointsNormaliseTests.CorrectLoadTakesTheExactNormal",
+                "PlaneFromPointsNormaliseTests.TheSlantedPlanesMoveWhenOnlyThisQuirkIsCorrected",
+            ],
+            "One ulp here does not stay one ulp: the split heuristic's epsilon-brush test reads "
+            + "the sign of a vertex's residual against the plane, so on 2fort it moves which "
+            + "plane a node splits on and the cluster count with it. On a CPU whose estimate is "
+            + "not the reference's, the Stock side still differs from stock."),
+
         _ => throw new ArgumentOutOfRangeException(
             nameof(quirk), quirk, "no ComplianceCatalogue entry for this StockQuirk"),
     };
