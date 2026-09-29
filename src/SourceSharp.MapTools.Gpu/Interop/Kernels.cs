@@ -47,8 +47,8 @@ namespace SourceSharp.MapTools.Gpu.Interop;
 /// is what a working device reports too, and the telemetry cannot tell a
 /// device that never traverses from one that traverses and commits the
 /// wrong answer. What it can show is a driver offering opaque triangles as
-/// candidates (llvmpipe does), which is worth naming beside a failed
-/// known-hit test. The
+/// candidates (llvmpipe did while the kernel was handed a BLAS), which is
+/// worth naming beside a failed known-hit test. The
 /// spike's diagnostic modes 2 (no-TOFH) and 3 (in-kernel Möller–Trumbore)
 /// were probe scaffolding and are not productized.
 /// </para>

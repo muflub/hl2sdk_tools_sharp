@@ -17,8 +17,9 @@ namespace SourceSharp.MapTools.Gpu;
 /// <summary>How <see cref="VulkanRayTracer.TryCreateAsync"/> should pick and size the device.</summary>
 /// <param name="DeviceMatch">
 /// Device-name substring pin (case-insensitive), or null to prefer the most
-/// GPU-like ray-query-capable device. Diagnostics pin <c>"llvmpipe"</c> and
-/// <c>"NVIDIA"</c> to watch the self-test's verdict on those devices.
+/// GPU-like ray-query-capable device. Facts pin <c>"radv"</c>,
+/// <c>"NVIDIA"</c> and <c>"llvmpipe"</c> to check the self-test and parity
+/// on each of those devices.
 /// </param>
 /// <param name="DeviceIndex">
 /// Physical-device index pin among ray-query-capable devices, or −1 for no
@@ -82,8 +83,8 @@ public readonly record struct VulkanRayTracerOptions(
 /// </param>
 /// <param name="Candidates">
 /// Telemetry rays that reached a candidate intersection. A conformant driver
-/// offers none for an opaque BLAS; llvmpipe offers them, and fails the
-/// known-answer legs.
+/// offers none for opaque geometry. llvmpipe offered them only while the
+/// kernel was handed a BLAS instead of a TLAS, and passes with the TLAS.
 /// </param>
 /// <param name="Reason">
 /// Why the device was rejected, in terms of the legs that failed and what the
@@ -154,7 +155,7 @@ public readonly record struct VulkanTracerAttempt(
 /// <b>THE GATE.</b> Construction traces a known-hit micro-scene (two
 /// triangles, two rays whose answers are exact by construction) through every
 /// kernel mode before the tracer is handed out. A driver that gets either
-/// known answer wrong (llvmpipe commits nothing) is REJECTED, with the legs
+/// known answer wrong is REJECTED, with the legs
 /// that failed and the telemetry in the reason, but no cause the test cannot
 /// tell apart (<see cref="ReasonFor"/> says why);
 /// <see cref="TryCreateAsync"/> never throws a driver failure — it
@@ -460,17 +461,19 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     /// telemetry adds one more observation, but it cannot say why.
     /// </para>
     /// <para>
-    /// The BLAS is built opaque, so a conformant driver commits every
+    /// The geometry is built opaque, so a conformant driver commits every
     /// triangle inside traversal and its first <c>rayQueryProceedEXT</c>
     /// returns false: zero proceed iterations and zero candidates is what a
     /// WORKING device reports (radv does, and passes). Zero iterations on a
     /// failing device therefore cannot tell a driver that never traverses
-    /// from one that traverses and commits the wrong thing, or from a BLAS
-    /// that came out empty; an earlier version named a vendor for it, which
-    /// was a guess, and one that the kernel's own undefined terminate after
-    /// the proceed loop could have explained just as well. Candidates on an
-    /// opaque BLAS ARE unusual (llvmpipe reports them), so they are quoted
-    /// as an observation, again without a cause.
+    /// from one that traverses and commits the wrong thing, or from a scene
+    /// that came out empty. NVIDIA's zeroes show why the reason must not
+    /// guess: they were first put down to the device, then to the kernel's
+    /// undefined terminate after the proceed loop, and the real cause was
+    /// neither: the BLAS sat in the descriptor where a ray query needs a
+    /// TLAS. Candidates on opaque geometry ARE unusual (llvmpipe reported
+    /// them under that same mistake), so they are quoted as an observation,
+    /// again without a cause.
     /// </para>
     /// </remarks>
     internal static string? ReasonFor(bool ready, string deviceName, SelfTestOutcome o)

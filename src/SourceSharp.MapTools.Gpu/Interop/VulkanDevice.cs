@@ -15,8 +15,9 @@ using Silk.NET.Vulkan.Extensions.KHR;
 namespace SourceSharp.MapTools.Gpu.Interop;
 
 /// <summary>
-/// One Vulkan compute device with the ray-query pipeline, the scene BLAS, and
-/// a ring of pinned slab slots — everything the traced batches need.
+/// One Vulkan compute device with the ray-query pipeline, the scene's
+/// acceleration structures, and a ring of pinned slab slots — everything the
+/// traced batches need.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,6 +31,19 @@ namespace SourceSharp.MapTools.Gpu.Interop;
 /// by same-queue luck; and the probe-only environment hooks are gone — the
 /// modes they selected are reached by explicit
 /// <c>TraceMode</c> calls from the capability self-test.
+/// </para>
+/// <para>
+/// The scene is two structures: a bottom-level one (the BLAS) holding the
+/// triangles, and a top-level one (the TLAS) holding one identity instance
+/// of it, and the kernel's descriptor is the TLAS. A ray query must be given
+/// a top-level structure; the spec does not allow a bottom-level one in that
+/// descriptor. RADV lays both levels out alike, so tracing a BLAS directly
+/// works there, and it was the only arrangement this code had for a long
+/// time. NVIDIA's driver starts every traversal at an instance, finds none
+/// in a BLAS, and reports every ray as a miss: the RTX 2070 SUPER failed the
+/// known-hit self-test with no candidates at all, and passes it with the
+/// TLAS. On RADV the TLAS changes no answer (the output of a whole map is
+/// byte-identical either way).
 /// </para>
 /// <para>
 /// Threading: not thread-safe by design. One tracer instance owns one of
@@ -73,8 +87,10 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
 
     private GpuBuffer? _vertexBuffer;
     private GpuBuffer? _asBuffer;
+    private GpuBuffer? _tlasBuffer;
     private SlabSlot[] _slots = [];
     private AccelerationStructureKHR _blasHandle;
+    private AccelerationStructureKHR _tlasHandle;
     private uint _triangleCount;
 
     /// <summary>Selected device name, e.g. <c>AMD Radeon RX 9070 XT (RADV GFX1201)</c>.</summary>
@@ -714,9 +730,15 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                 throw new NotSupportedException($"{DeviceName}: no memory type with {required}");
             }
 
+            MemoryAllocateFlagsInfo flagsInfo = new()
+            {
+                SType = StructureType.MemoryAllocateFlagsInfo,
+                Flags = AllocateFlagsFor(usage),
+            };
             MemoryAllocateInfo mai = new()
             {
                 SType = StructureType.MemoryAllocateInfo,
+                PNext = flagsInfo.Flags != 0 ? &flagsInfo : null,
                 AllocationSize = req.Size,
                 MemoryTypeIndex = (uint)type,
             };
@@ -766,6 +788,20 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             throw;
         }
     }
+
+    /// <summary>The memory-allocate flags a buffer with <paramref name="usage"/> needs.</summary>
+    /// <param name="usage">The buffer's usage.</param>
+    /// <returns><c>DEVICE_ADDRESS</c> for a buffer whose device address is taken, otherwise none.</returns>
+    /// <remarks>
+    /// A buffer created with <c>SHADER_DEVICE_ADDRESS</c> usage must be bound
+    /// to memory allocated with <c>VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT</c>.
+    /// That covers the vertex, scratch and instance buffers whose addresses
+    /// go to the builds, and the structures' own storage, whose address the
+    /// TLAS instance holds. RADV makes every allocation addressable, so
+    /// leaving the flag off worked there; the spec does not promise it.
+    /// </remarks>
+    internal static MemoryAllocateFlags AllocateFlagsFor(BufferUsageFlags usage) =>
+        (usage & BufferUsageFlags.ShaderDeviceAddressBit) != 0 ? MemoryAllocateFlags.DeviceAddressBit : 0;
 
     /// <summary>Frees a temporary buffer whose work finished, or parks it until <see cref="Dispose"/> when it failed.</summary>
     /// <param name="b">The buffer.</param>
@@ -968,21 +1004,15 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         }
 
         // A second LoadScene — the self-test's two-triangle scene and then
-        // the real one — replaces the vertex buffer and the BLAS; release
-        // the old pair instead of leaking them. The queue is idle here (the
-        // last dispatch's fence signalled), so the descriptor refresh in
-        // BuildBlas is safe.
+        // the real one — replaces the vertex buffer and both structures;
+        // release the old ones instead of leaking them. The queue is idle
+        // here (the last dispatch's fence signalled), so the descriptor
+        // refresh in BuildScene is safe.
+        ReleaseScene();
         if (_vertexBuffer is not null)
         {
             Free(_vertexBuffer);
             _vertexBuffer = null;
-        }
-
-        if (_asBuffer is not null)
-        {
-            _blasApi.DestroyAccelerationStructure(_device, _blasHandle, null);
-            Free(_asBuffer);
-            _asBuffer = null;
         }
 
         _triangleCount = (uint)(vertices.Length / 9);
@@ -1024,10 +1054,31 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             FreeOrPark(staging, uploaded);
         }
 
-        BuildBlas();
+        BuildScene();
     }
 
-    private void BuildBlas()
+    /// <summary>Destroys both structures and frees their storage; the TLAS first, since it refers to the BLAS.</summary>
+    private void ReleaseScene()
+    {
+        if (_tlasHandle.Handle != 0)
+        {
+            _blasApi.DestroyAccelerationStructure(_device, _tlasHandle, null);
+            _tlasHandle = default;
+        }
+
+        Free(_tlasBuffer);
+        _tlasBuffer = null;
+        if (_blasHandle.Handle != 0)
+        {
+            _blasApi.DestroyAccelerationStructure(_device, _blasHandle, null);
+            _blasHandle = default;
+        }
+
+        Free(_asBuffer);
+        _asBuffer = null;
+    }
+
+    private void BuildScene()
     {
         AccelerationStructureGeometryTrianglesDataKHR tris = new()
         {
@@ -1067,18 +1118,20 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         AccelerationStructureBuildSizesInfoKHR sizes = _blasApi.GetAccelerationStructureBuildSizes(
             _device, AccelerationStructureBuildTypeKHR.DeviceKhr, &info, &primCount);
         ulong asSize = Math.Max(16UL, sizes.AccelerationStructureSize);
-        ulong scratchSize = Math.Max(16UL, ((ulong)sizes.BuildScratchSize + 255UL) & ~255UL);
 
         // ACCELERATION_STRUCTURE_STORAGE_BIT_KHR on the backing buffer is spec
         // required; lavapipe silently produced an empty BLAS without it (the
-        // all-miss blocker's second contributor).
+        // all-miss blocker's second contributor). SHADER_DEVICE_ADDRESS is
+        // there because the TLAS instance refers to the BLAS by address.
         _asBuffer = Allocate(asSize, MemoryPropertyFlags.DeviceLocalBit,
             BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.StorageBufferBit
             | BufferUsageFlags.AccelerationStructureStorageBitKhr,
             deviceAddress: false);
-        GpuBuffer scratch = Allocate(scratchSize, MemoryPropertyFlags.DeviceLocalBit,
+        GpuBuffer scratch = Allocate(ScratchSize(sizes.BuildScratchSize), MemoryPropertyFlags.DeviceLocalBit,
             BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit,
             deviceAddress: true);
+        GpuBuffer? instances = null;
+        GpuBuffer? topScratch = null;
         bool built = false;
         try
         {
@@ -1092,21 +1145,103 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             };
             ThrowOn(_blasApi.CreateAccelerationStructure(_device, &asci, null, out _blasHandle),
                 "vkCreateAccelerationStructureKHR");
-
-            AccelerationStructureBuildRangeInfoKHR range = new() { PrimitiveCount = _triangleCount };
-            AccelerationStructureBuildRangeInfoKHR* rangePtr = &range;
             info.DstAccelerationStructure = _blasHandle;
             info.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = scratch.DeviceAddress };
 
+            // The TLAS: one instance of the BLAS, identity transform, every
+            // ray's mask, no culling (the kernel asks for none either). The
+            // BLAS's address is valid once it is created, before its build.
+            AccelerationStructureDeviceAddressInfoKHR blasAddress = new()
+            {
+                SType = StructureType.AccelerationStructureDeviceAddressInfoKhr,
+                AccelerationStructure = _blasHandle,
+            };
+            AccelerationStructureInstanceKHR instance = new()
+            {
+                InstanceCustomIndex = 0,
+                Mask = 0xFF,
+                InstanceShaderBindingTableRecordOffset = 0,
+                Flags = GeometryInstanceFlagsKHR.TriangleFacingCullDisableBitKhr,
+                AccelerationStructureReference = _blasApi.GetAccelerationStructureDeviceAddress(_device, &blasAddress),
+            };
+            instance.Transform.Matrix[0] = 1f;
+            instance.Transform.Matrix[5] = 1f;
+            instance.Transform.Matrix[10] = 1f;
+            instances = Allocate((ulong)sizeof(AccelerationStructureInstanceKHR),
+                MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit,
+                BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.AccelerationStructureBuildInputReadOnlyBitKhr,
+                deviceAddress: true);
+            *(AccelerationStructureInstanceKHR*)instances.Mapped = instance;
+
+            AccelerationStructureGeometryKHR top = new()
+            {
+                SType = StructureType.AccelerationStructureGeometryKhr,
+                GeometryType = GeometryTypeKHR.InstancesKhr,
+                Flags = GeometryFlagsKHR.OpaqueBitKhr,
+            };
+            top.Geometry.Instances = new AccelerationStructureGeometryInstancesDataKHR
+            {
+                SType = StructureType.AccelerationStructureGeometryInstancesDataKhr,
+                ArrayOfPointers = false,
+                Data = new DeviceOrHostAddressConstKHR { DeviceAddress = instances.DeviceAddress },
+            };
+            AccelerationStructureBuildGeometryInfoKHR topInfo = new()
+            {
+                SType = StructureType.AccelerationStructureBuildGeometryInfoKhr,
+                Type = AccelerationStructureTypeKHR.TopLevelKhr,
+                Flags = BuildAccelerationStructureFlagsKHR.PreferFastTraceBitKhr,
+                Mode = BuildAccelerationStructureModeKHR.BuildKhr,
+                GeometryCount = 1,
+                PGeometries = &top,
+            };
+            uint instanceCount = 1;
+            AccelerationStructureBuildSizesInfoKHR topSizes = _blasApi.GetAccelerationStructureBuildSizes(
+                _device, AccelerationStructureBuildTypeKHR.DeviceKhr, &topInfo, &instanceCount);
+            ulong tlasSize = Math.Max(16UL, topSizes.AccelerationStructureSize);
+            _tlasBuffer = Allocate(tlasSize, MemoryPropertyFlags.DeviceLocalBit,
+                BufferUsageFlags.ShaderDeviceAddressBit | BufferUsageFlags.StorageBufferBit
+                | BufferUsageFlags.AccelerationStructureStorageBitKhr,
+                deviceAddress: false);
+            topScratch = Allocate(ScratchSize(topSizes.BuildScratchSize), MemoryPropertyFlags.DeviceLocalBit,
+                BufferUsageFlags.StorageBufferBit | BufferUsageFlags.ShaderDeviceAddressBit,
+                deviceAddress: true);
+            Observe?.Invoke(VulkanStep.TopLevelScratchAllocated);
+            AccelerationStructureCreateInfoKHR topCreate = new()
+            {
+                SType = StructureType.AccelerationStructureCreateInfoKhr,
+                Buffer = _tlasBuffer.Vk,
+                Size = tlasSize,
+                Type = AccelerationStructureTypeKHR.TopLevelKhr,
+            };
+            ThrowOn(_blasApi.CreateAccelerationStructure(_device, &topCreate, null, out _tlasHandle),
+                "vkCreateAccelerationStructureKHR");
+            topInfo.DstAccelerationStructure = _tlasHandle;
+            topInfo.ScratchData = new DeviceOrHostAddressKHR { DeviceAddress = topScratch.DeviceAddress };
+
+            // Both builds in one command buffer: the TLAS build reads the
+            // BLAS the first build wrote, so a barrier orders them on the
+            // device (submission order alone makes no memory promise), and
+            // the second barrier makes the TLAS visible to the kernel's
+            // ray queries, which read it as an acceleration structure.
+            AccelerationStructureBuildRangeInfoKHR range = new() { PrimitiveCount = _triangleCount };
+            AccelerationStructureBuildRangeInfoKHR* rangePtr = &range;
+            AccelerationStructureBuildRangeInfoKHR topRange = new() { PrimitiveCount = 1 };
+            AccelerationStructureBuildRangeInfoKHR* topRangePtr = &topRange;
             CommandBuffer cmd = Begin();
             _blasApi.CmdBuildAccelerationStructures(cmd, 1, &info, &rangePtr);
-            // The build's write must be visible to the kernel's AS reads.
+            Barrier(
+                cmd,
+                PipelineStageFlags.AccelerationStructureBuildBitKhr,
+                AccessFlags.AccelerationStructureWriteBitKhr,
+                PipelineStageFlags.AccelerationStructureBuildBitKhr,
+                AccessFlags.AccelerationStructureReadBitKhr);
+            _blasApi.CmdBuildAccelerationStructures(cmd, 1, &topInfo, &topRangePtr);
             Barrier(
                 cmd,
                 PipelineStageFlags.AccelerationStructureBuildBitKhr,
                 AccessFlags.AccelerationStructureWriteBitKhr,
                 PipelineStageFlags.ComputeShaderBit,
-                AccessFlags.ShaderReadBit);
+                AccessFlags.AccelerationStructureReadBitKhr);
             End(cmd);
             Submit(cmd);
             built = true;
@@ -1114,15 +1249,27 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         finally
         {
             FreeOrPark(scratch, built);
+            if (instances is not null)
+            {
+                FreeOrPark(instances, built);
+            }
+
+            if (topScratch is not null)
+            {
+                FreeOrPark(topScratch, built);
+            }
         }
 
-        UpdateBlasBinding();
+        UpdateSceneBinding();
     }
+
+    /// <summary>A build's scratch size, rounded up to 256 bytes (and never zero).</summary>
+    private static ulong ScratchSize(ulong required) => Math.Max(16UL, (required + 255UL) & ~255UL);
 
     /// <summary>
     /// Creates one descriptor set per slot, binding that slot's kernel ray
-    /// and output buffers. Runs once at construction. The BLAS binding is
-    /// written by <see cref="UpdateBlasBinding"/> on each build (self-test
+    /// and output buffers. Runs once at construction. The TLAS binding is
+    /// written by <see cref="UpdateSceneBinding"/> on each build (self-test
     /// scene, then the real scene), which always comes before the first
     /// dispatch.
     /// </summary>
@@ -1186,13 +1333,13 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     }
 
     /// <summary>
-    /// Points every slot's set at the BLAS after a build. Legal because no
+    /// Points every slot's set at the TLAS after a build. Legal because no
     /// slot is in flight then: builds happen only while the device is being
     /// set up, and every self-test dispatch has been waited for.
     /// </summary>
-    private void UpdateBlasBinding()
+    private void UpdateSceneBinding()
     {
-        fixed (AccelerationStructureKHR* blasPtr = &_blasHandle)
+        fixed (AccelerationStructureKHR* tlasPtr = &_tlasHandle)
         {
             foreach (SlabSlot slot in _slots)
             {
@@ -1200,7 +1347,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                 {
                     SType = StructureType.WriteDescriptorSetAccelerationStructureKhr,
                     AccelerationStructureCount = 1,
-                    PAccelerationStructures = blasPtr,
+                    PAccelerationStructures = tlasPtr,
                 };
                 WriteDescriptorSet asBinding = new()
                 {
@@ -1422,9 +1569,9 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// (modes 4, 0 and 1). The telemetry (mode 5) is recorded for the report
     /// and decides nothing: the BLAS is opaque, so a conformant driver offers
     /// no candidates and reports zero proceed iterations, the same numbers a
-    /// device that never traversed would give. llvmpipe is the one device
-    /// seen to report candidates, and it fails the known answers (modes 0/1
-    /// commit nothing).
+    /// device that never traversed would give. While the kernel was handed a
+    /// BLAS, llvmpipe reported candidates and NVIDIA reported none, and both
+    /// failed the known answers; with the TLAS both pass.
     /// </summary>
     /// <returns>Whether to trust the device, and the telemetry either way.</returns>
     /// <remarks>
@@ -1778,8 +1925,11 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         }
 
         _parked.Clear();
-        _blasApi?.DestroyAccelerationStructure(_device, _blasHandle, null);
-        Free(_asBuffer);
+        if (_blasApi is not null)
+        {
+            ReleaseScene();
+        }
+
         FreeSlots();
         Free(_vertexBuffer);
         if (_descriptorPool.Handle != 0)
