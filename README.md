@@ -201,7 +201,8 @@ Each takes the stock tool's options. Accepted flags include:
   set, plus `-cooker`, `-vphysics`, `-compliance`, `-incremental`,
   `-cache-dir` and `-nocache`.
 - **vvis:** `-fast`, `-nosort`, `-radius_override`, `-trace`, `-threads`,
-  `-low`, `-tmpin`, `-compliance`, and this port's own `-fastflow[=N]` (below).
+  `-low`, `-tmpin`, `-compliance`, and this port's own `-fastflow[=N]` and
+  `-separator auto|256|512` (below).
 - **vrad:** `-hdr`, `-ldr`, `-both`, `-fast`, `-final`, `-extrasky`,
   `-bounce`, `-smooth`, `-chop`, `-maxchop`, `-dispchop`, `-softsun`,
   `-StaticPropLighting`, `-StaticPropPolys`, `-textureshadows`,
@@ -277,6 +278,44 @@ the way (a depth limit instead of a step count; publishing a conservative
 vector, which keeps every pair but saves only 6 %) are described on
 `VisClusterStop` in `src/SourceSharp.MapTools/Vis/`.
 
+#### The vvis separator path (`-separator auto|256|512`)
+
+Most of vvis's time goes into the separator clip: deriving the planes that
+separate a frame's source and pass portals, and chopping each candidate by
+them. There are two implementations, and they write the same bytes.
+`-separator` only chooses how fast the flow runs.
+
+- **`256`** derives a frame's planes lazily, one or two source edges at a
+  time as a clip reaches them (two at once in the halves of a 256-bit
+  register), and chops by one plane at a time. This was the only path
+  before the flag existed.
+- **`512`** stores the planes as columns, derives a frame's whole list at
+  the first clip that needs it, four source edges at once in the quarters of
+  a 512-bit register, and tests each candidate against eight planes at once.
+- **`auto`** (the default) picks `512` only when .NET accelerates 512-bit
+  vectors (`Vector512.IsHardwareAccelerated`) and the CPU is AMD family
+  `1Ah` (Zen 5) or later. Everything else gets `256`: every Intel CPU, Zen 4
+  (family `19h`, which splits 512-bit operations into two 256-bit halves and
+  has not been measured), and any CPU without AVX-512.
+
+The rule comes from measurements on 2fort, where both paths give the same
+vvis output (`303f56e0…`):
+
+| CPU | threads | `512` against `256` |
+|---|---:|---|
+| Ryzen 9 9950X (Zen 5) | 16 | 4.6 % less wall time, CPU down by the same |
+| Ryzen 9 9950X (Zen 5) | 32 | 2.9 % less wall time, CPU down by the same |
+| Ice Lake-class Xeon | 4 | about 10 % more CPU in the study; 8.6 % more (134.5 s against 123.9 s, mean of four interleaved runs) when re-measured for this flag |
+
+The Xeon has AVX-512 but runs 512-bit double-precision square root and
+divide at reduced throughput, and the derivation is built on them. `-separator
+512` forces the wide path anywhere, including on a CPU with no AVX-512, where
+.NET runs it in software: slowly, but with the same result. `ssmap vvis`
+prints which path ran (`separator: 256 (auto)`). The flag is last-wins like
+the rest, and `ssmap all` takes it in the `--vvis` section. Libraries set it
+as `VvisOptions.SeparatorPath`. It is left out of the incremental cache's key,
+because it changes no byte.
+
 ### `all`
 
 ```sh
@@ -290,6 +329,8 @@ Chain options apply to every stage: `-game`, `-threads`, `-compliance`, `-v`,
 `-nocache`, `-incremental`, `-cache-dir <dir>`, `-gpu <match|auto>`,
 `-gpu_slabs <n>`, `-gpu_depth <n>`, `--no-write` (compile without writing the map) and
 `--record-content <zip>`.
+
+A `--vvis` section also takes `-fastflow[=N]` and `-separator auto|256|512`.
 
 `--record-content <zip>` records every game file the compile looked up and
 writes the ones it found to a zip, whether the compile succeeds or fails part
@@ -311,6 +352,58 @@ way. The zip is a game directory:
 
 Unzip it anywhere and compile against it with no Steam install:
 `ssmap all <map> -game <unzipped dir>`.
+
+### Per-machine defaults
+
+`vbsp`, `vvis`, `vrad` and `all` read defaults for this machine from a small
+config file, if one exists:
+
+- `$XDG_CONFIG_HOME/ssmap/config` when `XDG_CONFIG_HOME` is an absolute
+  path, else `~/.config/ssmap/config` (Linux and macOS);
+- `%APPDATA%\ssmap\config` (Windows).
+
+`--config <file>` reads another file instead, and `--no-config` reads none.
+Either can go anywhere on the line. When a file is read, `ssmap` prints one
+line naming it and the flags it added; with no file it prints nothing.
+
+```ini
+# every verb: sixteen threads
+threads = 16
+
+[vvis]
+# auto | 256 | 512
+separator = auto
+
+[vrad]
+gpu = auto
+gpu_depth = 3
+
+[all]
+threads = 32
+```
+
+The keys are `threads` (`-threads`, every verb), `separator` (`-separator`;
+`vvis` and `all`), `gpu` (`-gpu`; `vrad` and `all`) and `gpu_depth`
+(`-gpu_depth`; `vrad` and `all`). Keys before the first `[section]` apply to
+every verb that takes them. A verb uses its own section first; `all` then
+uses the section of the stage a key belongs to (`separator` from `[vvis]`,
+`gpu` and `gpu_depth` from `[vrad]`), then the keys at the top. Comments are
+whole lines starting with `#` or `;`, and keys and section names ignore case.
+
+**Precedence is flag, then config, then the built-in default.** A config
+value is used only when the command line does not give its flag, and it is
+applied by adding that flag to the command line. So `ssmap vvis -separator
+256 map` runs `256` whatever the config says, and a config `threads` never
+conflicts with a `-threads` given in an `all` section.
+
+A malformed file is an error naming the file and line, and the command does
+not run. That includes an unknown key or section, a key in a section whose
+verb does not take it, a key given twice in one section, and a bad value.
+Unknown keys are errors, not warnings, because a typo in a file nobody
+rereads would otherwise leave the default silently in place. Another default
+(`-fastflow`, say) is one more row in the key table in
+`src/SourceSharp.MapCompile/MachineConfig.cs`. The file belongs to the CLI:
+the libraries only ever see options.
 
 ### `room`, `rooms`, `link` and `layout`
 

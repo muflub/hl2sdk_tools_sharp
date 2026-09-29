@@ -85,6 +85,13 @@ public sealed class VisFlow
     /// <summary>The flow's work counters.</summary>
     public VisWorkCounters Work { get; }
 
+    /// <summary>
+    /// The separator clip the flow ran, resolved from
+    /// <see cref="Options.VvisOptions.SeparatorPath"/>: never
+    /// <see cref="VisSeparatorPath.Auto"/>.
+    /// </summary>
+    public VisSeparatorPath SeparatorPath { get; internal init; } = VisSeparatorPath.Vector256;
+
     internal VisPortalState State { get; }
 }
 
