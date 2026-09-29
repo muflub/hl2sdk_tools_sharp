@@ -147,6 +147,38 @@ public sealed class LevelLinkerCubemapTests : IClassFixture<LevelLinkerCubemapTe
     }
 
     /// <summary>
+    /// A room with both a cubemap sample and an overlay (the overlay lying on
+    /// a specular face a sample patches), placed twice with the first turned:
+    /// at every turn the link and the flattened compile hold the same samples,
+    /// patches and overlays (bit for bit but the overlays' face lists, each
+    /// overlay's square wholly covered by its faces), the overlays' accessor
+    /// names its own overlay, and the linked map passes <c>ssmap check</c>
+    /// with no error and no cubemap warning.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Rotations))]
+    public async Task ARoomWithACubemapAndAnOverlayLinksAsItFlattens(int rotation)
+    {
+        (LinkedLevel linked, BspData whole) = await LinkAndCompileFlatAsync(LibraryVmf(overlay: true), $"hub@{rotation}, hub");
+        BspData map = linked.Bsp;
+
+        Assert.Equal(4, BspStructView.Count<DCubemapSample>(map[BspLump.Cubemaps]));
+        Assert.True(whole[BspLump.Cubemaps].Data.Span.SequenceEqual(map[BspLump.Cubemaps].Data.Span), "the samples differ");
+        Assert.Equal(Patches(whole), Patches(map));
+
+        Assert.Equal(2, RoomOverlayHarness.Overlays(map).Length);
+        Assert.Equal(RoomOverlayHarness.Observed(whole), RoomOverlayHarness.Observed(map));
+        Assert.All(RoomOverlayHarness.Overlays(map), o => Assert.Equal(1024.0, RoomOverlayHarness.Covered(map, o), 2));
+        Assert.Equal(
+            ["0", "1"],
+            RoomOverlayHarness.OfClass(map, RoomOverlays.AccessorClass).Select(e => e.Get(RoomOverlays.IdKey)!));
+
+        ValidationReport report = await BspValidator.CheckAsync(map, CancellationToken.None);
+        Assert.True(report.ErrorCount == 0, string.Join("\n", report.Diagnostics));
+        Assert.True(report.ForCode(BspRuleCodes.NoCubemaps).IsEmpty);
+    }
+
+    /// <summary>
     /// A patched material's text in the linked pak: its <c>$envmap</c> names
     /// the linked sample's texture and its <c>$bottommaterial</c> the
     /// linked patch of the dependent, and nothing else of the room's file
@@ -363,7 +395,7 @@ public sealed class LevelLinkerCubemapTests : IClassFixture<LevelLinkerCubemapTe
     // ---- helpers -------------------------------------------------------------------------------
 
     /// <summary>The library: the hub with two specular slab tops, two samples and a sky.</summary>
-    private static VmfDocument LibraryVmf()
+    private static VmfDocument LibraryVmf(bool overlay = false)
     {
         VmfDocument library = RoomHarness.LibraryVmf(HubDefinition);
         VmfChunk world = library.GetChunk(MapFileLoader.WorldChunk)!;
@@ -375,6 +407,13 @@ public sealed class LevelLinkerCubemapTests : IClassFixture<LevelLinkerCubemapTe
         // the moved float, not of the room's integer.
         library.Chunks.Add(Entity("env_cubemap", 700010, ("origin", "76.5 84.25 100.75"), ("sides", "72001"), ("cubemapsize", "6")));
         library.Chunks.Add(Entity("env_cubemap", 700011, ("origin", "170.75 165.5 100")));
+        if (overlay)
+        {
+            // A named overlay on the second slab's specular top, which the
+            // nearest sample patches: both features on one face.
+            library.Chunks.Add(RoomOverlayHarness.Overlay(700012, new Vec3(170, 165, 40), "72101", ("targetname", "shine")));
+        }
+
         return library;
     }
 
@@ -418,6 +457,11 @@ public sealed class LevelLinkerCubemapTests : IClassFixture<LevelLinkerCubemapTe
         files.AddText(
             $"materials/{ShinyBottom}.vmt",
             "\"LightmappedGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"$envmap\" \"env_cubemap\"\n}\n");
+        foreach ((string path, byte[] bytes) in RoomOverlayHarness.Files())
+        {
+            files.AddFile(path, bytes);
+        }
+
         SurfaceUnit.AddSky(files, Sky, (int)ImageFormat.Bgr888, 0x0304);
         DirectoryContentMount mount = await DirectoryContentMount.MountAsync(files, VPath.Empty);
         return new VbspContext(VbspOptions.Default, new ContentFileSystem([mount]))
@@ -428,9 +472,12 @@ public sealed class LevelLinkerCubemapTests : IClassFixture<LevelLinkerCubemapTe
     }
 
     /// <summary>The library's rooms compiled and linked into the level of the given rows, and the same level flattened and compiled whole.</summary>
-    private static async Task<(LinkedLevel Linked, BspData Whole)> LinkAndCompileFlatAsync(params string[] rows)
+    private static Task<(LinkedLevel Linked, BspData Whole)> LinkAndCompileFlatAsync(params string[] rows) =>
+        LinkAndCompileFlatAsync(LibraryVmf(), rows);
+
+    /// <summary>A library's rooms compiled and linked into the level of the given rows, and the same level flattened and compiled whole.</summary>
+    private static async Task<(LinkedLevel Linked, BspData Whole)> LinkAndCompileFlatAsync(VmfDocument library, params string[] rows)
     {
-        VmfDocument library = LibraryVmf();
         RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
         LibraryRoom room = split.Rooms.Single();
         RoomLibrary compiled = new(room.Definition.Kit, room.Definition.CellSize) { LibraryEntities = split.LibraryEntities };

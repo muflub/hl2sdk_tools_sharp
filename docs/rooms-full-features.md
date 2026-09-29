@@ -2900,7 +2900,9 @@ entities exactly as before). Facts hold link and flatten at every rotation
 to the same overlays, bit for bit but the face lists, and to the same area
 of each overlay's square covered by its faces (each face clipped to the
 square in the overlay's basis, summed: the union polygon of 4.9, whatever
-faces the two compiles cut), and the accessor to the same keys but one.
+faces the two compiles cut), and the accessor to the same keys but one; a room with both an overlay and
+a cubemap sample (the overlay on a face a sample patches) links as it
+flattens at every turn and passes `ssmap check`.
 The pack format version stays 4: `OVLY` is a tag an older build skips, and
 that build refuses a room with overlays by its lump; a pack written before
 this PR has no `OVLY`, and this build refuses its rooms with overlays with
