@@ -295,6 +295,15 @@ public sealed class RoomLibrary
     /// </summary>
     public IReadOnlyList<VmfChunk> LibraryEntities { get; set; } = [];
 
+    /// <summary>
+    /// The name of the library's skybox room (<see cref="RoomLibrarySplit.Skybox"/>),
+    /// one of <see cref="Rooms"/>, or null when the library has none: read
+    /// from the pack's library section (<see cref="RoomLibrarySkybox"/>) by
+    /// whoever loads the rooms. The link places it below every level's grid
+    /// as its own area; a level may not place it itself.
+    /// </summary>
+    public string? SkyboxRoom { get; set; }
+
     /// <summary>The rooms, in insertion order.</summary>
     public IReadOnlyCollection<RoomObject> Rooms => _rooms.Values;
 

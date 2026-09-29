@@ -293,7 +293,7 @@ public sealed class RoomPackIndex
 /// <listheader><term>Bytes</term><description>What</description></listheader>
 /// <item><term>8</term><description>The magic, <c>SSRPAK01</c> in ASCII (<see cref="Magic"/>).</description></item>
 /// <item><term>4</term><description><c>int32</c> format version (<see cref="Version"/>).</description></item>
-/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/>: <c>ssmap room</c> writes the compile id (<see cref="RoomCompileIds.PackSection"/>, <c>CMPL</c>), then the library-wide entities (<see cref="RoomLibraryEntities.SectionTag"/>) when the library has any, then its settings (<see cref="RoomLibraryOptions.SectionTag"/>) when it makes any.</description></item>
+/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/>: <c>ssmap room</c> writes the compile id (<see cref="RoomCompileIds.PackSection"/>, <c>CMPL</c>), then the library-wide entities (<see cref="RoomLibraryEntities.SectionTag"/>) when the library has any, then its settings (<see cref="RoomLibraryOptions.SectionTag"/>) when it makes any, then the name of its skybox room (<see cref="RoomLibrarySkybox.SectionTag"/>) when it has one.</description></item>
 /// <item><term>4</term><description><c>int32</c> room count, 0 to <see cref="MaxRooms"/>.</description></item>
 /// <item><term>20 per library section</term><description>
 /// The library section table: tag, <c>int64</c> offset from the start of the pack, <c>int64</c> length.
@@ -1088,6 +1088,28 @@ public static class RoomPack
     {
         byte[]? bytes = await ReadLibrarySectionAsync(r, index, RoomLibraryEntities.SectionTag, cancellationToken).ConfigureAwait(false);
         return bytes is null ? [] : await RoomLibraryEntities.ReadAsync(bytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the name of the library's skybox room from a pack whose index
+    /// was just read: its <see cref="RoomLibrarySkybox.SectionTag"/> section,
+    /// or null when the library has no skybox.
+    /// </summary>
+    /// <param name="r">
+    /// The pack, as for <see cref="ReadLibraryOptionsAsync"/>: a stream that
+    /// cannot seek is read forward, in the order <c>ssmap room</c> writes the
+    /// library sections (the skybox after the settings).
+    /// </param>
+    /// <param name="index">The pack's index, read from <paramref name="r"/>.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The skybox room's name, or null.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="LinkException">The section is cut short or out of shape (<see cref="RoomLibrarySkybox.Read"/>).</exception>
+    public static async Task<string?> ReadLibrarySkyboxAsync(
+        Stream r, RoomPackIndex index, CancellationToken cancellationToken = default)
+    {
+        byte[]? bytes = await ReadLibrarySectionAsync(r, index, RoomLibrarySkybox.SectionTag, cancellationToken).ConfigureAwait(false);
+        return bytes is null ? null : RoomLibrarySkybox.Read(bytes);
     }
 
     /// <summary>One library section's bytes, or null when the pack has no section of that tag.</summary>

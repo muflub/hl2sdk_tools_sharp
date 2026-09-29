@@ -76,9 +76,15 @@ public static partial class LevelLinker
     /// entirely and links to the bytes it did before names existed.
     /// </para>
     /// <para>
+    /// <b>The skybox</b> (<see cref="SkyboxOf"/>): its entities are moved to
+    /// it and written after every room's, never through the resolver (it
+    /// stands in no cell of the grid), and its extent is left out of the
+    /// worldspawn's, as vbsp leaves a 3D skybox out of <c>world_mins</c>.
+    /// </para>
+    /// <para>
     /// <b>Appended.</b> Entities the linker writes for the level after every
-    /// room's (a library's door portals, <see cref="LevelDoorPortals"/>) go
-    /// last, where the flatten writes them.
+    /// room's and the skybox's (a library's door portals,
+    /// <see cref="LevelDoorPortals"/>) go last, where the flatten writes them.
     /// </para>
     /// </remarks>
     internal static BspLumpData MergeEntities(
@@ -100,7 +106,12 @@ public static partial class LevelLinker
         // The naming resolver runs only when some placed room uses names
         // (or the mod's classes are asked for): a level that uses nothing of
         // it links exactly as it did before names existed.
-        bool resolving = naming is not null && naming.IsActive(plans);
+        bool resolving = naming is not null && naming.IsActive([.. plans.Where(p => !p.IsSkybox)]);
+
+        // The skybox's entities (SkyboxOf): moved to it, never resolved (it
+        // has no cell of the grid to name things by), and written after
+        // every room's, where the flatten writes them.
+        List<(BspEntity Entity, int Placement)> skyboxEntities = [];
         List<ResolverRoom> resolverRooms = [];
         for (int index = 0; index < plans.Length; index++)
         {
@@ -123,7 +134,19 @@ public static partial class LevelLinker
                         throw new LinkException(item.Error);
                     }
 
-                    if (resolving)
+                    if (plan.IsSkybox)
+                    {
+                        if (!compileOnly)
+                        {
+                            AddUnlessDuplicate(
+                                skyboxEntities,
+                                singletons,
+                                TranslateEntity(item, plan.Transform, name, plan.OccluderBase, plan.Models, plan.OverlayBase, plan.PortalBase),
+                                name,
+                                index);
+                        }
+                    }
+                    else if (resolving)
                     {
                         // Every entity keeps its place, so the room's
                         // stored name tables index the list as they index
@@ -138,7 +161,7 @@ public static partial class LevelLinker
                     continue;
                 }
 
-                if (resolving)
+                if (resolving && !plan.IsSkybox)
                 {
                     entities.Add(LevelEntity.FromLink(item, index, i));
                 }
@@ -164,14 +187,16 @@ public static partial class LevelLinker
                     throw new LinkException(error);
                 }
 
-                if (item.Extent is { } turned)
+                // The world's extent is every room's but the skybox's, which
+                // vbsp leaves out of world_mins and world_maxs too.
+                if (item.Extent is { } turned && !plan.IsSkybox)
                 {
                     Box moved = plan.Transform.TranslateBox(turned);
                     extent = extent is { } sofar ? Union(sofar, moved) : moved;
                 }
             }
 
-            if (resolving)
+            if (resolving && !plan.IsSkybox)
             {
                 resolverRooms.Add(naming!.RoomFor(plan, index, entities));
             }
@@ -247,8 +272,9 @@ public static partial class LevelLinker
         // level in lump order, as vbsp gives them over the flattened map
         // (LevelLightStyles): each room's compile numbered its own from 32.
         styles ??= new LevelLightStyles();
-        styles.Renumber([.. library.Select(e => (e, -1)), .. merged]);
+        styles.Renumber([.. library.Select(e => (e, -1)), .. merged, .. skyboxEntities]);
         lump.AddRange(merged.Select(m => m.Entity));
+        lump.AddRange(skyboxEntities.Select(m => m.Entity));
 
         // What the linker writes after every room's (the door portals'
         // entities, LevelDoorPortals), as the flatten writes it last.

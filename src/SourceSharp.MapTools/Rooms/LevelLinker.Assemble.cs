@@ -82,6 +82,17 @@ public static partial class LevelLinker
             top[i] = node;
         }
 
+        // The skybox below the grid (SkyboxOf): a root above the grid's top
+        // tree splits at the grid's floor; everything above goes to the
+        // grid's tree, everything below to the skybox room's own tree.
+        RoomPlan? skybox = plans[^1].IsSkybox ? plans[^1] : null;
+        int gridRoot = 0;
+        if (skybox is not null)
+        {
+            top = UnderSkybox(top, planes, layout, cell);
+            gridRoot = 1;
+        }
+
         // Nodes: the top tree first (so model 0's head node is 0), then every
         // room's subtree with its children rebased and its bounds moved.
         List<DNode> nodes = [.. top];
@@ -134,7 +145,20 @@ public static partial class LevelLinker
         // Top nodes reference room roots (their positive children) and the
         // shared solid leaf (leaf 0, negative child -1); room bases are only
         // known now, so the second pass fills them.
-        FillTopChildren(nodes, top.Count, plans, layout);
+        FillTopChildren(nodes, top.Count, plans, layout, gridRoot);
+        if (skybox is not null)
+        {
+            DNode root = nodes[0];
+            IntArray2 children = root.Children;
+            for (int side = 0; side < 2; side++)
+            {
+                children[side] = children[side] == MarkerSkybox ? skybox.NodeBase : children[side];
+            }
+
+            root.Children = children;
+            nodes[0] = root;
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
 
         // Leafs: the shared solid at index 0 — the void outside every room,
@@ -148,7 +172,7 @@ public static partial class LevelLinker
             Contents = (int)BrushContents.Solid,
             Cluster = -1,
             AreaFlags = 0,
-            Mins = Short3(new Vec3(minx * cell, miny * cell, 0)),
+            Mins = Short3(new Vec3(minx * cell, miny * cell, skybox is null ? 0 : -cell)),
             Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, cell)),
             LeafWaterDataId = -1,
         }];
@@ -749,6 +773,57 @@ public static partial class LevelLinker
         }
 
         return (linked, folded);
+    }
+
+    /// <summary>The child marker for the skybox room's root (resolved at assembly).</summary>
+    private const int MarkerSkybox = -1002;
+
+    /// <summary>
+    /// The top tree with the skybox below it: a new root, node 0, splitting
+    /// at the grid's floor (z = 0), its front the grid's top tree (every
+    /// child index of it one further on) and its back the skybox room's
+    /// root (<see cref="MarkerSkybox"/>, filled once the room's nodes are
+    /// placed).
+    /// </summary>
+    /// <remarks>
+    /// Everything below the grid's floor, wherever it stands, descends into
+    /// the skybox's tree: a room's tree is its sealed compile's, which puts
+    /// everything outside the room's shell in solid leaves, as the grid's
+    /// single-cell nodes rely on for the space above and below a cell. The
+    /// root bounds the grid and the skybox's cell below it.
+    /// </remarks>
+    private static List<DNode> UnderSkybox(List<DNode> top, LinkPlanes planes, LevelLayout layout, float cell)
+    {
+        (int minx, int miny, int maxx, int maxy) = Extent(layout);
+        (int even, bool flipped) = planes.Intern(new Vec3(0, 0, 1), 0);
+        IntArray2 children = default;
+        children[0] = 1;
+        children[1] = MarkerSkybox;
+        List<DNode> nodes =
+        [
+            new DNode
+            {
+                PlaneNum = even,
+                Children = Orient(children, flipped),
+                Mins = Short3(new Vec3(minx * cell, miny * cell, -cell)),
+                Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, cell)),
+                Area = -1,
+            },
+        ];
+        foreach (DNode node in top)
+        {
+            DNode shifted = node;
+            IntArray2 grid = node.Children;
+            for (int side = 0; side < 2; side++)
+            {
+                grid[side] = grid[side] >= 0 ? grid[side] + 1 : grid[side];
+            }
+
+            shifted.Children = grid;
+            nodes.Add(shifted);
+        }
+
+        return nodes;
     }
 
     /// <summary>

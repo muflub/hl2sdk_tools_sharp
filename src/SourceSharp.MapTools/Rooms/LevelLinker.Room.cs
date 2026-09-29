@@ -610,6 +610,9 @@ public static partial class LevelLinker
         /// <summary>The room's overlays (<see cref="RoomOverlays"/>), or null for a room with none.</summary>
         public RoomOverlays? Overlays { get; init; }
 
+        /// <summary>Whether this is the library's skybox room, placed below the grid (<see cref="SkyboxOf"/>).</summary>
+        public bool IsSkybox => Placement.Instance.Placement.Level != 0;
+
         /// <summary>The room's areas and area portals (<see cref="RoomAreaPortals"/>), or null for a room with none.</summary>
         public RoomAreaPortals? AreaPortals { get; init; }
 

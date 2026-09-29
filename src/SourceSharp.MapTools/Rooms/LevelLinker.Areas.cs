@@ -67,8 +67,9 @@ public static partial class LevelLinker
     /// <summary>
     /// The level's areas: which of the level's areas each placement's own
     /// areas become, with the portals that divide them, or null when no
-    /// placed room has an area portal, so a level without them links exactly
-    /// as before they were carried (one open area, the first room's lumps).
+    /// placed room has an area portal, the library asks for no door portals
+    /// and has no skybox, so a level without them links exactly as before
+    /// they were carried (one open area, the first room's lumps).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -99,6 +100,12 @@ public static partial class LevelLinker
     /// same, and reports it (<see cref="LinkedLevel.AreaWarnings"/>).
     /// </para>
     /// <para>
+    /// <b>The skybox</b> (<see cref="SkyboxOf"/>) has no joint, so its areas
+    /// join nothing: it is its own area, as vbsp's flood makes a sealed
+    /// skybox (the rooms design, 4.12); being the last placement, its area
+    /// is numbered after every room's.
+    /// </para>
+    /// <para>
     /// <b>Limits.</b> The level's areas are held to the loader's cap on the
     /// lump (<c>MAX_MAP_AREAS</c>, 256 entries, area 0 included), refused
     /// naming the placement whose area crossed it; the listings, the clip
@@ -117,7 +124,7 @@ public static partial class LevelLinker
     /// <exception cref="LinkException">The level has more areas than a map holds, or more portal numbers than a listing's key holds.</exception>
     private static LevelAreas? PlanAreas(ResolvedPlacement[] resolved, RoomPlan[] plans, IReadOnlyList<LevelDoorPortal>? doors)
     {
-        if (doors is null && !plans.Any(p => p.AreaPortals is not null))
+        if (doors is null && !plans.Any(p => p.AreaPortals is not null || p.IsSkybox))
         {
             return null;
         }
@@ -160,11 +167,7 @@ public static partial class LevelLinker
             }
         }
 
-        Dictionary<(int X, int Y), ResolvedPlacement> byCell = new(resolved.Length);
-        foreach (ResolvedPlacement placement in resolved)
-        {
-            byCell[(placement.Instance.Placement.CellX, placement.Instance.Placement.CellY)] = placement;
-        }
+        Dictionary<(int X, int Y), ResolvedPlacement> byCell = GridCells(resolved);
 
         for (int p = 0; p < plans.Length && doors is null; p++)
         {

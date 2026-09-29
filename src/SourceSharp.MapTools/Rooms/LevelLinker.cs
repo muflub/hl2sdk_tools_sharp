@@ -266,14 +266,20 @@ public static partial class LevelLinker
         ValidateJoints(layout, library);
         RoomLinter.CheckReachable(layout, name => library.Get(name).Definition);
 
-        ResolvedPlacement[] resolved = [.. layout.Rooms.Select((p, i) => Resolve(p, i, library))];
+        // The library's skybox room, when it has one, placed below the grid
+        // and carried after every room of the level (SkyboxOf): the grid's
+        // logic reads the level's own placements (OnGrid, GridCells).
+        RoomInstance? skybox = SkyboxOf(layout, library);
+        ResolvedPlacement[] resolved = [
+            .. layout.Rooms.Select((p, i) => Resolve(p, i, library)),
+            .. skybox is null ? [] : new[] { Resolve(skybox, layout.Rooms.Count, library) }];
 
         // The level's transitions and spawn (the rooms design, section 11):
         // the level rule checked, and what each transition room writes
         // decided, from the rooms' stored transition data. Null for a level
         // without transitions, which links exactly as before them.
         LevelTransitionPlan? transitions = LevelTransitionPlan.Make(
-            layout, [.. resolved.Select(p => TransitOf(p.Room))], name => library.Get(name).Definition, options.ModEntities);
+            layout, [.. OnGrid(resolved).Select(p => TransitOf(p.Room))], name => library.Get(name).Definition, options.ModEntities);
 
         // Whether the level is lit (its rooms' base bakes, the rooms design,
         // section 9), and what its rooms agree on: null for a level of unlit
@@ -500,7 +506,12 @@ public static partial class LevelLinker
 
         foreach ((int placement, string className) in dropped)
         {
-            byPlacement[placement].Remove(className);
+            // A copy the merge dropped from the skybox (the last placement,
+            // counted with the level's own entities) is not a room's.
+            if (placement < byPlacement.Length)
+            {
+                byPlacement[placement].Remove(className);
+            }
         }
 
         return LevelEntityBudget.Check(
@@ -512,7 +523,8 @@ public static partial class LevelLinker
 
     /// <summary>
     /// The level's own entities counted by class, or null when it has none:
-    /// the library's (<see cref="RoomLibrary.LibraryEntities"/>), and with
+    /// the library's (<see cref="RoomLibrary.LibraryEntities"/>), its skybox
+    /// room's (placed once in every level, <see cref="SkyboxOf"/>), and with
     /// door portals one <c>func_areaportal</c> per joint of the layout
     /// (<see cref="LevelDoorPortals"/>: every joint is listed by both its
     /// rooms).
@@ -520,15 +532,16 @@ public static partial class LevelLinker
     private static RoomEntityCounts? LibraryCounts(RoomLibrary library, LevelLayout layout)
     {
         int doors = library.Options.HasDoorPortals ? layout.Rooms.Sum(r => r.Joints.Count) / 2 : 0;
-        if (doors == 0)
+        RoomObject? skybox = library.SkyboxRoom is { } skyboxName ? library.Get(skyboxName) : null;
+        if (doors == 0 && skybox is null)
         {
             return library.LibraryEntities.Count == 0 ? null : RoomLibraryEntities.Count(library.LibraryEntities);
         }
 
-        IEnumerable<string> own = library.LibraryEntities.Count == 0
-            ? []
-            : RoomLibraryEntities.Count(library.LibraryEntities).Classes.SelectMany(c => Enumerable.Repeat(c.ClassName, c.Count));
-        return RoomEntityCounts.FromClasses([.. own, .. Enumerable.Repeat(LevelDoorPortals.ClassName, doors)]);
+        static IEnumerable<string> Each(RoomEntityCounts counts) => counts.Classes.SelectMany(c => Enumerable.Repeat(c.ClassName, c.Count));
+        IEnumerable<string> own = library.LibraryEntities.Count == 0 ? [] : Each(RoomLibraryEntities.Count(library.LibraryEntities));
+        IEnumerable<string> above = skybox is null ? [] : Each(skybox.CountEntities());
+        return RoomEntityCounts.FromClasses([.. own, .. above, .. Enumerable.Repeat(LevelDoorPortals.ClassName, doors)]);
     }
 
     /// <summary>
@@ -695,8 +708,17 @@ public static partial class LevelLinker
             Dictionary<string, RoomEntityCounts> counted = new(StringComparer.Ordinal);
             Dictionary<(string Room, int Socket), SocketCensus> censuses = [];
             LinkTextures textures = new();
-            List<(RoomObject, RoomTransform)> placed = new(layout.Rooms.Count);
-            foreach (RoomInstance instance in layout.Rooms)
+            // The skybox, when the library has one, is carried after every
+            // room of the level (SkyboxOf), so its lumps count too; its
+            // entities are counted with the level's own (LibraryCounts).
+            List<RoomInstance> instances = [.. layout.Rooms];
+            if (SkyboxOf(layout, library) is { } skybox)
+            {
+                instances.Add(skybox);
+            }
+
+            List<(RoomObject, RoomTransform)> placed = new(instances.Count);
+            foreach (RoomInstance instance in instances)
             {
                 RoomObject room = library.Get(instance.Placement.Room);
                 placed.Add((room, new RoomTransform(instance.Placement, room.Definition.CellSize)));
@@ -706,9 +728,9 @@ public static partial class LevelLinker
             // name too long and too many samples are refused here, before
             // anything is counted against them.
             LevelCubemaps? cubemaps = LevelCubemaps.Plan(placed, mapBase);
-            for (int p = 0; p < layout.Rooms.Count; p++)
+            for (int p = 0; p < instances.Count; p++)
             {
-                RoomInstance instance = layout.Rooms[p];
+                RoomInstance instance = instances[p];
                 RoomObject room = placed[p].Item1;
                 string name = room.Definition.Name;
                 int texDatas = textures.TexDatas.Count;
@@ -737,8 +759,10 @@ public static partial class LevelLinker
                     BrushSides = keptSides,
                 };
                 totals.Add(added, name, instance.Placement.CellX, instance.Placement.CellY);
-
-                placements.Add((name, counts));
+                if (p < layout.Rooms.Count)
+                {
+                    placements.Add((name, counts));
+                }
             }
 
             RoomInstance last = layout.Rooms[^1];
@@ -1125,12 +1149,7 @@ public static partial class LevelLinker
     /// </remarks>
     internal static LevelDoorRoom[] DoorRooms(ResolvedPlacement[] resolved, RoomPlan[] plans)
     {
-        Dictionary<(int X, int Y), ResolvedPlacement> byCell = new(resolved.Length);
-        foreach (ResolvedPlacement placement in resolved)
-        {
-            byCell[(placement.Instance.Placement.CellX, placement.Instance.Placement.CellY)] = placement;
-        }
-
+        Dictionary<(int X, int Y), ResolvedPlacement> byCell = GridCells(resolved);
         LevelDoorRoom[] rooms = new LevelDoorRoom[plans.Length];
         for (int i = 0; i < plans.Length; i++)
         {
@@ -1195,12 +1214,7 @@ public static partial class LevelLinker
     internal static IEnumerable<(RoomPlan A, RoomPlan B, int[] FacingA, int[] FacingB)> DoorEdges(
         ResolvedPlacement[] resolved, RoomPlan[] plans)
     {
-        Dictionary<(int X, int Y), ResolvedPlacement> byCell = new(resolved.Length);
-        foreach (ResolvedPlacement placement in resolved)
-        {
-            byCell[(placement.Instance.Placement.CellX, placement.Instance.Placement.CellY)] = placement;
-        }
-
+        Dictionary<(int X, int Y), ResolvedPlacement> byCell = GridCells(resolved);
         for (int i = 0; i < resolved.Length; i++)
         {
             ResolvedPlacement a = resolved[i];
@@ -1802,12 +1816,15 @@ public static partial class LevelLinker
     private const int MarkerSolidLeaf = -1001;
 
     /// <summary>Fills the top tree's children now that the room bases exist.</summary>
-    private static void FillTopChildren(List<DNode> nodes, int topCount, RoomPlan[] plans, LevelLayout layout)
+    private static void FillTopChildren(List<DNode> nodes, int topCount, RoomPlan[] plans, LevelLayout layout, int first = 0)
     {
         Dictionary<(int, int), RoomPlan> byCell = [];
         foreach (RoomPlan plan in plans)
         {
-            byCell[(plan.Placement.Instance.Placement.CellX, plan.Placement.Instance.Placement.CellY)] = plan;
+            if (!plan.IsSkybox)
+            {
+                byCell[(plan.Placement.Instance.Placement.CellX, plan.Placement.Instance.Placement.CellY)] = plan;
+            }
         }
 
         // The nodes list already holds the top tree built by BuildTopNodes;
@@ -1822,13 +1839,13 @@ public static partial class LevelLinker
 
         List<(int, int, int, int)> regions = [];
         CollectRegions(occupants, Extent(layout), regions);
-        if (regions.Count != topCount)
+        if (regions.Count != topCount - first)
         {
             throw new LinkException("the top-tree region walk disagrees with the top node list");
         }
 
         int index = 0;
-        foreach (ref DNode node in System.Runtime.InteropServices.CollectionsMarshal.AsSpan(nodes)[..topCount])
+        foreach (ref DNode node in System.Runtime.InteropServices.CollectionsMarshal.AsSpan(nodes)[first..topCount])
         {
             (int rminx, int rminy, _, _) = regions[index];
             IntArray2 children = node.Children;

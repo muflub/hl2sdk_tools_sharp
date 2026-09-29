@@ -49,6 +49,15 @@ public sealed record LibraryRoom(RoomDefinition Definition, Vec3 Corner, VmfDocu
 public sealed record RoomLibrarySplit(IReadOnlyList<LibraryRoom> Rooms, IReadOnlyList<VmfChunk> LibraryEntities)
 {
     /// <summary>
+    /// The library's skybox room (<see cref="RoomLibraryVmf.SkyboxEntity"/>),
+    /// or null when it has none: its cell's brushes and entities, room-local,
+    /// its <c>sky_camera</c> among them, with no sockets. It is not one of
+    /// <see cref="Rooms"/>: no level places it; the link and the flatten put
+    /// it below every level's grid (the rooms design, 4.12).
+    /// </summary>
+    public LibraryRoom? Skybox { get; init; }
+
+    /// <summary>
     /// What the library sets for every level linked from it, from its
     /// worldspawn keys (<see cref="RoomLibraryOptions.FromWorld"/>): what
     /// <c>ssmap room</c> keeps in the pack's library section
@@ -129,6 +138,13 @@ public static class RoomLibraryVmf
     /// <summary>The classname of the entity that marks a room.</summary>
     public const string RoomEntity = "info_room";
 
+    /// <summary>
+    /// The classname of the entity that marks the library's skybox room: at
+    /// its cell's low corner, with a <see cref="NameKey"/>, the cell the
+    /// library's grid (the rooms design, 4.12 and open point O11).
+    /// </summary>
+    public const string SkyboxEntity = "info_room_skybox";
+
     /// <summary>The room's name.</summary>
     public const string NameKey = "name";
 
@@ -192,6 +208,23 @@ public static class RoomLibraryVmf
                 $"the library has no {RoomEntity} entity; each room is marked by one at its cell's low corner.");
         }
 
+        // The skybox room: one at most, a cell of the library's grid, owning
+        // what stands in it as a room does; it is split with the rooms and
+        // set apart at the end.
+        List<VmfChunk> skyboxes = [.. entities.Where(IsSkyboxMarker)];
+        if (skyboxes.Count > 1)
+        {
+            throw new RoomLibraryException(
+                $"the library has {skyboxes.Count} {SkyboxEntity} entities; a library has one skybox room at most.");
+        }
+
+        int skyboxIndex = -1;
+        if (skyboxes.Count == 1)
+        {
+            skyboxIndex = markers.Count;
+            markers.Add(ReadSkyboxMarker(skyboxes[0], markers[0]));
+        }
+
         CheckMarkers(markers);
 
         // Every brush of the world finds its room, or the library is refused.
@@ -214,7 +247,7 @@ public static class RoomLibraryVmf
         List<VmfChunk> libraryWide = [];
         foreach (VmfChunk entity in entities)
         {
-            if (IsRoomMarker(entity))
+            if (IsRoomMarker(entity) || IsSkyboxMarker(entity))
             {
                 continue;
             }
@@ -247,7 +280,7 @@ public static class RoomLibraryVmf
         for (int i = 0; i < markers.Count; i++)
         {
             string room = markers[i].Name;
-            owned[i].RemoveAll(entity => !RoomLibraryEntities.KeepInRoom(room, entity, libraryWide));
+            owned[i].RemoveAll(entity => !RoomLibraryEntities.KeepInRoom(room, entity, libraryWide, skybox: i == skyboxIndex));
 
             // A brush entity whose angles a turn could not treat right
             // (open point O15): refused here, so the pack and the flatten,
@@ -263,6 +296,7 @@ public static class RoomLibraryVmf
 
         VmfChunk? version = library.GetChunk("versioninfo");
         List<LibraryRoom> rooms = [];
+        LibraryRoom? skybox = null;
         for (int i = 0; i < markers.Count; i++)
         {
             Marker marker = markers[i];
@@ -320,10 +354,17 @@ public static class RoomLibraryVmf
                 throw new RoomLibraryException(portalProblem);
             }
 
+            if (i == skyboxIndex)
+            {
+                CheckSkybox(definition, owned[i]);
+                skybox = new LibraryRoom(definition, marker.Corner, document);
+                continue;
+            }
+
             rooms.Add(new LibraryRoom(definition, marker.Corner, document) { Role = marker.Role });
         }
 
-        return new RoomLibrarySplit(rooms, libraryWide) { Options = options };
+        return new RoomLibrarySplit(rooms, libraryWide) { Options = options, Skybox = skybox };
     }
 
     private static bool IsMapVersion(VmfKey key) =>
@@ -500,6 +541,67 @@ public static class RoomLibraryVmf
 
     private static bool IsRoomMarker(VmfChunk entity) =>
         string.Equals(entity.GetValue("classname"), RoomEntity, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSkyboxMarker(VmfChunk entity) =>
+        string.Equals(entity.GetValue("classname"), SkyboxEntity, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The skybox room's marker: its name and corner, on the library's grid
+    /// and kit (the first room's, which every room shares): a skybox is a
+    /// cell like any room's, so the split owns its brushes the same way.
+    /// </summary>
+    private static Marker ReadSkyboxMarker(VmfChunk entity, Marker grid)
+    {
+        string where = VmfPlacement.Origin(entity) is { } at
+            ? $"the {SkyboxEntity} at ({Fmt(at)})"
+            : $"{SkyboxEntity} {VmfPlacement.IdOf(entity)}";
+        Vec3 corner = VmfPlacement.Origin(entity)
+            ?? throw new RoomLibraryException($"{where} has no origin; it stands at the skybox's cell's low corner.");
+        string name = Utf8(entity.GetValue(NameKey)
+            ?? throw new RoomLibraryException($"{where} has no \"{NameKey}\"; the skybox room is named like any room."));
+        if (RoomNames.Problem(name) is { } problem)
+        {
+            throw new RoomLibraryException($"{where}: the room name \"{name}\" {problem}.");
+        }
+
+        return new Marker(name, corner, grid.CellSize, grid.Kit, new Dictionary<string, string>(StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// The skybox room's own rules: no socket (it is never joined), exactly
+    /// one <c>sky_camera</c> (the engine draws the skybox from it), and no
+    /// entity that names a neighbour or a socket (<c>room_needs</c>,
+    /// <c>room_socket</c>): it has neither.
+    /// </summary>
+    private static void CheckSkybox(RoomDefinition definition, List<VmfChunk> entities)
+    {
+        if (definition.Sockets.Count > 0)
+        {
+            throw new RoomLibraryException(
+                $"the skybox room \"{definition.Name}\" has a door plug on its {WallName(definition.Sockets[0].Facing)} wall;"
+                + " the skybox is never joined, so it has no sockets.");
+        }
+
+        int cameras = entities.Count(e => string.Equals(e.GetValue("classname"), RoomLibraryEntities.SkyCameraClass, StringComparison.Ordinal));
+        if (cameras != 1)
+        {
+            throw new RoomLibraryException(
+                $"the skybox room \"{definition.Name}\" has {cameras} sky_camera entities; the engine draws a skybox from exactly one.");
+        }
+
+        foreach (VmfChunk entity in entities)
+        {
+            foreach (string key in (ReadOnlySpan<string>)[RoomNeeds.Key, RoomStaticProps.SocketKey])
+            {
+                if (entity.GetValue(key) is not null)
+                {
+                    throw new RoomLibraryException(
+                        $"room {definition.Name}: entity {VmfPlacement.IdOf(entity)} ({entity.GetValue("classname") ?? "no classname"}) has {key},"
+                        + " but the skybox room has no neighbours and no sockets.");
+                }
+            }
+        }
+    }
 
     private static Marker ReadMarker(VmfChunk entity)
     {
