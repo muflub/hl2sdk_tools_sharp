@@ -14,19 +14,89 @@ using SourceSharp.MapTools.Io;
 namespace SourceSharp.Tests.MapTools.Compile;
 
 /// <summary>
-/// The compile's output disk with a seam in its writes: every call goes to an
-/// <see cref="InMemoryFileSystem"/>, and <see cref="BeforeReplace"/> runs
+/// The compile's disk with seams: every call goes to an
+/// <see cref="InMemoryFileSystem"/>; <see cref="BeforeReplace"/> runs
 /// before each whole-file write, where a fact can wait for something or
-/// throw to fail that write.
+/// throw to fail that write; <see cref="BeforeOpenRead"/> does the same for
+/// a stream open, and <see cref="OpenReads"/> counts the read streams not
+/// yet closed, which is how a fact sees a leaked handle.
 /// </summary>
 /// <param name="inner">The disk the calls reach.</param>
 internal sealed class ProbeFileSystem(InMemoryFileSystem inner) : IFileSystem
 {
+    private int _openReads;
+    private int _opened;
+
     /// <summary>Runs before every <see cref="ReplaceAsync"/>; may throw.</summary>
     public Func<VPath, Task>? BeforeReplace { get; init; }
 
-    public ValueTask<Stream> OpenReadAsync(VPath path, CancellationToken cancellationToken = default) =>
-        inner.OpenReadAsync(path, cancellationToken);
+    /// <summary>Runs before every <see cref="OpenReadAsync"/>; may wait or throw.</summary>
+    public Func<VPath, Task>? BeforeOpenRead { get; init; }
+
+    /// <summary>Read streams opened and not yet disposed.</summary>
+    public int OpenReads => Volatile.Read(ref _openReads);
+
+    /// <summary>Read streams opened in all.</summary>
+    public int Opened => Volatile.Read(ref _opened);
+
+    public async ValueTask<Stream> OpenReadAsync(VPath path, CancellationToken cancellationToken = default)
+    {
+        if (BeforeOpenRead is { } before)
+        {
+            await before(path);
+        }
+
+        Stream stream = await inner.OpenReadAsync(path, cancellationToken);
+        Interlocked.Increment(ref _openReads);
+        Interlocked.Increment(ref _opened);
+        return new CountedStream(stream, () => Interlocked.Decrement(ref _openReads));
+    }
+
+    // A read stream that reports its close once.
+    private sealed class CountedStream(Stream inner, Action closed) : Stream
+    {
+        private int _closed;
+
+        public override bool CanRead => inner.CanRead;
+
+        public override bool CanSeek => inner.CanSeek;
+
+        public override bool CanWrite => false;
+
+        public override long Length => inner.Length;
+
+        public override long Position
+        {
+            get => inner.Position;
+            set => inner.Position = value;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(buffer, cancellationToken);
+
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && Interlocked.Exchange(ref _closed, 1) == 0)
+            {
+                inner.Dispose();
+                closed();
+            }
+
+            base.Dispose(disposing);
+        }
+    }
 
     public ValueTask<IMemoryOwner<byte>> ReadAllAsync(VPath path, CancellationToken cancellationToken = default) =>
         inner.ReadAllAsync(path, cancellationToken);
