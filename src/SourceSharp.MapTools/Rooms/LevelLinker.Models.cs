@@ -95,6 +95,7 @@ public static partial class LevelLinker
     /// <param name="resolved">The placements, in link order.</param>
     /// <param name="layout">The level.</param>
     /// <param name="furniture">The level's socket furniture.</param>
+    /// <param name="transitions">The level's transitions, whose omitted volumes are left out; null for a level without them.</param>
     /// <returns>The plan.</returns>
     /// <exception cref="LinkException">The level passes <c>MAX_MAP_MODELS</c>, naming the placement that crossed it.</exception>
     /// <remarks>
@@ -108,13 +109,21 @@ public static partial class LevelLinker
     /// level either, so nothing names it.
     /// </para>
     /// <para>
+    /// <b>Transition volumes.</b> A transition room's volume
+    /// (<see cref="LevelTransitionPlan"/>) is omitted too when the level
+    /// writes <c>logic_level_transition</c> in its place or folds the hallway
+    /// trigger into the changelevel; the resolver drops its entity in the
+    /// same cases.
+    /// </para>
+    /// <para>
     /// <b>Numbering.</b> The world is model 0; then placements in link
     /// order, each room's kept models in its own model order. It depends on
     /// the layout alone, so the entity lump's <c>*N</c> keys and the model
     /// lump agree, and the output is a function of the level.
     /// </para>
     /// </remarks>
-    internal static LevelModels PlanModels(ResolvedPlacement[] resolved, LevelLayout layout, LevelFurniture furniture)
+    internal static LevelModels PlanModels(
+        ResolvedPlacement[] resolved, LevelLayout layout, LevelFurniture furniture, LevelTransitionPlan? transitions = null)
     {
         int cap = BspLimits.Caps.First(c => c.Lump == BspLump.Models).Max;
         HashSet<(int, int)> occupied = [.. layout.Rooms.Select(r => (r.Placement.CellX, r.Placement.CellY))];
@@ -130,11 +139,15 @@ public static partial class LevelLinker
             RoomPlacement where = resolved[p].Instance.Placement;
             JoinedMask joined = JoinedSides(resolved[p].Room.Definition, resolved[p].Instance);
             int[] map = new int[models.Models.Count];
+            int omittedVolume = transitions?.Placements[p] is { } transition && transition.OmitsVolume(transitions.ModEntities)
+                ? transition.VolumeId
+                : int.MinValue;
             for (int m = 0; m < map.Length; m++)
             {
                 RoomBrushModel model = models.Models[m];
                 bool keep = RoomNeeds.Hold(model.Needs, where.NormalizedRotation, where.CellX, where.CellY, occupied.Contains, joined)
-                    && (model.Socket < 0 || furniture.Keeps(p, model.Socket));
+                    && (model.Socket < 0 || furniture.Keeps(p, model.Socket))
+                    && model.Id != omittedVolume;
                 map[m] = keep ? next++ : -1;
                 if (keep)
                 {
@@ -146,6 +159,31 @@ public static partial class LevelLinker
         }
 
         return new LevelModels(linked, next);
+    }
+
+    /// <summary>
+    /// A placed room's transition data (<see cref="RoomTransit"/>), or null
+    /// for a room without a role or spawn points; refuses a room whose
+    /// compile has a transition volume but that carries no transition data
+    /// from its compile (a pack written before transitions), which would
+    /// otherwise link its volume as an ordinary brush entity.
+    /// </summary>
+    private static RoomTransit? TransitOf(RoomObject room)
+    {
+        if (room.TransitOfCompile is { } transit)
+        {
+            return transit;
+        }
+
+        if (room.BrushModelsOfCompile?.Models.Any(m => m.ClassName == RoomTransit.VolumeClass) == true)
+        {
+            throw new LinkException(
+                $"room {room.Definition.Name} has a {RoomTransit.VolumeClass} but no transition data from its compile"
+                + " (a pack written before the link carried transitions, or a room built without ssmap room);"
+                + " recompile the library with ssmap room.");
+        }
+
+        return null;
     }
 
     /// <summary>

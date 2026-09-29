@@ -562,9 +562,14 @@ public static class Program
                                                       length, codec, revision, hash
               layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
                      [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
+                     [-up-map <map> | -no-up] [-down-map <map> | -no-down] [-transition-distance <n>]
                                                       a seeded level of the library's rooms,
                                                       within the entity budget when the
-                                                      pack has the rooms' counts
+                                                      pack has the rooms' counts; one up
+                                                      and one down room when it has roles
+              layout <library.vmf> ... -sequence K -name <base> [-out <folder>]
+                                                      K levels <base>_01 .. <base>_K from
+                                                      seeds N.., chained by up_map/down_map
               nav <map.nav3d | level.yaml> [-rooms <pack>] [--obj <out.obj>] [--floor] [--agent N]
                                                       a level navigation's cells, free volume,
                                                       components and door links; OBJ export

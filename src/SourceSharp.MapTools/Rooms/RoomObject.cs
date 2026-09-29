@@ -149,6 +149,24 @@ public sealed record RoomObject(
     internal RoomBrushModels? BrushModelsOfCompile => BrushModels is { } models && models.IsFor(this) ? models : null;
 
     /// <summary>
+    /// What the room brings to its level's transitions and spawn
+    /// (<see cref="RoomTransit"/>: its role, transition volume, fold
+    /// trigger, arrival and spawn points), or null: made by the library
+    /// compile from the room's VMF for a room with a role or spawn points,
+    /// and stored by the pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Props"/>, not only a shortcut: the points of interest
+    /// are not in the compile at all, so a level placing a room whose compile
+    /// has a transition volume and none of this bound to it is refused by
+    /// name (a pack written before transitions).
+    /// </remarks>
+    internal RoomTransit? Transit { get; init; }
+
+    /// <summary>The room's transition data while it describes this compile, else null.</summary>
+    internal RoomTransit? TransitOfCompile => Transit is { } transit && transit.IsFor(this) ? transit : null;
+
+    /// <summary>
     /// The room's navigation, or null: built beside the link work by a
     /// library compile whose library builds navigation, and read by a pack
     /// load that asks for it (<see cref="RoomPackRequest.Navigation"/>), at

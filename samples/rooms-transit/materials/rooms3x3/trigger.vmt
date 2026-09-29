@@ -1,0 +1,5 @@
+"LightmappedGeneric"
+{
+	"$basetexture" "rooms3x3/trigger"
+	"%compileTrigger" "1"
+}

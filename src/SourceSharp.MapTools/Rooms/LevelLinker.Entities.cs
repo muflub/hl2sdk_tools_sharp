@@ -311,10 +311,10 @@ public static partial class LevelLinker
         /// <summary>The resolution, once the entities are merged; null when the resolver did not run.</summary>
         public LevelResolution? Result { get; set; }
 
-        /// <summary>Whether the resolver runs: some placed room uses names, or the mod's classes are asked for.</summary>
+        /// <summary>Whether the resolver runs: some placed room uses names, the mod's classes are asked for, or the level has transitions.</summary>
         public bool IsActive(RoomPlan[] plans)
         {
-            bool active = Options.ModEntities;
+            bool active = Options.ModEntities || Options.Transitions is not null;
             for (int i = 0; i < plans.Length; i++)
             {
                 active |= !NamesFor(plans[i], i).IsEmpty;
@@ -639,7 +639,7 @@ public static partial class LevelLinker
             ? value
             : throw new LinkException($"room {room} has an entity whose \"{key}\" holds \"{text}\", not a number");
 
-    private static string FormatVec(Vec3 v) => $"{Format(v.X)} {Format(v.Y)} {Format(v.Z)}";
+    internal static string FormatVec(Vec3 v) => $"{Format(v.X)} {Format(v.Y)} {Format(v.Z)}";
 
-    private static string Format(float value) => value.ToString(CultureInfo.InvariantCulture);
+    internal static string Format(float value) => value.ToString(CultureInfo.InvariantCulture);
 }

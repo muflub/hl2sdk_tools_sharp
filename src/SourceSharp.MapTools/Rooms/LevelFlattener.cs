@@ -88,8 +88,17 @@ public static class LevelFlattener
     /// linked map.
     /// </para>
     /// <para>
+    /// <b>Transitions.</b> A level with transitions (<see cref="LevelTransitions"/>,
+    /// or a placed room with a role) is held to the link's level rule and
+    /// gets the link's transition entities and spawn, from the rooms'
+    /// transition data read from the library by the function the pack uses
+    /// (<c>RoomTransit</c>); a transition volume the level drops is left out
+    /// with its brushes.
+    /// </para>
+    /// <para>
     /// A level whose rooms use no names, flattened without
-    /// <c>-mod-entities</c>, is written exactly as before names existed.
+    /// <c>-mod-entities</c> and without transitions, is written exactly as
+    /// before names existed.
     /// </para>
     /// </remarks>
     public static FlattenedLevel FlattenLevel(LevelGrid level, VmfDocument library, LevelFlattenOptions options)
@@ -113,6 +122,24 @@ public static class LevelFlattener
             first.Kit);
         layout.Validate();
         RoomLinter.CheckReachable(layout, name => byName[name].Definition);
+
+        // The level's transitions and spawn, by the link's rule, from the
+        // same transition data the pack stores (read here from the library,
+        // by the same function, once per room).
+        Dictionary<string, RoomTransit?> transitOf = new(StringComparer.Ordinal);
+        List<RoomTransit?> transits = [];
+        foreach (RoomInstance instance in layout.Rooms)
+        {
+            LibraryRoom room = byName[instance.Placement.Room];
+            if (!transitOf.TryGetValue(room.Definition.Name, out RoomTransit? transit))
+            {
+                transitOf[room.Definition.Name] = transit = RoomTransit.FromVmf(room.Definition, room.Role, room.Document);
+            }
+
+            transits.Add(transit);
+        }
+
+        LevelTransitionPlan? transitions = LevelTransitionPlan.Make(layout, transits, name => byName[name].Definition, options.ModEntities);
 
         VmfChunk world = library.GetChunk(MapFileLoader.WorldChunk)!;
         VmfDocument flat = new();
@@ -147,7 +174,7 @@ public static class LevelFlattener
         RoomLibraryOptions libraryOptions = RoomLibraryOptions.FromWorld(world);
         List<ResolverRoom> resolverRooms = [];
         Dictionary<string, RoomNameTurn[]> names = new(StringComparer.Ordinal);
-        bool resolving = options.ModEntities;
+        bool resolving = options.ModEntities || transitions is not null;
 
         // Socket furniture (static props and brush entities with
         // room_socket), by placement:
@@ -244,7 +271,7 @@ public static class LevelFlattener
         {
             resolution = LevelEntityResolver.Resolve(
                 resolverRooms,
-                new LevelNamingOptions(options.ModEntities, libraryOptions.Folds, level.Columns, level.Rows));
+                new LevelNamingOptions(options.ModEntities, libraryOptions.Folds, level.Columns, level.Rows, transitions));
             entities = [.. resolution.Entities.Select(e => (e, resolverRooms[e.Placement].Room))];
             foreach ((string key, string value) in resolution.WorldKeys)
             {
