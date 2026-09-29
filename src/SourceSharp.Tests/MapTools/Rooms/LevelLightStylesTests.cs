@@ -141,7 +141,7 @@ public sealed class LevelLightStylesTests
             HashSet<(long, long, long)> b = [.. theirs.Keys.Where(k => k.Item7 == style).Select(k => (k.Item1, k.Item2, k.Item3))];
             Assert.NotEmpty(a);
             Assert.True(a.Overlaps(b), $"style {style}");
-            Assert.Empty(a.Where(p => p.Item1 < RoomHarness.Cell * 100 != (style == 32)));
+            Assert.DoesNotContain(a, p => p.Item1 < RoomHarness.Cell * 100 != (style == 32));
         }
     }
 
