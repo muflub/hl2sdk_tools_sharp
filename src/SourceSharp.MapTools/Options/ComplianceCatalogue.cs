@@ -1304,6 +1304,29 @@ public static class ComplianceCatalogue
             + "plane a node splits on and the cluster count with it. On a CPU whose estimate is "
             + "not the reference's, the Stock side still differs from stock."),
 
+        StockQuirk.SplitEpsilonBrushOnPlane => new(
+            quirk,
+            "Split heuristic reads an on-plane vertex by its rounding",
+            "TestBrushToPlanenum charges a candidate plane 1000 points for a brush whose furthest "
+            + "vertex is more than 0 and under 1 unit across it, so a vertex lying on the plane is "
+            + "charged or not by the sign of its rounding residual.",
+            "A vertex within 0.1 of the plane, where SplitBrush already stops calling it a "
+            + "crossing, is on the plane, so only a brush crossing by 0.1 to 1 unit is charged and "
+            + "last-bit noise in the windings no longer moves the split.",
+            CompileTools.Vbsp,
+            [
+                "SourceSharp.MapTools.Bsp.Tree.BrushBspTree.TestBrushToPlaneNumber",
+            ],
+            QuirkObservation.Demonstrated,
+            "OBSERVED_PLACEHOLDER",
+            [
+                "SplitEpsilonBrushOnPlaneTests.StockCountsAnEdgeAFewUlpsInFrontAndNotOneAFewUlpsBehind",
+                "SplitEpsilonBrushOnPlaneTests.StockCountsAnEdgeAFewUlpsBehindTheMirroredPlaneAndNotOneInFront",
+                "SplitEpsilonBrushOnPlaneTests.CorrectCountsNeitherSideOfTheResidualOnEitherHalfOfTheTest",
+                "SplitEpsilonBrushOnPlaneTests.AnEdgeInsideTheBandCountsOnlyUnderStock",
+            ],
+            "NOTE_PLACEHOLDER"),
+
         _ => throw new ArgumentOutOfRangeException(
             nameof(quirk), quirk, "no ComplianceCatalogue entry for this StockQuirk"),
     };
