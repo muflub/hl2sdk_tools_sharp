@@ -772,10 +772,9 @@ public sealed class MapFile
     }
 
     /// <summary>
-    /// How close a winding vertex has to be to one of its brush's planes, and
-    /// to the brush's extreme along an axis, for
-    /// <see cref="BoxBevelDistanceFromPlanes"/> to count it: the vertex is on
-    /// that plane, or is one of the corners that decide the extreme.
+    /// How close a winding vertex has to be to one of its brush's planes for
+    /// <see cref="BoxBevelDistanceFromPlanes"/> to count the vertex as lying
+    /// on that plane.
     /// </summary>
     /// <remarks>
     /// Stock's <c>ON_EPSILON</c>, the resolution the rest of the loader's
@@ -819,14 +818,17 @@ public sealed class MapFile
     /// <see cref="StockQuirk.BoxBevelWindingBounds"/>).
     /// </para>
     /// <para>
-    /// <b>How.</b> Every winding vertex within
-    /// <see cref="BoxBevelCornerEpsilon"/> of the winding extreme is a corner
-    /// that might decide it. Its planes are the brush's non-bevel sides it
-    /// lies within <see cref="BoxBevelCornerEpsilon"/> of; every three of them
-    /// with independent normals meet in one point, solved by Cramer's rule in
-    /// double from the table's planes, and the solution nearest the vertex
-    /// (and within the same epsilon of it) is the corner. The extreme is the
-    /// furthest corner along the axis. The answer depends on the planes and
+    /// <b>How.</b> Every vertex of every side's winding stands for a corner
+    /// of the brush. Its planes are the brush's non-bevel sides it lies
+    /// within <see cref="BoxBevelCornerEpsilon"/> of, and the corner is where
+    /// three of them meet, nearest the vertex
+    /// (<see cref="NearestCorner"/>). The extreme is the furthest corner
+    /// along the axis. Every vertex is solved, not only those near the
+    /// winding extreme, because along a glancing edge the rounding can move
+    /// a vertex by more than a tenth of a unit, enough to change which vertex
+    /// looks furthest out. The incidence test holds up where that does not:
+    /// such a vertex is a tenth of a unit along its edge but a thousandth
+    /// from each of its planes. The answer depends on the planes and
     /// not on the order the windings were clipped in or on how their base
     /// windings were normalised, and it lands on an integer when the planes
     /// meet at one, which is what the table's snap is for. A vertex with no
@@ -848,11 +850,6 @@ public sealed class MapFile
 
             foreach (Vec3 p in Windings.Points(side.Winding))
             {
-                if ((dir * p[axis]) < windingDistance - BoxBevelCornerEpsilon)
-                {
-                    continue;
-                }
-
                 incident.Clear();
                 for (int j = 0; j < brush.SideCount; j++)
                 {
@@ -885,16 +882,42 @@ public sealed class MapFile
 
     /// <summary>
     /// The point where three of <paramref name="planes"/> meet that is nearest
-    /// <paramref name="near"/>, and within <see cref="BoxBevelCornerEpsilon"/>
-    /// of it, solved in double.
+    /// <paramref name="near"/>, solved in double precision.
     /// </summary>
-    private static bool NearestCorner(
-        List<Plane> planes, Vec3 near, out double x, out double y, out double z)
+    /// <param name="planes">The planes a vertex lies on.</param>
+    /// <param name="near">The vertex, as its winding has it.</param>
+    /// <param name="x">The corner's x, when there is one.</param>
+    /// <param name="y">The corner's y.</param>
+    /// <param name="z">The corner's z.</param>
+    /// <returns>
+    /// False when no three of the planes meet in a point: fewer than three,
+    /// or every three with dependent normals.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// Cramer's rule: the point is
+    /// <c>(d1 (n2 x n3) + d2 (n3 x n1) + d3 (n1 x n2)) / (n1 . (n2 x n3))</c>,
+    /// with every product widened to double, so the float planes are the
+    /// only rounding in the answer. A vertex where more than three planes
+    /// meet has one solution per triple, all the same point when the planes
+    /// really do meet there and a little apart when they do not; the one
+    /// nearest the winding's vertex is the corner the winding was cut at. No
+    /// distance limit is put on it: a vertex along a glancing edge can be a
+    /// tenth of a unit or more from its corner along the edge while being a
+    /// thousandth from each plane, and a triple of nearly parallel planes,
+    /// the only kind that solves far away, loses to the real one.
+    /// </para>
+    /// <para>
+    /// Internal rather than private so that the triple search has facts of
+    /// its own; nothing outside the loader calls it.
+    /// </para>
+    /// </remarks>
+    internal static bool NearestCorner(
+        IReadOnlyList<Plane> planes, Vec3 near, out double x, out double y, out double z)
     {
         x = y = z = 0;
-        double bestDistance = (double)BoxBevelCornerEpsilon * BoxBevelCornerEpsilon;
+        double bestDistance = double.PositiveInfinity;
         bool found = false;
-
         for (int a = 0; a < planes.Count; a++)
         {
             for (int b = a + 1; b < planes.Count; b++)
