@@ -418,6 +418,139 @@ public sealed class InMemoryCacheStoreTests
     }
 
     [Fact]
+    public async Task ARowWhoseBlobAnotherCommitPublishedAndTheTrimDroppedIsNotPublished()
+    {
+        // The interleaving behind a rare failure of the concurrent fact
+        // above, played out in order. Staging is lock-free and a compile
+        // stages its blob before its row, so another compile's commit can
+        // land between the two: it publishes the blob without the row, and
+        // its trim, finding no committed row that still names the blob once
+        // the old row sharing it goes, drops the blob with it. The row then
+        // commits naming a blob that is gone. The store now leaves such a
+        // row out, so no committed row ever names a missing blob.
+        InMemoryCacheStore store = await OpenAsync(Charge(512) * 2 - 1);
+        byte[] shared = Encoding.UTF8.GetBytes(new string('s', 512));
+        string sharedKey = CacheKey.HashBytes(shared);
+        (string old, _) = await CommitRowAsync(store, "old", 512, shared);
+
+        // Compile A stages the shared blob; its row is not staged yet.
+        await store.PutBlobAsync(sharedKey, shared, "t", 0, CancellationToken.None);
+
+        // Compile B commits a row of its own: the commit publishes A's blob
+        // too, goes over the ceiling, drops the oldest row and, with no row
+        // naming it any more, the shared blob.
+        _ = await CommitRowAsync(store, "b", 512);
+        Assert.False(await HasRowAsync(store, old));
+        Assert.False(await HasBlobAsync(store, sharedKey));
+
+        // Compile A stages its row and commits.
+        CacheRecord late = Record("late", sharedKey);
+        await store.PutAsync(late, CancellationToken.None);
+        long before = store.Bytes;
+        await store.CommitAsync(CancellationToken.None);
+
+        Assert.False(await HasRowAsync(store, late.Key));
+        Assert.Equal(before, store.Bytes);
+        Assert.Equal(0, store.StagedCount);
+        foreach (string key in await store.KeysAsync(CancellationToken.None))
+        {
+            CacheRecord record = (await store.LookupAsync(key, CancellationToken.None))!;
+            Assert.True(await HasBlobAsync(store, record.Blobs["d"]));
+        }
+    }
+
+    [Fact]
+    public async Task ARowWhoseBlobIsStagedInTheSameCommitOrAlreadyStoredIsPublished()
+    {
+        // The other side of the check: a row naming a blob the same commit
+        // publishes, or one committed earlier and still held, goes in.
+        InMemoryCacheStore store = await OpenAsync(0);
+        (_, string blob) = await CommitRowAsync(store, "first", 10);
+        CacheRecord reuse = Record("reuse", blob);
+        await store.PutAsync(reuse, CancellationToken.None);
+        await store.CommitAsync(CancellationToken.None);
+
+        Assert.True(await HasRowAsync(store, reuse.Key));
+    }
+
+    [Fact]
+    public async Task ARowStagedWithItsBlobWhileACommitRanWaitsForTheNextCommit()
+    {
+        // A compile stages its blob and row after the commit has read the
+        // staged blobs and before it reads the staged rows. The row must not
+        // go in ahead of its blob, and it must not be lost either: it waits,
+        // with the blob, for the next commit.
+        byte[] data = [4, 5, 6];
+        string blob = CacheKey.HashBytes(data);
+        CacheRecord record = Record("gap", blob);
+        InMemoryCacheStore? store = null;
+        store = new InMemoryCacheStore(0)
+        {
+            BlobsSnapshotProbe = () =>
+            {
+                store!.PutBlobAsync(blob, data, "t", 0, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+                store.PutAsync(record, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+            },
+        };
+        await store.OpenAsync("memory");
+
+        await store.CommitAsync(CancellationToken.None);
+
+        Assert.False(await HasRowAsync(store, record.Key));
+        Assert.False(await HasBlobAsync(store, blob));
+        Assert.Equal(2, store.StagedCount);
+        Assert.Equal(0, store.Bytes);
+    }
+
+    [Fact]
+    public async Task ARowLeftWaitingIsPublishedWithItsBlobByTheNextCommit()
+    {
+        byte[] data = [7, 8, 9];
+        string blob = CacheKey.HashBytes(data);
+        CacheRecord record = Record("gap", blob);
+        InMemoryCacheStore? store = null;
+        bool once = false;
+        store = new InMemoryCacheStore(0)
+        {
+            BlobsSnapshotProbe = () =>
+            {
+                if (once)
+                {
+                    return;
+                }
+
+                once = true;
+                store!.PutBlobAsync(blob, data, "t", 0, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+                store.PutAsync(record, CancellationToken.None).AsTask().GetAwaiter().GetResult();
+            },
+        };
+        await store.OpenAsync("memory");
+        await store.CommitAsync(CancellationToken.None);
+
+        await store.CommitAsync(CancellationToken.None);
+
+        Assert.True(await HasRowAsync(store, record.Key));
+        Assert.True(await HasBlobAsync(store, blob));
+        Assert.Equal(0, store.StagedCount);
+        Assert.Equal(data.Length + InMemoryCacheStore.RowCost(record), store.Bytes);
+    }
+
+    [Fact]
+    public async Task ARowNamingABlobDeletedInTheSameCommitIsNotPublished()
+    {
+        InMemoryCacheStore store = await OpenAsync(0);
+        (_, string blob) = await CommitRowAsync(store, "first", 10);
+        await store.DeleteBlobsAsync([blob], CancellationToken.None);
+        CacheRecord late = Record("late", blob);
+        await store.PutAsync(late, CancellationToken.None);
+        await store.CommitAsync(CancellationToken.None);
+
+        Assert.False(await HasBlobAsync(store, blob));
+        Assert.False(await HasRowAsync(store, late.Key));
+        Assert.Equal(0, store.StagedCount);
+    }
+
+    [Fact]
     public async Task ACommitNeverClearsStagingThatArrivedWhileItRan()
     {
         // One writer stages rows as fast as it can while another commits in a
