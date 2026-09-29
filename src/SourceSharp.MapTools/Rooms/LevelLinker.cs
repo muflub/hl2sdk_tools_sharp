@@ -65,16 +65,21 @@ namespace SourceSharp.MapTools.Rooms;
 /// new numbering; nothing else changes.
 /// </para>
 /// <para>
-/// <b>Visibility</b> is composed from the door graph, never flooded. A room's
-/// linked row starts as its own vvis row; the only thing that makes two rooms
-/// see each other is a <b>door edge</b>: every open cluster whose leaf boxes
-/// overlap a joint's plug box (with <see cref="DoorOverlapEpsilon"/>; the link
-/// geometry is integer and bevels are ±8, so a face-sharing leaf sits at gap
-/// 0 and the next space over is never closer than the wall's thickness)
-/// reaches every open cluster facing the joint on the other side, in both
-/// directions. Rows are the transitive closure of own-row steps plus door-edge
-/// steps. The stripped doorway leaf joins the lowest of its own side's facing
-/// clusters, which after the closure sees everything that side sees.
+/// <b>Visibility</b> is composed through the doorways, never flooded and
+/// never vvis'd (<see cref="LevelDoorVisibility"/>): a room's linked rows
+/// start as its own vvis rows, and two rooms see each other only along
+/// straight lines through the chain of doorways between them, which a flow
+/// over the doorway rectangles works out from each room's door visibility
+/// (<see cref="RoomDoorVisibility"/>, stored in the pack). The facing
+/// clusters of a joint are the open clusters whose leaf boxes overlap its
+/// plug box (with <see cref="DoorOverlapEpsilon"/>; the link geometry is
+/// integer and bevels are ±8, so a face-sharing leaf sits at gap 0 and the
+/// next space over is never closer than the wall's thickness), and the
+/// stripped doorway leaf joins the lowest of its own side's facing clusters.
+/// With <see cref="LevelLinkOptions.DoorVisibility"/> off, the rows are what
+/// the link wrote before: the transitive closure of own-row steps plus
+/// door edges (every facing cluster to every cluster facing it from the
+/// other side), in which every cluster of a level sees every other.
 /// </para>
 /// <para>
 /// A room whose compile left anything outside the relocation set — a second

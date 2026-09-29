@@ -65,9 +65,11 @@ internal sealed record LevelVisibility(byte[] Pvs, byte[] Pas, int RowBytes, int
 /// joint to every cluster facing it from the other side and close the rows
 /// transitively. Every room of a level is reachable, so that made every
 /// cluster see every other: correct, and as loose as a PVS can be. This
-/// keeps the rule that nothing the flattened level's vvis would see is
-/// dropped, and asks of every pair of rooms whether a straight line can get
-/// from one to the other through the doorways between them.
+/// keeps the rule that no sight line of the level is dropped (the facts hold
+/// it to every sampled sight line of the flattened level, each of which that
+/// level's vvis keeps too), and asks of every pair of rooms whether a
+/// straight line can get from one to the other through the doorways between
+/// them.
 /// </para>
 /// <para>
 /// <b>The door flow.</b> Rooms are sealed but for their sockets and lie
@@ -97,6 +99,14 @@ internal sealed record LevelVisibility(byte[] Pvs, byte[] Pas, int RowBytes, int
 /// is kept only when both directions keep it: a real sight line is found
 /// both ways, and vvis itself makes its rows symmetric the same way (a bit
 /// survives only when the transposed bit is set).
+/// </para>
+/// <para>
+/// <b>Neighbours.</b> Two rooms that share a cell face make one convex box,
+/// so a line between them crosses that face and nothing else: through its
+/// doorway if it has one, and not at all if it is wall. A pair across it is
+/// kept only if a segment between the two clusters' bounds can cross the
+/// doorway (<see cref="Neighbours"/>), which the flows cannot tell, since a
+/// flow starts from the whole doorway.
 /// </para>
 /// <para>
 /// <b>Inside a room</b> the rows are the room's own vvis, with one addition:
