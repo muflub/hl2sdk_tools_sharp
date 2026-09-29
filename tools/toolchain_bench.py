@@ -20,6 +20,11 @@ The toolsets:
             publish CI makes for its AOT archives; published first unless
             --no-build). No JIT start-up, which matters most here because
             every stage is a process of its own
+  ssmap-fast, ssmap-aot-fast
+            ssmap and ssmap-aot with vvis -fastflow (and nothing else
+            changed): the approximate portal flow, which trades a few extra
+            visible clusters for a faster vvis. Its accuracy cost shows in the
+            vis bytes column, next to plain ssmap's and stock's
 
 The Windows tools cannot mount |appid_N| search paths ("Appid based mounting
 is not supported on non-engine DLL projects"), so each map's game directory is
@@ -44,7 +49,8 @@ Options:
   --map NAME=VMF:GAME   a map to compile and its game directory (repeatable);
                         default: sandbox=maps/ss_sandbox.vmf:game/mod_sharp and
                         2fort=maps/sdk_ctf_2fort.vmf:game/mod_tf
-  --toolsets LIST       any of stock,pp,ssmap,ssmap-aot (default all four)
+  --toolsets LIST       any of stock,pp,ssmap,ssmap-aot,ssmap-fast,
+                        ssmap-aot-fast (default all six)
   --runs N              timed chains per toolset and map (default 3)
   --warmups N           untimed chains first (default 1)
   --threads N           pass -threads N to every stage of every toolset
@@ -80,7 +86,7 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOME = os.path.expanduser("~")
-TOOLSETS = ["stock", "pp", "ssmap", "ssmap-aot"]
+TOOLSETS = ["stock", "pp", "ssmap", "ssmap-aot", "ssmap-fast", "ssmap-aot-fast"]
 STAGES = ["vbsp", "vvis", "vrad"]
 DEFAULT_MAPS = [
     ("sandbox", "maps/ss_sandbox.vmf", "game/mod_sharp"),
@@ -96,6 +102,17 @@ PP_EXE = {"vbsp": "vbspplusplus.exe", "vvis": "vvisplusplus.exe", "vrad": "vradp
 # second, and exited 0. With the flag it matches stock's face count and lights.
 PP_DEFAULT_ARGS = {"vbsp": ["-matsyscompat"], "vvis": [], "vrad": []}
 SDK_BASE_MP = 243750
+
+# ssmap's approximate vvis flow. One constant, so a rename touches one line.
+SSMAP_FAST_FLAG = "-fastflow"
+
+# What the -fast toolsets add: the flag on vvis only. vbsp and vrad run as in
+# plain ssmap, so the difference between the two rows is vvis's alone (and
+# whatever vrad gains or loses from the PVS it is handed).
+SSMAP_FAST_ARGS = {"vbsp": [], "vvis": [SSMAP_FAST_FLAG], "vrad": []}
+
+# JIT or AOT build each ssmap toolset runs.
+SSMAP_BUILDS = {"ssmap": "jit", "ssmap-fast": "jit", "ssmap-aot": "aot", "ssmap-aot-fast": "aot"}
 
 # BSP lumps the output check reads: visibility, LDR and HDR lighting.
 LUMP_VISIBILITY = 4
@@ -374,16 +391,18 @@ class SsmapToolset(Toolset):
     """ssmap, one process per stage like the stock tools.
 
     command is how to start it: [dotnet, ssmap.dll] on the JIT, or the
-    NativeAOT executable alone.
+    NativeAOT executable alone. own_args are this toolset's own options per
+    stage, before the run's extra ones (SSMAP_FAST_ARGS for the -fast sets).
     """
 
-    def __init__(self, name, command, game_dir):
+    def __init__(self, name, command, game_dir, own_args=None):
         super().__init__(name)
         self.command, self.game_dir = list(command), game_dir
+        self.own_args = own_args or {}
 
     def stage(self, stage, work, stem, extra):
         target = os.path.join(work, stem + (".vmf" if stage == "vbsp" else ".bsp"))
-        return self.command + [stage, "-game", self.game_dir] + extra + [target], work
+        return self.command + [stage, "-game", self.game_dir] + self.own_args.get(stage, []) + extra + [target], work
 
 
 def run_timed(argv, cwd, env, log):
@@ -530,6 +549,23 @@ def parse_args(argv):
     return p.parse_args(argv)
 
 
+def parse_toolsets(text):
+    """--toolsets' comma list -> (toolsets in the order given, names not in TOOLSETS)."""
+    toolsets = [t.strip() for t in text.split(",") if t.strip()]
+    return toolsets, [t for t in toolsets if t not in TOOLSETS]
+
+
+def ssmap_toolsets(toolsets, dotnet, dll, aot, game):
+    """The ssmap rows asked for: {name: SsmapToolset}, the -fast ones with SSMAP_FAST_ARGS."""
+    sets = {}
+    for name in toolsets:
+        if name not in SSMAP_BUILDS:
+            continue
+        command = [dotnet, dll] if SSMAP_BUILDS[name] == "jit" else [aot]
+        sets[name] = SsmapToolset(name, command, game, SSMAP_FAST_ARGS if name.endswith("-fast") else None)
+    return sets
+
+
 def parse_map_spec(spec):
     """NAME=VMF:GAME -> (name, vmf, game). The last ':' splits, so a VMF path may hold one."""
     name, sep, rest = spec.partition("=")
@@ -578,8 +614,7 @@ def main(argv):
     if args.help:
         print(__doc__)
         return 0
-    toolsets = [t.strip() for t in args.toolsets.split(",") if t.strip()]
-    unknown = [t for t in toolsets if t not in TOOLSETS]
+    toolsets, unknown = parse_toolsets(args.toolsets)
     if unknown:
         print(f"unknown toolset {', '.join(unknown)}; choose from {', '.join(TOOLSETS)}", file=sys.stderr)
         return 2
@@ -618,12 +653,13 @@ def main(argv):
     dll = os.path.join(REPO, "bin", "Release", "ssmap.dll")
     aot_dir = os.path.join(REPO, "bin", "aot")
     aot = os.path.join(aot_dir, "ssmap.exe" if sys.platform.startswith("win") else "ssmap")
+    builds = {SSMAP_BUILDS[t] for t in toolsets if t in SSMAP_BUILDS}
     if not args.no_build and not args.dry_run:
         steps = []
-        if "ssmap" in toolsets:
+        if "jit" in builds:
             steps.append([dotnet, "build", os.path.join(REPO, "src", "SourceSharp.MapTools.slnx"),
                           "-c", "Release", "-v", "q", "-nologo"])
-        if "ssmap-aot" in toolsets:
+        if "aot" in builds:
             # The same publish CI makes for its AOT archives, and compile-perf for its build=aot cells.
             steps.append([dotnet, "publish", os.path.join(REPO, "src", "SourceSharp.MapCompile"), "-c", "Release",
                           "-r", aot_rid(os.uname().machine if hasattr(os, "uname") else "x86_64", sys.platform),
@@ -632,8 +668,9 @@ def main(argv):
             if subprocess.call(cmd) != 0:
                 print(f"ssmap {cmd[1]} failed", file=sys.stderr)
                 return 1
-    for name, need in (("ssmap", dll), ("ssmap-aot", aot)):
-        if name in toolsets and not args.dry_run and not os.path.exists(need):
+    for name in toolsets:
+        need = {"jit": dll, "aot": aot}.get(SSMAP_BUILDS.get(name))
+        if need and not args.dry_run and not os.path.exists(need):
             print(f"{name}: {need} does not exist; run without --no-build to build it", file=sys.stderr)
             return 2
 
@@ -654,6 +691,9 @@ def main(argv):
         f"wine: {wine} (prefix {args.wineprefix})" if wine_needed else "wine: not used",
         f"ssmap: {dll}" if "ssmap" in toolsets else "ssmap: not run",
         f"ssmap-aot: {aot}" if "ssmap-aot" in toolsets else "ssmap-aot: not run",
+        f"ssmap-fast: {dll} with vvis {SSMAP_FAST_FLAG}" if "ssmap-fast" in toolsets else "ssmap-fast: not run",
+        f"ssmap-aot-fast: {aot} with vvis {SSMAP_FAST_FLAG}" if "ssmap-aot-fast" in toolsets
+        else "ssmap-aot-fast: not run",
         f"cpu: {_cpu_model()}, {os.cpu_count()} threads",
     ]
 
@@ -678,10 +718,7 @@ def main(argv):
             sets["stock"] = WineToolset("stock", stock_bin, {s: s + ".exe" for s in STAGES}, wine, gi_dir)
         if "pp" in toolsets:
             sets["pp"] = WineToolset("pp", pp_bin, PP_EXE, wine, gi_dir, PP_DEFAULT_ARGS)
-        if "ssmap" in toolsets:
-            sets["ssmap"] = SsmapToolset("ssmap", [dotnet, dll], game)
-        if "ssmap-aot" in toolsets:
-            sets["ssmap-aot"] = SsmapToolset("ssmap-aot", [aot], game)
+        sets.update(ssmap_toolsets(toolsets, dotnet, dll, aot, game))
 
         if args.dry_run:
             stem = os.path.splitext(os.path.basename(vmf))[0]

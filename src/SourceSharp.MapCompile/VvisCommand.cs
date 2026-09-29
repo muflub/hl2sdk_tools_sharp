@@ -313,6 +313,14 @@ public static class VvisCommand
                 Progress = clock,
             };
 
+            // The library never prints; an approximate flow is said here,
+            // once, before the flow it describes.
+            foreach (CompileDiagnostic warning in Vvis.OptionWarnings(context.Options))
+            {
+                await output.WriteLineAsync($"{warning.Severity} {warning.Code}: {warning.Message}")
+                    .ConfigureAwait(false);
+            }
+
             result = await Vvis.ComputeAsync(map, portals, context, cancellationToken)
                 .ConfigureAwait(false);
 

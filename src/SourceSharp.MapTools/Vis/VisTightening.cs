@@ -112,6 +112,7 @@ internal sealed class VisTightening : IVisFlowSplitter
     private readonly int[] _rank;
     private readonly int _lag;
     private readonly int _levels;
+    private readonly bool _whole;
     private readonly object _gate = new();
 
     // Everything below is guarded by _gate, except that _next, _againCount,
@@ -121,6 +122,7 @@ internal sealed class VisTightening : IVisFlowSplitter
     private readonly bool[] _flowed;
     private readonly VisRepairTree?[] _trees;
     private readonly int[] _pending;
+    private readonly bool[] _deferred;
     private readonly List<int>?[] _waiters;
     private readonly PriorityQueue<int, int> _again = new();
     private readonly ConcurrentStack<ulong[]> _vectors = new();
@@ -159,8 +161,13 @@ internal sealed class VisTightening : IVisFlowSplitter
 
     /// <summary>Ranks one compile's portals.</summary>
     /// <param name="state">The state, after the base flow has filled every flood.</param>
-    internal VisTightening(VisPortalState state)
-        : this(state, Lag, VisRepairTree.DefaultLevels)
+    /// <param name="whole">
+    /// Run every portal whole, on one worker, only once every neighbour it
+    /// may read has finished: no speculation and no splitting. The
+    /// <c>-fastflow</c> walk needs it (see <see cref="VisClusterStop"/>).
+    /// </param>
+    internal VisTightening(VisPortalState state, bool whole = false)
+        : this(state, Lag, VisRepairTree.DefaultLevels, whole)
     {
     }
 
@@ -168,11 +175,13 @@ internal sealed class VisTightening : IVisFlowSplitter
     /// <param name="state">The state, after the base flow has filled every flood.</param>
     /// <param name="lag">See <see cref="Lag"/>.</param>
     /// <param name="levels">How many recursion levels each portal's <see cref="VisRepairTree"/> tracks.</param>
-    internal VisTightening(VisPortalState state, int lag, int levels)
+    /// <param name="whole">See <see cref="VisTightening(VisPortalState, bool)"/>.</param>
+    internal VisTightening(VisPortalState state, int lag, int levels, bool whole = false)
     {
         _state = state;
         _lag = lag;
         _levels = levels;
+        _whole = whole;
 
         int count = state.Count;
         _order = new int[count];
@@ -200,6 +209,7 @@ internal sealed class VisTightening : IVisFlowSplitter
         _flowed = new bool[count];
         _trees = new VisRepairTree?[count];
         _pending = new int[count];
+        _deferred = new bool[count];
         _waiters = new List<int>?[count];
         _outstanding = new int[count];
         _readyCursor = new int[count];
@@ -207,6 +217,12 @@ internal sealed class VisTightening : IVisFlowSplitter
 
     /// <summary>How many flows were run, over every portal (at least one each).</summary>
     internal long Runs => _runs;
+
+    /// <summary>
+    /// How many claims were put off until the neighbours they read had
+    /// finished; zero unless every portal is run whole.
+    /// </summary>
+    internal long Deferrals { get; private set; }
 
     /// <summary>How many of those runs read a neighbour that had not finished.</summary>
     internal long SpeculativeRuns => _speculativeRuns;
@@ -344,6 +360,13 @@ internal sealed class VisTightening : IVisFlowSplitter
                 lock (_gate)
                 {
                     rank = Claim();
+                    if (rank >= 0 && _whole && Defer(rank))
+                    {
+                        // Put back until its neighbours finish; the worker
+                        // comes straight back for the next claim.
+                        return LoopStep.Worked;
+                    }
+
                     if (rank >= 0)
                     {
                         // A run whose every candidate below the limit has
@@ -392,7 +415,7 @@ internal sealed class VisTightening : IVisFlowSplitter
         }
         else
         {
-            flow.Run(_order[rank], Limit(rank), tree, _splits0 ? null : this, worker);
+            flow.Run(_order[rank], Limit(rank), tree, _splits0 || _whole ? null : this, worker);
         }
 
         long ended = Stopwatch.GetTimestamp();
@@ -567,6 +590,49 @@ internal sealed class VisTightening : IVisFlowSplitter
         }
 
         _readyCursor[rank] = flood.Length;
+        return true;
+    }
+
+    /// <summary>
+    /// Whether a claimed rank must wait for neighbours below its limit, and if
+    /// so, files it with each of them: <see cref="Finish"/> offers it again
+    /// once the last has finished. Called under the gate.
+    /// </summary>
+    /// <remarks>
+    /// The run-whole schedule waits where the default one speculates. Waiting
+    /// costs parallelism only where the ranks form a chain, and a claim put
+    /// back is offered again in rank order, lowest first, like a rerun.
+    /// </remarks>
+    private bool Defer(int rank)
+    {
+        if (IsReady(rank))
+        {
+            return false;
+        }
+
+        int limit = Limit(rank);
+        int pending = 0;
+        ReadOnlySpan<ulong> flood = _state.Flood(_order[rank]);
+        for (int w = 0; w < flood.Length; w++)
+        {
+            ulong bits = flood[w];
+            while (bits != 0)
+            {
+                int candidate = (w << 6) + System.Numerics.BitOperations.TrailingZeroCount(bits);
+                bits &= bits - 1;
+
+                int other = _rank[candidate];
+                if (other < limit && !_done[other])
+                {
+                    (_waiters[candidate] ??= []).Add(rank);
+                    pending++;
+                }
+            }
+        }
+
+        _pending[rank] = pending;
+        _deferred[rank] = true;
+        Deferrals++;
         return true;
     }
 
@@ -755,7 +821,19 @@ internal sealed class VisTightening : IVisFlowSplitter
             {
                 foreach (int other in waiting)
                 {
-                    if (--_pending[other] == 0)
+                    if (--_pending[other] != 0)
+                    {
+                        continue;
+                    }
+
+                    if (_deferred[other])
+                    {
+                        // A deferred claim, now ready: offered like a rerun.
+                        _deferred[other] = false;
+                        _again.Enqueue(other, other);
+                        Volatile.Write(ref _againCount, _again.Count);
+                    }
+                    else
                     {
                         Judge(other);
                     }

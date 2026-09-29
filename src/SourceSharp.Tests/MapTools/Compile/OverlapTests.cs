@@ -82,6 +82,18 @@ public sealed class OverlapTests
         await AssertSameAsync(() => Room(), request => request with { Vrad = request.Vrad with { LuxelDensity = 0.5f } });
 
     [Fact]
+    public async Task OverlapUnderTheFastFlowWritesWhatTheSequentialChainWrites() =>
+        // The early flow is the same PortalFlowAsync, so -fastflow's run-whole
+        // schedule must come out the same whichever way the chain starts it.
+        await AssertSameAsync(
+            () => Room(),
+            request => request with
+            {
+                Parallel = new CompileParallelism { MaxDegree = 4 },
+                Vvis = VvisOptions.Default with { FastFlowSteps = 0 },
+            });
+
+    [Fact]
     public async Task OverlapUnderATraceWritesWhatTheSequentialChainWrites() =>
         // -trace has no split flow; the chain falls back to the whole stage.
         await AssertSameAsync(() => Room(), request => request with { Vvis = VvisOptions.Default with { Trace = (0, 1) } });
