@@ -774,7 +774,13 @@ room hub: its light_environment differs from the library's (angles: "-45 120 0" 
 A named controller the library does not hold under that name is the room's
 own (per-room fog is a trigger and a named controller, as in any map) and
 stays with the room. A `sky_camera` is refused in a room and in the gaps:
-it belongs to a library skybox room, which the linker does not build yet.
+it belongs to the library's skybox room, a cell marked with an
+`info_room_skybox` (with a `name`) holding exactly one `sky_camera`, no door
+plug and no `room_needs` or `room_socket`. `ssmap room` compiles and packs it
+with the rooms; no level places it: `link` and `link --flatten` put it one
+cell below every level's south-west cell, unturned, as its own area, its
+entities after the rooms' and counted once per level, and leave it out of
+the level's `world_mins` and `world_maxs`.
 `link` and `link --flatten` write each library entity once, right after the
 worldspawn, never turned, at the level's origin, and keep one
 `water_lod_control` (vbsp adds one to every room compile with water): an

@@ -96,6 +96,11 @@ namespace SourceSharp.MapTools.Rooms;
 /// <see cref="RoomAreaPortals"/>, <see cref="LevelDoorPortals"/>).
 /// </para>
 /// <para>
+/// <b>The 3D skybox</b> is carried: the library's skybox room below the
+/// grid, unturned and never joined, its own area, its entities after every
+/// room's, out of the world's bounds (<see cref="SkyboxOf"/>).
+/// </para>
+/// <para>
 /// <b>Brush entities</b> are carried as their own models: every placed
 /// room's brush models after the world, in link order, each with its tree,
 /// faces, brushes and collision record, an origin-relative one in its

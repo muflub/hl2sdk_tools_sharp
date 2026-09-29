@@ -116,6 +116,15 @@ public sealed class RoomLibraryException : Exception
 /// the kit must let a standing player through (<see cref="PlayerHull"/>).
 /// </para>
 /// <para>
+/// <b>The skybox room.</b> One cell may be marked with an
+/// <see cref="SkyboxEntity"/> (<c>info_room_skybox</c>) instead, with a
+/// <c>name</c>: the library's 3D skybox, on the library's grid, owning what
+/// stands in it as a room does, with exactly one <c>sky_camera</c>, no door
+/// plug and no <c>room_needs</c> or <c>room_socket</c>. It is not one of the
+/// rooms (<see cref="RoomLibrarySplit.Skybox"/>): no level places it, and the
+/// link and the flatten put it below every level's grid.
+/// </para>
+/// <para>
 /// <b>Sockets</b> are found, not declared: a world brush that exactly fills
 /// the kit's plug box on one of the four walls (<see cref="RoomLinter.SealBox"/>)
 /// is that wall's door plug, and the wall is a socket. Found by geometry

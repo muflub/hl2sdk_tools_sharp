@@ -276,7 +276,7 @@ or research).
 | Occluders | carried; `occludernumber` wrong | occluders per rotation | rebase the key | 1 each (strip candidate) | S |
 | Packed files | carried since PR 5 (merged, deduped, default cubemaps renamed) | the room's pak entries | merge, dedupe, rename | 0 | M |
 | 2D sky | faces carried; no leaf sky flags (no vrad) | sky leaves per room | propagate sky flags across doors | 0 | S |
-| 3D skybox | not possible (areas collapsed) | the skybox as a library section | place it, its own area | 1 `sky_camera` per level | M |
+| 3D skybox | carried since PR 13 (the library's `info_room_skybox` room, placed below the grid, its own area) | the skybox as a library section | place it, its own area | 1 `sky_camera` per level | M |
 | Transition rooms and spawn | not possible | volume, arrival and spawn POIs per rotation | destinations, emission per mode, spawn | 2 per level (mod), 3 to 5 (stock) | M |
 | Navigation (3D) and points of interest | none | in `<library>.roomnav`: volumes, door portals and POIs per rotation | stitch at joined doors into the `<map>.nav3d` sidecar | 0 (POIs stripped) | L, blocked (section 10) |
 | Lighting | none (no vrad at pack time) | base and capture ×1, or ×4 if sunlit; door response ×1 or ×4 by measurement | sum captures × responses | lights: see 6.3 | L |
@@ -808,8 +808,11 @@ counts twice), clip verts `ushort` start (`MaxMapPortalVerts` 128,000 in
 leaves it out of the world bounds (`EntityStage.ComputeBoundsNoSkybox`) and
 vrad recasts sky rays into it from camera-less areas (`Rad/Light/SkyCameras`).
 
-**Today.** 2D sky faces carried; no leaf has sky flags (no vrad). A 3D skybox
-cannot exist: it needs its own area and is outside every cell.
+**Today.** 2D sky faces carried; leaf sky flags since PR 9 (its landed
+note). The 3D skybox is carried since PR 13 (section 13, its landed note):
+the library's `info_room_skybox` room below every level's grid, its own
+area. Before it, a 3D skybox could not exist: it needs its own area and is
+outside every cell.
 
 **Pack vs link.** Per room: its sky leaves (pass one). At link: pass two over
 the linked PVS (a leaf is sky-visible if a sky leaf is in its row), cheap and
@@ -1709,7 +1712,7 @@ navigation design).
 | `worldspawn` keys | Rooms must agree (`RequireSameWorld`); the split copies the library's worldspawn into every room, so they do. | Keep. `world_mins`/`world_maxs` stay the union (`MergeEntities`). |
 | `light_environment` | Carried per room and turned (finding 5). | **Decided (D3):** library-wide. The library holds one, outside every cell (the split collects it instead of ignoring it). A room that carries one is refused at pack time unless its keys equal the library's, in which case it is dropped from the room. Never turned. |
 | Sky settings (`skyname`, the sun's sky colours) | `skyname` agrees through worldspawn. | Library-wide with the sun (D3). |
-| `sky_camera` | Room-local if present. | Only in the library's skybox (4.12); refused in rooms. |
+| `sky_camera` | Room-local if present. | Only in the library's skybox (4.12); refused in rooms. Done since PR 13: exactly one in the skybox room, which every level carries once. |
 | `env_fog_controller`, `env_tonemap_controller`, `shadow_control`, `postprocess_controller` | Carried, one per room that has one; the game takes the first or a master (**uncertain** per class). | Library-wide like the sun: collected from the gaps; a room copy refused unless equal. Per-room fog uses a trigger and a named controller, as a normal map does. |
 | `water_lod_control` | vbsp adds one per room with water. | Keep the first; drop equal duplicates; refuse different ones. |
 | `info_player_start` | Carried, one per room with one (the sample's end rooms). | **Decided (D15):** rooms' own starts are stripped; the level spawn is the up room's arrival (11.5). |
@@ -3114,7 +3117,8 @@ The 3x3 sample packs to 561 KB lit against 518 KB, its level to 125 KB
 against 98 KB; every level of the 3x3 and transit samples links lit and
 passes `ssmap check`, in both emission modes for the transit run.
 
-**PR 13 landed** (area portals and areas; the 3D skybox follows below).
+**PR 13 landed** (area portals and areas, then the 3D skybox, in that
+order on one branch).
 `ssmap room` describes a room whose compile has area portals in one `APRT`
 section (`RoomAreaPortals`, with the 1.1 framing: codec byte, decoded
 length, revision; codec none): the room's area count, listing count and
@@ -3245,6 +3249,81 @@ here: the 3x3 sample did not grow a portal room (the harness levels carry
 the facts at every turn, and the sample's digests show a level without
 portals links as before), the stress library has none, and `ssmap rooms`
 does not list portals.
+
+**The 3D skybox (PR 13, second half).** A library marks its skybox room
+with an `info_room_skybox` point entity at the cell's low corner, with a
+`name` like a room's (O11 as recommended); the cell is the library's grid,
+and the split (`RoomLibraryVmf.SplitLibrary`) owns the brushes and entities
+in it as a room's and sets the room apart (`RoomLibrarySplit.Skybox`, not
+one of the rooms, so no level and no `ssmap layout` places it). Its rules,
+each refused by the split, so by the pack and the flatten: one skybox at
+most (`the library has {k} info_room_skybox entities; a library has one
+skybox room at most.`), exactly one `sky_camera` (`the skybox room
+"{room}" has {k} sky_camera entities; the engine draws a skybox from
+exactly one.`), no socket (`the skybox room "{room}" has a door plug on its
+{wall} wall; the skybox is never joined, so it has no sockets.`), and no
+`room_needs` or `room_socket` (`room {room}: entity {id} ({class}) has
+{key}, but the skybox room has no neighbours and no sockets.`); the library
+singletons' rules hold for it as for a room, and a `sky_camera` anywhere
+else is refused as PR 4 refused it. `ssmap room` compiles, lights and packs
+it after the rooms like any room, and names it in a `SKYB` library section
+(`RoomLibrarySkybox`: codec byte, length, revision, the name), written only
+for a library with a skybox; `ssmap link` reads the section and loads the
+skybox with the rooms, at its one turn. The pack format version stays 4:
+an older build skips the tag and links a level without its skybox, as it
+always did.
+
+- **Placement: below the grid** (O11), one cell under the level's lowest
+  column and row (`LevelLinker.SkyboxPlacement`), unturned (4.12: the
+  skybox is never turned): a placement's `Level` of -1, which only
+  `RoomTransform` reads, as a whole number of cells along z (a height on
+  the grid's level keeps its bits, a negative zero included). The link
+  carries the skybox after every room of the level, never in the layout:
+  the grid's logic (joints, neighbours, reachability, furniture,
+  transitions, names, the door flows, the door portals) reads the level's
+  own placements (`GridCells`, `OnGrid`), since the skybox shares its
+  cell's column and row. The top tree gains a root at the grid's floor
+  (z = 0): above it the grid's tree as before, below it the skybox room's
+  own tree, whose sealed compile puts everything outside its shell in
+  solid leaves, as the grid's single-cell nodes rely on above and below a
+  cell; the shared solid leaf reaches a cell further down. The flatten
+  writes the skybox's brushes after every room's and its entities after
+  every room's, moved by the same placement.
+- **Its own area.** The skybox has no joint, so its areas join nothing
+  (the level's areas are planned whenever a library has a skybox) and it
+  is an area of its own, numbered after the rooms', as vbsp's flood makes
+  a sealed skybox; its clusters see only one another (its own vvis rows).
+  The level's `world_mins` and `world_maxs` leave it out, as vbsp leaves a
+  3D skybox out of them (`EntityStage.ComputeBoundsNoSkybox`), and model
+  0's bounds keep it, as vbsp's do.
+- **Its entities** are moved to it, never through the naming resolver (it
+  stands in no cell of the grid, so a room-local name in it is written as
+  authored, in the link and the flatten alike), and written after every
+  room's and before the door portals', where the flatten writes them. They
+  count once per level with the library's own entities, in the link's
+  budget and in `ssmap layout -entity-budget`: one `sky_camera` per level
+  (6.8), plus whatever else the skybox holds.
+- **Lighting.** Under a lit library the skybox is baked like any room and
+  its leaves take the link's sky pass (PR 9), which flags them as seeing
+  3D sky (their own shell). 4.12's "every room's bake includes the skybox
+  geometry for the sky-ray recast" is not done: each room is baked sealed
+  and alone at pack time, and a recast into the skybox would need the
+  skybox's geometry in every room's vrad run, which is the lighting
+  work's (PR 10, with the door terms). Until then a room's sky light is
+  what an empty skybox would give; a skybox whose own geometry would
+  shadow a room's sky is a known difference from the flattened level's
+  full compile.
+
+Measured equivalence: the harness's hub and other room with the skybox (a
+3D sky shell, a block, a prop and its camera) at the four turns, with an
+area portal room and door portals, and lit with a sun and a sky ceiling:
+the linked and flattened maps put every sample point of the rooms' cells
+and the skybox's in the same open space and areas (one to one), carry the
+same `sky_camera`, props and world bounds, and the linked map passes
+`ssmap check`; through the CLI, `ssmap room` packs the skybox and `ssmap
+link` places it from the pack alone. Not done here: the 3x3 sample did not
+grow a skybox (its digests show a library without one links as before),
+`ssmap rooms` does not list it, and the stress library has none.
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
