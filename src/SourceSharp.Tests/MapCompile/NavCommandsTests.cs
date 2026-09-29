@@ -233,9 +233,15 @@ public sealed class NavCommandsTests
         }
 
         // Each turn's names and navigation right after that turn's link sections (a
-        // -cooker none room has no collision sections).
+        // -cooker none room has no collision sections); the role rooms' brush
+        // models (their transition volumes and triggers) and transition data
+        // right after the counts.
         Assert.All(index.Entries, e => Assert.Equal(
-            ["ROOM", "ECNT", "LNKA", "GEO0", "NAM0", "NVR0", "GEO1", "NAM1", "NVR1", "GEO2", "NAM2", "NVR2", "GEO3", "NAM3", "NVR3"], e.Sections.Select(s => s.Tag)));
+            [
+                "ROOM", "ECNT", .. e.Name == "hall" ? Array.Empty<string>() : ["BMOD", "TRAN"],
+                "LNKA", "GEO0", "NAM0", "NVR0", "GEO1", "NAM1", "NVR1", "GEO2", "NAM2", "NVR2", "GEO3", "NAM3", "NVR3",
+            ],
+            e.Sections.Select(s => s.Tag)));
         Assert.Equal(["CMPL"], index.LibrarySections.Select(s => s.Tag));
     }
 
@@ -338,7 +344,7 @@ public sealed class NavCommandsTests
     {
         InMemoryFileSystem fs = Game();
         Assert.Equal(Program.ExitSuccess, (await RoomAsync(fs)).Exit);
-        fs.AddText(Rooted("/levels/level.yaml"), LevelText("up, hall@180", "down: none\n"));
+        fs.AddText(Rooted("/levels/level.yaml"), LevelText("up, hall@180", "up_map: above\ndown: none\n"));
         TapFileSystem tap = new(fs);
         (int exit, string log) = await LinkAsync(tap);
         Assert.True(exit == Program.ExitSuccess, log);
@@ -346,14 +352,16 @@ public sealed class NavCommandsTests
         using MemoryStream stream = new(fs.GetBytes(At("/rooms.roompack"))!);
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
         // The index, the library's sections, and per placed room its
-        // container, its entity counts, its shared link section, and its
-        // turn's link, name and navigation sections: none of the other turns'.
+        // container, its entity counts, its brush models and transition data
+        // when it has them, its shared link section, and its turn's link,
+        // name and navigation sections: none of the other turns'.
         long expected = index.IndexEnd + index.LibrarySections.Sum(s => s.Length);
         foreach ((string room, int turn) in new[] { ("up", 0), ("hall", 2) })
         {
             RoomPackEntry entry = index.Find(room)!;
             expected += entry.Room.Length + entry.Find("ECNT")!.Value.Length + entry.Find("LNKA")!.Value.Length + entry.Find($"GEO{turn}")!.Value.Length
-                + entry.Find($"NAM{turn}")!.Value.Length + entry.Find($"NVR{turn}")!.Value.Length;
+                + entry.Find($"NAM{turn}")!.Value.Length + entry.Find($"NVR{turn}")!.Value.Length
+                + (entry.Find("BMOD")?.Length ?? 0) + (entry.Find("TRAN")?.Length ?? 0);
         }
 
         Assert.Equal(expected, tap.BytesReadFrom(At("/rooms.roompack")));

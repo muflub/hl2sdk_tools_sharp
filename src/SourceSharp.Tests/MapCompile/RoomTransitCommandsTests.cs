@@ -197,7 +197,7 @@ public sealed class RoomTransitCommandsTests
         InMemoryFileSystem fs = Sample();
         using StringWriter output = new();
         Assert.True(
-            await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/transit/rooms.vmf", "-out", "/transit/rooms.roompack"], output) == Program.ExitSuccess,
+            await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/transit/rooms.vmf", "-game", "/transit", "-out", "/transit/rooms.roompack"], output) == Program.ExitSuccess,
             output.ToString());
 
         for (int i = 1; i <= RoomsTransitSample.Levels; i++)

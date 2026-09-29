@@ -39,8 +39,9 @@ public sealed class RoomsTransitSampleTests
         Assert.Equal(expected.Keys.Order(StringComparer.Ordinal), present);
         foreach ((string path, byte[] bytes) in expected)
         {
+            byte[] onDisk = await File.ReadAllBytesAsync(Path.Combine(root, path));
             Assert.True(
-                bytes.AsSpan().SequenceEqual(await File.ReadAllBytesAsync(Path.Combine(root, path))),
+                bytes.AsSpan().SequenceEqual(onDisk),
                 $"samples/rooms-transit/{path} is not what the generator writes: run tools/RoomsSample --transit samples/rooms-transit");
         }
     }
