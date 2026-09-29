@@ -233,7 +233,7 @@ public sealed class RoomPackIndex
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Layout, version 2</b> (as version 1's; see Versions below). Every integer is big-endian, as in the room
+/// <b>Layout, version 3</b> (as versions 1 and 2's; see Versions below). Every integer is big-endian, as in the room
 /// container, so the bytes do not depend on the writer's byte order. A tag
 /// is four printable ASCII characters, stored as they read.
 /// </para>
@@ -292,7 +292,7 @@ public sealed class RoomPackIndex
 /// link sections nor the library-wide entities section changed
 /// <see cref="Version"/>; a change an older build must not read around (a
 /// different container, a section it cannot ignore, a promise about the
-/// rooms the link relies on, as version 2's below) raises it.
+/// rooms the link relies on, as versions 2 and 3's below) raises it.
 /// </para>
 /// <para>
 /// <b>One layout per set of rooms.</b> The writer puts the rooms in the
@@ -323,22 +323,29 @@ public sealed class RoomPackIndex
 /// entry names; a pack whose index and containers disagree is refused.
 /// </para>
 /// <para>
-/// <b>Versions.</b> This build reads and writes version 2, and refuses any
+/// <b>Versions.</b> This build reads and writes version 3, and refuses any
 /// other with the version it carries and the one it reads, as the room
 /// container does; the containers inside carry their own version and are
-/// checked by <see cref="RoomObjectStore.LoadAsync"/>. Version 2 has the
-/// layout of version 1; what it adds is a promise about the rooms: the
-/// pack was built after the library's singletons were checked
-/// (<see cref="RoomLibraryEntities.KeepInRoom"/>), so no room carries a sun
-/// or an unnamed controller of its own, every room agrees with the
-/// library's sun and sky (decision D3 of the rooms design: a room that
-/// disagrees is refused when the pack is built), and the library's own are
-/// in <see cref="RoomLibraryEntities.SectionTag"/>. A version 1 pack makes
-/// no such promise, and the link cannot check it (it has the rooms' compiled
-/// entities, not their VMF), so it is refused with a message that says to
-/// recompile the library, rather than read around. That is the kind of
-/// change the paragraph above keeps a version for: tags an older build can
-/// skip never raised it, a guarantee the link relies on does.
+/// checked by <see cref="RoomObjectStore.LoadAsync"/>. Versions 2 and 3
+/// have the layout of version 1; what each adds is a promise about the
+/// rooms. Version 2: the pack was built after the library's singletons were
+/// checked (<see cref="RoomLibraryEntities.KeepInRoom"/>), so no room
+/// carries a sun or an unnamed controller of its own, every room agrees
+/// with the library's sun and sky (decision D3 of the rooms design: a room
+/// that disagrees is refused when the pack is built), and the library's own
+/// are in <see cref="RoomLibraryEntities.SectionTag"/>. Version 3: every
+/// room's pak holds what vbsp packs for it, the default cubemaps built from
+/// the library's sky included, and the link carries those files into the
+/// level (<see cref="LevelPakFiles"/>). The rooms of a version 2 pack were
+/// compiled with the default cubemaps left out (the link then refused any
+/// packed file), so a level linked from one would silently lack the
+/// defaults the same library recompiled gives it. An older pack makes a
+/// promise short of this one and the link cannot check the difference (it
+/// has the rooms' compiled lumps, not what their compile would have packed),
+/// so it is refused with a message that says what it lacks and to recompile
+/// the library, rather than read around. That is the kind of change the
+/// paragraph above keeps a version for: tags an older build can skip never
+/// raised it, a guarantee the link relies on does.
 /// </para>
 /// </remarks>
 public static class RoomPack
@@ -347,7 +354,7 @@ public static class RoomPack
     public const string Magic = "SSRPAK01";
 
     /// <summary>The only pack version this build reads and writes (<see cref="RoomPack"/>'s remarks on versions).</summary>
-    public const int Version = 2;
+    public const int Version = 3;
 
     /// <summary>The file extension <c>ssmap room</c> writes and <c>ssmap link</c> looks for.</summary>
     public const string Extension = ".roompack";
@@ -514,13 +521,13 @@ public static class RoomPack
         }
 
         int version = BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(8));
-        if (version == Version - 1)
+        if (OlderVersion(version) is { } lacks)
         {
-            // The one older version there is: its rooms were never held to
-            // the library's sun and sky, so it is not read around.
+            // An older version whose rooms were never held to what this
+            // build's link relies on: not read around.
             throw new LinkException(
                 $"room pack version {version}; this build reads version {Version}. A version {version} pack was written before"
-                + " the library-wide singletons were checked when the pack is built; recompile the library with ssmap room.");
+                + $" {lacks}; recompile the library with ssmap room.");
         }
 
         if (version != Version)
@@ -1189,6 +1196,19 @@ public static class RoomPack
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),
         ((byte)'N', (byte)'V', (byte)'R', >= (byte)'0' and <= (byte)'3') => RoomNavSection.Tag(tag[3] - '0'),
         ((byte)'N', (byte)'A', (byte)'M', >= (byte)'0' and <= (byte)'3') => RoomNameTurn.Tag(tag[3] - '0'),
+        _ => null,
+    };
+
+    /// <summary>
+    /// What an older pack version lacks that this build's link relies on,
+    /// as the refusal says it, or null for a version that is not an older
+    /// one of this format. Each names the first promise it misses: a
+    /// version 1 pack misses both.
+    /// </summary>
+    private static string? OlderVersion(int version) => version switch
+    {
+        1 => "the library-wide singletons were checked when the pack is built",
+        2 => "rooms packed their files (the default cubemaps built from the library's sky), which the link now carries",
         _ => null,
     };
 

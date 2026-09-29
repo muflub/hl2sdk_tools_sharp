@@ -254,15 +254,12 @@ public sealed class VbspContext
     /// compile.
     /// </summary>
     /// <remarks>
-    /// A room compile (<c>RoomCompiler</c>) turns it off. Those files are
-    /// named after the map, and a room is not the map the engine loads: in
-    /// a linked level they would sit under the room's name, where nothing
-    /// looks for them, and their presence made every room of a game whose
-    /// sky textures resolve unlinkable, since the link carries only an empty
-    /// pak. The level's own defaults, under the level's name, are the link's
-    /// to write once it carries cubemaps. Water depth and other patched
-    /// materials are unaffected: they are named after the room on purpose
-    /// and shared by its placements.
+    /// A room compile leaves it on: the room's pak then holds the defaults
+    /// under the room's name, built from the library's one sky, and the link
+    /// renames them to the level's map name, where the engine looks for
+    /// them (<c>LevelPakFiles</c>), so a link needs no game files to give a
+    /// level its defaults. Off, the compile writes neither the defaults nor
+    /// the per-sample copies, for a host that builds cubemaps some other way.
     /// </remarks>
     public bool WritesDefaultCubemaps { get; set; } = true;
 

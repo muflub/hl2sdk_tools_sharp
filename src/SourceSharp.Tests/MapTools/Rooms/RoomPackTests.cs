@@ -105,7 +105,7 @@ public sealed class RoomPackTests(RoomPackFixture fixture) : IClassFixture<RoomP
         byte[] pack = await SaveAsync([fixture.Items[1]]);
 
         Assert.Equal("SSRPAK01", Encoding.ASCII.GetString(pack, 0, 8));
-        Assert.Equal(2, BinaryPrimitives.ReadInt32BigEndian(pack.AsSpan(8)));
+        Assert.Equal(3, BinaryPrimitives.ReadInt32BigEndian(pack.AsSpan(8)));
         Assert.Equal(0, BinaryPrimitives.ReadInt32BigEndian(pack.AsSpan(12)));
         Assert.Equal(1, BinaryPrimitives.ReadInt32BigEndian(pack.AsSpan(16)));
         Assert.Equal(3, BinaryPrimitives.ReadInt32BigEndian(pack.AsSpan(20)));
@@ -263,19 +263,22 @@ public sealed class RoomPackTests(RoomPackFixture fixture) : IClassFixture<RoomP
     }
 
     /// <summary>A pack of another version is refused naming both versions.</summary>
-    [Fact]
-    public async Task AnotherVersionIsRefused()
+    [Theory]
+    [InlineData(4)]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task AnotherVersionIsRefused(int version)
     {
         byte[] pack = await SaveAsync(fixture.Items);
-        BinaryPrimitives.WriteInt32BigEndian(pack.AsSpan(8), 3);
-        Assert.Equal("room pack version 3; this build reads version 2.", (await RefusedAsync(pack)).Message);
-        Assert.Equal(2, RoomPack.Version);
+        BinaryPrimitives.WriteInt32BigEndian(pack.AsSpan(8), version);
+        Assert.Equal($"room pack version {version}; this build reads version 3.", (await RefusedAsync(pack)).Message);
+        Assert.Equal(3, RoomPack.Version);
     }
 
     /// <summary>
     /// A version 1 pack, written before the library-wide singletons were
     /// checked when the pack is built, is refused with what to do about it:
-    /// its layout is version 2's, so it would read, but its rooms were never
+    /// its layout is version 3's, so it would read, but its rooms were never
     /// held to the library's sun and sky, and the link cannot check that.
     /// </summary>
     [Fact]
@@ -284,8 +287,25 @@ public sealed class RoomPackTests(RoomPackFixture fixture) : IClassFixture<RoomP
         byte[] pack = await SaveAsync(fixture.Items);
         BinaryPrimitives.WriteInt32BigEndian(pack.AsSpan(8), 1);
         Assert.Equal(
-            "room pack version 1; this build reads version 2. A version 1 pack was written before the library-wide singletons"
+            "room pack version 1; this build reads version 3. A version 1 pack was written before the library-wide singletons"
             + " were checked when the pack is built; recompile the library with ssmap room.",
+            (await RefusedAsync(pack)).Message);
+    }
+
+    /// <summary>
+    /// A version 2 pack, written before rooms packed their files, is refused
+    /// with what to do about it: its rooms were compiled with the default
+    /// cubemaps left out, so a level linked from it would silently lack the
+    /// defaults the same library recompiled gives it.
+    /// </summary>
+    [Fact]
+    public async Task AVersionTwoPackIsRefusedWithWhatToDo()
+    {
+        byte[] pack = await SaveAsync(fixture.Items);
+        BinaryPrimitives.WriteInt32BigEndian(pack.AsSpan(8), 2);
+        Assert.Equal(
+            "room pack version 2; this build reads version 3. A version 2 pack was written before rooms packed their files"
+            + " (the default cubemaps built from the library's sky), which the link now carries; recompile the library with ssmap room.",
             (await RefusedAsync(pack)).Message);
     }
 

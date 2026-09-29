@@ -421,9 +421,11 @@ the rooms its level places and nothing else of the file. Each room in it is
 the room container `ssmap` has always written for a room; the format
 (`RoomPack` in `Rooms/`) has room for more per room and per library, and
 a build that does not know a later section reads around it. The pack is at
-format version 2, which promises that every room was checked against the
-library's singletons when it was built; a version 1 pack is refused with a
-message to recompile the library with `ssmap room`.
+format version 3, which promises that every room was checked against the
+library's singletons when it was built and that every room's pak holds what
+vbsp packed for it, the default cubemaps built from the library's sky
+included; an older pack is refused with a message to recompile the library
+with `ssmap room`.
 
 A **level** is a YAML file:
 
@@ -482,9 +484,17 @@ the map's own. Planes, materials (texdata and their names) and texture
 axes (texinfo) are shared: an entry another room already brought is named,
 not copied, so the engine's 2048-texdata cap counts the level's distinct
 materials rather than every room's, and the plane and texinfo tables grow
-only with what the rooms do not have in common. The link refuses what it cannot carry: area portals, static
-or detail props, packed files, displacements, water, and a mix of cooked
-and `-cooker none` rooms. The doorway's side walls have no faces of their
+only with what the rooms do not have in common. The rooms' packed files go
+into the level's one pak, merged by name: a file several rooms pack with the
+same bytes is written once, two rooms that pack one name with different
+bytes are refused, naming both, and the rooms' default cubemaps (built from
+the library's sky, `materials/maps/<room>/cubemapdefault.vtf` and its HDR
+twin) are renamed to the level's map name, the output file's name, which is
+where the engine looks for them; so renaming a linked `.bsp` afterwards
+loses its default cubemaps, as it does for any map. Other files named after
+a room (patched materials) keep the room's name, which its faces use. The
+link refuses what it cannot carry: area portals, static or detail props,
+displacements, water, and a mix of cooked and `-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a
 gap unless something placed in the socket (a door frame model, say) covers
 them.

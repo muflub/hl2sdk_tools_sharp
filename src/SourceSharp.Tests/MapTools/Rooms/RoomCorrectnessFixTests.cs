@@ -515,13 +515,13 @@ public sealed class RoomCorrectnessFixTests
     // ---- 7. default cubemaps and real content ------------------------------------
 
     /// <summary>
-    /// With sky textures that resolve, an ordinary compile of a room's VMF
-    /// packs the default cubemaps under its map name, as vbsp does, and the
-    /// room compile of the same VMF packs nothing, turning the switch off on
-    /// the context it was given.
+    /// With sky textures that resolve, a room compile packs the default
+    /// cubemaps under the room's name, as an ordinary compile of its VMF
+    /// does (the link renames them to the level's, <see cref="LevelPakFiles"/>),
+    /// and a context with the defaults switched off packs neither.
     /// </summary>
     [Fact]
-    public async Task ARoomCompilePacksNoDefaultCubemapsWhereAMapCompileDoes()
+    public async Task ARoomCompilePacksItsDefaultCubemapsAsAMapCompileDoes()
     {
         RoomDefinition hub = RoomHarness.WalkableRoom("hub", RoomFacing.PositiveX);
         VmfDocument document = RoomHarness.BuildRoomModel(hub);
@@ -530,15 +530,21 @@ public sealed class RoomCorrectnessFixTests
         VbspContext map = await SkyContextAsync();
         Assert.True(map.WritesDefaultCubemaps);
         VbspResult whole = await RoomHarness.CompileAsync(document, map);
-        Assert.Contains("materials/maps/hub/cubemapdefault.vtf"u8.ToArray(), Windows(whole.Bsp![BspLump.PakFile].Data.ToArray(), 37));
+        string[] expected = ["materials/maps/hub/cubemapdefault.vtf", "materials/maps/hub/cubemapdefault.hdr.vtf"];
+        Assert.Equal(expected, await PakNamesAsync(whole.Bsp!));
 
         VbspContext room = await SkyContextAsync();
         RoomObject compiled = await RoomCompiler.CompileAsync(document, hub, room);
-        Assert.False(room.WritesDefaultCubemaps);
-        Assert.DoesNotContain("cubemapdefault"u8.ToArray(), Windows(compiled.Bsp[BspLump.PakFile].Data.ToArray(), 14));
+        Assert.True(room.WritesDefaultCubemaps);
+        Assert.Equal(expected, await PakNamesAsync(compiled.Bsp));
 
-        static IEnumerable<byte[]> Windows(byte[] bytes, int width) =>
-            Enumerable.Range(0, Math.Max(0, bytes.Length - width + 1)).Select(i => bytes[i..(i + width)]);
+        VbspContext off = await SkyContextAsync();
+        off.WritesDefaultCubemaps = false;
+        RoomObject bare = await RoomCompiler.CompileAsync(document, hub, off);
+        Assert.Empty(await PakNamesAsync(bare.Bsp));
+
+        static async Task<string[]> PakNamesAsync(BspData bsp) =>
+            [.. (await SourceSharp.MapFormats.Zip.ZipArchiveReader.ParseAsync(bsp[BspLump.PakFile].Data)).Entries.Select(e => e.Name)];
     }
 
     private static async Task<VbspContext> SkyContextAsync()

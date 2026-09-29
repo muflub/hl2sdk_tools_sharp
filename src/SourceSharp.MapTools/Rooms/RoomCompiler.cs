@@ -141,10 +141,11 @@ public static class RoomCompiler
             [.. document.GetChunks(MapFileLoader.EntityChunk).Select((e, i) => LevelEntity.FromVmf(e, -1, i))],
             nameKeys);
 
-        // A room never packs the default cubemaps: they are named after the
-        // map, which a room is not, and the link refuses any packed file
-        // (VbspContext.WritesDefaultCubemaps says why in full).
-        context.WritesDefaultCubemaps = false;
+        // The room packs what vbsp packs for any map, the default cubemaps
+        // named after the room included: the link carries every room's
+        // files and renames those to the level's map name (LevelPakFiles),
+        // which is how a room of a game whose sky textures resolve links
+        // with its level's default cubemaps and without game files.
 
         // G1 + G4 on the model, before any compile time is spent.
         MapFile map = await MapFileLoader

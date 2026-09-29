@@ -33,7 +33,7 @@ public static partial class LevelLinker
     /// </para>
     /// <para>
     /// A room the link refuses (a second model, a water leaf, a pak that is
-    /// not empty, collision or entities it cannot read, ...) gets no link
+    /// not a zip, collision or entities it cannot read, ...) gets no link
     /// data rather than failing its compile: it is still packed as before,
     /// and a level that places it is refused at link time with the same
     /// message, from the same point of the link, because the link then
@@ -47,7 +47,7 @@ public static partial class LevelLinker
         ArgumentNullException.ThrowIfNull(room);
         try
         {
-            await RefusePackedFilesAsync(room, cancellationToken).ConfigureAwait(false);
+            await ReadPakAsync(room, cancellationToken).ConfigureAwait(false);
             RoomLinkShared shared = ComputeShared(room);
             RoomLinkRotation?[] rotations = new RoomLinkRotation?[4];
             for (int rotation = 0; rotation < 4; rotation++)
