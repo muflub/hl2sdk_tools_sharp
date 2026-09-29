@@ -818,7 +818,7 @@ The toolsets:
 
 #### Results
 
-Measured with `tools/toolchain-bench.sh` at 0e907eb:
+Measured with `tools/toolchain-bench.sh` at 9b300b1:
 
 - Machine: Ryzen 9 9950X (16 cores, 32 threads) on Linux.
 - Each tool's default options and thread count.
@@ -829,19 +829,19 @@ Measured with `tools/toolchain-bench.sh` at 0e907eb:
 
 | toolset | vbsp | vvis | vrad | total | vs stock |
 |---|---:|---:|---:|---:|---:|
-| stock | 0.30 | 0.14 | 9.92 | 10.37 | 1.00× |
-| Tools++ | 0.24 | 0.05 | 8.95 | 9.24 | 0.89× |
-| ssmap (JIT) | 0.67 | 0.08 | 3.19 | 3.94 | 0.38× |
-| ssmap (AOT) | 0.15 | 0.01 | 1.45 | 1.61 | 0.16× |
+| stock | 0.27 | 0.13 | 9.75 | 10.14 | 1.00× |
+| Tools++ | 0.23 | 0.05 | 8.49 | 8.78 | 0.87× |
+| ssmap (JIT) | 0.52 | 0.07 | 3.26 | 3.85 | 0.38× |
+| ssmap (AOT) | 0.11 | 0.01 | 1.37 | 1.48 | 0.15× |
 
 `sdk_ctf_2fort`:
 
 | toolset | vbsp | vvis | vrad | total | vs stock |
 |---|---:|---:|---:|---:|---:|
-| stock | 5.64 | 9.57 | 31.25 | 46.38 | 1.00× |
-| Tools++ | 4.80 | 2.59 | 7.92 | 15.30 | 0.33× |
-| ssmap (JIT) | 3.99 | 5.62 | 9.01 | 18.51 | 0.40× |
-| ssmap (AOT) | 1.62 | 5.67 | 7.39 | 14.77 | 0.32× |
+| stock | 5.56 | 9.49 | 31.35 | 46.40 | 1.00× |
+| Tools++ | 4.82 | 2.60 | 7.92 | 15.34 | 0.33× |
+| ssmap (JIT) | 3.89 | 5.22 | 9.00 | 18.15 | 0.39× |
+| ssmap (AOT) | 1.22 | 4.94 | 7.39 | 13.54 | 0.29× |
 
 All four toolsets produced lit maps with the same lighting size, to within
 0.2%.
@@ -849,7 +849,7 @@ All four toolsets produced lit maps with the same lighting size, to within
 What the numbers say:
 
 - **ssmap AOT is the fastest chain on both maps.** On the small sandbox the
-  JIT's start-up is most of ssmap's time: 3.94 s against 1.61 s. vrad is
+  JIT's start-up is most of ssmap's time: 3.85 s against 1.48 s. vrad is
   where ssmap gains most over stock, and ssmap's vbsp is the fastest of the
   four.
 - **Tools++'s vvis is about twice as fast as ssmap's on 2fort.** vvis is the
@@ -858,12 +858,11 @@ What the numbers say:
   each vector about a fifth of the size, and every step of the portal flow
   reads and writes those vectors. Tools++ also vectorises those loops with
   AVX2.
-- **ssmap's 2fort tree is not the same as stock's.** ssmap's vbsp writes
-  2680 clusters and 6760 portals, against stock's 2480 and 6339. That is
-  why ssmap's visibility lump is larger (765,671 bytes against 660,492), and
-  it adds to vvis's work. Stock vbsp and ssmap's differ there, and the
-  difference is not yet in the compliance catalogue, so it is a bug to find,
-  not a result.
+- **ssmap's 2fort tree is close to stock's, but not identical.** ssmap's
+  vbsp writes 2492 clusters and 6367 portals, against stock's 2480 and 6339,
+  and its visibility lump is 667,660 bytes against stock's 660,492. The
+  remaining difference is not yet in the compliance catalogue, so it is a
+  bug to find, not a result.
 
 The sandbox numbers are small enough that process start-up dominates. 2fort
 is the one to compare compilers on.
