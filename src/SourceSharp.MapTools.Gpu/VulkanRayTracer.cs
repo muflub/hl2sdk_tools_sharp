@@ -58,6 +58,72 @@ public readonly record struct VulkanRayTracerOptions(
     /// keep working.
     /// </remarks>
     public int SlabsInFlight { get; init; }
+
+    /// <summary>
+    /// When true, and the device is not pinned (<see cref="IsPinned"/>), decline a device the CPU tracer
+    /// would beat: a CPU implementation of Vulkan, or a device whose
+    /// measured ray upload rate is below <see cref="MinUploadBytesPerSecond"/>.
+    /// A pinned device is always used. False (the default) keeps every
+    /// device that passes the self-test.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// "Use the faster one by default." <c>ssmap</c>'s unpinned
+    /// <c>-gpu auto</c> sets it: a user who asked for the GPU without
+    /// naming one wants the run to go faster, and on a machine whose only
+    /// Vulkan device is llvmpipe, or whose card sits behind a slow link, the
+    /// KD tracer is the faster one. Naming the device is how to say "this
+    /// one anyway", which diagnostics and the device facts do.
+    /// </para>
+    /// <para>
+    /// An init property, off by default, rather than a change of the
+    /// default: a host that already relies on "any device that passes"
+    /// keeps that, and one that wants the policy says so.
+    /// </para>
+    /// </remarks>
+    public bool DeclineSlowDevicesUnlessPinned { get; init; }
+
+    /// <summary>
+    /// The upload-rate floor for <see cref="DeclineSlowDevicesUnlessPinned"/>,
+    /// in bytes per second; 0 (what a defaulted value holds) means
+    /// <see cref="DefaultMinUploadBytesPerSecond"/>.
+    /// </summary>
+    public double MinUploadBytesPerSecond { get; init; }
+
+    /// <summary>
+    /// 2.5 GB/s: the upload rate below which tracing on a device that
+    /// stages its rays plausibly loses to the CPU KD tracer.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A ray is 32 bytes on the wire, and the KD tracer answers about 80
+    /// million rays a second on 32 threads, so it needs no more than
+    /// 32 B × 80 M/s ≈ 2.56 GB/s worth of time for a batch; a device whose
+    /// upload alone is slower than that cannot finish first, whatever its
+    /// traversal speed (the answers' download only adds to it). The case
+    /// that set it: an RTX 2070 SUPER in a PCIe Gen2 x1 slot moved about
+    /// 23 GB of 2fort's rays at about 0.67 GB/s, 34.3 s of copying against
+    /// 0.44 s of tracing, for 43 to 47 s against the CPU's 9 s. A card on a
+    /// full-width Gen3 or better link measures several times the floor, and
+    /// one that reads rays in place is not probed at all.
+    /// </para>
+    /// <para>
+    /// The number is rounded down to 2.5 so the floor errs toward using a
+    /// GPU on a borderline link; a host whose CPU is much faster or slower
+    /// than 32 threads can set <see cref="MinUploadBytesPerSecond"/>.
+    /// </para>
+    /// </remarks>
+    public const double DefaultMinUploadBytesPerSecond = 2.5e9;
+
+    /// <summary>Whether the options name the device, by name or by an index past the first.</summary>
+    /// <remarks>
+    /// Index 0 is not a pin: it is what a defaulted options value holds, and
+    /// selection reads it as "rank every device", the same as −1.
+    /// </remarks>
+    public bool IsPinned => DeviceMatch is { Length: > 0 } || DeviceIndex > 0;
+
+    /// <summary>The upload floor in force: <see cref="MinUploadBytesPerSecond"/>, or the default for 0.</summary>
+    public double UploadFloor => MinUploadBytesPerSecond > 0 ? MinUploadBytesPerSecond : DefaultMinUploadBytesPerSecond;
 }
 
 /// <summary>
@@ -114,6 +180,13 @@ public readonly record struct SelfTestRecord(
     /// driver build and nothing that identifies the machine.
     /// </remarks>
     public string? Detail { get; init; }
+
+    /// <summary>
+    /// The measured ray upload rate in bytes per second, or null when the
+    /// device reads rays in place (nothing to upload, so nothing probed) or
+    /// the self-test failed before the probe.
+    /// </summary>
+    public double? UploadBytesPerSecond { get; init; }
 }
 
 /// <summary>A device inventory row set plus the self-test outcome of the last attempt.</summary>
@@ -373,6 +446,14 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
             cancellationToken.ThrowIfCancellationRequested();
 
             observe?.Invoke(TryCreateStage.Constructed);
+
+            // A CPU implementation is turned away before the self-test: its
+            // answer would not change the decision, and it is not free.
+            if (SlowDeviceReason(options, device.DeviceName, device.IsCpuDevice, null) is { } cpu)
+            {
+                return new VulkanTracerAttempt(null, new VulkanDeviceReport(inventory, null, cpu), false);
+            }
+
             // The gate runs before real geometry: two triangles whose answer
             // is known by construction, through every kernel mode.
             (bool ready, SelfTestOutcome outcome) = device.RunSelfTest();
@@ -394,6 +475,14 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
             if (!ready)
             {
                 return new VulkanTracerAttempt(null, new VulkanDeviceReport(inventory, record, null), false);
+            }
+
+            // Measured whether or not it decides anything, so a pinned
+            // device's report still says how fast its link is.
+            record = record with { UploadBytesPerSecond = device.MeasureUploadRate() };
+            if (SlowDeviceReason(options, device.DeviceName, device.IsCpuDevice, record.UploadBytesPerSecond) is { } slow)
+            {
+                return new VulkanTracerAttempt(null, new VulkanDeviceReport(inventory, record, slow), false);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -445,6 +534,47 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
                 observe?.Invoke(TryCreateStage.Released);
             }
         }
+    }
+
+    /// <summary>
+    /// Why a device that works should still not be used, under
+    /// <see cref="VulkanRayTracerOptions.DeclineSlowDevicesUnlessPinned"/>:
+    /// a CPU implementation of Vulkan, or an upload rate below the floor.
+    /// </summary>
+    /// <param name="options">The attempt's options: the policy switch, the pin and the floor.</param>
+    /// <param name="deviceName">The device, quoted in the reason.</param>
+    /// <param name="isCpuDevice">Whether the device's type is CPU.</param>
+    /// <param name="uploadBytesPerSecond">The measured upload rate, or null when not measured.</param>
+    /// <returns>The reason to decline, or null to use the device.</returns>
+    /// <remarks>
+    /// A pinned device, or any device when the policy is off, is always
+    /// used. An unmeasured rate (rays read in place, or not probed yet)
+    /// never declines: there is no upload to be slow. Each reason says what
+    /// was seen and how to trace on the device anyway.
+    /// </remarks>
+    internal static string? SlowDeviceReason(
+        VulkanRayTracerOptions options, string deviceName, bool isCpuDevice, double? uploadBytesPerSecond)
+    {
+        if (!options.DeclineSlowDevicesUnlessPinned || options.IsPinned)
+        {
+            return null;
+        }
+
+        if (isCpuDevice)
+        {
+            return $"{deviceName} is a CPU implementation of Vulkan; the built-in CPU tracer is faster, "
+                + "so it is used instead. Pin the device by name to trace on it anyway";
+        }
+
+        if (uploadBytesPerSecond is double rate && rate < options.UploadFloor)
+        {
+            System.Globalization.CultureInfo inv = System.Globalization.CultureInfo.InvariantCulture;
+            return $"rays upload to {deviceName} at {(rate / 1e9).ToString("F2", inv)} GB/s, below the "
+                + $"{(options.UploadFloor / 1e9).ToString("F2", inv)} GB/s at which tracing on it could beat the "
+                + "CPU; the built-in CPU tracer is faster; pin the device by name to trace on it anyway";
+        }
+
+        return null;
     }
 
     /// <summary>The slot count <paramref name="options"/> asks for, 0 meaning the default.</summary>

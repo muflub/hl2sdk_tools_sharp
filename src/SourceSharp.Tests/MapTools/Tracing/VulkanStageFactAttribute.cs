@@ -23,6 +23,13 @@ public enum VulkanNeed
 
     /// <summary>A device that passes the tracer's self-test, so the real scene is loaded.</summary>
     PassingDevice,
+
+    /// <summary>
+    /// A passing device, and the only ray-query device is a CPU
+    /// implementation (llvmpipe): the machine where an unpinned <c>-gpu</c>
+    /// keeps the CPU tracer.
+    /// </summary>
+    OnlyCpuDevice,
 }
 
 /// <summary>
@@ -62,6 +69,15 @@ internal static class VulkanNeeds
               + (attempt.Report.Selected?.Reason ?? attempt.Report.Failure);
     });
 
+    private static readonly Lazy<string?> OnlyCpuSkip = new(() =>
+    {
+        VulkanDeviceInfo[] rq = [.. VulkanRayTracer.ProbeDevices().Where(r => r.RayQuery)];
+        return rq.Length == 1 && rq[0].DeviceType == "Cpu"
+            ? null
+            : "the ray-query devices here are not a lone CPU implementation: "
+              + string.Join("; ", rq.Select(r => r.Name + " (" + r.DeviceType + ")"));
+    });
+
     /// <summary>The skip reason for <paramref name="need"/>, or null when the machine has it.</summary>
     /// <param name="need">What the fact needs.</param>
     /// <returns>The reason, prefixed for the runner, or null.</returns>
@@ -71,6 +87,7 @@ internal static class VulkanNeeds
         {
             VulkanNeed.Loader => LoaderSkip.Value,
             VulkanNeed.RayQueryDevice => LoaderSkip.Value ?? RayQuerySkip.Value,
+            VulkanNeed.OnlyCpuDevice => LoaderSkip.Value ?? RayQuerySkip.Value ?? PassingSkip.Value ?? OnlyCpuSkip.Value,
             _ => LoaderSkip.Value ?? RayQuerySkip.Value ?? PassingSkip.Value,
         };
         return why is null ? null : "skipped: " + why;

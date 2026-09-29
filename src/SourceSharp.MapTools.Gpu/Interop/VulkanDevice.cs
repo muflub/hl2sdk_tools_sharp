@@ -326,52 +326,18 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         };
         asProps.PNext = &drv;
 
-        int chosen = -1;
-        int bestScore = int.MinValue;
-        int rqSeen = 0;
+        DeviceCandidate[] candidates = new DeviceCandidate[devices.Length];
         for (int i = 0; i < devices.Length; i++)
         {
             _vk.GetPhysicalDeviceProperties2(devices[i], &props);
             _vk.GetPhysicalDeviceFeatures2(devices[i], &features);
-            if (!Traceable(rqFeatures.RayQuery, asFeatures.AccelerationStructure))
-            {
-                continue;
-            }
-
-            string name = SilkMarshal.PtrToString((nint)props.Properties.DeviceName) ?? "unknown";
-            if (deviceIndex >= 0)
-            {
-                // An explicit pin picks the index among ray-query-capable
-                // devices in instance order — diagnostics must be able to
-                // reach a device a name substring cannot (or must reach a
-                // known-broken one on purpose).
-                if (rqSeen != deviceIndex)
-                {
-                    rqSeen++;
-                    continue;
-                }
-            }
-            else if (deviceMatch is { Length: > 0 }
-                     && !name.Contains(deviceMatch, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            int score = props.Properties.DeviceType switch
-            {
-                PhysicalDeviceType.DiscreteGpu => 5,
-                PhysicalDeviceType.IntegratedGpu => 4,
-                PhysicalDeviceType.VirtualGpu => 3,
-                PhysicalDeviceType.Cpu => 2,
-                _ => 1,
-            };
-            if (score > bestScore)
-            {
-                bestScore = score;
-                chosen = i;
-            }
+            candidates[i] = new DeviceCandidate(
+                SilkMarshal.PtrToString((nint)props.Properties.DeviceName) ?? "unknown",
+                props.Properties.DeviceType,
+                Traceable(rqFeatures.RayQuery, asFeatures.AccelerationStructure));
         }
 
+        int chosen = ChooseDevice(candidates, deviceMatch, deviceIndex);
         if (chosen < 0)
         {
             string what = deviceIndex >= 0
@@ -561,6 +527,85 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         AllocateSlots(slots, forceStaged);
         CreateDescriptorSets();
     }
+
+    /// <summary>
+    /// Picks the device to open from what the loader listed: among the
+    /// traceable ones, the one an index pin names, else the most GPU-like
+    /// one whose name contains the match (any name when there is none).
+    /// </summary>
+    /// <param name="candidates">Every physical device, in the loader's order.</param>
+    /// <param name="deviceMatch">Name substring pin, case-insensitive, or null/empty.</param>
+    /// <param name="deviceIndex">Index pin among traceable devices, or −1; wins over the match.</param>
+    /// <returns>The chosen device's position in <paramref name="candidates"/>, or −1.</returns>
+    /// <remarks>
+    /// <para>
+    /// The ranking is discrete, integrated, virtual, CPU, other: the first
+    /// of the best type wins. A CPU implementation such as llvmpipe is still
+    /// a candidate here, so a pin can reach it and a machine that has
+    /// nothing else still opens it; whether an UNPINNED attempt should use
+    /// it is the tracer's policy
+    /// (<see cref="VulkanRayTracerOptions.DeclineSlowDevicesUnlessPinned"/>),
+    /// decided after this choice so the decline can name the device.
+    /// </para>
+    /// <para>
+    /// An index pin skips that many traceable devices and ranks the rest,
+    /// so it picks the best-ranked device from that index on. That is how
+    /// the loop this was lifted out of behaved, and it is kept on purpose:
+    /// a defaulted <see cref="VulkanRayTracerOptions"/> holds index 0, and
+    /// hosts and facts that pass <c>default</c> rely on it meaning "the best
+    /// device", not "whichever device the loader lists first".
+    /// </para>
+    /// </remarks>
+    internal static int ChooseDevice(ReadOnlySpan<DeviceCandidate> candidates, string? deviceMatch, int deviceIndex)
+    {
+        int chosen = -1;
+        int bestScore = int.MinValue;
+        int traceableSeen = 0;
+        for (int i = 0; i < candidates.Length; i++)
+        {
+            DeviceCandidate c = candidates[i];
+            if (!c.Traceable)
+            {
+                continue;
+            }
+
+            if (deviceIndex >= 0)
+            {
+                // An index pin skips the traceable devices before it in
+                // instance order, then ranks the rest (see the remarks).
+                if (traceableSeen < deviceIndex)
+                {
+                    traceableSeen++;
+                    continue;
+                }
+            }
+            else if (deviceMatch is { Length: > 0 } && !c.Name.Contains(deviceMatch, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            int score = DeviceScore(c.Type);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                chosen = i;
+            }
+        }
+
+        return chosen;
+    }
+
+    /// <summary>How GPU-like a device type is, for <see cref="ChooseDevice"/>: higher wins.</summary>
+    /// <param name="type">The device's type.</param>
+    /// <returns>5 discrete, 4 integrated, 3 virtual, 2 CPU, 1 other.</returns>
+    internal static int DeviceScore(PhysicalDeviceType type) => type switch
+    {
+        PhysicalDeviceType.DiscreteGpu => 5,
+        PhysicalDeviceType.IntegratedGpu => 4,
+        PhysicalDeviceType.VirtualGpu => 3,
+        PhysicalDeviceType.Cpu => 2,
+        _ => 1,
+    };
 
     /// <summary>
     /// Whether a device can hold and trace the scene: it must offer the
@@ -1958,6 +2003,90 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         rays[15] = 1f;
     }
 
+    /// <summary>The most bytes one upload-probe copy moves: 64 MiB, or the slot's ray buffer if smaller.</summary>
+    internal const ulong UploadProbeBytes = 64UL << 20;
+
+    /// <summary>How many copies the upload probe times; the fastest counts.</summary>
+    internal const int UploadProbeRepetitions = 3;
+
+    /// <summary>
+    /// Measures how fast rays reach the device on the path slabs use: slot
+    /// 0's host ray buffer copied into its device ray buffer, the same
+    /// command the slab upload records, timed from submit to fence.
+    /// </summary>
+    /// <returns>
+    /// The best of <see cref="UploadProbeRepetitions"/> rates in bytes per
+    /// second, or null when the kernel reads rays in place (there is no
+    /// upload to measure, so the link costs nothing a probe could see).
+    /// </returns>
+    /// <exception cref="VulkanException">Recording, submission or the wait failed.</exception>
+    /// <remarks>
+    /// <para>
+    /// Why a probe at all: on a card with a slow link the upload, not the
+    /// traversal, sets the pace. An RTX 2070 SUPER in a PCIe Gen2 x1 slot
+    /// (about 0.5 GB/s, no resizable BAR, so rays are staged) spent 34.3 s
+    /// of a 2fort light copying rays against 0.44 s tracing them, and lost
+    /// to the CPU tracer by a factor of five. Only a measurement shows that:
+    /// the device's name and type look like any other discrete GPU.
+    /// </para>
+    /// <para>
+    /// It allocates nothing. It borrows slot 0's buffers, command buffer
+    /// and fence exactly as a slab would, while no slab is in flight (the
+    /// probe runs during set-up), so there is nothing of its own to release
+    /// on success or failure; a wait that fails leaves the slot pending,
+    /// which the slab path and dispose already handle. The copied bytes are
+    /// whatever the buffer holds: no reader looks at them.
+    /// </para>
+    /// </remarks>
+    public double? MeasureUploadRate()
+    {
+        SlabSlot s = _slots[0];
+        if (ReferenceEquals(s.HostRays, s.KernelRays))
+        {
+            return null;
+        }
+
+        Retire(s);
+        ulong bytes = Math.Min(UploadProbeBytes, s.HostRays!.Size);
+        double best = 0;
+        for (int rep = 0; rep < UploadProbeRepetitions; rep++)
+        {
+            CommandBuffer cmd = s.Commands;
+            ThrowOn(_vk.ResetCommandBuffer(cmd, 0), "vkResetCommandBuffer");
+            CommandBufferBeginInfo cbbi = new()
+            {
+                SType = StructureType.CommandBufferBeginInfo,
+                Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
+            };
+            ThrowOn(_vk.BeginCommandBuffer(cmd, &cbbi), "vkBeginCommandBuffer");
+            BufferCopy upload = new() { SrcOffset = 0, DstOffset = 0, Size = bytes };
+            _vk.CmdCopyBuffer(cmd, s.HostRays.Vk, s.KernelRays!.Vk, 1, &upload);
+            End(cmd);
+            Observe?.Invoke(VulkanStep.UploadProbeRecorded);
+            SubmitInfo si = new()
+            {
+                SType = StructureType.SubmitInfo,
+                CommandBufferCount = 1,
+                PCommandBuffers = &cmd,
+            };
+            long start = System.Diagnostics.Stopwatch.GetTimestamp();
+            ThrowOn(_vk.QueueSubmit(_queue, 1, &si, s.Fence), "vkQueueSubmit");
+            s.Pending = true;
+            Retire(s);
+            double seconds = System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalSeconds;
+            best = Math.Max(best, UploadRate(bytes, seconds));
+        }
+
+        return best;
+    }
+
+    /// <summary>Bytes per second for <paramref name="bytes"/> moved in <paramref name="seconds"/>.</summary>
+    /// <param name="bytes">Bytes copied.</param>
+    /// <param name="seconds">Wall time from submit to fence.</param>
+    /// <returns>The rate; a copy too fast for the clock counts as infinitely fast.</returns>
+    internal static double UploadRate(ulong bytes, double seconds) =>
+        seconds > 0 ? bytes / seconds : double.PositiveInfinity;
+
     /// <summary>Stages pre-built wire rays in slot 0 and traces them to completion (the self-test's path).</summary>
     /// <param name="mode">Kernel mode.</param>
     /// <param name="rayCount">Rays in <paramref name="rays"/>.</param>
@@ -2270,6 +2399,12 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         _vk.Dispose();
     }
 }
+
+/// <summary>What device selection knows of one physical device.</summary>
+/// <param name="Name">The device's name.</param>
+/// <param name="Type">The device's type.</param>
+/// <param name="Traceable">Whether it offers ray query and acceleration structures.</param>
+internal readonly record struct DeviceCandidate(string Name, PhysicalDeviceType Type, bool Traceable);
 
 /// <summary>One memory barrier's two stage masks and two access masks.</summary>
 /// <param name="SrcStage">The stage whose work must finish first.</param>

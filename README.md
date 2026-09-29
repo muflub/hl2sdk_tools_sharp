@@ -233,7 +233,7 @@ Runs the three stages in one process with the BSP in memory. Each
 `--vbsp` / `--vvis` / `--vrad` section takes that stage's stock options.
 Chain options apply to every stage: `-game`, `-threads`, `-compliance`, `-v`,
 `-fast`, `-tighten`, `-loose`, `-cooker`, `-vphysics`, `-listcompliance`,
-`-nocache`, `-incremental`, `-cache-dir <dir>`, `-gpu <match>`,
+`-nocache`, `-incremental`, `-cache-dir <dir>`, `-gpu <match|auto>`,
 `-gpu_slabs <n>`, `--no-write` (compile without writing the map) and
 `--record-content <zip>`.
 
@@ -676,7 +676,7 @@ silently compiling without a cache.
 
 `SourceSharp.MapTools.Gpu` is an optional Vulkan ray tracer (via Silk.NET)
 for vrad. It is off unless asked for: `-gpu <match>` turns it on and picks
-the first capable device whose name contains `<match>` (an empty match takes
+the first capable device whose name contains `<match>` (`-gpu auto` takes
 any capable device), and `-gpu_slabs <n>` sets the ray budget for the
 batches ("slabs") on the GPU. The tracer keeps three slabs in flight, so the
 GPU traces one while the next waits behind it and the CPU packs or unpacks a
@@ -686,6 +686,28 @@ GPUs, and discrete GPUs with resizable BAR), rays are written straight into
 memory the GPU reads, skipping the upload copy. When no usable device is
 found, vrad reports that it declined the GPU and falls back to the CPU
 KD-tree tracer, so a run never fails for lack of a GPU.
+
+`-gpu auto` asks for no particular device and means "use the faster one":
+it takes the most GPU-like capable device (discrete, then integrated), but
+keeps the CPU tracer, with one warning saying why, when
+
+- the only capable device is a CPU implementation of Vulkan (llvmpipe),
+  which the built-in CPU tracer beats; or
+- the device has to copy rays to itself (no resizable BAR) and a probe of
+  that copy during start-up measures less than 2.5 GB/s. A ray is 32 bytes
+  and the CPU tracer answers about 80 million rays a second on 32 threads,
+  so below that rate the upload alone takes longer than the CPU would. An
+  RTX 2070 SUPER in a PCIe Gen2 x1 slot (about 0.5 GB/s) spent 34 s of a
+  2fort light copying rays and 0.4 s tracing them, and lost to the CPU by
+  five times.
+
+A named device (`-gpu nvidia`, `-gpu llvmpipe`) is always used if it passes
+its self-test. Every device is checked first with a two-triangle self-test;
+a device that fails it is declined with each test ray's expected and actual
+answer, the driver name and version, and the flags used, in the warning.
+Hosts using the library get the same policy with
+`VulkanRayTracerOptions.DeclineSlowDevicesUnlessPinned` (off by default)
+and can move the floor with `MinUploadBytesPerSecond`.
 
 ## Measuring performance
 

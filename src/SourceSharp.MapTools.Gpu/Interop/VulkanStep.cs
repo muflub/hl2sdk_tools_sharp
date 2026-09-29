@@ -47,6 +47,12 @@ internal enum VulkanStep
     TopLevelScratchAllocated,
 
     /// <summary>
+    /// The upload probe has recorded its copy into slot 0's command buffer
+    /// and not yet submitted it.
+    /// </summary>
+    UploadProbeRecorded,
+
+    /// <summary>
     /// One slab slot's buffers are allocated; its command buffer and fence
     /// are not made yet. Reported once per slot, in slot order, so a fact can
     /// fail the ring part way through any slot.
