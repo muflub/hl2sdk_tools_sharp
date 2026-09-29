@@ -391,9 +391,11 @@ pack does not hold is refused, naming the room and the pack. It
 refuses a level in which a player could not walk from every room to every
 other, naming the rooms that cannot be reached. It needs no game directory.
 Every room is compiled sealed, with a plug brush in each socket; the link
-removes the plug at a joined socket (the doorway becomes open space, drops
-out of the world collision and its faces stop drawing) and keeps it at a
-capped one. The rooms' world collision, entities and areas are merged into
+removes the plug at a joined socket (the doorway becomes open space, its
+brush leaves the map and the world collision, and its faces stop drawing)
+and keeps it at a capped one. Dropping those brushes matters for size: on a
+generated stress library a quarter of the rooms' brushes are plugs, and the
+engine loads at most 8192 brushes (`MAX_MAP_BRUSHES`). The rooms' world collision, entities and areas are merged into
 the map's own. Planes, materials (texdata and their names) and texture
 axes (texinfo) are shared: an entry another room already brought is named,
 not copied, so the engine's 2048-texdata cap counts the level's distinct

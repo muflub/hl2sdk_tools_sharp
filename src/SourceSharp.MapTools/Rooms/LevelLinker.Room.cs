@@ -80,8 +80,6 @@ public static partial class LevelLinker
             Leafs = leafs,
             EdgeCount = BspStructView.Count<DEdge>(bsp[BspLump.Edges]),
             FaceCount = BspStructView.Count<DFace>(bsp[BspLump.Faces]),
-            BrushCount = BspStructView.Count<DBrush>(bsp[BspLump.Brushes]),
-            BrushSideCount = BspStructView.Count<DBrushSide>(bsp[BspLump.BrushSides]),
             LeafFaceCount = BspStructView.Count<ushort>(bsp[BspLump.LeafFaces]),
             SurfEdgeCount = BspStructView.Count<int>(bsp[BspLump.SurfEdges]),
             OrigFaceCount = BspStructView.Count<DFace>(bsp[BspLump.OriginalFaces]),
@@ -332,6 +330,79 @@ public static partial class LevelLinker
         }
 
         MarkPlugOriginalFaces(plan);
+        (plan.BrushMap, plan.KeptBrushCount, _) =
+            KeptBrushes(BspStructView.As<DBrush>(plan.Bsp[BspLump.Brushes]), plan.StrippedBrushes);
+    }
+
+    /// <summary>
+    /// Numbers the brushes a placement keeps: every brush but the stripped
+    /// plugs, in the room's own order, with no gaps.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A stripped plug brush is in no leaf's brush list and has no collision
+    /// ledge once its doorway is jointed, so nothing a trace, the physics or
+    /// the renderer reads can reach it. Keeping it in the brush lump anyway
+    /// (as an empty, contents-0 brush) cost a quarter of a stress level's
+    /// brushes against the loader's <c>MAX_MAP_BRUSHES</c> (8192), which is
+    /// what bound the largest square layout. So the link drops it, with its
+    /// sides, and renumbers every reference to a kept brush through this map:
+    /// the leaves' brush lists and the collision ledges' client data.
+    /// </para>
+    /// <para>
+    /// The kept brushes keep their room order, so the linked brush lump is
+    /// still every room's brushes in layout order, only without the holes,
+    /// and the output stays a pure function of the layout.
+    /// </para>
+    /// </remarks>
+    /// <param name="brushes">The room's brushes.</param>
+    /// <param name="stripped">The room-local plug brushes the level strips.</param>
+    /// <returns>
+    /// Per room brush, its index among the kept ones, or -1 when stripped;
+    /// how many are kept; and how many sides those have.
+    /// </returns>
+    /// <summary>The linked index of a kept room brush: its kept index plus the room's brush base.</summary>
+    /// <param name="map">The room's kept-brush map (<see cref="KeptBrushes"/>).</param>
+    /// <param name="brushBase">The room's first linked brush.</param>
+    /// <param name="roomBrush">The room-local brush a reference names.</param>
+    /// <param name="room">The room's name, for the refusal.</param>
+    /// <exception cref="LinkException">
+    /// The room names a brush it does not have, or a stripped plug: the
+    /// census says nothing in the level reaches the plug any more, so a
+    /// reference to one is a room the relocation does not understand, and
+    /// writing it as some other brush would be silently wrong.
+    /// </exception>
+    internal static int LinkedBrush(int[] map, int brushBase, int roomBrush, string room)
+    {
+        bool inRange = (uint)roomBrush < (uint)map.Length;
+        int kept = inRange ? map[roomBrush] : -1;
+        if (kept < 0)
+        {
+            throw new LinkException(
+                $"room {room} names brush {roomBrush}, which "
+                + (inRange ? "is a stripped plug" : $"it does not have ({map.Length} brushes)"));
+        }
+
+        return brushBase + kept;
+    }
+
+    internal static (int[] Map, int Brushes, int Sides) KeptBrushes(ReadOnlySpan<DBrush> brushes, IReadOnlySet<int> stripped)
+    {
+        int[] map = new int[brushes.Length];
+        int kept = 0, sides = 0;
+        for (int b = 0; b < brushes.Length; b++)
+        {
+            if (stripped.Contains(b))
+            {
+                map[b] = -1;
+                continue;
+            }
+
+            map[b] = kept++;
+            sides += brushes[b].NumSides;
+        }
+
+        return (map, kept, sides);
     }
 
     /// <summary>The index of the first socket of that name, as the census has always looked it up.</summary>
@@ -453,8 +524,6 @@ public static partial class LevelLinker
         public required DLeaf[] Leafs { get; init; }
         public required int EdgeCount { get; init; }
         public required int FaceCount { get; init; }
-        public required int BrushCount { get; init; }
-        public required int BrushSideCount { get; init; }
         public required int LeafFaceCount { get; init; }
         public required int LightingLength { get; init; }
         public required int SurfEdgeCount { get; init; }
@@ -478,6 +547,24 @@ public static partial class LevelLinker
         public HashSet<int> StrippedFaces { get; } = [];
 
         /// <summary>
+        /// Per room brush, its index among the brushes this placement keeps
+        /// (<see cref="KeptBrushes"/>), or -1 for a stripped plug; the linked
+        /// index is that plus <see cref="BrushBase"/>.
+        /// </summary>
+        public int[] BrushMap = [];
+
+        /// <summary>The brushes this placement adds to the link: all but the stripped plugs.</summary>
+        public int KeptBrushCount;
+
+        /// <summary>
+        /// The linked index of a room brush this placement keeps, for a
+        /// reference that names one (a leaf's brush list, a ledge's client
+        /// data): <see cref="LevelLinker.LinkedBrush(int[], int, int, string)"/>.
+        /// </summary>
+        public int LinkedBrush(int roomBrush) =>
+            LevelLinker.LinkedBrush(BrushMap, BrushBase, roomBrush, Placement.Room.Definition.Name);
+
+        /// <summary>
         /// The room-local original faces of jointed plugs, each with the
         /// room-local texinfo of a stripped drawn face cut from it (an
         /// original face's own texinfo is not one of the compile's).
@@ -491,7 +578,6 @@ public static partial class LevelLinker
         public int EdgeBase;
         public int FaceBase;
         public int BrushBase;
-        public int BrushSideBase;
         public int LeafFaceBase;
         public int NodeBase;
         public int LeafBase;

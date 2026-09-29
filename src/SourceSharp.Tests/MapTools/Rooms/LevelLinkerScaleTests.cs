@@ -93,26 +93,47 @@ public sealed class LevelLinkerScaleTests
         RoomObject hub = library.Get("hub");
         LevelLinker.LinkCounts counts = LevelLinker.LinkCounts.Of(hub.Bsp, hub.ClusterCount);
 
+        // A jointed socket's plug brushes are not written, so they are not
+        // counted: a line's two end hubs each strip one plug, every hub
+        // between them two (each hub socket has one plug brush).
+        int[] plugs = LevelLinker.ComputeShared(hub).Sockets[0].StrippedBrushes;
+        Assert.Single(plugs);
+        int plugSides = SourceSharp.MapFormats.Bsp.Structs.BspStructView.As<SourceSharp.MapFormats.Bsp.Structs.DBrush>(
+            hub.Bsp[SourceSharp.MapFormats.Bsp.BspLump.Brushes])[plugs[0]].NumSides;
+        long Kept(long perRoom, long plug, long length) =>
+            length == 1 ? perRoom : (2 * (perRoom - plug)) + ((length - 2) * (perRoom - (2 * plug)));
+
         // The field every hub fills fastest crosses first; the room that
-        // crosses it is the first whose running total passes the limit. The
-        // shared tables are not in the race: a line of one room brings its
-        // materials once, and its planes and texinfos are checked as the
-        // assembly shares them (LevelLinkerSharedTablesTests).
-        (string what, long perRoom, long start, long max)[] fields =
+        // crosses it is the last of the shortest line whose total passes the
+        // limit (the totals grow room by room, and a line one room shorter
+        // ends on a hub that strips one plug where this one strips two, so
+        // it stays under). The shared tables are not in the race: a line of
+        // one room brings its materials once, and its planes and texinfos
+        // are checked as the assembly shares them (LevelLinkerSharedTablesTests).
+        (string what, Func<long, long> total, long max)[] fields =
         [
-            ("vertices", counts.Vertices, 0, ushort.MaxValue + 1),
-            ("faces", counts.Faces, 0, ushort.MaxValue + 1),
-            ("leaves", counts.Leaves, 1, ushort.MaxValue + 1),
-            ("leaf faces", counts.LeafFaces, 0, ushort.MaxValue + 1),
-            ("primitive indices", counts.PrimitiveIndices, 0, ushort.MaxValue + 1),
-            ("brushes", counts.Brushes, 0, 8192),
-            ("brush sides", counts.BrushSides, 0, 65536),
-            ("nodes", counts.Nodes + 2, -1, 65536),
+            ("vertices", n => n * counts.Vertices, ushort.MaxValue + 1),
+            ("faces", n => n * counts.Faces, ushort.MaxValue + 1),
+            ("leaves", n => 1 + (n * counts.Leaves), ushort.MaxValue + 1),
+            ("leaf faces", n => n * counts.LeafFaces, ushort.MaxValue + 1),
+            ("primitive indices", n => n * counts.PrimitiveIndices, ushort.MaxValue + 1),
+            ("brushes", n => Kept(counts.Brushes, 1, n), 8192),
+            ("brush sides", n => Kept(counts.BrushSides, plugSides, n), 65536),
+            ("nodes", n => -1 + (n * (counts.Nodes + 2)), 65536),
         ];
         (string what, long crossing) = fields
-            .Where(f => f.perRoom > 0)
-            .Select(f => (f.what, crossing: ((f.max - f.start) / f.perRoom) + 1))
+            .Select(f =>
+            {
+                long n = 1;
+                while (f.total(n) <= f.max)
+                {
+                    n++;
+                }
+
+                return (f.what, crossing: n);
+            })
             .MinBy(f => f.crossing);
+        Assert.Equal("brushes", what); // the hub's binding total, which the stripped plugs move
 
         LevelLayout under = Line(library, (int)crossing - 1);
         LevelLinker.CheckCapacity(under, library);

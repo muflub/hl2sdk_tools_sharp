@@ -442,13 +442,16 @@ public sealed class LevelLinkerSharedTablesTests
     /// most of them are stale in the room compiles (see
     /// <c>AStaleOriginalFaceTexinfoDoesNotDecideWhichFacesAreThePlug</c>),
     /// the appending link pointed them into other rooms' entries, and they
-    /// are now -1.
+    /// are now -1. The link no longer writes the stripped plug brushes, so
+    /// the digest is taken with them put back as the empty brushes they were
+    /// (<see cref="LinkedBrushProbe.WithPlugsKept"/>): that the digest still
+    /// holds shows the drop moved nothing else.
     /// </summary>
     [Fact]
     public async Task TheResolvedLevelIsTheAppendingLinksLevel()
     {
-        (LinkedLevel link, _) = await TurnedLevelAsync();
-        Assert.Equal(AppendingLinkResolvedDigest, ResolvedDigest(link.Bsp));
+        (LinkedLevel link, RoomLibrary library) = await TurnedLevelAsync();
+        Assert.Equal(AppendingLinkResolvedDigest, ResolvedDigest(LinkedBrushProbe.WithPlugsKept(link, library)));
     }
 
     /// <summary>
@@ -679,11 +682,24 @@ public sealed class LevelLinkerSharedTablesTests
                 AssertSamePlane(Oriented(roomOriginals[f].PlaneNum), planes[originals[originalBase + f].PlaneNum]);
             }
 
+            // The brush sides are the kept brushes' own, in order: a
+            // jointed plug's brush and its sides are not in the link.
             DBrushSide[] roomSides = BspStructView.As<DBrushSide>(room[BspLump.BrushSides]).ToArray();
-            for (int s = 0; s < roomSides.Length; s++)
+            DBrush[] roomBrushes = BspStructView.As<DBrush>(room[BspLump.Brushes]).ToArray();
+            HashSet<int> stripped = LinkedBrushProbe.Stripped(library.Get(instance.Placement.Room), instance);
+            for (int b = 0; b < roomBrushes.Length; b++)
             {
-                AssertSamePlane(Oriented(roomSides[s].PlaneNum), planes[sides[sideBase + s].PlaneNum]);
-                AssertSameTexInfo(room, roomSides[s].TexInfo, transform, bsp, sides[sideBase + s].TexInfo);
+                if (stripped.Contains(b))
+                {
+                    continue;
+                }
+
+                for (int s = roomBrushes[b].FirstSide; s < roomBrushes[b].FirstSide + roomBrushes[b].NumSides; s++)
+                {
+                    AssertSamePlane(Oriented(roomSides[s].PlaneNum), planes[sides[sideBase].PlaneNum]);
+                    AssertSameTexInfo(room, roomSides[s].TexInfo, transform, bsp, sides[sideBase].TexInfo);
+                    sideBase++;
+                }
             }
 
             // A node is on its room plane or that plane's flip with its
@@ -719,7 +735,6 @@ public sealed class LevelLinkerSharedTablesTests
 
             faceBase += roomFaces.Length;
             originalBase += roomOriginals.Length;
-            sideBase += roomSides.Length;
             nodeBase += roomNodes.Length;
         }
 

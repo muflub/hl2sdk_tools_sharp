@@ -22,7 +22,8 @@ public static partial class LevelLinker
     /// <summary>
     /// Writes the linked map: every room's structs in layout order with their
     /// indices shifted by the bases, the top tree above them, the jointed
-    /// plugs stripped, and the lumps that exist once per map merged.
+    /// plugs stripped (their brushes dropped, their faces drawn nodraw), and
+    /// the lumps that exist once per map merged.
     /// </summary>
     private static BspData Assemble(
         RoomPlan[] plans,
@@ -139,7 +140,7 @@ public static partial class LevelLinker
                     int brush = roomLeafBrushes[leaf.FirstLeafBrush + b];
                     if (!plan.StrippedBrushes.Contains(brush))
                     {
-                        leafBrushes.Add((ushort)(brush + plan.BrushBase));
+                        leafBrushes.Add((ushort)plan.LinkedBrush(brush));
                     }
                 }
 
@@ -293,33 +294,37 @@ public static partial class LevelLinker
             }
         }
 
+        // Brushes: every room's in its own order, less the stripped plugs
+        // and their sides (KeptBrushes), each kept brush's sides copied as
+        // one run right after the previous brush's. A stripped plug is in no
+        // leaf and has no ledge, so nothing that reads the map reaches it;
+        // dropping it here is what keeps a large level under the loader's
+        // brush cap.
         List<DBrush> brushes = [];
         List<DBrushSide> brushSides = [];
         foreach (RoomPlan plan in plans)
         {
-            foreach (DBrushSide side in BspStructView.As<DBrushSide>(plan.Bsp[BspLump.BrushSides]))
-            {
-                DBrushSide shifted = side;
-                shifted.PlaneNum = (ushort)plan.PlaneRef(side.PlaneNum);
-                if (side.TexInfo >= 0)
-                {
-                    shifted.TexInfo = (short)plan.TexInfoRef(side.TexInfo);
-                }
-
-                brushSides.Add(shifted);
-            }
-
+            ReadOnlySpan<DBrushSide> roomSides = BspStructView.As<DBrushSide>(plan.Bsp[BspLump.BrushSides]);
             ReadOnlySpan<DBrush> roomBrushes = BspStructView.As<DBrush>(plan.Bsp[BspLump.Brushes]);
             for (int b = 0; b < roomBrushes.Length; b++)
             {
-                DBrush shifted = roomBrushes[b];
-                shifted.FirstSide += plan.BrushSideBase;
-
-                // Unreachable from any leaf now, and empty for any tool that
-                // walks the brush lump itself: the doorway holds nothing.
-                if (plan.StrippedBrushes.Contains(b))
+                if (plan.BrushMap[b] < 0)
                 {
-                    shifted.Contents = 0;
+                    continue;
+                }
+
+                DBrush shifted = roomBrushes[b];
+                shifted.FirstSide = brushSides.Count;
+                foreach (DBrushSide side in roomSides.Slice(roomBrushes[b].FirstSide, roomBrushes[b].NumSides))
+                {
+                    DBrushSide moved = side;
+                    moved.PlaneNum = (ushort)plan.PlaneRef(side.PlaneNum);
+                    if (side.TexInfo >= 0)
+                    {
+                        moved.TexInfo = (short)plan.TexInfoRef(side.TexInfo);
+                    }
+
+                    brushSides.Add(moved);
                 }
 
                 brushes.Add(shifted);
