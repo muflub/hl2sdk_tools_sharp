@@ -10,6 +10,7 @@ using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp.MaterialPatch;
 using SourceSharp.MapTools.Diagnostics;
+using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Phys;
 
 namespace SourceSharp.MapTools.Bsp.Driver;
@@ -117,7 +118,7 @@ public static class Vbsp
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        return new VbspCompilation(map, context, DefaultExtensions(context)).RunAsync(cancellationToken);
+        return HostHandoff.ReturnAsync(new VbspCompilation(map, context, DefaultExtensions(context)).RunAsync(cancellationToken));
     }
 
     /// <summary>
@@ -174,8 +175,8 @@ public static class Vbsp
         cancellationToken.ThrowIfCancellationRequested();
         // -onlyprops rewrites the prop lumps; -onlyents keeps the rest of the
         // file, pak included (SurfaceContentExtension's update branch).
-        return OnlyEntsUpdate.RunAsync(
-            existing, map, context, [new SurfaceContentExtension(null, context.CollisionCooker, context.PropHullCache, context.Options.Compliance)], cancellationToken);
+        return HostHandoff.ReturnAsync(OnlyEntsUpdate.RunAsync(
+            existing, map, context, [new SurfaceContentExtension(null, context.CollisionCooker, context.PropHullCache, context.Options.Compliance)], cancellationToken));
     }
 
     /// <summary>

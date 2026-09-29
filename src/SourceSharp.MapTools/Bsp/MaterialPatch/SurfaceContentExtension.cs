@@ -214,8 +214,8 @@ internal sealed class SurfaceContentExtension : IVbspExtension
                 cancellationToken).ConfigureAwait(false);
         }
 
-        // A room compile keeps the pak free of files named after the room
-        // (VbspContext.WritesDefaultCubemaps).
+        // A host that builds its cubemaps some other way turns the defaults
+        // off (VbspContext.WritesDefaultCubemaps).
         if (!compile.WritesDefaultCubemaps)
         {
             return;

@@ -924,7 +924,10 @@ public static class RoomCommands
 
         int budget = explicitBudget
             ?? EntityClassTable.EdictCap - LevelEntityBudget.ReserveFor(LevelLinkOptions.Default, counts.Options);
-        return new LayoutEntityBudget(budget, edicts);
+
+        // The library's own entities are the level's whatever it places, as
+        // the link counts them.
+        return new LayoutEntityBudget(budget, edicts) { LevelEdicts = RoomLibraryEntities.Count(counts.LibraryEntities).Tally(EntityClassTable.Default).Edicts };
     }
 
     /// <summary>
@@ -1033,7 +1036,7 @@ public static class RoomCommands
 
         await output.WriteAsync(counts is null
             ? DescribeLibrary(rooms)
-            : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default, counts.Names)).ConfigureAwait(false);
+            : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default, counts.Names, counts.LibraryEntities)).ConfigureAwait(false);
         return Program.ExitSuccess;
     }
 
@@ -1155,12 +1158,48 @@ public static class RoomCommands
         return Describe(rooms, counts, options, table, names);
     }
 
+    /// <summary>
+    /// The listing <c>ssmap rooms</c> prints when the library's pack is
+    /// there: the listing with counts and names, and after the budget line
+    /// the library's own entities (the pack's library section), which every
+    /// level linked from it carries once.
+    /// </summary>
+    /// <param name="rooms">The library's rooms.</param>
+    /// <param name="counts">The rooms' entity counts from the pack.</param>
+    /// <param name="options">The library's settings from the pack.</param>
+    /// <param name="table">The class table.</param>
+    /// <param name="names">The rooms' names from the pack.</param>
+    /// <param name="libraryEntities">The library-wide entities from the pack (<see cref="RoomPack.ReadLibraryEntitiesAsync"/>).</param>
+    /// <returns>The listing.</returns>
+    /// <remarks>
+    /// The library line reads <c>library: {n} entities per level ({e} edicts,
+    /// {s} server-only): {class}, {class}, ...</c>, the classes in library
+    /// order, and is left out when the library has none, so a library
+    /// without a sun lists as it did before.
+    /// </remarks>
+    public static string DescribeLibrary(
+        IReadOnlyList<LibraryRoom> rooms,
+        IReadOnlyDictionary<string, RoomEntityCounts?> counts,
+        RoomLibraryOptions options,
+        EntityClassTable table,
+        IReadOnlyDictionary<string, RoomNameSummary> names,
+        IReadOnlyList<VmfChunk> libraryEntities)
+    {
+        ArgumentNullException.ThrowIfNull(counts);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(names);
+        ArgumentNullException.ThrowIfNull(libraryEntities);
+        return Describe(rooms, counts, options, table, names, libraryEntities);
+    }
+
     private static string Describe(
         IReadOnlyList<LibraryRoom> rooms,
         IReadOnlyDictionary<string, RoomEntityCounts?>? counts,
         RoomLibraryOptions options,
         EntityClassTable? table,
-        IReadOnlyDictionary<string, RoomNameSummary>? names = null)
+        IReadOnlyDictionary<string, RoomNameSummary>? names = null,
+        IReadOnlyList<VmfChunk>? libraryEntities = null)
     {
         ArgumentNullException.ThrowIfNull(rooms);
 
@@ -1171,6 +1210,13 @@ public static class RoomCommands
             int reserve = LevelEntityBudget.ReserveFor(LevelLinkOptions.Default, options);
             text.Append(CultureInfo.InvariantCulture,
                 $"entity budget {EntityClassTable.EdictCap - reserve} (reserve {reserve}, cap {EntityClassTable.EdictCap})\n");
+            if (libraryEntities is { Count: > 0 })
+            {
+                EntityTally tally = RoomLibraryEntities.Count(libraryEntities).Tally(table!);
+                text.Append(CultureInfo.InvariantCulture,
+                    $"library: {tally.Listed} entities per level ({tally.Edicts} edicts, {tally.ServerOnly} server-only): "
+                    + $"{string.Join(", ", libraryEntities.Select(e => RoomLibraryEntities.ToLinked(e).ClassName))}\n");
+            }
         }
 
         foreach (LibraryRoom room in rooms)
@@ -1234,10 +1280,12 @@ public static class RoomCommands
     /// the room without them (a pack written before the counts were).
     /// </param>
     /// <param name="Names">Per room of the pack that has them, its names (<see cref="RoomNameSummary"/>).</param>
+    /// <param name="LibraryEntities">The library-wide entities from the pack's library section, in library order.</param>
     private sealed record PackCounts(
         RoomLibraryOptions Options,
         IReadOnlyDictionary<string, RoomEntityCounts?> Counts,
-        IReadOnlyDictionary<string, RoomNameSummary> Names);
+        IReadOnlyDictionary<string, RoomNameSummary> Names,
+        IReadOnlyList<VmfChunk> LibraryEntities);
 
     /// <summary>The pack's settings and counts, or null when there is no pack at <paramref name="packPath"/>.</summary>
     private static async Task<PackCounts?> ReadPackCountsAsync(IFileSystem disk, VPath packPath, CancellationToken cancellationToken)
@@ -1249,6 +1297,8 @@ public static class RoomCommands
 
         await using Stream stream = await disk.OpenReadAsync(packPath, cancellationToken).ConfigureAwait(false);
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+        // In the order ssmap room writes the library sections: entities, then settings.
+        IReadOnlyList<VmfChunk> libraryEntities = await RoomPack.ReadLibraryEntitiesAsync(stream, index, cancellationToken).ConfigureAwait(false);
         RoomLibraryOptions options = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken).ConfigureAwait(false);
         IReadOnlyDictionary<string, RoomEntityCounts> read = await RoomPack.ReadEntityCountsAsync(stream, index, cancellationToken)
             .ConfigureAwait(false);
@@ -1260,7 +1310,7 @@ public static class RoomCommands
 
         IReadOnlyDictionary<string, RoomNameSummary> names = await RoomPack.ReadNameSummariesAsync(stream, index, cancellationToken)
             .ConfigureAwait(false);
-        return new PackCounts(options, counts, names);
+        return new PackCounts(options, counts, names, libraryEntities);
     }
 
     private static string Num(float value) => value.ToString("0.##", CultureInfo.InvariantCulture);
@@ -1327,6 +1377,12 @@ public static class RoomCommands
 
             await using Stream stream = await disk.OpenReadAsync(packPath, cancellationToken).ConfigureAwait(false);
             RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+            // The sun, fog and the other library-wide entities: written once
+            // into the level, and counted in its budget. Read before the
+            // settings, in the order ssmap room writes the library sections,
+            // so a pack on a stream that cannot seek reads too.
+            IReadOnlyList<VmfChunk> libraryEntities = await RoomPack.ReadLibraryEntitiesAsync(stream, index, cancellationToken)
+                .ConfigureAwait(false);
             RoomLibraryOptions libraryOptions = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken)
                 .ConfigureAwait(false);
             foreach (LevelCell cell in first)
@@ -1349,7 +1405,11 @@ public static class RoomCommands
                     cancellationToken)
                 .ConfigureAwait(false);
             // The first room sets the grid; RoomLibrary.Add refuses any other.
-            library = new RoomLibrary(rooms[0].Definition.Kit, rooms[0].Definition.CellSize) { Options = libraryOptions };
+            library = new RoomLibrary(rooms[0].Definition.Kit, rooms[0].Definition.CellSize)
+            {
+                Options = libraryOptions,
+                LibraryEntities = libraryEntities,
+            };
             foreach (RoomObject room in rooms)
             {
                 library.Add(room);
@@ -1390,11 +1450,13 @@ public static class RoomCommands
             return ExitFailed;
         }
 
-        // The link reads no content — only the context's parallelism — so the
-        // context needs mounts for none. A linked map carries no content lump
-        // for the link to want.
+        // The link reads no content — only the context's parallelism and map
+        // name — so the context needs mounts for none (decision D1: the pack
+        // is all a link reads). The map name is the output file's, as vbsp
+        // takes it from the source file's: the rooms' default cubemaps are
+        // renamed to it, which is where the engine looks for them.
         await using ContentFileSystem content = new([]);
-        VbspContext context = new(VbspOptions.Default, content);
+        VbspContext context = new(VbspOptions.Default, content) { MapBase = MapBaseOf(mapPath) };
 
         try
         {
@@ -1452,6 +1514,7 @@ public static class RoomCommands
                 $"ssmap link: wrote {HostPaths.Display(mapPath)}"
                 + $" ({link.Plan.Layout.Rooms.Count} rooms, {link.Vis.ClusterCount} clusters, {brushes} brushes"
                 + (link.FoldedBrushes > 0 ? $" ({link.FoldedBrushes} folded away)" : string.Empty)
+                + (link.PackedFiles > 0 ? $", {link.PackedFiles} packed files" : string.Empty)
                 + (navPlan.WritesNavigation ? $", level id {navPlan.LevelId:D})" : ")"))
                 .ConfigureAwait(false);
             if (navPlan.WritesNavigation)
@@ -1498,6 +1561,24 @@ public static class RoomCommands
             await output.WriteLineAsync($"ssmap link: {levelPath}: {exception.Message}").ConfigureAwait(false);
             return ExitFailed;
         }
+    }
+
+    /// <summary>
+    /// A linked map's name, as the link's compile context takes it
+    /// (<see cref="VbspContext.MapBase"/>): the output file's name without
+    /// its extension, lower-cased, as vbsp takes a map's from its source file.
+    /// </summary>
+    /// <param name="mapPath">The map.</param>
+    /// <returns>The map name the rooms' default cubemaps are renamed to.</returns>
+    /// <remarks>
+    /// Public because the CLI gets no <c>InternalsVisibleTo</c>: a host that
+    /// links a level itself names its map the same way, and the facts pin it.
+    /// </remarks>
+    public static string MapBaseOf(VPath mapPath)
+    {
+#pragma warning disable CA1308 // mapbase is lower case, as vbsp's strlwr makes it
+        return Path.GetFileNameWithoutExtension(mapPath.FileName).ToLowerInvariant();
+#pragma warning restore CA1308
     }
 
     /// <summary>Where a linked map's navigation goes: beside it, <c>&lt;map&gt;.nav3d</c>.</summary>

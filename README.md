@@ -394,7 +394,8 @@ at the cell's low corner (least x, y and z). Its keys:
 | `socket_east`, `socket_west`, `socket_north`, `socket_south` | Optional names for the sockets; the default is the wall's name. East is +x, north is +y. |
 
 Everything inside a cell belongs to its room. Point entities in the gaps
-are ignored; a brush in the gaps or across a cell's edge, overlapping
+are ignored, except the level-wide ones (see **Level-wide singletons**
+below) and a `sky_camera`, which is refused; a brush in the gaps or across a cell's edge, overlapping
 cells, rooms of different grids or kits, and a door a standing player
 (32 x 32 x 72) cannot walk through on the floor are errors that name the
 problem. A room's sockets are its door plugs: a world brush exactly filling
@@ -419,7 +420,12 @@ The pack starts with an index of its rooms, so `link` reads the index and
 the rooms its level places and nothing else of the file. Each room in it is
 the room container `ssmap` has always written for a room; the format
 (`RoomPack` in `Rooms/`) has room for more per room and per library, and
-a build that does not know a later section reads around it.
+a build that does not know a later section reads around it. The pack is at
+format version 3, which promises that every room was checked against the
+library's singletons when it was built and that every room's pak holds what
+vbsp packed for it, the default cubemaps built from the library's sky
+included; an older pack is refused with a message to recompile the library
+with `ssmap room`.
 
 A **level** is a YAML file:
 
@@ -478,9 +484,17 @@ the map's own. Planes, materials (texdata and their names) and texture
 axes (texinfo) are shared: an entry another room already brought is named,
 not copied, so the engine's 2048-texdata cap counts the level's distinct
 materials rather than every room's, and the plane and texinfo tables grow
-only with what the rooms do not have in common. The link refuses what it cannot carry: area portals, static
-or detail props, packed files, displacements, water, and a mix of cooked
-and `-cooker none` rooms. The doorway's side walls have no faces of their
+only with what the rooms do not have in common. The rooms' packed files go
+into the level's one pak, merged by name: a file several rooms pack with the
+same bytes is written once, two rooms that pack one name with different
+bytes are refused, naming both, and the rooms' default cubemaps (built from
+the library's sky, `materials/maps/<room>/cubemapdefault.vtf` and its HDR
+twin) are renamed to the level's map name, the output file's name, which is
+where the engine looks for them; so renaming a linked `.bsp` afterwards
+loses its default cubemaps, as it does for any map. Other files named after
+a room (patched materials) keep the room's name, which its faces use. The
+link refuses what it cannot carry: area portals, static or detail props,
+displacements, water, and a mix of cooked and `-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a
 gap unless something placed in the socket (a door frame model, say) covers
 them.
@@ -541,6 +555,32 @@ mode on the worldspawn (`ssmap_entities mod`); without it the link writes
 stock branches and relays instead. `link --flatten` runs the same resolver,
 so both maps carry the same entities. `ssmap rooms` lists each room's names
 from the pack.
+
+**Level-wide singletons.** All rooms share one sun. A `light_environment`
+belongs in the library's gaps, with the fog, tone map, shadow and
+post-process controllers (`env_fog_controller`, `env_tonemap_controller`,
+`shadow_control`, `postprocess_controller`): `room` keeps them in the pack's
+library section, and the gaps may hold one sun and one of each controller
+per name. A room may carry a copy only if it equals the library's (every
+key but `id` and `origin`, and the outputs in order); the copy is then
+dropped from the room, and a copy that differs refuses the library, naming
+the room and the first key that differs:
+
+```
+room hub: its light_environment differs from the library's (angles: "-45 120 0" against "-45 30 0"); the sun is library-wide.
+```
+
+A named controller the library does not hold under that name is the room's
+own (per-room fog is a trigger and a named controller, as in any map) and
+stays with the room. A `sky_camera` is refused in a room and in the gaps:
+it belongs to a library skybox room, which the linker does not build yet.
+`link` and `link --flatten` write each library entity once, right after the
+worldspawn, never turned, at the level's origin, and keep one
+`water_lod_control` (vbsp adds one to every room compile with water): an
+equal later copy is dropped and a different one refused. The library's
+entities count once per level in the entity budget, in `layout
+-entity-budget` too, and `ssmap rooms` lists them on a `library:` line after
+the budget.
 
 **Navigation.** `ssmap room` also builds each room's 3D navigation: one
 clearance grid of the room's free space (16-unit voxels in runs per
@@ -651,9 +691,20 @@ are as accurate as x86's.
 What moves between the rows:
 
 - **`-compliance stock`**: every quantity downstream of a stock normalise or
-  reciprocal. This includes plane distances, displacement normals, cooked
+  reciprocal. This includes brush-side plane normals
+  (`PlaneFromPointsNormalise`), plane distances, displacement normals, cooked
   collision data, leaf ambient and static-prop lighting. On one CPU family
   the output is still deterministic from run to run.
+
+  These bits do not stay in the low bits. vbsp's split heuristic penalises
+  a candidate plane when any brush lies a positive distance under one unit
+  in front of it, so a vertex that lies on the plane is decided by the sign
+  of a residual like 6e-5. On Valve's 2fort, turning any one of
+  `PlaneFromPointsNormalise`, `BaseWindingNormalise` or `EdgeBevelNormalise`
+  to the stock side on an Intel Xeon gives 2476, 2500 or 2495 visibility
+  clusters, against 2492 under `correct` and stock's 2480 on AMD. Cluster
+  and portal counts are therefore comparable with stock's only on the CPU
+  vendor stock ran on.
 - **`-compliance correct`** (the default) uses exact IEEE arithmetic in
   place of every one of these estimates, so vbsp and vvis write the same
   bytes on every CPU, and so does vrad with one known exception below.
@@ -814,6 +865,102 @@ verifies it.
 The SQLite backend lives in its own assembly so the core libraries carry no
 package references. If it cannot be loaded, `ssmap` says so instead of
 silently compiling without a cache.
+
+## Running as a service
+
+The libraries are built to be hosted in one long-lived process that runs
+many compiles, one after another and several at once, without restarting.
+`MapCompiler.CompileAsync` is the whole chain; everything below is what the
+host owns and passes in through `CompileRequest`. None of it changes the
+output: every setup here writes the same BSP as a one-shot `ssmap all`.
+
+```csharp
+// At start-up, once per game the service compiles for.
+GameContentMounter.Result game = await GameContentMounter.MountAsync(
+    disk, gameInfoPath, baseDirectory, cancellationToken: stopping);
+await using ContentFileSystem content = game.Content;
+
+// Once per process: the cooker, the stage cache and the prop hull cache.
+await using ManagedCollisionCooker cooker = ManagedCollisionCooker.Create(ComplianceOptions.Correct);
+await using InMemoryCacheStore stages = new(maxBytes: 2L * 1024 * 1024 * 1024);
+await stages.OpenAsync("memory", stopping);
+using PropHullCache hulls = new(maxBytes: 64L * 1024 * 1024);
+
+// Per compile: the same objects every time.
+CompileRequest request = new()
+{
+    Source = MapSource.FromVmf(disk, vmfPath),
+    Content = content,
+    CollisionCooker = cooker,
+    Cache = stages,
+    PropHullCache = hulls, // see "The prop hull cache" below
+    Output = CompileOutput.ToDirectory(disk, outputDirectory),
+};
+CompileResult result = await MapCompiler.CompileAsync(request, null, jobToken);
+```
+
+**Warm up.** The first compile in a process pays for JIT compilation: on
+`sdk_ctf_2fort` (4 threads, `-fast` vvis, `-ldr -fast` vrad) it takes
+89-92 CPU-s, and every later compile of the same map 75-78 CPU-s. A
+service that cares about its first job's latency compiles a small map once
+at start-up, before it takes work.
+
+**One mount per game.** Mounting a game indexes every file of every VPK on
+its search path, and nothing a compile does changes the mount, so mount
+each game once and hand the same `ContentFileSystem` to every compile of
+it, concurrent ones included. The indexes are read-only after mounting,
+loose files are opened per read, and each VPK part keeps one stream that
+reads take turns on. No compile disposes the content it is given. Dispose
+the mount once, after the last compile that uses it; a dispose that
+overlaps a compile still reading waits for the read in progress, closes
+every archive stream, and makes later reads fail rather than reopen a
+file. On 2fort's content packed into VPKs, sharing the mount saved the
+0.3-0.5 CPU-s and 150 MB of allocation each compile spent mounting, and
+kept about 90 MB live for as long as the mount is held. Two compiles at
+once over one mount wrote the same bytes as two over mounts of their own,
+at 153 against 155 CPU-s per pair and 4.0 against 4.3 GB allocated.
+
+**A bounded stage cache.** With `CompileRequest.Cache` set, a compile
+whose inputs have not changed since an earlier compile replays that
+compile's vvis and much of its vrad instead of running them.
+`InMemoryCacheStore` keeps everything in the process and is bounded by
+its own `maxBytes` ceiling (1 GiB by default): every commit counts its
+blobs' bytes plus an estimate per row, and when a commit goes over, the
+least recently committed rows go first, down to 90% of the ceiling. A hit
+re-commits the rows it replays, so rows in use stay young. The ceiling is
+applied at every commit, including while other compiles are running, so a
+service whose compiles always overlap stays bounded. A row that has been
+evicted costs a miss, never a wrong hit, because every blob is
+content-addressed. A 2fort recompile against a warm shared store took
+67.2 CPU-s against 77.8 CPU-s without the store, with the same bytes. For
+a cache that survives restarts, use the SQLite store (`-incremental` in
+`ssmap`) instead; its size is managed by the collector (`CachePolicy`).
+
+**The prop hull cache.** `PropHullCache`
+(`CompileRequest.PropHullCache`) keeps cooked static-prop hulls
+between compiles, keyed by what the cook reads rather than by model name,
+and bounded in bytes. It saves most of vbsp's prop cooking (about 1.3 of
+2fort's 5 warm vbsp CPU-s) on every compile that names a model an earlier
+compile cooked, edited map or not. See [Collision cooking](#collision-cooking).
+
+**GC settings.** These belong to the host process (its `runtimeconfig.json`
+or `DOTNET_` environment variables); the libraries never change them.
+Measured on 2fort in one process:
+
+| Setup | Peak RSS | GC pauses | Notes |
+| --- | --- | --- | --- |
+| Workstation, concurrent (the default), sequential compiles | 1.08-1.17 GB | 1.0 s per compile | |
+| The same, plus a compacting `GC.Collect` between compiles | 0.83-0.84 GB | 0.9-1.3 s | -28% peak |
+| Server GC with DATAS (the .NET 10 default for server GC), sequential | 0.89-0.92 GB | 0.9-1.6 s | -25% peak |
+| Workstation, 2 concurrent compiles | 1.41-1.63 GB | 2.4-2.8 s per pair | |
+| Server GC without DATAS (`GCDynamicAdaptationMode=0`), 2 concurrent | 1.80-2.15 GB | 0.93 s per pair | 3x shorter pauses, +30% memory |
+| Server GC with DATAS, 2 concurrent | 1.42-1.48 GB | 3.8-4.2 s per pair | wall time 60% longer; avoid |
+
+So, for compiles run one at a time, either call
+`GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true)`
+(with `GCSettings.LargeObjectHeapCompactionMode = CompactOnce`) between
+compiles, or run with server GC and DATAS. For compiles run concurrently
+where pauses matter more than memory, use server GC with DATAS turned off.
 
 ## GPU ray tracing
 
@@ -1001,6 +1148,83 @@ Other switches:
 - `--resume` continues an interrupted run.
 
 `tools/compile-perf.sh --help` lists every option.
+
+### In a long-lived process
+
+`compile-perf.sh` and `ssmap bench` measure compiles one after another. The
+libraries' main host is a service that keeps one process for many compiles,
+several at a time, and some costs only show there: scratch a finished compile
+keeps alive, pools that grow run to run, handles that are not released,
+compiles contending for one mount. `tools/WarmBench` is that host:
+
+    dotnet build tools/WarmBench/WarmBench.csproj -c Release
+    dotnet tools/WarmBench/bin/Release/net10.0/WarmBench.dll \
+        --map maps/ss_sandbox.vmf --game <dir> --runs 6 --leak
+
+It compiles the map through `MapCompiler.CompileAsync`, using only the public
+API, in waves of `--concurrency` compiles (default 1) with `--threads`
+workers each, `--runs` times. Other switches:
+
+- `--mount shared|per`: one game mount for every compile, or one each.
+- `--cooker shared|per`: the same for the collision cooker.
+- `--cache mem`: one in-memory incremental cache for the whole process, so
+  the second wave onwards replays from it.
+- `--vbsp`, `--vvis`, `--vrad` take stock arguments as one quoted string,
+  for example `--vrad "-bounce 2 -compliance stock"`.
+- `--substages` prints the time under each progress stage.
+- `--gc-between` forces a compacting full GC between waves.
+- `--help` lists them all.
+
+Each line starts with a tag:
+
+- `R`, one per compile: its wall time, each stage's wall and CPU seconds
+  (CPU only with `--concurrency 1`, since it is the process's), the output
+  BSP's SHA-256 and whether it matches the first run's, and what it read
+  from the game content.
+- `W`, one per wave: wall, CPU, bytes allocated, gen0/1/2 collections, total
+  GC pause and that wave's peak RSS.
+- `L`, with `--leak`, after each wave: the live heap before and after the
+  host yields, committed memory, LOH, POH, RSS, open descriptors, threads and
+  memory mappings, after full compacting collections.
+- `LEAK`: the trend from wave 1 to the last. Wave 0 is the warm-up, where the
+  JIT runs and every pool is sized for the first time. `verdict=GROWING`
+  means the heap grew by more than 1 MB a wave, a descriptor stayed open, or
+  the thread count grew by a compile pool's worth.
+- `SUMMARY`: the median compile wall and wave CPU without wave 0, and
+  whether every output was the same. The exit code is 1 when a compile failed
+  or two outputs differed.
+
+The game directory is mounted without a Steam locator, so use a copy
+without the `|appid_N|` lines ([Without the Steam content](#without-the-steam-content)).
+
+**GC mode.** The GC is the host's choice, so neither the libraries nor
+WarmBench set it; pass it in the environment when starting the process.
+The first `#` line prints the mode the runtime actually chose and every
+`DOTNET_GC*` variable it saw.
+
+The runtime reads these values as hexadecimal.
+
+| Variable | Effect |
+| --- | --- |
+| (none) | Workstation GC, concurrent: the console-app default. |
+| `DOTNET_gcServer=1` | Server GC, as ASP.NET hosts run by default. On .NET 10 it comes with DATAS, which starts with one heap and adds heaps as load grows. |
+| `DOTNET_GCDynamicAdaptationMode=0` | With server GC, DATAS off: a heap per core from the start. |
+| `DOTNET_GCHeapCount=N` | With server GC, N heaps instead of one per core. |
+| `DOTNET_gcConcurrent=0` | No background GC; every gen2 collection blocks. |
+| `DOTNET_GCgen0size=4000000` | The gen0 budget in bytes (here 64 MB). |
+| `DOTNET_GCConserveMemory=N` | 1 to 9: compact more often to keep the heap smaller. |
+
+For example, a service-like run, two compiles at a time on one mount:
+
+    DOTNET_gcServer=1 dotnet tools/WarmBench/bin/Release/net10.0/WarmBench.dll \
+        --map maps/ss_sandbox.vmf --game <dir> --concurrency 2 --threads 2 --mount shared --leak
+
+**Where the time went.** `--marks <file>` records when each compile entered
+each stage, in the clock `perf` uses. `tools/WarmBench/perf_by_stage.py`
+puts every `perf` sample in the stage that was running when it was taken and
+prints each stage's hottest functions. The script's docstring has the
+`perf record` line to use. It is optional; the `R` lines already give each
+stage's time.
 
 ### Against the stock tools and Tools++
 

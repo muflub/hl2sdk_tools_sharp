@@ -112,11 +112,17 @@ public sealed class LevelEntityReport
         Warnings = warnings;
     }
 
-    /// <summary>The level's edict estimate: the one worldspawn and every placement's edicts.</summary>
+    /// <summary>The level's edict estimate: the one worldspawn, the library's entities and every placement's edicts.</summary>
     public long Edicts { get; }
 
-    /// <summary>The linked entity lump's entities: the one worldspawn and every placement's listed entities.</summary>
+    /// <summary>The linked entity lump's entities: the one worldspawn, the library's entities and every placement's listed entities.</summary>
     public long Listed { get; }
+
+    /// <summary>
+    /// What the library's own entities bring (the sun and the controllers
+    /// from the pack's library section): once per level, whatever it places.
+    /// </summary>
+    public EntityTally Library { get; init; }
 
     /// <summary>The edict cap, <see cref="EntityClassTable.EdictCap"/>.</summary>
     public int Cap => EntityClassTable.EdictCap;
@@ -156,11 +162,13 @@ public sealed class LevelEntityReport
 /// (<see cref="LevelLinkOptions.EntityReserve"/>, which wins).
 /// </para>
 /// <para>
-/// <b>What is counted.</b> A level's edicts are its one worldspawn plus
-/// every placement's edicts, each room classified by the class table
-/// (<see cref="EntityClassTable"/>: every class it does not name is an
-/// edict, which over-counts rather than under-counts). Its entity list is
-/// the one worldspawn plus every placement's entities that reach the lump
+/// <b>What is counted.</b> A level's edicts are its one worldspawn, the
+/// library's own entities (the sun and the other singletons of the pack's
+/// library section, once per level), plus every placement's edicts,
+/// each classified by the class table (<see cref="EntityClassTable"/>:
+/// every class it does not name is an edict, which over-counts rather than
+/// under-counts). Its entity list is the one worldspawn and the library's
+/// entities plus every placement's entities that reach the lump
 /// (everything but the compile-only classes, which the link strips).
 /// When the room-local naming resolver runs (a room uses names, or the
 /// link writes the mod's classes), the level is budgeted again from what it
@@ -217,7 +225,26 @@ public static class LevelEntityBudget
     /// <param name="table">The class table.</param>
     /// <returns>The report, with any warnings.</returns>
     /// <exception cref="LinkException">The map's edicts pass the cap, or its entity list passes <see cref="MapFile.MaxMapEntities"/>.</exception>
-    public static LevelEntityReport Check(IEnumerable<(string Room, RoomEntityCounts Counts)> placements, int reserve, EntityClassTable table)
+    public static LevelEntityReport Check(IEnumerable<(string Room, RoomEntityCounts Counts)> placements, int reserve, EntityClassTable table) =>
+        Check(placements, reserve, table, null);
+
+    /// <summary>
+    /// Budgets a level from its placements' counts and the library's own
+    /// entities, which the level carries once whatever it places.
+    /// </summary>
+    /// <param name="placements">Every placement's room name and counts, in layout order.</param>
+    /// <param name="reserve">The reserve (<see cref="ReserveFor"/>).</param>
+    /// <param name="table">The class table.</param>
+    /// <param name="library">
+    /// The library-wide entities by class (the sun and the controllers of the
+    /// pack's library section), or null for none. They are the level's, not a
+    /// room's: counted once, with the worldspawn, and never named among the
+    /// most expensive rooms.
+    /// </param>
+    /// <returns>The report, with any warnings.</returns>
+    /// <exception cref="LinkException">The map's edicts pass the cap, or its entity list passes <see cref="MapFile.MaxMapEntities"/>.</exception>
+    public static LevelEntityReport Check(
+        IEnumerable<(string Room, RoomEntityCounts Counts)> placements, int reserve, EntityClassTable table, RoomEntityCounts? library)
     {
         ArgumentNullException.ThrowIfNull(placements);
         ArgumentNullException.ThrowIfNull(table);
@@ -231,6 +258,9 @@ public static class LevelEntityBudget
         Dictionary<string, (int Placements, EntityTally Each, EntityTally Sum, bool Uneven)> rooms = new(StringComparer.Ordinal);
         Dictionary<RoomEntityCounts, EntityTally> tallies = new(ReferenceEqualityComparer.Instance);
         long edicts = 1, listed = 1; // the level's one worldspawn
+        EntityTally level = library?.Tally(table) ?? default;
+        edicts += level.Edicts;
+        listed += level.Listed;
         foreach ((string room, RoomEntityCounts counts) in placements)
         {
             if (!tallies.TryGetValue(counts, out EntityTally tally))
@@ -285,7 +315,7 @@ public static class LevelEntityBudget
                 + $" a Source 2013 server is believed to have; check the game's limit."));
         }
 
-        return new LevelEntityReport(edicts, listed, reserve, shares, warnings);
+        return new LevelEntityReport(edicts, listed, reserve, shares, warnings) { Library = level };
     }
 
     /// <summary>

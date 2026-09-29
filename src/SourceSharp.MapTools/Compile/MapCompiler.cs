@@ -101,7 +101,11 @@ public static class MapCompiler
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        return RunAsync(request, progress, cancellationToken);
+
+        // Resume the host on a fresh stack, not on the worker the compile
+        // finished on: that worker's frames keep the compile's scratch alive
+        // until they return (HostHandoff says why).
+        return HostHandoff.ReturnAsync(RunAsync(request, progress, cancellationToken));
     }
 
     private static async Task<CompileResult> RunAsync(

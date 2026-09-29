@@ -23,7 +23,9 @@ public static partial class LevelLinker
     /// Writes the linked map: every room's structs in layout order with their
     /// indices shifted by the bases, the top tree above them, the jointed
     /// plugs stripped (their brushes dropped, their faces drawn nodraw), and
-    /// the lumps that exist once per map merged.
+    /// the lumps that exist once per map merged: <paramref name="mergedPak"/>
+    /// is the rooms' packed files (<see cref="LevelPakFiles.Merge"/>), or
+    /// null when no room packs one.
     /// </summary>
     /// <returns>The map, and how many brushes the fold removed (0 when it did not run).</returns>
     private static (BspData Map, int FoldedBrushes) Assemble(
@@ -33,8 +35,10 @@ public static partial class LevelLinker
         VbspContext context,
         EntityClassTable classes,
         LevelNaming naming,
+        LevelSingletons singletons,
         string? mapVersion,
         bool foldBrushes,
+        byte[]? mergedPak,
         CancellationToken cancellationToken)
     {
         float cell = layout.CellSize;
@@ -493,7 +497,7 @@ public static partial class LevelLinker
         (byte[]? physCollide, byte[]? physDisp) = MergeCollision(plans, context.Options.Compliance, brushMap, cancellationToken);
 
         BspData linked = new() { FileVersion = first.Bsp.FileVersion };
-        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion);
+        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion, singletons);
         linked.SetLump(BspLump.Planes, Bytes(planes.Planes));
         linked.SetLump(BspLump.TexData, Bytes(textures.TexDatas));
         linked.SetLump(BspLump.Vertexes, plans.SelectMany(p => MemoryMarshal.AsBytes(p.Vertices.AsSpan()).ToArray()).ToArray());
@@ -523,7 +527,16 @@ public static partial class LevelLinker
         linked[BspLump.Areas] = areaSource.Bsp[BspLump.Areas];
         linked[BspLump.AreaPortals] = areaSource.Bsp[BspLump.AreaPortals];
         linked[BspLump.Occlusion] = occlusion.Write();
-        linked[BspLump.PakFile] = first.Bsp[BspLump.PakFile];
+        // The rooms' files merged, or, when no room packs one, the first
+        // room's empty pak as the link always wrote it.
+        if (mergedPak is not null)
+        {
+            linked.SetLump(BspLump.PakFile, mergedPak);
+        }
+        else
+        {
+            linked[BspLump.PakFile] = first.Bsp[BspLump.PakFile];
+        }
         linked[BspLump.MapFlags] = first.Bsp[BspLump.MapFlags];
         foreach (GameLumpEntry entry in first.Bsp.GameLumps)
         {

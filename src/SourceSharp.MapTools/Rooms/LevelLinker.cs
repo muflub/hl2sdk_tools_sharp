@@ -11,6 +11,7 @@ using System.Collections.Immutable;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Zip;
 
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Materials;
@@ -78,8 +79,13 @@ namespace SourceSharp.MapTools.Rooms;
 /// <para>
 /// A room whose compile left anything outside the relocation set — a second
 /// model, a water leaf, a real area portal, displacements, static or detail
-/// props, packed files — is refused rather than silently dropped: the linked
-/// map must be the rooms, not an approximation of them.
+/// props — is refused rather than silently dropped: the linked map must be
+/// the rooms, not an approximation of them.
+/// </para>
+/// <para>
+/// <b>Packed files</b> are carried: the level's one pak holds every placed
+/// room's, merged by name, the room's default cubemaps renamed to the
+/// level's map name (<see cref="LevelPakFiles"/>).
 /// </para>
 /// </remarks>
 public static partial class LevelLinker
@@ -97,8 +103,9 @@ public static partial class LevelLinker
     /// Several of these are carried only in their empty form, and
     /// <see cref="PlanRoom"/> checks that: <see cref="BspLump.AreaPortals"/>
     /// holds only the reserved portal 0, <see cref="BspLump.PhysDisp"/> counts
-    /// no displacement, <see cref="BspLump.PakFile"/> holds no file, and every
-    /// game lump is all zeros (no static or detail props).
+    /// no displacement, and every game lump is all zeros (no static or detail
+    /// props). <see cref="BspLump.PakFile"/> is carried whole: the rooms'
+    /// archives are merged (<see cref="LevelPakFiles"/>).
     /// <see cref="BspLump.ClipPortalVerts"/> is not in the set: its vertices
     /// only exist for area portals, which are refused.
     /// </remarks>
@@ -122,8 +129,13 @@ public static partial class LevelLinker
     /// <param name="layout">The level.</param>
     /// <param name="library">The rooms, by name.</param>
     /// <param name="context">
-    /// The compile context: its parallelism plans the rooms, and its
-    /// compliance chooses the precision the world collision is rebuilt at.
+    /// The compile context: its parallelism plans the rooms, its
+    /// compliance chooses the precision the world collision is rebuilt at,
+    /// and its <see cref="VbspContext.MapBase"/> is the linked map's name
+    /// (the file name the engine loads it by, without directory or
+    /// extension), which the rooms' default cubemaps are renamed to
+    /// (<see cref="LevelPakFiles"/>). It may be empty for a level none of
+    /// whose rooms packs such a file.
     /// </param>
     /// <param name="cancellationToken">Cancels the link.</param>
     /// <returns>The linked BSP, its visibility, and the plan.</returns>
@@ -142,7 +154,8 @@ public static partial class LevelLinker
     /// A joint is geometrically wrong (no neighbour in its direction, a socket
     /// that does not exist, sides that do not meet head-on, a cap naming no
     /// socket, a joint no open leaf faces), a room's compile carries something
-    /// the relocation refuses, or the level outgrows a field of the format.
+    /// the relocation refuses, two rooms pack one file with different bytes,
+    /// or the level outgrows a field of the format.
     /// </exception>
     public static Task<LinkedLevel> LinkAsync(
         LevelLayout layout,
@@ -169,12 +182,23 @@ public static partial class LevelLinker
     /// As for the overload without options, and a level whose edicts pass
     /// the cap or whose entity list passes what a map may hold.
     /// </exception>
-    public static async Task<LinkedLevel> LinkAsync(
+    public static Task<LinkedLevel> LinkAsync(
         LevelLayout layout,
         RoomLibrary library,
         VbspContext context,
         LevelLinkOptions options,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        // The host resumes on a fresh stack, not on the planning worker the
+        // link finished on, whose frames hold the link's scratch until they
+        // return (HostHandoff says why).
+        HostHandoff.ReturnAsync(LinkCoreAsync(layout, library, context, options, cancellationToken));
+
+    private static async Task<LinkedLevel> LinkCoreAsync(
+        LevelLayout layout,
+        RoomLibrary library,
+        VbspContext context,
+        LevelLinkOptions options,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(library);
@@ -194,17 +218,25 @@ public static partial class LevelLinker
 
         ResolvedPlacement[] resolved = [.. layout.Rooms.Select((p, i) => Resolve(p, i, library))];
 
-        // The pak is a zip: whether it holds a file is a parse, and the parse
-        // is async, so it runs here rather than inside the planning workers.
-        // A room with stored link data passed this check when it was
-        // compiled (RoomLinkData), so only the others are parsed.
+        // The level's one pak: every placed room's packed files, merged by
+        // name (LevelPakFiles). Each room's pak is a zip, and reading it is
+        // async, so it is read here rather than inside the planning
+        // workers; once per room, in the order the level first places it,
+        // since every placement packs the same bytes. A room with stored
+        // link data had its pak read when it was compiled, but its files
+        // are wanted now too.
+        List<(string Room, ZipArchiveReader Pak)> paks = [];
+        HashSet<string> readPaks = new(StringComparer.Ordinal);
         foreach (ResolvedPlacement placement in resolved)
         {
-            if (StoredLink(placement.Room) is null)
+            if (readPaks.Add(placement.Room.Definition.Name)
+                && await ReadPakAsync(placement.Room, cancellationToken).ConfigureAwait(false) is { } pak)
             {
-                await RefusePackedFilesAsync(placement.Room, cancellationToken).ConfigureAwait(false);
+                paks.Add((placement.Room.Definition.Name, pak));
             }
         }
+
+        (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(paks, context.MapBase, cancellationToken);
 
         // Per-room work: validate the compile against the relocation set and
         // move the turned structs to the cell. Each item writes only its own
@@ -299,17 +331,19 @@ public static partial class LevelLinker
         LevelNaming naming = new(
             new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows),
             library.Options.NameKeySet);
+        LevelSingletons singletons = new(library.LibraryEntities);
         (BspData linked, int foldedBrushes) = Assemble(
-            plans, layout, visibilityLump, context, classes, naming, library.Options.MapVersion, options.FoldBrushes, cancellationToken);
+            plans, layout, visibilityLump, context, classes, naming, singletons, library.Options.MapVersion, options.FoldBrushes, mergedPak, cancellationToken);
 
         // The budget checked before planning counted the rooms as compiled.
         // When the naming resolver ran, what the level holds is what it left
         // (dropped by room_needs, folded, merged, or written by the linker),
-        // so the level is budgeted again from that, and refused if that is
+        // and a duplicate singleton the merge dropped is gone too, so the
+        // level is budgeted again from what it holds, and refused if that is
         // over the cap; its report is the one the link returns.
-        if (naming.Result is { } resolution)
+        if (naming.Result is not null || singletons.Dropped.Count > 0)
         {
-            entities = BudgetResolved(layout, resolution, LevelEntityBudget.ReserveFor(options, library.Options), classes);
+            entities = BudgetLinked(layout, library, naming.Result, singletons.Dropped, LevelEntityBudget.ReserveFor(options, library.Options), classes);
         }
 
         VisResult vis = new(
@@ -332,30 +366,62 @@ public static partial class LevelLinker
         {
             EntityBudget = entities,
             FoldedBrushes = foldedBrushes,
+            PackedFiles = packedFiles,
             NameWarnings = naming.Result?.Warnings ?? [],
             NameNotes = naming.Result?.Verbose ?? [],
         };
     }
 
     /// <summary>
-    /// The entity budget of a level the naming resolver changed: each
-    /// placement counted from the entities it left for it (its own kept, and
-    /// what the linker wrote), by class, then budgeted as the rooms' own
-    /// counts are.
+    /// The entity budget of a level the link changed from its rooms'
+    /// counts: each placement counted from the entities the naming resolver
+    /// left for it (its own kept, and what the linker wrote), or from its
+    /// room's counts when the resolver did not run, less the duplicate
+    /// singletons the merge dropped; by class, then budgeted as the rooms'
+    /// own counts are, with the library's entities.
     /// </summary>
-    private static LevelEntityReport BudgetResolved(LevelLayout layout, LevelResolution resolution, int reserve, EntityClassTable classes)
+    private static LevelEntityReport BudgetLinked(
+        LevelLayout layout,
+        RoomLibrary library,
+        LevelResolution? resolution,
+        IReadOnlyList<(int Placement, string ClassName)> dropped,
+        int reserve,
+        EntityClassTable classes)
     {
         List<string>[] byPlacement = [.. layout.Rooms.Select(_ => new List<string>())];
-        foreach (LevelEntity entity in resolution.Entities)
+        if (resolution is not null)
         {
-            byPlacement[entity.Placement].Add(entity.ClassName);
+            foreach (LevelEntity entity in resolution.Entities)
+            {
+                byPlacement[entity.Placement].Add(entity.ClassName);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < layout.Rooms.Count; i++)
+            {
+                RoomEntityCounts counts = library.Get(layout.Rooms[i].Placement.Room).CountEntities();
+                byPlacement[i].AddRange(counts.Classes.SelectMany(c => Enumerable.Repeat(c.ClassName, c.Count)));
+            }
+        }
+
+        foreach ((int placement, string className) in dropped)
+        {
+            byPlacement[placement].Remove(className);
         }
 
         return LevelEntityBudget.Check(
             layout.Rooms.Select((r, i) => (r.Placement.Room, RoomEntityCounts.FromClasses(byPlacement[i]))),
             reserve,
-            classes);
+            classes,
+            LibraryCounts(library));
     }
+
+    /// <summary>The library's own entities (<see cref="RoomLibrary.LibraryEntities"/>) counted by class, or null when it has none.</summary>
+    private static RoomEntityCounts? LibraryCounts(RoomLibrary library) =>
+        library.LibraryEntities.Count == 0
+            ? null
+            : RoomLibraryEntities.Count(library.LibraryEntities);
 
     /// <summary>
     /// The prefix sums every index-bearing struct is shifted by, in layout
@@ -500,7 +566,7 @@ public static partial class LevelLinker
             totals.CheckClusters(library.Get(last.Placement.Room).Definition.Name, last.Placement.CellX, last.Placement.CellY);
         }
 
-        return LevelEntityBudget.Check(placements, reserve, classes);
+        return LevelEntityBudget.Check(placements, reserve, classes, LibraryCounts(library));
     }
 
     /// <summary>
@@ -1693,6 +1759,13 @@ public sealed record LinkedLevel(BspData Bsp, VisResult Vis, LevelPlan Plan)
     /// (<see cref="LevelLinkOptions.FoldBrushes"/>); 0 when it did not run.
     /// </summary>
     public int FoldedBrushes { get; init; }
+
+    /// <summary>
+    /// How many files the linked map's pak holds: every placed room's packed
+    /// files, each name once (<see cref="LevelPakFiles"/>); 0 when no room
+    /// packs one.
+    /// </summary>
+    public int PackedFiles { get; init; }
 
     /// <summary>
     /// What resolving the rooms' names warned of, each a whole sentence: a

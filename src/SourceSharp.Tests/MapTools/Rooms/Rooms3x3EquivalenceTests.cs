@@ -10,9 +10,11 @@ using System.Globalization;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Text;
 using SourceSharp.MapGen.Rooms;
 
 using SourceSharp.MapTools.Bsp.Collision;
+using SourceSharp.MapTools.Bsp.Driver;
 using SourceSharp.MapTools.Materials;
 using SourceSharp.MapTools.Phys.Managed;
 using SourceSharp.MapTools.Rooms;
@@ -721,6 +723,81 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
             arrangement.Placed.Count() + arrangement.Placed.Count(c => arrangement.KindAt(c.X, c.Y).Name == "end"),
             whole.Count);
         Assert.Equal(whole, linked);
+    }
+
+    // ---- 9. library singletons ------------------------------------------------------
+
+    /// <summary>The four turns of the sample level, as quarter turns.</summary>
+    public static TheoryData<int> Turns => new() { 0, 1, 2, 3 };
+
+    /// <summary>
+    /// The sample library with a sun and a fog controller in the gap beside
+    /// its first cell (section 8 of the rooms design, the singletons row of
+    /// its test matrix): at every turn of the sample level, the link and the
+    /// flattened map's compile carry the same entities, each placed room's
+    /// and exactly one sun and one fog, the sun's angles as authored however
+    /// the rooms turn; and the link's budget counts the two once, its entity
+    /// list being the linked lump's. The rooms are the fixture's compiled
+    /// rooms: a library entity in the gaps changes no room.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Turns))]
+    public async Task ALibrarySunIsOneUnturnedEntityInBothMaps(int turns)
+    {
+        VmfDocument library = await VmfDocument.ParseAsync(fixture.LibraryVmf.ToBytes());
+        library.Chunks.Add(GapEntity("light_environment", 990001, ("angles", "-45 30 0"), ("_light", "255 255 255 200"), ("_ambient", "40 40 60 80")));
+        library.Chunks.Add(GapEntity("env_fog_controller", 990002, ("fogenable", "1"), ("fogcolor", "1 2 3")));
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
+        Assert.Equal(2, split.LibraryEntities.Count);
+
+        RoomLibrary rooms = new(fixture.Library.Kit, fixture.Library.CellSize)
+        {
+            Options = fixture.Library.Options,
+            LibraryEntities = split.LibraryEntities,
+        };
+        foreach (RoomObject room in fixture.Library.Rooms)
+        {
+            rooms.Add(room);
+        }
+
+        string name = Rooms3x3Permutations.TurnName(turns);
+        Rooms3x3Case found = Rooms3x3Fixture.Cases.Single(c => c.Name == name);
+        LevelGrid level = LevelYaml.Parse(found.Arrangement.LevelYaml(name, Rooms3x3Sample.LibraryFromLevels), name);
+        LevelLayout layout = level.ToLayout(n => rooms.Find(n)?.Definition, rooms.CellSize, rooms.Kit);
+        LinkedLevel linked = await LevelLinker.LinkAsync(layout, rooms, fixture.Context(name));
+        VbspResult whole = await RoomHarness.CompileAsync(LevelFlattener.Flatten(level, library), fixture.Context(name));
+        Assert.NotNull(whole.Bsp);
+
+        List<string> wholeEntities = Entities(whole.Bsp!);
+        Rooms3x3Arrangement arrangement = found.Arrangement;
+        Assert.Equal(
+            arrangement.Placed.Count() + arrangement.Placed.Count(c => arrangement.KindAt(c.X, c.Y).Name == "end") + 2,
+            wholeEntities.Count);
+        Assert.Equal(wholeEntities, Entities(linked.Bsp));
+        foreach (BspData bsp in new[] { linked.Bsp, whole.Bsp! })
+        {
+            List<BspEntity> lump = [.. EntityLump.Parse(bsp[BspLump.Entities])];
+            Assert.Equal("-45 30 0", Assert.Single(lump, e => e.ClassName == "light_environment").Get("angles"));
+            Assert.Single(lump, e => e.ClassName == "env_fog_controller");
+        }
+
+        LevelEntityReport budget = linked.EntityBudget!;
+        Assert.Equal(new EntityTally(2, 0, 0), budget.Library);
+        Assert.Equal(EntityLump.Parse(linked.Bsp[BspLump.Entities]).Count, budget.Listed);
+
+        static VmfChunk GapEntity(string classname, int id, params (string Key, string Value)[] keys)
+        {
+            VmfChunk entity = new(SourceSharp.MapTools.Bsp.MapFileLoader.EntityChunk);
+            entity.AddKey("id", id.ToString(CultureInfo.InvariantCulture));
+            entity.AddKey("classname", classname);
+            entity.AddKey("origin", "-128 128 128");
+            foreach ((string key, string value) in keys)
+            {
+                entity.AddKey(key, value);
+            }
+
+            return entity;
+        }
     }
 
     // ---- helpers -----------------------------------------------------------------

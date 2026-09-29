@@ -233,11 +233,20 @@ public static class RoomLibraryCompiler
     /// <returns>A task that completes once every room has been delivered.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="OperationCanceledException">The token fired; rooms not yet delivered never will be.</exception>
-    public static async Task CompileAsync(
+    public static Task CompileAsync(
         IReadOnlyList<LibraryRoom> rooms,
         RoomLibraryCompileSettings settings,
         Func<RoomCompileOutcome, CancellationToken, ValueTask> roomFinished,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        // The host resumes on a fresh stack, not on the worker the last room
+        // finished on (HostHandoff says why).
+        HostHandoff.ReturnAsync(CompileCoreAsync(rooms, settings, roomFinished, cancellationToken));
+
+    private static async Task CompileCoreAsync(
+        IReadOnlyList<LibraryRoom> rooms,
+        RoomLibraryCompileSettings settings,
+        Func<RoomCompileOutcome, CancellationToken, ValueTask> roomFinished,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rooms);
         ArgumentNullException.ThrowIfNull(settings);

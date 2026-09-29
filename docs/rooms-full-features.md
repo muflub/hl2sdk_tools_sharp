@@ -57,7 +57,7 @@ Terms used throughout:
 | Model lint | `RoomLinter.CheckModel` | Every brush (world and entity) inside its cell; trigger world brushes are exactly the kit's plug boxes. |
 | Compile | `RoomCompiler.CompileAsync` | `Vbsp.CompileAsync`, then `RoomLinter.CheckCompiled` (sealed, interior inside the cell, every socket plugged), then `Vvis.ComputeAsync`. **No vrad.** `RoomLibraryCompiler.CompileRoomAsync` sets `VbspContext.MapBase` to the room's name, lower-cased. |
 | Pack | `RoomPack`, `RoomObjectStore` | One `SSROOM01` container per room (manifest, the BSP's lumps and game lumps byte for byte, vis rows). The pack has typed per-room sections and a library section table, both empty past the container today; readers skip unknown tags. |
-| Link | `LevelLinker.LinkAsync` | `RoomLinter.CheckLayout`, `CheckCapacity`, `ValidateJoints`, `RoomLinter.CheckReachable`, `RefusePackedFilesAsync`, `PlanRoom` per room (refusals, transforms), `AssignBases`, door-graph vis (`DoorEdges`, `CloseRows`), `Assemble` (top tree, plug carve, merges), `MergeEntities`, `MergeCollision`. |
+| Link | `LevelLinker.LinkAsync` | `RoomLinter.CheckLayout`, `CheckCapacity`, `ValidateJoints`, `RoomLinter.CheckReachable`, the pak merge (`LevelPakFiles`, PR 5; `RefusePackedFilesAsync` before it), `PlanRoom` per room (refusals, transforms), `AssignBases`, door-graph vis (`DoorEdges`, `CloseRows`), `Assemble` (top tree, plug carve, merges), `MergeEntities`, `MergeCollision`. |
 | Flatten | `LevelFlattener.Flatten` | The level as one VMF: rooms copied with `VmfPlacement`, joined plugs left out, every `id` renumbered (`LevelFlattener.Renumber`). |
 
 The relocation is exact: a quarter turn permutes and negates components and
@@ -150,9 +150,12 @@ In the order it checks:
 5. any non-zero byte in any game lump (`RefuseGameLumpContent`: static and
    detail props);
 6. displacement collision (`RefuseDisplacementCollision`);
-7. and, in `LinkAsync`, a pak holding any file (`RefusePackedFilesAsync`).
+7. and, in `LinkAsync`, a pak holding any file (`RefusePackedFilesAsync`;
+   since PR 5 the files are carried and only a pak that is not a zip is
+   refused, `ReadPakAsync`).
 
-`Assemble` takes the pak, map flags and game lumps from the first room only,
+`Assemble` takes the pak (until PR 5, which merges every room's), map flags
+and game lumps from the first room only,
 and the areas from the room with the most (all are `{0, 1}`), because every
 other room's are known to be empty or equal (`RequireAgreement`).
 
@@ -228,7 +231,10 @@ order in [section 13](#13-implementation-order).
     room's pak, and `RefusePackedFilesAsync` refuses it. The 3x3 sample
     ships no textures, so its builder warns and writes nothing. Not silently
     wrong, but it blocks any real library; packed files
-    ([4.13](#413-packed-files)) fix it.
+    ([4.13](#413-packed-files)) fix it. **Fixed by PR 5** (section 13): an
+    interim change had turned the default cubemaps off in room compiles;
+    PR 5 turns them back on and the link carries them, renamed to the
+    level's map name.
 
 ---
 
@@ -255,7 +261,7 @@ or research).
 | `env_cubemap` | refused (`Cubemaps` lump, pak) | samples per rotation, patch list | rename VTFs and patched VMTs to the level | 0 | M-L |
 | Area portals | refused | areas, portals, clip verts | area union across joints, optional door portals | 1 per portal | L |
 | Occluders | carried; `occludernumber` wrong | occluders per rotation | rebase the key | 1 each (strip candidate) | S |
-| Packed files | refused | the room's pak entries | merge, dedupe, rename | 0 | M |
+| Packed files | carried since PR 5 (merged, deduped, default cubemaps renamed) | the room's pak entries | merge, dedupe, rename | 0 | M |
 | 2D sky | faces carried; no leaf sky flags (no vrad) | sky leaves per room | propagate sky flags across doors | 0 | S |
 | 3D skybox | not possible (areas collapsed) | the skybox as a library section | place it, its own area | 1 `sky_camera` per level | M |
 | Transition rooms and spawn | not possible | volume, arrival and spawn POIs per rotation | destinations, emission per mode, spawn | 2 per level (mod), 3 to 5 (stock) | M |
@@ -813,7 +819,8 @@ prop `.vhv` files (vrad), and anything an author embeds. Patched names
 contain `MapBase`, the room's name.
 
 **Today.** Refused if any file; with real content every room holds the
-default cubemaps (finding 10).
+default cubemaps (finding 10). Carried since PR 5 (section 13, its landed
+note).
 
 **Pack vs link.** Per room: the entries. At link: one archive, merged by
 name. Names with the room's `MapBase` are unique per room and shared by its
@@ -2238,6 +2245,75 @@ One PR per feature or small group. Already queued, and assumed:
 | 14 | **Water**, first without water sockets, then with. | M, L | 13, 7 | Hardest cross-room case; safe refusal meanwhile. | 15.2 water row; 15.4 socket row |
 | 15 | **Displacements**, no cross-room stitching. | L | 9 | Many lumps; lighting is a large part. | 15.2 displacements row; 15.4 socket row |
 | 16 | **Detail props**. | M | 15, 9 | Depends on both; statistical equivalence. | 15.2 detail props row |
+
+**PR 4 landed** (singletons and the library section). The split applies
+D3 to every room (`RoomLibraryEntities.KeepInRoom`): a room's
+`light_environment`, or a controller that is unnamed or named as the
+library's copy, is dropped when its keys equal the library's (every key but
+`id`, `hammerid` and `origin`, a missing key read as empty, outputs compared
+in order) and refused otherwise with the 15.4 message, which names the room
+and the first differing key; a room sun in a library without one is refused
+too. The gaps may hold one sun and one controller per class and name. A
+`sky_camera` is refused in a room (15.4) and, until the skybox room of PR 13,
+in the gaps as well, where it used to be ignored. The link and the flatten
+write each library entity once after the worldspawn, never turned, at the
+level's origin (the one position safe in every level: vbsp's leak flood
+skips an entity there), and run one keep-first rule (`LevelSingletons`)
+after naming, which also keeps one `water_lod_control` and dedupes a host-
+packed room's copies. The budget counts the library's entities once per
+level (`LevelEntityReport.Library`, `LayoutEntityBudget.LevelEdicts`), and
+`ssmap rooms` lists them on a `library:` line. The pack format version is
+2: the layout is version 1's, but a version 2 pack promises its rooms were
+held to the library's singletons, which the link cannot check from
+compiled rooms, so a version 1 pack is refused with a message to recompile
+the library. Decisions taken where this document is open: the four
+controllers follow the sun's refusal text with their own class (only the
+sun's and the sky camera's messages are given in 15.4); a named controller
+the library does not hold is room-local, per the per-room fog note in
+section 8; sky settings need no check of their own, since `skyname` comes
+from the worldspawn every room copies and the sky colours are
+`light_environment` keys.
+
+**PR 5 landed** (packed files). The link writes one pak for the level
+(`LevelPakFiles`): every placed room's files, read once per room from the
+room's own pak lump, which the pack already stores byte for byte inside the
+room's container, so the link reads nothing but the pack (D1). Files are
+merged by name: equal bytes (method, checksum and stored bytes) are written
+once, and two rooms packing one name differently are refused with the 15.4
+text, naming both in link order (one room holding a name twice differently
+is refused as `room {room} packs {file} twice with different bytes.`). The
+room's default cubemap pair (`materials/maps/<room>/cubemapdefault.vtf` and
+`.hdr.vtf`) is renamed to the level's map name, which the link takes from
+its compile context's `MapBase` and `ssmap link` from the output file's
+name, as vbsp takes it from the source's; every other file keeps its name,
+the room-named patches included (4.13). A link given no map name refuses a
+room that packs a default cubemap rather than carry it where nothing reads
+it. The archive is stored, without timestamps, its entries in ordinal order
+of their linked names, so it is a function of the file set: the same bytes
+at any degree, run and layout order; a level whose rooms pack nothing
+carries its first room's empty pak byte for byte, so no linked map without
+packed files moved. Room compiles pack their default cubemaps again (an
+interim fix had turned them off, `VbspContext.WritesDefaultCubemaps`, which
+stays as a switch for hosts), since the link cannot build them without the
+sky's textures. The pack format version is 3: the layout is unchanged and no
+section is added, but a version 3 pack promises its rooms packed what vbsp
+packs for them; a version 2 pack's rooms were compiled without the default
+cubemaps, so a level linked from it would silently lack them, and it is
+refused with a message to recompile the library (version 1 keeps its own
+message). Decisions taken where this document is open: no per-room pack
+section and no codec, because the entries are already in the container and
+a stored zip's directory is read in microseconds next to the rest of a room
+(1.1 stores a section only where it makes the link faster), and pak files do
+not change with rotation, so they are stored once; the conflict is checked
+at link, where the level says which rooms meet, not at pack time, so a
+library whose two conflicting rooms are never placed together still links;
+only the default cubemaps are renamed now, since the other renamed files
+(cubemap sample copies and patches, 4.10; `.vhv`, 4.3) come with lumps that
+are still refused, and their PRs add them to the rule; the flatten needs no
+change, since vbsp packs the flattened level's files under the level's name
+itself, and the real-content set (the 3x3 sample with the synthetic sky)
+asserts the linked pak equals the flattened compile's, name for name and
+byte for byte.
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity

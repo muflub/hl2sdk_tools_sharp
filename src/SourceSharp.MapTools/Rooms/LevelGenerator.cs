@@ -32,7 +32,16 @@ public sealed record LevelGeneratorOptions(int Rows, int Columns, ulong Seed, do
 /// the generator is given (<see cref="EntityTally.Edicts"/> of the room's
 /// <see cref="RoomEntityCounts.Tally"/>).
 /// </param>
-public sealed record LayoutEntityBudget(int Budget, IReadOnlyList<int> RoomEdicts);
+public sealed record LayoutEntityBudget(int Budget, IReadOnlyList<int> RoomEdicts)
+{
+    /// <summary>
+    /// The edicts the level has whatever rooms it places, besides its one
+    /// worldspawn: the library's own entities (the sun and the other
+    /// library-wide singletons), which the link writes once per level. 0 by
+    /// default; <c>ssmap layout</c> counts them from the pack.
+    /// </summary>
+    public int LevelEdicts { get; init; }
+}
 
 /// <summary>
 /// Makes a valid level of a library's rooms from a seed: every shared wall
@@ -255,10 +264,10 @@ public static class LevelGenerator
         }
 
         if (budget is not null
-            && (budget.Budget < 0 || budget.RoomEdicts is null || budget.RoomEdicts.Count != rooms.Count || budget.RoomEdicts.Any(c => c < 0)))
+            && (budget.Budget < 0 || budget.LevelEdicts < 0 || budget.RoomEdicts is null || budget.RoomEdicts.Count != rooms.Count || budget.RoomEdicts.Any(c => c < 0)))
         {
             throw new ArgumentException(
-                $"an entity budget is 0 or more, with one cost of 0 or more for each of the {rooms.Count} room(s)", nameof(budget));
+                $"an entity budget is 0 or more, with level edicts of 0 or more and one cost of 0 or more for each of the {rooms.Count} room(s)", nameof(budget));
         }
 
         int rows = options.Rows;
@@ -310,12 +319,13 @@ public static class LevelGenerator
             }
 
             costOf = costs;
-            long least = 1 + ((long)placed * candidates.Min(c => costs[c]));
+            long least = 1 + (long)budget.LevelEdicts + ((long)placed * candidates.Min(c => costs[c]));
             if (least > budget.Budget)
             {
+                string included = budget.LevelEdicts == 0 ? "the worldspawn included" : "the worldspawn and the library's own entities included";
                 throw new LinkException(string.Create(CultureInfo.InvariantCulture,
                     $"no level of {rows}x{columns} cells keeps within the entity budget of {budget.Budget} edicts:"
-                    + $" its {placed} room(s) bring at least {least}, the worldspawn included."));
+                    + $" its {placed} room(s) bring at least {least}, {included}."));
             }
         }
 
@@ -345,7 +355,7 @@ public static class LevelGenerator
                 }
             }
 
-            if (Fill(occupied, order, required, maskOf, columns, chosen, masks, next, costOf, budget?.Budget ?? 0, spent))
+            if (Fill(occupied, order, required, maskOf, columns, chosen, masks, next, costOf, (budget?.Budget ?? 0) - (budget?.LevelEdicts ?? 0), spent))
             {
                 LevelCell?[] cells = new LevelCell?[cellCount];
                 for (int cell = 0; cell < cellCount; cell++)

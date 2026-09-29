@@ -379,18 +379,22 @@ public sealed class RoomCorrectnessFixTests
     /// <summary>
     /// A room with a <c>light_environment</c>, linked and flattened at each
     /// rotation: the sun is library-wide (every room shares one sun, however
-    /// it is placed), so its <c>angles</c>, <c>angle</c> and <c>pitch</c> stay
-    /// as authored in both maps while its origin moves. Before the fix both
-    /// the linker and the flatten turned its yaw with the room.
+    /// it is placed), so the level has exactly one, with its <c>angles</c>,
+    /// <c>angle</c> and <c>pitch</c> as authored in both maps and standing at
+    /// the level's origin in both. Before the fix both the linker and the
+    /// flatten turned its yaw with the room. Since the library-singletons
+    /// rule (decision D3) a room may carry a sun only as an equal copy of the
+    /// library's, which the split drops, so the sun here is the library's, in
+    /// the gap, with the room's copy standing elsewhere in its cell.
     /// </summary>
     [Theory]
     [MemberData(nameof(Rotations))]
     public async Task ARoomsSunIsNotTurnedWithTheRoom(int rotation)
     {
         VmfDocument library = RoomHarness.LibraryVmf(Hub);
-        library.Chunks.Add(Entity(
-            "light_environment", 700009,
-            ("origin", "64 64 128"), ("angles", "-45 30 0"), ("angle", "30"), ("pitch", "-45"), ("_light", "255 255 255 200")));
+        (string, string)[] keys = [("angles", "-45 30 0"), ("angle", "30"), ("pitch", "-45"), ("_light", "255 255 255 200")];
+        library.Chunks.Add(Entity("light_environment", 700008, [("origin", "-64 -64 128"), .. keys]));
+        library.Chunks.Add(Entity("light_environment", 700009, [("origin", "64 64 128"), .. keys]));
 
         (BspData linked, BspData whole) = await LinkAndCompileFlatAsync(library, $"hub@{rotation}");
 
@@ -400,11 +404,8 @@ public sealed class RoomCorrectnessFixTests
             Assert.Equal("-45 30 0", sun.Get("angles"));
             Assert.Equal("30", sun.Get("angle"));
             Assert.Equal("-45", sun.Get("pitch"));
+            Assert.Equal(RoomLibraryEntities.LevelOrigin, sun.Get("origin"));
         }
-
-        BspEntity linkedSun = EntityLump.Parse(linked[BspLump.Entities]).Single(e => e.ClassName == "light_environment");
-        BspEntity wholeSun = EntityLump.Parse(whole[BspLump.Entities]).Single(e => e.ClassName == "light_environment");
-        Assert.Equal(wholeSun.Get("origin"), linkedSun.Get("origin"));
     }
 
     /// <summary>
@@ -432,8 +433,10 @@ public sealed class RoomCorrectnessFixTests
     /// <summary>
     /// The split collects the library-wide classes that stand in the gaps
     /// (and one with no origin, which stands in no cell), in library order
-    /// and untouched; the same class inside a cell stays with its room; any
-    /// other class in the gaps is still ignored.
+    /// and untouched; an equal copy of the sun inside a cell is dropped from
+    /// its room (what else a room's copy meets is
+    /// <c>RoomSingletonTests</c>'); any other class in the gaps is still
+    /// ignored.
     /// </summary>
     [Fact]
     public void TheSplitCollectsLibraryWideEntitiesFromTheGaps()
@@ -442,7 +445,7 @@ public sealed class RoomCorrectnessFixTests
         library.Chunks.Add(Entity("env_fog_controller", 700010, ("origin", "-64 0 0"), ("fogenable", "1")));
         library.Chunks.Add(Entity("light_environment", 700011, ("origin", "-64 -64 128"), ("angles", "-45 30 0")));
         library.Chunks.Add(Entity("shadow_control", 700012));
-        library.Chunks.Add(Entity("light_environment", 700013, ("origin", "128 128 128")));
+        library.Chunks.Add(Entity("light_environment", 700013, ("origin", "128 128 128"), ("angles", "-45 30 0")));
         library.Chunks.Add(Entity("info_target", 700014, ("origin", "-64 0 0")));
         library.Chunks.Add(Entity("Light_Environment", 700015, ("origin", "-64 0 0")));
 
@@ -450,7 +453,9 @@ public sealed class RoomCorrectnessFixTests
 
         Assert.Equal(["700010", "700011", "700012"], split.LibraryEntities.Select(e => e.GetValue("id")));
         Assert.Equal("-64 -64 128", split.LibraryEntities[1].GetValue("origin"));
-        Assert.Contains(
+        // The room's copy equals the library's sun but for its origin, so the
+        // room drops it (the library-singletons rule, decision D3).
+        Assert.DoesNotContain(
             split.Rooms.Single().Document.GetChunks(MapFileLoader.EntityChunk),
             e => e.GetValue("id") == "700013");
         Assert.Equal(split.Rooms.Single().Document.ToBytes(), RoomLibraryVmf.Split(library).Single().Document.ToBytes());
@@ -510,13 +515,13 @@ public sealed class RoomCorrectnessFixTests
     // ---- 7. default cubemaps and real content ------------------------------------
 
     /// <summary>
-    /// With sky textures that resolve, an ordinary compile of a room's VMF
-    /// packs the default cubemaps under its map name, as vbsp does, and the
-    /// room compile of the same VMF packs nothing, turning the switch off on
-    /// the context it was given.
+    /// With sky textures that resolve, a room compile packs the default
+    /// cubemaps under the room's name, as an ordinary compile of its VMF
+    /// does (the link renames them to the level's, <see cref="LevelPakFiles"/>),
+    /// and a context with the defaults switched off packs neither.
     /// </summary>
     [Fact]
-    public async Task ARoomCompilePacksNoDefaultCubemapsWhereAMapCompileDoes()
+    public async Task ARoomCompilePacksItsDefaultCubemapsAsAMapCompileDoes()
     {
         RoomDefinition hub = RoomHarness.WalkableRoom("hub", RoomFacing.PositiveX);
         VmfDocument document = RoomHarness.BuildRoomModel(hub);
@@ -525,15 +530,21 @@ public sealed class RoomCorrectnessFixTests
         VbspContext map = await SkyContextAsync();
         Assert.True(map.WritesDefaultCubemaps);
         VbspResult whole = await RoomHarness.CompileAsync(document, map);
-        Assert.Contains("materials/maps/hub/cubemapdefault.vtf"u8.ToArray(), Windows(whole.Bsp![BspLump.PakFile].Data.ToArray(), 37));
+        string[] expected = ["materials/maps/hub/cubemapdefault.vtf", "materials/maps/hub/cubemapdefault.hdr.vtf"];
+        Assert.Equal(expected, await PakNamesAsync(whole.Bsp!));
 
         VbspContext room = await SkyContextAsync();
         RoomObject compiled = await RoomCompiler.CompileAsync(document, hub, room);
-        Assert.False(room.WritesDefaultCubemaps);
-        Assert.DoesNotContain("cubemapdefault"u8.ToArray(), Windows(compiled.Bsp[BspLump.PakFile].Data.ToArray(), 14));
+        Assert.True(room.WritesDefaultCubemaps);
+        Assert.Equal(expected, await PakNamesAsync(compiled.Bsp));
 
-        static IEnumerable<byte[]> Windows(byte[] bytes, int width) =>
-            Enumerable.Range(0, Math.Max(0, bytes.Length - width + 1)).Select(i => bytes[i..(i + width)]);
+        VbspContext off = await SkyContextAsync();
+        off.WritesDefaultCubemaps = false;
+        RoomObject bare = await RoomCompiler.CompileAsync(document, hub, off);
+        Assert.Empty(await PakNamesAsync(bare.Bsp));
+
+        static async Task<string[]> PakNamesAsync(BspData bsp) =>
+            [.. (await SourceSharp.MapFormats.Zip.ZipArchiveReader.ParseAsync(bsp[BspLump.PakFile].Data)).Entries.Select(e => e.Name)];
     }
 
     private static async Task<VbspContext> SkyContextAsync()
@@ -604,8 +615,12 @@ public sealed class RoomCorrectnessFixTests
         VmfChunk occluder = Entity("func_occluder", 700002, ("StartActive", "1"));
         occluder.Children.Add(RoomModel.Slab(RoomHarness.Plain, new Vec3(140, 160, 16), new Vec3(156, 220, 120), 70002));
         library.Chunks.Add(occluder);
-        library.Chunks.Add(Entity("light_environment", 700009, ("origin", "64 64 128"), ("angles", "-45 30 0")));
         LibraryRoom split = RoomLibraryVmf.Split(library).Single();
+
+        // A sun of the room's own, as a host that packs rooms itself may give
+        // one: ssmap room's split would take it out of the room, and it is
+        // the link's turn of it that is checked here.
+        split.Document.Chunks.Add(Entity("light_environment", 700009, ("origin", "64 64 128"), ("angles", "-45 30 0")));
         VbspContext context = await RoomHarness.ContextAsync();
         context.MapBase = "hub";
         RoomObject compiled = await RoomCompiler.CompileAsync(split.Document, split.Definition, context);
@@ -680,8 +695,9 @@ public sealed class RoomCorrectnessFixTests
     /// </summary>
     private static async Task<(BspData Linked, BspData Whole)> LinkAndCompileFlatAsync(VmfDocument library, params string[] rows)
     {
-        IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(library);
-        RoomLibrary compiled = new(rooms[0].Definition.Kit, rooms[0].Definition.CellSize);
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
+        IReadOnlyList<LibraryRoom> rooms = split.Rooms;
+        RoomLibrary compiled = new(rooms[0].Definition.Kit, rooms[0].Definition.CellSize) { LibraryEntities = split.LibraryEntities };
         foreach (LibraryRoom room in rooms)
         {
             VbspContext context = await RoomHarness.ContextAsync();
