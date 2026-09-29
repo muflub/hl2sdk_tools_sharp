@@ -982,9 +982,13 @@ for vrad. It is off unless asked for: `-gpu <match>` turns it on and picks
 the first capable device whose name contains `<match>` (`-gpu auto` takes
 any capable device), and `-gpu_slabs <n>` sets the ray budget for the
 batches ("slabs") on the GPU. The tracer keeps three slabs in flight, so the
-GPU traces one while the next waits behind it and the CPU packs or unpacks a
-third, and each slab holds a third of the budget (the default, 4,194,304
-rays, is at most 117 MB of rays in all). A ray goes to the device in 28
+GPU traces one while the next waits behind it and the CPU unpacks a third,
+plus two open slabs that vrad's workers fill meanwhile, and each of the five
+holds a fifth of the budget (the default, 4,194,304 rays, is at most 117 MB
+of rays in all, 838,848 rays a slab). A worker writes its own rays into an
+open slab of their kind when it hands them over, on its own thread, so the
+tracer only submits them; only when both open slabs are full or taken by
+other kinds does the tracer pack the rest itself. A ray goes to the device in 28
 bytes (origin, direction, reach), or 24 when every ray in its slab has the
 same reach, which then travels once per slab: 79 % of 2fort's rays in the
 default compliance mode, almost none in `-compliance stock`, whose rays
@@ -1035,8 +1039,8 @@ Direct light keeps the GPU fed by pipelining: each worker keeps up to four
 batches of 16,384 rays traced and not yet resolved (`-gpu_depth <n>`, 1 to
 64), filling the next while earlier ones trace and resolving each as its
 answers arrive, in the order it filled them. The depth sets how many rays
-the workers have queued, not how many slabs are on the device: that ring
-is three slots, and on real hardware it is already full at the default
+the workers have queued, not how many slabs are on the device: that is
+three, and on real hardware it is already full at the default
 (`peakinflight=3/3` on both an RX 9070 and an RTX 2070 SUPER). A deeper
 pipeline therefore makes the slabs bigger, because more rays are waiting
 each time a slot frees up, and puts nothing more on the device. It helps
@@ -1059,16 +1063,20 @@ match stock or another machine byte for byte is compiled without `-gpu`.
 `vrad --bench` prints where the rays went and what the device did:
 
     bench trace tracer=<id> gpu=on rays=N gpu.visibility=... cpu.sky=... parked=...s parked.facelights=...s ...
-    bench gpu requests=N slabs=N busy=...s fencewait=...s pack=...s readback=...s raybytes=N raybytes.perray=24.00..28.00 rays=direct|staged ... peakinflight=3/3 fallbackrays=N
+    bench gpu requests=N slabs=N busy=...s fencewait=...s pack=...s write=...s written.bycallers=100.0% readback=...s raybytes=N raybytes.perray=24.00..28.00 rays=direct|staged ... peakinflight=3/3 fallbackrays=N
 
 `gpu=off`, `gpu=declined` (with the reason on the `bench gpu` line) or
 `gpu=on` says whether the GPU answered at all; `parked` is worker time spent
 waiting on a batch in flight, per stage; `busy` is the host-side span with a
-slab on the device, `pack` and `readback` the host's copies, `raybytes`
-the bytes of rays packed (what an upload moves) and their average per ray,
-and `rays=staged` a device without resizable BAR, where every slab is also
-copied on the device. A big slab is packed by up to four threads, so
-`pack` is wall time, not thread time.
+slab on the device, `pack` and `readback` the tracer's own copies, `write`
+the workers' time writing their own rays (summed over the workers, and
+spread across them rather than in line between them and the device),
+`written.bycallers` the share of the slabs' rays the workers wrote (100 %
+and `pack=0.000s` when the tracer packed none), `raybytes` the bytes of
+rays sent (what an upload moves) and their average per ray, and
+`rays=staged` a device without resizable BAR, where every slab is also
+copied on the device. A big slab the tracer packs is packed by up to four
+threads, so `pack` is wall time, not thread time.
 
 ## Measuring performance
 
