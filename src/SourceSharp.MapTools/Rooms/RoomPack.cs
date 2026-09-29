@@ -129,9 +129,15 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // points: a handful of points every placement reads. A room without
         // it gets no section, so its entry is what it was before transitions.
         IReadOnlyList<RoomPackSectionData> transit = room.TransitOfCompile is { } data ? [data.ToSection()] : [];
+
+        // The base lighting likewise, for a room its library compile lit:
+        // every placement reads it (all its stored turns are in the one
+        // section, 1 or 4, and the link takes the one it places). A room
+        // compiled unlit gets none, so an unlit library packs as before.
+        IReadOnlyList<RoomPackSectionData> lighting = room.LightingOfCompile is { } baked ? [baked.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. props, .. brushModels, .. transit, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. props, .. brushModels, .. transit, .. lighting, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -862,6 +868,11 @@ public static class RoomPack
                 wanted.Add((name, transit));
             }
 
+            if (entry.Find(RoomLighting.SectionTag) is { } lighting)
+            {
+                wanted.Add((name, lighting));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -964,9 +975,15 @@ public static class RoomPack
             RoomStaticProps? props = RoomStaticProps.Read(Section(name, RoomStaticProps.SectionTag), room.Definition, room.Bsp);
             RoomBrushModels? brushModels = RoomBrushModels.Read(Section(name, RoomBrushModels.SectionTag), room.Definition, room.Bsp);
             RoomTransit? transit = RoomTransit.Read(Section(name, RoomTransit.SectionTag), name, room.Bsp);
+            RoomLighting? lighting = RoomLighting.Read(Section(name, RoomLighting.SectionTag), room.Definition, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
+                && lighting is null
                 ? room
-                : room with { Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props, BrushModels = brushModels, Transit = transit };
+                : room with
+                {
+                    Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props, BrushModels = brushModels, Transit = transit,
+                    Lighting = lighting,
+                };
         }
 
         return [.. requests.Select(request => loaded[request.Name])];
@@ -1280,6 +1297,7 @@ public static class RoomPack
         ((byte)'P', (byte)'R', (byte)'O', (byte)'P') => RoomStaticProps.SectionTag,
         ((byte)'B', (byte)'M', (byte)'O', (byte)'D') => RoomBrushModels.SectionTag,
         ((byte)'T', (byte)'R', (byte)'A', (byte)'N') => RoomTransit.SectionTag,
+        ((byte)'L', (byte)'I', (byte)'T', (byte)'E') => RoomLighting.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),

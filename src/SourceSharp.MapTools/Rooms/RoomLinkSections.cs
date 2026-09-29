@@ -750,6 +750,9 @@ internal static class RoomLinkSections
 
         public int Int() => BinaryPrimitives.ReadInt32BigEndian(Take(4));
 
+        /// <summary>How many bytes of the payload have been read.</summary>
+        public int Position => _at;
+
         public int Count(string what)
         {
             int count = Int();

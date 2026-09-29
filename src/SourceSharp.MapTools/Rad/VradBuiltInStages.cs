@@ -96,6 +96,7 @@ internal static class VradBuiltInStages
                     Parallelism = pass.Parallelism.MaxDegree,
                     Pool = pass.Parallelism.Pool,
                     ScratchPool = pass.ScratchPool,
+                    FrameTurns = pass.World.Settings.FrameTurns,
                 },
                 new TracerLineVisibility(pass.Tracer, pass.Options.Compliance),
                 cancellationToken).ConfigureAwait(false);
@@ -137,6 +138,7 @@ internal static class VradBuiltInStages
                 pass.Tracer, pass.Options.Compliance, pass.World.Lights.SunAngularExtent, pass.Options.Fast)
             {
                 ScratchPool = pass.ScratchPool,
+                FrameTurns = pass.World.Settings.FrameTurns,
             };
 
             StaticPropLightingResult result = await StaticPropLighting.ComputeAsync(
@@ -152,10 +154,12 @@ internal static class VradBuiltInStages
                     DisableSelfShadowing = pass.Options.DisablePropSelfShadowing,
                     StaticPropIndirectMode = pass.Options.StaticPropIndirectMode,
                     Compliance = pass.Options.Compliance,
+                    FrameTurns = pass.World.Settings.FrameTurns,
                     Parallelism = pass.Parallelism.MaxDegree,
                     Pool = pass.Parallelism.Pool,
                 },
                 cancellationToken).ConfigureAwait(false);
+            pass.StaticPropLightingObserver?.Invoke(pass.Hdr, result);
             await StaticPropLighting.WriteIntoAsync(bsp, result, cancellationToken).ConfigureAwait(false);
         }
     }

@@ -155,7 +155,7 @@ public static class LeafAmbientBuilder
             perLeaf = await queue.RunAsync(
                     leafCount,
                     (leaf, sampler, context) => ComputeLeaf(scene, sampler, leaf, options, context.CancellationToken),
-                    _ => new AmbientSampler(scene, worldLights, visibility, options.Compliance),
+                    _ => new AmbientSampler(scene, worldLights, visibility, options.Compliance, options.FrameTurns),
                     queueOptions,
                     cancellationToken)
                 .ConfigureAwait(false);

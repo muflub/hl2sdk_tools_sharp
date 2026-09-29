@@ -444,6 +444,10 @@ public static class DirectLightBuilder
         lights.SkyLight = light;
         light.Type = EmitType.SkyLight;
 
+        // The sun is fixed in the world: a room lit for a turned placement
+        // sees it turned the other way (BakeFrame). Turn 0 leaves it as read.
+        light.Normal = BakeFrame.ToRoom(light.Normal, options.FrameTurns);
+
         // The ambient partner takes the SUN's origin, not the
         // entity's -- the same point, since the sun's origin was the entity's.
         DirectLight ambient = lights.Alloc(visibility, tree, light.Origin, addToList: false);
@@ -519,4 +523,10 @@ public sealed record DirectLightOptions
     /// (<see cref="StockQuirk.InverseQuadraticReciprocal"/>).
     /// </summary>
     public ComplianceOptions Compliance { get; init; } = ComplianceOptions.Correct;
+
+    /// <summary>
+    /// The quarter turns of the frame the map is lit in (<see cref="BakeFrame"/>):
+    /// the sun's direction, fixed in the world, is turned into it.
+    /// </summary>
+    internal int FrameTurns { get; init; }
 }

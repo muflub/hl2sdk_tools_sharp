@@ -49,6 +49,9 @@ public sealed class RadPass
     /// <summary>The patches, facelights and lights of this pass.</summary>
     public RadWorld World { get; }
 
+    /// <summary>Told the pass's static prop lighting before it is written (<see cref="VradContext.StaticPropLightingObserver"/>).</summary>
+    internal Action<bool, Props.StaticPropLightingResult>? StaticPropLightingObserver { get; init; }
+
     /// <summary>True for the HDR pass.</summary>
     public bool Hdr => World.Settings.Hdr;
 

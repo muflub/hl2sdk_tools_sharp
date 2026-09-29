@@ -124,6 +124,14 @@ public sealed record DirectLightingSettings
     /// </summary>
     internal bool KeepDeadLights { get; init; }
 
+    /// <summary>
+    /// The quarter turns of the frame the map is lit in (<see cref="BakeFrame"/>):
+    /// 0 for every compile but a room's bake for a turned placement, which
+    /// turns the sun and every world-fixed direction table into the room's
+    /// frame. Set from <see cref="VradContext.FrameTurns"/>.
+    /// </summary>
+    internal int FrameTurns { get; init; }
+
     /// <summary>Builds settings from the stage options.</summary>
     /// <param name="options">The vrad options.</param>
     /// <param name="hdr">Which pass: true for HDR.</param>

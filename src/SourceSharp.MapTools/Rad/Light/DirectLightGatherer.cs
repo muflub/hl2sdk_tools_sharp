@@ -173,11 +173,14 @@ public sealed class DirectLightGatherer
         // The sample count is an int of a float
         // product, and -fast (or FORCE_FAST) quarters the UNSCALED count.
         int skySamples = (int)(LightConstants.VertexNormalCount * settings.SkySampleScale);
-        _ambientDirections = SamplerPrefix(skySamples);
-        _ambientDirectionsFast = SamplerPrefix(LightConstants.VertexNormalCount / 4);
+        // The sky's sampling directions and the sun's jitter are fixed in
+        // the world, so a room lit for a turned placement sweeps them turned
+        // into its own frame (BakeFrame); turn 0 keeps the tables as drawn.
+        _ambientDirections = BakeFrame.ToRoom(SamplerPrefix(skySamples), settings.FrameTurns);
+        _ambientDirectionsFast = BakeFrame.ToRoom(SamplerPrefix(LightConstants.VertexNormalCount / 4), settings.FrameTurns);
 
         // Jitter is drawn only for d >= 1, so ray d uses value d-1.
-        _sunJitter = SamplerPrefix(LightConstants.SunAreaLightSamples);
+        _sunJitter = BakeFrame.ToRoom(SamplerPrefix(LightConstants.SunAreaLightSamples), settings.FrameTurns);
 
         _estimates = settings.Compliance.Emulates(StockQuirk.GatherReciprocalEstimate);
         _quarterPow = settings.Compliance.Emulates(StockQuirk.SpotExponentQuarterSteps);
