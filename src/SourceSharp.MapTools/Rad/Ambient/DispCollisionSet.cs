@@ -267,7 +267,8 @@ public sealed class DispCollisionSet
         // leaves those visits are most of the calls. Leave before the batched
         // walk builds its per-ray constants (three reciprocals and nine
         // broadcasts, which the JIT cannot drop because it cannot see the
-        // loop is empty): on 2fort that build was 3.6% of leaf ambient's CPU.
+        // loop is empty). On 2fort, 6,808 of 7,932 leaves hold none, and
+        // leaving here takes a call on such a leaf from about 30 ns to 9.
         // An empty list tests nothing and marks nothing on either walk, so the
         // answer is the no-hit value set above, as it was.
         int first = _leafStart[leaf];
