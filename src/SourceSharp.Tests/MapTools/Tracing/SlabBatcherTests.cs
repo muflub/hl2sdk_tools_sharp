@@ -157,6 +157,16 @@ public sealed class SlabBatcherTests
                 }
             }
 
+            // A real device's readback is part of the time Complete takes, and
+            // the batcher subtracts it from that time to get the fence wait.
+            // Reporting it without spending it would make the fence wait come
+            // out short by the whole readback, so spend it here.
+            long readbackEnd = Stopwatch.GetTimestamp() + ReadbackTicks;
+            while (Stopwatch.GetTimestamp() < readbackEnd)
+            {
+                Thread.SpinWait(64);
+            }
+
             return ReadbackTicks;
         }
 
