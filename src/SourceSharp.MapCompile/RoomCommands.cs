@@ -1289,8 +1289,9 @@ public static class RoomCommands
 
         await using Stream stream = await disk.OpenReadAsync(packPath, cancellationToken).ConfigureAwait(false);
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
-        RoomLibraryOptions options = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        // In the order ssmap room writes the library sections: entities, then settings.
         IReadOnlyList<VmfChunk> libraryEntities = await RoomPack.ReadLibraryEntitiesAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        RoomLibraryOptions options = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken).ConfigureAwait(false);
         IReadOnlyDictionary<string, RoomEntityCounts> read = await RoomPack.ReadEntityCountsAsync(stream, index, cancellationToken)
             .ConfigureAwait(false);
         Dictionary<string, RoomEntityCounts?> counts = new(StringComparer.Ordinal);
@@ -1368,12 +1369,13 @@ public static class RoomCommands
 
             await using Stream stream = await disk.OpenReadAsync(packPath, cancellationToken).ConfigureAwait(false);
             RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
-            RoomLibraryOptions libraryOptions = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken)
-                .ConfigureAwait(false);
-
             // The sun, fog and the other library-wide entities: written once
-            // into the level, and counted in its budget.
+            // into the level, and counted in its budget. Read before the
+            // settings, in the order ssmap room writes the library sections,
+            // so a pack on a stream that cannot seek reads too.
             IReadOnlyList<VmfChunk> libraryEntities = await RoomPack.ReadLibraryEntitiesAsync(stream, index, cancellationToken)
+                .ConfigureAwait(false);
+            RoomLibraryOptions libraryOptions = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken)
                 .ConfigureAwait(false);
             foreach (LevelCell cell in first)
             {
