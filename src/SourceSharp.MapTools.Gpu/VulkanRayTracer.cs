@@ -99,7 +99,22 @@ public readonly record struct SelfTestRecord(
     bool ClosestOk,
     int Iters,
     int Candidates,
-    string? Reason);
+    string? Reason)
+{
+    /// <summary>
+    /// The self-test in full, passed or not: the device, the driver name and
+    /// version, the Vulkan and conformance versions, the flags the scene and
+    /// the rays were built with, and each ray's expected and actual hit,
+    /// primitive, t and proceed iterations. Null only when no self-test ran.
+    /// </summary>
+    /// <remarks>
+    /// A rejected device's <see cref="Reason"/> ends with this text too, so
+    /// the one warning a host prints is enough to diagnose a device nobody
+    /// here can run: that is what the NVIDIA rejection lacked. It names the
+    /// driver build and nothing that identifies the machine.
+    /// </remarks>
+    public string? Detail { get; init; }
+}
 
 /// <summary>A device inventory row set plus the self-test outcome of the last attempt.</summary>
 /// <param name="Devices">Every physical device the loader exposed, even rejected ones.</param>
@@ -174,9 +189,6 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
 {
     /// <summary>The kernel's any-hit tmax shrink as float bits: <c>1 - 2^-23</c>.</summary>
     private const uint TmaxScaleBits = 0x3F7FFFFFu;
-
-    /// <summary><c>1e-3f</c> as float bits — the epsilon the self-test ray traces with.</summary>
-    private const uint SelfTestTminBits = 0x3A83126Fu;
 
     private readonly VulkanDevice _device;
     private readonly int[] _triangleIds;
@@ -364,6 +376,7 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
             // The gate runs before real geometry: two triangles whose answer
             // is known by construction, through every kernel mode.
             (bool ready, SelfTestOutcome outcome) = device.RunSelfTest();
+            string detail = VulkanDevice.SelfTestDetail(device.Identity, outcome);
             SelfTestRecord record = new(
                 ready,
                 device.DeviceName,
@@ -373,7 +386,10 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
                 outcome.ClosestOk,
                 outcome.Iters,
                 outcome.Candidates,
-                ReasonFor(ready, device.DeviceName, outcome));
+                ReasonFor(ready, device.DeviceName, outcome, detail))
+            {
+                Detail = detail,
+            };
             observe?.Invoke(TryCreateStage.SelfTested);
             if (!ready)
             {
@@ -450,6 +466,11 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     /// <param name="ready">Whether the device passed.</param>
     /// <param name="deviceName">The device's name, quoted first.</param>
     /// <param name="o">What the kernel modes observed.</param>
+    /// <param name="detail">
+    /// The self-test's full detail (<see cref="SelfTestRecord.Detail"/>),
+    /// appended to a rejection so the one warning a host prints carries
+    /// every ray's answer and the driver build; null appends nothing.
+    /// </param>
     /// <returns>Null when the device passed; otherwise the reason.</returns>
     /// <remarks>
     /// <para>
@@ -476,18 +497,19 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
     /// again without a cause.
     /// </para>
     /// </remarks>
-    internal static string? ReasonFor(bool ready, string deviceName, SelfTestOutcome o)
+    internal static string? ReasonFor(bool ready, string deviceName, SelfTestOutcome o, string? detail = null)
     {
         if (ready)
         {
             return null;
         }
 
+        string tail = detail is null ? string.Empty : ". Self-test detail: " + detail;
         if (!o.ReadbackOk)
         {
             return $"{deviceName}: the compute write/readback path itself is broken "
                 + "(mode 4 wrote all-ones and they did not read back) — no ray answer from this "
-                + "device can be trusted";
+                + "device can be trusted" + tail;
         }
 
         List<string> wrong = [];
@@ -509,7 +531,7 @@ public sealed class VulkanRayTracer : IRayTracer, IDisposable
               + "what a working device reports for an opaque BLAS, so it cannot say where the "
               + "answer went wrong";
         return $"{deviceName}: {legs} on the two-triangle self-test scene; {telemetry}. "
-            + "Rejecting the device";
+            + "Rejecting the device" + tail;
     }
 
     /// <inheritdoc />

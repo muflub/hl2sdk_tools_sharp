@@ -5,8 +5,10 @@
 //
 //=============================================================================//
 
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
@@ -127,6 +129,13 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
 
     /// <summary>Driver name and info string.</summary>
     public string DriverName { get; private set; } = "?";
+
+    /// <summary>
+    /// What the selected device and its driver say about themselves, for the
+    /// self-test report; <see cref="DeviceIdentity.Unknown"/> until
+    /// <see cref="Construct"/> selects one.
+    /// </summary>
+    public DeviceIdentity Identity { get; private set; } = DeviceIdentity.Unknown;
 
     /// <summary>Whether the selected device presents as a CPU rasteriser (llvmpipe).</summary>
     public bool IsCpuDevice { get; private set; }
@@ -380,6 +389,18 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         DriverName = (SilkMarshal.PtrToString((nint)drv.DriverName) ?? "?") + " / "
                    + (SilkMarshal.PtrToString((nint)drv.DriverInfo) ?? "?");
         IsCpuDevice = props.Properties.DeviceType == PhysicalDeviceType.Cpu;
+        Identity = new DeviceIdentity(
+            DeviceName,
+            props.Properties.VendorID,
+            props.Properties.DeviceID,
+            drv.DriverID.ToString(),
+            SilkMarshal.PtrToString((nint)drv.DriverName) ?? "?",
+            SilkMarshal.PtrToString((nint)drv.DriverInfo) ?? "?",
+            props.Properties.DriverVersion,
+            props.Properties.ApiVersion,
+            string.Create(CultureInfo.InvariantCulture,
+                $"{drv.ConformanceVersion.Major}.{drv.ConformanceVersion.Minor}."
+                + $"{drv.ConformanceVersion.Subminor}.{drv.ConformanceVersion.Patch}"));
 
         // Before anything is created on it (RequireApiVersion says why).
         RequireApiVersion(DeviceName, props.Properties.ApiVersion);
@@ -576,8 +597,8 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         if (apiVersion < MinimumApiVersion)
         {
             throw new NotSupportedException(
-                $"{deviceName} reports Vulkan {(apiVersion >> 22) & 0x7F}.{(apiVersion >> 12) & 0x3FF}."
-                + $"{apiVersion & 0xFFF}; the ray-query kernel needs Vulkan 1.3 (update the driver)");
+                $"{deviceName} reports Vulkan {DeviceIdentity.FormatApiVersion(apiVersion)}; "
+                + "the ray-query kernel needs Vulkan 1.3 (update the driver)");
         }
     }
 
@@ -1785,7 +1806,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// BLAS, llvmpipe reported candidates and NVIDIA reported none, and both
     /// failed the known answers; with the TLAS both pass.
     /// </summary>
-    /// <returns>Whether to trust the device, and the telemetry either way.</returns>
+    /// <returns>Whether to trust the device, and every ray's raw answers either way.</returns>
     /// <remarks>
     /// The scene is exact by construction: one unit quad on x=0 split into
     /// triangles 0 (the y&#8805;z half) and 1 (the z&#8805;y half), and two
@@ -1798,9 +1819,10 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     public (bool Passed, SelfTestOutcome Outcome) RunSelfTest()
     {
         SelfTestGeometry(out float[] vertices, out float[] rays, out _);
-        // The self-test runs through the SAME upload + BLAS-build machinery a
-        // real trace uses, so an empty BLAS from a bad build fails the gate
-        // too (that was the lavapipe all-miss's second contributor).
+        // The self-test runs through the SAME upload + BLAS/TLAS-build
+        // machinery a real trace uses, so an empty structure from a bad
+        // build fails the gate too (that was the lavapipe all-miss's second
+        // contributor).
         LoadScene(vertices);
         uint tminBits = SelfTestTminBits;
         const int OutWordsAny = 2;   // one workgroup
@@ -1808,37 +1830,96 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
 
         // Mode 4 first: pure compute-write/copy/readback. If this reads back
         // zeroes, nothing about ray answers means anything yet.
-        uint[] w = new uint[Math.Max(OutWordsAny, SelfTestRays * 2)];
+        uint[] w = new uint[Math.Max(OutWordsAny, SelfTestRealRays * 2)];
         DispatchWithStagedRays(4, SelfTestRealRays, real, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
-        bool readbackOk = w[0] == 0xFFFFFFFFu && w[1] == 0xFFFFFFFFu;
+        (uint First, uint Second) readback = (w[0], w[1]);
+        bool readbackOk = readback == (0xFFFFFFFFu, 0xFFFFFFFFu);
 
         bool anyHitOk = false;
         bool closestOk = false;
         int iters = 0;
         int cands = 0;
+        SelfTestRayResult[] results = [];
         if (readbackOk)
         {
             DispatchWithStagedRays(0, SelfTestRealRays, real, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
-            anyHitOk = (w[0] & 3u) == 3u; // both rays blocked
+            uint anyBits = w[0];
 
             DispatchWithStagedRays(1, SelfTestRealRays, real, w.AsSpan(0, SelfTestRealRays * 2), tminBits, TmaxScaleBits);
-            closestOk =
-                w[0] == 0u // ray A hits triangle 0
-                && Math.Abs(BitConverter.Int32BitsToSingle(unchecked((int)w[1])) - 0.5f) < 1e-4f
-                && w[2] == 1u // ray B hits triangle 1
-                && Math.Abs(BitConverter.Int32BitsToSingle(unchecked((int)w[3])) - 0.5f) < 1e-4f;
+            uint[] closest = w[..(SelfTestRealRays * 2)];
 
-            // Telemetry decides WHICH broken device this is, for the report.
+            // Telemetry says what the traversal offered, for the report.
             DispatchWithStagedRays(5, SelfTestRealRays, real, w.AsSpan(0, SelfTestRealRays * 2), tminBits, TmaxScaleBits);
+            results = new SelfTestRayResult[SelfTestRealRays];
             for (int i = 0; i < SelfTestRealRays; i++)
             {
-                iters = Math.Max(iters, unchecked((int)w[i * 2]));
-                cands += w[(i * 2) + 1] != 0 ? 1 : 0;
+                results[i] = new SelfTestRayResult(
+                    i,
+                    (anyBits & (1u << i)) != 0,
+                    closest[i * 2],
+                    closest[(i * 2) + 1],
+                    unchecked((int)w[i * 2]),
+                    unchecked((int)w[(i * 2) + 1]));
+                iters = Math.Max(iters, results[i].Iterations);
+                cands += results[i].Candidates != 0 ? 1 : 0;
             }
+
+            // Ray i must hit triangle i at t = 0.5 in both modes.
+            anyHitOk = Array.TrueForAll(results, r => r.AnyHit);
+            closestOk = Array.TrueForAll(results, r => r.ClosestMatches);
         }
 
         bool passed = readbackOk && anyHitOk && closestOk;
-        return (passed, new SelfTestOutcome(readbackOk, anyHitOk, closestOk, iters, cands));
+        return (passed, new SelfTestOutcome(readbackOk, anyHitOk, closestOk, iters, cands)
+        {
+            Rays = results,
+            ReadbackWords = readback,
+        });
+    }
+
+    /// <summary>
+    /// The geometry and flags the self-test traces with, in words, for the
+    /// report: what the structures are built from and what each kernel mode
+    /// asks the ray query for.
+    /// </summary>
+    /// <remarks>
+    /// Kept beside the code that sets these values, and a fact checks each
+    /// number against the constant or code that sets it, so the report
+    /// cannot quietly describe a configuration other than the one that ran.
+    /// </remarks>
+    internal const string SelfTestConfiguration =
+        "scene: 2 triangles in 1 OPAQUE geometry, R32G32B32_SFLOAT vertices, stride 12, no index buffer, "
+        + "no geometry transform, PREFER_FAST_TRACE; TLAS: 1 instance, identity transform, mask 0xFF, "
+        + "custom index 0, binding-table offset 0, flags TRIANGLE_FACING_CULL_DISABLE; "
+        + "rays: tmin 0.001 (0x3A83126F), cull mask 0xFF; any-hit ray flags TerminateOnFirstHit with tmax "
+        + "scaled by the largest float below 1 (0x3F7FFFFF); closest-hit and telemetry ray flags None";
+
+    /// <summary>
+    /// The self-test in full for the report: the device and driver build,
+    /// the configuration, and each ray's expected and actual answer in every
+    /// mode.
+    /// </summary>
+    /// <param name="identity">The device and driver.</param>
+    /// <param name="outcome">What the self-test saw.</param>
+    /// <returns>The detail, on one line, clauses separated by semicolons.</returns>
+    internal static string SelfTestDetail(DeviceIdentity identity, SelfTestOutcome outcome)
+    {
+        StringBuilder sb = new();
+        sb.Append(identity.Describe()).Append("; ").Append(SelfTestConfiguration);
+        sb.Append(CultureInfo.InvariantCulture,
+            $"; readback words 0x{outcome.ReadbackWords.First:X8} 0x{outcome.ReadbackWords.Second:X8}");
+        sb.Append(" (expected 0xFFFFFFFF 0xFFFFFFFF)");
+        if (outcome.Rays.Count == 0)
+        {
+            sb.Append("; no ray was traced");
+        }
+
+        foreach (SelfTestRayResult r in outcome.Rays)
+        {
+            sb.Append("; ").Append(r.Describe());
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>
@@ -2228,4 +2309,52 @@ public sealed class VulkanException : Exception
 /// <param name="ClosestOk">Mode 1: both known-hit rays returned their expected primitive at t≈0.5.</param>
 /// <param name="Iters">Mode 5: max proceed-iterations any telemetry ray counted.</param>
 /// <param name="Candidates">Mode 5: how many telemetry rays reached a candidate intersection.</param>
-public readonly record struct SelfTestOutcome(bool ReadbackOk, bool AnyHitOk, bool ClosestOk, int Iters, int Candidates);
+public readonly record struct SelfTestOutcome(bool ReadbackOk, bool AnyHitOk, bool ClosestOk, int Iters, int Candidates)
+{
+    /// <summary>Each traced ray's raw answers, in ray order; empty when the readback leg failed first.</summary>
+    public IReadOnlyList<SelfTestRayResult> Rays { get; init; } = [];
+
+    /// <summary>The two words mode 4 read back (all-ones on a working device).</summary>
+    public (uint First, uint Second) ReadbackWords { get; init; }
+}
+
+/// <summary>
+/// One self-test ray's raw answers in every mode, beside what the scene's
+/// construction says they must be: ray <c>i</c> hits triangle <c>i</c> at
+/// t = 0.5.
+/// </summary>
+/// <param name="Ray">The ray's index, which is also the primitive it must hit.</param>
+/// <param name="AnyHit">Mode 0's bit.</param>
+/// <param name="Primitive">Mode 1's committed primitive, 0xFFFFFFFF for a miss.</param>
+/// <param name="TBits">Mode 1's committed t, as float bits (0 for a miss).</param>
+/// <param name="Iterations">Mode 5's proceed iterations.</param>
+/// <param name="Candidates">Mode 5's candidate count (0 or 1: the kernel stops at the first).</param>
+public readonly record struct SelfTestRayResult(
+    int Ray, bool AnyHit, uint Primitive, uint TBits, int Iterations, int Candidates)
+{
+    /// <summary>The distance every self-test ray's crossing sits at.</summary>
+    public const float ExpectedT = 0.5f;
+
+    /// <summary>How far a reported t may sit from <see cref="ExpectedT"/> and still count.</summary>
+    public const float TTolerance = 1e-4f;
+
+    /// <summary>Mode 1's t as a float.</summary>
+    public float T => BitConverter.UInt32BitsToSingle(TBits);
+
+    /// <summary>Whether mode 1 committed the expected primitive at the expected distance.</summary>
+    public bool ClosestMatches => Primitive == (uint)Ray && Math.Abs(T - ExpectedT) < TTolerance;
+
+    /// <summary>The ray's expected and actual answers, in words.</summary>
+    /// <returns>One clause for the report.</returns>
+    public string Describe()
+    {
+        string got = Primitive == 0xFFFFFFFFu
+            ? string.Create(CultureInfo.InvariantCulture, $"a miss (t bits 0x{TBits:X8})")
+            : string.Create(CultureInfo.InvariantCulture, $"primitive {Primitive} at t={T:R} (0x{TBits:X8})");
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"ray {Ray}: any-hit expected hit, got {(AnyHit ? "hit" : "miss")}; closest-hit expected "
+            + $"primitive {Ray} at t=0.5 (0x3F000000), got {got}; telemetry {Iterations} proceed "
+            + $"iteration(s), {Candidates} candidate(s)");
+    }
+}
