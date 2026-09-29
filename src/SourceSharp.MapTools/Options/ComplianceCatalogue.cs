@@ -1380,6 +1380,11 @@ public static class ComplianceCatalogue
             ["SourceSharp.MapTools.Bsp.Tree.BrushBspTree.TestBrushToPlaneNumber"],
             QuirkObservation.Demonstrated, "WIP", [], "WIP"),
 
+        StockQuirk.BoxBevelWindingBounds => new(
+            quirk, "WIP", "WIP", "WIP", CompileTools.Vbsp,
+            ["SourceSharp.MapTools.Bsp.MapFile.AddBrushBevels"],
+            QuirkObservation.Demonstrated, "WIP", [], "WIP"),
+
         _ => throw new ArgumentOutOfRangeException(
             nameof(quirk), quirk, "no ComplianceCatalogue entry for this StockQuirk"),
     };

@@ -1559,6 +1559,9 @@ public enum StockQuirk
 
     /// <summary>WIP</summary>
     SplitSideTestBoxEpsilon,
+
+    /// <summary>WIP</summary>
+    BoxBevelWindingBounds,
 }
 
 /// <summary>

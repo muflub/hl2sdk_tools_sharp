@@ -486,6 +486,15 @@ public sealed class MapFile
                     Vec3 normal = AxisVector(axis, dir);
                     float dist = dir == 1 ? brush.Maxs[axis] : -brush.Mins[axis];
 
+                    // StockQuirk.BoxBevelWindingBounds. Stock places the bevel
+                    // at the brush's bounds, which are read off windings that
+                    // carry the clipping's rounding; Correct places it at the
+                    // extreme corner solved from the brush's own planes.
+                    if (!Windings.Compliance.Emulates(StockQuirk.BoxBevelWindingBounds))
+                    {
+                        dist = BoxBevelDistanceFromPlanes(brush, axis, dir, dist);
+                    }
+
                     MapBrushSide first = _brushSides[brush.FirstSide];
                     MapBrushSide bevel = new()
                     {
@@ -760,6 +769,181 @@ public sealed class MapFile
 
         (_brushSides[a], _brushSides[b]) = (_brushSides[b], _brushSides[a]);
         (_sideBrushTextures[a], _sideBrushTextures[b]) = (_sideBrushTextures[b], _sideBrushTextures[a]);
+    }
+
+    /// <summary>
+    /// How close a winding vertex has to be to one of its brush's planes, and
+    /// to the brush's extreme along an axis, for
+    /// <see cref="BoxBevelDistanceFromPlanes"/> to count it: the vertex is on
+    /// that plane, or is one of the corners that decide the extreme.
+    /// </summary>
+    /// <remarks>
+    /// Stock's <c>ON_EPSILON</c>, the resolution the rest of the loader's
+    /// bevel tests work at, and over ten times the rounding a winding vertex
+    /// carries from being clipped out of a base winding 65536 units across
+    /// (about 0.007, more where two planes meet at a glancing angle: 0.016
+    /// was measured on 2fort). See <see cref="StockQuirk.BoxBevelWindingBounds"/>.
+    /// </remarks>
+    public const float BoxBevelCornerEpsilon = 0.1f;
+
+    /// <summary>
+    /// Where a box bevel goes under <see cref="CompliancePolicy.Correct"/>: the
+    /// brush's extreme along an axis, taken from the corners where its planes
+    /// meet, solved in double precision, rather than from its winding bounds.
+    /// </summary>
+    /// <param name="brush">The brush being bevelled.</param>
+    /// <param name="axis">The bevel's axis, 0 to 2.</param>
+    /// <param name="dir">-1 for the minimum, +1 for the maximum.</param>
+    /// <param name="windingDistance">
+    /// Stock's distance, <c>maxs[axis]</c> or <c>-mins[axis]</c>, returned
+    /// unchanged when no corner can be solved.
+    /// </param>
+    /// <returns>The bevel plane's distance along <c>dir</c> times the axis.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>What it replaces.</b> A box bevel is added on an axis where the
+    /// brush has no side of its own, at the brush's bounds, and the bounds
+    /// come from its windings. Those windings are cut from base windings
+    /// 65536 units across in single precision, so a corner is a few
+    /// thousandths off where its planes put it, and more where two planes
+    /// meet at a glancing angle, as along the thin edge of a wedge. The
+    /// plane table then snaps the bevel to an integer distance only when it
+    /// is within 0.01 of one. On 2fort a wedge whose thin edge is at
+    /// y = -512 had a winding bound of -511.99x under Correct, so its bevel
+    /// snapped onto the plane y = -512 that a neighbouring brush's face also
+    /// uses, and the tree counted that brush as facing the plane; with
+    /// <see cref="StockQuirk.PlaneFromPointsNormalise"/> flipped the bound
+    /// was -511.98654, the bevel became a plane of its own, and the node
+    /// split elsewhere. Bevels at 640.0117 and 464.0156 did the same with
+    /// <see cref="StockQuirk.BaseWindingNormalise"/> flipped (see
+    /// <see cref="StockQuirk.BoxBevelWindingBounds"/>).
+    /// </para>
+    /// <para>
+    /// <b>How.</b> Every winding vertex within
+    /// <see cref="BoxBevelCornerEpsilon"/> of the winding extreme is a corner
+    /// that might decide it. Its planes are the brush's non-bevel sides it
+    /// lies within <see cref="BoxBevelCornerEpsilon"/> of; every three of them
+    /// with independent normals meet in one point, solved by Cramer's rule in
+    /// double from the table's planes, and the solution nearest the vertex
+    /// (and within the same epsilon of it) is the corner. The extreme is the
+    /// furthest corner along the axis. The answer depends on the planes and
+    /// not on the order the windings were clipped in or on how their base
+    /// windings were normalised, and it lands on an integer when the planes
+    /// meet at one, which is what the table's snap is for. A vertex with no
+    /// solvable corner keeps its winding value.
+    /// </para>
+    /// </remarks>
+    private float BoxBevelDistanceFromPlanes(MapBrush brush, int axis, int dir, float windingDistance)
+    {
+        double best = double.NegativeInfinity;
+        List<Plane> incident = [];
+
+        for (int i = 0; i < brush.SideCount; i++)
+        {
+            MapBrushSide side = _brushSides[brush.FirstSide + i];
+            if (side.Bevel || side.Winding.IsNull)
+            {
+                continue;
+            }
+
+            foreach (Vec3 p in Windings.Points(side.Winding))
+            {
+                if ((dir * p[axis]) < windingDistance - BoxBevelCornerEpsilon)
+                {
+                    continue;
+                }
+
+                incident.Clear();
+                for (int j = 0; j < brush.SideCount; j++)
+                {
+                    MapBrushSide other = _brushSides[brush.FirstSide + j];
+                    if (other.Bevel)
+                    {
+                        continue;
+                    }
+
+                    Plane plane = Planes[other.PlaneNumber];
+                    if (Math.Abs(Vec3.Dot(p, plane.Normal) - plane.Dist) < BoxBevelCornerEpsilon
+                        && !incident.Contains(plane))
+                    {
+                        incident.Add(plane);
+                    }
+                }
+
+                double value = dir * (double)p[axis];
+                if (NearestCorner(incident, p, out double cx, out double cy, out double cz))
+                {
+                    value = dir * (axis == 0 ? cx : axis == 1 ? cy : cz);
+                }
+
+                best = Math.Max(best, value);
+            }
+        }
+
+        return double.IsNegativeInfinity(best) ? windingDistance : (float)best;
+    }
+
+    /// <summary>
+    /// The point where three of <paramref name="planes"/> meet that is nearest
+    /// <paramref name="near"/>, and within <see cref="BoxBevelCornerEpsilon"/>
+    /// of it, solved in double.
+    /// </summary>
+    private static bool NearestCorner(
+        List<Plane> planes, Vec3 near, out double x, out double y, out double z)
+    {
+        x = y = z = 0;
+        double bestDistance = (double)BoxBevelCornerEpsilon * BoxBevelCornerEpsilon;
+        bool found = false;
+
+        for (int a = 0; a < planes.Count; a++)
+        {
+            for (int b = a + 1; b < planes.Count; b++)
+            {
+                for (int c = b + 1; c < planes.Count; c++)
+                {
+                    Plane p1 = planes[a];
+                    Plane p2 = planes[b];
+                    Plane p3 = planes[c];
+
+                    // n2 x n3, n3 x n1, n1 x n2, in double.
+                    double ax = ((double)p2.Normal.Y * p3.Normal.Z) - ((double)p2.Normal.Z * p3.Normal.Y);
+                    double ay = ((double)p2.Normal.Z * p3.Normal.X) - ((double)p2.Normal.X * p3.Normal.Z);
+                    double az = ((double)p2.Normal.X * p3.Normal.Y) - ((double)p2.Normal.Y * p3.Normal.X);
+                    double bx = ((double)p3.Normal.Y * p1.Normal.Z) - ((double)p3.Normal.Z * p1.Normal.Y);
+                    double by = ((double)p3.Normal.Z * p1.Normal.X) - ((double)p3.Normal.X * p1.Normal.Z);
+                    double bz = ((double)p3.Normal.X * p1.Normal.Y) - ((double)p3.Normal.Y * p1.Normal.X);
+                    double cx = ((double)p1.Normal.Y * p2.Normal.Z) - ((double)p1.Normal.Z * p2.Normal.Y);
+                    double cy = ((double)p1.Normal.Z * p2.Normal.X) - ((double)p1.Normal.X * p2.Normal.Z);
+                    double cz = ((double)p1.Normal.X * p2.Normal.Y) - ((double)p1.Normal.Y * p2.Normal.X);
+
+                    double det = ((double)p1.Normal.X * ax) + ((double)p1.Normal.Y * ay) + ((double)p1.Normal.Z * az);
+                    if (det == 0)
+                    {
+                        continue;
+                    }
+
+                    double sx = ((p1.Dist * ax) + (p2.Dist * bx) + (p3.Dist * cx)) / det;
+                    double sy = ((p1.Dist * ay) + (p2.Dist * by) + (p3.Dist * cy)) / det;
+                    double sz = ((p1.Dist * az) + (p2.Dist * bz) + (p3.Dist * cz)) / det;
+
+                    double dx = sx - near.X;
+                    double dy = sy - near.Y;
+                    double dz = sz - near.Z;
+                    double distance = (dx * dx) + (dy * dy) + (dz * dz);
+
+                    if (distance < bestDistance)
+                    {
+                        bestDistance = distance;
+                        x = sx;
+                        y = sy;
+                        z = sz;
+                        found = true;
+                    }
+                }
+            }
+        }
+
+        return found;
     }
 
     /// <summary>
