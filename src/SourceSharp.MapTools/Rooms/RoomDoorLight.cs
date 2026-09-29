@@ -468,7 +468,7 @@ internal sealed partial class RoomDoorLight
                 for (int s = 0; s < frames.Length; s++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    captures[r][turn][s] = Capture(run.Lit, r == 1, frames[s]);
+                    captures[r][turn][s] = Capture(run.Lit, r == 1, frames[s], definition.CellSize);
                     ambient[r][turn][s] = await SeenAsync(tracer, samples, frames[s], cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -688,9 +688,11 @@ internal sealed partial class RoomDoorLight
     /// that reaches a cell of it, with the cells it reaches; then, gathered
     /// by the cube of the room they came from, what the room's surfaces and
     /// sky send through it, each gathering a point source as bright as the
-    /// light it sends through the opening.
+    /// light it sends through the opening. The room is open at every
+    /// doorway, and what a ray meets beyond the room's cell (out through
+    /// another opening) is the black box of 9.1: it sends nothing.
     /// </summary>
-    internal static DoorSource[] Capture(BspData lit, bool hdr, DoorFrame frame)
+    internal static DoorSource[] Capture(BspData lit, bool hdr, DoorFrame frame, float cell)
     {
         AmbientScene scene = AmbientScene.Create(lit, hdr ? LightingMode.Hdr : LightingMode.Ldr);
         DispTestedScratch scratch = new(scene.Tracer.Displacements.Count);
@@ -725,7 +727,7 @@ internal sealed partial class RoomDoorLight
                 light.ConstantAttn, light.LinearAttn, light.QuadraticAttn, light.StopDot, light.StopDot2, light.Exponent, cells));
         }
 
-        sources.AddRange(StandIns(scene, scratch, frame, centres, reach));
+        sources.AddRange(StandIns(scene, scratch, frame, centres, reach, cell));
         return [.. sources];
     }
 
@@ -788,7 +790,7 @@ internal sealed partial class RoomDoorLight
     /// it sends through the cells it was seen from. Only style 0: vrad
     /// bounces only style 0, and leaf ambient keeps only style 0.
     /// </summary>
-    private static List<DoorSource> StandIns(AmbientScene scene, DispTestedScratch scratch, DoorFrame frame, Vec3[] centres, float reach)
+    private static List<DoorSource> StandIns(AmbientScene scene, DispTestedScratch scratch, DoorFrame frame, Vec3[] centres, float reach, float cell)
     {
         Vec3? skyAmbient = RayAmbientLighting.FindSkyAmbient(scene);
         Vec3[] directions = Hemisphere(CaptureRays);
@@ -804,7 +806,7 @@ internal sealed partial class RoomDoorLight
                 Vec3 travel = frame.DirectionToRoom(d);
                 Vec3 end = point - (travel * reach);
                 AmbientHit hit = scene.Tracer.Trace(point, end - point, scratch);
-                if (!hit.IsHit)
+                if (!hit.IsHit || HitPoint(scene, point, -travel, reach, hit) is not { } at || !Inside(at, cell))
                 {
                     continue;
                 }
@@ -820,7 +822,7 @@ internal sealed partial class RoomDoorLight
                 // cell, radiance times the cosine, the solid angle and the
                 // cell's area; in lightmap units, 255 of the colour's.
                 Vec3 flux = colour[0] * (255f * d.X * solid * cellArea / MathF.PI);
-                Vec3 local = frame.ToLocal(point - (travel * (reach * hit.Fraction)));
+                Vec3 local = frame.ToLocal(at);
                 (int, int, int) key = ((int)MathF.Floor(local.X / StandInCell), (int)MathF.Floor(local.Y / StandInCell), (int)MathF.Floor(local.Z / StandInCell));
                 float weight = flux.X + flux.Y + flux.Z;
                 gathered.TryGetValue(key, out var g);
@@ -849,6 +851,39 @@ internal sealed partial class RoomDoorLight
 
         return standIns;
     }
+
+    /// <summary>
+    /// Where a leaf ambient ray met what it hit: along the ray for a surface
+    /// with a lightmap; for the sky, which the ambient tracer reports at the
+    /// ray's full length, where the ray crosses the sky face's plane (null
+    /// if it does not, ahead of the start).
+    /// </summary>
+    private static Vec3? HitPoint(AmbientScene scene, Vec3 start, Vec3 direction, float reach, AmbientHit hit)
+    {
+        if (hit.HasLuxel)
+        {
+            return start + (direction * (reach * hit.Fraction));
+        }
+
+        DPlane plane = scene.Planes[scene.Faces[hit.Surface].PlaneNum];
+        float along = Vec3.Dot(plane.Normal, direction);
+        if (MathF.Abs(along) < 1e-6f)
+        {
+            return null;
+        }
+
+        float t = (plane.Dist - Vec3.Dot(plane.Normal, start)) / along;
+        return t >= 0 ? start + (direction * t) : null;
+    }
+
+    /// <summary>
+    /// Whether a room-local point is in the room's cell (to a unit): a ray
+    /// that leaves by another doorway meets whatever lies beyond, which in a
+    /// level is another room the door light does not reach (D3), and in the
+    /// open room is nothing that belongs to it.
+    /// </summary>
+    internal static bool Inside(Vec3 point, float cell) =>
+        point.X >= -1 && point.Y >= -1 && point.Z >= -1 && point.X <= cell + 1 && point.Y <= cell + 1 && point.Z <= cell + 1;
 
     /// <summary>A source's flux through its own room's opening per unit intensity, from the cells it reaches.</summary>
     internal static double OwnFlux(in DoorSource source, DoorFrame frame) =>

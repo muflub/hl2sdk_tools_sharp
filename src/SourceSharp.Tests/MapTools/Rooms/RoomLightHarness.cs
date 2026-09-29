@@ -200,7 +200,13 @@ internal static class RoomLightHarness
         new(options ?? Options) { Sun = RoomLightingSettings.SunOf(split.LibraryEntities) };
 
     /// <summary>The library's rooms compiled and lit as <c>ssmap room</c> does, one at a time, at <paramref name="degree"/>.</summary>
-    public static async Task<RoomLibrary> CompileAsync(VmfDocument library, int degree = 1, VradOptions? options = null, bool light = true)
+    /// <remarks>
+    /// With <paramref name="doorLight"/>, each lit room's door light is baked
+    /// after its base (<see cref="RoomDoorLight"/>), as <c>ssmap room</c> does
+    /// unless told <c>-nodoorlight</c>; without it the rooms link as PR 9's
+    /// did, base only.
+    /// </remarks>
+    public static async Task<RoomLibrary> CompileAsync(VmfDocument library, int degree = 1, VradOptions? options = null, bool light = true, bool doorLight = false)
     {
         RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
         RoomLibrary compiled = new(split.Rooms[0].Definition.Kit, split.Rooms[0].Definition.CellSize)
@@ -219,6 +225,13 @@ internal static class RoomLightHarness
                 {
                     Lighting = await RoomLighting.BakeAsync(compiledRoom, settings, context.Content!, context.Parallelism, CancellationToken.None),
                 };
+                if (doorLight)
+                {
+                    compiledRoom = compiledRoom with
+                    {
+                        DoorLight = await RoomDoorLight.BakeAsync(compiledRoom, compiledRoom.Lighting!, settings, context.Content!, context.Parallelism, CancellationToken.None),
+                    };
+                }
             }
 
             compiled.Add(compiledRoom);

@@ -299,7 +299,16 @@ public static partial class LevelLinker
         }
     }
 
-    /// <summary>The stand-ins' light at every leaf ambient sample that sees the opening, a cube face at a time.</summary>
+    /// <summary>
+    /// A leaf ambient cube's value per luxel value of the same light: vrad
+    /// gathers a cube from the colours it reads off what its rays meet (the
+    /// sky ambient's intensity, a surface's average times its reflectivity)
+    /// in world-light units, where a lightmap holds 255 of them, so a
+    /// stand-in's light, measured in luxels, is a 255th of that in a cube.
+    /// </summary>
+    internal const float AmbientPerLuxel = 1f / 255f;
+
+    /// <summary>The stand-ins' light at every leaf ambient sample that sees the opening, a cube face at a time (<see cref="AmbientPerLuxel"/>).</summary>
     private static void Ambient(DoorLightTerms terms, DoorSource[] sources, DoorSeen seen, (int Leaf, Vec3 Position)[] samples, DoorFrame to)
     {
         UInt128[] masks = seen.Masks();
@@ -330,7 +339,7 @@ public static partial class LevelLinker
                     float e = DoorLightMath.Through(source, point, axes[side], to.Width, to.Height, to.Depth, masks[s]);
                     if (e > 0)
                     {
-                        (terms.Ambient[s] ??= new Vec3[6])[side] += source.Intensity * e;
+                        (terms.Ambient[s] ??= new Vec3[6])[side] += source.Intensity * (e * AmbientPerLuxel);
                     }
                 }
             }

@@ -34,6 +34,8 @@ public sealed class LitRoomsFixture : IAsyncLifetime
 {
     private readonly ConcurrentDictionary<string, Lazy<Task<BspData>>> _maps = new(StringComparer.Ordinal);
 
+    private readonly Lazy<Task<RoomLibrary>> _doorLit = new(() => RoomLightHarness.CompileAsync(Library, options: Options, doorLight: true));
+
     /// <summary>The switches the fixture's rooms are lit with.</summary>
     public static VradOptions Options { get; } = RoomLightHarness.Options with { StaticPropLighting = true };
 
@@ -64,6 +66,15 @@ public sealed class LitRoomsFixture : IAsyncLifetime
 
     /// <inheritdoc/>
     public Task DisposeAsync() => Task.CompletedTask;
+
+    /// <summary>
+    /// The same rooms lit with their door light (PR 10), compiled on first
+    /// use so that the classes that do not need it do not pay for it.
+    /// </summary>
+    public Task<RoomLibrary> DoorLitAsync() => _doorLit.Value;
+
+    /// <summary>A level of the given rows linked from the rooms lit with their door light.</summary>
+    public Task<BspData> DoorLinkedAsync(string row) => MapAsync("door:" + row, async () => (await RoomLightHarness.LinkAsync(await DoorLitAsync(), RoomPropHarness.Level(row))).Bsp);
 
     /// <summary>A level of the given rows linked from the lit rooms.</summary>
     public Task<BspData> LinkedAsync(string row) => MapAsync("lit:" + row, async () => (await RoomLightHarness.LinkAsync(Lit, RoomPropHarness.Level(row))).Bsp);
