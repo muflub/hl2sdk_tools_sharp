@@ -85,9 +85,30 @@ public sealed class NavCommandsTests
         library.Chunks.Add(RoomPoiTests.PoiEntity(new Vec3(100, 128, 16), ("poi_type", "arrival"), ("angles", "0 0 0"), ("targetname", "start")));
         library.Chunks.Add(RoomPoiTests.PoiEntity(new Vec3(step + 128, 100, 16), ("poi_type", "cover"), ("poi_agents", "standing"), ("targetname", "cxry_cover")));
         library.Chunks.Add(RoomPoiTests.PoiEntity(new Vec3((2 * step) + 150, 128, 16), ("poi_type", "arrival"), ("angles", "0 180 0")));
+
+        // Each role room's transition (the rooms design, 11.3): a volume and
+        // the hallway trigger that fires it, clear of the arrivals.
+        foreach (float corner in new[] { 0f, 2 * step })
+        {
+            QuarterTurn move = QuarterTurn.Translation(new Vec3(corner, 0, 0));
+            library.Chunks.Add(VmfPlacement.MoveEntity(TransitHarness.Brush(
+                "trigger_once", 900 + (int)corner, new Box(new Vec3(176, 32, 16), new Vec3(224, 80, 128)), [],
+                ("OnStartTouch", TransitHarness.Out(RoomTransit.VolumeName, "Transition"))), move));
+            library.Chunks.Add(VmfPlacement.MoveEntity(
+                TransitHarness.VolumeEntity(901 + (int)corner, new Box(new Vec3(184, 40, 16), new Vec3(216, 72, 64))), move));
+        }
+
         fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
-        fs.AddText(Rooted("/levels/level.yaml"), RoomHarness.LevelText("../game/maps/rooms.vmf", "up, hall, down"));
+        fs.AddText(Rooted("/levels/level.yaml"), LevelText("up, hall, down"));
         return fs;
+    }
+
+    /// <summary>A one-row level of the library, with the transition keys its role rooms need.</summary>
+    private static string LevelText(string row, string keys = "up_map: above\ndown_map: below\n")
+    {
+        string text = RoomHarness.LevelText("../game/maps/rooms.vmf", row);
+        int grid = text.IndexOf("grid:", StringComparison.Ordinal);
+        return text[..grid] + keys + text[grid..];
     }
 
     private static async Task<(int Exit, string Log)> RoomAsync(InMemoryFileSystem fs, params string[] more)
@@ -300,7 +321,7 @@ public sealed class NavCommandsTests
         Guid pack = Nav3dReader.Open(runs[0].Nav).PackId;
         Guid level = Nav3dReader.Open(runs[0].Nav).LevelId;
 
-        fs.AddText(Rooted("/levels/level.yaml"), RoomHarness.LevelText("../game/maps/rooms.vmf", "up, hall, down") + "# changed\n");
+        fs.AddText(Rooted("/levels/level.yaml"), LevelText("up, hall, down") + "# changed\n");
         Assert.Equal(Program.ExitSuccess, (await LinkAsync(fs)).Exit);
         Nav3dReader relinked = Nav3dReader.Open(fs.GetBytes(At("/out/level.nav3d"))!);
         Assert.Equal(pack, relinked.PackId);
@@ -317,7 +338,7 @@ public sealed class NavCommandsTests
     {
         InMemoryFileSystem fs = Game();
         Assert.Equal(Program.ExitSuccess, (await RoomAsync(fs)).Exit);
-        fs.AddText(Rooted("/levels/level.yaml"), RoomHarness.LevelText("../game/maps/rooms.vmf", "up, hall@180"));
+        fs.AddText(Rooted("/levels/level.yaml"), LevelText("up, hall@180", "down: none\n"));
         TapFileSystem tap = new(fs);
         (int exit, string log) = await LinkAsync(tap);
         Assert.True(exit == Program.ExitSuccess, log);

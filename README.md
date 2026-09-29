@@ -323,6 +323,8 @@ ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-ent
 ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
              [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
+             [-up-map <map> | -no-up] [-down-map <map> | -no-down] [-transition-distance <n>]
+ssmap layout <library.vmf> ... -sequence K -name <base> [-out <folder>]
 ssmap nav <map.nav3d | level.yaml> [-rooms <pack.roompack>] [--obj <out.obj>] [--floor] [--agent <index|name>]
 ```
 
@@ -523,6 +525,38 @@ displacements, water, and a mix of cooked and `-cooker none` rooms. The doorway'
 own, because in the room's compile they faced the plug, so they draw as a
 gap unless something placed in the socket (a door frame model, say) covers
 them.
+
+**Transition rooms and the level spawn.** An `info_room` with
+`room_role up` or `down` is a transition room: it holds one brush entity of
+the compile-only class `trigger_room_transition` named `cxry_transition`
+(the transition volume), something that fires `Transition` at it (a
+button's `OnPressed`, a door's `OnFullyOpen`, a hallway `trigger_once`),
+and one `arrival` point of interest with a facing; `ssmap room` refuses a
+role room that lacks any of them, or whose arrival has no room for a
+standing player, and `ssmap rooms` lists the roles. A level of a run holds
+exactly one up room and one down room, each in its own cell, unless its
+file says `up: none` (the top level) or `down: none` (the bottom one), and
+names the maps above and below with `up_map` and `down_map`; `ssmap link`
+and `--flatten` refuse a level that breaks this. Without `-mod-entities`
+each transition volume becomes a `trigger_changelevel` to its map (touch
+disabled, the author's `Transition` outputs rewritten to `ChangeLevel`),
+or a hallway `trigger_once` whose only output is the transition and that
+holds the volume becomes the changelevel itself and the volume is dropped;
+each transition room gets an `info_landmark` named `<upper>__<lower>` for
+the two levels it joins, at the down room's changelevel centre and at the
+up room's arrival. The level spawns at the up room's arrival and its
+`spawn` points of interest, one `info_player_start` each (with `up: none`,
+at the spawn points of the `spawn: [column, row]` cell's room, or of the
+room farthest in doors from the down room), `spawn_count: K` refusing
+fewer; every `info_player_start` the rooms hold is stripped. With
+`-mod-entities` each volume becomes a server-only `logic_level_transition`
+at its centre (`direction`, `map`), and the mod reads the arrival and spawn
+points from the `.nav3d` sidecar. `ssmap layout` places the library's role
+rooms (`-up-map`, `-down-map` or `-no-up`, `-no-down`, and
+`-transition-distance N` doors apart at least), and `-sequence K -name
+<base>` writes a chained run `<base>_01.yaml` to `<base>_K.yaml` from
+seeds N, N+1, ...; a library without roles gets the levels it always got.
+`samples/rooms-transit` is a library and a three-level run built this way.
 
 `link --flatten` writes the same level as one ordinary VMF instead: every
 placed room copied out of the library into its cell and turned, the plugs
