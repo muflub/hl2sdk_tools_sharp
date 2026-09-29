@@ -2379,8 +2379,9 @@ without flooding the level or running vvis on it:
 
   | Level | Clusters | Before: pairs, bytes | After: pairs, bytes | vvis on the flattened level: clusters, pairs, bytes |
   | --- | --- | --- | --- | --- |
-  | 3x3 sample (the four turns alike) | 32 | 1,024, Q3_3X3_BEFORE | Q3_3X3_AFTER | 43, 855, Q3_3X3_MONO |
-  | 3x3 seeded levels (12) | 19 to 34 | all | Q3_SEEDS | |
+  | 3x3 sample (the four turns alike) | 32 | 1,024, 516 | 564, 518 to 522 | 43, 855 to 959, 865 to 902 |
+  | 3x3 seeded levels (12) | 16 to 34 | all pairs, 196 to 616 | 56% to 83% of the pairs, the lump within +48 bytes | 27 to 55 |
+  | generated 5 x 5 of the sample's rooms | 66 | 4,356 | 1,918, 1,741 | 111, 3,904, 3,872 |
   | stress 8 x 8 | 315 | 99,225, 27,724 | 31,435, 26,386 | 429, 38,983, 43,817 |
   | stress 12 x 12 | 676 | 456,976, 120,332 | 58,186, 87,842 | 917, 76,296, 143,373 |
   | stress 24 x 24 | 2,682 | 7,193,124, 1,823,764 | 281,908, 665,441 | |
@@ -2393,10 +2394,25 @@ without flooding the level or running vvis on it:
   need not shrink: a row of 32 clusters is four bytes all ones, and the
   run-length code spends two bytes on each zero byte it gains.
 - **Link time** (the 256-room stress library, pack in the page cache):
-  Q3_LINKTIME
+  medians and minimums of 11 warm links in one process, and of three
+  cold `ssmap link -no-nav` runs, on a 4-core box shared with other work
+  (load 30 to 40, so the spread is wide):
+
+  | Level | Warm, main | Warm, Q3 | Cold `ssmap link`, main | Cold, Q3 |
+  | --- | --- | --- | --- | --- |
+  | 24 x 24 | 68 to 98 ms min, 109 to 230 median | 117 to 175 ms min, 154 to 232 median | 1.02 to 1.10 s | 1.23 to 1.60 s |
+  | 33 x 33 | 153 to 236 ms min, 205 to 308 median | 300 to 367 ms min, 343 to 446 median | 1.45 to 1.74 s | 1.92 to 2.08 s |
+
+  The door flows cost about 110 ms of one thread at 33 x 33 (about 54,000
+  rooms entered from 2,800 doorways), the rows (a bit-matrix transpose and
+  the neighbour tables) about 35 ms, the PAS about 15 ms; the flows run one
+  room per work item on the link's thread pool. The written map is smaller
+  (33 x 33: 19,084,940 bytes to 14,411,580), and `ssmap check` passes it
+  with the one warning main's map has (no cubemap samples).
 - **Pack.** Version 4. `DVIS` follows `LNKA` (read with it), carries the
   codec byte and decoded length every link section starts with (none by
-  default: 83 to 200 bytes a room, 0.1% of the stress pack), a revision,
+  default: 70 to 298 bytes a room, 41,878 bytes for the stress library's
+  256 rooms, 0.15% of its pack), a revision,
   then the rotation count and that many payloads: cluster count, socket
   count, the per-socket bit sets, the pair flags, and per cluster a flag and
   its box. The relations do not change with a turn, and turning a room's few
