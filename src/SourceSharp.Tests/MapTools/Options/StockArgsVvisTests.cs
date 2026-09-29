@@ -7,6 +7,7 @@
 
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Options;
+using SourceSharp.MapTools.Vis;
 
 using Xunit;
 
@@ -291,5 +292,67 @@ public class StockArgsVvisTests
     public void TheFastPresetMatchesParsingTheFastFlag()
     {
         Assert.Equal(VvisOptions.FastDefault, StockArgs.ParseVvis(["-fast", Map]).Options);
+    }
+
+    [Theory]
+    [InlineData("auto", VisSeparatorPath.Auto)]
+    [InlineData("AUTO", VisSeparatorPath.Auto)]
+    [InlineData("256", VisSeparatorPath.Vector256)]
+    [InlineData("512", VisSeparatorPath.Vector512)]
+    [InlineData("Vector256", VisSeparatorPath.Vector256)]
+    [InlineData("vector512", VisSeparatorPath.Vector512)]
+    public void SeparatorSetsExactlyTheSeparatorPath(string value, VisSeparatorPath path)
+    {
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-separator", value, Map]);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(VvisOptions.Default with { SeparatorPath = path }, result.Options);
+        Assert.Equal(Map, result.MapPath);
+        Assert.Equal(VisSeparatorPath.Auto, StockArgs.ParseVvis([Map]).Options.SeparatorPath);
+    }
+
+    [Fact]
+    public void SeparatorGivenTwiceTakesTheLast()
+    {
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-SEPARATOR", "512", "-separator", "256", Map]);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(VisSeparatorPath.Vector256, result.Options.SeparatorPath);
+    }
+
+    [Theory]
+    [InlineData("128")]
+    [InlineData("wide")]
+    [InlineData("vector")]
+    public void ASeparatorItCannotReadIsAUsageErrorThatNamesTheFlag(string value)
+    {
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-separator", value, Map]);
+
+        CompileDiagnostic diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(StockArgsCodes.MalformedValue, diagnostic.Code);
+        Assert.Contains("-separator", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Contains("auto, 256 or 512", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Equal(VisSeparatorPath.Auto, result.Options.SeparatorPath);
+        Assert.Equal(Map, result.MapPath);
+    }
+
+    [Fact]
+    public void ASeparatorWithNoValueIsAUsageError()
+    {
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-separator"]);
+
+        Assert.Contains(result.Diagnostics, d => d.Code == StockArgsCodes.MissingValue);
+        Assert.True(result.HasErrors);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" 512 ")]
+    public void TheSeparatorReaderTrimsAndRefusesNothing(string? text)
+    {
+        bool read = StockArgs.TryParseSeparatorPath(text, out VisSeparatorPath path);
+        Assert.Equal(text is " 512 ", read);
+        Assert.Equal(read ? VisSeparatorPath.Vector512 : VisSeparatorPath.Auto, path);
     }
 }
