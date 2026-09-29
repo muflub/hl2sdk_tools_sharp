@@ -57,8 +57,9 @@ namespace SourceSharp.MapTools.Rooms;
 /// <para>
 /// <b>The keys.</b> <see cref="EntityReserveKey"/> for the entity budget;
 /// <see cref="FoldLogicKey"/> and <see cref="NameKeysKey"/> for the
-/// room-local names (added without a revision raise, as the section allows:
-/// an older build skips them). The name keys matter at room compile time,
+/// room-local names, and <see cref="DoorPortalsKey"/> for the door portals
+/// (added without a revision raise, as the section allows: an older build
+/// skips them, and links such a library's levels with open joints). The name keys matter at room compile time,
 /// where they widen what the naming rule reads as a name, so
 /// <c>ssmap room</c> hands them to the room compile too; the link reads them
 /// back for a room whose names it has to read from the room's lump.
@@ -90,6 +91,13 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
     /// built-in table the naming rule reads.
     /// </summary>
     public const string NameKeysKey = "rooms_name_keys";
+
+    /// <summary>
+    /// The library worldspawn key for <see cref="DoorPortals"/>: <c>1</c>
+    /// puts an area portal in every joint of every level linked from the
+    /// library, <c>0</c> (or no key) leaves the joints open.
+    /// </summary>
+    public const string DoorPortalsKey = "rooms_door_portals";
 
     /// <summary>
     /// The library worldspawn's <c>mapversion</c>: the editor's save counter,
@@ -138,6 +146,23 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
     public bool? FoldLogic { get; init; }
 
     /// <summary>
+    /// Whether every joint of a level gets an area portal (the rooms
+    /// design's door portals, 4.11 and open point O10); null when the
+    /// library does not say, which is off.
+    /// </summary>
+    /// <remarks>
+    /// Off by default (O10's recommendation, taken): a door portal splits
+    /// the level into an area per room, which cuts what the server sends a
+    /// client, but spends an area per room (a map holds 255) and one entity
+    /// per joint against the edict cap, which the owner ranks first (D7).
+    /// A library opts in for its whole kit, since the joints are the kit's.
+    /// </remarks>
+    public bool? DoorPortals { get; init; }
+
+    /// <summary>Whether the link puts an area portal in every joint: <see cref="DoorPortals"/>, off when unset.</summary>
+    public bool HasDoorPortals => DoorPortals ?? false;
+
+    /// <summary>
     /// The name-valued keys the library adds to the built-in table, comma
     /// separated as the key is written (entries trimmed, empty ones left out),
     /// or null. The table is game-dependent; the library extends it for its
@@ -163,11 +188,12 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
 
     /// <summary>Whether a worldspawn key is a library setting rather than a map key; compared ignoring case, as entity keys are.</summary>
     /// <param name="key">The key.</param>
-    /// <returns>True for <see cref="EntityReserveKey"/>, <see cref="FoldLogicKey"/> and <see cref="NameKeysKey"/>.</returns>
+    /// <returns>True for <see cref="EntityReserveKey"/>, <see cref="FoldLogicKey"/>, <see cref="NameKeysKey"/> and <see cref="DoorPortalsKey"/>.</returns>
     public static bool IsLibraryKey(string key) =>
         string.Equals(key, EntityReserveKey, StringComparison.OrdinalIgnoreCase)
         || string.Equals(key, FoldLogicKey, StringComparison.OrdinalIgnoreCase)
-        || string.Equals(key, NameKeysKey, StringComparison.OrdinalIgnoreCase);
+        || string.Equals(key, NameKeysKey, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(key, DoorPortalsKey, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Reads the settings off a library's world chunk.</summary>
     /// <param name="world">The library's <c>world</c> chunk.</param>
@@ -179,9 +205,10 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
         ArgumentNullException.ThrowIfNull(world);
         int? reserve = null;
         bool? fold = null;
+        bool? doorPortals = null;
         string? nameKeys = null;
         string? mapVersion = null;
-        bool seenReserve = false, seenFold = false, seenNames = false;
+        bool seenReserve = false, seenFold = false, seenNames = false, seenDoors = false;
         foreach (VmfKey key in world.Keys)
         {
             // The first one, as the compile reads it into the header; the
@@ -213,12 +240,19 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
                 seenNames = true;
                 nameKeys = NormalizeNameKeys(key.Value);
             }
+            else if (!seenDoors && string.Equals(key.Name, DoorPortalsKey, StringComparison.OrdinalIgnoreCase))
+            {
+                seenDoors = true;
+                doorPortals = TryParseFold(key.Value, out bool parsed)
+                    ? parsed
+                    : throw new RoomLibraryException($"the library's {DoorPortalsKey} \"{key.Value}\" is not 0 or 1.");
+            }
         }
 
-        return new RoomLibraryOptions(reserve) { FoldLogic = fold, NameKeys = nameKeys, MapVersion = mapVersion };
+        return new RoomLibraryOptions(reserve) { FoldLogic = fold, NameKeys = nameKeys, MapVersion = mapVersion, DoorPortals = doorPortals };
     }
 
-    /// <summary>Parses the fold switch: <c>0</c> or <c>1</c>, nothing else.</summary>
+    /// <summary>Parses a switch (the fold's, the door portals'): <c>0</c> or <c>1</c>, nothing else.</summary>
     /// <param name="text">The text.</param>
     /// <param name="fold">Whether it turns the fold on.</param>
     /// <returns>Whether the text is a switch.</returns>
@@ -265,6 +299,11 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
         if (FoldLogic is bool fold)
         {
             keys.Add((FoldLogicKey, fold ? "1" : "0"));
+        }
+
+        if (DoorPortals is bool doors)
+        {
+            keys.Add((DoorPortalsKey, doors ? "1" : "0"));
         }
 
         if (NameKeys is { } nameKeys)
@@ -340,6 +379,7 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
 
         int? reserve = null;
         bool? fold = null;
+        bool? doorPortals = null;
         string? nameKeys = null;
         string? mapVersion = null;
         for (int i = 0; i < count; i++)
@@ -360,6 +400,10 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
             {
                 nameKeys = NormalizeNameKeys(value);
             }
+            else if (string.Equals(key, DoorPortalsKey, StringComparison.Ordinal))
+            {
+                doorPortals = TryParseFold(value, out bool parsed) ? parsed : throw Bad($"sets {DoorPortalsKey} to \"{value}\", not 0 or 1");
+            }
             else if (string.Equals(key, MapVersionKey, StringComparison.Ordinal))
             {
                 mapVersion = value;
@@ -371,7 +415,7 @@ public sealed record RoomLibraryOptions(int? EntityReserve = null)
             throw Bad($"has {payload.Length - at} bytes after its last setting");
         }
 
-        return new RoomLibraryOptions(reserve) { FoldLogic = fold, NameKeys = nameKeys, MapVersion = mapVersion };
+        return new RoomLibraryOptions(reserve) { FoldLogic = fold, NameKeys = nameKeys, MapVersion = mapVersion, DoorPortals = doorPortals };
     }
 
     private static LinkException Bad(string what) => new($"the room pack's {SectionTag} section {what}.");

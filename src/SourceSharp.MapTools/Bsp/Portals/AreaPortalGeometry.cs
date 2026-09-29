@@ -381,8 +381,31 @@ public static class AreaPortalGeometry
             points.AddRange(windings.Points(pointPortal.Winding));
         }
 
+        return Hull(points, portal.Plane.Normal, diagnostics);
+    }
+
+    /// <summary>
+    /// The outline vbsp writes for an area portal from the points of the
+    /// portals it found in the portal's plane: their convex hull in the
+    /// plane, in the order the hull walk leaves them (the second half of
+    /// <c>EmitClipPortalGeometry</c>).
+    /// </summary>
+    /// <param name="points">The points, in the order the portals gave them.</param>
+    /// <param name="normal">The portal plane's normal, as the tree holds the plane.</param>
+    /// <param name="diagnostics">Where a suspicious hull is reported, or null.</param>
+    /// <returns>The hull's points, each one of <paramref name="points"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="points"/> is null.</exception>
+    /// <remarks>
+    /// Public so a caller that knows an outline without a tree (the room
+    /// link's door portals, a rectangle on a cell face) writes it in the
+    /// order vbsp would.
+    /// </remarks>
+    public static IReadOnlyList<Vec3> Hull(IReadOnlyList<Vec3> points, Vec3 normal, IList<CompileDiagnostic>? diagnostics = null)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+
         // First transform them into a plane.
-        (float Pitch, float Yaw, float Roll) angles = VectorAngles(portal.Plane.Normal);
+        (float Pitch, float Yaw, float Roll) angles = VectorAngles(normal);
         (Vec3 Forward, Vec3 Right, Vec3 Up) basis = AngleVectors(angles);
 
         // mTransform has the basis vectors as its COLUMNS (VMatrix::SetForward

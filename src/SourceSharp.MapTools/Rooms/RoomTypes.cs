@@ -184,6 +184,20 @@ public readonly record struct RoomPlacement(string Room, int CellX, int CellY, i
     /// <summary>The room's name as the layout spells it.</summary>
     internal string RawRoom => Room;
 
+    /// <summary>
+    /// Whole cells up (positive) or down (negative) from the grid: 0 for
+    /// every room a level places, -1 for the library's skybox room, which the
+    /// link places below the grid (the rooms design, 4.12 and open point O11).
+    /// </summary>
+    /// <remarks>
+    /// Only <see cref="RoomTransform"/> reads it, as a translation along z.
+    /// The grid logic (joints, neighbours, the top tree's cells) keys on
+    /// <see cref="CellX"/> and <see cref="CellY"/> alone, which is why the
+    /// skybox never joins that logic: it is placed beside the layout, not in
+    /// it.
+    /// </remarks>
+    public int Level { get; init; }
+
     /// <summary>Validates the placement.</summary>
     /// <exception cref="ArgumentException">The room name is blank.</exception>
     /// <exception cref="LinkException">The rotation is not a quarter-turn count 0..3.</exception>

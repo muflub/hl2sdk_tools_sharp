@@ -339,14 +339,23 @@ public readonly record struct RoomTransform(RoomPlacement Placement, float CellS
     {
         float tx = Placement.CellX * CellSize;
         float ty = Placement.CellY * CellSize;
+        float z = Lift(p.Z);
         return _rotation switch
         {
-            0 => new Vec3(p.X + tx, p.Y + ty, p.Z),
-            1 => new Vec3(-p.Y + tx + CellSize, p.X + ty, p.Z),
-            2 => new Vec3(-p.X + tx + CellSize, -p.Y + ty + CellSize, p.Z),
-            _ => new Vec3(p.Y + tx, -p.X + ty + CellSize, p.Z),
+            0 => new Vec3(p.X + tx, p.Y + ty, z),
+            1 => new Vec3(-p.Y + tx + CellSize, p.X + ty, z),
+            2 => new Vec3(-p.X + tx + CellSize, -p.Y + ty + CellSize, z),
+            _ => new Vec3(p.Y + tx, -p.X + ty + CellSize, z),
         };
     }
+
+    /// <summary>
+    /// A height moved by the placement's level (<see cref="RoomPlacement.Level"/>):
+    /// the height itself on the grid's level, so every room a level places
+    /// keeps its heights bit for bit (a negative zero included); a whole
+    /// number of cells added below or above it.
+    /// </summary>
+    private readonly float Lift(float z) => Placement.Level == 0 ? z : z + (Placement.Level * CellSize);
 
     /// <summary>
     /// The rotation half of <see cref="Apply"/> alone: the quarter turn about
@@ -389,12 +398,13 @@ public readonly record struct RoomTransform(RoomPlacement Placement, float CellS
     {
         float tx = Placement.CellX * CellSize;
         float ty = Placement.CellY * CellSize;
+        float z = Lift(rotated.Z);
         return _rotation switch
         {
-            0 => new Vec3(rotated.X + tx, rotated.Y + ty, rotated.Z),
-            1 => new Vec3(rotated.X + tx + CellSize, rotated.Y + ty, rotated.Z),
-            2 => new Vec3(rotated.X + tx + CellSize, rotated.Y + ty + CellSize, rotated.Z),
-            _ => new Vec3(rotated.X + tx, rotated.Y + ty + CellSize, rotated.Z),
+            0 => new Vec3(rotated.X + tx, rotated.Y + ty, z),
+            1 => new Vec3(rotated.X + tx + CellSize, rotated.Y + ty, z),
+            2 => new Vec3(rotated.X + tx + CellSize, rotated.Y + ty + CellSize, z),
+            _ => new Vec3(rotated.X + tx, rotated.Y + ty + CellSize, z),
         };
     }
 
@@ -418,12 +428,13 @@ public readonly record struct RoomTransform(RoomPlacement Placement, float CellS
     {
         float tx = Placement.CellX * CellSize;
         float ty = Placement.CellY * CellSize;
+        float z = Placement.Level == 0 ? p.Z : p.Z - (Placement.Level * CellSize);
         return _rotation switch
         {
-            0 => new Vec3(p.X - tx, p.Y - ty, p.Z),
-            1 => new Vec3(p.Y - ty, -(p.X - tx - CellSize), p.Z),
-            2 => new Vec3(-(p.X - tx - CellSize), -(p.Y - ty - CellSize), p.Z),
-            _ => new Vec3(-(p.Y - ty - CellSize), p.X - tx, p.Z),
+            0 => new Vec3(p.X - tx, p.Y - ty, z),
+            1 => new Vec3(p.Y - ty, -(p.X - tx - CellSize), z),
+            2 => new Vec3(-(p.X - tx - CellSize), -(p.Y - ty - CellSize), z),
+            _ => new Vec3(-(p.Y - ty - CellSize), p.X - tx, z),
         };
     }
 

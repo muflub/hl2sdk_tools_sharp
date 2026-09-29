@@ -219,6 +219,25 @@ public sealed record RoomObject(
     internal RoomOverlays? OverlaysOfCompile => Overlays is { } overlays && overlays.IsFor(this) ? overlays : null;
 
     /// <summary>
+    /// The room's areas and area portals as the link carries them
+    /// (<see cref="RoomAreaPortals"/>: the lumps checked, the clip vertices
+    /// at each quarter turn, the portal numbers), or null: made by the room
+    /// compile for a room whose compile has area portals, and stored by the
+    /// pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Overlays"/>, not only a shortcut: it is what says the
+    /// room was held to the pack's area portal rules when it was compiled,
+    /// so a room whose lumps have area portals and none of this bound to its
+    /// compile (<see cref="AreaPortalsOfCompile"/>) is refused by the link,
+    /// naming the room.
+    /// </remarks>
+    internal RoomAreaPortals? AreaPortals { get; init; }
+
+    /// <summary>The room's area portals while they describe this compile, else null.</summary>
+    internal RoomAreaPortals? AreaPortalsOfCompile => AreaPortals is { } portals && portals.IsFor(this) ? portals : null;
+
+    /// <summary>
     /// The room's navigation, or null: built beside the link work by a
     /// library compile whose library builds navigation, and read by a pack
     /// load that asks for it (<see cref="RoomPackRequest.Navigation"/>), at
@@ -275,6 +294,15 @@ public sealed class RoomLibrary
     /// them in the level's entity budget.
     /// </summary>
     public IReadOnlyList<VmfChunk> LibraryEntities { get; set; } = [];
+
+    /// <summary>
+    /// The name of the library's skybox room (<see cref="RoomLibrarySplit.Skybox"/>),
+    /// one of <see cref="Rooms"/>, or null when the library has none: read
+    /// from the pack's library section (<see cref="RoomLibrarySkybox"/>) by
+    /// whoever loads the rooms. The link places it below every level's grid
+    /// as its own area; a level may not place it itself.
+    /// </summary>
+    public string? SkyboxRoom { get; set; }
 
     /// <summary>The rooms, in insertion order.</summary>
     public IReadOnlyCollection<RoomObject> Rooms => _rooms.Values;

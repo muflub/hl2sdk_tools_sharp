@@ -366,6 +366,47 @@ public sealed class RoomLibraryOptionsTests
     }
 
     /// <summary>
+    /// The door portal switch (open point O10) is read off the worldspawn
+    /// (first of a repeated key wins), is a library key, and travels in the
+    /// section in ordinal order; door portals are off unless the library
+    /// turns them on, and a switch other than 0 or 1 is refused, off the
+    /// worldspawn and in the section.
+    /// </summary>
+    [Fact]
+    public void TheDoorPortalSwitchIsReadWrittenAndReadBack()
+    {
+        VmfChunk world = new(MapFileLoader.WorldChunk);
+        world.AddKey("Rooms_Door_Portals", "1");
+        world.AddKey(RoomLibraryOptions.DoorPortalsKey, "0");
+        world.AddKey(RoomLibraryOptions.EntityReserveKey, "300");
+        RoomLibraryOptions options = RoomLibraryOptions.FromWorld(world);
+        Assert.Equal(new RoomLibraryOptions(300) { DoorPortals = true }, options);
+        Assert.True(options.HasDoorPortals);
+        Assert.False(RoomLibraryOptions.None.HasDoorPortals);
+        Assert.False(new RoomLibraryOptions { DoorPortals = false }.HasDoorPortals);
+        Assert.True(RoomLibraryOptions.IsLibraryKey("ROOMS_DOOR_PORTALS"));
+
+        RoomPackSectionData section = options.ToSection()!.Value;
+        Assert.Equal(options, RoomLibraryOptions.Read(section.Bytes.Span));
+        string text = Encoding.UTF8.GetString(section.Bytes.Span);
+        Assert.True(text.IndexOf("rooms_door_portals", StringComparison.Ordinal) < text.IndexOf("rooms_entity_reserve", StringComparison.Ordinal));
+        RoomLibraryOptions off = new() { DoorPortals = false };
+        Assert.Equal(off, RoomLibraryOptions.Read(off.ToSection()!.Value.Bytes.Span));
+
+        VmfChunk bad = new(MapFileLoader.WorldChunk);
+        bad.AddKey(RoomLibraryOptions.DoorPortalsKey, "yes");
+        Assert.Equal(
+            "the library's rooms_door_portals \"yes\" is not 0 or 1.",
+            Assert.Throws<RoomLibraryException>(() => RoomLibraryOptions.FromWorld(bad)).Message);
+        byte[] payload = [.. Int(RoomLibraryOptions.Revision), .. Int(1), .. Text(RoomLibraryOptions.DoorPortalsKey), .. Text("yes")];
+        byte[] damaged = [RoomLibraryOptions.CodecNone, .. Long(payload.Length), .. payload];
+        Assert.Contains(
+            "sets rooms_door_portals to \"yes\", not 0 or 1",
+            Assert.Throws<LinkException>(() => RoomLibraryOptions.Read(damaged)).Message,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The library worldspawn's first <c>mapversion</c> is kept as written,
     /// in the section and back out of it; it is not a library-only key, so
     /// the flattened level keeps it; a library without one keeps none.

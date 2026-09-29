@@ -123,7 +123,7 @@ public static partial class LevelLinker
             }
         }
 
-        RefuseAreaPortals(name, bsp);
+        _ = RoomAreaPortalsOf(room);
         RefuseGameLumpContent(room);
         _ = RoomOverlaysOf(room);
         RefuseDisplacementCollision(name, bsp);

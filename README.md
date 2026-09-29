@@ -649,8 +649,19 @@ overlay names sides of its own room only; the split, and so `ssmap room`
 and `--flatten`, refuses one naming a side of a socket's plug (a doorway
 that wants an overlay on each side gets one in each room), and `room_needs`
 on an overlay. A map holds at most 512 overlays (`MAX_MAP_OVERLAYS`), and
-the link refuses a level past that. The
-link refuses what it cannot carry: area portals, detail props,
+the link refuses a level past that.
+Area portals (`func_areaportal`, `func_areaportalwindow`) are carried: a
+room's own areas join its neighbours' at every joint, its portals are
+numbered after the rooms before it (their `portalnumber` too) and listed
+for the level with their outlines moved; `ssmap room` and `--flatten`
+refuse a portal reaching into a socket's plug box, one named as socket
+furniture, and `room_needs` on one, and `ssmap link` warns of a portal the
+level joins around (a ring of rooms), which it keeps as an entity with no
+portal, as vbsp does. A library whose worldspawn sets
+`rooms_door_portals 1` gets an area portal in every joint too, following
+the joint's kept socket door when it is a named `func_door`, else open;
+each costs an entity and every room becomes its own area (a map holds 255).
+The link refuses what it cannot carry: detail props,
 displacements, water (and its water overlays), and a mix of cooked and
 `-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a
@@ -763,7 +774,13 @@ room hub: its light_environment differs from the library's (angles: "-45 120 0" 
 A named controller the library does not hold under that name is the room's
 own (per-room fog is a trigger and a named controller, as in any map) and
 stays with the room. A `sky_camera` is refused in a room and in the gaps:
-it belongs to a library skybox room, which the linker does not build yet.
+it belongs to the library's skybox room, a cell marked with an
+`info_room_skybox` (with a `name`) holding exactly one `sky_camera`, no door
+plug and no `room_needs` or `room_socket`. `ssmap room` compiles and packs it
+with the rooms; no level places it: `link` and `link --flatten` put it one
+cell below every level's south-west cell, unturned, as its own area, its
+entities after the rooms' and counted once per level, and leave it out of
+the level's `world_mins` and `world_maxs`.
 `link` and `link --flatten` write each library entity once, right after the
 worldspawn, never turned, at the level's origin, and keep one
 `water_lod_control` (vbsp adds one to every room compile with water): an

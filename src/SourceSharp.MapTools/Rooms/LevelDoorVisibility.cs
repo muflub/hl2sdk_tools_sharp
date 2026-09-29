@@ -191,7 +191,12 @@ internal static class LevelDoorVisibility
         Dictionary<(int X, int Y), int> byCell = new(rooms.Count);
         for (int r = 0; r < rooms.Count; r++)
         {
-            byCell[(rooms[r].Transform.Placement.CellX, rooms[r].Transform.Placement.CellY)] = r;
+            // A room off the grid's level (the skybox below it) shares its
+            // cell's column and row but neighbours nothing.
+            if (rooms[r].Transform.Placement.Level == 0)
+            {
+                byCell[(rooms[r].Transform.Placement.CellX, rooms[r].Transform.Placement.CellY)] = r;
+            }
         }
 
         // Per pair of rooms joined by a doorway, which of their cluster
@@ -217,7 +222,7 @@ internal static class LevelDoorVisibility
             int lo = room.ClusterBase;
             RoomPlacement at = room.Transform.Placement;
             List<(int Room, LevelDoor? Door)> neighbours = [];
-            foreach ((int dx, int dy) in (ReadOnlySpan<(int, int)>)[(1, 0), (-1, 0), (0, 1), (0, -1)])
+            foreach ((int dx, int dy) in at.Level == 0 ? (ReadOnlySpan<(int, int)>)[(1, 0), (-1, 0), (0, 1), (0, -1)] : [])
             {
                 if (byCell.TryGetValue((at.CellX + dx, at.CellY + dy), out int n))
                 {
