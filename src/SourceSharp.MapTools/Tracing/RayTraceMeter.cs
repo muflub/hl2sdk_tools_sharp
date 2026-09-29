@@ -104,6 +104,14 @@ public readonly record struct RayRouteCounts(long Visibility, long Closest, long
 /// upload copy; false when every slab is staged and copied by the device.
 /// </param>
 /// <param name="AnswersInPlace">Whether the kernel writes answers where the host reads them, so a slab has no download copy.</param>
+/// <param name="RayBytes">
+/// Bytes of rays the host packed, padding rays included: what crossed the
+/// bus to the device, once for a device that reads rays in place and twice
+/// (into staging, then the device's copy) for one that stages them. With
+/// <paramref name="SlabRays"/> it gives the average record size, which is
+/// 24 bytes where every ray of a slab shares its reach and 28 elsewhere.
+/// </param>
+/// <param name="SlabRays">Rays the slabs carried, padding rays included.</param>
 /// <remarks>
 /// <para>
 /// <b>Why the fence span and not device timestamps.</b> Timestamps would time
@@ -140,7 +148,9 @@ public readonly record struct GpuTraceStatistics(
     TimeSpan Pack = default,
     TimeSpan Readback = default,
     bool RaysInPlace = false,
-    bool AnswersInPlace = false);
+    bool AnswersInPlace = false,
+    long RayBytes = 0,
+    long SlabRays = 0);
 
 /// <summary>A tracer that can say what its device did, for the bench.</summary>
 /// <remarks>

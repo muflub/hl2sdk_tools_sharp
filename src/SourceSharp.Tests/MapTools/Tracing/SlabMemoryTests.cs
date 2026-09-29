@@ -28,7 +28,7 @@ public sealed class SlabMemoryTests
     private const ulong SpecMinStorage = 128UL << 20;
 
     // Rays and answers for the default budget, all slots together.
-    private const ulong RayBytes = 4_194_304UL * 32;
+    private const ulong RayBytes = 4_194_304UL * RayRecord.MaxBytes;
     private const ulong OutBytes = 4_194_304UL * 8;
 
     private static SlabMemoryLayout Choose(uint[] flags, int[] heaps, ulong[] heapSizes, uint allowed = ~0u, bool forceStaged = false) =>
@@ -42,7 +42,7 @@ public sealed class SlabMemoryTests
     [InlineData(64L, 3, 64)] // never below one workgroup
     [InlineData(0L, 3, 64)] // a defaulted options value
     [InlineData(-5L, 3, 64)]
-    [InlineData(100_000_000L, 1, 4_194_304)] // the binding limit caps a slot
+    [InlineData(100_000_000L, 1, 4_793_472)] // the binding limit caps a slot: 128 MiB of 28-byte records, in workgroups
     public void TheBudgetIsSharedByTheSlots(long budget, int slots, int expected) =>
         Assert.Equal(expected, SlabMemory.RaysPerSlot(budget, slots, SpecMinStorage));
 

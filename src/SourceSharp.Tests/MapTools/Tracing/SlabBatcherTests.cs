@@ -34,7 +34,7 @@ public sealed class SlabBatcherTests
     // wrong answers as well as tripping the assertion in StageRays.
     private sealed class FakeDevice : ISlabDevice
     {
-        private readonly float[][] _staging;
+        private readonly uint[][] _staging;
         private readonly Submitted?[] _slots;
         private readonly Random _jitter = new(5);
         private int _inside;
@@ -46,7 +46,7 @@ public sealed class SlabBatcherTests
         {
             MaxSlabRays = maxSlabRays;
             SlotCount = slots;
-            _staging = [.. Enumerable.Range(0, slots).Select(_ => new float[maxSlabRays * 8])];
+            _staging = [.. Enumerable.Range(0, slots).Select(_ => new uint[maxSlabRays * RayRecord.WideWords])];
             _slots = new Submitted?[slots];
         }
 
@@ -56,6 +56,12 @@ public sealed class SlabBatcherTests
 
         /// <summary>Rays per submitted slab, in submission order; read once the drainer is parked.</summary>
         public List<int> RaysPerDispatch { get; } = [];
+
+        /// <summary>The record of each submitted slab, in submission order.</summary>
+        public List<RayRecord> RecordPerDispatch { get; } = [];
+
+        /// <summary>Each submitted slab's staged words, as packed, in submission order.</summary>
+        public List<uint[]> StagedPerDispatch { get; } = [];
 
         /// <summary>Slabs submitted and not yet completed.</summary>
         public int InFlight => Volatile.Read(ref _inFlight);
@@ -84,26 +90,31 @@ public sealed class SlabBatcherTests
         /// <summary>Sleeps a random 0-1 ms in each completion, to vary how the queue and the slots interleave.</summary>
         public bool Jitter { get; set; }
 
-        public Span<float> StageRays(int slot, int rayCount)
+        public Memory<uint> StageRays(int slot, int rayCount, RayRecord record)
         {
             using Call call = Enter();
             Assert.Null(_slots[slot]); // a slot in flight must never be restaged
             Assert.InRange(rayCount, 1, MaxSlabRays);
-            return _staging[slot].AsSpan(0, rayCount * 8);
+
+            // Poison the slot, so a word the batcher fails to write shows.
+            Array.Fill(_staging[slot], 0xDEADBEEFu);
+            return _staging[slot].AsMemory(0, rayCount * record.Words);
         }
 
-        public void Submit(int slot, int mode, int rayCount, int outWordCount, uint tminBits, uint tmaxScaleBits)
+        public void Submit(int slot, int mode, int rayCount, int outWordCount, uint tminBits, uint tmaxScaleBits, RayRecord record)
         {
             using Call call = Enter();
             Assert.Null(_slots[slot]);
             int index = _submits++;
             RaysPerDispatch.Add(rayCount);
+            RecordPerDispatch.Add(record);
+            StagedPerDispatch.Add(_staging[slot][..(rayCount * record.Words)]);
             if (FailSubmit is { } f && f.Index == index)
             {
                 throw f.Error;
             }
 
-            _slots[slot] = new Submitted(mode, rayCount, outWordCount, index);
+            _slots[slot] = new Submitted(mode, rayCount, outWordCount, index, record);
             MaxInFlight = Math.Max(MaxInFlight, Interlocked.Increment(ref _inFlight));
         }
 
@@ -138,22 +149,24 @@ public sealed class SlabBatcherTests
                 throw f.Error;
             }
 
-            float[] staging = _staging[slot];
+            // Each lane reads its ray as the kernel's load_ray does.
+            uint[] staging = _staging[slot];
+            int words = sub.Record.Words;
             outWords.Clear();
             for (int i = 0; i < sub.Rays; i++)
             {
-                int b = i * 8;
+                Ray r = sub.Record.Decode(staging.AsSpan(i * words, words));
                 if (sub.Mode == 0)
                 {
-                    if (staging[b + 7] > 5)
+                    if (r.MaxDistance > 5)
                     {
                         outWords[(i / 64 * 2) + (i % 64 / 32)] |= 1u << (i % 32);
                     }
                 }
                 else
                 {
-                    outWords[i * 2] = staging[b + 4] < 0 ? 0xFFFFFFFFu : (uint)staging[b];
-                    outWords[(i * 2) + 1] = (uint)BitConverter.SingleToInt32Bits(staging[b + 1]);
+                    outWords[i * 2] = r.DirectionX < 0 ? 0xFFFFFFFFu : (uint)r.OriginX;
+                    outWords[(i * 2) + 1] = (uint)BitConverter.SingleToInt32Bits(r.OriginY);
                 }
             }
 
@@ -177,7 +190,7 @@ public sealed class SlabBatcherTests
             return new Call(this);
         }
 
-        private readonly record struct Submitted(int Mode, int Rays, int Words, int Index);
+        private readonly record struct Submitted(int Mode, int Rays, int Words, int Index, RayRecord Record);
 
         private readonly struct Call(FakeDevice device) : IDisposable
         {
@@ -442,7 +455,7 @@ public sealed class SlabBatcherTests
         SlabBatcher.Request other = new(1, Rays(5, 3), default, new HitId[5], 0, default);
         SlabBatcher.Request epsilon = new(0, Rays(5, 4), new ulong[1], default, 7, default);
 
-        int total = SlabBatcher.Plan([a, other, epsilon, b], 0, 0, 256, slab);
+        int total = SlabBatcher.Plan([a, other, epsilon, b], 0, 0, null, 256, slab);
 
         Assert.Equal(
             [new SlabBatcher.Segment(a, 0, 70, 0), new SlabBatcher.Segment(b, 0, 128, 128)],
@@ -450,7 +463,7 @@ public sealed class SlabBatcherTests
         Assert.Equal(256, total);
 
         b.Next = 128;
-        total = SlabBatcher.Plan([b], 0, 0, 256, slab);
+        total = SlabBatcher.Plan([b], 0, 0, null, 256, slab);
         Assert.Equal([new SlabBatcher.Segment(b, 128, 72, 0)], slab);
         Assert.Equal(72, total);
     }
@@ -462,7 +475,7 @@ public sealed class SlabBatcherTests
         SlabBatcher.Request a = new(1, Rays(70, 1), default, new HitId[70], 0, default);
         SlabBatcher.Request b = new(1, Rays(300, 2), default, new HitId[300], 0, default);
 
-        int total = SlabBatcher.Plan([a, b], 1, 0, 256, slab);
+        int total = SlabBatcher.Plan([a, b], 1, 0, null, 256, slab);
 
         Assert.Equal([new SlabBatcher.Segment(a, 0, 70, 0), new SlabBatcher.Segment(b, 0, 186, 70)], slab);
         Assert.Equal(256, total);
@@ -475,7 +488,7 @@ public sealed class SlabBatcherTests
         SlabBatcher.Request launched = new(0, Rays(10, 1), new ulong[1], default, 0, default) { Next = 10 };
         SlabBatcher.Request waiting = new(0, Rays(10, 2), new ulong[1], default, 0, default);
 
-        int total = SlabBatcher.Plan([launched, waiting], 0, 0, 256, slab);
+        int total = SlabBatcher.Plan([launched, waiting], 0, 0, null, 256, slab);
 
         // Not even the 64-ray alignment a visibility segment would have cost.
         Assert.Equal([new SlabBatcher.Segment(waiting, 0, 10, 0)], slab);

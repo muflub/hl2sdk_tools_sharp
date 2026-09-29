@@ -185,18 +185,18 @@ public sealed class VulkanDeviceSlotRingFacts
 
             // Still in flight: every use of the slot waits again, and fails again.
             Assert.Equal(Result.Timeout, Assert.Throws<VulkanException>(() => device.Complete(0, words)).Result);
-            Assert.Equal(Result.Timeout, Assert.Throws<VulkanException>(() => device.StageRays(0, 64)).Result);
+            Assert.Equal(Result.Timeout, Assert.Throws<VulkanException>(() => device.StageRays(0, 64, RayRecord.Wide)).Result);
             Assert.Equal(Result.Timeout, Assert.Throws<VulkanException>(
-                () => device.Submit(0, 4, 64, 2, 0, VulkanDevice.TmaxScaleBits)).Result);
+                () => device.Submit(0, 4, 64, 2, 0, VulkanDevice.TmaxScaleBits, RayRecord.Wide)).Result);
             Assert.Equal(4, fences.Waits);
             Assert.Equal(0, fences.Resets);
 
             fences.Signalled = true;
-            _ = device.StageRays(0, 64);
+            _ = device.StageRays(0, 64, RayRecord.Wide);
             Assert.Equal(1, fences.Resets);
 
             // And the slot traces again: mode 4 writes all-ones.
-            device.Submit(0, 4, 64, 2, 0, VulkanDevice.TmaxScaleBits);
+            device.Submit(0, 4, 64, 2, 0, VulkanDevice.TmaxScaleBits, RayRecord.Wide);
             device.Complete(0, words);
             Assert.Equal([0xFFFFFFFFu, 0xFFFFFFFFu], words);
         }
@@ -340,8 +340,8 @@ public sealed class VulkanDeviceSlotRingFacts
     /// <summary>Stages one workgroup in slot 0 and submits it in mode 4 (no traversal).</summary>
     private static void Submit(VulkanDevice device)
     {
-        device.StageRays(0, 64).Clear();
-        device.Submit(0, 4, 64, 2, 0, VulkanDevice.TmaxScaleBits);
+        device.StageRays(0, 64, RayRecord.Wide).Span.Clear();
+        device.Submit(0, 4, 64, 2, 0, VulkanDevice.TmaxScaleBits, RayRecord.Wide);
     }
 
     /// <summary>Answers every wait with a fixed result and counts the calls.</summary>

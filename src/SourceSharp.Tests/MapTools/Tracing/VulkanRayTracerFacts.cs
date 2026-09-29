@@ -513,6 +513,91 @@ public sealed class VulkanRayTracerFacts
     }
 
     /// <summary>
+    /// The packed record gives every kernel mode's raw words bit for bit: the
+    /// same rays traced in 28-byte records and, slab by slab, in the 24-byte
+    /// record with the reach in the push constants. Runs on any passing
+    /// device, llvmpipe included, so the claim that the kernel reconstructs
+    /// the same floats is tested on a real ray-query implementation and not
+    /// only on the CPU mirror.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The slabs are 512 rays, in groups of four. The first three share a
+    /// reach, so they go narrow; the fourth keeps each ray's own reach and
+    /// stays wide inside the same run. The shared reaches are 0.75 (the hit
+    /// on the first plane lies inside it, except for rays aimed at that
+    /// plane, whose crossing at t = 1 is cut off), exactly 1, and the float
+    /// just above 1.
+    /// </para>
+    /// <para>
+    /// The last two decide a hit by the last bit of tmax. Every other ray in
+    /// them is axis-aligned, from x = 0 along +X with a unit direction, aimed
+    /// inside a triangle and off the cells' diagonals, so it meets the first
+    /// plane at exactly t = 1, on or just short of the segment's end.
+    /// Vulkan keeps a hit at t &lt;= tmax, so with tmax 1 an inclusive
+    /// device keeps it; llvmpipe cuts it, and keeps it only with tmax one ulp
+    /// above. Either way a kernel that rebuilt the shared reach one ulp low
+    /// would drop hits that the wide record keeps, and this fact fails:
+    /// on llvmpipe, with the kernel so mutated, it did.
+    /// </para>
+    /// <para>
+    /// The words must also be non-vacuous: hits and misses in both any-hit
+    /// and closest-hit, and closest hits at exactly t = 1 in those two
+    /// slabs.
+    /// </para>
+    /// </remarks>
+    [VulkanStageFact(VulkanNeed.PassingDevice)]
+    public void PackedRecordsGiveTheWordsOfWideRecords()
+    {
+        const uint JustAboveOne = 0x3F800001u;
+        (TracedTriangle[] tris, Ray[] rays) = Lattice(rays: 4608, planes: 16, seed: 23);
+        for (int i = 0; i < rays.Length; i++)
+        {
+            int group = i / 512 % 4;
+            if (group == 3)
+            {
+                continue;
+            }
+
+            float reach = group switch
+            {
+                0 => 0.75f,
+                1 => 1.0f,
+                _ => BitConverter.UInt32BitsToSingle(JustAboveOne),
+            };
+            rays[i] = group > 0 && i % 2 == 0
+                ? new Ray(0f, 0.3f + (i % 13), 0.25f, 1f, 0f, 0f, reach)
+                : rays[i] with { MaxDistance = reach };
+        }
+
+        Assert.Equal(0x3F400000u, RayRecord.UniformReachOf(rays.AsSpan(0, 512)));
+        Assert.Equal(0x3F800000u, RayRecord.UniformReachOf(rays.AsSpan(512, 512)));
+        Assert.Equal(JustAboveOne, RayRecord.UniformReachOf(rays.AsSpan(1024, 512)));
+        Assert.Null(RayRecord.UniformReachOf(rays.AsSpan(1536, 512)));
+
+        foreach ((int slots, bool staged) in new[] { (1, true), (3, false) })
+        {
+            uint[][] wide = RawWords(tris, rays, slots, staged, out _);
+            uint[][] packed = RawWords(tris, rays, slots, staged, out _, packed: true);
+            for (int m = 0; m < RawModes.Length; m++)
+            {
+                Assert.True(wide[m].AsSpan().SequenceEqual(packed[m]),
+                    $"mode {RawModes[m]} differs between wide and packed records ({slots} slots, staged: {staged})");
+            }
+
+            uint[] anyHit = wide[2];
+            uint[] closest = wide[3];
+            Assert.Contains(anyHit, w => w != 0);
+            Assert.Contains(anyHit, w => w != 0xFFFFFFFFu);
+            Assert.Contains(closest.Where((_, k) => k % 2 == 0), p => p == NoPrimitive);
+            Assert.Contains(closest.Where((_, k) => k % 2 == 0), p => p != NoPrimitive);
+            Assert.Contains(
+                Enumerable.Range(512, 1024),
+                k => closest[k * 2] != NoPrimitive && closest[(k * 2) + 1] == 0x3F800000u);
+        }
+    }
+
+    /// <summary>
     /// The shape a conformant driver gives: telemetry zero on every ray (the
     /// opaque BLAS is committed inside traversal) and closest-hit words that
     /// mix hits and misses. The raw-words fact must accept it; while its
@@ -661,7 +746,13 @@ public sealed class VulkanRayTracerFacts
     }
 
     /// <summary>Every raw mode over the rays, a wave of slots in flight at a time.</summary>
-    private static uint[][] RawWords(TracedTriangle[] tris, Ray[] rays, int slots, bool forceStaged, out SlabMemoryLayout layout)
+    /// <remarks>
+    /// Wide records unless <paramref name="packed"/>, which packs each slab
+    /// in the record the batcher would choose for it: 24 bytes where the
+    /// slab's rays share a reach, 28 where they do not.
+    /// </remarks>
+    private static uint[][] RawWords(
+        TracedTriangle[] tris, Ray[] rays, int slots, bool forceStaged, out SlabMemoryLayout layout, bool packed = false)
     {
         using VulkanDevice device = OpenRaw(tris, slots, forceStaged);
         layout = device.SlabLayout;
@@ -680,21 +771,10 @@ public sealed class VulkanRayTracerFacts
                 {
                     int start = wave + (s * slab);
                     int count = Math.Min(slab, rays.Length - start);
-                    Span<float> staging = device.StageRays(s, count);
-                    for (int i = 0; i < count; i++)
-                    {
-                        Ray r = rays[start + i];
-                        staging[i * 8] = r.OriginX;
-                        staging[(i * 8) + 1] = r.OriginY;
-                        staging[(i * 8) + 2] = r.OriginZ;
-                        staging[(i * 8) + 3] = 0f;
-                        staging[(i * 8) + 4] = r.DirectionX;
-                        staging[(i * 8) + 5] = r.DirectionY;
-                        staging[(i * 8) + 6] = r.DirectionZ;
-                        staging[(i * 8) + 7] = r.MaxDistance;
-                    }
-
-                    device.Submit(s, mode, count, WordsFor(count), SelfIntersectionTminBits, VulkanDevice.TmaxScaleBits);
+                    ReadOnlySpan<Ray> slabRays = rays.AsSpan(start, count);
+                    RayRecord record = packed ? RayRecord.For(RayRecord.UniformReachOf(slabRays)) : RayRecord.Wide;
+                    record.Pack(slabRays, device.StageRays(s, count, record).Span);
+                    device.Submit(s, mode, count, WordsFor(count), SelfIntersectionTminBits, VulkanDevice.TmaxScaleBits, record);
                     launched.Add((s, start, count));
                 }
 

@@ -65,6 +65,18 @@ namespace SourceSharp.MapTools.Gpu.Interop;
 /// scene's one-instance TLAS.
 /// </para>
 /// <para>
+/// <b>Rays arrive as records.</b> The ray buffer holds
+/// <c>recordWords</c> floats a ray, the layout <see cref="RayRecord"/>
+/// chose for the slab: seven (origin, direction, tmax) or six, with the
+/// slab's one tmax in <c>reachBits</c>. <c>load_ray</c> is the only reader,
+/// and it only loads: the buffer is read as floats, as the two
+/// <c>vec4</c> per ray that the wire used to be were, and the shared tmax is
+/// read from the push constants as <c>tmin</c> is, so the query sees the
+/// bits the host packed whichever record carried them. A record size of
+/// seven rather than eight costs the loads their 16-byte alignment, which
+/// matters to no device next to a traversal.
+/// </para>
+/// <para>
 /// Output layout is sample-major and deterministic with NO global atomics:
 /// one workgroup is 64 rays and owns exactly two <c>uint</c> words of the bit
 /// output (<c>word[2g]</c> = rays 64g..64g+31 LSB-first, <c>word[2g+1]</c> =
@@ -83,12 +95,12 @@ internal static class Kernels
 #version 460
 #extension GL_EXT_ray_query : require
 layout(local_size_x = 64) in;
-layout(binding = 0) buffer Rays { vec4 data[]; } RAYS;      // 2 vec4 per ray: (o,0), (d,tmax)
+layout(binding = 0) readonly buffer Rays { float data[]; } RAYS; // PC.recordWords floats per ray
 layout(binding = 1) buffer OutU { uint data[]; } OUT;
 layout(binding = 2) uniform accelerationStructureEXT BLAS;
 layout(push_constant) uniform Args {
-    uint mode; uint rayCount; uint triCount; uint reserved;
-    uint tminBits; uint tmaxScaleBits; uint reserved2; uint reserved3;
+    uint mode; uint rayCount; uint triCount; uint recordWords;
+    uint tminBits; uint tmaxScaleBits; uint reachBits; uint reserved3;
 } PC;
 shared uint s_bits[2];
 
@@ -103,12 +115,23 @@ bool query_defined(vec3 origin, vec3 dir, float tmin, float tmax) {
         && !any(isnan(dir)) && !any(isinf(dir));
 }
 
+// One ray's record (RayRecord): 7 floats (origin, direction, tmax), or 6
+// with the slab's shared tmax in the push constants, which are then loaded
+// exactly as tmin is. Loads only: every value reaches the query as the bits
+// the host sent, whichever record carried it.
+void load_ray(uint index, out vec3 origin, out vec3 dir, out float tmax) {
+    uint rb = index * PC.recordWords;
+    origin = vec3(RAYS.data[rb + 0u], RAYS.data[rb + 1u], RAYS.data[rb + 2u]);
+    dir = vec3(RAYS.data[rb + 3u], RAYS.data[rb + 4u], RAYS.data[rb + 5u]);
+    tmax = PC.recordWords == 7u ? RAYS.data[rb + 6u] : uintBitsToFloat(PC.reachBits);
+}
+
 void trace_one(bool anyMode, out bool hit, out uint prim, out float t) {
     uint index = (gl_WorkGroupID.x * 64u) + gl_LocalInvocationIndex;
-    uint rb = index * 2u;
-    vec3 origin = RAYS.data[rb + 0u].xyz;
-    vec3 dir = RAYS.data[rb + 1u].xyz;
-    float tmax = RAYS.data[rb + 1u].w;
+    vec3 origin;
+    vec3 dir;
+    float tmax;
+    load_ray(index, origin, dir, tmax);
 
     // SPEC USAGE (the finding this kernel exists for): the committed
     // intersection may only be read once the query is CONSISTENT, i.e. after
@@ -161,13 +184,14 @@ void main() {
     if (PC.mode == 5u) {
         uint iters = 0u;
         uint cands = 0u;
-        uint rb5 = index * 2u;
-        if (inRange && query_defined(RAYS.data[rb5 + 0u].xyz, RAYS.data[rb5 + 1u].xyz,
-                uintBitsToFloat(PC.tminBits), RAYS.data[rb5 + 1u].w)) {
+        vec3 origin5 = vec3(0.0);
+        vec3 dir5 = vec3(0.0);
+        float tmax5 = 0.0;
+        if (inRange) { load_ray(index, origin5, dir5, tmax5); }
+        if (inRange && query_defined(origin5, dir5, uintBitsToFloat(PC.tminBits), tmax5)) {
             rayQueryEXT rq5;
             rayQueryInitializeEXT(rq5, BLAS, 0u, 0xFFu,
-                RAYS.data[rb5 + 0u].xyz, uintBitsToFloat(PC.tminBits),
-                RAYS.data[rb5 + 1u].xyz, RAYS.data[rb5 + 1u].w);
+                origin5, uintBitsToFloat(PC.tminBits), dir5, tmax5);
             while (rayQueryProceedEXT(rq5)) {
                 iters++;
                 if (rayQueryGetIntersectionTypeEXT(rq5, false) == gl_RayQueryCandidateIntersectionTriangleEXT) {

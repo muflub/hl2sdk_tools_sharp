@@ -269,13 +269,13 @@ public sealed class VulkanSceneBuildFacts
     [Fact]
     public void TheSelfTestTracesOnlyItsRealRays()
     {
-        VulkanDevice.SelfTestGeometry(out _, out float[] rays, out _);
+        VulkanDevice.SelfTestGeometry(out _, out Ray[] rays, out _);
 
         Assert.Equal(2, VulkanDevice.SelfTestRealRays);
         Assert.Equal(VulkanDevice.SelfTestTminBits, BitConverter.SingleToUInt32Bits(1e-3f));
         for (int i = 0; i < VulkanDevice.SelfTestRealRays; i++)
         {
-            Assert.True(rays[(i * 8) + 7] >= BitConverter.UInt32BitsToSingle(VulkanDevice.SelfTestTminBits),
+            Assert.True(rays[i].MaxDistance >= BitConverter.UInt32BitsToSingle(VulkanDevice.SelfTestTminBits),
                 $"self-test ray {i} has tmax below tmin");
         }
     }
@@ -292,24 +292,24 @@ public sealed class VulkanSceneBuildFacts
         device.LoadScene(VulkanDeviceReleaseFacts.Vertices());
         float nan = float.NaN;
         float inf = float.PositiveInfinity;
-        // Wire layout: (o, 0), (d, tmax). Ray 0 hits triangle 0 (the z=0
-        // one of the release facts' two triangles) at t = 1.
-        float[] rays =
+        // Ray 0 hits triangle 0 (the z=0 one of the release facts' two
+        // triangles) at t = 1.
+        Ray[] rays =
         [
-            0.25f, 0.25f, 1f, 0f, 0f, 0f, -1f, 2f,          // known hit at t = 1
-            0.25f, 0.25f, 1f, 0f, 0f, 0f, -1f, 0.0001f,     // tmax below tmin
-            nan, 0.25f, 1f, 0f, 0f, 0f, -1f, 2f,            // NaN origin
-            0.25f, 0.25f, 1f, 0f, 0f, 0f, -inf, 2f,         // infinite direction
-            0.25f, 0.25f, 1f, 0f, 0f, 0f, -1f, nan,         // NaN tmax
+            new(0.25f, 0.25f, 1f, 0f, 0f, -1f, 2f),          // known hit at t = 1
+            new(0.25f, 0.25f, 1f, 0f, 0f, -1f, 0.0001f),     // tmax below tmin
+            new(nan, 0.25f, 1f, 0f, 0f, -1f, 2f),            // NaN origin
+            new(0.25f, 0.25f, 1f, 0f, 0f, -inf, 2f),         // infinite direction
+            new(0.25f, 0.25f, 1f, 0f, 0f, -1f, nan),         // NaN tmax
         ];
         const int Count = 5;
         uint[] any = new uint[2];
         uint[] closest = new uint[Count * 2];
         uint[] telemetry = new uint[Count * 2];
 
-        device.DispatchWithStagedRays(0, Count, rays, any, VulkanDevice.SelfTestTminBits, VulkanDevice.TmaxScaleBits);
-        device.DispatchWithStagedRays(1, Count, rays, closest, VulkanDevice.SelfTestTminBits, VulkanDevice.TmaxScaleBits);
-        device.DispatchWithStagedRays(5, Count, rays, telemetry, VulkanDevice.SelfTestTminBits, VulkanDevice.TmaxScaleBits);
+        device.DispatchWithStagedRays(0, rays, RayRecord.Wide, any, VulkanDevice.SelfTestTminBits, VulkanDevice.TmaxScaleBits);
+        device.DispatchWithStagedRays(1, rays, RayRecord.Wide, closest, VulkanDevice.SelfTestTminBits, VulkanDevice.TmaxScaleBits);
+        device.DispatchWithStagedRays(5, rays, RayRecord.Wide, telemetry, VulkanDevice.SelfTestTminBits, VulkanDevice.TmaxScaleBits);
 
         Assert.Equal(1u, any[0]);
         Assert.Equal(0u, closest[0]);

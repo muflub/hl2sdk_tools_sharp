@@ -14,6 +14,8 @@ using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
 using Silk.NET.Vulkan.Extensions.KHR;
 
+using SourceSharp.MapTools.Tracing;
+
 namespace SourceSharp.MapTools.Gpu.Interop;
 
 /// <summary>
@@ -529,7 +531,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         ThrowOn(_vk.CreateFence(_device, &fci, null, out _fence), "vkCreateFence");
 
         // The budget is split across the slots, and each slot's ray buffer
-        // (32 B a ray, the largest of its buffers) must fit one storage
+        // (28 B a ray at most, the largest of its buffers) must fit one storage
         // binding: the cap can only come DOWN from the caller's request, and
         // a buffer past maxStorageBufferRange is invalid usage.
         MaxSlabRays = SlabMemory.RaysPerSlot(maxRaysPerSlab, slots, maxStorage);
@@ -1221,6 +1223,9 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     private sealed class SlabSlot
     {
         public GpuBuffer? HostRays;
+
+        /// <summary><see cref="HostRays"/>' mapping as words, for the batcher's packing threads.</summary>
+        public MappedWords? HostRayWords;
         public GpuBuffer? KernelRays;
         public GpuBuffer? KernelOut;
         public GpuBuffer? HostOut;
@@ -1241,7 +1246,8 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// </summary>
     private void AllocateSlots(int slots, bool forceStaged)
     {
-        ulong slabRayBytes = (ulong)MaxSlabRays * 32UL;
+        // Sized for the widest record; a narrower slab uses the front of it.
+        ulong slabRayBytes = (ulong)MaxSlabRays * RayRecord.MaxBytes;
         ulong slabOutBytes = (ulong)MaxSlabRays * 8UL; // closest: 2 words/ray; bits: 1/8 of that
         const BufferUsageFlags DirectRayUsage = BufferUsageFlags.StorageBufferBit;
         const BufferUsageFlags DirectOutUsage = BufferUsageFlags.StorageBufferBit;
@@ -1280,6 +1286,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
                     deviceAddress: false);
             }
 
+            slot.HostRayWords = new MappedWords(slot.HostRays.Mapped, checked((int)(slabRayBytes / sizeof(uint))));
             if (SlabLayout.DirectOut)
             {
                 slot.HostOut = Allocate(slabOutBytes, HostCoherent, DirectOutUsage, deviceAddress: false,
@@ -1802,30 +1809,32 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
 
     /// <summary>
     /// Hands out a slot's pinned host memory for <paramref name="rayCount"/>
-    /// rays in the 8-float wire layout — two vec4 per ray:
-    /// <c>(ox,oy,oz,0)</c> and <c>(dx,dy,dz,tmax)</c>. The caller packs
-    /// straight into it, so a batch is copied at most once more, by the
-    /// upload copy, and not at all when the kernel reads it in place.
+    /// rays in <paramref name="record"/>'s wire layout (<see cref="RayRecord"/>:
+    /// seven floats a ray, or six with the slab's shared reach in the push
+    /// constants). The caller packs straight into it, so a batch is copied
+    /// at most once more, by the upload copy, and not at all when the kernel
+    /// reads it in place.
     /// </summary>
     /// <param name="slot">The slot; not in flight.</param>
     /// <param name="rayCount">Rays the slot's next dispatch will carry; at most <see cref="MaxSlabRays"/>.</param>
-    /// <returns>A span of <c>8 * rayCount</c> floats to fill.</returns>
+    /// <param name="record">The record the rays will be packed in.</param>
+    /// <returns><c>record.Words * rayCount</c> words to fill.</returns>
     /// <exception cref="VulkanException">
     /// The slab exceeds the pinned buffers, or the slot's last slab failed
     /// its wait and still has not finished.
     /// </exception>
-    public Span<float> StageRays(int slot, int rayCount)
+    public Memory<uint> StageRays(int slot, int rayCount, RayRecord record)
     {
         SlabSlot s = _slots[slot];
         Retire(s);
-        ulong rayBytes = (ulong)rayCount * 32UL;
-        if (rayBytes > s.HostRays!.Size)
+        ulong rayBytes = (ulong)rayCount * (ulong)record.Bytes;
+        if (rayCount < 0 || rayBytes > s.HostRays!.Size)
         {
             throw new VulkanException(Result.ErrorFragmentation,
                 $"a {rayCount}-ray slab exceeds the pinned slab buffers ({MaxSlabRays} rays)", null);
         }
 
-        return new Span<float>((void*)s.HostRays.Mapped, rayCount * 8);
+        return s.HostRayWords!.Memory[..(rayCount * record.Words)];
     }
 
     /// <summary>
@@ -1839,6 +1848,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// <param name="outWordCount">Raw out words: 2/ray for modes 1/5, 2/workgroup for 0/4.</param>
     /// <param name="tminBits">Ray epsilon as float bits.</param>
     /// <param name="tmaxScaleBits">Any-hit tmax scale (<c>1 - 2^-24</c>) as float bits.</param>
+    /// <param name="record">The record the rays were staged in; its size and shared reach go in the push constants.</param>
     /// <exception cref="VulkanException">
     /// Recording or submission failed (the slot stays free), or the slot's
     /// last slab failed its wait and still has not finished.
@@ -1862,7 +1872,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// ordering between them.
     /// </para>
     /// </remarks>
-    public void Submit(int slot, int mode, int rayCount, int outWordCount, uint tminBits, uint tmaxScaleBits)
+    public void Submit(int slot, int mode, int rayCount, int outWordCount, uint tminBits, uint tmaxScaleBits, RayRecord record)
     {
         SlabSlot s = _slots[slot];
         Retire(s);
@@ -1870,8 +1880,9 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         // A partial tail workgroup is fine and normal: the kernel guards every
         // lane by index < rayCount, so the dispatch covers ceil(rays/64) and
         // the tail lanes run no query at all. Only the slab cap is a hard
-        // bound.
-        ulong rayBytes = (ulong)rayCount * 32UL;
+        // bound. Only the staged records cross in the upload copy: the
+        // bytes a narrower record saves are bytes the bus does not carry.
+        ulong rayBytes = (ulong)rayCount * (ulong)record.Bytes;
         ulong outBytes = (ulong)outWordCount * sizeof(uint);
         if (rayBytes > s.HostRays!.Size || outBytes > s.HostOut!.Size)
         {
@@ -1909,10 +1920,10 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         pc[0] = (uint)mode;
         pc[1] = (uint)rayCount;
         pc[2] = _triangleCount;
-        pc[3] = 0;
+        pc[3] = (uint)record.Words;
         pc[4] = tminBits;
         pc[5] = tmaxScaleBits;
-        pc[6] = 0;
+        pc[6] = record.ReachBits;
         pc[7] = 0;
         _vk.CmdPushConstants(cmd, _pipelineLayout, ShaderStageFlags.ComputeBit, 0, 32, pc);
         _vk.CmdDispatch(cmd, (uint)((rayCount + Invocations - 1) / Invocations), 1, 1);
@@ -2044,7 +2055,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// </remarks>
     public (bool Passed, SelfTestOutcome Outcome) RunSelfTest()
     {
-        SelfTestGeometry(out float[] vertices, out float[] rays, out _);
+        SelfTestGeometry(out float[] vertices, out Ray[] rays, out _);
         // The self-test runs through the SAME upload + BLAS/TLAS-build
         // machinery a real trace uses, so an empty structure from a bad
         // build fails the gate too (that was the lavapipe all-miss's second
@@ -2052,12 +2063,12 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         LoadScene(vertices);
         uint tminBits = SelfTestTminBits;
         const int OutWordsAny = 2;   // one workgroup
-        ReadOnlySpan<float> real = rays.AsSpan(0, SelfTestRealRays * 8);
+        ReadOnlySpan<Ray> real = rays.AsSpan(0, SelfTestRealRays);
 
         // Mode 4 first: pure compute-write/copy/readback. If this reads back
         // zeroes, nothing about ray answers means anything yet.
         uint[] w = new uint[Math.Max(OutWordsAny, SelfTestRealRays * 2)];
-        DispatchWithStagedRays(4, SelfTestRealRays, real, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
+        DispatchWithStagedRays(4, real, RayRecord.Wide, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
         (uint First, uint Second) readback = (w[0], w[1]);
         bool readbackOk = readback == (0xFFFFFFFFu, 0xFFFFFFFFu);
 
@@ -2068,14 +2079,14 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
         SelfTestRayResult[] results = [];
         if (readbackOk)
         {
-            DispatchWithStagedRays(0, SelfTestRealRays, real, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
+            DispatchWithStagedRays(0, real, RayRecord.Wide, w.AsSpan(0, OutWordsAny), tminBits, TmaxScaleBits);
             uint anyBits = w[0];
 
-            DispatchWithStagedRays(1, SelfTestRealRays, real, w.AsSpan(0, SelfTestRealRays * 2), tminBits, TmaxScaleBits);
+            DispatchWithStagedRays(1, real, RayRecord.Wide, w.AsSpan(0, SelfTestRealRays * 2), tminBits, TmaxScaleBits);
             uint[] closest = w[..(SelfTestRealRays * 2)];
 
             // Telemetry says what the traversal offered, for the report.
-            DispatchWithStagedRays(5, SelfTestRealRays, real, w.AsSpan(0, SelfTestRealRays * 2), tminBits, TmaxScaleBits);
+            DispatchWithStagedRays(5, real, RayRecord.Wide, w.AsSpan(0, SelfTestRealRays * 2), tminBits, TmaxScaleBits);
             results = new SelfTestRayResult[SelfTestRealRays];
             for (int i = 0; i < SelfTestRealRays; i++)
             {
@@ -2154,7 +2165,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// fire at each half's interior from x=0.5 travelling -X, tmax 1.
     /// </summary>
     /// <param name="vertices">XYZ triples for the two triangles.</param>
-    /// <param name="rays">The wire-layout rays: two vec4 per ray.</param>
+    /// <param name="rays">The rays, one workgroup's worth, the real ones first.</param>
     /// <param name="rayCount">Rays in <paramref name="rays"/>.</param>
     /// <remarks>
     /// Ray A origin (0.5, 0.7, 0.3) hits (0, 0.7, 0.3): y&gt;z, triangle 0's
@@ -2163,7 +2174,7 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     /// id is not a coin flip. Directions follow the caller-segment
     /// convention: (d, tmax) with the crossing at t = 0.5.
     /// </remarks>
-    internal static void SelfTestGeometry(out float[] vertices, out float[] rays, out int rayCount)
+    internal static void SelfTestGeometry(out float[] vertices, out Ray[] rays, out int rayCount)
     {
         vertices =
         [
@@ -2171,17 +2182,9 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
             0f, 0f, 0f, 0f, 1f, 1f, 0f, 0f, 1f,
         ];
         rayCount = SelfTestRays;
-        rays = new float[SelfTestRays * 8];
-        rays[0] = 0.5f;
-        rays[1] = 0.7f;
-        rays[2] = 0.3f;
-        rays[4] = -1f;
-        rays[7] = 1f;
-        rays[8] = 0.5f;
-        rays[9] = 0.3f;
-        rays[10] = 0.7f;
-        rays[12] = -1f;
-        rays[15] = 1f;
+        rays = new Ray[SelfTestRays];
+        rays[0] = new Ray(0.5f, 0.7f, 0.3f, -1f, 0f, 0f, 1f);
+        rays[1] = new Ray(0.5f, 0.3f, 0.7f, -1f, 0f, 0f, 1f);
     }
 
     /// <summary>The most bytes one upload-probe copy moves: 64 MiB, or the slot's ray buffer if smaller.</summary>
@@ -2268,19 +2271,19 @@ internal sealed unsafe class VulkanDevice : IDisposable, ISlabDevice
     internal static double UploadRate(ulong bytes, double seconds) =>
         seconds > 0 ? bytes / seconds : double.PositiveInfinity;
 
-    /// <summary>Stages pre-built wire rays in slot 0 and traces them to completion (the self-test's path).</summary>
+    /// <summary>Packs rays in slot 0 and traces them to completion (the self-test's path).</summary>
     /// <param name="mode">Kernel mode.</param>
-    /// <param name="rayCount">Rays in <paramref name="rays"/>.</param>
-    /// <param name="rays">Wire-layout rays.</param>
+    /// <param name="rays">The rays.</param>
+    /// <param name="record">The record to pack them in; a uniform reach must be every ray's.</param>
     /// <param name="outWords">Raw out words.</param>
     /// <param name="tminBits">Ray epsilon as float bits.</param>
     /// <param name="tmaxScaleBits">Any-hit tmax scale as float bits.</param>
     public void DispatchWithStagedRays(
-        int mode, int rayCount, ReadOnlySpan<float> rays, Span<uint> outWords,
+        int mode, ReadOnlySpan<Ray> rays, RayRecord record, Span<uint> outWords,
         uint tminBits, uint tmaxScaleBits)
     {
-        rays.CopyTo(StageRays(0, rayCount));
-        Submit(0, mode, rayCount, outWords.Length, tminBits, tmaxScaleBits);
+        record.Pack(rays, StageRays(0, rays.Length, record).Span);
+        Submit(0, mode, rays.Length, outWords.Length, tminBits, tmaxScaleBits, record);
         Complete(0, outWords);
     }
 
