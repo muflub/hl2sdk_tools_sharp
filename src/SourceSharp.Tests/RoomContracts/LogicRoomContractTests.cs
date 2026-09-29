@@ -231,7 +231,11 @@ public class LogicRoomContractTests
         }
     }
 
-    /// <summary>The contract's version, worldspawn keys and class list: logic_room, server-only.</summary>
+    /// <summary>
+    /// The contract's version, worldspawn keys and class list: logic_room and
+    /// logic_level_transition, both server-only, under version 1 (the design's
+    /// section 7 specified both from the start).
+    /// </summary>
     [Fact]
     public void TheContractDeclaresItsClassesAndVersion()
     {
@@ -239,8 +243,9 @@ public class LogicRoomContractTests
         Assert.Equal("ssmap_entities", ModEntityContract.EntitiesKey);
         Assert.Equal("ssmap_entities_version", ModEntityContract.VersionKey);
         Assert.Equal(("mod", "stock"), (ModEntityContract.Mod, ModEntityContract.Stock));
-        ModEntityClass room = Assert.Single(ModEntityContract.Classes);
-        Assert.Equal(new ModEntityClass("logic_room", false), room);
+        Assert.Equal(
+            [new ModEntityClass("logic_room", false), new ModEntityClass("logic_level_transition", false)],
+            ModEntityContract.Classes.ToArray());
     }
 
     private static (HashSet<string> Keys, HashSet<string> Inputs, HashSet<string> Outputs) Parse(string fgd)
