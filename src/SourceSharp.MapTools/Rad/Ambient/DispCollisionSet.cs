@@ -123,6 +123,16 @@ public sealed class DispCollisionSet
     /// <summary>How many displacements.</summary>
     public int Count => _trees.Length;
 
+    /// <summary>One displacement's collision tree.</summary>
+    /// <remarks>
+    /// Internal so the facts can write the plain per-leaf walk out by hand
+    /// and hold <see cref="ClipRayInLeaf"/> to it; the compile itself only
+    /// reaches the trees through the leaf walk.
+    /// </remarks>
+    /// <param name="index">The displacement index.</param>
+    /// <returns>Its tree.</returns>
+    internal DispCollisionTree Tree(int index) => _trees[index];
+
     /// <summary>A set with no displacements, for a map with none.</summary>
     /// <param name="leafCount">The map's leaf count.</param>
     /// <returns>The set.</returns>

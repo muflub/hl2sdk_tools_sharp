@@ -5,8 +5,6 @@
 //
 //=============================================================================//
 
-using System.Reflection;
-
 using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapTools.Rad.Ambient;
 
@@ -132,10 +130,7 @@ public sealed class DispCollisionSetTests(AmbientFixture fixture) : IClassFixtur
         }
     }
 
-    // The set's trees, by displacement index. The set keeps them private;
-    // the fact needs them only to write the reference walk.
+    // The set's trees, by displacement index, for the reference walk.
     private static DispCollisionTree[] Trees(DispCollisionSet set) =>
-        (DispCollisionTree[])typeof(DispCollisionSet)
-            .GetField("_trees", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .GetValue(set)!;
+        [.. Enumerable.Range(0, set.Count).Select(set.Tree)];
 }
