@@ -37,10 +37,13 @@ public sealed class LevelLinkerTests
     // ---- the door graph, end to end -------------------------------------.
 
     /// <summary>
-    /// Every linked PVS row equals the transitive closure of "own vvis row,
-    /// shifted into the global cluster space, plus the door edges of the
-    /// joint graph" — computed independently here from the rooms' own compiles
-    /// and the kit, not from the linker's internals.
+    /// With door visibility off (<see cref="LevelLinkOptions.DoorVisibility"/>,
+    /// <c>ssmap link -nodoorvis</c>), every linked PVS row equals the
+    /// transitive closure of "own vvis row, shifted into the global cluster
+    /// space, plus the door edges of the joint graph" — computed
+    /// independently here from the rooms' own compiles and the kit, not from
+    /// the linker's internals. With it on (the default), every row lies
+    /// within that closure.
     /// </summary>
     [Fact]
     public async Task LinkedPvsRowsMatchTheDoorGraph()
@@ -55,7 +58,8 @@ public sealed class LevelLinkerTests
         library.Add(room);
         LevelLayout layout = RingLayout();
 
-        LinkedLevel link = await LevelLinker.LinkAsync(layout, library, context);
+        LinkedLevel link = await LevelLinker.LinkAsync(layout, library, context, new LevelLinkOptions { DoorVisibility = false });
+        DoorGraphFacts.AssertWithinDoorGraph(await LevelLinker.LinkAsync(layout, library, context), layout, library);
 
         // The cluster space is every room's own clusters, in layout order.
         Assert.Equal(4 * room.ClusterCount, link.Vis.ClusterCount);
@@ -90,10 +94,11 @@ public sealed class LevelLinkerTests
     }
 
     /// <summary>
-    /// The same replay over turned rooms of two kinds: a corner room and
-    /// three hubs, each hub turned differently, the joints derived from the
-    /// turned sockets. The door edges have to follow each socket to its world
-    /// direction, and the facing clusters are still each room's own.
+    /// The same replay over turned rooms of two kinds, door visibility off: a
+    /// corner room and three hubs, each hub turned differently, the joints
+    /// derived from the turned sockets. The door edges have to follow each
+    /// socket to its world direction, and the facing clusters are still each
+    /// room's own. With door visibility on, the rows lie within the replay.
     /// </summary>
     [Theory]
     [InlineData(1)]
@@ -107,7 +112,9 @@ public sealed class LevelLinkerTests
             "mixed", library, ("corner", 0, 0, 0), ("hub", 1, 0, turns), ("hub", 1, 1, (turns + 1) % 4), ("hub", 0, 1, (turns + 2) % 4));
         Assert.All(layout.Rooms, r => Assert.NotEmpty(r.Joints));
 
-        LinkedLevel link = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync());
+        LinkedLevel link = await LevelLinker.LinkAsync(
+            layout, library, await RoomHarness.ContextAsync(), new LevelLinkOptions { DoorVisibility = false });
+        DoorGraphFacts.AssertWithinDoorGraph(await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync()), layout, library);
 
         bool[][] expected = ExpectedRows(layout, library);
         Assert.Equal(expected.Length, link.Vis.ClusterCount);

@@ -18,12 +18,14 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rooms;
 
 /// <summary>
-/// The door-graph replay, as a reusable assertion: the linked map's PVS must
-/// equal the transitive closure of "own vvis row, shifted into the global
-/// cluster space, plus the door edges of the joint graph", computed here from
-/// the public primitives — each room's own compile, the kit's seal boxes
-/// against the compile's open leaf boxes, the test's own Warshall. Shares no
-/// code with the linker.
+/// The door-graph replay, as reusable assertions: the transitive closure of
+/// "own vvis row, shifted into the global cluster space, plus the door edges
+/// of the joint graph", computed here from the public primitives — each
+/// room's own compile, the kit's seal boxes against the compile's open leaf
+/// boxes, the test's own Warshall — shares no code with the linker. A level
+/// linked with door visibility off must equal it; one linked with it on (the
+/// default) must lie within it, keep its rooms' own rows, and keep every
+/// sight line of the same level compiled whole.
 /// </summary>
 /// <remarks>
 /// <see cref="LevelLinkerTests"/> carries its own private copy of this replay

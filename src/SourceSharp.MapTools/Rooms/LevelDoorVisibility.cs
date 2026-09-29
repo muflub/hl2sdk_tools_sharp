@@ -137,7 +137,6 @@ internal static class LevelDoorVisibility
     internal const int DefaultStateCap = 1 << 22;
 
     private const int WindingRoom = VisClip.MaxPointsOnWinding;
-    internal static long DiagStates, DiagMarks, DiagTries;
 
     /// <summary>Composes the level's PVS and PAS.</summary>
     /// <param name="rooms">The placed rooms, in the level's order, cluster bases ascending.</param>
@@ -153,7 +152,6 @@ internal static class LevelDoorVisibility
         int stateCap,
         CancellationToken cancellationToken)
     {
-        var swT = System.Diagnostics.Stopwatch.StartNew();
         int words = (clusterCount + 63) >> 6;
         Prepared[] prepared = [.. rooms.Select(Prepare)];
 
@@ -174,7 +172,6 @@ internal static class LevelDoorVisibility
                 cancellationToken).ConfigureAwait(false);
         }
 
-        System.Console.Error.WriteLine($"TIMING flows {swT.ElapsedMilliseconds} states {System.Threading.Interlocked.Read(ref DiagStates)} marks {DiagMarks} tries {DiagTries}"); swT.Restart();
         // Rows: the room's own (with its doorways), then every cross-room
         // pair both directions keep, then the cluster itself. A pair in two
         // rooms that share a cell face must also pass the one doorway
@@ -228,7 +225,6 @@ internal static class LevelDoorVisibility
             }
         }
 
-        System.Console.Error.WriteLine($"TIMING rows {swT.ElapsedMilliseconds}"); swT.Restart();
         // The PAS: what vvis writes, the union of the rows of every cluster
         // a cluster sees (radius two).
         ulong[][] pas = new ulong[clusterCount][];
@@ -259,7 +255,6 @@ internal static class LevelDoorVisibility
                 cancellationToken).ConfigureAwait(false);
         }
 
-        System.Console.Error.WriteLine($"TIMING pas {swT.ElapsedMilliseconds}"); swT.Restart();
         byte[] pvsBytes = new byte[clusterCount * rowBytes];
         byte[] pasBytes = new byte[clusterCount * rowBytes];
         int visible = 0, audible = 0;
@@ -269,7 +264,6 @@ internal static class LevelDoorVisibility
             audible += ToBytes(pas[x], pasBytes.AsSpan(x * rowBytes, rowBytes));
         }
 
-        System.Console.Error.WriteLine($"TIMING bytes {swT.ElapsedMilliseconds}");
         return new LevelVisibility(pvsBytes, pasBytes, rowBytes, visible, audible);
     }
 
@@ -335,7 +329,7 @@ internal static class LevelDoorVisibility
             || Through(rooms[other].Transform, px.Boxes[cx], py.Boxes[cy], shared.Opening);
     }
 
-    /// <summary>Whether a segment from box <paramref name="near"/> to box <paramref name="far"/> can cross the doorway, in one room's frame.</summary>
+    /// <summary>Whether a segment from box <paramref name="nearWorld"/> to box <paramref name="farWorld"/> can cross the doorway <paramref name="openingWorld"/>, worked out in the frame of the room <paramref name="frame"/> places.</summary>
     internal static bool Through(RoomTransform frame, Box nearWorld, Box farWorld, Box openingWorld)
     {
         Box near = ToFrame(frame, nearWorld), far = ToFrame(frame, farWorld), opening = ToFrame(frame, openingWorld);
@@ -583,7 +577,6 @@ internal static class LevelDoorVisibility
 
             if (Forward == -1)
             {
-                System.Threading.Interlocked.Increment(ref DiagMarks);
                 int forward = VisClip.BuildSeparators(SourceSpan, PassSpan, ForwardNormals, ForwardDistances);
                 int backward = VisClip.BuildSeparators(PassSpan, SourceSpan, BackwardNormals, BackwardDistances);
                 Forward = forward < 0 || backward < 0 ? -2 : forward;
@@ -705,7 +698,6 @@ internal static class LevelDoorVisibility
                 cancellationToken.ThrowIfCancellationRequested();
             }
 
-            System.Threading.Interlocked.Increment(ref DiagTries);
             (Vec3 normal, float distance) = DoorPlane(frame, next.Opening, rooms[next.Neighbor].Transform);
             if (normal == baseNormal && distance == baseDistance)
             {
@@ -772,7 +764,6 @@ internal static class LevelDoorVisibility
                 }
             }
 
-            System.Threading.Interlocked.Increment(ref DiagStates);
             there.Reset(sourceCount, newPassCount);
             Mark(rooms, prepared, frame, next.Neighbor, next.NeighborSocket, there, baseNormal, baseDistance, scratch);
             visited[next.Neighbor] = true;
