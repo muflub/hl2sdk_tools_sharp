@@ -229,6 +229,44 @@ public sealed class RoomCommandsTests
     }
 
     /// <summary>
+    /// A library with singletons in its gaps, and an equal copy of the sun in
+    /// every room, packs to the same bytes at one thread and at four, run
+    /// after run, library section included.
+    /// </summary>
+    [Fact]
+    public async Task APackWithSingletonsIsTheSameAtAnyThreadCount()
+    {
+        RoomDefinition[] definitions = Library();
+        VmfDocument library = RoomHarness.LibraryVmf(definitions);
+        library.Chunks.Add(GapEntity(900101, "light_environment", "-64 -64 128", ("angles", "-45 30 0")));
+        library.Chunks.Add(GapEntity(900102, "shadow_control", "-64 0 0", ("color", "10 10 10")));
+        for (int i = 0; i < definitions.Length; i++)
+        {
+            float x = (i * (RoomHarness.Cell + RoomHarness.LibraryGap)) + 64;
+            library.Chunks.Add(GapEntity(900110 + i, "light_environment", $"{x.ToString(System.Globalization.CultureInfo.InvariantCulture)} 64 128", ("angles", "-45 30 0")));
+        }
+
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        List<byte[]> packs = [];
+        foreach (string threads in new[] { "1", "4", "1", "4" })
+        {
+            using StringWriter output = new();
+            Assert.Equal(
+                Program.ExitSuccess,
+                await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "-threads", threads, "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
+            packs.Add(fs.GetBytes(VPath.Create(Rooted("/rooms.roompack")))!);
+        }
+
+        Assert.All(packs, pack => Assert.Equal(packs[0], pack));
+        using MemoryStream stream = new(packs[0]);
+        RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+        Assert.Equal(
+            ["light_environment", "shadow_control"],
+            (await RoomPack.ReadLibraryEntitiesAsync(stream, index)).Select(e => e.GetValue("classname")));
+    }
+
+    /// <summary>
     /// A room whose sun differs from the library's is refused by
     /// <c>ssmap room</c> with the design's message, naming the room and the
     /// key, and no pack is written.
