@@ -119,7 +119,8 @@ internal sealed class RoomLinkData
 /// <remarks>
 /// Its existence is also a verdict: it is only made for a room whose compile
 /// passed every check the link makes of one room (the lumps it carries, one
-/// world model, no water, no area portal, empty game lumps, no displacement
+/// world model, no water, no area portal, no game-lump content but the static
+/// props its compile described, no displacement
 /// collision, its vis numbering its leaves, an empty pak).
 /// </remarks>
 internal sealed record RoomLinkShared(IReadOnlyList<SocketCensus> Sockets);

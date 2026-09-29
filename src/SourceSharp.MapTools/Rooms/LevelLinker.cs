@@ -111,8 +111,10 @@ public static partial class LevelLinker
     /// Several of these are carried only in their empty form, and
     /// <see cref="PlanRoom"/> checks that: <see cref="BspLump.AreaPortals"/>
     /// holds only the reserved portal 0, <see cref="BspLump.PhysDisp"/> counts
-    /// no displacement, and every game lump is all zeros (no static or detail
-    /// props). <see cref="BspLump.PakFile"/> is carried whole: the rooms'
+    /// no displacement, and every game lump but the static props' is all
+    /// zeros (no detail props); the static prop lump is rebuilt for the
+    /// level from the rooms' (<see cref="WritePropsAsync"/>).
+    /// <see cref="BspLump.PakFile"/> is carried whole: the rooms'
     /// archives are merged (<see cref="LevelPakFiles"/>).
     /// <see cref="BspLump.ClipPortalVerts"/> is not in the set: its vertices
     /// only exist for area portals, which are refused.
