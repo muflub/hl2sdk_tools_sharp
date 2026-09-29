@@ -130,8 +130,7 @@ public static partial class LevelLinker
     /// </summary>
     /// <remarks>
     /// Several of these are carried only in their empty form, and
-    /// <see cref="PlanRoom"/> checks that: <see cref="BspLump.AreaPortals"/>
-    /// holds only the reserved portal 0, <see cref="BspLump.PhysDisp"/> counts
+    /// <see cref="PlanRoom"/> checks that: <see cref="BspLump.PhysDisp"/> counts
     /// no displacement, and every game lump but the static props' is all
     /// zeros (no detail props); the static prop lump is rebuilt for the
     /// level from the rooms' (<see cref="WritePropsAsync"/>).
@@ -139,8 +138,12 @@ public static partial class LevelLinker
     /// archives are merged (<see cref="LevelPakFiles"/>).
     /// <see cref="BspLump.Cubemaps"/> is every placement's samples at their
     /// linked positions (<see cref="LevelCubemaps"/>).
-    /// <see cref="BspLump.ClipPortalVerts"/> is not in the set: its vertices
-    /// only exist for area portals, which are refused.
+    /// <see cref="BspLump.Areas"/>, <see cref="BspLump.AreaPortals"/> and
+    /// <see cref="BspLump.ClipPortalVerts"/> are the rooms' areas joined at
+    /// the joints and their portals rebased (<see cref="PlanAreas"/>,
+    /// <see cref="WriteAreas"/>) when a room's compile has area portals and
+    /// left their data with it (<see cref="RoomAreaPortalsOf"/>); a level
+    /// without them carries the one open area as before.
     /// <see cref="BspLump.Overlays"/> and <see cref="BspLump.OverlayFades"/>
     /// are rebuilt for the level from the rooms' (<see cref="LinkOverlays"/>),
     /// when the room's compile left its overlay data with it
@@ -159,7 +162,7 @@ public static partial class LevelLinker
         BspLump.VertNormals, BspLump.VertNormalIndices,
         BspLump.Primitives, BspLump.PrimVerts, BspLump.PrimIndices,
         BspLump.FaceMacroTextureInfo,
-        BspLump.Areas, BspLump.AreaPortals,
+        BspLump.Areas, BspLump.AreaPortals, BspLump.ClipPortalVerts,
         BspLump.Occlusion, BspLump.PakFile, BspLump.MapFlags, BspLump.Cubemaps,
         BspLump.PhysCollide, BspLump.PhysDisp,
         BspLump.Overlays, BspLump.OverlayFades,
@@ -342,6 +345,12 @@ public static partial class LevelLinker
 
         AssignBases(plans);
 
+        // The level's areas: every placement's own joined at its joints,
+        // numbered for the level, and the portal numbers based. Null for a
+        // level whose rooms have no area portal, which links as before them.
+        LevelAreas? areas = PlanAreas(resolved, plans);
+        List<string> areaWarnings = [];
+
         // Cluster space: room r's room-local cluster c is clusterBase_r + c;
         // solid leaves (plugs, shared void) stay cluster -1 and get no row.
         int clusterCursor = 0;
@@ -373,7 +382,7 @@ public static partial class LevelLinker
         List<(int Placement, string ClassName)> droppedFurniture = [];
         (BspData linked, int foldedBrushes) = Assemble(
             plans, layout, visibilityLump, context, classes, naming, singletons, library.Options.MapVersion, options.FoldBrushes, mergedPak,
-            cubemaps, droppedFurniture, cancellationToken);
+            cubemaps, droppedFurniture, areas, areaWarnings, cancellationToken);
         if (props is not null)
         {
             await WritePropsAsync(linked, props, plans, cancellationToken).ConfigureAwait(false);
@@ -416,6 +425,7 @@ public static partial class LevelLinker
             NameWarnings = naming.Result?.Warnings ?? [],
             NameNotes = naming.Result?.Verbose ?? [],
             HasTransitions = transitions is not null,
+            AreaWarnings = areaWarnings,
         };
     }
 
@@ -2018,4 +2028,13 @@ public sealed record LinkedLevel(BspData Bsp, VisResult Vis, LevelPlan Plan)
     /// sidecar's, so a host that writes none should say so.
     /// </summary>
     public bool HasTransitions { get; init; }
+
+    /// <summary>
+    /// What linking the rooms' areas warned of, each a whole sentence: an
+    /// area portal whose two sides the level joins into one area (a ring of
+    /// rooms around it), which the level keeps as an entity but lists no
+    /// portal for, as vbsp does with a portal that seals nothing
+    /// (<see cref="LevelLinker"/>'s area planning).
+    /// </summary>
+    public IReadOnlyList<string> AreaWarnings { get; init; } = [];
 }

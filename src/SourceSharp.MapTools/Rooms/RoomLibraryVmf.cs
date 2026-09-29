@@ -312,6 +312,14 @@ public static class RoomLibraryVmf
                 throw new RoomLibraryException(overlayProblem);
             }
 
+            // An area portal in a socket's plug box, or one named as socket
+            // furniture (the rooms design, 4.11): refused here too, so the
+            // pack and the flatten refuse it alike.
+            if (RoomAreaPortals.Problem(definition, document) is { } portalProblem)
+            {
+                throw new RoomLibraryException(portalProblem);
+            }
+
             rooms.Add(new LibraryRoom(definition, marker.Corner, document) { Role = marker.Role });
         }
 

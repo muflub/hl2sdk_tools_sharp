@@ -54,6 +54,7 @@ public static partial class LevelLinker
             ownRows[c] = room.Vis.Pvs(c).ToArray();
         }
 
+        RoomAreaPortals? areaPortals = RoomAreaPortalsOf(room);
         RoomLinkGeometry geometry = GeometryFor(room, rotation);
         RoomModelLayout? models = LayoutModels(room, rotation, linkedModels, geometry.Vertices);
 
@@ -98,37 +99,12 @@ public static partial class LevelLinker
             DoorVisibility = stored?.Doors ?? RoomDoorVisibility.Compute(room, shared),
             Models = models,
             Overlays = RoomOverlaysOf(room),
+            AreaPortals = areaPortals,
+            AreaLumps = areaPortals is null ? null : RoomAreaPortals.Lumps(room.Definition.Name, bsp),
         };
 
         ApplyCensus(plan, shared);
         return plan;
-    }
-
-    /// <summary>
-    /// Refuses area portals: a room's areas are collapsed into the level's one
-    /// open area (see <c>Assemble</c>), and a portal inside a room would need
-    /// its own areas, and a portal at every joint, to mean anything.
-    /// </summary>
-    /// <remarks>
-    /// vbsp writes area 0 (the reserved "no area") and one area per sealed
-    /// region, and portal 0 as a reserved empty entry. A room with no
-    /// <c>func_areaportal</c> has exactly areas 0 and 1 and that one portal,
-    /// and that is the only shape the linker accepts. The collapse is what
-    /// makes the linked level networkable: two rooms left in two areas with
-    /// no area portal between them are two worlds to the server, and it never
-    /// sends the entities of one to a client standing in the other, whatever
-    /// the PVS says.
-    /// </remarks>
-    private static void RefuseAreaPortals(string name, BspData bsp)
-    {
-        int areas = BspStructView.Count<DArea>(bsp[BspLump.Areas]);
-        int portals = BspStructView.Count<DAreaPortal>(bsp[BspLump.AreaPortals]);
-        if (areas > 2 || portals > 1)
-        {
-            throw new LinkException(
-                $"room {name} has {areas} areas and {portals} area portals; a linkable room has no area portal"
-                + " (areas 0 and 1 and the reserved portal 0), because its areas are merged into the level's one");
-        }
     }
 
     /// <summary>
@@ -582,6 +558,22 @@ public static partial class LevelLinker
 
         /// <summary>The room's overlays (<see cref="RoomOverlays"/>), or null for a room with none.</summary>
         public RoomOverlays? Overlays { get; init; }
+
+        /// <summary>The room's areas and area portals (<see cref="RoomAreaPortals"/>), or null for a room with none.</summary>
+        public RoomAreaPortals? AreaPortals { get; init; }
+
+        /// <summary>The room's three area lumps, checked (<see cref="RoomAreaPortals.Lumps"/>), or null for a room without area portals.</summary>
+        public RoomAreaLumps? AreaLumps { get; init; }
+
+        /// <summary>
+        /// Per room area, the level area it became (<see cref="PlanAreas"/>),
+        /// area 0 staying 0; null when no placed room has an area portal and
+        /// every room's area 1 is the level's one open area.
+        /// </summary>
+        public int[]? AreaMap;
+
+        /// <summary>The linked number of the room's portal 0 (its first is 1 past it): the portal numbers of every placement before this one.</summary>
+        public int PortalBase;
 
         /// <summary>How many of the room's nodes the placement keeps: all but an omitted brush model's.</summary>
         public int KeptNodeCount => Models is { } m ? RoomModelLayout.KeptCount(m.OmittedNodes, NodeCount) : NodeCount;

@@ -159,6 +159,14 @@ public static class RoomCompiler
             throw new RoomLintException(overlayProblem);
         }
 
+        // An area portal in a socket's plug box, or one named as socket
+        // furniture (the rooms design, 4.11), refused before the compile as
+        // the split refuses it for a library's rooms.
+        if (RoomAreaPortals.Problem(definition, document) is { } portalProblem)
+        {
+            throw new RoomLintException(portalProblem);
+        }
+
         // The room packs what vbsp packs for any map, the default cubemaps
         // named after the room included: the link carries every room's
         // files and renames those to the level's map name (LevelPakFiles),
@@ -239,6 +247,11 @@ public static class RoomCompiler
         // turned four ways (the face lists, texinfos and ids are the link's).
         RoomOverlays? overlays = RoomOverlays.Build(definition.Name, vbsp.Bsp);
 
+        // The areas and area portals the link carries: the lumps checked,
+        // the clip vertices turned four ways, the portal numbers counted
+        // (the areas themselves, the listings and the keys are the link's).
+        RoomAreaPortals? areaPortals = RoomAreaPortals.Build(definition.Name, vbsp.Bsp);
+
         return new RoomObject(
             definition,
             vbsp.Bsp,
@@ -251,6 +264,7 @@ public static class RoomCompiler
             BrushModels = brushModels,
             Cubemaps = cubemaps,
             Overlays = overlays,
+            AreaPortals = areaPortals,
         };
     }
 

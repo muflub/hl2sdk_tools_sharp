@@ -141,9 +141,14 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // four). A room without them gets no section, so its entry is what
         // it was before overlays were carried.
         IReadOnlyList<RoomPackSectionData> overlays = room.OverlaysOfCompile is { } carried ? [carried.ToSection()] : [];
+
+        // The area portals likewise, for a room whose compile has any. A
+        // room without them gets no section, so its entry is what it was
+        // before area portals were carried.
+        IReadOnlyList<RoomPackSectionData> areaPortals = room.AreaPortalsOfCompile is { } portals ? [portals.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. areaPortals, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -308,7 +313,9 @@ public sealed class RoomPackIndex
 /// samples at all four turns and the names its compile made after them,
 /// <c>RoomCubemaps</c>), when its compile wrote overlays its overlays
 /// (<c>OVLY</c>: every record's origin and basis at all four turns,
-/// <c>RoomOverlays</c>), and the link work done ahead for it
+/// <c>RoomOverlays</c>), when its compile has area portals its areas and
+/// portals (<c>APRT</c>: the clip vertices at all four turns and the portal
+/// numbers, <c>RoomAreaPortals</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
 /// the room alone, its door visibility (<c>DVIS</c>, <see cref="RoomDoorVisibility"/>),
 /// then per quarter turn <i>r</i> its turned geometry
@@ -889,6 +896,11 @@ public static class RoomPack
                 wanted.Add((name, overlays));
             }
 
+            if (entry.Find(RoomAreaPortals.SectionTag) is { } areaPortals)
+            {
+                wanted.Add((name, areaPortals));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -993,14 +1005,16 @@ public static class RoomPack
             RoomTransit? transit = RoomTransit.Read(Section(name, RoomTransit.SectionTag), name, room.Bsp);
             RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
             RoomOverlays? overlays = RoomOverlays.Read(Section(name, RoomOverlays.SectionTag), name, room.Bsp);
+            RoomAreaPortals? areaPortals = RoomAreaPortals.Read(Section(name, RoomAreaPortals.SectionTag), name, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
-                && cubemaps is null && overlays is null
+                && cubemaps is null && overlays is null && areaPortals is null
                 ? room
                 : room with
                 {
                     Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props, BrushModels = brushModels, Transit = transit,
                     Cubemaps = cubemaps,
                     Overlays = overlays,
+                    AreaPortals = areaPortals,
                 };
         }
 
@@ -1317,6 +1331,7 @@ public static class RoomPack
         ((byte)'T', (byte)'R', (byte)'A', (byte)'N') => RoomTransit.SectionTag,
         ((byte)'C', (byte)'U', (byte)'B', (byte)'E') => RoomCubemaps.SectionTag,
         ((byte)'O', (byte)'V', (byte)'L', (byte)'Y') => RoomOverlays.SectionTag,
+        ((byte)'A', (byte)'P', (byte)'R', (byte)'T') => RoomAreaPortals.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),

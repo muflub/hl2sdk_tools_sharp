@@ -125,7 +125,7 @@ public static partial class LevelLinker
                     }
                     else if (!compileOnly && !OmittedModel(item.Pairs, plan, index, droppedFurniture))
                     {
-                        AddUnlessDuplicate(merged, singletons, TranslateEntity(item, plan.Transform, name, plan.OccluderBase, plan.Models, plan.OverlayBase), name, index);
+                        AddUnlessDuplicate(merged, singletons, TranslateEntity(item, plan.Transform, name, plan.OccluderBase, plan.Models, plan.OverlayBase, plan.PortalBase), name, index);
                     }
 
                     continue;
@@ -190,7 +190,7 @@ public static partial class LevelLinker
                 AddUnlessDuplicate(
                     merged,
                     singletons,
-                    TranslateEntity(new RoomLinkEntity(false, pairs, null, null), plan.Transform, room, plan.OccluderBase, plan.Models, plan.OverlayBase),
+                    TranslateEntity(new RoomLinkEntity(false, pairs, null, null), plan.Transform, room, plan.OccluderBase, plan.Models, plan.OverlayBase, plan.PortalBase),
                     room,
                     entity.Placement);
             }
@@ -400,13 +400,15 @@ public static partial class LevelLinker
     /// The turn (<see cref="TurnEntity"/>, which the room compile stores)
     /// and then the cell (<see cref="TranslateEntity"/>, the link's share).
     /// </remarks>
-    internal static BspEntity MoveEntity(BspEntity entity, RoomTransform transform, string room, int occluderBase = 0, int overlayBase = 0) =>
+    internal static BspEntity MoveEntity(
+        BspEntity entity, RoomTransform transform, string room, int occluderBase = 0, int overlayBase = 0, int portalBase = 0) =>
         TranslateEntity(
             new RoomLinkEntity(false, TurnEntity(entity, transform.Placement.NormalizedRotation, room), null, null),
             transform,
             room,
             occluderBase,
-            overlayBase: overlayBase);
+            overlayBase: overlayBase,
+            portalBase: portalBase);
 
     /// <summary>
     /// One entity's keys turned by a quarter turn: the part of moving it
@@ -514,6 +516,11 @@ public static partial class LevelLinker
     /// id, which every room compile numbers from 0; the link appends the
     /// rooms' overlays in layout order (<see cref="RoomPlan.OverlayBase"/>),
     /// so the key is shifted by the same base, as <c>occludernumber</c> is.
+    /// An area portal's <c>portalnumber</c> is its portal's number, which
+    /// every room compile numbers from 1 and the level's portal listings
+    /// carry as their key; the link numbers the rooms' portals in layout
+    /// order (<see cref="RoomPlan.PortalBase"/>, <see cref="WriteAreas"/>),
+    /// so it is shifted by that base too.
     /// Its <c>BasisOrigin</c> (turned by <see cref="TurnOverlayPair"/>) takes
     /// the placement's translation as one vector, as the flatten moves it and
     /// as the link moves the overlay's record (<see cref="LinkOverlay"/>).
@@ -527,7 +534,7 @@ public static partial class LevelLinker
     /// </para>
     /// </remarks>
     private static BspEntity TranslateEntity(
-        RoomLinkEntity entity, RoomTransform transform, string room, int occluderBase, RoomModelLayout? models = null, int overlayBase = 0)
+        RoomLinkEntity entity, RoomTransform transform, string room, int occluderBase, RoomModelLayout? models = null, int overlayBase = 0, int portalBase = 0)
     {
         BspEntity moved = new();
         bool brush = models is not null && entity.Pairs.Any(p => IsKey(p.Key, "model") && IsBrushModel(p.Value));
@@ -569,6 +576,12 @@ public static partial class LevelLinker
                 value = int.TryParse(pair.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int overlay)
                     ? (overlay + overlayBase).ToString(CultureInfo.InvariantCulture)
                     : throw new LinkException($"room {room} has an entity whose \"{RoomOverlays.IdKey}\" holds \"{pair.Value}\", not an overlay id");
+            }
+            else if (portalBase != 0 && IsKey(pair.Key, RoomAreaPortals.PortalNumberKey))
+            {
+                value = int.TryParse(pair.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int portal)
+                    ? (portal + portalBase).ToString(CultureInfo.InvariantCulture)
+                    : throw new LinkException($"room {room} has an entity whose \"{RoomAreaPortals.PortalNumberKey}\" holds \"{pair.Value}\", not a portal number");
             }
             else if (occluderBase != 0 && IsKey(pair.Key, "occludernumber"))
             {
