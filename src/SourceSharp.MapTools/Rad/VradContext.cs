@@ -114,7 +114,20 @@ public sealed record RadPassResult(
 public sealed record RadResult(
     IReadOnlyList<RadPassResult> Passes,
     IReadOnlyList<CompileDiagnostic> Diagnostics,
-    IReadOnlyList<string> StagesNotYetPorted);
+    IReadOnlyList<string> StagesNotYetPorted)
+{
+    /// <summary>
+    /// What the tracer did over the whole compile, every pass: rays to the GPU
+    /// and to the CPU by query kind, the GPU's slabs and busy time, and the
+    /// time workers spent parked on batches in flight. Null only for a result
+    /// made outside <see cref="Vrad"/>.
+    /// </summary>
+    /// <remarks>
+    /// An init property rather than a positional one, so a host that builds
+    /// results itself keeps compiling.
+    /// </remarks>
+    public Tracing.RayTraceReport? Tracing { get; init; }
+}
 
 /// <summary>Diagnostic codes <see cref="Vrad"/> reports.</summary>
 public static class VradCodes

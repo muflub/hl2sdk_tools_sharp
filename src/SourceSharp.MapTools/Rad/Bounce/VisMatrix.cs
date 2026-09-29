@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 
@@ -660,6 +661,13 @@ public sealed class VisMatrix
         // the scratch pool once the build unwinds. A slab left running there
         // would write into whatever compile rented the bits next. The first
         // failure is the one reported.
+        //
+        // While this waits, no worker of the stage has anything to do: the
+        // chunk's transfers need every bit. So the wait is parked worker time
+        // for all of them, the span times the queue's degree
+        // (RayTraceMeter's remarks).
+        long waitStart = Stopwatch.GetTimestamp();
+        bool waited = false;
         foreach (Task? task in pending)
         {
             if (task is null)
@@ -667,6 +675,7 @@ public sealed class VisMatrix
                 continue;
             }
 
+            waited = true;
             try
             {
                 await task.ConfigureAwait(false);
@@ -675,6 +684,12 @@ public sealed class VisMatrix
             {
                 failure ??= ExceptionDispatchInfo.Capture(ex);
             }
+        }
+
+        if (waited)
+        {
+            RayTraceMeter.Of(tracer)?.AddParked(
+                TraceWaitStage.Bounce, (Stopwatch.GetTimestamp() - waitStart) * queue.Degree);
         }
 
         failure?.Throw();

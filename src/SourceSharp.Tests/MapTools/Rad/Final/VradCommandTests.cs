@@ -231,6 +231,87 @@ public sealed class VradCommandTests
         // How many (group, light) records were gathered and how many the
         // dead-record cull left out.
         Assert.Matches(@"bench work ldr .* lightrecords=\d+ culledlightrecords=\d+", text);
+
+        // The tracer line: a CPU run, every ray on the CPU, no GPU line.
+        Assert.Matches(
+            @"(?m)^bench trace tracer=\S+ gpu=off rays=(\d+) gpu\.visibility=0 gpu\.closest=0 gpu\.sky=0 "
+            + @"cpu\.visibility=\d+ cpu\.closest=\d+ cpu\.sky=\d+ batches\.gpu=0 batches\.cpu=\d+ "
+            + @"parked=0\.000s parked\.facelights=0\.000s parked\.bounce=0\.000s parked\.other=0\.000s\r?$",
+            text);
+        Assert.DoesNotContain("bench gpu", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheTraceLineIsPinnedForACpuRun()
+    {
+        RayTraceReport report = new(
+            "kd-correct",
+            GpuTraceStatus.Off,
+            null,
+            default,
+            new RayRouteCounts(1000, 200, 30, 12),
+            [TimeSpan.Zero, TimeSpan.Zero, TimeSpan.FromMilliseconds(1.4)],
+            null);
+
+        Assert.Equal(
+            [
+                "bench trace tracer=kd-correct gpu=off rays=1230 gpu.visibility=0 gpu.closest=0 gpu.sky=0 "
+                + "cpu.visibility=1000 cpu.closest=200 cpu.sky=30 batches.gpu=0 batches.cpu=12 "
+                + "parked=0.001s parked.facelights=0.000s parked.bounce=0.000s parked.other=0.001s",
+            ],
+            VradCommand.FormatTraceBench(report));
+    }
+
+    [Fact]
+    public void ADeclinedGpuSaysSoOnBothLines()
+    {
+        RayTraceReport report = new(
+            "kd-correct",
+            GpuTraceStatus.Declined,
+            "llvmpipe: any-hit missed a known hit",
+            default,
+            new RayRouteCounts(5, 0, 0, 1),
+            [TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero],
+            null);
+
+        Assert.Equal(
+            [
+                "bench trace tracer=kd-correct gpu=declined rays=5 gpu.visibility=0 gpu.closest=0 gpu.sky=0 "
+                + "cpu.visibility=5 cpu.closest=0 cpu.sky=0 batches.gpu=0 batches.cpu=1 "
+                + "parked=0.000s parked.facelights=0.000s parked.bounce=0.000s parked.other=0.000s",
+                "bench gpu declined: llvmpipe: any-hit missed a known hit",
+            ],
+            VradCommand.FormatTraceBench(report));
+        Assert.EndsWith(
+            "no reason given",
+            VradCommand.FormatTraceBench(report with { GpuDeclineReason = null })[1],
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AGpuRunPrintsItsDeviceLineWithTheFallback()
+    {
+        RayTraceReport report = new(
+            "gpu-vulkan+kd-fallback",
+            GpuTraceStatus.On,
+            null,
+            new RayRouteCounts(4_000_000, 500_000, 0, 900),
+            new RayRouteCounts(0, 0, 70_000, 40),
+            [TimeSpan.FromSeconds(12.25), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(0.5)],
+            new GpuTraceStatistics(940, 310, TimeSpan.FromSeconds(3.5), TimeSpan.FromSeconds(1.25), 3, 3));
+
+        Assert.Equal(
+            [
+                "bench trace tracer=gpu-vulkan+kd-fallback gpu=on rays=4570000 gpu.visibility=4000000 gpu.closest=500000 gpu.sky=0 "
+                + "cpu.visibility=0 cpu.closest=0 cpu.sky=70000 batches.gpu=900 batches.cpu=40 "
+                + "parked=13.750s parked.facelights=12.250s parked.bounce=1.000s parked.other=0.500s",
+                "bench gpu requests=940 slabs=310 busy=3.500s fencewait=1.250s peakinflight=3/3 fallbackrays=70000",
+            ],
+            VradCommand.FormatTraceBench(report));
+
+        // A host's GPU tracer with no statistics: the trace line alone.
+        Assert.Single(VradCommand.FormatTraceBench(report with { Device = null }));
+        Assert.Throws<ArgumentNullException>(() => VradCommand.FormatTraceBench(null!));
     }
 
     [Fact]

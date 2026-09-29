@@ -17,6 +17,7 @@ using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Rad;
+using SourceSharp.MapTools.Tracing;
 
 namespace SourceSharp.MapCompile;
 
@@ -333,6 +334,88 @@ public static class VradCommand
                 + $"batches={pass.World.Batches} lightrecords={pass.World.LightRecords} "
                 + $"culledlightrecords={pass.World.CulledLightRecords}")).ConfigureAwait(false);
         }
+
+        if (result.Tracing is { } tracing)
+        {
+            foreach (string line in FormatTraceBench(tracing))
+            {
+                await output.WriteLineAsync(line).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The bench's tracer lines: where the rays went and what the device did.
+    /// </summary>
+    /// <param name="report">The compile's tracer report (<see cref="RadResult.Tracing"/>).</param>
+    /// <returns>
+    /// One <c>bench trace</c> line, then a <c>bench gpu</c> line when a GPU was
+    /// asked for: its counters when it answered, the reason when it was declined.
+    /// </returns>
+    /// <remarks>
+    /// <para>
+    /// <c>bench trace</c> always says <c>gpu=off</c>, <c>gpu=declined</c> or
+    /// <c>gpu=on</c>, so a run that fell back to the CPU cannot be mistaken
+    /// for a GPU run, then the rays each way by query kind
+    /// (<see cref="RayQueryKind"/>) and the batches each way, whose
+    /// <c>gpu.*</c> and <c>cpu.*</c> add up to <c>rays=</c>. Then the worker
+    /// time parked on batches still in flight, in all and per stage
+    /// (<see cref="RayTraceMeter"/> says how each stage measures it).
+    /// </para>
+    /// <para>
+    /// <c>bench gpu</c> for a GPU that answered: the batches handed to it
+    /// (<c>requests</c>), the slabs submitted, the host-side span with a slab
+    /// on the device (<c>busy</c>) and the part of it spent blocked on a fence
+    /// (<c>fencewait</c>) -- <see cref="GpuTraceStatistics"/> says why the span
+    /// and not device timestamps -- the deepest the slot ring ran against its
+    /// size, and <c>fallbackrays</c>, the rays the hybrid sent to the CPU
+    /// because the kernel cannot express their options. For a declined GPU,
+    /// the backend's reason.
+    /// </para>
+    /// <para>
+    /// Every number is invariant-culture and every duration seconds to three
+    /// places, as the stage lines are; a fact pins the whole shape, so a
+    /// script that parses it can rely on it.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<string> FormatTraceBench(RayTraceReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        string status = report.Gpu switch
+        {
+            GpuTraceStatus.On => "on",
+            GpuTraceStatus.Declined => "declined",
+            _ => "off",
+        };
+
+        List<string> lines =
+        [
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"bench trace tracer={report.TracerIdentity} gpu={status} rays={report.TotalRays} "
+                + $"gpu.visibility={report.GpuRays.Visibility} gpu.closest={report.GpuRays.Closest} gpu.sky={report.GpuRays.Sky} "
+                + $"cpu.visibility={report.CpuRays.Visibility} cpu.closest={report.CpuRays.Closest} cpu.sky={report.CpuRays.Sky} "
+                + $"batches.gpu={report.GpuRays.Batches} batches.cpu={report.CpuRays.Batches} "
+                + $"parked={report.TotalParked.TotalSeconds:F3}s "
+                + $"parked.facelights={report.ParkedIn(TraceWaitStage.Facelights).TotalSeconds:F3}s "
+                + $"parked.bounce={report.ParkedIn(TraceWaitStage.Bounce).TotalSeconds:F3}s "
+                + $"parked.other={report.ParkedIn(TraceWaitStage.Other).TotalSeconds:F3}s"),
+        ];
+
+        if (report.Gpu == GpuTraceStatus.Declined)
+        {
+            lines.Add("bench gpu declined: " + (report.GpuDeclineReason ?? "no reason given"));
+        }
+        else if (report.Gpu == GpuTraceStatus.On && report.Device is { } d)
+        {
+            lines.Add(string.Create(
+                CultureInfo.InvariantCulture,
+                $"bench gpu requests={d.Requests} slabs={d.Slabs} busy={d.Busy.TotalSeconds:F3}s "
+                + $"fencewait={d.FenceWait.TotalSeconds:F3}s peakinflight={d.PeakSlabsInFlight}/{d.Slots} "
+                + $"fallbackrays={report.CpuRays.Rays}"));
+        }
+
+        return lines;
     }
 
     private static async Task WriteResultAsync(RadResult result, TextWriter output)

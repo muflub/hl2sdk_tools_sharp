@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 using SourceSharp.MapTools.Geometry;
@@ -204,8 +205,10 @@ public sealed partial class RadWorld
         }
 
         FaceLights = new FaceLight?[faceCount];
+        RayTraceMeter? meter = RayTraceMeter.Of(tracer);
         foreach (FacelightWorker worker in workers)
         {
+            meter?.AddParked(TraceWaitStage.Facelights, worker.ParkedTicks);
             Statistics.VisibilityRays += worker.VisibilityRays;
             Statistics.SkyRays += worker.SkyRays;
             Statistics.Batches += worker.Batches;
@@ -308,6 +311,14 @@ public sealed partial class RadWorld
 
         public int Batches { get; private set; }
 
+        /// <summary>
+        /// Stopwatch ticks this worker spent parked on a slab in flight: from
+        /// the return that parked it to the run that resumed it.
+        /// </summary>
+        public long ParkedTicks { get; private set; }
+
+        private long _parkedAt;
+
         /// <summary>The slabs still in flight; the driver awaits them before running the worker again.</summary>
         public List<Task> TakePending()
         {
@@ -320,6 +331,12 @@ public sealed partial class RadWorld
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         public void Run(WorkerContext worker)
         {
+            if (_parkedAt != 0)
+            {
+                ParkedTicks += Stopwatch.GetTimestamp() - _parkedAt;
+                _parkedAt = 0;
+            }
+
             while (true)
             {
                 worker.ThrowIfShouldStop();
@@ -334,6 +351,7 @@ public sealed partial class RadWorld
                         _step = Step.FirstStageTraced;
                         if (TraceFirstStage(worker.CancellationToken))
                         {
+                            _parkedAt = Stopwatch.GetTimestamp();
                             return;
                         }
 
@@ -344,6 +362,7 @@ public sealed partial class RadWorld
                         _step = Step.SecondStageTraced;
                         if (TraceSecondStage(worker.CancellationToken))
                         {
+                            _parkedAt = Stopwatch.GetTimestamp();
                             return;
                         }
 

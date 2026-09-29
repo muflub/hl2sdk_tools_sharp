@@ -127,6 +127,30 @@ public sealed class VisMatrixScratchTests
         Assert.Equal(reference.Statistics.Blocked, matrix.Statistics.Blocked);
     }
 
+    /// <summary>
+    /// A tracer whose slabs come back late leaves the whole stage waiting on
+    /// them, which the meter counts as bounce parked time; the transfers are
+    /// the same bytes, and a tracer that answers in the call parks nobody.
+    /// </summary>
+    [Fact]
+    public async Task LateSlabsAreMeteredAsBounceParkedTimeAndMoveNoTransfer()
+    {
+        (_, TransferSet expected) = await BuildAsync(OccludedBox());
+        RayTraceMeter meter = new();
+        ScrambledRayTracer late = new(OccludedBox().Tracer(), seed: 9);
+        (VisMatrix matrix, TransferSet actual) = await BuildAsync(
+            OccludedBox(), degree: 2, chunkRays: 500, slabRays: 64, tracer: new MeteredRayTracer(late, meter));
+
+        Assert.Equal(Lists(expected), Lists(actual));
+        Assert.True(meter.Parked(TraceWaitStage.Bounce) > TimeSpan.Zero);
+        Assert.Equal(matrix.Statistics.Rays, meter.Route(gpu: false).Visibility);
+        Assert.Equal(0, late.Outstanding);
+
+        RayTraceMeter prompt = new();
+        await BuildAsync(OccludedBox(), degree: 2, tracer: new MeteredRayTracer(OccludedBox().Tracer(), prompt));
+        Assert.Equal(TimeSpan.Zero, prompt.Parked(TraceWaitStage.Bounce));
+    }
+
     /// <summary>A small chunk bound really does cut the build into many chunks.</summary>
     [Fact]
     public async Task ASmallBoundMakesManyChunks()

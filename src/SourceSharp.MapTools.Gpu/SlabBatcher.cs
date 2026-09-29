@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 using SourceSharp.MapTools.Tracing;
@@ -157,7 +158,48 @@ internal sealed class SlabBatcher
     }
 
     /// <summary>Slabs submitted so far, for facts and telemetry.</summary>
-    public int Dispatches { get; private set; }
+    public int Dispatches => Volatile.Read(ref _dispatches);
+
+    private int _dispatches;
+
+    // The bench's counters (GpuTraceStatistics says what each means). The
+    // drainer alone writes the tick counts and the peak, one thread at a
+    // time under the device lock; the bench reads them from another thread,
+    // hence the interlocked reads and writes rather than a lock.
+    private long _requests;
+    private long _busyTicks;
+    private long _fenceWaitTicks;
+    private long _busySince;
+    private int _peakInFlight;
+
+    /// <summary>What the device has done so far: the bench's GPU line.</summary>
+    /// <remarks>
+    /// Busy is the union of the spans with a slab on the device, measured on
+    /// the host between the submit that took the device from idle and the
+    /// landing that emptied it; <see cref="GpuTraceStatistics"/> says why the
+    /// host's span and not device timestamps. A span still open when this is
+    /// read is counted up to now.
+    /// </remarks>
+    public GpuTraceStatistics Statistics
+    {
+        get
+        {
+            long busy = Interlocked.Read(ref _busyTicks);
+            long since = Interlocked.Read(ref _busySince);
+            if (since != 0)
+            {
+                busy += Stopwatch.GetTimestamp() - since;
+            }
+
+            return new GpuTraceStatistics(
+                Interlocked.Read(ref _requests),
+                Volatile.Read(ref _dispatches),
+                Stopwatch.GetElapsedTime(0, busy),
+                Stopwatch.GetElapsedTime(0, Interlocked.Read(ref _fenceWaitTicks)),
+                Volatile.Read(ref _peakInFlight),
+                _device.SlotCount);
+        }
+    }
 
     /// <summary>Queues an any-hit request.</summary>
     /// <param name="rays">The rays; read until the task completes.</param>
@@ -228,6 +270,8 @@ internal sealed class SlabBatcher
         {
             return Task.CompletedTask;
         }
+
+        Interlocked.Increment(ref _requests);
 
         bool start;
         lock (_queueLock)
@@ -329,8 +373,17 @@ internal sealed class SlabBatcher
         {
             Stage(slab);
             _device.Submit(slab.Slot, slab.Mode, slab.Total, slab.WordCount, slab.TminBits, _tmaxScaleBits);
-            Dispatches++;
+            Volatile.Write(ref _dispatches, _dispatches + 1);
+            if (_inFlight.Count == 0)
+            {
+                Interlocked.Exchange(ref _busySince, Stopwatch.GetTimestamp());
+            }
+
             _inFlight.Enqueue(slab);
+            if (_inFlight.Count > _peakInFlight)
+            {
+                Volatile.Write(ref _peakInFlight, _inFlight.Count);
+            }
         }
         catch (Exception e)
         {
@@ -346,7 +399,23 @@ internal sealed class SlabBatcher
         try
         {
             Span<uint> words = _words.AsSpan(0, slab.WordCount);
-            _device.Complete(slab.Slot, words);
+            long waitStart = Stopwatch.GetTimestamp();
+            try
+            {
+                _device.Complete(slab.Slot, words);
+            }
+            finally
+            {
+                Interlocked.Add(ref _fenceWaitTicks, Stopwatch.GetTimestamp() - waitStart);
+                if (_inFlight.Count == 0)
+                {
+                    // The device is empty again: close the busy span. Land
+                    // has already taken this slab off the in-flight queue.
+                    long since = Interlocked.Exchange(ref _busySince, 0);
+                    Interlocked.Add(ref _busyTicks, Stopwatch.GetTimestamp() - since);
+                }
+            }
+
             Scatter(slab, words);
         }
         catch (Exception e)

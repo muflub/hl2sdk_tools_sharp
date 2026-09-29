@@ -63,6 +63,23 @@ public sealed class TestLineStageTests
     }
 
     [Fact]
+    public async Task RunnersParkedOnLateBatchesAreMeteredAsOtherLightingAndPromptOnesAreNot()
+    {
+        RayTraceMeter late = new();
+        int[] results = await RunAsync(
+            new MeteredRayTracer(new ScrambledRayTracer(Floor, seed: 4), late), 200, 3, batchSegments: 20);
+
+        Assert.Equal(Enumerable.Range(0, 200).Select(Expected), results);
+        Assert.True(late.Parked(TraceWaitStage.Other) > TimeSpan.Zero);
+        Assert.Equal(TimeSpan.Zero, late.Parked(TraceWaitStage.Facelights));
+        Assert.Equal(Enumerable.Range(0, 200).Sum(i => i % 5), late.Route(gpu: false).Rays);
+
+        RayTraceMeter prompt = new();
+        await RunAsync(new MeteredRayTracer(Floor, prompt), 200, 3, batchSegments: 20);
+        Assert.Equal(TimeSpan.Zero, prompt.Parked(TraceWaitStage.Other));
+    }
+
+    [Fact]
     public async Task ABatchClosesAtItsSegmentBoundWithWholeItems()
     {
         CountingRayTracer tracer = new(Floor);

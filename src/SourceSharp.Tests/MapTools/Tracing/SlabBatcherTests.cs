@@ -333,6 +333,61 @@ public sealed class SlabBatcherTests
     }
 
     [Fact]
+    public async Task TheStatisticsCountRequestsSlabsThePeakAndTheSpansTheDeviceWasBusy()
+    {
+        FakeDevice device = new(64, 3);
+        device.Gate.Reset();
+        SlabBatcher batcher = new(device, Ids, 0);
+        Assert.Equal(new GpuTraceStatistics(0, 0, TimeSpan.Zero, TimeSpan.Zero, 0, 3), batcher.Statistics);
+
+        // 1000 closest rays are 16 slabs of 64; the drainer fills all three
+        // slots before it waits on the first, and waits behind a closed gate.
+        Task closest = batcher.TraceClosestAsync(Rays(1000, 1), new HitId[1000], 0, CancellationToken.None);
+        Task empty = batcher.TraceClosestAsync(ReadOnlyMemory<Ray>.Empty, Memory<HitId>.Empty, 0, CancellationToken.None);
+        await device.DrainerWaiting.Task.WaitAsync(Patience);
+
+        // A span still open is counted up to the read.
+        Thread.Sleep(20);
+        GpuTraceStatistics during = batcher.Statistics;
+        Assert.True(during.Busy >= TimeSpan.FromMilliseconds(15), $"busy {during.Busy} while a slab waits");
+        Assert.Equal(3, during.PeakSlabsInFlight);
+
+        device.Gate.Set();
+        await Task.WhenAll(closest, empty).WaitAsync(Patience);
+        GpuTraceStatistics after = batcher.Statistics;
+
+        // An empty request is answered without the device and is not counted.
+        Assert.Equal(1, after.Requests);
+        Assert.Equal(16, after.Slabs);
+        Assert.Equal(batcher.Dispatches, after.Slabs);
+        Assert.Equal(3, after.PeakSlabsInFlight);
+        Assert.Equal(3, after.Slots);
+
+        // The wait behind the gate was the drainer blocked on a fence, inside
+        // the span the device was busy; with nothing in flight the span is
+        // closed, so a later read does not grow it.
+        Assert.True(after.FenceWait >= TimeSpan.FromMilliseconds(15), $"fence wait {after.FenceWait}");
+        Assert.True(after.Busy >= after.FenceWait, $"busy {after.Busy} < fence wait {after.FenceWait}");
+        Thread.Sleep(20);
+        Assert.Equal(after.Busy, batcher.Statistics.Busy);
+    }
+
+    [Fact]
+    public async Task AFailedCompletionStillClosesTheBusySpan()
+    {
+        FakeDevice device = new(256) { FailComplete = (0, new InvalidOperationException("device lost")) };
+        SlabBatcher batcher = new(device, Ids, 0);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => batcher.TraceClosestAsync(Rays(10, 1), new HitId[10], 0, CancellationToken.None).WaitAsync(Patience));
+
+        TimeSpan busy = batcher.Statistics.Busy;
+        Thread.Sleep(20);
+        Assert.Equal(busy, batcher.Statistics.Busy);
+        Assert.Equal(1, batcher.Statistics.Slabs);
+    }
+
+    [Fact]
     public void VisibilitySegmentsStartOnAWorkgroupAndSplitOnOne()
     {
         List<SlabBatcher.Segment> slab = [];
