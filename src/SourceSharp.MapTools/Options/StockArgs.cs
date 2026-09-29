@@ -514,6 +514,14 @@ public static class StockArgs
             {
                 options = options with { NoSort = true };
             }
+            else if (Is(arg, "-fastflow"))
+            {
+                // Not stock's: this port's approximate portal flow
+                // (VvisOptions.FastFlow). Parsed here rather than by the
+                // host, like -compliance, because it is an option of the
+                // vvis stage every host should be able to spell.
+                options = options with { FastFlow = true };
+            }
             else if (Is(arg, "-radius_override"))
             {
                 // Stock squares it on the way in, so that the

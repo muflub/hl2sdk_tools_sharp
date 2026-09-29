@@ -134,6 +134,42 @@ public sealed record VvisOptions
     public bool Tighten { get; init; } = true;
 
     /// <summary>
+    /// Run a faster portal flow whose PVS is knowingly approximate: it may
+    /// leave out clusters the exact flow finds visible.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Not a stock option (<c>-fastflow</c>, parsed by
+    /// <see cref="StockArgs.ParseVvis"/> like <c>-compliance</c>), and off by
+    /// default: with it off nothing about the flow changes and the output is
+    /// byte-identical to a compile that never heard of it. It is in the spirit
+    /// of Tools++'s faster vvis, and unlike Tools++ it is deterministic: the
+    /// same bytes at every thread count and on every run.
+    /// </para>
+    /// <para>
+    /// The walk stops a chain once everything it could still reach leads into
+    /// clusters the portal already sees, after a fixed number of exact steps
+    /// (the mechanism and the measurement are on the internal
+    /// <c>VisClusterStop</c>). Each portal's own row is unchanged by that,
+    /// but the shortened vectors are what later portals prune with, so they
+    /// prune chains the exact flow keeps: the PVS is a SUBSET of the exact
+    /// one. On 2fort it walks 71.1M chains against 146.3M (about half the
+    /// CPU) and loses 1.7 % of the visible cluster pairs, 3.1 % after the
+    /// symmetric pass. A lost pair is geometry the engine culls while it is
+    /// in view, so this is for iterating on a layout, not for a release.
+    /// </para>
+    /// <para>
+    /// Not a compliance quirk: the catalogue lists where this port's DEFAULT
+    /// output differs from stock's, switchable between the two, and this is
+    /// neither -- an opt-in approximation under either policy, like stock's own
+    /// <see cref="Fast"/>, which it does nothing under (<c>-fast</c> skips the
+    /// flow altogether). Every host is told through
+    /// <see cref="Vis.Vvis.OptionWarnings"/>, which <c>ssmap</c> prints.
+    /// </para>
+    /// </remarks>
+    public bool FastFlow { get; init; }
+
+    /// <summary>
     /// Whether to reproduce the stock tools' defects or do the right thing.
     /// </summary>
     /// <remarks>

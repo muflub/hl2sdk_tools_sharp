@@ -306,6 +306,28 @@ public sealed class MapCompilerTests
     }
 
     [Fact]
+    public async Task AFastFlowCompileWarnsThatItsPvsIsApproximate()
+    {
+        (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room());
+        CompileResult result = await MapCompiler.CompileAsync(
+            Request(files, content) with { Vvis = VvisOptions.Default with { FastFlow = true } }, null);
+
+        Assert.NotNull(result.Vis);
+        CompileDiagnostic warning = Assert.Single(result.Diagnostics, d => d.Code == VvisCodes.ApproximateFlow);
+        Assert.Equal(DiagnosticSeverity.Warning, warning.Severity);
+        Assert.Equal(Vvis.FastFlowWarning, warning.Message);
+    }
+
+    [Fact]
+    public async Task AnExactCompileDoesNotWarnAboutTheFastFlow()
+    {
+        (InMemoryFileSystem files, IContentFileSystem content) = await DiskAsync(Room());
+        CompileResult result = await MapCompiler.CompileAsync(Request(files, content), null);
+
+        Assert.DoesNotContain(result.Diagnostics, d => d.Code == VvisCodes.ApproximateFlow);
+    }
+
+    [Fact]
     public async Task ALeakedMapIsStillLit()
     {
         // A Hammer chain runs vrad after vvis fails to open the.prt.

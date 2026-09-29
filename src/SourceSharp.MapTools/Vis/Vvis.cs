@@ -14,6 +14,7 @@ using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Geometry;
+using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 
 namespace SourceSharp.MapTools.Vis;
@@ -85,6 +86,45 @@ public static class Vvis
     /// volume and leaf-to-water passes.
     /// </summary>
     public const string WaterStage = "vvis.Water";
+
+    /// <summary>
+    /// The warnings a set of options earns before anything is computed: one
+    /// line per option that makes the output knowingly approximate.
+    /// </summary>
+    /// <param name="options">The options a compile will run with.</param>
+    /// <returns>The warnings, empty for an exact compile.</returns>
+    /// <remarks>
+    /// <para>
+    /// A function of the options rather than something the compile reports,
+    /// so a host says it whether the stage runs or its cached result is
+    /// replayed, and before a long flow rather than after it. The library
+    /// never prints: <c>ssmap vvis</c> writes these to its output and
+    /// <see cref="Compile.MapCompiler"/> reports them through the chain's
+    /// log, and any other host decides for itself.
+    /// </para>
+    /// <para>
+    /// <see cref="VvisOptions.FastFlow"/> under <see cref="VvisOptions.Fast"/>
+    /// earns nothing: <c>-fast</c> skips the flow the flag would shorten.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
+    public static IReadOnlyList<CompileDiagnostic> OptionWarnings(VvisOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        if (!options.FastFlow || options.Fast)
+        {
+            return [];
+        }
+
+        return
+        [
+            new CompileDiagnostic(VvisCodes.ApproximateFlow, DiagnosticSeverity.Warning, FastFlowWarning),
+        ];
+    }
+
+    /// <summary>The one line <see cref="OptionWarnings"/> says for <see cref="VvisOptions.FastFlow"/>.</summary>
+    public const string FastFlowWarning =
+        "-fastflow: the PVS is approximate and may cull visible geometry; compile without it for a release";
 
     /// <summary>
     /// Computes a map's visibility and writes it into the map.
@@ -386,6 +426,11 @@ public static class Vvis
         // cast count seeds the record and survives to the result whatever the
         // flow stage below does or skips.
         VisWorkCounters work = new(Chains: 0, Candidates: 0, SeparatorClips: 0, BaseRays: baseRays);
+        // -fastflow: the cluster-granular early stop (VisClusterStop). Null
+        // on every exact compile, and then nothing below differs from it.
+        VisClusterStop? stop = context.Options.FastFlow && !context.Options.Fast
+            ? new VisClusterStop(portals, context.FastFlowFilter, context.FastFlowMinChains)
+            : null;
         if (context.Options.Fast)
         {
             state.UseFloodAsVis();
@@ -399,7 +444,7 @@ public static class Vvis
             // -nosort says), a subset of the untightened flow's and a superset
             // of stock's single-threaded one.
             VisPortalFlow?[] workers = new VisPortalFlow?[Math.Max(1, queue.Degree)];
-            VisTightening tightening = new(state)
+            VisTightening tightening = new(state, whole: stop is not null)
             {
                 ClaimProbe = context.TighteningClaimProbe,
                 SettleProbe = context.TighteningSettleProbe,
@@ -407,7 +452,7 @@ public static class Vvis
             await tightening.RunAsync(
                 queue,
                 workers,
-                () => new VisPortalFlow(portals, state, context.Path),
+                () => new VisPortalFlow(portals, state, context.Path, stop: stop),
                 context.Progress,
                 cancellationToken).ConfigureAwait(false);
 
@@ -432,7 +477,7 @@ public static class Vvis
                 },
                 workerIndex =>
                 {
-                    VisPortalFlow flow = new(portals, state, context.Path);
+                    VisPortalFlow flow = new(portals, state, context.Path, stop: stop);
                     workers[workerIndex] = flow;
                     return flow;
                 },
@@ -498,7 +543,6 @@ public static class Vvis
                 totalVis = ClusterMerge(portals, state, clusters, rowBytes, pvs, context.Path, worker),
             new WorkQueueOptions { Stage = ClusterMergeStage, Progress = context.Progress },
             cancellationToken).ConfigureAwait(false);
-
         Begin(context, CrosscheckStage, clusters);
         await queue.RunAsync(
             1,

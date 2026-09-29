@@ -142,6 +142,14 @@ public sealed class VvisStageCache
 
         // Without an override, the first fog controller's farz is the radius.
         Str(options.RadiusOverride is null ? FirstFogFarZ(bsp) : null);
+
+        // Appended only when on, so every digest a compile without it ever
+        // stored stays the key it was: -fastflow writes a different PVS, and
+        // an exact compile must never be served one (or the reverse).
+        if (options.FastFlow)
+        {
+            Str("fastflow");
+        }
         return Convert.ToHexStringLower(sha.GetHashAndReset());
     }
 

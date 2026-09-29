@@ -100,6 +100,21 @@ public sealed class VvisStageCacheKeyTests
         Assert.NotEqual(Key(Map()), Key(Map(), VvisOptions.Default with { Tighten = !VvisOptions.Default.Tighten }));
 
     [Fact]
+    public void TheKeyFollowsTheFastFlow() =>
+        Assert.NotEqual(Key(Map()), Key(Map(), VvisOptions.Default with { FastFlow = true }));
+
+    [Fact]
+    public void TheFastFlowLeavesEveryOtherKeyAsItWas()
+    {
+        // The switch is appended only when on, so a cache written before it
+        // existed still hits: this is the key main computed for this map.
+        Assert.Equal(DefaultKeyBeforeTheFastFlow, Key(Map()));
+    }
+
+    /// <summary>The key of <see cref="Map"/> with the default options, captured before <c>-fastflow</c> existed.</summary>
+    private const string DefaultKeyBeforeTheFastFlow = "3311c6d37e2ffa90f15823d288fa995e5ca241392e641dc6205d4f24349696e6";
+
+    [Fact]
     public void TheKeyFollowsTheRadiusOverride() =>
         // Both overrides set, so the fog line folds the same null either way:
         // only the override's own field differs.

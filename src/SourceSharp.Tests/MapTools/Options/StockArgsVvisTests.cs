@@ -183,6 +183,38 @@ public class StockArgsVvisTests
     }
 
     [Fact]
+    public void FastFlowIsOffUnlessAskedFor()
+    {
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis([Map]);
+
+        Assert.False(result.Options.FastFlow);
+        Assert.Equal(VvisOptions.Default, result.Options);
+    }
+
+    [Theory]
+    [InlineData("-fastflow")]
+    [InlineData("-FastFlow")]
+    public void FastFlowParsesInEitherCase(string spelling)
+    {
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis([spelling, Map]);
+
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(VvisOptions.Default with { FastFlow = true }, result.Options);
+        Assert.Equal(Map, result.MapPath);
+    }
+
+    [Fact]
+    public void FastFlowIsNotStocksFast()
+    {
+        // Two different switches: -fast skips the flow, -fastflow shortens it.
+        StockArgsResult<VvisOptions> result = StockArgs.ParseVvis(["-fastflow", "-fast", Map]);
+
+        Assert.True(result.Options.FastFlow);
+        Assert.True(result.Options.Fast);
+        Assert.False(StockArgs.ParseVvis(["-fast", Map]).Options.FastFlow);
+    }
+
+    [Fact]
     public void TheFastPresetMatchesParsingTheFastFlag()
     {
         Assert.Equal(VvisOptions.FastDefault, StockArgs.ParseVvis(["-fast", Map]).Options);

@@ -88,6 +88,24 @@ public sealed record VisContext
     internal Action<int, bool>? TighteningSettleProbe { get; init; }
 
     /// <summary>
+    /// For the facts and the measurement: what a <c>-fastflow</c> portal
+    /// publishes for the portals ranked above it. Only the default,
+    /// <see cref="VisFastFlowFilter.Truncated"/>, is reachable from
+    /// <see cref="VvisOptions.FastFlow"/>; the other arms are the ones it was
+    /// chosen against, kept so the containments between them stay pinned.
+    /// </summary>
+    internal VisFastFlowFilter FastFlowFilter { get; init; } = VisFastFlowFilter.Truncated;
+
+    /// <summary>
+    /// For the facts and the measurement: how many steps a <c>-fastflow</c>
+    /// walk takes exactly before its stop may cut
+    /// (<see cref="VisClusterStop.MinChains"/>). Every walk on a hand-built
+    /// map is shorter than the shipped threshold, so a fact that wants the
+    /// stop to engage there lowers it.
+    /// </summary>
+    internal int FastFlowMinChains { get; init; } = VisClusterStop.DefaultMinChains;
+
+    /// <summary>
     /// Which bit-vector implementation the inner loop runs.
     /// </summary>
     /// <remarks>

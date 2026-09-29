@@ -79,6 +79,20 @@ public sealed class ContentRecordingTests
     }
 
     [Fact]
+    public void TheVvisSectionTakesTheFastFlowAndTheChainDoesNot()
+    {
+        // -fastflow is vvis's (StockArgs parses it), so it goes in the
+        // --vvis section; before the first section it is not a chain option.
+        AllArgs section = AllCommand.Parse(["m.vmf", AllCommand.VvisSection, "-fastflow"]);
+        Assert.True(section.Vvis.FastFlow);
+        Assert.DoesNotContain(section.Diagnostics, d => d.Severity == DiagnosticSeverity.Error);
+        Assert.False(AllCommand.Parse(["m.vmf"]).Vvis.FastFlow);
+
+        AllArgs chain = AllCommand.Parse(["m.vmf", "-fastflow"]);
+        Assert.Contains(chain.Diagnostics, d => d.Code == AllCommand.ChainArgument);
+    }
+
+    [Fact]
     public void RecordContentWithNoPathIsAnError()
     {
         AllArgs parsed = AllCommand.Parse(["m.vmf", AllCommand.RecordContentSwitch]);
