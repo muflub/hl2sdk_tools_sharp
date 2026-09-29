@@ -57,6 +57,16 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// that the folded map is exactly the unfolded one with the fold applied.
 /// </para>
 /// <para>
+/// Door visibility (<see cref="LevelLinkOptions.DoorVisibility"/>, on by
+/// default) moved the whole-BSP digests a fourth time, and only them: the
+/// visibility lump is composed through the doorways instead of closed over
+/// the door graph, so it shrinks, and nothing else in the file changes
+/// (<see cref="DoorVisibilityMovesOnlyTheVisibilityLump"/>). The digests the
+/// link had before (<see cref="DoorGraphDigests"/>, and the unfolded and
+/// plugs-kept sets) are linked with door visibility off and still pinned;
+/// the collision digests did not move.
+/// </para>
+/// <para>
 /// The compile runs under <c>ComplianceOptions.Correct</c>, whose collision
 /// arithmetic is double and takes no CPU estimate, so each digest is one
 /// string on every runner. Any intended change to the link's or the room
@@ -69,15 +79,27 @@ public sealed class LinkedCollisionDigestTests(Rooms3x3Fixture fixture) : IClass
     /// <summary>Each case with the SHA-256 of its linked BSP (canonical) and of its <c>PhysCollide</c> lump.</summary>
     public static TheoryData<string, string, string> Digests => new()
     {
+        { "rooms3x3", "25B57102F2EEB3A6ADAB7E156A0DA8B151F40231412022D2ED15F791FAF525A6", "E5E490681C195955931C17387D353C5D35B45E36712DF928E7E20531F62EE657" },
+        { "rooms3x3_turn1", "E762E79A3943B7087FBDDD3EF5C908B4FA18745C26AB6E564728FFE721B66A26", "847261BD770EB47EDC3ED46DA4DF3A0259CF56DC3E27EE2FB74511B9C04E3320" },
+        { "seed_9", "B2AB5B920DE8E3BD806563B360A3F8EBCCD2996129B99DB845CDBFD6A74D7B94", "0822156B74F8B7D77894120ABB40965E7A8B01568CB64C5CD7F2776F3E10E6AF" },
+    };
+
+    /// <summary>
+    /// Each case's digests linked with door visibility off
+    /// (<c>-nodoorvis</c>): the door graph's closure, which is what the link
+    /// wrote before door visibility.
+    /// </summary>
+    public static TheoryData<string, string, string> DoorGraphDigests => new()
+    {
         { "rooms3x3", "F604D78D1636D15C85C0C63D86F9099E686E63E82C2247EA12241141F2CA6B0F", "E5E490681C195955931C17387D353C5D35B45E36712DF928E7E20531F62EE657" },
         { "rooms3x3_turn1", "CE52A608B5B136EF203EC52F4C8F754DF8690185680BBDEA22DCEC4A809B03AA", "847261BD770EB47EDC3ED46DA4DF3A0259CF56DC3E27EE2FB74511B9C04E3320" },
         { "seed_9", "C7FDB2492DF6141AAF8D6446602FFE5FE4B89B9583340F5679B592F2A8491E8B", "0822156B74F8B7D77894120ABB40965E7A8B01568CB64C5CD7F2776F3E10E6AF" },
     };
 
     /// <summary>
-    /// Each case's digests linked with the brush fold off
-    /// (<c>-nofold</c>): the rooms' brushes as compiled, less the jointed
-    /// plugs, which is what the link wrote before the fold existed.
+    /// Each case's digests linked with the brush fold and door visibility off
+    /// (<c>-nofold -nodoorvis</c>): the rooms' brushes as compiled, less the
+    /// jointed plugs, which is what the link wrote before the fold existed.
     /// </summary>
     public static TheoryData<string, string, string> UnfoldedDigests => new()
     {
@@ -106,7 +128,58 @@ public sealed class LinkedCollisionDigestTests(Rooms3x3Fixture fixture) : IClass
     [Theory]
     [MemberData(nameof(UnfoldedDigests))]
     public Task WithoutTheFoldALevelLinksToThePinnedUnfoldedBytes(string name, string bspDigest, string collisionDigest) =>
-        AssertDigestsAsync(name, new LevelLinkOptions { FoldBrushes = false }, bspDigest, collisionDigest);
+        AssertDigestsAsync(name, new LevelLinkOptions { FoldBrushes = false, DoorVisibility = false }, bspDigest, collisionDigest);
+
+    /// <summary>
+    /// A case linked with door visibility off links to its pinned bytes: the
+    /// digests the link had before door visibility, so <c>-nodoorvis</c>
+    /// writes what it always wrote.
+    /// </summary>
+    /// <param name="name">The case.</param>
+    /// <param name="bspDigest">The linked BSP's digest.</param>
+    /// <param name="collisionDigest">The linked world collision's digest.</param>
+    [Theory]
+    [MemberData(nameof(DoorGraphDigests))]
+    public Task WithoutDoorVisibilityALevelLinksToThePinnedDoorGraphBytes(string name, string bspDigest, string collisionDigest) =>
+        AssertDigestsAsync(name, new LevelLinkOptions { DoorVisibility = false }, bspDigest, collisionDigest);
+
+    /// <summary>
+    /// Door visibility changes the visibility lump and nothing else: every
+    /// other lump, and every game lump, is byte for byte what the link writes
+    /// with it off. (On levels this small the lump need not shrink: a row of
+    /// 32 clusters is four bytes all ones, and the run-length code spends two
+    /// bytes on each zero byte it gains; on large levels it shrinks several
+    /// times over.)
+    /// </summary>
+    /// <param name="name">The case.</param>
+    [Theory]
+    [InlineData("rooms3x3")]
+    [InlineData("rooms3x3_turn1")]
+    [InlineData("seed_9")]
+    public async Task DoorVisibilityMovesOnlyTheVisibilityLump(string name)
+    {
+        Rooms3x3Case found = Rooms3x3Fixture.Cases.Single(c => c.Name == name);
+        LevelGrid level = LevelYaml.Parse(found.Arrangement.LevelYaml(name, Rooms3x3Sample.LibraryFromLevels), name);
+        LevelLayout layout = level.ToLayout(n => fixture.Library.Find(n)?.Definition, fixture.Library.CellSize, fixture.Library.Kit);
+        LinkedLevel doors = await LevelLinker.LinkAsync(layout, fixture.Library, fixture.Context(name));
+        LinkedLevel graph = await LevelLinker.LinkAsync(layout, fixture.Library, fixture.Context(name), new LevelLinkOptions { DoorVisibility = false });
+        for (int lump = 0; lump < BspData.HeaderLumps; lump++)
+        {
+            if (lump == (int)BspLump.Visibility)
+            {
+                Assert.False(doors.Bsp[lump].Data.Span.SequenceEqual(graph.Bsp[lump].Data.Span), $"{name}: the visibility lump did not change");
+                continue;
+            }
+
+            Assert.True(doors.Bsp[lump].Data.Span.SequenceEqual(graph.Bsp[lump].Data.Span), $"{name}: lump {(BspLump)lump} differs");
+        }
+
+        Assert.Equal(graph.Bsp.GameLumps.Count, doors.Bsp.GameLumps.Count);
+        for (int g = 0; g < graph.Bsp.GameLumps.Count; g++)
+        {
+            Assert.True(doors.Bsp.GameLumps[g].Data.Span.SequenceEqual(graph.Bsp.GameLumps[g].Data.Span), $"{name}: game lump {g} differs");
+        }
+    }
 
     private async Task AssertDigestsAsync(string name, LevelLinkOptions options, string bspDigest, string collisionDigest)
     {
@@ -141,7 +214,7 @@ public sealed class LinkedCollisionDigestTests(Rooms3x3Fixture fixture) : IClass
 
     /// <summary>
     /// Dropping the stripped plug brushes moved nothing but the brush
-    /// numbering: linked without the fold, with the plugs put back as the empty brushes they were
+    /// numbering: linked without the fold or door visibility, with the plugs put back as the empty brushes they were
     /// (from the rooms, <see cref="LinkedBrushProbe.WithPlugsKept"/>) and
     /// every ledge's client data put back to that numbering, the linked BSP
     /// and its world collision are the bytes they were before, to the digest.
@@ -157,7 +230,7 @@ public sealed class LinkedCollisionDigestTests(Rooms3x3Fixture fixture) : IClass
         LevelGrid level = LevelYaml.Parse(found.Arrangement.LevelYaml(name, Rooms3x3Sample.LibraryFromLevels), name);
         LevelLayout layout = level.ToLayout(n => fixture.Library.Find(n)?.Definition, fixture.Library.CellSize, fixture.Library.Kit);
         LinkedLevel linked = await LevelLinker.LinkAsync(
-            layout, fixture.Library, fixture.Context(name), new LevelLinkOptions { FoldBrushes = false });
+            layout, fixture.Library, fixture.Context(name), new LevelLinkOptions { FoldBrushes = false, DoorVisibility = false });
 
         BspData old = LinkedBrushProbe.WithPlugsKept(linked, fixture.Library);
         old.SetLump(BspLump.PhysCollide, LinkedBrushProbe.CollisionWithNumbering(

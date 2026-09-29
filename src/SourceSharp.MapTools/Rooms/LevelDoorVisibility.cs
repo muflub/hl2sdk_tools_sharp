@@ -172,18 +172,30 @@ internal static class LevelDoorVisibility
                 cancellationToken).ConfigureAwait(false);
         }
 
-        // Rows: the room's own (with its doorways), then every cross-room
-        // pair both directions keep, then the cluster itself. A pair in two
-        // rooms that share a cell face must also pass the one doorway
-        // between them (Adjacent), and a pair in two that share a face and
-        // no doorway cannot see each other at all.
+        // Rows: every cross-room pair both directions keep (the forward rows
+        // and their transpose), less what the cell faces between neighbours
+        // rule out, then the room's own rows (with its doorways) and the
+        // cluster itself.
         int rowBytes = (clusterCount + 7) >> 3;
-        int[] roomOf = new int[clusterCount];
+        ulong[][] backward = Transpose(forward, clusterCount);
         Dictionary<(int X, int Y), int> byCell = new(rooms.Count);
         for (int r = 0; r < rooms.Count; r++)
         {
-            Array.Fill(roomOf, r, rooms[r].ClusterBase, rooms[r].Doors.ClusterCount);
             byCell[(rooms[r].Transform.Placement.CellX, rooms[r].Transform.Placement.CellY)] = r;
+        }
+
+        // Per pair of rooms joined by a doorway, which of their cluster
+        // pairs can see each other through it (Neighbours).
+        Dictionary<(int, int), bool[]> pairs = [];
+        for (int r = 0; r < rooms.Count; r++)
+        {
+            foreach (LevelDoor joint in rooms[r].Joints)
+            {
+                if (joint.Neighbor > r)
+                {
+                    pairs[(r, joint.Neighbor)] = Neighbours(rooms[r], prepared[r], rooms[joint.Neighbor], prepared[joint.Neighbor], joint.Opening);
+                }
+            }
         }
 
         ulong[][] pvs = new ulong[clusterCount][];
@@ -193,30 +205,64 @@ internal static class LevelDoorVisibility
             LevelDoorRoom room = rooms[r];
             Prepared p = prepared[r];
             int lo = room.ClusterBase;
-            int hi = lo + room.Doors.ClusterCount;
+            RoomPlacement at = room.Transform.Placement;
+            List<(int Room, LevelDoor? Door)> neighbours = [];
+            foreach ((int dx, int dy) in (ReadOnlySpan<(int, int)>)[(1, 0), (-1, 0), (0, 1), (0, -1)])
+            {
+                if (byCell.TryGetValue((at.CellX + dx, at.CellY + dy), out int n))
+                {
+                    LevelDoor? door = null;
+                    foreach (LevelDoor joint in room.Joints)
+                    {
+                        if (joint.Neighbor == n)
+                        {
+                            door = joint;
+                        }
+                    }
+
+                    neighbours.Add((n, door));
+                }
+            }
+
             for (int c = 0; c < room.Doors.ClusterCount; c++)
             {
                 int x = lo + c;
                 ulong[] row = new ulong[words];
+                ulong[] a = forward[x], b = backward[x];
+                for (int w = 0; w < words; w++)
+                {
+                    row[w] = a[w] & b[w];
+                }
+
+                ClearRange(row, lo, room.Doors.ClusterCount);
+                foreach ((int n, LevelDoor? door) in neighbours)
+                {
+                    LevelDoorRoom other = rooms[n];
+                    if (door is null)
+                    {
+                        ClearRange(row, other.ClusterBase, other.Doors.ClusterCount);
+                        continue;
+                    }
+
+                    // One table per two rooms, the lower-numbered one's clusters first.
+                    bool[] table = pairs[r < n ? (r, n) : (n, r)];
+                    for (int d = 0; d < other.Doors.ClusterCount; d++)
+                    {
+                        int slot = r < n ? (c * other.Doors.ClusterCount) + d : (d * room.Doors.ClusterCount) + c;
+                        if (!table[slot])
+                        {
+                            int y = other.ClusterBase + d;
+                            row[y >> 6] &= ~(1UL << (y & 63));
+                        }
+                    }
+                }
+
                 ulong[] own = p.Own[c];
                 for (int z = 0; z < room.Doors.ClusterCount; z++)
                 {
                     if ((own[z >> 6] & (1UL << (z & 63))) != 0)
                     {
                         Set(row, lo + z);
-                    }
-                }
-
-                ulong[] a = forward[x];
-                for (int w = 0; w < words; w++)
-                {
-                    for (ulong bits = a[w]; bits != 0; bits &= bits - 1)
-                    {
-                        int y = (w << 6) + BitOperations.TrailingZeroCount(bits);
-                        if ((y < lo || y >= hi) && Has(forward[y], x) && Adjacent(rooms, prepared, roomOf, r, x, y))
-                        {
-                            Set(row, y);
-                        }
                     }
                 }
 
@@ -268,71 +314,128 @@ internal static class LevelDoorVisibility
     }
 
     /// <summary>
-    /// Whether clusters <paramref name="x"/> (of room <paramref name="r"/>)
-    /// and <paramref name="y"/> can see each other as far as the cell face
-    /// between their rooms goes: always when the rooms do not share a face;
-    /// never when they share one and no doorway; and when they share a
-    /// doorway, only if some segment from one cluster's bounds to the
-    /// other's crosses the doorway.
+    /// Per cluster pair of two rooms joined through <paramref name="opening"/>
+    /// (row by row, the first room's clusters), whether the pair can see
+    /// each other through that doorway: whether some segment from one
+    /// cluster's bounds to the other's crosses it. A cluster without bounds
+    /// is kept.
     /// </summary>
     /// <remarks>
     /// <para>
     /// Two neighbouring cells make one convex box, so a sight line between
     /// them stays inside the two and crosses their shared face, which is
     /// wall but for the doorway: the doorway is the only way, and whether a
-    /// line can get through it is a question of the two boxes alone. The
-    /// flows cannot ask it (a flow starts from the whole doorway, and the
-    /// room beyond it has no cone to test yet), which made neighbouring
-    /// rooms the loosest part of the composition.
+    /// line can get through it is a question of the two boxes alone (and
+    /// two neighbours with no doorway see nothing of each other). The flows
+    /// cannot ask it (a flow starts from the whole doorway, and the room
+    /// beyond it has no cone to test yet), which made neighbouring rooms the
+    /// loosest part of the composition.
     /// </para>
     /// <para>
     /// The points where segments between two boxes on either side of a plane
     /// cross it make a convex set: the plane's cut through the hull of the
-    /// two boxes, which is the hull of where the segments between their
-    /// corners cross. Its bounds, widened by <see cref="BoxMargin"/>, must
-    /// meet the doorway's rectangle. The test runs in each room's frame and
-    /// passes if either passes, so it is symmetric and, like the flows, the
-    /// same numbers in a level turned as a whole.
+    /// two boxes. Its bounds, widened by <see cref="BoxMargin"/>, must meet
+    /// the doorway's rectangle (<see cref="Through"/> says how they are
+    /// found). The test runs in each room's frame, from each box to the
+    /// other, and passes if any of the four passes: so it does not depend on
+    /// which room is which, and, like the flows, it is the same numbers in a
+    /// level turned as a whole.
     /// </para>
     /// </remarks>
-    private static bool Adjacent(IReadOnlyList<LevelDoorRoom> rooms, Prepared[] prepared, int[] roomOf, int r, int x, int y)
+    private static bool[] Neighbours(LevelDoorRoom room, Prepared p, LevelDoorRoom other, Prepared q, Box opening)
     {
-        int other = roomOf[y];
-        RoomPlacement a = rooms[r].Transform.Placement, b = rooms[other].Transform.Placement;
-        if (Math.Abs(a.CellX - b.CellX) + Math.Abs(a.CellY - b.CellY) != 1)
+        int count = room.Doors.ClusterCount, otherCount = other.Doors.ClusterCount;
+        bool[] table = new bool[count * otherCount];
+        (Box[] mineHere, Box[] theirsHere, Box openingHere) = InFrame(room.Transform);
+        (Box[] mineThere, Box[] theirsThere, Box openingThere) = InFrame(other.Transform);
+        for (int c = 0; c < count; c++)
         {
-            return true;
-        }
-
-        LevelDoor? door = null;
-        foreach (LevelDoor joint in rooms[r].Joints)
-        {
-            if (joint.Neighbor == other)
+            for (int d = 0; d < otherCount; d++)
             {
-                door = joint;
+                table[(c * otherCount) + d] = !p.HasBox[c] || !q.HasBox[d]
+                    || Through(mineHere[c], theirsHere[d], openingHere) || Through(theirsHere[d], mineHere[c], openingHere)
+                    || Through(mineThere[c], theirsThere[d], openingThere) || Through(theirsThere[d], mineThere[c], openingThere);
             }
         }
 
-        if (door is not { } shared)
-        {
-            return false;
-        }
+        return table;
 
-        int cx = x - rooms[r].ClusterBase, cy = y - rooms[other].ClusterBase;
-        Prepared px = prepared[r], py = prepared[other];
-        if (!px.HasBox[cx] || !py.HasBox[cy])
-        {
-            return true;
-        }
-
-        return Through(rooms[r].Transform, px.Boxes[cx], py.Boxes[cy], shared.Opening)
-            || Through(rooms[other].Transform, px.Boxes[cx], py.Boxes[cy], shared.Opening);
+        (Box[] Mine, Box[] Theirs, Box Opening) InFrame(RoomTransform frame) =>
+            ([.. p.Boxes.Select(b => ToFrame(frame, b))], [.. q.Boxes.Select(b => ToFrame(frame, b))], ToFrame(frame, opening));
     }
 
-    /// <summary>Whether a segment from box <paramref name="nearWorld"/> to box <paramref name="farWorld"/> can cross the doorway <paramref name="openingWorld"/>, worked out in the frame of the room <paramref name="frame"/> places.</summary>
-    internal static bool Through(RoomTransform frame, Box nearWorld, Box farWorld, Box openingWorld)
+    /// <summary>The transpose of a square bit matrix: bit <c>x</c> of row <c>y</c> is bit <c>y</c> of row <c>x</c>.</summary>
+    /// <remarks>
+    /// By 64 x 64 blocks, each turned over in six rounds of masked swaps
+    /// (the block's halves, then quarters, down to single bits), so a
+    /// 5,000-cluster level transposes in a few milliseconds where a bit at a
+    /// time was the costliest step of the rows.
+    /// </remarks>
+    internal static ulong[][] Transpose(ulong[][] rows, int count)
     {
-        Box near = ToFrame(frame, nearWorld), far = ToFrame(frame, farWorld), opening = ToFrame(frame, openingWorld);
+        int words = (count + 63) >> 6;
+        ulong[][] result = new ulong[count][];
+        for (int i = 0; i < count; i++)
+        {
+            result[i] = new ulong[words];
+        }
+
+        Span<ulong> block = stackalloc ulong[64];
+        for (int bi = 0; bi < words; bi++)
+        {
+            for (int bj = 0; bj < words; bj++)
+            {
+                for (int k = 0; k < 64; k++)
+                {
+                    int row = (bi << 6) + k;
+                    block[k] = row < count ? rows[row][bj] : 0;
+                }
+
+                TransposeBlock(block);
+                for (int k = 0; k < 64; k++)
+                {
+                    int row = (bj << 6) + k;
+                    if (row < count)
+                    {
+                        result[row][bi] = block[k];
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Transposes 64 rows of 64 bits in place, bit <c>j</c> of word <c>i</c> to bit <c>i</c> of word <c>j</c>.</summary>
+    internal static void TransposeBlock(Span<ulong> a)
+    {
+        ulong mask = 0x00000000FFFFFFFFUL;
+        for (int j = 32; j != 0; j >>= 1, mask ^= mask << j)
+        {
+            for (int k = 0; k < 64; k = ((k | j) + 1) & ~j)
+            {
+                ulong t = ((a[k] >> j) ^ a[k | j]) & mask;
+                a[k] ^= t << j;
+                a[k | j] ^= t;
+            }
+        }
+    }
+
+    private static void ClearRange(ulong[] row, int from, int count)
+    {
+        for (int bit = from; bit < from + count; bit++)
+        {
+            row[bit >> 6] &= ~(1UL << (bit & 63));
+        }
+    }
+
+    /// <summary>
+    /// Whether a segment from box <paramref name="near"/> to box
+    /// <paramref name="far"/> can cross the doorway <paramref name="opening"/>
+    /// (a box flat along the axis it faces), all three in one frame.
+    /// </summary>
+    internal static bool Through(Box near, Box far, Box opening)
+    {
         int axis = opening.Mins.X == opening.Maxs.X ? 0 : opening.Mins.Y == opening.Maxs.Y ? 1 : 2;
         int u = axis == 0 ? 1 : 0, v = axis == 2 ? 1 : 2;
         float plane = Component(opening.Mins, axis);
@@ -357,46 +460,43 @@ internal static class LevelDoorVisibility
             return true; // a box wholly past the doorway's plane: nothing to decide by
         }
 
+        // Where a segment crosses depends on its two ends' distances from
+        // the plane only through the fraction along it, and for a given
+        // fraction the crossing's u (and v) is least at both ends' least u
+        // and greatest at their greatest: so the crossings' bounds are
+        // reached at the fractions of the four pairs of extents along the
+        // axis, not the sixty-four pairs of corners.
         float uLo = float.MaxValue, uHi = float.MinValue, vLo = float.MaxValue, vHi = float.MinValue;
-        for (int i = 0; i < 8; i++)
+        (float nearULo, float nearUHi) = (Component(near.Mins, u), Component(near.Maxs, u));
+        (float nearVLo, float nearVHi) = (Component(near.Mins, v), Component(near.Maxs, v));
+        (float farULo, float farUHi) = (Component(far.Mins, u), Component(far.Maxs, u));
+        (float farVLo, float farVHi) = (Component(far.Mins, v), Component(far.Maxs, v));
+        foreach (float pa in (ReadOnlySpan<float>)[nearLo, nearHi])
         {
-            Vec3 p = Corner(near, i, axis, nearLo, nearHi);
-            float fp = sign * (Component(p, axis) - plane);
-            for (int j = 0; j < 8; j++)
+            foreach (float qa in (ReadOnlySpan<float>)[farLo, farHi])
             {
-                Vec3 q = Corner(far, j, axis, farLo, farHi);
-                float fq = sign * (Component(q, axis) - plane);
-                float t = fp == fq ? 0f : fp / (fp - fq);
-                float pu = Component(p, u), pv = Component(p, v);
-                float cu = pu + (t * (Component(q, u) - pu));
-                float cv = pv + (t * (Component(q, v) - pv));
-                uLo = Math.Min(uLo, cu);
-                uHi = Math.Max(uHi, cu);
-                vLo = Math.Min(vLo, cv);
-                vHi = Math.Max(vHi, cv);
+                float fp = sign * (pa - plane);
+                float fq = sign * (qa - plane);
                 if (fp == fq)
                 {
-                    // Both on the plane: the whole segment lies in it.
-                    float qu = Component(q, u), qv = Component(q, v);
-                    uLo = Math.Min(uLo, qu);
-                    uHi = Math.Max(uHi, qu);
-                    vLo = Math.Min(vLo, qv);
-                    vHi = Math.Max(vHi, qv);
+                    // Both ends on the plane: the segments lie in it.
+                    uLo = Math.Min(uLo, Math.Min(nearULo, farULo));
+                    uHi = Math.Max(uHi, Math.Max(nearUHi, farUHi));
+                    vLo = Math.Min(vLo, Math.Min(nearVLo, farVLo));
+                    vHi = Math.Max(vHi, Math.Max(nearVHi, farVHi));
+                    continue;
                 }
+
+                float t = fp / (fp - fq);
+                uLo = Math.Min(uLo, nearULo + (t * (farULo - nearULo)));
+                uHi = Math.Max(uHi, nearUHi + (t * (farUHi - nearUHi)));
+                vLo = Math.Min(vLo, nearVLo + (t * (farVLo - nearVLo)));
+                vHi = Math.Max(vHi, nearVHi + (t * (farVHi - nearVHi)));
             }
         }
 
         return uLo - BoxMargin <= Component(opening.Maxs, u) && Component(opening.Mins, u) <= uHi + BoxMargin
             && vLo - BoxMargin <= Component(opening.Maxs, v) && Component(opening.Mins, v) <= vHi + BoxMargin;
-    }
-
-    /// <summary>Corner <paramref name="i"/> of a box, its extent along <paramref name="axis"/> replaced by the cut one.</summary>
-    private static Vec3 Corner(Box box, int i, int axis, float lo, float hi)
-    {
-        float x = axis == 0 ? ((i & 1) == 0 ? lo : hi) : (i & 1) == 0 ? box.Mins.X : box.Maxs.X;
-        float y = axis == 1 ? ((i & 2) == 0 ? lo : hi) : (i & 2) == 0 ? box.Mins.Y : box.Maxs.Y;
-        float z = axis == 2 ? ((i & 4) == 0 ? lo : hi) : (i & 4) == 0 ? box.Mins.Z : box.Maxs.Z;
-        return new Vec3(x, y, z);
     }
 
     /// <summary>A room's link-time view: its own rows and what sees each doorway, with its carved doorways joined in.</summary>

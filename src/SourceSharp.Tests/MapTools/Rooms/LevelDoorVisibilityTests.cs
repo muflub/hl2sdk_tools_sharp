@@ -343,16 +343,27 @@ public sealed class LevelDoorVisibilityTests
         Box touching = new(new Vec3(240, 100, 100), new Vec3(256, 120, 120));
         Box past = new(new Vec3(300, 16, 16), new Vec3(400, 40, 40));
 
-        Assert.True(LevelDoorVisibility.Through(frame, low, farLow, opening));
-        Assert.False(LevelDoorVisibility.Through(frame, high, farHigh, opening));
-        Assert.True(LevelDoorVisibility.Through(frame, low, farHigh, opening));
-        Assert.True(LevelDoorVisibility.Through(frame, touching, farHigh, opening));
-        Assert.True(LevelDoorVisibility.Through(frame, past, farLow, opening));
+        // In the frame, and the same either way round.
+        bool Through(Box near, Box far, Box door)
+        {
+            bool forward = LevelDoorVisibility.Through(
+                LevelDoorVisibility.ToFrame(frame, near), LevelDoorVisibility.ToFrame(frame, far), LevelDoorVisibility.ToFrame(frame, door));
+            bool back = LevelDoorVisibility.Through(
+                LevelDoorVisibility.ToFrame(frame, far), LevelDoorVisibility.ToFrame(frame, near), LevelDoorVisibility.ToFrame(frame, door));
+            Assert.Equal(forward, back);
+            return forward;
+        }
+
+        Assert.True(Through(low, farLow, opening));
+        Assert.False(Through(high, farHigh, opening));
+        Assert.True(Through(low, farHigh, opening));
+        Assert.True(Through(touching, farHigh, opening));
+        Assert.True(Through(past, farLow, opening));
 
         // A pocket past the doorway's side: lines from anywhere low reach it
         // through the doorway only by rising, which the low box allows.
-        Assert.True(LevelDoorVisibility.Through(frame, low, farSide, opening));
-        Assert.False(LevelDoorVisibility.Through(frame, high, new Box(new Vec3(272, 190, 190), new Vec3(368, 240, 240)), opening));
+        Assert.True(Through(low, farSide, opening));
+        Assert.False(Through(high, new Box(new Vec3(272, 190, 190), new Vec3(368, 240, 240)), opening));
     }
 
     /// <summary>
@@ -402,6 +413,50 @@ public sealed class LevelDoorVisibilityTests
         Assert.True(Sees(walled, 0, 1) && Sees(walled, 2, 3));
 
         static bool Sees(LevelVisibility v, int from, int to) => (v.Pvs[(from * v.RowBytes) + (to >> 3)] & (1 << (to & 7))) != 0;
+    }
+
+    /// <summary>
+    /// The bit-matrix transpose the rows are made symmetric with is the
+    /// transpose, bit for bit, at sizes around the 64-bit block and on dense
+    /// and sparse matrices.
+    /// </summary>
+    [Theory]
+    [InlineData(1, 0.5, 1)]
+    [InlineData(63, 0.3, 2)]
+    [InlineData(64, 0.5, 3)]
+    [InlineData(65, 0.05, 4)]
+    [InlineData(130, 0.9, 5)]
+    [InlineData(200, 0.01, 6)]
+    public void TheTransposeIsTheTranspose(int count, double density, int seed)
+    {
+        Random random = new(seed);
+        int words = (count + 63) >> 6;
+        ulong[][] rows = new ulong[count][];
+        for (int r = 0; r < count; r++)
+        {
+            rows[r] = new ulong[words];
+            for (int c = 0; c < count; c++)
+            {
+                if (random.NextDouble() < density)
+                {
+                    rows[r][c >> 6] |= 1UL << (c & 63);
+                }
+            }
+        }
+
+        ulong[][] transposed = LevelDoorVisibility.Transpose(rows, count);
+        for (int r = 0; r < count; r++)
+        {
+            for (int c = 0; c < count; c++)
+            {
+                Assert.Equal((rows[r][c >> 6] >> (c & 63)) & 1, (transposed[c][r >> 6] >> (r & 63)) & 1);
+            }
+
+            for (int c = count; c < words * 64; c++)
+            {
+                Assert.Equal(0UL, (transposed[r][c >> 6] >> (c & 63)) & 1);
+            }
+        }
     }
 
     /// <summary>
