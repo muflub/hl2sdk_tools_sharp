@@ -1459,7 +1459,9 @@ public enum StockQuirk
     /// distance in front of a candidate plane, so a vertex on the plane
     /// reads as a residual like 6e-5 of either sign and can cost the plane
     /// 1000 points. On 2fort that decides which of two wedge faces splits a
-    /// node, and with it the clusters and portals below.
+    /// node, and with it the clusters and portals below. Under the Correct
+    /// policy <see cref="SplitEpsilonBrushOnPlane"/> reads such a vertex as on
+    /// the plane, which takes this path out.
     /// </para>
     /// <para>
     /// <see cref="CompliancePolicy.Correct"/> divides exactly

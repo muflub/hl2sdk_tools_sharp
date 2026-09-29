@@ -116,6 +116,38 @@ public class SplitEpsilonBrushOnPlaneTests
     }
 
     /// <summary>
+    /// <b>Under Stock the residual's sign picks the splitter.</b> Two nodes
+    /// that differ only in which way the corner edge's last bits rounded are
+    /// split on different planes: a few ulps behind, the candidate wins; a
+    /// few ulps in front, it is charged 1000 and another plane wins. This is
+    /// the 2fort mechanism in miniature, where a normal one ulp different
+    /// moved the edge's residual across zero.
+    /// </summary>
+    [Fact]
+    public async Task UnderStockTheResidualsSignChangesTheSplitter()
+    {
+        (int near, int candidate) = await WinnerAsync(ComplianceOptions.Stock, Nudge.UlpsOnTheNear);
+        (int far, _) = await WinnerAsync(ComplianceOptions.Stock, Nudge.UlpsOnTheFar);
+
+        Assert.Equal(candidate, near);
+        Assert.NotEqual(candidate, far);
+    }
+
+    /// <summary>
+    /// <b>Under Correct the splitter is stable.</b> The same two nodes split
+    /// on the same plane, the candidate, whichever way the edge rounded.
+    /// </summary>
+    [Fact]
+    public async Task UnderCorrectTheSplitterDoesNotDependOnTheResidualsSign()
+    {
+        (int near, int candidate) = await WinnerAsync(ComplianceOptions.Correct, Nudge.UlpsOnTheNear);
+        (int far, _) = await WinnerAsync(ComplianceOptions.Correct, Nudge.UlpsOnTheFar);
+
+        Assert.Equal(candidate, near);
+        Assert.Equal(candidate, far);
+    }
+
+    /// <summary>
     /// The band sits where <see cref="BrushGeometry.SplitBrush"/> draws its own
     /// line, and well clear of both the rounding noise and the 1-unit limit
     /// of the test it narrows. A fact rather than a comment, so the three
@@ -157,10 +189,72 @@ public class SplitEpsilonBrushOnPlaneTests
     private static async Task<int> EpsilonBrushesAsync(
         ComplianceOptions compliance, Nudge nudge, bool mirrored)
     {
+        BspBuildContext build = await LoadAsync(compliance);
+        (BspBrush prism, int candidate) = Prism(build, nudge, mirrored);
+
+        int epsilon = 0;
+        int side = BrushBspTree.TestBrushToPlaneNumber(
+            build, prism, candidate, out _, out _, ref epsilon);
+
+        // The box straddles the plane in every case, so the vertex test ran.
+        Assert.Equal(PlaneSideFlags.Both, side);
+        return epsilon;
+    }
+
+    /// <summary>
+    /// Scores a node holding the prism and a wedge that owns the candidate
+    /// plane, and returns the plane <see cref="BrushBspTree.SelectSplitSide"/>
+    /// picks, with the candidate's number to compare it against.
+    /// </summary>
+    /// <remarks>
+    /// The wedge is the part of the box (0, -128, -64)-(128, 0, 64) in front of
+    /// the candidate plane, so it touches the prism only along the corner
+    /// edge. The node's volume is the two brushes' joint bounds, so the
+    /// planes of the outer faces cannot divide it and are never scored. What
+    /// is left is the candidate (facing the wedge, crossing nothing) and
+    /// planes that cut several faces, so the candidate wins unless it is
+    /// charged for an epsilon brush.
+    /// </remarks>
+    private static async Task<(int Winner, int Candidate)> WinnerAsync(
+        ComplianceOptions compliance, Nudge nudge)
+    {
+        BspBuildContext build = await LoadAsync(compliance);
+        (BspBrush prism, int candidate) = Prism(build, nudge, mirrored: false);
+
+        BspBrush box = CsgFixture.Box(build, new Vec3(0, -128, -64), new Vec3(128, 0, 64));
+        BrushGeometry.SplitBrush(build, box, candidate, out BspBrush? wedge, out _);
+        Assert.NotNull(wedge);
+        for (int i = 0; i < wedge!.SideCount; i++)
+        {
+            wedge.Sides[i].Visible = true;
+            wedge.Sides[i].TexInfo = 0;
+        }
+
+        prism.Next = wedge;
+
+        BspNode node = build.AllocNode();
+        node.Volume = CsgFixture.Box(build, new Vec3(-64, -128, -64), new Vec3(128, 64, 64));
+
+        Assert.True(BrushBspTree.SelectSplitSide(build, prism, node, out BspBrushSide best));
+        return (best.PlaneNumber & ~1, candidate & ~1);
+    }
+
+    private static async Task<BspBuildContext> LoadAsync(ComplianceOptions compliance)
+    {
         (BspBuildContext build, _) = await CsgFixture.LoadAsync(
             CsgFixture.World((UnitMap.Plain, (-8, -8, -8), (8, 8, 8))),
             new() { Compliance = compliance });
+        return build;
+    }
 
+    /// <summary>
+    /// The prism, with its corner edge at (64, -64) moved as
+    /// <paramref name="nudge"/> says, and the candidate plane (mirrored or
+    /// not) that the edge lies on.
+    /// </summary>
+    private static (BspBrush Prism, int Candidate) Prism(
+        BspBuildContext build, Nudge nudge, bool mirrored)
+    {
         BspBrush box = CsgFixture.Box(build, new Vec3(-64, -64, -64), new Vec3(64, 64, 64));
         int diagonal = build.Planes.Find(new Vec3(1, 1, 0).Normalise().Normalised, 0f);
         BrushGeometry.SplitBrush(build, box, diagonal, out _, out BspBrush? prism);
@@ -230,14 +324,7 @@ public class SplitEpsilonBrushOnPlaneTests
         }
 
         BrushGeometry.BoundBrush(build, prism);
-
-        int epsilon = 0;
-        int side = BrushBspTree.TestBrushToPlaneNumber(
-            build, prism, candidate, out _, out _, ref epsilon);
-
-        // The box straddles the plane in every case, so the vertex test ran.
-        Assert.Equal(PlaneSideFlags.Both, side);
-        return epsilon;
+        return (prism, candidate);
     }
 
     private static float Residual(Plane plane, float x) =>

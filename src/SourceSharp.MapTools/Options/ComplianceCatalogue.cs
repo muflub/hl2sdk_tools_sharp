@@ -1301,8 +1301,9 @@ public static class ComplianceCatalogue
             ],
             "One ulp here does not stay one ulp: the split heuristic's epsilon-brush test reads "
             + "the sign of a vertex's residual against the plane, so on 2fort it moves which "
-            + "plane a node splits on and the cluster count with it. On a CPU whose estimate is "
-            + "not the reference's, the Stock side still differs from stock."),
+            + "plane a node splits on and the cluster count with it (SplitEpsilonBrushOnPlane "
+            + "narrows that under Correct). On a CPU whose estimate is not the reference's, the "
+            + "Stock side still differs from stock."),
 
         StockQuirk.SplitEpsilonBrushOnPlane => new(
             quirk,
@@ -1318,14 +1319,22 @@ public static class ComplianceCatalogue
                 "SourceSharp.MapTools.Bsp.Tree.BrushBspTree.TestBrushToPlaneNumber",
             ],
             QuirkObservation.Demonstrated,
-            "OBSERVED_PLACEHOLDER",
+            "On 2fort a vertex residual of +6.1e-5 cost one wedge plane the penalty and moved the "
+            + "split; flipping PlaneFromPointsNormalise, BaseWindingNormalise or EdgeBevelNormalise "
+            + "alone moved Correct's cluster count from 2492 to 2476, 2500 or 2495. With this quirk "
+            + "corrected, Correct gives 2473 and the three flips 2475, 2476 and 2473, and the "
+            + "EdgeBevelNormalise flip leaves the tree identical.",
             [
                 "SplitEpsilonBrushOnPlaneTests.StockCountsAnEdgeAFewUlpsInFrontAndNotOneAFewUlpsBehind",
                 "SplitEpsilonBrushOnPlaneTests.StockCountsAnEdgeAFewUlpsBehindTheMirroredPlaneAndNotOneInFront",
                 "SplitEpsilonBrushOnPlaneTests.CorrectCountsNeitherSideOfTheResidualOnEitherHalfOfTheTest",
                 "SplitEpsilonBrushOnPlaneTests.AnEdgeInsideTheBandCountsOnlyUnderStock",
+                "SplitEpsilonBrushOnPlaneTests.UnderStockTheResidualsSignChangesTheSplitter",
+                "SplitEpsilonBrushOnPlaneTests.UnderCorrectTheSplitterDoesNotDependOnTheResidualsSign",
             ],
-            "NOTE_PLACEHOLDER"),
+            "The spread that remains on 2fort comes from brush splitting, not scoring: a "
+            + "zero-epsilon clip keeps or drops a sliver side on its last bits, so a fragment has one "
+            + "side more or fewer, and the nodes below it are scored on different brushes."),
 
         _ => throw new ArgumentOutOfRangeException(
             nameof(quirk), quirk, "no ComplianceCatalogue entry for this StockQuirk"),
