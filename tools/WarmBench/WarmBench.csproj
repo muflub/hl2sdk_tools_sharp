@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Runs the whole compile chain many times in one process, the way the
+    service hosts it, and reports what each run cost and what it left behind:
+    per-stage wall and CPU time, allocation, GC counts and pauses, peak RSS,
+    the output's SHA-256, and, when asked, heap, file-descriptor, thread and
+    mapping snapshots after every wave.
+
+    `ssmap bench` times compiles one after another, and the rest of ssmap
+    runs one compile per process, so neither shows the costs only a
+    long-lived, concurrent host pays: scratch a finished compile keeps alive,
+    pools and caches that grow run to run, handles that are not released,
+    compiles that contend when they share a process and a mount. This tool
+    is that host: it runs waves of compiles, one or several at a time, on a
+    shared or a per-compile game mount, and snapshots the process between
+    waves.
+
+    It lives under tools/, outside src/ and the solution, like
+    PerfTraceReport, because it is a measuring instrument rather than part of
+    the product: it reads /proc, calls malloc_trim and resets the peak-RSS
+    counter, none of which the libraries may do. It references MapTools as a
+    project and uses only its public API (MapTools gives it no
+    InternalsVisibleTo), so it drives the libraries exactly as a third-party
+    host would, and a change that breaks such a host breaks this build.
+
+    The GC is left at the runtime's defaults on purpose: the GC mode is a
+    property of the host process, so it is chosen with DOTNET_ environment
+    variables when the tool is started (README, "Measuring performance"),
+    never here.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SourceSharp.MapTools\SourceSharp.MapTools.csproj" />
+  </ItemGroup>
+
+</Project>
