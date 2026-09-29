@@ -607,8 +607,14 @@ bytes are refused, naming both, and the rooms' default cubemaps (built from
 the library's sky, `materials/maps/<room>/cubemapdefault.vtf` and its HDR
 twin) are renamed to the level's map name, the output file's name, which is
 where the engine looks for them; so renaming a linked `.bsp` afterwards
-loses its default cubemaps, as it does for any map. Other files named after
-a room (patched materials) keep the room's name, which its faces use.
+loses its default cubemaps, as it does for any map. Each `env_cubemap`
+sample is carried to its linked position, and what vbsp named after it (the
+sample's cubemap copies and the specular materials patched for it) is
+renamed to the level's name and the sample's world position, once per
+placement, as a compile of the whole level names them; each room's faces
+keep the samples of their own room. Other files named after a room (water
+and `_wvt_patch` patched materials) keep the room's name, which its faces
+use.
 Static props (`prop_static`) are carried and cost the level no entity: each
 placed room's props are moved and turned with it, their model dictionaries
 merged, and each prop's leaves listed by walking the linked tree with the

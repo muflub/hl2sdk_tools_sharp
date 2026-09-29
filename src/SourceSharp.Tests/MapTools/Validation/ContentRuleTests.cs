@@ -105,6 +105,26 @@ public class ContentRuleTests
         Severity.Is(report, BspRuleCodes.NoCubemaps, DiagnosticSeverity.Warning);
     }
 
+    [Corrupts(BspRuleCodes.TooManyCubemaps)]
+    public async Task AMapWithMoreCubemapSamplesThanVbspWritesIsReported()
+    {
+        // The golden map's first sample, 1025 times: one past what the
+        // SDK's vbsp holds. 1024 is still quiet.
+        BspData bsp = await Corrupted.GoldenAsync();
+        byte[] first = bsp[BspLump.Cubemaps].Data[..16].ToArray();
+        Corrupted.Replace(bsp, BspLump.Cubemaps, [.. Enumerable.Repeat(first, 1024).SelectMany(b => b)], 0);
+        Assert.True((await Corrupted.CheckAsync(bsp)).ForCode(BspRuleCodes.TooManyCubemaps).IsEmpty);
+
+        Corrupted.Replace(bsp, BspLump.Cubemaps, [.. Enumerable.Repeat(first, 1025).SelectMany(b => b)], 0);
+        ValidationReport report = await Corrupted.CheckAsync(bsp);
+
+        Corrupted.OnlyFires(report, BspRuleCodes.TooManyCubemaps);
+        Severity.Is(report, BspRuleCodes.TooManyCubemaps, DiagnosticSeverity.Warning);
+        Assert.Equal(
+            "the map has 1025 cubemap samples, more than the 1024 (MAX_MAP_CUBEMAPSAMPLES) the SDK's vbsp writes",
+            Assert.Single(report.ForCode(BspRuleCodes.TooManyCubemaps)).Message);
+    }
+
     [Corrupts(BspRuleCodes.PhysFraming)]
     public async Task APhysicsRecordWhoseSolidsDoNotAddUpIsReported()
     {

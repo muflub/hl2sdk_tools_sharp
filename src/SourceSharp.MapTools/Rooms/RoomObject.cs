@@ -167,6 +167,25 @@ public sealed record RoomObject(
     internal RoomTransit? TransitOfCompile => Transit is { } transit && transit.IsFor(this) ? transit : null;
 
     /// <summary>
+    /// The room's <c>env_cubemap</c> samples and the names its compile made
+    /// after them (<see cref="RoomCubemaps"/>: the samples per turn, the
+    /// patched texdata strings and packed files), or null: made by the room
+    /// compile for a room with samples, and stored by the pack in its own
+    /// section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Props"/>, not only a shortcut: the samples' origins
+    /// as the loader read them are not in the lump, which holds them
+    /// truncated, so a room with samples and none of this bound to its
+    /// compile (<see cref="CubemapsOfCompile"/>) is refused by the link,
+    /// naming the room.
+    /// </remarks>
+    internal RoomCubemaps? Cubemaps { get; init; }
+
+    /// <summary>The room's cubemap data while it describes this compile, else null.</summary>
+    internal RoomCubemaps? CubemapsOfCompile => Cubemaps is { } cubemaps && cubemaps.IsFor(this) ? cubemaps : null;
+
+    /// <summary>
     /// The room's navigation, or null: built beside the link work by a
     /// library compile whose library builds navigation, and read by a pack
     /// load that asks for it (<see cref="RoomPackRequest.Navigation"/>), at

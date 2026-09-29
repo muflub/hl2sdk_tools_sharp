@@ -130,6 +130,8 @@ public static partial class LevelLinker
     /// level from the rooms' (<see cref="WritePropsAsync"/>).
     /// <see cref="BspLump.PakFile"/> is carried whole: the rooms'
     /// archives are merged (<see cref="LevelPakFiles"/>).
+    /// <see cref="BspLump.Cubemaps"/> is every placement's samples at their
+    /// linked positions (<see cref="LevelCubemaps"/>).
     /// <see cref="BspLump.ClipPortalVerts"/> is not in the set: its vertices
     /// only exist for area portals, which are refused.
     /// </remarks>
@@ -145,7 +147,7 @@ public static partial class LevelLinker
         BspLump.Primitives, BspLump.PrimVerts, BspLump.PrimIndices,
         BspLump.FaceMacroTextureInfo,
         BspLump.Areas, BspLump.AreaPortals,
-        BspLump.Occlusion, BspLump.PakFile, BspLump.MapFlags,
+        BspLump.Occlusion, BspLump.PakFile, BspLump.MapFlags, BspLump.Cubemaps,
         BspLump.PhysCollide, BspLump.PhysDisp,
         ]);
 
@@ -236,7 +238,7 @@ public static partial class LevelLinker
         // level far past them is refused from the rooms' lump counts alone,
         // not after every room has been planned.
         RoomLinter.CheckLayout(layout, library);
-        LevelEntityReport entities = CheckCapacity(layout, library, options);
+        LevelEntityReport entities = CheckCapacity(layout, library, options, context.MapBase);
         ValidateJoints(layout, library);
         RoomLinter.CheckReachable(layout, name => library.Get(name).Definition);
 
@@ -277,7 +279,14 @@ public static partial class LevelLinker
         LevelFurniture furniture = new(resolved, layout);
         LevelProps? props = PlanProps(resolved, layout, furniture);
         LevelModels models = PlanModels(resolved, layout, furniture, transitions);
-        (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(paks, context.MapBase, props?.Files, cancellationToken);
+
+        // The level's cubemaps: every placement's samples at its position,
+        // and the names its room made after them renamed for it, which the
+        // pak and the texdata strings take (LevelCubemaps). Null for a level
+        // without samples, which links exactly as before them.
+        LevelCubemaps? cubemaps = LevelCubemaps.Plan(
+            [.. resolved.Select(p => (p.Room, new RoomTransform(p.Instance.Placement, p.Room.Definition.CellSize)))], context.MapBase);
+        (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(paks, context.MapBase, props?.Files, cubemaps?.ByRoom(), cancellationToken);
 
         // Per-room work: validate the compile against the relocation set and
         // move the turned structs to the cell. Each item writes only its own
@@ -350,7 +359,7 @@ public static partial class LevelLinker
         List<(int Placement, string ClassName)> droppedFurniture = [];
         (BspData linked, int foldedBrushes) = Assemble(
             plans, layout, visibilityLump, context, classes, naming, singletons, library.Options.MapVersion, options.FoldBrushes, mergedPak,
-            droppedFurniture, cancellationToken);
+            cubemaps, droppedFurniture, cancellationToken);
         if (props is not null)
         {
             await WritePropsAsync(linked, props, plans, cancellationToken).ConfigureAwait(false);
@@ -389,6 +398,7 @@ public static partial class LevelLinker
             EntityBudget = entities,
             FoldedBrushes = foldedBrushes,
             PackedFiles = packedFiles,
+            CubemapSamples = cubemaps?.SampleCount ?? 0,
             NameWarnings = naming.Result?.Warnings ?? [],
             NameNotes = naming.Result?.Verbose ?? [],
             HasTransitions = transitions is not null,
@@ -550,7 +560,12 @@ public static partial class LevelLinker
     /// (<see cref="CheckSharedTables"/>). The texdatas and strings are shared
     /// too, but do not depend on the cell, so they are counted here exactly,
     /// each room's the first time it is placed, with the same
-    /// <see cref="LinkTextures"/> the assembly builds them with.
+    /// <see cref="LinkTextures"/> the assembly builds them with; a room with
+    /// cubemap patches is counted at every placement, since each renames its
+    /// patches to its own position (<see cref="PlacementCubemaps"/>), which
+    /// is why the level's map name is wanted here. The cubemap samples are
+    /// totalled here too, against <c>MAX_MAP_CUBEMAPSAMPLES</c>
+    /// (<see cref="LevelCubemaps.Plan"/>).
     /// </para>
     /// <para>
     /// The entity budget is checked here too, after the lump totals
@@ -562,9 +577,10 @@ public static partial class LevelLinker
     /// <param name="layout">The level, its rooms already known to be in the library.</param>
     /// <param name="library">The rooms, and the library's settings.</param>
     /// <param name="options">The entity budget's settings; null for <see cref="LevelLinkOptions.Default"/>.</param>
+    /// <param name="mapBase">The linked map's name, which the rooms' cubemap patches are renamed with; empty when unknown.</param>
     /// <returns>The entity budget's report.</returns>
     /// <exception cref="LinkException">A total passes its field's limit, or the level passes the edict cap or the entity list's.</exception>
-    internal static LevelEntityReport CheckCapacity(LevelLayout layout, RoomLibrary library, LevelLinkOptions? options = null)
+    internal static LevelEntityReport CheckCapacity(LevelLayout layout, RoomLibrary library, LevelLinkOptions? options = null, string mapBase = "")
     {
         options ??= LevelLinkOptions.Default;
         int reserve = LevelEntityBudget.ReserveFor(options, library.Options);
@@ -576,19 +592,33 @@ public static partial class LevelLinker
             Dictionary<string, RoomEntityCounts> counted = new(StringComparer.Ordinal);
             Dictionary<(string Room, int Socket), SocketCensus> censuses = [];
             LinkTextures textures = new();
+            List<(RoomObject, RoomTransform)> placed = new(layout.Rooms.Count);
             foreach (RoomInstance instance in layout.Rooms)
             {
                 RoomObject room = library.Get(instance.Placement.Room);
+                placed.Add((room, new RoomTransform(instance.Placement, room.Definition.CellSize)));
+            }
+
+            // The cubemaps first: a room without its cubemap data, a patch
+            // name too long and too many samples are refused here, before
+            // anything is counted against them.
+            LevelCubemaps? cubemaps = LevelCubemaps.Plan(placed, mapBase);
+            for (int p = 0; p < layout.Rooms.Count; p++)
+            {
+                RoomInstance instance = layout.Rooms[p];
+                RoomObject room = placed[p].Item1;
                 string name = room.Definition.Name;
                 int texDatas = textures.TexDatas.Count;
                 int strings = textures.StringTable.Count;
-                if (!counted.TryGetValue(name, out RoomEntityCounts? counts))
+                PlacementCubemaps? patches = cubemaps?.At(p);
+                if (!counted.TryGetValue(name, out RoomEntityCounts? counts) || patches is { Strings.Count: > 0 })
                 {
                     // The material tables are shared by content and a room's
                     // texdata does not depend on its placement, so only the
-                    // first placement of a room can add to them.
-                    textures.InternTexDatas(room.Bsp, textures.InternStrings(room.Bsp, name));
-                    counted[name] = counts = room.CountEntities();
+                    // first placement of a room can add to them; unless it
+                    // has cubemap patches, which each placement renames.
+                    textures.InternTexDatas(room.Bsp, textures.InternStrings(room.Bsp, name, patches?.Strings));
+                    counts ??= counted[name] = room.CountEntities();
                 }
 
                 (int keptBrushes, int keptSides) = KeptBrushTotals(room, instance, censuses);
@@ -1930,6 +1960,13 @@ public sealed record LinkedLevel(BspData Bsp, VisResult Vis, LevelPlan Plan)
     /// packs one.
     /// </summary>
     public int PackedFiles { get; init; }
+
+    /// <summary>
+    /// How many <c>env_cubemap</c> samples the linked map carries: every
+    /// placed room's, at their linked positions (<see cref="LevelCubemaps"/>);
+    /// 0 when no room has one.
+    /// </summary>
+    public int CubemapSamples { get; init; }
 
     /// <summary>
     /// What resolving the rooms' names warned of, each a whole sentence: a

@@ -129,9 +129,15 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // points: a handful of points every placement reads. A room without
         // it gets no section, so its entry is what it was before transitions.
         IReadOnlyList<RoomPackSectionData> transit = room.TransitOfCompile is { } data ? [data.ToSection()] : [];
+
+        // The cubemap samples likewise, for a room with any: every
+        // placement reads them (the section holds all four turns), and a
+        // room without samples gets no section, so its entry is what it was
+        // before cubemaps were carried.
+        IReadOnlyList<RoomPackSectionData> cubemaps = room.CubemapsOfCompile is { } samples ? [samples.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. props, .. brushModels, .. transit, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -291,7 +297,10 @@ public sealed class RoomPackIndex
 /// in a level, its bounds and collision at all four turns,
 /// <c>RoomBrushModels</c>), when it has a transition role or spawn points
 /// its transition data (<c>TRAN</c>: its role, transition volume, fold
-/// trigger, arrival and spawn points, room-local, <c>RoomTransit</c>), and the link work done ahead for it
+/// trigger, arrival and spawn points, room-local, <c>RoomTransit</c>), when
+/// its compile has <c>env_cubemap</c> samples its cubemaps (<c>CUBE</c>: the
+/// samples at all four turns and the names its compile made after them,
+/// <c>RoomCubemaps</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
 /// the room alone, its door visibility (<c>DVIS</c>, <see cref="RoomDoorVisibility"/>),
 /// then per quarter turn <i>r</i> its turned geometry
@@ -862,6 +871,11 @@ public static class RoomPack
                 wanted.Add((name, transit));
             }
 
+            if (entry.Find(RoomCubemaps.SectionTag) is { } cubemaps)
+            {
+                wanted.Add((name, cubemaps));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -964,9 +978,15 @@ public static class RoomPack
             RoomStaticProps? props = RoomStaticProps.Read(Section(name, RoomStaticProps.SectionTag), room.Definition, room.Bsp);
             RoomBrushModels? brushModels = RoomBrushModels.Read(Section(name, RoomBrushModels.SectionTag), room.Definition, room.Bsp);
             RoomTransit? transit = RoomTransit.Read(Section(name, RoomTransit.SectionTag), name, room.Bsp);
+            RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
+                && cubemaps is null
                 ? room
-                : room with { Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props, BrushModels = brushModels, Transit = transit };
+                : room with
+                {
+                    Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props, BrushModels = brushModels, Transit = transit,
+                    Cubemaps = cubemaps,
+                };
         }
 
         return [.. requests.Select(request => loaded[request.Name])];
@@ -1280,6 +1300,7 @@ public static class RoomPack
         ((byte)'P', (byte)'R', (byte)'O', (byte)'P') => RoomStaticProps.SectionTag,
         ((byte)'B', (byte)'M', (byte)'O', (byte)'D') => RoomBrushModels.SectionTag,
         ((byte)'T', (byte)'R', (byte)'A', (byte)'N') => RoomTransit.SectionTag,
+        ((byte)'C', (byte)'U', (byte)'B', (byte)'E') => RoomCubemaps.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),

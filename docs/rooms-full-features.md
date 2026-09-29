@@ -57,7 +57,7 @@ Terms used throughout:
 | Model lint | `RoomLinter.CheckModel` | Every brush (world and entity) inside its cell; trigger world brushes are exactly the kit's plug boxes. |
 | Compile | `RoomCompiler.CompileAsync` | `Vbsp.CompileAsync`, then `RoomLinter.CheckCompiled` (sealed, interior inside the cell, every socket plugged), then `Vvis.ComputeAsync`. **No vrad.** `RoomLibraryCompiler.CompileRoomAsync` sets `VbspContext.MapBase` to the room's name, lower-cased. |
 | Pack | `RoomPack`, `RoomObjectStore` | One `SSROOM01` container per room (manifest, the BSP's lumps and game lumps byte for byte, vis rows). The pack has typed per-room sections (entity counts, the link profile, the door visibility `DVIS` of Q3, names, navigation) and a library section table; readers skip unknown tags. |
-| Link | `LevelLinker.LinkAsync` | `RoomLinter.CheckLayout`, `CheckCapacity`, `ValidateJoints`, `RoomLinter.CheckReachable`, the pak merge (`LevelPakFiles`, PR 5; `RefusePackedFilesAsync` before it), `PlanRoom` per room (refusals, transforms), `AssignBases`, door visibility (`LevelDoorVisibility`, Q3; the door graph's closure, `DoorEdges` and `CloseRows`, with `-nodoorvis`), `Assemble` (top tree, plug carve, merges), `MergeEntities`, `MergeCollision`. |
+| Link | `LevelLinker.LinkAsync` | `RoomLinter.CheckLayout`, `CheckCapacity`, `ValidateJoints`, `RoomLinter.CheckReachable`, the cubemaps (`LevelCubemaps`, PR 12), the pak merge (`LevelPakFiles`, PR 5; `RefusePackedFilesAsync` before it), `PlanRoom` per room (refusals, transforms), `AssignBases`, door visibility (`LevelDoorVisibility`, Q3; the door graph's closure, `DoorEdges` and `CloseRows`, with `-nodoorvis`), `Assemble` (top tree, plug carve, merges), `MergeEntities`, `MergeCollision`. |
 | Flatten | `LevelFlattener.Flatten` | The level as one VMF: rooms copied with `VmfPlacement`, joined plugs left out, every `id` renumbered (`LevelFlattener.Renumber`). |
 
 The relocation is exact: a quarter turn permutes and negates components and
@@ -141,9 +141,9 @@ In the order it checks:
 1. any non-empty lump outside `LevelLinker.CarriedLumps`. Not in the set:
    `WorldLights(Hdr)`, `DispInfo`, `DispVerts`, `DispTris`,
    `DispLightmapAlphas`, `DispLightmapSamplePositions`, `LeafWaterData`,
-   `ClipPortalVerts`, `Cubemaps`, `Overlays`, `OverlayFades`,
+   `ClipPortalVerts`, `Overlays`, `OverlayFades`,
    `WaterOverlays`, `LeafAmbientIndex(Hdr)`, `LeafAmbientLighting(Hdr)`,
-   `LightingHdr`, `FacesHdr`;
+   `LightingHdr`, `FacesHdr` (`Cubemaps` left the list with PR 12);
 2. more than one model, or a world model whose head node is not 0 (since
    PR 7 brush models are carried, and a room with them is refused only when
    it carries no brush model data from its compile);
@@ -264,7 +264,7 @@ or research).
 | Water | refused (water leaf, lump) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
 | Overlays | refused (`Overlays` lump); split misplaces them | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
 | Decals (`infodecal`) | carried | nothing | nothing | 1 each (**uncertain** after spawn) | S |
-| `env_cubemap` | refused (`Cubemaps` lump, pak) | samples per rotation, patch list | rename VTFs and patched VMTs to the level | 0 | M-L |
+| `env_cubemap` | carried since PR 12 (samples moved, patches and copies renamed to the level) | samples per rotation, patch list | rename VTFs and patched VMTs to the level | 0 | M-L |
 | Area portals | refused | areas, portals, clip verts | area union across joints, optional door portals | 1 per portal | L |
 | Occluders | carried; `occludernumber` wrong | occluders per rotation | rebase the key | 1 each (strip candidate) | S |
 | Packed files | carried since PR 5 (merged, deduped, default cubemaps renamed) | the room's pak entries | merge, dedupe, rename | 0 | M |
@@ -692,7 +692,8 @@ named by a cubemap's `sides` go to the nearest sample. The `Cubemaps` lump
 lists samples. `DefaultCubemapBuilder` writes `cubemapdefault(.hdr).vtf`
 and a copy per sample into the pak from the sky's VTFs.
 
-**Today.** Refused (`Cubemaps` lump; patched materials and VTFs in the pak).
+**Today.** Carried since PR 12 (section 13, its landed note). Before it,
+refused (`Cubemaps` lump; patched materials and VTFs in the pak).
 
 **The naming problem.** The engine names cubemap textures from the **map's
 name** and the sample's **world** origin (`buildcubemaps` writes
@@ -728,9 +729,10 @@ where the flatten's nearest is in the same room.
 **Risk and size: M-L.** Texdata pressure: every (specular material × sample
 × placement) is a texdata and texinfo family.
 
-**Limits.** `MAX_MAP_CUBEMAPSAMPLES` (1024 in the SDK; not in this repo's
-tables); texdata ≤ 2048 and texinfo ≤ 12,288 (`BspLimits.Caps`), which
-cubemap patches reach first.
+**Limits.** `MAX_MAP_CUBEMAPSAMPLES` (1024 in the SDK; since PR 12
+`WriteLimits.MaxMapCubemapSamples`, which the link refuses past and `ssmap
+check` warns past, BSP0039); texdata ≤ 2048 and texinfo ≤ 12,288
+(`BspLimits.Caps`), which cubemap patches reach first.
 
 ### 4.11 Area portals and areas
 
@@ -2210,7 +2212,7 @@ Source SDK 2013 values not yet in this repo's tables (`BspLimits.Caps`,
 | Displacements | dispinfos; disp verts; disp tris | 2048 dispinfos (SDK); `DFace.DispInfo` `short` |
 | Water | leaf water data; water texinfos | 32,768 (`WriteLimits.MaxMapLeafWaterData`) |
 | Overlays | overlays; water overlays | 512; 16,384 (`MapOverlay`) |
-| Cubemaps | samples; patched texdata and texinfo | 1024 samples (SDK); texdata 2048, texinfo 12,288 |
+| Cubemaps | samples; patched texdata and texinfo | 1024 samples (SDK; `WriteLimits.MaxMapCubemapSamples` and BSP0039 since PR 12); texdata 2048, texinfo 12,288 |
 | Area portals | areas; portals ×2; clip verts | 256; 1024; `ushort` start, 128,000 (`WriteLimits`) |
 | Lighting | lighting bytes; world lights; switched styles; styles per face; ambient samples | `MAX_MAP_LIGHTING` (SDK); 8192 (`WorldLightExporter`); 32 (`WriteLimits.MaxSwitchedLights`); 4 per face; 65,535 (`DLeafAmbientIndex`) |
 | Pak | bytes | none beyond 32-bit lump offsets |
@@ -2757,6 +2759,109 @@ measure and for hosts that want the old bytes; the `ssmap link` line
 reporting the map is followed by one reporting the visible pairs and the
 lump's size. Area portals (PR 13) can now take the doorway flow's per-joint
 cones as the place to start.
+
+**PR 12 landed** (cubemaps). `ssmap room` stores, per room whose compile
+has `env_cubemap` samples, one `CUBE` section (`RoomCubemaps`, with the 1.1
+framing: codec byte, decoded length, revision; codec none): the map name
+the room was compiled under (its `MapBase`, the room's name lower-cased,
+which every name vbsp made after a sample holds); the rotation count (4)
+and per turn every sample's origin as the room's loader read it, turned;
+the texdata strings that are a sample's patch, each with its table entry,
+sample and patched material; and the packed files named after a sample,
+each with its kind (patched material, LDR or HDR texture copy), sample and
+material. A string is a patch when it is `maps/<map>/<material>_<x>_<y>_<z>`
+at one of the room's samples' positions and the room packs its patch
+file (vbsp writes one whenever it makes the texdata, so an authored name
+that only looks like one is left alone); a file is a sample's when it is
+a patch file, a dependent's (`$bottommaterial`, `$crackmaterial`,
+`$fallbackmaterial`, which has no texdata) included, or one of the
+sample's two default cubemap copies. The sizes stay in the room's own
+cubemap lump, which the container holds byte for byte. The link plans the
+level's cubemaps once, in `CheckCapacity` and again before the pak merge
+(`LevelCubemaps`): per placement in link order, each sample's origin
+turned, plus the placement's offset with the float additions the flatten
+makes (`QuarterTurn.Apply`), truncated as vbsp truncates; each patch
+renamed to `maps/<level>/<material>_<X>_<Y>_<Z>` and each texture to
+`maps/<level>/c<X>_<Y>_<Z>`, the level's name being its compile context's
+`MapBase` (`ssmap link`: the output file's name), as for the default
+cubemaps (PR 5). The cubemap lump is every placement's samples in link
+order, their sizes and padding the room's, which is the order the flattened
+level lists its `env_cubemap`s in; a placement's texdata strings are
+interned under their linked names (`LinkTextures.InternStrings`), so each
+placement of a room with patches brings its own patched texdata and
+texinfos, and the capacity check counts them at every placement; the pak
+writes each of a room's cubemap files once per placement under its linked
+name, a patched material's text rewritten by replacing, in one pass over
+its quoted values, the sample's old texture and patch names with the new
+ones, so the file is what vbsp writes for the same material and sample in
+the flattened level; the room-named copies are not carried. A level whose
+rooms have no sample writes no cubemap lump and the same bytes as before.
+The flatten needs no change: it moves `origin` (4.2) and keeps `sides`
+lists on the moved sides (PR 1), and vbsp names the flattened level's
+samples and patches after the level itself. Measured equivalence: the
+harness hub (two samples off the whole units, one naming a slab by
+`sides`, one left to the nearest; a specular material with a specular
+`$bottommaterial`) placed twice at the four turns, and the real-content
+3x3 sample with a specular block and a sample in its `hall`
+(`rooms3x3`, `rooms3x3_turn1`, through `ssmap room`, `ssmap link`, `ssmap
+check` and `--flatten` with `ssmap vbsp`): the linked and flattened maps
+carry the same cubemap lump, the same patched texdata names and the same
+packed files byte for byte, every patched face of the linked map names a
+sample of its own cell, and `ssmap check` reports the linked map clean,
+the "no cubemap samples" warning (BSP0029) that every linked level had
+gone once a room carries a sample. The pack is the same bytes at one
+thread and four, and so is the link. Cubemaps cost no entity (`env_cubemap`
+is compile-only): a level's entity lump and budget are those of the same
+level without samples. The pack format version stays 4: `CUBE` is a tag
+an older build skips, and that build refuses a room with samples by its
+lump; a pack written before this PR has no `CUBE` for a room with
+samples, which this build refuses with `room {room} has {k} cubemap
+samples but no cubemap data from its compile (a pack written before the
+link carried cubemaps, or a room built without ssmap room); recompile the
+library with ssmap room.`, so no pack reads silently wrong. Decisions
+taken where this document is open, or where it left a detail:
+
+- **O9 as recommended.** Each room's faces keep the samples its own
+  compile chose; the map name is fixed at link, and a link given none
+  refuses a room that packs a cubemap file, with PR 5's message.
+- **The origins are stored as read, not as the lump's integers.** vbsp
+  truncates a sample's origin toward zero, and the flattened compile
+  truncates the moved float, so turning the room's truncated integers
+  would put a sample off the whole units a unit away wherever the turn
+  negates it (10.5 turned twice into a 256-unit cell is 245.5, which
+  truncates to 245; the room's truncated 10 turned and moved is 246). The
+  stored floats give the flattened compile's integers for any origin, so
+  no origin is refused and there is no known difference here.
+- **Storage is four turns**, the 1.1 default for placement records: twelve
+  bytes a sample a turn, against four float negations a sample at link,
+  both far below what the link's timings resolve, so the default stands
+  without a measurement to move it.
+- **Limits.** `MAX_MAP_CUBEMAPSAMPLES` joins `WriteLimits` (1024) and the
+  capacity check refuses past it with `room {room} at cell ({x}, {y})
+  pushes the link to {n} cubemap samples; vbsp writes at most 1024
+  (MAX_MAP_CUBEMAPSAMPLES).`; since this repository cannot settle whether
+  the engine reads more, `ssmap check` reports a map past it as a warning
+  (BSP0039), not an error. A renamed patch as long as vbsp refuses (127
+  characters or more, `TEXTURE_NAME_LENGTH` less one) is refused with
+  `room {room} at cell ({x}, {y}): the cubemap patch {name} is {n}
+  characters long; vbsp names a patch in fewer than 127.`, and a patched
+  material packed compressed, whose text the link cannot rewrite, with
+  `room {room} packs {file} compressed; the link renames the cubemap names
+  inside a patched material and reads only stored files.` (vbsp always
+  stores).
+- **Two samples at one truncated position** share their names, as vbsp's
+  do; the first takes them.
+
+A known difference, not refused (O9): near a door the flattened compile's
+nearest sample for a face can be the neighbour's, where the linked face
+keeps its own room's, and then the two maps' patch for that face differ.
+Not done here: the checked-in 3x3 sample's `hall` did not grow its sample
+and specular floor (as PR 6 and PR 7 left theirs), since the real-content
+fact adds them to the library in the test and the sample's unchanged
+digests are what shows a level without cubemaps links as before; `ssmap
+rooms` does not list samples; the stress library has none; and whether
+`buildcubemaps` on a linked map writes the names the patches expect stays
+on the in-game checklist (15.8).
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
