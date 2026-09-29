@@ -109,6 +109,13 @@ namespace SourceSharp.MapTools.Rooms;
 /// room's, merged by name, the room's default cubemaps renamed to the
 /// level's map name (<see cref="LevelPakFiles"/>).
 /// </para>
+/// <para>
+/// <b>Overlays</b> are carried: every placed room's <c>info_overlay</c>
+/// records in link order, each moved and turned with its room, its id,
+/// texinfo and faces rebased, a named one's accessor renumbered to match
+/// (<see cref="LinkOverlays"/>, <see cref="RoomOverlays"/>). Water overlays
+/// are refused with water.
+/// </para>
 /// </remarks>
 public static partial class LevelLinker
 {
@@ -810,6 +817,12 @@ public static partial class LevelLinker
     /// </para>
     /// <para>
     /// The leaves start at 1 (the shared solid leaf), as the bases do.
+    /// </para>
+    /// <para>
+    /// The overlays are a sixth kind of cap: no field narrower than their
+    /// ids holds them, but vbsp refuses a map with more than
+    /// <c>MAX_MAP_OVERLAYS</c> (512), so the flattened level would not
+    /// compile (<see cref="OverlayLimit"/>).
     /// </para>
     /// </remarks>
     internal sealed class LinkTotals(bool checkBrushes = true)

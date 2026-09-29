@@ -435,6 +435,11 @@ public static partial class LevelLinker
     /// (<c>movedir</c>, <c>pushdir</c>, <c>gibdir</c>) turn as a yaw.
     /// </para>
     /// <para>
+    /// <b>An <c>info_overlay_accessor</c>'s basis</b> (what vbsp leaves of a
+    /// named overlay) is turned by <see cref="TurnOverlayPair"/>, as the
+    /// flatten turns the overlay's keys.
+    /// </para>
+    /// <para>
     /// <b>An <c>info_ladder</c>'s bounds</b> are a world-space box written as
     /// six separate keys (<see cref="LadderKeys"/>), room-local in the room
     /// compile; a whole-map compile of the level measures them from the
@@ -503,6 +508,15 @@ public static partial class LevelLinker
     /// The base depends on the level, not the room, so this is the link's
     /// step, never stored; the first room's key (base 0) is carried as
     /// written.
+    /// </para>
+    /// <para>
+    /// An <c>info_overlay_accessor</c>'s <c>OverlayID</c> is its overlay's
+    /// id, which every room compile numbers from 0; the link appends the
+    /// rooms' overlays in layout order (<see cref="RoomPlan.OverlayBase"/>),
+    /// so the key is shifted by the same base, as <c>occludernumber</c> is.
+    /// Its <c>BasisOrigin</c> (turned by <see cref="TurnOverlayPair"/>) takes
+    /// the placement's translation as one vector, as the flatten moves it and
+    /// as the link moves the overlay's record (<see cref="LinkOverlay"/>).
     /// </para>
     /// <para>
     /// A brush entity's <c>model</c> (<c>*k</c>, its room's model number)
