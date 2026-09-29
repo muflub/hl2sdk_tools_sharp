@@ -85,6 +85,55 @@ public sealed class RoomCommandsTests
         Assert.Equal(0, report.ErrorCount);
     }
 
+    /// <summary>
+    /// <c>ssmap room</c> lights every room by default and stores its base
+    /// lighting in a <c>LITE</c> section; <c>-nolight</c> writes none (the pack
+    /// an unlit library always had) under another pack id; <c>-vrad</c> passes
+    /// vrad's own switches (<c>-both</c> lights both ranges); a density that
+    /// would change the rooms' geometry, and <c>-vrad</c> with
+    /// <c>-nolight</c>, are usage errors.
+    /// </summary>
+    [Fact]
+    public async Task RoomLightsByDefaultAndTakesVradSwitches()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/lit.roompack"], output));
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/unlit.roompack", "-nolight"], output));
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/both.roompack", "-vrad", "-both -bounce 2"], output));
+
+        async Task<(RoomPackIndex Index, RoomObject Room)> Read(string path)
+        {
+            using MemoryStream pack = new(fs.GetBytes(VPath.Create(Rooted(path)))!);
+            RoomPackIndex index = await RoomPack.ReadIndexAsync(pack);
+            return (index, (await RoomPack.LoadRoomsAsync(pack, index, ["hub"]))[0]);
+        }
+
+        (RoomPackIndex lit, RoomObject litRoom) = await Read("/lit.roompack");
+        (RoomPackIndex unlit, RoomObject unlitRoom) = await Read("/unlit.roompack");
+        (_, RoomObject bothRoom) = await Read("/both.roompack");
+        Assert.NotNull(lit.Find("hub")!.Find("LITE"));
+        Assert.Null(unlit.Find("hub")!.Find("LITE"));
+        Assert.NotNull(litRoom.LightingOfCompile!.Payloads[0].Ldr);
+        Assert.Null(litRoom.LightingOfCompile.Payloads[0].Hdr);
+        Assert.Null(unlitRoom.LightingOfCompile);
+        Assert.NotNull(bothRoom.LightingOfCompile!.Payloads[0].Hdr);
+        byte[] Id(string path, RoomPackIndex index)
+        {
+            RoomPackSection id = index.LibrarySections.Single(t => t.Tag == RoomCompileIds.PackSection);
+            return fs.GetBytes(VPath.Create(Rooted(path)))!.AsSpan((int)id.Offset, (int)id.Length).ToArray();
+        }
+
+        Assert.NotEqual(Id("/lit.roompack", lit), Id("/unlit.roompack", unlit));
+
+        using StringWriter dense = new();
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomAsync(fs, [], ["/game/maps/rooms.vmf", "-vrad", "-luxeldensity 0.5"], dense));
+        Assert.Contains("-luxeldensity below 1 changes the room's geometry", dense.ToString(), StringComparison.Ordinal);
+        using StringWriter both = new();
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomAsync(fs, [], ["/game/maps/rooms.vmf", "-nolight", "-vrad", "-both"], both));
+        Assert.Equal("ssmap room: -vrad sets how the rooms are lit, and -nolight lights none" + Environment.NewLine, both.ToString());
+    }
+
     /// <summary>Rooms compiled with <c>-cooker none</c> still link, into a map without world collision.</summary>
     [Fact]
     public async Task UncookedRoomsStillLink()

@@ -436,4 +436,60 @@ public sealed class LevelLinkerLightingTests(LitRoomsFixture fixture, ITestOutpu
         int across = LevelLinker.PointInLeaf(linked, doorway + new Vec3(RoomHarness.WalkableKit.Depth + 8, 0, 0));
         Assert.Contains(index[leaf].FirstAmbientSample, (int[])[index[beside].FirstAmbientSample, index[across].FirstAmbientSample]);
     }
+
+    // ---- determinism and ranges -----------------------------------------------------------------
+
+    /// <summary>
+    /// 15.5: the base bake is the same bytes at any thread count (every
+    /// room's lighting section, one thread against four), and so is a lit
+    /// level linked from it.
+    /// </summary>
+    [Fact]
+    public async Task TheBakeAndTheLitLinkAreTheSameBytesAtAnyThreadCount()
+    {
+        RoomLibrary four = await RoomLightHarness.CompileAsync(LitRoomsFixture.Library, degree: 4, options: LitRoomsFixture.Options);
+        foreach (RoomObject room in fixture.Lit.Rooms)
+        {
+            Assert.Equal(
+                room.Lighting!.ToSection().Bytes.ToArray(),
+                four.Get(room.Definition.Name).Lighting!.ToSection().Bytes.ToArray());
+        }
+
+        LevelGrid level = RoomPropHarness.Level("hub@90, other@270", "other@0, hub@180");
+        Assert.Equal(await Bytes(fixture.Lit, level, 1), await Bytes(four, level, 4));
+
+        static async Task<byte[]> Bytes(RoomLibrary rooms, LevelGrid level, int degree)
+        {
+            using MemoryStream stream = new();
+            await BspFile.SaveAsync((await RoomLightHarness.LinkAsync(rooms, level, degree)).Bsp, stream, BspWriteMode.Canonical, CancellationToken.None);
+            return stream.ToArray();
+        }
+    }
+
+    /// <summary>
+    /// A library lit in both ranges (<c>-both</c>) links both: the HDR faces,
+    /// lightmaps, world lights and leaf ambient, each the same bytes as vrad
+    /// of the link itself at a turn, for a room alone and capped.
+    /// </summary>
+    [Fact]
+    public async Task BothRangesLinkAndMatchVradOfTheLink()
+    {
+        VmfDocument library = RoomLightHarness.Library(true, [1], (1, RoomLightHarness.Light(810, new Vec3(100, 60, 120))));
+        SourceSharp.MapTools.Options.VradOptions both = RoomLightHarness.Options with { Range = SourceSharp.MapTools.Options.VradLightingRange.Both };
+        RoomLibrary lit = await RoomLightHarness.CompileAsync(library, options: both);
+        RoomLibrary unlit = await RoomLightHarness.CompileAsync(library, light: false);
+        LevelGrid level = RoomPropHarness.Level("other@90");
+        BspData linked = (await RoomLightHarness.LinkAsync(lit, level)).Bsp;
+        BspData relit = await RoomLightHarness.RelightAsync((await RoomLightHarness.LinkAsync(unlit, level)).Bsp, both);
+        foreach (BspLump lump in (ReadOnlySpan<BspLump>)[
+            BspLump.Faces, BspLump.Lighting, BspLump.FacesHdr, BspLump.LightingHdr, BspLump.WorldLights, BspLump.WorldLightsHdr,
+            BspLump.LeafAmbientIndex, BspLump.LeafAmbientIndexHdr, BspLump.MapFlags])
+        {
+            Assert.False(linked[lump].IsEmpty, $"{lump}");
+            Assert.True(linked[lump].Data.Span.SequenceEqual(relit[lump].Data.Span), $"{lump}");
+        }
+
+        ValidationReport report = await BspValidator.CheckAsync(linked, CancellationToken.None);
+        Assert.True(report.ErrorCount == 0, string.Join("; ", report.Diagnostics));
+    }
 }

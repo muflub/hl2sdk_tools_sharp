@@ -767,7 +767,10 @@ public static partial class LevelLinker
         }
 
         shifted.FirstEdge = face.FirstEdge + plan.SurfEdgeBase;
-        shifted.LightOfs = face.LightOfs < 0 ? -1 : face.LightOfs + plan.LightBase;
+        // A lit room's bake lights its drawn faces only; its original faces
+        // keep what its compile wrote, as vrad leaves a map's (their offsets
+        // name nothing in the level's lightmaps, where the bake's blocks are).
+        shifted.LightOfs = face.LightOfs < 0 ? -1 : face.LightOfs + (original && plan.Lighting is not null ? 0 : plan.LightBase);
         if (original)
         {
             shifted.OrigFace = -1;
