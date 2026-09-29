@@ -84,9 +84,16 @@ namespace SourceSharp.MapTools.Rooms;
 /// </para>
 /// <para>
 /// A room whose compile left anything outside the relocation set — a water
-/// leaf, a real area portal, displacements, detail props — is refused
-/// rather than silently dropped: the linked map must be the rooms, not an
-/// approximation of them.
+/// leaf, displacements, detail props — is refused rather than silently
+/// dropped: the linked map must be the rooms, not an approximation of them.
+/// </para>
+/// <para>
+/// <b>Areas and area portals</b> are carried: every placement's own areas
+/// joined to its neighbours' at each joint, numbered for the level, its
+/// portals listed with their numbers rebased and their outlines moved, and,
+/// when the library asks, a door portal in every joint
+/// (<see cref="PlanAreas"/>, <see cref="WriteAreas"/>,
+/// <see cref="RoomAreaPortals"/>, <see cref="LevelDoorPortals"/>).
 /// </para>
 /// <para>
 /// <b>Brush entities</b> are carried as their own models: every placed
