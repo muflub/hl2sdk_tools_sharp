@@ -63,7 +63,8 @@ public static partial class LevelLinker
                     ComputeGeometry(room, rotation), ComputeCollision(room, rotation), entities);
             }
 
-            return new RoomLinkData(room.Definition, room.Bsp, room.Vis, shared, rotations);
+            return new RoomLinkData(
+                room.Definition, room.Bsp, room.Vis, shared, rotations, RoomDoorVisibility.Compute(room, shared));
         }
         catch (Exception exception) when (exception is LinkException or InvalidBspException)
         {
@@ -122,8 +123,9 @@ public static partial class LevelLinker
             }
         }
 
-        RefuseAreaPortals(name, bsp);
+        _ = RoomAreaPortalsOf(room);
         RefuseGameLumpContent(room);
+        _ = RoomOverlaysOf(room);
         RefuseDisplacementCollision(name, bsp);
 
         // The vis has to number the compile's own leaves before its rows are
@@ -327,6 +329,38 @@ public static partial class LevelLinker
         }
 
         return new RoomLinkPair(pair.Key, value, default);
+    }
+
+    /// <summary>
+    /// One key of an <c>info_overlay_accessor</c> (what vbsp leaves of a
+    /// named overlay, every key of the <c>info_overlay</c> kept) that places
+    /// the overlay, turned; or null for any other key, which
+    /// <see cref="TurnPair"/> turns as it turns every entity's.
+    /// </summary>
+    /// <remarks>
+    /// The keys are the ones the flatten moves on the overlay
+    /// (<see cref="VmfPlacement.MoveEntity"/>), so the two maps' accessors
+    /// carry the same text: <c>BasisOrigin</c> is a point, turned here and
+    /// moved at link (<see cref="TranslateEntity"/>); <c>BasisU</c>,
+    /// <c>BasisV</c> and <c>BasisNormal</c> are directions, turned for a
+    /// turned placement and written as the flatten writes them, and left as
+    /// written at turn 0, where the flatten leaves them. No other class
+    /// carries them once compiled (an unnamed overlay leaves no entity), so a
+    /// room without overlays turns exactly as it did.
+    /// </remarks>
+    private static RoomLinkPair? TurnOverlayPair(BspKeyValue pair, int turns, string room)
+    {
+        if (IsKey(pair.Key, RoomOverlays.OriginKey))
+        {
+            return new RoomLinkPair(pair.Key, null, RoomTransform.Rotate(ParseVec(pair.Value, pair.Key, room), turns));
+        }
+
+        if (turns != 0 && (IsKey(pair.Key, "BasisU") || IsKey(pair.Key, "BasisV") || IsKey(pair.Key, "BasisNormal")))
+        {
+            return new RoomLinkPair(pair.Key, VmfPlacement.Format(RoomTransform.Rotate(ParseVec(pair.Value, pair.Key, room), turns)), default);
+        }
+
+        return null;
     }
 
     /// <summary>

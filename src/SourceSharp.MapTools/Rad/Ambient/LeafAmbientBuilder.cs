@@ -155,7 +155,7 @@ public static class LeafAmbientBuilder
             perLeaf = await queue.RunAsync(
                     leafCount,
                     (leaf, sampler, context) => ComputeLeaf(scene, sampler, leaf, options, context.CancellationToken),
-                    _ => new AmbientSampler(scene, worldLights, visibility, options.Compliance),
+                    _ => new AmbientSampler(scene, worldLights, visibility, options.Compliance, options.FrameTurns),
                     queueOptions,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -246,7 +246,7 @@ public static class LeafAmbientBuilder
         CancellationToken cancellationToken)
     {
         List<LeafPlane> leafPlanes = scratch.Planes;
-        LeafSampler positions = new(scene, sampler.Displacements);
+        LeafSampler positions = new(scene, sampler.Displacements) { FrameTurns = options.FrameTurns };
         LeafBoundaryPlanes.Gather(leafIndex, scene.Nodes, scene.Planes, scene.Parents, leafPlanes);
 
         int sampleCount = CandidateSampleCount(scene, leafIndex, options);

@@ -532,15 +532,19 @@ public static class Program
                                                        game file the compile read, as a game
                                                        directory with its own gameinfo.txt
               room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <c>]
+                   [-nolight | -vrad "<vrad options>"]
                    [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
                                                       every room of a library VMF (one
                                                       info_room each), -threads at once
                                                       -> one <library>.roompack, with each
                                                       room's 3D navigation and entity counts;
+                                                      each room lit by vrad with the
+                                                      library's sun (-nolight: unlit),
+                                                      four times if sun or sky reaches it;
                                                       -incremental reuses unchanged rooms from
                                                       <library>.sscache.db (the same pack)
               link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]
-                   [-no-nav | -require-nav] [-nav-codec <c>] [-mod-entities] [-nofold]
+                   [-no-nav | -require-nav] [-nav-codec <c>] [-mod-entities] [-nofold] [-nodoorvis]
                                                       the level's rooms -> one linked map
                                                       and its <map>.nav3d beside it;
                                                       reports its edicts against 2048 less
@@ -549,7 +553,9 @@ public static class Program
                                                       cxry_ names resolved to their cells,
                                                       -mod-entities writes logic_room;
                                                       touching box brushes fold into one
-                                                      (-nofold keeps them apart)
+                                                      (-nofold keeps them apart);
+                                                      visibility through the doorways
+                                                      (-nodoorvis: every cluster sees all)
               link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
                                                       the same level as one VMF, for vbsp
               rooms <library.vmf> [-rooms <pack.roompack>]
@@ -560,9 +566,14 @@ public static class Program
                                                       length, codec, revision, hash
               layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
                      [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
+                     [-up-map <map> | -no-up] [-down-map <map> | -no-down] [-transition-distance <n>]
                                                       a seeded level of the library's rooms,
                                                       within the entity budget when the
-                                                      pack has the rooms' counts
+                                                      pack has the rooms' counts; one up
+                                                      and one down room when it has roles
+              layout <library.vmf> ... -sequence K -name <base> [-out <folder>]
+                                                      K levels <base>_01 .. <base>_K from
+                                                      seeds N.., chained by up_map/down_map
               nav <map.nav3d | level.yaml> [-rooms <pack>] [--obj <out.obj>] [--floor] [--agent N]
                                                       a level navigation's cells, free volume,
                                                       components and door links; OBJ export

@@ -500,16 +500,20 @@ public sealed class LevelLinkerSharedTablesTests
         library.Add(compiled.Get("hub") with { Link = null });
         LevelLayout layout = Layout(library, TurnedRows);
 
-        LevelLinkOptions noFold = new() { FoldBrushes = false }; // as TurnedLevelAsync links
-        LinkedLevel one = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 1), noFold);
-        LinkedLevel eight = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 8), noFold);
-        LinkedLevel again = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 8), noFold);
-        LinkedLevel stored = (await TurnedLevelAsync()).Link;
-        foreach (LinkedLevel other in (LinkedLevel[])[eight, again, stored])
+        // Door visibility on (the default) and off (as TurnedLevelAsync links).
+        foreach (bool doorVisibility in new[] { true, false })
         {
-            for (int i = 0; i < BspData.HeaderLumps; i++)
+            LevelLinkOptions noFold = new() { FoldBrushes = false, DoorVisibility = doorVisibility };
+            LinkedLevel one = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 1), noFold);
+            LinkedLevel eight = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 8), noFold);
+            LinkedLevel again = await LevelLinker.LinkAsync(layout, library, await RoomHarness.ContextAsync(degree: 8), noFold);
+            LinkedLevel[] others = doorVisibility ? [eight, again] : [eight, again, (await TurnedLevelAsync()).Link];
+            foreach (LinkedLevel other in others)
             {
-                Assert.True(one.Bsp[i].Data.Span.SequenceEqual(other.Bsp[i].Data.Span), $"{(BspLump)i} differs");
+                for (int i = 0; i < BspData.HeaderLumps; i++)
+                {
+                    Assert.True(one.Bsp[i].Data.Span.SequenceEqual(other.Bsp[i].Data.Span), $"{(BspLump)i} differs");
+                }
             }
         }
     }
@@ -543,9 +547,14 @@ public sealed class LevelLinkerSharedTablesTests
     /// <summary>
     /// Links rows of rooms without the brush fold: these facts compare every
     /// brush side with its room's, one for one, which a merged box is not.
+    /// And without door visibility, whose only change is the visibility lump
+    /// (<c>LinkedCollisionDigestTests.DoorVisibilityMovesOnlyTheVisibilityLump</c>):
+    /// the resolved digest pins every lump the sharing does not touch as the
+    /// appending link wrote it, the visibility lump among them.
     /// </summary>
     private static async Task<LinkedLevel> LinkRowsAsync(RoomLibrary library, params string[] rows) =>
-        await LevelLinker.LinkAsync(Layout(library, rows), library, await RoomHarness.ContextAsync(), new LevelLinkOptions { FoldBrushes = false });
+        await LevelLinker.LinkAsync(
+            Layout(library, rows), library, await RoomHarness.ContextAsync(), new LevelLinkOptions { FoldBrushes = false, DoorVisibility = false });
 
     private static LevelLayout Layout(RoomLibrary library, string[] rows) =>
         LevelYaml.Parse(RoomHarness.LevelText("rooms.vmf", rows), "shared")

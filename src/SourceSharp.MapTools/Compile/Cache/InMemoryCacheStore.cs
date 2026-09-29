@@ -61,17 +61,22 @@ namespace SourceSharp.MapTools.Compile.Cache;
 /// <para>
 /// Unlike the collector, this ceiling protects no generation: it is the
 /// process's memory limit, and a row it drops costs a miss, never a wrong
-/// hit, because every blob is content-addressed. A compile in flight that
-/// found a blob stored, and so did not stage it again, may commit a row whose
-/// blob was dropped meanwhile; the next read of that row finds the blob gone
-/// and treats it as a miss, exactly as the collector's deletions are treated.
+/// hit, because every blob is content-addressed. A compile in flight may
+/// commit a row whose blob was dropped meanwhile: it found the blob stored
+/// and did not stage it again, or it staged it and another compile's commit
+/// published it before the row was staged and then trimmed it away. The
+/// commit leaves such a row out (it would only ever read as a miss), so a
+/// committed row never names a blob the store does not hold; the compile
+/// that made it recomputes and stores both next time.
 /// </para>
 /// <para>
 /// <b>Concurrency.</b> Staging is lock-free; commits, clears and the trim run
 /// one at a time under one lock, and a commit publishes only what it found
 /// staged when it started: something another compile stages while the commit
-/// runs stays staged for the next commit instead of being cleared unseen.
-/// Reads never take the lock.
+/// runs stays staged for the next commit instead of being cleared unseen. A
+/// staged row whose blob is staged but was not yet staged when the commit
+/// read the blobs waits for the next commit the same way, so a row never goes
+/// in ahead of its blob. Reads never take the lock.
 /// </para>
 /// </remarks>
 public sealed class InMemoryCacheStore : ICacheStore
@@ -215,6 +220,18 @@ public sealed class InMemoryCacheStore : ICacheStore
 
     /// <summary>When set (by tests), the next <see cref="CommitAsync"/> throws after applying nothing.</summary>
     public Exception? FailNextCommit { get; set; }
+
+    /// <summary>
+    /// For the facts: runs inside <see cref="CommitAsync"/>, under the gate,
+    /// after the staged blobs are read and before the staged rows are.
+    /// </summary>
+    /// <remarks>
+    /// Null in every real store. Staging never takes the gate, so a compile
+    /// can stage a blob and its row in exactly this gap; the probe widens it
+    /// to whatever the fact stages there, making that interleaving
+    /// deterministic instead of a matter of scheduling.
+    /// </remarks>
+    internal Action? BlobsSnapshotProbe { get; init; }
 
     /// <summary>When set, <see cref="CheckIntegrityAsync"/> reports damage (the corruption fact).</summary>
     public bool ReportCorrupt { get; set; }
@@ -369,6 +386,7 @@ public sealed class InMemoryCacheStore : ICacheStore
             KeyValuePair<string, byte>[] deletedGenerations = _deletedGenerations.ToArray();
             KeyValuePair<string, byte>[] deletedBlobs = _deletedBlobs.ToArray();
             KeyValuePair<string, Blob>[] pendingBlobs = _pendingBlobs.ToArray();
+            BlobsSnapshotProbe?.Invoke();
             KeyValuePair<string, Row>[] pendingRows = _pendingRows.ToArray();
             KeyValuePair<string, byte>[] pendingGenerations = _pendingGenerations.ToArray();
             long seq = ++_commitSeq;
@@ -416,6 +434,31 @@ public sealed class InMemoryCacheStore : ICacheStore
 
             foreach (KeyValuePair<string, Row> entry in pendingRows)
             {
+                // A row is published only when the store holds every blob it
+                // names, checked under the gate after this commit's blobs are
+                // in, so no committed row ever names a blob that is gone.
+                switch (BlobsFor(entry.Value.Record))
+                {
+                    case BlobState.Staged:
+                        // Staged after the blob snapshot above, with the row
+                        // staged before the row snapshot: both belong to the
+                        // next commit, so the row waits in staging for it.
+                        continue;
+                    case BlobState.Gone:
+                        // Neither held nor staged. Staging is lock-free and a
+                        // compile stages its blob before its row, so another
+                        // compile's commit can land between the two: it
+                        // publishes the blob alone, and its trim, seeing no
+                        // committed row name the blob once the older rows
+                        // sharing it go, drops it. (A compile that found the
+                        // blob stored and did not stage it again ends up
+                        // here too.) Publishing the row would leave it naming
+                        // a blob that is gone; it would only ever read as a
+                        // miss, so it is dropped from staging as that miss.
+                        _pendingRows.TryRemove(entry);
+                        continue;
+                }
+
                 if (_rows.TryGetValue(entry.Key, out Row? before))
                 {
                     _bytes -= before.Cost;
@@ -518,6 +561,37 @@ public sealed class InMemoryCacheStore : ICacheStore
                 }
             }
         }
+    }
+
+    private enum BlobState
+    {
+        Held,
+        Staged,
+        Gone,
+    }
+
+    // Whether every blob a row names is held; if not, whether each missing
+    // one is at least staged (a later commit will hold it) or gone. Runs
+    // under the gate, after the commit's blobs are published.
+    private BlobState BlobsFor(CacheRecord record)
+    {
+        BlobState state = BlobState.Held;
+        foreach (string blob in record.Blobs.Values)
+        {
+            if (_blobs.ContainsKey(blob))
+            {
+                continue;
+            }
+
+            if (!_pendingBlobs.ContainsKey(blob))
+            {
+                return BlobState.Gone;
+            }
+
+            state = BlobState.Staged;
+        }
+
+        return state;
     }
 
     private void DropBlob(string key)

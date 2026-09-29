@@ -25,6 +25,14 @@ internal static class WriteLimits
     internal const int MaxMapPortalVerts = 128000;
     internal const int MaxMapSurfEdges = 512000;
 
+    /// <summary>
+    /// <c>MAX_MAP_CUBEMAPSAMPLES</c>: the most <c>env_cubemap</c> samples
+    /// the SDK's vbsp holds (its sample array's size), so the most a map it
+    /// compiles carries; a linked level is held to it too, since the
+    /// flattened level's compile must be able to write the same map.
+    /// </summary>
+    internal const int MaxMapCubemapSamples = 1024;
+
     /// <summary><c>MAX_SWITCHED_LIGHTS</c>.</summary>
     internal const int MaxSwitchedLights = 32;
 

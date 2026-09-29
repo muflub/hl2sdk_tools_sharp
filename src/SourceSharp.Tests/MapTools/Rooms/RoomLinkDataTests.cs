@@ -263,12 +263,13 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
         RoomLinkData data = (await LevelLinker.TryPrecomputeAsync(hub, CancellationToken.None))!;
         IReadOnlyList<RoomPackSectionData> sections = RoomLinkSections.Write(data, All, codec);
         Assert.Equal(
-            ["LNKA", "GEO0", "COL0", "ENT0", "GEO1", "COL1", "ENT1", "GEO2", "COL2", "ENT2", "GEO3", "COL3", "ENT3"],
+            ["LNKA", "DVIS", "GEO0", "COL0", "ENT0", "GEO1", "COL1", "ENT1", "GEO2", "COL2", "ENT2", "GEO3", "COL3", "ENT3"],
             sections.Select(s => s.Tag));
         Assert.All(sections, s => Assert.Equal((byte)codec, s.Bytes.Span[0]));
 
         RoomLinkData read = ReadBack(hub, sections)!;
         AssertSameShared(data.Shared, read.Shared);
+        Assert.True(data.Doors!.SameAs(read.Doors!));
         for (int rotation = 0; rotation < 4; rotation++)
         {
             AssertSameGeometry(data.Rotation(rotation)!.Geometry!, read.Rotation(rotation)!.Geometry!);
@@ -524,7 +525,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
         RoomObject hub = fixture.Library.Get("hub");
         RoomPackItem item = await RoomPackItem.CreateAsync(hub);
         Assert.Equal(
-            ["ECNT", "LNKA", "GEO0", "COL0", "NAM0", "GEO1", "COL1", "NAM1", "GEO2", "COL2", "NAM2", "GEO3", "COL3", "NAM3"],
+            ["ECNT", "LNKA", "DVIS", "GEO0", "COL0", "NAM0", "GEO1", "COL1", "NAM1", "GEO2", "COL2", "NAM2", "GEO3", "COL3", "NAM3"],
             item.Extra.Select(s => s.Tag));
         Assert.All(item.Extra, s => Assert.Equal((byte)RoomLinkCodec.None, s.Bytes.Span[0]));
 
@@ -534,7 +535,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
 
         RoomObject bare = RoomHarness.WithLumps(hub, bsp => bsp.SetLump(BspLump.PhysCollide, Array.Empty<byte>()));
         RoomPackItem uncooked = await RoomPackItem.CreateAsync(bare);
-        Assert.Equal(["ECNT", "LNKA", "GEO0", "NAM0", "GEO1", "NAM1", "GEO2", "NAM2", "GEO3", "NAM3"], uncooked.Extra.Select(s => s.Tag));
+        Assert.Equal(["ECNT", "LNKA", "DVIS", "GEO0", "NAM0", "GEO1", "NAM1", "GEO2", "NAM2", "GEO3", "NAM3"], uncooked.Extra.Select(s => s.Tag));
     }
 
     // ---- the link reads them --------------------------------------------------
@@ -655,7 +656,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
         using MemoryStream stream = new(pack);
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
         Assert.Equal(
-            ["ROOM", "LNKA", "GEO0", "COL0", "ENT0", "GEO1", "COL1", "ENT1", "GEO2", "COL2", "ENT2", "GEO3", "COL3", "ENT3"],
+            ["ROOM", "LNKA", "DVIS", "GEO0", "COL0", "ENT0", "GEO1", "COL1", "ENT1", "GEO2", "COL2", "ENT2", "GEO3", "COL3", "ENT3"],
             index.Find("hub")!.Sections.Select(s => s.Tag));
 
         IReadOnlyList<RoomObject> rooms = await RoomPack.LoadRoomsAsync(

@@ -409,7 +409,8 @@ public static class Vrad
         string range = hdr ? "HDR" : "LDR";
 
         // The density was applied to the map above; the settings see a plain map.
-        DirectLightingSettings settings = DirectLightingSettings.FromVrad(options with { LuxelDensity = 1.0f }, hdr);
+        DirectLightingSettings settings = DirectLightingSettings.FromVrad(options with { LuxelDensity = 1.0f }, hdr)
+            with { FrameTurns = context.FrameTurns };
 
         Report(context, StartStage, 0);
         RadWorld world = await RadWorld.StartAsync(
@@ -429,6 +430,7 @@ public static class Vrad
             context.PropCollision ?? NullPropCollisionSource.Instance)
         {
             ScratchPool = scratch,
+            StaticPropLightingObserver = context.StaticPropLightingObserver,
         };
         FinalLightingStatistics? final = null;
 

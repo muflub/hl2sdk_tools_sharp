@@ -25,7 +25,12 @@ public static partial class LevelLinker
     /// plugs stripped (their brushes dropped, their faces drawn nodraw), and
     /// the lumps that exist once per map merged: <paramref name="mergedPak"/>
     /// is the rooms' packed files (<see cref="LevelPakFiles"/>'s merge), or
-    /// null when no room packs one.
+    /// null when no room packs one; <paramref name="cubemaps"/> the level's
+    /// cubemap samples and each placement's renamed patch strings, or null
+    /// when no room has a sample; <paramref name="areas"/> the level's areas
+    /// (<see cref="PlanAreas"/>), or null when no room has an area portal,
+    /// and <paramref name="areaWarnings"/> where a portal that seals nothing
+    /// once linked is reported.
     /// </summary>
     /// <returns>The map, and how many brushes the fold removed (0 when it did not run).</returns>
     private static (BspData Map, int FoldedBrushes) Assemble(
@@ -39,7 +44,12 @@ public static partial class LevelLinker
         string? mapVersion,
         bool foldBrushes,
         byte[]? mergedPak,
+        LevelCubemaps? cubemaps,
         List<(int Placement, string ClassName)> droppedFurniture,
+        LevelLightStyles styles,
+        List<(int Leaf, int Placement, int Cluster)> doorways,
+        LevelAreas? areas,
+        List<string> areaWarnings,
         CancellationToken cancellationToken)
     {
         float cell = layout.CellSize;
@@ -53,9 +63,9 @@ public static partial class LevelLinker
         // copies last, as they are made.
         LinkPlanes planes = new();
         LinkTextures textures = new();
-        foreach (RoomPlan plan in plans)
+        for (int p = 0; p < plans.Length; p++)
         {
-            InternRoomTables(plan, planes, textures);
+            InternRoomTables(plans[p], planes, textures, cubemaps?.At(p));
         }
 
         List<Plane> topPlanes = [];
@@ -70,6 +80,17 @@ public static partial class LevelLinker
             node.PlaneNum = even;
             node.Children = Orient(node.Children, flipped);
             top[i] = node;
+        }
+
+        // The skybox below the grid (SkyboxOf): a root above the grid's top
+        // tree splits at the grid's floor; everything above goes to the
+        // grid's tree, everything below to the skybox room's own tree.
+        RoomPlan? skybox = plans[^1].IsSkybox ? plans[^1] : null;
+        int gridRoot = 0;
+        if (skybox is not null)
+        {
+            top = UnderSkybox(top, planes, layout, cell);
+            gridRoot = 1;
         }
 
         // Nodes: the top tree first (so model 0's head node is 0), then every
@@ -106,6 +127,14 @@ public static partial class LevelLinker
 
                 shifted.Children = children;
                 shifted.FirstFace = (ushort)plan.LinkedFace(n.FirstFace, owner);
+                if (n.Area > 0)
+                {
+                    // A node wholly in one of the room's areas is in the
+                    // level area that one became; a mixed node (-1) stays
+                    // mixed, and one the flood never set stays 0.
+                    shifted.Area = (short)LevelArea(plan, n.Area);
+                }
+
                 Box box = local ? plan.Geometry.NodeBoxes[i] : plan.Transform.TranslateBox(plan.Geometry.NodeBoxes[i]);
                 shifted.Mins = Short3(box.Mins);
                 shifted.Maxs = Short3(box.Maxs);
@@ -116,7 +145,20 @@ public static partial class LevelLinker
         // Top nodes reference room roots (their positive children) and the
         // shared solid leaf (leaf 0, negative child -1); room bases are only
         // known now, so the second pass fills them.
-        FillTopChildren(nodes, top.Count, plans, layout);
+        FillTopChildren(nodes, top.Count, plans, layout, gridRoot);
+        if (skybox is not null)
+        {
+            DNode root = nodes[0];
+            IntArray2 children = root.Children;
+            for (int side = 0; side < 2; side++)
+            {
+                children[side] = children[side] == MarkerSkybox ? skybox.NodeBase : children[side];
+            }
+
+            root.Children = children;
+            nodes[0] = root;
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
 
         // Leafs: the shared solid at index 0 — the void outside every room,
@@ -130,7 +172,7 @@ public static partial class LevelLinker
             Contents = (int)BrushContents.Solid,
             Cluster = -1,
             AreaFlags = 0,
-            Mins = Short3(new Vec3(minx * cell, miny * cell, 0)),
+            Mins = Short3(new Vec3(minx * cell, miny * cell, skybox is null ? 0 : -cell)),
             Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, cell)),
             LeafWaterDataId = -1,
         }];
@@ -157,6 +199,11 @@ public static partial class LevelLinker
                 }
 
                 shifted.FirstLeafFace = (ushort)plan.LinkedLeafFace(leaf.FirstLeafFace);
+                if (plan.AreaMap is not null)
+                {
+                    shifted.SetAreaFlags(LevelArea(plan, leaf.GetArea()), leaf.GetFlags());
+                }
+
                 int start = leafBrushes.Count;
                 for (int b = 0; b < leaf.NumLeafBrushes; b++)
                 {
@@ -207,7 +254,7 @@ public static partial class LevelLinker
         // plug's box inside it becomes an empty leaf of the facing cluster.
         for (int r = 0; r < plans.Length; r++)
         {
-            CarvePlugs(plans[r], roomNodeCounts[r], nodes, leafs, planes, leafMinDist);
+            CarvePlugs(plans[r], roomNodeCounts[r], nodes, leafs, planes, leafMinDist, doorways, r, plans[r].AreaMap);
         }
 
         Limit(plans[^1], "leaves", leafs.Count, ushort.MaxValue + 1);
@@ -478,11 +525,21 @@ public static partial class LevelLinker
         // walks the vertex-normal indices in face order, one run per face,
         // so they follow the faces: every world's, then every kept brush
         // model's run.
+        // A lit level's normals are its rooms' bakes', each distinct normal
+        // once (InternNormals), since the rooms' own would pass the 16-bit
+        // index a large level; an unlit level's are carried as they were.
         List<Vec3> vertNormals = [];
         List<ushort> vertNormalIndices = [];
-        foreach (RoomPlan plan in plans)
+        if (first.Lighting is not null)
         {
-            vertNormals.AddRange(plan.Geometry.VertNormals);
+            vertNormals = InternNormals(plans);
+        }
+        else
+        {
+            foreach (RoomPlan plan in plans)
+            {
+                vertNormals.AddRange(plan.VertNormals);
+            }
         }
 
         foreach (bool modelPass in (ReadOnlySpan<bool>)[false, true])
@@ -494,7 +551,7 @@ public static partial class LevelLinker
                 {
                     foreach (ushort index in roomIndices.Slice(run.First, run.Count))
                     {
-                        vertNormalIndices.Add((ushort)(index + plan.VertNormalBase));
+                        vertNormalIndices.Add((ushort)(plan.NormalMap is { } map ? map[index] : index + plan.VertNormalBase));
                     }
                 }
             }
@@ -524,10 +581,13 @@ public static partial class LevelLinker
             }
         }
 
-        // Areas: one open area. Every room is areas {0, 1} with no portal
-        // (PlanRoom refused anything else), so the room-local area numbers
-        // are already the level's: 0 for the void, 1 for every room's open
-        // space. The room with the most areas supplies the two lumps.
+        // Areas: without an area portal in any room, one open area. Every
+        // room is then areas {0, 1} with no portal (a room with more carries
+        // its portal data, and the level's areas are planned), so the
+        // room-local area numbers are already the level's: 0 for the void, 1
+        // for every room's open space. The room with the most areas supplies
+        // the two lumps. With portals, the lumps are written from the plan
+        // (WriteAreas) once the planes are interned.
         RoomPlan areaSource = plans.MaxBy(p => BspStructView.Count<DArea>(p.Bsp[BspLump.Areas]))!;
 
         // Occlusion: rebased polygons and vertex indices, moved boxes.
@@ -543,6 +603,11 @@ public static partial class LevelLinker
             {
                 DOccluderData shifted = roomOcclusion.Occluders[o];
                 shifted.FirstPoly += plan.OccluderPolyBase;
+                if (shifted.Area > 0)
+                {
+                    shifted.Area = LevelArea(plan, shifted.Area);
+                }
+
                 Box box = plan.Transform.TranslateBox(plan.Geometry.OccluderBoxes[o]);
                 shifted.Mins = box.Mins;
                 shifted.Maxs = box.Maxs;
@@ -612,8 +677,13 @@ public static partial class LevelLinker
 
         (byte[]? physCollide, byte[]? physDisp) = MergeCollision(plans, context.Options.Compliance, brushMap, cancellationToken);
 
+        // The level's area lumps, when it has area portals: written before the
+        // plane lump, whose table a door portal's plane is found in.
+        (byte[] Areas, byte[] Portals, byte[] ClipVerts)? areaLumps = areas is null ? null : WriteAreas(plans, areas, areaWarnings, planes);
+        Limit(plans[^1], "planes", planes.Count, ushort.MaxValue + 1);
+
         BspData linked = new() { FileVersion = first.Bsp.FileVersion };
-        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion, singletons, droppedFurniture);
+        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion, singletons, droppedFurniture, styles, areas?.DoorEntities());
         linked.SetLump(BspLump.Planes, Bytes(planes.Planes));
         linked.SetLump(BspLump.TexData, Bytes(textures.TexDatas));
         linked.SetLump(
@@ -643,8 +713,18 @@ public static partial class LevelLinker
         linked.SetLump(BspLump.Primitives, Bytes(prims));
         linked.SetLump(BspLump.PrimIndices, Bytes(primIndices));
         linked.SetLump(BspLump.PrimVerts, Bytes(primVerts));
-        linked[BspLump.Areas] = areaSource.Bsp[BspLump.Areas];
-        linked[BspLump.AreaPortals] = areaSource.Bsp[BspLump.AreaPortals];
+        if (areaLumps is not { } written)
+        {
+            linked[BspLump.Areas] = areaSource.Bsp[BspLump.Areas];
+            linked[BspLump.AreaPortals] = areaSource.Bsp[BspLump.AreaPortals];
+        }
+        else
+        {
+            linked.SetLump(BspLump.Areas, written.Areas);
+            linked.SetLump(BspLump.AreaPortals, written.Portals);
+            linked.SetLump(BspLump.ClipPortalVerts, written.ClipVerts);
+        }
+
         linked[BspLump.Occlusion] = occlusion.Write();
         // The rooms' files merged, or, when no room packs one, the first
         // room's empty pak as the link always wrote it.
@@ -656,6 +736,13 @@ public static partial class LevelLinker
         {
             linked[BspLump.PakFile] = first.Bsp[BspLump.PakFile];
         }
+        // The rooms' cubemap samples at their linked positions, when any
+        // room has some; a level without them writes no lump, as before.
+        if (cubemaps is not null)
+        {
+            linked.SetLump(BspLump.Cubemaps, cubemaps.Lump());
+        }
+
         linked[BspLump.MapFlags] = first.Bsp[BspLump.MapFlags];
         foreach (GameLumpEntry entry in first.Bsp.GameLumps)
         {
@@ -677,7 +764,66 @@ public static partial class LevelLinker
             linked.SetLump(BspLump.PhysDisp, physDisp);
         }
 
+        // Overlays: every placement's, rebased and moved; a level whose rooms
+        // have none carries neither lump, as before overlays were carried.
+        if (LinkOverlays(plans) is { } overlays)
+        {
+            linked.SetLump(BspLump.Overlays, overlays.Overlays, overlays.Version);
+            linked.SetLump(BspLump.OverlayFades, overlays.Fades);
+        }
+
         return (linked, folded);
+    }
+
+    /// <summary>The child marker for the skybox room's root (resolved at assembly).</summary>
+    private const int MarkerSkybox = -1002;
+
+    /// <summary>
+    /// The top tree with the skybox below it: a new root, node 0, splitting
+    /// at the grid's floor (z = 0), its front the grid's top tree (every
+    /// child index of it one further on) and its back the skybox room's
+    /// root (<see cref="MarkerSkybox"/>, filled once the room's nodes are
+    /// placed).
+    /// </summary>
+    /// <remarks>
+    /// Everything below the grid's floor, wherever it stands, descends into
+    /// the skybox's tree: a room's tree is its sealed compile's, which puts
+    /// everything outside the room's shell in solid leaves, as the grid's
+    /// single-cell nodes rely on for the space above and below a cell. The
+    /// root bounds the grid and the skybox's cell below it.
+    /// </remarks>
+    private static List<DNode> UnderSkybox(List<DNode> top, LinkPlanes planes, LevelLayout layout, float cell)
+    {
+        (int minx, int miny, int maxx, int maxy) = Extent(layout);
+        (int even, bool flipped) = planes.Intern(new Vec3(0, 0, 1), 0);
+        IntArray2 children = default;
+        children[0] = 1;
+        children[1] = MarkerSkybox;
+        List<DNode> nodes =
+        [
+            new DNode
+            {
+                PlaneNum = even,
+                Children = Orient(children, flipped),
+                Mins = Short3(new Vec3(minx * cell, miny * cell, -cell)),
+                Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, cell)),
+                Area = -1,
+            },
+        ];
+        foreach (DNode node in top)
+        {
+            DNode shifted = node;
+            IntArray2 grid = node.Children;
+            for (int side = 0; side < 2; side++)
+            {
+                grid[side] = grid[side] >= 0 ? grid[side] + 1 : grid[side];
+            }
+
+            shifted.Children = grid;
+            nodes.Add(shifted);
+        }
+
+        return nodes;
     }
 
     /// <summary>
@@ -755,7 +901,10 @@ public static partial class LevelLinker
         }
 
         shifted.FirstEdge = face.FirstEdge + plan.SurfEdgeBase;
-        shifted.LightOfs = face.LightOfs < 0 ? -1 : face.LightOfs + plan.LightBase;
+        // A lit room's bake lights its drawn faces only; its original faces
+        // keep what its compile wrote, as vrad leaves a map's (their offsets
+        // name nothing in the level's lightmaps, where the bake's blocks are).
+        shifted.LightOfs = face.LightOfs < 0 ? -1 : face.LightOfs + (original && plan.Lighting is not null ? 0 : plan.LightBase);
         if (original)
         {
             shifted.OrigFace = -1;
@@ -821,7 +970,15 @@ public static partial class LevelLinker
     /// </para>
     /// </remarks>
     private static void CarvePlugs(
-        RoomPlan plan, int roomNodeCount, List<DNode> nodes, List<DLeaf> leafs, LinkPlanes planes, List<ushort>? leafMinDist)
+        RoomPlan plan,
+        int roomNodeCount,
+        List<DNode> nodes,
+        List<DLeaf> leafs,
+        LinkPlanes planes,
+        List<ushort>? leafMinDist,
+        List<(int Leaf, int Placement, int Cluster)>? doorways = null,
+        int placement = -1,
+        int[]? areaMap = null)
     {
         Dictionary<int, List<(Box, int)>> byLeaf = [];
         foreach (PlugCarve carve in plan.Carves)
@@ -838,7 +995,7 @@ public static partial class LevelLinker
         foreach ((int roomLeaf, List<(Box, int)> leafPlugs) in byLeaf.OrderBy(kv => kv.Key))
         {
             int linkedLeaf = plan.LinkedLeaf(roomLeaf);
-            int head = CarveLeaf(plan.ClusterBase, plan.Leafs, linkedLeaf, leafPlugs, nodes, leafs, planes, leafMinDist);
+            int head = CarveLeaf(plan.ClusterBase, plan.Leafs, linkedLeaf, leafPlugs, nodes, leafs, planes, leafMinDist, doorways, placement, areaMap);
             if (head == -(linkedLeaf + 1))
             {
                 continue;
@@ -870,6 +1027,9 @@ public static partial class LevelLinker
     /// <param name="leafs">The linked leaves; the solid fragments are appended.</param>
     /// <param name="planes">The linked planes; the chain's planes join them as shared pairs.</param>
     /// <param name="leafMinDist">The per-leaf water distances, extended for every fragment, or null.</param>
+    /// <param name="doorways">Receives each doorway leaf made, with <paramref name="placement"/> and the room cluster it joins; or null.</param>
+    /// <param name="placement">The placement the leaf is of, for <paramref name="doorways"/>.</param>
+    /// <param name="areaMap">Per room area, the level area it became (<see cref="PlanAreas"/>); null when the room's area numbers are the level's.</param>
     /// <returns>The child reference that replaces the leaf: a node index, or the leaf itself.</returns>
     internal static int CarveLeaf(
         int clusterBase,
@@ -879,7 +1039,10 @@ public static partial class LevelLinker
         List<DNode> nodes,
         List<DLeaf> leafs,
         LinkPlanes planes,
-        List<ushort>? leafMinDist)
+        List<ushort>? leafMinDist,
+        List<(int Leaf, int Placement, int Cluster)>? doorways = null,
+        int placement = -1,
+        int[]? areaMap = null)
     {
         DLeaf template = leafs[linkedLeaf];
         Box current = BoxOf(template);
@@ -922,7 +1085,7 @@ public static partial class LevelLinker
                 leafs.Add(copy);
                 leafMinDist?.Add(leafMinDist[linkedLeaf]);
                 List<(Box, int)> others = [.. plugs.Where((_, i) => i != hit)];
-                int fragmentRef = CarveLeaf(clusterBase, roomLeafs, fragment, others, nodes, leafs, planes, leafMinDist);
+                int fragmentRef = CarveLeaf(clusterBase, roomLeafs, fragment, others, nodes, leafs, planes, leafMinDist, doorways, placement, areaMap);
 
                 int node = nodes.Count;
                 int inward = bound == 0 ? 0 : 1;
@@ -967,7 +1130,8 @@ public static partial class LevelLinker
         DLeaf doorway = template;
         doorway.Contents = 0;
         doorway.Cluster = (short)(clusterBase + cluster);
-        doorway.SetAreaFlags(OpenArea(roomLeafs, cluster), template.GetFlags());
+        int area = OpenArea(roomLeafs, cluster);
+        doorway.SetAreaFlags(areaMap is not null && area > 0 && area < areaMap.Length ? areaMap[area] : area, template.GetFlags());
         doorway.FirstLeafBrush = 0;
         doorway.NumLeafBrushes = 0;
         doorway.FirstLeafFace = 0;
@@ -975,6 +1139,10 @@ public static partial class LevelLinker
         doorway.Mins = Short3(door.Mins);
         doorway.Maxs = Short3(door.Maxs);
         leafs[linkedLeaf] = doorway;
+
+        // Recorded for what the doorway takes from its facing side (a lit
+        // level's leaf ambient, the rooms design 9.4).
+        doorways?.Add((linkedLeaf, placement, cluster));
         return head;
     }
 
@@ -1047,6 +1215,15 @@ public static partial class LevelLinker
         if (length == 0)
         {
             return [];
+        }
+
+        // A lit room's runs come from its faces: its compile, which the brush
+        // models' runs were read from, had no normals.
+        if (plan.FaceVertexStarts is { } starts)
+        {
+            return models
+                ? [.. KeptModels(plan).Select(m => new RoomRange(starts[m.Faces.First], starts[m.Faces.End] - starts[m.Faces.First]))]
+                : [new RoomRange(0, starts[plan.WorldFaceCount])];
         }
 
         if (models)

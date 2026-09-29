@@ -58,7 +58,9 @@ internal enum RoomLinkCodec : byte
 /// <para>
 /// <b>Tags.</b> After a room's <see cref="RoomPack.RoomSection"/> come
 /// <see cref="SharedTag"/> (<c>LNKA</c>), the part that depends on the room
-/// alone, then per quarter turn <i>r</i> the three parts that depend on the
+/// alone, the room's door visibility (<see cref="RoomDoorVisibility.SectionTag"/>,
+/// <c>DVIS</c>, which depends on the room alone too and has a layout of its
+/// own), then per quarter turn <i>r</i> the three parts that depend on the
 /// room and its turn: <c>GEO</c><i>r</i> (the turned geometry,
 /// <see cref="RoomLinkGeometry"/>), <c>COL</c><i>r</i> (the world collision
 /// read out and turned, <see cref="RoomLinkCollision"/>; only for a room with
@@ -69,7 +71,11 @@ internal enum RoomLinkCodec : byte
 /// (a pack written before them, a room the link refuses, a pack that left a
 /// part out) is computed at link, per placement, as it always was, to the
 /// same bytes; a reader that does not know a tag skips it. That is why the
-/// pack stays at version 1.
+/// link sections did not raise the pack's version. The one exception is
+/// <c>DVIS</c>: a version 4 pack promises it for every room with link
+/// sections, and a version 4 room without it is refused as damaged (a
+/// version 3 pack, which predates it, links with it worked out at link;
+/// <see cref="RoomPack"/>'s remarks on versions).
 /// </para>
 /// <para>
 /// <b>Why one section per part and turn, four copies of the geometry.</b> A
@@ -84,7 +90,7 @@ internal enum RoomLinkCodec : byte
 /// per-turn part, and the choice they led to, are with
 /// <see cref="StoredParts"/>. Separate sections let the choice be made per
 /// part, and let a later per-turn part (lighting baked per turn) or a
-/// room-alone one (door-to-door visibility) take a tag of its own.
+/// room-alone one (the door visibility, <c>DVIS</c>) take a tag of its own.
 /// </para>
 /// <para>
 /// <b>Codec.</b> Every link section starts with a <see cref="RoomLinkCodec"/>
@@ -251,11 +257,15 @@ internal static class RoomLinkSections
     /// <param name="data">The link data, every turn's every part present (collision only if the room has some).</param>
     /// <param name="parts">Which per-turn parts to store.</param>
     /// <param name="codec">How to store every section's payload.</param>
-    /// <returns><c>LNKA</c>, then per turn its <c>GEO</c>, <c>COL</c> and <c>ENT</c> sections.</returns>
+    /// <returns><c>LNKA</c>, the door visibility (<c>DVIS</c>) when the data holds it, then per turn its <c>GEO</c>, <c>COL</c> and <c>ENT</c> sections.</returns>
     public static IReadOnlyList<RoomPackSectionData> Write(
         RoomLinkData data, RoomLinkParts parts = StoredParts, RoomLinkCodec codec = RoomLinkCodec.None)
     {
         List<RoomPackSectionData> sections = [new(SharedTag, Encode(WriteShared(data.Shared), codec))];
+        if (data.Doors is { } doors)
+        {
+            sections.Add(new(RoomDoorVisibility.SectionTag, doors.ToSection(codec)));
+        }
         for (int rotation = 0; rotation < 4; rotation++)
         {
             RoomLinkRotation turn = data.Rotation(rotation)
@@ -296,6 +306,7 @@ internal static class RoomLinkSections
         }
 
         RoomLinkShared linkShared = ReadShared(shared, room);
+        RoomDoorVisibility? doors = RoomDoorVisibility.Read(section(RoomDoorVisibility.SectionTag), room);
         RoomLinkRotation?[] turns = new RoomLinkRotation?[4];
         for (int rotation = 0; rotation < 4; rotation++)
         {
@@ -313,7 +324,7 @@ internal static class RoomLinkSections
                 entities is null ? null : ReadEntities(entities));
         }
 
-        return new RoomLinkData(room.Definition, room.Bsp, room.Vis, linkShared, turns);
+        return new RoomLinkData(room.Definition, room.Bsp, room.Vis, linkShared, turns, doors);
     }
 
     /// <summary>A section's payload with its codec byte in front.</summary>
@@ -738,6 +749,9 @@ internal static class RoomLinkSections
             new($"room pack entry \"{room}\": its \"{tag}\" section holds {what}.");
 
         public int Int() => BinaryPrimitives.ReadInt32BigEndian(Take(4));
+
+        /// <summary>How many bytes of the payload have been read.</summary>
+        public int Position => _at;
 
         public int Count(string what)
         {

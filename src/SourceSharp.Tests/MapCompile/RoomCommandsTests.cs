@@ -17,6 +17,7 @@ using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Phys.Managed;
 using SourceSharp.MapTools.Rooms;
+using SourceSharp.MapTools.Vis;
 using SourceSharp.MapTools.Validation;
 using SourceSharp.Tests.MapTools.Io;
 using SourceSharp.Tests.MapTools.Rooms;
@@ -82,6 +83,55 @@ public sealed class RoomCommandsTests
         Assert.NotEqual(0, map[BspLump.PhysCollide].Length);
         ValidationReport report = await BspValidator.CheckAsync(map, CancellationToken.None);
         Assert.Equal(0, report.ErrorCount);
+    }
+
+    /// <summary>
+    /// <c>ssmap room</c> lights every room by default and stores its base
+    /// lighting in a <c>LITE</c> section; <c>-nolight</c> writes none (the pack
+    /// an unlit library always had) under another pack id; <c>-vrad</c> passes
+    /// vrad's own switches (<c>-both</c> lights both ranges); a density that
+    /// would change the rooms' geometry, and <c>-vrad</c> with
+    /// <c>-nolight</c>, are usage errors.
+    /// </summary>
+    [Fact]
+    public async Task RoomLightsByDefaultAndTakesVradSwitches()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/lit.roompack"], output));
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/unlit.roompack", "-nolight"], output));
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/both.roompack", "-vrad", "-both -bounce 2"], output));
+
+        async Task<(RoomPackIndex Index, RoomObject Room)> Read(string path)
+        {
+            using MemoryStream pack = new(fs.GetBytes(VPath.Create(Rooted(path)))!);
+            RoomPackIndex index = await RoomPack.ReadIndexAsync(pack);
+            return (index, (await RoomPack.LoadRoomsAsync(pack, index, ["hub"]))[0]);
+        }
+
+        (RoomPackIndex lit, RoomObject litRoom) = await Read("/lit.roompack");
+        (RoomPackIndex unlit, RoomObject unlitRoom) = await Read("/unlit.roompack");
+        (_, RoomObject bothRoom) = await Read("/both.roompack");
+        Assert.NotNull(lit.Find("hub")!.Find("LITE"));
+        Assert.Null(unlit.Find("hub")!.Find("LITE"));
+        Assert.NotNull(litRoom.LightingOfCompile!.Payloads[0].Ldr);
+        Assert.Null(litRoom.LightingOfCompile.Payloads[0].Hdr);
+        Assert.Null(unlitRoom.LightingOfCompile);
+        Assert.NotNull(bothRoom.LightingOfCompile!.Payloads[0].Hdr);
+        byte[] Id(string path, RoomPackIndex index)
+        {
+            RoomPackSection id = index.LibrarySections.Single(t => t.Tag == RoomCompileIds.PackSection);
+            return fs.GetBytes(VPath.Create(Rooted(path)))!.AsSpan((int)id.Offset, (int)id.Length).ToArray();
+        }
+
+        Assert.NotEqual(Id("/lit.roompack", lit), Id("/unlit.roompack", unlit));
+
+        using StringWriter dense = new();
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomAsync(fs, [], ["/game/maps/rooms.vmf", "-vrad", "-luxeldensity 0.5"], dense));
+        Assert.Contains("-luxeldensity below 1 changes the room's geometry", dense.ToString(), StringComparison.Ordinal);
+        using StringWriter both = new();
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomAsync(fs, [], ["/game/maps/rooms.vmf", "-nolight", "-vrad", "-both"], both));
+        Assert.Equal("ssmap room: -vrad sets how the rooms are lit, and -nolight lights none" + Environment.NewLine, both.ToString());
     }
 
     /// <summary>Rooms compiled with <c>-cooker none</c> still link, into a map without world collision.</summary>
@@ -1405,6 +1455,62 @@ public sealed class RoomCommandsTests
         Assert.Equal(0, (await BspValidator.CheckAsync(unfoldedMap, CancellationToken.None)).ErrorCount);
     }
 
+    /// <summary>
+    /// The link reports the cluster pairs its visibility marks and the lump's
+    /// size, from the map it wrote; <c>-nodoorvis</c> writes the door graph's
+    /// closure instead, in which every cluster sees every other, and says so
+    /// with the same line.
+    /// </summary>
+    [Fact]
+    public async Task ALinkReportsItsVisibilityAndNodoorvisWritesTheDoorGraph()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output));
+        AddLevel(fs, "/levels/level.yaml", "hub, hub");
+
+        foreach (bool doorVis in new[] { true, false })
+        {
+            using StringWriter link = new();
+            string[] args = doorVis
+                ? ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-no-nav", "-out", "/out/level.bsp"]
+                : ["/levels/level.yaml", "-rooms", "/rooms.roompack", "-no-nav", "-nodoorvis", "-out", "/out/level.bsp"];
+            Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLinkAsync(fs, args, link));
+
+            BspData map = await LoadMapAsync(fs, "/out/level.bsp");
+            ReadOnlySpan<byte> lump = map[BspLump.Visibility].Data.Span;
+            int clusters = BitConverter.ToInt32(lump[..4]);
+            int rowBytes = (clusters + 7) >> 3;
+            int visible = 0;
+            for (int c = 0; c < clusters; c++)
+            {
+                byte[] row = new byte[rowBytes];
+                VisRunLength.Decompress(lump[BitConverter.ToInt32(lump.Slice(4 + (c * 8), 4))..], row);
+                visible += row.Sum(b => System.Numerics.BitOperations.PopCount(b));
+            }
+
+            Assert.Contains(
+                $"ssmap link: visibility {visible} of {clusters * clusters} cluster pairs, {lump.Length} bytes",
+                link.ToString(),
+                StringComparison.Ordinal);
+            if (!doorVis)
+            {
+                Assert.Equal(clusters * clusters, visible);
+            }
+        }
+    }
+
+    /// <summary><c>--flatten</c> leaves visibility to vvis, so it takes no <c>-nodoorvis</c>.</summary>
+    [Fact]
+    public async Task NodoorvisWithFlattenIsAUsageError()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        AddLevel(fs, "/levels/level.yaml", "hub, hub");
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunLinkAsync(fs, ["/levels/level.yaml", "--flatten", "-nodoorvis"], output));
+        Assert.StartsWith("usage: ssmap link", output.ToString(), StringComparison.Ordinal);
+    }
+
     /// <summary><c>--flatten</c> writes brushes for vbsp to compile, so it takes no <c>-nofold</c>.</summary>
     [Fact]
     public async Task NofoldWithFlattenIsAUsageError()
@@ -1496,7 +1602,7 @@ public sealed class RoomCommandsTests
     [InlineData("-1", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
     [InlineData("2049", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
     [InlineData("half", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
-    [InlineData("flatten", "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-out <map.bsp>]")]
+    [InlineData("flatten", "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>]")]
     public async Task ABadEntityReserveIsAUsageError(string value, string expected)
     {
         string[] args = value == "flatten"
@@ -1510,7 +1616,8 @@ public sealed class RoomCommandsTests
     /// <summary>
     /// With the library's pack beside it, <c>ssmap rooms</c> opens with the
     /// entity budget and lists each room's entities, edicts and server-only
-    /// ones; <c>-rooms</c> names another pack.
+    /// ones, and how many turns its base lighting is stored for (one: no
+    /// sun or sky reaches these rooms); <c>-rooms</c> names another pack.
     /// </summary>
     [Fact]
     public async Task RoomsListsEachRoomsEntitiesFromThePack()
@@ -1526,8 +1633,10 @@ public sealed class RoomCommandsTests
         Assert.Equal("entity budget 1536 (reserve 512, cap 2048)", lines[1]);
         Assert.StartsWith("hub: cell at (0, 0, 0)", lines[2], StringComparison.Ordinal);
         Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[3]);
-        Assert.StartsWith("end: cell at", lines[8], StringComparison.Ordinal);
-        Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[9]);
+        Assert.Equal("  lighting: 1 turn, no sun or sky reaches it", lines[4]);
+        Assert.StartsWith("end: cell at", lines[9], StringComparison.Ordinal);
+        Assert.Equal("  entities: 1 (1 edicts, 0 server-only)", lines[10]);
+        Assert.Equal("  lighting: 1 turn, no sun or sky reaches it", lines[11]);
 
         fs.AddFile(Rooted("/elsewhere/other.roompack"), fs.GetBytes(VPath.Create(Rooted("/game/maps/rooms.roompack")))!);
         await fs.DeleteAsync(VPath.Create(Rooted("/game/maps/rooms.roompack")));
@@ -1596,6 +1705,31 @@ public sealed class RoomCommandsTests
         Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
         Assert.Equal(Program.ExitSuccess, await RoomCommands.RunLayoutAsync(fs, [.. args, "-out", "/levels/after.yaml"], output));
         Assert.Equal(fs.GetBytes(VPath.Create(Rooted("/levels/before.yaml"))), fs.GetBytes(VPath.Create(Rooted("/levels/after.yaml"))));
+    }
+
+    /// <summary>
+    /// With door portals asked for, <c>-entity-budget</c> counts each room's
+    /// share of its joints' portals, half its sockets rounded up: the
+    /// cheapest rooms are one entity and one portal share, so three of them
+    /// with the worldspawn are at least seven, and six is refused.
+    /// </summary>
+    [Fact]
+    public async Task LayoutsEntityBudgetCountsDoorPortals()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Library());
+        library.GetChunk(MapFileLoader.WorldChunk)!.AddKey(RoomLibraryOptions.DoorPortalsKey, "1");
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf"], output));
+        string[] args = ["/game/maps/rooms.vmf", "-rows", "1", "-columns", "3", "-seed", "2"];
+
+        using StringWriter over = new();
+        Assert.Equal(RoomCommands.ExitFailed, await RoomCommands.RunLayoutAsync(fs, [.. args, "-entity-budget", "6"], over));
+        Assert.Equal(
+            $"ssmap layout: {Path.GetFullPath("/game/maps/rooms.vmf")}: no level of 1x3 cells keeps within the entity budget of 6 edicts:"
+            + " its 3 room(s) bring at least 7, the worldspawn included." + Environment.NewLine,
+            over.ToString());
     }
 
     /// <summary>

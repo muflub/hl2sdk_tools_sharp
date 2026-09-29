@@ -97,7 +97,9 @@ breaking one fails the suite rather than a review.
   still fails.
 - **Every public async method takes its `CancellationToken` last.**
   `DisposeAsync` is the only exemption.
-- **No platform math** in `SourceSharp.MapFormats` or `SourceSharp.MapTools`.
+- **No platform math** in `SourceSharp.MapFormats`, `SourceSharp.MapTools` or
+  `SourceSharp.MapGen` (MapGen writes the synthetic content many golden
+  digests are taken over, so its rounding is part of those digests).
   Elementary functions (`sin`, `atan2`, `pow`, `log`, ...) go through
   `DetMath` / `DetMathF` (`src/SourceSharp.MapFormats/Numerics/`), never
   `Math.Sin`, `MathF.Pow`, the generic-math statics or the vector types'

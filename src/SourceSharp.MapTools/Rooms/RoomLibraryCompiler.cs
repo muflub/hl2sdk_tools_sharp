@@ -107,6 +107,16 @@ public sealed class RoomLibraryCompileSettings(VbspOptions options, IContentFile
     public IReadOnlySet<string>? NameKeys { get; init; }
 
     /// <summary>
+    /// How to light the rooms (the rooms design, section 9: the base bake),
+    /// or null to leave them unlit, as every library was before the bake:
+    /// with settings, each room is lit by vrad after its compile, on the
+    /// room's own task and the run's parallelism (<see cref="RoomLighting"/>),
+    /// and its pack entry gains a lighting section; without, the pack is
+    /// byte for byte what it was.
+    /// </summary>
+    public RoomLightingSettings? Lighting { get; init; }
+
+    /// <summary>
     /// How much of the machine the whole library may use: <c>-threads</c>.
     /// </summary>
     /// <remarks>
@@ -145,6 +155,7 @@ public sealed class RoomLibraryCompileSettings(VbspOptions options, IContentFile
         PropHullCache = PropHullCache,
         Nav = Nav,
         NameKeys = NameKeys,
+        Lighting = Lighting,
         Parallelism = Parallelism,
         BeforeRoomProbe = BeforeRoomProbe,
         RoomCompiledProbe = RoomCompiledProbe,
@@ -366,8 +377,32 @@ public static class RoomLibraryCompiler
         try
         {
             (VmfDocument document, IReadOnlyList<AuthoredPoi> pois) = RoomPois.Extract(room.Document);
+
+            // The room's part in its level's transitions and spawn (its role,
+            // transition volume, fold trigger, arrival and spawn points),
+            // from the VMF before any compile time is spent: the points of
+            // interest never reach the compile, and the transition rules
+            // (the rooms design, 11.3) are about what the author wrote.
+            RoomTransit? transit = RoomTransit.FromVmf(room.Definition, room.Role, room.Document);
             RoomObject compiled = await RoomCompiler
                 .CompileAsync(document, room.Definition, context, settings.NameKeys, cancellationToken).ConfigureAwait(false);
+            if (transit is not null)
+            {
+                // The arrival's clearance needs the compiled brushes.
+                RoomTransit.CheckClearance(room.Definition, transit, compiled);
+                compiled = compiled with { Transit = transit.For(compiled.Bsp) };
+            }
+
+            // The base bake: vrad over the room as compiled, sealed by its
+            // plugs, with the library's sun; four runs, one a quarter turn,
+            // for a room the sun or sky reaches (RoomLighting). On the room's
+            // own task like its compile, on the same parallelism.
+            if (settings.Lighting is { } lighting)
+            {
+                RoomLighting baked = await RoomLighting
+                    .BakeAsync(compiled, lighting, settings.Content, parallelism, cancellationToken).ConfigureAwait(false);
+                compiled = compiled with { Lighting = baked };
+            }
 
             // The link work that depends only on the room and its turn,
             // done here, on the room's own thread, so it runs side by side

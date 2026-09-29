@@ -66,22 +66,39 @@ namespace SourceSharp.MapTools.Rooms;
 /// model's and never fold.
 /// </para>
 /// <para>
-/// <b>Visibility</b> is composed from the door graph, never flooded. A room's
-/// linked row starts as its own vvis row; the only thing that makes two rooms
-/// see each other is a <b>door edge</b>: every open cluster whose leaf boxes
-/// overlap a joint's plug box (with <see cref="DoorOverlapEpsilon"/>; the link
-/// geometry is integer and bevels are ±8, so a face-sharing leaf sits at gap
-/// 0 and the next space over is never closer than the wall's thickness)
-/// reaches every open cluster facing the joint on the other side, in both
-/// directions. Rows are the transitive closure of own-row steps plus door-edge
-/// steps. The stripped doorway leaf joins the lowest of its own side's facing
-/// clusters, which after the closure sees everything that side sees.
+/// <b>Visibility</b> is composed through the doorways, never flooded and
+/// never vvis'd (<see cref="LevelDoorVisibility"/>): a room's linked rows
+/// start as its own vvis rows, and two rooms see each other only along
+/// straight lines through the chain of doorways between them, which a flow
+/// over the doorway rectangles works out from each room's door visibility
+/// (<see cref="RoomDoorVisibility"/>, stored in the pack). The facing
+/// clusters of a joint are the open clusters whose leaf boxes overlap its
+/// plug box (with <see cref="DoorOverlapEpsilon"/>; the link geometry is
+/// integer and bevels are ±8, so a face-sharing leaf sits at gap 0 and the
+/// next space over is never closer than the wall's thickness), and the
+/// stripped doorway leaf joins the lowest of its own side's facing clusters.
+/// With <see cref="LevelLinkOptions.DoorVisibility"/> off, the rows are what
+/// the link wrote before: the transitive closure of own-row steps plus
+/// door edges (every facing cluster to every cluster facing it from the
+/// other side), in which every cluster of a level sees every other.
 /// </para>
 /// <para>
 /// A room whose compile left anything outside the relocation set — a water
-/// leaf, a real area portal, displacements, detail props — is refused
-/// rather than silently dropped: the linked map must be the rooms, not an
-/// approximation of them.
+/// leaf, displacements, detail props — is refused rather than silently
+/// dropped: the linked map must be the rooms, not an approximation of them.
+/// </para>
+/// <para>
+/// <b>Areas and area portals</b> are carried: every placement's own areas
+/// joined to its neighbours' at each joint, numbered for the level, its
+/// portals listed with their numbers rebased and their outlines moved, and,
+/// when the library asks, a door portal in every joint
+/// (<see cref="PlanAreas"/>, <see cref="WriteAreas"/>,
+/// <see cref="RoomAreaPortals"/>, <see cref="LevelDoorPortals"/>).
+/// </para>
+/// <para>
+/// <b>The 3D skybox</b> is carried: the library's skybox room below the
+/// grid, unturned and never joined, its own area, its entities after every
+/// room's, out of the world's bounds (<see cref="SkyboxOf"/>).
 /// </para>
 /// <para>
 /// <b>Brush entities</b> are carried as their own models: every placed
@@ -104,6 +121,13 @@ namespace SourceSharp.MapTools.Rooms;
 /// room's, merged by name, the room's default cubemaps renamed to the
 /// level's map name (<see cref="LevelPakFiles"/>).
 /// </para>
+/// <para>
+/// <b>Overlays</b> are carried: every placed room's <c>info_overlay</c>
+/// records in link order, each moved and turned with its room, its id,
+/// texinfo and faces rebased, a named one's accessor renumbered to match
+/// (<see cref="LinkOverlays"/>, <see cref="RoomOverlays"/>). Water overlays
+/// are refused with water.
+/// </para>
 /// </remarks>
 public static partial class LevelLinker
 {
@@ -118,15 +142,26 @@ public static partial class LevelLinker
     /// </summary>
     /// <remarks>
     /// Several of these are carried only in their empty form, and
-    /// <see cref="PlanRoom"/> checks that: <see cref="BspLump.AreaPortals"/>
-    /// holds only the reserved portal 0, <see cref="BspLump.PhysDisp"/> counts
+    /// <see cref="PlanRoom"/> checks that: <see cref="BspLump.PhysDisp"/> counts
     /// no displacement, and every game lump but the static props' is all
     /// zeros (no detail props); the static prop lump is rebuilt for the
     /// level from the rooms' (<see cref="WritePropsAsync"/>).
     /// <see cref="BspLump.PakFile"/> is carried whole: the rooms'
     /// archives are merged (<see cref="LevelPakFiles"/>).
-    /// <see cref="BspLump.ClipPortalVerts"/> is not in the set: its vertices
-    /// only exist for area portals, which are refused.
+    /// <see cref="BspLump.Cubemaps"/> is every placement's samples at their
+    /// linked positions (<see cref="LevelCubemaps"/>).
+    /// <see cref="BspLump.Areas"/>, <see cref="BspLump.AreaPortals"/> and
+    /// <see cref="BspLump.ClipPortalVerts"/> are the rooms' areas joined at
+    /// the joints and their portals rebased (<see cref="PlanAreas"/>,
+    /// <see cref="WriteAreas"/>) when a room's compile has area portals and
+    /// left their data with it (<see cref="RoomAreaPortalsOf"/>); a level
+    /// without them carries the one open area as before.
+    /// <see cref="BspLump.Overlays"/> and <see cref="BspLump.OverlayFades"/>
+    /// are rebuilt for the level from the rooms' (<see cref="LinkOverlays"/>),
+    /// when the room's compile left its overlay data with it
+    /// (<see cref="RoomOverlaysOf"/>); <see cref="BspLump.WaterOverlays"/>
+    /// is not in the set: water overlays are drawn along water, which is
+    /// refused.
     /// </remarks>
     private static readonly ImmutableHashSet<BspLump> CarriedLumps =
         ImmutableHashSet.CreateRange([
@@ -139,9 +174,10 @@ public static partial class LevelLinker
         BspLump.VertNormals, BspLump.VertNormalIndices,
         BspLump.Primitives, BspLump.PrimVerts, BspLump.PrimIndices,
         BspLump.FaceMacroTextureInfo,
-        BspLump.Areas, BspLump.AreaPortals,
-        BspLump.Occlusion, BspLump.PakFile, BspLump.MapFlags,
+        BspLump.Areas, BspLump.AreaPortals, BspLump.ClipPortalVerts,
+        BspLump.Occlusion, BspLump.PakFile, BspLump.MapFlags, BspLump.Cubemaps,
         BspLump.PhysCollide, BspLump.PhysDisp,
+        BspLump.Overlays, BspLump.OverlayFades,
         ]);
 
     /// <summary>Links <paramref name="layout"/>'s rooms into one map.</summary>
@@ -231,11 +267,29 @@ public static partial class LevelLinker
         // level far past them is refused from the rooms' lump counts alone,
         // not after every room has been planned.
         RoomLinter.CheckLayout(layout, library);
-        LevelEntityReport entities = CheckCapacity(layout, library, options);
+        LevelEntityReport entities = CheckCapacity(layout, library, options, context.MapBase);
         ValidateJoints(layout, library);
         RoomLinter.CheckReachable(layout, name => library.Get(name).Definition);
 
-        ResolvedPlacement[] resolved = [.. layout.Rooms.Select((p, i) => Resolve(p, i, library))];
+        // The library's skybox room, when it has one, placed below the grid
+        // and carried after every room of the level (SkyboxOf): the grid's
+        // logic reads the level's own placements (OnGrid, GridCells).
+        RoomInstance? skybox = SkyboxOf(layout, library);
+        ResolvedPlacement[] resolved = [
+            .. layout.Rooms.Select((p, i) => Resolve(p, i, library)),
+            .. skybox is null ? [] : new[] { Resolve(skybox, layout.Rooms.Count, library) }];
+
+        // The level's transitions and spawn (the rooms design, section 11):
+        // the level rule checked, and what each transition room writes
+        // decided, from the rooms' stored transition data. Null for a level
+        // without transitions, which links exactly as before them.
+        LevelTransitionPlan? transitions = LevelTransitionPlan.Make(
+            layout, [.. OnGrid(resolved).Select(p => TransitOf(p.Room))], name => library.Get(name).Definition, options.ModEntities);
+
+        // Whether the level is lit (its rooms' base bakes, the rooms design,
+        // section 9), and what its rooms agree on: null for a level of unlit
+        // rooms, which links exactly as it did before the bake.
+        LevelLight? lit = PlanLighting(resolved);
 
         // The level's one pak: every placed room's packed files, merged by
         // name (LevelPakFiles). Each room's pak is a zip, and reading it is
@@ -264,8 +318,28 @@ public static partial class LevelLinker
         // them.
         LevelFurniture furniture = new(resolved, layout);
         LevelProps? props = PlanProps(resolved, layout, furniture);
-        LevelModels models = PlanModels(resolved, layout, furniture);
-        (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(paks, context.MapBase, props?.Files, cancellationToken);
+        LevelModels models = PlanModels(resolved, layout, furniture, transitions);
+
+        // The library's door portals, one per joint, when it asks for them
+        // (LevelDoorPortals): which door each follows is the socket
+        // furniture rule's, so it is planned with the furniture.
+        IReadOnlyList<LevelDoorPortal>? doors = library.Options.HasDoorPortals
+            ? LevelDoorPortals.Plan(layout, name => library.Get(name).Definition, furniture.Of, (p, socket) => DoorOf(resolved[p], socket))
+            : null;
+
+        // The level's cubemaps: every placement's samples at its position,
+        // and the names its room made after them renamed for it, which the
+        // pak and the texdata strings take (LevelCubemaps). Null for a level
+        // without samples, which links exactly as before them.
+        LevelCubemaps? cubemaps = LevelCubemaps.Plan(
+            [.. resolved.Select(p => (p.Room, new RoomTransform(p.Instance.Placement, p.Room.Definition.CellSize)))], context.MapBase);
+        (byte[]? mergedPak, int packedFiles) = LevelPakFiles.Merge(
+            paks,
+            context.MapBase,
+            props?.Files,
+            cubemaps?.ByRoom(),
+            lit is not null && props is not null ? BakedPropFiles(resolved, props) : null,
+            cancellationToken);
 
         // Per-room work: validate the compile against the relocation set and
         // move the turned structs to the cell. Each item writes only its own
@@ -307,6 +381,16 @@ public static partial class LevelLinker
 
         AssignBases(plans);
 
+        // The level's areas: every placement's own joined at its joints,
+        // numbered for the level, and the portal numbers based. Null for a
+        // level whose rooms have no area portal, which links as before them.
+        LevelAreas? areas = PlanAreas(resolved, plans, doors);
+        List<string> areaWarnings = [];
+
+        // A lit level's lightmaps: each stored turn of a room once, every
+        // placement of it pointing there.
+        List<(RoomLightingPayload Payload, int LdrBase, int HdrBase)>? lightBlocks = lit is null ? null : AssignLightBases(plans);
+
         // Cluster space: room r's room-local cluster c is clusterBase_r + c;
         // solid leaves (plugs, shared void) stay cluster -1 and get no row.
         int clusterCursor = 0;
@@ -317,57 +401,38 @@ public static partial class LevelLinker
         }
 
         int clusterCount = clusterCursor; // at most short.MaxValue: CheckCapacity
-        int rowBytes = (clusterCount + 7) >> 3;
 
-        // Rows: own rows shifted into the global numbering, door edges from
-        // the joint graph (both directions), then the transitive closure.
-        byte[][] rows = new byte[clusterCount][];
-        foreach (RoomPlan plan in plans)
-        {
-            for (int c = 0; c < plan.ClusterCount; c++)
-            {
-                rows[plan.ClusterBase + c] = ShiftRow(plan.OwnRows[c], plan.ClusterBase, rowBytes);
-                OrBit(rows[plan.ClusterBase + c], plan.ClusterBase + c);
-            }
-        }
-
-        foreach ((RoomPlan a, RoomPlan b, int[] ca, int[] cb) in DoorEdges(resolved, plans))
-        {
-            foreach (int x in ca)
-            {
-                foreach (int y in cb)
-                {
-                    OrBit(rows[a.ClusterBase + x], b.ClusterBase + y);
-                    OrBit(rows[b.ClusterBase + y], a.ClusterBase + x);
-                }
-            }
-        }
-
-        CloseRows(rows, clusterCount, cancellationToken);
-
-        byte[] pvs = new byte[clusterCount * rowBytes];
-        int totalVisible = 0;
-        for (int c = 0; c < clusterCount; c++)
-        {
-            rows[c].CopyTo(pvs, c * rowBytes);
-            totalVisible += PopCount(rows[c]);
-        }
-
-        byte[] visibilityLump = BuildVisibilityLump(clusterCount, rowBytes, pvs, pvs);
+        // The level's visibility, composed from the rooms' own and the
+        // doorways between them (LevelDoorVisibility), or with the door
+        // visibility off, the door graph's closure.
+        LevelVisibility visibility = options.DoorVisibility
+            ? await LevelDoorVisibility.ComposeAsync(
+                DoorRooms(resolved, plans), clusterCount, context.Parallelism, options.DoorFlowStateCap, cancellationToken).ConfigureAwait(false)
+            : DoorGraphVisibility(resolved, plans, clusterCount, cancellationToken);
+        int rowBytes = visibility.RowBytes;
+        byte[] pvs = visibility.Pvs;
+        byte[] visibilityLump = BuildVisibilityLump(clusterCount, rowBytes, pvs, visibility.Pas);
         RoomInstance lastRoom = plans[^1].Placement.Instance;
         LimitVisibility(plans[^1].Placement.Room.Definition.Name, lastRoom.Placement.CellX, lastRoom.Placement.CellY, visibilityLump.Length);
 
         LevelNaming naming = new(
-            new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows),
+            new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows, transitions),
             library.Options.NameKeySet);
         LevelSingletons singletons = new(library.LibraryEntities);
         List<(int Placement, string ClassName)> droppedFurniture = [];
+        LevelLightStyles styles = new();
+        List<(int Leaf, int Placement, int Cluster)> doorways = [];
         (BspData linked, int foldedBrushes) = Assemble(
             plans, layout, visibilityLump, context, classes, naming, singletons, library.Options.MapVersion, options.FoldBrushes, mergedPak,
-            droppedFurniture, cancellationToken);
+            cubemaps, droppedFurniture, styles, doorways, areas, areaWarnings, cancellationToken);
         if (props is not null)
         {
             await WritePropsAsync(linked, props, plans, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (lit is not null)
+        {
+            WriteLighting(linked, plans, lit, lightBlocks!, doorways, styles, pvs, rowBytes);
         }
 
         // The budget checked before planning counted the rooms as compiled.
@@ -387,11 +452,11 @@ public static partial class LevelLinker
             portalCount: 0,
             rowBytes,
             pvs,
-            (byte[])pvs.Clone(),
+            visibility.Pas,
             visDataSize: visibilityLump.Length,
-            totalVisibleClusters: totalVisible,
+            totalVisibleClusters: visibility.Visible,
             optimizedClusters: 0,
-            totalAudibleClusters: totalVisible,
+            totalAudibleClusters: visibility.Audible,
             usedRadius: false,
             visRadiusSquared: 0,
             deepestFlow: 0,
@@ -403,8 +468,11 @@ public static partial class LevelLinker
             EntityBudget = entities,
             FoldedBrushes = foldedBrushes,
             PackedFiles = packedFiles,
+            CubemapSamples = cubemaps?.SampleCount ?? 0,
             NameWarnings = naming.Result?.Warnings ?? [],
             NameNotes = naming.Result?.Verbose ?? [],
+            HasTransitions = transitions is not null,
+            AreaWarnings = areaWarnings,
         };
     }
 
@@ -443,21 +511,69 @@ public static partial class LevelLinker
 
         foreach ((int placement, string className) in dropped)
         {
-            byPlacement[placement].Remove(className);
+            // A copy the merge dropped from the skybox (the last placement,
+            // counted with the level's own entities) is not a room's.
+            if (placement < byPlacement.Length)
+            {
+                byPlacement[placement].Remove(className);
+            }
         }
 
         return LevelEntityBudget.Check(
             layout.Rooms.Select((r, i) => (r.Placement.Room, RoomEntityCounts.FromClasses(byPlacement[i]))),
             reserve,
             classes,
-            LibraryCounts(library));
+            LibraryCounts(library, layout));
     }
 
-    /// <summary>The library's own entities (<see cref="RoomLibrary.LibraryEntities"/>) counted by class, or null when it has none.</summary>
-    private static RoomEntityCounts? LibraryCounts(RoomLibrary library) =>
-        library.LibraryEntities.Count == 0
-            ? null
-            : RoomLibraryEntities.Count(library.LibraryEntities);
+    /// <summary>
+    /// The level's own entities counted by class, or null when it has none:
+    /// the library's (<see cref="RoomLibrary.LibraryEntities"/>), its skybox
+    /// room's (placed once in every level, <see cref="SkyboxOf"/>), and with
+    /// door portals one <c>func_areaportal</c> per joint of the layout
+    /// (<see cref="LevelDoorPortals"/>: every joint is listed by both its
+    /// rooms).
+    /// </summary>
+    private static RoomEntityCounts? LibraryCounts(RoomLibrary library, LevelLayout layout)
+    {
+        int doors = library.Options.HasDoorPortals ? layout.Rooms.Sum(r => r.Joints.Count) / 2 : 0;
+        RoomObject? skybox = library.SkyboxRoom is { } skyboxName ? library.Get(skyboxName) : null;
+        if (doors == 0 && skybox is null)
+        {
+            return library.LibraryEntities.Count == 0 ? null : RoomLibraryEntities.Count(library.LibraryEntities);
+        }
+
+        static IEnumerable<string> Each(RoomEntityCounts counts) => counts.Classes.SelectMany(c => Enumerable.Repeat(c.ClassName, c.Count));
+        IEnumerable<string> own = library.LibraryEntities.Count == 0 ? [] : Each(RoomLibraryEntities.Count(library.LibraryEntities));
+        IEnumerable<string> above = skybox is null ? [] : Each(skybox.CountEntities());
+        return RoomEntityCounts.FromClasses([.. own, .. above, .. Enumerable.Repeat(LevelDoorPortals.ClassName, doors)]);
+    }
+
+    /// <summary>
+    /// The level name of a placement's door furniture on a socket, from its
+    /// room's entities as compiled (<see cref="LevelDoorPortals.DoorName"/>).
+    /// </summary>
+    private static string? DoorOf(ResolvedPlacement placement, string socket)
+    {
+        IReadOnlyList<RoomLinkEntity> items = EntitiesFor(placement.Room, placement.Instance.Placement.NormalizedRotation).Items;
+        return LevelDoorPortals.DoorName(
+            items.Where(i => !i.IsWorld).Select(i => (Func<string, string?>)(key => ValueOf(i.Pairs, key))),
+            socket,
+            placement.Instance.Placement);
+
+        static string? ValueOf(IReadOnlyList<RoomLinkPair> pairs, string key)
+        {
+            foreach (RoomLinkPair pair in pairs)
+            {
+                if (IsKey(pair.Key, key))
+                {
+                    return pair.Value;
+                }
+            }
+
+            return null;
+        }
+    }
 
     /// <summary>
     /// The prefix sums every index-bearing struct is shifted by, in layout
@@ -479,7 +595,7 @@ public static partial class LevelLinker
              faces = 0, origFaces = 0, brushes = 0, leafFaces = 0,
              leaves = 1, lighting = 0,
              primVerts = 0, primIndices = 0, prims = 0, vertNormals = 0, vertNormalIndices = 0,
-             occluders = 0, occluderPolys = 0, occluderVerts = 0;
+             occluders = 0, occluderPolys = 0, occluderVerts = 0, overlays = 0;
 
         // The world faces of every placement come first, then every kept
         // brush model's, as a map's own model 0 range is its first faces.
@@ -518,6 +634,7 @@ public static partial class LevelLinker
             plan.OccluderBase = (int)occluders;
             plan.OccluderPolyBase = (int)occluderPolys;
             plan.OccluderVertexBase = (int)occluderVerts;
+            plan.OverlayBase = (int)overlays;
 
             vertices += plan.Vertices.Length + (plan.Models?.LocalVertices.Length ?? 0);
             edges += plan.EdgeCount;
@@ -536,6 +653,7 @@ public static partial class LevelLinker
             occluders += plan.Occlusion?.Occluders.Count ?? 0;
             occluderPolys += plan.Occlusion?.Polys.Count ?? 0;
             occluderVerts += plan.Occlusion?.VertexIndices.Count ?? 0;
+            overlays += plan.Overlays?.Count ?? 0;
         }
     }
 
@@ -563,7 +681,12 @@ public static partial class LevelLinker
     /// (<see cref="CheckSharedTables"/>). The texdatas and strings are shared
     /// too, but do not depend on the cell, so they are counted here exactly,
     /// each room's the first time it is placed, with the same
-    /// <see cref="LinkTextures"/> the assembly builds them with.
+    /// <see cref="LinkTextures"/> the assembly builds them with; a room with
+    /// cubemap patches is counted at every placement, since each renames its
+    /// patches to its own position (<see cref="PlacementCubemaps"/>), which
+    /// is why the level's map name is wanted here. The cubemap samples are
+    /// totalled here too, against <c>MAX_MAP_CUBEMAPSAMPLES</c>
+    /// (<see cref="LevelCubemaps.Plan"/>).
     /// </para>
     /// <para>
     /// The entity budget is checked here too, after the lump totals
@@ -575,9 +698,10 @@ public static partial class LevelLinker
     /// <param name="layout">The level, its rooms already known to be in the library.</param>
     /// <param name="library">The rooms, and the library's settings.</param>
     /// <param name="options">The entity budget's settings; null for <see cref="LevelLinkOptions.Default"/>.</param>
+    /// <param name="mapBase">The linked map's name, which the rooms' cubemap patches are renamed with; empty when unknown.</param>
     /// <returns>The entity budget's report.</returns>
     /// <exception cref="LinkException">A total passes its field's limit, or the level passes the edict cap or the entity list's.</exception>
-    internal static LevelEntityReport CheckCapacity(LevelLayout layout, RoomLibrary library, LevelLinkOptions? options = null)
+    internal static LevelEntityReport CheckCapacity(LevelLayout layout, RoomLibrary library, LevelLinkOptions? options = null, string mapBase = "")
     {
         options ??= LevelLinkOptions.Default;
         int reserve = LevelEntityBudget.ReserveFor(options, library.Options);
@@ -589,19 +713,42 @@ public static partial class LevelLinker
             Dictionary<string, RoomEntityCounts> counted = new(StringComparer.Ordinal);
             Dictionary<(string Room, int Socket), SocketCensus> censuses = [];
             LinkTextures textures = new();
-            foreach (RoomInstance instance in layout.Rooms)
+            // The skybox, when the library has one, is carried after every
+            // room of the level (SkyboxOf), so its lumps count too; its
+            // entities are counted with the level's own (LibraryCounts).
+            List<RoomInstance> instances = [.. layout.Rooms];
+            if (SkyboxOf(layout, library) is { } skybox)
+            {
+                instances.Add(skybox);
+            }
+
+            List<(RoomObject, RoomTransform)> placed = new(instances.Count);
+            foreach (RoomInstance instance in instances)
             {
                 RoomObject room = library.Get(instance.Placement.Room);
+                placed.Add((room, new RoomTransform(instance.Placement, room.Definition.CellSize)));
+            }
+
+            // The cubemaps first: a room without its cubemap data, a patch
+            // name too long and too many samples are refused here, before
+            // anything is counted against them.
+            LevelCubemaps? cubemaps = LevelCubemaps.Plan(placed, mapBase);
+            for (int p = 0; p < instances.Count; p++)
+            {
+                RoomInstance instance = instances[p];
+                RoomObject room = placed[p].Item1;
                 string name = room.Definition.Name;
                 int texDatas = textures.TexDatas.Count;
                 int strings = textures.StringTable.Count;
-                if (!counted.TryGetValue(name, out RoomEntityCounts? counts))
+                PlacementCubemaps? patches = cubemaps?.At(p);
+                if (!counted.TryGetValue(name, out RoomEntityCounts? counts) || patches is { Strings.Count: > 0 })
                 {
                     // The material tables are shared by content and a room's
                     // texdata does not depend on its placement, so only the
-                    // first placement of a room can add to them.
-                    textures.InternTexDatas(room.Bsp, textures.InternStrings(room.Bsp, name));
-                    counted[name] = counts = room.CountEntities();
+                    // first placement of a room can add to them; unless it
+                    // has cubemap patches, which each placement renames.
+                    textures.InternTexDatas(room.Bsp, textures.InternStrings(room.Bsp, name, patches?.Strings));
+                    counts ??= counted[name] = room.CountEntities();
                 }
 
                 (int keptBrushes, int keptSides) = KeptBrushTotals(room, instance, censuses);
@@ -617,15 +764,17 @@ public static partial class LevelLinker
                     BrushSides = keptSides,
                 };
                 totals.Add(added, name, instance.Placement.CellX, instance.Placement.CellY);
-
-                placements.Add((name, counts));
+                if (p < layout.Rooms.Count)
+                {
+                    placements.Add((name, counts));
+                }
             }
 
             RoomInstance last = layout.Rooms[^1];
             totals.CheckClusters(library.Get(last.Placement.Room).Definition.Name, last.Placement.CellX, last.Placement.CellY);
         }
 
-        return LevelEntityBudget.Check(placements, reserve, classes, LibraryCounts(library));
+        return LevelEntityBudget.Check(placements, reserve, classes, LibraryCounts(library, layout));
     }
 
     /// <summary>
@@ -738,6 +887,9 @@ public static partial class LevelLinker
 
         public int Clusters { get; init; }
 
+        /// <summary>The room's overlays (<c>info_overlay</c> records), which the link appends as they are.</summary>
+        public int Overlays { get; init; }
+
         /// <summary>
         /// A compiled room's counts of the lumps it appends, read as
         /// <see cref="PlanRoom"/> reads them; the shared tables' counts are
@@ -757,6 +909,7 @@ public static partial class LevelLinker
             VertexNormals = BspStructView.Count<Vec3>(bsp[BspLump.VertNormals]),
             Nodes = BspStructView.Count<DNode>(bsp[BspLump.Nodes]),
             Clusters = clusters,
+            Overlays = BspStructView.Count<DOverlay>(bsp[BspLump.Overlays]),
         };
     }
 
@@ -811,6 +964,12 @@ public static partial class LevelLinker
     /// <para>
     /// The leaves start at 1 (the shared solid leaf), as the bases do.
     /// </para>
+    /// <para>
+    /// The overlays are a sixth kind of cap: no field narrower than their
+    /// ids holds them, but vbsp refuses a map with more than
+    /// <c>MAX_MAP_OVERLAYS</c> (512), so the flattened level would not
+    /// compile (<see cref="OverlayLimit"/>).
+    /// </para>
     /// </remarks>
     internal sealed class LinkTotals(bool checkBrushes = true)
     {
@@ -831,7 +990,7 @@ public static partial class LevelLinker
         private readonly int _nodeCap = Cap(BspLump.Nodes);
 
         private long _vertices, _texDatas, _faces, _brushes, _brushSides, _leafFaces, _leaves = 1,
-            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters, _nodes = -1;
+            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters, _nodes = -1, _overlays;
 
         /// <summary>Adds one room, refusing the first total it pushes past its limit.</summary>
         public void Add(LinkCounts counts, string room, int cellX, int cellY)
@@ -850,6 +1009,7 @@ public static partial class LevelLinker
             _vertexNormals += counts.VertexNormals;
             _nodes += counts.Nodes + 2;
             _clusters += counts.Clusters;
+            _overlays += counts.Overlays;
 
             Limit(room, cellX, cellY, "vertices", _vertices, ushort.MaxValue + 1);
             LoaderLimit(room, cellX, cellY, "texdatas", _texDatas, _texDataCap, "MAX_MAP_TEXDATA");
@@ -867,6 +1027,7 @@ public static partial class LevelLinker
             Limit(room, cellX, cellY, "primitive vertices", _primitiveVertices, ushort.MaxValue + 1);
             Limit(room, cellX, cellY, "vertex normals", _vertexNormals, ushort.MaxValue + 1);
             LoaderLimit(room, cellX, cellY, "nodes", _nodes, _nodeCap, "MAX_MAP_NODES");
+            OverlayLimit(room, cellX, cellY, _overlays);
         }
 
         /// <summary>
@@ -932,6 +1093,119 @@ public static partial class LevelLinker
         }
     }
 
+    /// <summary>
+    /// The visibility the link wrote before door visibility, and still
+    /// writes with <see cref="LevelLinkOptions.DoorVisibility"/> off: each
+    /// room's own rows, every cluster facing a joint joined to every cluster
+    /// facing it from the other side, and the transitive closure. Every room
+    /// of a level is reachable, so every cluster sees every other; the PAS
+    /// is the PVS, which is already closed.
+    /// </summary>
+    private static LevelVisibility DoorGraphVisibility(
+        ResolvedPlacement[] resolved, RoomPlan[] plans, int clusterCount, CancellationToken cancellationToken)
+    {
+        int rowBytes = (clusterCount + 7) >> 3;
+        byte[][] rows = new byte[clusterCount][];
+        foreach (RoomPlan plan in plans)
+        {
+            for (int c = 0; c < plan.ClusterCount; c++)
+            {
+                rows[plan.ClusterBase + c] = ShiftRow(plan.OwnRows[c], plan.ClusterBase, rowBytes);
+                OrBit(rows[plan.ClusterBase + c], plan.ClusterBase + c);
+            }
+        }
+
+        foreach ((RoomPlan a, RoomPlan b, int[] ca, int[] cb) in DoorEdges(resolved, plans))
+        {
+            foreach (int x in ca)
+            {
+                foreach (int y in cb)
+                {
+                    OrBit(rows[a.ClusterBase + x], b.ClusterBase + y);
+                    OrBit(rows[b.ClusterBase + y], a.ClusterBase + x);
+                }
+            }
+        }
+
+        CloseRows(rows, clusterCount, cancellationToken);
+
+        byte[] pvs = new byte[clusterCount * rowBytes];
+        int totalVisible = 0;
+        for (int c = 0; c < clusterCount; c++)
+        {
+            rows[c].CopyTo(pvs, c * rowBytes);
+            totalVisible += PopCount(rows[c]);
+        }
+
+        return new LevelVisibility(pvs, (byte[])pvs.Clone(), rowBytes, totalVisible, totalVisible);
+    }
+
+    /// <summary>
+    /// The placed rooms as the door visibility reads them: cluster bases,
+    /// door visibility, own rows, placement, and every jointed socket with
+    /// its neighbour, the doorway on the shared cell face and the plug box
+    /// the link carves, in world coordinates.
+    /// </summary>
+    /// <remarks>
+    /// The doorway is the plug box's face on the cell face, where the two
+    /// rooms' plugs meet (<see cref="ValidateJoints"/> checked they meet
+    /// head-on); the two sides' faces are joined, so a kit whose two plugs
+    /// ever differed would still pass every line either lets through.
+    /// </remarks>
+    internal static LevelDoorRoom[] DoorRooms(ResolvedPlacement[] resolved, RoomPlan[] plans)
+    {
+        Dictionary<(int X, int Y), ResolvedPlacement> byCell = GridCells(resolved);
+        LevelDoorRoom[] rooms = new LevelDoorRoom[plans.Length];
+        for (int i = 0; i < plans.Length; i++)
+        {
+            RoomPlan plan = plans[i];
+            ResolvedPlacement a = resolved[i];
+            List<LevelDoor> joints = [];
+            foreach ((string socketName, string neighborSocket) in a.Instance.Joints)
+            {
+                RoomSocket mine = Socket(a.Room, socketName);
+                (RoomPlan other, RoomSocket theirs, int j) = Neighbor(a, mine, neighborSocket, byCell, plans);
+                int s = SocketIndex(a.Room.Definition, mine.Name);
+                int t = SocketIndex(other.Placement.Room.Definition, theirs.Name);
+                Box plug = plan.Transform.TranslateBox(plan.Geometry.PlugBoxes[s]);
+                Box face = CellFace(plug, plan.Transform.WorldNormal(mine.Facing));
+                Box otherFace = CellFace(
+                    other.Transform.TranslateBox(other.Geometry.PlugBoxes[t]), other.Transform.WorldNormal(theirs.Facing));
+                Box opening = RoomDoorVisibility.Union(face, otherFace);
+                (int axis, _) = plan.Transform.WorldNormal(mine.Facing);
+                opening = axis == 0
+                    ? new Box(new Vec3(face.Mins.X, opening.Mins.Y, opening.Mins.Z), new Vec3(face.Mins.X, opening.Maxs.Y, opening.Maxs.Z))
+                    : new Box(new Vec3(opening.Mins.X, face.Mins.Y, opening.Mins.Z), new Vec3(opening.Maxs.X, face.Mins.Y, opening.Maxs.Z));
+                joints.Add(new LevelDoor(s, j, t, opening, plug, plan.JointFacing[socketName]));
+            }
+
+            rooms[i] = new LevelDoorRoom
+            {
+                ClusterBase = plan.ClusterBase,
+                Doors = plan.DoorVisibility,
+                OwnRows = plan.OwnRows,
+                Transform = plan.Transform,
+                Joints = [.. joints],
+            };
+        }
+
+        return rooms;
+    }
+
+    /// <summary>A world plug box's face on its cell face: the box flattened to its outer side along the socket's world normal.</summary>
+    private static Box CellFace(Box plug, (int Axis, int Sign) normal)
+    {
+        (int axis, int sign) = normal;
+        if (axis == 0)
+        {
+            float x = sign > 0 ? plug.Maxs.X : plug.Mins.X;
+            return new Box(new Vec3(x, plug.Mins.Y, plug.Mins.Z), new Vec3(x, plug.Maxs.Y, plug.Maxs.Z));
+        }
+
+        float y = sign > 0 ? plug.Maxs.Y : plug.Mins.Y;
+        return new Box(new Vec3(plug.Mins.X, y, plug.Mins.Z), new Vec3(plug.Maxs.X, y, plug.Maxs.Z));
+    }
+
     /// <summary>The joint graph's door edges: per joint, the clusters facing each side.</summary>
     /// <remarks>
     /// A joint's two plug boxes meet inside the wall; the clusters joined are
@@ -945,12 +1219,7 @@ public static partial class LevelLinker
     internal static IEnumerable<(RoomPlan A, RoomPlan B, int[] FacingA, int[] FacingB)> DoorEdges(
         ResolvedPlacement[] resolved, RoomPlan[] plans)
     {
-        Dictionary<(int X, int Y), ResolvedPlacement> byCell = new(resolved.Length);
-        foreach (ResolvedPlacement placement in resolved)
-        {
-            byCell[(placement.Instance.Placement.CellX, placement.Instance.Placement.CellY)] = placement;
-        }
-
+        Dictionary<(int X, int Y), ResolvedPlacement> byCell = GridCells(resolved);
         for (int i = 0; i < resolved.Length; i++)
         {
             ResolvedPlacement a = resolved[i];
@@ -1552,12 +1821,15 @@ public static partial class LevelLinker
     private const int MarkerSolidLeaf = -1001;
 
     /// <summary>Fills the top tree's children now that the room bases exist.</summary>
-    private static void FillTopChildren(List<DNode> nodes, int topCount, RoomPlan[] plans, LevelLayout layout)
+    private static void FillTopChildren(List<DNode> nodes, int topCount, RoomPlan[] plans, LevelLayout layout, int first = 0)
     {
         Dictionary<(int, int), RoomPlan> byCell = [];
         foreach (RoomPlan plan in plans)
         {
-            byCell[(plan.Placement.Instance.Placement.CellX, plan.Placement.Instance.Placement.CellY)] = plan;
+            if (!plan.IsSkybox)
+            {
+                byCell[(plan.Placement.Instance.Placement.CellX, plan.Placement.Instance.Placement.CellY)] = plan;
+            }
         }
 
         // The nodes list already holds the top tree built by BuildTopNodes;
@@ -1572,13 +1844,13 @@ public static partial class LevelLinker
 
         List<(int, int, int, int)> regions = [];
         CollectRegions(occupants, Extent(layout), regions);
-        if (regions.Count != topCount)
+        if (regions.Count != topCount - first)
         {
             throw new LinkException("the top-tree region walk disagrees with the top node list");
         }
 
         int index = 0;
-        foreach (ref DNode node in System.Runtime.InteropServices.CollectionsMarshal.AsSpan(nodes)[..topCount])
+        foreach (ref DNode node in System.Runtime.InteropServices.CollectionsMarshal.AsSpan(nodes)[first..topCount])
         {
             (int rminx, int rminy, _, _) = regions[index];
             IntArray2 children = node.Children;
@@ -1827,6 +2099,13 @@ public sealed record LinkedLevel(BspData Bsp, VisResult Vis, LevelPlan Plan)
     public int PackedFiles { get; init; }
 
     /// <summary>
+    /// How many <c>env_cubemap</c> samples the linked map carries: every
+    /// placed room's, at their linked positions (<see cref="LevelCubemaps"/>);
+    /// 0 when no room has one.
+    /// </summary>
+    public int CubemapSamples { get; init; }
+
+    /// <summary>
     /// What resolving the rooms' names warned of, each a whole sentence: a
     /// reference to an empty cell or off the grid, whose output was removed
     /// or key cleared; a global name defined by several placements of a room.
@@ -1839,4 +2118,22 @@ public sealed record LinkedLevel(BspData Bsp, VisResult Vis, LevelPlan Plan)
     /// expected.
     /// </summary>
     public IReadOnlyList<string> NameNotes { get; init; } = [];
+
+    /// <summary>
+    /// Whether the level has transitions and a spawn (the rooms design,
+    /// section 11: a transition key in its file, or a placed role room), so
+    /// its room starts were stripped and its transitions written. With the
+    /// mod's classes, the arrival and spawn points are the navigation
+    /// sidecar's, so a host that writes none should say so.
+    /// </summary>
+    public bool HasTransitions { get; init; }
+
+    /// <summary>
+    /// What linking the rooms' areas warned of, each a whole sentence: an
+    /// area portal whose two sides the level joins into one area (a ring of
+    /// rooms around it), which the level keeps as an entity but lists no
+    /// portal for, as vbsp does with a portal that seals nothing
+    /// (<see cref="LevelLinker"/>'s area planning).
+    /// </summary>
+    public IReadOnlyList<string> AreaWarnings { get; init; } = [];
 }

@@ -47,7 +47,10 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
     {
         InMemoryFileSystem fs = Sample();
         using StringWriter output = new();
-        int exit = await RoomCommands.RunRoomAsync(fs, [], ["/sample/rooms.vmf", "-game", "/sample", "-out", "/sample/rooms.roompack"], output);
+        // Unlit, as the equivalence fixture compiles the rooms: this fact
+        // holds the CLI to the linker API byte for byte; the lit sample has
+        // its own (TheSampleLinksLit).
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["/sample/rooms.vmf", "-game", "/sample", "-out", "/sample/rooms.roompack", "-nolight"], output);
         Assert.True(exit == Program.ExitSuccess, output.ToString());
         IReadOnlyDictionary<string, RoomEntityCounts> counts;
         using (MemoryStream pack = new(fs.GetBytes(VPath.Create(Rooted("/sample/rooms.roompack")))!))
@@ -111,7 +114,7 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
         }
 
         Rooms3x3Pair sample = await fixture.PairAsync(Rooms3x3Permutations.LevelName);
-        DoorGraphFacts.AssertDoorGraph(sample.Linked, sample.Layout, fixture.Library);
+        DoorGraphFacts.AssertWithinDoorGraph(sample.Linked, sample.Layout, fixture.Library);
 
         // With the pack beside the library, ssmap layout budgets every level
         // (cap - reserve by default), and the sample's seeded levels, far
@@ -151,6 +154,69 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
         foreach (Vec3 p in Rooms3x3EquivalenceTests.Lattice())
         {
             Assert.True(whole.Contents(p) == linked.Contents(p), $"({p.X} {p.Y} {p.Z})");
+        }
+    }
+
+    /// <summary>
+    /// <c>ssmap room</c> lights the sample by default (the rooms design,
+    /// section 9, the base bake): every room is stored once, since no sun
+    /// reaches the sample, and <c>ssmap rooms</c> says so; every level links
+    /// lit and passes the loader validation, and differs from the level
+    /// linked from the same library packed <c>-nolight</c> only in what vrad
+    /// writes (the faces' styles and lightmap offsets, the lightmaps, world
+    /// lights, leaf ambient, vertex normals and map flags) and in the ids
+    /// the worldspawn carries.
+    /// </summary>
+    [Fact]
+    public async Task TheSampleLinksLit()
+    {
+        InMemoryFileSystem fs = Sample();
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["/sample/rooms.vmf", "-game", "/sample", "-out", "/sample/lit.roompack"], output));
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["/sample/rooms.vmf", "-game", "/sample", "-out", "/sample/unlit.roompack", "-nolight"], output));
+
+        using StringWriter listing = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, ["/sample/rooms.vmf", "-rooms", "/sample/lit.roompack"], listing));
+        Assert.Equal(Rooms3x3Kit.Kinds.Count, listing.ToString().Split('\n').Count(l => l == "  lighting: 1 turn, no sun or sky reaches it"));
+
+        HashSet<BspLump> lit =
+        [
+            BspLump.Entities, BspLump.Faces, BspLump.Lighting, BspLump.WorldLights, BspLump.LeafAmbientIndex, BspLump.LeafAmbientLighting,
+            BspLump.VertNormals, BspLump.VertNormalIndices, BspLump.MapFlags,
+        ];
+        foreach (string name in Levels())
+        {
+            BspData withLight = await LinkAsync(fs, name, "lit");
+            BspData without = await LinkAsync(fs, name, "unlit");
+            ValidationReport report = await BspValidator.CheckAsync(withLight, CancellationToken.None);
+            Assert.True(report.ErrorCount == 0, $"{name}: " + string.Join("; ", report.Diagnostics));
+            Assert.False(withLight[BspLump.Lighting].IsEmpty);
+            Assert.True(without[BspLump.Lighting].IsEmpty);
+            // The game lump directory holds file offsets, which the larger
+            // lighting moves; its lumps' contents are what must agree.
+            Assert.Equal(without.GameLumps.Select(g => (g.Id, g.Data.ToArray())), withLight.GameLumps.Select(g => (g.Id, g.Data.ToArray())));
+            for (int lump = 0; lump < BspData.HeaderLumps; lump++)
+            {
+                if (!lit.Contains((BspLump)lump) && (BspLump)lump != BspLump.GameLump)
+                {
+                    Assert.True(withLight[lump].Data.Span.SequenceEqual(without[lump].Data.Span), $"{name}: {(BspLump)lump}");
+                }
+            }
+
+            DFace[] a = BspStructView.As<DFace>(withLight[BspLump.Faces]).ToArray();
+            DFace[] b = BspStructView.As<DFace>(without[BspLump.Faces]).ToArray();
+            Assert.Equal(b.Length, a.Length);
+            Assert.All(a.Zip(b), pair => Assert.Equal((pair.Second.PlaneNum, pair.Second.TexInfo, pair.Second.FirstEdge), (pair.First.PlaneNum, pair.First.TexInfo, pair.First.FirstEdge)));
+        }
+
+        static async Task<BspData> LinkAsync(InMemoryFileSystem fs, string name, string pack)
+        {
+            using StringWriter log = new();
+            int exit = await RoomCommands.RunLinkAsync(
+                fs, [$"/sample/levels/{name}.yaml", "-rooms", $"/sample/{pack}.roompack", "-out", $"/sample/{pack}/{name}.bsp", "-no-nav"], log);
+            Assert.True(exit == Program.ExitSuccess, log.ToString());
+            using MemoryStream stream = new(fs.GetBytes(VPath.Create(Rooted($"/sample/{pack}/{name}.bsp")))!);
+            return await BspFile.LoadAsync(stream);
         }
     }
 

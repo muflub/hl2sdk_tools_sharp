@@ -10,7 +10,7 @@ using SourceSharp.MapGen.Rooms;
 namespace RoomsSampleTool;
 
 /// <summary>
-/// <c>RoomsSample --out &lt;dir&gt; | --check &lt;dir&gt; | --list | --stress &lt;dir&gt; [rooms]</c>
+/// <c>RoomsSample --out &lt;dir&gt; | --check &lt;dir&gt; | --list | --stress &lt;dir&gt; [rooms] | --transit &lt;dir&gt;</c>
 /// </summary>
 /// <remarks>
 /// <c>--out</c> writes every generated file (the README is hand-written and
@@ -21,6 +21,8 @@ namespace RoomsSampleTool;
 /// distinct rooms (1024 by default) for stress and performance runs
 /// (<see cref="RoomsStressLibrary"/>). The stress library is tens of
 /// megabytes, so it is written to a scratch folder, not checked in.
+/// <c>--transit</c> writes the transit sample (<see cref="RoomsTransitSample"/>),
+/// which is checked in under <c>samples/rooms-transit</c>.
 /// </remarks>
 internal static class Program
 {
@@ -93,7 +95,22 @@ internal static class Program
             return 0;
         }
 
-        Console.Error.WriteLine("usage: RoomsSample --out <dir> | --check <dir> | --list | --stress <dir> [rooms]");
+        if (args.Length == 2 && args[0] == "--transit")
+        {
+            string root = Path.GetFullPath(args[1]);
+            IReadOnlyDictionary<string, byte[]> files = RoomsTransitSample.Build();
+            foreach ((string path, byte[] bytes) in files)
+            {
+                string file = Path.Combine(root, path);
+                Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                await File.WriteAllBytesAsync(file, bytes);
+            }
+
+            Console.WriteLine($"rooms transit sample: {files.Count} files written to {root}");
+            return 0;
+        }
+
+        Console.Error.WriteLine("usage: RoomsSample --out <dir> | --check <dir> | --list | --stress <dir> [rooms] | --transit <dir>");
         return 2;
     }
 }

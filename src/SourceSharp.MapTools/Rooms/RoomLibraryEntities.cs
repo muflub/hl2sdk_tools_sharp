@@ -286,18 +286,19 @@ public static class RoomLibraryEntities
     /// <param name="room">The room's name, for messages.</param>
     /// <param name="entity">One of the room's entities, as the library wrote it.</param>
     /// <param name="library">The library-wide entities from the gaps.</param>
+    /// <param name="skybox">Whether the room is the library's skybox room, the one room a <c>sky_camera</c> belongs in.</param>
     /// <returns>Whether the room keeps it.</returns>
     /// <exception cref="RoomLibraryException">
-    /// A <c>sky_camera</c>; a sun or controller that differs from the
+    /// A <c>sky_camera</c> outside the skybox room; a sun or controller that differs from the
     /// library's; a sun, or an unnamed controller, when the library holds
     /// none. Each message names the room, and a difference names the key.
     /// </exception>
-    internal static bool KeepInRoom(string room, VmfChunk entity, IReadOnlyList<VmfChunk> library)
+    internal static bool KeepInRoom(string room, VmfChunk entity, IReadOnlyList<VmfChunk> library, bool skybox = false)
     {
         string? classname = entity.GetValue("classname");
         if (string.Equals(classname, SkyCameraClass, StringComparison.Ordinal))
         {
-            throw new RoomLibraryException($"room {room}: sky_camera is allowed only in the library's skybox room.");
+            return skybox ? true : throw new RoomLibraryException($"room {room}: sky_camera is allowed only in the library's skybox room.");
         }
 
         if (!IsLibraryWide(classname))

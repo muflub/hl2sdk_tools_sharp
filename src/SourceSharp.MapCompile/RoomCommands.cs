@@ -26,6 +26,7 @@ using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 using SourceSharp.MapTools.Phys;
 using SourceSharp.MapTools.Rooms;
+using SourceSharp.RoomContracts;
 
 namespace SourceSharp.MapCompile;
 
@@ -163,6 +164,8 @@ public static class RoomCommands
         string? cacheDirectory = null;
         bool incremental = false;
         bool noCache = false;
+        bool light = true;
+        string? vradLine = null;
         RoomNavPackOptions navOptions = new();
         for (int i = 0; i < args.Count; i++)
         {
@@ -200,10 +203,47 @@ public static class RoomCommands
             {
                 navOptions = navOptions with { StoreAllTurns = false };
             }
+            else if (IsFlag(args[i], "nolight"))
+            {
+                light = false;
+            }
+            else if (Take(args, i, "vrad", out string vrad))
+            {
+                vradLine = vrad;
+                i++;
+            }
             else
             {
                 stock.Add(args[i]);
             }
+        }
+
+        // The base bake's vrad switches (-vrad "<stock vrad options>"),
+        // parsed as ssmap vrad parses its own line; stock's defaults without.
+        VradOptions? vradOptions = null;
+        if (light)
+        {
+            StockArgsResult<VradOptions> vradParsed = StockArgs.ParseVrad(
+                [.. (vradLine ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries), "room"]);
+            foreach (CompileDiagnostic diagnostic in vradParsed.Diagnostics)
+            {
+                await output.WriteLineAsync($"{diagnostic.Code}: {diagnostic.Message}").ConfigureAwait(false);
+            }
+
+            if (vradParsed.HasErrors || vradParsed.Options.LuxelDensity < 1.0f)
+            {
+                await output.WriteLineAsync(
+                    $"ssmap room: -vrad \"{vradLine}\" is not a vrad line a room can be lit with (-luxeldensity below 1 changes the room's geometry)")
+                    .ConfigureAwait(false);
+                return Program.ExitUsage;
+            }
+
+            vradOptions = vradParsed.Options;
+        }
+        else if (vradLine is not null)
+        {
+            await output.WriteLineAsync("ssmap room: -vrad sets how the rooms are lit, and -nolight lights none").ConfigureAwait(false);
+            return Program.ExitUsage;
         }
 
         StockArgsResult<VbspOptions> parsed = StockArgs.ParseVbsp(stock);
@@ -216,7 +256,7 @@ public static class RoomCommands
         {
             await output.WriteLineAsync(
                 "usage: ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <none|deflate[:n]|brotli[:n]>]"
-                + " [-incremental [-cache-dir <dir>] | -nocache] [stock vbsp options]")
+                + " [-nolight | -vrad \"<stock vrad options>\"] [-incremental [-cache-dir <dir>] | -nocache] [stock vbsp options]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
         }
@@ -245,6 +285,8 @@ public static class RoomCommands
         Guid packId;
         IReadOnlyList<VmfChunk> libraryEntities;
         RoomLibraryOptions libraryOptions;
+        RoomLightingSettings? lighting;
+        string? skyboxRoom;
         try
         {
             byte[] libraryBytes = await ReadBytesAsync(disk, libraryPath, cancellationToken).ConfigureAwait(false);
@@ -253,7 +295,11 @@ public static class RoomCommands
             // The library-wide entities in the gaps (the sun, fog and the
             // like) go into the pack's library section, not away.
             RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(libraryVmf);
-            rooms = split.Rooms;
+
+            // The skybox room compiles and packs like any room, after them;
+            // a library section names it, since no level places it.
+            rooms = split.Skybox is { } skybox ? [.. split.Rooms, skybox] : split.Rooms;
+            skyboxRoom = split.Skybox?.Definition.Name;
             libraryEntities = split.LibraryEntities;
             libraryOptions = split.Options;
             navSettings = NavSettings.FromLibrary(libraryVmf);
@@ -264,7 +310,18 @@ public static class RoomCommands
 
             // The pack's id: a function of what shapes it, so a rebuild of the
             // same library writes the same pack (RoomCompileIds).
-            packId = RoomCompileIds.PackId(libraryBytes, PackIdOptions(stock, parsed.MapPath), Describe(navSettings, navOptions));
+            // Lit rooms add how they were lit to the id; an unlit pack keeps
+            // the id it had before the bake existed.
+            lighting = vradOptions is null
+                ? null
+                : new RoomLightingSettings(vradOptions with { Compliance = parsed.Options.Compliance })
+                {
+                    Sun = RoomLightingSettings.SunOf(libraryEntities),
+                };
+            packId = RoomCompileIds.PackId(
+                libraryBytes,
+                [.. PackIdOptions(stock, parsed.MapPath), .. (lighting is null ? Array.Empty<string>() : [lighting.Describe()])],
+                Describe(navSettings, navOptions));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or ChunkFileException or RoomLibraryException)
@@ -328,6 +385,7 @@ public static class RoomCommands
             PropHullCache = hulls,
             Nav = navSettings,
             NameKeys = libraryOptions.NameKeySet,
+            Lighting = lighting,
             Parallelism = parsed.Threads is int degree && degree > 0
                 ? new CompileParallelism { MaxDegree = degree }
                 : CompileParallelism.Default,
@@ -362,6 +420,7 @@ public static class RoomCommands
                     Nav = navSettings,
                     PackOptions = navOptions,
                     NameKeys = libraryOptions.NameKeySet,
+                    Lighting = lighting,
                     ContextTags = HostBackends.ContextTagsFor(options.Format.PresetName, cooker),
                 },
                 mounted.Content);
@@ -429,6 +488,11 @@ public static class RoomCommands
         if (libraryOptions.ToSection() is { } optionsSection)
         {
             librarySections.Add(optionsSection);
+        }
+
+        if (skyboxRoom is not null)
+        {
+            librarySections.Add(RoomLibrarySkybox.ToSection(skyboxRoom));
         }
 
 
@@ -526,6 +590,14 @@ public static class RoomCommands
     /// compiled. <c>--flatten</c> writes brushes for vbsp, so it takes no
     /// <c>-nofold</c>.
     /// </para>
+    /// <para>
+    /// <b>Visibility.</b> The link composes the level's PVS through its
+    /// doorways (<see cref="LevelLinkOptions.DoorVisibility"/>) and reports
+    /// the cluster pairs it marks visible and the visibility lump's size;
+    /// <c>-nodoorvis</c> writes the door graph's closure instead, in which
+    /// every cluster sees every other. <c>--flatten</c> leaves visibility to
+    /// vvis, so it takes no <c>-nodoorvis</c>.
+    /// </para>
     /// </remarks>
     public static async Task<int> RunLinkAsync(
         IFileSystem disk,
@@ -544,6 +616,7 @@ public static class RoomCommands
         bool flatten = false;
         bool modEntities = false;
         bool noFold = false;
+        bool noDoorVis = false;
         LinkNavOptions nav = new();
         for (int i = 0; i < args.Count; i++)
         {
@@ -594,16 +667,20 @@ public static class RoomCommands
             {
                 noFold = true;
             }
+            else if (IsFlag(args[i], "nodoorvis"))
+            {
+                noDoorVis = true;
+            }
             else
             {
                 rest.Add(args[i]);
             }
         }
 
-        if (rest.Count != 1 || (flatten && (roomsPack is not null || reserveText is not null || noFold)))
+        if (rest.Count != 1 || (flatten && (roomsPack is not null || reserveText is not null || noFold || noDoorVis)))
         {
             await output.WriteLineAsync(
-                "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
+                "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
                 + "       ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
@@ -673,7 +750,7 @@ public static class RoomCommands
             ? await FlattenAsync(disk, level, levelPath, libraryPath, targetPath, modEntities, output, cancellationToken).ConfigureAwait(false)
             : await LinkAsync(
                 disk, level, levelBytes, levelPath, libraryPath, roomsPack,
-                new LevelLinkOptions { EntityReserve = reserve, ModEntities = modEntities, FoldBrushes = !noFold }, targetPath, nav, output, cancellationToken)
+                new LevelLinkOptions { EntityReserve = reserve, ModEntities = modEntities, FoldBrushes = !noFold, DoorVisibility = !noDoorVis }, targetPath, nav, output, cancellationToken)
                 .ConfigureAwait(false);
     }
 
@@ -693,6 +770,20 @@ public static class RoomCommands
     /// to where the level is written (or to the current folder, when it is
     /// printed), so <c>ssmap link</c> finds it from the file. The options
     /// take one dash or two.
+    /// <para>
+    /// <b>Transitions</b> (the rooms design, 11.2). A library with role rooms
+    /// places one up room and one down room per level, so the level needs the
+    /// maps above and below: <c>-up-map</c> and <c>-down-map</c>, or
+    /// <c>-no-up</c> and <c>-no-down</c> for the top or bottom level;
+    /// <c>-transition-distance N</c> keeps the two at least N doors apart.
+    /// <c>-sequence K -name &lt;base&gt;</c> writes a run instead:
+    /// <c>&lt;base&gt;_01.yaml</c> to <c>&lt;base&gt;_K.yaml</c> from seeds N,
+    /// N + 1, ..., into <c>-out</c>'s folder (the current one by default),
+    /// each level's <c>down_map</c> the next's name and its <c>up_map</c> the
+    /// previous one's, the first <c>up: none</c> and the last
+    /// <c>down: none</c>. A library without roles writes the levels it always
+    /// wrote unless a transition option is given.
+    /// </para>
     /// </remarks>
     public static async Task<int> RunLayoutAsync(
         IFileSystem disk,
@@ -706,15 +797,30 @@ public static class RoomCommands
 
         const string Usage =
             "usage: ssmap layout <library.vmf> -rows <n> -columns <n> -seed <n> [-empty <ratio>]"
-            + " [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]";
+            + " [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]"
+            + " [-up-map <map> | -no-up] [-down-map <map> | -no-down] [-transition-distance <n>]\n"
+            + "       ssmap layout <library.vmf> -rows <n> -columns <n> -seed <n> -sequence <k> -name <base> [-out <folder>] [...]";
         List<string> rest = [];
         string? rows = null, columns = null, seed = null, empty = null, outPath = null, roomsPack = null, budgetText = null;
-        bool modEntities = false;
+        string? upMap = null, downMap = null, distanceText = null, sequenceText = null, baseName = null;
+        bool modEntities = false, noUp = false, noDown = false;
         for (int i = 0; i < args.Count; i++)
         {
             if (IsFlag(args[i], "mod-entities"))
             {
                 modEntities = true;
+                continue;
+            }
+
+            if (IsFlag(args[i], "no-up"))
+            {
+                noUp = true;
+                continue;
+            }
+
+            if (IsFlag(args[i], "no-down"))
+            {
+                noDown = true;
                 continue;
             }
 
@@ -746,6 +852,26 @@ public static class RoomCommands
             {
                 budgetText = value;
             }
+            else if (Take(args, i, "up-map", out value))
+            {
+                upMap = value;
+            }
+            else if (Take(args, i, "down-map", out value))
+            {
+                downMap = value;
+            }
+            else if (Take(args, i, "transition-distance", out value))
+            {
+                distanceText = value;
+            }
+            else if (Take(args, i, "sequence", out value))
+            {
+                sequenceText = value;
+            }
+            else if (Take(args, i, "name", out value))
+            {
+                baseName = value;
+            }
             else
             {
                 rest.Add(args[i]);
@@ -755,10 +881,37 @@ public static class RoomCommands
             i++;
         }
 
-        if (rest.Count != 1 || rows is null || columns is null || seed is null)
+        if (rest.Count != 1 || rows is null || columns is null || seed is null
+            || (sequenceText is null) != (baseName is null)
+            || (sequenceText is not null && (upMap is not null || downMap is not null || noUp || noDown))
+            || (noUp && upMap is not null) || (noDown && downMap is not null))
         {
             await output.WriteLineAsync(Usage).ConfigureAwait(false);
             return Program.ExitUsage;
+        }
+
+        int sequence = 0;
+        if (sequenceText is not null
+            && (!int.TryParse(sequenceText, NumberStyles.None, CultureInfo.InvariantCulture, out sequence) || sequence < 1 || sequence > 999))
+        {
+            await output.WriteLineAsync("ssmap layout: -sequence is a whole number of levels from 1 to 999").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        int distance = 0;
+        if (distanceText is not null && !int.TryParse(distanceText, NumberStyles.None, CultureInfo.InvariantCulture, out distance))
+        {
+            await output.WriteLineAsync("ssmap layout: -transition-distance is a whole number of doors from 0").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        foreach ((string flag, string? map) in (ReadOnlySpan<(string, string?)>)[("-up-map", upMap), ("-down-map", downMap), ("-name", baseName)])
+        {
+            if (map is not null && LevelTransitions.MapNameProblem(map) is { } problem)
+            {
+                await output.WriteLineAsync($"ssmap layout: {flag} \"{map}\" {problem}").ConfigureAwait(false);
+                return Program.ExitUsage;
+            }
         }
 
         if (!int.TryParse(rows, NumberStyles.None, CultureInfo.InvariantCulture, out int rowCount) || rowCount < 1
@@ -830,6 +983,9 @@ public static class RoomCommands
             return ExitFailed;
         }
 
+        // With -sequence, -out names the folder the levels go to.
+        string? folder = sequenceText is null ? null : target ?? Path.GetFullPath(".");
+        List<(VPath Path, string Text)> files = [];
         string text;
         try
         {
@@ -837,11 +993,46 @@ public static class RoomCommands
                 await ReadVmfAsync(disk, libraryVPath, cancellationToken).ConfigureAwait(false));
             LayoutEntityBudget? budget = await LayoutBudgetAsync(disk, packPath, rooms, explicitBudget, modEntities, cancellationToken)
                 .ConfigureAwait(false);
-            string from = target is null ? Path.GetFullPath(".") : Path.GetDirectoryName(target)!;
+            string from = folder ?? (target is null ? Path.GetFullPath(".") : Path.GetDirectoryName(target)!);
             string library = Path.GetRelativePath(from, libraryPath).Replace('\\', '/');
-            string name = target is null ? "level" : Path.GetFileNameWithoutExtension(target);
-            LevelGrid level = LevelGenerator.Generate([.. rooms.Select(r => r.Definition)], options, name, library, budget);
-            text = LevelYaml.Write(level, LevelGenerator.Header(options, level));
+            RoomDefinition[] definitions = [.. rooms.Select(r => r.Definition)];
+            RoomRole[] roles = [.. rooms.Select(r => r.Role)];
+            if (sequenceText is not null)
+            {
+                foreach (LevelGrid level in LevelGenerator.GenerateSequence(definitions, options, sequence, baseName!, library, budget, roles, distance))
+                {
+                    LevelGeneratorOptions own = options with { Seed = unchecked(options.Seed + (ulong)files.Count) };
+                    string path = Path.Combine(folder!, level.Name + ".yaml");
+                    if (!VPath.TryCreate(path, out VPath levelPath))
+                    {
+                        throw new IOException($"\"{path}\" is not a usable path");
+                    }
+
+                    files.Add((levelPath, LevelYaml.Write(level, LevelGenerator.Header(own, level))));
+                }
+
+                text = string.Empty;
+            }
+            else
+            {
+                string name = target is null ? "level" : Path.GetFileNameWithoutExtension(target);
+                bool hasRoles = roles.Any(r => r != RoomRole.None);
+                LevelTransitions? transitions = hasRoles || noUp || noDown || upMap is not null || downMap is not null
+                    ? new LevelTransitions { NoUp = noUp, NoDown = noDown, UpMap = upMap, DownMap = downMap }
+                    : null;
+                if (hasRoles && ((!noUp && upMap is null) || (!noDown && downMap is null)))
+                {
+                    string role = !noUp && upMap is null ? "up" : "down";
+                    throw new LinkException(
+                        $"the library has role rooms, so the level holds {(role == "up" ? "an" : "a")} {role} room and names its map:"
+                        + $" give -{role}-map <map>, or -no-{role} for a level without one.");
+                }
+
+                LevelGrid level = LevelGenerator.Generate(
+                    definitions, options, name, library, budget,
+                    new LayoutTransitions(roles) { NoUp = noUp, NoDown = noDown, MinDistance = distance }).WithTransitions(transitions);
+                text = LevelYaml.Write(level, LevelGenerator.Header(options, level));
+            }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or ChunkFileException or RoomLibraryException or LinkException or ArgumentException)
@@ -850,27 +1041,36 @@ public static class RoomCommands
             return ExitFailed;
         }
 
-        if (target is null)
+        if (sequenceText is null && target is null)
         {
             await output.WriteAsync(text).ConfigureAwait(false);
             return Program.ExitSuccess;
         }
 
-        byte[] bytes = new UTF8Encoding(false).GetBytes(text);
-        try
+        if (sequenceText is null)
         {
-            await disk.ReplaceAsync(
-                targetPath,
-                async (stream, token) => await stream.WriteAsync(bytes, token).ConfigureAwait(false),
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            await output.WriteLineAsync($"ssmap layout: cannot write {target}: {exception.Message}").ConfigureAwait(false);
-            return ExitFailed;
+            files.Add((targetPath, text));
         }
 
-        await output.WriteLineAsync($"ssmap layout: wrote {HostPaths.Display(targetPath)}").ConfigureAwait(false);
+        foreach ((VPath path, string content) in files)
+        {
+            byte[] bytes = new UTF8Encoding(false).GetBytes(content);
+            try
+            {
+                await disk.ReplaceAsync(
+                    path,
+                    async (stream, token) => await stream.WriteAsync(bytes, token).ConfigureAwait(false),
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                await output.WriteLineAsync($"ssmap layout: cannot write {HostPaths.Display(path)}: {exception.Message}").ConfigureAwait(false);
+                return ExitFailed;
+            }
+
+            await output.WriteLineAsync($"ssmap layout: wrote {HostPaths.Display(path)}").ConfigureAwait(false);
+        }
+
         return Program.ExitSuccess;
     }
 
@@ -919,15 +1119,47 @@ public static class RoomCommands
             // flags, and without -mod-entities its hub's stock fallback): at
             // most what its names say, so the layout never under-counts.
             int written = counts.Names.GetValueOrDefault(name)?.WrittenEdictsBound(modEntities) ?? 0;
-            edicts.Add(found.Tally(EntityClassTable.Default).Edicts + written);
+            // And, when the library asks for door portals, its share of its
+            // joints' portals: half its sockets, rounded up.
+            int doors = counts.Options.HasDoorPortals ? LevelDoorPortals.EdictsBound(room.Definition) : 0;
+            edicts.Add(found.Tally(EntityClassTable.Default).Edicts + written + TransitionEdictsBound(room, modEntities) + doors);
         }
 
         int budget = explicitBudget
             ?? EntityClassTable.EdictCap - LevelEntityBudget.ReserveFor(LevelLinkOptions.Default, counts.Options);
 
         // The library's own entities are the level's whatever it places, as
-        // the link counts them.
-        return new LayoutEntityBudget(budget, edicts) { LevelEdicts = RoomLibraryEntities.Count(counts.LibraryEntities).Tally(EntityClassTable.Default).Edicts };
+        // the link counts them, and so are its skybox room's, which every
+        // level carries once below its grid.
+        int skybox = counts.Skybox is { } sky && counts.Counts.GetValueOrDefault(sky) is { } skyCounts
+            ? skyCounts.Tally(EntityClassTable.Default).Edicts
+            : 0;
+        return new LayoutEntityBudget(budget, edicts)
+        {
+            LevelEdicts = RoomLibraryEntities.Count(counts.LibraryEntities).Tally(EntityClassTable.Default).Edicts + skybox,
+        };
+    }
+
+    /// <summary>
+    /// What the stock fallback writes for a role room at most, in edicts
+    /// (the rooms design, 11.6): a landmark for either role, and for an up
+    /// room the level's player starts, its arrival and its spawn points. The
+    /// volume becomes the changelevel, one edict for one, and with
+    /// <c>-mod-entities</c> the room's transition costs no edict at all
+    /// (<c>logic_level_transition</c> is server-only), so nothing is added.
+    /// The rooms' own player starts, which the level strips, are still
+    /// counted, so this never under-counts.
+    /// </summary>
+    private static int TransitionEdictsBound(LibraryRoom room, bool modEntities)
+    {
+        if (modEntities || room.Role == RoomRole.None)
+        {
+            return 0;
+        }
+
+        return room.Role == RoomRole.Down
+            ? 1
+            : 2 + RoomPois.Extract(room.Document).Pois.Count(p => p.Type == LevelTransition.Spell(PoiType.Spawn));
     }
 
     /// <summary>
@@ -1036,7 +1268,7 @@ public static class RoomCommands
 
         await output.WriteAsync(counts is null
             ? DescribeLibrary(rooms)
-            : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default, counts.Names, counts.LibraryEntities)).ConfigureAwait(false);
+            : DescribeLibrary(rooms, counts.Counts, counts.Options, EntityClassTable.Default, counts.Names, counts.LibraryEntities, counts.Lighting)).ConfigureAwait(false);
         return Program.ExitSuccess;
     }
 
@@ -1193,13 +1425,48 @@ public static class RoomCommands
         return Describe(rooms, counts, options, table, names, libraryEntities);
     }
 
+    /// <summary>
+    /// The listing <c>ssmap rooms</c> prints for a lit library: the listing
+    /// with the library's entities, and after each lit room's entity line how
+    /// many turns its base lighting is stored for (the rooms design, 1.1:
+    /// <c>lighting: 1 turn, no sun or sky reaches it</c>, or <c>lighting: 4
+    /// turns, sun or sky reaches it</c>). A room without lighting gets no
+    /// line, so an unlit library lists as it did before the bake.
+    /// </summary>
+    /// <param name="rooms">The library's rooms.</param>
+    /// <param name="counts">The rooms' entity counts from the pack.</param>
+    /// <param name="options">The library's settings from the pack.</param>
+    /// <param name="table">The class table.</param>
+    /// <param name="names">The rooms' names from the pack.</param>
+    /// <param name="libraryEntities">The library-wide entities from the pack.</param>
+    /// <param name="lighting">Per lit room, its lighting's rotation count (<see cref="RoomPack.ReadLightingTurnsAsync"/>).</param>
+    /// <returns>The listing.</returns>
+    public static string DescribeLibrary(
+        IReadOnlyList<LibraryRoom> rooms,
+        IReadOnlyDictionary<string, RoomEntityCounts?> counts,
+        RoomLibraryOptions options,
+        EntityClassTable table,
+        IReadOnlyDictionary<string, RoomNameSummary> names,
+        IReadOnlyList<VmfChunk> libraryEntities,
+        IReadOnlyDictionary<string, int> lighting)
+    {
+        ArgumentNullException.ThrowIfNull(counts);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(names);
+        ArgumentNullException.ThrowIfNull(libraryEntities);
+        ArgumentNullException.ThrowIfNull(lighting);
+        return Describe(rooms, counts, options, table, names, libraryEntities, lighting);
+    }
+
     private static string Describe(
         IReadOnlyList<LibraryRoom> rooms,
         IReadOnlyDictionary<string, RoomEntityCounts?>? counts,
         RoomLibraryOptions options,
         EntityClassTable? table,
         IReadOnlyDictionary<string, RoomNameSummary>? names = null,
-        IReadOnlyList<VmfChunk>? libraryEntities = null)
+        IReadOnlyList<VmfChunk>? libraryEntities = null,
+        IReadOnlyDictionary<string, int>? lighting = null)
     {
         ArgumentNullException.ThrowIfNull(rooms);
 
@@ -1223,9 +1490,16 @@ public static class RoomCommands
         {
             RoomDefinition definition = room.Definition;
             float cell = definition.CellSize;
+            // A role room says so; an ordinary room's line is as it was.
+            string role = room.Role switch
+            {
+                RoomRole.Up => ", role up",
+                RoomRole.Down => ", role down",
+                _ => string.Empty,
+            };
             text.Append(CultureInfo.InvariantCulture,
                 $"{definition.Name}: cell at ({Num(room.Corner)}), {Num(cell)} x {Num(cell)} x {Num(cell)}, "
-                + $"{definition.Sockets.Count} door(s)\n");
+                + $"{definition.Sockets.Count} door(s){role}\n");
             if (counts is not null)
             {
                 text.Append(EntityLine(definition.Name, counts, table!));
@@ -1234,6 +1508,13 @@ public static class RoomCommands
             if (names?.GetValueOrDefault(definition.Name) is { } summary)
             {
                 text.Append(summary.Describe());
+            }
+
+            if (lighting?.GetValueOrDefault(definition.Name) is int turns and > 0)
+            {
+                text.Append(turns == 1
+                    ? "  lighting: 1 turn, no sun or sky reaches it\n"
+                    : string.Create(CultureInfo.InvariantCulture, $"  lighting: {turns} turns, sun or sky reaches it\n"));
             }
 
             foreach (RoomSocket socket in definition.Sockets)
@@ -1281,11 +1562,17 @@ public static class RoomCommands
     /// </param>
     /// <param name="Names">Per room of the pack that has them, its names (<see cref="RoomNameSummary"/>).</param>
     /// <param name="LibraryEntities">The library-wide entities from the pack's library section, in library order.</param>
+    /// <param name="Lighting">Per lit room, how many turns its base lighting is stored for.</param>
     private sealed record PackCounts(
         RoomLibraryOptions Options,
         IReadOnlyDictionary<string, RoomEntityCounts?> Counts,
         IReadOnlyDictionary<string, RoomNameSummary> Names,
-        IReadOnlyList<VmfChunk> LibraryEntities);
+        IReadOnlyList<VmfChunk> LibraryEntities,
+        IReadOnlyDictionary<string, int> Lighting)
+    {
+        /// <summary>The library's skybox room, which every level carries once, or null.</summary>
+        public string? Skybox { get; init; }
+    }
 
     /// <summary>The pack's settings and counts, or null when there is no pack at <paramref name="packPath"/>.</summary>
     private static async Task<PackCounts?> ReadPackCountsAsync(IFileSystem disk, VPath packPath, CancellationToken cancellationToken)
@@ -1300,6 +1587,7 @@ public static class RoomCommands
         // In the order ssmap room writes the library sections: entities, then settings.
         IReadOnlyList<VmfChunk> libraryEntities = await RoomPack.ReadLibraryEntitiesAsync(stream, index, cancellationToken).ConfigureAwait(false);
         RoomLibraryOptions options = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        string? skybox = await RoomPack.ReadLibrarySkyboxAsync(stream, index, cancellationToken).ConfigureAwait(false);
         IReadOnlyDictionary<string, RoomEntityCounts> read = await RoomPack.ReadEntityCountsAsync(stream, index, cancellationToken)
             .ConfigureAwait(false);
         Dictionary<string, RoomEntityCounts?> counts = new(StringComparer.Ordinal);
@@ -1310,7 +1598,8 @@ public static class RoomCommands
 
         IReadOnlyDictionary<string, RoomNameSummary> names = await RoomPack.ReadNameSummariesAsync(stream, index, cancellationToken)
             .ConfigureAwait(false);
-        return new PackCounts(options, counts, names, libraryEntities);
+        IReadOnlyDictionary<string, int> lighting = await RoomPack.ReadLightingTurnsAsync(stream, index, cancellationToken).ConfigureAwait(false);
+        return new PackCounts(options, counts, names, libraryEntities, lighting) { Skybox = skybox };
     }
 
     private static string Num(float value) => value.ToString("0.##", CultureInfo.InvariantCulture);
@@ -1385,6 +1674,18 @@ public static class RoomCommands
                 .ConfigureAwait(false);
             RoomLibraryOptions libraryOptions = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken)
                 .ConfigureAwait(false);
+
+            // The skybox room, which the link places below every level's
+            // grid: read with the rooms, at its one turn, without navigation.
+            string? skybox = await RoomPack.ReadLibrarySkyboxAsync(stream, index, cancellationToken).ConfigureAwait(false);
+            if (skybox is not null && index.Find(skybox) is null)
+            {
+                await output.WriteLineAsync(
+                    $"ssmap link: the room pack {pack} names skybox room \"{skybox}\" but does not hold it; recompile the library with ssmap room")
+                    .ConfigureAwait(false);
+                return ExitFailed;
+            }
+
             foreach (LevelCell cell in first)
             {
                 if (index.Find(cell.Room) is null)
@@ -1401,7 +1702,10 @@ public static class RoomCommands
                 .LoadRoomsAsync(
                     stream,
                     index,
-                    [.. first.Select(c => new RoomPackRequest(c.Room, turns[c.Room]) { Navigation = !nav.Skip })],
+                    [
+                        .. first.Select(c => new RoomPackRequest(c.Room, turns[c.Room]) { Navigation = !nav.Skip }),
+                        .. skybox is null || turns.ContainsKey(skybox) ? [] : new[] { new RoomPackRequest(skybox, [0]) },
+                    ],
                     cancellationToken)
                 .ConfigureAwait(false);
             // The first room sets the grid; RoomLibrary.Add refuses any other.
@@ -1409,6 +1713,7 @@ public static class RoomCommands
             {
                 Options = libraryOptions,
                 LibraryEntities = libraryEntities,
+                SkyboxRoom = skybox,
             };
             foreach (RoomObject room in rooms)
             {
@@ -1492,11 +1797,30 @@ public static class RoomCommands
                 cancellationToken).ConfigureAwait(false);
 
             // What resolving the rooms' names warned of (references to empty
-            // cells dropped, global names repeated), then the budget's
-            // warnings, then the headroom it always reports.
+            // cells dropped, global names repeated), what linking the areas
+            // warned of, then the budget's warnings, then the headroom it
+            // always reports.
             foreach (string nameWarning in link.NameWarnings)
             {
                 await output.WriteLineAsync($"ssmap link: warning: {nameWarning}").ConfigureAwait(false);
+            }
+
+            // An area portal the level joins around (its two sides one area
+            // once linked), which the level lists no portal for.
+            foreach (string areaWarning in link.AreaWarnings)
+            {
+                await output.WriteLineAsync($"ssmap link: warning: {areaWarning}").ConfigureAwait(false);
+            }
+
+            // With the mod's classes a level's arrival and spawn points are
+            // read from its navigation sidecar (the rooms design, 11.5): a
+            // level with transitions linked without one has none for the mod.
+            if (linkOptions.ModEntities && link.HasTransitions && !navPlan.WritesNavigation)
+            {
+                await output.WriteLineAsync(
+                    $"ssmap link: warning: level {level.Name}: -mod-entities places players at the arrival and spawn points of the"
+                    + " navigation sidecar, and the level links without navigation; build the library's navigation, or link without -mod-entities.")
+                    .ConfigureAwait(false);
             }
 
             LevelEntityReport budget = link.EntityBudget!;
@@ -1516,6 +1840,14 @@ public static class RoomCommands
                 + (link.FoldedBrushes > 0 ? $" ({link.FoldedBrushes} folded away)" : string.Empty)
                 + (link.PackedFiles > 0 ? $", {link.PackedFiles} packed files" : string.Empty)
                 + (navPlan.WritesNavigation ? $", level id {navPlan.LevelId:D})" : ")"))
+                .ConfigureAwait(false);
+
+            // How much the level's visibility lets through: the pairs of
+            // clusters it marks visible, of all there are, and the lump.
+            long pairs = (long)link.Vis.ClusterCount * link.Vis.ClusterCount;
+            await output.WriteLineAsync(
+                $"ssmap link: visibility {link.Vis.TotalVisibleClusters} of {pairs} cluster pairs,"
+                + $" {link.Vis.VisDataSize} bytes")
                 .ConfigureAwait(false);
             if (navPlan.WritesNavigation)
             {

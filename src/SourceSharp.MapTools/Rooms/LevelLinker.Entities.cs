@@ -75,6 +75,17 @@ public static partial class LevelLinker
     /// the logic folded. A level that uses none of it skips the resolver
     /// entirely and links to the bytes it did before names existed.
     /// </para>
+    /// <para>
+    /// <b>The skybox</b> (<see cref="SkyboxOf"/>): its entities are moved to
+    /// it and written after every room's, never through the resolver (it
+    /// stands in no cell of the grid), and its extent is left out of the
+    /// worldspawn's, as vbsp leaves a 3D skybox out of <c>world_mins</c>.
+    /// </para>
+    /// <para>
+    /// <b>Appended.</b> Entities the linker writes for the level after every
+    /// room's and the skybox's (a library's door portals,
+    /// <see cref="LevelDoorPortals"/>) go last, where the flatten writes them.
+    /// </para>
     /// </remarks>
     internal static BspLumpData MergeEntities(
         RoomPlan[] plans,
@@ -82,10 +93,12 @@ public static partial class LevelLinker
         LevelNaming? naming = null,
         string? mapVersion = null,
         LevelSingletons? singletons = null,
-        List<(int Placement, string ClassName)>? droppedFurniture = null)
+        List<(int Placement, string ClassName)>? droppedFurniture = null,
+        LevelLightStyles? styles = null,
+        IReadOnlyList<BspEntity>? appended = null)
     {
         singletons ??= new LevelSingletons([]);
-        List<BspEntity> merged = [];
+        List<(BspEntity Entity, int Placement)> merged = [];
         BspEntity? world = null;
         string? worldOwner = null;
         Box? extent = null;
@@ -93,7 +106,12 @@ public static partial class LevelLinker
         // The naming resolver runs only when some placed room uses names
         // (or the mod's classes are asked for): a level that uses nothing of
         // it links exactly as it did before names existed.
-        bool resolving = naming is not null && naming.IsActive(plans);
+        bool resolving = naming is not null && naming.IsActive([.. plans.Where(p => !p.IsSkybox)]);
+
+        // The skybox's entities (SkyboxOf): moved to it, never resolved (it
+        // has no cell of the grid to name things by), and written after
+        // every room's, where the flatten writes them.
+        List<(BspEntity Entity, int Placement)> skyboxEntities = [];
         List<ResolverRoom> resolverRooms = [];
         for (int index = 0; index < plans.Length; index++)
         {
@@ -116,7 +134,19 @@ public static partial class LevelLinker
                         throw new LinkException(item.Error);
                     }
 
-                    if (resolving)
+                    if (plan.IsSkybox)
+                    {
+                        if (!compileOnly)
+                        {
+                            AddUnlessDuplicate(
+                                skyboxEntities,
+                                singletons,
+                                TranslateEntity(item, plan.Transform, name, plan.OccluderBase, plan.Models, plan.OverlayBase, plan.PortalBase),
+                                name,
+                                index);
+                        }
+                    }
+                    else if (resolving)
                     {
                         // Every entity keeps its place, so the room's
                         // stored name tables index the list as they index
@@ -125,13 +155,13 @@ public static partial class LevelLinker
                     }
                     else if (!compileOnly && !OmittedModel(item.Pairs, plan, index, droppedFurniture))
                     {
-                        AddUnlessDuplicate(merged, singletons, TranslateEntity(item, plan.Transform, name, plan.OccluderBase, plan.Models), name, index);
+                        AddUnlessDuplicate(merged, singletons, TranslateEntity(item, plan.Transform, name, plan.OccluderBase, plan.Models, plan.OverlayBase, plan.PortalBase), name, index);
                     }
 
                     continue;
                 }
 
-                if (resolving)
+                if (resolving && !plan.IsSkybox)
                 {
                     entities.Add(LevelEntity.FromLink(item, index, i));
                 }
@@ -157,14 +187,16 @@ public static partial class LevelLinker
                     throw new LinkException(error);
                 }
 
-                if (item.Extent is { } turned)
+                // The world's extent is every room's but the skybox's, which
+                // vbsp leaves out of world_mins and world_maxs too.
+                if (item.Extent is { } turned && !plan.IsSkybox)
                 {
                     Box moved = plan.Transform.TranslateBox(turned);
                     extent = extent is { } sofar ? Union(sofar, moved) : moved;
                 }
             }
 
-            if (resolving)
+            if (resolving && !plan.IsSkybox)
             {
                 resolverRooms.Add(naming!.RoomFor(plan, index, entities));
             }
@@ -190,7 +222,7 @@ public static partial class LevelLinker
                 AddUnlessDuplicate(
                     merged,
                     singletons,
-                    TranslateEntity(new RoomLinkEntity(false, pairs, null, null), plan.Transform, room, plan.OccluderBase, plan.Models),
+                    TranslateEntity(new RoomLinkEntity(false, pairs, null, null), plan.Transform, room, plan.OccluderBase, plan.Models, plan.OverlayBase, plan.PortalBase),
                     room,
                     entity.Placement);
             }
@@ -233,8 +265,20 @@ public static partial class LevelLinker
 
         // The library's entities once, straight after the worldspawn, as the
         // flatten writes them (RoomLibraryEntities.ToLinked).
-        lump.AddRange(singletons.Library.Select(RoomLibraryEntities.ToLinked));
-        lump.AddRange(merged);
+        List<BspEntity> library = [.. singletons.Library.Select(RoomLibraryEntities.ToLinked)];
+        lump.AddRange(library);
+
+        // The switchable lights' styles, one per distinct name over the
+        // level in lump order, as vbsp gives them over the flattened map
+        // (LevelLightStyles): each room's compile numbered its own from 32.
+        styles ??= new LevelLightStyles();
+        styles.Renumber([.. library.Select(e => (e, -1)), .. merged, .. skyboxEntities]);
+        lump.AddRange(merged.Select(m => m.Entity));
+        lump.AddRange(skyboxEntities.Select(m => m.Entity));
+
+        // What the linker writes after every room's (the door portals'
+        // entities, LevelDoorPortals), as the flatten writes it last.
+        lump.AddRange(appended ?? []);
         return EntityLump.Write(lump);
     }
 
@@ -243,11 +287,11 @@ public static partial class LevelLinker
     /// a level-wide singleton (<see cref="LevelSingletons"/>), which is
     /// dropped; a different copy is refused there.
     /// </summary>
-    private static void AddUnlessDuplicate(List<BspEntity> merged, LevelSingletons singletons, BspEntity entity, string room, int placement)
+    private static void AddUnlessDuplicate(List<(BspEntity Entity, int Placement)> merged, LevelSingletons singletons, BspEntity entity, string room, int placement)
     {
         if (singletons.Keep(room, placement, entity.ClassName, [.. entity.Pairs.Select(p => new KeyValuePair<string, string>(p.Key, p.Value))]))
         {
-            merged.Add(entity);
+            merged.Add((entity, placement));
         }
     }
 
@@ -311,10 +355,10 @@ public static partial class LevelLinker
         /// <summary>The resolution, once the entities are merged; null when the resolver did not run.</summary>
         public LevelResolution? Result { get; set; }
 
-        /// <summary>Whether the resolver runs: some placed room uses names, or the mod's classes are asked for.</summary>
+        /// <summary>Whether the resolver runs: some placed room uses names, the mod's classes are asked for, or the level has transitions.</summary>
         public bool IsActive(RoomPlan[] plans)
         {
-            bool active = Options.ModEntities;
+            bool active = Options.ModEntities || Options.Transitions is not null;
             for (int i = 0; i < plans.Length; i++)
             {
                 active |= !NamesFor(plans[i], i).IsEmpty;
@@ -400,12 +444,15 @@ public static partial class LevelLinker
     /// The turn (<see cref="TurnEntity"/>, which the room compile stores)
     /// and then the cell (<see cref="TranslateEntity"/>, the link's share).
     /// </remarks>
-    internal static BspEntity MoveEntity(BspEntity entity, RoomTransform transform, string room, int occluderBase = 0) =>
+    internal static BspEntity MoveEntity(
+        BspEntity entity, RoomTransform transform, string room, int occluderBase = 0, int overlayBase = 0, int portalBase = 0) =>
         TranslateEntity(
             new RoomLinkEntity(false, TurnEntity(entity, transform.Placement.NormalizedRotation, room), null, null),
             transform,
             room,
-            occluderBase);
+            occluderBase,
+            overlayBase: overlayBase,
+            portalBase: portalBase);
 
     /// <summary>
     /// One entity's keys turned by a quarter turn: the part of moving it
@@ -434,6 +481,11 @@ public static partial class LevelLinker
     /// (<c>movedir</c>, <c>pushdir</c>, <c>gibdir</c>) turn as a yaw.
     /// </para>
     /// <para>
+    /// <b>An <c>info_overlay_accessor</c>'s basis</b> (what vbsp leaves of a
+    /// named overlay) is turned by <see cref="TurnOverlayPair"/>, as the
+    /// flatten turns the overlay's keys.
+    /// </para>
+    /// <para>
     /// <b>An <c>info_ladder</c>'s bounds</b> are a world-space box written as
     /// six separate keys (<see cref="LadderKeys"/>), room-local in the room
     /// compile; a whole-map compile of the level measures them from the
@@ -458,6 +510,7 @@ public static partial class LevelLinker
         Box? ladder = LadderBounds(entity, ladderKeys, turns, room);
         int yawTurns = VmfPlacement.KeepsWorldAngles(entity.ClassName) ? 0 : turns;
         string? brushClass = IsBrushModel(entity.Get("model")) ? entity.ClassName ?? string.Empty : null;
+        bool overlay = string.Equals(entity.ClassName, RoomOverlays.AccessorClass, StringComparison.Ordinal);
         List<RoomLinkPair> pairs = new(entity.Pairs.Count);
         foreach (BspKeyValue pair in entity.Pairs)
         {
@@ -469,7 +522,7 @@ public static partial class LevelLinker
                 continue;
             }
 
-            pairs.Add(TurnPair(pair, turns, yawTurns, room, brushClass));
+            pairs.Add(overlay && TurnOverlayPair(pair, turns, room) is { } basis ? basis : TurnPair(pair, turns, yawTurns, room, brushClass));
         }
 
         return pairs;
@@ -503,6 +556,20 @@ public static partial class LevelLinker
     /// written.
     /// </para>
     /// <para>
+    /// An <c>info_overlay_accessor</c>'s <c>OverlayID</c> is its overlay's
+    /// id, which every room compile numbers from 0; the link appends the
+    /// rooms' overlays in layout order (<see cref="RoomPlan.OverlayBase"/>),
+    /// so the key is shifted by the same base, as <c>occludernumber</c> is.
+    /// An area portal's <c>portalnumber</c> is its portal's number, which
+    /// every room compile numbers from 1 and the level's portal listings
+    /// carry as their key; the link numbers the rooms' portals in layout
+    /// order (<see cref="RoomPlan.PortalBase"/>, <see cref="WriteAreas"/>),
+    /// so it is shifted by that base too.
+    /// Its <c>BasisOrigin</c> (turned by <see cref="TurnOverlayPair"/>) takes
+    /// the placement's translation as one vector, as the flatten moves it and
+    /// as the link moves the overlay's record (<see cref="LinkOverlay"/>).
+    /// </para>
+    /// <para>
     /// A brush entity's <c>model</c> (<c>*k</c>, its room's model number)
     /// becomes the model's linked number (<see cref="PlanModels"/>), and its
     /// socket furniture keys (<c>room_socket</c>, <c>socket_priority</c>),
@@ -510,7 +577,8 @@ public static partial class LevelLinker
     /// out (the rooms design, 6.4).
     /// </para>
     /// </remarks>
-    private static BspEntity TranslateEntity(RoomLinkEntity entity, RoomTransform transform, string room, int occluderBase, RoomModelLayout? models = null)
+    private static BspEntity TranslateEntity(
+        RoomLinkEntity entity, RoomTransform transform, string room, int occluderBase, RoomModelLayout? models = null, int overlayBase = 0, int portalBase = 0)
     {
         BspEntity moved = new();
         bool brush = models is not null && entity.Pairs.Any(p => IsKey(p.Key, "model") && IsBrushModel(p.Value));
@@ -522,7 +590,14 @@ public static partial class LevelLinker
             }
 
             string value;
-            if (pair.Value is null)
+            if (pair.Value is null && IsKey(pair.Key, RoomOverlays.OriginKey))
+            {
+                // An overlay accessor's basis origin, moved as the flatten
+                // moves it and as the link moves the overlay's record
+                // (LinkOverlay): the turned point plus the translation.
+                value = VmfPlacement.Format(pair.Origin + transform.Apply(Vec3.Zero));
+            }
+            else if (pair.Value is null)
             {
                 Vec3 at = transform.Translate(pair.Origin);
                 value = pair.Component switch
@@ -539,6 +614,18 @@ public static partial class LevelLinker
                 value = k >= 1 && k <= models!.Linked.Length && models.Linked[k - 1] > 0
                     ? string.Create(CultureInfo.InvariantCulture, $"*{models.Linked[k - 1]}")
                     : throw new LinkException($"room {room} has an entity naming model {pair.Value}, which is not one of its linked brush models");
+            }
+            else if (overlayBase != 0 && IsKey(pair.Key, RoomOverlays.IdKey))
+            {
+                value = int.TryParse(pair.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int overlay)
+                    ? (overlay + overlayBase).ToString(CultureInfo.InvariantCulture)
+                    : throw new LinkException($"room {room} has an entity whose \"{RoomOverlays.IdKey}\" holds \"{pair.Value}\", not an overlay id");
+            }
+            else if (portalBase != 0 && IsKey(pair.Key, RoomAreaPortals.PortalNumberKey))
+            {
+                value = int.TryParse(pair.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int portal)
+                    ? (portal + portalBase).ToString(CultureInfo.InvariantCulture)
+                    : throw new LinkException($"room {room} has an entity whose \"{RoomAreaPortals.PortalNumberKey}\" holds \"{pair.Value}\", not a portal number");
             }
             else if (occluderBase != 0 && IsKey(pair.Key, "occludernumber"))
             {
@@ -639,7 +726,7 @@ public static partial class LevelLinker
             ? value
             : throw new LinkException($"room {room} has an entity whose \"{key}\" holds \"{text}\", not a number");
 
-    private static string FormatVec(Vec3 v) => $"{Format(v.X)} {Format(v.Y)} {Format(v.Z)}";
+    internal static string FormatVec(Vec3 v) => $"{Format(v.X)} {Format(v.Y)} {Format(v.Z)}";
 
-    private static string Format(float value) => value.ToString(CultureInfo.InvariantCulture);
+    internal static string Format(float value) => value.ToString(CultureInfo.InvariantCulture);
 }

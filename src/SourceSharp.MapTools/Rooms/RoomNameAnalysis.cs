@@ -11,6 +11,8 @@ using System.Globalization;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+
+using SourceSharp.MapTools.Bsp;
 using SourceSharp.RoomContracts;
 
 namespace SourceSharp.MapTools.Rooms;
@@ -384,8 +386,11 @@ internal sealed class RoomNameTables
 /// </para>
 /// <para>
 /// <b>room_needs</b> (<see cref="RoomNeeds"/>) must parse, and may not sit on
-/// a baked light (its light is in the room's lighting and cannot be dropped)
-/// or on a <c>prop_static</c> that casts shadows (its shadow would stay).
+/// a baked light (its light is in the room's lighting and cannot be dropped),
+/// on an <c>info_overlay</c> (a record of the room's compile, which the
+/// accessors number), on an area portal (its brush is the room's world and
+/// its number one of the room's portals) or on a <c>prop_static</c> that casts shadows (its
+/// shadow would stay).
 /// </para>
 /// <para>
 /// <b>Warnings</b> go with the room (the pack stores them, <c>ssmap room</c>
@@ -670,7 +675,7 @@ internal static class RoomNameAnalysis
         }
     }
 
-    /// <summary>A <c>room_needs</c> key checked: it parses, and does not sit on a baked light or a shadow-casting static prop.</summary>
+    /// <summary>A <c>room_needs</c> key checked: it parses, and does not sit on a baked light, an overlay or a shadow-casting static prop.</summary>
     private static List<RoomNeed> CheckNeeds(string room, LevelEntity entity, string className, string value)
     {
         if (!RoomNeeds.TryParse(value, out List<RoomNeed> needs, out string? unknown))
@@ -684,6 +689,27 @@ internal static class RoomNameAnalysis
         {
             throw new RoomLintException(
                 $"room {room}: entity {entity.Id} ({className}) has room_needs, but a light's contribution is in the room's baked lighting and cannot be dropped.");
+        }
+
+        // An overlay is a record of its room's compile, not an entity the
+        // resolver can leave out (an unnamed one has no entity at all once
+        // compiled), and dropping it would renumber every later overlay the
+        // accessors name; the flattened compile would drop it, the link
+        // would keep it. Refused, like a baked light.
+        if (string.Equals(className, "info_overlay", StringComparison.Ordinal))
+        {
+            throw new RoomLintException(
+                $"room {room}: entity {entity.Id} (info_overlay) has room_needs, but an overlay is built into its room's compile and cannot be dropped.");
+        }
+
+        // An area portal's brush is moved into its room's world by vbsp and
+        // its number is one of the room's portals, so the link cannot leave
+        // it out while the flattened compile would (and would renumber every
+        // later portal). Refused, like an overlay.
+        if (MapFileLoader.IsAreaPortal(className))
+        {
+            throw new RoomLintException(
+                $"room {room}: entity {entity.Id} ({className}) has room_needs, but an area portal is built into its room's compile and cannot be dropped.");
         }
 
         if (string.Equals(className, "prop_static", StringComparison.Ordinal)

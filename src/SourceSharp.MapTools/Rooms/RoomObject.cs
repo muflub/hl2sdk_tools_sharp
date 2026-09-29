@@ -149,6 +149,95 @@ public sealed record RoomObject(
     internal RoomBrushModels? BrushModelsOfCompile => BrushModels is { } models && models.IsFor(this) ? models : null;
 
     /// <summary>
+    /// What the room brings to its level's transitions and spawn
+    /// (<see cref="RoomTransit"/>: its role, transition volume, fold
+    /// trigger, arrival and spawn points), or null: made by the library
+    /// compile from the room's VMF for a room with a role or spawn points,
+    /// and stored by the pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Props"/>, not only a shortcut: the points of interest
+    /// are not in the compile at all, so a level placing a room whose compile
+    /// has a transition volume and none of this bound to it is refused by
+    /// name (a pack written before transitions).
+    /// </remarks>
+    internal RoomTransit? Transit { get; init; }
+
+    /// <summary>The room's transition data while it describes this compile, else null.</summary>
+    internal RoomTransit? TransitOfCompile => Transit is { } transit && transit.IsFor(this) ? transit : null;
+
+    /// <summary>
+    /// The room's base lighting (<see cref="RoomLighting"/>: what vrad gave
+    /// its faces, leaves, lights and props, once or per quarter turn), or
+    /// null: baked by a library compile that lights its rooms
+    /// (<see cref="RoomLibraryCompileSettings.Lighting"/>) and stored by the
+    /// pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// A room without it links unlit, as every room did before the bake
+    /// existed; a level may not mix the two (<see cref="LevelLinker"/>).
+    /// </remarks>
+    internal RoomLighting? Lighting { get; init; }
+
+    /// <summary>The room's lighting while it describes this compile, else null.</summary>
+    internal RoomLighting? LightingOfCompile => Lighting is { } lighting && lighting.IsFor(this) ? lighting : null;
+
+    /// <summary>
+    /// The room's <c>env_cubemap</c> samples and the names its compile made
+    /// after them (<see cref="RoomCubemaps"/>: the samples per turn, the
+    /// patched texdata strings and packed files), or null: made by the room
+    /// compile for a room with samples, and stored by the pack in its own
+    /// section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Props"/>, not only a shortcut: the samples' origins
+    /// as the loader read them are not in the lump, which holds them
+    /// truncated, so a room with samples and none of this bound to its
+    /// compile (<see cref="CubemapsOfCompile"/>) is refused by the link,
+    /// naming the room.
+    /// </remarks>
+    internal RoomCubemaps? Cubemaps { get; init; }
+
+    /// <summary>The room's cubemap data while it describes this compile, else null.</summary>
+    internal RoomCubemaps? CubemapsOfCompile => Cubemaps is { } cubemaps && cubemaps.IsFor(this) ? cubemaps : null;
+
+    /// <summary>
+    /// The room's overlays as the link carries them (<see cref="RoomOverlays"/>:
+    /// every record's origin and basis at each quarter turn), or null: made
+    /// by the room compile for a room whose compile wrote overlays, and
+    /// stored by the pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Props"/>, not only a shortcut: it is what says the room
+    /// was held to the pack's overlay rules when it was compiled, so a room
+    /// whose lump has overlays and none of this bound to its compile
+    /// (<see cref="OverlaysOfCompile"/>) is refused by the link, naming the room.
+    /// </remarks>
+    internal RoomOverlays? Overlays { get; init; }
+
+    /// <summary>The room's overlays while they describe this compile, else null.</summary>
+    internal RoomOverlays? OverlaysOfCompile => Overlays is { } overlays && overlays.IsFor(this) ? overlays : null;
+
+    /// <summary>
+    /// The room's areas and area portals as the link carries them
+    /// (<see cref="RoomAreaPortals"/>: the lumps checked, the clip vertices
+    /// at each quarter turn, the portal numbers), or null: made by the room
+    /// compile for a room whose compile has area portals, and stored by the
+    /// pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Overlays"/>, not only a shortcut: it is what says the
+    /// room was held to the pack's area portal rules when it was compiled,
+    /// so a room whose lumps have area portals and none of this bound to its
+    /// compile (<see cref="AreaPortalsOfCompile"/>) is refused by the link,
+    /// naming the room.
+    /// </remarks>
+    internal RoomAreaPortals? AreaPortals { get; init; }
+
+    /// <summary>The room's area portals while they describe this compile, else null.</summary>
+    internal RoomAreaPortals? AreaPortalsOfCompile => AreaPortals is { } portals && portals.IsFor(this) ? portals : null;
+
+    /// <summary>
     /// The room's navigation, or null: built beside the link work by a
     /// library compile whose library builds navigation, and read by a pack
     /// load that asks for it (<see cref="RoomPackRequest.Navigation"/>), at
@@ -205,6 +294,15 @@ public sealed class RoomLibrary
     /// them in the level's entity budget.
     /// </summary>
     public IReadOnlyList<VmfChunk> LibraryEntities { get; set; } = [];
+
+    /// <summary>
+    /// The name of the library's skybox room (<see cref="RoomLibrarySplit.Skybox"/>),
+    /// one of <see cref="Rooms"/>, or null when the library has none: read
+    /// from the pack's library section (<see cref="RoomLibrarySkybox"/>) by
+    /// whoever loads the rooms. The link places it below every level's grid
+    /// as its own area; a level may not place it itself.
+    /// </summary>
+    public string? SkyboxRoom { get; set; }
 
     /// <summary>The rooms, in insertion order.</summary>
     public IReadOnlyCollection<RoomObject> Rooms => _rooms.Values;

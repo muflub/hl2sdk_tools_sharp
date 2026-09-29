@@ -412,10 +412,12 @@ ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <codec>
            [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
 ssmap rooms <library.vmf> [-rooms <pack.roompack>]
 ssmap rooms -rooms <pack.roompack>
-ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
+ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
 ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
              [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
+             [-up-map <map> | -no-up] [-down-map <map> | -no-down] [-transition-distance <n>]
+ssmap layout <library.vmf> ... -sequence K -name <base> [-out <folder>]
 ssmap nav <map.nav3d | level.yaml> [-rooms <pack.roompack>] [--obj <out.obj>] [--floor] [--agent <index|name>]
 ```
 
@@ -567,6 +569,27 @@ piece and ends in the next is now all solid rather than leaving the first
 at the seam. The link reports the brushes it wrote and how many it folded
 away; with `-nofold` it writes the unfolded brushes byte for byte.
 
+**Visibility.** The link composes the level's PVS without running vvis
+on it. Each room's own vvis is kept for sight inside the room, and
+`ssmap room` stores per room which of its clusters see each doorway and
+which of its doorways see each other through it (the pack's `DVIS`
+section). At link, a flow like vvis's portal flow runs over the doorway
+rectangles alone, treating each room as its empty cell: two rooms see each
+other only where a straight line gets through the chain of doorways
+between them, each room on the way lets a line from one of its doorways to
+the next, and each end cluster's bounds lie in the cone of lines the chain
+lets through, tested from both ends. Neighbouring rooms see each other only
+through their shared doorway, and not at all across a wall. The result
+keeps every sight line of the same level compiled whole (the facts check
+this against vvis on the flattened level), is the same bytes at any thread
+count and for a level turned as a whole, and replaces what the link wrote
+before, in which every cluster of a level saw every other (`-nodoorvis`
+still writes that). On the stress library at 33 x 33 the cluster pairs
+marked visible fall from 26,347,689 (all of them) to 686,929 and the
+visibility lump from 6,631,840 bytes to 1,958,372; at 24 x 24 from
+7,193,124 to 281,908 pairs and 1,823,764 to 665,441 bytes. The link reports
+the pairs and the lump's size on a line of its own.
+
 On a generated stress library of 256 rooms (`ssmap layout -seed 1`), the
 largest square level that links goes from 24 x 24 (brushes) to 27 x 27 with
 the plugs dropped, and to 33 x 33 with the fold (7,029 brushes of 8,192).
@@ -584,8 +607,14 @@ bytes are refused, naming both, and the rooms' default cubemaps (built from
 the library's sky, `materials/maps/<room>/cubemapdefault.vtf` and its HDR
 twin) are renamed to the level's map name, the output file's name, which is
 where the engine looks for them; so renaming a linked `.bsp` afterwards
-loses its default cubemaps, as it does for any map. Other files named after
-a room (patched materials) keep the room's name, which its faces use.
+loses its default cubemaps, as it does for any map. Each `env_cubemap`
+sample is carried to its linked position, and what vbsp named after it (the
+sample's cubemap copies and the specular materials patched for it) is
+renamed to the level's name and the sample's world position, once per
+placement, as a compile of the whole level names them; each room's faces
+keep the samples of their own room. Other files named after a room (water
+and `_wvt_patch` patched materials) keep the room's name, which its faces
+use.
 Static props (`prop_static`) are carried and cost the level no entity: each
 placed room's props are moved and turned with it, their model dictionaries
 merged, and each prop's leaves listed by walking the linked tree with the
@@ -610,12 +639,66 @@ furniture, is left out of the level with its whole model. A brush entity's
 `movedir`, `pushdir` and `gibdir` turn with its room; its `angles` do not,
 since its brushes already turn, and `ssmap room` refuses one whose
 `angles` are not zero. The engine loads at most 1024 models
-(`MAX_MAP_MODELS`), and the link refuses a level past that. The
-link refuses what it cannot carry: area portals, detail props,
-displacements, water, and a mix of cooked and `-cooker none` rooms. The doorway's side walls have no faces of their
+(`MAX_MAP_MODELS`), and the link refuses a level past that.
+Overlays (`info_overlay`) are carried: each placed room's are moved and
+turned with it (`BasisOrigin` moved, the basis turned), numbered after the
+rooms before it in link order, drawn on the faces the link wrote for their
+sides, and a named overlay's `info_overlay_accessor` names its new id; an
+unnamed overlay costs the level no entity, a named one its accessor. An
+overlay names sides of its own room only; the split, and so `ssmap room`
+and `--flatten`, refuses one naming a side of a socket's plug (a doorway
+that wants an overlay on each side gets one in each room), and `room_needs`
+on an overlay. A map holds at most 512 overlays (`MAX_MAP_OVERLAYS`), and
+the link refuses a level past that.
+Area portals (`func_areaportal`, `func_areaportalwindow`) are carried: a
+room's own areas join its neighbours' at every joint, its portals are
+numbered after the rooms before it (their `portalnumber` too) and listed
+for the level with their outlines moved; `ssmap room` and `--flatten`
+refuse a portal reaching into a socket's plug box, one named as socket
+furniture, and `room_needs` on one, and `ssmap link` warns of a portal the
+level joins around (a ring of rooms), which it keeps as an entity with no
+portal, as vbsp does. A library whose worldspawn sets
+`rooms_door_portals 1` gets an area portal in every joint too, following
+the joint's kept socket door when it is a named `func_door`, else open;
+each costs an entity and every room becomes its own area (a map holds 255).
+The link refuses what it cannot carry: detail props,
+displacements, water (and its water overlays), and a mix of cooked and
+`-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a
 gap unless something placed in the socket (a door frame model, say) covers
 them.
+
+**Transition rooms and the level spawn.** An `info_room` with
+`room_role up` or `down` is a transition room: it holds one brush entity of
+the compile-only class `trigger_room_transition` named `cxry_transition`
+(the transition volume), something that fires `Transition` at it (a
+button's `OnPressed`, a door's `OnFullyOpen`, a hallway `trigger_once`),
+and one `arrival` point of interest with a facing; `ssmap room` refuses a
+role room that lacks any of them, or whose arrival has no room for a
+standing player, and `ssmap rooms` lists the roles. A level of a run holds
+exactly one up room and one down room, each in its own cell, unless its
+file says `up: none` (the top level) or `down: none` (the bottom one), and
+names the maps above and below with `up_map` and `down_map`; `ssmap link`
+and `--flatten` refuse a level that breaks this. Without `-mod-entities`
+each transition volume becomes a `trigger_changelevel` to its map (touch
+disabled, the author's `Transition` outputs rewritten to `ChangeLevel`),
+or a hallway `trigger_once` whose only output is the transition and that
+holds the volume becomes the changelevel itself and the volume is dropped;
+each transition room gets an `info_landmark` named `<upper>__<lower>` for
+the two levels it joins, at the down room's changelevel centre and at the
+up room's arrival. The level spawns at the up room's arrival and its
+`spawn` points of interest, one `info_player_start` each (with `up: none`,
+at the spawn points of the `spawn: [column, row]` cell's room, or of the
+room farthest in doors from the down room), `spawn_count: K` refusing
+fewer; every `info_player_start` the rooms hold is stripped. With
+`-mod-entities` each volume becomes a server-only `logic_level_transition`
+at its centre (`direction`, `map`), and the mod reads the arrival and spawn
+points from the `.nav3d` sidecar. `ssmap layout` places the library's role
+rooms (`-up-map`, `-down-map` or `-no-up`, `-no-down`, and
+`-transition-distance N` doors apart at least), and `-sequence K -name
+<base>` writes a chained run `<base>_01.yaml` to `<base>_K.yaml` from
+seeds N, N+1, ...; a library without roles gets the levels it always got.
+`samples/rooms-transit` is a library and a three-level run built this way.
 
 `link --flatten` writes the same level as one ordinary VMF instead: every
 placed room copied out of the library into its cell and turned, the plugs
@@ -691,7 +774,13 @@ room hub: its light_environment differs from the library's (angles: "-45 120 0" 
 A named controller the library does not hold under that name is the room's
 own (per-room fog is a trigger and a named controller, as in any map) and
 stays with the room. A `sky_camera` is refused in a room and in the gaps:
-it belongs to a library skybox room, which the linker does not build yet.
+it belongs to the library's skybox room, a cell marked with an
+`info_room_skybox` (with a `name`) holding exactly one `sky_camera`, no door
+plug and no `room_needs` or `room_socket`. `ssmap room` compiles and packs it
+with the rooms; no level places it: `link` and `link --flatten` put it one
+cell below every level's south-west cell, unturned, as its own area, its
+entities after the rooms' and counted once per level, and leave it out of
+the level's `world_mins` and `world_maxs`.
 `link` and `link --flatten` write each library entity once, right after the
 worldspawn, never turned, at the level's origin, and keep one
 `water_lod_control` (vbsp adds one to every room compile with water): an
@@ -825,7 +914,7 @@ What moves between the rows:
   vendor stock ran on.
 - **`-compliance correct`** (the default) uses exact IEEE arithmetic in
   place of every one of these estimates, so vbsp and vvis write the same
-  bytes on every CPU, and so does vrad with one known exception below.
+  bytes on every CPU, and so does vrad.
   vrad's ray tracing used to be an exception and no longer is: the KD tracer's traversal reciprocal and triangle
   normals (`KdTracerReciprocalEstimate`) and the leaf-ambient walk's sky
   windings and point-in-sky-face test (`SkyWindingNormalise`) divide
@@ -837,12 +926,14 @@ What moves between the rows:
   one of those runners and not another is a bug: a Correct path still taking
   an estimate.
 
-  The known exception: static-prop lighting under the default policy still
-  gives different bytes on arm64 than on x86 (AMD and Intel agree). It is not
-  the KD tracer, whose Correct digests agree everywhere; its source in the
-  prop-lighting path is not yet identified. Until it is, that fact keeps a
-  captured arm64 delta (`Fixtures/rsqrt-vendor/Arm64/static-prop-chunking.correct.txt`)
-  so the difference stays declared.
+  Static-prop lighting was long thought an exception: its digests differed
+  on arm64 and were kept as a captured delta. The lighting was never the
+  cause. The oil drum in the test scene is a synthetic model, and
+  `SourceSharp.MapGen` built its cylinder with the platform's `sinf`, which
+  on macOS arm64 rounds the sine of `2*pi*9/16` to `-0.38268346` where every
+  x86 library gives the correctly rounded `-0.38268343`. MapGen now uses
+  `DetMathF` / `DetMath` too, the math rule scans it, and the static-prop
+  digests are one value for every CPU.
 
 Everything else is the same on every platform: file formats, vbsp, vvis,
 vrad under the default policy, every exact computation, and every

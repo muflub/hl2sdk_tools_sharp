@@ -92,6 +92,13 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         RoomLinkData? link = room.Link is { } stored && stored.IsFor(room)
             ? stored
             : await LevelLinker.TryPrecomputeAsync(room, cancellationToken).ConfigureAwait(false);
+
+        // Link data read from a version 3 pack holds no door visibility; a
+        // version 4 pack promises it for every room with link sections.
+        if (link is { Doors: null })
+        {
+            link = link.WithDoors(RoomDoorVisibility.Compute(room, link.Shared));
+        }
         IReadOnlyList<RoomPackSectionData> linkSections = link is null ? [] : RoomLinkSections.Write(link);
         IReadOnlyList<RoomPackSectionData> navSections = room.Nav is { } nav ? RoomNavPack.Sections(nav.Base, navigation) : [];
 
@@ -117,9 +124,37 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // The brush models likewise: every placement reads them, whatever
         // its turn, so they follow the props.
         IReadOnlyList<RoomPackSectionData> brushModels = room.BrushModelsOfCompile is { } models ? [models.ToSection()] : [];
+
+        // The transition data likewise, for a room with a role or spawn
+        // points: a handful of points every placement reads. A room without
+        // it gets no section, so its entry is what it was before transitions.
+        IReadOnlyList<RoomPackSectionData> transit = room.TransitOfCompile is { } data ? [data.ToSection()] : [];
+
+        // The cubemap samples likewise, for a room with any: every
+        // placement reads them (the section holds all four turns), and a
+        // room without samples gets no section, so its entry is what it was
+        // before cubemaps were carried.
+        IReadOnlyList<RoomPackSectionData> cubemaps = room.CubemapsOfCompile is { } samples ? [samples.ToSection()] : [];
+
+        // The overlays likewise, for a room whose compile wrote any: every
+        // placement reads them, whatever its turn (the section holds all
+        // four). A room without them gets no section, so its entry is what
+        // it was before overlays were carried.
+        IReadOnlyList<RoomPackSectionData> overlays = room.OverlaysOfCompile is { } carried ? [carried.ToSection()] : [];
+
+        // The base lighting likewise, for a room its library compile lit:
+        // every placement reads it (all its stored turns are in the one
+        // section, 1 or 4, and the link takes the one it places). A room
+        // compiled unlit gets none, so an unlit library packs as before.
+        IReadOnlyList<RoomPackSectionData> lighting = room.LightingOfCompile is { } baked ? [baked.ToSection()] : [];
+
+        // The area portals likewise, for a room whose compile has any. A
+        // room without them gets no section, so its entry is what it was
+        // before area portals were carried.
+        IReadOnlyList<RoomPackSectionData> areaPortals = room.AreaPortalsOfCompile is { } portals ? [portals.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. props, .. brushModels, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. areaPortals, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -189,8 +224,9 @@ public sealed class RoomPackIndex
     private readonly Dictionary<string, RoomPackEntry> _byName;
 
     internal RoomPackIndex(
-        IReadOnlyList<RoomPackSection> librarySections, IReadOnlyList<RoomPackEntry> entries, long indexEnd, long? start)
+        IReadOnlyList<RoomPackSection> librarySections, IReadOnlyList<RoomPackEntry> entries, long indexEnd, long? start, int version = RoomPack.Version)
     {
+        Version = version;
         LibrarySections = librarySections;
         Entries = entries;
         IndexEnd = indexEnd;
@@ -213,6 +249,13 @@ public sealed class RoomPackIndex
 
     /// <summary>The rooms, in the order the pack holds them (the library's).</summary>
     public IReadOnlyList<RoomPackEntry> Entries { get; }
+
+    /// <summary>
+    /// The pack's format version: <see cref="RoomPack.Version"/>, or
+    /// <see cref="RoomPack.OldestReadVersion"/> for an older pack this build
+    /// still links (<see cref="RoomPack"/>'s remarks on versions).
+    /// </summary>
+    public int Version { get; }
 
     /// <summary>Where the index ends and the first section's bytes start, from the start of the pack.</summary>
     public long IndexEnd { get; }
@@ -242,7 +285,7 @@ public sealed class RoomPackIndex
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Layout, version 3</b> (as versions 1 and 2's; see Versions below). Every integer is big-endian, as in the room
+/// <b>Layout, version 4</b> (as versions 1 to 3's; see Versions below). Every integer is big-endian, as in the room
 /// container, so the bytes do not depend on the writer's byte order. A tag
 /// is four printable ASCII characters, stored as they read.
 /// </para>
@@ -250,7 +293,7 @@ public sealed class RoomPackIndex
 /// <listheader><term>Bytes</term><description>What</description></listheader>
 /// <item><term>8</term><description>The magic, <c>SSRPAK01</c> in ASCII (<see cref="Magic"/>).</description></item>
 /// <item><term>4</term><description><c>int32</c> format version (<see cref="Version"/>).</description></item>
-/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/>: <c>ssmap room</c> writes the compile id (<see cref="RoomCompileIds.PackSection"/>, <c>CMPL</c>), then the library-wide entities (<see cref="RoomLibraryEntities.SectionTag"/>) when the library has any, then its settings (<see cref="RoomLibraryOptions.SectionTag"/>) when it makes any.</description></item>
+/// <item><term>4</term><description><c>int32</c> library section count, 0 to <see cref="MaxSections"/>: <c>ssmap room</c> writes the compile id (<see cref="RoomCompileIds.PackSection"/>, <c>CMPL</c>), then the library-wide entities (<see cref="RoomLibraryEntities.SectionTag"/>) when the library has any, then its settings (<see cref="RoomLibraryOptions.SectionTag"/>) when it makes any, then the name of its skybox room (<see cref="RoomLibrarySkybox.SectionTag"/>) when it has one.</description></item>
 /// <item><term>4</term><description><c>int32</c> room count, 0 to <see cref="MaxRooms"/>.</description></item>
 /// <item><term>20 per library section</term><description>
 /// The library section table: tag, <c>int64</c> offset from the start of the pack, <c>int64</c> length.
@@ -269,9 +312,19 @@ public sealed class RoomPackIndex
 /// <c>RoomStaticProps</c>), when its compile has brush models besides the
 /// world its brush models (<c>BMOD</c>: the runs each owns, what keeps it
 /// in a level, its bounds and collision at all four turns,
-/// <c>RoomBrushModels</c>), and the link work done ahead for it
+/// <c>RoomBrushModels</c>), when it has a transition role or spawn points
+/// its transition data (<c>TRAN</c>: its role, transition volume, fold
+/// trigger, arrival and spawn points, room-local, <c>RoomTransit</c>), when
+/// its compile has <c>env_cubemap</c> samples its cubemaps (<c>CUBE</c>: the
+/// samples at all four turns and the names its compile made after them,
+/// <c>RoomCubemaps</c>), when its compile wrote overlays its overlays
+/// (<c>OVLY</c>: every record's origin and basis at all four turns,
+/// <c>RoomOverlays</c>), when its compile has area portals its areas and
+/// portals (<c>APRT</c>: the clip vertices at all four turns and the portal
+/// numbers, <c>RoomAreaPortals</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
-/// the room alone, then per quarter turn <i>r</i> its turned geometry
+/// the room alone, its door visibility (<c>DVIS</c>, <see cref="RoomDoorVisibility"/>),
+/// then per quarter turn <i>r</i> its turned geometry
 /// (<c>GEO</c><i>r</i>) and world collision (<c>COL</c><i>r</i>), and
 /// optionally its turned entities (<c>ENT</c><i>r</i>); <c>RoomLinkSections</c>
 /// gives their layout and why each is stored or not. They are optional: a
@@ -338,12 +391,12 @@ public sealed class RoomPackIndex
 /// entry names; a pack whose index and containers disagree is refused.
 /// </para>
 /// <para>
-/// <b>Versions.</b> This build reads and writes version 3, and refuses any
-/// other with the version it carries and the one it reads, as the room
-/// container does; the containers inside carry their own version and are
-/// checked by <see cref="RoomObjectStore.LoadAsync"/>. Versions 2 and 3
-/// have the layout of version 1; what each adds is a promise about the
-/// rooms. Version 2: the pack was built after the library's singletons were
+/// <b>Versions.</b> This build writes version 4 and reads versions 4 and
+/// 3, and refuses any other with the version it carries and the one it
+/// reads, as the room container does; the containers inside carry their
+/// own version and are checked by <see cref="RoomObjectStore.LoadAsync"/>.
+/// Versions 2 to 4 have the layout of version 1; what each adds is a
+/// promise about the rooms. Version 2: the pack was built after the library's singletons were
 /// checked (<see cref="RoomLibraryEntities.KeepInRoom"/>), so no room
 /// carries a sun or an unnamed controller of its own, every room agrees
 /// with the library's sun and sky (decision D3 of the rooms design: a room
@@ -360,7 +413,16 @@ public sealed class RoomPackIndex
 /// so it is refused with a message that says what it lacks and to recompile
 /// the library, rather than read around. That is the kind of change the
 /// paragraph above keeps a version for: tags an older build can skip never
-/// raised it, a guarantee the link relies on does.
+/// raised it, a guarantee the link relies on does. Version 4: every room
+/// the link carries (every room with link sections) has its door
+/// visibility (<c>DVIS</c>), which the link composes the level's PVS from
+/// (<see cref="LevelDoorVisibility"/>), so the link reads it rather than
+/// working it out, and a version 4 room with link sections and no
+/// <c>DVIS</c> is a damaged pack and refused. A version 3 pack still
+/// links: its rooms promise everything but the door visibility, which is
+/// a function of what the pack does hold (each room's own vvis and plug
+/// census), so the link works it out per room and writes the same bytes
+/// it writes from the same library packed as version 4.
 /// </para>
 /// </remarks>
 public static class RoomPack
@@ -368,8 +430,15 @@ public static class RoomPack
     /// <summary>The pack's eight magic bytes, as they read in the file.</summary>
     public const string Magic = "SSRPAK01";
 
-    /// <summary>The only pack version this build reads and writes (<see cref="RoomPack"/>'s remarks on versions).</summary>
-    public const int Version = 3;
+    /// <summary>The pack version this build writes, and the newest it reads (<see cref="RoomPack"/>'s remarks on versions).</summary>
+    public const int Version = 4;
+
+    /// <summary>
+    /// The one older version this build still reads: version 3, whose rooms
+    /// lack only the door visibility a version 4 pack stores, which the link
+    /// works out from the rooms themselves, to the same bytes.
+    /// </summary>
+    public const int OldestReadVersion = 3;
 
     /// <summary>The file extension <c>ssmap room</c> writes and <c>ssmap link</c> looks for.</summary>
     public const string Extension = ".roompack";
@@ -545,7 +614,7 @@ public static class RoomPack
                 + $" {lacks}; recompile the library with ssmap room.");
         }
 
-        if (version != Version)
+        if (version != Version && version != OldestReadVersion)
         {
             throw new LinkException($"room pack version {version}; this build reads version {Version}.");
         }
@@ -645,7 +714,7 @@ public static class RoomPack
                 + (r.Length - at < expected ? " (the file is truncated)." : " (bytes follow the last section)."));
         }
 
-        return new RoomPackIndex(library, entries, position, start);
+        return new RoomPackIndex(library, entries, position, start, version);
     }
 
     /// <summary>
@@ -818,6 +887,31 @@ public static class RoomPack
                 wanted.Add((name, brushModels));
             }
 
+            if (entry.Find(RoomTransit.SectionTag) is { } transit)
+            {
+                wanted.Add((name, transit));
+            }
+
+            if (entry.Find(RoomCubemaps.SectionTag) is { } cubemaps)
+            {
+                wanted.Add((name, cubemaps));
+            }
+
+            if (entry.Find(RoomOverlays.SectionTag) is { } overlays)
+            {
+                wanted.Add((name, overlays));
+            }
+
+            if (entry.Find(RoomLighting.SectionTag) is { } lighting)
+            {
+                wanted.Add((name, lighting));
+            }
+
+            if (entry.Find(RoomAreaPortals.SectionTag) is { } areaPortals)
+            {
+                wanted.Add((name, areaPortals));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -849,6 +943,19 @@ public static class RoomPack
             if (entry.Find(RoomLinkSections.SharedTag) is { } shared)
             {
                 wanted.Add((name, shared));
+                if (entry.Find(RoomDoorVisibility.SectionTag) is { } doors)
+                {
+                    wanted.Add((name, doors));
+                }
+                else if (index.Version >= 4)
+                {
+                    // Version 4's promise: every room the link carries (a
+                    // room with link sections) has its door visibility.
+                    throw new LinkException(
+                        $"room pack entry \"{name}\" has link sections but no \"{RoomDoorVisibility.SectionTag}\" section,"
+                        + $" which every linkable room of a version {index.Version} pack holds; the pack is damaged, recompile the library with ssmap room.");
+                }
+
                 for (int rotation = 0; rotation < 4; rotation++)
                 {
                     if (!turns[rotation])
@@ -906,9 +1013,23 @@ public static class RoomPack
             RoomNameTables? names = turned.Any(t => t is not null) ? new RoomNameTables(turned, room.Bsp) : null;
             RoomStaticProps? props = RoomStaticProps.Read(Section(name, RoomStaticProps.SectionTag), room.Definition, room.Bsp);
             RoomBrushModels? brushModels = RoomBrushModels.Read(Section(name, RoomBrushModels.SectionTag), room.Definition, room.Bsp);
-            loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null
+            RoomTransit? transit = RoomTransit.Read(Section(name, RoomTransit.SectionTag), name, room.Bsp);
+            RoomLighting? lighting = RoomLighting.Read(Section(name, RoomLighting.SectionTag), room.Definition, room.Bsp);
+            RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
+            RoomOverlays? overlays = RoomOverlays.Read(Section(name, RoomOverlays.SectionTag), name, room.Bsp);
+            RoomAreaPortals? areaPortals = RoomAreaPortals.Read(Section(name, RoomAreaPortals.SectionTag), name, room.Bsp);
+            loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
+                && cubemaps is null && overlays is null
+                && lighting is null && areaPortals is null
                 ? room
-                : room with { Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props, BrushModels = brushModels };
+                : room with
+                {
+                    Link = link, Nav = nav, EntityCounts = counts, Names = names, Props = props, BrushModels = brushModels, Transit = transit,
+                    Cubemaps = cubemaps,
+                    Overlays = overlays,
+                    Lighting = lighting,
+                    AreaPortals = areaPortals,
+                };
         }
 
         return [.. requests.Select(request => loaded[request.Name])];
@@ -967,6 +1088,28 @@ public static class RoomPack
     {
         byte[]? bytes = await ReadLibrarySectionAsync(r, index, RoomLibraryEntities.SectionTag, cancellationToken).ConfigureAwait(false);
         return bytes is null ? [] : await RoomLibraryEntities.ReadAsync(bytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads the name of the library's skybox room from a pack whose index
+    /// was just read: its <see cref="RoomLibrarySkybox.SectionTag"/> section,
+    /// or null when the library has no skybox.
+    /// </summary>
+    /// <param name="r">
+    /// The pack, as for <see cref="ReadLibraryOptionsAsync"/>: a stream that
+    /// cannot seek is read forward, in the order <c>ssmap room</c> writes the
+    /// library sections (the skybox after the settings).
+    /// </param>
+    /// <param name="index">The pack's index, read from <paramref name="r"/>.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The skybox room's name, or null.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="LinkException">The section is cut short or out of shape (<see cref="RoomLibrarySkybox.Read"/>).</exception>
+    public static async Task<string?> ReadLibrarySkyboxAsync(
+        Stream r, RoomPackIndex index, CancellationToken cancellationToken = default)
+    {
+        byte[]? bytes = await ReadLibrarySectionAsync(r, index, RoomLibrarySkybox.SectionTag, cancellationToken).ConfigureAwait(false);
+        return bytes is null ? null : RoomLibrarySkybox.Read(bytes);
     }
 
     /// <summary>One library section's bytes, or null when the pack has no section of that tag.</summary>
@@ -1095,6 +1238,46 @@ public static class RoomPack
     }
 
     /// <summary>
+    /// How many turns each lit room of a pack stores its base lighting for
+    /// (<see cref="RoomLighting.RotationCount"/>: 1, or 4 when sun or sky
+    /// light reaches it), by name: what <c>ssmap rooms</c> shows. A room
+    /// without a lighting section (an unlit library) is not listed.
+    /// </summary>
+    /// <param name="r">The pack.</param>
+    /// <param name="index">Its index.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The counts, by room name.</returns>
+    /// <exception cref="LinkException">A lighting section is damaged.</exception>
+    public static async Task<IReadOnlyDictionary<string, int>> ReadLightingTurnsAsync(
+        Stream r, RoomPackIndex index, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(r);
+        ArgumentNullException.ThrowIfNull(index);
+        List<(string Name, RoomPackSection Section)> wanted = [];
+        foreach (RoomPackEntry entry in index.Entries)
+        {
+            if (entry.Find(RoomLighting.SectionTag) is { } section)
+            {
+                wanted.Add((entry.Name, section));
+            }
+        }
+
+        Dictionary<(string, string), ArraySegment<byte>> read = await ReadSectionsAsync(r, index, wanted, cancellationToken)
+            .ConfigureAwait(false);
+        Dictionary<string, int> turns = new(StringComparer.Ordinal);
+        foreach (RoomPackEntry entry in index.Entries)
+        {
+            if (read.TryGetValue((entry.Name, RoomLighting.SectionTag), out ArraySegment<byte> bytes)
+                && RoomLighting.ReadRotationCount(bytes, entry.Name) is int count)
+            {
+                turns[entry.Name] = count;
+            }
+        }
+
+        return turns;
+    }
+
+    /// <summary>
     /// Reads the given sections, in pack order whatever order they are
     /// given in: sought to on a stream that can seek, reached by skipping
     /// forward on one that cannot.
@@ -1218,8 +1401,14 @@ public static class RoomPack
         ((byte)'R', (byte)'O', (byte)'O', (byte)'M') => RoomSection,
         ((byte)'L', (byte)'N', (byte)'K', (byte)'A') => RoomLinkSections.SharedTag,
         ((byte)'E', (byte)'C', (byte)'N', (byte)'T') => RoomEntityCounts.SectionTag,
+        ((byte)'D', (byte)'V', (byte)'I', (byte)'S') => RoomDoorVisibility.SectionTag,
         ((byte)'P', (byte)'R', (byte)'O', (byte)'P') => RoomStaticProps.SectionTag,
         ((byte)'B', (byte)'M', (byte)'O', (byte)'D') => RoomBrushModels.SectionTag,
+        ((byte)'T', (byte)'R', (byte)'A', (byte)'N') => RoomTransit.SectionTag,
+        ((byte)'C', (byte)'U', (byte)'B', (byte)'E') => RoomCubemaps.SectionTag,
+        ((byte)'O', (byte)'V', (byte)'L', (byte)'Y') => RoomOverlays.SectionTag,
+        ((byte)'L', (byte)'I', (byte)'T', (byte)'E') => RoomLighting.SectionTag,
+        ((byte)'A', (byte)'P', (byte)'R', (byte)'T') => RoomAreaPortals.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),

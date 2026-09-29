@@ -99,6 +99,14 @@ public sealed class PropLightSampler
         _fast = fast;
     }
 
+    /// <summary>
+    /// The quarter turns of the frame the map is lit in
+    /// (<see cref="Light.BakeFrame"/>): the sun's jitter and the sky's
+    /// sampling directions are fixed in the world, so a room lit for a turned
+    /// placement draws them turned into its own frame. 0 by default.
+    /// </summary>
+    internal int FrameTurns { get; init; }
+
     /// <summary>A batch over this sampler's tracer, for one worker's <see cref="Plan"/> calls.</summary>
     /// <returns>
     /// An empty batch. Its storage is rented, so the caller disposes it: a
@@ -427,7 +435,7 @@ public sealed class PropLightSampler
                 dl.Normal.X * -MaxTraceLength, dl.Normal.Y * -MaxTraceLength, dl.Normal.Z * -MaxTraceLength);
             if (d != 0)
             {
-                Vec3 ofs = sampler.NextValue();
+                Vec3 ofs = Light.BakeFrame.ToRoom(sampler.NextValue(), FrameTurns);
                 float scale = MaxTraceLength * _sunAngularExtent;
                 ofs = new Vec3(ofs.X * scale, ofs.Y * scale, ofs.Z * scale);
                 delta += ofs;
@@ -461,7 +469,7 @@ public sealed class PropLightSampler
 
         for (int j = 0; j < nsky; j++)
         {
-            Vec3 anorm = sampler.NextValue();
+            Vec3 anorm = Light.BakeFrame.ToRoom(sampler.NextValue(), FrameTurns);
             float dot = ignoreNormals
                 ? ConstantDot
                 : -((normal.X * anorm.X) + (normal.Y * anorm.Y) + (normal.Z * anorm.Z));

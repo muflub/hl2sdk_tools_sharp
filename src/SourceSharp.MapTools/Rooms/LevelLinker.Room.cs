@@ -46,6 +46,18 @@ public static partial class LevelLinker
         int rotation = placement.Instance.Placement.NormalizedRotation;
         RoomLinkData? stored = StoredLink(room);
 
+        // A lit room links its bake over its compile: the faces' styles and
+        // lightmap offsets of the placement's stored turn, vrad's vertex
+        // normals (turned like every direction) and the map flags. The
+        // checks and the census below read only what the bake leaves as
+        // compiled.
+        RoomLighting? lighting = room.LightingOfCompile;
+        RoomLightingPayload? payload = lighting?.For(rotation);
+        if (lighting is not null)
+        {
+            bsp = LitOverlay(bsp, lighting, payload!);
+        }
+
         RoomLinkShared shared = stored?.Shared ?? ComputeShared(room);
         DLeaf[] leafs = BspStructView.As<DLeaf>(bsp[BspLump.Leafs]).ToArray();
         byte[][] ownRows = new byte[room.Vis.ClusterCount][];
@@ -54,6 +66,7 @@ public static partial class LevelLinker
             ownRows[c] = room.Vis.Pvs(c).ToArray();
         }
 
+        RoomAreaPortals? areaPortals = RoomAreaPortalsOf(room);
         RoomLinkGeometry geometry = GeometryFor(room, rotation);
         RoomModelLayout? models = LayoutModels(room, rotation, linkedModels, geometry.Vertices);
 
@@ -95,38 +108,32 @@ public static partial class LevelLinker
             FacesVersion = bsp[BspLump.Faces].Version,
             LeafsVersion = bsp[BspLump.Leafs].Version,
             LightingLength = bsp[BspLump.Lighting].Length,
+            DoorVisibility = stored?.Doors ?? RoomDoorVisibility.Compute(room, shared),
             Models = models,
+            Lighting = lighting,
+            Lit = payload,
+            VertNormals = lighting is null ? geometry.VertNormals : [.. lighting.VertNormals.Select(n => TurnDirection(n, rotation))],
+            FaceVertexStarts = lighting is null ? null : FaceVertexStarts(bsp),
+            Overlays = RoomOverlaysOf(room),
+            AreaPortals = areaPortals,
+            AreaLumps = areaPortals is null ? null : RoomAreaPortals.Lumps(room.Definition.Name, bsp),
         };
 
         ApplyCensus(plan, shared);
         return plan;
     }
 
-    /// <summary>
-    /// Refuses area portals: a room's areas are collapsed into the level's one
-    /// open area (see <c>Assemble</c>), and a portal inside a room would need
-    /// its own areas, and a portal at every joint, to mean anything.
-    /// </summary>
-    /// <remarks>
-    /// vbsp writes area 0 (the reserved "no area") and one area per sealed
-    /// region, and portal 0 as a reserved empty entry. A room with no
-    /// <c>func_areaportal</c> has exactly areas 0 and 1 and that one portal,
-    /// and that is the only shape the linker accepts. The collapse is what
-    /// makes the linked level networkable: two rooms left in two areas with
-    /// no area portal between them are two worlds to the server, and it never
-    /// sends the entities of one to a client standing in the other, whatever
-    /// the PVS says.
-    /// </remarks>
-    private static void RefuseAreaPortals(string name, BspData bsp)
+    /// <summary>Per face, where its vertex-normal run starts, and the total after the last face.</summary>
+    private static int[] FaceVertexStarts(BspData bsp)
     {
-        int areas = BspStructView.Count<DArea>(bsp[BspLump.Areas]);
-        int portals = BspStructView.Count<DAreaPortal>(bsp[BspLump.AreaPortals]);
-        if (areas > 2 || portals > 1)
+        ReadOnlySpan<DFace> faces = BspStructView.As<DFace>(bsp[BspLump.Faces]);
+        int[] starts = new int[faces.Length + 1];
+        for (int f = 0; f < faces.Length; f++)
         {
-            throw new LinkException(
-                $"room {name} has {areas} areas and {portals} area portals; a linkable room has no area portal"
-                + " (areas 0 and 1 and the reserved portal 0), because its areas are merged into the level's one");
+            starts[f + 1] = starts[f] + faces[f].NumEdges;
         }
+
+        return starts;
     }
 
     /// <summary>
@@ -572,8 +579,55 @@ public static partial class LevelLinker
         public required int FacesVersion { get; init; }
         public required int LeafsVersion { get; init; }
 
+        /// <summary>The room's door visibility, stored with the room or worked out now (<see cref="RoomDoorVisibility"/>).</summary>
+        public required RoomDoorVisibility DoorVisibility { get; init; }
+
         /// <summary>The room's brush models as this placement links them, or null for a room with only the world.</summary>
         public RoomModelLayout? Models { get; init; }
+
+        /// <summary>The room's base lighting, or null for an unlit room (<see cref="RoomObject.LightingOfCompile"/>).</summary>
+        public RoomLighting? Lighting { get; init; }
+
+        /// <summary>The stored turn this placement takes (<see cref="RoomLighting.For"/>), or null for an unlit room.</summary>
+        public RoomLightingPayload? Lit { get; init; }
+
+        /// <summary>The room's vertex normals turned for this placement: its bake's when lit, else its compile's.</summary>
+        public required Vec3[] VertNormals { get; init; }
+
+        /// <summary>
+        /// Per room face, where its run of vertex-normal indices starts (one
+        /// past the last face, the total), for a lit room: a brush model's
+        /// runs are found from its faces, since its compile had no normals.
+        /// Null for an unlit room.
+        /// </summary>
+        public int[]? FaceVertexStarts { get; init; }
+
+        /// <summary>For a lit level, per room vertex normal, the level's (<see cref="InternNormals"/>); null otherwise.</summary>
+        public int[]? NormalMap;
+
+        /// <summary>Where this placement's HDR lightmaps start in the level's HDR lighting lump.</summary>
+        public int LightBaseHdr;
+        /// <summary>The room's overlays (<see cref="RoomOverlays"/>), or null for a room with none.</summary>
+        public RoomOverlays? Overlays { get; init; }
+
+        /// <summary>Whether this is the library's skybox room, placed below the grid (<see cref="SkyboxOf"/>).</summary>
+        public bool IsSkybox => Placement.Instance.Placement.Level != 0;
+
+        /// <summary>The room's areas and area portals (<see cref="RoomAreaPortals"/>), or null for a room with none.</summary>
+        public RoomAreaPortals? AreaPortals { get; init; }
+
+        /// <summary>The room's three area lumps, checked (<see cref="RoomAreaPortals.Lumps"/>), or null for a room without area portals.</summary>
+        public RoomAreaLumps? AreaLumps { get; init; }
+
+        /// <summary>
+        /// Per room area, the level area it became (<see cref="PlanAreas"/>),
+        /// area 0 staying 0; null when no placed room has an area portal and
+        /// every room's area 1 is the level's one open area.
+        /// </summary>
+        public int[]? AreaMap;
+
+        /// <summary>The linked number of the room's portal 0 (its first is 1 past it): the portal numbers of every placement before this one.</summary>
+        public int PortalBase;
 
         /// <summary>How many of the room's nodes the placement keeps: all but an omitted brush model's.</summary>
         public int KeptNodeCount => Models is { } m ? RoomModelLayout.KeptCount(m.OmittedNodes, NodeCount) : NodeCount;
@@ -683,6 +737,9 @@ public static partial class LevelLinker
         public int OccluderBase;
         public int OccluderPolyBase;
         public int OccluderVertexBase;
+
+        /// <summary>The linked id of the room's overlay 0: the overlays of every placement before this one.</summary>
+        public int OverlayBase;
         public int VertexNormalIndexBase;
 
         /// <summary>
