@@ -10,6 +10,7 @@ using System.Text;
 
 using SourceSharp.MapFormats.Assets;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 using SourceSharp.MapFormats.Text;
 
 namespace SourceSharp.MapGen.Content;
@@ -404,6 +405,9 @@ public static class SyntheticContent
 
     private static TexelSource Pixels(string name, Pattern pattern, int w, int h)
     {
+        // The patterns' sines go through DetMathF: the texels are compile
+        // input (reflectivity, normal maps), so the platform's sine would make
+        // them depend on the OS.
         uint seed = Seed(name);
         // A base tint per name, so two materials with one pattern still differ.
         float tr = 0.8f + (0.4f * Noise(seed, 1, 0)), tg = 0.8f + (0.4f * Noise(seed, 2, 0)), tb = 0.8f + (0.4f * Noise(seed, 3, 0));
@@ -415,7 +419,7 @@ public static class SyntheticContent
             Pattern.Sky => (x, y) => C(0.35f + (0.3f * y / h), 0.55f + (0.25f * y / h), 0.9f),
             Pattern.Planks => (x, y) =>
             {
-                float grain = 0.08f * MathF.Sin((x * 0.15f) + (6 * Noise(seed, y / 32, 7)));
+                float grain = 0.08f * DetMathF.Sin((x * 0.15f) + (6 * Noise(seed, y / 32, 7)));
                 float seam = y % 64 < 2 ? 0.5f : 1f;
                 float v = (0.45f + grain + (0.08f * Noise(seed, x / 4, y))) * seam;
                 return C(v * 1.1f, v * 0.75f, v * 0.45f);
@@ -431,7 +435,7 @@ public static class SyntheticContent
             Pattern.Glass => (x, y) => C(0.6f, 0.7f, 0.75f, (x + y) % 37 == 0 ? 0.9f : 0.35f),
             Pattern.NormalMap => (x, y) =>
             {
-                float nx = 0.15f * MathF.Sin(x * 0.2f), ny = 0.15f * MathF.Cos(y * 0.2f);
+                float nx = 0.15f * DetMathF.Sin(x * 0.2f), ny = 0.15f * DetMathF.Cos(y * 0.2f);
                 return (B(0.5f + (nx / 2)), B(0.5f + (ny / 2)), B(0.5f + (MathF.Sqrt(1 - (nx * nx) - (ny * ny)) / 2)), 255);
             },
             Pattern.Sprites => (x, y) =>

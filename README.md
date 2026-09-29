@@ -707,7 +707,7 @@ What moves between the rows:
   vendor stock ran on.
 - **`-compliance correct`** (the default) uses exact IEEE arithmetic in
   place of every one of these estimates, so vbsp and vvis write the same
-  bytes on every CPU, and so does vrad with one known exception below.
+  bytes on every CPU, and so does vrad.
   vrad's ray tracing used to be an exception and no longer is: the KD tracer's traversal reciprocal and triangle
   normals (`KdTracerReciprocalEstimate`) and the leaf-ambient walk's sky
   windings and point-in-sky-face test (`SkyWindingNormalise`) divide
@@ -719,12 +719,14 @@ What moves between the rows:
   one of those runners and not another is a bug: a Correct path still taking
   an estimate.
 
-  The known exception: static-prop lighting under the default policy still
-  gives different bytes on arm64 than on x86 (AMD and Intel agree). It is not
-  the KD tracer, whose Correct digests agree everywhere; its source in the
-  prop-lighting path is not yet identified. Until it is, that fact keeps a
-  captured arm64 delta (`Fixtures/rsqrt-vendor/Arm64/static-prop-chunking.correct.txt`)
-  so the difference stays declared.
+  Static-prop lighting was long thought an exception: its digests differed
+  on arm64 and were kept as a captured delta. The lighting was never the
+  cause. The oil drum in the test scene is a synthetic model, and
+  `SourceSharp.MapGen` built its cylinder with the platform's `sinf`, which
+  on macOS arm64 rounds the sine of `2*pi*9/16` to `-0.38268346` where every
+  x86 library gives the correctly rounded `-0.38268343`. MapGen now uses
+  `DetMathF` / `DetMath` too, the math rule scans it, and the static-prop
+  digests are one value for every CPU.
 
 Everything else is the same on every platform: file formats, vbsp, vvis,
 vrad under the default policy, every exact computation, and every
