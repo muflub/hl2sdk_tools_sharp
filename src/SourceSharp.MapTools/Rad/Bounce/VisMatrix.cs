@@ -238,6 +238,11 @@ public sealed class VisMatrix
         Statistics.Receivers = receivers.Length;
         WorkQueueOptions stage = new() { Stage = "BuildVisLeafs" };
 
+        // What the enumeration reads of every candidate source, dense: see
+        // VisSource. Patches do not change while the transfers are built.
+        VisSource[] sources = scratch.Rent<VisSource>(patchCount);
+        FillSources(sources);
+
         // One enumerator per worker slot for the whole build: the count pass
         // and every chunk's fill pass hand a slot the enumerator it had last
         // time, instead of each pass building a fresh pair of face-sized
@@ -245,7 +250,7 @@ public sealed class VisMatrix
         // the passes run one after another, so no enumerator is ever used by
         // two threads at once.
         Enumerator?[] enumerators = new Enumerator?[queue.Degree];
-        Func<int, Enumerator> enumerator = slot => enumerators[slot] ??= new Enumerator(this);
+        Func<int, Enumerator> enumerator = slot => enumerators[slot] ??= new Enumerator(this, sources);
 
         // Count.
         int[] counts = await queue.RunAsync<Enumerator, int>(
@@ -416,7 +421,9 @@ public sealed class VisMatrix
     /// <returns>Candidate source patches.</returns>
     public int[] Candidates(int receiver)
     {
-        Enumerator e = new(this);
+        VisSource[] sources = new VisSource[_context.Patches.Count];
+        FillSources(sources);
+        Enumerator e = new(this, sources);
         int cluster = _context.Patches.At(receiver).ClusterNumber;
         int[] result = new int[e.Run(receiver, cluster, [])];
         e.Run(receiver, cluster, result);
@@ -769,6 +776,60 @@ public sealed class VisMatrix
     }
 
     /// <summary>
+    /// Copies what the candidate enumeration reads of each patch into
+    /// <paramref name="sources"/>.
+    /// </summary>
+    private void FillSources(Span<VisSource> sources)
+    {
+        PatchSet patches = _context.Patches;
+        for (int i = 0; i < patches.Count; i++)
+        {
+            ref Patch patch = ref patches.At(i);
+            sources[i] = new VisSource
+            {
+                Origin = patch.Origin,
+                Area = patch.Area,
+                Child1 = patch.Child1,
+                Child2 = patch.Child2,
+                NextParent = patch.NextParent,
+            };
+        }
+    }
+
+    /// <summary>
+    /// The five things <c>TestPatchToPatch</c> and the face walk read of a
+    /// candidate source, thirty-two bytes to a patch.
+    /// </summary>
+    /// <remarks>
+    /// The enumeration visits every candidate of every receiver -- twice, once
+    /// to count and once to fill -- and each visit is a random read of the
+    /// source. From <see cref="Patch"/> itself that is a read into a structure
+    /// of some three hundred bytes, out of an array many times the size of the
+    /// cache; from here it is half a cache line of an array of 32 bytes a
+    /// patch. The values are copies, compared exactly as before, so the
+    /// candidates and their order are unchanged.
+    /// </remarks>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct VisSource
+    {
+        public Vec3 Origin;
+        public float Area;
+        public int Child1;
+        public int Child2;
+        public int NextParent;
+    }
+
+    /// <summary>The receiver's side of every test, read once per enumeration.</summary>
+    private readonly struct VisReceiver(Vec3 origin, Vec3 normal, float planeDist)
+    {
+        public Vec3 Origin { get; } = origin;
+
+        public Vec3 Normal { get; } = normal;
+
+        public float PlaneDist { get; } = planeDist;
+    }
+
+    /// <summary>
     /// <c>BuildVisRow</c>, <c>TestPatchToFace</c> and <c>TestPatchToPatch</c>
     /// For one worker: which patches one
     /// receiver tests, in stock's order.
@@ -798,6 +859,7 @@ public sealed class VisMatrix
     private sealed class Enumerator
     {
         private readonly VisMatrix _owner;
+        private readonly VisSource[] _sources;
         private readonly int[] _faceStamp;
         private readonly int[] _dispStamp;
         private readonly byte[] _pvs;
@@ -814,9 +876,10 @@ public sealed class VisMatrix
         private readonly int[] _faces;
         private int _faceCount;
 
-        public Enumerator(VisMatrix owner)
+        public Enumerator(VisMatrix owner, VisSource[] sources)
         {
             _owner = owner;
+            _sources = sources;
             _phongPlaneTest = owner.StockPlaneTest;
             int faces = owner._context.Geometry.Faces.Length;
             _faceStamp = new int[faces];
@@ -837,14 +900,23 @@ public sealed class VisMatrix
             }
 
             Sink sink = new(output);
-            int faceNumber = _owner._context.Patches.At(receiver).FaceNumber;
+            ref Patch patch = ref _owner._context.Patches.At(receiver);
+            int faceNumber = patch.FaceNumber;
+
+            // Stock takes the receiver's SHADING normal -- the phong normal
+            // on a child of a smoothed face -- against its FLAT plane's
+            // distance (StockQuirk.VisPlaneTestPhongNormal); correct takes the
+            // plane's own normal. The two agree wherever the face is not
+            // smoothed.
+            VisReceiver me = new(
+                patch.Origin, _phongPlaneTest ? patch.Normal : patch.PlaneNormal, patch.CachedPlaneDist);
             ReadOnlySpan<int> faces = _faces.AsSpan(0, _faceCount);
             for (int i = 0; i < faces.Length; i++)
             {
                 // "don't check patches on the same face".
                 if (faces[i] != faceNumber)
                 {
-                    TestPatchToFace(receiver, faces[i], ref sink);
+                    TestPatchToFace(in me, faces[i], ref sink);
                 }
             }
 
@@ -859,7 +931,7 @@ public sealed class VisMatrix
                 _faceStamp, _dispStamp, ++_stamp, _faces);
         }
 
-        private void TestPatchToFace(int receiver, int face, ref Sink sink)
+        private void TestPatchToFace(in VisReceiver me, int face, ref Sink sink)
         {
             PatchSet patches = _owner._context.Patches;
             int head = patches.FaceParents[face];
@@ -871,47 +943,40 @@ public sealed class VisMatrix
             // "if emitter is behind that face plane, skip all
             // patches" -- the receiver's origin against the first ROOT patch's
             // normal and plane, a double compare.
-            Vec3 origin = patches.At(receiver).Origin;
             ref Patch first = ref patches.At(head);
-            if (!(Vec3.Dot(origin, first.Normal) > first.CachedPlaneDist + PlaneTestEpsilon))
+            if (!(Vec3.Dot(me.Origin, first.Normal) > first.CachedPlaneDist + PlaneTestEpsilon))
             {
                 return;
             }
 
-            for (int p = head; p != Patch.Invalid; p = patches.At(p).NextParent)
+            for (int p = head; p != Patch.Invalid; p = _sources[p].NextParent)
             {
-                TestPatchToPatch(receiver, p, ref sink);
+                TestPatchToPatch(in me, p, ref sink);
             }
         }
 
-        private void TestPatchToPatch(int receiver, int source, ref Sink sink)
+        private void TestPatchToPatch(in VisReceiver me, int source, ref Sink sink)
         {
-            PatchSet patches = _owner._context.Patches;
-            ref Patch patch = ref patches.At(receiver);
-            ref Patch patch2 = ref patches.At(source);
+            ref VisSource patch2 = ref _sources[source];
 
             if (patch2.Child1 != Patch.Invalid)
             {
                 // Near enough that the patch subtends a
                 // large angle: test its children instead. A double compare.
-                Vec3 tmp = patch.Origin - patch2.Origin;
+                Vec3 tmp = me.Origin - patch2.Origin;
                 if (Vec3.Dot(tmp, tmp) * 0.0625 < patch2.Area)
                 {
                     int child1 = patch2.Child1;
                     int child2 = patch2.Child2;
-                    TestPatchToPatch(receiver, child1, ref sink);
-                    TestPatchToPatch(receiver, child2, ref sink);
+                    TestPatchToPatch(in me, child1, ref sink);
+                    TestPatchToPatch(in me, child2, ref sink);
                     return;
                 }
             }
 
-            // The source must be in front of the receiver's plane. Stock
-            // takes the receiver's SHADING normal -- the phong normal on a
-            // child of a smoothed face -- against its FLAT plane's distance
-            // (StockQuirk.VisPlaneTestPhongNormal); correct takes the plane's
-            // own normal. The two agree wherever the face is not smoothed.
-            Vec3 normal = _phongPlaneTest ? patch.Normal : patch.PlaneNormal;
-            if (Vec3.Dot(patch2.Origin, normal) > patch.CachedPlaneDist + PlaneTestEpsilon)
+            // The source must be in front of the receiver's plane (the
+            // normal is the one Run chose), a double compare.
+            if (Vec3.Dot(patch2.Origin, me.Normal) > me.PlaneDist + PlaneTestEpsilon)
             {
                 sink.Add(source);
             }

@@ -281,6 +281,101 @@ public sealed class VisMatrixBuildTests
         Assert.DoesNotContain(m.Candidates(receiver), s => w.Patches.At(s).FaceNumber == 0);
     }
 
+    /// <summary>
+    /// The enumeration reads its sources from a dense copy of the patches;
+    /// its candidates must be exactly the ones a walk over the patches
+    /// themselves finds. The patches are altered first so the copy's every
+    /// field decides something: areas spread over four orders of magnitude
+    /// (so a near parent is split into its children for some receivers and
+    /// not others), and two faces' root chains joined (so the walk follows a
+    /// NextParent link).
+    /// </summary>
+    [Fact]
+    public void TheCandidatesAreTheOnesAWalkOverThePatchesFinds()
+    {
+        RadWorld w = BounceBox.Build(BounceBox.Map());
+        PatchSet patches = w.Patches;
+        Random r = new(31);
+        for (int p = 0; p < patches.Count; p++)
+        {
+            patches.At(p).Area *= (float)Math.Pow(10, (r.NextDouble() * 4) - 2);
+        }
+
+        int ceiling = patches.FaceParents[1];
+        int wall = patches.FaceParents[2];
+        Assert.Equal(Patch.Invalid, patches.At(ceiling).NextParent);
+        patches.At(ceiling).NextParent = wall;
+
+        VisMatrix m = new(w.BounceContext());
+        int split = 0;
+        for (int receiver = 0; receiver < patches.Count; receiver++)
+        {
+            if (patches.At(receiver).Child1 != Patch.Invalid || patches.At(receiver).ClusterNumber < 0)
+            {
+                continue;
+            }
+
+            List<int> expected = [];
+            split += ReferenceCandidates(patches, receiver, expected);
+            int[] actual = m.Candidates(receiver);
+            Array.Sort(actual);
+            expected.Sort();
+            Assert.Equal(expected, actual);
+        }
+
+        Assert.True(split > 0, "no parent was split into its children");
+    }
+
+    // BuildVisRow's walk over the Patch structs, for the one-leaf box: every
+    // face but the receiver's own, root chains, children when near.
+    private static int ReferenceCandidates(PatchSet patches, int receiver, List<int> into)
+    {
+        ref Patch me = ref patches.At(receiver);
+        int split = 0;
+        for (int face = 0; face < patches.FaceParents.Length; face++)
+        {
+            int head = patches.FaceParents[face];
+            if (face == me.FaceNumber || head == Patch.Invalid)
+            {
+                continue;
+            }
+
+            ref Patch first = ref patches.At(head);
+            if (!(Vec3.Dot(me.Origin, first.Normal) > first.CachedPlaneDist + VisMatrix.PlaneTestEpsilon))
+            {
+                continue;
+            }
+
+            for (int p = head; p != Patch.Invalid; p = patches.At(p).NextParent)
+            {
+                split += Test(patches, receiver, p, into);
+            }
+        }
+
+        return split;
+    }
+
+    private static int Test(PatchSet patches, int receiver, int source, List<int> into)
+    {
+        ref Patch me = ref patches.At(receiver);
+        ref Patch s = ref patches.At(source);
+        if (s.Child1 != Patch.Invalid)
+        {
+            Vec3 tmp = me.Origin - s.Origin;
+            if (Vec3.Dot(tmp, tmp) * 0.0625 < s.Area)
+            {
+                return 1 + Test(patches, receiver, s.Child1, into) + Test(patches, receiver, s.Child2, into);
+            }
+        }
+
+        if (Vec3.Dot(s.Origin, me.PlaneNormal) > me.CachedPlaneDist + VisMatrix.PlaneTestEpsilon)
+        {
+            into.Add(source);
+        }
+
+        return 0;
+    }
+
     /// <summary>A receiver's candidates include the opposite face's patches.</summary>
     [Fact]
     public void TheCeilingIsACandidateOfTheFloor()

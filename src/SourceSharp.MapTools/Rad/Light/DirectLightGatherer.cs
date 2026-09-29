@@ -300,8 +300,8 @@ public sealed class DirectLightGatherer
         DeadLightCull.IsDead(in _cullShapes[lightIndex], group, in bounds, flags);
 
     /// <summary>
-    /// Light every lane of a point light on its own, never four at once --
-    /// for the facts that hold the two paths to the same bits.
+    /// Light every lane of a point or surface light on its own, never four at
+    /// once -- for the facts that hold the two paths to the same bits.
     /// </summary>
     internal bool ScalarStandardLights { get; init; }
 
@@ -1087,6 +1087,10 @@ public sealed class DirectLightGatherer
         {
             traced = GatherPointFour(light, group, laneNeeded, hardFalloff, ignoreNormals, rays, scratch);
         }
+        else if (light.Type == EmitType.Surface && !_estimates && !ScalarStandardLights)
+        {
+            traced = GatherSurfaceFour(light, group, laneNeeded, hardFalloff, ignoreNormals, rays, scratch);
+        }
         else
         {
             for (int lane = 0; lane < count; lane++)
@@ -1375,6 +1379,159 @@ public sealed class DirectLightGatherer
             if (needed && dl != 0.0f && fl != 0.0f)
             {
                 rays.EmitVisibility(p[lane], src);
+                traced |= 1 << lane;
+            }
+
+            output.Dot[lane] = dl;
+            output.Falloff[lane] = fl;
+        }
+
+        for (int n = 1; n < group.NormalCount; n++)
+        {
+            Vector128<float> bump;
+            if (ignoreNormals)
+            {
+                bump = Vector128.Create(LightConstants.ConstantDot);
+            }
+            else
+            {
+                int b = n * L;
+                bump = ((Vector128.Create(nrm[b].X, nrm[b + 1].X, nrm[b + 2].X, nrm[b + 3].X) * dx)
+                        + (Vector128.Create(nrm[b].Y, nrm[b + 1].Y, nrm[b + 2].Y, nrm[b + 3].Y) * dy))
+                       + (Vector128.Create(nrm[b].Z, nrm[b + 1].Z, nrm[b + 2].Z, nrm[b + 3].Z) * dz);
+                bump = MaxPs4(zero, bump);
+            }
+
+            bump = Vector128.ConditionalSelect(live, bump, zero);
+            for (int lane = 0; lane < count; lane++)
+            {
+                output.Dot[(n * L) + lane] = bump.GetElement(lane);
+            }
+        }
+
+        return traced;
+    }
+
+    /// <summary>
+    /// <see cref="GatherStandardLane"/> for a SURFACE light with exact
+    /// arithmetic, all four lanes at once.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Why it exists. A surface light (a <c>texlight</c> face's emitter) is
+    /// the common light on a real map -- most of 2fort's are -- and the scalar
+    /// lane spends one square root and three divides per lane on it, with two
+    /// data-dependent early returns between them. Four lanes at once is one
+    /// of each, and the early returns become masks. On 2fort the scalar lane
+    /// was about a twentieth of vrad's CPU time.
+    /// </para>
+    /// <para>
+    /// Why it gives the same bits. Every operation is the scalar lane's,
+    /// element-wise and in the same order: the same sums of squares, the same
+    /// <c>1 / sqrt</c> then three multiplies, the same exact divide for the
+    /// falloff, IEEE single throughout with no fused multiply-add, and
+    /// <c>maxps</c> as a select on the same strict comparison. The scalar lane
+    /// returns early in two places -- past the hard fade distance, and when
+    /// the clamped dot is zero (either zero, as <c>==</c> compares) -- and
+    /// leaves the zeros <see cref="GatherOutput.Clear"/> wrote; here those
+    /// lanes are masked to the same zeros, the bump dots included. The rays
+    /// are recorded in lane order, as the scalar loop records them, to the
+    /// same end point: the light's origin pushed off the emitting surface by
+    /// <see cref="LightConstants.DistEpsilon"/>, one sum shared by every lane.
+    /// </para>
+    /// <para>
+    /// Only the exact side takes it; stock's estimate path stays scalar, as
+    /// it does for point lights.
+    /// </para>
+    /// </remarks>
+    /// <returns>The traced-lane mask.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static int GatherSurfaceFour(
+        DirectLight light,
+        SampleGroup group,
+        ReadOnlySpan<bool> laneNeeded,
+        bool hardFalloff,
+        bool ignoreNormals,
+        LightRayLog rays,
+        GatherOutput output)
+    {
+        const int L = SampleGroup.Lanes;
+        Vec3[] p = group.Points;
+        Vec3[] nrm = group.Normals;
+        Vector128<float> zero = Vector128<float>.Zero;
+        Vector128<float> one = Vector128.Create(1.0f);
+
+        Vec3 src = light.FaceNum == -1 ? light.Origin : Vec3.Zero;
+
+        Vector128<float> dx = Vector128.Create(src.X) - Vector128.Create(p[0].X, p[1].X, p[2].X, p[3].X);
+        Vector128<float> dy = Vector128.Create(src.Y) - Vector128.Create(p[0].Y, p[1].Y, p[2].Y, p[3].Y);
+        Vector128<float> dz = Vector128.Create(src.Z) - Vector128.Create(p[0].Z, p[1].Z, p[2].Z, p[3].Z);
+        Vector128<float> dist2 = ((dx * dx) + (dy * dy)) + (dz * dz);
+        Vector128<float> dist = Vector128.Sqrt(dist2);
+        Vector128<float> rpcDist = one / dist;
+        dx *= rpcDist;
+        dy *= rpcDist;
+        dz *= rpcDist;
+
+        Vector128<float> dot = ignoreNormals
+            ? Vector128.Create(LightConstants.ConstantDot)
+            : ((dx * Vector128.Create(nrm[0].X, nrm[1].X, nrm[2].X, nrm[3].X))
+               + (dy * Vector128.Create(nrm[0].Y, nrm[1].Y, nrm[2].Y, nrm[3].Y)))
+              + (dz * Vector128.Create(nrm[0].Z, nrm[1].Z, nrm[2].Z, nrm[3].Z));
+        dot = MaxPs4(zero, dot);
+
+        // A lane past the hard fade distance keeps its zeros.
+        Vector128<float> live = hardFalloff
+            ? Vector128.LessThanOrEqual(dist, Vector128.Create(light.EndFadeDistance))
+            : Vector128<float>.AllBitsSet;
+
+        dist = MaxPs4(dist, one);
+
+        // The emitter's own cosine, then the scalar lane's second return: a
+        // lane whose dot is zero keeps its zeros too. The negation flips the
+        // sign bit, as the scalar unary minus does, rather than subtracting
+        // from zero: 0 - (+0) is +0 where -(+0) is -0, and maxps keeps that
+        // sign through to the falloff the tape records.
+        Vector128<float> dot2 = Vector128.Xor(
+            ((dx * Vector128.Create(light.Normal.X)) + (dy * Vector128.Create(light.Normal.Y)))
+            + (dz * Vector128.Create(light.Normal.Z)),
+            Vector128.Create(-0.0f));
+        dot2 = MaxPs4(zero, dot2);
+        live = Vector128.AndNot(live, Vector128.Equals(dot, zero));
+
+        Vector128<float> falloff = dot2 / dist2;
+
+        if (hardFalloff)
+        {
+            Vector128<float> t = (dist - Vector128.Create(light.StartFadeDistance))
+                / Vector128.Create(light.EndFadeDistance - light.StartFadeDistance);
+            t = MinPs4(t, one);
+            t = MaxPs4(t, zero);
+            t = one - t;
+            Vector128<float> mult = (Vector128.Create(6.0f) * t) - Vector128.Create(15.0f);
+            mult = (mult * t) + Vector128.Create(10.0f);
+            mult = (t * t) * mult;
+            mult = t * mult;
+            falloff = mult * falloff;
+        }
+
+        dot = Vector128.ConditionalSelect(live, dot, zero);
+        falloff = Vector128.ConditionalSelect(live, falloff, zero);
+
+        // Push the ray's end off the emitting surface.
+        Vec3 end = src + (light.Normal * LightConstants.DistEpsilon);
+
+        int traced = 0;
+        int count = group.Count;
+        for (int lane = 0; lane < count; lane++)
+        {
+            float dl = dot.GetElement(lane);
+            float fl = falloff.GetElement(lane);
+            bool needed = laneNeeded.IsEmpty || laneNeeded[lane];
+
+            if (needed && dl != 0.0f && fl != 0.0f)
+            {
+                rays.EmitVisibility(p[lane], end);
                 traced |= 1 << lane;
             }
 
