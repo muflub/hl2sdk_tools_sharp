@@ -299,17 +299,19 @@ public static partial class LevelLinker
         LevelNaming naming = new(
             new LevelNamingOptions(options.ModEntities, library.Options.Folds, layout.Columns, layout.Rows),
             library.Options.NameKeySet);
+        LevelSingletons singletons = new(library.LibraryEntities);
         (BspData linked, int foldedBrushes) = Assemble(
-            plans, layout, visibilityLump, context, classes, naming, library.Options.MapVersion, options.FoldBrushes, cancellationToken);
+            plans, layout, visibilityLump, context, classes, naming, singletons, library.Options.MapVersion, options.FoldBrushes, cancellationToken);
 
         // The budget checked before planning counted the rooms as compiled.
         // When the naming resolver ran, what the level holds is what it left
         // (dropped by room_needs, folded, merged, or written by the linker),
-        // so the level is budgeted again from that, and refused if that is
+        // and a duplicate singleton the merge dropped is gone too, so the
+        // level is budgeted again from what it holds, and refused if that is
         // over the cap; its report is the one the link returns.
-        if (naming.Result is { } resolution)
+        if (naming.Result is not null || singletons.Dropped.Count > 0)
         {
-            entities = BudgetResolved(layout, resolution, LevelEntityBudget.ReserveFor(options, library.Options), classes);
+            entities = BudgetLinked(layout, library, naming.Result, singletons.Dropped, LevelEntityBudget.ReserveFor(options, library.Options), classes);
         }
 
         VisResult vis = new(
@@ -338,24 +340,55 @@ public static partial class LevelLinker
     }
 
     /// <summary>
-    /// The entity budget of a level the naming resolver changed: each
-    /// placement counted from the entities it left for it (its own kept, and
-    /// what the linker wrote), by class, then budgeted as the rooms' own
-    /// counts are.
+    /// The entity budget of a level the link changed from its rooms'
+    /// counts: each placement counted from the entities the naming resolver
+    /// left for it (its own kept, and what the linker wrote), or from its
+    /// room's counts when the resolver did not run, less the duplicate
+    /// singletons the merge dropped; by class, then budgeted as the rooms'
+    /// own counts are, with the library's entities.
     /// </summary>
-    private static LevelEntityReport BudgetResolved(LevelLayout layout, LevelResolution resolution, int reserve, EntityClassTable classes)
+    private static LevelEntityReport BudgetLinked(
+        LevelLayout layout,
+        RoomLibrary library,
+        LevelResolution? resolution,
+        IReadOnlyList<(int Placement, string ClassName)> dropped,
+        int reserve,
+        EntityClassTable classes)
     {
         List<string>[] byPlacement = [.. layout.Rooms.Select(_ => new List<string>())];
-        foreach (LevelEntity entity in resolution.Entities)
+        if (resolution is not null)
         {
-            byPlacement[entity.Placement].Add(entity.ClassName);
+            foreach (LevelEntity entity in resolution.Entities)
+            {
+                byPlacement[entity.Placement].Add(entity.ClassName);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < layout.Rooms.Count; i++)
+            {
+                RoomEntityCounts counts = library.Get(layout.Rooms[i].Placement.Room).CountEntities();
+                byPlacement[i].AddRange(counts.Classes.SelectMany(c => Enumerable.Repeat(c.ClassName, c.Count)));
+            }
+        }
+
+        foreach ((int placement, string className) in dropped)
+        {
+            byPlacement[placement].Remove(className);
         }
 
         return LevelEntityBudget.Check(
             layout.Rooms.Select((r, i) => (r.Placement.Room, RoomEntityCounts.FromClasses(byPlacement[i]))),
             reserve,
-            classes);
+            classes,
+            LibraryCounts(library));
     }
+
+    /// <summary>The library's own entities (<see cref="RoomLibrary.LibraryEntities"/>) counted by class, or null when it has none.</summary>
+    private static RoomEntityCounts? LibraryCounts(RoomLibrary library) =>
+        library.LibraryEntities.Count == 0
+            ? null
+            : RoomLibraryEntities.Count(library.LibraryEntities);
 
     /// <summary>
     /// The prefix sums every index-bearing struct is shifted by, in layout
@@ -500,7 +533,7 @@ public static partial class LevelLinker
             totals.CheckClusters(library.Get(last.Placement.Room).Definition.Name, last.Placement.CellX, last.Placement.CellY);
         }
 
-        return LevelEntityBudget.Check(placements, reserve, classes);
+        return LevelEntityBudget.Check(placements, reserve, classes, LibraryCounts(library));
     }
 
     /// <summary>

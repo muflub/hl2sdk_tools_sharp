@@ -8,6 +8,8 @@
 using System.Buffers.Binary;
 using System.Text;
 
+using SourceSharp.MapFormats.Text;
+
 using SourceSharp.MapTools.Nav;
 
 namespace SourceSharp.MapTools.Rooms;
@@ -231,7 +233,7 @@ public sealed class RoomPackIndex
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Layout, version 1.</b> Every integer is big-endian, as in the room
+/// <b>Layout, version 2</b> (as version 1's; see Versions below). Every integer is big-endian, as in the room
 /// container, so the bytes do not depend on the writer's byte order. A tag
 /// is four printable ASCII characters, stored as they read.
 /// </para>
@@ -320,10 +322,22 @@ public sealed class RoomPackIndex
 /// entry names; a pack whose index and containers disagree is refused.
 /// </para>
 /// <para>
-/// <b>Versions.</b> Version 1 is the only one. A pack of any other version is
-/// refused with the version it carries and the one this build reads, as the
-/// room container does; the containers inside carry their own version and
-/// are checked by <see cref="RoomObjectStore.LoadAsync"/>.
+/// <b>Versions.</b> This build reads and writes version 2, and refuses any
+/// other with the version it carries and the one it reads, as the room
+/// container does; the containers inside carry their own version and are
+/// checked by <see cref="RoomObjectStore.LoadAsync"/>. Version 2 has the
+/// layout of version 1; what it adds is a promise about the rooms: the
+/// pack was built after the library's singletons were checked
+/// (<see cref="RoomLibraryEntities.KeepInRoom"/>), so no room carries a sun
+/// or an unnamed controller of its own, every room agrees with the
+/// library's sun and sky (decision D3 of the rooms design: a room that
+/// disagrees is refused when the pack is built), and the library's own are
+/// in <see cref="RoomLibraryEntities.SectionTag"/>. A version 1 pack makes
+/// no such promise, and the link cannot check it (it has the rooms' compiled
+/// entities, not their VMF), so it is refused with a message that says to
+/// recompile the library, rather than read around. That is the kind of
+/// change the paragraph above keeps a version for: tags an older build can
+/// skip never raised it, a guarantee the link relies on does.
 /// </para>
 /// </remarks>
 public static class RoomPack
@@ -331,8 +345,8 @@ public static class RoomPack
     /// <summary>The pack's eight magic bytes, as they read in the file.</summary>
     public const string Magic = "SSRPAK01";
 
-    /// <summary>The only pack version this build reads and writes.</summary>
-    public const int Version = 1;
+    /// <summary>The only pack version this build reads and writes (<see cref="RoomPack"/>'s remarks on versions).</summary>
+    public const int Version = 2;
 
     /// <summary>The file extension <c>ssmap room</c> writes and <c>ssmap link</c> looks for.</summary>
     public const string Extension = ".roompack";
@@ -499,6 +513,15 @@ public static class RoomPack
         }
 
         int version = BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(8));
+        if (version == Version - 1)
+        {
+            // The one older version there is: its rooms were never held to
+            // the library's sun and sky, so it is not read around.
+            throw new LinkException(
+                $"room pack version {version}; this build reads version {Version}. A version {version} pack was written before"
+                + " the library-wide singletons were checked when the pack is built; recompile the library with ssmap room.");
+        }
+
         if (version != Version)
         {
             throw new LinkException($"room pack version {version}; this build reads version {Version}.");
@@ -879,34 +902,68 @@ public static class RoomPack
     public static async Task<RoomLibraryOptions> ReadLibraryOptionsAsync(
         Stream r, RoomPackIndex index, CancellationToken cancellationToken = default)
     {
+        byte[]? bytes = await ReadLibrarySectionAsync(r, index, RoomLibraryOptions.SectionTag, cancellationToken).ConfigureAwait(false);
+        return bytes is null ? RoomLibraryOptions.None : RoomLibraryOptions.Read(bytes);
+    }
+
+    /// <summary>
+    /// Reads the library-wide entities from a pack whose index was just
+    /// read: its <see cref="RoomLibraryEntities.SectionTag"/> section, or
+    /// none when it has none.
+    /// </summary>
+    /// <param name="r">
+    /// The pack. A stream that cannot seek must be where
+    /// <see cref="ReadIndexAsync"/> left it, and is left past the section,
+    /// as <see cref="ReadLibraryOptionsAsync"/> leaves it: read a
+    /// forward-only pack's other sections from a second pass.
+    /// </param>
+    /// <param name="index">The pack's index, read from <paramref name="r"/>.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The entities, in library order and as the library wrote them.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="LinkException">The section is cut short or out of shape (<see cref="RoomLibraryEntities.ReadAsync"/>).</exception>
+    /// <remarks>
+    /// What <c>ssmap link</c> reads to write the level's singletons
+    /// (<see cref="RoomLibrary.LibraryEntities"/>), and what <c>ssmap
+    /// layout</c> and <c>ssmap rooms</c> read to count them.
+    /// </remarks>
+    public static async Task<IReadOnlyList<VmfChunk>> ReadLibraryEntitiesAsync(
+        Stream r, RoomPackIndex index, CancellationToken cancellationToken = default)
+    {
+        byte[]? bytes = await ReadLibrarySectionAsync(r, index, RoomLibraryEntities.SectionTag, cancellationToken).ConfigureAwait(false);
+        return bytes is null ? [] : await RoomLibraryEntities.ReadAsync(bytes, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>One library section's bytes, or null when the pack has no section of that tag.</summary>
+    private static async Task<byte[]?> ReadLibrarySectionAsync(Stream r, RoomPackIndex index, string tag, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(r);
         ArgumentNullException.ThrowIfNull(index);
         RoomPackSection? found = null;
         foreach (RoomPackSection section in index.LibrarySections)
         {
-            if (section.Tag == RoomLibraryOptions.SectionTag)
+            if (section.Tag == tag)
             {
                 found = section;
             }
         }
 
-        if (found is not { } options)
+        if (found is not { } wanted)
         {
-            return RoomLibraryOptions.None;
+            return null;
         }
 
-        string what = $"the library's \"{options.Tag}\" section";
+        string what = $"the library's \"{wanted.Tag}\" section";
         if (index.Start is long start)
         {
-            r.Seek(start + options.Offset, SeekOrigin.Begin);
+            r.Seek(start + wanted.Offset, SeekOrigin.Begin);
         }
         else
         {
-            await SkipAsync(r, options.Offset - index.IndexEnd, what, cancellationToken).ConfigureAwait(false);
+            await SkipAsync(r, wanted.Offset - index.IndexEnd, what, cancellationToken).ConfigureAwait(false);
         }
 
-        byte[] bytes = await ReadSectionAsync(r, options, what, cancellationToken).ConfigureAwait(false);
-        return RoomLibraryOptions.Read(bytes);
+        return await ReadSectionAsync(r, wanted, what, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

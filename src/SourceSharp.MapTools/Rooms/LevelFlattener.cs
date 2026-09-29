@@ -98,7 +98,8 @@ public static class LevelFlattener
         ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(options);
 
-        IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(library);
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
+        IReadOnlyList<LibraryRoom> rooms = split.Rooms;
         Dictionary<string, LibraryRoom> byName = new(StringComparer.Ordinal);
         foreach (LibraryRoom room in rooms)
         {
@@ -133,7 +134,15 @@ public static class LevelFlattener
         }
 
         flat.Chunks.Add(flatWorld);
-        List<VmfChunk> entities = [];
+
+        // The library's own entities once, straight after the worldspawn and
+        // never turned, as the link writes them (RoomLibraryEntities.ForFlatten).
+        foreach (VmfChunk entity in split.LibraryEntities)
+        {
+            flat.Chunks.Add(RoomLibraryEntities.ForFlatten(entity));
+        }
+
+        List<(LevelEntity Entity, string Room)> entities = [];
         List<PlacedSides> placedSides = [];
         RoomLibraryOptions libraryOptions = RoomLibraryOptions.FromWorld(world);
         List<ResolverRoom> resolverRooms = [];
@@ -179,8 +188,9 @@ public static class LevelFlattener
                 }
 
                 placed.Entities.Add(moved);
-                entities.Add(moved);
-                roomEntities.Add(LevelEntity.FromVmf(moved, resolverRooms.Count, roomEntities.Count));
+                LevelEntity read = LevelEntity.FromVmf(moved, resolverRooms.Count, roomEntities.Count);
+                entities.Add((read, room.Definition.Name));
+                roomEntities.Add(read);
             }
 
             // The room's names, read once per room from its entity list (a
@@ -213,16 +223,22 @@ public static class LevelFlattener
             resolution = LevelEntityResolver.Resolve(
                 resolverRooms,
                 new LevelNamingOptions(options.ModEntities, libraryOptions.Folds, level.Columns, level.Rows));
-            entities = [.. resolution.Entities.Select(Write)];
+            entities = [.. resolution.Entities.Select(e => (e, resolverRooms[e.Placement].Room))];
             foreach ((string key, string value) in resolution.WorldKeys)
             {
                 flatWorld.AddKey(key, value);
             }
         }
 
-        foreach (VmfChunk entity in entities)
+        // One of each level-wide singleton, by the link's rule and after the
+        // same naming (LevelSingletons), so both maps keep the same copies.
+        LevelSingletons singletons = new(split.LibraryEntities);
+        foreach ((LevelEntity entity, string room) in entities)
         {
-            flat.Chunks.Add(entity);
+            if (singletons.Keep(room, entity.Placement, entity.ClassName, [.. entity.Pairs.Select(p => new KeyValuePair<string, string>(p.Key, p.Value ?? string.Empty))]))
+            {
+                flat.Chunks.Add(resolution is null ? (VmfChunk)entity.Payload! : Write(entity));
+            }
         }
 
         int next = 1;

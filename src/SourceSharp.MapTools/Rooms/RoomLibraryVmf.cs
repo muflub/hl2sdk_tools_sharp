@@ -97,7 +97,10 @@ public sealed class RoomLibraryException : Exception
 /// the author, a camera, a light to see by in the editor), except the
 /// classes the whole library shares, such as the sun, which are collected
 /// for the pack's library section (<see cref="RoomLibraryEntities"/>,
-/// <see cref="SplitLibrary"/>); a brush in the
+/// <see cref="SplitLibrary"/>), and a <c>sky_camera</c>, which is refused.
+/// A room's own copy of a library-wide class is dropped when it equals the
+/// library's and refused when it does not
+/// (<see cref="RoomLibraryEntities.KeepInRoom"/>). A brush in the
 /// gaps, or one that crosses a cell's edge, is an error, because it is
 /// geometry some room would silently lose. Two cells may touch but not
 /// overlap. Every room of a library shares one grid and one door kit, and
@@ -227,6 +230,24 @@ public static class RoomLibraryVmf
                 // library wrote it, in library coordinates, not dropped.
                 libraryWide.Add(VmfPlacement.Clone(entity));
             }
+            else if (string.Equals(entity.GetValue("classname"), RoomLibraryEntities.SkyCameraClass, StringComparison.Ordinal))
+            {
+                // Not ignored like the rest of the gaps' clutter: a 3D
+                // skybox that silently vanished would be the library's sky.
+                throw new RoomLibraryException(
+                    $"the library has a sky_camera (entity {VmfPlacement.IdOf(entity)}) in the gaps between rooms;"
+                    + " sky_camera is allowed only in the library's skybox room.");
+            }
+        }
+
+        // One of each singleton in the gaps, and every room's own copies
+        // checked against them (decision D3): an equal copy is dropped from
+        // the room, so no room compile, entity count or link ever sees it.
+        RoomLibraryEntities.CheckGaps(libraryWide);
+        for (int i = 0; i < markers.Count; i++)
+        {
+            string room = markers[i].Name;
+            owned[i].RemoveAll(entity => !RoomLibraryEntities.KeepInRoom(room, entity, libraryWide));
         }
 
         VmfChunk? version = library.GetChunk("versioninfo");
