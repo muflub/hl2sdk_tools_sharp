@@ -101,6 +101,9 @@ public sealed class AmbientSampler
     private readonly Vec3? _skyAmbient;
     private readonly float _tanTheta;
     private readonly Vec3[] _radColor = new Vec3[VertexNormals.Count];
+
+    // The ray directions, in the frame the map is lit in.
+    private readonly Vec3[] _anorms;
     private readonly Vec3[] _styleColors = new Vec3[RayAmbientLighting.MaxLightStyles];
 
     /// <summary>Makes a sampler.</summary>
@@ -114,6 +117,26 @@ public sealed class AmbientSampler
         DWorldLight[] lights,
         IAmbientLightVisibility? visibility,
         ComplianceOptions compliance)
+        : this(scene, lights, visibility, compliance, frameTurns: 0)
+    {
+    }
+
+    /// <summary>Makes a sampler that casts its rays in a turned frame.</summary>
+    /// <param name="scene">The map.</param>
+    /// <param name="lights">The classified world lights (not copied; read only).</param>
+    /// <param name="visibility">The surface-light visibility, or null.</param>
+    /// <param name="compliance">Which defects to reproduce.</param>
+    /// <param name="frameTurns">
+    /// The quarter turns of the frame the map is lit in (<see cref="Light.BakeFrame"/>):
+    /// the ray directions are fixed in the world, so a room lit for a turned
+    /// placement casts them turned into its own frame.
+    /// </param>
+    internal AmbientSampler(
+        AmbientScene scene,
+        DWorldLight[] lights,
+        IAmbientLightVisibility? visibility,
+        ComplianceOptions compliance,
+        int frameTurns)
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(lights);
@@ -122,6 +145,7 @@ public sealed class AmbientSampler
         _lights = lights;
         _visibility = visibility;
         _compliance = compliance;
+        _anorms = frameTurns == 0 ? VertexNormals.All.ToArray() : Light.BakeFrame.ToRoom(VertexNormals.All, frameTurns);
         _estimate = compliance.Emulates(StockQuirk.AmbientCubeReciprocalEstimate);
         _skyAmbient = RayAmbientLighting.FindSkyAmbient(scene);
 
@@ -188,7 +212,7 @@ public sealed class AmbientSampler
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(cube.Length, AmbientCube.Sides);
 
-        ReadOnlySpan<Vec3> anorms = VertexNormals.All;
+        ReadOnlySpan<Vec3> anorms = _anorms;
         Span<Vec3> styles = _styleColors;
         for (int i = 0; i < VertexNormals.Count; i++)
         {
@@ -199,7 +223,7 @@ public sealed class AmbientSampler
             _radColor[i] = styles[0];
         }
 
-        AmbientCube.Project(_radColor, cube);
+        AmbientCube.Project(_radColor, cube, anorms);
     }
 
     /// <summary>

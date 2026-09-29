@@ -167,6 +167,22 @@ public sealed record RoomObject(
     internal RoomTransit? TransitOfCompile => Transit is { } transit && transit.IsFor(this) ? transit : null;
 
     /// <summary>
+    /// The room's base lighting (<see cref="RoomLighting"/>: what vrad gave
+    /// its faces, leaves, lights and props, once or per quarter turn), or
+    /// null: baked by a library compile that lights its rooms
+    /// (<see cref="RoomLibraryCompileSettings.Lighting"/>) and stored by the
+    /// pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// A room without it links unlit, as every room did before the bake
+    /// existed; a level may not mix the two (<see cref="LevelLinker"/>).
+    /// </remarks>
+    internal RoomLighting? Lighting { get; init; }
+
+    /// <summary>The room's lighting while it describes this compile, else null.</summary>
+    internal RoomLighting? LightingOfCompile => Lighting is { } lighting && lighting.IsFor(this) ? lighting : null;
+
+    /// <summary>
     /// The room's <c>env_cubemap</c> samples and the names its compile made
     /// after them (<see cref="RoomCubemaps"/>: the samples per turn, the
     /// patched texdata strings and packed files), or null: made by the room

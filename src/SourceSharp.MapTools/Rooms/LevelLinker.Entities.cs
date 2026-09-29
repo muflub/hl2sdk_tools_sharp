@@ -82,10 +82,11 @@ public static partial class LevelLinker
         LevelNaming? naming = null,
         string? mapVersion = null,
         LevelSingletons? singletons = null,
-        List<(int Placement, string ClassName)>? droppedFurniture = null)
+        List<(int Placement, string ClassName)>? droppedFurniture = null,
+        LevelLightStyles? styles = null)
     {
         singletons ??= new LevelSingletons([]);
-        List<BspEntity> merged = [];
+        List<(BspEntity Entity, int Placement)> merged = [];
         BspEntity? world = null;
         string? worldOwner = null;
         Box? extent = null;
@@ -233,8 +234,15 @@ public static partial class LevelLinker
 
         // The library's entities once, straight after the worldspawn, as the
         // flatten writes them (RoomLibraryEntities.ToLinked).
-        lump.AddRange(singletons.Library.Select(RoomLibraryEntities.ToLinked));
-        lump.AddRange(merged);
+        List<BspEntity> library = [.. singletons.Library.Select(RoomLibraryEntities.ToLinked)];
+        lump.AddRange(library);
+
+        // The switchable lights' styles, one per distinct name over the
+        // level in lump order, as vbsp gives them over the flattened map
+        // (LevelLightStyles): each room's compile numbered its own from 32.
+        styles ??= new LevelLightStyles();
+        styles.Renumber([.. library.Select(e => (e, -1)), .. merged]);
+        lump.AddRange(merged.Select(m => m.Entity));
         return EntityLump.Write(lump);
     }
 
@@ -243,11 +251,11 @@ public static partial class LevelLinker
     /// a level-wide singleton (<see cref="LevelSingletons"/>), which is
     /// dropped; a different copy is refused there.
     /// </summary>
-    private static void AddUnlessDuplicate(List<BspEntity> merged, LevelSingletons singletons, BspEntity entity, string room, int placement)
+    private static void AddUnlessDuplicate(List<(BspEntity Entity, int Placement)> merged, LevelSingletons singletons, BspEntity entity, string room, int placement)
     {
         if (singletons.Keep(room, placement, entity.ClassName, [.. entity.Pairs.Select(p => new KeyValuePair<string, string>(p.Key, p.Value))]))
         {
-            merged.Add(entity);
+            merged.Add((entity, placement));
         }
     }
 

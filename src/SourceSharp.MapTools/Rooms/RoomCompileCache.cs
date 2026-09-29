@@ -68,6 +68,14 @@ public sealed record RoomCacheInputs(VbspOptions Options)
     public IReadOnlySet<string>? NameKeys { get; init; }
 
     /// <summary>
+    /// How the rooms are lit (<see cref="RoomLibraryCompileSettings.Lighting"/>),
+    /// or null for unlit rooms: the vrad switches and the library's sun both
+    /// shape the lighting section, so both are in the key. Folded only when
+    /// set, so an unlit library keeps the keys it had before the bake.
+    /// </summary>
+    public RoomLightingSettings? Lighting { get; init; }
+
+    /// <summary>
     /// The host's opaque context tags, folded verbatim: <c>ssmap room</c>
     /// passes the format preset and the collision cooker's identity, the same
     /// tags <c>ssmap all -incremental</c> folds, so rooms cooked by one
@@ -203,6 +211,11 @@ public static class RoomCacheKey
             }
         }
 
+        if (inputs.Lighting is { } lighting)
+        {
+            fold.Text(lighting.Describe());
+        }
+
         return fold.Finish();
     }
 
@@ -257,6 +270,7 @@ internal static class RoomOptionsDigest
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicMethods, typeof(NavAgentSpec))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicMethods, typeof(RoomNavPackOptions))]
     [DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicMethods, typeof(NavCompression))]
+    [DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicMethods, typeof(VradOptions))]
     public static string Of(object options) => OptionsDigest.Of(options);
 }
 

@@ -86,6 +86,22 @@ public sealed class LeafSampler
     private readonly DispTestedScratch _disps;
 
     /// <summary>
+    /// The quarter turns of the frame the map is lit in
+    /// (<see cref="Light.BakeFrame"/>); 0 for every compile but a room's bake
+    /// for a turned placement.
+    /// </summary>
+    /// <remarks>
+    /// The draws are along the world's axes: the first spans the leaf box's
+    /// extent along world x, measured from the box's world low corner. In a
+    /// room lit for a turned placement, that axis is one of the room's own,
+    /// possibly reversed, so each draw is laid along the room axis the turn
+    /// takes to it, from the end the turn takes to the world's low corner:
+    /// the sample stands where the turned room's own sample stands. Turn 0
+    /// draws and places exactly as it always has.
+    /// </remarks>
+    public int FrameTurns { get; init; }
+
+    /// <summary>
     /// Draws one sample position inside a leaf
     /// (<c>GenerateLeafSamplePosition</c>).
     /// </summary>
@@ -120,12 +136,20 @@ public sealed class LeafSampler
         Vec3 samplePosition = Vec3.Zero;
         bool valid = false;
 
+        int turns = FrameTurns & 3;
+        (float worldX, float worldY) = (turns & 1) == 0 ? (dx, dy) : (dy, dx);
         for (int i = 0; i < MaxTries && !valid; i++)
         {
-            samplePosition = new Vec3(
-                leaf.Mins[0] + _random.RandomFloat(0, dx),
-                leaf.Mins[1] + _random.RandomFloat(0, dy),
-                leaf.Mins[2] + _random.RandomFloat(0, dz));
+            float a = _random.RandomFloat(0, worldX);
+            float b = _random.RandomFloat(0, worldY);
+            float c = _random.RandomFloat(0, dz);
+            samplePosition = turns switch
+            {
+                0 => new Vec3(leaf.Mins[0] + a, leaf.Mins[1] + b, leaf.Mins[2] + c),
+                1 => new Vec3(leaf.Mins[0] + b, leaf.Maxs[1] - a, leaf.Mins[2] + c),
+                2 => new Vec3(leaf.Maxs[0] - a, leaf.Maxs[1] - b, leaf.Mins[2] + c),
+                _ => new Vec3(leaf.Maxs[0] - b, leaf.Mins[1] + a, leaf.Mins[2] + c),
+            };
 
             valid = true;
 

@@ -25,7 +25,17 @@ namespace SourceSharp.MapTools.Rad.Props;
 /// <param name="PropIndex">The prop's index in <c>sprp</c>.</param>
 /// <param name="FileName"><c>sp_N.vhv</c> or <c>sp_hdr_N.vhv</c>.</param>
 /// <param name="Data">The file's bytes.</param>
-public sealed record StaticPropVhvFile(int PropIndex, string FileName, byte[] Data);
+public sealed record StaticPropVhvFile(int PropIndex, string FileName, byte[] Data)
+{
+    /// <summary>
+    /// The studio header's checksum and each strip group's LOD and linear
+    /// colours, exactly what <see cref="StaticPropLighting.EncodeVhv"/> made
+    /// <see cref="Data"/> from; null for a file read rather than lit. A room
+    /// library's bake keeps these rather than the file, so its level can
+    /// sum further light into them before encoding (the rooms design, 9.3).
+    /// </summary>
+    internal (int Checksum, IReadOnlyList<(int Lod, Vec3[] Colors)> Meshes)? Colors { get; init; }
+}
 
 /// <summary>What one static-prop lighting pass produces.</summary>
 /// <param name="Files">One file per prop without <c>NO_PER_VERTEX_LIGHTING</c>, in prop order.</param>
@@ -56,6 +66,13 @@ public sealed record StaticPropLightingResult(
 /// <summary>The switches static-prop lighting reads.</summary>
 public sealed record StaticPropLightingOptions
 {
+    /// <summary>
+    /// The quarter turns of the frame the map is lit in
+    /// (<see cref="Light.BakeFrame"/>); 0 for every compile but a room's bake
+    /// for a turned placement.
+    /// </summary>
+    internal int FrameTurns { get; init; }
+
     /// <summary>The HDR pass: names the files <c>sp_hdr_N.vhv</c>.</summary>
     public bool Hdr { get; init; }
 
@@ -69,7 +86,7 @@ public sealed record StaticPropLightingOptions
     /// <c>-StaticPropIndirectMode</c> (<c></c>): which falloff the
     /// indirect gather weights samples by. 0 (default) keeps stock; 1 and 2
     /// are the TF2/Orangebox-era weightings; anything else skips weighting and
-    /// reflectivity. See <see cref="PropIndirectLighting.Compute"/>.
+    /// reflectivity. See <see cref="PropIndirectLighting.Compute(Ambient.AmbientScene, Vec3, Vec3, bool, bool, Ambient.DispTestedScratch, Options.ComplianceOptions, int)"/>.
     /// </summary>
     public int StaticPropIndirectMode { get; init; }
 
@@ -738,7 +755,7 @@ public static class StaticPropLighting
         }
 
         byte[] data = EncodeVhv(model.Mdl!.Checksum, meshes);
-        return prop.Outcome with { File = prop.Outcome.File with { Data = data } };
+        return prop.Outcome with { File = prop.Outcome.File with { Data = data, Colors = (model.Mdl!.Checksum, meshes) } };
     }
 
     /// <summary>
@@ -939,7 +956,7 @@ public static class StaticPropLighting
                 {
                     indirect = PropIndirectLighting.Compute(
                         scene, p.Position, p.Normal, forceFast: true, p.IgnoreNormals, Displacements,
-                        options.Compliance, options.StaticPropIndirectMode);
+                        options.Compliance, options.StaticPropIndirectMode, options.FrameTurns);
                 }
 
                 Vertices.Add(new PendingVertex(p.Colors, p.Index, indirect, firstSample, Samples.Count - firstSample));

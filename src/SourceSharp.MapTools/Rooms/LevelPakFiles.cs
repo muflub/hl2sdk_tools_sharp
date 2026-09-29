@@ -218,6 +218,20 @@ public static class LevelPakFiles
         string mapBase,
         IReadOnlyDictionary<string, IReadOnlyList<(int RoomProp, int Linked)>>? propFiles,
         IReadOnlyDictionary<string, IReadOnlyList<PlacementCubemaps>>? cubemaps,
+        CancellationToken cancellationToken) =>
+        Merge(rooms, mapBase, propFiles, cubemaps, bakedFiles: null, cancellationToken);
+
+    /// <summary>
+    /// The merge with the cubemaps' renames and the files a lit level's bake
+    /// adds (its static props' lighting, <see cref="LevelLinker.BakedPropFiles"/>),
+    /// each named by the room it comes from and merged by the same rule.
+    /// </summary>
+    internal static (byte[]? Pak, int Files) Merge(
+        IReadOnlyList<(string Room, ZipArchiveReader Pak)> rooms,
+        string mapBase,
+        IReadOnlyDictionary<string, IReadOnlyList<(int RoomProp, int Linked)>>? propFiles,
+        IReadOnlyDictionary<string, IReadOnlyList<PlacementCubemaps>>? cubemaps,
+        IReadOnlyList<(string Room, string Name, byte[] Data)>? bakedFiles,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rooms);
@@ -288,6 +302,11 @@ public static class LevelPakFiles
 
                 Add(room, LinkedName(entry.Name, room, mapBase), entry);
             }
+        }
+
+        foreach ((string room, string name, byte[] data) in bakedFiles ?? [])
+        {
+            Add(room, name, new ZipEntry(name, data));
         }
 
         if (merged.Count == 0)

@@ -46,6 +46,8 @@ public static partial class LevelLinker
         byte[]? mergedPak,
         LevelCubemaps? cubemaps,
         List<(int Placement, string ClassName)> droppedFurniture,
+        LevelLightStyles styles,
+        List<(int Leaf, int Placement, int Cluster)> doorways,
         LevelAreas? areas,
         List<string> areaWarnings,
         CancellationToken cancellationToken)
@@ -228,7 +230,7 @@ public static partial class LevelLinker
         // plug's box inside it becomes an empty leaf of the facing cluster.
         for (int r = 0; r < plans.Length; r++)
         {
-            CarvePlugs(plans[r], roomNodeCounts[r], nodes, leafs, planes, leafMinDist, plans[r].AreaMap);
+            CarvePlugs(plans[r], roomNodeCounts[r], nodes, leafs, planes, leafMinDist, doorways, r, plans[r].AreaMap);
         }
 
         Limit(plans[^1], "leaves", leafs.Count, ushort.MaxValue + 1);
@@ -499,11 +501,21 @@ public static partial class LevelLinker
         // walks the vertex-normal indices in face order, one run per face,
         // so they follow the faces: every world's, then every kept brush
         // model's run.
+        // A lit level's normals are its rooms' bakes', each distinct normal
+        // once (InternNormals), since the rooms' own would pass the 16-bit
+        // index a large level; an unlit level's are carried as they were.
         List<Vec3> vertNormals = [];
         List<ushort> vertNormalIndices = [];
-        foreach (RoomPlan plan in plans)
+        if (first.Lighting is not null)
         {
-            vertNormals.AddRange(plan.Geometry.VertNormals);
+            vertNormals = InternNormals(plans);
+        }
+        else
+        {
+            foreach (RoomPlan plan in plans)
+            {
+                vertNormals.AddRange(plan.VertNormals);
+            }
         }
 
         foreach (bool modelPass in (ReadOnlySpan<bool>)[false, true])
@@ -515,7 +527,7 @@ public static partial class LevelLinker
                 {
                     foreach (ushort index in roomIndices.Slice(run.First, run.Count))
                     {
-                        vertNormalIndices.Add((ushort)(index + plan.VertNormalBase));
+                        vertNormalIndices.Add((ushort)(plan.NormalMap is { } map ? map[index] : index + plan.VertNormalBase));
                     }
                 }
             }
@@ -642,7 +654,7 @@ public static partial class LevelLinker
         (byte[]? physCollide, byte[]? physDisp) = MergeCollision(plans, context.Options.Compliance, brushMap, cancellationToken);
 
         BspData linked = new() { FileVersion = first.Bsp.FileVersion };
-        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion, singletons, droppedFurniture);
+        linked[BspLump.Entities] = MergeEntities(plans, classes, naming, mapVersion, singletons, droppedFurniture, styles);
         linked.SetLump(BspLump.Planes, Bytes(planes.Planes));
         linked.SetLump(BspLump.TexData, Bytes(textures.TexDatas));
         linked.SetLump(
@@ -807,7 +819,10 @@ public static partial class LevelLinker
         }
 
         shifted.FirstEdge = face.FirstEdge + plan.SurfEdgeBase;
-        shifted.LightOfs = face.LightOfs < 0 ? -1 : face.LightOfs + plan.LightBase;
+        // A lit room's bake lights its drawn faces only; its original faces
+        // keep what its compile wrote, as vrad leaves a map's (their offsets
+        // name nothing in the level's lightmaps, where the bake's blocks are).
+        shifted.LightOfs = face.LightOfs < 0 ? -1 : face.LightOfs + (original && plan.Lighting is not null ? 0 : plan.LightBase);
         if (original)
         {
             shifted.OrigFace = -1;
@@ -873,7 +888,15 @@ public static partial class LevelLinker
     /// </para>
     /// </remarks>
     private static void CarvePlugs(
-        RoomPlan plan, int roomNodeCount, List<DNode> nodes, List<DLeaf> leafs, LinkPlanes planes, List<ushort>? leafMinDist, int[]? areaMap)
+        RoomPlan plan,
+        int roomNodeCount,
+        List<DNode> nodes,
+        List<DLeaf> leafs,
+        LinkPlanes planes,
+        List<ushort>? leafMinDist,
+        List<(int Leaf, int Placement, int Cluster)>? doorways = null,
+        int placement = -1,
+        int[]? areaMap = null)
     {
         Dictionary<int, List<(Box, int)>> byLeaf = [];
         foreach (PlugCarve carve in plan.Carves)
@@ -890,7 +913,7 @@ public static partial class LevelLinker
         foreach ((int roomLeaf, List<(Box, int)> leafPlugs) in byLeaf.OrderBy(kv => kv.Key))
         {
             int linkedLeaf = plan.LinkedLeaf(roomLeaf);
-            int head = CarveLeaf(plan.ClusterBase, plan.Leafs, linkedLeaf, leafPlugs, nodes, leafs, planes, leafMinDist, areaMap);
+            int head = CarveLeaf(plan.ClusterBase, plan.Leafs, linkedLeaf, leafPlugs, nodes, leafs, planes, leafMinDist, doorways, placement, areaMap);
             if (head == -(linkedLeaf + 1))
             {
                 continue;
@@ -922,6 +945,8 @@ public static partial class LevelLinker
     /// <param name="leafs">The linked leaves; the solid fragments are appended.</param>
     /// <param name="planes">The linked planes; the chain's planes join them as shared pairs.</param>
     /// <param name="leafMinDist">The per-leaf water distances, extended for every fragment, or null.</param>
+    /// <param name="doorways">Receives each doorway leaf made, with <paramref name="placement"/> and the room cluster it joins; or null.</param>
+    /// <param name="placement">The placement the leaf is of, for <paramref name="doorways"/>.</param>
     /// <param name="areaMap">Per room area, the level area it became (<see cref="PlanAreas"/>); null when the room's area numbers are the level's.</param>
     /// <returns>The child reference that replaces the leaf: a node index, or the leaf itself.</returns>
     internal static int CarveLeaf(
@@ -933,6 +958,8 @@ public static partial class LevelLinker
         List<DLeaf> leafs,
         LinkPlanes planes,
         List<ushort>? leafMinDist,
+        List<(int Leaf, int Placement, int Cluster)>? doorways = null,
+        int placement = -1,
         int[]? areaMap = null)
     {
         DLeaf template = leafs[linkedLeaf];
@@ -976,7 +1003,7 @@ public static partial class LevelLinker
                 leafs.Add(copy);
                 leafMinDist?.Add(leafMinDist[linkedLeaf]);
                 List<(Box, int)> others = [.. plugs.Where((_, i) => i != hit)];
-                int fragmentRef = CarveLeaf(clusterBase, roomLeafs, fragment, others, nodes, leafs, planes, leafMinDist, areaMap);
+                int fragmentRef = CarveLeaf(clusterBase, roomLeafs, fragment, others, nodes, leafs, planes, leafMinDist, doorways, placement, areaMap);
 
                 int node = nodes.Count;
                 int inward = bound == 0 ? 0 : 1;
@@ -1030,6 +1057,10 @@ public static partial class LevelLinker
         doorway.Mins = Short3(door.Mins);
         doorway.Maxs = Short3(door.Maxs);
         leafs[linkedLeaf] = doorway;
+
+        // Recorded for what the doorway takes from its facing side (a lit
+        // level's leaf ambient, the rooms design 9.4).
+        doorways?.Add((linkedLeaf, placement, cluster));
         return head;
     }
 
@@ -1102,6 +1133,15 @@ public static partial class LevelLinker
         if (length == 0)
         {
             return [];
+        }
+
+        // A lit room's runs come from its faces: its compile, which the brush
+        // models' runs were read from, had no normals.
+        if (plan.FaceVertexStarts is { } starts)
+        {
+            return models
+                ? [.. KeptModels(plan).Select(m => new RoomRange(starts[m.Faces.First], starts[m.Faces.End] - starts[m.Faces.First]))]
+                : [new RoomRange(0, starts[plan.WorldFaceCount])];
         }
 
         if (models)

@@ -532,11 +532,15 @@ public static class Program
                                                        game file the compile read, as a game
                                                        directory with its own gameinfo.txt
               room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <c>]
+                   [-nolight | -vrad "<vrad options>"]
                    [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
                                                       every room of a library VMF (one
                                                       info_room each), -threads at once
                                                       -> one <library>.roompack, with each
                                                       room's 3D navigation and entity counts;
+                                                      each room lit by vrad with the
+                                                      library's sun (-nolight: unlit),
+                                                      four times if sun or sky reaches it;
                                                       -incremental reuses unchanged rooms from
                                                       <library>.sscache.db (the same pack)
               link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]

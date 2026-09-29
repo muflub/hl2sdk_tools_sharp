@@ -46,6 +46,18 @@ public static partial class LevelLinker
         int rotation = placement.Instance.Placement.NormalizedRotation;
         RoomLinkData? stored = StoredLink(room);
 
+        // A lit room links its bake over its compile: the faces' styles and
+        // lightmap offsets of the placement's stored turn, vrad's vertex
+        // normals (turned like every direction) and the map flags. The
+        // checks and the census below read only what the bake leaves as
+        // compiled.
+        RoomLighting? lighting = room.LightingOfCompile;
+        RoomLightingPayload? payload = lighting?.For(rotation);
+        if (lighting is not null)
+        {
+            bsp = LitOverlay(bsp, lighting, payload!);
+        }
+
         RoomLinkShared shared = stored?.Shared ?? ComputeShared(room);
         DLeaf[] leafs = BspStructView.As<DLeaf>(bsp[BspLump.Leafs]).ToArray();
         byte[][] ownRows = new byte[room.Vis.ClusterCount][];
@@ -98,6 +110,10 @@ public static partial class LevelLinker
             LightingLength = bsp[BspLump.Lighting].Length,
             DoorVisibility = stored?.Doors ?? RoomDoorVisibility.Compute(room, shared),
             Models = models,
+            Lighting = lighting,
+            Lit = payload,
+            VertNormals = lighting is null ? geometry.VertNormals : [.. lighting.VertNormals.Select(n => TurnDirection(n, rotation))],
+            FaceVertexStarts = lighting is null ? null : FaceVertexStarts(bsp),
             Overlays = RoomOverlaysOf(room),
             AreaPortals = areaPortals,
             AreaLumps = areaPortals is null ? null : RoomAreaPortals.Lumps(room.Definition.Name, bsp),
@@ -105,6 +121,19 @@ public static partial class LevelLinker
 
         ApplyCensus(plan, shared);
         return plan;
+    }
+
+    /// <summary>Per face, where its vertex-normal run starts, and the total after the last face.</summary>
+    private static int[] FaceVertexStarts(BspData bsp)
+    {
+        ReadOnlySpan<DFace> faces = BspStructView.As<DFace>(bsp[BspLump.Faces]);
+        int[] starts = new int[faces.Length + 1];
+        for (int f = 0; f < faces.Length; f++)
+        {
+            starts[f + 1] = starts[f] + faces[f].NumEdges;
+        }
+
+        return starts;
     }
 
     /// <summary>
@@ -556,6 +585,28 @@ public static partial class LevelLinker
         /// <summary>The room's brush models as this placement links them, or null for a room with only the world.</summary>
         public RoomModelLayout? Models { get; init; }
 
+        /// <summary>The room's base lighting, or null for an unlit room (<see cref="RoomObject.LightingOfCompile"/>).</summary>
+        public RoomLighting? Lighting { get; init; }
+
+        /// <summary>The stored turn this placement takes (<see cref="RoomLighting.For"/>), or null for an unlit room.</summary>
+        public RoomLightingPayload? Lit { get; init; }
+
+        /// <summary>The room's vertex normals turned for this placement: its bake's when lit, else its compile's.</summary>
+        public required Vec3[] VertNormals { get; init; }
+
+        /// <summary>
+        /// Per room face, where its run of vertex-normal indices starts (one
+        /// past the last face, the total), for a lit room: a brush model's
+        /// runs are found from its faces, since its compile had no normals.
+        /// Null for an unlit room.
+        /// </summary>
+        public int[]? FaceVertexStarts { get; init; }
+
+        /// <summary>For a lit level, per room vertex normal, the level's (<see cref="InternNormals"/>); null otherwise.</summary>
+        public int[]? NormalMap;
+
+        /// <summary>Where this placement's HDR lightmaps start in the level's HDR lighting lump.</summary>
+        public int LightBaseHdr;
         /// <summary>The room's overlays (<see cref="RoomOverlays"/>), or null for a room with none.</summary>
         public RoomOverlays? Overlays { get; init; }
 
