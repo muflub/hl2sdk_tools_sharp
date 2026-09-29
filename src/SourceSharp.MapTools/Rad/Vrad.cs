@@ -304,10 +304,33 @@ public static class Vrad
         _ => GpuTraceStatus.Off,
     };
 
-    // The decline warning BuildTracerAsync wrote, which carries the backend's
-    // own reason; null when there was none.
-    private static string? DeclineReason(IEnumerable<CompileDiagnostic> diagnostics) =>
-        diagnostics.FirstOrDefault(d => d.Code == VradCodes.GpuTracerDeclined)?.Message;
+    // The decline warning's wording around the backend's own reason.
+    private const string DeclinedPrefix = "gpu tracer declined: ";
+    private const string DeclinedSuffix = " — CPU KD tracer for this run";
+
+    /// <summary>
+    /// The backend's own reason, out of the decline warning BuildTracerAsync
+    /// wrote (the bench line says "declined" itself); null when there was none.
+    /// </summary>
+    /// <param name="diagnostics">The compile's diagnostics.</param>
+    /// <returns>The reason, without the warning's wording around it.</returns>
+    internal static string? DeclineReason(IEnumerable<CompileDiagnostic> diagnostics)
+    {
+        string? message = diagnostics.FirstOrDefault(d => d.Code == VradCodes.GpuTracerDeclined)?.Message;
+        if (message is null)
+        {
+            return null;
+        }
+
+        if (message.StartsWith(DeclinedPrefix, StringComparison.Ordinal))
+        {
+            message = message[DeclinedPrefix.Length..];
+        }
+
+        return message.EndsWith(DeclinedSuffix, StringComparison.Ordinal)
+            ? message[..^DeclinedSuffix.Length]
+            : message;
+    }
 
     // A pass's head: RadWorld_Start's -luxeldensity edit, the range's
     // texlights, and (once for the whole compile) the casters and the KD-tree.
@@ -704,8 +727,7 @@ public static class Vrad
 
             warn(
                 VradCodes.GpuTracerDeclined,
-                $"gpu tracer declined: {offer.DeclineReason ?? "the factory offered nothing"} — "
-                + "CPU KD tracer for this run");
+                DeclinedPrefix + (offer.DeclineReason ?? "the factory offered nothing") + DeclinedSuffix);
         }
 
         return (cpu, TracerKey(cpu, digest));

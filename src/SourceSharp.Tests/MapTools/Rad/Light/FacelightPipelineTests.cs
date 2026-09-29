@@ -172,8 +172,14 @@ public sealed class FacelightPipelineTests
         Assert.Equal(depth, world.FacelightPeakBatchesInFlight);
         Assert.InRange(late.PeakOutstanding, 1, threads * depth * 2);
 
+        Assert.InRange(world.FacelightLogsPerWorker, 1, depth);
+
+        // Answered inside the call, a pipeline never has two batches out and
+        // reuses one log, however deep it may run: the CPU run's memory is
+        // what it was before pipelining.
         RadWorld prompt = await LightAsync(map, map.Tracer(), threads, 40, depth);
         Assert.Equal(1, prompt.FacelightPeakBatchesInFlight);
+        Assert.Equal(1, prompt.FacelightLogsPerWorker);
     }
 
     /// <summary>

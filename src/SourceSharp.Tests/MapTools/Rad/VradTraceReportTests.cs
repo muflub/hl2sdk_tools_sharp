@@ -9,6 +9,7 @@ using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Text;
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Bsp.Driver;
+using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
@@ -94,7 +95,9 @@ public sealed class VradTraceReportTests
 
         RayTraceReport report = Assert.IsType<RayTraceReport>(result.Tracing);
         Assert.Equal(GpuTraceStatus.Declined, report.Gpu);
-        Assert.Contains("no device here", report.GpuDeclineReason, StringComparison.Ordinal);
+        Assert.Equal("no device here", report.GpuDeclineReason);
+        Assert.Contains(result.Diagnostics, d => d.Code == VradCodes.GpuTracerDeclined
+            && d.Message == "gpu tracer declined: no device here — CPU KD tracer for this run");
         Assert.Equal(0, report.GpuRays.Rays);
         Assert.True(report.CpuRays.Rays > 0);
     }
@@ -106,6 +109,17 @@ public sealed class VradTraceReportTests
 
         Assert.Equal(GpuTraceStatus.Off, result.Tracing!.Gpu);
         Assert.True(result.Tracing.CpuRays.Rays > 0);
+    }
+
+    [Fact]
+    public void TheDeclineReasonIsTheBackendsOwnWordsWhateverWrapsThem()
+    {
+        static CompileDiagnostic Warning(string code, string message) =>
+            new(code, DiagnosticSeverity.Warning, message);
+
+        Assert.Null(Vrad.DeclineReason([Warning(VradCodes.StageWarning, "gpu tracer declined: x")]));
+        Assert.Equal("x", Vrad.DeclineReason([Warning(VradCodes.GpuTracerDeclined, "gpu tracer declined: x — CPU KD tracer for this run")]));
+        Assert.Equal("bare", Vrad.DeclineReason([Warning(VradCodes.GpuTracerDeclined, "bare")]));
     }
 
     [Fact]

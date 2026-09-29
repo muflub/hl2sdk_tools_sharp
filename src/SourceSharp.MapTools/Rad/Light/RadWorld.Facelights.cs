@@ -93,6 +93,14 @@ public sealed partial class RadWorld
     internal int FacelightPeakBatchesInFlight { get; private set; }
 
     /// <summary>
+    /// The most ray logs any one face-lighting worker made in the last
+    /// <see cref="LightFacesAsync"/>: at most its depth, and 1 with a tracer
+    /// that answers inside the call, whose pipelines reuse one log. For the
+    /// facts that hold the CPU run's memory where it was.
+    /// </summary>
+    internal int FacelightLogsPerWorker { get; private set; }
+
+    /// <summary>
     /// Where the face-lighting workers rent their ray logs' storage, ahead of
     /// <see cref="ScratchPool"/>. Internal so the facts can count what was
     /// rented against what came back, and hand out arrays full of junk; the
@@ -274,6 +282,7 @@ public sealed partial class RadWorld
         FaceLights = new FaceLight?[faceCount];
         RayTraceMeter? meter = RayTraceMeter.Of(tracer);
         FacelightPeakBatchesInFlight = 0;
+        FacelightLogsPerWorker = 0;
         foreach (FacelightPipeline pipeline in pipelines)
         {
             meter?.AddParked(TraceWaitStage.Facelights, pipeline.ParkedTicks);
@@ -281,6 +290,7 @@ public sealed partial class RadWorld
             Statistics.SkyRays += pipeline.SkyRays;
             Statistics.Batches += pipeline.Batches;
             FacelightPeakBatchesInFlight = Math.Max(FacelightPeakBatchesInFlight, pipeline.PeakInFlight);
+            FacelightLogsPerWorker = Math.Max(FacelightLogsPerWorker, pipeline.LogsMade);
         }
 
         foreach (FaceLightJob job in jobs)
@@ -518,6 +528,9 @@ public sealed partial class RadWorld
         /// <summary>The most batches it held traced and not yet resolved.</summary>
         public int PeakInFlight { get; private set; }
 
+        /// <summary>How many ring slots it has made a log for.</summary>
+        public int LogsMade { get; private set; }
+
         /// <summary>
         /// Stopwatch ticks it spent with nothing it could do but wait for a
         /// batch in flight: from the step that found it so to the step that
@@ -579,6 +592,17 @@ public sealed partial class RadWorld
                     Resolve(_ring[_head]!);
                     _head = (_head + 1) % _ring.Length;
                     _count--;
+
+                    // An empty ring starts again at its first slot, so a
+                    // pipeline that never has two batches out (every CPU
+                    // run) reuses one log instead of growing a log in every
+                    // slot of the ring: each log's pooled arrays grow to the
+                    // largest batch it has held, and at 16 workers and depth
+                    // 4 that was 200 MB of resident scratch for nothing.
+                    if (_count == 0)
+                    {
+                        _head = 0;
+                    }
                     moved = true;
                     resolved = true;
                 }
@@ -671,13 +695,18 @@ public sealed partial class RadWorld
         private bool Launch(CancellationToken cancellationToken)
         {
             int slot = (_head + _count) % _ring.Length;
-            FacelightBatch batch = _ring[slot] ??= new FacelightBatch(new LightRayLog
+            if (_ring[slot] is not FacelightBatch batch)
             {
-                StockRays = _stockRays,
-                DeferRecursion = true,
-                PadCalls = true,
-                Pool = _pool,
-            });
+                batch = new FacelightBatch(new LightRayLog
+                {
+                    StockRays = _stockRays,
+                    DeferRecursion = true,
+                    PadCalls = true,
+                    Pool = _pool,
+                });
+                _ring[slot] = batch;
+                LogsMade++;
+            }
 
             if (!Fill(batch))
             {
