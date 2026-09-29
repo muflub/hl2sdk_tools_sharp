@@ -11,6 +11,7 @@ using SourceSharp.MapTools.Bsp.Csg;
 using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Geometry;
 using SourceSharp.MapTools.Materials;
+using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
 
 namespace SourceSharp.MapTools.Bsp.Tree;
@@ -161,6 +162,59 @@ public static class BrushBspTree
     }
 
     /// <summary>
+    /// How close to a candidate plane a vertex has to be for the split
+    /// heuristic's epsilon-brush test to call it ON the plane rather than in
+    /// front of or behind it, under <see cref="CompliancePolicy.Correct"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>What it guards.</b> <see cref="TestBrushToPlaneNumber"/> charges a
+    /// candidate plane 1000 points for every brush that "only just" crosses
+    /// it: whose furthest vertex in front is under one unit in front, or
+    /// whose furthest vertex behind is under one unit behind. Stock tests
+    /// "in front" as <c>d &gt; 0</c>. A brush that merely TOUCHES the plane
+    /// with a vertex or an edge therefore counts or not by the sign of that
+    /// vertex's rounding residual, which is noise: a last-bit change anywhere
+    /// upstream (a normal normalised with the <c>rsqrtss</c> estimate rather
+    /// than a divide, or a different CPU's estimate) flips it, the plane gains
+    /// or loses 1000 points, and a different plane splits the node. On 2fort
+    /// that moves the cluster count by up to 24 depending on which of three
+    /// normalise quirks is on (see <see cref="StockQuirk.SplitEpsilonBrushOnPlane"/>).
+    /// </para>
+    /// <para>
+    /// <b>How big the noise is.</b> Brush windings are cut from a base winding
+    /// whose corners are pushed out to <see cref="GeometryEpsilons.BaseWindingExtent"/>
+    /// (65536) units, in single precision. A float between 65536 and 131072
+    /// has an ulp of 1/128, so the first clips round each coordinate of a new
+    /// corner by up to half of that, about 0.004, and a unit normal turns an
+    /// error of <c>e</c> in each of three coordinates into at most
+    /// <c>sqrt(3) * e</c>, about 0.007, of distance. The dot product against
+    /// the plane adds a rounding of its own at the map's coordinates (an ulp
+    /// of 1/512 at 16384). Measured on 2fort, a corner meant to be
+    /// (452, 1911, 256) came out as (451.99756, 1911.0015, 256), a residual of
+    /// 0.0029 against a plane through it, and exact corners read residuals
+    /// like 6.1e-5 of either sign.
+    /// </para>
+    /// <para>
+    /// <b>Why 0.1.</b> It is more than ten times the worst of that noise, and
+    /// ten times under the one unit the test is about, so a real sliver (a
+    /// brush crossing by a few tenths) is still charged. And it is not a new
+    /// number: it is where <see cref="BrushGeometry.SplitBrush"/> already
+    /// draws the line. A brush whose furthest vertex is under 0.1 across a
+    /// plane is not split by it at all; SplitBrush hands the whole brush to
+    /// the other side. So a brush inside the band is one that splitting on
+    /// this plane would leave whole, and charging the plane for a sliver it
+    /// would never cut was never the heuristic's intent. The split counter in
+    /// the same loop uses the same 0.1 for the same reason.
+    /// </para>
+    /// <para>
+    /// A vertex exactly 0.1 across counts as crossing, as it does in
+    /// SplitBrush, whose test is <c>d_front &lt; 0.1</c> for "does not".
+    /// </para>
+    /// </remarks>
+    public const float SplitOnPlaneEpsilon = 0.1f;
+
+    /// <summary>
     /// How a plane would cut a brush: <c>TestBrushToPlanenum</c>,
     /// </summary>
     /// <param name="context">The build context.</param>
@@ -281,7 +335,16 @@ public static class BrushBspTree
             }
         }
 
-        if ((dFront > 0.0f && dFront < 1.0f) || (dBack < 0.0f && dBack > -1.0f))
+        // StockQuirk.SplitEpsilonBrushOnPlane. Stock reads "only just crosses"
+        // as any positive excursion, so a vertex lying on the plane counts or
+        // not by the sign of its rounding residual. Correct calls anything
+        // within SplitOnPlaneEpsilon on the plane, which is also where
+        // SplitBrush stops calling it a crossing.
+        bool stock = context.Windings.Compliance.Emulates(StockQuirk.SplitEpsilonBrushOnPlane);
+        bool frontSliver = stock ? dFront > 0.0f : dFront >= SplitOnPlaneEpsilon;
+        bool backSliver = stock ? dBack < 0.0f : dBack <= -SplitOnPlaneEpsilon;
+
+        if ((frontSliver && dFront < 1.0f) || (backSliver && dBack > -1.0f))
         {
             epsilonBrush++;
         }

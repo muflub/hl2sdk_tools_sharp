@@ -1459,7 +1459,9 @@ public enum StockQuirk
     /// distance in front of a candidate plane, so a vertex on the plane
     /// reads as a residual like 6e-5 of either sign and can cost the plane
     /// 1000 points. On 2fort that decides which of two wedge faces splits a
-    /// node, and with it the clusters and portals below.
+    /// node, and with it the clusters and portals below. Under the Correct
+    /// policy <see cref="SplitEpsilonBrushOnPlane"/> reads such a vertex as on
+    /// the plane, which takes this path out.
     /// </para>
     /// <para>
     /// <see cref="CompliancePolicy.Correct"/> divides exactly
@@ -1469,6 +1471,45 @@ public enum StockQuirk
     /// </para>
     /// </remarks>
     PlaneFromPointsNormalise,
+
+    /// <summary>
+    /// vbsp's split heuristic decides whether a brush "only just" crosses a
+    /// candidate plane by the sign of a vertex's distance, so a vertex lying
+    /// on the plane counts by the sign of its rounding residual.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// When the node's brushes are scored against a candidate plane, a brush
+    /// whose furthest vertex in front is between 0 and 1 unit in front, or
+    /// whose furthest vertex behind is between 0 and 1 unit behind, is an
+    /// "epsilon brush", and each one costs the plane 1000 points: the
+    /// heuristic avoids planes that would shave a sliver off a brush. The
+    /// lower bound is a strict zero. A brush that touches the plane with a
+    /// vertex or an edge, and is otherwise wholly on one side, is charged
+    /// when that vertex's computed distance is +6e-5 and not when it is
+    /// -6e-5.
+    /// </para>
+    /// <para>
+    /// <b>Why this is a defect.</b> Winding vertices carry single-precision
+    /// rounding from clipping at 65536 units, a few thousandths of a unit, so
+    /// the sign of an on-plane vertex's distance is noise. Any last-bit change
+    /// upstream flips it and moves the split: on 2fort, flipping any one of
+    /// <see cref="PlaneFromPointsNormalise"/>, <see cref="BaseWindingNormalise"/>
+    /// or <see cref="EdgeBevelNormalise"/> to the estimate moved the cluster
+    /// count from 2492 to 2476, 2500 or 2495. Under the Stock policy those
+    /// normalises are the CPU's <c>rsqrtss</c> estimate, so stock's tree
+    /// depends on the CPU through this test. And the charge is for a sliver
+    /// that would never be cut: SplitBrush sends a brush that crosses a plane
+    /// by less than 0.1 wholly to one side.
+    /// </para>
+    /// <para>
+    /// <see cref="CompliancePolicy.Correct"/> treats a vertex within
+    /// <c>BrushBspTree.SplitOnPlaneEpsilon</c> (0.1, SplitBrush's own line) as
+    /// on the plane, so only a brush crossing by 0.1 to 1 unit is charged.
+    /// <see cref="CompliancePolicy.Stock"/> keeps the strict zero.
+    /// </para>
+    /// </remarks>
+    SplitEpsilonBrushOnPlane,
 }
 
 /// <summary>
