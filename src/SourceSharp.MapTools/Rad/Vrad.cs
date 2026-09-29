@@ -13,6 +13,7 @@ using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Parallel;
+using SourceSharp.MapTools.Rad.Bounce;
 using SourceSharp.MapTools.Rad.Final;
 using SourceSharp.MapTools.Rad.Light;
 using SourceSharp.MapTools.Tracing;
@@ -244,6 +245,13 @@ public static class Vrad
 
         IRayTracer tracer = prepared.Tracer;
 
+        // The compile's scratch: every stage's large per-worker buffers come
+        // from here and go back here, so one stage's outgrown or finished
+        // arrays are what the next grows into. It belongs to this compile
+        // alone and is dropped, with whatever it still holds, when the
+        // compile ends -- finished, failed or cancelled.
+        using CompileScratchPool scratch = context.ScratchPoolFactory?.Invoke() ?? new();
+
         // What the tracer traces against, for the transfer cache key; null
         // for a host's tracer, whose scene vrad cannot see.
         string? tracerDigest = prepared.TracerDigest;
@@ -264,8 +272,10 @@ public static class Vrad
                     bsp, context, content, prepared.RadFiles, hdr, tracer, Warn, cancellationToken).ConfigureAwait(false);
             }
 
+            bool lastPass = p == ranges.Count - 1;
             (RadPassResult pass, transfers) = await RunPassAsync(
-                bsp, context, content, tracer, tracerDigest, texFile, hdr, transfers, Warn, NotYet, cancellationToken).ConfigureAwait(false);
+                bsp, context, content, tracer, tracerDigest, texFile, hdr, transfers, lastPass, scratch, Warn, NotYet, cancellationToken)
+                .ConfigureAwait(false);
             passes.Add(pass);
         }
 
@@ -338,6 +348,8 @@ public static class Vrad
         RadLightFile texFile,
         bool hdr,
         Light.SharedTransfers? reuseTransfers,
+        bool lastPass,
+        CompileScratchPool scratch,
         Action<string, string> warn,
         Action<string, string> notYet,
         CancellationToken cancellationToken)
@@ -351,7 +363,7 @@ public static class Vrad
 
         Report(context, StartStage, 0);
         RadWorld world = await RadWorld.StartAsync(
-            bsp, settings, new TextureLightTable(texFile, context.MapName), tracer, parallelism, cancellationToken)
+            bsp, settings, new TextureLightTable(texFile, context.MapName), tracer, parallelism, scratch, cancellationToken)
             .ConfigureAwait(false);
         Report(context, StartStage, 1);
         world.ReuseTransfers = reuseTransfers;
@@ -360,7 +372,10 @@ public static class Vrad
 
         RadPass pass = new(
             world, tracer, options, content, parallelism, context.MapName,
-            context.PropCollision ?? NullPropCollisionSource.Instance);
+            context.PropCollision ?? NullPropCollisionSource.Instance)
+        {
+            ScratchPool = scratch,
+        };
         FinalLightingStatistics? final = null;
 
         // RunVRAD: RadWorld_Go only when neither -onlydetail nor -OnlyStaticProps.
@@ -381,6 +396,11 @@ public static class Vrad
             await world.LightFacesAsync(tracer, parallelism, cancellationToken).ConfigureAwait(false);
             Report(context, FacelightsStage, 1);
 
+            // The face-lighting logs are no use to the transfer build, whose
+            // chunk buffers are larger than any of them; held through the
+            // bounce they would only add to its peak.
+            scratch.Trim();
+
             // World.Settings, not settings: a map with no vis
             // has had its bounces forced to zero.
             if (world.Settings.Bounces > 0)
@@ -390,6 +410,22 @@ public static class Vrad
                     Report(context, BounceStage, 0);
                     await bounce.BounceAsync(pass, cancellationToken).ConfigureAwait(false);
                     Report(context, BounceStage, 1);
+
+                    // The transfers are the largest thing the bounce leaves
+                    // (18 million of them, 147 MB, on 2fort), and after it
+                    // only another pass of -both reads them. Held to the end
+                    // of the last pass, they sat under the final lighting
+                    // and the prop and leaf-ambient batches, which is where
+                    // the compile's resident memory peaks; let go here, the
+                    // collector hands their space to those stages instead.
+                    if (lastPass)
+                    {
+                        world.ReleaseTransfers();
+                    }
+
+                    // Nor are the chunk buffers any use to the prop and
+                    // leaf-ambient batches, which are a fraction of their size.
+                    scratch.Trim();
                 }
                 else
                 {
@@ -472,6 +508,11 @@ public static class Vrad
 
         Report(context, OtherStage, 1);
 
+        // The other-lighting batches were shared between those three stages;
+        // the next pass (-both) starts with its own sky probe and face
+        // lighting, whose shapes are different again.
+        scratch.Trim();
+
         foreach (string w in pass.Warnings)
         {
             warn(VradCodes.StageWarning, w);
@@ -480,7 +521,9 @@ public static class Vrad
         // VRAD_LoadBSP sets g_LevelFlags; WriteBSPFile writes it.
         RadLumpWriter.WriteLevelFlags(bsp, hdr, options.StaticPropLighting);
 
-        return (new RadPassResult(hdr, world.Statistics, final, pass.LightData.Length), world.ShareTransfers() ?? reuseTransfers);
+        return (
+            new RadPassResult(hdr, world.Statistics, final, pass.LightData.Length),
+            lastPass ? null : world.ShareTransfers() ?? reuseTransfers);
     }
 
     private static async Task RunOtherAsync(

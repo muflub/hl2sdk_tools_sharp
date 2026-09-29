@@ -47,7 +47,7 @@ public sealed class VisMatrixScratchTests
         {
             ChunkRays = chunkRays,
             TraceSlabRays = slabRays,
-            ScratchPool = pool ?? new SharedScratchArrayPool(),
+            ScratchPool = pool,
         };
         using WorkQueue queue = new(new CompileParallelism { MaxDegree = degree });
         TransferSet set = await matrix.BuildAsync(tracer ?? map.Tracer(), queue, cancellationToken);
@@ -349,15 +349,22 @@ public sealed class VisMatrixScratchTests
         Assert.Equal(0, pool.Outstanding);
     }
 
-    /// <summary>The real pool is the shared array pool, and takes back what it lent.</summary>
+    /// <summary>
+    /// A build given the compile's pool rents from it and gives everything
+    /// back, and makes the same transfers as a build left to make a pool of
+    /// its own (no pool given), which drops that pool when it ends.
+    /// </summary>
     [Fact]
-    public void TheSharedPoolRentsAndReturns()
+    public async Task TheCompilePoolTakesBackWhatTheBuildRented()
     {
-        SharedScratchArrayPool pool = new();
-        ulong[] words = pool.Rent<ulong>(100);
+        using CompileScratchPool pool = new();
+        (_, TransferSet pooled) = await BuildAsync(OccludedBox(), degree: 2, chunkRays: 64, slabRays: 64, pool: pool);
+        (_, TransferSet own) = await BuildAsync(OccludedBox(), degree: 2, chunkRays: 64, slabRays: 64);
 
-        Assert.True(words.Length >= 100);
-        pool.Return(words);
+        Assert.Equal(Lists(own), Lists(pooled));
+        Assert.True(pool.Allocations > 0);
+        Assert.Equal(0, pool.Outstanding);
+        Assert.Equal(pool.Allocations, pool.IdleArrays);
     }
 
     /// <summary>

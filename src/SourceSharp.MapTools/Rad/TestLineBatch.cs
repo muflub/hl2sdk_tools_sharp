@@ -56,24 +56,32 @@ namespace SourceSharp.MapTools.Rad;
 /// <para>
 /// POOLED, BECAUSE THE GROWTH WAS THE ALLOCATION. A leaf-ambient batch holds
 /// every sample of up to 256 leaves times every light baked into the cubes:
-/// on a map like ctf_2fort that is over a hundred thousand segments, so
+/// on a map like ctf_2fort that is over two hundred thousand segments, so
 /// doubling from 64 put a dozen arrays per worker per stage on the
 /// large-object heap, and every large-object allocation past the budget is a
-/// gen-2 collection. A profile of vrad on that map charged 74 MB of its
-/// allocations to this growth in the leaf-ambient stage alone. The arrays now
-/// come from an <see cref="IScratchArrayPool"/> (the process's
-/// <see cref="System.Buffers.ArrayPool{T}.Shared"/> in a real compile): a
-/// grown-out array goes back as soon as it is copied, and the next stage and
-/// the next compile in a long-lived service rent the same arrays again. The
-/// shared pool trims what sits unused under memory pressure, so nothing
-/// accumulates across compiles.
+/// gen-2 collection. The arrays come from an <see cref="IScratchArrayPool"/>
+/// -- in a compile, the compile's <see cref="CompileScratchPool"/> -- so a
+/// grown-out array goes back as soon as it is copied, and the next worker,
+/// the next stage's workers, grow into it instead of allocating. Nothing is
+/// kept past the compile: its pool is dropped when it ends.
+/// </para>
+/// <para>
+/// ONLY THE RAYS ALWAYS. A segment is a 28-byte ray; its kind (which
+/// options it traces with), its payload and its answer are stored only when
+/// they carry information. A batch of one kind keeps no kinds and reads its
+/// answers straight from the tracer's hit bits; a batch whose payloads are
+/// all +0 keeps no payloads. The largest batches of a compile, the leaf
+/// ambient's, are both, and on 2fort's 32-worker profile the kinds, payloads
+/// and one-byte answers were 9 of every 37 bytes the workers' batches held.
 /// </para>
 /// <para>
 /// A rented array may hold an earlier renter's data past what this batch has
 /// written. Nothing here reads an element it did not write in the current
 /// batch: rays, kinds and payloads are written by <see cref="Add"/> below
-/// <see cref="Count"/>, the blocked flags by <see cref="EndTrace"/> for every
-/// segment, the gather arrays before the calls that read them, and every
+/// <see cref="Count"/> (a kind or payload array that turns up mid-batch has
+/// the segments before it cleared), the blocked bits by <see cref="EndTrace"/>
+/// for every word the batch uses, the gather arrays before the calls that
+/// read them, and every
 /// tracer clears each word of hit bits it is handed before it sets any
 /// (<see cref="IRayTracer.TraceVisibilityAsync"/> writes every bit).
 /// </para>
@@ -98,8 +106,10 @@ public sealed class TestLineBatch : IDisposable
     private Ray[] _rays = [];
     private int[] _group = [];
     private float[] _payload = [];
-    private bool[] _blocked = [];
+    private ulong[] _blocked = [];
     private int _capacity;
+    private bool _mixed;
+    private bool _hasPayload;
     private Ray[] _gather = [];
     private int[] _gatherIndex = [];
     private int _gatherCapacity;
@@ -109,11 +119,16 @@ public sealed class TestLineBatch : IDisposable
     private State _state;
     private bool _disposed;
 
-    /// <summary>Makes an empty batch over a tracer, its storage rented from the shared array pool.</summary>
+    /// <summary>Makes an empty batch over a tracer, its storage its own.</summary>
     /// <param name="tracer">The tracer every trace asks.</param>
     /// <exception cref="ArgumentNullException"><paramref name="tracer"/> is null.</exception>
+    /// <remarks>
+    /// A batch made outside a compile has no compile's pool to rent from, so
+    /// its arrays are plain allocations (<see cref="UnpooledScratch"/>) that
+    /// the collector takes back with the batch: nothing it used outlives it.
+    /// </remarks>
     public TestLineBatch(IRayTracer tracer)
-        : this(tracer, new SharedScratchArrayPool())
+        : this(tracer, new UnpooledScratch())
     {
     }
 
@@ -158,11 +173,14 @@ public sealed class TestLineBatch : IDisposable
             throw new InvalidOperationException("the batch has been traced; clear it before adding more segments");
         }
 
+        // A new kind is registered only once the segment's storage is in
+        // place: a rental that throws below leaves the batch exactly as it
+        // was, kinds included.
         int group = _groups.IndexOf(options);
-        if (group < 0)
+        bool newKind = group < 0;
+        if (newKind)
         {
             group = _groups.Count;
-            _groups.Add(options);
         }
 
         if (_count == _capacity)
@@ -170,9 +188,32 @@ public sealed class TestLineBatch : IDisposable
             Grow();
         }
 
+        if (group != 0 && !_mixed)
+        {
+            BeginMixed();
+        }
+
+        if (!_hasPayload && BitConverter.SingleToInt32Bits(payload) != 0)
+        {
+            BeginPayload();
+        }
+
+        if (newKind)
+        {
+            _groups.Add(options);
+        }
+
         _rays[_count] = ray;
-        _group[_count] = group;
-        _payload[_count] = payload;
+        if (_mixed)
+        {
+            _group[_count] = group;
+        }
+
+        if (_hasPayload)
+        {
+            _payload[_count] = payload;
+        }
+
         return _count++;
     }
 
@@ -218,7 +259,7 @@ public sealed class TestLineBatch : IDisposable
             return;
         }
 
-        if (_groups.Count == 1)
+        if (!_mixed)
         {
             // The common case -- one kind of segment -- traces the rays where
             // they are.
@@ -285,21 +326,35 @@ public sealed class TestLineBatch : IDisposable
             return;
         }
 
-        if (_groups.Count == 1)
+        if (!_mixed)
         {
-            for (int i = 0; i < _count; i++)
-            {
-                _blocked[i] = Bit(i);
-            }
-
+            // One kind: the hit bits are already in segment order, and
+            // IsBlocked reads them where the tracer wrote them.
             return;
         }
 
+        // Several kinds: each kind's bits sit in words of its own, in gather
+        // order, so they are scattered back into segment order, one bit per
+        // segment. Every word the batch uses is cleared first, which is why
+        // nothing an earlier renter left in the array is ever read.
+        int words = (_count + 63) >> 6;
+        if (_blocked.Length < words)
+        {
+            ulong[] blocked = _pool.Rent<ulong>(Math.Max(words, (_capacity + 63) >> 6));
+            ReturnIfRented(_blocked);
+            _blocked = blocked;
+        }
+
+        _blocked.AsSpan(0, words).Clear();
         foreach ((int start, int count, int word) in _spans)
         {
             for (int k = 0; k < count; k++)
             {
-                _blocked[_gatherIndex[start + k]] = Bit((word << 6) + k);
+                if (Bit((word << 6) + k))
+                {
+                    int i = _gatherIndex[start + k];
+                    _blocked[i >> 6] |= 1UL << (i & 63);
+                }
             }
         }
     }
@@ -348,7 +403,7 @@ public sealed class TestLineBatch : IDisposable
         }
 
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)index, (uint)_count, nameof(index));
-        return _blocked[index];
+        return _mixed ? (_blocked[index >> 6] & (1UL << (index & 63))) != 0 : Bit(index);
     }
 
     /// <summary>The number <see cref="Add"/> was given with a segment.</summary>
@@ -358,13 +413,15 @@ public sealed class TestLineBatch : IDisposable
     public float Payload(int index)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)index, (uint)_count, nameof(index));
-        return _payload[index];
+        return _hasPayload ? _payload[index] : 0.0f;
     }
 
     /// <summary>Empties the batch for the next work item, keeping its storage.</summary>
     public void Clear()
     {
         _count = 0;
+        _mixed = false;
+        _hasPayload = false;
         _state = State.Adding;
         _groups.Clear();
         _inFlight.Clear();
@@ -409,6 +466,8 @@ public sealed class TestLineBatch : IDisposable
         _payload = [];
         _blocked = [];
         _capacity = 0;
+        _mixed = false;
+        _hasPayload = false;
         _gather = [];
         _gatherIndex = [];
         _gatherCapacity = 0;
@@ -481,68 +540,141 @@ public sealed class TestLineBatch : IDisposable
     }
 
     /// <summary>
-    /// Grows the segment storage to <paramref name="size"/>: new arrays
-    /// rented, the segments added so far copied across, the old arrays
+    /// Grows the segment storage to at least <paramref name="size"/>: new
+    /// arrays rented, the segments added so far copied across, the old arrays
     /// returned.
     /// </summary>
     /// <remarks>
-    /// Only the adding state grows, so the blocked flags carry nothing worth
-    /// copying: <see cref="EndTrace"/> writes one for every segment. All four
-    /// new arrays are rented before anything is swapped, so a rental that
-    /// throws leaves the batch as it was and gives back what it had rented.
+    /// <para>
+    /// Only the rays are always stored. The kinds and payloads have arrays
+    /// only once a batch has needed one (<see cref="BeginMixed"/>,
+    /// <see cref="BeginPayload"/>), and an array once rented is grown with
+    /// the rays so the batch keeps it for the next batch that needs it. The
+    /// blocked flags are not grown here at all: <see cref="EndTrace"/> sizes
+    /// them, and only the adding state grows.
+    /// </para>
+    /// <para>
+    /// The capacity is the rays array's own length, which may be more than
+    /// asked when the pool hands out a longer idle array: the room is there,
+    /// and using it saves the next growth. Every new array is rented before
+    /// anything is swapped, so a rental that throws leaves the batch as it
+    /// was and gives back what it had rented.
+    /// </para>
     /// </remarks>
     private void GrowTo(int size)
     {
         Ray[]? rays = null;
         int[]? group = null;
         float[]? payload = null;
-        bool[] blocked;
         try
         {
             rays = _pool.Rent<Ray>(size);
-            group = _pool.Rent<int>(size);
-            payload = _pool.Rent<float>(size);
-            blocked = _pool.Rent<bool>(size);
+            size = rays.Length;
+            if (_group.Length > 0)
+            {
+                group = _pool.Rent<int>(size);
+            }
+
+            if (_payload.Length > 0)
+            {
+                payload = _pool.Rent<float>(size);
+            }
         }
         catch
         {
             ReturnIfRented(rays);
             ReturnIfRented(group);
-            ReturnIfRented(payload);
             throw;
         }
 
         _rays.AsSpan(0, _count).CopyTo(rays);
-        _group.AsSpan(0, _count).CopyTo(group);
-        _payload.AsSpan(0, _count).CopyTo(payload);
-        ReturnSegments();
+        ReturnIfRented(_rays);
         _rays = rays;
-        _group = group;
-        _payload = payload;
-        _blocked = blocked;
+        if (group is not null)
+        {
+            if (_mixed)
+            {
+                _group.AsSpan(0, _count).CopyTo(group);
+            }
+
+            _pool.Return(_group);
+            _group = group;
+        }
+
+        if (payload is not null)
+        {
+            if (_hasPayload)
+            {
+                _payload.AsSpan(0, _count).CopyTo(payload);
+            }
+
+            _pool.Return(_payload);
+            _payload = payload;
+        }
+
         _capacity = size;
+    }
+
+    /// <summary>
+    /// The batch's first segment of a second kind: from here on every
+    /// segment's kind is stored, and those added before it are all kind 0.
+    /// </summary>
+    /// <remarks>
+    /// A batch of one kind -- every leaf-ambient batch, and most prop
+    /// batches -- never needs to know a segment's kind, so the array is
+    /// rented only when a second kind turns up. That keeps four bytes a
+    /// segment off the largest batches of a compile.
+    /// </remarks>
+    private void BeginMixed()
+    {
+        if (_group.Length < _capacity)
+        {
+            int[] group = _pool.Rent<int>(_capacity);
+            ReturnIfRented(_group);
+            _group = group;
+        }
+
+        _group.AsSpan(0, _count).Clear();
+        _mixed = true;
+    }
+
+    /// <summary>
+    /// The batch's first segment with a payload other than +0: from here on
+    /// every segment's payload is stored, and those added before it read +0.
+    /// </summary>
+    /// <remarks>
+    /// Compared by bits, so a payload of -0 is stored and read back as -0.
+    /// Like the kinds, the payloads cost nothing in a batch that has none
+    /// (the leaf-ambient stage's).
+    /// </remarks>
+    private void BeginPayload()
+    {
+        if (_payload.Length < _capacity)
+        {
+            float[] payload = _pool.Rent<float>(_capacity);
+            ReturnIfRented(_payload);
+            _payload = payload;
+        }
+
+        _payload.AsSpan(0, _count).Clear();
+        _hasPayload = true;
     }
 
     private void ReturnIfRented<T>(T[]? array)
     {
-        if (array is not null)
+        if (array is { Length: > 0 })
         {
             _pool.Return(array);
         }
     }
 
-    /// <summary>The four segment arrays back to the pool, if any were rented.</summary>
+    /// <summary>The segment arrays back to the pool, those that were rented.</summary>
     private void ReturnSegments()
     {
-        if (_capacity == 0)
-        {
-            return;
-        }
-
-        _pool.Return(_rays);
-        _pool.Return(_group);
-        _pool.Return(_payload);
-        _pool.Return(_blocked);
+        ReturnIfRented(_rays);
+        ReturnIfRented(_group);
+        ReturnIfRented(_payload);
+        ReturnIfRented(_blocked);
     }
 
     /// <summary>The gather arrays back to the pool, if any were rented, and forgotten.</summary>

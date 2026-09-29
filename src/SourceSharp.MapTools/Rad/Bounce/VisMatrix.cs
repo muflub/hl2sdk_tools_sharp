@@ -130,10 +130,11 @@ public sealed class VisMatrix
     private readonly int _traceSlabRays = RaysPerTraceSlab;
 
     /// <summary>
-    /// Where the build's scratch comes from and goes back to: the shared
-    /// <see cref="System.Buffers.ArrayPool{T}"/> unless a test counts it.
+    /// Where the build's scratch comes from and goes back to: the compile's
+    /// <see cref="CompileScratchPool"/>, or a test's that counts it. Null
+    /// makes the build a pool of its own, dropped when the build ends.
     /// </summary>
-    internal IScratchArrayPool ScratchPool { get; init; } = new SharedScratchArrayPool();
+    internal IScratchArrayPool? ScratchPool { get; init; }
 
     /// <summary><c>PLANE_TEST_EPSILON</c>, a double.</summary>
     public const double PlaneTestEpsilon = 0.01;
@@ -225,7 +226,8 @@ public sealed class VisMatrix
 
         // Everything below sized by the map and dropped when the build ends
         // is rented, and goes back when this scope exits, however it exits.
-        using ScratchArrays scratch = new(ScratchPool);
+        using CompileScratchPool? own = ScratchPool is null ? new() : null;
+        using ScratchArrays scratch = new(ScratchPool ?? own!);
         int[] clusterOf = scratch.Rent<int>(receivers.Length);
         for (int k = 0; k < receivers.Length; k++)
         {

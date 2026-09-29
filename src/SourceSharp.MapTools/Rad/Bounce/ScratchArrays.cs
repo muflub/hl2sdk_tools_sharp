@@ -5,8 +5,6 @@
 //
 //=============================================================================//
 
-using System.Buffers;
-
 namespace SourceSharp.MapTools.Rad.Bounce;
 
 /// <summary>
@@ -16,10 +14,20 @@ namespace SourceSharp.MapTools.Rad.Bounce;
 /// <see cref="Light.LightRayLog"/>, <see cref="Ambient.LeafSampleScratch"/>).
 /// </summary>
 /// <remarks>
-/// A seam rather than a direct call on <see cref="ArrayPool{T}.Shared"/> so a
-/// fact can count what was rented against what came back -- the whole
-/// promise of the scratch is that a failed or cancelled build hands every
-/// array back, and that is only checkable with a pool the test owns.
+/// <para>
+/// A compile rents from its own <see cref="CompileScratchPool"/>, which the
+/// compile drops when it ends; scratch made outside a compile uses
+/// <see cref="UnpooledScratch"/>, which keeps nothing. Never the process's
+/// shared array pool: that one outlives the compile and would keep a map's
+/// worth of large arrays alive in a long-lived service (the pool's own
+/// remarks have the measurements).
+/// </para>
+/// <para>
+/// A seam rather than a concrete pool so a fact can count what was rented
+/// against what came back -- the whole promise of the scratch is that a
+/// failed or cancelled build hands every array back, and that is only
+/// checkable with a pool the test owns.
+/// </para>
 /// </remarks>
 internal interface IScratchArrayPool
 {
@@ -28,25 +36,6 @@ internal interface IScratchArrayPool
 
     /// <summary>Gives back an array <see cref="Rent{T}"/> handed out.</summary>
     void Return<T>(T[] array);
-}
-
-/// <summary>
-/// The scratch pool of a real build: <see cref="ArrayPool{T}.Shared"/>.
-/// </summary>
-/// <remarks>
-/// The shared pool is the one that pays off in a long-lived service: the
-/// next compile's build, in this process, rents the same large arrays back
-/// instead of allocating them again on the large-object heap, and the pool
-/// trims what sits unused under memory pressure. Nothing here holds on to an
-/// array past the build that rented it.
-/// </remarks>
-internal sealed class SharedScratchArrayPool : IScratchArrayPool
-{
-    /// <inheritdoc/>
-    public T[] Rent<T>(int minimumLength) => ArrayPool<T>.Shared.Rent(minimumLength);
-
-    /// <inheritdoc/>
-    public void Return<T>(T[] array) => ArrayPool<T>.Shared.Return(array);
 }
 
 /// <summary>

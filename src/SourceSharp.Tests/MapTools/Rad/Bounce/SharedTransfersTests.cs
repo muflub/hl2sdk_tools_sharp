@@ -95,6 +95,26 @@ public sealed class SharedTransfersTests
         Assert.Equal(other.Patches.Count, other.Transfers!.PatchCount);
     }
 
+    /// <summary>
+    /// Letting the transfers go leaves nothing to share, and keeps the build's
+    /// counts and the bounce's energies.
+    /// </summary>
+    [Fact]
+    public async Task ReleasedTransfersAreGoneAndTheCountsStay()
+    {
+        RadWorld world = await BouncedAsync(hdr: false);
+        VisMatrixStatistics? statistics = world.VisMatrixStatistics;
+        IReadOnlyList<SourceSharp.MapFormats.Geometry.Vec3> energies = world.BounceEnergies;
+
+        world.ReleaseTransfers();
+
+        Assert.Null(world.Transfers);
+        Assert.Null(world.ShareTransfers());
+        Assert.True(world.IsBounced);
+        Assert.Same(statistics, world.VisMatrixStatistics);
+        Assert.Same(energies, world.BounceEnergies);
+    }
+
     [Fact]
     public async Task ThePatchTreeDigestSeesAMovedPatch()
     {
