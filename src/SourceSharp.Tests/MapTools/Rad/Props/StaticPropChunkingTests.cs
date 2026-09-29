@@ -36,19 +36,17 @@ namespace SourceSharp.Tests.MapTools.Rad.Props;
 /// must keep, and it holds on every CPU.
 /// </para>
 /// <para>
-/// The digests themselves are pinned separately, per CPU family, by
-/// <see cref="TheCorrectDigestsArePinnedForThisCpu"/>. Even compliance correct
-/// is not yet the same bytes everywhere here: arm64 differs from x86. It was
-/// once put down to the KD tracer's estimated reciprocal, but with
-/// <see cref="StockQuirk.KdTracerReciprocalEstimate"/> and
-/// <see cref="StockQuirk.SkyWindingNormalise"/> taking no estimate on the
-/// Correct side, arm64 still produces exactly its captured delta, while the
-/// KD tracer's and the whole sandbox chain's Correct digests
-/// (VradCpuIndependenceTests) agree across CPUs. So the remaining arm64
-/// difference lies in the static-prop lighting path itself, not yet
-/// identified; the delta keeps it declared rather than hidden. The base
-/// digests were recorded on x86 from the pass as it was before chunking, so
-/// they also pin that chunking changed no byte; AMD and Intel agree on them.
+/// The digests themselves are pinned by
+/// <see cref="TheCorrectDigestsArePinnedOnEveryCpu"/>, as one value for every
+/// CPU: compliance correct is the same bytes on AMD, Intel and arm64. They
+/// once carried an arm64 delta. The difference was not in the lighting at
+/// all but in its input: the oil drum's synthetic model took its ring from
+/// the platform's sine, and macOS arm64's library rounds one of its angles
+/// differently from every x86 library (<c>PrimitivesTests</c> has the value).
+/// With the generator on <see cref="SourceSharp.MapFormats.Numerics.DetMathF"/>
+/// arm64 lights the scene to the x86 bytes. The digests were recorded on
+/// x86 from the pass as it was before chunking, so they also pin that
+/// chunking changed no byte.
 /// </para>
 /// </remarks>
 public sealed class StaticPropChunkingTests : IClassFixture<AmbientFixture>
@@ -93,9 +91,12 @@ public sealed class StaticPropChunkingTests : IClassFixture<AmbientFixture>
     }
 
     /// <summary>
-    /// The compliance-correct digests of the prop-at-a-time shape on x86, one
-    /// line per indirect / self-shadowing combination, in the order
-    /// <see cref="TheCorrectDigestsArePinnedForThisCpu"/> produces them.
+    /// The compliance-correct digests of the prop-at-a-time shape, one line per
+    /// indirect / self-shadowing combination, in the order
+    /// <see cref="TheCorrectDigestsArePinnedOnEveryCpu"/> produces them. The
+    /// same on every CPU: a runner that disagrees has found platform
+    /// arithmetic on a Correct path (or in the content the scene is built
+    /// from), not a vendor delta to capture.
     /// </summary>
     private static IReadOnlyList<string> PinnedCorrectDigests =>
     [
@@ -105,8 +106,8 @@ public sealed class StaticPropChunkingTests : IClassFixture<AmbientFixture>
         "EA3C9E27546D81B9FD941B33982C598EA8A2EB518ADC3C76CD0197C8A595D1B3", // direct only, self-shadowing disabled
     ];
 
-    [ReferenceRsqrtFact]
-    public async Task TheCorrectDigestsArePinnedForThisCpu()
+    [Fact]
+    public async Task TheCorrectDigestsArePinnedOnEveryCpu()
     {
         (StaticPropLump lump, IReadOnlyList<StaticPropModel> models) = await StaticPropChunkingScene.PropsAsync();
 
@@ -118,7 +119,7 @@ public sealed class StaticPropChunkingTests : IClassFixture<AmbientFixture>
             actual.Add(StaticPropChunkingScene.Digest(r));
         }
 
-        Assert.Equal(VendorGolden.Expected("static-prop-chunking.correct", PinnedCorrectDigests, actual), actual);
+        Assert.Equal(PinnedCorrectDigests, actual);
     }
 
     [Theory]

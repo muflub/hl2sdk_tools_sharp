@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Numerics;
 
 namespace SourceSharp.MapGen.Content;
 
@@ -61,6 +62,15 @@ public static class Primitives
     /// <param name="top">The Z of the top cap.</param>
     /// <param name="sides">How many flat sides approximate the curve, at least 3.</param>
     /// <returns>The mesh: a side band with smooth normals and two flat caps.</returns>
+    /// <remarks>
+    /// The ring's sines and cosines come from <see cref="DetMathF"/>, not
+    /// <see cref="MathF"/>. These meshes are compile input for pinned digests,
+    /// and the platform's C library does not round every angle alike: macOS
+    /// arm64's gives <c>-0.38268346</c> for the sine of <c>2*pi*9/16</c>
+    /// where x86's libraries give the correctly rounded <c>-0.38268343</c>,
+    /// which once made the oil drum, and every static prop lit beside it,
+    /// different bytes on Apple Silicon.
+    /// </remarks>
     public static MeshSpec Cylinder(int material, float radius, float bottom, float top, int sides)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(sides, 3);
@@ -71,7 +81,7 @@ public static class Primitives
         for (int i = 0; i <= sides; i++)
         {
             float a = 2 * MathF.PI * i / sides;
-            Vec3 n = new(MathF.Cos(a), MathF.Sin(a), 0);
+            Vec3 n = new(DetMathF.Cos(a), DetMathF.Sin(a), 0);
             float u = (float)i / sides;
             vertices.Add(new MeshVertex(new Vec3(n.X * radius, n.Y * radius, bottom), n, u, 1));
             vertices.Add(new MeshVertex(new Vec3(n.X * radius, n.Y * radius, top), n, u, 0));
@@ -93,8 +103,8 @@ public static class Primitives
             {
                 float a = 2 * MathF.PI * i / sides;
                 vertices.Add(new MeshVertex(
-                    new Vec3(MathF.Cos(a) * radius, MathF.Sin(a) * radius, z), normal,
-                    0.5f + (MathF.Cos(a) / 2), 0.5f + (MathF.Sin(a) / 2)));
+                    new Vec3(DetMathF.Cos(a) * radius, DetMathF.Sin(a) * radius, z), normal,
+                    0.5f + (DetMathF.Cos(a) / 2), 0.5f + (DetMathF.Sin(a) / 2)));
             }
 
             for (int i = 0; i < sides; i++)
