@@ -685,7 +685,13 @@ any capable device), and `-gpu_slabs <n>` sets the ray budget for the
 batches ("slabs") on the GPU. The tracer keeps three slabs in flight, so the
 GPU traces one while the next waits behind it and the CPU packs or unpacks a
 third, and each slab holds a third of the budget (the default, 4,194,304
-rays, is 128 MB of rays in all). Where the device allows it (integrated
+rays, is at most 117 MB of rays in all). A ray goes to the device in 28
+bytes (origin, direction, reach), or 24 when every ray in its slab has the
+same reach, which then travels once per slab: 79 % of 2fort's rays in the
+default compliance mode, almost none in `-compliance stock`, whose rays
+carry each segment's own length. Either way the kernel is handed exactly
+the floats the caller built, so the answers are the same bits as with the
+older 32-byte record. Where the device allows it (integrated
 GPUs, and discrete GPUs with resizable BAR), rays are written straight into
 memory the GPU reads, skipping the upload copy. When no usable device is
 found, vrad reports that it declined the GPU and falls back to the CPU
@@ -711,9 +717,10 @@ When every device is passed over, vrad keeps the CPU tracer and its one
 warning lists each device with its reason. On a machine with an RTX 2070 on
 a slow link beside an RX 9070, the 2070 is passed over and the 9070 used.
 
-Why 2.5 GB/s: a ray is 32 bytes and the CPU tracer answers about 80 million
-rays a second on 32 threads, so below that rate the upload alone takes
-longer than the CPU would. An RTX 2070 SUPER in a PCIe Gen2 x1 slot (about
+Why 2.5 GB/s: a ray was 32 bytes when the floor was set, and the CPU
+tracer answers about 80 million rays a second on 32 threads, so below that
+rate the upload alone took longer than the CPU would. With 24- and 28-byte
+records the break-even is nearer 2.1 GB/s; the floor was left where it was. An RTX 2070 SUPER in a PCIe Gen2 x1 slot (about
 0.5 GB/s) spent 34 s of a 2fort light copying rays and 0.4 s tracing them,
 and lost to the CPU by five times.
 
@@ -728,19 +735,41 @@ and can move the floor with `MinUploadBytesPerSecond`.
 Direct light keeps the GPU fed by pipelining: each worker keeps up to four
 batches of 16,384 rays traced and not yet resolved (`-gpu_depth <n>`, 1 to
 64), filling the next while earlier ones trace and resolving each as its
-answers arrive, in the order it filled them, so the lightmaps are the same
-bytes at every depth and on every tracer. `vrad --bench` prints where the
-rays went and what the device did:
+answers arrive, in the order it filled them. The depth sets how many rays
+the workers have queued, not how many slabs are on the device: that ring
+is three slots, and on real hardware it is already full at the default
+(`peakinflight=3/3` on both an RX 9070 and an RTX 2070 SUPER). A deeper
+pipeline therefore makes the slabs bigger, because more rays are waiting
+each time a slot frees up, and puts nothing more on the device. It helps
+only when the workers cannot keep the ring fed, for example with few
+threads; on 2fort, depths 4, 8 and 16 changed the slab size, never the
+slabs in flight.
+
+A given tracer writes the same lightmap bytes at every depth, every thread
+count and every run. Different tracers do not: the GPU's ray-triangle test
+is the hardware's, and it decides rays that graze an edge differently from
+the CPU tracer's exact test and from another vendor's hardware, so about
+0.1 % of 2fort's rays get a different answer and the output differs by
+vendor. Measured on 2fort (main 65934e2): the CPU tracer's output is
+`5e3e839ff16d1055`, an RX 9070 (radv) gives `3e12959462dcacf9` and an RTX
+2070 SUPER (NVIDIA) `25b3eda7939de553`, each stable across runs and depths.
+That is the accepted behaviour of the opt-in GPU path, not a compliance
+quirk: `-compliance` governs the CPU tools' arithmetic, and a map that must
+match stock or another machine byte for byte is compiled without `-gpu`.
+
+`vrad --bench` prints where the rays went and what the device did:
 
     bench trace tracer=<id> gpu=on rays=N gpu.visibility=... cpu.sky=... parked=...s parked.facelights=...s ...
-    bench gpu requests=N slabs=N busy=...s fencewait=...s pack=...s readback=...s rays=direct|staged ... peakinflight=3/3 fallbackrays=N
+    bench gpu requests=N slabs=N busy=...s fencewait=...s pack=...s readback=...s raybytes=N raybytes.perray=24.00..28.00 rays=direct|staged ... peakinflight=3/3 fallbackrays=N
 
 `gpu=off`, `gpu=declined` (with the reason on the `bench gpu` line) or
 `gpu=on` says whether the GPU answered at all; `parked` is worker time spent
 waiting on a batch in flight, per stage; `busy` is the host-side span with a
-slab on the device, `pack` and `readback` the host's copies, and
-`rays=staged` a device without resizable BAR, where every slab is also
-copied on the device.
+slab on the device, `pack` and `readback` the host's copies, `raybytes`
+the bytes of rays packed (what an upload moves) and their average per ray,
+and `rays=staged` a device without resizable BAR, where every slab is also
+copied on the device. A big slab is packed by up to four threads, so
+`pack` is wall time, not thread time.
 
 ## Measuring performance
 
