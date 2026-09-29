@@ -155,8 +155,8 @@ internal static class RoomOverlayHarness
         }
     }
 
-    /// <summary>The library's rooms compiled as <c>ssmap room</c> compiles them.</summary>
-    public static async Task<RoomLibrary> CompileAsync(VmfDocument library)
+    /// <summary>The library's rooms compiled as <c>ssmap room</c> compiles them, each on <paramref name="degree"/> threads.</summary>
+    public static async Task<RoomLibrary> CompileAsync(VmfDocument library, int degree = 1)
     {
         RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
         RoomLibrary compiled = new(split.Rooms[0].Definition.Kit, split.Rooms[0].Definition.CellSize)
@@ -166,7 +166,7 @@ internal static class RoomOverlayHarness
         };
         foreach (LibraryRoom room in split.Rooms)
         {
-            compiled.Add(await RoomCompiler.CompileAsync(room.Document, room.Definition, await ContextAsync(room.Definition.Name)));
+            compiled.Add(await RoomCompiler.CompileAsync(room.Document, room.Definition, await ContextAsync(room.Definition.Name, degree)));
         }
 
         return compiled;

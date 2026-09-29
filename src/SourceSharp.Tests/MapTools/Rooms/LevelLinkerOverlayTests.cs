@@ -369,6 +369,33 @@ public sealed class LevelLinkerOverlayTests
         Assert.Equal(expected, await BytesAsync(await LinkAsync(once, level)));
     }
 
+    /// <summary>
+    /// A pack of rooms with overlays is the same bytes whether its rooms
+    /// compiled on one thread or on four, run after run (the rooms design,
+    /// 15.5): the overlay section is a function of the room's compile.
+    /// </summary>
+    [Fact]
+    public async Task APackOfRoomsWithOverlaysIsTheSameBytesAtAnyThreadCount()
+    {
+        async Task<byte[]> PackAsync(int degree)
+        {
+            RoomLibrary rooms = await CompileAsync(Library([.. HubOverlays, OtherOverlay]), degree);
+            List<RoomPackItem> items = [];
+            foreach (string name in new[] { "hub", "other" })
+            {
+                items.Add(await RoomPackItem.CreateAsync(rooms.Find(name)!));
+            }
+
+            using MemoryStream pack = new();
+            await RoomPack.SaveAsync(items, pack);
+            return pack.ToArray();
+        }
+
+        byte[] serial = await PackAsync(1);
+        Assert.Equal(serial, await PackAsync(4));
+        Assert.Equal(serial, await PackAsync(1));
+    }
+
     /// <summary>A level with overlays links to the same bytes at one thread and at many, run after run.</summary>
     [Fact]
     public async Task ALevelWithOverlaysIsTheSameBytesAtAnyThreadCount()
