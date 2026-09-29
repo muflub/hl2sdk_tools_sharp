@@ -19,8 +19,10 @@ using SourceSharp.MapTools.Materials;
 using SourceSharp.MapTools.Phys.Managed;
 using SourceSharp.MapTools.Rooms;
 using SourceSharp.MapTools.Validation;
+using SourceSharp.MapTools.Vis;
 
 using Xunit;
+using Xunit.Abstractions;
 
 using Bounds = SourceSharp.MapGen.Catalog.Bounds;
 using KitPoint = SourceSharp.MapGen.Point;
@@ -59,8 +61,10 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// player-passable space, as the layout's joints say, in both maps; and a
 /// standing player's hull, not just a point, fits all the way from every
 /// room to every other.</item>
-/// <item><b>Visibility</b>: the linked PVS is exactly the door-graph replay,
-/// and a superset of what the real vvis sees in the monolithic map.</item>
+/// <item><b>Visibility</b>: the linked PVS, composed through the doorways,
+/// lies within the door-graph replay and keeps every room's own rows, and
+/// it keeps every sight line of the monolithic map, each of which the real
+/// vvis there keeps too.</item>
 /// <item><b>Collision</b>: the world collision holds the same convexes, in the
 /// same contents classes, at the same places, and every room has some.</item>
 /// <item><b>Faces</b>: every plane draws the same area in the same material,
@@ -83,7 +87,7 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 /// <c>LevelLinkerRelocationTests.AStaleOriginalFaceTexinfoDoesNotDecideWhichFacesAreThePlug</c>.
 /// </para>
 /// </remarks>
-public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFixture<Rooms3x3Fixture>
+public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture, ITestOutputHelper output) : IClassFixture<Rooms3x3Fixture>
 {
     private const int MaskSolid = (int)(BrushContents.Solid | BrushContents.Moveable | BrushContents.Window
         | BrushContents.Monster | BrushContents.Grate);
@@ -214,7 +218,7 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
         DoorwaysAreOpenExactlyWhereTheLayoutJointsThemCheck(pair);
         TracesStopAtTheSameFractionCheck(pair);
         EveryRoomReachesExactlyTheRoomsItsDoorsJoinCheck(pair);
-        TheLinkedPvsIsTheDoorGraphAndCoversTheMonolithicPvsCheck(pair, library);
+        TheLinkedPvsIsWithinTheDoorGraphAndKeepsEverySightLineCheck(pair, library);
         WorldCollisionHoldsTheSameConvexesCheck(pair);
         FacesDifferOnlyByTheStrippedDoorwaySurfacesCheck(pair);
         EntitiesAreTheSameCheck(pair);
@@ -549,78 +553,134 @@ public sealed class Rooms3x3EquivalenceTests(Rooms3x3Fixture fixture) : IClassFi
     // ---- 5. visibility -----------------------------------------------------------
 
     /// <summary>
-    /// The linked PVS is exactly the door-graph replay of the rooms' own
-    /// rows and the layout's joints, and it is a superset of what the real
-    /// vvis sees in the monolithic map: every pair of monolithic clusters
-    /// that see each other maps to linked clusters that do too.
+    /// The linked PVS lies within the door-graph replay of the rooms' own
+    /// rows and the layout's joints and keeps each room's own rows, and it
+    /// keeps every sight line of the monolithic map, the flattened level
+    /// compiled whole: for every pair of sample points (nine in each of the
+    /// monolithic map's open leaves) joined by a segment no structural solid
+    /// crosses, the real vvis on the monolithic map sees the pair's clusters
+    /// (so the sight line is one vvis keeps too) and so does the linked map.
+    /// This is the proof that the door visibility is conservative, on every
+    /// arrangement of the sample.
     /// </summary>
+    /// <remarks>
+    /// Why sight lines, not the monolithic rows themselves: vvis's rows are
+    /// per cluster, and the monolithic map's clusters are not the linked
+    /// map's (the whole-level compile cuts leaves across rooms that the room
+    /// compiles never see). A monolithic cluster seeing another says only
+    /// that some point of one sees some point of the other, so asking every
+    /// linked cluster under the first to see every one under the second asks
+    /// for the monolithic map's coarseness, not for what is visible; only
+    /// the old closure, in which everything saw everything, ever met that.
+    /// </remarks>
     [Theory]
     [MemberData(nameof(Cases))]
-    public async Task TheLinkedPvsIsTheDoorGraphAndCoversTheMonolithicPvs(string name) =>
-        TheLinkedPvsIsTheDoorGraphAndCoversTheMonolithicPvsCheck(await fixture.PairAsync(name), fixture.Library);
+    public async Task TheLinkedPvsIsWithinTheDoorGraphAndKeepsEverySightLine(string name) =>
+        TheLinkedPvsIsWithinTheDoorGraphAndKeepsEverySightLineCheck(await fixture.PairAsync(name), fixture.Library);
 
-    /// <summary>The check behind <see cref="TheLinkedPvsIsTheDoorGraphAndCoversTheMonolithicPvs"/>, for any pair.</summary>
-    internal static void TheLinkedPvsIsTheDoorGraphAndCoversTheMonolithicPvsCheck(Rooms3x3Pair pair, RoomLibrary library)
+    /// <summary>The check behind <see cref="TheLinkedPvsIsWithinTheDoorGraphAndKeepsEverySightLine"/>, for any pair.</summary>
+    internal static void TheLinkedPvsIsWithinTheDoorGraphAndKeepsEverySightLineCheck(Rooms3x3Pair pair, RoomLibrary library)
     {
-        string name = pair.Case.Name;
-        DoorGraphFacts.AssertDoorGraph(pair.Linked, pair.Layout, library);
+        DoorGraphFacts.AssertWithinDoorGraph(pair.Linked, pair.Layout, library);
+        DoorGraphFacts.AssertKeepsEverySightLine(pair.Case.Name, pair.Linked, pair.LinkedProbe, pair.MonolithicProbe, pair.MonolithicVis);
+    }
 
-        // Each monolithic open cluster, by the linked clusters of sample points
-        // inside its own leaves: the centre and eight points a third of the
-        // way to each corner, kept only where the monolithic walk agrees the
-        // point is in that leaf.
-        Dictionary<int, HashSet<int>> map = [];
-        IReadOnlyList<DLeaf> leafs = pair.MonolithicProbe.Leafs;
+    /// <summary>
+    /// The same checks on levels of the sample's rooms generated larger
+    /// than 3 x 3, where lines through several doorways in a row decide what
+    /// is visible: the linked PVS lies within the door graph, keeps every
+    /// sight line of the flattened level compiled whole, each of which that
+    /// level's vvis keeps too, and is the same bytes on one thread as on
+    /// four. The counts go to the test output, for the record of how close
+    /// the linked PVS comes to the monolithic one.
+    /// </summary>
+    [Theory]
+    [InlineData(4, 4, 1ul, 0.0)]
+    [InlineData(5, 4, 2ul, 0.1)]
+    [InlineData(5, 5, 3ul, 0.2)]
+    public async Task GeneratedLevelsKeepEverySightLine(int rows, int columns, ulong seed, double empty)
+    {
+        (LevelLayout layout, LinkedLevel linked, VbspResult monolithic, VisResult monolithicVis) =
+            await fixture.GeneratedAsync(rows, columns, seed, empty, degree: 4);
+        string name = $"{rows}x{columns} seed {seed}";
+        (int visible, int graph) = DoorGraphFacts.AssertWithinDoorGraph(linked, layout, fixture.Library);
+        DoorGraphFacts.SightLineCounts counts = DoorGraphFacts.AssertKeepsEverySightLine(
+            name, linked, new LevelProbe(linked.Bsp), new LevelProbe(monolithic.Bsp!), monolithicVis);
+        Assert.True(visible < graph, $"{name}: the door flow kept every pair of the door graph");
+
+        (_, LinkedLevel serial, _, _) = await fixture.GeneratedAsync(rows, columns, seed, empty, degree: 1);
+        Assert.True(
+            linked.Bsp[BspLump.Visibility].Data.Span.SequenceEqual(serial.Bsp[BspLump.Visibility].Data.Span),
+            $"{name}: the visibility differs between one thread and four");
+
+        int clusters = linked.Vis.ClusterCount, monolithicClusters = monolithicVis.ClusterCount;
+        output.WriteLine(
+            $"{name}: linked {visible} of {clusters * clusters} cluster pairs ({linked.Vis.VisDataSize} bytes), door graph {graph};"
+            + $" monolithic {monolithicVis.TotalVisibleClusters} of {monolithicClusters * monolithicClusters} ({monolithicVis.VisDataSize} bytes);"
+            + $" {counts.Samples} samples: {counts.SightLines} sight lines, linked keeps {counts.LinkedPairs} sample pairs,"
+            + $" monolithic {counts.MonolithicPairs}");
+    }
+
+    /// <summary>
+    /// The sample turned a quarter, a half and three quarters as a whole
+    /// sees what the unturned sample sees: every linked cluster, found by a
+    /// point in one of its leaves turned with the level, sees exactly the
+    /// clusters its counterpart sees. The flows run in each source room's
+    /// frame, where a turned level is the same numbers.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task TheTurnedSampleSeesWhatTheSampleSees(int turns)
+    {
+        Rooms3x3Pair straight = await fixture.PairAsync(Rooms3x3Permutations.LevelName);
+        Rooms3x3Pair turned = await fixture.PairAsync($"{Rooms3x3Permutations.LevelName}_turn{turns}");
+        int clusters = straight.Linked.Vis.ClusterCount;
+        Assert.Equal(clusters, turned.Linked.Vis.ClusterCount);
+
+        // A point well inside one leaf of each linked cluster, and the
+        // cluster the turned level has there.
+        int[] map = Enumerable.Repeat(-1, clusters).ToArray();
+        IReadOnlyList<DLeaf> leafs = straight.LinkedProbe.Leafs;
         for (int l = 0; l < leafs.Count; l++)
         {
             DLeaf leaf = leafs[l];
-            if (leaf.Cluster < 0 || (leaf.Contents & (int)BrushContents.Solid) != 0)
+            if (leaf.Cluster < 0 || map[leaf.Cluster] >= 0)
             {
                 continue;
             }
 
-            Vec3 lo = new(leaf.Mins[0], leaf.Mins[1], leaf.Mins[2]);
-            Vec3 hi = new(leaf.Maxs[0], leaf.Maxs[1], leaf.Maxs[2]);
-            Vec3 mid = (lo + hi) * 0.5f;
-            foreach (Vec3 corner in Corners(lo, hi).Prepend(mid))
+            Vec3 centre = new(
+                (leaf.Mins[0] + leaf.Maxs[0]) / 2f, (leaf.Mins[1] + leaf.Maxs[1]) / 2f, (leaf.Mins[2] + leaf.Maxs[2]) / 2f);
+            if (straight.LinkedProbe.Leaf(centre) != l)
             {
-                Vec3 sample = mid + ((corner - mid) * (2f / 3f));
-                if (pair.MonolithicProbe.Leaf(sample) != l)
-                {
-                    continue;
-                }
-
-                int linkedCluster = pair.LinkedProbe.Leafs[pair.LinkedProbe.Leaf(sample)].Cluster;
-                if (linkedCluster >= 0)
-                {
-                    (map.TryGetValue(leaf.Cluster, out HashSet<int>? set) ? set : map[leaf.Cluster] = []).Add(linkedCluster);
-                }
+                continue;
             }
+
+            Vec3 point = centre;
+            for (int t = 0; t < turns; t++)
+            {
+                point = new Vec3((3 * Rooms3x3Kit.CellSize) - point.Y, point.X, point.Z);
+            }
+
+            map[leaf.Cluster] = turned.LinkedProbe.Leafs[turned.LinkedProbe.Leaf(point)].Cluster;
         }
 
-        Assert.NotEmpty(map);
-        int pairs = 0;
-        foreach ((int from, HashSet<int> fromLinked) in map)
+        Assert.All(map, m => Assert.True(m >= 0));
+        Assert.Equal(clusters, map.Distinct().Count());
+        for (int a = 0; a < clusters; a++)
         {
-            foreach ((int to, HashSet<int> toLinked) in map)
+            for (int b = 0; b < clusters; b++)
             {
-                if (!pair.MonolithicVis.CanSee(from, to))
-                {
-                    continue;
-                }
-
-                foreach (int a in fromLinked)
-                {
-                    foreach (int b in toLinked)
-                    {
-                        Assert.True(pair.Linked.Vis.CanSee(a, b), $"{name}: the monolithic map sees {from}->{to}, the linked {a}->{b} does not");
-                        pairs++;
-                    }
-                }
+                Assert.True(
+                    straight.Linked.Vis.CanSee(a, b) == turned.Linked.Vis.CanSee(map[a], map[b]),
+                    $"cluster {a} seeing {b} unturned is {straight.Linked.Vis.CanSee(a, b)}; turned {turns}, {map[a]} seeing {map[b]} is not");
             }
         }
 
-        Assert.True(pairs > 0);
+        Assert.Equal(straight.Linked.Vis.TotalVisibleClusters, turned.Linked.Vis.TotalVisibleClusters);
+        Assert.Equal(straight.Linked.Vis.TotalAudibleClusters, turned.Linked.Vis.TotalAudibleClusters);
     }
 
     // ---- 6. collision ------------------------------------------------------------

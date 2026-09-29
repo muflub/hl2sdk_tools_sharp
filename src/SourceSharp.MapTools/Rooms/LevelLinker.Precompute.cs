@@ -63,7 +63,8 @@ public static partial class LevelLinker
                     ComputeGeometry(room, rotation), ComputeCollision(room, rotation), entities);
             }
 
-            return new RoomLinkData(room.Definition, room.Bsp, room.Vis, shared, rotations);
+            return new RoomLinkData(
+                room.Definition, room.Bsp, room.Vis, shared, rotations, RoomDoorVisibility.Compute(room, shared));
         }
         catch (Exception exception) when (exception is LinkException or InvalidBspException)
         {

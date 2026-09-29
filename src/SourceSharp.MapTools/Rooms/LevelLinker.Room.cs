@@ -95,6 +95,7 @@ public static partial class LevelLinker
             FacesVersion = bsp[BspLump.Faces].Version,
             LeafsVersion = bsp[BspLump.Leafs].Version,
             LightingLength = bsp[BspLump.Lighting].Length,
+            DoorVisibility = stored?.Doors ?? RoomDoorVisibility.Compute(room, shared),
             Models = models,
         };
 
@@ -571,6 +572,9 @@ public static partial class LevelLinker
         public required OcclusionLump? Occlusion { get; init; }
         public required int FacesVersion { get; init; }
         public required int LeafsVersion { get; init; }
+
+        /// <summary>The room's door visibility, stored with the room or worked out now (<see cref="RoomDoorVisibility"/>).</summary>
+        public required RoomDoorVisibility DoorVisibility { get; init; }
 
         /// <summary>The room's brush models as this placement links them, or null for a room with only the world.</summary>
         public RoomModelLayout? Models { get; init; }

@@ -92,6 +92,13 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         RoomLinkData? link = room.Link is { } stored && stored.IsFor(room)
             ? stored
             : await LevelLinker.TryPrecomputeAsync(room, cancellationToken).ConfigureAwait(false);
+
+        // Link data read from a version 3 pack holds no door visibility; a
+        // version 4 pack promises it for every room with link sections.
+        if (link is { Doors: null })
+        {
+            link = link.WithDoors(RoomDoorVisibility.Compute(room, link.Shared));
+        }
         IReadOnlyList<RoomPackSectionData> linkSections = link is null ? [] : RoomLinkSections.Write(link);
         IReadOnlyList<RoomPackSectionData> navSections = room.Nav is { } nav ? RoomNavPack.Sections(nav.Base, navigation) : [];
 
@@ -194,8 +201,9 @@ public sealed class RoomPackIndex
     private readonly Dictionary<string, RoomPackEntry> _byName;
 
     internal RoomPackIndex(
-        IReadOnlyList<RoomPackSection> librarySections, IReadOnlyList<RoomPackEntry> entries, long indexEnd, long? start)
+        IReadOnlyList<RoomPackSection> librarySections, IReadOnlyList<RoomPackEntry> entries, long indexEnd, long? start, int version = RoomPack.Version)
     {
+        Version = version;
         LibrarySections = librarySections;
         Entries = entries;
         IndexEnd = indexEnd;
@@ -218,6 +226,13 @@ public sealed class RoomPackIndex
 
     /// <summary>The rooms, in the order the pack holds them (the library's).</summary>
     public IReadOnlyList<RoomPackEntry> Entries { get; }
+
+    /// <summary>
+    /// The pack's format version: <see cref="RoomPack.Version"/>, or
+    /// <see cref="RoomPack.OldestReadVersion"/> for an older pack this build
+    /// still links (<see cref="RoomPack"/>'s remarks on versions).
+    /// </summary>
+    public int Version { get; }
 
     /// <summary>Where the index ends and the first section's bytes start, from the start of the pack.</summary>
     public long IndexEnd { get; }
@@ -247,7 +262,7 @@ public sealed class RoomPackIndex
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Layout, version 3</b> (as versions 1 and 2's; see Versions below). Every integer is big-endian, as in the room
+/// <b>Layout, version 4</b> (as versions 1 to 3's; see Versions below). Every integer is big-endian, as in the room
 /// container, so the bytes do not depend on the writer's byte order. A tag
 /// is four printable ASCII characters, stored as they read.
 /// </para>
@@ -278,7 +293,8 @@ public sealed class RoomPackIndex
 /// its transition data (<c>TRAN</c>: its role, transition volume, fold
 /// trigger, arrival and spawn points, room-local, <c>RoomTransit</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
-/// the room alone, then per quarter turn <i>r</i> its turned geometry
+/// the room alone, its door visibility (<c>DVIS</c>, <see cref="RoomDoorVisibility"/>),
+/// then per quarter turn <i>r</i> its turned geometry
 /// (<c>GEO</c><i>r</i>) and world collision (<c>COL</c><i>r</i>), and
 /// optionally its turned entities (<c>ENT</c><i>r</i>); <c>RoomLinkSections</c>
 /// gives their layout and why each is stored or not. They are optional: a
@@ -345,12 +361,12 @@ public sealed class RoomPackIndex
 /// entry names; a pack whose index and containers disagree is refused.
 /// </para>
 /// <para>
-/// <b>Versions.</b> This build reads and writes version 3, and refuses any
-/// other with the version it carries and the one it reads, as the room
-/// container does; the containers inside carry their own version and are
-/// checked by <see cref="RoomObjectStore.LoadAsync"/>. Versions 2 and 3
-/// have the layout of version 1; what each adds is a promise about the
-/// rooms. Version 2: the pack was built after the library's singletons were
+/// <b>Versions.</b> This build writes version 4 and reads versions 4 and
+/// 3, and refuses any other with the version it carries and the one it
+/// reads, as the room container does; the containers inside carry their
+/// own version and are checked by <see cref="RoomObjectStore.LoadAsync"/>.
+/// Versions 2 to 4 have the layout of version 1; what each adds is a
+/// promise about the rooms. Version 2: the pack was built after the library's singletons were
 /// checked (<see cref="RoomLibraryEntities.KeepInRoom"/>), so no room
 /// carries a sun or an unnamed controller of its own, every room agrees
 /// with the library's sun and sky (decision D3 of the rooms design: a room
@@ -367,7 +383,16 @@ public sealed class RoomPackIndex
 /// so it is refused with a message that says what it lacks and to recompile
 /// the library, rather than read around. That is the kind of change the
 /// paragraph above keeps a version for: tags an older build can skip never
-/// raised it, a guarantee the link relies on does.
+/// raised it, a guarantee the link relies on does. Version 4: every room
+/// the link carries (every room with link sections) has its door
+/// visibility (<c>DVIS</c>), which the link composes the level's PVS from
+/// (<see cref="LevelDoorVisibility"/>), so the link reads it rather than
+/// working it out, and a version 4 room with link sections and no
+/// <c>DVIS</c> is a damaged pack and refused. A version 3 pack still
+/// links: its rooms promise everything but the door visibility, which is
+/// a function of what the pack does hold (each room's own vvis and plug
+/// census), so the link works it out per room and writes the same bytes
+/// it writes from the same library packed as version 4.
 /// </para>
 /// </remarks>
 public static class RoomPack
@@ -375,8 +400,15 @@ public static class RoomPack
     /// <summary>The pack's eight magic bytes, as they read in the file.</summary>
     public const string Magic = "SSRPAK01";
 
-    /// <summary>The only pack version this build reads and writes (<see cref="RoomPack"/>'s remarks on versions).</summary>
-    public const int Version = 3;
+    /// <summary>The pack version this build writes, and the newest it reads (<see cref="RoomPack"/>'s remarks on versions).</summary>
+    public const int Version = 4;
+
+    /// <summary>
+    /// The one older version this build still reads: version 3, whose rooms
+    /// lack only the door visibility a version 4 pack stores, which the link
+    /// works out from the rooms themselves, to the same bytes.
+    /// </summary>
+    public const int OldestReadVersion = 3;
 
     /// <summary>The file extension <c>ssmap room</c> writes and <c>ssmap link</c> looks for.</summary>
     public const string Extension = ".roompack";
@@ -552,7 +584,7 @@ public static class RoomPack
                 + $" {lacks}; recompile the library with ssmap room.");
         }
 
-        if (version != Version)
+        if (version != Version && version != OldestReadVersion)
         {
             throw new LinkException($"room pack version {version}; this build reads version {Version}.");
         }
@@ -652,7 +684,7 @@ public static class RoomPack
                 + (r.Length - at < expected ? " (the file is truncated)." : " (bytes follow the last section)."));
         }
 
-        return new RoomPackIndex(library, entries, position, start);
+        return new RoomPackIndex(library, entries, position, start, version);
     }
 
     /// <summary>
@@ -861,6 +893,19 @@ public static class RoomPack
             if (entry.Find(RoomLinkSections.SharedTag) is { } shared)
             {
                 wanted.Add((name, shared));
+                if (entry.Find(RoomDoorVisibility.SectionTag) is { } doors)
+                {
+                    wanted.Add((name, doors));
+                }
+                else if (index.Version >= 4)
+                {
+                    // Version 4's promise: every room the link carries (a
+                    // room with link sections) has its door visibility.
+                    throw new LinkException(
+                        $"room pack entry \"{name}\" has link sections but no \"{RoomDoorVisibility.SectionTag}\" section,"
+                        + $" which every linkable room of a version {index.Version} pack holds; the pack is damaged, recompile the library with ssmap room.");
+                }
+
                 for (int rotation = 0; rotation < 4; rotation++)
                 {
                     if (!turns[rotation])
@@ -1231,6 +1276,7 @@ public static class RoomPack
         ((byte)'R', (byte)'O', (byte)'O', (byte)'M') => RoomSection,
         ((byte)'L', (byte)'N', (byte)'K', (byte)'A') => RoomLinkSections.SharedTag,
         ((byte)'E', (byte)'C', (byte)'N', (byte)'T') => RoomEntityCounts.SectionTag,
+        ((byte)'D', (byte)'V', (byte)'I', (byte)'S') => RoomDoorVisibility.SectionTag,
         ((byte)'P', (byte)'R', (byte)'O', (byte)'P') => RoomStaticProps.SectionTag,
         ((byte)'B', (byte)'M', (byte)'O', (byte)'D') => RoomBrushModels.SectionTag,
         ((byte)'T', (byte)'R', (byte)'A', (byte)'N') => RoomTransit.SectionTag,
