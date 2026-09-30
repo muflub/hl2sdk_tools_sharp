@@ -3410,9 +3410,14 @@ options and skybox; the linker then runs as for one library.
   path. `mapversion` gets no option line (the table's row says why). The
   compatibility check runs over the libraries the level places (17.5).
 
-Measured: the 2fort and sandbox `ssmap all` maps, the 3x3 and transit
-samples' packs and maps (both modes) and the stress library's 33 x 33
-level are the same bytes as before this PR; see the PR for the digests.
+Measured against the base (main with the section 17 design): `ssmap all`
+on 2fort and the sandbox writes the same maps; the stress library's 33 x 33
+level links to the same bytes (1.5 to 1.7 s, as before) and passes `ssmap
+check`; the 3x3 and transit samples' packs differ only in the build
+identity the pack id and each room container record (every other section
+the same bytes), and every level of both, linked by this build from the
+base's packs, is the same bytes as the base's link (both modes for the
+transit run).
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
