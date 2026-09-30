@@ -3744,7 +3744,13 @@ A level of one library, and a level where no later library fills a gap
 of the first (the first has every singleton and option any library has),
 links and flattens to the same bytes as before: the combined library then carries the first library's own
 entity list and options record, and the sun source is 0. The same holds for
-plain packs and for combined packs whose first library has every singleton. The facts that
+plain packs and for combined packs whose first library has every singleton.
+Measured against main with PR 18: `ssmap vbsp` on 2fort (as `c.vmf`) gives
+`a491f59df3b484dc`; the 3x3, transit and stress packs differ only in the
+build identity (`CMPL` and each room container); every level of the 3x3
+and transit samples and the stress library's 33 x 33 level (lit and
+unlit), linked by this build from main's packs, is main's map byte for
+byte, and the stress level linked from this build's own packs is too. The facts that
 held "only in a later library is dropped" now hold the opposite.
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
