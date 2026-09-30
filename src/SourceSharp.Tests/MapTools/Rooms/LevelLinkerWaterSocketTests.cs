@@ -136,6 +136,29 @@ public sealed class LevelLinkerWaterSocketTests
     }
 
     /// <summary>
+    /// Rooms compiled without a collision cooker (<c>-cooker none</c>) have
+    /// no fluids: their water sockets name none, and a level of them links
+    /// its doorway's water, surface and brush without a collision lump, as
+    /// it flattens.
+    /// </summary>
+    [Fact]
+    public async Task WaterSocketsWithoutACookerLink()
+    {
+        VmfDocument library = SocketLibrary();
+        RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
+        RoomLibrary rooms = new(split.Rooms[0].Definition.Kit, split.Rooms[0].Definition.CellSize);
+        foreach (LibraryRoom room in split.Rooms)
+        {
+            rooms.Add(await RoomCompiler.CompileAsync(room.Document, room.Definition, await ContextAsync(room.Definition.Name), null, room.WaterSockets, CancellationToken.None));
+        }
+
+        Assert.Equal(-1, rooms.Get("hub").WaterOfCompile!.Doors[0]!.Fluid);
+        LinkedLevel linked = await RoomPropHarness.LinkAsync(rooms, RoomPropHarness.Level("hub, other"));
+        Assert.Equal(0, linked.Bsp[BspLump.PhysCollide].Length);
+        Assert.Equal("water at 64 of unit/water_cheap", At(linked.Bsp, new Vec3(250, 128, 40)));
+    }
+
+    /// <summary>
     /// A ring of water doors is one body of water too: four placements of a
     /// room whose one pool reaches its east and north doors, turned so every
     /// pair of neighbours meets at water, link to one record (the ring's
@@ -241,6 +264,8 @@ public sealed class LevelLinkerWaterSocketTests
     [InlineData(150f, -1, -1, "below")]
     [InlineData(0f, 5, 6, "above")]
     [InlineData(50f, 5, -1, "crosses, no underside")]
+    [InlineData(50f, -1, -1, "crosses, no surface")]
+    [InlineData(100f, -1, -1, "tops, no surface")]
     public void AWaterDoorwayPieceIsCarvedByItsLevel(float level, int top, int bottom, string what)
     {
         DLeaf solid = new()
@@ -276,6 +301,7 @@ public sealed class LevelLinkerWaterSocketTests
                 Assert.Empty(sink.Pieces);
                 break;
             case "below":
+            case "tops, no surface":
                 Assert.Equal((0x10000020, 3), (high.Contents, (int)high.LeafWaterDataId));
                 Assert.Empty(sink.Faces);
                 Assert.Single(sink.Pieces);
@@ -286,13 +312,18 @@ public sealed class LevelLinkerWaterSocketTests
                 Assert.Equal(what == "tops" ? (0x10000020, 3) : (0, -1), (high.Contents, (int)high.LeafWaterDataId));
                 Assert.Equal(5, low.Cluster);
                 Assert.Equal(5, high.Cluster);
-                DNode surface = Assert.Single(nodes, n => n.NumFaces > 0);
+                int faceCount = (top >= 0 ? 1 : 0) + (bottom >= 0 ? 1 : 0);
+                DNode surface = Assert.Single(nodes, n => planes.Planes[n.PlaneNum].Normal.Z != 0 && planes.Planes[n.PlaneNum].Dist == level);
                 Assert.Equal(new Plane(new Vec3(0, 0, 1), level), new Plane(planes.Planes[surface.PlaneNum].Normal, planes.Planes[surface.PlaneNum].Dist));
-                Assert.Equal(100, surface.FirstFace);
-                Assert.Equal(bottom >= 0 ? 2 : 1, surface.NumFaces);
-                Assert.Equal(bottom >= 0 ? 2 : 1, sink.FaceCount);
-                Assert.Equal(new Box(new Vec3(10, 10, level), new Vec3(20, 20, level)), sink.Faces[0].Rect);
-                Assert.Equal(top, sink.Faces[0].TemplateFace);
+                Assert.Equal(faceCount == 0 ? 0 : 100, surface.FirstFace);
+                Assert.Equal(faceCount, surface.NumFaces);
+                Assert.Equal(faceCount, sink.FaceCount);
+                if (faceCount > 0)
+                {
+                    Assert.Equal(new Box(new Vec3(10, 10, level), new Vec3(20, 20, level)), sink.Faces[0].Rect);
+                    Assert.Equal(top, sink.Faces[0].TemplateFace);
+                }
+
                 Assert.Single(sink.Pieces);
                 Assert.Equal(new Box(new Vec3(10, 10, 0), new Vec3(20, 20, level)), sink.Pieces[0].Box);
                 if (what == "tops")

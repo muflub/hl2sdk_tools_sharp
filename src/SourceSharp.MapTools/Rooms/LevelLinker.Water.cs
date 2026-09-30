@@ -62,8 +62,6 @@ public static partial class LevelLinker
         return water;
     }
 
-
-
     /// <summary>
     /// The level's leaf water data: every placement's records in link order,
     /// each with its surface texinfo the shared table's, merged as vbsp
@@ -113,7 +111,7 @@ public static partial class LevelLinker
                 DLeafWaterData linked = records[r];
                 linked.SurfaceZ += lift;
                 linked.MinZ += lift;
-                linked.SurfaceTexInfoId = records[r].SurfaceTexInfoId < 0 ? records[r].SurfaceTexInfoId : (short)plan.TexInfoRef(records[r].SurfaceTexInfoId);
+                linked.SurfaceTexInfoId = (short)plan.TexInfoRef(records[r].SurfaceTexInfoId);
                 moved[p][r] = linked;
             }
         }
@@ -409,7 +407,7 @@ public static partial class LevelLinker
                     poses[i],
                     offset,
                     plan.WaterOverlayBase,
-                    records[i].TexInfo < 0 ? records[i].TexInfo : plan.TexInfoRef(records[i].TexInfo),
+                    plan.TexInfoRef(records[i].TexInfo),
                     face => LinkedOverlayFace(plan, face)));
             }
         }
@@ -657,8 +655,12 @@ public static partial class LevelLinker
             return head;
         }
 
+        // The surface follows the room's own: a face seen from above where
+        // the room has one, and from below likewise (a water whose top is
+        // nodraw has neither, and its doorway none).
+        bool faces = water.Door.TopFace >= 0 || water.Door.BottomFace >= 0;
         bool crosses = door.Maxs.Z > level + Epsilon;
-        bool topped = !crosses && water.Door.TopFace >= 0 && Math.Abs(door.Maxs.Z - level) <= Epsilon;
+        bool topped = !crosses && faces && Math.Abs(door.Maxs.Z - level) <= Epsilon;
         DLeaf air = leafs[linkedLeaf];
         DLeaf wet = air;
         wet.Contents = water.Door.Contents;
@@ -697,12 +699,15 @@ public static partial class LevelLinker
         doorways?.Add((other, placement, cluster));
 
         Box rect = new(new Vec3(door.Mins.X, door.Mins.Y, level), new Vec3(door.Maxs.X, door.Maxs.Y, level));
-        int first = sink.AddFace(water.Plan, water.Door.TopFace, rect, airLeaf);
-        int count = 1;
-        if (water.Door.BottomFace >= 0)
+        int first = sink.FaceBase + sink.FaceCount;
+        int count = 0;
+        foreach ((int template, int leaf) in (ReadOnlySpan<(int, int)>)[(water.Door.TopFace, airLeaf), (water.Door.BottomFace, waterLeaf)])
         {
-            _ = sink.AddFace(water.Plan, water.Door.BottomFace, rect, waterLeaf);
-            count++;
+            if (template >= 0)
+            {
+                _ = sink.AddFace(water.Plan, template, rect, leaf);
+                count++;
+            }
         }
 
         IntArray2 children = default;
@@ -716,7 +721,7 @@ public static partial class LevelLinker
             Children = Orient(children, flipped),
             Mins = Short3(door.Mins),
             Maxs = Short3(door.Maxs),
-            FirstFace = (ushort)first,
+            FirstFace = (ushort)(count == 0 ? 0 : first),
             NumFaces = (ushort)count,
             Area = -1,
         });

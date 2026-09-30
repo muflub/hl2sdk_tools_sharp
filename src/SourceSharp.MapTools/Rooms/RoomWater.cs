@@ -605,9 +605,10 @@ internal sealed class RoomWater
     /// (the water fills the doorway to that height and no higher); the
     /// record's surface is at the level and of the declared material, which
     /// vbsp does not light (the doorway's surface the link adds has no
-    /// lightmap); and, below a level under the door's top, the room has a
-    /// face of that surface at the level, seen from above, whose texinfo and
-    /// plane the doorway's surface takes.
+    /// lightmap). Below a level under the door's top, the room's faces of
+    /// that surface at the level, seen from above and from below, are what
+    /// the doorway's surface follows (a room whose water shows no surface
+    /// there, a nodraw top, gives its doorway none either).
     /// </summary>
     /// <exception cref="RoomLintException">The compile does not hold what the socket declares.</exception>
     private static RoomWaterDoor Door(
@@ -710,12 +711,6 @@ internal sealed class RoomWater
         }
 
         (int top, int bottom) = SurfaceFaces(bsp, record, level);
-        if (level < plug.Maxs.Z && top < 0)
-        {
-            throw new RoomLintException(string.Create(
-                CultureInfo.InvariantCulture,
-                $"{where}, but the room has no face of that surface at its level for the doorway's surface to follow."));
-        }
 
         int fluid = -1;
         for (int f = 0; f < fluids.Count && fluid < 0; f++)

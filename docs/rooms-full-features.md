@@ -3929,7 +3929,9 @@ water levels later").
   following the room's own surface face (its plane, side, texinfo, fog
   volume, styles and flags), over the piece's rectangle, wound as that
   face is, with its own edges, surfedges, original face, face id, macro
-  and vertex normals (its template's first vertex's). The faces sit in
+  and vertex normals (its template's first vertex's). A room whose water
+  shows no surface there (a nodraw top) gives its doorway none either: the
+  node then lists no face. The faces sit in
   model 0's range after every world face and before the brush models', so
   their count is made before the bases are assigned by the same carve run
   on scratch lists (`CountWaterDoorwayFaces`). Each water leaf gets a water
