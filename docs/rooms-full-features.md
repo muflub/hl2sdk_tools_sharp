@@ -30,6 +30,7 @@ Contents:
 15. [Testing](#15-testing)
 16. [Growing the 3x3 sample](#16-growing-the-3x3-sample)
 17. [Multiple libraries, room heights and large areas](#17-multiple-libraries-room-heights-and-large-areas)
+18. [The level map overlay](#18-the-level-map-overlay)
 
 Terms used throughout:
 
@@ -2282,6 +2283,7 @@ One PR per feature or small group. Already queued, and assumed:
 | 19 | **Room heights** (17.6): `room_height`, the door box fixed to the library's standard cell, the `SHAP` section and the pack version for shaped rooms, top-tree and solid-leaf bounds, the cell box in split, lint, props and furniture, the world-extent refusal, navigation columns taller than a cell and `.nav3d` version 3. | M | 7, **8** | One-cell rooms only, so no linker structure changes: the smallest step that gives varying heights, and the base the larger rooms extend. After PR 8 so its transit sample and `RoomTransit` are what the new cell box is applied to. Before PR 9 (Q4), whose bakes take the room's box. | 15.2 heights row |
 | 20 | **Multi-cell rooms** (17.8): `room_footprint`, sockets per cell edge, the cell-block room compile and per-cell subtree roots, the top tree routing each covered cell, block-node omission, the footprint transform, joints along shared edges, `+` in the level file, the anchor cell for names and the refusals of neighbour names, navigation and props over the footprint, flatten. | L | 19, 3, 7, **8** | The large-area design. The biggest structural change since brush entities; everything it touches is already carried, so it lands after them. If Q3 has landed, its per-room door pairs are extended to several sockets on a face here. | 15.2 multi-cell row; 17.3 messages |
 | 21 | **Height-aware generator over several libraries** (17.9): candidates from every library, the area stream and its groups, `-large`, `-group`, `-max-height`, `key=path` operands and the `libraries` output, the budget over every library. | M | 17, 20, **8** | Last, because it places what 17 to 20 make linkable; PR 8's role stream is kept as it is and runs on the unit tree. | 15.2 generator row; 15.5 layout determinism |
+| 22 | **Level map overlay** (18): the walkable-face rule and integer union at pack time, the `MAPV` room section, the `.map2d` sidecar written by `ssmap link` (doors open or closed, marker POIs, automatic markers, per-placement ids and labels), `ssmap map2d` over a compiled map, the SVG preview, `docs/map2d-format.md` and its reader, the `map_marker` and `map_label` keys in `RoomContracts`. | M | 2, 11, 19 | Needs the POIs (2), the transition markers (11) and room heights for the z bands (19); independent of lighting and of 14 to 16, so it can land in parallel with them. | 18.6 |
 
 **PR 4 landed** (singletons and the library section). The split applies
 D3 to every room (`RoomLibraryEntities.KeepInRoom`): a room's
@@ -3920,6 +3922,11 @@ hardest and their refusals are safe meanwhile.
 | D27 | (2026-09-29, was O31) Raised or sunken floors and stacked storeys are not planned; storeys are authored inside a tall room (17.6). |
 | D28 | (2026-09-29, was O32) The combine verb is `ssmap roompack`, with `ssmap room -namespace` for one library (17.10). |
 | D29 | (2026-09-30, was O25) Don't drop singletons across libraries: a singleton only a later library has (the sun, an environment controller, fog) is used, taken from the earliest listed library that has it; the first library still wins wherever it has one, and duplicates keep D24's one summary line per library. The same holds for a library option the first library does not write and for the skybox room; `mapversion` is not filled. The level's sun world lights come from the library that supplied the sun, and D26 holds the other libraries to that sun (17.4). `ssmap roompack`'s level-wide sections and sun (17.10) are the level's singletons by this rule. |
+| D31 | (2026-09-30, was O34) The level map is a binary `.map2d` for the game, with an optional SVG preview from the same data (18.4). |
+| D32 | (2026-09-30, was O35) The map's playable area is the compiled room's walkable faces, not the navigation voxels (18.2). |
+| D33 | (2026-09-30, was O36) The map shows `info_poi` entities with a `map_marker` key, plus the spawn, the arrivals and the transition exits; other POIs stay navigation-only (18.1). |
+| D34 | (2026-09-30, was O37) The `.map2d` is a sidecar next to the `.bsp`, as the `.nav3d` (D18), not in the pakfile (18.3). |
+| D35 | (2026-09-30, was O38) The map file carries each polygon's, door's and marker's placement and the `map_label`s; whether and how to reveal rooms is the game's choice (18.1). |
 
 ### Open, with recommended defaults
 
@@ -3958,6 +3965,11 @@ hardest and their refusals are safe meanwhile.
 | O31 | (Decided: D27.) | |
 | O32 | (Decided: D28.) | |
 | O33 | Tall one-cell rooms outside groups (17.9). | Only in groups, under `-large`. |
+| O34 | (Decided: D31.) | |
+| O35 | (Decided: D32.) | |
+| O36 | (Decided: D33.) | |
+| O37 | (Decided: D34.) | |
+| O38 | (Decided: D35.) | |
 
 ---
 
@@ -5029,3 +5041,160 @@ decided the other way on 2026-09-30 (D29).
 | O31 | Rooms whose floor is not at z = 0, and stacked storeys. | **Decided (D27):** not planned: both need a vertical kit and z splits in the top tree. Storeys are authored inside a tall room. |
 | O32 | The combine verb's name. | **Decided (D28):** `ssmap roompack`, with `ssmap room -namespace` for one library. |
 | O33 | Scattering tall one-cell rooms outside groups. | Only in groups (`-large`); revisit if levels look too regular. |
+
+---
+
+## 18. The level map overlay
+
+Owner request (2026-09-30): the room link writes a **2D vector map of the
+level, seen from above**: the playable area, with points of interest
+marked, in a file the game loads to draw a map overlay. This section is the
+plan; PR 22 (section 13) builds it. The choices the owner has not made yet
+were O34 to O38; the owner took every recommended default on 2026-09-30
+(D31 to D35).
+
+### 18.1 What the map shows
+
+- **The playable area**: every surface a player can stand on, projected
+  onto the xy plane, as filled polygons. Walls are the polygons' outlines;
+  nothing above a floor is drawn (no ceilings, no roofs), so a room reads
+  as its floor plan.
+- **Doors**: each socket of each placement, marked **open** where the
+  joint is joined and **closed** where a cap or plug seals it. A door is a
+  segment across the opening, so the game can draw it or leave a gap.
+- **Floors at more than one height**: a tall room with a gallery or
+  storeys authored inside it (D27) has floors at several heights. Every
+  polygon carries its height band (its lowest and highest z), so the game
+  can show the floor the player is on and dim or hide the others.
+- **Rooms**: every polygon and door names the placement it belongs to by
+  its cell (`cxry`, the naming grammar of section 5), so the game can
+  reveal the map room by room as the player visits them (fog of war) or
+  highlight the room the player is in. An `info_room` may give its room a
+  `map_label` (a short display string) that the map carries per
+  placement.
+- **Points of interest**:
+  - every `info_poi` (10.6) whose keys include `map_marker` (a marker
+    kind: a short identifier the game maps to an icon, such as `exit`,
+    `shop`, `objective`), at its linked position and yaw, with its
+    optional `map_label`. POIs without `map_marker` stay navigation-only
+    and are not on the map;
+  - automatic markers the linker already knows: the level spawn and the
+    arrival points (11), and the transition rooms' up and down exits.
+  Markers stay zero-cost at runtime: they live in the map file, not in the
+  entity lump.
+
+### 18.2 Where the playable area comes from
+
+The recommended source (O35) is the **compiled room's walkable faces**: the
+faces of the room's world model whose plane normal points up at least as
+steeply as the engine's walkable slope (normal z ≥ 0.7, the same bound the
+player's movement code uses), excluding sky and nodraw faces, the plugs and
+caps (sealed door faces are doors, 18.1), and faces a solid brush sits on.
+Brush entities a player stands on (`func_detail` is world; `func_brush`
+and doors are entities) are included when they are solid to the player.
+
+Why not the navigation voxels: they would match the AI's idea of the
+walkable space exactly, but a library may have no navigation, their
+outlines are staircase-shaped at the voxel size, and they cover where an
+agent's hull fits rather than the floor the player sees. Faces give crisp
+outlines and exist for every room.
+
+Per room, at pack time (D1): the walkable faces are projected onto xy,
+snapped to whole units, and unioned into simple polygons with holes, one
+set per height band; the band is the face's z range, and faces whose bands
+overlap and that touch in xy are merged. The union runs on integer
+coordinates (after the snap), so it is exact and order-independent, which
+keeps the pack reproducible and the link byte-identical at any thread
+count; no platform math is involved. The result is simplified only by
+dropping collinear points, which is exact too.
+
+### 18.3 Pack and link
+
+- **Pack time** (`ssmap room`): a new optional per-room section, **`MAPV`**
+  (codec and revision like the other link sections, 1.1), holding each
+  rotation's polygons, door segments by socket, and marker POIs (the
+  quarter turns are exact on integer coordinates, so the four rotations
+  can also be derived at link; the section stores one rotation and the
+  link turns it, unless measuring shows the ×4 is worth its bytes, D16).
+  A room with no walkable face stores an empty section and is warned about
+  at pack time, since a player cannot stand in it. No pack version change:
+  a pack without `MAPV` links without a map and says so once.
+- **Link** (`ssmap link`): each placement's polygons are turned and moved to
+  its cell (whole-unit, exact), doors take their open or closed state from
+  the joints, markers are resolved through the naming grammar, and the
+  level's map is written as a **sidecar next to the `.bsp`**, like the
+  `.nav3d` (D18): `<map>.map2d` (O34, O37). No geometry work at link; the
+  cost is a copy and a sort.
+- **Flatten**: `ssmap map2d <map.bsp>` builds the same map from any
+  compiled map by the same face rule over its world model, cut into cells
+  when a level file is given. It is how the equivalence fact (18.6) is
+  checked and it makes a map for a hand-built level too.
+- **Options**: `-no-map2d` skips the file; `-map2d-svg` also writes
+  `<map>.svg`, a preview of the same data for people and web pages (O34).
+
+### 18.4 The file (`.map2d`)
+
+A small binary file the game reads in one pass, documented in
+`docs/map2d-format.md` the way `docs/nav3d-format.md` documents the
+navigation, with a C# reference reader in `SourceSharp.MapFormats` and the
+same container conventions (magic, version, header size, a directory of
+tagged sections, little-endian):
+
+- **header**: the level's extent (xy mins and maxs, z range), the cell size
+  and grid size, and a binding to the `.bsp` it was linked with (the map's
+  checksum, as the `.nav3d` binds to its map), so a stale map is refused by
+  the game rather than drawn wrong;
+- **`ROOM`**: per placement, its cell, room name, rotation, height and
+  `map_label`;
+- **`POLY`**: polygons as rings of int16 or int32 xy points (whichever the
+  extent needs), each with its placement, its z band, and whether it is an
+  outer ring or a hole;
+- **`DOOR`**: segments with placement, socket, and open or closed;
+- **`MARK`**: markers: kind (a string-table index), position, yaw,
+  placement, and label;
+- **`STRS`**: the string table.
+
+World units, +x east and +y north as in the map, so the game places the
+player's arrow with no conversion; the game scales the extent to its
+panel. Vector data keeps the file small (a 3x3 level is a few kilobytes)
+and sharp at any zoom.
+
+### 18.5 Mod contract
+
+The game side is the mod's (section 7): it loads `maps/<map>.map2d` when
+the map loads, checks the binding, and draws the overlay (polygons filled,
+outlines stroked, doors, markers by kind, the player's position and yaw).
+`SourceSharp.RoomContracts` gains the `info_poi` keys `map_marker` and
+`map_label`, the `info_room` key `map_label`, and the marker kinds the
+linker writes itself (`spawn`, `arrival`, `exit_up`, `exit_down`), so the
+mod and the compiler share one list.
+
+### 18.6 Tests
+
+- **Pack time**: the face rule (walkable slope bound on both sides, sky and
+  nodraw faces, plugs and caps, entity floors), the union on hand-built
+  faces (touching, overlapping, holes, several bands), the snap, the
+  rotation identity, the empty-room warning, `MAPV` read and write, same
+  bytes at `-threads` 1 and 4.
+- **Link**: open and closed doors from joints and caps, marker resolution
+  and naming, the automatic markers, the missing-section message, the
+  sidecar next to the `.bsp` and `-no-map2d`, the SVG preview.
+- **Equivalence**: for the 3x3 and transit samples at every turn, the
+  linked `.map2d` equals `ssmap map2d` of the flattened compile cut by the
+  level file, byte for byte (the same face rule over the same faces).
+- **Format**: the reader round-trips every section, refuses a stale binding
+  and a damaged file with named messages.
+- **Existing outputs**: every `.bsp`, `.nav3d` and pack section other than
+  `MAPV` unchanged.
+
+### 18.7 Open points
+
+All five were decided on 2026-09-30 as recommended (D31 to D35).
+
+| # | Question | Recommended default |
+| --- | --- | --- |
+| O34 | The file format the game loads. | **Decided (D31, 2026-09-30):** as recommended. A binary `.map2d` (18.4) for the game, plus an optional SVG preview from the same data. SVG alone would need an SVG renderer in the game; a raster image would blur at zoom and fix one scale. |
+| O35 | The source of the playable area. | **Decided (D32, 2026-09-30):** as recommended. The compiled room's walkable faces (18.2); navigation voxels are the alternative. |
+| O36 | Which points of interest are on the map. | **Decided (D33, 2026-09-30):** as recommended. `info_poi` with a `map_marker` key, plus the spawn, arrivals and transition exits; other POIs stay navigation-only. |
+| O37 | Sidecar or inside the map's pakfile. | **Decided (D34, 2026-09-30):** as recommended. A sidecar next to the `.bsp`, as the `.nav3d` (D18); packing it into the pakfile is an option to add if servers must send it to clients. |
+| O38 | Per-room reveal (fog of war) and labels. | **Decided (D35, 2026-09-30):** as recommended. Carried in the file (placement per polygon, door and marker; `map_label`); whether and how to reveal is the game's choice. |
