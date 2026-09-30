@@ -3499,8 +3499,8 @@ always did.
   now recasts into the skybox, and a room at its bakes' cell links to the
   full compile's bytes. Neither this PR's facts nor PR 10's met the case
   of a door-lit level with a skybox, which failed to link (the door light's
-  plan took the skybox for the room above it); the skybox bake fixed that
-  too.
+  plan took the skybox for the room above it); D29's work fixed that (its
+  landed note), and the skybox bake's facts hold it.
 
 Measured equivalence: the harness's hub and other room with the skybox (a
 3D sky shell, a block, a prop and its camera) at the four turns, with an
@@ -3826,14 +3826,19 @@ and door light too.
   3D skybox "{sky}", which did not compile; its sky rays are recast into
   the skybox, so the skybox must compile first.`, rather than lit as if
   the level had none. `ssmap roompack` (PR 18) bakes every library's sky
-  rooms over the first library's skybox, the level's (17.4), so a
-  combined pack's sky room is the bytes `ssmap room` bakes for it
-  (`RoomPackCommandsTests.BothVerbsBakeASkyRoomOverTheSkybox`). Not done
-  here: `-only` copies a later library's rooms when the first library's
-  singletons are unchanged, and that digest does not hold the skybox, so a
-  changed skybox with `-only` keeps the copied sky rooms' old bakes; the
-  combined pack's id does change. Left to the singleton work, whose digest
-  it is.
+  rooms over the level's skybox (the first library's, or under D29 the
+  earliest library's with one), so a combined pack's sky room is the bytes
+  `ssmap room` bakes for it
+  (`RoomPackCommandsTests.BothVerbsBakeASkyRoomOverTheSkybox`). Its
+  `-only` copies another library's rooms only while the singletons they
+  were built under are unchanged, and for a lit pack those now include the
+  skybox's content (`RoomPackNamespaces.LitSingletonDigest`: the singleton
+  digest and the skybox's cache digest), so after a skybox edit `-only`
+  refuses with the `the level's singletons` line rather than copy sky rooms
+  baked over the old skybox (`OnlyRefusesToCopySkyRoomsBakedOverAnEditedSkybox`,
+  red first). An unlit pack reads nothing of the skybox and keeps D29's
+  digest; a lit pack with a skybox written before this is refused once by
+  `-only` and rebuilt.
 - **Ids and keys.** The lighting's description (`Describe`, in the pack id
   and every room's cache key) gains `|skybox:` and the skybox room's cache
   digest (its room-local document and claims) for a library with a
@@ -3845,12 +3850,12 @@ and door light too.
   without a skybox describes its lighting as before, and its pack and
   every level are the same bytes. No pack format change: the bake's
   output is the same `LITE` and `DLIT` sections.
-- **A fix on the way.** The door light's plan keyed the level's placements
-  by cell with the skybox among them, and the skybox shares its
-  south-west cell's column and row, so a joint into that cell found the
-  skybox (no sockets, no door light) and the link failed with `room sky at
-  cell (0, 0) has no socket "east".`; it keys the grid alone (`GridCells`),
-  as the rest of the link does since PR 13.
+- **Door light and the skybox in one level.** A door-lit level with a
+  skybox failed to link (`room sky at cell (0, 0) has no socket "east".`),
+  since the door light's plan found neighbours by cell with the skybox
+  among them. The fix (`GridCells`) is D29's, which landed first (its
+  note); this branch had made the same one, and its jointed-level facts,
+  which were the first to meet the case, now hold it.
 
 Measured (the facts, a sky room with a lamp and a sky ceiling beside a hub
 with a lamp, the library's sun at pitch -50, the skybox with an overhang

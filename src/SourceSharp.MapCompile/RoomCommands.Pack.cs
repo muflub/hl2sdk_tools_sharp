@@ -579,9 +579,14 @@ public static partial class RoomCommands
             return ExitFailed;
         }
 
+        // What every namespace is built under: the level's singletons and,
+        // for a lit pack, the skybox its sky rooms are baked over, so -only
+        // never copies a sky room baked over another skybox.
+        LibraryRoom? skyboxRoom = plan.SkyboxRoom is { } skyboxName ? plan.Rooms.First(r => r.Definition.Name == skyboxName) : null;
+        string singletons = vradOptions is null ? plan.SingletonsSha256 : RoomPackNamespaces.LitSingletonDigest(plan.SingletonsSha256, skyboxRoom);
         foreach (RoomPackSpace space in plan.Spaces.Where(s => copied.ContainsKey(s.Key)))
         {
-            if (RoomPackNamespaces.Find(previous!, space.Key)!.SingletonsSha256 != plan.SingletonsSha256)
+            if (RoomPackNamespaces.Find(previous!, space.Key)!.SingletonsSha256 != singletons)
             {
                 await output.WriteLineAsync(
                     $"{verb}: library {space.Key} changed since {pack} was built (the level's singletons); rebuild it too, or leave out -only.")
@@ -610,9 +615,10 @@ public static partial class RoomCommands
                 Sun = RoomLightingSettings.SunOf(plan.LibraryEntities),
                 DoorLight = run.DoorLight,
 
-                // The first library's skybox, which every sky room of every
-                // library is baked over, as ssmap room bakes its own.
-                Skybox = plan.SkyboxRoom is { } sky ? plan.Rooms.First(r => r.Definition.Name == sky) : null,
+                // The level's skybox (D29: the first library's, or the
+                // earliest library's with one), which every sky room of
+                // every library is baked over, as ssmap room bakes its own.
+                Skybox = skyboxRoom,
             };
         Guid packId = RoomCompileIds.CombinedPackId(
             [.. sources.Select(s => (s.Key, s.VmfSha256))],
@@ -638,7 +644,7 @@ public static partial class RoomCommands
                 IReadOnlyList<RoomPackItem> own = copied.TryGetValue(space.Key, out IReadOnlyList<RoomPackItem>? copy)
                     ? copy
                     : [.. packed.Where(p => p.Name.StartsWith(prefix, StringComparison.Ordinal))];
-                namespaces.Add(new RoomPackNamespace(space.Key, space.Source, space.VmfSha256, plan.SingletonsSha256, items.Count, own.Count)
+                namespaces.Add(new RoomPackNamespace(space.Key, space.Source, space.VmfSha256, singletons, items.Count, own.Count)
                 {
                     NameKeys = space.NameKeys,
                 });

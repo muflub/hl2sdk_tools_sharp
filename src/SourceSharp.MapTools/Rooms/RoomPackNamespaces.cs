@@ -356,6 +356,57 @@ public static class RoomPackNamespaces
         return Convert.ToHexStringLower(sha.GetHashAndReset());
     }
 
+    /// <summary>
+    /// The singletons a lit combined pack's rooms are built under: the
+    /// <paramref name="singletons"/> digest (<see cref="SingletonDigest"/>)
+    /// and, when the level has a skybox, the skybox's content, which every
+    /// sky room of every namespace is baked over (the rooms design, 4.12;
+    /// <see cref="RoomLightingSettings.Skybox"/>).
+    /// </summary>
+    /// <param name="singletons">The pack's singleton digest.</param>
+    /// <param name="skybox">The level's skybox room as the pack compiles it (qualified, under the first library's worldspawn), or null.</param>
+    /// <returns><paramref name="singletons"/> itself without a skybox; else a digest over both.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="singletons"/> is null.</exception>
+    /// <remarks>
+    /// <para>
+    /// <b>Why only lit.</b> An unlit room reads nothing of the skybox, so an
+    /// unlit pack keeps <see cref="SingletonDigest"/> as it was, and a
+    /// skybox edit copies its other namespaces as before. A lit room with a
+    /// sky face is baked over the skybox's geometry, so <c>-only</c> may copy
+    /// a namespace only while the skybox is the one its sky rooms were baked
+    /// over: the skybox's cache digest (<see cref="RoomCacheKey.RoomDigest"/>,
+    /// its room-local document and claims) is folded in. Its materials and
+    /// models are game content, which <c>-only</c> never promised to watch.
+    /// </para>
+    /// <para>
+    /// Folded for every lit pack with a skybox, whichever library supplies it
+    /// (D29): a skybox of the first library is not otherwise in the digest,
+    /// and a later library's is there by name only. A lit pack written
+    /// before this recorded the digest without it, so its namespaces are
+    /// refused once by <c>-only</c> and rebuilt, never copied stale.
+    /// </para>
+    /// </remarks>
+    public static string LitSingletonDigest(string singletons, LibraryRoom? skybox)
+    {
+        ArgumentNullException.ThrowIfNull(singletons);
+        if (skybox is null)
+        {
+            return singletons;
+        }
+
+        using IncrementalHash sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (string part in (string[])["ssmap roompack lit singletons", singletons, RoomCacheKey.RoomDigest(skybox)])
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(part);
+            Span<byte> length = stackalloc byte[8];
+            BinaryPrimitives.WriteInt64BigEndian(length, bytes.Length);
+            sha.AppendData(length);
+            sha.AppendData(bytes);
+        }
+
+        return Convert.ToHexStringLower(sha.GetHashAndReset());
+    }
+
     private static LinkException Bad(string what) => new($"the room pack's {SectionTag} section {what}.");
 
     private static byte[] DigestOf(string hex)
