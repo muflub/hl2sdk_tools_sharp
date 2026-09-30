@@ -3989,6 +3989,16 @@ carry the facts at every turn, and the samples' digests show a level
 without water links as before); the stress library has no water; `ssmap
 rooms` does not list water.
 
+Measured against main (the merge base, with PR 18 and D29): `ssmap all` on
+2fort and the sandbox writes the same maps, and 2fort's vbsp alone the same
+bytes; the 3x3, transit and stress packs differ only in the build identity
+(`CMPL` and each room container), no room of them gaining a `WATR` section;
+every level of the 3x3 and transit samples (both modes) and the stress
+library's 33 x 33 level, linked by this build from main's packs, is main's
+map byte for byte, and each passes `ssmap check` with its one warning (no
+cubemap sample); the 33 x 33 level links in the same time within the noise
+(1.5 to 1.7 s against 1.6 to 1.7 s, interleaved runs on a busy 4-core box).
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
