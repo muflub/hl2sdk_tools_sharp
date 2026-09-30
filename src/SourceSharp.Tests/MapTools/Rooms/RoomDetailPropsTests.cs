@@ -208,7 +208,7 @@ public sealed class RoomDetailPropsTests
                 Assert.False(RoomDetailLighting.Has(bare));
                 RoomLighting lit = Lighting(bsp, turns, ldr, hdr, light);
                 Assert.True(RoomDetailLighting.Has(lit));
-                RoomLighting read = RoomDetailLighting.Attach(bare, RoomDetailLighting.ToSection(lit)!.Value.Bytes.ToArray(), "r", bsp)!;
+                RoomLighting read = RoomDetailLighting.Read(bare, RoomDetailLighting.ToSection(lit)!.Value.Bytes.ToArray(), "r", bsp).Lighting!;
                 Assert.All(read.Payloads, p =>
                 {
                     foreach (RoomLightRange? range in new[] { p.Ldr, p.Hdr })
@@ -226,22 +226,22 @@ public sealed class RoomDetailPropsTests
 
         RoomLighting once = Lighting(bsp, 1, true, false, null);
         byte[] section = RoomDetailLighting.ToSection(Lighting(bsp, 1, true, false, light))!.Value.Bytes.ToArray();
-        Assert.Same(once, RoomDetailLighting.Attach(once, null, "r", bsp));
-        Assert.Null(RoomDetailLighting.Attach(null, section, "r", bsp));
-        Assert.Same(once, RoomDetailLighting.Attach(once, Payload(w => w.Int(RoomDetailLighting.Revision + 1)), "r", bsp));
+        Assert.Same(once, RoomDetailLighting.Read(once, null, "r", bsp).Lighting);
+        Assert.Null(RoomDetailLighting.Read(null, section, "r", bsp).Lighting);
+        Assert.Same(once, RoomDetailLighting.Read(once, Payload(w => w.Int(RoomDetailLighting.Revision + 1)), "r", bsp).Lighting);
 
         Assert.Equal(
             "room pack entry \"r\": its \"DPLT\" section holds the lighting of 2 detail props; the room has 1.",
-            Assert.Throws<LinkException>(() => RoomDetailLighting.Attach(once, section, "r", Bsp(Prop(default, default)))).Message);
+            Assert.Throws<LinkException>(() => RoomDetailLighting.Read(once, section, "r", Bsp(Prop(default, default)))).Message);
         Assert.Equal(
             "room pack entry \"r\": its \"DPLT\" section holds 1 turns of detail prop lighting; the room's lighting holds 4.",
-            Assert.Throws<LinkException>(() => RoomDetailLighting.Attach(Lighting(bsp, 4, true, false, null), section, "r", bsp)).Message);
+            Assert.Throws<LinkException>(() => RoomDetailLighting.Read(Lighting(bsp, 4, true, false, null), section, "r", bsp)).Message);
         Assert.Equal(
             "room pack entry \"r\": its \"DPLT\" section holds a range flag of 1; the room's lighting lit 3.",
-            Assert.Throws<LinkException>(() => RoomDetailLighting.Attach(Lighting(bsp, 1, true, true, null), section, "r", bsp)).Message);
+            Assert.Throws<LinkException>(() => RoomDetailLighting.Read(Lighting(bsp, 1, true, true, null), section, "r", bsp)).Message);
         Assert.Equal(
             "room pack entry \"r\": its \"DPLT\" section holds 2 detail prop styles for runs of 1.",
-            Assert.Throws<LinkException>(() => RoomDetailLighting.Attach(once, Payload(w =>
+            Assert.Throws<LinkException>(() => RoomDetailLighting.Read(once, Payload(w =>
             {
                 w.Int(RoomDetailLighting.Revision);
                 w.Int(2);
@@ -257,6 +257,95 @@ public sealed class RoomDetailPropsTests
         RoomLighting uneven = Lighting(bsp, 1, true, true, light);
         uneven = uneven.WithPayloads([uneven.Payloads[0] with { Hdr = uneven.Payloads[0].Hdr! with { Detail = null } }]);
         Assert.Throws<ArgumentException>(() => RoomDetailLighting.ToSection(uneven));
+    }
+
+    /// <summary>
+    /// The section's door part round-trips: the detail receivers (centres,
+    /// up vectors, and per socket which opening cells each prop sees) and
+    /// each emitter's detail responses, attached to the room's door light
+    /// read from its own section; a room without door light writes and
+    /// attaches none; and a door part that does not fit the door light, or
+    /// holds what no door light holds, is refused.
+    /// </summary>
+    [Fact]
+    public void TheDoorPartRoundTripsAndRefusesWhatDoesNotFit()
+    {
+        BspData bsp = Bsp(Prop(default, default), Prop(default, default));
+        RoomDetailLight light = new([default, default], [0, 0], []);
+        RoomLighting lighting = Lighting(bsp, 1, true, false, light);
+        DoorSeen seen = DoorSeen.Of([UInt128.One, UInt128.Zero]);
+        DoorDetailReceivers receivers = new([new Vec3(1, 2, 3), new Vec3(4, 5, 6)], [new Vec3(0, 0, 1), new Vec3(0, 1, 0)], [seen, DoorSeen.Of([UInt128.Zero, UInt128.Zero])]);
+        DoorResponseDetail reached = new(1, [(Half)0.25f, (Half)0.5f, (Half)0.75f]);
+        RoomDoorLight door = Door([.. Enumerable.Range(0, DoorLightMath.EmitterCount).Select(e => new DoorResponseEmitter([], [], []) { Details = e == 3 ? [reached] : [] })], null, bsp);
+        door = door.With(door.Ldr, null, receivers);
+
+        byte[] section = RoomDetailLighting.ToSection(lighting, door)!.Value.Bytes.ToArray();
+        (RoomLighting? read, DetailDoor? read2) = RoomDetailLighting.Read(Lighting(bsp, 1, true, false, null), section, "r", bsp);
+        Assert.NotNull(read);
+        DetailDoor part = read2!;
+        RoomDoorLight bare = door.With(Strip(door.Ldr!), null, null);
+        RoomDoorLight attached = RoomDetailLighting.AttachDoor(bare, part, "r")!;
+        Assert.Equal(receivers.Centres, attached.Details!.Centres);
+        Assert.Equal(receivers.Normals, attached.Details.Normals);
+        Assert.Equal(receivers.Seen.Select(x => x.Masks()), attached.Details.Seen.Select(x => x.Masks()));
+        Assert.Equal([1], attached.Ldr!.Responses[0][3].Details.Select(d => d.Prop));
+        Assert.Equal(reached.Colour, attached.Ldr.Responses[0][3].Details[0].Colour);
+        Assert.Empty(attached.Ldr.Responses[1]);
+        Assert.Null(RoomDetailLighting.AttachDoor(null, part, "r"));
+
+        (_, DetailDoor? none) = RoomDetailLighting.Read(Lighting(bsp, 1, true, false, null), RoomDetailLighting.ToSection(lighting)!.Value.Bytes.ToArray(), "r", bsp);
+        Assert.Null(none);
+        Assert.Same(bare, RoomDetailLighting.AttachDoor(bare, none, "r"));
+
+        Assert.Equal(
+            "room pack entry \"r\": its \"DPLT\" section holds detail receivers for 2 sockets; the room's door light has 1.",
+            Assert.Throws<LinkException>(() => RoomDetailLighting.AttachDoor(Door([], null, bsp, sockets: 1), part, "r")).Message);
+        Assert.Equal(
+            "room pack entry \"r\": its \"DPLT\" section holds 0 detail response emitters at socket 0; the room's door light has 16.",
+            Assert.Throws<LinkException>(() => RoomDetailLighting.AttachDoor(bare, part with { Responses = [[[], []], null] }, "r")).Message);
+        Assert.Equal(
+            "room pack entry \"r\": its \"DPLT\" section holds detail responses for the HDR range, which the room's door light does not light otherwise.",
+            Assert.Throws<LinkException>(() => RoomDetailLighting.AttachDoor(bare, part with { Responses = [part.Responses[0], []] }, "r")).Message);
+
+        Assert.Equal(
+            "room pack entry \"r\": its \"DPLT\" section holds 3 detail response emitters; a socket has none or 16.",
+            Assert.Throws<LinkException>(() => RoomDetailLighting.Read(Lighting(bsp, 1, true, false, null), DoorPart(w => { w.Int(1); w.Int(3); }), "r", bsp)).Message);
+        Assert.Equal(
+            "room pack entry \"r\": its \"DPLT\" section holds a response for detail prop 2; the room has 2.",
+            Assert.Throws<LinkException>(() => RoomDetailLighting.Read(Lighting(bsp, 1, true, false, null), DoorPart(w =>
+            {
+                w.Int(1);
+                w.Int(DoorLightMath.EmitterCount);
+                w.Int(1);
+                w.Int(2);
+            }), "r", bsp)).Message);
+
+        static DoorLightRange Strip(DoorLightRange range) =>
+            range with { Responses = [.. range.Responses.Select(s => s.Select(e => e with { Details = [] }).ToArray())] };
+
+        // A section of two props lit once in LDR, no runs, then a door part
+        // without receivers whose LDR responses the writer gives.
+        byte[] DoorPart(Action<RoomLinkSections.Writer> responses) => Payload(w =>
+        {
+            w.Int(RoomDetailLighting.Revision);
+            w.Int(2);
+            w.Int(1);
+            w.Byte(1);
+            w.Structs<ColorRgbExp32>(new ColorRgbExp32[2], counted: false);
+            w.Raw([0, 0]);
+            w.Int(0);
+            w.Byte(1);
+            w.Byte(0);
+            responses(w);
+        });
+    }
+
+    /// <summary>A door light of the given sockets, the first holding the given emitters and the others none, in LDR (and HDR when given).</summary>
+    private static RoomDoorLight Door(DoorResponseEmitter[] first, DoorResponseEmitter[]? hdr, BspData bsp, int sockets = 2)
+    {
+        DoorResponseEmitter[][] Responses(DoorResponseEmitter[] emitters) => [emitters, .. Enumerable.Range(1, sockets - 1).Select(_ => Array.Empty<DoorResponseEmitter>())];
+        DoorLightRange Range(DoorResponseEmitter[] emitters) => new([], [], Responses(emitters));
+        return new RoomDoorLight([.. Enumerable.Range(0, sockets).Select(_ => Array.Empty<DoorReceiverFace>())], Range(first), hdr is null ? null : Range(hdr), bsp);
     }
 
     private static DetailPropLightstylesLump Style(byte style) =>

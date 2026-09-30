@@ -86,19 +86,17 @@ public sealed class LevelLinkerDetailLightingTests(LitDetailFixture fixture, ITe
     }
 
     /// <summary>
-    /// In a level of both rooms (jointed, lit with their door light), each
-    /// placement's detail props carry their room's bake as the room alone
-    /// links it: the same colours, counts and runs, the other room's lamp
-    /// renumbered from its compile's style 32 to the level's 33 (its name
-    /// comes second in the linked entity lump, as vbsp numbers the flattened
-    /// map's), the hub's keeping 32. The door light reaches no detail prop:
-    /// a prop is one sample point, which the design's door response would
-    /// serve, and this PR leaves it at the base bake (the landed note).
+    /// In a level of both rooms (jointed, lit without their door light, so
+    /// the bake alone), each placement's detail props carry their room's
+    /// bake as the room alone links it: the same colours, counts and runs,
+    /// the other room's lamp renumbered from its compile's style 32 to the
+    /// level's 33 (its name comes second in the linked entity lump, as vbsp
+    /// numbers the flattened map's), the hub's keeping 32.
     /// </summary>
     [Fact]
     public async Task EveryPlacementKeepsItsRoomsDetailLightingWithTheLevelsStyles()
     {
-        BspData level = await fixture.LinkedAsync("hub, other");
+        BspData level = await fixture.BaseLinkedAsync("hub, other");
         DetailPropLump lump = RoomDetailHarness.Lump(level);
         // After -both a prop's count and run start are the HDR pass's (vrad's
         // last), so its run is in dplh.
@@ -111,7 +109,7 @@ public sealed class LevelLinkerDetailLightingTests(LitDetailFixture fixture, ITe
 
         foreach ((string room, int cellX, byte renumbered) in new[] { ("hub", 0, (byte)32), ("other", 1, (byte)33) })
         {
-            BspData alone = await fixture.LinkedAsync(room);
+            BspData alone = await fixture.BaseLinkedAsync(room);
             DetailPropLump own = RoomDetailHarness.Lump(alone);
             DetailPropLightstylesLump[] ownRuns = StyleLump(alone, hdr: true);
             int withStyles = 0;
@@ -129,6 +127,106 @@ public sealed class LevelLinkerDetailLightingTests(LitDetailFixture fixture, ITe
             output.WriteLine($"{room}: {own.Props.Count} props, {withStyles} with a style run");
             Assert.True(withStyles > 0);
         }
+    }
+
+    /// <summary>
+    /// Two rooms jointed, at two turns, against vrad of the linked level
+    /// itself (the rooms design, 9.8, as PR 10 holds a jointed level's
+    /// luxels): each detail prop's colour, near a joint (within a door width)
+    /// and elsewhere, by <see cref="LitCompare.Relative"/>. With the door
+    /// light (the neighbour's lights evaluated at each prop's one sample
+    /// point through the cells of the opening it sees, as a face's receivers
+    /// take them), the props are within a twentieth (p95, near and
+    /// elsewhere) and 1% of the energy, the door light only adds to each
+    /// prop's base colour and runs, 95% of the props list the styles vrad
+    /// lists for them, and the base alone is far off; a capped room is exact
+    /// with its door light (the capped facts above run on rooms lit with it).
+    /// Measured: near p95 0.006 and 0.006, elsewhere 0.005 and 0.006, energy
+    /// 1.000 and 1.002, 443 and 438 of 453 props with vrad's styles; the base
+    /// alone near p95 1.0, energy 0.76 and 0.70.
+    /// </summary>
+    [Theory]
+    [InlineData("hub, other")]
+    [InlineData("hub@90, other@180")]
+    public async Task AJointedLevelsDetailPropsTakeTheDoorsLight(string row)
+    {
+        // The rooms' surfaces reflect nothing and they hold no static prop,
+        // so their responses are there for their detail props alone.
+        RoomDoorLight hubDoor = fixture.Lit.Get("hub").DoorLightOfCompile!;
+        Assert.All(hubDoor.Ldr!.Responses, socket => Assert.Equal(DoorLightMath.EmitterCount, socket.Length));
+        Assert.Equal(RoomDetailHarness.Lump(fixture.Lit.Get("hub").Bsp).Props.Count, hubDoor.Details!.Centres.Length);
+
+        LevelGrid level = RoomPropHarness.Level(row);
+        LinkedLevel shape = await RoomLightHarness.LinkAsync(fixture.Lit, level);
+        List<DoorLightCompare.Joint> joints = DoorLightCompare.Joints(shape);
+        BspData relit = await fixture.RelitAsync(row);
+        BspData linked = await fixture.LinkedAsync(row);
+        BspData baseOnly = await fixture.BaseLinkedAsync(row);
+        (double nearP95, double farP95, double energy) door = Measure(linked, relit, joints);
+        (double nearP95, double farP95, double energy) bare = Measure(baseOnly, relit, joints);
+        output.WriteLine($"{row}: with the door light near p95 {door.nearP95:F3} elsewhere p95 {door.farP95:F3} energy {door.energy:F3};"
+            + $" base alone near p95 {bare.nearP95:F3} elsewhere p95 {bare.farP95:F3} energy {bare.energy:F3}");
+        Assert.True(door.nearP95 < 0.05 && door.farP95 < 0.05, $"p95 {door.nearP95} near, {door.farP95} elsewhere");
+        Assert.InRange(door.energy, 0.99, 1.01);
+        Assert.True(bare.nearP95 >= 2 * door.nearP95 && bare.energy < door.energy, "the door light brings the props nearer vrad's");
+
+        // The door light only adds: every prop's colour, and every style its
+        // base run holds, at least the base's; the styles it adds are the
+        // neighbour's lamps', renumbered, and each prop's run lists the
+        // styles vrad of the level lists for it.
+        DetailPropLump withDoor = RoomDetailHarness.Lump(linked), without = RoomDetailHarness.Lump(baseOnly), reference = RoomDetailHarness.Lump(relit);
+        DetailPropLightstylesLump[] doorRuns = StyleLump(linked, hdr: true), baseRuns = StyleLump(baseOnly, hdr: true), relitRuns = StyleLump(relit, hdr: true);
+        Dictionary<string, DetailObjectLump> relitByOrigin = reference.Props.ToDictionary(p => RoomDetailHarness.V(p.Origin), StringComparer.Ordinal);
+        int sameStyles = 0;
+        Assert.All(withDoor.Props.Zip(without.Props), pair =>
+        {
+            Vec3 a = pair.First.Lighting.ToLinear(), b = pair.Second.Lighting.ToLinear();
+            Assert.True(a.X >= b.X && a.Y >= b.Y && a.Z >= b.Z, $"{a} darker than the base {b}");
+            DetailPropLightstylesLump[] run = Run(doorRuns, pair.First);
+            foreach (DetailPropLightstylesLump entry in Run(baseRuns, pair.Second))
+            {
+                DetailPropLightstylesLump added = Assert.Single(run, e => e.Style == entry.Style);
+                Vec3 x = added.Lighting.ToLinear(), y = entry.Lighting.ToLinear();
+                Assert.True(x.X >= y.X && x.Y >= y.Y && x.Z >= y.Z, $"style {entry.Style}: {x} darker than the base {y}");
+            }
+
+            Assert.True(run.Zip(run.Skip(1)).All(e => e.First.Style < e.Second.Style), "a run lists its styles in ascending order");
+            sameStyles += run.Select(e => e.Style).SequenceEqual(Run(relitRuns, relitByOrigin[RoomDetailHarness.V(pair.First.Origin)]).Select(e => e.Style)) ? 1 : 0;
+        });
+        output.WriteLine($"{row}: {sameStyles} of {withDoor.Props.Count} props list vrad's styles");
+        Assert.True(sameStyles >= withDoor.Props.Count * 0.95, $"{sameStyles} of {withDoor.Props.Count} props list vrad's styles");
+    }
+
+    /// <summary>
+    /// Reflecting rooms (the shell's reflectivity 0.6/0.55/0.5, as PR 10's
+    /// bounce facts use): a room with detail props stores responses, each
+    /// emitter's detail props' ambient light (what its surfaces reflect onto
+    /// them; the direct light is the link's), and a jointed level's props
+    /// are within PR 10's tolerances for reflecting rooms (p95 under 0.2),
+    /// here held to 0.15 near and elsewhere and 2% of the energy. Measured
+    /// against vrad of the linked level: near p95 0.074, elsewhere 0.040,
+    /// energy 1.000; with the rooms' detail responses taken out (the direct
+    /// light alone), p95 0.14 to 0.20 and energy 0.978.
+    /// </summary>
+    [Fact]
+    public async Task ReflectingRoomsDetailPropsTakeTheBouncedDoorLight()
+    {
+        const string Reflectivity = ".6 .55 .5";
+        RoomLibrary rooms = await RoomLightHarness.CompileAsync(LitDetailFixture.Library, options: LitDetailFixture.Options, doorLight: true, reflectivity: Reflectivity);
+        DoorResponseEmitter[][] responses = rooms.Get("hub").DoorLightOfCompile!.Ldr!.Responses;
+        Assert.All(responses, socket => Assert.Equal(DoorLightMath.EmitterCount, socket.Length));
+        Assert.Contains(responses.SelectMany(s => s), e => e.Details.Length > 0);
+        Assert.NotNull(rooms.Get("hub").DoorLightOfCompile!.Details);
+
+        LevelGrid level = RoomPropHarness.Level("hub, other@90");
+        LinkedLevel linked = await RoomLightHarness.LinkAsync(rooms, level);
+        // vrad of the linked level itself: its texdata carry the shell's
+        // reflectivity, which the rooms' compiles read from the material.
+        BspData relit = await RoomLightHarness.RelightAsync(linked.Bsp, LitDetailFixture.Options, Reflectivity);
+        (double nearP95, double farP95, double energy) = Measure(linked.Bsp, relit, DoorLightCompare.Joints(linked));
+        output.WriteLine($"reflecting: near p95 {nearP95:F3} elsewhere p95 {farP95:F3} energy {energy:F3}");
+        Assert.True(nearP95 < 0.15 && farP95 < 0.15, $"p95 {nearP95} near, {farP95} elsewhere");
+        Assert.InRange(energy, 0.98, 1.02);
     }
 
     /// <summary>
@@ -172,7 +270,8 @@ public sealed class LevelLinkerDetailLightingTests(LitDetailFixture fixture, ITe
 
     /// <summary>
     /// Rooms lit with <c>-nodetaillight</c> carry no detail lighting (no
-    /// section), and their level keeps each prop's lighting as vbsp wrote it
+    /// section, no detail receivers, and no responses a room of surfaces that
+    /// reflect nothing would store only for them), and their level keeps each prop's lighting as vbsp wrote it
     /// and gets no style lump, as vrad of the level with that switch leaves
     /// it; a level of a room whose bake lit its detail props and one whose
     /// bake did not is refused.
@@ -183,6 +282,8 @@ public sealed class LevelLinkerDetailLightingTests(LitDetailFixture fixture, ITe
         VradOptions options = LitDetailFixture.Options with { NoDetailLighting = true };
         RoomLibrary dark = await RoomLightHarness.CompileAsync(LitDetailFixture.Library, options: options, doorLight: true);
         Assert.All(dark.Rooms, r => Assert.False(RoomDetailLighting.Has(r.LightingOfCompile!)));
+        Assert.All(dark.Rooms, r => Assert.Null(r.DoorLightOfCompile!.Details));
+        Assert.All(dark.Get("hub").DoorLightOfCompile!.Ldr!.Responses, socket => Assert.Empty(socket));
         Assert.Null(RoomDetailLighting.ToSection(dark.Get("hub").LightingOfCompile!));
 
         LevelGrid level = RoomPropHarness.Level("hub@90, other");
@@ -230,6 +331,26 @@ public sealed class LevelLinkerDetailLightingTests(LitDetailFixture fixture, ITe
         }
 
         Assert.Equal(await PackAsync(1), await PackAsync(4));
+    }
+
+    /// <summary>Each detail prop's colour against the reference's at the same origin: p95 near a joint and elsewhere, and the energy.</summary>
+    private static (double NearP95, double FarP95, double Energy) Measure(BspData level, BspData reference, List<DoorLightCompare.Joint> joints)
+    {
+        DetailPropLump a = RoomDetailHarness.Lump(level), b = RoomDetailHarness.Lump(reference);
+        Dictionary<string, DetailObjectLump> byOrigin = b.Props.ToDictionary(p => RoomDetailHarness.V(p.Origin), StringComparer.Ordinal);
+        List<double> near = [], far = [];
+        double sumA = 0, sumB = 0;
+        foreach (DetailObjectLump p in a.Props)
+        {
+            Vec3 x = p.Lighting.ToLinear(), y = byOrigin[RoomDetailHarness.V(p.Origin)].Lighting.ToLinear();
+            (joints.Any(j => (p.Origin - j.Centre).Length() <= j.Width + (j.Height / 2)) ? near : far).Add(LitCompare.Relative(x, y));
+            sumA += x.X + x.Y + x.Z;
+            sumB += y.X + y.Y + y.Z;
+        }
+
+        near.Sort();
+        far.Sort();
+        return (LitCompare.Quantile(near, .95), LitCompare.Quantile(far, .95), sumA / sumB);
     }
 
     private static DetailPropLightstylesLump[] Run(DetailPropLightstylesLump[] runs, DetailObjectLump p) =>

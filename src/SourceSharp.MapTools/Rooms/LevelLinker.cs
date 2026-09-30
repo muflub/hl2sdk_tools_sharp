@@ -521,7 +521,7 @@ public static partial class LevelLinker
         // tree's leaves, re-sorted, lit from the rooms' bakes when the level
         // is lit; a level whose rooms have none keeps its first room's empty
         // lump, as before detail props were carried.
-        WriteDetailProps(linked, plans, lit, styles, cancellationToken);
+        WriteDetailProps(linked, plans, lit, styles, door, cancellationToken);
 
         if (lit is not null)
         {

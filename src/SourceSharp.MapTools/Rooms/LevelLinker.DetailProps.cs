@@ -12,6 +12,7 @@ using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Bsp.Props;
+using SourceSharp.MapTools.Rad.Ambient;
 using SourceSharp.MapTools.Rad.Props;
 
 namespace SourceSharp.MapTools.Rooms;
@@ -61,6 +62,7 @@ public static partial class LevelLinker
     /// <param name="plans">The placements, in link order.</param>
     /// <param name="lit">What a lit level's rooms agree on, or null for an unlit level.</param>
     /// <param name="styles">The level's switchable styles, which renumber each style run's styles.</param>
+    /// <param name="door">The level's door light, or null: what jointed neighbours add to each placement's detail props (<see cref="PlanDoorLightAsync"/>).</param>
     /// <param name="cancellationToken">Cancels the placement loop.</param>
     /// <exception cref="LinkException">
     /// The level outgrows a field (65,535 props, or a dictionary entry past
@@ -114,8 +116,21 @@ public static partial class LevelLinker
     /// (<c>-nodetaillight</c>) keeps the records' compiled lighting and gets
     /// no style lump, as vrad leaves such a map.
     /// </para>
+    /// <para>
+    /// <b>Door light.</b> A prop a jointed neighbour's light reaches through
+    /// a door takes it as a face's luxel does (<see cref="DoorLightTerms.Details"/>):
+    /// the neighbour's lights and stand-ins evaluated at the prop's one
+    /// sample point, through the cells of the opening it sees, every style;
+    /// and, for a room that stores responses, what its surfaces reflect onto
+    /// the prop, style 0. Style 0's light goes into its colour (decoded
+    /// exactly, summed, encoded once with vrad's encoder), every other
+    /// style's into its run, halved as vrad halves a style's light, under
+    /// the level's number for it. A prop no door light reaches keeps its
+    /// bake's bytes.
+    /// </para>
     /// </remarks>
-    internal static void WriteDetailProps(BspData linked, RoomPlan[] plans, LevelLight? lit, LevelLightStyles styles, CancellationToken cancellationToken = default)
+    internal static void WriteDetailProps(
+        BspData linked, RoomPlan[] plans, LevelLight? lit, LevelLightStyles styles, LevelDoorLight? door = null, CancellationToken cancellationToken = default)
     {
         if (!plans.Any(p => p.DetailProps is not null))
         {
@@ -214,20 +229,32 @@ public static partial class LevelLinker
                     }
 
                     ref DetailObjectLump record = ref records[k];
+                    List<DetailPropLightstylesLump> run = [];
+                    for (int s = runStarts[roomProp]; s < runStarts[roomProp + 1]; s++)
+                    {
+                        DetailPropLightstylesLump entry = light.Styles[s];
+                        entry.Style = (byte)styles.Remap(plan.Placement.Index, entry.Style);
+                        run.Add(entry);
+                    }
+
                     record.Lighting = light.Colors[roomProp];
-                    record.LightStyleCount = light.Counts[roomProp];
-                    if (light.Counts[roomProp] == 0)
+                    if (door?.For(hdr, plan.Placement.Index) is { } terms && terms.Details.TryGetValue(roomProp, out List<(int Source, int Style, Vec3 Light)>? added))
+                    {
+                        record.Lighting = AddDoorLight(record.Lighting, run, added, styles);
+                    }
+
+                    // vrad lists a prop's styles in ascending order; the
+                    // level's numbering can order a room's two names apart
+                    // from its compile's, and door styles join them.
+                    run.Sort((a, b) => a.Style.CompareTo(b.Style));
+                    record.LightStyleCount = (byte)run.Count;
+                    if (run.Count == 0)
                     {
                         continue;
                     }
 
                     record.LightStyles = (uint)runs.Count;
-                    for (int s = runStarts[roomProp]; s < runStarts[roomProp + 1]; s++)
-                    {
-                        DetailPropLightstylesLump entry = light.Styles[s];
-                        entry.Style = (byte)styles.Remap(plan.Placement.Index, entry.Style);
-                        runs.Add(entry);
-                    }
+                    runs.AddRange(run);
                 }
 
                 // As vrad writes a pass: the other range's lump first (kept,
@@ -243,6 +270,60 @@ public static partial class LevelLinker
         {
             ReplaceGameLump(linked.GameLumps, entry);
         }
+    }
+
+    /// <summary>
+    /// A detail prop's door light added to its bake: the style 0 terms to its
+    /// colour, decoded exactly, summed, encoded once with vrad's encoder;
+    /// every other style's, renumbered for the level by the placement it came
+    /// from, halved as vrad halves a style's light, into the run's entry of
+    /// that style or a new entry.
+    /// </summary>
+    /// <returns>The prop's colour.</returns>
+    private static ColorRgbExp32 AddDoorLight(
+        ColorRgbExp32 colour, List<DetailPropLightstylesLump> run, List<(int Source, int Style, Vec3 Light)> added, LevelLightStyles styles)
+    {
+        Vec3 linear = colour.ToLinear();
+        bool changed = false;
+        List<(int Style, Vec3 Light)> others = [];
+        foreach ((int source, int style, Vec3 light) in added)
+        {
+            if (style == 0)
+            {
+                linear += light;
+                changed = true;
+                continue;
+            }
+
+            int linked = styles.Remap(source, style);
+            int at = others.FindIndex(o => o.Style == linked);
+            if (at < 0)
+            {
+                others.Add((linked, light));
+            }
+            else
+            {
+                others[at] = (linked, others[at].Light + light);
+            }
+        }
+
+        foreach ((int style, Vec3 light) in others)
+        {
+            Vec3 half = new(light.X * 0.5f, light.Y * 0.5f, light.Z * 0.5f);
+            int at = run.FindIndex(e => e.Style == style);
+            if (at >= 0)
+            {
+                DetailPropLightstylesLump entry = run[at];
+                entry.Lighting = StockLightColor.Encode(entry.Lighting.ToLinear() + half);
+                run[at] = entry;
+            }
+            else if (half != Vec3.Zero)
+            {
+                run.Add(new DetailPropLightstylesLump { Lighting = StockLightColor.Encode(half), Style = (byte)style });
+            }
+        }
+
+        return changed ? StockLightColor.Encode(linear) : colour;
     }
 
     /// <summary>

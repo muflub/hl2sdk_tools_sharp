@@ -182,7 +182,7 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // neither section, so its entry is what it was before detail props
         // were carried.
         IReadOnlyList<RoomPackSectionData> detailProps = room.DetailPropsOfCompile is { } details ? [details.ToSection()] : [];
-        IReadOnlyList<RoomPackSectionData> detailLight = room.LightingOfCompile is { } litDetails && RoomDetailLighting.ToSection(litDetails) is { } detailSection
+        IReadOnlyList<RoomPackSectionData> detailLight = room.LightingOfCompile is { } litDetails && RoomDetailLighting.ToSection(litDetails, room.DoorLightOfCompile) is { } detailSection
             ? [detailSection]
             : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
@@ -1108,12 +1108,13 @@ public static class RoomPack
             RoomStaticProps? props = RoomStaticProps.Read(Section(name, RoomStaticProps.SectionTag), room.Definition, room.Bsp);
             RoomBrushModels? brushModels = RoomBrushModels.Read(Section(name, RoomBrushModels.SectionTag), room.Definition, room.Bsp);
             RoomTransit? transit = RoomTransit.Read(Section(name, RoomTransit.SectionTag), name, room.Bsp);
-            RoomLighting? lighting = RoomDetailLighting.Attach(
+            (RoomLighting? lighting, DetailDoor? detailDoor) = RoomDetailLighting.Read(
                 RoomLighting.Read(Section(name, RoomLighting.SectionTag), room.Definition, room.Bsp),
                 Section(name, RoomDetailLighting.SectionTag),
                 name,
                 room.Bsp);
-            RoomDoorLight? doorLight = RoomDoorLight.Read(Section(name, RoomDoorLight.SectionTag), room.Definition, room.Bsp, lighting);
+            RoomDoorLight? doorLight = RoomDetailLighting.AttachDoor(
+                RoomDoorLight.Read(Section(name, RoomDoorLight.SectionTag), room.Definition, room.Bsp, lighting), detailDoor, name);
             RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
             RoomOverlays? overlays = RoomOverlays.Read(Section(name, RoomOverlays.SectionTag), name, room.Bsp);
             RoomAreaPortals? areaPortals = RoomAreaPortals.Read(Section(name, RoomAreaPortals.SectionTag), name, room.Bsp);

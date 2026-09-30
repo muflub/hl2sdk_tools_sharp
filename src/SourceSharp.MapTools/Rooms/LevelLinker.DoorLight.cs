@@ -33,8 +33,27 @@ internal sealed class DoorLightTerms
     /// <summary>Per lit prop (by the room's prop index), its vertices' additions.</summary>
     public Dictionary<int, Vec3[]> Props { get; } = [];
 
+    /// <summary>
+    /// Per detail prop the door light reached (by the room's detail prop
+    /// index), its additions: the placement they came from, its room's style
+    /// (which the link renumbers) and the light, per term in the order the
+    /// joints and sources give them.
+    /// </summary>
+    public Dictionary<int, List<(int Source, int Style, Vec3 Light)>> Details { get; } = [];
+
+    /// <summary>Adds one term to a detail prop.</summary>
+    public void AddDetail(int prop, int source, int style, Vec3 light)
+    {
+        if (!Details.TryGetValue(prop, out List<(int, int, Vec3)>? list))
+        {
+            Details[prop] = list = [];
+        }
+
+        list.Add((source, style, light));
+    }
+
     /// <summary>Whether anything reached the placement.</summary>
-    public bool Any => Faces.Count > 0 || Props.Count > 0 || Ambient.Any(a => a is not null);
+    public bool Any => Faces.Count > 0 || Props.Count > 0 || Details.Count > 0 || Ambient.Any(a => a is not null);
 }
 
 /// <summary>
@@ -222,6 +241,11 @@ public static partial class LevelLinker
             }
 
             Direct(terms, a, sources, door.Receivers[mine], cells[name], to);
+            if (door.Details is { } details)
+            {
+                DirectDetails(terms, a, sources, details, mine, to);
+            }
+
             Ambient(terms, sources, range.Ambient[payload][mine], samples, to);
             if (range.Responses[mine].Length > 0)
             {
@@ -359,6 +383,37 @@ public static partial class LevelLinker
     }
 
     /// <summary>
+    /// The direct light of each source at every detail prop whose centre sees
+    /// the opening (the rooms design, 4.4: one sample point a prop), by the
+    /// source's style: the source's falloff and cosine against the prop's up
+    /// vector, only through a cell of the opening the prop sees and a cell
+    /// of the neighbour's the source reaches (<see cref="DoorLightMath.Through"/>),
+    /// as a face's receivers take it; no ray is traced.
+    /// </summary>
+    private static void DirectDetails(DoorLightTerms terms, int sender, DoorSource[] sources, DoorDetailReceivers details, int socket, DoorFrame to)
+    {
+        UInt128[] masks = details.Seen[socket].Masks();
+        for (int p = 0; p < masks.Length; p++)
+        {
+            if (masks[p] == UInt128.Zero)
+            {
+                continue;
+            }
+
+            Vec3 point = to.ToLocal(details.Centres[p]);
+            Vec3 normal = to.DirectionToLocal(details.Normals[p]);
+            foreach (DoorSource source in sources)
+            {
+                float e = DoorLightMath.Through(source, point, normal, to.Width, to.Height, to.Depth, masks[p]);
+                if (e > 0)
+                {
+                    terms.AddDetail(p, sender, source.Style, source.Intensity * e);
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// A leaf ambient cube's value per luxel value of the same light: vrad
     /// gathers a cube from the colours it reads off what its rays meet (the
     /// sky ambient's intensity, a surface's average times its reflectivity)
@@ -469,6 +524,14 @@ public static partial class LevelLinker
             }
 
             AddAmbient(terms, emitters[e].Ambient, samples, share);
+            foreach (DoorResponseDetail detail in emitters[e].Details)
+            {
+                terms.AddDetail(detail.Prop, sender, 0, new Vec3(
+                    (float)detail.Colour[0] * share.X,
+                    (float)detail.Colour[1] * share.Y,
+                    (float)detail.Colour[2] * share.Z));
+            }
+
             foreach (DoorResponseProp prop in emitters[e].Props)
             {
                 int vertices = prop.Colours.Length / 3;
