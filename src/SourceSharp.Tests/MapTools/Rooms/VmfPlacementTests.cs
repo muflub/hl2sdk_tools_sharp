@@ -156,28 +156,96 @@ public sealed class VmfPlacementTests
         Assert.Contains(expected, refused.Message, StringComparison.Ordinal);
     }
 
-    /// <summary>A texture axis that is not <c>[x y z shift] scale</c>, or a displacement, is refused when moving.</summary>
+    /// <summary>A texture axis that is not <c>[x y z shift] scale</c> is refused when moving.</summary>
     [Theory]
     [InlineData("1 0 0 0 0.25", "has a texture axis \"1 0 0 0 0.25\", not \"[x y z shift] scale\"")]
     [InlineData("[1 0 0] 0.25", "not \"[x y z shift] scale\"")]
     [InlineData("[1 0 0 0]", "not \"[x y z shift] scale\"")]
     [InlineData("[1 0 z 0] 0.25", "brush 7: texture axis \"z\" is not a number")]
-    [InlineData("dispinfo", "brush 7 is a displacement; a room cannot carry displacements")]
     public void AnUnmovableSideIsRefused(string axis, string expected)
     {
         VmfChunk solid = Solid();
         VmfChunk side = solid.Chunks.First();
-        if (axis == "dispinfo")
-        {
-            side.AddChunk("dispinfo").AddKey("power", "2");
-        }
-        else
-        {
-            side.Keys.Single(k => k.Name == "uaxis").Value = axis;
-        }
+        side.Keys.Single(k => k.Name == "uaxis").Value = axis;
 
         RoomLibraryException refused = Assert.Throws<RoomLibraryException>(() => VmfPlacement.MoveSolid(solid, new QuarterTurn(1, Vec3.Zero)));
         Assert.Contains(expected, refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A displacement moves with its side (the rooms design, 4.5): its start
+    /// position through the whole move, its normals, offsets and offset
+    /// normals turned as directions, a negative zero written as zero, and
+    /// every other key and row (distances, alphas, triangle tags, allowed
+    /// vertices, power, flags) copied as written; the source is untouched.
+    /// </summary>
+    [Theory]
+    [InlineData(0, "[16 8 16]", "0 0 1 1 0 0", "0.5 -0.25 3 0 0 0")]
+    [InlineData(1, "[248 528 16]", "0 0 1 0 1 0", "0.25 0.5 3 0 0 0")]
+    [InlineData(2, "[240 504 16]", "0 0 1 -1 0 0", "-0.5 0.25 3 0 0 0")]
+    [InlineData(3, "[264 496 16]", "0 0 1 0 -1 0", "-0.25 -0.5 3 0 0 0")]
+    public void ADisplacementMovesWithItsSide(int rotation, string start, string normals, string offsets)
+    {
+        VmfChunk solid = Solid();
+        VmfChunk disp = DispInfo(solid.Chunks.First());
+        QuarterTurn turn = new(rotation, new Vec3(256, 512, 0));
+
+        VmfChunk moved = VmfPlacement.MoveSolid(solid, turn).Chunks.First().GetChunk("dispinfo")!;
+
+        Assert.Equal(start, moved.GetValue("startposition"));
+        Assert.Equal(normals, moved.GetChunk("normals")!.GetValue("row0"));
+        Assert.Equal(offsets, moved.GetChunk("offsets")!.GetValue("row0"));
+        Assert.Equal(normals, moved.GetChunk("offset_normals")!.GetValue("row0"));
+        Assert.Equal("2", moved.GetValue("power"));
+        Assert.Equal("0", moved.GetValue("flags"));
+        Assert.Equal("[1 0 0]", moved.GetValue("uaxis"));
+        Assert.Equal("4 5", moved.GetChunk("distances")!.GetValue("row0"));
+        Assert.Equal("0 255", moved.GetChunk("alphas")!.GetValue("row0"));
+        Assert.Equal("9 9", moved.GetChunk("triangle_tags")!.GetValue("row0"));
+        Assert.Equal("-1 -1", moved.GetChunk("allowed_verts")!.GetValue("10"));
+        Assert.Equal(disp.GetChunk("normals")!.GetValue("row0"), "0 0 1 1 0 0");
+        Assert.Equal("[16 8 16]", disp.GetValue("startposition"));
+    }
+
+    /// <summary>A displacement whose start position or rows cannot be read is refused naming its brush.</summary>
+    [Theory]
+    [InlineData("start", "16 8 16", "brush 7 has a displacement startposition \"16 8 16\", not \"[x y z]\"")]
+    [InlineData("start", "[16 8]", "brush 7: startposition \"16 8\" is not three numbers")]
+    [InlineData("row", "0 0 1 1 0", "brush 7 has a displacement normals row0 of 5 numbers, not three per vertex")]
+    [InlineData("row", "0 0 1 1 0 x", "brush 7: normals \"x\" is not a number")]
+    public void AnUnreadableDisplacementIsRefused(string fault, string value, string expected)
+    {
+        VmfChunk solid = Solid();
+        VmfChunk disp = DispInfo(solid.Chunks.First());
+        if (fault == "start")
+        {
+            disp.Keys.Single(k => k.Name == "startposition").Value = value;
+        }
+        else
+        {
+            disp.GetChunk("normals")!.Keys.Single().Value = value;
+        }
+
+        RoomLibraryException refused = Assert.Throws<RoomLibraryException>(() => VmfPlacement.MoveSolid(solid, new QuarterTurn(1, Vec3.Zero)));
+        Assert.Equal(expected + ".", refused.Message);
+    }
+
+    /// <summary>A <c>dispinfo</c> on a side, two vertices a row as far as these facts read it.</summary>
+    private static VmfChunk DispInfo(VmfChunk side)
+    {
+        VmfChunk disp = side.AddChunk("dispinfo");
+        disp.AddKey("power", "2");
+        disp.AddKey("startposition", "[16 8 16]");
+        disp.AddKey("flags", "0");
+        disp.AddKey("uaxis", "[1 0 0]");
+        disp.AddChunk("normals").AddKey("row0", "0 0 1 1 0 0");
+        disp.AddChunk("distances").AddKey("row0", "4 5");
+        disp.AddChunk("offsets").AddKey("row0", "0.5 -0.25 3 0 0 0");
+        disp.AddChunk("offset_normals").AddKey("row0", "0 0 1 1 0 0");
+        disp.AddChunk("alphas").AddKey("row0", "0 255");
+        disp.AddChunk("triangle_tags").AddKey("row0", "9 9");
+        disp.AddChunk("allowed_verts").AddKey("10", "-1 -1");
+        return disp;
     }
 
     // ---- entities --------------------------------------------------------------------
