@@ -395,10 +395,10 @@ public static class RoomPackNamespaces
         }
 
         using IncrementalHash sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Span<byte> length = stackalloc byte[8];
         foreach (string part in (string[])["ssmap roompack lit singletons", singletons, RoomCacheKey.RoomDigest(skybox)])
         {
             byte[] bytes = Encoding.UTF8.GetBytes(part);
-            Span<byte> length = stackalloc byte[8];
             BinaryPrimitives.WriteInt64BigEndian(length, bytes.Length);
             sha.AppendData(length);
             sha.AppendData(bytes);
