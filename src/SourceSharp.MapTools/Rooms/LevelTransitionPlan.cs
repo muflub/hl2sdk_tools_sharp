@@ -80,12 +80,25 @@ internal sealed record LevelSpawnPoint(int Placement, string Origin, string Angl
 /// </remarks>
 internal sealed class LevelTransitionPlan
 {
-    private LevelTransitionPlan(bool modEntities, PlacementTransition?[] placements, List<LevelSpawnPoint> spawns)
+    private LevelTransitionPlan(
+        bool modEntities, PlacementTransition?[] placements, List<LevelSpawnPoint> spawns, int spawnPlacement, List<TransitPoint> spawnPoints)
     {
         ModEntities = modEntities;
         Placements = placements;
         Spawns = spawns;
+        SpawnPlacement = spawnPlacement;
+        SpawnPoints = spawnPoints;
     }
+
+    /// <summary>The placement a fresh start spawns in, whichever entities the level writes.</summary>
+    public int SpawnPlacement { get; }
+
+    /// <summary>
+    /// Its points, room-local and unturned, in the order the stock fallback
+    /// writes them (the up room's arrival first): what the level map marks
+    /// the spawn at, with or without <c>-mod-entities</c>.
+    /// </summary>
+    public IReadOnlyList<TransitPoint> SpawnPoints { get; }
 
     /// <summary>Whether the level writes the mod's classes.</summary>
     public bool ModEntities { get; }
@@ -190,7 +203,7 @@ internal sealed class LevelTransitionPlan
             }
         }
 
-        return new LevelTransitionPlan(modEntities, placements, spawns);
+        return new LevelTransitionPlan(modEntities, placements, spawns, spawnRoom, points);
     }
 
     /// <summary>A landmark's name: the upper level's map name, two underscores, the lower's.</summary>

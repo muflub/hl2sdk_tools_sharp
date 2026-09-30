@@ -155,27 +155,8 @@ public static class LevelFlattener
             throw new ArgumentException($"the level names {count} librar{(count == 1 ? "y" : "ies")}; {libraries.Count} VMFs were given", nameof(libraries));
         }
 
-        RoomLibrarySplit[] splits = [.. libraries.Select(RoomLibraryVmf.SplitLibrary)];
-        IReadOnlyList<string>[] names = [.. splits.Select(s => (IReadOnlyList<string>)[
-            .. s.Rooms.Select(r => r.Definition.Name), .. s.Skybox is { } sky ? [sky.Definition.Name] : Array.Empty<string>()])];
-        if (level.Libraries is not null || level.Aliases.Count > 0)
-        {
-            level = LevelLibraries.Resolve(level, names);
-        }
-
-        // Every room by the name the level places it by: its own for a
-        // library: level, its qualified name for a level of several.
+        (level, RoomLibrarySplit[] splits, Dictionary<string, LibraryRoom> byName, Dictionary<string, int> sourceOf) = RoomsOf(level, libraries);
         string KeyOf(int source, string room) => level.Libraries is { } keys ? LevelLibraries.Qualified(keys[source].Key, room) : room;
-        Dictionary<string, LibraryRoom> byName = new(StringComparer.Ordinal);
-        Dictionary<string, int> sourceOf = new(StringComparer.Ordinal);
-        for (int s = 0; s < splits.Length; s++)
-        {
-            foreach (LibraryRoom room in splits[s].Rooms)
-            {
-                byName[KeyOf(s, room.Definition.Name)] = room;
-                sourceOf[KeyOf(s, room.Definition.Name)] = s;
-            }
-        }
 
         // Every library's skybox is the link's to place (below the grid),
         // never the level's, with the link's refusal; the first library's
@@ -565,6 +546,46 @@ public static class LevelFlattener
     /// null. A key naming no socket, which <c>ssmap room</c> refuses, is not
     /// furniture here: the flatten reads the library, not the rooms' verdicts.
     /// </summary>
+    /// <summary>
+    /// A level's libraries split, its cells resolved (aliases, and the
+    /// qualified names of a level of several libraries, 17.2), and every room
+    /// by the name the level places it by: its own for a <c>library:</c>
+    /// level, its qualified name for a level of several. What the flatten and
+    /// <c>ssmap map2d</c> of a flattened compile (<see cref="LevelMapBuilder"/>)
+    /// both read a level's rooms by, so the two find the same room in a cell.
+    /// </summary>
+    /// <param name="level">The level, as read.</param>
+    /// <param name="libraries">The library VMFs, in the level's order.</param>
+    /// <returns>The resolved level, the splits, the rooms by name, and each room's library.</returns>
+    /// <exception cref="RoomLibraryException">A library cannot be split into rooms.</exception>
+    /// <exception cref="LevelFileException">A cell or alias does not resolve.</exception>
+    internal static (LevelGrid Level, RoomLibrarySplit[] Splits, Dictionary<string, LibraryRoom> ByName, Dictionary<string, int> SourceOf) RoomsOf(
+        LevelGrid level, IReadOnlyList<VmfDocument> libraries)
+    {
+        RoomLibrarySplit[] splits = [.. libraries.Select(RoomLibraryVmf.SplitLibrary)];
+        IReadOnlyList<string>[] names = [.. splits.Select(s => (IReadOnlyList<string>)[
+            .. s.Rooms.Select(r => r.Definition.Name), .. s.Skybox is { } sky ? [sky.Definition.Name] : Array.Empty<string>()])];
+        if (level.Libraries is not null || level.Aliases.Count > 0)
+        {
+            level = LevelLibraries.Resolve(level, names);
+        }
+
+        IReadOnlyList<LevelLibrary>? keys = level.Libraries;
+        Dictionary<string, LibraryRoom> byName = new(StringComparer.Ordinal);
+        Dictionary<string, int> sourceOf = new(StringComparer.Ordinal);
+        for (int s = 0; s < splits.Length; s++)
+        {
+            foreach (LibraryRoom room in splits[s].Rooms)
+            {
+                string key = keys is null ? room.Definition.Name : LevelLibraries.Qualified(keys[s].Key, room.Definition.Name);
+                byName[key] = room;
+                sourceOf[key] = s;
+            }
+        }
+
+        return (level, splits, byName, sourceOf);
+    }
+
     private static (string Socket, int Priority)? FurnitureSocket(VmfChunk entity, RoomDefinition definition)
     {
         string? className = entity.GetValue("classname");

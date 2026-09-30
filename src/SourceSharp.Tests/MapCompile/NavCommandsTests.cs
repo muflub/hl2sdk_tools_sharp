@@ -178,9 +178,9 @@ public sealed class NavCommandsTests
     }
 
     /// <summary>
-    /// <c>ssmap link</c> writes the map, then stitches and writes the
-    /// navigation: when the navigation's write fails, the map is already on
-    /// disk, whole, and the link says so and fails.
+    /// <c>ssmap link</c> writes the map, its level map, then stitches and
+    /// writes the navigation: when the navigation's write fails, the map and
+    /// its level map are already on disk, whole, and the link says so and fails.
     /// </summary>
     [Fact]
     public async Task TheMapIsWrittenBeforeTheNavigationAndSurvivesItsFailure()
@@ -204,9 +204,11 @@ public sealed class NavCommandsTests
         };
         (int exit, string log) = await LinkAsync(probe);
         Assert.Equal(RoomCommands.ExitFailed, exit);
-        Assert.Equal(2, order.Count);
+        Assert.Equal(3, order.Count);
         Assert.EndsWith("level.bsp", order[0], StringComparison.Ordinal);
-        Assert.EndsWith("level.nav3d", order[1], StringComparison.Ordinal);
+        Assert.EndsWith("level.map2d", order[1], StringComparison.Ordinal);
+        Assert.EndsWith("level.nav3d", order[2], StringComparison.Ordinal);
+        Assert.NotNull(fs.GetBytes(At("/out/level.map2d")));
         Assert.Contains("the map was written, but its navigation failed: the disk is full", log, StringComparison.Ordinal);
         Assert.Null(fs.GetBytes(At("/out/level.nav3d")));
         Assert.NotNull(RoomCompileIds.LevelIdOf(await MapAsync(fs)));
@@ -236,10 +238,10 @@ public sealed class NavCommandsTests
         // -cooker none room has no collision sections); the role rooms' brush
         // models (their transition volumes and triggers) and transition data
         // right after the counts, and every room's base lighting and door light
-        // after them.
+        // after them, then its part of the level map.
         Assert.All(index.Entries, e => Assert.Equal(
             [
-                "ROOM", "ECNT", .. e.Name == "hall" ? Array.Empty<string>() : ["BMOD", "TRAN"], "LITE", "DLIT",
+                "ROOM", "ECNT", .. e.Name == "hall" ? Array.Empty<string>() : ["BMOD", "TRAN"], "LITE", "DLIT", "MAPV",
                 "LNKA", "DVIS", "GEO0", "NAM0", "NVR0", "GEO1", "NAM1", "NVR1", "GEO2", "NAM2", "NVR2", "GEO3", "NAM3", "NVR3",
             ],
             e.Sections.Select(s => s.Tag)));
@@ -355,9 +357,9 @@ public sealed class NavCommandsTests
         // The index, the library's sections, and per placed room its
         // container, its entity counts, its brush models and transition data
         // when it has them, its base lighting and door light (every stored
-        // turn in one section each), its shared link section and door visibility, and its
-        // turn's link, name and navigation sections: none of the other
-        // turns'.
+        // turn in one section each), its part of the level map, its shared link
+        // section and door visibility, and its turn's link, name and navigation
+        // sections: none of the other turns'.
         long expected = index.IndexEnd + index.LibrarySections.Sum(s => s.Length);
         foreach ((string room, int turn) in new[] { ("up", 0), ("hall", 2) })
         {
@@ -365,7 +367,8 @@ public sealed class NavCommandsTests
             expected += entry.Room.Length + entry.Find("ECNT")!.Value.Length + entry.Find("LNKA")!.Value.Length
                 + entry.Find("DVIS")!.Value.Length + entry.Find($"GEO{turn}")!.Value.Length
                 + entry.Find($"NAM{turn}")!.Value.Length + entry.Find($"NVR{turn}")!.Value.Length
-                + (entry.Find("BMOD")?.Length ?? 0) + (entry.Find("TRAN")?.Length ?? 0) + entry.Find("LITE")!.Value.Length + entry.Find("DLIT")!.Value.Length;
+                + (entry.Find("BMOD")?.Length ?? 0) + (entry.Find("TRAN")?.Length ?? 0) + entry.Find("LITE")!.Value.Length + entry.Find("DLIT")!.Value.Length
+                + entry.Find("MAPV")!.Value.Length;
         }
 
         Assert.Equal(expected, tap.BytesReadFrom(At("/rooms.roompack")));

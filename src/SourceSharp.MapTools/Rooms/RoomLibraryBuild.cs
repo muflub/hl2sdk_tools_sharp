@@ -67,6 +67,38 @@ public sealed class RoomBuildOutcome
 
     /// <summary>Why the room failed, or null: as <see cref="RoomCompileOutcome.Error"/>.</summary>
     public Exception? Error { get; }
+
+    /// <summary>
+    /// What the room's level map warned of: a room with no walkable floor
+    /// (<see cref="RoomMapView.EmptyWarning"/>), which a player cannot stand
+    /// in; empty otherwise, and for a failed room.
+    /// </summary>
+    /// <remarks>
+    /// Read from the item's own <c>MAPV</c> section rather than kept beside
+    /// it, so a reused room says what its compile said without the cache
+    /// storing a line more: the section is the same bytes either way.
+    /// </remarks>
+    public IReadOnlyList<string> MapWarnings
+    {
+        get
+        {
+            if (Item is null)
+            {
+                return [];
+            }
+
+            foreach (RoomPackSectionData section in Item.Extra)
+            {
+                if (section.Tag == RoomMapView.SectionTag
+                    && RoomMapView.Read(new ArraySegment<byte>(section.Bytes.ToArray()), Room.Definition, null)?.EmptyWarning(Room.Definition.Name) is { } warning)
+                {
+                    return [warning];
+                }
+            }
+
+            return [];
+        }
+    }
 }
 
 /// <summary>

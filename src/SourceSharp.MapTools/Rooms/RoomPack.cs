@@ -174,9 +174,16 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // all four). A room without them gets no section, so its entry is
         // what it was before displacements were carried.
         IReadOnlyList<RoomPackSectionData> displacements = room.DisplacementsOfCompile is { } disps ? [disps.ToSection()] : [];
+
+        // The room's part of the level map (MAPV, the rooms design, 18.3):
+        // every placement reads it, whatever its turn (it is stored once and
+        // turned at link). A room compiled without it (a room built outside
+        // a library compile) gets none, and a level placing it links without
+        // a map, saying so.
+        IReadOnlyList<RoomPackSectionData> mapView = room.MapViewOfCompile is { } view ? [view.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. shape, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. areaPortals, .. water, .. displacements, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. shape, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. areaPortals, .. water, .. displacements, .. mapView, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -980,6 +987,14 @@ public static class RoomPack
                 wanted.Add((name, displacements));
             }
 
+            // The room's map: a few hundred bytes every link reads with the
+            // room, whether or not it writes a .map2d (the room is loaded
+            // whole, as the combiner and the cache hand it on).
+            if (entry.Find(RoomMapView.SectionTag) is { } mapView)
+            {
+                wanted.Add((name, mapView));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -1090,9 +1105,10 @@ public static class RoomPack
             RoomAreaPortals? areaPortals = RoomAreaPortals.Read(Section(name, RoomAreaPortals.SectionTag), name, room.Bsp);
             RoomWater? water = RoomWater.Read(Section(name, RoomWater.SectionTag), name, room.Bsp);
             RoomDisplacements? displacements = RoomDisplacements.Read(Section(name, RoomDisplacements.SectionTag), name, room.Bsp);
+            RoomMapView? mapView = RoomMapView.Read(Section(name, RoomMapView.SectionTag), room.Definition, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
                 && cubemaps is null && overlays is null
-                && lighting is null && doorLight is null && areaPortals is null && water is null && displacements is null
+                && lighting is null && doorLight is null && areaPortals is null && water is null && displacements is null && mapView is null
                 ? room
                 : room with
                 {
@@ -1104,6 +1120,7 @@ public static class RoomPack
                     AreaPortals = areaPortals,
                     Water = water,
                     Displacements = displacements,
+                    MapView = mapView,
                 };
         }
 
@@ -1612,6 +1629,7 @@ public static class RoomPack
         ((byte)'S', (byte)'H', (byte)'A', (byte)'P') => RoomShape.SectionTag,
         ((byte)'W', (byte)'A', (byte)'T', (byte)'R') => RoomWater.SectionTag,
         ((byte)'D', (byte)'I', (byte)'S', (byte)'P') => RoomDisplacements.SectionTag,
+        ((byte)'M', (byte)'A', (byte)'P', (byte)'V') => RoomMapView.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),
