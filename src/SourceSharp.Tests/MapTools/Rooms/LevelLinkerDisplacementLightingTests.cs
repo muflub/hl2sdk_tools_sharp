@@ -8,6 +8,9 @@
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Text;
+
+using SourceSharp.MapTools.Bsp;
 
 using SourceSharp.MapTools.Rooms;
 
@@ -94,6 +97,33 @@ public sealed class LevelLinkerDisplacementLightingTests(LitDisplacementFixture 
         Assert.True(p95 <= 0.2, $"displacement p95 {p95}");
         Assert.InRange(energy, 0.98, 1.02);
         Assert.True(baseP95 >= p95 * 2, $"base alone p95 {baseP95}");
+    }
+
+    /// <summary>
+    /// Rooms with displacements are baked, their door light recorded, packed
+    /// and linked to the same bytes at one thread and at four (the rooms
+    /// design, 15.5): the base bake, the door light (whose receivers on a
+    /// displacement stand on its surface) and the lit level.
+    /// </summary>
+    [Fact]
+    public async Task TheLitPackAndLinkAreTheSameBytesAtAnyThreadCount()
+    {
+        RoomLibrary four = await RoomLightHarness.CompileAsync(LitDisplacementFixture.Library, degree: 4, options: LitDisplacementFixture.Options, doorLight: true);
+        foreach (RoomObject room in fixture.Lit.Rooms)
+        {
+            RoomObject other = four.Get(room.Definition.Name);
+            Assert.Equal((await RoomPackItem.CreateAsync(room)).Extra.Select(x => x.Bytes.ToArray()), (await RoomPackItem.CreateAsync(other)).Extra.Select(x => x.Bytes.ToArray()));
+        }
+
+        LevelGrid level = RoomPropHarness.Level("hub@90, other@270", "other@0, hub@180");
+        Assert.Equal(await Bytes(fixture.Lit, level, 1), await Bytes(four, level, 4));
+
+        static async Task<byte[]> Bytes(RoomLibrary rooms, LevelGrid level, int degree)
+        {
+            using MemoryStream stream = new();
+            await BspFile.SaveAsync((await RoomLightHarness.LinkAsync(rooms, level, degree)).Bsp, stream, BspWriteMode.Canonical, CancellationToken.None);
+            return stream.ToArray();
+        }
     }
 
     /// <summary>

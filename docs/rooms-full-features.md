@@ -4162,8 +4162,9 @@ by index and holds no position, so it is the same at every turn and cell,
 and the world collision keeps its `virtualterrain` block. A level whose
 rooms have no displacements carries none of the lumps and the empty
 collision lump as before, so no linked map without displacements moved.
-The pack format version stays 4: `DISP` is a tag an older build skips, and
-that build refuses a room with displacements by its lumps (and could not
+The pack format version is unchanged (4, or PR 19's 5 for a pack holding
+a shaped room): `DISP` is a tag an older build skips, and that build
+refuses a room with displacements by its lumps (and could not
 split a library holding one); a pack written before this PR has no `DISP`,
 and this build refuses a room with displacements and no section with `room
 {room} has {k} displacements but no displacement data from its compile (a
