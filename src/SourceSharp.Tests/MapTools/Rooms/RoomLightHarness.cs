@@ -141,10 +141,15 @@ internal static class RoomLightHarness
     /// brush side of the world whose three points lie on the ceiling's lower
     /// plane, inside that room's cell, takes <see cref="Sky"/>.
     /// </summary>
-    public static void SkyCeiling(VmfDocument library, int room, string material = Sky)
+    /// <remarks>
+    /// With <paramref name="height"/>, the room's own ceiling: a room of that
+    /// height (the rooms design, 17.6), whose ceiling's underside is a wall
+    /// depth below it.
+    /// </remarks>
+    public static void SkyCeiling(VmfDocument library, int room, string material = Sky, float height = RoomHarness.Cell)
     {
         float x0 = room * (RoomHarness.Cell + RoomHarness.LibraryGap);
-        float z = RoomHarness.Cell - RoomHarness.WalkableKit.Depth;
+        float z = height - RoomHarness.WalkableKit.Depth;
         VmfChunk world = library.GetChunk(MapFileLoader.WorldChunk)!;
         foreach (VmfChunk solid in world.GetChunks(MapFileLoader.SolidChunk))
         {

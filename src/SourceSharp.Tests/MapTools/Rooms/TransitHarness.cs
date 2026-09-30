@@ -132,11 +132,12 @@ internal static class TransitHarness
     /// <summary>
     /// A library of the three rooms (up, down, plain, in that order), each
     /// room's entities given (or the defaults), the up and down rooms marked
-    /// with their role.
+    /// with their role; the up room <paramref name="upHeight"/> tall (the
+    /// rooms design, 17.6), a cube by default.
     /// </summary>
-    public static VmfDocument Library(VmfChunk[]? up = null, VmfChunk[]? down = null, VmfChunk[]? plain = null, bool roles = true)
+    public static VmfDocument Library(VmfChunk[]? up = null, VmfChunk[]? down = null, VmfChunk[]? plain = null, bool roles = true, float upHeight = RoomHarness.Cell)
     {
-        VmfDocument library = RoomHarness.LibraryVmf(Up, Down, Plain);
+        VmfDocument library = RoomHarness.LibraryVmf(Up with { Height = upHeight }, Down, Plain);
         VmfChunk[][] entities = [up ?? UpEntities, down ?? DownEntities, plain ?? PlainEntities];
         for (int room = 0; room < entities.Length; room++)
         {

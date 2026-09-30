@@ -357,6 +357,27 @@ public sealed class RoomHeightsTests
         }
     }
 
+    /// <summary>
+    /// The arrival is held to the room's box: one high in a tall up room,
+    /// above the cube's top, is the room's and compiles; in a cube room the
+    /// same point is in no room (the split's box), and one whose standing
+    /// hull passes the cube's top is refused with the 15.4 text.
+    /// </summary>
+    [Fact]
+    public async Task AnArrivalIsHeldToItsRoomsBox()
+    {
+        static VmfChunk[] Up(float z) => [.. TransitHarness.UpEntities.Skip(1), TransitHarness.Poi(100, "arrival", new Vec3(64, 192, z), 0)];
+        RoomLibrary tall = await TransitHarness.CompileAsync(TransitHarness.Library(up: Up(300), upHeight: Tall));
+        Assert.Equal(Tall, tall.Get("up").Definition.Height);
+        _ = await TransitHarness.CompileAsync(TransitHarness.Library(up: Up(200), upHeight: Tall));
+
+        Exception outside = await TransitHarness.CompileErrorAsync(TransitHarness.Library(up: Up(300)));
+        Assert.Equal("room up: an up room needs exactly one arrival point; it has 0.", outside.Message);
+        Exception refused = await TransitHarness.CompileErrorAsync(TransitHarness.Library(up: Up(200)));
+        Assert.IsType<RoomLintException>(refused);
+        Assert.Equal("room up: the arrival point at (64, 192, 200) has no room for a standing player (32 x 32 x 72).", refused.Message);
+    }
+
     // ---- the pack -----------------------------------------------------------------------------------
 
     /// <summary>
