@@ -3820,6 +3820,21 @@ the same bytes at one thread and four. The 3x3, transit and stress
 libraries have no skybox, and neither have 2fort nor the sandbox, so
 their packs, levels and maps are the bytes they were (below).
 
+Cost: the facts' three-room library (hub, sky room, skybox) compiles, bakes
+and records its door light in 0.49 to 0.53 s at four threads either way;
+the skybox adds its casters to each sky room's tracer and one small tracer
+per turn to its door light, and the sky room's door light is smaller (26.1
+KB against 26.8 KB: sources and stand-ins the skybox stops are gone).
+Measured against the base (main with PR 18): `ssmap all` on 2fort and the
+sandbox writes the same maps; `ssmap vrad` alone on 2fort is
+`13dd86de1bde7eb2` at four threads and at one; the 3x3, transit and
+stress packs differ only in the build identity (`CMPL` and each room
+container; every `LITE` and `DLIT` section the same bytes), every level of
+the 3x3 and transit samples linked by this build from the base's packs is
+the base's map and `.nav3d` byte for byte (both modes for transit), and the
+stress library's 33 x 33 level links to the same bytes (1.5 to 1.6 s, as
+the base) and passes `ssmap check`.
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
