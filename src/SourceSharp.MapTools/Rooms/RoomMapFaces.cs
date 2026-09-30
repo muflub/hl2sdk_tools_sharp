@@ -13,13 +13,42 @@ using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Materials;
+using SourceSharp.MapTools.Rad;
 
 namespace SourceSharp.MapTools.Rooms;
 
 /// <summary>A walkable face of a compile, in the compile's frame, in doubles.</summary>
-/// <param name="Points">Its points, x, y and z, in the face's order.</param>
+/// <param name="Points">
+/// Its points, x, y and z, in the face's order; for a displacement, its flat
+/// base face's four, which only say where it is (the cell that owns it).
+/// </param>
 /// <param name="World">Whether it is the world model's (else a brush entity's).</param>
-internal sealed record MapFaceSource(IReadOnlyList<(double X, double Y, double Z)> Points, bool World);
+/// <param name="Displacement">
+/// The displaced surface standing on the face, or null for a plain face.
+/// When set, the face itself is not floor: the surface's walkable triangles
+/// are (<see cref="RoomMapFaces.Place"/>).
+/// </param>
+internal sealed record MapFaceSource(IReadOnlyList<(double X, double Y, double Z)> Points, bool World, MapDisplacementSource? Displacement = null);
+
+/// <summary>
+/// What a displaced surface is built from, as a compile holds it, in the
+/// compile's frame: the recipe rather than the triangles, so that a placed
+/// room's surface is rebuilt in the room's own frame (see
+/// <see cref="RoomMapFaces"/>).
+/// </summary>
+/// <param name="Corners">The base face's four points in winding order (floats, as the compile stores them).</param>
+/// <param name="Start">The displacement's start position.</param>
+/// <param name="Power">Its power.</param>
+/// <param name="Verts">Its vertices' vectors, distances and alphas, row by row.</param>
+/// <param name="Removed">Per triangle, in the surface's triangle order, whether the author removed it (its tag's remove bit).</param>
+/// <param name="Front">The base face's plane normal: the side the surface faces.</param>
+internal sealed record MapDisplacementSource(
+    IReadOnlyList<(double X, double Y, double Z)> Corners,
+    (double X, double Y, double Z) Start,
+    int Power,
+    IReadOnlyList<DispVert> Verts,
+    IReadOnlyList<bool> Removed,
+    (double X, double Y, double Z) Front);
 
 /// <summary>
 /// Where one placement's faces are cut from a compile and how they are taken
@@ -54,9 +83,39 @@ internal sealed record MapCut(
 /// trigger (the door plugs and caps), hint and skip faces are not floors.
 /// Faces a solid brush sits on are never faces of a compile at all: the
 /// compiler emits a face only where a brush side meets open space, so a
-/// floor under a wall or a crate is already gone. Displacements are left
-/// out: their surface is not their base face, and until they are carried
-/// by rooms there is nothing of theirs to draw.
+/// floor under a wall or a crate is already gone.
+/// </para>
+/// <para>
+/// <b>Displacements</b> are floor by their displaced surface, never by
+/// their flat base face (which is not where a player stands): the surface is
+/// built from the compile's lumps as vrad and the engine build it
+/// (<see cref="DisplacementSurface"/>: the base face's corners from the start
+/// corner, each vertex its flat point plus its vector times its distance,
+/// two triangles a grid square with the diagonal alternating), and each
+/// triangle whose normal, taken on the side the base face faces, has z of
+/// at least <see cref="WalkableNormalZ"/> is a face of its own through the
+/// rest of the rule. A steep triangle (a cliff, the side of a mound) is not
+/// floor, as a steep brush face is not: it is left out, so the map shows the
+/// walkable ground around it and the slope as a gap or an edge, exactly as a
+/// wall. A triangle the author removed (its tag's remove bit) is no surface
+/// at all and is left out too. The base face's own flags decide as a plain
+/// face's do (a nodraw or skip displacement is not floor), but not its
+/// slope: a displacement on a wall face may be sculpted into ground.
+/// </para>
+/// <para>
+/// A placed room's surface is rebuilt in the room's own frame: its base
+/// corners and start taken back through the placement (a quarter turn and a
+/// whole-cell move, exact) and its vectors turned back, then tessellated.
+/// The pack builds the room compile's surface in that frame from the same
+/// numbers, so the two sides tessellate the same floats with the same
+/// arithmetic and agree bit for bit; tessellating in the level's frame and
+/// then moving the triangles would round every vertex in a different place.
+/// For the same reason the triangles are cut to the cell in the room's
+/// frame, and a displacement belongs to one placement only, the one whose
+/// cell holds its base face's centre (<see cref="OwnerCell"/>): a
+/// displacement is never merged with another room's, and a surface reaching
+/// a hair over its cell's edge (as the pack's cell rule allows) is cut there
+/// on both sides rather than drawn into the neighbour's.
 /// </para>
 /// <para>
 /// <b>Brush entities</b> count when a player can stand on them: the classes
@@ -152,6 +211,16 @@ internal static class RoomMapFaces
         List<MapFacePolygon> placed = [];
         foreach (MapFaceSource face in faces)
         {
+            if (face.Displacement is { } displacement)
+            {
+                foreach (List<(double X, double Y, double Z)> triangle in Triangles(displacement, cut))
+                {
+                    AddPieces(triangle, cut, placed);
+                }
+
+                continue;
+            }
+
             List<(double X, double Y, double Z)> polygon = [.. face.Points];
             if (cut.Cell is { } cell)
             {
@@ -180,22 +249,152 @@ internal static class RoomMapFaces
                 continue;
             }
 
-            List<List<(double X, double Y, double Z)>> pieces = [polygon];
-            foreach (Box plug in cut.Plugs)
-            {
-                pieces = [.. pieces.SelectMany(piece => Outside(piece, plug))];
-            }
-
-            foreach (List<(double X, double Y, double Z)> piece in pieces)
-            {
-                if (Snap(piece) is { } snapped)
-                {
-                    placed.Add(snapped);
-                }
-            }
+            AddPieces(polygon, cut, placed);
         }
 
         return placed;
+    }
+
+    /// <summary>
+    /// The placement that owns a displacement: the cell holding its base
+    /// face's centre, in the compile's frame.
+    /// </summary>
+    /// <param name="face">The displacement's source (its <see cref="MapFaceSource.Points"/> are the base face's).</param>
+    /// <param name="cellSize">The level's cell size.</param>
+    /// <returns>The cell's column and row.</returns>
+    public static (long X, long Y) OwnerCell(MapFaceSource face, double cellSize)
+    {
+        ArgumentNullException.ThrowIfNull(face);
+        double x = 0, y = 0;
+        foreach ((double px, double py, _) in face.Points)
+        {
+            x += px;
+            y += py;
+        }
+
+        return ((long)Math.Floor(x / face.Points.Count / cellSize), (long)Math.Floor(y / face.Points.Count / cellSize));
+    }
+
+    /// <summary>
+    /// A displacement's walkable triangles, in the room's frame (the
+    /// placement's, or the compile's when there is none) and cut to the
+    /// cell there: each kept only when all of it lies within the cell's
+    /// height, then clipped to the cell's x and y.
+    /// </summary>
+    private static List<List<(double X, double Y, double Z)>> Triangles(MapDisplacementSource displacement, MapCut cut)
+    {
+        List<List<(double X, double Y, double Z)>> triangles = [];
+        RoomPlacement? placement = cut.Placement;
+        Vec3[] corners = [.. displacement.Corners.Select(p => Float(Local(p)))];
+        DispVert[] verts = [.. displacement.Verts];
+        for (int v = 0; v < verts.Length; v++)
+        {
+            verts[v].Vector = Turn(verts[v].Vector);
+        }
+
+        DispInfo info = default;
+        info.StartPosition = Float(Local(displacement.Start));
+        info.Power = displacement.Power;
+        DisplacementSurface surface = DisplacementSurface.Create(0, 0, info, corners, verts);
+
+        // The side the surface faces: every triangle of the tessellation is
+        // wound as the base quad's corners 0, 1 and 3 are (the grid's first
+        // index runs from corner 0 to 1, its second from 0 to 3, and each of
+        // the two triangles a square is cut into turns the same way in
+        // those), so a triangle's normal on the front is its cross product
+        // times the sign that takes the corners' cross product to the front.
+        Vec3 turnedFront = Turn(Float(displacement.Front));
+        ReadOnlySpan<Vec3> c = surface.CornerPoints;
+        double facing = Dot(Cross(Minus(c[1], c[0]), Minus(c[3], c[0])), turnedFront);
+        if (facing == 0)
+        {
+            return triangles;
+        }
+
+        double sign = facing > 0 ? 1 : -1;
+        (double MinX, double MinY, double MinZ, double MaxX, double MaxY, double MaxZ)? box = cut.Cell is { } cell && placement is not null
+            ? (0, 0, cell.MinZ, cut.CellSize, cut.CellSize, cell.MaxZ)
+            : cut.Cell;
+        ReadOnlySpan<Vec3> vertices = surface.Vertices;
+        ReadOnlySpan<int> indices = surface.TriangleIndices;
+        for (int t = 0; t < surface.TriangleCount; t++)
+        {
+            if (t < displacement.Removed.Count && displacement.Removed[t])
+            {
+                continue;
+            }
+
+            Vec3 a = vertices[indices[3 * t]], b = vertices[indices[(3 * t) + 1]], d = vertices[indices[(3 * t) + 2]];
+            (double X, double Y, double Z) normal = Cross(Minus(b, a), Minus(d, a));
+            double length = Math.Sqrt(Dot(normal, normal));
+            if (length == 0 || sign * normal.Z < WalkableNormalZ * length)
+            {
+                continue;
+            }
+
+            List<(double X, double Y, double Z)> triangle = [(a.X, a.Y, a.Z), (b.X, b.Y, b.Z), (d.X, d.Y, d.Z)];
+            if (box is { } cellBox)
+            {
+                if (triangle.Any(p => p.Z < cellBox.MinZ - BoxEpsilon || p.Z > cellBox.MaxZ + BoxEpsilon))
+                {
+                    continue;
+                }
+
+                triangle = Clip(triangle, 0, cellBox.MinX, keepAbove: true);
+                triangle = Clip(triangle, 0, cellBox.MaxX, keepAbove: false);
+                triangle = Clip(triangle, 1, cellBox.MinY, keepAbove: true);
+                triangle = Clip(triangle, 1, cellBox.MaxY, keepAbove: false);
+                if (triangle.Count < 3)
+                {
+                    continue;
+                }
+            }
+
+            triangles.Add(triangle);
+        }
+
+        return triangles;
+
+        (double X, double Y, double Z) Local((double X, double Y, double Z) p) => placement is { } at ? ToLocal(p, at, cut.CellSize) : p;
+
+        // A direction taken back through the placement's turn: the turn of
+        // ToLocal without its move, exact (a swap and a sign).
+        Vec3 Turn(Vec3 v) => placement is not { } at ? v : at.NormalizedRotation switch
+        {
+            0 => v,
+            1 => new Vec3(v.Y, -v.X, v.Z),
+            2 => new Vec3(-v.X, -v.Y, v.Z),
+            _ => new Vec3(-v.Y, v.X, v.Z),
+        };
+    }
+
+    private static Vec3 Float((double X, double Y, double Z) p) => new((float)p.X, (float)p.Y, (float)p.Z);
+
+    private static (double X, double Y, double Z) Minus(Vec3 a, Vec3 b) => ((double)a.X - b.X, (double)a.Y - b.Y, (double)a.Z - b.Z);
+
+    private static (double X, double Y, double Z) Cross((double X, double Y, double Z) a, (double X, double Y, double Z) b) =>
+        ((a.Y * b.Z) - (a.Z * b.Y), (a.Z * b.X) - (a.X * b.Z), (a.X * b.Y) - (a.Y * b.X));
+
+    private static double Dot((double X, double Y, double Z) a, (double X, double Y, double Z) b) => (a.X * b.X) + (a.Y * b.Y) + (a.Z * b.Z);
+
+    private static double Dot((double X, double Y, double Z) a, Vec3 b) => (a.X * b.X) + (a.Y * b.Y) + (a.Z * b.Z);
+
+    /// <summary>A polygon in the room's frame through the plugs and the snap, into the pieces for the union.</summary>
+    private static void AddPieces(List<(double X, double Y, double Z)> polygon, MapCut cut, List<MapFacePolygon> placed)
+    {
+        List<List<(double X, double Y, double Z)>> pieces = [polygon];
+        foreach (Box plug in cut.Plugs)
+        {
+            pieces = [.. pieces.SelectMany(piece => Outside(piece, plug))];
+        }
+
+        foreach (List<(double X, double Y, double Z)> piece in pieces)
+        {
+            if (Snap(piece) is { } snapped)
+            {
+                placed.Add(snapped);
+            }
+        }
     }
 
     /// <summary>A world point in its placement's room frame: the placement's turn and move undone, exactly.</summary>
@@ -230,15 +429,17 @@ internal static class RoomMapFaces
         {
             DFace face = faces[f];
             if (face.TexInfo < 0 || face.TexInfo >= texInfos.Length || (texInfos[face.TexInfo].Flags & NotFloor) != 0
-                || face.DispInfo >= 0 || face.PlaneNum >= planes.Length || face.NumEdges < 3)
+                || face.PlaneNum >= planes.Length || face.NumEdges < 3)
             {
                 continue;
             }
 
             // A face's plane is its own: the compiler writes the face on the
             // plane of its side's orientation (its side byte only says which
-            // of the plane's pair that is), so the normal is the plane's.
-            if (planes[face.PlaneNum].Normal.Z < WalkableNormalZ)
+            // of the plane's pair that is), so the normal is the plane's. A
+            // displacement's base face is judged by its surface instead.
+            Vec3 normal = planes[face.PlaneNum].Normal;
+            if (face.DispInfo < 0 && normal.Z < WalkableNormalZ)
             {
                 continue;
             }
@@ -251,8 +452,59 @@ internal static class RoomMapFaces
                 points.Add((v.X + origin.X, v.Y + origin.Y, v.Z + origin.Z));
             }
 
-            into.Add(new MapFaceSource(points, world));
+            if (face.DispInfo < 0)
+            {
+                into.Add(new MapFaceSource(points, world));
+            }
+            else if (DisplacementOf(bsp, face.DispInfo, points, origin, normal) is { } displacement)
+            {
+                into.Add(new MapFaceSource(points, world, displacement));
+            }
         }
+    }
+
+    /// <summary>
+    /// The recipe of a face's displacement, or null when the compile does not
+    /// hold a whole one (no record, a base face that is not four points, a
+    /// power outside 2 to 4, a vertex run past its lump): such a face is
+    /// neither floor nor a surface the map can build.
+    /// </summary>
+    private static MapDisplacementSource? DisplacementOf(
+        BspData bsp, int index, List<(double X, double Y, double Z)> corners, (double X, double Y, double Z) origin, Vec3 front)
+    {
+        ReadOnlySpan<DispInfo> infos = BspStructView.As<DispInfo>(bsp[BspLump.DispInfo]);
+        if (index >= infos.Length || corners.Count != 4)
+        {
+            return null;
+        }
+
+        DispInfo info = infos[index];
+        ReadOnlySpan<DispVert> verts = BspStructView.As<DispVert>(bsp[BspLump.DispVerts]);
+        if (info.Power is < 2 or > 4 || info.DispVertStart < 0 || info.DispVertStart + info.NumVerts() > verts.Length)
+        {
+            return null;
+        }
+
+        // The tags say which triangles the author removed; a compile without
+        // the lump (none that vbsp writes) removes none.
+        ReadOnlySpan<DispTri> tris = BspStructView.As<DispTri>(bsp[BspLump.DispTris]);
+        bool[] removed = new bool[info.NumTris()];
+        if (info.DispTriStart >= 0 && info.DispTriStart + removed.Length <= tris.Length)
+        {
+            for (int t = 0; t < removed.Length; t++)
+            {
+                removed[t] = (tris[info.DispTriStart + t].Tags & (ushort)DispTriTags.Remove) != 0;
+            }
+        }
+
+        Vec3 start = info.StartPosition;
+        return new MapDisplacementSource(
+            corners,
+            (start.X + origin.X, start.Y + origin.Y, start.Z + origin.Z),
+            info.Power,
+            verts.Slice(info.DispVertStart, info.NumVerts()).ToArray(),
+            removed,
+            (front.X, front.Y, front.Z));
     }
 
     private static (double X, double Y, double Z) OriginOf(BspEntity entity)

@@ -246,8 +246,18 @@ stored once, room-local):
 - **The face rule.** A face of the room's compile counts when its plane's
   normal z is at least **0.7** (the player's walkable slope) and it is drawn:
   not sky, 2D sky, nodraw, a water surface, trigger (the door plugs and
-  caps), hint or skip. Faces a solid brush sits on never exist in a compile. Displacements
-  are left out. Brush entities count when a player stands on them
+  caps), hint or skip. Faces a solid brush sits on never exist in a compile.
+  A displacement is floor by its displaced surface, never by its flat base
+  face: the surface is built from the compile's displacement lumps as the
+  engine builds it (the base face's corners from the start corner, each
+  vertex its flat point plus its vector times its distance, two triangles a
+  grid square), and each triangle whose normal on the base face's front has
+  z of at least 0.7 counts as a face of its own; steep triangles (a cliff,
+  a mound's flank) and triangles the author removed do not, and a base face
+  that is sky, nodraw, skip and so on is not floor whatever its surface.
+  A placed room's surface is built in the room's own frame, and a
+  displacement belongs to the one placement whose cell holds its base
+  face's centre. Brush entities count when a player stands on them
   (`func_brush` unless its `Solidity` is 1, `func_door`,
   `func_door_rotating`, `func_movelinear`, `func_platrot`,
   `func_tracktrain`, `func_train`, `func_breakable`, `func_physbox`,
