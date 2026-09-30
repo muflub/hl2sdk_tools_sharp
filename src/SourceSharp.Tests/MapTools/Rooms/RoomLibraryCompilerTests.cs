@@ -499,6 +499,32 @@ public sealed class RoomLibraryCompilerTests
         Assert.Equal(0, started);
     }
 
+    /// <summary>
+    /// A room whose height is not a whole number of the library's voxels
+    /// (the rooms design, 17.6) is refused once, before any room compiles,
+    /// with the 17.3 text; a whole number of them compiles.
+    /// </summary>
+    [Fact]
+    public async Task ARoomHeightOffTheVoxelGridIsRefusedBeforeAnyRoom()
+    {
+        (IReadOnlyList<LibraryRoom> rooms, CountingContent content) = await LibraryAsync();
+        LibraryRoom off = rooms[0] with { Definition = rooms[0].Definition with { Height = rooms[0].Definition.CellSize + 8 } };
+        int started = 0;
+        RoomLibraryException refused = await Assert.ThrowsAsync<RoomLibraryException>(() => CompileAsync([off, .. rooms.Skip(1)], new RoomLibraryCompileSettings(VbspOptions.Default, content)
+        {
+            Nav = SourceSharp.MapTools.Nav.NavSettings.Default,
+            BeforeRoomProbe = (_, _) =>
+            {
+                Interlocked.Increment(ref started);
+                return ValueTask.CompletedTask;
+            },
+        }));
+        Assert.Equal(0, started);
+        Assert.Equal(
+            $"room {off.Definition.Name}: room_height {off.Definition.Height} is not a whole number of navigation voxels (16 units each).",
+            refused.Message);
+    }
+
     private static async Task<List<RoomCompileOutcome>> CompileAsync(
         IReadOnlyList<LibraryRoom> rooms, RoomLibraryCompileSettings settings)
     {

@@ -108,9 +108,12 @@ public static class RoomNavBuilder
         ArgumentNullException.ThrowIfNull(settings);
         definition.Validate();
 
+        // The room's own box (17.6): its cell's footprint, its height up; a
+        // cube's n x n x n.
         float cell = definition.CellSize;
         int n = settings.CellVoxels(cell);
-        NavRegion region = new(0, 0, 0, n, n, n, settings.VoxelSize);
+        int nz = settings.ColumnVoxels(definition);
+        NavRegion region = new(0, 0, 0, n, n, nz, settings.VoxelSize);
 
         // The plugs, found by their boxes, and everything else.
         int[] plugOf = new int[definition.Sockets.Count];
@@ -168,6 +171,7 @@ public static class RoomNavBuilder
             CellSize = cell,
             VoxelSize = settings.VoxelSize,
             CellVoxels = n,
+            ColumnVoxels = nz,
             FloorNormalZ = settings.FloorNormalZ,
             StepHeight = settings.StepHeight,
             JumpHeight = settings.JumpHeight,
@@ -226,7 +230,8 @@ public static class RoomNavBuilder
 
     /// <summary>
     /// The solid the room assumes beyond its cell: a thick slab past each of
-    /// the six faces; but past a wall with an open socket, only the
+    /// the six faces (the top one at the room's own height); but past a wall
+    /// with an open socket, only the
     /// neighbour's side of that wall, <c>wall_depth</c> deep, with the same
     /// opening, and nothing beyond it (the neighbour's room, open near its
     /// door). <paramref name="capped"/> names the one socket shut, or -1 for
@@ -241,13 +246,14 @@ public static class RoomNavBuilder
     internal static List<NavBrush> Outside(RoomDefinition definition, int capped)
     {
         float c = definition.CellSize;
-        float big = (2 * c) + 4096;
+        float h = definition.Height;
+        float big = (2 * Math.Max(c, h)) + 4096;
         float depth = definition.Kit.Depth;
         int solid = 1;
         List<NavBrush> boxes =
         [
             NavBrush.Box(new Vec3(-big, -big, -big), new Vec3(c + big, c + big, 0), solid),
-            NavBrush.Box(new Vec3(-big, -big, c), new Vec3(c + big, c + big, c + big), solid),
+            NavBrush.Box(new Vec3(-big, -big, h), new Vec3(c + big, c + big, h + big), solid),
         ];
 
         foreach (RoomFacing facing in Enum.GetValues<RoomFacing>())
@@ -333,7 +339,7 @@ public static class RoomNavBuilder
         };
 
         float floor = plug.Mins.Z;
-        for (int z = 0; z < n; z++)
+        for (int z = 0; z < grid.Region.SizeZ; z++)
         {
             NavVoxelKey key = grid[vx, vy, z];
             if ((key.Flags & Nav3dLeafFlags.GroundedPlayer) != 0)
@@ -403,7 +409,7 @@ public static class RoomNavBuilder
             int n = grid.Region.SizeX;
             int x = VoxelOf(poi.Origin.X, grid.Region.VoxelSize, n);
             int y = VoxelOf(poi.Origin.Y, grid.Region.VoxelSize, n);
-            int z = VoxelOf(poi.Origin.Z, grid.Region.VoxelSize, n);
+            int z = VoxelOf(poi.Origin.Z, grid.Region.VoxelSize, grid.Region.SizeZ);
             for (int a = 0; a < settings.Agents.Count; a++)
             {
                 if ((mask & (1u << a)) == 0)

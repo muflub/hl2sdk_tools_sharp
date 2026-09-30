@@ -141,7 +141,7 @@ public sealed class Nav3dFileTests
     public void TheHeaderAndRecordsReadBack()
     {
         Nav3dReader nav = Nav3dReader.Open(Nav3dWriter.Write(Sample()));
-        Assert.Equal((Nav3dFormat.Version, 32f, 16f, 2, 2, 1, 0.7f), (nav.Version, nav.CellSize, nav.VoxelSize, nav.CellVoxels, nav.Columns, nav.Rows, nav.FloorNormalZ));
+        Assert.Equal((Nav3dFormat.CubeVersion, 32f, 16f, 2, 2, 1, 0.7f), (nav.Version, nav.CellSize, nav.VoxelSize, nav.CellVoxels, nav.Columns, nav.Rows, nav.FloorNormalZ));
         Assert.Equal((18f, 56f, 100f), (nav.StepHeight, nav.JumpHeight, nav.JumpDistance));
         Assert.Equal((2, 2, 2, 2, 5, 1, 1), (nav.PresetCount, nav.CellCount, nav.PoiCount, nav.DoorCount, nav.LeafCount, nav.ObstacleCount, nav.JumpCount));
         Assert.Equal(new Nav3dPreset("standing", 8, 20, Nav3dClipClass.Player), nav.Preset(0));
@@ -395,7 +395,7 @@ public sealed class Nav3dFileTests
     public static TheoryData<string, string> Corruptions => new()
     {
         { "magic", "magic is missing" },
-        { "version", "this build reads version 2" },
+        { "version", "this build reads version 3" },
         { "codec", "codec 9 is not one" },
         { "stored", "stored bytes" },
         { "truncated", "stored bytes" },
