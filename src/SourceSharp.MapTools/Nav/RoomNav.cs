@@ -31,7 +31,7 @@ public sealed record RoomNavSocket(IReadOnlyList<NavCapChange> Capped, Vec3 Door
 public sealed record RoomNavObstacle(string ClassName, string? TargetName, int HammerId, Nav3dObstacleKind Kind, Box Bounds);
 
 /// <summary>A point of interest an author placed in a room, in the room's own coordinates at one turn.</summary>
-/// <param name="Position">Its position, room-local (the cell is <c>[0, cell]³</c>).</param>
+/// <param name="Position">Its position, room-local (the room is <c>[0, cell]² × [0, height]</c>).</param>
 /// <param name="Yaw">Its facing in degrees, 0 to 360, counter-clockwise from +x.</param>
 /// <param name="HasFacing">Whether the author gave it a facing.</param>
 /// <param name="Radius">Its radius, 0 for none.</param>
@@ -82,6 +82,29 @@ public sealed record RoomNav
 
     /// <summary>Voxels along the cell's edge.</summary>
     public required int CellVoxels { get; init; }
+
+    /// <summary>
+    /// Voxels up the room's columns: its height in voxels (the rooms design,
+    /// 17.6), <see cref="CellVoxels"/> for a room that is a cube, which is
+    /// what an unset value reads as.
+    /// </summary>
+    /// <remarks>
+    /// A room taller than its cell has taller columns and one lower than it
+    /// shorter ones; the footprint is the cell's either way, so turning and
+    /// stitching are unchanged. A room whose columns differ from its edge is
+    /// stored at <see cref="RoomNavSection.ShapedRevision"/>, and a level
+    /// placing one is a version 3 <c>.nav3d</c>.
+    /// </remarks>
+    public int ColumnVoxels
+    {
+        get => _columnVoxels ?? CellVoxels;
+        init => _columnVoxels = value;
+    }
+
+    /// <summary>Whether the room's columns are not its cell's edge: a shaped room's navigation.</summary>
+    public bool IsShaped => ColumnVoxels != CellVoxels;
+
+    private readonly int? _columnVoxels;
 
     /// <summary>The floor threshold it was built with.</summary>
     public required float FloorNormalZ { get; init; }

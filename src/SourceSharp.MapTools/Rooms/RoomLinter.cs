@@ -140,8 +140,25 @@ public static class RoomLinter
 
         definition.Validate();
 
+        // A room is a shell of world brushes. With none (a cell marked as a
+        // room before anything was built in it, or one holding only brush
+        // entities) there is nothing for any later rule to check and no world
+        // for vbsp to build: with no brushes anywhere vbsp refuses the map,
+        // and with only a brush entity it makes that entity model 0, which
+        // is no room. Refused first, by name, before the compile is paid for.
+        if (map.Entities.Count == 0 || map.Entities[0].BrushCount == 0)
+        {
+            throw new RoomLintException(
+                $"rule {(int)RoomRule.ShellSealedExceptAtSockets} ({nameof(RoomRule.ShellSealedExceptAtSockets)}):"
+                + $" room {definition.Name} has no world brushes; a room is a shell of world brushes around its cell,"
+                + " and a compile of none has no world to build.");
+        }
+
         float cell = definition.CellSize;
-        Box cellBox = new(Vec3.Zero, new Vec3(cell, cell, cell));
+
+        // The room's box: the cell's footprint, as tall as the room (the
+        // rooms design, 17.6); the cube for a room with no height of its own.
+        Box cellBox = definition.Bounds;
 
         // G4 first: the socket set has to be the kit at the face centres before
         // any crossing is excused, because the kit's rectangle is what defines
@@ -455,7 +472,7 @@ public static class RoomLinter
             // by something that a line still passes (a clip or grate cap, whose
             // contents are not in the leak mask), which is exactly the "cannot
             // leave without crossing its own shell" guarantee failing.
-            if (!box.ContainsWithin(new Box(Vec3.Zero, new Vec3(cell, cell, cell)), CellEpsilon))
+            if (!box.ContainsWithin(definition.Bounds, CellEpsilon))
             {
                 throw new RoomLintException(
                     $"rule {(int)RoomRule.InteriorCannotEscape} ({nameof(RoomRule.InteriorCannotEscape)}):"
@@ -591,7 +608,8 @@ public static class RoomLinter
         throw new RoomLintException(
             $"rule {(int)RoomRule.BrushesInsideOwnCells} ({nameof(RoomRule.BrushesInsideOwnCells)}):"
             + $" a {what} of room {definition.Name} crosses a cell face outside the socket kit:"
-            + $" mins ({Fmt(box.Mins)}) maxs ({Fmt(box.Maxs)}) against the cell 0..{cell:0.###}.");
+            + $" mins ({Fmt(box.Mins)}) maxs ({Fmt(box.Maxs)}) against the cell 0..{cell:0.###}"
+            + (definition.IsShaped ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $", 0..{definition.Height:0.###} tall.") : "."));
     }
 
     private static void CheckSeal(RoomDefinition definition, RoomSocket socket, Box seal, float cell)

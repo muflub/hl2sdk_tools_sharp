@@ -30,6 +30,7 @@ Contents:
 15. [Testing](#15-testing)
 16. [Growing the 3x3 sample](#16-growing-the-3x3-sample)
 17. [Multiple libraries, room heights and large areas](#17-multiple-libraries-room-heights-and-large-areas)
+18. [The level map overlay](#18-the-level-map-overlay)
 
 Terms used throughout:
 
@@ -140,18 +141,20 @@ adds a section does.
 In the order it checks:
 
 1. any non-empty lump outside `LevelLinker.CarriedLumps`. Not in the set:
-   `WorldLights(Hdr)`, `LeafWaterData`,
-   `WaterOverlays`, `LeafAmbientIndex(Hdr)`,
+   `WorldLights(Hdr)`,
+   `LeafAmbientIndex(Hdr)`,
    `LeafAmbientLighting(Hdr)`, `LightingHdr`, `FacesHdr` (`Cubemaps` left
-   the list with PR 12, `ClipPortalVerts` with PR 13, the five
-   displacement lumps with PR 15; since PR 11
+   the list with PR 12, `ClipPortalVerts` with PR 13, `LeafWaterData` and
+   `WaterOverlays` with PR 14, the five displacement lumps with PR 15; since PR 11
    `Overlays` and `OverlayFades` are carried, and a room with overlays is
    refused only when it carries no overlay data from its compile, as since
    PR 15 a room with displacements is);
 2. more than one model, or a world model whose head node is not 0 (since
    PR 7 brush models are carried, and a room with them is refused only when
    it carries no brush model data from its compile);
-3. a leaf with `LeafWaterDataId != -1`;
+3. a leaf with `LeafWaterDataId != -1` (since PR 14 water is carried, and
+   a room with water is refused only when it carries no water data from its
+   compile, `RoomWaterOf`);
 4. more than two areas or more than one area portal (`RefuseAreaPortals`;
    since PR 13 areas and area portals are carried, and a room with them is
    refused only when it carries no area portal data from its compile,
@@ -273,8 +276,8 @@ or research).
 | Static props | carried since PR 6 (moved, filtered, dictionaries merged, leaves recomputed, `.vhv` renamed) | props per rotation, dictionary, hulls; lighting ×1, or ×4 if sunlit | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
 | Detail props | refused (game lump) | props per rotation, leaf-local runs; lighting ×1, or ×4 if sunlit | renumber leaves, re-sort, merge dictionaries | 0 | M |
 | Displacements | carried since PR 15 (moved and turned, runs, faces and neighbours rebased, collision hulls and lighting the room's; no stitching across a joint, which is refused) | starts and vertex vectors per rotation | rebase; cross-room neighbours only if allowed | 0 | L |
-| Water | refused (water leaf, lump) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
-| Overlays | carried since PR 11 (moved and turned, ids, texinfos and faces rebased, accessors renumbered; water overlays refused with water) | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
+| Water | carried since PR 14 (records merged, leaf and face ids renumbered, fluids moved into the collision, water overlays carried, vvis's water passes run over the level; water touching a door plug refused) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
+| Overlays | carried since PR 11 (moved and turned, ids, texinfos and faces rebased, accessors renumbered; water overlays since PR 14) | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
 | Decals (`infodecal`) | carried | nothing | nothing | 1 each (**uncertain** after spawn) | S |
 | `env_cubemap` | carried since PR 12 (samples moved, patches and copies renamed to the level) | samples per rotation, patch list | rename VTFs and patched VMTs to the level | 0 | M-L |
 | Area portals | carried since PR 13 (areas joined at joints, portals and `portalnumber`s rebased, clip verts moved; door portals opt-in) | areas, portals, clip verts per rotation | area union across joints, optional door portals | 1 per portal | L |
@@ -592,8 +595,10 @@ texinfo) referenced by `DLeaf.LeafWaterDataId`, each warped face's
 records in `PhysCollide` (`PhysCollisionEmitter`, `PhysFluidEntry`). vvis
 writes `LeafMinDistToWater` (`VisFlow`).
 
-**Today.** Refused: water leaf check and `LeafWaterData` outside the set.
-`LeafMinDistToWater` is carried (always written).
+**Today.** Carried since PR 14 (section 13, its landed note): water in a
+room, then water through a door (water sockets). Before it, refused: water
+leaf check and `LeafWaterData` outside the set; `LeafMinDistToWater` was
+carried (always written).
 
 **Pack vs link.** Per room: water data, fog ids, patched materials, fluid
 records. At link: rebase `LeafWaterDataId`, fog ids and texinfos; merge
@@ -612,7 +617,9 @@ carve (`LevelLinker.CarveLeaf`) splits the doorway box at the surface plane,
 the lower part becomes a water leaf of the facing water data, and the
 linker adds a surface face and a fluid convex. All computable at link.
 Proposed (O7): first refuse water touching a socket plug box; add "water
-sockets" later.
+sockets" later. Both done in PR 14 (section 13, its landed note): a room
+declares a socket's water level on its `info_room`, and the link carves the
+doorway's water as above.
 
 **Lighting.** Water surfaces are lit like faces.
 
@@ -878,7 +885,7 @@ offsets.
 | Leaf ambient | Samples per leaf (a compressed cube and a position in the leaf box). From the base bake (×4 only for a sunlit room), rebased by leaf, plus door response. Under a turn the position bytes permute with the box axes and the cube's horizontal faces permute. The carved doorway leaf copies its facing leaf's samples. `DLeafAmbientIndex.FirstAmbientSample` is `ushort`. **M**, with lighting. |
 | `LightingHdr`, `FacesHdr` | Not carried; from the bake under option C. |
 | `MapFlags` | Must agree (`RequireAgreement`); vrad sets the baked-prop-lighting flag (`RadLumpWriter.WriteLevelFlags`). |
-| `LeafMinDistToWater` | Carried; recompute at link once water exists (4.6). |
+| `LeafMinDistToWater` | Carried; recomputed at link, with the leaves that see water, for a level with water since PR 14 (4.6). |
 | Fog, tonemap, `shadow_control`, `water_lod_control` | Singletons: section 8. |
 | AI nodes (`info_node` and kin) and nav data | Carried as point entities today (nothing in vbsp here consumes them). Navigation is required and 3D, for a new AI system, and blocked on its design (section 10); points of interest go into the navigation data and are stripped (10.6). |
 
@@ -2287,6 +2294,7 @@ One PR per feature or small group. Already queued, and assumed:
 | 19 | **Room heights** (17.6): `room_height`, the door box fixed to the library's standard cell, the `SHAP` section and the pack version for shaped rooms, top-tree and solid-leaf bounds, the cell box in split, lint, props and furniture, the world-extent refusal, navigation columns taller than a cell and `.nav3d` version 3. | M | 7, **8** | One-cell rooms only, so no linker structure changes: the smallest step that gives varying heights, and the base the larger rooms extend. After PR 8 so its transit sample and `RoomTransit` are what the new cell box is applied to. Before PR 9 (Q4), whose bakes take the room's box. | 15.2 heights row |
 | 20 | **Multi-cell rooms** (17.8): `room_footprint`, sockets per cell edge, the cell-block room compile and per-cell subtree roots, the top tree routing each covered cell, block-node omission, the footprint transform, joints along shared edges, `+` in the level file, the anchor cell for names and the refusals of neighbour names, navigation and props over the footprint, flatten. | L | 19, 3, 7, **8** | The large-area design. The biggest structural change since brush entities; everything it touches is already carried, so it lands after them. If Q3 has landed, its per-room door pairs are extended to several sockets on a face here. | 15.2 multi-cell row; 17.3 messages |
 | 21 | **Height-aware generator over several libraries** (17.9): candidates from every library, the area stream and its groups, `-large`, `-group`, `-max-height`, `key=path` operands and the `libraries` output, the budget over every library. | M | 17, 20, **8** | Last, because it places what 17 to 20 make linkable; PR 8's role stream is kept as it is and runs on the unit tree. | 15.2 generator row; 15.5 layout determinism |
+| 22 | **Level map overlay** (18): the walkable-face rule and integer union at pack time, the `MAPV` room section, the `.map2d` sidecar written by `ssmap link` (doors open or closed, marker POIs, automatic markers, per-placement ids and labels), `ssmap map2d` over a compiled map, the SVG preview, `docs/map2d-format.md` and its reader, the `map_marker` and `map_label` keys in `RoomContracts`. | M | 2, 11, 19 | Needs the POIs (2), the transition markers (11) and room heights for the z bands (19); independent of lighting and of 14 to 16, so it can land in parallel with them. | 18.6 |
 
 **PR 4 landed** (singletons and the library section). The split applies
 D3 to every room (`RoomLibraryEntities.KeepInRoom`): a room's
@@ -3758,6 +3766,364 @@ unlit), linked by this build from main's packs, is main's map byte for
 byte, and the stress level linked from this build's own packs is too. The facts that
 held "only in a later library is dropped" now hold the opposite.
 
+**PR 19 landed** (room heights for one-cell rooms, 17.6 and 17.11). An
+`info_room` may give its room a `room_height` (`RoomLibraryVmf.RoomHeightKey`),
+in whole units, the cell size by default; the room's box is then
+`[0, c] × [0, c] × [0, h]` (`RoomDefinition.Height`, `Bounds`), and a room
+whose height is the cell size is a cube (`IsShaped` false) whatever spelled
+it, the same definition, pack entry and cache key as a room without the key.
+The box is what the split owns brushes and entities by and holds cells apart
+by (a tall room may not overlap the room built above it in the library, a
+brush above a low room's ceiling belongs to no room), what the model lint
+and the compiled lint hold the shell and the interior leaves to, what the
+prop rule (hull and doorway regions, and the link's own-leaves shortcut)
+and the arrival's clearance use, and where the linker's own entities stand
+(`LevelLinker.CellCentre`: `(c/2, c/2, h/2)`, turned, one spelling for the
+link and the flatten). The door box is not the room's: `SealBox` keeps
+computing it from `OpeningUnit` and the cell size, so a tall room's plugs are
+a cube room's bit for bit, its doors stay on the floor (the kit's sill rule,
+`PlayerHull.DoorProblem`, unchanged), and joints between rooms of different
+heights match exactly; `RoomModel` writes a lintel from the door's top to the
+room's ceiling.
+
+- **Rules** (17.3's texts, each asserted): `room {room}: room_height "{v}"
+  is not a whole number of units.` (the text as written; a number is read
+  first, so `high` and `300.5` both say so), `... room_height {h} leaves no
+  room for the door; a room is at least {min} tall (door_height + 2 x
+  wall_depth).`, `... is taller than 16384, the most the engine's
+  coordinates allow.`, and with navigation `... is not a whole number of
+  navigation voxels ({v} units each).` and `... is taller than {max}, the
+  most navigation describes (255 voxels).`, refused by the split, and the
+  navigation ones by the library compile before any room compiles
+  (`NavSettings.ColumnVoxels`).
+- **The top tree** (`BuildTopNodes`, `CellHeights`): each node is bounded in
+  z by the tallest room in its region, a region with no room by the cell
+  size, and the shared solid leaf and the skybox's root by the tallest room
+  of the level. The planes do not change. A level of cubes passes no
+  heights and builds the tree it always did; a level of rooms lower than
+  the cell is bounded lower than today, as the region's rooms are. A fact
+  holds the engine's culling promise (every node's bounds hold every open
+  leaf below it) on levels of mixed heights, and fails without the heights.
+- **The extent** (`LevelLinker.CheckExtent`, first in `CheckCapacity`, and in
+  the flatten before reachability, so both refuse alike): every placement's
+  cell in x and y and its room's height in z within ±16,384, touching
+  allowed; refused as `level {level}: reaches {axis} = {v} at cell ({x},
+  {y}); the engine's coordinates stop at 16384.`, naming the first
+  placement in link order and its first axis past the limit. The skybox is
+  held to it in the link too; it cannot pass it where the rooms do not.
+- **Lighting.** Nothing new in kind, as 17.6 said. The base bake is vrad of
+  the room as compiled; the door capture's black box is the room's box, not
+  the cube (`RoomDoorLight.Inside`), so a tall room's upper walls send their
+  light through the opening like any other surface; the response grid stays
+  on the unchanged opening and the standard cube beyond it (a source above
+  the grid's top is shared out to its top nodes, flux-matched), and the sky
+  passes are height-independent. Facts: a capped, sunlit tall room links to
+  vrad of its own link at every turn, luxel for luxel; a tall room with a
+  lamp above the hub's top, joined to the hub, meets PR 10's tolerances
+  against vrad of the link (measured near p95 0.006, elsewhere p95 0.028,
+  energy 0.998 to 0.999; the base alone near p95 0.40); its sky flags, high
+  and low, are the flattened compile's.
+- **Navigation.** A room's columns run its height in voxels
+  (`RoomNav.ColumnVoxels`; the kit's assumed outside has its top slab at the
+  room's height); a shaped room's `NVR`r section is revision 3, one `int32`
+  more after the voxels per edge, a cube room's stays revision 2. A level
+  placing a shaped room writes a version 3 `.nav3d` whose one addition is
+  `CHGT`, an `int32` per cell (its height in voxels, 0 for an empty cell),
+  after `JUMP`; a level of cubes writes version 2, byte for byte. The reader
+  reads both, holds every leaf under its cell's height, answers no leaf at
+  or above it, and reaches up to its tallest cell
+  (`Nav3dReader.CellHeight`, `TallestCell`); `ssmap nav` prints the range.
+  `docs/nav3d-format.md` 1, 2, 3, 4, 6, 13, 16 and 17.3 say so. A fact holds
+  the stitched grid of a level of three heights to the one built straight
+  from its flattened compile, run for run and record for record, at every
+  turn.
+
+Storage: a shaped room carries **`SHAP`** (`RoomShape`) right after its
+entity counts, with the link sections' framing (codec none, revision 1),
+then a rotation count of 1 and one payload behind its byte length: the
+height, the footprint (1 and 1) and each socket's cell offset (0 and 0). The
+room container does not change: the loader reads the section first and
+gives the height to the container's check of its compile
+(`RoomObjectStore.LoadShapedAsync`), so every cube room's container is its
+old bytes, and a container read alone is the cube it describes. A pack
+holding a `SHAP` is written at **version 5** (`RoomPack.Version`), one of
+cubes at version 4 (`RoomPack.CubeVersion`); this build reads 3 to 5, a
+build that reads only 4 refuses a version 5 pack by its version check
+(`CheckVersion`, parameterised by the newest version so a fact holds that
+text), and a `SHAP` in a pack of version 4 or older is refused as damage. A
+section of another revision, rotation count, footprint, socket count or a
+height the kit refuses is refused naming the room and `SHAP`. The room
+cache key folds the height only for a shaped room, so every cube room keeps
+its rows, and the compile's input keys add `|h{height}` likewise.
+
+Decisions taken where this document left a detail: the height lives in
+`SHAP`, not in the room container's manifest (17.11's "the container does
+not change"); an empty region of the top tree keeps the cell's top; the
+extent refusal names one axis and is checked by the flatten too;
+`CHGT` covers every cell rather than only placed ones, so it is indexed like
+`ROOT`; the lint's "crosses a cell face" message adds `, 0..{h} tall` for a
+shaped room and keeps its text for a cube. Two capacity facts laid lines of 400 and more
+hubs along x, past the engine's coordinates, which the extent check now
+refuses first; their lines are folded into rows of 64, the same joints and
+so the same totals, and their refusals name the crossing hub's cell in its
+row. Not done here: `ssmap rooms` does
+not list heights, the generator knows nothing of them (PR 21), and no sample
+has a tall room (the multi-library sample of 17.12 is later work).
+
+Measured against the base (main at the section 17 merge), the whole
+`ssmap` process: `ssmap all` on 2fort and the sandbox writes the same maps,
+and 2fort's vbsp is `a491f59df3b484dc`; the 3x3, transit and stress packs
+stay version 4 and every section but the compile id and the containers'
+build identity is the same bytes; every level of the three, linked by this
+build from the base's packs, is the same map and `.nav3d` as the base's
+link (both modes for the transit run); every linked map passes `ssmap
+check` with its one warning (no cubemap sample). A copy of the 3x3 library
+with its cross room 512 tall and its end room 384 packs at version 5
+(610 KB against 578 KB), the same bytes at `-threads` 1 and 4, and every
+level of it links to a version 3 `.nav3d` and passes `ssmap check` with the
+same one warning. The stress library's 33 x 33 level links in 1.6 to 1.8 s
+against 1.65 to 1.7 s, alternating runs, to the same bytes.
+
+**PR 14 landed** (water, first without water sockets, then with; two
+stages on one branch).
+
+*Stage one: water contained in rooms.* `ssmap room` describes a room whose
+compile has water in one `WATR` section (`RoomWater`, with the 1.1 framing:
+codec byte, decoded length, revision; codec none): the room's water record
+count (its `LeafWaterData` lump stays in the container byte for byte and is
+checked: every leaf's `LeafWaterDataId` and every face's
+`SurfaceFogVolumeId` names a record the room has), its fluids (one per
+connected water volume, as the `fluid` blocks of its world collision name
+them: surface property, damping, contents, surface plane), its water
+overlay count (the `WaterOverlays` lump in the container, each id checked to
+be 513 plus its place), then the rotation count (4) and per turn every
+fluid's convexes and every water overlay's origin, `BasisU` and normal
+turned. A room without water gets no section, so a library without it packs
+to the same bytes. The link (`LevelLinker.Water.cs`):
+
+- **Records** are the level's table built as vbsp builds a map's
+  (`PlanWaterData`): every placement's in link order, each with its surface
+  texinfo the shared table's and its heights moved with the placement's
+  (whole cells; only the skybox's differ), one record per distinct
+  (surface height, lowest point, surface texinfo) by exact match, the first
+  kept. A placement's leaves and warped faces name the level's record
+  through its map. In practice two placements of one pool share a record
+  only when the move leaves the surface texinfo as it was (texture axes
+  across the move), as in the flattened level's compile; a fact holds both
+  cases to vbsp's count. Past `MAX_MAP_LEAFWATERDATA` (32,768) the link
+  refuses with `room {room} at cell ({x}, {y}) pushes the link to {n} leaf
+  water data records; vbsp writes at most 32768 (MAX_MAP_LEAFWATERDATA).`
+- **Fluids** follow the static solids in the linked world record, placement
+  by placement, as vbsp writes a world's after its contents classes: each
+  one's convexes moved, their brushes and materials renumbered as the
+  static solids' are, rebuilt into one surface, with its `fluid` block's
+  plane turned and moved (a vertical normal keeps its distance on the grid;
+  its zeros unsigned, as vbsp computes the flattened level's). The
+  collision keydata reader now takes `fluid` blocks (index, surface
+  property, damping, contents, plane) and refuses one missing a key.
+- **vvis's water passes** (`CONTENTS_TESTFOGVOLUME` on every leaf a water
+  leaf sees, and `LeafMinDistToWater`) run again over the linked leaves and
+  the level's rows (`RecomputeWaterSight`, vvis's own `VisWater`), for a
+  level with a water leaf only: a room's compile worked them out blind to
+  its neighbours' water through a door. A level without water keeps its
+  rooms' bytes (every leaf 65535, none marked), which the passes would give
+  it anyway.
+- **Water overlays** (`overlaytransition`) are carried as overlays are
+  (PR 11): placement `p`'s water overlay `k` is id 513 + its base + `k` (the
+  flatten writes the placements' in link order, which is how vbsp numbers
+  them), texinfo shared, origin turned and moved, basis turned, faces
+  rebased; past `MAX_MAP_WATEROVERLAYS` (16,384) refused with `room {room}
+  at cell ({x}, {y}) pushes the link to {n} water overlays; a map holds at
+  most 16384 (MAX_MAP_WATEROVERLAYS).` The split moves their bracketed
+  vectors (`VmfPlacement.MoveWaterOverlays`), gives the ones the library's
+  world holds to the room whose cell holds each one's `BasisOrigin` as an
+  `info_overlay_transition` of their own, first among the room's entities
+  (vbsp reads the world's before any entity's), and the flatten renames
+  their `sides` lists as it renames an entity's.
+- **Singletons.** vbsp adds a `water_lod_control` to every room with water;
+  the level keeps one (PR 4's rule), as the flattened level's compile has
+  one, and the budget counts that one.
+- **Cheap and expensive water.** Both are carried the same way; vbsp's
+  per-depth patched materials (`maps/<room>/<material>_depth_<n>`) are
+  room-named pak files the pak merge carries (4.13).
+- **Lighting.** Water surfaces are lit like faces (4.6): the base bake
+  lights a room's water as vrad does (a `%compileKeepLight` water has
+  lightmaps, other water shaders none), and a capped room with a lit pool
+  links to vrad of its own link, luxel for luxel.
+
+Refusals: water that reaches a door plug, 15.4's 4.6 socket row, `room
+{room}: water reaches socket "{socket}"; water may not touch a door plug.`,
+made by the room compile on the loaded map (the materials say a brush is
+water, so the split, which reads no game file, cannot; the flatten of such a
+library compiles, and its pack is refused): a world water brush,
+`func_detail` included, whose box overlaps a plug box or touches one of its
+faces over an area (an edge or a corner is not a touch). A room whose
+compile has water and no water data bound to it (a pack written before this
+PR) is refused with `room {room} has water but no water data from its
+compile (a pack written before the link carried water, or a room built
+without ssmap room); recompile the library with ssmap room.`, and the old
+`... has a water leaf, which the relocation refuses` is gone (a fact
+asserts it). Water overlays the tables do not list: `the library has a
+water overlay at ({x} {y} {z}) in the gaps between rooms; a water overlay
+belongs to the room whose cell holds its BasisOrigin.`, `room {room}:
+entity {id} ({class}) has a water overlay at ({x} {y} {z}) outside the
+room's cell; ...`, a vector that is not three numbers in brackets, and the
+overlay plug rule for water overlays, `room {room}: a water overlay names
+brush side {side}, which is socket "{socket}"'s plug.` Damaged `WATR`
+sections are refused naming the room and the section.
+
+The pack format version is not raised (PR 19 raised it to 5 for shaped
+rooms): `WATR` is a tag an older build skips, and that build refuses a room
+with water by its lumps. Storage is four turns,
+the 1.1 default for convexes and overlay records (a count of 1 is read and
+links to the same bytes, a fact). Measured equivalence: two rooms with
+pools of a cheap and an expensive water at the four turns, and a pool with
+two water overlays at the four turns, linked and flattened and compiled
+whole: every point of a 16-unit lattice over the level holds the same
+thing (solid, air, or water of the same surface height and material), the
+same records, the same fluids (plane, contents, surface property, volume
+and extent), the same water overlays bit for bit but their face lists,
+whose faces cover the same area; through the CLI (`ssmap room`, `ssmap
+link`, `ssmap check` with no error, `--flatten`) the same. The same bytes
+at one thread and four, pack and link. Known differences, not refused: the
+depth-patched materials keep their room names in the link and take the
+level's in the flattened compile (nothing in either map names them: vbsp's
+texinfo compaction drops the texinfo it made for them), and the order of
+fluids in the world record (the link's by placement, vbsp's by its tree).
+
+*Stage two: water sockets* (water continuing through a door, O7's "kit
+water levels later").
+
+- **Declaring.** A room declares a socket's water on its `info_room`:
+  `water_east`, `water_west`, `water_north` or `water_south`, each
+  `"<level> <material>"`, the height of the water's surface above the
+  cell's floor and its material, such as `48 nature/water_canals_cheap001`
+  (`LibraryRoom.WaterSockets`, `RoomWaterSocket`). The split refuses a key
+  on a wall without a door plug (`room "{room}" declares water on its
+  {wall} wall (water_{wall}), but its {wall} wall has no door plug.`), a
+  value that is not a height and a material, another wall name, and a
+  level at or below the door's sill (`... declares water at {level} on its
+  {wall} wall, at or below the door's sill ({sill}); water that does not
+  reach the doorway needs no water socket.`). The declaration is an input
+  of the room's cache key (folded only when present, so no other room's key
+  moved). The level is room-local and a turn is about +z, so a placement
+  never changes it.
+- **The plug rule.** Water may reach a declared socket's plug and no other
+  (15.4's refusal stands for the rest). The room compile holds each
+  declared socket to its water (`RoomWater.Door`): sampled half a unit
+  inside the plug's inner face at every half unit of the door's width and
+  height, and a quarter unit either side of the level, the room is water of
+  one record below the level and open air above it (`room {room}: socket
+  "{socket}" declares water at {level}, but ({x} {y} {z}) against its plug
+  holds {solid/air/water}; the water must fill the doorway to that height
+  and no higher.`, and `... meets two bodies of water; a water socket's
+  doorway meets one.` for water and slime side by side); the record's
+  surface is at the level (`... but the water against its plug has its
+  surface at {z}.`; a doorway wholly under water, the level at or above the
+  door's top, takes any surface at or above the top, vbsp's 16384 for a room
+  filled to its ceiling included); its material is the declared one, read
+  through vbsp's patch chain (`room {room}: socket "{socket}" declares
+  {material}, but the water against its plug is {actual}.`); and it is
+  unlit (`room {room}: socket "{socket}"'s water {material} is lit
+  (%compileKeepLight); the surface the link adds in a doorway has no
+  lightmap, so a water socket's water is unlit.`). The `WATR` section then
+  holds, per socket, the level, the record, the room's surface faces at the
+  level seen from above and from below (found by winding), the water
+  leaf's contents and the fluid the water is part of.
+- **The joint rule.** At a joint the two sockets are both dry or both
+  water at one level, compared exactly (`LevelWaterJoints`), refused
+  otherwise by the link (levels from the rooms' `WATR`) and the flatten
+  (levels from the declarations), with one text: `room {a} at cell ({x},
+  {y}) and room {b} at cell ({nx}, {ny}) meet with water at {la} at socket
+  "{sa}" and {lb} at socket "{sb}"; the water on the two sides of a joint
+  is at one level.` (`none` for a dry side). A capped water socket keeps
+  its plug; its water stays in its room.
+- **The carve.** Each doorway piece the plug carve leaves (`CarveLeaf`;
+  one per solid leaf the plug made) is cut by the level (`CarveWater`): a
+  piece the level crosses gets a node on the level's plane (shared in the
+  plane table), open air in front (the piece's own index, as every
+  doorway) and a new water leaf behind; a piece wholly below the level is a
+  water leaf; one whose top is the level (the room's compile split the plug
+  there) is a water leaf under a node whose front is a leaf as thin as the
+  plane, which only lists the surface; one at or above the level is open
+  air as before. A water leaf takes the room's water leaf contents and the
+  level's record for the socket's water, the doorway's cluster and area;
+  every new leaf is recorded as a doorway for the lighting's leaf ambient.
+  The node lists the doorway's surface: a face seen from above (listed in
+  the leaf above) and one from below (listed in the water leaf), each
+  following the room's own surface face (its plane, side, texinfo, fog
+  volume, styles and flags), over the piece's rectangle, wound as that
+  face is, with its own edges, surfedges, original face, face id, macro
+  and vertex normals (its template's first vertex's). A room whose water
+  shows no surface there (a nodraw top) gives its doorway none either: the
+  node then lists no face. The faces sit in
+  model 0's range after every world face and before the brush models', so
+  their count is made before the bases are assigned by the same carve run
+  on scratch lists (`CountWaterDoorwayFaces`). Each water leaf gets a water
+  brush (its box, six axial sides of the record's surface texinfo, the
+  water's contents without vvis's flag), added after the brush fold, so
+  traces meet the doorway's water as they meet the flattened level's; and a
+  convex of its box joins the fluid of the room's water at the socket, so
+  physics floats through the doorway.
+- **One body of water.** The records a water joint joins are made one
+  (`JoinedWater`, union-find over placement and record, the earlier root
+  kept): the group's lowest point, the surface texinfo of its first member
+  in link order, as vbsp finds one volume through the flattened level's
+  doorway; a chain and a ring of water doors link to one record. The
+  fluids stay each room's (the doorway's convexes in one of them), where
+  the flattened compile makes one of the body of water: the facts compare
+  their summed volume and extent per surface plane.
+- **The flatten** fills each joined water socket's plug box with a water
+  brush of the declared material up to the level (the whole box for a
+  doorway under water), moved with the room, which vbsp joins to the rooms'
+  water.
+- **Visibility and light.** Water leaves are open to vis (vvis sees through
+  water, and so do Q3's door flows, which look through the doorway's
+  rectangle), so the linked PVS is unchanged; the doorway's water leaves take
+  the facing cluster. vvis's water passes run over the level
+  (`RecomputeWaterSight`), so the leaves that see water through a door are
+  marked and measured with the doorway's surfaces among the water faces.
+  vrad lets light through water (its shadow mask holds no water), so the
+  door light (PR 10) through a water door is what it is through any door;
+  the doorway's surfaces are unlit, as a water socket's water must be.
+
+Decisions taken where the document is open: O7 as recommended (refuse
+first, then kit water levels), the level declared per socket on the
+room's marker with its material, so the split, the flatten and a level's
+joint rule read it without a compile (the design says "the kit knows the
+water level at a socket"; a room's marker is where its sockets are named);
+water levels compared exactly; a lit water refused at a water socket; the
+joined record's texinfo the first member's in link order. Measured
+equivalence: the hub and the other room jointed through their water doors
+at the four turns, a chain of three rooms, a ring of four and a doorway under
+water, linked and flattened and compiled whole: the same thing at every
+point of the lattice (the doorway's water to the level, open air above),
+one record in both, the fluids' volume and extent, and the doorway's surface
+wholly covered from above and below in both maps; a lit level with a water
+door links and passes `ssmap check`; through the CLI (`ssmap room` reading
+the declarations, `ssmap link`, `ssmap check`, `--flatten`) the same. The
+pack is the same bytes at one thread and four, and so is the link. Known
+differences, not refused: the doorway's surfaces take the room's surface
+face's texinfo, where the flattened compile's are cut from the doorway brush
+(the underside's texture alignment can differ); the joined record's texinfo
+(the first member's, where vbsp's flood picks one); and the fluids' count
+(above). Not done here: `ssmap layout` does not read water sockets, so a
+generated level may joint a water socket to a dry one, which the link then
+refuses; the 3x3 sample's `hall` did not grow its pool (the harness levels
+carry the facts at every turn, and the samples' digests show a level
+without water links as before); the stress library has no water; `ssmap
+rooms` does not list water.
+
+Measured against main (the merge base, with PR 18, D29 and PR 19): `ssmap all` on
+2fort and the sandbox writes the same maps, and 2fort's vbsp alone the same
+bytes; the 3x3, transit and stress packs differ only in the build identity
+(`CMPL` and each room container), no room of them gaining a `WATR` section;
+every level of the 3x3 and transit samples (both modes) and the stress
+library's 33 x 33 level, linked by this build from main's packs, is main's
+map byte for byte, and each passes `ssmap check` with its one warning (no
+cubemap sample); the 33 x 33 level links in the same time within the noise
+(1.5 to 1.7 s against 1.6 to 1.7 s, interleaved runs on a busy 4-core box).
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
@@ -3807,6 +4173,11 @@ hardest and their refusals are safe meanwhile.
 | D27 | (2026-09-29, was O31) Raised or sunken floors and stacked storeys are not planned; storeys are authored inside a tall room (17.6). |
 | D28 | (2026-09-29, was O32) The combine verb is `ssmap roompack`, with `ssmap room -namespace` for one library (17.10). |
 | D29 | (2026-09-30, was O25) Don't drop singletons across libraries: a singleton only a later library has (the sun, an environment controller, fog) is used, taken from the earliest listed library that has it; the first library still wins wherever it has one, and duplicates keep D24's one summary line per library. The same holds for a library option the first library does not write and for the skybox room; `mapversion` is not filled. The level's sun world lights come from the library that supplied the sun, and D26 holds the other libraries to that sun (17.4). `ssmap roompack`'s level-wide sections and sun (17.10) are the level's singletons by this rule. |
+| D31 | (2026-09-30, was O34) The level map is a binary `.map2d` for the game, with an optional SVG preview from the same data (18.4). |
+| D32 | (2026-09-30, was O35) The map's playable area is the compiled room's walkable faces, not the navigation voxels (18.2). |
+| D33 | (2026-09-30, was O36) The map shows `info_poi` entities with a `map_marker` key, plus the spawn, the arrivals and the transition exits; other POIs stay navigation-only (18.1). |
+| D34 | (2026-09-30, was O37) The `.map2d` is a sidecar next to the `.bsp`, as the `.nav3d` (D18), not in the pakfile (18.3). |
+| D35 | (2026-09-30, was O38) The map file carries each polygon's, door's and marker's placement and the `map_label`s; whether and how to reveal rooms is the game's choice (18.1). |
 
 ### Open, with recommended defaults
 
@@ -3845,6 +4216,11 @@ hardest and their refusals are safe meanwhile.
 | O31 | (Decided: D27.) | |
 | O32 | (Decided: D28.) | |
 | O33 | Tall one-cell rooms outside groups (17.9). | Only in groups, under `-large`. |
+| O34 | (Decided: D31.) | |
+| O35 | (Decided: D32.) | |
+| O36 | (Decided: D33.) | |
+| O37 | (Decided: D34.) | |
+| O38 | (Decided: D35.) | |
 
 ---
 
@@ -3966,12 +4342,15 @@ then.
 | 4.3 texel | R | `room {room}: prop_static {id} asks for texel lighting, which this vrad does not bake.` |
 | 4.5 socket | R | `room {room}: the displacement on brush side {side} has an edge on socket "{socket}"'s plug box; displacements may not meet at a joint.` |
 | 4.6 socket | R | `room {room}: water reaches socket "{socket}"; water may not touch a door plug.` |
+| 4.6 water joint | R | `room {a} at cell ({x}, {y}) and room {b} at cell ({nx}, {ny}) meet with water at {la} at socket "{sa}" and {lb} at socket "{sb}"; the water on the two sides of a joint is at one level.` (`none` for a dry side; PR 14) |
+| 4.6 water socket | R | `room {room}: socket "{socket}" declares water at {level}, but ({x} {y} {z}) against its plug holds {solid/air/water}; the water must fill the doorway to that height and no higher.` and the other water socket texts of PR 14's landed note |
 | 4.9 plug | R | `room {room}: info_overlay {id} names brush side {side}, which is socket "{socket}"'s plug.` |
 | 4.11 socket | R | `room {room}: func_areaportal {id} lies in socket "{socket}"'s plug box.` |
 | 4.13 conflict | R | `rooms {a} and {b} both pack {file} with different bytes.` |
 | 10.4 binding | R | `{roomnav} was written for another pack than {roompack}; recompile the library with ssmap room.` |
 | 10.4 missing | W | `{roompack} has no {roomnav} beside it; the level links without navigation, and rooms {rooms} have points of interest.` |
 | 4.14 cordon | R | `the room library has a cordon; rooms are cut by their cells, not by cordons.` |
+| lint, empty room | R | `rule 2 (ShellSealedExceptAtSockets): room {room} has no world brushes; a room is a shell of world brushes around its cell, and a compile of none has no world to build.` (a cell marked as a room with nothing built in it, or only brush entities; refused by the model check before the compile, and reported for that room alone) |
 | 11.1 count | R | `level {level}: {k} {up/down} rooms ({cells}, or none); a level has exactly one unless it says "{up/down}: none".` |
 | 11.1 switched off | R | `level {level}: says "{role}: none" but places {role} room {room} at cell ({x}, {y}).` |
 | 11.1 map key | R | `level {level}: has a{n} {role} room but no {role}_map.` / `level {level}: says "{role}: none" and also names {role}_map.` |
@@ -4224,6 +4603,10 @@ size. The assumptions, and what each means for taller or larger rooms:
 | Linker entities stand at the cell centre | `LevelLinker.CellCentre`: `(c/2, c/2, c/2)`, turned | One spelling shared by link and flatten (5.9). |
 | Names and neighbour logic are per cell | 5.2: `cxry_` with ±1 offsets; (b) flags and `room_needs` name four sides, one neighbour each | A room with two neighbours on a side has no name for either. |
 | Props and furniture stay in the cell | PR 6 and PR 7's cell rule (the hull or brush inside the cell box, furniture only into its doorway) | The cell box is the cube. |
+
+PR 19 lifted the height rows of this table: the room's box replaces the
+cube wherever it is assumed, and the top tree's bounds follow the rooms'
+heights (section 13, its landed note). The footprint rows stand until PR 20.
 
 In short: **height** is fixed by the kit and assumed in the cell box (split,
 lint, props, furniture, navigation, linker entities) and in the top tree's
@@ -4913,3 +5296,160 @@ decided the other way on 2026-09-30 (D29).
 | O31 | Rooms whose floor is not at z = 0, and stacked storeys. | **Decided (D27):** not planned: both need a vertical kit and z splits in the top tree. Storeys are authored inside a tall room. |
 | O32 | The combine verb's name. | **Decided (D28):** `ssmap roompack`, with `ssmap room -namespace` for one library. |
 | O33 | Scattering tall one-cell rooms outside groups. | Only in groups (`-large`); revisit if levels look too regular. |
+
+---
+
+## 18. The level map overlay
+
+Owner request (2026-09-30): the room link writes a **2D vector map of the
+level, seen from above**: the playable area, with points of interest
+marked, in a file the game loads to draw a map overlay. This section is the
+plan; PR 22 (section 13) builds it. The choices the owner has not made yet
+were O34 to O38; the owner took every recommended default on 2026-09-30
+(D31 to D35).
+
+### 18.1 What the map shows
+
+- **The playable area**: every surface a player can stand on, projected
+  onto the xy plane, as filled polygons. Walls are the polygons' outlines;
+  nothing above a floor is drawn (no ceilings, no roofs), so a room reads
+  as its floor plan.
+- **Doors**: each socket of each placement, marked **open** where the
+  joint is joined and **closed** where a cap or plug seals it. A door is a
+  segment across the opening, so the game can draw it or leave a gap.
+- **Floors at more than one height**: a tall room with a gallery or
+  storeys authored inside it (D27) has floors at several heights. Every
+  polygon carries its height band (its lowest and highest z), so the game
+  can show the floor the player is on and dim or hide the others.
+- **Rooms**: every polygon and door names the placement it belongs to by
+  its cell (`cxry`, the naming grammar of section 5), so the game can
+  reveal the map room by room as the player visits them (fog of war) or
+  highlight the room the player is in. An `info_room` may give its room a
+  `map_label` (a short display string) that the map carries per
+  placement.
+- **Points of interest**:
+  - every `info_poi` (10.6) whose keys include `map_marker` (a marker
+    kind: a short identifier the game maps to an icon, such as `exit`,
+    `shop`, `objective`), at its linked position and yaw, with its
+    optional `map_label`. POIs without `map_marker` stay navigation-only
+    and are not on the map;
+  - automatic markers the linker already knows: the level spawn and the
+    arrival points (11), and the transition rooms' up and down exits.
+  Markers stay zero-cost at runtime: they live in the map file, not in the
+  entity lump.
+
+### 18.2 Where the playable area comes from
+
+The recommended source (O35) is the **compiled room's walkable faces**: the
+faces of the room's world model whose plane normal points up at least as
+steeply as the engine's walkable slope (normal z ≥ 0.7, the same bound the
+player's movement code uses), excluding sky and nodraw faces, the plugs and
+caps (sealed door faces are doors, 18.1), and faces a solid brush sits on.
+Brush entities a player stands on (`func_detail` is world; `func_brush`
+and doors are entities) are included when they are solid to the player.
+
+Why not the navigation voxels: they would match the AI's idea of the
+walkable space exactly, but a library may have no navigation, their
+outlines are staircase-shaped at the voxel size, and they cover where an
+agent's hull fits rather than the floor the player sees. Faces give crisp
+outlines and exist for every room.
+
+Per room, at pack time (D1): the walkable faces are projected onto xy,
+snapped to whole units, and unioned into simple polygons with holes, one
+set per height band; the band is the face's z range, and faces whose bands
+overlap and that touch in xy are merged. The union runs on integer
+coordinates (after the snap), so it is exact and order-independent, which
+keeps the pack reproducible and the link byte-identical at any thread
+count; no platform math is involved. The result is simplified only by
+dropping collinear points, which is exact too.
+
+### 18.3 Pack and link
+
+- **Pack time** (`ssmap room`): a new optional per-room section, **`MAPV`**
+  (codec and revision like the other link sections, 1.1), holding each
+  rotation's polygons, door segments by socket, and marker POIs (the
+  quarter turns are exact on integer coordinates, so the four rotations
+  can also be derived at link; the section stores one rotation and the
+  link turns it, unless measuring shows the ×4 is worth its bytes, D16).
+  A room with no walkable face stores an empty section and is warned about
+  at pack time, since a player cannot stand in it. No pack version change:
+  a pack without `MAPV` links without a map and says so once.
+- **Link** (`ssmap link`): each placement's polygons are turned and moved to
+  its cell (whole-unit, exact), doors take their open or closed state from
+  the joints, markers are resolved through the naming grammar, and the
+  level's map is written as a **sidecar next to the `.bsp`**, like the
+  `.nav3d` (D18): `<map>.map2d` (O34, O37). No geometry work at link; the
+  cost is a copy and a sort.
+- **Flatten**: `ssmap map2d <map.bsp>` builds the same map from any
+  compiled map by the same face rule over its world model, cut into cells
+  when a level file is given. It is how the equivalence fact (18.6) is
+  checked and it makes a map for a hand-built level too.
+- **Options**: `-no-map2d` skips the file; `-map2d-svg` also writes
+  `<map>.svg`, a preview of the same data for people and web pages (O34).
+
+### 18.4 The file (`.map2d`)
+
+A small binary file the game reads in one pass, documented in
+`docs/map2d-format.md` the way `docs/nav3d-format.md` documents the
+navigation, with a C# reference reader in `SourceSharp.MapFormats` and the
+same container conventions (magic, version, header size, a directory of
+tagged sections, little-endian):
+
+- **header**: the level's extent (xy mins and maxs, z range), the cell size
+  and grid size, and a binding to the `.bsp` it was linked with (the map's
+  checksum, as the `.nav3d` binds to its map), so a stale map is refused by
+  the game rather than drawn wrong;
+- **`ROOM`**: per placement, its cell, room name, rotation, height and
+  `map_label`;
+- **`POLY`**: polygons as rings of int16 or int32 xy points (whichever the
+  extent needs), each with its placement, its z band, and whether it is an
+  outer ring or a hole;
+- **`DOOR`**: segments with placement, socket, and open or closed;
+- **`MARK`**: markers: kind (a string-table index), position, yaw,
+  placement, and label;
+- **`STRS`**: the string table.
+
+World units, +x east and +y north as in the map, so the game places the
+player's arrow with no conversion; the game scales the extent to its
+panel. Vector data keeps the file small (a 3x3 level is a few kilobytes)
+and sharp at any zoom.
+
+### 18.5 Mod contract
+
+The game side is the mod's (section 7): it loads `maps/<map>.map2d` when
+the map loads, checks the binding, and draws the overlay (polygons filled,
+outlines stroked, doors, markers by kind, the player's position and yaw).
+`SourceSharp.RoomContracts` gains the `info_poi` keys `map_marker` and
+`map_label`, the `info_room` key `map_label`, and the marker kinds the
+linker writes itself (`spawn`, `arrival`, `exit_up`, `exit_down`), so the
+mod and the compiler share one list.
+
+### 18.6 Tests
+
+- **Pack time**: the face rule (walkable slope bound on both sides, sky and
+  nodraw faces, plugs and caps, entity floors), the union on hand-built
+  faces (touching, overlapping, holes, several bands), the snap, the
+  rotation identity, the empty-room warning, `MAPV` read and write, same
+  bytes at `-threads` 1 and 4.
+- **Link**: open and closed doors from joints and caps, marker resolution
+  and naming, the automatic markers, the missing-section message, the
+  sidecar next to the `.bsp` and `-no-map2d`, the SVG preview.
+- **Equivalence**: for the 3x3 and transit samples at every turn, the
+  linked `.map2d` equals `ssmap map2d` of the flattened compile cut by the
+  level file, byte for byte (the same face rule over the same faces).
+- **Format**: the reader round-trips every section, refuses a stale binding
+  and a damaged file with named messages.
+- **Existing outputs**: every `.bsp`, `.nav3d` and pack section other than
+  `MAPV` unchanged.
+
+### 18.7 Open points
+
+All five were decided on 2026-09-30 as recommended (D31 to D35).
+
+| # | Question | Recommended default |
+| --- | --- | --- |
+| O34 | The file format the game loads. | **Decided (D31, 2026-09-30):** as recommended. A binary `.map2d` (18.4) for the game, plus an optional SVG preview from the same data. SVG alone would need an SVG renderer in the game; a raster image would blur at zoom and fix one scale. |
+| O35 | The source of the playable area. | **Decided (D32, 2026-09-30):** as recommended. The compiled room's walkable faces (18.2); navigation voxels are the alternative. |
+| O36 | Which points of interest are on the map. | **Decided (D33, 2026-09-30):** as recommended. `info_poi` with a `map_marker` key, plus the spawn, arrivals and transition exits; other POIs stay navigation-only. |
+| O37 | Sidecar or inside the map's pakfile. | **Decided (D34, 2026-09-30):** as recommended. A sidecar next to the `.bsp`, as the `.nav3d` (D18); packing it into the pakfile is an option to add if servers must send it to clients. |
+| O38 | Per-room reveal (fog of war) and labels. | **Decided (D35, 2026-09-30):** as recommended. Carried in the file (placement per polygon, door and marker; `map_label`); whether and how to reveal is the game's choice. |

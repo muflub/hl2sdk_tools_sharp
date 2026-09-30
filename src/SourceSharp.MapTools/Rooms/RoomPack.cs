@@ -116,6 +116,11 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // reads them with the container and the link sections in one run.
         RoomPackSectionData counts = RoomEntityCounts.Of(room.Bsp).ToSection();
 
+        // A shaped room's shape (17.6), right after the counts: the link
+        // reads it before the room's container is checked. A cube room gets
+        // none, so its entry is what it was before heights.
+        IReadOnlyList<RoomPackSectionData> shape = RoomShape.ToSection(room.Definition) is { } shaped ? [shaped] : [];
+
         // The static props, when the room has any, right after the counts:
         // the link reads them for every placement whatever its turn (the
         // section holds all four), so with the container and the counts.
@@ -159,6 +164,11 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // before area portals were carried.
         IReadOnlyList<RoomPackSectionData> areaPortals = room.AreaPortalsOfCompile is { } portals ? [portals.ToSection()] : [];
 
+        // The water likewise, for a room whose compile has any. A room
+        // without it gets no section, so its entry is what it was before
+        // water was carried.
+        IReadOnlyList<RoomPackSectionData> water = room.WaterOfCompile is { } carriedWater ? [carriedWater.ToSection()] : [];
+
         // The displacements likewise, for a room whose compile wrote any:
         // every placement reads them, whatever its turn (the section holds
         // all four). A room without them gets no section, so its entry is
@@ -166,7 +176,7 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         IReadOnlyList<RoomPackSectionData> displacements = room.DisplacementsOfCompile is { } disps ? [disps.ToSection()] : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. areaPortals, .. displacements, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. shape, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. areaPortals, .. water, .. displacements, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -297,7 +307,7 @@ public sealed class RoomPackIndex
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Layout, version 4</b> (as versions 1 to 3's; see Versions below). Every integer is big-endian, as in the room
+/// <b>Layout, versions 4 and 5</b> (as versions 1 to 3's; see Versions below). Every integer is big-endian, as in the room
 /// container, so the bytes do not depend on the writer's byte order. A tag
 /// is four printable ASCII characters, stored as they read.
 /// </para>
@@ -318,7 +328,9 @@ public sealed class RoomPackIndex
 /// <see cref="RoomSection"/>, exactly the bytes
 /// <see cref="RoomObjectStore.SaveAsync"/> writes for it (the room container).
 /// A room <c>ssmap room</c> packs then has its entity counts
-/// (<c>ECNT</c>, <see cref="RoomEntityCounts"/>), when its compile emitted static
+/// (<c>ECNT</c>, <see cref="RoomEntityCounts"/>), when it is taller or lower
+/// than its cell its shape (<c>SHAP</c>: its height, footprint and sockets'
+/// cells, <see cref="RoomShape"/>), when its compile emitted static
 /// props its props as the link carries them (<c>PROP</c>: the models' hulls,
 /// the keys vbsp consumed and every prop's pose at all four turns,
 /// <c>RoomStaticProps</c>), when its compile has brush models besides the
@@ -333,9 +345,11 @@ public sealed class RoomPackIndex
 /// (<c>OVLY</c>: every record's origin and basis at all four turns,
 /// <c>RoomOverlays</c>), when its compile has area portals its areas and
 /// portals (<c>APRT</c>: the clip vertices at all four turns and the portal
-/// numbers, <c>RoomAreaPortals</c>), when its compile wrote displacements
-/// its displacements (<c>DISP</c>: every start position and vertex vector at
-/// all four turns, <c>RoomDisplacements</c>), and the link work done ahead for it
+/// numbers, <c>RoomAreaPortals</c>), when its compile has water its water
+/// (<c>WATR</c>: the water data counted, the fluids' convexes and the water
+/// overlays at all four turns, <c>RoomWater</c>), when its compile wrote
+/// displacements its displacements (<c>DISP</c>: every start position and
+/// vertex vector at all four turns, <c>RoomDisplacements</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
 /// the room alone, its door visibility (<c>DVIS</c>, <see cref="RoomDoorVisibility"/>),
 /// then per quarter turn <i>r</i> its turned geometry
@@ -405,9 +419,11 @@ public sealed class RoomPackIndex
 /// entry names; a pack whose index and containers disagree is refused.
 /// </para>
 /// <para>
-/// <b>Versions.</b> This build writes version 4 and reads versions 4 and
-/// 3, and refuses any other with the version it carries and the one it
-/// reads, as the room container does; the containers inside carry their
+/// <b>Versions.</b> This build writes version 5 for a pack holding a shaped
+/// room and version 4 for any other (<see cref="CubeVersion"/>), reads
+/// versions 3 to 5, and refuses any other with the version it carries and
+/// the newest it reads (<see cref="CheckVersion"/>), as the room container
+/// does; the containers inside carry their
 /// own version and are checked by <see cref="RoomObjectStore.LoadAsync"/>.
 /// Versions 2 to 4 have the layout of version 1; what each adds is a
 /// promise about the rooms. Version 2: the pack was built after the library's singletons were
@@ -436,7 +452,13 @@ public sealed class RoomPackIndex
 /// links: its rooms promise everything but the door visibility, which is
 /// a function of what the pack does hold (each room's own vvis and plug
 /// census), so the link works it out per room and writes the same bytes
-/// it writes from the same library packed as version 4.
+/// it writes from the same library packed as version 4. Version 5 (the rooms
+/// design, 17.11): some room is shaped and carries <c>SHAP</c>, which an
+/// older build would skip and link the room as a cube, its top tree's
+/// bounds one cell tall; so a pack holding one takes the next version, and
+/// an older build refuses it by its version check. A pack of cube rooms is
+/// still written at version 4, its bytes what they were, and a <c>SHAP</c>
+/// section in a pack of version 4 or older is refused as damage.
 /// </para>
 /// </remarks>
 public static class RoomPack
@@ -444,8 +466,19 @@ public static class RoomPack
     /// <summary>The pack's eight magic bytes, as they read in the file.</summary>
     public const string Magic = "SSRPAK01";
 
-    /// <summary>The pack version this build writes, and the newest it reads (<see cref="RoomPack"/>'s remarks on versions).</summary>
-    public const int Version = 4;
+    /// <summary>
+    /// The newest pack version this build writes and reads: the version of a
+    /// pack holding a shaped room (<see cref="RoomShape"/>; <see cref="RoomPack"/>'s
+    /// remarks on versions).
+    /// </summary>
+    public const int Version = 5;
+
+    /// <summary>
+    /// The version a pack of cube rooms is written at: version 4, as before
+    /// heights, so such a pack keeps its bytes and every build that read it
+    /// still does.
+    /// </summary>
+    public const int CubeVersion = 4;
 
     /// <summary>
     /// The one older version this build still reads: version 3, whose rooms
@@ -565,9 +598,12 @@ public static class RoomPack
             indexEnd += 4 + names[i].Length + 4 + ((long)sections[i].Count * SectionBytes);
         }
 
+        // Version 5 only for a pack holding a shaped room; a pack of cubes
+        // keeps version 4 and its bytes (the remarks on versions).
+        bool shaped = sections.Any(room => room.Any(section => section.Tag == RoomShape.SectionTag));
         using MemoryStream header = new((int)Math.Min(indexEnd, int.MaxValue));
         header.Write(Encoding.ASCII.GetBytes(Magic));
-        WriteInt32(header, Version);
+        WriteInt32(header, shaped ? Version : CubeVersion);
         WriteInt32(header, librarySections.Count);
         WriteInt32(header, rooms.Count);
         long offset = indexEnd;
@@ -619,19 +655,7 @@ public static class RoomPack
         }
 
         int version = BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(8));
-        if (OlderVersion(version) is { } lacks)
-        {
-            // An older version whose rooms were never held to what this
-            // build's link relies on: not read around.
-            throw new LinkException(
-                $"room pack version {version}; this build reads version {Version}. A version {version} pack was written before"
-                + $" {lacks}; recompile the library with ssmap room.");
-        }
-
-        if (version != Version && version != OldestReadVersion)
-        {
-            throw new LinkException($"room pack version {version}; this build reads version {Version}.");
-        }
+        CheckVersion(version, Version);
 
         int libraryCount = BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(12));
         if (libraryCount is < 0 or > MaxSections)
@@ -891,6 +915,21 @@ public static class RoomPack
                 wanted.Add((name, counts));
             }
 
+            if (entry.Find(RoomShape.SectionTag) is { } shape)
+            {
+                // Only a version 5 pack holds shaped rooms: a shape in an
+                // older one was not written by any build that wrote that
+                // version, so the pack is damaged.
+                if (index.Version < Version)
+                {
+                    throw new LinkException(
+                        $"room pack entry \"{name}\" has a \"{RoomShape.SectionTag}\" section in a version {index.Version} pack;"
+                        + $" only a version {Version} pack holds shaped rooms, so the pack is damaged; recompile the library with ssmap room.");
+                }
+
+                wanted.Add((name, shape));
+            }
+
             if (entry.Find(RoomStaticProps.SectionTag) is { } props)
             {
                 wanted.Add((name, props));
@@ -929,6 +968,11 @@ public static class RoomPack
             if (entry.Find(RoomAreaPortals.SectionTag) is { } areaPortals)
             {
                 wanted.Add((name, areaPortals));
+            }
+
+            if (entry.Find(RoomWater.SectionTag) is { } water)
+            {
+                wanted.Add((name, water));
             }
 
             if (entry.Find(RoomDisplacements.SectionTag) is { } displacements)
@@ -1010,9 +1054,10 @@ public static class RoomPack
             ArraySegment<byte> bytes = read[(name, RoomSection)];
             using MemoryStream container = new(bytes.Array!, bytes.Offset, bytes.Count, writable: false);
             RoomObject room;
+            RoomShapeData? shape = RoomShape.Read(Section(name, RoomShape.SectionTag), name);
             try
             {
-                room = await RoomObjectStore.LoadAsync(container, cancellationToken).ConfigureAwait(false);
+                room = await RoomObjectStore.LoadShapedAsync(container, shape, cancellationToken).ConfigureAwait(false);
             }
             catch (LinkException exception)
             {
@@ -1043,10 +1088,11 @@ public static class RoomPack
             RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
             RoomOverlays? overlays = RoomOverlays.Read(Section(name, RoomOverlays.SectionTag), name, room.Bsp);
             RoomAreaPortals? areaPortals = RoomAreaPortals.Read(Section(name, RoomAreaPortals.SectionTag), name, room.Bsp);
+            RoomWater? water = RoomWater.Read(Section(name, RoomWater.SectionTag), name, room.Bsp);
             RoomDisplacements? displacements = RoomDisplacements.Read(Section(name, RoomDisplacements.SectionTag), name, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
                 && cubemaps is null && overlays is null
-                && lighting is null && doorLight is null && areaPortals is null && displacements is null
+                && lighting is null && doorLight is null && areaPortals is null && water is null && displacements is null
                 ? room
                 : room with
                 {
@@ -1056,6 +1102,7 @@ public static class RoomPack
                     Lighting = lighting,
                     DoorLight = doorLight,
                     AreaPortals = areaPortals,
+                    Water = water,
                     Displacements = displacements,
                 };
         }
@@ -1512,6 +1559,38 @@ public static class RoomPack
     }
 
     /// <summary>
+    /// Refuses a pack version a build whose newest is
+    /// <paramref name="newest"/> does not read: an older one whose promises
+    /// fall short (with what it lacks and what to do), or any other outside
+    /// <see cref="OldestReadVersion"/> to <paramref name="newest"/>.
+    /// </summary>
+    /// <param name="version">The version the pack carries.</param>
+    /// <param name="newest">The newest version the reading build reads: <see cref="Version"/> for this build.</param>
+    /// <exception cref="LinkException">The version is not read, naming it and <paramref name="newest"/>.</exception>
+    /// <remarks>
+    /// Parameterised by the newest version so a fact can hold the refusal a
+    /// build that reads only version 4 gives a version 5 pack to its text:
+    /// the check is the one every build ran since version 3, with its newest
+    /// raised by one for heights.
+    /// </remarks>
+    internal static void CheckVersion(int version, int newest)
+    {
+        if (OlderVersion(version) is { } lacks)
+        {
+            // An older version whose rooms were never held to what this
+            // build's link relies on: not read around.
+            throw new LinkException(
+                $"room pack version {version}; this build reads version {newest}. A version {version} pack was written before"
+                + $" {lacks}; recompile the library with ssmap room.");
+        }
+
+        if (version < OldestReadVersion || version > newest)
+        {
+            throw new LinkException($"room pack version {version}; this build reads version {newest}.");
+        }
+    }
+
+    /// <summary>
     /// The tags this build writes, as the constant strings: an index of a
     /// large library names a few thousand sections, and decoding each tag
     /// into a new string was a measurable share of reading it.
@@ -1530,6 +1609,8 @@ public static class RoomPack
         ((byte)'L', (byte)'I', (byte)'T', (byte)'E') => RoomLighting.SectionTag,
         ((byte)'D', (byte)'L', (byte)'I', (byte)'T') => RoomDoorLight.SectionTag,
         ((byte)'A', (byte)'P', (byte)'R', (byte)'T') => RoomAreaPortals.SectionTag,
+        ((byte)'S', (byte)'H', (byte)'A', (byte)'P') => RoomShape.SectionTag,
+        ((byte)'W', (byte)'A', (byte)'T', (byte)'R') => RoomWater.SectionTag,
         ((byte)'D', (byte)'I', (byte)'S', (byte)'P') => RoomDisplacements.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),

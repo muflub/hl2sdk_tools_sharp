@@ -296,6 +296,37 @@ public sealed class RoomDisplacementsTests
         }
     }
 
+    /// <summary>
+    /// The cell rule reads the room's box (the rooms design, 17.6): a patch
+    /// standing above a cube room's ceiling reaches out of a cube room, by
+    /// how far its highest vertex stands past it, and not out of a room tall
+    /// enough to hold it; one inside the cube is inside both.
+    /// </summary>
+    [Fact]
+    public void TheCellRuleReadsTheRoomsHeight()
+    {
+        RoomDefinition cube = RoomPropHarness.Hub;
+        RoomDefinition tall = cube with { Height = 512 };
+        VmfDocument high = World(RoomDisplacementHarness.Patch(RoomDisplacementHarness.PatchBrush, new Box(new Vec3(64, 64, 400), new Vec3(128, 128, 404)), offsets: false));
+        Assert.Equal(
+            "room hub: the displacement on brush side 48000 reaches 156.50 units outside the cell; displacements stay in their cell.",
+            RoomDisplacements.Problem(cube, high));
+        Assert.Null(RoomDisplacements.Problem(tall, high));
+
+        VmfDocument low = World(RoomDisplacementHarness.Patch(RoomDisplacementHarness.PatchBrush, RoomDisplacementHarness.HubWest));
+        Assert.Null(RoomDisplacements.Problem(cube, low));
+        Assert.Null(RoomDisplacements.Problem(tall, low));
+
+        static VmfDocument World(VmfChunk solid)
+        {
+            VmfDocument document = new();
+            VmfChunk world = new(SourceSharp.MapTools.Bsp.MapFileLoader.WorldChunk);
+            world.Children.Add(solid);
+            document.Chunks.Add(world);
+            return document;
+        }
+    }
+
     // ---- helpers ---------------------------------------------------------------------------------
 
     /// <summary>A record of power 2 as vbsp writes the <paramref name="index"/>th of a room: runs in order, no neighbours.</summary>

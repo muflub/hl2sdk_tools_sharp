@@ -66,7 +66,7 @@ public static class RoomCompiler
         VbspContext context,
         CancellationToken cancellationToken = default) =>
         HostHandoff.ReturnAsync(
-            CompileCoreAsync(document, definition, context, nameKeys: null, tighteningClaimProbe: null, tighteningSettleProbe: null, cancellationToken));
+            CompileCoreAsync(document, definition, context, nameKeys: null, tighteningClaimProbe: null, tighteningSettleProbe: null, waterSockets: null, cancellationToken));
 
     /// <summary>
     /// <see cref="CompileAsync(VmfDocument, RoomDefinition, VbspContext, CancellationToken)"/>
@@ -85,7 +85,30 @@ public static class RoomCompiler
         VbspContext context,
         IReadOnlySet<string>? nameKeys,
         CancellationToken cancellationToken) =>
-        CompileCoreAsync(document, definition, context, nameKeys, tighteningClaimProbe: null, tighteningSettleProbe: null, cancellationToken);
+        CompileCoreAsync(document, definition, context, nameKeys, tighteningClaimProbe: null, tighteningSettleProbe: null, waterSockets: null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="CompileAsync(VmfDocument, RoomDefinition, VbspContext, IReadOnlySet{string}, CancellationToken)"/>
+    /// with the water sockets the room's <c>info_room</c> declares
+    /// (<see cref="LibraryRoom.WaterSockets"/>): water may reach those
+    /// sockets' plugs, and is held to the declarations
+    /// (<see cref="RoomWater"/>).
+    /// </summary>
+    /// <param name="document">The room's VMF, room-local.</param>
+    /// <param name="definition">What the room claims to be.</param>
+    /// <param name="context">The compile context.</param>
+    /// <param name="nameKeys">Name-valued keys the library adds, or null.</param>
+    /// <param name="waterSockets">The declared water sockets by socket name, or null for none.</param>
+    /// <param name="cancellationToken">Cancels the compile.</param>
+    /// <returns>The linkable room object.</returns>
+    internal static Task<RoomObject> CompileAsync(
+        VmfDocument document,
+        RoomDefinition definition,
+        VbspContext context,
+        IReadOnlySet<string>? nameKeys,
+        IReadOnlyDictionary<string, RoomWaterSocket>? waterSockets,
+        CancellationToken cancellationToken) =>
+        CompileCoreAsync(document, definition, context, nameKeys, tighteningClaimProbe: null, tighteningSettleProbe: null, waterSockets, cancellationToken);
 
     /// <summary>
     /// <see cref="CompileAsync(VmfDocument, RoomDefinition, VbspContext, CancellationToken)"/>
@@ -115,7 +138,7 @@ public static class RoomCompiler
         Action<int>? tighteningClaimProbe,
         Action<int, bool>? tighteningSettleProbe,
         CancellationToken cancellationToken) =>
-        CompileCoreAsync(document, definition, context, null, tighteningClaimProbe, tighteningSettleProbe, cancellationToken);
+        CompileCoreAsync(document, definition, context, null, tighteningClaimProbe, tighteningSettleProbe, waterSockets: null, cancellationToken);
 
     /// <summary>The compile itself, with every setting the overloads pass.</summary>
     private static async Task<RoomObject> CompileCoreAsync(
@@ -125,9 +148,11 @@ public static class RoomCompiler
         IReadOnlySet<string>? nameKeys,
         Action<int>? tighteningClaimProbe,
         Action<int, bool>? tighteningSettleProbe,
+        IReadOnlyDictionary<string, RoomWaterSocket>? waterSockets,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(document);
+        waterSockets ??= new Dictionary<string, RoomWaterSocket>();
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(context);
 
@@ -186,6 +211,14 @@ public static class RoomCompiler
             .LoadAsync(context, document, cancellationToken).ConfigureAwait(false);
         MapFileReader.TakeBounds(map);
         RoomLinter.CheckModel(definition, map);
+
+        // Water that reaches a socket's plug (the rooms design, 4.6 and
+        // open point O7), refused before the compile: the loaded map is
+        // what knows a brush is water, from its materials.
+        if (RoomWater.PlugProblem(definition, map, waterSockets) is { } waterProblem)
+        {
+            throw new RoomLintException(waterProblem);
+        }
 
         // The static props as the loader read them: vbsp turns each into a
         // record and drops the entity with the keys the link still needs
@@ -260,6 +293,11 @@ public static class RoomCompiler
         // (the areas themselves, the listings and the keys are the link's).
         RoomAreaPortals? areaPortals = RoomAreaPortals.Build(definition.Name, vbsp.Bsp);
 
+        // The water the link carries: the records counted, the fluids read
+        // from the collision, their convexes and the water overlays turned
+        // four ways (the texinfos, ids and faces are the link's).
+        RoomWater? water = RoomWater.Build(definition, vbsp.Bsp, waterSockets, context.Patcher.OriginalNameFor);
+
         // The displacements the link carries: every start position and
         // vertex vector turned four ways (the runs, faces and neighbours are
         // rebased by the link; the rest is the room's lumps byte for byte).
@@ -278,6 +316,7 @@ public static class RoomCompiler
             Cubemaps = cubemaps,
             Overlays = overlays,
             AreaPortals = areaPortals,
+            Water = water,
             Displacements = displacements,
         };
     }
@@ -318,7 +357,8 @@ public static class RoomCompiler
         string claimed = "room:" + definition.Name + "|" + definition.CellSize.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
             + "|" + definition.Kit.Width.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ","
             + definition.Kit.Height.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ","
-            + definition.Kit.Depth.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            + definition.Kit.Depth.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+            + (definition.IsShaped ? "|h" + definition.Height.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : string.Empty);
         _ = context; // context-dependent keys (options, content revisions) join at the cache layer, §10a.
         return [model, claimed];
     }

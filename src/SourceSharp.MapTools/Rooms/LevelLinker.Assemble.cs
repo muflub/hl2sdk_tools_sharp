@@ -50,6 +50,8 @@ public static partial class LevelLinker
         List<(int Leaf, int Placement, int Cluster)> doorways,
         LevelAreas? areas,
         List<string> areaWarnings,
+        int doorwayFaces,
+        List<DoorwayWaterFace> waterFaces,
         CancellationToken cancellationToken)
     {
         float cell = layout.CellSize;
@@ -68,8 +70,17 @@ public static partial class LevelLinker
             InternRoomTables(plans[p], planes, textures, cubemaps?.At(p));
         }
 
+        // The level's water data, merged as vbsp merges a map's, now the
+        // surface texinfos have their shared numbers.
+        List<DLeafWaterData>? waterData = PlanWaterData(plans, layout);
+
+        // The rooms' heights (17.6): null for a level of cubes, whose top tree
+        // and solid leaf are bounded by the cell as they always were.
+        Dictionary<(int X, int Y), float>? heights = CellHeights(
+            plans.Where(p => !p.IsSkybox).Select(p => (p.Placement.Instance.Placement, p.Placement.Room.Definition)));
+        float tallest = TallestRoom(heights, cell);
         List<Plane> topPlanes = [];
-        List<DNode> top = BuildTopNodes(layout, cell, topPlanes);
+        List<DNode> top = BuildTopNodes(layout, cell, topPlanes, heights);
         for (int i = 0; i < top.Count; i++)
         {
             // BuildTopNodes numbered its planes as pairs from 0; each takes
@@ -89,7 +100,7 @@ public static partial class LevelLinker
         int gridRoot = 0;
         if (skybox is not null)
         {
-            top = UnderSkybox(top, planes, layout, cell);
+            top = UnderSkybox(top, planes, layout, cell, tallest);
             gridRoot = 1;
         }
 
@@ -162,7 +173,7 @@ public static partial class LevelLinker
         cancellationToken.ThrowIfCancellationRequested();
 
         // Leafs: the shared solid at index 0 — the void outside every room,
-        // bounded by the grid — then every room's leaves with clusters, leaf
+        // bounded by the grid up to its tallest room — then every room's leaves with clusters, leaf
         // faces, bounds and brush runs rebased. The brush runs are rebuilt
         // rather than copied, because a stripped plug brush leaves every run
         // it was in.
@@ -173,7 +184,7 @@ public static partial class LevelLinker
             Cluster = -1,
             AreaFlags = 0,
             Mins = Short3(new Vec3(minx * cell, miny * cell, skybox is null ? 0 : -cell)),
-            Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, cell)),
+            Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, tallest)),
             LeafWaterDataId = -1,
         }];
         // Linked brush indices, held as ints until the fold (which may
@@ -199,6 +210,7 @@ public static partial class LevelLinker
                 }
 
                 shifted.FirstLeafFace = (ushort)plan.LinkedLeafFace(leaf.FirstLeafFace);
+                shifted.LeafWaterDataId = LinkedWaterData(plan, leaf.LeafWaterDataId);
                 if (plan.AreaMap is not null)
                 {
                     shifted.SetAreaFlags(LevelArea(plan, leaf.GetArea()), leaf.GetFlags());
@@ -251,11 +263,21 @@ public static partial class LevelLinker
         }
 
         // The doorways: every solid leaf a jointed plug made is split so the
-        // plug's box inside it becomes an empty leaf of the facing cluster.
+        // plug's box inside it becomes an empty leaf of the facing cluster;
+        // a water socket's, its water below its level and its surface.
+        WaterDoorways water = new() { FaceBase = plans.Sum(p => p.WorldFaceCount) };
         for (int r = 0; r < plans.Length; r++)
         {
-            CarvePlugs(plans[r], roomNodeCounts[r], nodes, leafs, planes, leafMinDist, doorways, r, plans[r].AreaMap);
+            CarvePlugs(plans[r], roomNodeCounts[r], nodes, leafs, planes, leafMinDist, doorways, r, plans[r].AreaMap, water);
         }
+
+        if (water.FaceCount != doorwayFaces)
+        {
+            throw new InvalidOperationException(
+                $"the water doorways made {water.FaceCount} faces where the count before assembly made {doorwayFaces}; a bug in the carve or its count");
+        }
+
+        waterFaces.AddRange(water.Faces);
 
         Limit(plans[^1], "leaves", leafs.Count, ushort.MaxValue + 1);
         Limit(plans[^1], "planes", planes.Count, ushort.MaxValue + 1);
@@ -288,6 +310,19 @@ public static partial class LevelLinker
                     leafFaces.Add((ushort)plan.LinkedFace(roomLeafFaces[i]));
                 }
             }
+        }
+
+        // The water doorways' surfaces: each face listed in the one leaf
+        // that sees it (the open air above, the water below), after every
+        // room's runs.
+        for (int f = 0; f < water.Faces.Count; f++)
+        {
+            DLeaf lister = leafs[water.Faces[f].Leaf];
+            lister.FirstLeafFace = (ushort)leafFaces.Count;
+            lister.NumLeafFaces = 1;
+            leafs[water.Faces[f].Leaf] = lister;
+            leafFaces.Add((ushort)(water.FaceBase + f));
+            Limit(water.Faces[f].Plan, "leaf faces", leafFaces.Count, ushort.MaxValue + 1);
         }
 
         // The rooms' texinfos are all in the shared table already, so the
@@ -338,6 +373,15 @@ public static partial class LevelLinker
             lighting.AddRange(plan.Bsp[BspLump.Lighting].Data.Span);
         }
 
+        // The water doorways' surfaces after every world face (model 0's
+        // range), before the brush models' (DoorwayFaces).
+        int vertexTotal = plans.Sum(p => p.Vertices.Length + (p.Models?.LocalVertices.Length ?? 0));
+        int edgeTotal = plans.Sum(p => p.EdgeCount);
+        int surfEdgeTotal = plans.Sum(p => p.SurfEdgeCount);
+        int origFaceTotal = plans.Sum(p => p.OrigFaceCount);
+        (List<DFace> doorFaces, List<Vec3> doorVertices) = DoorwayFaces(water.Faces, surfEdgeTotal, origFaceTotal, NoDraw);
+        faces.AddRange(doorFaces);
+
         foreach (RoomPlan plan in plans)
         {
             ReadOnlySpan<DFace> roomFaces = BspStructView.As<DFace>(plan.Bsp[BspLump.Faces]);
@@ -372,6 +416,15 @@ public static partial class LevelLinker
             }
         }
 
+        // Each water doorway face is its own original face, as vbsp makes
+        // one for every face it cuts from a brush side.
+        foreach (DFace doorFace in doorFaces)
+        {
+            DFace original = doorFace;
+            original.OrigFace = -1;
+            origFaces.Add(original);
+        }
+
         // Edges: an origin-relative brush model's name the untranslated
         // copies of their vertices, after the room's own.
         List<DEdge> edges = [];
@@ -398,6 +451,18 @@ public static partial class LevelLinker
             }
         }
 
+        // The water doorway faces' rectangles: four edges a face, in order.
+        for (int f = 0; f < doorFaces.Count; f++)
+        {
+            for (int k = 0; k < 4; k++)
+            {
+                DEdge edge = default;
+                edge.V[0] = (ushort)(vertexTotal + (4 * f) + k);
+                edge.V[1] = (ushort)(vertexTotal + (4 * f) + ((k + 1) % 4));
+                edges.Add(edge);
+            }
+        }
+
         // Surfedges: the signed edge indices the faces' runs point into.
         List<int> surfEdges = [];
         foreach (RoomPlan plan in plans)
@@ -406,6 +471,11 @@ public static partial class LevelLinker
             {
                 surfEdges.Add(se >= 0 ? se + plan.EdgeBase : -(-se + plan.EdgeBase));
             }
+        }
+
+        for (int e = 0; e < 4 * doorFaces.Count; e++)
+        {
+            surfEdges.Add(edgeTotal + e);
         }
 
         // Brushes: every room's in its own order, less the stripped plugs
@@ -470,6 +540,11 @@ public static partial class LevelLinker
             cancellationToken.ThrowIfCancellationRequested();
         }
 
+        // The water doorways' brushes, after the fold (never folded): one
+        // water box a doorway water leaf, which traces meet as they meet the
+        // flattened level's doorway brush.
+        AddDoorwayBrushes(water.Pieces, brushes, brushSides, leafs, leafBrushes, planes);
+
         // Exact totals: the capacity check counted the kept brushes before
         // any room was planned, but with the fold on it leaves the brush
         // caps to here, where the folded totals are known.
@@ -499,6 +574,37 @@ public static partial class LevelLinker
         List<FaceMacroTextureInfo> macroTextures = [];
         foreach (bool modelPass in (ReadOnlySpan<bool>)[false, true])
         {
+            if (modelPass)
+            {
+                // The water doorway faces between the world's and the
+                // models': each takes its template face's id and macro, in
+                // a lump the rooms write at all.
+                bool ids = faceIds.Count > 0, macros = macroTextures.Count > 0;
+                foreach (DoorwayWaterFace doorFace in water.Faces)
+                {
+                    RoomPlan plan = doorFace.Plan;
+                    ReadOnlySpan<DFaceId> roomIds = BspStructView.As<DFaceId>(plan.Bsp[BspLump.FaceIds]);
+                    ReadOnlySpan<FaceMacroTextureInfo> roomMacros = BspStructView.As<FaceMacroTextureInfo>(plan.Bsp[BspLump.FaceMacroTextureInfo]);
+                    if (ids)
+                    {
+                        faceIds.Add(doorFace.TemplateFace < roomIds.Length ? roomIds[doorFace.TemplateFace] : default);
+                    }
+
+                    if (!macros)
+                    {
+                        continue;
+                    }
+
+                    FaceMacroTextureInfo macro = doorFace.TemplateFace < roomMacros.Length ? roomMacros[doorFace.TemplateFace] : new FaceMacroTextureInfo { MacroTextureNameId = 0xFFFF };
+                    if (macro.MacroTextureNameId != 0xFFFF)
+                    {
+                        macro.MacroTextureNameId = (ushort)Remap(plan.StringMap, macro.MacroTextureNameId);
+                    }
+
+                    macroTextures.Add(macro);
+                }
+            }
+
             foreach (RoomPlan plan in plans)
             {
                 ReadOnlySpan<DFaceId> roomIds = BspStructView.As<DFaceId>(plan.Bsp[BspLump.FaceIds]);
@@ -544,6 +650,24 @@ public static partial class LevelLinker
 
         foreach (bool modelPass in (ReadOnlySpan<bool>)[false, true])
         {
+            if (modelPass && vertNormalIndices.Count > 0)
+            {
+                // The water doorway faces' runs: four, each its template
+                // face's first vertex's normal (the surface is flat).
+                foreach (DoorwayWaterFace doorFace in water.Faces)
+                {
+                    RoomPlan plan = doorFace.Plan;
+                    ReadOnlySpan<ushort> roomIndices = BspStructView.As<ushort>(plan.Bsp[BspLump.VertNormalIndices]);
+                    int start = (plan.FaceVertexStarts ?? FaceVertexStarts(plan.Bsp))[doorFace.TemplateFace];
+                    ushort index = start < roomIndices.Length ? roomIndices[start] : (ushort)0;
+                    ushort linkedIndex = (ushort)(plan.NormalMap is { } map ? map[index] : index + plan.VertNormalBase);
+                    for (int k = 0; k < 4; k++)
+                    {
+                        vertNormalIndices.Add(linkedIndex);
+                    }
+                }
+            }
+
             foreach (RoomPlan plan in plans)
             {
                 ReadOnlySpan<ushort> roomIndices = BspStructView.As<ushort>(plan.Bsp[BspLump.VertNormalIndices]);
@@ -649,7 +773,7 @@ public static partial class LevelLinker
                 Origin = Vec3.Zero,
                 HeadNode = 0,
                 FirstFace = 0,
-                NumFaces = plans.Sum(p => p.WorldFaceCount),
+                NumFaces = plans.Sum(p => p.WorldFaceCount) + doorFaces.Count,
             },
         ];
         foreach (RoomPlan plan in plans)
@@ -675,7 +799,7 @@ public static partial class LevelLinker
             }
         }
 
-        (byte[]? physCollide, byte[]? physDisp) = MergeCollision(plans, context.Options.Compliance, brushMap, cancellationToken);
+        (byte[]? physCollide, byte[]? physDisp) = MergeCollision(plans, context.Options.Compliance, brushMap, water.Pieces, cancellationToken);
 
         // The level's area lumps, when it has area portals: written before the
         // plane lump, whose table a door portal's plane is found in.
@@ -689,7 +813,8 @@ public static partial class LevelLinker
         linked.SetLump(
             BspLump.Vertexes,
             plans.SelectMany(p => MemoryMarshal.AsBytes(p.Vertices.AsSpan()).ToArray()
-                .Concat(MemoryMarshal.AsBytes((p.Models?.LocalVertices ?? []).AsSpan()).ToArray())).ToArray());
+                .Concat(MemoryMarshal.AsBytes((p.Models?.LocalVertices ?? []).AsSpan()).ToArray()))
+                .Concat(MemoryMarshal.AsBytes(CollectionsMarshal.AsSpan(doorVertices)).ToArray()).ToArray());
         linked.SetLump(BspLump.Visibility, visibilityLump);
         linked.SetLump(BspLump.Nodes, Bytes(nodes));
         linked.SetLump(BspLump.TexInfo, Bytes(texInfos));
@@ -784,6 +909,19 @@ public static partial class LevelLinker
             linked.SetLump(BspLump.OverlayFades, overlays.Fades);
         }
 
+        // Water: the level's merged data and its water overlays; a level
+        // whose rooms have none carries neither lump, as before water was
+        // carried.
+        if (waterData is not null)
+        {
+            linked.SetLump(BspLump.LeafWaterData, Bytes(waterData));
+        }
+
+        if (LinkWaterOverlays(plans) is { } waterOverlays)
+        {
+            linked.SetLump(BspLump.WaterOverlays, waterOverlays.Lump, waterOverlays.Version);
+        }
+
         return (linked, folded);
     }
 
@@ -802,9 +940,10 @@ public static partial class LevelLinker
     /// the skybox's tree: a room's tree is its sealed compile's, which puts
     /// everything outside the room's shell in solid leaves, as the grid's
     /// single-cell nodes rely on for the space above and below a cell. The
-    /// root bounds the grid and the skybox's cell below it.
+    /// root bounds the grid, up to its tallest room (<paramref name="tallest"/>),
+    /// and the skybox's cell below it.
     /// </remarks>
-    private static List<DNode> UnderSkybox(List<DNode> top, LinkPlanes planes, LevelLayout layout, float cell)
+    private static List<DNode> UnderSkybox(List<DNode> top, LinkPlanes planes, LevelLayout layout, float cell, float tallest)
     {
         (int minx, int miny, int maxx, int maxy) = Extent(layout);
         (int even, bool flipped) = planes.Intern(new Vec3(0, 0, 1), 0);
@@ -818,7 +957,7 @@ public static partial class LevelLinker
                 PlaneNum = even,
                 Children = Orient(children, flipped),
                 Mins = Short3(new Vec3(minx * cell, miny * cell, -cell)),
-                Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, cell)),
+                Maxs = Short3(new Vec3((maxx + 1) * cell, (maxy + 1) * cell, tallest)),
                 Area = -1,
             },
         ];
@@ -913,10 +1052,12 @@ public static partial class LevelLinker
         }
 
         shifted.FirstEdge = face.FirstEdge + plan.SurfEdgeBase;
+        shifted.SurfaceFogVolumeId = LinkedWaterData(plan, face.SurfaceFogVolumeId);
 
         // A displacement's base face names its displacement, which the link
         // numbers after every earlier placement's (LinkDisplacements).
         shifted.DispInfo = face.DispInfo < 0 ? face.DispInfo : (short)(face.DispInfo + plan.DispBase);
+
         // A lit room's bake lights its drawn faces only; its original faces
         // keep what its compile wrote, as vrad leaves a map's (their offsets
         // name nothing in the level's lightmaps, where the bake's blocks are).
@@ -994,24 +1135,13 @@ public static partial class LevelLinker
         List<ushort>? leafMinDist,
         List<(int Leaf, int Placement, int Cluster)>? doorways = null,
         int placement = -1,
-        int[]? areaMap = null)
+        int[]? areaMap = null,
+        WaterDoorways? water = null)
     {
-        Dictionary<int, List<(Box, int)>> byLeaf = [];
-        foreach (PlugCarve carve in plan.Carves)
-        {
-            Box plugWorld = plan.Transform.TranslateBox(plan.Geometry.PlugBoxes[carve.Socket]);
-            if (!byLeaf.TryGetValue(carve.Leaf, out List<(Box, int)>? list))
-            {
-                byLeaf[carve.Leaf] = list = [];
-            }
-
-            list.Add((plugWorld, carve.Cluster));
-        }
-
-        foreach ((int roomLeaf, List<(Box, int)> leafPlugs) in byLeaf.OrderBy(kv => kv.Key))
+        foreach ((int roomLeaf, List<(Box, int)> leafPlugs, List<DoorwayWater?> leafWater) in CarvesByLeaf(plan))
         {
             int linkedLeaf = plan.LinkedLeaf(roomLeaf);
-            int head = CarveLeaf(plan.ClusterBase, plan.Leafs, linkedLeaf, leafPlugs, nodes, leafs, planes, leafMinDist, doorways, placement, areaMap);
+            int head = CarveLeaf(plan.ClusterBase, plan.Leafs, linkedLeaf, leafPlugs, nodes, leafs, planes, leafMinDist, doorways, placement, areaMap, leafWater, water);
             if (head == -(linkedLeaf + 1))
             {
                 continue;
@@ -1034,6 +1164,31 @@ public static partial class LevelLinker
         }
     }
 
+    /// <summary>
+    /// A placement's carves grouped by the room leaf they cut, in leaf order,
+    /// each leaf's plugs (moved to the placement) in the plan's order, with
+    /// each plug's doorway water (<see cref="DoorwayWater"/>) or null for a
+    /// dry socket: the one order the carve and its count
+    /// (<see cref="CountWaterDoorwayFaces"/>) both walk.
+    /// </summary>
+    private static IEnumerable<(int RoomLeaf, List<(Box Plug, int Cluster)> Plugs, List<DoorwayWater?> Water)> CarvesByLeaf(RoomPlan plan)
+    {
+        Dictionary<int, (List<(Box, int)> Plugs, List<DoorwayWater?> Water)> byLeaf = [];
+        foreach (PlugCarve carve in plan.Carves)
+        {
+            Box plugWorld = plan.Transform.TranslateBox(plan.Geometry.PlugBoxes[carve.Socket]);
+            if (!byLeaf.TryGetValue(carve.Leaf, out (List<(Box, int)> Plugs, List<DoorwayWater?> Water) list))
+            {
+                byLeaf[carve.Leaf] = list = ([], []);
+            }
+
+            list.Plugs.Add((plugWorld, carve.Cluster));
+            list.Water.Add(DoorwayWaterOf(plan, carve.Socket));
+        }
+
+        return byLeaf.OrderBy(kv => kv.Key).Select(kv => (kv.Key, kv.Value.Plugs, kv.Value.Water));
+    }
+
     /// <summary>Splits one solid leaf around the first plug that reaches into it.</summary>
     /// <param name="clusterBase">The room's first linked cluster.</param>
     /// <param name="roomLeafs">The room's own leaves, where the doorway's open area is looked up.</param>
@@ -1046,6 +1201,8 @@ public static partial class LevelLinker
     /// <param name="doorways">Receives each doorway leaf made, with <paramref name="placement"/> and the room cluster it joins; or null.</param>
     /// <param name="placement">The placement the leaf is of, for <paramref name="doorways"/>.</param>
     /// <param name="areaMap">Per room area, the level area it became (<see cref="PlanAreas"/>); null when the room's area numbers are the level's.</param>
+    /// <param name="waters">Per plug, its doorway's water, or null for a dry socket; null when every plug is dry.</param>
+    /// <param name="water">Where the doorways' water leaves and surfaces are recorded (<see cref="WaterDoorways"/>); null when every plug is dry.</param>
     /// <returns>The child reference that replaces the leaf: a node index, or the leaf itself.</returns>
     internal static int CarveLeaf(
         int clusterBase,
@@ -1058,7 +1215,9 @@ public static partial class LevelLinker
         List<ushort>? leafMinDist,
         List<(int Leaf, int Placement, int Cluster)>? doorways = null,
         int placement = -1,
-        int[]? areaMap = null)
+        int[]? areaMap = null,
+        List<DoorwayWater?>? waters = null,
+        WaterDoorways? water = null)
     {
         DLeaf template = leafs[linkedLeaf];
         Box current = BoxOf(template);
@@ -1101,7 +1260,8 @@ public static partial class LevelLinker
                 leafs.Add(copy);
                 leafMinDist?.Add(leafMinDist[linkedLeaf]);
                 List<(Box, int)> others = [.. plugs.Where((_, i) => i != hit)];
-                int fragmentRef = CarveLeaf(clusterBase, roomLeafs, fragment, others, nodes, leafs, planes, leafMinDist, doorways, placement, areaMap);
+                List<DoorwayWater?>? otherWaters = waters is null ? null : [.. waters.Where((_, i) => i != hit)];
+                int fragmentRef = CarveLeaf(clusterBase, roomLeafs, fragment, others, nodes, leafs, planes, leafMinDist, doorways, placement, areaMap, otherWaters, water);
 
                 int node = nodes.Count;
                 int inward = bound == 0 ? 0 : 1;
@@ -1159,6 +1319,15 @@ public static partial class LevelLinker
         // Recorded for what the doorway takes from its facing side (a lit
         // level's leaf ambient, the rooms design 9.4).
         doorways?.Add((linkedLeaf, placement, cluster));
+
+        // A water socket's doorway holds its water: the part below the level
+        // is a water leaf, and where the level crosses it (or tops it, with
+        // open doorway above) a node at the level carries the surface.
+        if (waters?[hit] is { } doorWater && water is not null)
+        {
+            head = CarveWater(linkedLeaf, door, doorWater, head, pendingNode, pendingSide, nodes, leafs, planes, leafMinDist, doorways, placement, cluster, water);
+        }
+
         return head;
     }
 

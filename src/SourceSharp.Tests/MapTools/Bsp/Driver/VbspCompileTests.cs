@@ -15,6 +15,8 @@ using SourceSharp.MapFormats.Text;
 using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Bsp.Portals;
 using SourceSharp.MapTools.Bsp.Driver;
+using SourceSharp.MapTools.Bsp.Write;
+using SourceSharp.MapTools.Diagnostics;
 using SourceSharp.MapTools.Options;
 using SourceSharp.MapTools.Validation;
 
@@ -204,6 +206,58 @@ public sealed class VbspCompileTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => Vbsp.CompileAsync(map, context, cancelled.Token));
+    }
+
+    // ---- a map with nothing to build ----------------------------------------
+
+    /// <summary>
+    /// A map with no brushes at all (a worldspawn and a player start) is
+    /// refused with its own code and a message that says what is missing.
+    /// Before the check the compile ran on past ProcessModels with no model
+    /// written and threw an <see cref="ArgumentOutOfRangeException"/> from
+    /// the world bounds, which a host reports as an internal error and a
+    /// room library as the whole run's failure rather than the room's.
+    /// </summary>
+    [Fact]
+    public async Task AMapWithNoBrushesIsRefusedWithItsCode()
+    {
+        VmfDocument document = new();
+        VmfChunk world = new(MapFileLoader.WorldChunk);
+        world.AddKey("id", "1");
+        world.AddKey("classname", "worldspawn");
+        document.Chunks.Add(world);
+        Entity(document, "info_player_start", "0 0 0");
+
+        MapCompileException error = await Assert.ThrowsAsync<MapCompileException>(() => CompileAsync(document));
+
+        Assert.Equal(WriteCodes.NoBrushes, error.Code);
+        Assert.Equal("VBSP0614", error.Code);
+        Assert.Equal(
+            "the map has no brushes: worldspawn and every brush entity are empty, so there is no world model to build.",
+            error.Message);
+    }
+
+    /// <summary>
+    /// The check is on the models written, not on worldspawn's brushes: an
+    /// empty worldspawn beside a brush entity still compiles, as it did
+    /// before the check (the brush entity becomes model 0, as it does in the
+    /// reference implementation), so no map that compiled changes.
+    /// </summary>
+    [Fact]
+    public async Task AnEmptyWorldBesideABrushEntityStillCompiles()
+    {
+        VmfDocument document = new();
+        VmfChunk world = new(MapFileLoader.WorldChunk);
+        world.AddKey("id", "1");
+        world.AddKey("classname", "worldspawn");
+        document.Chunks.Add(world);
+        VmfChunk brush = Entity(document, "func_brush", null);
+        brush.Children.Add(UnitMap.Box(UnitMap.Plain, (0, 0, 0), (64, 64, 64), 10));
+
+        VbspResult result = await CompileAsync(document);
+
+        Assert.NotNull(result.Bsp);
+        Assert.Single(Lump<DModel>(result, BspLump.Models).ToArray());
     }
 
     [Fact]

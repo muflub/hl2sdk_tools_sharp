@@ -86,9 +86,8 @@ internal readonly record struct RoomOverlayPose(Vec3 Origin, Vec3 BasisU, Vec3 B
 /// </para>
 /// <para>
 /// <b>Water overlays</b> (<c>overlaytransition</c>, the <c>WaterOverlays</c>
-/// lump) are not carried: they are drawn along water, which the link
-/// refuses, and a room that has them is refused by its lump until water is
-/// carried.
+/// lump) are carried with the room's water (<see cref="RoomWater"/>), and
+/// held to the same plug rule (<see cref="PlugProblem"/>).
 /// </para>
 /// <para>
 /// <b>Binding.</b> It describes one compile's lump: read from a pack or
@@ -323,8 +322,9 @@ internal sealed class RoomOverlays
 
     /// <summary>
     /// What is wrong with a room's overlays for the link, as the rooms
-    /// design's refusal says it, or null: an <c>info_overlay</c> whose
-    /// <c>sides</c> names a side of one of the room's socket plugs.
+    /// design's refusal says it, or null: an <c>info_overlay</c> or a water
+    /// overlay whose <c>sides</c> names a side of one of the room's socket
+    /// plugs.
     /// </summary>
     /// <param name="definition">The room: its name, cell and sockets.</param>
     /// <param name="room">The room's VMF, room-local.</param>
@@ -356,7 +356,14 @@ internal sealed class RoomOverlays
         ArgumentNullException.ThrowIfNull(room);
         List<VmfChunk> overlays = [.. room.GetChunks(MapFileLoader.EntityChunk)
             .Where(e => string.Equals(e.GetValue("classname"), OverlayClass, StringComparison.Ordinal))];
-        if (overlays.Count == 0)
+
+        // Water overlays too, which name sides the same way: the
+        // overlaydata of every overlaytransition, the world's and any
+        // entity's.
+        List<VmfChunk> waterOverlays = [.. room.Chunks
+            .SelectMany(c => c.GetChunks(MapFileLoader.OverlayTransitionChunk))
+            .SelectMany(t => t.GetChunks(MapFileLoader.OverlayDataChunk))];
+        if (overlays.Count == 0 && waterOverlays.Count == 0)
         {
             return null;
         }
@@ -396,6 +403,21 @@ internal sealed class RoomOverlays
                     return string.Create(
                         CultureInfo.InvariantCulture,
                         $"room {definition.Name}: info_overlay {VmfPlacement.IdOf(overlay)} names brush side {side}, which is socket \"{socket}\"'s plug.");
+                }
+            }
+        }
+
+        // A water overlay keeps its last "sides" key, as vbsp reads it.
+        foreach (VmfChunk water in waterOverlays)
+        {
+            string? sides = water.Keys.LastOrDefault(k => string.Equals(k.Name, "sides", StringComparison.OrdinalIgnoreCase))?.Value;
+            foreach (int side in CubemapFixups.ParseSideList(sides ?? string.Empty))
+            {
+                if (plugSides.TryGetValue(side, out string? socket))
+                {
+                    return string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"room {definition.Name}: a water overlay names brush side {side}, which is socket \"{socket}\"'s plug.");
                 }
             }
         }

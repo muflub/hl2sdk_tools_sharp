@@ -17,7 +17,8 @@ namespace SourceSharp.MapTools.Rooms;
 
 /// <summary>
 /// One room of a library VMF: what it claims to be, where its cell was in
-/// the library, and its own VMF, moved so its cell is <c>[0, cell]³</c>.
+/// the library, and its own VMF, moved so its box is <c>[0, cell]² × [0, height]</c>
+/// (the cube <c>[0, cell]³</c> for a room without a <c>room_height</c>).
 /// </summary>
 /// <param name="Definition">The room's name, grid, kit and sockets.</param>
 /// <param name="Corner">The cell's low corner in the library: where its <c>info_room</c> stands.</param>
@@ -36,6 +37,14 @@ public sealed record LibraryRoom(RoomDefinition Definition, Vec3 Corner, VmfDocu
     /// without the key.
     /// </summary>
     public RoomRole Role { get; init; }
+
+    /// <summary>
+    /// The room's water sockets by socket name, from its <c>info_room</c>'s
+    /// <c>water_&lt;wall&gt;</c> keys (<see cref="RoomLibraryVmf.WaterKeyPrefix"/>):
+    /// the sockets its water may reach, at the level each declares. Empty
+    /// without the keys.
+    /// </summary>
+    public IReadOnlyDictionary<string, RoomWaterSocket> WaterSockets { get; init; } = new Dictionary<string, RoomWaterSocket>();
 
     /// <summary>
     /// The namespace the room is compiled into, for a room of a pack with
@@ -120,12 +129,14 @@ public sealed class RoomLibraryException : Exception
 /// <list type="table">
 /// <listheader><term>key</term><description>meaning</description></listheader>
 /// <item><term><c>name</c></term><description>The room's name (<see cref="RoomNames"/>): its entry in the room pack and what a level calls it.</description></item>
-/// <item><term><c>cell_size</c></term><description>The cell's edge, in units; the cell is a cube.</description></item>
+/// <item><term><c>cell_size</c></term><description>The cell's edge, in units: the grid every room of the library stands on, and the cube a room fills unless it gives its own height.</description></item>
+/// <item><term><c>room_height</c></term><description>Optional: the room's own height, in whole units, the cell size by default (<see cref="RoomDefinition.Height"/>). The room's box is then <c>[0, c] × [0, c] × [0, room_height]</c>; its doors stay where a cube room's are.</description></item>
 /// <item><term><c>door_width</c></term><description>The door opening's width along its wall.</description></item>
 /// <item><term><c>door_height</c></term><description>The door opening's height.</description></item>
 /// <item><term><c>wall_depth</c></term><description>The shell's thickness, which is also how deep a door plug reaches in from the cell face.</description></item>
 /// <item><term><c>socket_east</c>, <c>socket_west</c>, <c>socket_north</c>, <c>socket_south</c></term><description>Optional: a name for the socket on that wall, where the default is the wall's own name. East is +x, north is +y.</description></item>
 /// <item><term><c>room_role</c></term><description>Optional: <c>up</c> or <c>down</c> for a room that moves the player between levels (<see cref="LibraryRoom.Role"/>).</description></item>
+/// <item><term><c>water_east</c>, <c>water_west</c>, <c>water_north</c>, <c>water_south</c></term><description>Optional: a water socket, the height of the water's surface above the cell's floor and its material, such as <c>48 nature/water_canals_cheap001</c> (<see cref="LibraryRoom.WaterSockets"/>).</description></item>
 /// </list>
 /// <para>
 /// Every world brush and every brush entity inside a cell's box belongs to
@@ -197,8 +208,21 @@ public static class RoomLibraryVmf
     /// <summary>The shell's thickness and the plug's depth.</summary>
     public const string WallDepthKey = "wall_depth";
 
+    /// <summary>
+    /// The room's own height, optional: the cell size when absent (the rooms
+    /// design, 17.6). Not compared between rooms or libraries: rooms of one
+    /// library, and of the libraries of one level, may differ in height.
+    /// </summary>
+    public const string RoomHeightKey = "room_height";
+
     /// <summary>The prefix of the optional socket-name keys: <c>socket_east</c> and so on.</summary>
     public const string SocketKeyPrefix = "socket_";
+
+    /// <summary>
+    /// The prefix of the optional water socket keys: <c>water_east</c> and so
+    /// on, each <c>"&lt;level&gt; &lt;material&gt;"</c> (<see cref="RoomWaterSocket"/>).
+    /// </summary>
+    public const string WaterKeyPrefix = "water_";
 
     /// <summary>The room's walls as the socket-name keys and default socket names spell them.</summary>
     /// <param name="facing">The room-local wall.</param>
@@ -310,6 +334,11 @@ public static class RoomLibraryVmf
             }
         }
 
+        // Water overlays: those the world holds go to the room whose cell
+        // holds each one's BasisOrigin, as an info_overlay_transition of
+        // their own; every one an entity holds must stand in its room's cell.
+        WaterOverlaysOf(world, markers, owned);
+
         // One of each singleton in the gaps, and every room's own copies
         // checked against them (decision D3): an equal copy is dropped from
         // the room, so no room compile, entity count or link ever sees it.
@@ -369,8 +398,9 @@ public static class RoomLibraryVmf
                 document.Chunks.Add(VmfPlacement.MoveEntity(entity, home));
             }
 
-            RoomDefinition definition = new(marker.Name, marker.CellSize, marker.Kit, Sockets(marker, localSolids));
+            RoomDefinition definition = new(marker.Name, marker.CellSize, marker.Kit, Sockets(marker, localSolids)) { Height = marker.Height };
             definition.Validate();
+            IReadOnlyDictionary<string, RoomWaterSocket> waterSockets = WaterSockets(marker, definition);
 
             // An overlay on a socket's plug (the rooms design, 4.9): refused
             // here, where the plugs are known, so the pack and the flatten,
@@ -404,11 +434,105 @@ public static class RoomLibraryVmf
                 continue;
             }
 
-            rooms.Add(new LibraryRoom(definition, marker.Corner, document) { Role = marker.Role });
+            rooms.Add(new LibraryRoom(definition, marker.Corner, document) { Role = marker.Role, WaterSockets = waterSockets });
         }
 
         return new RoomLibrarySplit(rooms, libraryWide) { Options = options, Skybox = skybox };
     }
+
+    /// <summary>
+    /// Gives each room the water overlays the library's world holds in its
+    /// cell, and holds every entity's water overlays to its room's cell.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A water overlay is an <c>overlaydata</c> chunk inside an
+    /// <c>overlaytransition</c> chunk, which vbsp reads from the world and
+    /// from any entity (the editor puts them in an
+    /// <c>info_overlay_transition</c>, which vbsp then clears). A room's
+    /// world is its brushes and keys, so the world's are carried as one
+    /// <c>info_overlay_transition</c> per room, written first among the
+    /// room's entities (vbsp reads the world's before any entity's), each
+    /// overlay going to the room whose cell holds its <c>BasisOrigin</c>.
+    /// One in the gaps would be lost with no room to draw it, and one an
+    /// entity carries into another room's cell would name sides its room
+    /// does not have, so both are refused.
+    /// </para>
+    /// <para>
+    /// The overlays' vectors move with the room (<see cref="VmfPlacement.MoveWaterOverlays"/>),
+    /// and the flatten renames their <c>sides</c> lists as it renames an
+    /// entity's.
+    /// </para>
+    /// </remarks>
+    private static void WaterOverlaysOf(VmfChunk world, List<Marker> markers, List<VmfChunk>[] owned)
+    {
+        List<VmfChunk>?[] fromWorld = new List<VmfChunk>?[markers.Count];
+        foreach (VmfChunk transition in world.GetChunks(MapFileLoader.OverlayTransitionChunk))
+        {
+            foreach (VmfChunk data in transition.GetChunks(MapFileLoader.OverlayDataChunk))
+            {
+                Vec3 at = WaterOverlayOrigin(data, world);
+                int owner = markers.FindIndex(m => new Box(at, at).ContainsWithin(m.Cell, RoomLinter.CellEpsilon));
+                if (owner < 0)
+                {
+                    throw new RoomLibraryException(
+                        $"the library has a water overlay at ({Fmt(at)}) in the gaps between rooms;"
+                        + " a water overlay belongs to the room whose cell holds its BasisOrigin.");
+                }
+
+                (fromWorld[owner] ??= []).Add(VmfPlacement.Clone(data));
+            }
+        }
+
+        for (int i = 0; i < markers.Count; i++)
+        {
+            foreach (VmfChunk entity in owned[i])
+            {
+                foreach (VmfChunk transition in entity.GetChunks(MapFileLoader.OverlayTransitionChunk))
+                {
+                    foreach (VmfChunk data in transition.GetChunks(MapFileLoader.OverlayDataChunk))
+                    {
+                        Vec3 at = WaterOverlayOrigin(data, entity);
+                        if (!new Box(at, at).ContainsWithin(markers[i].Cell, RoomLinter.CellEpsilon))
+                        {
+                            throw new RoomLibraryException(
+                                $"room {markers[i].Name}: entity {VmfPlacement.IdOf(entity)} ({entity.GetValue("classname") ?? "no classname"})"
+                                + $" has a water overlay at ({Fmt(at)}) outside the room's cell;"
+                                + " a water overlay belongs to the room whose cell holds its BasisOrigin.");
+                        }
+                    }
+                }
+            }
+
+            if (fromWorld[i] is { } datas)
+            {
+                VmfChunk carrier = new(MapFileLoader.EntityChunk);
+                carrier.AddKey("classname", WaterOverlayCarrier);
+                carrier.AddKey("origin", VmfPlacement.Format(WaterOverlayOrigin(datas[0], world)));
+                VmfChunk block = new(MapFileLoader.OverlayTransitionChunk);
+                foreach (VmfChunk data in datas)
+                {
+                    block.Children.Add(data);
+                }
+
+                carrier.Children.Add(block);
+                owned[i].Insert(0, carrier);
+            }
+        }
+    }
+
+    /// <summary>The class of the entity a room's water overlays from the world are carried in, as the editor writes one.</summary>
+    internal const string WaterOverlayCarrier = "info_overlay_transition";
+
+    /// <summary>A water overlay's <c>BasisOrigin</c>, which places it.</summary>
+    private static Vec3 WaterOverlayOrigin(VmfChunk data, VmfChunk owner) =>
+        VmfPlacement.BracketedVector(
+            data.GetValue(OverlayOriginKey) ?? throw new RoomLibraryException(
+                $"{(owner.GetValue("classname") is { } c ? $"entity {VmfPlacement.IdOf(owner)} ({c})" : "the world")} has a water overlay without a {OverlayOriginKey}."),
+            OverlayOriginKey,
+            owner);
+
+    private const string OverlayOriginKey = "BasisOrigin";
 
     /// <summary>
     /// A library's worldspawn keys as each of its rooms carries them: every
@@ -502,6 +626,39 @@ public static class RoomLibraryVmf
         }
 
         return version;
+    }
+
+    /// <summary>
+    /// A room's water sockets by socket name, from its <c>water_&lt;wall&gt;</c>
+    /// keys: each on a wall with a socket, its level above the door's sill
+    /// (water no higher does not reach the doorway, and needs no socket).
+    /// </summary>
+    private static Dictionary<string, RoomWaterSocket> WaterSockets(Marker marker, RoomDefinition definition)
+    {
+        Dictionary<string, RoomWaterSocket> sockets = new(StringComparer.Ordinal);
+        foreach ((string wall, RoomWaterSocket water) in marker.WaterWalls)
+        {
+            List<RoomSocket> onWall = [.. definition.Sockets.Where(s => WallName(s.Facing) == wall)];
+            if (onWall.Count == 0)
+            {
+                throw new RoomLibraryException(
+                    $"room \"{marker.Name}\" declares water on its {wall} wall ({WaterKeyPrefix}{wall}), but its {wall} wall has no door plug.");
+            }
+
+            RoomSocket named = onWall[0];
+            float sill = RoomLinter.SealBox(definition, named, definition.CellSize).Mins.Z;
+            if (water.Level <= sill)
+            {
+                throw new RoomLibraryException(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"room \"{marker.Name}\" declares water at {water.Level:0.###} on its {wall} wall, at or below the door's sill ({sill:0.###});")
+                    + " water that does not reach the doorway needs no water socket.");
+            }
+
+            sockets[named.Name] = water;
+        }
+
+        return sockets;
     }
 
     /// <summary>The plugs among a room's world brushes, as sockets in wall order.</summary>
@@ -787,7 +944,71 @@ public static class RoomLibraryVmf
             throw new RoomLibraryException($"{who}: {exception.Message}");
         }
 
-        return new Marker(name, corner, cell, kit, socketNames) { Role = role };
+        Dictionary<string, RoomWaterSocket> waterWalls = new(StringComparer.Ordinal);
+        foreach (VmfKey key in entity.Keys)
+        {
+            if (!key.Name.StartsWith(WaterKeyPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string wall = key.Name[WaterKeyPrefix.Length..].ToLowerInvariant();
+            if (wall is not ("east" or "west" or "north" or "south"))
+            {
+                throw new RoomLibraryException(
+                    $"{who} has a key \"{key.Name}\"; a water socket is declared by {WaterKeyPrefix}east, {WaterKeyPrefix}west, {WaterKeyPrefix}north or {WaterKeyPrefix}south.");
+            }
+
+            waterWalls[wall] = ParseWaterSocket(key, who);
+        }
+
+        return new Marker(name, corner, cell, kit, socketNames) { Role = role, Height = Height(entity, name, cell, kit), WaterWalls = waterWalls };
+    }
+
+    /// <summary>A <c>water_&lt;wall&gt;</c> key's value: a finite height, then a material.</summary>
+    private static RoomWaterSocket ParseWaterSocket(VmfKey key, string who)
+    {
+        string text = key.Value.Trim();
+        int space = text.IndexOf(' ', StringComparison.Ordinal);
+        string material = space < 0 ? string.Empty : text[(space + 1)..].Trim();
+        if (space < 0 || material.Length == 0 || material.Contains(' ', StringComparison.Ordinal)
+            || !float.TryParse(text[..space], NumberStyles.Float, CultureInfo.InvariantCulture, out float level) || !float.IsFinite(level))
+        {
+            throw new RoomLibraryException(
+                $"{who}: \"{key.Name}\" is \"{key.Value}\"; a water socket is a height and a water material, such as \"48 nature/water_canals_cheap001\".");
+        }
+
+        return new RoomWaterSocket(level, Utf8(material));
+    }
+
+    /// <summary>
+    /// A room's <c>room_height</c>: the cell size without the key, else a
+    /// whole number of units the door fits in and the engine's coordinates
+    /// hold (<see cref="RoomDefinition.HeightProblem"/>), refused with the
+    /// rooms design's 17.3 texts.
+    /// </summary>
+    /// <remarks>
+    /// The text is read as a number first, so <c>"tall"</c> and <c>"300.5"</c>
+    /// are both "not a whole number of units", quoting what the author wrote;
+    /// the other two rules name the number. A key equal to the cell size is
+    /// a cube, the same room as one without the key.
+    /// </remarks>
+    private static float Height(VmfChunk entity, string room, float cell, SocketKit kit)
+    {
+        if (entity.GetValue(RoomHeightKey) is not { } text)
+        {
+            return cell;
+        }
+
+        if (!float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float height)
+            || !float.IsFinite(height) || height != MathF.Floor(height))
+        {
+            throw new RoomLibraryException($"room {room}: {RoomHeightKey} \"{text}\" is not a whole number of units.");
+        }
+
+        return RoomDefinition.HeightProblem(height, kit) is { } problem
+            ? throw new RoomLibraryException($"room {room}: {RoomHeightKey} {problem}")
+            : height;
     }
 
     private static float Positive(VmfChunk entity, string key, string who)
@@ -838,8 +1059,18 @@ public static class RoomLibraryVmf
     /// <summary>One <c>info_room</c>, read.</summary>
     private sealed record Marker(string Name, Vec3 Corner, float CellSize, SocketKit Kit, Dictionary<string, string> SocketNames)
     {
-        public Box Cell => new(Corner, Corner + new Vec3(CellSize, CellSize, CellSize));
+        /// <summary>
+        /// The room's box in the library: the cell's footprint, as tall as the
+        /// room (17.6), so a tall room may not overlap the room built above it,
+        /// and a brush above a low room's ceiling belongs to no room.
+        /// </summary>
+        public Box Cell => new(Corner, Corner + new Vec3(CellSize, CellSize, Height));
+
+        /// <summary>The room's height: the cell size unless its <c>room_height</c> says otherwise.</summary>
+        public float Height { get; init; } = CellSize;
 
         public RoomRole Role { get; init; }
+
+        public Dictionary<string, RoomWaterSocket> WaterWalls { get; init; } = new(StringComparer.Ordinal);
     }
 }

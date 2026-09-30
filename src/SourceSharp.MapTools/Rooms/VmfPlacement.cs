@@ -250,8 +250,9 @@ internal static class VmfPlacement
         {
             if (node is VmfChunk child)
             {
-                moved.Children.Add(string.Equals(child.Name, MapFileLoader.SolidChunk, StringComparison.OrdinalIgnoreCase)
-                    ? MoveSolid(child, turn)
+                moved.Children.Add(
+                    string.Equals(child.Name, MapFileLoader.SolidChunk, StringComparison.OrdinalIgnoreCase) ? MoveSolid(child, turn)
+                    : string.Equals(child.Name, MapFileLoader.OverlayTransitionChunk, StringComparison.OrdinalIgnoreCase) ? MoveWaterOverlays(child, turn, entity)
                     : Clone(child));
                 continue;
             }
@@ -287,6 +288,81 @@ internal static class VmfPlacement
 
         return moved;
     }
+
+    /// <summary>
+    /// An <c>overlaytransition</c> chunk moved and turned: each of its
+    /// <c>overlaydata</c> chunks' <c>BasisOrigin</c> moved as a point and
+    /// its <c>BasisU</c>, <c>BasisV</c> and <c>BasisNormal</c> turned as
+    /// directions, exactly as an <c>info_overlay</c>'s keys are
+    /// (<see cref="MoveEntity"/>), each written back in the brackets vbsp
+    /// reads a water overlay's vectors in.
+    /// </summary>
+    /// <param name="transition">The chunk.</param>
+    /// <param name="turn">The placement.</param>
+    /// <param name="owner">The entity it belongs to, for messages.</param>
+    /// <returns>The moved copy.</returns>
+    /// <exception cref="RoomLibraryException">A vector is not three numbers in brackets.</exception>
+    /// <remarks>
+    /// vbsp reads a water overlay's keys case-insensitively and its vectors
+    /// only in brackets (<see cref="Bsp.Overlays.OverlaySet.AddWaterOverlay"/>),
+    /// leaving a vector it cannot read at zero; a library whose vector does
+    /// not read is refused rather than moved as a zero.
+    /// </remarks>
+    public static VmfChunk MoveWaterOverlays(VmfChunk transition, QuarterTurn turn, VmfChunk owner)
+    {
+        int turns = ((turn.Rotation % 4) + 4) % 4;
+        VmfChunk moved = new(transition.Name);
+        foreach (VmfNode node in transition.Children)
+        {
+            if (node is not VmfChunk data || !IsKey(data.Name, MapFileLoader.OverlayDataChunk))
+            {
+                moved.Children.Add(node is VmfKey plain ? new VmfKey(plain.Name, plain.Value) : Clone((VmfChunk)node));
+                continue;
+            }
+
+            VmfChunk movedData = new(data.Name);
+            foreach (VmfNode inner in data.Children)
+            {
+                if (inner is not VmfKey key)
+                {
+                    movedData.Children.Add(Clone((VmfChunk)inner));
+                    continue;
+                }
+
+                string value = key.Value;
+                if (IsKey(key.Name, OverlayOriginKey))
+                {
+                    value = Bracketed(turn.Apply(BracketedVector(value, key.Name, owner)));
+                }
+                else if (turns != 0 && (IsKey(key.Name, "BasisU") || IsKey(key.Name, "BasisV") || IsKey(key.Name, "BasisNormal")))
+                {
+                    value = Bracketed(turn.Rotate(BracketedVector(value, key.Name, owner)));
+                }
+
+                movedData.Children.Add(new VmfKey(key.Name, value));
+            }
+
+            moved.Children.Add(movedData);
+        }
+
+        return moved;
+    }
+
+    /// <summary>A water overlay's vector as vbsp reads it: three numbers in brackets.</summary>
+    /// <exception cref="RoomLibraryException">It is not.</exception>
+    internal static Vec3 BracketedVector(string text, string key, VmfChunk owner)
+    {
+        string trimmed = text.Trim();
+        if (trimmed.Length < 2 || trimmed[0] != '[' || trimmed[^1] != ']')
+        {
+            throw new RoomLibraryException($"{What(owner)}: a water overlay's {key} \"{text}\" is not three numbers in brackets.");
+        }
+
+        return Vector(trimmed[1..^1], key, owner);
+    }
+
+    /// <summary>A vector as a water overlay's key holds it: three numbers in brackets.</summary>
+    internal static string Bracketed(Vec3 v) => $"[{Format(v)}]";
 
     /// <summary>A point entity's origin, or null when it has none.</summary>
     /// <param name="entity">The <c>entity</c> chunk.</param>
@@ -391,7 +467,7 @@ internal static class VmfPlacement
             string value = key.Value;
             if (IsKey(key.Name, "startposition"))
             {
-                value = $"[{Format(turn.Apply(Bracketed(value, key.Name, solid)))}]";
+                value = Bracketed(turn.Apply(StartPosition(value, key.Name, solid)));
             }
 
             moved.Children.Add(new VmfKey(key.Name, value));
@@ -436,7 +512,7 @@ internal static class VmfPlacement
     }
 
     /// <summary>Three numbers in brackets, <c>[x y z]</c>, as a displacement writes its start position.</summary>
-    private static Vec3 Bracketed(string text, string key, VmfChunk solid)
+    private static Vec3 StartPosition(string text, string key, VmfChunk solid)
     {
         string trimmed = text.Trim();
         if (trimmed.Length < 2 || trimmed[0] != '[' || trimmed[^1] != ']')

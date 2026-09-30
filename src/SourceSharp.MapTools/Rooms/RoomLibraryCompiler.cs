@@ -270,6 +270,13 @@ public static class RoomLibraryCompiler
             // The library's grid and voxel either fit or every room would fail
             // the same way: refused once, before any room compiles.
             _ = nav.CellVoxels(rooms[0].Definition.CellSize);
+
+            // And every room's height fits the grid (17.6): a shaped room's
+            // columns are a whole number of voxels, 255 at most.
+            foreach (LibraryRoom room in rooms)
+            {
+                _ = nav.ColumnVoxels(room.Definition);
+            }
         }
 
         using SharedMaterialFacts materials = new(settings.Content);
@@ -385,7 +392,7 @@ public static class RoomLibraryCompiler
             // (the rooms design, 11.3) are about what the author wrote.
             RoomTransit? transit = RoomTransit.FromVmf(room.Definition, room.Role, room.Document);
             RoomObject compiled = await RoomCompiler
-                .CompileAsync(document, room.Definition, context, room.NameKeysOr(settings.NameKeys), cancellationToken).ConfigureAwait(false);
+                .CompileAsync(document, room.Definition, context, room.NameKeysOr(settings.NameKeys), room.WaterSockets, cancellationToken).ConfigureAwait(false);
             if (transit is not null)
             {
                 // The arrival's clearance needs the compiled brushes.

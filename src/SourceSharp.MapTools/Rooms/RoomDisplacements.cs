@@ -404,9 +404,10 @@ internal sealed class RoomDisplacements
     /// So a room refuses power 4, and powers 2 and 3 are carried.
     /// </para>
     /// <para>
-    /// <b>The cell.</b> A room's geometry stays in its cell (the model lint
-    /// holds every brush to it); a displaced surface can stand off its brush,
-    /// so it is held to the cell by its vertices, within
+    /// <b>The cell.</b> A room's geometry stays in its box, the cell in x and
+    /// y and the room's height in z (the model lint holds every brush to it);
+    /// a displaced surface can stand off its brush, so it is held to the box
+    /// by its vertices, within
     /// <see cref="RoomLinter.CellEpsilon"/>, the way a static prop's hull is
     /// (O6), and refused naming how far past it reaches.
     /// </para>
@@ -469,13 +470,15 @@ internal sealed class RoomDisplacements
                 continue;
             }
 
+            // The room's box (17.6): the cell in x and y, the room's height in z.
             float cell = definition.CellSize;
+            float top = definition.Height;
             float reach = 0;
             foreach (Vec3 v in core.Verts)
             {
                 reach = Math.Max(reach, Math.Max(
                     Math.Max(Math.Max(-v.X, v.X - cell), Math.Max(-v.Y, v.Y - cell)),
-                    Math.Max(-v.Z, v.Z - cell)));
+                    Math.Max(-v.Z, v.Z - top)));
             }
 
             if (reach > RoomLinter.CellEpsilon)
