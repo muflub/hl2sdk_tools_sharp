@@ -581,7 +581,8 @@ public static partial class RoomCommands
 
     /// <summary>
     /// <c>ssmap layout &lt;library.vmf&gt; -rows R -columns C -seed N [-empty &lt;ratio&gt;] [-out &lt;level.yaml&gt;]</c>:
-    /// write a seeded level of the library's rooms.
+    /// write a seeded level of the library's rooms; or, with
+    /// <c>&lt;key&gt;=&lt;library.vmf&gt;</c> operands, of several libraries'.
     /// </summary>
     /// <param name="disk">Where the library and the level live.</param>
     /// <param name="args">The arguments after <c>layout</c>.</param>
@@ -609,6 +610,20 @@ public static partial class RoomCommands
     /// <c>down: none</c>. A library without roles writes the levels it always
     /// wrote unless a transition option is given.
     /// </para>
+    /// <para>
+    /// <b>Several libraries and heights</b> (the rooms design, 17.9). Every
+    /// operand is <c>key=path</c>, or a bare path keyed by its file's stem;
+    /// the rooms of every library are the candidates, in operand order and
+    /// then room order, and the level names them in their shortest spelling
+    /// under <c>libraries</c>. A single bare path is a <c>library:</c> level,
+    /// exactly as before. <c>-rooms</c> finds each key's pack as the link
+    /// does (<c>-rooms &lt;key&gt;=&lt;pack&gt;</c>, a combined pack for
+    /// every key, or the pack beside each library). <c>-large</c>,
+    /// <c>-group</c> and <c>-max-height</c> are
+    /// <see cref="LevelGeneratorOptions"/>'s: without <c>-large</c> a room
+    /// taller than its cell is never placed, and a level of rooms no taller
+    /// is the file it always was.
+    /// </para>
     /// </remarks>
     public static async Task<int> RunLayoutAsync(
         IFileSystem disk,
@@ -623,11 +638,16 @@ public static partial class RoomCommands
         const string Usage =
             "usage: ssmap layout <library.vmf> -rows <n> -columns <n> -seed <n> [-empty <ratio>]"
             + " [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]"
-            + " [-up-map <map> | -no-up] [-down-map <map> | -no-down] [-transition-distance <n>]\n"
+            + " [-up-map <map> | -no-up] [-down-map <map> | -no-down] [-transition-distance <n>]"
+            + " [-large <share>] [-group <n>] [-max-height <units>]\n"
+            + "       ssmap layout <key>=<library.vmf> [<key>=<library.vmf> ...] -rows <n> -columns <n> -seed <n>"
+            + " [-rooms <pack> | -rooms <key>=<pack> ...] [...]\n"
             + "       ssmap layout <library.vmf> -rows <n> -columns <n> -seed <n> -sequence <k> -name <base> [-out <folder>] [...]";
         List<string> rest = [];
+        List<string> roomsPacks = [];
         string? rows = null, columns = null, seed = null, empty = null, outPath = null, roomsPack = null, budgetText = null;
         string? upMap = null, downMap = null, distanceText = null, sequenceText = null, baseName = null;
+        string? largeText = null, groupText = null, heightText = null;
         bool modEntities = false, noUp = false, noDown = false;
         for (int i = 0; i < args.Count; i++)
         {
@@ -672,6 +692,7 @@ public static partial class RoomCommands
             else if (Take(args, i, "rooms", out value))
             {
                 roomsPack = value;
+                roomsPacks.Add(value);
             }
             else if (Take(args, i, "entity-budget", out value))
             {
@@ -697,6 +718,18 @@ public static partial class RoomCommands
             {
                 baseName = value;
             }
+            else if (Take(args, i, "large", out value))
+            {
+                largeText = value;
+            }
+            else if (Take(args, i, "group", out value))
+            {
+                groupText = value;
+            }
+            else if (Take(args, i, "max-height", out value))
+            {
+                heightText = value;
+            }
             else
             {
                 rest.Add(args[i]);
@@ -706,7 +739,9 @@ public static partial class RoomCommands
             i++;
         }
 
-        if (rest.Count != 1 || rows is null || columns is null || seed is null
+        // An option the verb does not know is a usage error, not a library:
+        // with several operands allowed it would otherwise read as one.
+        if (rest.Count == 0 || rest.Any(r => r.StartsWith('-')) || rows is null || columns is null || seed is null
             || (sequenceText is null) != (baseName is null)
             || (sequenceText is not null && (upMap is not null || downMap is not null || noUp || noDown))
             || (noUp && upMap is not null) || (noDown && downMap is not null))
@@ -757,6 +792,35 @@ public static partial class RoomCommands
             return Program.ExitUsage;
         }
 
+        double largeShare = 0;
+        if (largeText is not null
+            && (!double.TryParse(largeText, NumberStyles.Float, CultureInfo.InvariantCulture, out largeShare) || !(largeShare >= 0 && largeShare < 1)))
+        {
+            await output.WriteLineAsync("ssmap layout: -large is a share of the occupied cells, at least 0 and below 1")
+                .ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        int groupSize = LevelGeneratorOptions.DefaultGroupSize;
+        if (groupText is not null
+            && (!int.TryParse(groupText, NumberStyles.None, CultureInfo.InvariantCulture, out groupSize) || groupSize < 1))
+        {
+            await output.WriteLineAsync("ssmap layout: -group is a whole number of rooms from 1").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        float? maxHeight = null;
+        if (heightText is not null)
+        {
+            if (!int.TryParse(heightText, NumberStyles.None, CultureInfo.InvariantCulture, out int most) || most < 1)
+            {
+                await output.WriteLineAsync("ssmap layout: -max-height is a whole number of units from 1").ConfigureAwait(false);
+                return Program.ExitUsage;
+            }
+
+            maxHeight = most;
+        }
+
         int? explicitBudget = null;
         if (budgetText is not null)
         {
@@ -772,7 +836,10 @@ public static partial class RoomCommands
             explicitBudget = parsed;
         }
 
-        string libraryPath = Path.GetFullPath(rest[0]);
+        // Several libraries when there are several operands or any names a
+        // key; a single bare path is the library: level it always was.
+        bool several = rest.Count > 1 || rest.Any(o => KeyedOperand(o) is not null);
+        string libraryPath = Path.GetFullPath(several ? LibraryOperand(rest[0]).Path : rest[0]);
         string? target = outPath is null ? null : Path.GetFullPath(outPath);
         if (!VPath.TryCreate(libraryPath, out VPath libraryVPath))
         {
@@ -780,7 +847,8 @@ public static partial class RoomCommands
             return Program.ExitUsage;
         }
 
-        if (!TryHostPath(roomsPack ?? DefaultPack(libraryPath), out VPath packPath))
+        VPath packPath = default;
+        if (!several && !TryHostPath(roomsPack ?? DefaultPack(libraryPath), out packPath))
         {
             await output.WriteLineAsync($"ssmap layout: -rooms \"{roomsPack}\" is not a usable path").ConfigureAwait(false);
             return Program.ExitUsage;
@@ -797,36 +865,111 @@ public static partial class RoomCommands
         // cap is refused whatever the library holds, and reading a large
         // library first cost seconds and hundreds of megabytes for nothing.
         // The refusal reads as it did when the generator made it.
-        LevelGeneratorOptions options = new(rowCount, columnCount, seedValue, ratio);
+        LevelGeneratorOptions options = new(rowCount, columnCount, seedValue, ratio)
+        {
+            LargeShare = largeShare,
+            GroupSize = groupSize,
+            MaxHeight = maxHeight,
+        };
         try
         {
             LevelGenerator.CheckOptions(options);
         }
         catch (ArgumentException exception)
         {
-            await output.WriteLineAsync($"ssmap layout: {libraryPath}: {exception.Message}").ConfigureAwait(false);
+            await output.WriteLineAsync(several ? $"ssmap layout: {exception.Message}" : $"ssmap layout: {libraryPath}: {exception.Message}")
+                .ConfigureAwait(false);
             return ExitFailed;
         }
 
         // With -sequence, -out names the folder the levels go to.
         string? folder = sequenceText is null ? null : target ?? Path.GetFullPath(".");
+        string from = folder ?? (target is null ? Path.GetFullPath(".") : Path.GetDirectoryName(target)!);
+
+        // Several libraries: the keys, each library as the level will name
+        // it, and each key's pack, checked before anything is read.
+        LevelLibrary[]? keys = null;
+        string[] libraryPaths = [libraryPath];
+        PackChoice[]? choices = null;
+        if (several)
+        {
+            (keys, libraryPaths, int exit) = await LayoutLibrariesAsync(rest, from, output).ConfigureAwait(false);
+            if (keys is null)
+            {
+                return exit;
+            }
+
+            (choices, int choiceExit) = await ChoosePacksAsync("ssmap layout", keys, libraryPaths, roomsPacks, output).ConfigureAwait(false);
+            if (choices is null)
+            {
+                return choiceExit;
+            }
+        }
+
         List<(VPath Path, string Text)> files = [];
         string text;
+        string reading = libraryPath;
         try
         {
-            IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(
-                await ReadVmfAsync(disk, libraryVPath, cancellationToken).ConfigureAwait(false));
-            LayoutEntityBudget? budget = await LayoutBudgetAsync(
-                disk, packPath, Path.GetFileNameWithoutExtension(libraryPath), rooms, explicitBudget, modEntities, cancellationToken)
-                .ConfigureAwait(false);
-            string from = folder ?? (target is null ? Path.GetFullPath(".") : Path.GetDirectoryName(target)!);
-            string library = Path.GetRelativePath(from, libraryPath).Replace('\\', '/');
-            RoomDefinition[] definitions = [.. rooms.Select(r => r.Definition)];
-            RoomRole[] roles = [.. rooms.Select(r => r.Role)];
+            string library;
+            RoomDefinition[] definitions;
+            RoomRole[] roles;
+            LayoutEntityBudget? budget;
+            Func<LevelGrid, LevelGrid> finish;
+            if (keys is null)
+            {
+                IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(
+                    await ReadVmfAsync(disk, libraryVPath, cancellationToken).ConfigureAwait(false));
+                budget = await LayoutBudgetAsync(
+                    disk, [new LayoutSource(Path.GetFileNameWithoutExtension(libraryPath), packPath, false, rooms)], false, explicitBudget, modEntities, cancellationToken)
+                    .ConfigureAwait(false);
+                library = Path.GetRelativePath(from, libraryPath).Replace('\\', '/');
+                definitions = [.. rooms.Select(r => r.Definition)];
+                roles = [.. rooms.Select(r => r.Role)];
+                finish = level => level;
+            }
+            else
+            {
+                List<LayoutSource> sources = [];
+                List<VmfDocument> vmfs = [];
+                List<IReadOnlyList<string>> names = [];
+                for (int i = 0; i < keys.Length; i++)
+                {
+                    if (!VPath.TryCreate(libraryPaths[i], out VPath path))
+                    {
+                        throw new IOException($"\"{libraryPaths[i]}\" is not a usable path");
+                    }
+
+                    reading = libraryPaths[i];
+                    VmfDocument vmf = await ReadVmfAsync(disk, path, cancellationToken).ConfigureAwait(false);
+                    RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(vmf);
+                    vmfs.Add(vmf);
+                    names.Add([.. split.Rooms.Select(r => r.Definition.Name), .. split.Skybox is { } sky ? [sky.Definition.Name] : Array.Empty<string>()]);
+                    sources.Add(new LayoutSource(keys[i].Key, choices![i].Path, choices[i].Shared && keys.Length > 1, split.Rooms));
+                }
+
+                // The libraries must make one level whichever rooms it draws,
+                // and a room name must not read as another key's (the
+                // dotted-name guard of 17.2), or the level written would be
+                // refused by the link.
+                LevelLibraries.CheckCandidates(keys, vmfs);
+                LevelLibraries.Resolve(new LevelGrid("layout", keys[0].Path, 1, 1, [null]) { Libraries = keys }, names);
+
+                budget = await LayoutBudgetAsync(disk, sources, true, explicitBudget, modEntities, cancellationToken).ConfigureAwait(false);
+                library = keys[0].Path;
+                definitions = [.. sources.SelectMany(s => s.Rooms.Select(r => r.Definition with { Name = LevelLibraries.Qualified(s.Key, r.Definition.Name) }))];
+                roles = [.. sources.SelectMany(s => s.Rooms.Select(r => r.Role))];
+                LevelLibrary[] listed = keys;
+                finish = level => LevelLibraries.Shorten(
+                    new LevelGrid(level.Name, level.Library, level.Rows, level.Columns, level.Cells) { Libraries = listed, Transitions = level.Transitions },
+                    names);
+            }
+
             if (sequenceText is not null)
             {
-                foreach (LevelGrid level in LevelGenerator.GenerateSequence(definitions, options, sequence, baseName!, library, budget, roles, distance))
+                foreach (LevelGrid made in LevelGenerator.GenerateSequence(definitions, options, sequence, baseName!, library, budget, roles, distance))
                 {
+                    LevelGrid level = finish(made);
                     LevelGeneratorOptions own = options with { Seed = unchecked(options.Seed + (ulong)files.Count) };
                     string path = Path.Combine(folder!, level.Name + ".yaml");
                     if (!VPath.TryCreate(path, out VPath levelPath))
@@ -854,9 +997,9 @@ public static partial class RoomCommands
                         + $" give -{role}-map <map>, or -no-{role} for a level without one.");
                 }
 
-                LevelGrid level = LevelGenerator.Generate(
+                LevelGrid level = finish(LevelGenerator.Generate(
                     definitions, options, name, library, budget,
-                    new LayoutTransitions(roles) { NoUp = noUp, NoDown = noDown, MinDistance = distance }).WithTransitions(transitions);
+                    new LayoutTransitions(roles) { NoUp = noUp, NoDown = noDown, MinDistance = distance }).WithTransitions(transitions));
                 text = LevelYaml.Write(level, LevelGenerator.Header(options, level));
             }
         }
@@ -865,10 +1008,20 @@ public static partial class RoomCommands
             await output.WriteLineAsync($"ssmap layout: {exception.Message}").ConfigureAwait(false);
             return ExitFailed;
         }
+        catch (LevelFileException exception)
+        {
+            await output.WriteLineAsync($"ssmap layout: {exception.Problem}").ConfigureAwait(false);
+            return ExitFailed;
+        }
+        catch (Exception exception) when (several && exception is LinkException or ArgumentException)
+        {
+            await output.WriteLineAsync($"ssmap layout: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
             or ChunkFileException or RoomLibraryException or LinkException or ArgumentException)
         {
-            await output.WriteLineAsync($"ssmap layout: {libraryPath}: {exception.Message}").ConfigureAwait(false);
+            await output.WriteLineAsync($"ssmap layout: {reading}: {exception.Message}").ConfigureAwait(false);
             return ExitFailed;
         }
 
@@ -903,72 +1056,6 @@ public static partial class RoomCommands
         }
 
         return Program.ExitSuccess;
-    }
-
-    /// <summary>
-    /// The entity budget <c>ssmap layout</c> generates within: the given one,
-    /// else the link's <c>cap − reserve</c> with the library's reserve, from
-    /// the rooms' counts in the library's pack, each with what the linker may
-    /// write for it in the emission mode asked for (<c>-mod-entities</c>).
-    /// </summary>
-    /// <returns>
-    /// The budget; or null when none was given and the pack is missing or
-    /// lacks a room's counts, since there is then nothing to count with.
-    /// </returns>
-    /// <exception cref="LinkException">
-    /// A budget was given and there is no pack, or the pack lacks a room's
-    /// counts; or the pack cannot be read.
-    /// </exception>
-    private static async Task<LayoutEntityBudget?> LayoutBudgetAsync(
-        IFileSystem disk, VPath packPath, string key, IReadOnlyList<LibraryRoom> rooms, int? explicitBudget, bool modEntities, CancellationToken cancellationToken)
-    {
-        string pack = HostPaths.Display(packPath);
-        PackCounts? counts = await ReadPackCountsAsync(disk, packPath, key, false, cancellationToken).ConfigureAwait(false);
-        if (counts is null)
-        {
-            return explicitBudget is null
-                ? null
-                : throw new LinkException(
-                    $"-entity-budget counts the rooms' entities, and there is no room pack {pack};"
-                    + " compile the library with ssmap room, or point -rooms at its pack.");
-        }
-
-        List<int> edicts = new(rooms.Count);
-        foreach (LibraryRoom room in rooms)
-        {
-            string name = room.Definition.Name;
-            if (counts.Counts.GetValueOrDefault(name) is not { } found)
-            {
-                return explicitBudget is null
-                    ? null
-                    : throw new LinkException(
-                        $"-entity-budget counts the rooms' entities, and the room pack {pack} has no counts for room \"{name}\";"
-                        + " recompile the library with ssmap room.");
-            }
-
-            // A room pays for the entities the linker writes for it too (its
-            // flags, and without -mod-entities its hub's stock fallback): at
-            // most what its names say, so the layout never under-counts.
-            int written = counts.Names.GetValueOrDefault(name)?.WrittenEdictsBound(modEntities) ?? 0;
-            // And, when the library asks for door portals, its share of its
-            // joints' portals: half its sockets, rounded up.
-            int doors = counts.Options.HasDoorPortals ? LevelDoorPortals.EdictsBound(room.Definition) : 0;
-            edicts.Add(found.Tally(EntityClassTable.Default).Edicts + written + TransitionEdictsBound(room, modEntities) + doors);
-        }
-
-        int budget = explicitBudget
-            ?? EntityClassTable.EdictCap - LevelEntityBudget.ReserveFor(LevelLinkOptions.Default, counts.Options);
-
-        // The library's own entities are the level's whatever it places, as
-        // the link counts them, and so are its skybox room's, which every
-        // level carries once below its grid.
-        int skybox = counts.Skybox is { } sky && counts.Counts.GetValueOrDefault(sky) is { } skyCounts
-            ? skyCounts.Tally(EntityClassTable.Default).Edicts
-            : 0;
-        return new LayoutEntityBudget(budget, edicts)
-        {
-            LevelEdicts = RoomLibraryEntities.Count(counts.LibraryEntities).Tally(EntityClassTable.Default).Edicts + skybox,
-        };
     }
 
     /// <summary>
@@ -1352,8 +1439,11 @@ public static partial class RoomCommands
                 RoomRole.Down => ", role down",
                 _ => string.Empty,
             };
+            // The box is the room's own: its height where it has one
+            // (room_height), the cell's otherwise, so a cube room's line is
+            // the one it always was.
             text.Append(CultureInfo.InvariantCulture,
-                $"{definition.Name}: cell at ({Num(room.Corner)}), {Num(cell)} x {Num(cell)} x {Num(cell)}, "
+                $"{definition.Name}: cell at ({Num(room.Corner)}), {Num(cell)} x {Num(cell)} x {Num(definition.Height)}, "
                 + $"{definition.Sockets.Count} door(s){role}\n");
             if (counts is not null)
             {

@@ -485,13 +485,16 @@ ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
              [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
              [-up-map <map> | -no-up] [-down-map <map> | -no-down] [-transition-distance <n>]
+             [-large <share>] [-group <n>] [-max-height <units>]
+ssmap layout <key>=<library.vmf> [<key>=<library.vmf> ...] -rows R -columns C -seed N
+             [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...] [...]
 ssmap layout <library.vmf> ... -sequence K -name <base> [-out <folder>]
 ssmap nav <map.nav3d | level.yaml> [-rooms <pack.roompack>] [--obj <out.obj>] [--floor] [--agent <index|name>]
 ssmap map2d <map.bsp> [-level <level.yaml>] [-out <file.map2d>] [-svg]
 ```
 
 `ssmap rooms` lists a library without compiling it: each room's name, its
-cell's corner and size, and each door's wall, plug box (in library
+cell's corner and size (with a tall room's own height), and each door's wall, plug box (in library
 coordinates) and size. It reads and checks the library exactly as
 `ssmap room` does, so a library it lists is one the compile accepts. When
 the library's pack is there (`-rooms`, else `<library>.roompack` beside
@@ -830,6 +833,20 @@ of joined sockets left out and the capped ones kept. Compiled with
 library and seed always give the same file, sockets line up between rooms,
 and every room is reachable. `-empty` leaves that share of the cells
 without a room.
+
+Given several libraries (`key=path` operands, or bare paths keyed by their
+file's stem), `layout` draws from all of them, in operand order, and writes
+a level with `libraries`, each cell in its shortest spelling (bare where one
+library has the name, `key.room` otherwise); the libraries must share one
+cell size and door kit. A room taller than its cell (`room_height`) is
+**large**: it is placed only in groups of adjacent large rooms, and only
+with `-large <share>`, the share of the occupied cells the groups cover
+(0 by default, so a library that gains tall rooms still lays out the levels
+it did). `-group <n>` caps a group (3 by default); a group gathers rooms of
+its first room's height, is joined inside through its own doors, never
+touches another group, and is reached through the standard rooms around
+it. `-max-height <units>` leaves out every room taller than that. The
+header names the share and the limit when they are used.
 
 **Entity budget.** The engine networks at most 2048 edicts, and at runtime
 the game's players, bots, weapons, projectiles and pickups take from the
