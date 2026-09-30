@@ -5,6 +5,7 @@
 //
 //=============================================================================//
 
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 
 namespace SourceSharp.MapFormats.Zip;
@@ -45,6 +46,9 @@ public static class Crc32
     // away.
     private static readonly ImmutableArray<uint> Table = [.. BuildTable()];
 
+    // The same, for the eight-at-a-time loop (Update).
+    private static readonly ImmutableArray<uint> Slices = [.. BuildSlices()];
+
     /// <summary>
     /// The polynomial, in its reflected form; the reference table is its
     /// expansion.
@@ -64,19 +68,7 @@ public static class Crc32
     /// <summary>Computes the CRC-32 of a block of bytes.</summary>
     /// <param name="data">The bytes.</param>
     /// <returns>The checksum.</returns>
-    public static uint Compute(ReadOnlySpan<byte> data)
-    {
-        uint crc = InitialValue;
-
-        foreach (byte b in data)
-        {
-            // The cast is safe by the mask, not by inspection: & 0xFF bounds
-            // the index to 0..255 before it is narrowed.
-            crc = Table[(int)((crc ^ b) & 0xFF)] ^ (crc >> 8);
-        }
-
-        return crc ^ FinalXorValue;
-    }
+    public static uint Compute(ReadOnlySpan<byte> data) => Update(InitialValue, data) ^ FinalXorValue;
 
     /// <summary>
     /// Continues a checksum over more bytes: the CRC-32 of the bytes
@@ -94,15 +86,57 @@ public static class Crc32
     /// final XOR is undone, the bytes are run, and it is applied again, so
     /// <c>Append(Compute(a), b) == Compute(a + b)</c>.
     /// </remarks>
-    public static uint Append(uint crc, ReadOnlySpan<byte> data)
+    public static uint Append(uint crc, ReadOnlySpan<byte> data) => Update(crc ^ FinalXorValue, data) ^ FinalXorValue;
+
+    /// <summary>
+    /// Runs the register over the bytes, eight at a time where it can
+    /// ("slicing by eight"), then one at a time.
+    /// </summary>
+    /// <remarks>
+    /// Eight table lookups per eight bytes instead of eight dependent ones:
+    /// the same arithmetic, reassociated (each slice's table is the byte
+    /// table run on for more zero bytes), so the result is the byte-wise
+    /// loop's bit for bit, about four times sooner. It matters for a map's
+    /// checksum, which runs over every lump of a map of many megabytes.
+    /// </remarks>
+    private static uint Update(uint crc, ReadOnlySpan<byte> data)
     {
-        crc ^= FinalXorValue;
+        while (data.Length >= 8)
+        {
+            uint one = BinaryPrimitives.ReadUInt32LittleEndian(data) ^ crc;
+            uint two = BinaryPrimitives.ReadUInt32LittleEndian(data[4..]);
+            crc = Slices[(7 * 256) + (int)(one & 0xFF)] ^ Slices[(6 * 256) + (int)((one >> 8) & 0xFF)]
+                ^ Slices[(5 * 256) + (int)((one >> 16) & 0xFF)] ^ Slices[(4 * 256) + (int)(one >> 24)]
+                ^ Slices[(3 * 256) + (int)(two & 0xFF)] ^ Slices[(2 * 256) + (int)((two >> 8) & 0xFF)]
+                ^ Slices[256 + (int)((two >> 16) & 0xFF)] ^ Slices[(int)(two >> 24)];
+            data = data[8..];
+        }
+
         foreach (byte b in data)
         {
+            // The cast is safe by the mask, not by inspection: & 0xFF bounds
+            // the index to 0..255 before it is narrowed.
             crc = Table[(int)((crc ^ b) & 0xFF)] ^ (crc >> 8);
         }
 
-        return crc ^ FinalXorValue;
+        return crc;
+    }
+
+    /// <summary>The eight slice tables, back to back: slice 0 is <see cref="Table"/>, slice k the table run on k more zero bytes.</summary>
+    private static uint[] BuildSlices()
+    {
+        uint[] slices = new uint[8 * 256];
+        BuildTable().CopyTo(slices, 0);
+        for (int k = 1; k < 8; k++)
+        {
+            for (int i = 0; i < 256; i++)
+            {
+                uint previous = slices[((k - 1) * 256) + i];
+                slices[(k * 256) + i] = (previous >> 8) ^ slices[(int)(previous & 0xFF)];
+            }
+        }
+
+        return slices;
     }
 
     private static uint[] BuildTable()
