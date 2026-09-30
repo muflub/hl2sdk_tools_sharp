@@ -551,6 +551,94 @@ public sealed class RoomPackCommandsTests
     }
 
     /// <summary>
+    /// <c>ssmap room</c> and <c>ssmap roompack</c> both bake a sky room over
+    /// the library's 3D skybox (the rooms design, 4.12): the sunlit other's
+    /// lighting, with a skybox whose overhang shades its sky, is not what it
+    /// is without the skybox, and is the same bytes from either verb; the
+    /// hub, which no sky reaches, is the same bytes with the skybox or
+    /// without.
+    /// </summary>
+    [Fact]
+    public async Task BothVerbsBakeASkyRoomOverTheSkybox()
+    {
+        InMemoryFileSystem fs = Game();
+        VmfDocument withSkybox = RoomSkyboxHarness.AddSkybox(Base());
+        withSkybox.GetChunk("world")!.Children.Add(VmfPlacement.MoveSolid(
+            RoomModel.Slab(RoomHarness.Plain, SkyboxLitFixture.Overhang.Mins, SkyboxLitFixture.Overhang.Maxs, 7102),
+            QuarterTurn.Translation(RoomSkyboxHarness.Corner)));
+        RoomLightHarness.WorldAlign(withSkybox);
+        fs.AddFile(Rooted("/game/maps/sky.vmf"), withSkybox.ToBytes());
+        foreach ((string map, string pack) in new[] { ("base", "/packs/base.roompack"), ("sky", "/packs/sky.roompack") })
+        {
+            (int roomExit, string roomLog) = await RoomAsync(fs, [$"/game/maps/{map}.vmf", "-nodoorlight", "-out", pack]);
+            Assert.True(roomExit == Program.ExitSuccess, roomLog);
+        }
+
+        (int exit, string log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "base=/game/maps/sky.vmf", "caves=/game/maps/caves.vmf", "-nodoorlight"]);
+        Assert.True(exit == Program.ExitSuccess, log);
+
+        byte[] plain = await Lighting("/packs/base.roompack", "other");
+        byte[] sky = await Lighting("/packs/sky.roompack", "other");
+        Assert.NotEqual(plain, sky);
+        Assert.Equal(sky, await Lighting("/packs/both.roompack", "base.other"));
+        Assert.Equal(await Lighting("/packs/base.roompack", "hub"), await Lighting("/packs/sky.roompack", "hub"));
+
+        async Task<byte[]> Lighting(string pack, string room)
+        {
+            using MemoryStream stream = new(Bytes(fs, pack));
+            RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+            return await RoomPack.ReadSectionAsync(stream, index, index.Find(room)!.Find(RoomLighting.SectionTag)!.Value);
+        }
+    }
+
+    /// <summary>
+    /// A lit combined pack's sky rooms are baked over the level's skybox, so
+    /// its content is one of the singletons every namespace is built under:
+    /// after the first library's skybox is edited, <c>-only</c> of the first
+    /// library refuses to copy the other library, whose sky room was baked
+    /// over the old skybox, rather than keep that bake. Unlit, nothing is
+    /// baked over the skybox, and <c>-only</c> copies as before.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task OnlyRefusesToCopySkyRoomsBakedOverAnEditedSkybox(bool lit)
+    {
+        InMemoryFileSystem fs = Game();
+        string[] light = lit ? ["-nodoorlight"] : ["-nolight"];
+        fs.AddFile(Rooted("/game/maps/base.vmf"), SkyBase(SkyboxLitFixture.Overhang).ToBytes());
+        string[] both = ["base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf", .. light];
+        (int exit, string log) = await PackAsync(fs, ["-out", "/packs/both.roompack", .. both]);
+        Assert.True(exit == Program.ExitSuccess, log);
+
+        // The skybox's overhang moved; the first library's worldspawn, sun
+        // and caves' VMF are as they were.
+        fs.AddFile(Rooted("/game/maps/base.vmf"), SkyBase(new Box(new Vec3(16, 16, 160), new Vec3(150, 240, 176))).ToBytes());
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-only", "base", .. both]);
+        if (lit)
+        {
+            Assert.Equal(1, exit);
+            Assert.Contains(
+                $"ssmap roompack: library caves changed since {Path.GetFullPath("/packs/both.roompack")} was built (the level's singletons); rebuild it too, or leave out -only.",
+                log,
+                StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.True(exit == Program.ExitSuccess, log);
+        }
+
+        static VmfDocument SkyBase(Box overhang)
+        {
+            VmfDocument library = RoomSkyboxHarness.AddSkybox(Base());
+            library.GetChunk("world")!.Children.Add(VmfPlacement.MoveSolid(
+                RoomModel.Slab(RoomHarness.Plain, overhang.Mins, overhang.Maxs, 7102), QuarterTurn.Translation(RoomSkyboxHarness.Corner)));
+            RoomLightHarness.WorldAlign(library);
+            return library;
+        }
+    }
+
+    /// <summary>
     /// <c>-level</c> takes the libraries from a level file, in its order,
     /// and writes the pack beside it, which the level then links from; a
     /// level of one library keys it by its stem, and one whose stem is not a

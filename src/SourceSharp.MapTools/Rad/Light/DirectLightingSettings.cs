@@ -132,6 +132,14 @@ public sealed record DirectLightingSettings
     /// </summary>
     internal int FrameTurns { get; init; }
 
+    /// <summary>
+    /// Sky cameras of a 3D skybox that is not in the map but that its sky
+    /// rays are recast into (<see cref="VradSkybox"/>), in the map's frame
+    /// and in no area: empty for every compile but a room's bake whose
+    /// library has a skybox. Set from <see cref="VradContext.Skybox"/>.
+    /// </summary>
+    internal SkyCamera[] OutsideSkyCameras { get; init; } = [];
+
     /// <summary>Builds settings from the stage options.</summary>
     /// <param name="options">The vrad options.</param>
     /// <param name="hdr">Which pass: true for HDR.</param>

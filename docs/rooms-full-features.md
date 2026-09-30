@@ -833,7 +833,11 @@ areas (4.11).
 **Transforms.** The skybox is never turned.
 
 **Lighting.** The sun and sky are library-wide (D3). Every room's bake
-includes the skybox geometry for the sky-ray recast.
+includes the skybox geometry for the sky-ray recast. Done since the skybox
+bake (section 13, its landed note): each sky room's bake, at each stored
+turn, has the skybox under it as a level of that room alone places it,
+and a room elsewhere in a level sees the skybox from that cell (the
+recast's parallax, a known difference).
 
 **Entity cost.** One `sky_camera` per level.
 
@@ -3496,13 +3500,16 @@ always did.
 - **Lighting.** Under a lit library the skybox is baked like any room and
   its leaves take the link's sky pass (PR 9), which flags them as seeing
   3D sky (their own shell). 4.12's "every room's bake includes the skybox
-  geometry for the sky-ray recast" is not done: each room is baked sealed
-  and alone at pack time, and a recast into the skybox would need the
-  skybox's geometry in every room's vrad run, which is the lighting
-  work's (PR 10, with the door terms). Until then a room's sky light is
-  what an empty skybox would give; a skybox whose own geometry would
-  shadow a room's sky is a known difference from the flattened level's
-  full compile.
+  geometry for the sky-ray recast" was not done here: each room was baked
+  sealed and alone at pack time, so a room's sky light was what an empty
+  skybox would give, and a skybox whose own geometry shadows a room's sky
+  was a known difference from the flattened level's full compile. The
+  skybox bake closed it (below, its landed note): every sky room's bake
+  now recasts into the skybox, and a room at its bakes' cell links to the
+  full compile's bytes. Neither this PR's facts nor PR 10's met the case
+  of a door-lit level with a skybox, which failed to link (the door light's
+  plan took the skybox for the room above it); D29's work fixed that (its
+  landed note), and the skybox bake's facts hold it.
 
 Measured equivalence: the harness's hub and other room with the skybox (a
 3D sky shell, a block, a prop and its camera) at the four turns, with an
@@ -4119,6 +4126,141 @@ library's 33 x 33 level, linked by this build from main's packs, is main's
 map byte for byte, and each passes `ssmap check` with its one warning (no
 cubemap sample); the 33 x 33 level links in the same time within the noise
 (1.5 to 1.7 s against 1.6 to 1.7 s, interleaved runs on a busy 4-core box).
+
+**The skybox bake landed** (4.12's lighting line, the gap PR 13's note
+left). A sky room's bake now includes the library's 3D skybox: its sky
+rays, once they leave through its sky, are recast into the skybox as vrad
+of a level recasts them (`camera + p / scale`), so skybox geometry that
+shades the sky shades the room's own lightmaps, leaf ambient, prop colours
+and door light too.
+
+- **How the skybox enters the bake: through vrad's recast, not a joint
+  compile.** A bake keeps the room's compile (its faces, lightmap layout
+  and tree), so the skybox cannot be compiled into it; what vrad needs of
+  a skybox is only its shadow casters and its camera. A room's bake hands
+  vrad the skybox's compiled map (`VradContext.Skybox`, a `VradSkybox`
+  only the room bake sets): vrad loads its casters as it loads the map's
+  own (the same switches and `noshadow` list), moves each vertex into the
+  room's frame and appends them after the room's, its static props
+  numbered after the room's so no prop's self-skip meets a skybox prop;
+  its camera joins the map's in no area (`SkyCameras.WithOutside`), so
+  every area of the room recasts into it, as every area of a level but
+  the skybox's own does. `ssmap vrad` never sets it, so a map's own
+  compile is unchanged.
+- **Where the skybox stands in a bake, and its parallax.** A level places
+  the skybox one cell below its south-west cell, unturned, and the recast
+  scales a sample's world position about the world's origin, so where a
+  sky ray lands in the skybox depends on the room's cell as well as its
+  turn. Bakes are made per turn (D16), not per cell, so each takes the
+  placement every level of one room has: the room at cell (0, 0) at that
+  turn, the skybox below it (`RoomSkybox`). In the room's frame the
+  skybox is moved by the inverse of the room's placement,
+  `s + (0, 0, -cell) - T`, then the inverse quarter turn, and the camera
+  is shifted a further `R⁻¹T / scale`, which makes the bake's
+  `camera' + q / scale` the move of the level's `camera + (R q + T) / scale`;
+  every step is a whole-unit offset or a quarter turn, so the skybox's
+  triangles and the recast land bit for bit where the level's do. A room
+  in another cell sees the skybox from its bakes' cell: its recasts are
+  off by its cell's offset over the scale (16 skybox units per 256-unit
+  harness cell at scale 16; 64 per 1024-unit cell), the parallax a 3D
+  skybox shows across a level, which a per-turn bake cannot hold without
+  tracing at link. Skybox geometry far from the camera, or larger than
+  the level's extent over the scale, sees little of it; an overhang
+  whose edge crosses the recasts, as the facts' does, sees all of it.
+- **Which bakes.** Only rooms stored at four turns (a sky face under a
+  library sun): no ray of a room without a sky face leaves its walls, so
+  its bake is the same bytes with the skybox or without, and it is lit as
+  before; so are the skybox itself (vrad recasts nothing from a camera's
+  own area) and every room of a library without a skybox or a sun. Door
+  light (PR 10): a sky room's capture lights the open room over the
+  skybox, and the capture's own sky rays are recast into it too
+  (`SkyboxRecast`): the sun reaches a door cell only when the skybox does
+  not stop it, and a stand-in ray that meets the sky sends nothing when
+  the skybox stops it. vrad's leaf ambient does not recast its sky rays,
+  so a stand-in that lights a neighbour's leaf ambient now leaves out sky
+  the level's vrad would count there; the ambient is held within a factor
+  of three (PR 10), and this moves it by less than the stored sample's
+  count does. Responses are lit by one emitter and no sky, so they are
+  unchanged.
+- **Pack time: the skybox first.** `RoomLightingSettings.Skybox` names the
+  library's skybox room (`ssmap room` sets it from the split). The library
+  compile (`RoomLibraryCompiler`) compiles, lights and packs the skybox
+  first, on the whole pool, delivering it in its place in library order,
+  then every other room over it; when the cache serves the skybox and some
+  other room still compiles, the skybox's geometry alone is compiled for
+  the bakes (the same map, not delivered). A sky room lit under a skybox
+  that did not compile is refused, `room {room} is lit under the library's
+  3D skybox "{sky}", which did not compile; its sky rays are recast into
+  the skybox, so the skybox must compile first.`, rather than lit as if
+  the level had none. `ssmap roompack` (PR 18) bakes every library's sky
+  rooms over the level's skybox (the first library's, or under D29 the
+  earliest library's with one), so a combined pack's sky room is the bytes
+  `ssmap room` bakes for it
+  (`RoomPackCommandsTests.BothVerbsBakeASkyRoomOverTheSkybox`). Its
+  `-only` copies another library's rooms only while the singletons they
+  were built under are unchanged, and for a lit pack those now include the
+  skybox's content (`RoomPackNamespaces.LitSingletonDigest`: the singleton
+  digest and the skybox's cache digest), so after a skybox edit `-only`
+  refuses with the `the level's singletons` line rather than copy sky rooms
+  baked over the old skybox (`OnlyRefusesToCopySkyRoomsBakedOverAnEditedSkybox`,
+  red first). An unlit pack reads nothing of the skybox and keeps D29's
+  digest; a lit pack with a skybox written before this is refused once by
+  `-only` and rebuilt.
+- **Ids and keys.** The lighting's description (`Describe`, in the pack id
+  and every room's cache key) gains `|skybox:` and the skybox room's cache
+  digest (its room-local document and claims) for a library with a
+  skybox, so a changed skybox rebakes the rooms; its materials and models
+  are in each row's recorded content as before. Every room of such a
+  library takes the new key, not only the sky rooms, since which rooms the
+  sky reaches is known only once they compile; that costs a skybox edit a
+  rebake of the rooms it leaves alone, never a stale bake. A library
+  without a skybox describes its lighting as before, and its pack and
+  every level are the same bytes. No pack format change: the bake's
+  output is the same `LITE` and `DLIT` sections.
+- **Door light and the skybox in one level.** A door-lit level with a
+  skybox failed to link (`room sky at cell (0, 0) has no socket "east".`),
+  since the door light's plan found neighbours by cell with the skybox
+  among them. The fix (`GridCells`) is D29's, which landed first (its
+  note); this branch had made the same one, and its jointed-level facts,
+  which were the first to meet the case, now hold it.
+
+Measured (the facts, a sky room with a lamp and a sky ceiling beside a hub
+with a lamp, the library's sun at pitch -50, the skybox with an overhang
+above its camera; relative error of luxels as PR 9 and PR 10 measure it):
+
+| Level | Against | Sealed bake (before) | With the skybox |
+| --- | --- | --- | --- |
+| sky room alone, capped, 4 turns | vrad of its link | 482 to 502 of 1,220 luxels differ | the same bytes |
+| sky room alone, capped, 4 turns | full compile | p95 0.47 to 0.63, max 0.78 | the same bytes at every turn |
+| sky room at (0, 0) and hub, door light, 2 turns | vrad of the link | near p95 0.64 to 0.76, energy 1.12 to 1.13 | near p95 0.008 to 0.009, elsewhere 0.035 to 0.056, energy 0.995 to 0.997 |
+| the same | full compile | near p95 0.51 to 0.64, energy 1.11 to 1.13 | near p95 0.009 to 0.013, elsewhere 0.036 to 0.054, energy 0.992 to 0.994 |
+| hub and sky room at (1, 0) (parallax) | vrad of the link | near p95 0.021, elsewhere 0.019, energy 0.998 | near p95 0.032, elsewhere 0.42 to 0.46, energy 0.90 |
+
+The last row is the parallax: at cell (1, 0) the level's recasts start 16
+skybox units east of the bake's, past the overhang's edge, so the level
+shades the room far less than its bake does (and the sealed bake, which
+shades nothing, happens to be nearer); the linked room is darker than
+vrad's, never brighter (excess p99 0.007). The facts hold every other row
+to PR 9's capped-room exactness and PR 10's tolerances, the hub's and
+the skybox's bakes and door light to the bytes they had, and the bakes to
+the same bytes at one thread and four. The 3x3, transit and stress
+libraries have no skybox, and neither have 2fort nor the sandbox, so
+their packs, levels and maps are the bytes they were (below).
+
+Cost: the facts' three-room library (hub, sky room, skybox) compiles, bakes
+and records its door light in 0.49 to 0.53 s at four threads either way;
+the skybox adds its casters to each sky room's tracer and one small tracer
+per turn to its door light, and the sky room's door light is smaller (26.1
+KB against 26.8 KB: sources and stand-ins the skybox stops are gone).
+Measured against the base (main with PR 18): `ssmap all` on 2fort and the
+sandbox writes the same maps; `ssmap vrad` alone on 2fort is
+`13dd86de1bde7eb2` at four threads and at one; the 3x3, transit and
+stress packs differ only in the build identity (`CMPL` and each room
+container; every `LITE` and `DLIT` section the same bytes), every level of
+the 3x3 and transit samples linked by this build from the base's packs is
+the base's map and `.nav3d` byte for byte (both modes for transit), and the
+stress library's 33 x 33 level links to the same bytes (1.5 to 1.6 s, as
+the base) and passes `ssmap check`.
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
