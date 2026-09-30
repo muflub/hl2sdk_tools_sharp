@@ -147,9 +147,11 @@ public sealed class LevelLinkerSkyboxLightingTests(SkyboxLitFixture fixture, ITe
     /// map's visibility between its cell and its bakes' (the rooms design,
     /// the skybox parallax, D36). Held against vrad of the linked map within
     /// the residual that design leaves (the sky ambient's own parallax and
-    /// the sun change's bounce, not corrected). Red before the correction:
-    /// p95 0.64 to 0.75 and energy about 0.73, the bake's overhang shadow
-    /// where vrad has none.
+    /// the sun change's bounce, not corrected): p95 within 0.03, p99 within
+    /// 0.1, none past 0.3, energy within 1%. Measured: p95 0.012 to 0.020,
+    /// p99 0.055 to 0.077, max 0.144 to 0.214, energy 0.998. Red before the
+    /// correction: p95 0.59 to 0.71, energy 0.80, the bake's overhang
+    /// shadow where vrad has none.
     /// </summary>
     [Theory]
     [MemberData(nameof(AwayCells))]
@@ -163,7 +165,9 @@ public sealed class LevelLinkerSkyboxLightingTests(SkyboxLitFixture fixture, ITe
 
     /// <summary>
     /// The same rooms against the flattened level's full compile (vbsp,
-    /// vvis, vrad), within the same tolerances.
+    /// vvis, vrad), within the same tolerances. Measured: p95 0.009 to
+    /// 0.020, p99 0.016 to 0.061, max 0.023 to 0.146, energy 0.997 to 0.999;
+    /// red before: p95 0.47 to 0.63, energy 0.80 to 0.89.
     /// </summary>
     [Theory]
     [MemberData(nameof(AwayCells))]
@@ -178,8 +182,10 @@ public sealed class LevelLinkerSkyboxLightingTests(SkyboxLitFixture fixture, ITe
     /// <summary>
     /// The sky room beside the hub, jointed, its cell (1, 0) or (2, 3) and
     /// every quarter turn, lit with their door light: against vrad of the
-    /// link within PR 10's door-light tolerances. Red before the correction
-    /// at (1, 0): elsewhere p95 0.42 to 0.46, energy 0.90.
+    /// link within PR 10's door-light tolerances, and near p95 within 0.05,
+    /// elsewhere within 0.06. Measured: near p95 0.011 to 0.029, elsewhere
+    /// 0.025 to 0.039, energy 0.995 to 0.998, at most 10 of 2,270 luxels
+    /// brighter. Red before: elsewhere p95 0.42 to 0.52, energy 0.90 to 0.91.
     /// </summary>
     [Theory]
     [MemberData(nameof(AwayCells))]
@@ -192,9 +198,15 @@ public sealed class LevelLinkerSkyboxLightingTests(SkyboxLitFixture fixture, ITe
         DoorLightCompare.Metric door = DoorLightCompare.Measure(level.Bsp, await fixture.RelitAsync(rows), joints, allStyles: true);
         output.WriteLine($"hub, other@{rotation} at ({x}, {y}) against vrad of the link: {door}");
         AssertWithinDoorLightTolerances(door);
+        Assert.True(door.NearP95 <= 0.05 && door.FarP95 <= 0.06, $"near p95 {door.NearP95}, far p95 {door.FarP95}");
     }
 
-    /// <summary>The same jointed levels against their flattened full compile.</summary>
+    /// <summary>
+    /// The same jointed levels against their flattened full compile, held
+    /// alike. Measured: near p95 0.013 to 0.028, elsewhere 0.014 to 0.039,
+    /// energy 0.990 to 0.993; red before: elsewhere p95 0.37 to 0.42,
+    /// energy 0.90 to 0.93.
+    /// </summary>
     [Theory]
     [MemberData(nameof(AwayCells))]
     public async Task AJointedSkyRoomAwayFromItsBakesCellAgreesWithItsFlattenedFullCompile(int x, int y, int rotation)
@@ -205,6 +217,7 @@ public sealed class LevelLinkerSkyboxLightingTests(SkyboxLitFixture fixture, ITe
         DoorLightCompare.Metric door = DoorLightCompare.Measure(level.Bsp, await fixture.FlatAsync(rows), joints, allStyles: true);
         output.WriteLine($"hub, other@{rotation} at ({x}, {y}) against the flattened compile: {door}");
         AssertWithinDoorLightTolerances(door);
+        Assert.True(door.NearP95 <= 0.05 && door.FarP95 <= 0.06, $"near p95 {door.NearP95}, far p95 {door.FarP95}");
     }
 
     /// <summary>The cells away from the bakes' (1, 0) and (2, 3), at every quarter turn.</summary>
@@ -228,9 +241,10 @@ public sealed class LevelLinkerSkyboxLightingTests(SkyboxLitFixture fixture, ITe
     private static void AssertWithinParallaxTolerances(LuxelMetric metric)
     {
         Assert.True(metric.Count > 0);
-        Assert.True(metric.P95 <= 0.05, $"p95 {metric.P95}");
+        Assert.True(metric.P95 <= 0.03, $"p95 {metric.P95}");
         Assert.True(metric.P99 <= 0.1, $"p99 {metric.P99}");
-        Assert.InRange(metric.Energy, 0.98, 1.02);
+        Assert.True(metric.Max <= 0.3, $"max {metric.Max}");
+        Assert.InRange(metric.Energy, 0.99, 1.01);
     }
 
     /// <summary>How two maps' luxels at the same points compare: count, quantiles of the relative difference, and the first's energy over the second's.</summary>
@@ -292,8 +306,8 @@ public sealed class LevelLinkerSkyboxLightingTests(SkyboxLitFixture fixture, ITe
     }
 
     /// <summary>
-    /// A sky room's bake and door light with the skybox are the same bytes at
-    /// one thread and at four.
+    /// A sky room's bake and door light with the skybox, its sun layer and the
+    /// skybox's sun map, are the same bytes at one thread and at four.
     /// </summary>
     [Fact]
     public async Task TheBakeWithTheSkyboxIsTheSameAtAnyThreadCount()
@@ -303,6 +317,9 @@ public sealed class LevelLinkerSkyboxLightingTests(SkyboxLitFixture fixture, ITe
         foreach (string room in (string[])["hub", "other", "sky"])
         {
             Assert.Equal(Section(one.Get(room).Lighting!.ToSection()), Section(four.Get(room).Lighting!.ToSection()));
+            Assert.Equal(
+                one.Get(room).Lighting!.ParallaxSections().Select(Section),
+                four.Get(room).Lighting!.ParallaxSections().Select(Section));
             if (one.Get(room).DoorLight is { } door)
             {
                 Assert.Equal(Section(door.ToSection()), Section(four.Get(room).DoorLight!.ToSection()));
