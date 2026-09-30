@@ -134,6 +134,51 @@ public sealed class RoomCommandsTests
         Assert.Equal("ssmap room: -vrad sets how the rooms are lit, and -nolight lights none" + Environment.NewLine, both.ToString());
     }
 
+    /// <summary>
+    /// A lit room records its door light by default, in a <c>DLIT</c> section
+    /// after its <c>LITE</c>; <c>-nodoorlight</c> keeps the base lighting and
+    /// leaves the door light out, under another pack id; with
+    /// <c>-nolight</c> it is a usage error.
+    /// </summary>
+    [Fact]
+    public async Task RoomRecordsDoorLightUnlessToldNotTo()
+    {
+        InMemoryFileSystem fs = Game(Hub);
+        using StringWriter output = new();
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/door.roompack"], output));
+        Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/base.roompack", "-nodoorlight"], output));
+
+        async Task<(RoomPackIndex Index, RoomObject Room)> Read(string path)
+        {
+            using MemoryStream pack = new(fs.GetBytes(VPath.Create(Rooted(path)))!);
+            RoomPackIndex index = await RoomPack.ReadIndexAsync(pack);
+            return (index, (await RoomPack.LoadRoomsAsync(pack, index, ["hub"]))[0]);
+        }
+
+        (RoomPackIndex door, RoomObject doorRoom) = await Read("/door.roompack");
+        (RoomPackIndex baseOnly, RoomObject baseRoom) = await Read("/base.roompack");
+        Assert.Equal(
+            ["LITE", "DLIT"],
+            door.Find("hub")!.Sections.Select(s => s.Tag).SkipWhile(t => t != "LITE").Take(2));
+        Assert.NotNull(baseOnly.Find("hub")!.Find("LITE"));
+        Assert.Null(baseOnly.Find("hub")!.Find("DLIT"));
+        Assert.NotNull(doorRoom.DoorLightOfCompile);
+        Assert.NotNull(baseRoom.LightingOfCompile);
+        Assert.Null(baseRoom.DoorLight);
+
+        byte[] Id(string path, RoomPackIndex index)
+        {
+            RoomPackSection id = index.LibrarySections.Single(t => t.Tag == RoomCompileIds.PackSection);
+            return fs.GetBytes(VPath.Create(Rooted(path)))!.AsSpan((int)id.Offset, (int)id.Length).ToArray();
+        }
+
+        Assert.NotEqual(Id("/door.roompack", door), Id("/base.roompack", baseOnly));
+
+        using StringWriter both = new();
+        Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomAsync(fs, [], ["/game/maps/rooms.vmf", "-nolight", "-nodoorlight"], both));
+        Assert.Equal("ssmap room: -nodoorlight leaves out lit rooms' door light, and -nolight lights none" + Environment.NewLine, both.ToString());
+    }
+
     /// <summary>Rooms compiled with <c>-cooker none</c> still link, into a map without world collision.</summary>
     [Fact]
     public async Task UncookedRoomsStillLink()

@@ -402,6 +402,16 @@ public static class RoomLibraryCompiler
                 RoomLighting baked = await RoomLighting
                     .BakeAsync(compiled, lighting, settings.Content, parallelism, cancellationToken).ConfigureAwait(false);
                 compiled = compiled with { Lighting = baked };
+
+                // The door light (9.1 parts 2 and 3): what leaves through
+                // each opening, per stored turn, and the room's answer to
+                // light entering one, recorded against the base bake.
+                if (lighting.DoorLight)
+                {
+                    RoomDoorLight door = await RoomDoorLight
+                        .BakeAsync(compiled, baked, lighting, settings.Content, parallelism, cancellationToken).ConfigureAwait(false);
+                    compiled = compiled with { DoorLight = door };
+                }
             }
 
             // The link work that depends only on the room and its turn,

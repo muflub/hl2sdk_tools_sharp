@@ -165,6 +165,7 @@ public static class RoomCommands
         bool incremental = false;
         bool noCache = false;
         bool light = true;
+        bool doorLight = true;
         string? vradLine = null;
         RoomNavPackOptions navOptions = new();
         for (int i = 0; i < args.Count; i++)
@@ -207,6 +208,10 @@ public static class RoomCommands
             {
                 light = false;
             }
+            else if (IsFlag(args[i], "nodoorlight"))
+            {
+                doorLight = false;
+            }
             else if (Take(args, i, "vrad", out string vrad))
             {
                 vradLine = vrad;
@@ -245,6 +250,11 @@ public static class RoomCommands
             await output.WriteLineAsync("ssmap room: -vrad sets how the rooms are lit, and -nolight lights none").ConfigureAwait(false);
             return Program.ExitUsage;
         }
+        else if (!doorLight)
+        {
+            await output.WriteLineAsync("ssmap room: -nodoorlight leaves out lit rooms' door light, and -nolight lights none").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
 
         StockArgsResult<VbspOptions> parsed = StockArgs.ParseVbsp(stock);
         foreach (CompileDiagnostic diagnostic in parsed.Diagnostics)
@@ -256,7 +266,7 @@ public static class RoomCommands
         {
             await output.WriteLineAsync(
                 "usage: ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <none|deflate[:n]|brotli[:n]>]"
-                + " [-nolight | -vrad \"<stock vrad options>\"] [-incremental [-cache-dir <dir>] | -nocache] [stock vbsp options]")
+                + " [-nolight | -vrad \"<stock vrad options>\" [-nodoorlight]] [-incremental [-cache-dir <dir>] | -nocache] [stock vbsp options]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
         }
@@ -317,6 +327,7 @@ public static class RoomCommands
                 : new RoomLightingSettings(vradOptions with { Compliance = parsed.Options.Compliance })
                 {
                     Sun = RoomLightingSettings.SunOf(libraryEntities),
+                    DoorLight = doorLight,
                 };
             packId = RoomCompileIds.PackId(
                 libraryBytes,
@@ -1803,6 +1814,11 @@ public static class RoomCommands
             foreach (string nameWarning in link.NameWarnings)
             {
                 await output.WriteLineAsync($"ssmap link: warning: {nameWarning}").ConfigureAwait(false);
+            }
+
+            foreach (string lightingWarning in link.LightingWarnings)
+            {
+                await output.WriteLineAsync($"ssmap link: warning: {lightingWarning}").ConfigureAwait(false);
             }
 
             // An area portal the level joins around (its two sides one area

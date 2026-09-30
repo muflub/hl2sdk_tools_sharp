@@ -291,6 +291,14 @@ public static partial class LevelLinker
         // rooms, which links exactly as it did before the bake.
         LevelLight? lit = PlanLighting(resolved);
 
+        // What the door light adds (the rooms design, 9.1 part 4): every
+        // joint's neighbour's light through the door, evaluated from the two
+        // rooms' stored door light; null when no two jointed rooms carry it.
+        // Planned here because the props' lighting files go into the pak,
+        // which is merged before the rooms are planned.
+        LevelDoorLight? door = lit is null ? null : await PlanDoorLightAsync(resolved, lit, context.Parallelism, cancellationToken).ConfigureAwait(false);
+        List<string> lightingWarnings = [];
+
         // The level's one pak: every placed room's packed files, merged by
         // name (LevelPakFiles). Each room's pak is a zip, and reading it is
         // async, so it is read here rather than inside the planning
@@ -338,7 +346,7 @@ public static partial class LevelLinker
             context.MapBase,
             props?.Files,
             cubemaps?.ByRoom(),
-            lit is not null && props is not null ? BakedPropFiles(resolved, props) : null,
+            lit is not null && props is not null ? BakedPropFiles(resolved, props, door) : null,
             cancellationToken);
 
         // Per-room work: validate the compile against the relocation set and
@@ -432,7 +440,7 @@ public static partial class LevelLinker
 
         if (lit is not null)
         {
-            WriteLighting(linked, plans, lit, lightBlocks!, doorways, styles, pvs, rowBytes);
+            WriteLighting(linked, plans, lit, lightBlocks!, doorways, styles, pvs, rowBytes, door, lightingWarnings);
         }
 
         // The budget checked before planning counted the rooms as compiled.
@@ -471,6 +479,7 @@ public static partial class LevelLinker
             CubemapSamples = cubemaps?.SampleCount ?? 0,
             NameWarnings = naming.Result?.Warnings ?? [],
             NameNotes = naming.Result?.Verbose ?? [],
+            LightingWarnings = lightingWarnings,
             HasTransitions = transitions is not null,
             AreaWarnings = areaWarnings,
         };
@@ -2111,6 +2120,14 @@ public sealed record LinkedLevel(BspData Bsp, VisResult Vis, LevelPlan Plan)
     /// or key cleared; a global name defined by several placements of a room.
     /// </summary>
     public IReadOnlyList<string> NameWarnings { get; init; } = [];
+
+    /// <summary>
+    /// What writing the level's lighting warned of, each a whole sentence: a
+    /// face that the door light (the rooms design, 9.1 part 4) would have
+    /// given more than the four light styles a face holds, and which style
+    /// was left out (9.3).
+    /// </summary>
+    public IReadOnlyList<string> LightingWarnings { get; init; } = [];
 
     /// <summary>
     /// What only verbose output reports: references to entities that
