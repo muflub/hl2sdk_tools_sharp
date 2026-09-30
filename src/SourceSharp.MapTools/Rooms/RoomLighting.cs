@@ -476,6 +476,7 @@ internal sealed class RoomLighting
         }
 
         List<(bool Hdr, StaticPropLightingResult Result)> props = [];
+        List<(bool Hdr, DetailPropLightingResult Result)> details = [];
         VradContext context = new()
         {
             Options = settings.Options,
@@ -496,6 +497,16 @@ internal sealed class RoomLighting
                     props.Add((hdr, result));
                 }
             },
+
+            // Each pass's detail prop colours and style runs (the rooms
+            // design, 4.4): the map keeps only the last pass's colours.
+            DetailPropLightingObserver = (hdr, result) =>
+            {
+                lock (details)
+                {
+                    details.Add((hdr, result));
+                }
+            },
         };
 
         _ = await Vrad.LightAsync(lit, context, cancellationToken).ConfigureAwait(false);
@@ -503,6 +514,8 @@ internal sealed class RoomLighting
 
         (RoomLightRange? ldr, DWorldLight[]? sunLdr) = ExtractRange(lit, hdr: false, faceCount, leafCount, props);
         (RoomLightRange? hdrRange, DWorldLight[]? sunHdr) = ExtractRange(lit, hdr: true, faceCount, leafCount, props);
+        ldr = WithDetail(ldr, details, hdr: false);
+        hdrRange = WithDetail(hdrRange, details, hdr: true);
         return new RoomLightingTurn(
             new RoomLightingPayload(ldr, hdrRange),
             BspStructView.As<Vec3>(lit[BspLump.VertNormals]).ToArray(),
@@ -512,6 +525,28 @@ internal sealed class RoomLighting
             sunHdr,
             lit);
     }
+
+    /// <summary>
+    /// A range with the detail prop lighting its pass gave (<see cref="RoomDetailLight"/>),
+    /// or the range as it is when the pass lit no detail prop (a room without
+    /// any, or a bake run with <c>-nodetaillight</c>).
+    /// </summary>
+    private static RoomLightRange? WithDetail(RoomLightRange? range, List<(bool Hdr, DetailPropLightingResult Result)> details, bool hdr)
+    {
+        foreach ((bool passHdr, DetailPropLightingResult result) in details)
+        {
+            if (range is not null && passHdr == hdr)
+            {
+                return range with { Detail = RoomDetailLight.From(result) };
+            }
+        }
+
+        return range;
+    }
+
+    /// <summary>The same lighting with other payloads (the detail prop lighting attached from its own section).</summary>
+    internal RoomLighting WithPayloads(RoomLightingPayload[] payloads) =>
+        new(FaceCount, LeafCount, VertNormals, VertNormalIndices, HasSun, SkyLeaves, MapFlags, payloads, SkyLdr, SkyHdr, _bsp);
 
     /// <summary>A copy of a map whose lumps a vrad run may replace without touching the original's.</summary>
     internal static BspData Copy(BspData source)
@@ -1000,7 +1035,16 @@ internal sealed record RoomLightRange(
     DLeafAmbientIndex[] AmbientIndex,
     Half[] AmbientCubes,
     byte[] AmbientPositions,
-    RoomPropColors[] Props);
+    RoomPropColors[] Props)
+{
+    /// <summary>
+    /// The pass's detail prop lighting, or null when it lit none (a room
+    /// without detail props, or a bake run with <c>-nodetaillight</c>). Not
+    /// part of the <c>LITE</c> section, whose bytes did not change with it:
+    /// it is stored in its own (<see cref="RoomDetailLighting"/>).
+    /// </summary>
+    public RoomDetailLight? Detail { get; init; }
+}
 
 /// <summary>One static prop's vertex colours as vrad lit them, before its <c>.vhv</c> is encoded.</summary>
 /// <param name="Prop">The prop's index in the room's lump.</param>

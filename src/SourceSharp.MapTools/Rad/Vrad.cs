@@ -431,6 +431,7 @@ public static class Vrad
         {
             ScratchPool = scratch,
             StaticPropLightingObserver = context.StaticPropLightingObserver,
+            DetailPropLightingObserver = context.DetailPropLightingObserver,
         };
         FinalLightingStatistics? final = null;
 

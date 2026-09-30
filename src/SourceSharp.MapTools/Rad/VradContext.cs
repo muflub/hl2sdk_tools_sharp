@@ -152,6 +152,15 @@ public sealed record VradContext
     internal Action<bool, Props.StaticPropLightingResult>? StaticPropLightingObserver { get; init; }
 
     /// <summary>
+    /// For a room library's bake: told each pass's detail prop lighting (the
+    /// HDR flag, then the result) before it is written, so the bake keeps
+    /// each pass's colours and style runs; after <c>-both</c> the map holds
+    /// only the last pass's colours and counts, and the first pass's runs
+    /// cannot be told apart in its style lump. Null in every other compile.
+    /// </summary>
+    internal Action<bool, Props.DetailPropLightingResult>? DetailPropLightingObserver { get; init; }
+
+    /// <summary>
     /// For a room library's door response (the rooms design, 9.1 part 3):
     /// lights the map with its entity lights alone, no texture light
     /// emitting. A response run asks what one emitter at a doorway does to

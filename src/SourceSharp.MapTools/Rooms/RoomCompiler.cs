@@ -303,6 +303,11 @@ public static class RoomCompiler
         // rebased by the link; the rest is the room's lumps byte for byte).
         RoomDisplacements? displacements = RoomDisplacements.Build(definition.Name, vbsp.Bsp);
 
+        // The detail props the link carries: every origin and angles turned
+        // four ways (the leaves, dictionaries and lighting are the link's;
+        // the rest is the room's lump byte for byte).
+        RoomDetailProps? detailProps = RoomDetailProps.Build(definition.Name, vbsp.Bsp);
+
         return new RoomObject(
             definition,
             vbsp.Bsp,
@@ -318,6 +323,7 @@ public static class RoomCompiler
             AreaPortals = areaPortals,
             Water = water,
             Displacements = displacements,
+            DetailProps = detailProps,
         };
     }
 

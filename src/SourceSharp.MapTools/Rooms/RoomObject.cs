@@ -254,6 +254,23 @@ public sealed record RoomObject(
     internal RoomDisplacements? DisplacementsOfCompile => Displacements is { } displacements && displacements.IsFor(this) ? displacements : null;
 
     /// <summary>
+    /// The room's detail props as the link carries them (<see cref="RoomDetailProps"/>:
+    /// every origin and angles at each quarter turn), or null: made by the
+    /// room compile for a room whose compile wrote detail props, and stored
+    /// by the pack in its own section.
+    /// </summary>
+    /// <remarks>
+    /// Like <see cref="Displacements"/>, not only a shortcut: a room whose
+    /// lump has detail props and none of this bound to its compile
+    /// (<see cref="DetailPropsOfCompile"/>) is refused by the link, naming
+    /// the room.
+    /// </remarks>
+    internal RoomDetailProps? DetailProps { get; init; }
+
+    /// <summary>The room's detail props while they describe this compile, else null.</summary>
+    internal RoomDetailProps? DetailPropsOfCompile => DetailProps is { } details && details.IsFor(this) ? details : null;
+
+    /// <summary>
     /// The room's areas and area portals as the link carries them
     /// (<see cref="RoomAreaPortals"/>: the lumps checked, the clip vertices
     /// at each quarter turn, the portal numbers), or null: made by the room

@@ -174,9 +174,20 @@ public sealed record RoomPackItem(string Name, ReadOnlyMemory<byte> Room)
         // all four). A room without them gets no section, so its entry is
         // what it was before displacements were carried.
         IReadOnlyList<RoomPackSectionData> displacements = room.DisplacementsOfCompile is { } disps ? [disps.ToSection()] : [];
+
+        // The detail props likewise, for a room whose compile wrote any
+        // (every placement reads them; the section holds all four turns),
+        // then their lighting, for a lit room whose bake lit them (its
+        // stored turns match the base lighting's). A room without them gets
+        // neither section, so its entry is what it was before detail props
+        // were carried.
+        IReadOnlyList<RoomPackSectionData> detailProps = room.DetailPropsOfCompile is { } details ? [details.ToSection()] : [];
+        IReadOnlyList<RoomPackSectionData> detailLight = room.LightingOfCompile is { } litDetails && RoomDetailLighting.ToSection(litDetails) is { } detailSection
+            ? [detailSection]
+            : [];
         return new RoomPackItem(room.Definition.Name, container.ToArray())
         {
-            Extra = [counts, .. shape, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. areaPortals, .. water, .. displacements, .. RoomNavPack.Interleave(turned, navSections)],
+            Extra = [counts, .. shape, .. props, .. brushModels, .. transit, .. cubemaps, .. overlays, .. lighting, .. doorLight, .. areaPortals, .. water, .. displacements, .. detailProps, .. detailLight, .. RoomNavPack.Interleave(turned, navSections)],
         };
     }
 }
@@ -349,7 +360,11 @@ public sealed class RoomPackIndex
 /// (<c>WATR</c>: the water data counted, the fluids' convexes and the water
 /// overlays at all four turns, <c>RoomWater</c>), when its compile wrote
 /// displacements its displacements (<c>DISP</c>: every start position and
-/// vertex vector at all four turns, <c>RoomDisplacements</c>), and the link work done ahead for it
+/// vertex vector at all four turns, <c>RoomDisplacements</c>), when its
+/// compile wrote detail props its detail props (<c>DPRP</c>: every origin
+/// and angles at all four turns, <c>RoomDetailProps</c>) and, when its bake
+/// lit them, their lighting (<c>DPLT</c>: each stored turn's passes,
+/// <c>RoomDetailLighting</c>), and the link work done ahead for it
 /// (<see cref="RoomPackItem.CreateAsync(RoomObject, RoomNavPackOptions, CancellationToken)"/>): <c>LNKA</c>, what depends on
 /// the room alone, its door visibility (<c>DVIS</c>, <see cref="RoomDoorVisibility"/>),
 /// then per quarter turn <i>r</i> its turned geometry
@@ -980,6 +995,16 @@ public static class RoomPack
                 wanted.Add((name, displacements));
             }
 
+            if (entry.Find(RoomDetailProps.SectionTag) is { } detailProps)
+            {
+                wanted.Add((name, detailProps));
+            }
+
+            if (entry.Find(RoomDetailLighting.SectionTag) is { } detailLight)
+            {
+                wanted.Add((name, detailLight));
+            }
+
             if (navigation.Contains(name))
             {
                 HashSet<string> tags = new(StringComparer.Ordinal);
@@ -1083,16 +1108,21 @@ public static class RoomPack
             RoomStaticProps? props = RoomStaticProps.Read(Section(name, RoomStaticProps.SectionTag), room.Definition, room.Bsp);
             RoomBrushModels? brushModels = RoomBrushModels.Read(Section(name, RoomBrushModels.SectionTag), room.Definition, room.Bsp);
             RoomTransit? transit = RoomTransit.Read(Section(name, RoomTransit.SectionTag), name, room.Bsp);
-            RoomLighting? lighting = RoomLighting.Read(Section(name, RoomLighting.SectionTag), room.Definition, room.Bsp);
+            RoomLighting? lighting = RoomDetailLighting.Attach(
+                RoomLighting.Read(Section(name, RoomLighting.SectionTag), room.Definition, room.Bsp),
+                Section(name, RoomDetailLighting.SectionTag),
+                name,
+                room.Bsp);
             RoomDoorLight? doorLight = RoomDoorLight.Read(Section(name, RoomDoorLight.SectionTag), room.Definition, room.Bsp, lighting);
             RoomCubemaps? cubemaps = RoomCubemaps.Read(Section(name, RoomCubemaps.SectionTag), name, room.Bsp);
             RoomOverlays? overlays = RoomOverlays.Read(Section(name, RoomOverlays.SectionTag), name, room.Bsp);
             RoomAreaPortals? areaPortals = RoomAreaPortals.Read(Section(name, RoomAreaPortals.SectionTag), name, room.Bsp);
             RoomWater? water = RoomWater.Read(Section(name, RoomWater.SectionTag), name, room.Bsp);
             RoomDisplacements? displacements = RoomDisplacements.Read(Section(name, RoomDisplacements.SectionTag), name, room.Bsp);
+            RoomDetailProps? detailProps = RoomDetailProps.Read(Section(name, RoomDetailProps.SectionTag), name, room.Bsp);
             loaded[name] = link is null && nav is null && counts is null && names is null && props is null && brushModels is null && transit is null
                 && cubemaps is null && overlays is null
-                && lighting is null && doorLight is null && areaPortals is null && water is null && displacements is null
+                && lighting is null && doorLight is null && areaPortals is null && water is null && displacements is null && detailProps is null
                 ? room
                 : room with
                 {
@@ -1104,6 +1134,7 @@ public static class RoomPack
                     AreaPortals = areaPortals,
                     Water = water,
                     Displacements = displacements,
+                    DetailProps = detailProps,
                 };
         }
 
@@ -1612,6 +1643,8 @@ public static class RoomPack
         ((byte)'S', (byte)'H', (byte)'A', (byte)'P') => RoomShape.SectionTag,
         ((byte)'W', (byte)'A', (byte)'T', (byte)'R') => RoomWater.SectionTag,
         ((byte)'D', (byte)'I', (byte)'S', (byte)'P') => RoomDisplacements.SectionTag,
+        ((byte)'D', (byte)'P', (byte)'R', (byte)'P') => RoomDetailProps.SectionTag,
+        ((byte)'D', (byte)'P', (byte)'L', (byte)'T') => RoomDetailLighting.SectionTag,
         ((byte)'G', (byte)'E', (byte)'O', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.GeometryTag(tag[3] - '0'),
         ((byte)'C', (byte)'O', (byte)'L', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.CollisionTag(tag[3] - '0'),
         ((byte)'E', (byte)'N', (byte)'T', >= (byte)'0' and <= (byte)'3') => RoomLinkSections.EntitiesTag(tag[3] - '0'),
