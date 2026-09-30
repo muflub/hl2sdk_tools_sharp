@@ -39,7 +39,10 @@ namespace SourceSharp.MapTools.Rooms;
 /// elsewhere in a level sees the skybox from its bake's cell, off by its
 /// cell's offset over the camera's scale (16 units of skybox per 256-unit
 /// cell at the usual scale of 16), the parallax a 3D skybox shows between
-/// two points of a level, which the bake cannot hold per cell. Stored at
+/// two points of a level, which the bake cannot hold per cell; the link
+/// moves the room's sun to its cell from the room's sun layer and the
+/// skybox's sun map (<see cref="RoomSunLayer"/>, <see cref="RoomSunMap"/>,
+/// the rooms design's D36) and leaves the rest as baked. Stored at
 /// four turns, as a sky room's bake already is (D16): the skybox never
 /// turns while the room does, so each turn sees it from another side.
 /// </para>
