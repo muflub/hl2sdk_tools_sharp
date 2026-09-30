@@ -227,6 +227,10 @@ public static class LevelFlattener
             first.Kit);
         layout.Validate();
 
+        // The engine's coordinates, as the link's capacity pass checks them
+        // (17.6), so the two refuse the same level with the same text.
+        LevelLinker.CheckExtent(layout.Name, layout.Rooms.Select(i => (i.Placement, byName[i.Placement.Room].Definition)));
+
         RoomLinter.CheckReachable(layout, name => byName[name].Definition);
 
         // Water through a door, by the link's rule, from the libraries'
@@ -393,7 +397,7 @@ public static class LevelFlattener
                 Names = named,
                 Entities = roomEntities,
                 Joined = LevelLinker.JoinedSides(room.Definition, instance),
-                CellCentre = LevelLinker.CellCentre(transform, layout.CellSize),
+                CellCentre = LevelLinker.CellCentre(transform, room.Definition),
             });
         }
 

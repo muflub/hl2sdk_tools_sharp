@@ -144,6 +144,12 @@ public sealed record NavSettings
     /// <summary>The most voxels along a cell's edge.</summary>
     public const int MaxCellVoxels = Nav3dFormat.MaxCellVoxels;
 
+    /// <summary>
+    /// The most voxels up one room's columns: a run's low voxel and height
+    /// are bytes in the file (<see cref="Nav3dFormat.MaxColumnVoxels"/>).
+    /// </summary>
+    public const int MaxColumnVoxels = Nav3dFormat.MaxColumnVoxels;
+
     /// <summary>The default presets, as the <see cref="AgentsKey"/> key spells them.</summary>
     public const string DefaultAgents = "standing 32 72 player; flyer 32 32 npc";
 
@@ -216,6 +222,50 @@ public sealed record NavSettings
         {
             throw new RoomLibraryException(string.Create(CultureInfo.InvariantCulture,
                 $"the nav voxel ({VoxelKey} {VoxelSize:0.###}) gives {whole} voxels along a {cellSize:0.###}-unit cell; at most {MaxCellVoxels}."));
+        }
+
+        return (int)whole;
+    }
+
+    /// <summary>
+    /// Voxels up a room's columns: its height in voxels (the rooms design,
+    /// 17.6), <see cref="CellVoxels"/> for a room that is a cube.
+    /// </summary>
+    /// <param name="definition">The room.</param>
+    /// <returns>The count.</returns>
+    /// <exception cref="RoomLibraryException">
+    /// A shaped room's height is not a whole number of voxels, or is more
+    /// voxels than a run's 8-bit fields describe
+    /// (<see cref="MaxColumnVoxels"/>), with the 17.3 texts.
+    /// </exception>
+    /// <remarks>
+    /// A room lower than its cell has fewer voxels up its columns than along
+    /// its edge; the grid stays aligned to the cell in x and y, and to the
+    /// floor in z, which is all a quarter turn and the stitch need. The
+    /// limit is the file's (a run's low voxel and height are bytes), not
+    /// the per-edge one, which bounds the footprint.
+    /// </remarks>
+    public int ColumnVoxels(RoomDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        int n = CellVoxels(definition.CellSize);
+        if (!definition.IsShaped)
+        {
+            return n;
+        }
+
+        double ratio = (double)definition.Height / VoxelSize;
+        double whole = Math.Round(ratio);
+        if (Math.Abs(ratio - whole) > 1e-4 || whole < 1)
+        {
+            throw new RoomLibraryException(string.Create(CultureInfo.InvariantCulture,
+                $"room {definition.Name}: room_height {definition.Height:0.###} is not a whole number of navigation voxels ({VoxelSize:0.###} units each)."));
+        }
+
+        if (whole > MaxColumnVoxels)
+        {
+            throw new RoomLibraryException(string.Create(CultureInfo.InvariantCulture,
+                $"room {definition.Name}: room_height {definition.Height:0.###} is taller than {MaxColumnVoxels * (double)VoxelSize:0.###}, the most navigation describes ({MaxColumnVoxels} voxels)."));
         }
 
         return (int)whole;

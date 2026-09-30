@@ -110,6 +110,14 @@ public static class Nav3dWriter
             (Nav3dFormat.JumpsTag, JumpRecords(level.Jumps)),
         ];
 
+        // Version 3's one addition, last so every section before it is where
+        // version 2 puts it: each cell's own height, for a level whose cells
+        // differ from the cube (the rooms design, 17.11).
+        if (level.CellHeights is { } heights)
+        {
+            sections.Add((Nav3dFormat.CellHeightsTag, Int32s([.. heights])));
+        }
+
         long offset = Nav3dFormat.HeaderBytes + ((long)sections.Count * Nav3dFormat.DirectoryEntryBytes);
         long[] offsets = new long[sections.Count];
         for (int i = 0; i < sections.Count; i++)
@@ -168,7 +176,7 @@ public static class Nav3dWriter
         byte[] file = new byte[Nav3dFormat.EnvelopeBytes + stored.Length];
         Span<byte> e = file;
         Nav3dFormat.Magic.CopyTo(e);
-        BinaryPrimitives.WriteInt32LittleEndian(e[8..], Nav3dFormat.Version);
+        BinaryPrimitives.WriteInt32LittleEndian(e[8..], level.CellHeights is null ? Nav3dFormat.CubeVersion : Nav3dFormat.Version);
         e[12] = (byte)compression.Codec;
         BinaryPrimitives.WriteInt32LittleEndian(e[16..], image.Length);
         BinaryPrimitives.WriteInt32LittleEndian(e[20..], stored.Length);
@@ -267,14 +275,47 @@ public static class Nav3dWriter
             throw new ArgumentException($"{placed} placed cells own {(long)placed * block} columns, not {columnCount}.", nameof(level));
         }
 
+        // Each block's height: the cube's, or its cell's own (version 3),
+        // which is 1 to 255 for a placed cell and 0 for an empty one.
+        int[] blockHeight = new int[Math.Max(1, columnCount / Math.Max(1, block))];
+        Array.Fill(blockHeight, level.CellVoxels);
+        if (level.CellHeights is { } heights)
+        {
+            if (heights.Count != cells)
+            {
+                throw new ArgumentException($"the level has {cells} cells but {heights.Count} cell heights.", nameof(level));
+            }
+
+            for (int c = 0; c < cells; c++)
+            {
+                bool empty = level.Roots[c] == -1;
+                if (empty ? heights[c] != 0 : heights[c] is < 1 or > Nav3dFormat.MaxColumnVoxels)
+                {
+                    throw new ArgumentException(
+                        $"cell {c} is {heights[c]} voxels tall; a placed cell is 1 to {Nav3dFormat.MaxColumnVoxels}, an empty one 0.", nameof(level));
+                }
+
+                if (!empty)
+                {
+                    blockHeight[level.Roots[c] / block] = heights[c];
+                }
+            }
+        }
+
         if (level.Clearance.Length % 4 != 0)
         {
             throw new ArgumentException("the clearance section is not a whole number of four-byte words.", nameof(level));
         }
 
-        foreach (Nav3dLeaf leaf in level.Leaves)
+        for (int l = 0, column = 0; l < level.Leaves.Length; l++)
         {
-            if (leaf.Height < 1 || leaf.ZLo + leaf.Height > level.CellVoxels)
+            while (level.ColumnStarts[column + 1] <= l)
+            {
+                column++;
+            }
+
+            Nav3dLeaf leaf = level.Leaves[l];
+            if (leaf.Height < 1 || leaf.ZLo + leaf.Height > blockHeight[column / block])
             {
                 throw new ArgumentException($"a leaf from voxel {leaf.ZLo}, {leaf.Height} high, leaves its cell.", nameof(level));
             }

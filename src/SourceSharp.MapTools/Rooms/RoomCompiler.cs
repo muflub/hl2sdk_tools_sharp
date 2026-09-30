@@ -343,7 +343,8 @@ public static class RoomCompiler
         string claimed = "room:" + definition.Name + "|" + definition.CellSize.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
             + "|" + definition.Kit.Width.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ","
             + definition.Kit.Height.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ","
-            + definition.Kit.Depth.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            + definition.Kit.Depth.ToString("R", System.Globalization.CultureInfo.InvariantCulture)
+            + (definition.IsShaped ? "|h" + definition.Height.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : string.Empty);
         _ = context; // context-dependent keys (options, content revisions) join at the cache layer, §10a.
         return [model, claimed];
     }

@@ -141,7 +141,10 @@ public static class RoomLinter
         definition.Validate();
 
         float cell = definition.CellSize;
-        Box cellBox = new(Vec3.Zero, new Vec3(cell, cell, cell));
+
+        // The room's box: the cell's footprint, as tall as the room (the
+        // rooms design, 17.6); the cube for a room with no height of its own.
+        Box cellBox = definition.Bounds;
 
         // G4 first: the socket set has to be the kit at the face centres before
         // any crossing is excused, because the kit's rectangle is what defines
@@ -455,7 +458,7 @@ public static class RoomLinter
             // by something that a line still passes (a clip or grate cap, whose
             // contents are not in the leak mask), which is exactly the "cannot
             // leave without crossing its own shell" guarantee failing.
-            if (!box.ContainsWithin(new Box(Vec3.Zero, new Vec3(cell, cell, cell)), CellEpsilon))
+            if (!box.ContainsWithin(definition.Bounds, CellEpsilon))
             {
                 throw new RoomLintException(
                     $"rule {(int)RoomRule.InteriorCannotEscape} ({nameof(RoomRule.InteriorCannotEscape)}):"
@@ -591,7 +594,8 @@ public static class RoomLinter
         throw new RoomLintException(
             $"rule {(int)RoomRule.BrushesInsideOwnCells} ({nameof(RoomRule.BrushesInsideOwnCells)}):"
             + $" a {what} of room {definition.Name} crosses a cell face outside the socket kit:"
-            + $" mins ({Fmt(box.Mins)}) maxs ({Fmt(box.Maxs)}) against the cell 0..{cell:0.###}.");
+            + $" mins ({Fmt(box.Mins)}) maxs ({Fmt(box.Maxs)}) against the cell 0..{cell:0.###}"
+            + (definition.IsShaped ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $", 0..{definition.Height:0.###} tall.") : "."));
     }
 
     private static void CheckSeal(RoomDefinition definition, RoomSocket socket, Box seal, float cell)

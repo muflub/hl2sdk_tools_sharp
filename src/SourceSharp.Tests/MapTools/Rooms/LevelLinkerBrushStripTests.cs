@@ -295,7 +295,8 @@ public sealed class LevelLinkerBrushStripTests(Rooms3x3Fixture fixture) : IClass
     /// <summary>
     /// The capacity check counts what the link writes: a line of 400 hubs
     /// (8,800 brushes as compiled, 8,002 kept) passes it and a line of 410
-    /// (8,202 kept) is refused at its last hub with the kept total, the same
+    /// (8,202 kept) is refused at its last hub (cell 25 of the line's seventh
+    /// row) with the kept total, the same
     /// with the census stored in the room and made on the fly. A joint that
     /// names a socket the room lacks strips nothing here (the joint check
     /// refuses it next).
@@ -314,7 +315,7 @@ public sealed class LevelLinkerBrushStripTests(Rooms3x3Fixture fixture) : IClass
 
         LevelLinker.CheckCapacity(Line(library, 400), library, NoFold);
         LinkException refused = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(Line(library, 410), library, NoFold));
-        Assert.StartsWith("room hub at cell (409, 0) pushes the link to 8202 brushes;", refused.Message, StringComparison.Ordinal);
+        Assert.StartsWith("room hub at cell (25, 6) pushes the link to 8202 brushes;", refused.Message, StringComparison.Ordinal);
 
         // The first hub's joint renamed to a socket it lacks: that hub
         // strips nothing, one brush more than the line above.
@@ -325,7 +326,7 @@ public sealed class LevelLinkerBrushStripTests(Rooms3x3Fixture fixture) : IClass
         LevelLinker.CheckCapacity(bogus, library, NoFold); // 8,183: still under
         LevelLayout bogusLonger = Line(library, 410) with { Rooms = [first with { Joints = [("nowhere", first.Joints[0].NeighborSocket)] }, .. Line(library, 410).Rooms.Skip(1)] };
         LinkException refusedBogus = Assert.Throws<LinkException>(() => LevelLinker.CheckCapacity(bogusLonger, library, NoFold));
-        Assert.StartsWith("room hub at cell (409, 0) pushes the link to 8203 brushes;", refusedBogus.Message, StringComparison.Ordinal);
+        Assert.StartsWith("room hub at cell (25, 6) pushes the link to 8203 brushes;", refusedBogus.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -381,13 +382,27 @@ public sealed class LevelLinkerBrushStripTests(Rooms3x3Fixture fixture) : IClass
         return (await LevelLinker.LinkAsync(layout, fixture.Library, fixture.Context(name), NoFold), layout);
     }
 
+    /// <summary>
+    /// A line of hubs, each joined to the next, folded into rows of
+    /// <see cref="LineRow"/>: the joints are the line's, which is all the
+    /// capacity count reads of a placement besides its room, and the rows
+    /// keep every placement within the engine's coordinates, which the
+    /// capacity check refuses to pass (the rooms design, 17.6).
+    /// </summary>
     private static LevelLayout Line(RoomLibrary library, int length)
     {
         LevelCell?[] cells = new LevelCell?[length];
         Array.Fill(cells, new LevelCell("hub", 0));
-        return new LevelGrid("line", "rooms.vmf", 1, length, cells)
+        LevelLayout line = new LevelGrid("line", "rooms.vmf", 1, length, cells)
             .ToLayout(name => library.Find(name)?.Definition, library.CellSize, library.Kit);
+        return line with
+        {
+            Rooms = [.. line.Rooms.Select((r, i) => r with { Placement = r.Placement with { CellX = i % LineRow, CellY = i / LineRow } })],
+        };
     }
+
+    /// <summary>How many hubs a line's row holds: 64 cells of 256 reach 16,384, the engine's limit.</summary>
+    private const int LineRow = 64;
 
     private static HashSet<int> Carved(RoomObject room, RoomInstance instance)
     {
