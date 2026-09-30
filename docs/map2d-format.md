@@ -40,7 +40,8 @@ Contents:
   **closed** where a cap seals it. A joined doorway has two records, one per
   side, each naming the placement it opens into. The floor of a doorway is
   the door's, not either room's: the polygons stop at the rooms' inner walls
-  and the door segment spans the gap.
+  and the door segment spans the gap. Water surfaces are not floor; the
+  floor under water is.
 - **Markers**: points of interest, each with a **kind** (a short identifier
   the game maps to an icon), a position, a yaw and an optional label: the
   authors' (`info_poi` with `map_marker`) and the linker's own (`spawn`,
@@ -173,7 +174,9 @@ the naming grammar (the rooms design, section 5) is `c<column>r<row>`.
 A **polygon** is an outer ring followed by its holes: a hole belongs to the
 nearest outer ring before it, and shares its placement and band. Polygons
 are ordered by placement, then by band (low first), then by their outer
-rings' points. The rings' points are consecutive in `PNTS`, in ring order.
+rings' points in the room's own frame (the order the room's pack section
+stores them; a map made without a level file orders its one set in the
+map's frame). The rings' points are consecutive in `PNTS`, in ring order.
 
 ### 4.4 `PNTS`: points
 
@@ -242,8 +245,8 @@ stored once, room-local):
 
 - **The face rule.** A face of the room's compile counts when its plane's
   normal z is at least **0.7** (the player's walkable slope) and it is drawn:
-  not sky, 2D sky, nodraw, water, trigger (the door plugs and caps), hint or
-  skip. Faces a solid brush sits on never exist in a compile. Displacements
+  not sky, 2D sky, nodraw, a water surface, trigger (the door plugs and
+  caps), hint or skip. Faces a solid brush sits on never exist in a compile. Displacements
   are left out. Brush entities count when a player stands on them
   (`func_brush` unless its `Solidity` is 1, `func_door`,
   `func_door_rotating`, `func_movelinear`, `func_platrot`,

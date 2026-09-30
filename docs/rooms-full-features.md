@@ -4356,6 +4356,161 @@ each level links without a warning, to a map `ssmap check` passes with its
 one warning (no cubemap sample) and a version 3 `.nav3d`, and flattens; the
 same seed gives the same file every run.
 
+**PR 22 landed** (the level map overlay, section 18). `ssmap room` stores
+each room's part of its level's map in an optional **`MAPV`** section
+(`RoomMapView`, the link sections' framing, codec none, revision 1, no pack
+version change): the room's floors as polygons with holes, one set per
+height band, room-local and unturned; one door per socket (the segment
+across the kit's opening on the cell face, and the opening's z range); the
+room's `info_poi` markers; and its `info_room`'s `map_label`. `ssmap link`
+turns and places each placement's part on whole units, takes each door's
+state (and the placement it opens into) from the joints, adds the linker's
+own markers, and writes `<map>.map2d` beside the `.bsp`, after the map and
+before the `.nav3d`; `-map2d-svg` also writes `<map>.svg`, `-no-map2d`
+writes neither (both with `--flatten`, or together, are usage errors). A
+pack without the section links as before and says once which rooms lack
+it (`the room pack holds no level map for "a", "b"; the level is linked
+without a .map2d (compile the library with a build that writes the map)`).
+`ssmap map2d <map.bsp> [-level <level.yaml>] [-out <file>] [-svg]` makes
+the file from any compiled map. The format is `docs/map2d-format.md`, with
+the reader and writer in `SourceSharp.MapFormats.Map2d` and the map checksum
+in `BspMapChecksum`; `SourceSharp.RoomContracts.LevelMap` holds the keys
+(`map_marker`, `map_label`), the linker's kinds (`spawn`, `arrival`,
+`exit_up`, `exit_down`) and the rules for a kind and a label.
+
+- **The face rule** (`RoomMapFaces`, one function for the pack and for
+  `ssmap map2d`): a face of the world or of a player-solid brush entity
+  whose own plane's normal z is at least 0.7 and that is drawn: not sky, 2D
+  sky, nodraw, water (warp), trigger (the plugs and caps), hint or skip.
+  A face's normal is its plane's (the compiler writes a face on the plane of
+  its own orientation; the side byte only says which of the pair that is).
+  Displacements are left out until rooms carry them (PR 15).
+- **Water** (PR 14's, merged first): a water surface is not ground a player
+  stands on (its faces are warp), and the floor under water is floor like
+  any other; in a joined water doorway both the floor and the surface are
+  the door's. Facts: a pool's room has no polygon at the surface and its
+  floor runs under the pool; water through a joined door maps as the
+  flattened compile does at every turn. `MAPV` follows `WATR` in a room's
+  entry.
+- **The cut and the snap.** A placement's faces are clipped to its cell and
+  kept within its height, taken into the room's own frame, and snapped
+  there to whole units, halves up (`floor(v + 0.5)`), z bands likewise. The
+  snap in the room's frame on both sides is what keeps the link and the
+  flattened compile equal: a half unit rounds the same way at every turn.
+- **The union** (`MapPolygonUnion`): faces grouped by "bands overlap
+  (closed) and areas touch", connected components, so order-independent;
+  each group fanned into signed triangles (a face the snap bent counts once)
+  and unioned on an exact arrangement in `Int128` (rational points where
+  edges cross), boundary pieces chained with the leftmost turn so regions
+  touching at a point stay two simple rings; points between two pieces of
+  one line dropped before rounding, crossings rounded last; holes to the
+  smallest outer ring around them; everything sorted. Coordinates within
+  ±65,536.
+- **Stored once, turned at link** (D16). The turn is two integer additions
+  a coordinate; the 33 x 33 stress level's map (1,089 placements, 3,031
+  rings, 12,124 points, 297 KB) is planned, assembled and written in 3 to
+  6 ms warm (15 to 50 ms on a cold start, most of it the JIT), while four
+  copies would add three times the section's 241 bytes a room to every
+  read. The link's larger cost was the map checksum over the 14 MB `.bsp`
+  (39 ms byte by byte): `Crc32` now runs eight bytes at a time (the same
+  arithmetic reassociated, held to the bit-by-bit definition at every length
+  and alignment, and to every zip fact), 17 ms on the same busy machine.
+
+Decisions taken where section 18 left a detail:
+
+1. **A doorway's floor is the door's.** The room compiles with its plugs
+   in, so its compile has no floor under a plug; the flattened level's
+   compile has one in every joined doorway. Floor inside a plug box (where
+   its z range meets the box's) is cut away on both sides, and the door is
+   drawn as its segment across the gap the walls leave.
+2. **Socket furniture is door hardware**: a brush entity's face inside a
+   furniture brush's box is left out, judged by geometry because the
+   flattened compile carries the furniture without its `room_socket` key.
+   Player-solid classes: `func_brush` (not `Solidity` 1), `func_door`,
+   `func_door_rotating`, `func_movelinear`, `func_platrot`,
+   `func_tracktrain`, `func_train`, `func_breakable`, `func_physbox`,
+   `func_wall`, `func_wall_toggle`, `func_button`, `func_rot_button`.
+3. **Kinds and labels.** A kind is a lower-case identifier (a letter, then
+   letters, digits, underscores; 32 at most); the linker's four are
+   reserved; a label is at most 64 bytes of UTF-8. Refused at pack time with
+   the entity named: a bad kind, a reserved kind, a long label, and a label
+   on a point without a `map_marker`; an `info_room`'s long label by the
+   split. A label is display text, carried as written and not resolved; a
+   placement is named by its cell (`c<column>r<row>`, the naming grammar),
+   which every polygon, door and marker carries: that is how the file ties
+   markers to rooms.
+4. **The linker's markers** exist for a level of a run (one with a
+   transition plan): the spawn at the first spawn point (the up room's
+   arrival, or with `up: none` the spawn room's first spawn point, with or
+   without `-mod-entities`), then per transition room its arrival and its
+   exit (at the volume's centre, yaw 0), both labelled with the map they
+   lead to. A standalone level has only its authors' markers.
+   `LevelTransitionPlan` now keeps the spawn placement and points for this.
+   `ssmap map2d` without a level file marks `info_player_start` as `spawn`
+   and any entity with a `map_marker`.
+5. **The binding** is the engine's map checksum (CRC-32 of every lump but
+   the entity lump), not an id stamped in the worldspawn, so every `.bsp` is
+   the bytes it was. The equivalence therefore compares the two files with
+   the same checksum (or byte for byte after it).
+6. **The file**: a 96-byte header with the extent (checked against the
+   contents), counts and grid; the ring table (`POLY`) and its points
+   (`PNTS`, `int16` whenever every point fits) in two sections; a door
+   names the placement it opens into; no codec (a 3 x 3 level is 1.8 KB).
+7. **Where it is made.** A room compiled alone (`RoomCompiler`) gets its
+   floors and doors; a library compile adds the markers and the label, and
+   the room cache key folds `map_label` only for a room that has one. A
+   room whose cell size is not a whole number of units gets no section. A
+   room with no floor is warned about at pack time from its own section, so
+   a reused room says it too (`ssmap room: warning: room "void" has no
+   walkable floor ...`). The link reads `MAPV` with every room (a few
+   hundred bytes), whether or not it writes the map.
+
+Tests: the file (every section, pinned bytes, `int16` and `int32` points,
+the extent, 19 damages and the stale binding by message, the writer's
+refusals, an unknown section skipped, the SVG pinned), the checksum, the
+union (touching, T-junction, overlapping, holes, an island in a hole,
+touching at a point, bands, crossings, slivers, a concave face, order and
+start independence, the bound), the face rule (the slope on both sides,
+every surface that is not floor, displacements, brush entities, origins),
+the cut (cell, turn, doorway, furniture, snap), `MAPV` (markers and their
+refusals, doors, round trip, damage, the empty room, a real compile),
+the link's map (doors, labels, markers, the linker's, `up: none`, a level
+without transitions, the missing-section warning), the commands, and water.
+**Equivalence**: the linked `.map2d` is `ssmap map2d` of the flattened
+compile cut by the level file, byte for byte (same checksum), for the
+3 x 3 sample's eight levels (the sample and its three turns, and four
+seeded) through the CLI, the transit sample's three levels each at four
+turns, and a transition level with a marker, a label and a platform
+(`func_brush`) at four turns, and water through a joined door at four
+turns; and `ssmap map2d -level` of the linked map is the link's own file.
+
+Not done: displacements and water surfaces (PRs 15 and 14 carry them into
+rooms first); multi-cell rooms (PR 20); packing the file into the pakfile
+(O37's later option); `ssmap rooms` lists `MAPV` in its section table only.
+
+Measured against main at the merge of PR 21 (and, before the merges of PRs
+14 and 21, against the plan branch, to the same result): a non-incremental
+build has no warning and the whole suite passes (10,317 facts). `ssmap all`
+on 2fort and the sandbox writes the same maps (`7955274d...` with the map
+named `sdk_ctf_2fort`, `62c7aba5...` for either build when it is copied as
+`c.vmf`, since the name is in the map; `09c58ee2...`). The 3 x 3, transit
+and stress packs keep every section main writes, byte for byte (the compile
+id and the containers' build identity aside), and gain one `MAPV` a room:
+1,029 bytes on the 3 x 3's five rooms, 1,511 on the transit's seven, 61,756
+on the stress library's 256 (241 bytes a room). Every level of the three,
+linked by this build from main's packs, is the same map and `.nav3d` as
+main's link (29 files, both modes for the transit run), with the one
+warning and no `.map2d`; linked from this build's packs, every map passes
+`ssmap check` with its one warning (no cubemap sample). The 3 x 3 sample's
+`.map2d` is 1,796 bytes and its SVG preview 2,618; the transit levels'
+2,192 to 2,324. The stress library's 33 x 33 level writes a 297,152-byte
+map; in process the map costs 52 to 59 ms on a cold start (plan 1.5,
+checksum 14 to 16, assembly 13 to 15, writing 23 to 26, mostly the JIT) and
+16 ms warm, against a link of about 2 s (wall clock on a box loaded by
+other work, medians of six alternating runs: 2.19 s with the map, 1.97 s
+with `-no-map2d`, main 2.04 s; the spread of each is 0.2 to 0.3 s, larger
+than the map's cost).
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
