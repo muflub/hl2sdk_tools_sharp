@@ -314,6 +314,13 @@ public sealed class RoomLibrary
     /// <exception cref="ArgumentException">The room belongs to another kit or cell size.</exception>
     public void Add(RoomObject room)
     {
+        RequireGrid(room);
+        _rooms[room.Definition.Name] = room;
+    }
+
+    /// <summary>Refuses a room built for another kit or cell size than the library's.</summary>
+    private void RequireGrid(RoomObject room)
+    {
         ArgumentNullException.ThrowIfNull(room);
         RoomDefinition d = room.Definition;
         if (Math.Abs(d.CellSize - CellSize) > 0.001f || d.Kit != Kit)
@@ -323,8 +330,6 @@ public sealed class RoomLibrary
                 + $" the library is cell {CellSize:0.###} kit {Kit}.",
                 nameof(room));
         }
-
-        _rooms[d.Name] = room;
     }
 
     /// <summary>
@@ -348,13 +353,8 @@ public sealed class RoomLibrary
         ArgumentNullException.ThrowIfNull(name);
         ArgumentOutOfRangeException.ThrowIfNegative(source);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(source, Math.Max(_sourceOptions.Count, 1));
-        Add(room);
-        if (!string.Equals(name, room.Definition.Name, StringComparison.Ordinal))
-        {
-            _rooms.Remove(room.Definition.Name);
-            _rooms[name] = room;
-        }
-
+        RequireGrid(room);
+        _rooms[name] = room;
         _sources[name] = source;
     }
 
