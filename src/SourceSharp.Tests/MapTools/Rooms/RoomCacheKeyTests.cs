@@ -454,6 +454,23 @@ public sealed class RoomCacheKeyTests
         Assert.NotEqual(key.Digest, (key with { ToolId = key.ToolId + " other" }).Digest);
     }
 
+    /// <summary>
+    /// A room's label on the level map (its <c>info_room</c>'s <c>map_label</c>,
+    /// which the room document does not carry) is in the key when the room
+    /// has one, so a new label is not served from an old row; a room without
+    /// keeps the key it had before labels.
+    /// </summary>
+    [Fact]
+    public void TheMapLabelIsInTheKeyOnlyWhenTheRoomHasOne()
+    {
+        LibraryRoom room = Split(Library())[0];
+        string plain = RoomCacheKey.RoomDigest(room);
+        Assert.Equal(plain, RoomCacheKey.RoomDigest(room with { MapLabel = string.Empty }));
+        string labelled = RoomCacheKey.RoomDigest(room with { MapLabel = "Armoury" });
+        Assert.NotEqual(plain, labelled);
+        Assert.NotEqual(labelled, RoomCacheKey.RoomDigest(room with { MapLabel = "Armory" }));
+    }
+
     /// <summary>The arguments are checked.</summary>
     [Fact]
     public void NullArgumentsAreRefused()

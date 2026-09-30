@@ -312,4 +312,24 @@ public sealed class RoomLibraryVmfTests
 
         return solid;
     }
+
+    /// <summary>
+    /// A room's label on the level map is its <c>info_room</c>'s
+    /// <c>map_label</c>, empty without the key; a label longer than the
+    /// contract's 64 bytes of UTF-8 is refused, naming the room.
+    /// </summary>
+    [Fact]
+    public void ARoomsMapLabelIsReadAndHeldToTheContract()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub, RoomHarness.WalkableRoom("side", RoomFacing.PositiveX));
+        TransitHarness.Marker(library, "hub").AddKey(SourceSharp.RoomContracts.LevelMap.LabelKey, "Armoury");
+        IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(library);
+        Assert.Equal(["Armoury", string.Empty], rooms.Select(r => r.MapLabel));
+
+        string tooLong = new('x', 65);
+        TransitHarness.Marker(library, "side").AddKey(SourceSharp.RoomContracts.LevelMap.LabelKey, tooLong);
+        Assert.Equal(
+            $"room \"side\" has map_label \"{tooLong}\"; a label is at most 64 bytes of UTF-8, without a NUL.",
+            Assert.Throws<RoomLibraryException>(() => RoomLibraryVmf.Split(library)).Message);
+    }
 }

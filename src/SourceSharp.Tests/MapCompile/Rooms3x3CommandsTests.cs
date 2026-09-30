@@ -13,6 +13,7 @@ using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Nav;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Map2d;
 using SourceSharp.MapGen.Rooms;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Options;
@@ -106,6 +107,21 @@ public sealed class Rooms3x3CommandsTests(Rooms3x3Fixture fixture) : IClassFixtu
             using MemoryStream restamped = new();
             await BspFile.SaveAsync(stamped, restamped, BspWriteMode.Canonical, CancellationToken.None);
             Assert.True(restamped.ToArray().AsSpan().SequenceEqual(written), $"{name}: ssmap link and the linker API wrote different maps");
+
+            // The level map beside it (the rooms design, 18.6): bound to the
+            // map it wrote, the linker API's from the same rooms, and the map
+            // ssmap map2d makes from the flattened level's compile cut by the
+            // level file, byte for byte (at every turn: the sample's levels
+            // are the sample and its three turns, and seeded levels).
+            byte[] map2d = fs.GetBytes(VPath.Create(Rooted($"/sample/out/{name}.map2d")))!;
+            uint checksum = BspMapChecksum.Compute(written);
+            Assert.Equal(checksum, Map2dReader.Read(map2d, checksum).MapChecksum);
+            Assert.Equal(
+                Map2dWriter.Write(LevelMapBuilder.Plan(pair.Layout, level.Columns, level.Rows, fixture.Library.Get).Build(checksum)),
+                map2d);
+            Assert.True(
+                Map2dWriter.Write(LevelMapBuilder.FromCompile(pair.Monolithic.Bsp!, checksum, pair.Level, [fixture.LibraryVmf])).AsSpan().SequenceEqual(map2d),
+                $"{name}: the linked level map is not the flattened compile's");
 
             using MemoryStream stream = new(written);
             BspData map = await BspFile.LoadAsync(stream);
