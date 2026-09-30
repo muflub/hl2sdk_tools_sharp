@@ -17,7 +17,8 @@ namespace SourceSharp.MapTools.Rooms;
 
 /// <summary>
 /// One room of a library VMF: what it claims to be, where its cell was in
-/// the library, and its own VMF, moved so its cell is <c>[0, cell]³</c>.
+/// the library, and its own VMF, moved so its box is <c>[0, cell]² × [0, height]</c>
+/// (the cube <c>[0, cell]³</c> for a room without a <c>room_height</c>).
 /// </summary>
 /// <param name="Definition">The room's name, grid, kit and sockets.</param>
 /// <param name="Corner">The cell's low corner in the library: where its <c>info_room</c> stands.</param>

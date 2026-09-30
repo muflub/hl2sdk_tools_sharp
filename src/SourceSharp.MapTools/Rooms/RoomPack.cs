@@ -296,7 +296,7 @@ public sealed class RoomPackIndex
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Layout, version 4</b> (as versions 1 to 3's; see Versions below). Every integer is big-endian, as in the room
+/// <b>Layout, versions 4 and 5</b> (as versions 1 to 3's; see Versions below). Every integer is big-endian, as in the room
 /// container, so the bytes do not depend on the writer's byte order. A tag
 /// is four printable ASCII characters, stored as they read.
 /// </para>
@@ -317,7 +317,9 @@ public sealed class RoomPackIndex
 /// <see cref="RoomSection"/>, exactly the bytes
 /// <see cref="RoomObjectStore.SaveAsync"/> writes for it (the room container).
 /// A room <c>ssmap room</c> packs then has its entity counts
-/// (<c>ECNT</c>, <see cref="RoomEntityCounts"/>), when its compile emitted static
+/// (<c>ECNT</c>, <see cref="RoomEntityCounts"/>), when it is taller or lower
+/// than its cell its shape (<c>SHAP</c>: its height, footprint and sockets'
+/// cells, <see cref="RoomShape"/>), when its compile emitted static
 /// props its props as the link carries them (<c>PROP</c>: the models' hulls,
 /// the keys vbsp consumed and every prop's pose at all four turns,
 /// <c>RoomStaticProps</c>), when its compile has brush models besides the
@@ -402,9 +404,11 @@ public sealed class RoomPackIndex
 /// entry names; a pack whose index and containers disagree is refused.
 /// </para>
 /// <para>
-/// <b>Versions.</b> This build writes version 4 and reads versions 4 and
-/// 3, and refuses any other with the version it carries and the one it
-/// reads, as the room container does; the containers inside carry their
+/// <b>Versions.</b> This build writes version 5 for a pack holding a shaped
+/// room and version 4 for any other (<see cref="CubeVersion"/>), reads
+/// versions 3 to 5, and refuses any other with the version it carries and
+/// the newest it reads (<see cref="CheckVersion"/>), as the room container
+/// does; the containers inside carry their
 /// own version and are checked by <see cref="RoomObjectStore.LoadAsync"/>.
 /// Versions 2 to 4 have the layout of version 1; what each adds is a
 /// promise about the rooms. Version 2: the pack was built after the library's singletons were
@@ -433,7 +437,13 @@ public sealed class RoomPackIndex
 /// links: its rooms promise everything but the door visibility, which is
 /// a function of what the pack does hold (each room's own vvis and plug
 /// census), so the link works it out per room and writes the same bytes
-/// it writes from the same library packed as version 4.
+/// it writes from the same library packed as version 4. Version 5 (the rooms
+/// design, 17.11): some room is shaped and carries <c>SHAP</c>, which an
+/// older build would skip and link the room as a cube, its top tree's
+/// bounds one cell tall; so a pack holding one takes the next version, and
+/// an older build refuses it by its version check. A pack of cube rooms is
+/// still written at version 4, its bytes what they were, and a <c>SHAP</c>
+/// section in a pack of version 4 or older is refused as damage.
 /// </para>
 /// </remarks>
 public static class RoomPack
