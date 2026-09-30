@@ -479,7 +479,7 @@ internal sealed partial class RoomDoorLight
                 for (int s = 0; s < frames.Length; s++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    captures[r][turn][s] = Capture(run.Lit, r == 1, frames[s], definition.CellSize, recast);
+                    captures[r][turn][s] = Capture(run.Lit, r == 1, frames[s], definition.Bounds, recast);
                     ambient[r][turn][s] = await SeenAsync(tracer, samples, frames[s], cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -707,7 +707,13 @@ internal sealed partial class RoomDoorLight
     /// skybox as vrad recasts a sky ray, and what the skybox stops is not
     /// sent.
     /// </summary>
-    internal static DoorSource[] Capture(BspData lit, bool hdr, DoorFrame frame, float cell, SkyboxRecast? skybox = null)
+    /// <remarks>
+    /// "The room's cell" is its box (<paramref name="room"/>, the rooms design
+    /// 17.6): a tall room's upper walls and ceiling send light through the
+    /// opening like any other surface of it, so the box is the room as it is,
+    /// never the cube of its cell.
+    /// </remarks>
+    internal static DoorSource[] Capture(BspData lit, bool hdr, DoorFrame frame, Box room, SkyboxRecast? skybox = null)
     {
         AmbientScene scene = AmbientScene.Create(lit, hdr ? LightingMode.Hdr : LightingMode.Ldr);
         DispTestedScratch scratch = new(scene.Tracer.Displacements.Count);
@@ -742,7 +748,7 @@ internal sealed partial class RoomDoorLight
                 light.ConstantAttn, light.LinearAttn, light.QuadraticAttn, light.StopDot, light.StopDot2, light.Exponent, cells));
         }
 
-        sources.AddRange(StandIns(scene, scratch, frame, centres, reach, cell, skybox));
+        sources.AddRange(StandIns(scene, scratch, frame, centres, reach, room, skybox));
         return [.. sources];
     }
 
@@ -808,7 +814,7 @@ internal sealed partial class RoomDoorLight
     /// bounces only style 0, and leaf ambient keeps only style 0.
     /// </summary>
     private static List<DoorSource> StandIns(
-        AmbientScene scene, DispTestedScratch scratch, DoorFrame frame, Vec3[] centres, float reach, float cell, SkyboxRecast? skybox)
+        AmbientScene scene, DispTestedScratch scratch, DoorFrame frame, Vec3[] centres, float reach, Box room, SkyboxRecast? skybox)
     {
         Vec3? skyAmbient = RayAmbientLighting.FindSkyAmbient(scene);
         Vec3[] directions = Hemisphere(CaptureRays);
@@ -824,7 +830,7 @@ internal sealed partial class RoomDoorLight
                 Vec3 travel = frame.DirectionToRoom(d);
                 Vec3 end = point - (travel * reach);
                 AmbientHit hit = scene.Tracer.Trace(point, end - point, scratch);
-                if (!hit.IsHit || HitPoint(scene, point, -travel, reach, hit) is not { } at || !Inside(at, cell))
+                if (!hit.IsHit || HitPoint(scene, point, -travel, reach, hit) is not { } at || !Inside(at, room))
                 {
                     continue;
                 }
@@ -912,8 +918,11 @@ internal sealed partial class RoomDoorLight
     /// level is another room the door light does not reach (D3), and in the
     /// open room is nothing that belongs to it.
     /// </summary>
-    internal static bool Inside(Vec3 point, float cell) =>
-        point.X >= -1 && point.Y >= -1 && point.Z >= -1 && point.X <= cell + 1 && point.Y <= cell + 1 && point.Z <= cell + 1;
+    /// <param name="point">The point, room-local.</param>
+    /// <param name="room">The room's box (<see cref="RoomDefinition.Bounds"/>): its cell, as tall as the room.</param>
+    internal static bool Inside(Vec3 point, Box room) =>
+        point.X >= room.Mins.X - 1 && point.Y >= room.Mins.Y - 1 && point.Z >= room.Mins.Z - 1
+        && point.X <= room.Maxs.X + 1 && point.Y <= room.Maxs.Y + 1 && point.Z <= room.Maxs.Z + 1;
 
     /// <summary>A source's flux through its own room's opening per unit intensity, from the cells it reaches.</summary>
     internal static double OwnFlux(in DoorSource source, DoorFrame frame) =>

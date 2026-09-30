@@ -158,12 +158,23 @@ public static class LevelNavLinker
         Array.Fill(roots, -1);
         List<uint> columnStarts = [];
         List<NavRun> runs = [];
-        NavRegion cellRegion = new(0, 0, 0, n, n, n, first.VoxelSize);
+
+        // Each cell's height in voxels (the rooms design, 17.6 and 17.11):
+        // kept only when some placed room is not a cube, so a level of cubes
+        // is a version 2 file, byte for byte what it was.
+        int[]? heights = placed.Any(p => p.Nav.IsShaped) ? new int[columns * rows] : null;
         for (int i = 0; i < placed.Length; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Placed p = placed[i];
             RoomPlacement placement = p.Instance.Placement;
+            int nz = p.Nav.ColumnVoxels;
+            NavRegion cellRegion = new(0, 0, 0, n, n, nz, first.VoxelSize);
+            if (heights is not null)
+            {
+                heights[p.Cell] = nz;
+            }
+
             NavRecordTable local = new();
             for (int r = 1; r < p.Nav.Records.Count; r++)
             {
@@ -179,7 +190,7 @@ public static class LevelNavLinker
 
             if (anyCapped)
             {
-                NavVoxelKey[] keys = roomColumns.Expand(n);
+                NavVoxelKey[] keys = roomColumns.Expand(nz);
                 bool[] touched = new bool[keys.Length];
                 for (int s = 0; s < p.Nav.Sockets.Count; s++)
                 {
@@ -268,6 +279,7 @@ public static class LevelNavLinker
             CellSize = first.CellSize,
             VoxelSize = first.VoxelSize,
             CellVoxels = n,
+            CellHeights = heights,
             Columns = columns,
             Rows = rows,
             Origin = new Vec3(0, 0, 0),

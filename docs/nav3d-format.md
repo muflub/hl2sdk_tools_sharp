@@ -32,12 +32,15 @@ Contents:
 
 ## 1. What the file describes
 
-A level is a grid of cubic **cells**, one room per cell (some cells empty).
+A level is a grid of **cells**, one room per cell (some cells empty).
 Each cell is split into **voxels**, `cellVoxels` along each edge (16 by
-default: a 256-unit cell, 16-unit voxels). Each voxel **column** of a placed
-cell lists its free space as **leaves**: runs of voxels, bottom to top, each
-run a stretch of the column where everything the file knows is the same.
-Solid is simply not listed.
+default: a 256-unit cell, 16-unit voxels). A cell is a cube unless its room
+has a height of its own (the rooms design, 17.6): then its columns run up
+that room's height in voxels instead, which only a **version 3** file
+records (`CHGT`, section 4); every floor stands at z = 0. Each voxel
+**column** of a placed cell lists its free space as **leaves**: runs of
+voxels, bottom to top, each run a stretch of the column where everything
+the file knows is the same. Solid is simply not listed.
 
 Every leaf carries two **clearance records**, one for each **clip class**
 (player clip or monster clip; everything else solid stops both). A record
@@ -79,8 +82,11 @@ climber uses ladder leaves; a flyer goes anywhere it fits.
 - **The grid**: `columns` cells west to east (+x), `rows` south to north
   (+y). Cell `(column, row)` has index `row × columns + column` and spans
   `origin + (column × cellSize, row × cellSize, 0)` to that plus `cellSize`
-  on every axis. The linker's origin is `(0, 0, 0)`.
-- **Voxels**: `voxelSize = cellSize / cellVoxels`, `cellVoxels` at most 128.
+  on every axis; in a version 3 file, to that plus `cellSize` across and
+  `CHGT[cell] × voxelSize` up. The linker's origin is `(0, 0, 0)`.
+- **Voxels**: `voxelSize = cellSize / cellVoxels`, `cellVoxels` at most 128;
+  a cell's height (`CHGT`, version 3) at most 255, the most a leaf's 8-bit
+  `zLo` and `height` reach.
   Voxel `(x, y, z)` of a cell spans `cellCorner + (x, y, z) × voxelSize` to
   that plus `voxelSize`; a voxel's **top** is `origin.z + (z + 1) × voxelSize`.
 - **Half-open**: a point on a voxel boundary belongs to the voxel above it on
@@ -109,7 +115,7 @@ stored image (raw, or compressed by the envelope's codec)
 | Offset | Type | Field |
 | --- | --- | --- |
 | 0 | `char[8]` | magic `SSNAV3D\0` (`53 53 4E 41 56 33 44 00`) |
-| 8 | `int32` | version, **2** |
+| 8 | `int32` | version: **2**, or **3** for a level whose cells have heights of their own (section 16) |
 | 12 | `uint8` | codec: 0 none, 1 Deflate (raw RFC 1951), 2 Brotli (RFC 7932) |
 | 13 | `uint8[3]` | zero |
 | 16 | `int32` | `imageLength`: the image's length after decoding |
@@ -125,7 +131,7 @@ default (section 18). Every offset below is from the start of the
 
 | Offset | Type | Field |
 | --- | --- | --- |
-| 0 | `int32` | `headerBytes`: 160 in version 2. The directory starts here. |
+| 0 | `int32` | `headerBytes`: 160 in versions 2 and 3. The directory starts here. |
 | 4 | `int32` | `sectionCount` |
 | 8 | `int32` | `presetCount`, 0 to 32 |
 | 12 | `float32` | `cellSize` |
@@ -183,6 +189,15 @@ A reader looks sections up by tag and **ignores tags it does not know**.
 | `BRSI` | `uint32` | `brushCount + 1`: brush `b`'s planes are `[BRSI[b], BRSI[b+1])` |
 | `BRSP` | 16 bytes | the overhanging brushes' planes: `float32` normal x, y, z, distance |
 | `JUMP` | 16 bytes | `jumpCount` |
+| `CHGT` | `int32` | `columns × rows`, **version 3 only**: each cell's height in voxels, 1 to 255 for a placed cell, 0 for an empty one |
+
+**`CHGT`** (version 3, written after `JUMP`) gives each cell its own
+height in voxels: how far up its columns run from the floor. A room taller
+than its cell has more voxels up than across, a low room fewer. A version 2
+file has no `CHGT`, and every placed cell is `cellVoxels` tall; the linker
+writes version 2, byte for byte as before heights, for a level whose rooms
+are all cubes. A version 3 reader requires `CHGT` and holds every leaf of a
+cell's columns under its height.
 
 **`AGNT`** (per preset)
 
@@ -389,7 +404,9 @@ room in a leaf is therefore a prefix of the run (7.2).
 
 **Point lookup** (`FindLeaf`): compute the level voxel of the point; the
 cell is `(X / cellVoxels, Y / cellVoxels)`; outside the grid or in an empty
-cell there is no leaf. Scan the column's leaves for the one whose
+cell there is no leaf, and neither is there at or above the cell's height
+(`cellVoxels`, or `CHGT[cell]` in version 3; the grid reaches up to its
+tallest cell). Scan the column's leaves for the one whose
 `[zLo, zLo + height)` holds `z`; none means solid there.
 
 ## 7. Queries: fit, standing, head room, steps
@@ -565,7 +582,7 @@ writes byte for byte the map a link wrote before navigation existed.
 // Load.
 struct Envelope { char magic[8]; int32_t version; uint8_t codec, pad[3]; int32_t imageLength, storedLength; };
 const Envelope* e = (const Envelope*)file;
-check(memcmp(e->magic, "SSNAV3D\0", 8) == 0 && e->version == 2 && 24 + e->storedLength == fileSize);
+check(memcmp(e->magic, "SSNAV3D\0", 8) == 0 && (e->version == 2 || e->version == 3) && 24 + e->storedLength == fileSize);
 const uint8_t* image = file + 24;
 if (e->codec == 1) image = inflateRaw(file + 24, e->storedLength, e->imageLength);  // zlib windowBits -15
 if (e->codec == 2) image = brotliDecode(file + 24, e->storedLength, e->imageLength);
@@ -574,8 +591,10 @@ for (int i = 0; i < sectionCount; i++) {
     const uint8_t* d = image + headerBytes + 16 * i;
     remember(tag(d), rdu32(d + 8) /* offset */, rdu32(d + 12) /* length */);
 }
+// Version 3: CHGT[cell] is each cell's height in voxels; version 2: cellVoxels
+// for every placed cell. tallest = the largest of them.
 // Validate once: sections inside the image and sized to the header's counts,
-// ROOT and COLS in range and rising, every leaf inside the cell, runs of a
+// ROOT and COLS in range and rising, every leaf under its cell's height, runs of a
 // column rising and apart, every CLRS offset at a whole record, every
 // obstacle and brush index a record names in range, every jump's leaves.
 
@@ -584,10 +603,10 @@ int FindLeaf(Vec3 p) {
     double lx = p.x - origin.x, ly = p.y - origin.y, lz = p.z - origin.z;
     if (lx < 0 || ly < 0 || lz < 0) return -1;
     int64_t X = floor(lx / voxelSize), Y = floor(ly / voxelSize), Z = floor(lz / voxelSize);
-    if (X >= columns * cellVoxels || Y >= rows * cellVoxels || Z >= cellVoxels) return -1;
+    if (X >= columns * cellVoxels || Y >= rows * cellVoxels || Z >= tallest) return -1;
     int cell = (Y / cellVoxels) * columns + X / cellVoxels;
     int32_t root = ROOT[cell];
-    if (root < 0) return -1;
+    if (root < 0 || Z >= height(cell)) return -1;
     int column = root + (Y % cellVoxels) * cellVoxels + X % cellVoxels;
     for (uint32_t l = COLS[column]; l < COLS[column + 1]; l++) {
         if (Z < LEAF[l].zLo) return -1;
@@ -738,12 +757,19 @@ step, so the walk needs the jump.
 - The **envelope's version** changes only for a change an older reader
   must not read around. **Version 2** replaced version 1's per-agent octrees,
   stored adjacency and components with the shared clearance grid; a version
-  1 file is refused, not misread.
+  1 file is refused, not misread. **Version 3** (the rooms design, 17.11)
+  adds `CHGT`, each cell's height in voxels, for a level placing a room
+  taller or lower than its cell: a version 2 reader would take a tall
+  cell's runs above `cellVoxels` for damage, or a low cell's space above
+  its ceiling for voxels it was never told are solid, so the version
+  changes. It is written only for such a level: a level of cube rooms is
+  still version 2, byte for byte, and this build reads both.
 - A **new optional section** gets a new tag and changes no version.
 - The **header** records its size; a reader finds the directory by
   `headerBytes`, never the constant 160.
-- The room pack's navigation sections carry their own **revision**, now
-  **2**. A pack with revision 1 sections reads as having no navigation:
+- The room pack's navigation sections carry their own **revision**: **2**
+  for a cube room, **3** for a room of its own height (17.3). A pack with
+  revision 1 sections reads as having no navigation:
   `ssmap link` writes the map, no `.nav3d`, and warns
   `the room pack holds no navigation for "…"; the level is linked without a
   .nav3d (compile the library with a build that writes navigation)`;
@@ -789,8 +815,9 @@ one run of bytes per placed room.
 
 Framing, big-endian as the pack is: `uint8` codec (0 none, 1 Deflate, 2
 Brotli; **none by default**, `-nav-codec` for another), `int64` decoded length, payload. The
-payload: `int32` revision (2), `uint8` turn; `float32` cell size, voxel
-size, `int32` voxels per edge, `float32` floor normal z, step height, jump
+payload: `int32` revision (2; 3 for a room of its own height), `uint8` turn; `float32` cell size, voxel
+size, `int32` voxels per edge, in revision 3 `int32` voxels up the room's
+columns (its height over the voxel, 1 to 255, never the edge), `float32` floor normal z, step height, jump
 height, jump distance, water cost, ladder cost, `uint8` role; presets
 (`uint8` count; string name, `float32` width, height, `int32` mask);
 sockets (`uint8` count; `uint8` facing, string name, `float32[3]` door

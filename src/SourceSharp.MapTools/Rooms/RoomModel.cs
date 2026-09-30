@@ -63,7 +63,7 @@ public static class RoomModel
     /// refuses otherwise.
     /// </param>
     /// <param name="shellMaterial">Override for the shell faces.</param>
-    /// <returns>The document, room-local: the cell is <c>[0,cell]³</c>.</returns>
+    /// <returns>The document, room-local: the room is <c>[0,cell]² × [0,height]</c>, the cube <c>[0,cell]³</c> unless it has a height of its own.</returns>
     /// <exception cref="LinkException">The wall thickness is not the kit depth.</exception>
     public static VmfDocument Build(RoomDefinition definition, float wallThickness, string? shellMaterial = null)
     {
@@ -161,11 +161,14 @@ public static class RoomModel
     {
         List<VmfChunk> solids = [];
         float cell = definition.CellSize;
+        float top = definition.Height;
         float wall = definition.Kit.Depth;
         int id = 1_000_000;
 
+        // The floor at z = 0 and the ceiling at the room's own height (the
+        // cell size for a cube); the doors below stay where a cube room's are.
         solids.Add(Slab(shell, (0, 0, 0), (cell, cell, wall), id++));
-        solids.Add(Slab(shell, (0, 0, cell - wall), (cell, cell, cell), id++));
+        solids.Add(Slab(shell, (0, 0, top - wall), (cell, cell, top), id++));
 
         foreach (RoomFacing facing in Enum.GetValues<RoomFacing>())
         {
@@ -204,14 +207,16 @@ public static class RoomModel
     /// The bands of one cell face: a solid face is one band; a face with a
     /// socket is the full-height strips left and right of the opening, the
     /// lintel above it, and a sill below it when the opening does not reach
-    /// the floor. The opening itself is the kit rectangle exactly.
+    /// the floor. The opening itself is the kit rectangle exactly, placed as
+    /// on a cube room's face; a taller room's lintel reaches its own ceiling.
     /// </summary>
     private static List<(float, float, float, float)> WallBands(RoomDefinition definition, RoomSocket? socket)
     {
         float cell = definition.CellSize;
+        float top = definition.Height;
         if (socket is null)
         {
-            return [(0f, 0f, cell, cell)];
+            return [(0f, 0f, cell, top)];
         }
 
         (float u0, float v0, float u1, float v1) = definition.Kit.OpeningUnit(cell);
@@ -223,17 +228,17 @@ public static class RoomModel
         List<(float, float, float, float)> bands = [];
         if (a0 > 0.001f)
         {
-            bands.Add((0f, 0f, a0, cell));
+            bands.Add((0f, 0f, a0, top));
         }
 
         if (a1 < cell - 0.001f)
         {
-            bands.Add((a1, 0f, cell, cell));
+            bands.Add((a1, 0f, cell, top));
         }
 
-        if (b1 < cell - 0.001f)
+        if (b1 < top - 0.001f)
         {
-            bands.Add((a0, b1, a1, cell));
+            bands.Add((a0, b1, a1, top));
         }
 
         if (b0 > 0.001f)
@@ -247,7 +252,7 @@ public static class RoomModel
     /// <summary>
     /// The wall slab's box for a face. <c>(a0,b0)-(a1,b1)</c> is the band in
     /// face coordinates: <c>a</c> runs along the face, <c>b</c> up, both within
-    /// <c>[0,cell]</c>; the slab spans the wall's thickness inside the cell.
+    /// <c>[0,cell]</c> along and <c>[0,height]</c> up; the slab spans the wall's thickness inside the cell.
     /// </summary>
     private static (Vec3 Mins, Vec3 Maxs) WallBox(RoomFacing facing, float cell, float wall, (float, float, float, float) band)
     {

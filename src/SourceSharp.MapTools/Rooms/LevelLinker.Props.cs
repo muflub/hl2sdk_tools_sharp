@@ -296,9 +296,12 @@ public static partial class LevelLinker
             return false;
         }
 
+        // The room's box at its cell: the room's height in z (17.6).
         float cell = plan.Placement.Room.Definition.CellSize;
         RoomPlacement where = plan.Placement.Instance.Placement;
-        Box cellBox = new(new Vec3(where.CellX * cell, where.CellY * cell, 0), new Vec3((where.CellX + 1) * cell, (where.CellY + 1) * cell, cell));
+        Box cellBox = new(
+            new Vec3(where.CellX * cell, where.CellY * cell, 0),
+            new Vec3((where.CellX + 1) * cell, (where.CellY + 1) * cell, plan.Placement.Room.Definition.Height));
         if (!bounds.ContainsWithin(cellBox, 0))
         {
             return false;

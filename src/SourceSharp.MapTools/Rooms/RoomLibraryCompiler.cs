@@ -285,6 +285,13 @@ public static class RoomLibraryCompiler
             // The library's grid and voxel either fit or every room would fail
             // the same way: refused once, before any room compiles.
             _ = nav.CellVoxels(rooms[0].Definition.CellSize);
+
+            // And every room's height fits the grid (17.6): a shaped room's
+            // columns are a whole number of voxels, 255 at most.
+            foreach (LibraryRoom room in rooms)
+            {
+                _ = nav.ColumnVoxels(room.Definition);
+            }
         }
 
         using SharedMaterialFacts materials = new(settings.Content);
