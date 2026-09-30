@@ -11,6 +11,7 @@ using SourceSharp.MapFormats.Geometry;
 using SourceSharp.MapFormats.Text;
 
 using SourceSharp.MapTools.Bsp;
+using SourceSharp.MapTools.Bsp.Driver;
 using SourceSharp.MapTools.Bsp.Props;
 using SourceSharp.MapTools.Rooms;
 using SourceSharp.MapTools.Validation;
@@ -289,6 +290,30 @@ public sealed class LevelLinkerDetailPropTests(ITestOutputHelper output)
         RoomObject bare = (await CompileAsync(Library([], []))).Get("hub");
         Assert.Null(bare.DetailPropsOfCompile);
         Assert.DoesNotContain((await RoomPackItem.CreateAsync(bare)).Extra, e => e.Tag == RoomDetailProps.SectionTag);
+    }
+
+    /// <summary>
+    /// A socket's plug with a side of a detail material is refused when its
+    /// room is compiled, before the compile: a joint strips the plug, so the
+    /// props vbsp would grow on it would stand in the doorway in the link
+    /// and be gone from the flattened compile. The kit's plug (a trigger,
+    /// whose faces vbsp does not draw) is fine, as every other fact shows.
+    /// </summary>
+    [Fact]
+    public async Task APlugWithADetailMaterialIsRefused()
+    {
+        LibraryRoom hub = RoomLibraryVmf.SplitLibrary(Library()).Rooms.Single(r => r.Definition.Name == "hub");
+        Box plug = RoomLinter.SealBox(hub.Definition, hub.Definition.Sockets.Single(s => s.Name == "east"), RoomHarness.Cell);
+        VmfChunk solid = hub.Document.GetChunk(MapFileLoader.WorldChunk)!.GetChunks(MapFileLoader.SolidChunk)
+            .Single(b => RoomLibraryVmf.Same(VmfPlacement.Bounds(b), plug));
+        VmfChunk side = solid.GetChunks(MapFileLoader.SideChunk).First();
+        side.Keys.Single(k => k.Name == "material").Value = Grass;
+        VbspContext context = await ContextAsync("hub");
+        RoomLintException refused = await Assert.ThrowsAsync<RoomLintException>(
+            () => RoomCompiler.CompileAsync(hub.Document, hub.Definition, context));
+        Assert.Equal(
+            $"room hub: socket \"east\"'s plug has side {side.GetValue("id")} of material {Grass}, which grows detail props (%detailtype {DetailType}); a joint removes the plug.",
+            refused.Message);
     }
 
     /// <summary>

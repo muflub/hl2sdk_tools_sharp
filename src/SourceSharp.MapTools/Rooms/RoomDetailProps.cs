@@ -6,14 +6,18 @@
 //=============================================================================//
 
 using System.Buffers.Binary;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 
 using SourceSharp.MapFormats;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Text;
 
+using SourceSharp.MapTools.Bsp;
 using SourceSharp.MapTools.Bsp.Detail;
+using SourceSharp.MapTools.Materials;
 
 namespace SourceSharp.MapTools.Rooms;
 
@@ -210,9 +214,9 @@ internal sealed class RoomDetailProps
             for (int i = 0; i < lump.Props.Count; i++)
             {
                 DetailObjectLump prop = lump.Props[i];
-                bool model = prop.Type == (byte)DetailPropType.Model;
+                bool model = prop.Type == (byte)MapFormats.Bsp.Structs.DetailPropType.Model;
                 int entries = model ? lump.ModelNames.Count : lump.Sprites.Count;
-                if (prop.Type > (byte)DetailPropType.ShapeTri)
+                if (prop.Type > (byte)MapFormats.Bsp.Structs.DetailPropType.ShapeTri)
                 {
                     throw new LinkException($"room {room}'s detail prop {i} is of type {prop.Type}; vbsp writes 0 to 3.");
                 }
@@ -230,6 +234,62 @@ internal sealed class RoomDetailProps
             }
 
             return lump;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// What is wrong with a room's plugs for its detail props, as the
+    /// refusal says it, or null: a side of a socket's plug whose material
+    /// grows detail props (<c>%detailtype</c>).
+    /// </summary>
+    /// <param name="definition">The room: its name, cell and sockets.</param>
+    /// <param name="room">The room's VMF, room-local.</param>
+    /// <param name="materials">The compile's materials, to read each side's <c>%detailtype</c>.</param>
+    /// <param name="cancellationToken">Cancels the material reads.</param>
+    /// <returns>The refusal's text, or null.</returns>
+    /// <remarks>
+    /// A plug is a wall only while its socket is capped: a joint strips its
+    /// faces and the flattened level leaves the brush out, so props vbsp grew
+    /// on a plug's side would stand in the joined doorway in the link and be
+    /// gone from the flattened compile. The kit's plug is a trigger brush,
+    /// whose faces vbsp does not draw; a plug given a detail material on a
+    /// side is refused, before the compile, as a displacement on one is. A
+    /// plug is the world brush whose box is its socket's plug box, the rule
+    /// the flatten leaves joined plugs out by (<see cref="RoomLibraryVmf.Same"/>).
+    /// </remarks>
+    public static async Task<string?> PlugProblemAsync(
+        RoomDefinition definition, VmfDocument room, MaterialFactsCache materials, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentNullException.ThrowIfNull(room);
+        ArgumentNullException.ThrowIfNull(materials);
+        foreach (VmfChunk world in room.GetChunks(MapFileLoader.WorldChunk))
+        {
+            foreach (VmfChunk solid in world.GetChunks(MapFileLoader.SolidChunk))
+            {
+                Box brush = VmfPlacement.Bounds(solid);
+                foreach (RoomSocket socket in definition.Sockets)
+                {
+                    if (!RoomLibraryVmf.Same(brush, RoomLinter.SealBox(definition, socket, definition.CellSize)))
+                    {
+                        continue;
+                    }
+
+                    foreach (VmfChunk side in solid.GetChunks(MapFileLoader.SideChunk))
+                    {
+                        string material = side.GetValue("material") ?? string.Empty;
+                        MaterialFacts facts = await materials.GetAsync(material, cancellationToken).ConfigureAwait(false);
+                        if (facts.Found && facts.Material()?.GetString("%detailtype") is { } type)
+                        {
+                            return string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"room {definition.Name}: socket \"{socket.Name}\"'s plug has side {side.GetValue("id") ?? "?"} of material {material}, which grows detail props (%detailtype {type}); a joint removes the plug.");
+                        }
+                    }
+                }
+            }
         }
 
         return null;

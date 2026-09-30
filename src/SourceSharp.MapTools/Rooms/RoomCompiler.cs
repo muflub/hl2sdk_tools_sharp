@@ -206,6 +206,14 @@ public static class RoomCompiler
         // which is how a room of a game whose sky textures resolve links
         // with its level's default cubemaps and without game files.
 
+        // A detail material on a socket's plug (the rooms design, 4.4),
+        // refused before the compile: the materials say which sides grow
+        // detail props.
+        if (await RoomDetailProps.PlugProblemAsync(definition, document, context.Materials, cancellationToken).ConfigureAwait(false) is { } detailProblem)
+        {
+            throw new RoomLintException(detailProblem);
+        }
+
         // G1 + G4 on the model, before any compile time is spent.
         MapFile map = await MapFileLoader
             .LoadAsync(context, document, cancellationToken).ConfigureAwait(false);
