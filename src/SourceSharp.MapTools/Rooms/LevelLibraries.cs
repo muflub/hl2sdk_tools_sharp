@@ -606,6 +606,71 @@ public static class LevelLibraries
     }
 
     /// <summary>
+    /// What the singleton rule reads of one library when no level exists
+    /// yet: its library-wide entities, options and skybox room, as its pack
+    /// (or its namespace of one) gives them. <c>ssmap layout</c> counts a
+    /// generated level's own entities from these (<see cref="LevelSingletonsOf"/>).
+    /// </summary>
+    /// <param name="Entities">Its library-wide entities, in library order.</param>
+    /// <param name="Options">Its settings.</param>
+    /// <param name="Skybox">Its skybox room's name, or null.</param>
+    public sealed record LibrarySingletons(IReadOnlyList<VmfChunk> Entities, RoomLibraryOptions Options, string? Skybox);
+
+    /// <summary>
+    /// The level's singletons from its libraries in level order, by the rule
+    /// the link and the flatten use (D20 and D29): what a level of these
+    /// libraries writes once, whichever rooms it places.
+    /// </summary>
+    /// <param name="libraries">Each library's singletons, in level order; at least one.</param>
+    /// <returns>The level's entities, options, skybox source and sun source.</returns>
+    /// <remarks>
+    /// Public for a host that plans a level before it has one:
+    /// <c>ssmap layout</c> budgets a level of several libraries with the
+    /// entities and options the link will give it, not the first library's
+    /// alone, since D29 fills the first library's gaps from the later ones.
+    /// For one library it is that library's own entities and options.
+    /// </remarks>
+    public static LevelSingletonChoice LevelSingletonsOf(IReadOnlyList<LibrarySingletons> libraries)
+    {
+        ArgumentNullException.ThrowIfNull(libraries);
+        return Singletons([.. libraries.Select(l => new LibraryFacts(string.Empty, string.Empty, null, l.Entities, l.Options, l.Skybox, null))]);
+    }
+
+    /// <summary>
+    /// Refuses libraries a generator may not draw one level from: the
+    /// compatibility check of 17.5 (one cell size, one door kit, one
+    /// navigation grid) over every library, each represented by its first
+    /// room, since any of its rooms may be placed.
+    /// </summary>
+    /// <param name="libraries">The libraries' keys and paths, as the level will write them, in level order.</param>
+    /// <param name="vmfs">Their VMFs, in the same order.</param>
+    /// <exception cref="RoomLibraryException">A library cannot be split into rooms.</exception>
+    /// <exception cref="LinkException">Two libraries differ in their grid, their door kit or their navigation grid, with 17.3's texts.</exception>
+    /// <remarks>
+    /// Only the refusals: the singleton, option, skybox, navigation and
+    /// worldspawn lines describe a level, and the link and <c>ssmap rooms</c>
+    /// print them for the level the generator writes.
+    /// </remarks>
+    public static void CheckCandidates(IReadOnlyList<LevelLibrary> libraries, IReadOnlyList<VmfDocument> vmfs)
+    {
+        ArgumentNullException.ThrowIfNull(libraries);
+        ArgumentNullException.ThrowIfNull(vmfs);
+        if (libraries.Count != vmfs.Count)
+        {
+            throw new ArgumentException($"{libraries.Count} librar{(libraries.Count == 1 ? "y was" : "ies were")} given with {vmfs.Count} VMF(s)", nameof(vmfs));
+        }
+
+        List<LibraryFacts> facts = [];
+        for (int i = 0; i < libraries.Count; i++)
+        {
+            RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(vmfs[i]);
+            facts.Add(FactsOf(libraries[i], vmfs[i], split, split.Rooms.FirstOrDefault()?.Definition));
+        }
+
+        Check(facts);
+    }
+
+    /// <summary>
     /// The level's singletons (the rooms design, D20 and D29): what the link
     /// and the flatten write once for the whole level, from the libraries in
     /// level order.
@@ -627,7 +692,7 @@ public static class LevelLibraries
     /// </param>
     /// <param name="SkyboxSource">The library whose skybox room is the level's (<see cref="LevelLibraries.SkyboxSource"/>), or null when none has one.</param>
     /// <param name="SunSource">The library whose sun is the level's: the earliest with a <c>light_environment</c>, or 0 when none has one.</param>
-    internal sealed record LevelSingletonChoice(IReadOnlyList<VmfChunk> Entities, RoomLibraryOptions Options, int? SkyboxSource, int SunSource);
+    public sealed record LevelSingletonChoice(IReadOnlyList<VmfChunk> Entities, RoomLibraryOptions Options, int? SkyboxSource, int SunSource);
 
     /// <summary>
     /// The library whose skybox room is the level's: the first library when
