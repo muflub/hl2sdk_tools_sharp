@@ -398,7 +398,7 @@ public sealed class RoomPackCommandsTests
         fs.AddText(Rooted("/packs/x.roompack"), "not a pack");
         (exit, log) = await PackAsync(fs, [.. both, "-only", "caves"]);
         Assert.Equal(1, exit);
-        Assert.Contains($"ssmap roompack: {Path.GetFullPath("/packs/x.roompack")}: not a room pack", log, StringComparison.Ordinal);
+        Assert.Contains($"ssmap roompack: {Path.GetFullPath("/packs/x.roompack")}: room pack is truncated", log, StringComparison.Ordinal);
     }
 
     /// <summary>
