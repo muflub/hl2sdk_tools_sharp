@@ -3689,6 +3689,15 @@ plain `ssmap room` writes the bytes and log it wrote before.
   `ssmap rooms`, which now finds packs as the link does, so its PR 17
   text for a keyless `-rooms` became the plain-pack text).
 
+Measured against the base (main with PR 17): `ssmap vbsp` on 2fort
+(as `c.vmf`) gives `a491f59df3b484dc`, and `ssmap all` on 2fort and the
+sandbox writes the same maps; the 3x3, transit and stress packs differ
+only in the build identity (the `CMPL` section and each room container),
+every level of the 3x3 and transit samples linked by this build from the
+base's packs is the base's map and `.nav3d` byte for byte (both modes for
+transit), the stress library's 33 x 33 level links to the same bytes (1.6
+to 1.7 s) and every map passes `ssmap check`.
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
