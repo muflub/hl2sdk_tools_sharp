@@ -2268,7 +2268,7 @@ One PR per feature or small group. Already queued, and assumed:
 | 14 | **Water**, first without water sockets, then with. | M, L | 13, 7 | Hardest cross-room case; safe refusal meanwhile. | 15.2 water row; 15.4 socket row |
 | 15 | **Displacements**, no cross-room stitching. | L | 9 | Many lumps; lighting is a large part. | 15.2 displacements row; 15.4 socket row |
 | 16 | **Detail props**. | M | 15, 9 | Depends on both; statistical equivalence. | 15.2 detail props row |
-| 17 | **Multiple libraries per level** (17.2 to 17.5): `libraries` and `aliases` in the level file, cell resolution, the compatibility check (height excluded), the singleton rule at link and flatten, one pack per library found beside its VMF or named by `-rooms <key>=<pack>`, `ssmap rooms` over several libraries. | M | 4, **8** | Pure text and lookup, no geometry: the cheapest of the five decisions, and the one the others build on. After PR 8 because both change `LevelYaml`'s keys and its unknown-key message (17.2). | 15.2 multiple-libraries row; 17.3 messages |
+| 17 | **Multiple libraries per level** (17.2 to 17.5): `libraries` and `aliases` in the level file, cell resolution, the compatibility check (height excluded; the navigation grid refused, the other navigation settings warned, D25), the singleton rule at link and flatten (the skybox and the door portals option among the singletons; D24's summary line), PR 9's lighting rule across libraries with D26's sun warning, one pack per library found beside its VMF or named by `-rooms <key>=<pack>`, the level's pack id over every pack, `ssmap rooms` over several libraries. No pack format change. | M | 4, **8** | Pure text and lookup, no geometry: the cheapest of the five decisions, and the one the others build on. After PR 8 because both change `LevelYaml`'s keys and its unknown-key message (17.2). | 15.2 multiple-libraries row; 17.3 messages |
 | 18 | **Combined packs** (17.10): `ssmap roompack`, the `NSPC` section, namespaced room names and `MapBase`, singletons applied at pack time, per-namespace reuse and `-only`, `ssmap room -namespace`, `-rooms` lookup of namespaces. | M | 17 | Makes a multi-library level consistent at pack time (one worldspawn and sun for every room) instead of warning at link. | 15.2 combined-packs row; 15.5 for the combined pack |
 | 19 | **Room heights** (17.6): `room_height`, the door box fixed to the library's standard cell, the `SHAP` section and the pack version for shaped rooms, top-tree and solid-leaf bounds, the cell box in split, lint, props and furniture, the world-extent refusal, navigation columns taller than a cell and `.nav3d` version 3. | M | 7, **8** | One-cell rooms only, so no linker structure changes: the smallest step that gives varying heights, and the base the larger rooms extend. After PR 8 so its transit sample and `RoomTransit` are what the new cell box is applied to. Before PR 9 (Q4), whose bakes take the room's box. | 15.2 heights row |
 | 20 | **Multi-cell rooms** (17.8): `room_footprint`, sockets per cell edge, the cell-block room compile and per-cell subtree roots, the top tree routing each covered cell, block-node omission, the footprint transform, joints along shared edges, `+` in the level file, the anchor cell for names and the refusals of neighbour names, navigation and props over the footprint, flatten. | L | 19, 3, 7, **8** | The large-area design. The biggest structural change since brush entities; everything it touches is already carried, so it lands after them. If Q3 has landed, its per-room door pairs are extended to several sockets on a face here. | 15.2 multi-cell row; 17.3 messages |
@@ -3384,6 +3384,11 @@ hardest and their refusals are safe meanwhile.
 | D21 | (2026-09-29) Libraries in one level must agree on the cell size and the socket (door) kit, refused otherwise naming both. Rooms may have different heights, so the room height is not part of the check (17.5). |
 | D22 | (2026-09-29) `ssmap layout` draws from every listed library and is height-aware: it can make large open areas grouped together, connected to smaller rooms or hallways (17.9). |
 | D23 | (2026-09-29) A command combines many VMFs into one `.roompack`, with room names namespaced per library (17.10). |
+| D24 | (2026-09-29, was O24) Equal duplicate singletons across libraries warn with one summary line per library, not one line per entity (17.4). |
+| D25 | (2026-09-29, was O26) Navigation settings across libraries: a library whose navigation voxel grid differs from the first's is refused; different step and jump heights, costs and agent presets only warn, and the level takes the first library's (17.5). |
+| D26 | (2026-09-29, was O27) A sunlit room (stored at four turns) baked under a library sun the level drops is refused once the door light (PR 10) lands; until then the link and the flatten warn. `ssmap roompack` compiles every namespace under the first library's worldspawn and sun, so a combined pack never meets the case (17.4). |
+| D27 | (2026-09-29, was O31) Raised or sunken floors and stacked storeys are not planned; storeys are authored inside a tall room (17.6). |
+| D28 | (2026-09-29, was O32) The combine verb is `ssmap roompack`, with `ssmap room -namespace` for one library (17.10). |
 
 ### Open, with recommended defaults
 
@@ -3412,15 +3417,15 @@ hardest and their refusals are safe meanwhile.
 | O22 | `ssmap layout -sequence K`: a chained run of levels from consecutive seeds. | Yes, optional. |
 | O23 | Multiplayer spawn points. | `spawn` POIs around the up arrival; `spawn_count: K` on the level refuses fewer. |
 | O19 | Relay folding. | On by default; a library option turns it off (same-tick event order can change). |
-| O24 | Equal duplicate singletons across libraries (17.4). | One summary warning line per library. |
-| O25 | A singleton only a later library has (17.4). | Dropped with a warning; the first library supplies every singleton. |
-| O26 | Navigation settings across libraries (17.5). | Voxel grid refused as compatibility; other settings warned as singletons. |
-| O27 | Rooms compiled under a worldspawn and sun the level drops (17.4). | `ssmap roompack` compiles every namespace under the first library's; separate packs warn. Revisit for sunlit rooms once Q4 bakes. |
+| O24 | (Decided: D24.) | |
+| O25 | A singleton only a later library has (17.4). (2026-09-29: the owner is not sure; the default below is built, and the point stays open for the owner to revisit.) | Dropped with a warning; the first library supplies every singleton. |
+| O26 | (Decided: D25.) | |
+| O27 | (Decided: D26.) | |
 | O28 | Neighbour names in rooms larger than one cell (17.8). | Refused for now; `joined_<socket>` works; a socket-based grammar later. |
 | O29 | Level-file mark for a covered cell (17.8). | `+`, the room written in its south-west cell. |
 | O30 | Larger role rooms in `ssmap layout` (17.8). | Linked when hand-placed; the generator offers one-cell role rooms only. |
-| O31 | Raised or sunken floors, stacked storeys (17.6). | Not planned; storeys are authored inside a tall room. |
-| O32 | Name of the combine verb (17.10). | `ssmap roompack`, plus `ssmap room -namespace`. |
+| O31 | (Decided: D27.) | |
+| O32 | (Decided: D28.) | |
 | O33 | Tall one-cell rooms outside groups (17.9). | Only in groups, under `-large`. |
 
 ---
@@ -3768,8 +3773,14 @@ The owner's decisions D19 to D23 (section 14, 2026-09-29): a level may take
 its rooms from several library VMFs, rooms may differ in height, the
 generator draws from every library and makes large open areas, and a command
 combines many libraries into one pack. This section is the plan for all
-five. It builds on PR 8's level file keys (section 11) and changes nothing
-PR 8 decides. The implementation order is PRs 17 to 21 in section 13.
+five. The owner's answers to its open points (the same day) are D24 to D28:
+one summary line for equal duplicate singletons, the navigation grid
+refused and the other navigation settings warned, a sunlit room baked under
+a dropped sun refused once the door light lands, no stacked storeys, and
+`ssmap roompack` as the verb. It builds on PR 8's level file keys
+(section 11) and on what PRs 9 to 13 landed (the base bake and its pack id,
+the door portals option, the skybox room), and changes nothing they decide.
+The implementation order is PRs 17 to 21 in section 13.
 
 ### 17.1 What the code assumes today about height and footprint
 
@@ -3874,6 +3885,11 @@ grid:
 
 Level file messages carry the `line L, column C: ` prefix of
 `LevelFileException`. R refuses, W warns; braces are filled from the case.
+The link prints its warnings as `ssmap link: warning: {text}` and the
+flatten the same lines, in the same order (5.9); `ssmap rooms` over a
+level prints the singleton and compatibility lines too. Two texts point at
+`ssmap roompack` (PR 18); PR 17 prints them as written, and if PR 18 has
+not landed with it, the verb in them is the one PR 18 adds.
 
 | Rule | Kind | Message |
 | --- | --- | --- |
@@ -3903,6 +3919,11 @@ Level file messages carry the `line L, column C: ` prefix of
 | 17.4 option | W | `library {b}: {key} {x} is ignored; the level takes library {a}'s, {y}.` |
 | 17.4 worldspawn | W | `library {b}: its rooms were compiled with worldspawn {key} "{x}"; the level's is "{y}" (library {a}). They link as compiled; build the libraries into one pack with ssmap roompack to compile them with the level's.` |
 | 17.4 navigation | W | `library {b}: its rooms' navigation was built with {key} {x}; the level's is {y} (library {a}).` |
+| 17.4 skybox | W | `library {b}: its skybox room "{x}" is dropped; the level's skybox is library {a}'s, "{y}".` |
+| 17.4 skybox, first lacks | W | `library {b}: its skybox room "{x}" is dropped; the level's singletons come from library {a}, which has no skybox.` |
+| 17.4 sun, until PR 10 | W | `library {b}: room {room} was baked under library {b}'s sun, and the level takes library {a}'s; it links as baked. Build the libraries with one sun.` (one line per library, naming its first such room in link order) |
+| 17.4 sun, once PR 10 lands | R | `library {b}: room {room} was baked under library {b}'s sun, but the level takes library {a}'s; a sunlit room links only under the sun it was baked with. Build the libraries with one sun.` |
+| 17.4 lighting | R | PR 9's texts, unchanged: `room {room} has no baked lighting, but room {other} of the same level has; ...` and `rooms {a} and {b} were lit with different settings (ranges, sun or map flags); ...`, whichever libraries the two rooms come from |
 | 17.10 not a namespace | R | `room pack {pack} combines libraries {keys}; it has none named {key}.` |
 | 17.10 plain pack | R | `room pack {pack} holds one library without a namespace; give it to one key with -rooms {key}={pack}.` |
 | 17.10 moved | W | `library {key}: the level names {path}, but room pack {pack} built it from {recorded}.` |
@@ -3932,10 +3953,11 @@ everything a level has once, whichever room it came through:
 
 | What | Kept from the first library | Another library's copy |
 | --- | --- | --- |
-| Library entities (`LENT`: the sun, fog, tonemap, `shadow_control`, `postprocess_controller`; the skybox room when O11 lands) | written once after the worldspawn, as today (`LevelSingletons`) | dropped; warned as differing, equal (one summary line) or one the first lacks |
-| Library options (`LOPT`): entity reserve, logic folding, `mapversion` | the level's | dropped with the option warning when different |
-| Worldspawn keys (the linked map has one) | the first library's rooms' worldspawn, as `MergeEntities` takes the first room's today | a room of another library whose worldspawn differs is linked as compiled, with one warning per library naming the first differing key |
-| Navigation settings that are not the grid (step and jump heights, costs, agent presets) | the `.nav3d` header's | the rooms' records are carried as built, with the navigation warning |
+| Library entities (`LENT`: the sun, fog, tonemap, `shadow_control`, `postprocess_controller`) | written once after the worldspawn, as today (`LevelSingletons`) | dropped; warned as differing, equal (one summary line, D24) or one the first lacks (O25) |
+| The skybox room (PR 13's `info_room_skybox`, named in the `SKYB` section) | placed below the grid, as today (`LevelLinker.SkyboxPlacement`) | never loaded or placed; warned with the skybox lines (a compiled room has no keys to call two copies equal, so every other library's skybox warns) |
+| Library options (`LOPT`): entity reserve (`rooms_entity_reserve`), logic folding (`rooms_fold_logic`), door portals (`rooms_door_portals`, PR 13: a joint between two libraries gets a portal exactly when the first library asks), `mapversion` | the level's | dropped with the option warning when different, the key and value spelt as the library keys are |
+| Worldspawn keys (the linked map has one) | the worldspawn of the first library's first placed room, as `MergeEntities` takes the first room's today; when the level places no room of the first library, the first placed room's of the earliest listed library it places | a room of another library whose worldspawn differs is linked as compiled, with one warning per library naming the first differing key in its worldspawn's order (`world_mins`, `world_maxs`, `hammerid`, the ids the link stamps and the `nav_` keys, which the navigation line reports, are not compared) |
+| Navigation settings that are not the grid (slope, step and jump heights and distance, costs, agent presets, D25) | the `.nav3d` header's, from the first library | the rooms' records are carried as built, with the navigation warning |
 
 - **Not singletons.** Each library's **name keys** (`rooms_name_keys`,
   O3) stay with that library's rooms: they shaped the rooms' `NAM`
@@ -3945,11 +3967,19 @@ everything a level has once, whichever room it came through:
 - **Why a warning for an equal copy.** D20 says duplicates warn. An equal
   copy is harmless, and a level of libraries that share one sun would warn
   on every link, so equal copies are summed into one line per library
-  (O24).
+  (D24). Equal is `LevelSingletons`' rule: every key but `id`, `hammerid`
+  and `origin`, a missing key read as empty, outputs in order.
 - **Why the first library's even when it lacks one.** A singleton only a
   later library has is also dropped (with its own warning) rather than
   filling the gap, so the rule is one sentence and a level's sun never
-  depends on which rooms it happens to place (O25).
+  depends on which rooms it happens to place (O25: built so, and open for
+  the owner to revisit).
+- **Which libraries speak.** Every listed library is checked, whether or
+  not the level places one of its rooms: the level file names it, so its
+  singletons are the level's to settle, and a warning never appears or
+  goes away because an edit elsewhere in the grid placed a room. The
+  worldspawn line is the one exception, since a library's worldspawn is
+  read from a room it places.
 - **The room-level check is per library.** D3's pack-time rule still holds
   a room's sun to its own library's; the level-wide sun is the first
   library's. `RequireSameWorld` keeps refusing two rooms of **one** library
@@ -3958,21 +3988,44 @@ everything a level has once, whichever room it came through:
 - **Link and flatten agree** (5.9): the flatten writes the first library's
   worldspawn and library entities and prints the same warnings.
 - **Why the warnings point at `ssmap roompack`.** Rooms of separate packs
-  were compiled, and after Q4 baked, under their own library's worldspawn
-  and sun; the link cannot redo that. The combine command applies the rule
-  before compiling (17.10), so a combined pack links without these
-  warnings. After Q4, a sunlit room (rotation count 4, 1.1) baked under a
-  sun the level dropped is lit wrong; the warning stays a warning (D20),
-  and O27 asks whether that case should be refused.
+  were compiled, and since PR 9 baked, under their own library's
+  worldspawn and sun; the link cannot redo that. The combine command
+  applies the rule before compiling (17.10), so a combined pack links
+  without these warnings.
+- **Lighting (PR 9, D26).** Each pack's rooms were baked at pack time
+  with their own library's `light_environment` added after the worldspawn
+  (`RoomLighting`), and the pack id and the room cache key carry that sun
+  and the `-vrad` switches. The link keeps PR 9's level rule across
+  libraries unchanged: a level of lit and unlit rooms, or of rooms lit with
+  different ranges, sun presence or map flags, is refused with PR 9's
+  texts, whichever libraries the rooms come from; so a lit library and an
+  unlit one, or a library with a sun and one without, never share a level.
+  Libraries that each have a sun may differ in it. A room stored once (no
+  sun or sky reaches it) is lit by its own lamps only and links under any
+  sun. A **sunlit** room (rotation count 4, 1.1) baked under a sun that
+  differs from the first library's (`LevelSingletons`' equality) is lit by
+  a sun the level does not have: D26 refuses it once the door light
+  (PR 10) lands, and until then the link and the flatten warn, one line
+  per library naming its first such room (17.3). The level's two sun world
+  lights and its sky are the bake's (PR 9 takes them from the first lit
+  placement); across libraries they are taken from the first placed room of
+  the first library when the level places one, so they match the sun
+  entity the level writes.
 - **Budget.** The level's library entities are the first library's, counted
-  once (`LevelEntityReport.Library`, `LayoutEntityBudget.LevelEdicts`).
+  once (`LevelEntityReport.Library`, `LayoutEntityBudget.LevelEdicts`),
+  with its skybox room's entities and, when it asks for door portals, one
+  `func_areaportal` per joint (PR 13).
 
 ### 17.5 Compatibility
 
 D21: the libraries of a level must agree on the **cell size** and the
-**door kit** (`door_width`, `door_height`, `wall_depth`), checked before any
-room is read, in library order against the first, and refused naming both
-libraries (17.3). The same comparison already holds rooms of one library
+**door kit** (`door_width`, `door_height`, `wall_depth`), refused naming
+both libraries (17.3). The check runs over the libraries the level places
+rooms of, in library order, each against the earliest of them: a library
+the level only names joins nothing, and at link its grid is known only
+from a room it holds (a pack records the grid in each room's definition,
+not in a library section), so the flatten, which could split it, checks the
+same set and the two refuse alike. The same comparison already holds rooms of one library
 together (`RoomLibraryVmf.CheckMarkers`) and a layout to its library
 (`RoomLinter`'s placement rule); PR 17 runs it across libraries.
 
@@ -3982,7 +4035,14 @@ their openings are the same rectangle. The **navigation grid** (voxels per
 cell) is compared too, when the libraries build navigation: the `.nav3d`
 file has one voxel size (`docs/nav3d-format.md` 2), so rooms on two grids
 cannot be stitched. The other navigation settings follow the singleton rule
-(17.4). O26 asks the owner to confirm this split.
+(17.4): D25, the owner's answer to O26. The settings are the libraries'
+worldspawn `nav_` keys (`NavSettings`), read at link from a placed room's
+compiled worldspawn and in the flatten from the library VMF, so the check
+does not need the navigation loaded; a library that builds no navigation
+(`nav 0`) is not compared. The stitch (`LevelNavLinker`), which refused
+rooms whose settings differ at all, now refuses only a different grid
+(voxel size, voxels per cell) and writes the first library's settings in
+the header.
 
 ### 17.6 Room heights
 
@@ -4003,8 +4063,8 @@ units, default the cell size, so every existing library means what it did.
   number of voxels and at most 255 of them (the `.nav3d` run fields are
   8 bits). A room lower than the cell is allowed: a low hallway.
 - **Floors stay at z = 0.** Placements still never move in z, so doors line
-  up by construction. Sunken or raised floors are not in this plan (O31):
-  they need a vertical offset in the kit.
+  up by construction. Sunken or raised floors are not in this plan (D27,
+  confirmed from O31): they need a vertical offset in the kit.
 - **What changes, and where.** The cell box becomes
   `[0, c] × [0, c] × [0, h]` in the split (`Marker.Cell`, so a tall room may
   not overlap the room built above it in the library), the model lint and
@@ -4238,7 +4298,7 @@ ssmap layout <key>=<library.vmf> [<key>=<library.vmf> ...] -rows R -columns C -s
 
 ### 17.10 Combining libraries into one pack
 
-A new verb, **`ssmap roompack`** (O32 for the name):
+A new verb, **`ssmap roompack`** (D28, confirmed from O32):
 
 ```
 ssmap roompack -out <pack.roompack> <key>=<library.vmf> [<key>=<library.vmf> ...]
@@ -4257,9 +4317,12 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
   (17.4), printing its warnings once, here; rename each room to
   `key.room`; compile every room of every namespace in one pool
   (`RoomLibraryCompiler`, `-threads` at once), each with the **first
-  library's worldspawn** (O27) and its `MapBase` the qualified name, lower
-  cased; write one pack. The level-wide `LENT` and `LOPT` of the pack are
-  the first library's; each namespace keeps its own name keys.
+  library's worldspawn** (D26) and its `MapBase` the qualified name, lower
+  cased; write one pack. The level-wide `LENT`, `LOPT` and `SKYB` of the
+  pack are the first library's; each namespace keeps its own name keys.
+  Rooms are lit (PR 9) under the first library's sun, so the combined
+  pack's id and every room's cache key carry that sun (D26: a combined
+  pack never holds a sunlit room baked under a dropped sun).
 - **Namespacing.** A room of a combined pack is named `key.room` in the
   pack index and in its own definition, so every message names it
   qualified and its room-named files (`materials/maps/<mapbase>/...`, 4.13)
@@ -4296,6 +4359,12 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
   namespace and the level's path differ in file name, the link warns and
   links (paths move between machines; the namespace is the identity).
   `ssmap layout -rooms` and `ssmap rooms -rooms` take the same forms.
+- **The level's pack id.** The map's `ss_pack_id` and the `.nav3d`
+  header name one pack, and the level id hashes it (`RoomCompileIds`). A
+  one-library level keeps its pack's id, so its ids do not move. A level
+  of several packs uses an id derived (`RoomCompileIds.Derive`) from every
+  library's key and pack id in library order, so re-packing any library
+  changes the level's ids, as re-packing its one library does today.
 - **Singletons with a combined pack** come from the level's first key, as
   always; when that is the pack's first namespace (the normal case, and
   always with `-level`) there is nothing to warn about, because the rooms
@@ -4304,8 +4373,12 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
 ### 17.11 Pack and file format changes
 
 - **Combined packs: no version change.** The pack layout is `RoomPack`'s,
-  version 3 (or whatever it is when PR 18 lands). New library section
-  **`NSPC`**, with the 1.1 framing: per namespace in order, its key, the
+  version 4 (PR 4 raised it to 2, PR 5 to 3 and Q3 to 4 with `DVIS`; the
+  `PROP`, `BMOD`, `TRAN`, `CUBE`, `OVLY`, `LITE`, `APRT` and `SKYB`
+  sections of PRs 6 to 13 are optional tags an older build skips). New
+  library section **`NSPC`**, an optional known tag in the same way (no
+  version bump; PR 10's door-light sections are added the same way on their
+  own branch), with the 1.1 framing: per namespace in order, its key, the
   source path as given (relative to the pack, `/` separators), the SHA-256
   of the library VMF's bytes, the SHA-256 of the first library's singletons
   the namespace was compiled under, its first room index and room count
@@ -4320,9 +4393,8 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
   footprint, each socket's offset in socket order, and for a larger room the
   per-cell subtree roots and the block node runs to omit (node indices do
   not change with rotation). A pack holding any shaped room is written at
-  the **next pack version** (4, unless Q3 or another PR has taken it first;
-  PR 8 adds `TRAN` without a version), because an older build would skip
-  `SHAP` and link a tall room as a cube (its top-tree bounds wrong) or
+  the **next pack version** (5: Q3 took 4, and PRs 6 to 13 added only
+  optional tags), because an older build would skip `SHAP` and link a tall room as a cube (its top-tree bounds wrong) or
   refuse a larger room's second socket on a face only by luck. A pack of
   cube rooms keeps the current version and its bytes, so no golden digest
   moves. The room container (`SSROOM01`) does not change, so the room cache
@@ -4373,17 +4445,20 @@ exact text (15.4). Beyond them:
 
 ### 17.13 Open points
 
-These are also rows of section 14's open table (O24 to O33).
+These are also rows of section 14's open table (O24 to O33). The owner
+answered five of them on 2026-09-29; they are decisions D24 to D28 now,
+and their rows here say what was decided. O25 is built as recommended and
+stays open.
 
-| # | Question | Recommended default |
+| # | Question | Recommended default, or the decision |
 | --- | --- | --- |
-| O24 | Equal duplicate singletons: a warning each, one summary line, or silence? | One summary line per library (D20 asks for a warning; per-entity lines would warn on every link of libraries sharing a sun). |
-| O25 | A singleton only a later library has. | Dropped with a warning: the first library supplies every singleton, never a mix. |
-| O26 | Navigation settings across libraries. | The voxel grid is compatibility (refused); step and jump heights, costs and presets follow the singleton rule (warned). |
-| O27 | Rooms of other libraries compiled under a worldspawn and sun the level drops. | `ssmap roompack` compiles every namespace under the first library's worldspawn and singletons; separate packs link with a warning. Once Q4 bakes lighting, ask again whether a sunlit room baked under a dropped sun is refused. |
+| O24 | Equal duplicate singletons: a warning each, one summary line, or silence? | **Decided (D24):** one summary line per library (D20 asks for a warning; per-entity lines would warn on every link of libraries sharing a sun). |
+| O25 | A singleton only a later library has. | Dropped with a warning: the first library supplies every singleton, never a mix. **Open:** the owner is not sure (2026-09-29); built as this default until the owner revisits it. |
+| O26 | Navigation settings across libraries. | **Decided (D25):** the voxel grid is compatibility (refused); step and jump heights, costs and agent presets follow the singleton rule (warned). |
+| O27 | Rooms of other libraries compiled under a worldspawn and sun the level drops. | **Decided (D26):** `ssmap roompack` compiles every namespace under the first library's worldspawn and singletons; separate packs link with a warning, except that a sunlit room baked under a dropped sun is refused once the door light (PR 10) lands, and warned until then. |
 | O28 | Neighbour names and sides in a room larger than one cell. | Refused at pack time for now; `joined_<socket>` works. A later grammar could name a neighbour by socket (`cxry_<socket>_`). |
 | O29 | The mark for a covered cell in the level file. | `+`, with the room in its south-west cell. |
 | O30 | Role rooms larger than one cell in `ssmap layout`. | Link accepts them; the generator offers only one-cell role rooms. |
-| O31 | Rooms whose floor is not at z = 0, and stacked storeys. | Not planned: both need a vertical kit and z splits in the top tree. Storeys are authored inside a tall room. |
-| O32 | The combine verb's name. | `ssmap roompack`, with `ssmap room -namespace` for one library. |
+| O31 | Rooms whose floor is not at z = 0, and stacked storeys. | **Decided (D27):** not planned: both need a vertical kit and z splits in the top tree. Storeys are authored inside a tall room. |
+| O32 | The combine verb's name. | **Decided (D28):** `ssmap roompack`, with `ssmap room -namespace` for one library. |
 | O33 | Scattering tall one-cell rooms outside groups. | Only in groups (`-large`); revisit if levels look too regular. |
