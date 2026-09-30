@@ -3922,6 +3922,11 @@ hardest and their refusals are safe meanwhile.
 | D27 | (2026-09-29, was O31) Raised or sunken floors and stacked storeys are not planned; storeys are authored inside a tall room (17.6). |
 | D28 | (2026-09-29, was O32) The combine verb is `ssmap roompack`, with `ssmap room -namespace` for one library (17.10). |
 | D29 | (2026-09-30, was O25) Don't drop singletons across libraries: a singleton only a later library has (the sun, an environment controller, fog) is used, taken from the earliest listed library that has it; the first library still wins wherever it has one, and duplicates keep D24's one summary line per library. The same holds for a library option the first library does not write and for the skybox room; `mapversion` is not filled. The level's sun world lights come from the library that supplied the sun, and D26 holds the other libraries to that sun (17.4). `ssmap roompack`'s level-wide sections and sun (17.10) are the level's singletons by this rule. |
+| D31 | (2026-09-30, was O34) The level map is a binary `.map2d` for the game, with an optional SVG preview from the same data (18.4). |
+| D32 | (2026-09-30, was O35) The map's playable area is the compiled room's walkable faces, not the navigation voxels (18.2). |
+| D33 | (2026-09-30, was O36) The map shows `info_poi` entities with a `map_marker` key, plus the spawn, the arrivals and the transition exits; other POIs stay navigation-only (18.1). |
+| D34 | (2026-09-30, was O37) The `.map2d` is a sidecar next to the `.bsp`, as the `.nav3d` (D18), not in the pakfile (18.3). |
+| D35 | (2026-09-30, was O38) The map file carries each polygon's, door's and marker's placement and the `map_label`s; whether and how to reveal rooms is the game's choice (18.1). |
 
 ### Open, with recommended defaults
 
@@ -3960,11 +3965,11 @@ hardest and their refusals are safe meanwhile.
 | O31 | (Decided: D27.) | |
 | O32 | (Decided: D28.) | |
 | O33 | Tall one-cell rooms outside groups (17.9). | Only in groups, under `-large`. |
-| O34 | The level map's file format (18.7). | Binary `.map2d` for the game, optional SVG preview. |
-| O35 | The map's playable area (18.7). | The compiled room's walkable faces. |
-| O36 | Points of interest on the map (18.7). | `info_poi` with `map_marker`, plus spawn, arrivals and exits. |
-| O37 | The map as a sidecar or in the pakfile (18.7). | A sidecar, as the `.nav3d` (D18). |
-| O38 | Per-room reveal and labels on the map (18.7). | Carried in the file; the game decides. |
+| O34 | (Decided: D31.) | |
+| O35 | (Decided: D32.) | |
+| O36 | (Decided: D33.) | |
+| O37 | (Decided: D34.) | |
+| O38 | (Decided: D35.) | |
 
 ---
 
@@ -5045,7 +5050,8 @@ Owner request (2026-09-30): the room link writes a **2D vector map of the
 level, seen from above**: the playable area, with points of interest
 marked, in a file the game loads to draw a map overlay. This section is the
 plan; PR 22 (section 13) builds it. The choices the owner has not made yet
-are O34 to O38, each with a recommended default that this plan follows.
+were O34 to O38; the owner took every recommended default on 2026-09-30
+(D31 to D35).
 
 ### 18.1 What the map shows
 
@@ -5183,10 +5189,12 @@ mod and the compiler share one list.
 
 ### 18.7 Open points
 
+All five were decided on 2026-09-30 as recommended (D31 to D35).
+
 | # | Question | Recommended default |
 | --- | --- | --- |
-| O34 | The file format the game loads. | A binary `.map2d` (18.4) for the game, plus an optional SVG preview from the same data. SVG alone would need an SVG renderer in the game; a raster image would blur at zoom and fix one scale. |
-| O35 | The source of the playable area. | The compiled room's walkable faces (18.2); navigation voxels are the alternative. |
-| O36 | Which points of interest are on the map. | `info_poi` with a `map_marker` key, plus the spawn, arrivals and transition exits; other POIs stay navigation-only. |
-| O37 | Sidecar or inside the map's pakfile. | A sidecar next to the `.bsp`, as the `.nav3d` (D18); packing it into the pakfile is an option to add if servers must send it to clients. |
-| O38 | Per-room reveal (fog of war) and labels. | Carried in the file (placement per polygon, door and marker; `map_label`); whether and how to reveal is the game's choice. |
+| O34 | The file format the game loads. | **Decided (D31, 2026-09-30):** as recommended. A binary `.map2d` (18.4) for the game, plus an optional SVG preview from the same data. SVG alone would need an SVG renderer in the game; a raster image would blur at zoom and fix one scale. |
+| O35 | The source of the playable area. | **Decided (D32, 2026-09-30):** as recommended. The compiled room's walkable faces (18.2); navigation voxels are the alternative. |
+| O36 | Which points of interest are on the map. | **Decided (D33, 2026-09-30):** as recommended. `info_poi` with a `map_marker` key, plus the spawn, arrivals and transition exits; other POIs stay navigation-only. |
+| O37 | Sidecar or inside the map's pakfile. | **Decided (D34, 2026-09-30):** as recommended. A sidecar next to the `.bsp`, as the `.nav3d` (D18); packing it into the pakfile is an option to add if servers must send it to clients. |
+| O38 | Per-room reveal (fog of war) and labels. | **Decided (D35, 2026-09-30):** as recommended. Carried in the file (placement per polygon, door and marker; `map_label`); whether and how to reveal is the game's choice. |
