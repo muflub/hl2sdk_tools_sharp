@@ -131,9 +131,10 @@ public static partial class LevelLinker
             ReadOnlySpan<DispInfo> records = RoomDisplacements.Records(room, plan.Bsp);
             Vec3[] starts = data.Starts(rotation);
             Vec3 offset = plan.Transform.Apply(Vec3.Zero);
+            DisplacementBases bases = new(plan.DispBase, plan.DispVertBase, plan.DispTriBase, plan.DispAlphaBase, plan.DispSampleBase);
             for (int i = 0; i < records.Length; i++)
             {
-                infos.Add(LinkDisplacement(records[i], starts[i], offset, plan, room));
+                infos.Add(LinkDisplacement(records[i], starts[i], offset, bases, face => LinkedDisplacementFace(plan, face, room)));
             }
 
             Vec3[] vectors = data.Vectors(rotation);
@@ -157,6 +158,14 @@ public static partial class LevelLinker
             ([.. samples], bsp[BspLump.DispLightmapSamplePositions].Version));
     }
 
+    /// <summary>Where a placement's displacement data starts in each of the level's lumps (<see cref="RoomPlan.DispBase"/> and the rest).</summary>
+    /// <param name="Disp">The linked index of the placement's first displacement.</param>
+    /// <param name="Vert">Its first vertex in <c>DispVerts</c>.</param>
+    /// <param name="Tri">Its first triangle in <c>DispTris</c>.</param>
+    /// <param name="Alpha">Its first byte in <c>DispLightmapAlphas</c>.</param>
+    /// <param name="Sample">Its first byte in <c>DispLightmapSamplePositions</c>.</param>
+    internal readonly record struct DisplacementBases(int Disp, int Vert, int Tri, int Alpha, int Sample);
+
     /// <summary>
     /// One displacement record as its placement links it: the start moved,
     /// every run and index rebased.
@@ -164,17 +173,17 @@ public static partial class LevelLinker
     /// <param name="record">The room's record.</param>
     /// <param name="start">Its start position at the placement's turn (<see cref="RoomDisplacements.Starts"/>).</param>
     /// <param name="offset">The placement's translation, <see cref="RoomTransform.Apply"/> of the room's origin.</param>
-    /// <param name="plan">The placement, for its bases and linked faces.</param>
-    /// <param name="room">The room's name, for messages.</param>
+    /// <param name="bases">The placement's bases in the level's lumps.</param>
+    /// <param name="face">A room face's linked index (<see cref="LinkedDisplacementFace"/>).</param>
     /// <returns>The linked record.</returns>
-    /// <exception cref="LinkException">The record's base face is one the level does not draw.</exception>
     /// <remarks>
     /// <para>
     /// <b>The start</b> is the turned start plus the placement's translation,
     /// added as one vector, which is how the flatten moves the
     /// <c>dispinfo</c>'s <c>startposition</c> (<see cref="QuarterTurn.Apply"/>),
-    /// and vbsp writes the start it read: the linked record holds the float
-    /// the flattened level's compile writes.
+    /// its zeros unsigned as the flatten writes every number; vbsp writes the
+    /// start it read, so the linked record holds the float the flattened
+    /// level's compile writes.
     /// </para>
     /// <para>
     /// <b>Rebased:</b> the vertex and triangle runs, the lightmap alpha and
@@ -187,20 +196,15 @@ public static partial class LevelLinker
     /// vertices, the neighbours' orientations and spans) is the room's.
     /// </para>
     /// </remarks>
-    internal static DispInfo LinkDisplacement(DispInfo record, Vec3 start, Vec3 offset, RoomPlan plan, string room)
+    internal static DispInfo LinkDisplacement(DispInfo record, Vec3 start, Vec3 offset, DisplacementBases bases, Func<int, int> face)
     {
         DispInfo linked = record;
         linked.StartPosition = RoomStaticProps.Unsigned(start + offset);
-        linked.DispVertStart = record.DispVertStart + plan.DispVertBase;
-        linked.DispTriStart = record.DispTriStart + plan.DispTriBase;
-        linked.LightmapAlphaStart = record.LightmapAlphaStart + plan.DispAlphaBase;
-        linked.LightmapSamplePositionStart = record.LightmapSamplePositionStart + plan.DispSampleBase;
-        if (plan.StrippedFaces.Contains(record.MapFace))
-        {
-            throw new LinkException($"room {room}'s displacement stands on face {record.MapFace}, a jointed socket's plug.");
-        }
-
-        linked.MapFace = (ushort)plan.LinkedFace(record.MapFace);
+        linked.DispVertStart = record.DispVertStart + bases.Vert;
+        linked.DispTriStart = record.DispTriStart + bases.Tri;
+        linked.LightmapAlphaStart = record.LightmapAlphaStart + bases.Alpha;
+        linked.LightmapSamplePositionStart = record.LightmapSamplePositionStart + bases.Sample;
+        linked.MapFace = (ushort)face(record.MapFace);
         for (int e = 0; e < 4; e++)
         {
             for (int s = 0; s < 2; s++)
@@ -208,18 +212,38 @@ public static partial class LevelLinker
                 ref DispSubNeighbor sub = ref linked.EdgeNeighbors[e].SubNeighbors[s];
                 if (sub.IsValid())
                 {
-                    sub.Neighbor = (ushort)(sub.Neighbor + plan.DispBase);
+                    sub.Neighbor = (ushort)(sub.Neighbor + bases.Disp);
                 }
             }
 
             ref DispCornerNeighbors corner = ref linked.CornerNeighbors[e];
             for (int n = 0; n < corner.NumNeighbors; n++)
             {
-                corner.Neighbors[n] = (ushort)(corner.Neighbors[n] + plan.DispBase);
+                corner.Neighbors[n] = (ushort)(corner.Neighbors[n] + bases.Disp);
             }
         }
 
         return linked;
+    }
+
+    /// <summary>
+    /// The linked face a placement's displacement stands on: its base face,
+    /// a world face of the room, where the link wrote it.
+    /// </summary>
+    /// <exception cref="LinkException">
+    /// The base face is a jointed socket's plug, which the level draws
+    /// nodraw: the pack refuses a displacement in a doorway
+    /// (<see cref="RoomDisplacements.Problem"/>), so only a room compiled
+    /// some other way reaches this.
+    /// </exception>
+    internal static int LinkedDisplacementFace(RoomPlan plan, int roomFace, string room)
+    {
+        if (plan.StrippedFaces.Contains(roomFace))
+        {
+            throw new LinkException($"room {room}'s displacement stands on face {roomFace}, a jointed socket's plug.");
+        }
+
+        return plan.LinkedFace(roomFace);
     }
 
     /// <summary>

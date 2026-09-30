@@ -54,7 +54,12 @@ internal static class RoomDisplacementHarness
     /// <param name="box">The brush, room-local.</param>
     /// <param name="power">The displacement's power, 2 to 4.</param>
     /// <param name="seed">Varies the heights between patches.</param>
-    public static VmfChunk Patch(int id, Box box, int power = 2, int seed = 0)
+    /// <param name="offsets">
+    /// Whether some vertices are shifted sideways too; off for a patch whose
+    /// edge must stay on its brush's box (a shift can carry an edge vertex
+    /// half a unit past it).
+    /// </param>
+    public static VmfChunk Patch(int id, Box box, int power = 2, int seed = 0, bool offsets = true)
     {
         VmfChunk solid = RoomModel.Slab(RoomHarness.Plain, box.Mins, box.Maxs, id);
         VmfChunk top = solid.Chunks.First();
@@ -67,7 +72,7 @@ internal static class RoomDisplacementHarness
         disp.AddKey("subdiv", "0");
         VmfChunk normals = disp.AddChunk("normals");
         VmfChunk distances = disp.AddChunk("distances");
-        VmfChunk offsets = disp.AddChunk("offsets");
+        VmfChunk offsetRows = disp.AddChunk("offsets");
         VmfChunk offsetNormals = disp.AddChunk("offset_normals");
         VmfChunk alphas = disp.AddChunk("alphas");
         VmfChunk tags = disp.AddChunk("triangle_tags");
@@ -77,7 +82,7 @@ internal static class RoomDisplacementHarness
             normals.AddKey(key, Repeat("0 0 1", n));
             offsetNormals.AddKey(key, Repeat("0 0 1", n));
             distances.AddKey(key, string.Join(' ', Enumerable.Range(0, n).Select(c => F(Height(row, c, seed)))));
-            offsets.AddKey(key, string.Join(' ', Enumerable.Range(0, n).Select(c => (row + c + seed) % 3 == 0 ? "0.5 -0.25 0" : "0 0 0")));
+            offsetRows.AddKey(key, string.Join(' ', Enumerable.Range(0, n).Select(c => offsets && (row + c + seed) % 3 == 0 ? "0.5 -0.25 0" : "0 0 0")));
             alphas.AddKey(key, string.Join(' ', Enumerable.Range(0, n).Select(c => F(((row * 37) + (c * 11)) % 256))));
             if (row < n - 1)
             {
