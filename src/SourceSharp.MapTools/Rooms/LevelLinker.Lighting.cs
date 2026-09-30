@@ -48,12 +48,14 @@ public static partial class LevelLinker
 
         // The level's sun world lights and sky are the first lit placement's
         // bake; in a level of several libraries, the first lit placement of
-        // the first library when it places one, so they are the bake of the
-        // sun the level writes (the rooms design, 17.4). Compared first, so
-        // every other placement is held to it.
+        // the library the level's sun came from when it places one (the
+        // first library, or the earliest with a sun when the first has none,
+        // D29), so they are the bake of the sun the level writes (the rooms
+        // design, 17.4). Compared first, so every other placement is held to
+        // it.
         IEnumerable<ResolvedPlacement> order = resolved;
         if (library is not null
-            && Array.FindIndex(resolved, p => library.SourceOf(p.Instance.Placement.Room) == 0 && p.Room.LightingOfCompile is not null) is > 0 and var preferred)
+            && Array.FindIndex(resolved, p => library.SourceOf(p.Instance.Placement.Room) == library.SunSource && p.Room.LightingOfCompile is not null) is > 0 and var preferred)
         {
             order = [resolved[preferred], .. resolved.Where((_, i) => i != preferred)];
         }

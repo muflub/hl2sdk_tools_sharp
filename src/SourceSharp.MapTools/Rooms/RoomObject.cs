@@ -340,8 +340,32 @@ public sealed class RoomLibrary
     /// </summary>
     public string? SkyboxRoom { get; set; }
 
+    /// <summary>
+    /// Which of the level's libraries, in level order (<see cref="SourceOf"/>),
+    /// the level's sun came from: 0 for a library that is not a level's
+    /// combination, and for a combination whose first library has a sun or
+    /// no library has one; else the earliest library with one, which fills
+    /// the first library's gap (the rooms design's D29,
+    /// <see cref="LevelLibraries.Combine"/>).
+    /// </summary>
+    /// <remarks>
+    /// The link reads it to take the level's sun world lights from a room
+    /// baked under that sun (<c>LevelLinker.PlanLighting</c>): the sun
+    /// entity the level writes and the direct sunlight its lightmaps hold
+    /// must be one sun, and only that library's rooms were baked under it.
+    /// </remarks>
+    public int SunSource { get; set; }
+
     /// <summary>The rooms, in insertion order.</summary>
     public IReadOnlyCollection<RoomObject> Rooms => _rooms.Values;
+
+    /// <summary>
+    /// The names the rooms are held under, in insertion order: each room's
+    /// own name (<see cref="Add(RoomObject)"/>), or the name it was added by
+    /// (<see cref="Add(string, RoomObject, int)"/>), such as a room of a
+    /// combined pack added by its name within its library.
+    /// </summary>
+    public IReadOnlyCollection<string> Names => _rooms.Keys;
 
     /// <summary>Adds or replaces a room.</summary>
     /// <param name="room">The compiled room; its kit and cell must match the library's.</param>

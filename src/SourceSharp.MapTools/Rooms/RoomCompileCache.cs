@@ -139,7 +139,10 @@ public static class RoomCacheKey
             Stage = StageName,
             ToolId = ToolIdentity.Current,
             SemanticDigest = RoomDigest(room),
-            OptionsDigest = OptionsDigestOf(inputs),
+
+            // A room of a combined pack carries its own library's name keys
+            // (LibraryRoom.Namespace); every other room, the run's.
+            OptionsDigest = OptionsDigestOf(room.Namespace is null ? inputs : inputs with { NameKeys = room.NameKeysOr(inputs.NameKeys) }),
             DependencyDigest = string.Empty,
             ContextTags = inputs.ContextTags,
         };

@@ -70,6 +70,34 @@ public static class RoomCompileIds
                 Encoding.UTF8.GetBytes(RoomObjectStore.ToolIdentityOf())]);
     }
 
+    /// <summary>
+    /// The id of a pack with namespaces (<c>ssmap roompack</c>, or
+    /// <c>ssmap room -namespace</c> for one library): a function of every
+    /// library's key and bytes, in order, and of what else shapes the pack,
+    /// as <see cref="PackId"/> is of one library's.
+    /// </summary>
+    /// <param name="libraries">Each namespace's key and its VMF's SHA-256 (<see cref="RoomPackNamespaces.Digest"/>), in pack order.</param>
+    /// <param name="options">The options that shape the pack, in the order given, as for <see cref="PackId"/>.</param>
+    /// <param name="navigation">The navigation settings and storage, as for <see cref="PackId"/>.</param>
+    /// <returns>The id.</returns>
+    /// <remarks>
+    /// Its own purpose string, so a pack of one namespace never shares the
+    /// id of the plain pack of the same library: the two hold the rooms under
+    /// different names. The libraries fold as their digests, which name
+    /// their bytes as surely as the bytes do; <c>-only</c> hashes every VMF
+    /// it is given anyway, to know which namespaces are stale.
+    /// </remarks>
+    public static Guid CombinedPackId(IReadOnlyList<(string Key, string VmfSha256)> libraries, IEnumerable<string> options, string? navigation)
+    {
+        ArgumentNullException.ThrowIfNull(libraries);
+        ArgumentNullException.ThrowIfNull(options);
+        return Derive(
+            "ssmap roompack pack",
+            [.. libraries.SelectMany(l => new[] { Encoding.UTF8.GetBytes(l.Key), Encoding.UTF8.GetBytes(l.VmfSha256) }),
+                Encoding.UTF8.GetBytes(string.Join('\n', options)), Encoding.UTF8.GetBytes(navigation ?? "-"),
+                Encoding.UTF8.GetBytes(RoomObjectStore.ToolIdentityOf())]);
+    }
+
     /// <summary>A linked level's id.</summary>
     /// <param name="packId">The pack the rooms came from.</param>
     /// <param name="level">The level file's bytes, as read.</param>
@@ -89,13 +117,15 @@ public static class RoomCompileIds
     /// <param name="packs">Each library's key and its pack's id (null for a pack without one), in level order.</param>
     /// <returns>
     /// For one pack, its own id, so a level of one library keeps its ids;
-    /// for several, an id over every key and pack id in order, so re-packing
+    /// likewise when every key's rooms come from one combined pack (the same
+    /// id for every key), since the map then names that one pack; for
+    /// several, an id over every key and pack id in order, so re-packing
     /// any library changes the level's ids; null when no pack has an id.
     /// </returns>
     public static Guid? LevelPackId(IReadOnlyList<(string Key, Guid? Pack)> packs)
     {
         ArgumentNullException.ThrowIfNull(packs);
-        if (packs.Count == 1 || packs.All(p => p.Pack is null))
+        if (packs.Count == 1 || packs.All(p => p.Pack is null) || packs.All(p => p.Pack is Guid id && id == packs[0].Pack))
         {
             return packs.Count == 0 ? null : packs[0].Pack;
         }

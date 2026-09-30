@@ -130,8 +130,9 @@ public static class LevelFlattener
     /// <para>
     /// A level of several libraries is flattened as the link links it: every
     /// room under its qualified name, the rooms' names read with their own
-    /// library's name keys, and the first library's singletons (its library
-    /// entities, options and skybox). The worldspawn is the first placed
+    /// library's name keys, and the level's singletons (its library
+    /// entities, options and skybox: the first library's, each it lacks
+    /// entirely taken from the earliest library that has it, D29). The worldspawn is the first placed
     /// room's library's, the one the link takes, with the first library's
     /// save counter. The warnings of the compatibility check and the
     /// singleton rule (<see cref="LevelLibraries.Check"/>) come first, as the
@@ -192,8 +193,14 @@ public static class LevelFlattener
 
         // The compatibility check and the singleton rule, on what the VMFs
         // say, before anything is laid out (the link's refusals and lines).
+        // The level's singletons are the link's (LevelLibraries.Singletons):
+        // the first library's, each gap filled from the earliest later
+        // library that has it (D29); a library: level's are its library's.
         List<string> libraryWarnings = [];
         int worldSource = 0;
+        IReadOnlyList<VmfChunk> libraryEntities = splits[0].LibraryEntities;
+        RoomLibraryOptions libraryOptions = RoomLibraryOptions.FromWorld(libraries[0].GetChunk(MapFileLoader.WorldChunk)!);
+        int? skyboxSource = splits[0].Skybox is null ? null : 0;
         if (level.Libraries is { } listed)
         {
             RoomDefinition?[] firstPlaced = new RoomDefinition?[splits.Length];
@@ -202,15 +209,18 @@ public static class LevelFlattener
                 firstPlaced[sourceOf[cell.Room]] ??= byName[cell.Room].Definition;
             }
 
-            libraryWarnings = LevelLibraries.Check([.. listed.Select((l, s) => LevelLibraries.FactsOf(l, libraries[s], splits[s], firstPlaced[s]))]);
+            List<LevelLibraries.LibraryFacts> facts = [.. listed.Select((l, s) => LevelLibraries.FactsOf(l, libraries[s], splits[s], firstPlaced[s]))];
+            libraryWarnings = LevelLibraries.Check(facts);
+            LevelLibraries.LevelSingletonChoice singletonChoice = LevelLibraries.Singletons(facts);
+            (libraryEntities, libraryOptions, skyboxSource) = (singletonChoice.Entities, singletonChoice.Options, singletonChoice.SkyboxSource);
             worldSource = Math.Max(0, Array.FindIndex(firstPlaced, d => d is not null));
         }
 
-        RoomLibrarySplit split = splits[0];
         VmfDocument library = libraries[0];
+        LibraryRoom? levelSkybox = skyboxSource is int skyboxLibrary ? splits[skyboxLibrary].Skybox : null;
         RoomDefinition first = level.Placed.Select(p => byName.GetValueOrDefault(p.Cell.Room)?.Definition).FirstOrDefault(d => d is not null)
             ?? splits[worldSource].Rooms[0].Definition;
-        string? skyboxKey = split.Skybox is { } levelSkybox ? KeyOf(0, levelSkybox.Definition.Name) : null;
+        string? skyboxKey = levelSkybox is null ? null : KeyOf(skyboxSource!.Value, levelSkybox.Definition.Name);
         LevelLayout layout = level.ToLayout(
             name => byName.TryGetValue(name, out LibraryRoom? room) ? room.Definition : null,
             first.CellSize,
@@ -272,14 +282,13 @@ public static class LevelFlattener
 
         // The library's own entities once, straight after the worldspawn and
         // never turned, as the link writes them (RoomLibraryEntities.ForFlatten).
-        foreach (VmfChunk entity in split.LibraryEntities)
+        foreach (VmfChunk entity in libraryEntities)
         {
             flat.Chunks.Add(RoomLibraryEntities.ForFlatten(entity));
         }
 
         List<(LevelEntity Entity, string Room)> entities = [];
         List<PlacedSides> placedSides = [];
-        RoomLibraryOptions libraryOptions = RoomLibraryOptions.FromWorld(library.GetChunk(MapFileLoader.WorldChunk)!);
         RoomLibraryOptions[] sourceOptions = [.. libraries.Select(l => RoomLibraryOptions.FromWorld(l.GetChunk(MapFileLoader.WorldChunk)!))];
         List<ResolverRoom> resolverRooms = [];
         Dictionary<string, RoomNameTurn[]> roomNames = new(StringComparer.Ordinal);
@@ -404,7 +413,7 @@ public static class LevelFlattener
         // after every room's, as the link writes them; never turned, never
         // resolved (it stands in no cell of the grid).
         List<VmfChunk> skyboxEntities = [];
-        if (split.Skybox is { } skybox)
+        if (levelSkybox is { } skybox)
         {
             QuarterTurn below = QuarterTurn.Of(new RoomTransform(LevelLinker.SkyboxPlacement(layout, skyboxKey!), layout.CellSize));
             PlacedSides placed = new();
@@ -450,7 +459,7 @@ public static class LevelFlattener
 
         // One of each level-wide singleton, by the link's rule and after the
         // same naming (LevelSingletons), so both maps keep the same copies.
-        LevelSingletons singletons = new(split.LibraryEntities);
+        LevelSingletons singletons = new(libraryEntities);
         foreach ((LevelEntity entity, string room) in entities)
         {
             if (entity.Payload is VmfChunk payload && droppedFurniture.Contains(payload))

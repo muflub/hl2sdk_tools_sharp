@@ -91,12 +91,14 @@ public sealed class LevelLinkerMultiLibraryTests
     }
 
     /// <summary>
-    /// The singleton rule at link and flatten: the level writes the first
-    /// library's sun and fog, once; the second library's are dropped with
-    /// the same warnings from both.
+    /// The singleton rule at link and flatten (D20, D29): the level writes
+    /// the first library's sun, once, and the second library's differing sun
+    /// is dropped with the same warning from both; the second library's fog,
+    /// which the first lacks, is the level's in both, without a line. (Before
+    /// D29 the fog was dropped with a "which has none" line.)
     /// </summary>
     [Fact]
-    public async Task TheFirstLibrarysSingletonsAreTheLevels()
+    public async Task TheFirstLibraryWinsAndALaterLibraryFillsItsGaps()
     {
         VmfChunk sun = RoomLightHarness.Sun();
         VmfChunk otherSun = RoomLightHarness.Sun(angles: "0 90 0");
@@ -110,16 +112,17 @@ public sealed class LevelLinkerMultiLibraryTests
         string[] expected =
         [
             "library caves: its light_environment differs from library base's (angles: \"0 90 0\" against \"0 30 0\"); the level takes library base's, the first listed, and drops it.",
-            "library caves: its env_fog_controller is dropped; the level's singletons come from library base, which has none.",
         ];
         Assert.Equal(expected, warnings);
         Assert.Equal(expected, flatWarnings);
         List<string> suns = RoomSkyboxHarness.OfClass(linked.Bsp, "light_environment");
         Assert.Single(suns);
         Assert.Contains("angles=0 30 0", suns[0], StringComparison.Ordinal);
-        Assert.Empty(RoomSkyboxHarness.OfClass(linked.Bsp, "env_fog_controller"));
-        Assert.Single(RoomSkyboxHarness.OfClass(flat, "light_environment"));
-        Assert.Empty(RoomSkyboxHarness.OfClass(flat, "env_fog_controller"));
+        Assert.Equal(suns, RoomSkyboxHarness.OfClass(flat, "light_environment"));
+        List<string> fogs = RoomSkyboxHarness.OfClass(linked.Bsp, "env_fog_controller");
+        Assert.Single(fogs);
+        Assert.Contains("fogcolor=1 2 3", fogs[0], StringComparison.Ordinal);
+        Assert.Equal(fogs, RoomSkyboxHarness.OfClass(flat, "env_fog_controller"));
     }
 
     /// <summary>
@@ -154,17 +157,22 @@ public sealed class LevelLinkerMultiLibraryTests
 
     /// <summary>
     /// Combining puts every room under its qualified name with its library's
-    /// index and name keys, and carries the first library's options,
-    /// entities and skybox; a library the level places no room of still
-    /// speaks (its option line), and adds no room.
+    /// index and name keys, and carries the level's options, entities and
+    /// skybox: the first library's options, the entity reserve it does not
+    /// set taken from the second (D29; before it the second's reserve was
+    /// warned of and ignored), its own fold standing against the second's;
+    /// a library the level places no room of still speaks (its option line),
+    /// and adds no room.
     /// </summary>
     [Fact]
     public async Task CombiningKeepsEachRoomsLibrary()
     {
         VmfDocument baseVmf = Base(), cavesVmf = Caves();
         baseVmf.GetChunk(MapFileLoader.WorldChunk)!.AddKey(RoomLibraryOptions.NameKeysKey, "base_key");
+        baseVmf.GetChunk(MapFileLoader.WorldChunk)!.AddKey(RoomLibraryOptions.FoldLogicKey, "1");
         cavesVmf.GetChunk(MapFileLoader.WorldChunk)!.AddKey(RoomLibraryOptions.NameKeysKey, "caves_key");
         cavesVmf.GetChunk(MapFileLoader.WorldChunk)!.AddKey(RoomLibraryOptions.EntityReserveKey, "100");
+        cavesVmf.GetChunk(MapFileLoader.WorldChunk)!.AddKey(RoomLibraryOptions.FoldLogicKey, "0");
         RoomLibrary baseRooms = await RoomPropHarness.CompileAsync(baseVmf), caves = await RoomPropHarness.CompileAsync(cavesVmf);
         (_, LevelLibrarySet set) = Combine(Level("base.hub, caves.hub"), baseRooms, caves);
 
@@ -175,9 +183,10 @@ public sealed class LevelLinkerMultiLibraryTests
         Assert.Equal((0, 1), (rooms.SourceOf("base.other"), rooms.SourceOf("caves.hall")));
         Assert.Equal(["base_key"], rooms.NameKeysOf("base.hub")!);
         Assert.Equal(["caves_key"], rooms.NameKeysOf("caves.hall")!);
-        Assert.Same(baseRooms.Options, rooms.Options);
+        Assert.Equal(baseRooms.Options with { EntityReserve = 100 }, rooms.Options);
         Assert.Same(baseRooms.LibraryEntities, rooms.LibraryEntities);
-        Assert.Equal(["library caves: rooms_entity_reserve 100 is ignored; the level takes library base's, 512."], set.Warnings);
+        Assert.Equal(0, rooms.SunSource);
+        Assert.Equal(["library caves: rooms_fold_logic 0 is ignored; the level takes library base's, 1."], set.Warnings);
 
         // A library the level only names: its lines, no compatibility check.
         (_, LevelLibrarySet named) = Combine(Level("base.hub, base.other"), baseRooms, caves);
@@ -217,6 +226,104 @@ public sealed class LevelLinkerMultiLibraryTests
             LinkException refused = Assert.Throws<LinkException>(() => Combine(bad, first, second));
             Assert.Equal($"level sky2 places the skybox room {placed} at cell (1, 0); the link places the skybox below the grid itself.", refused.Message);
         }
+    }
+
+    /// <summary>
+    /// D29 for the skybox: a first library without one takes the second
+    /// library's, placed below the grid under its qualified name, without a
+    /// line; the link and the flatten place the same camera.
+    /// </summary>
+    [Fact]
+    public async Task ALaterLibrarysSkyboxFillsTheGap()
+    {
+        VmfDocument plain = RoomPropHarness.Library(), sky = RoomSkyboxHarness.Library();
+        RoomLibrary first = await RoomPropHarness.CompileAsync(plain);
+        RoomLibrary second = await RoomSkyboxHarness.CompileAsync(sky);
+        LevelGrid level = Level("base.hub, caves.other");
+        (LinkedLevel linked, IReadOnlyList<string> warnings) = await LinkAsync(level, 1, first, second);
+        (BspData flat, IReadOnlyList<string> flatWarnings) = await CompileFlatAsync(level, plain, sky);
+
+        Assert.Empty(warnings);
+        Assert.Empty(flatWarnings);
+        Assert.Equal("caves.sky", linked.Plan.Rooms[^1].Instance.Placement.Room);
+        List<string> cameras = RoomSkyboxHarness.OfClass(linked.Bsp, "sky_camera");
+        Assert.Single(cameras);
+        Assert.Equal(cameras, RoomSkyboxHarness.OfClass(flat, "sky_camera"));
+    }
+
+    /// <summary>
+    /// D29 for the sun: a first library without one, placing no room, and a
+    /// lit second library with one. The level writes the second library's
+    /// sun, in the link and the flatten alike, and its sun world lights are
+    /// that library's bake; its sunlit rooms are not held to D26, since
+    /// their library supplied the level's sun. (Before D29 the sun was
+    /// dropped with a "which has none" line.)
+    /// </summary>
+    [Fact]
+    public async Task ASunOnlyTheSecondLibraryHasLightsTheLevel()
+    {
+        VmfDocument baseVmf = Base(), cavesVmf = RoomLightHarness.Library(true, [0]);
+        RoomLibrary baseRooms = await RoomPropHarness.CompileAsync(baseVmf);
+        RoomLibrary caves = await RoomLightHarness.CompileAsync(cavesVmf);
+        Assert.Equal(4, caves.Get("hub").LightingOfCompile!.RotationCount);
+        LevelGrid level = Level("caves.hub, caves.other");
+        (LevelGrid resolved, LevelLibrarySet set) = Combine(level, baseRooms, caves);
+        LinkedLevel linked = await MultiLibraryHarness.LinkAsync(resolved, set.Rooms);
+        FlattenedLevel flat = LevelFlattener.FlattenLevel(level, [baseVmf, cavesVmf], new LevelFlattenOptions());
+
+        Assert.Empty(set.Warnings);
+        Assert.Empty(flat.Warnings);
+        Assert.Equal(1, set.Rooms.SunSource);
+        List<string> suns = RoomSkyboxHarness.OfClass(linked.Bsp, "light_environment");
+        Assert.Single(suns);
+        Assert.Contains("angles=0 30 0", suns[0], StringComparison.Ordinal);
+        VmfChunk flatSun = Assert.Single(flat.Vmf.GetChunks(MapFileLoader.EntityChunk), e => e.GetValue("classname") == "light_environment");
+        Assert.Equal("0 30 0", flatSun.GetValue("angles"));
+        Assert.Same(caves.Get("hub").LightingOfCompile!.SkyLdr, LevelLinker.PlanLighting([.. linked.Plan.Rooms], set.Rooms)!.SkyLdr);
+        Assert.NotEmpty(linked.Bsp[BspLump.WorldLights].Data.ToArray());
+    }
+
+    /// <summary>
+    /// D26 against a later library's sun (D29): with the first library
+    /// sunless and unplaced, the level's sun is the second's. A third
+    /// library whose sun differs warns as any dropped copy does; its room no
+    /// sun reaches links, but the level's sun world lights are still the
+    /// second library's bake though the third's room is placed first; its
+    /// sunlit room is refused naming the second library as the level's.
+    /// Before D29 no sun was the level's and neither case was checked.
+    /// </summary>
+    [Fact]
+    public async Task ALaterLibrarysSunHoldsTheOtherLibrariesToIt()
+    {
+        RoomLibrary baseRooms = await RoomPropHarness.CompileAsync(Base());
+        VmfDocument cavesVmf = RoomLightHarness.Library(true, [0]);
+        RoomLibrary caves = await RoomLightHarness.CompileAsync(cavesVmf);
+        VmfDocument hallsVmf = RoomPropHarness.Library();
+        hallsVmf.Chunks.Add(RoomLightHarness.Sun(angles: "0 120 0"));
+        RoomLightHarness.SkyCeiling(hallsVmf, 1); // other sunlit, hub lit once
+        RoomLightHarness.WorldAlign(hallsVmf);
+        RoomLibrary halls = await RoomLightHarness.CompileAsync(hallsVmf);
+        static LevelGrid Three(string row) => LevelYaml.Parse(
+            "libraries:\n  base: ../base.vmf\n  caves: ../caves.vmf\n  halls: ../halls.vmf\n"
+            + $"rows: 1\ncolumns: {row.Split(',').Length}\ngrid:\n  - [{row}]\n", "three");
+
+        (LevelGrid resolved, LevelLibrarySet set) = Combine(Three("halls.hub, caves.hub"), baseRooms, caves, halls);
+        string differs = "library halls: its light_environment differs from library caves's (angles: \"0 120 0\" against \"0 30 0\");"
+            + " the level takes library caves's, the earliest listed with one, and drops it.";
+        Assert.Equal([differs], set.Warnings);
+        Assert.Equal([differs], LevelFlattener.FlattenLevel(Three("halls.hub, caves.hub"), [Base(), cavesVmf, hallsVmf], new LevelFlattenOptions()).Warnings);
+        LinkedLevel linked = await MultiLibraryHarness.LinkAsync(resolved, set.Rooms);
+        ResolvedPlacement[] placed = [.. linked.Plan.Rooms];
+        Assert.Equal("halls.hub", placed[0].Instance.Placement.Room);
+        Assert.Same(caves.Get("hub").LightingOfCompile!.SkyLdr, LevelLinker.PlanLighting(placed, set.Rooms)!.SkyLdr);
+        Assert.Same(halls.Get("hub").LightingOfCompile!.SkyLdr, LevelLinker.PlanLighting(placed)!.SkyLdr);
+        Assert.Contains("angles=0 30 0", Assert.Single(RoomSkyboxHarness.OfClass(linked.Bsp, "light_environment")), StringComparison.Ordinal);
+
+        LinkException refused = Assert.Throws<LinkException>(() => Combine(Three("caves.hub, halls.other"), baseRooms, caves, halls));
+        Assert.Equal(
+            "library halls: room halls.other was baked under library halls's sun, but the level takes library caves's;"
+            + " a sunlit room links only under the sun it was baked with. Build the libraries with one sun.",
+            refused.Message);
     }
 
     /// <summary>

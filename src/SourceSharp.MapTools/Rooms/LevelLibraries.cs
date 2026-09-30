@@ -18,7 +18,8 @@ namespace SourceSharp.MapTools.Rooms;
 /// <summary>
 /// A level of several libraries, combined for the link: every placed room
 /// under its qualified name in one <see cref="RoomLibrary"/> that carries
-/// the first library's singletons, and what combining them warned of.
+/// the level's singletons (the first library's, its gaps filled from the
+/// later ones), and what combining them warned of.
 /// </summary>
 /// <param name="Rooms">The combined library the linker takes.</param>
 /// <param name="Warnings">The warnings, each a whole sentence, in the order the link prints them.</param>
@@ -50,10 +51,13 @@ public sealed record LevelLibrarySet(RoomLibrary Rooms, IReadOnlyList<string> Wa
 /// cell means, and the cure, renaming the key, is the level author's.
 /// </para>
 /// <para>
-/// <b>The first library supplies the singletons</b> (D20, D24, O25): its
+/// <b>The first library supplies the singletons</b> (D20, D24, D29): its
 /// library entities, options and skybox are the level's; another library's
-/// are dropped, each with a warning, and equal copies summed into one line
-/// per library. <b>Compatibility</b> (D21, D25): the libraries the level
+/// copy of one it has is dropped with a warning, and equal copies are summed
+/// into one line per library. A singleton the first library lacks entirely
+/// is taken from the earliest later library that has it, without a line
+/// (D29, the owner's answer to O25; <see cref="Singletons"/>).
+/// <b>Compatibility</b> (D21, D25): the libraries the level
 /// places rooms of must agree on the cell size, the door kit and, when both
 /// build navigation, the navigation grid; the room height is not compared.
 /// The other navigation settings and the worldspawn only warn. The link and
@@ -299,13 +303,14 @@ public static class LevelLibraries
     /// <summary>
     /// Combines a level's libraries for the link: checks them (<see cref="Check"/>),
     /// then puts every room each holds into one library under its qualified
-    /// name, with the first library's singletons.
+    /// name, with the level's singletons (<see cref="Singletons"/>).
     /// </summary>
     /// <param name="resolved">The level, its cells qualified (<see cref="Resolve"/>) and its <see cref="LevelGrid.Libraries"/> set.</param>
     /// <param name="libraries">
     /// Each library as its pack gave it, in level order: the rooms the level
-    /// places (and the first library's skybox room) under their own names,
-    /// with the library's options, entities and skybox name.
+    /// places (and the level's skybox room, <see cref="SkyboxSource"/>)
+    /// under their own names, with the library's options, entities and
+    /// skybox name.
     /// </param>
     /// <returns>The combined library and the warnings.</returns>
     /// <exception cref="LinkException">The libraries are not compatible, or the level places a library's skybox room.</exception>
@@ -357,12 +362,18 @@ public static class LevelLibraries
         }
 
         List<string> warnings = Check(facts);
+        LevelSingletonChoice level = Singletons(facts);
 
         // D26: a sunlit room baked under a sun the level drops, refused
-        // naming the first such room in link order (SunLine).
-        for (int b = 1; b < keys.Count; b++)
+        // naming the first such room in link order (SunLine). The level's
+        // sun is the first library's, or the earliest library's that has
+        // one when the first has none (D29): that library's rooms were
+        // baked under it and are never held to it, every other library with
+        // a sun is.
+        int sun = level.SunSource;
+        for (int b = 0; b < keys.Count; b++)
         {
-            if (SunDifference(facts[0].Entities, facts[b].Entities) is null)
+            if (b == sun || SunDifference(facts[sun].Entities, facts[b].Entities) is null)
             {
                 continue;
             }
@@ -372,15 +383,16 @@ public static class LevelLibraries
                 if (SourceIndex(index, cell.Room) == b
                     && libraries[b].Get(RoomOf(cell.Room)).LightingOfCompile is { RotationCount: 4 })
                 {
-                    warnings.Add(SunLine(RefusesDroppedSun, keys[b].Key, cell.Room, keys[0].Key));
+                    warnings.Add(SunLine(RefusesDroppedSun, keys[b].Key, cell.Room, keys[sun].Key));
                     break;
                 }
             }
         }
 
         // The combined library: the grid of the first placed library (every
-        // placed library agrees with it, Check), the first listed library's
-        // singletons, every room under its qualified name.
+        // placed library agrees with it, Check), the level's singletons (the
+        // first listed library's, its gaps filled from the later ones, D29),
+        // every room under its qualified name.
         int grid = Array.FindIndex(firstPlaced, p => p is not null);
         RoomObject? sample = grid >= 0 ? libraries[grid].Get(firstPlaced[grid]!) : libraries.SelectMany(l => l.Rooms).FirstOrDefault();
         if (sample is null)
@@ -390,16 +402,20 @@ public static class LevelLibraries
 
         RoomLibrary combined = new(sample.Definition.Kit, sample.Definition.CellSize)
         {
-            Options = libraries[0].Options,
-            LibraryEntities = libraries[0].LibraryEntities,
-            SkyboxRoom = libraries[0].SkyboxRoom is { } sky ? Qualified(keys[0].Key, sky) : null,
+            Options = level.Options,
+            LibraryEntities = level.Entities,
+            SkyboxRoom = level.SkyboxSource is int sky ? Qualified(keys[sky].Key, libraries[sky].SkyboxRoom!) : null,
+            SunSource = sun,
         };
         combined.SetSources([.. libraries.Select(l => l.Options)]);
         for (int i = 0; i < libraries.Count; i++)
         {
-            foreach (RoomObject room in libraries[i].Rooms)
+            // By the name each library holds a room under, which is its
+            // compile name for a plain pack and its name within the library
+            // for a namespace of a combined pack (compiled as key.room).
+            foreach (string name in libraries[i].Names)
             {
-                combined.Add(Qualified(keys[i].Key, room.Definition.Name), room, i);
+                combined.Add(Qualified(keys[i].Key, name), libraries[i].Get(name), i);
             }
         }
 
@@ -540,17 +556,16 @@ public static class LevelLibraries
         }
 
         List<string> warnings = [];
-        LibraryFacts a = facts[0];
+        int? skyboxSource = SkyboxSource([.. facts.Select(f => f.Skybox)]);
         for (int i = 1; i < facts.Count; i++)
         {
             LibraryFacts b = facts[i];
-            EntityLines(a, b, warnings);
-            OptionLines(a, b, warnings);
-            if (b.Skybox is { } skybox)
+            EntityLines(facts, i, warnings);
+            OptionLines(facts, i, warnings);
+            if (b.Skybox is { } skybox && skyboxSource != i)
             {
-                warnings.Add(a.Skybox is { } kept
-                    ? $"library {b.Key}: its skybox room \"{skybox}\" is dropped; the level's skybox is library {a.Key}'s, \"{kept}\"."
-                    : $"library {b.Key}: its skybox room \"{skybox}\" is dropped; the level's singletons come from library {a.Key}, which has no skybox.");
+                LibraryFacts a = facts[skyboxSource!.Value];
+                warnings.Add($"library {b.Key}: its skybox room \"{skybox}\" is dropped; the level's skybox is library {a.Key}'s, \"{a.Skybox}\".");
             }
 
             if (level is not null && b.World is not null && !ReferenceEquals(b, level))
@@ -590,66 +605,230 @@ public static class LevelLibraries
             placed is null ? null : [.. world.Keys.Select(k => new KeyValuePair<string, string>(k.Name, k.Value))]);
     }
 
-    /// <summary>One library's singleton lines against the first's: each that differs, each the first lacks, then one line for the equal ones.</summary>
-    private static void EntityLines(LibraryFacts a, LibraryFacts b, List<string> warnings)
+    /// <summary>
+    /// The level's singletons (the rooms design, D20 and D29): what the link
+    /// and the flatten write once for the whole level, from the libraries in
+    /// level order.
+    /// </summary>
+    /// <param name="Entities">
+    /// The level's library-wide entities: the first library's, as it wrote
+    /// them, then each later library's that no earlier library has (by
+    /// <see cref="RoomLibraryEntities.IdentityOf"/>), in library order and
+    /// each library's own order. The first library's own list when no later
+    /// library adds one, so a level whose first library has every singleton
+    /// writes exactly what it wrote before D29.
+    /// </param>
+    /// <param name="Options">
+    /// The level's options: the first library's, each of the entity
+    /// reserve, the fold and the door portals it does not set taken from the
+    /// earliest later library that sets it. The first library's own record
+    /// when none is taken. The name keys stay per library and the save
+    /// counter stays the first library's (17.4).
+    /// </param>
+    /// <param name="SkyboxSource">The library whose skybox room is the level's (<see cref="LevelLibraries.SkyboxSource"/>), or null when none has one.</param>
+    /// <param name="SunSource">The library whose sun is the level's: the earliest with a <c>light_environment</c>, or 0 when none has one.</param>
+    internal sealed record LevelSingletonChoice(IReadOnlyList<VmfChunk> Entities, RoomLibraryOptions Options, int? SkyboxSource, int SunSource);
+
+    /// <summary>
+    /// The library whose skybox room is the level's: the first library when
+    /// it has one, else the earliest listed library that has one (the rooms
+    /// design's D29), or null when none has.
+    /// </summary>
+    /// <param name="skyboxes">Each library's skybox room name or null, in level order.</param>
+    /// <returns>The library's index, or null.</returns>
+    /// <remarks>
+    /// Public because whoever loads the rooms for the link (the CLI reads
+    /// each pack for the rooms the level places) must load this library's
+    /// skybox room too: the link places it below the grid, and
+    /// <see cref="Combine"/> names it as the level's.
+    /// </remarks>
+    public static int? SkyboxSource(IReadOnlyList<string?> skyboxes)
     {
-        Dictionary<string, List<KeyValuePair<string, string>>> first = new(StringComparer.Ordinal);
-        foreach (VmfChunk entity in a.Entities)
+        ArgumentNullException.ThrowIfNull(skyboxes);
+        for (int i = 0; i < skyboxes.Count; i++)
         {
-            List<KeyValuePair<string, string>> pairs = RoomLibraryEntities.PairsOf(entity);
-            first.TryAdd(IdentityOf(pairs), pairs);
-        }
-
-        List<string> equal = [];
-        foreach (VmfChunk entity in b.Entities)
-        {
-            List<KeyValuePair<string, string>> pairs = RoomLibraryEntities.PairsOf(entity);
-            string classname = RoomLibraryEntities.LastValue(pairs, "classname") ?? string.Empty;
-            string label = RoomLibraryEntities.NameOf(pairs) is { } name ? $"{classname} \"{name}\"" : classname;
-            if (!first.TryGetValue(IdentityOf(pairs), out List<KeyValuePair<string, string>>? kept))
+            if (skyboxes[i] is not null)
             {
-                warnings.Add($"library {b.Key}: its {label} is dropped; the level's singletons come from library {a.Key}, which has none.");
-            }
-            else if (RoomLibraryEntities.Difference(pairs, kept) is { } difference)
-            {
-                warnings.Add(
-                    $"library {b.Key}: its {label} differs from library {a.Key}'s ({difference.Key}: \"{difference.Value}\" against \"{difference.Other}\");"
-                    + $" the level takes library {a.Key}'s, the first listed, and drops it.");
-            }
-            else
-            {
-                equal.Add(label);
+                return i;
             }
         }
 
-        if (equal.Count > 0)
-        {
-            warnings.Add($"library {b.Key}: {equal.Count} singleton(s) equal to library {a.Key}'s dropped ({string.Join(", ", equal)}).");
-        }
+        return null;
     }
 
     /// <summary>
-    /// One library's option lines against the first's: each option it sets
-    /// to other than the level's value. The save counter (<c>mapversion</c>)
-    /// is not reported: it differs on every save of either library, so a
-    /// line for it would be printed on every link and say nothing.
+    /// The level's singletons from its libraries' facts, in level order: the
+    /// first library supplies every singleton it has, and a singleton it
+    /// lacks entirely comes from the earliest later library that has it
+    /// (D29, the owner's answer to O25: a singleton only a later library has
+    /// is used, not dropped).
     /// </summary>
-    private static void OptionLines(LibraryFacts a, LibraryFacts b, List<string> warnings)
+    /// <param name="facts">What each library holds, in level order.</param>
+    /// <returns>The level's entities, options, skybox and sun source.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Why fill a gap but never override.</b> Where the first library has
+    /// a singleton, or sets an option, the level has an answer and it is
+    /// the first library's (D20). Where it has none, dropping a later
+    /// library's copy leaves the level without a sun or a fog its rooms
+    /// were built to have, which helps nobody; the earliest library's is
+    /// taken, so the answer still depends only on the level file's order,
+    /// never on which rooms a level happens to place.
+    /// </para>
+    /// <para>
+    /// <b>Options.</b> An option a library does not write is a gap: the
+    /// section records it as unset (<see cref="RoomLibraryOptions"/>'s null),
+    /// not as its default, so the same rule reads it: the level takes the
+    /// earliest library that sets it. An option the first library sets,
+    /// even to the default, is an explicit value and stands.
+    /// </para>
+    /// </remarks>
+    internal static LevelSingletonChoice Singletons(IReadOnlyList<LibraryFacts> facts)
     {
-        void Line(string key, string? theirs, string ours)
+        ArgumentNullException.ThrowIfNull(facts);
+        ArgumentOutOfRangeException.ThrowIfZero(facts.Count);
+
+        IReadOnlyList<VmfChunk> entities = facts[0].Entities;
+        List<VmfChunk>? filled = null;
+        HashSet<string> taken = new(StringComparer.Ordinal);
+        for (int i = 1; i < facts.Count; i++)
         {
-            if (theirs is not null && theirs != ours)
+            foreach (VmfChunk entity in facts[i].Entities)
             {
-                warnings.Add($"library {b.Key}: {key} {theirs} is ignored; the level takes library {a.Key}'s, {ours}.");
+                string identity = IdentityOf(RoomLibraryEntities.PairsOf(entity));
+                if (EntitySource(facts, identity) == i && taken.Add(identity))
+                {
+                    (filled ??= [.. entities]).Add(entity);
+                }
             }
         }
 
-        Line(
-            RoomLibraryOptions.EntityReserveKey,
-            b.Options.EntityReserve?.ToString(CultureInfo.InvariantCulture),
-            (a.Options.EntityReserve ?? EntityClassTable.DefaultReserve).ToString(CultureInfo.InvariantCulture));
-        Line(RoomLibraryOptions.FoldLogicKey, b.Options.FoldLogic is bool fold ? Switch(fold) : null, Switch(a.Options.Folds));
-        Line(RoomLibraryOptions.DoorPortalsKey, b.Options.DoorPortals is bool doors ? Switch(doors) : null, Switch(a.Options.HasDoorPortals));
+        RoomLibraryOptions first = facts[0].Options;
+        int? reserve = OptionSource(facts, o => o.EntityReserve) is int r ? facts[r].Options.EntityReserve : null;
+        bool? fold = OptionSource(facts, o => o.FoldLogic) is int f ? facts[f].Options.FoldLogic : null;
+        bool? doors = OptionSource(facts, o => o.DoorPortals) is int d ? facts[d].Options.DoorPortals : null;
+        RoomLibraryOptions options = reserve == first.EntityReserve && fold == first.FoldLogic && doors == first.DoorPortals
+            ? first
+            : first with { EntityReserve = reserve, FoldLogic = fold, DoorPortals = doors };
+
+        return new LevelSingletonChoice(
+            filled ?? entities,
+            options,
+            SkyboxSource([.. facts.Select(f => f.Skybox)]),
+            EntitySource(facts, RoomLibraryEntities.SunClass) ?? 0);
+    }
+
+    /// <summary>The earliest library with a singleton of this identity, or null when none has one.</summary>
+    private static int? EntitySource(IReadOnlyList<LibraryFacts> facts, string identity)
+    {
+        for (int i = 0; i < facts.Count; i++)
+        {
+            if (facts[i].Entities.Any(e => IdentityOf(RoomLibraryEntities.PairsOf(e)) == identity))
+            {
+                return i;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The earliest library that sets an option, or null when none does.</summary>
+    private static int? OptionSource<T>(IReadOnlyList<LibraryFacts> facts, Func<RoomLibraryOptions, T?> value)
+        where T : struct
+    {
+        for (int i = 0; i < facts.Count; i++)
+        {
+            if (value(facts[i].Options) is not null)
+            {
+                return i;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// One later library's singleton lines against the level's: each that
+    /// differs from the copy the level keeps, then one line for the equal
+    /// ones (D24). A singleton the library supplies itself, because no
+    /// earlier library has one, is the level's and has no line (D29).
+    /// </summary>
+    private static void EntityLines(IReadOnlyList<LibraryFacts> facts, int index, List<string> warnings)
+    {
+        LibraryFacts b = facts[index];
+        List<(string Label, int Source)> equal = [];
+        foreach (VmfChunk entity in b.Entities)
+        {
+            List<KeyValuePair<string, string>> pairs = RoomLibraryEntities.PairsOf(entity);
+            string identity = IdentityOf(pairs);
+            int source = EntitySource(facts, identity)!.Value;
+            if (source == index)
+            {
+                continue;
+            }
+
+            LibraryFacts a = facts[source];
+            List<KeyValuePair<string, string>> kept = RoomLibraryEntities.PairsOf(a.Entities.First(e => IdentityOf(RoomLibraryEntities.PairsOf(e)) == identity));
+            string classname = RoomLibraryEntities.LastValue(pairs, "classname") ?? string.Empty;
+            string label = RoomLibraryEntities.NameOf(pairs) is { } name ? $"{classname} \"{name}\"" : classname;
+            if (RoomLibraryEntities.Difference(pairs, kept) is { } difference)
+            {
+                // The first library's copy is "the first listed"; a copy that
+                // filled its gap is the earliest listed library's with one.
+                string which = source == 0 ? "the first listed" : "the earliest listed with one";
+                warnings.Add(
+                    $"library {b.Key}: its {label} differs from library {a.Key}'s ({difference.Key}: \"{difference.Value}\" against \"{difference.Other}\");"
+                    + $" the level takes library {a.Key}'s, {which}, and drops it.");
+            }
+            else
+            {
+                equal.Add((label, source));
+            }
+        }
+
+        if (equal.Count == 0)
+        {
+            return;
+        }
+
+        // One line per library (D24), naming the library the level's copies
+        // came from; when they came from several (a gap of the first filled
+        // by a later library), each copy names its own.
+        warnings.Add(equal.All(e => e.Source == equal[0].Source)
+            ? $"library {b.Key}: {equal.Count} singleton(s) equal to library {facts[equal[0].Source].Key}'s dropped ({string.Join(", ", equal.Select(e => e.Label))})."
+            : $"library {b.Key}: {equal.Count} singleton(s) equal to the level's dropped ({string.Join(", ", equal.Select(e => $"{e.Label} of library {facts[e.Source].Key}"))}).");
+    }
+
+    /// <summary>
+    /// One later library's option lines: each option it sets to other than
+    /// the level's value, which is the first library's or, where the first
+    /// does not set it, the earliest library's that does (D29); an option
+    /// the library supplies itself has no line. The save counter
+    /// (<c>mapversion</c>) is not reported: it differs on every save of
+    /// either library, so a line for it would be printed on every link and
+    /// say nothing.
+    /// </summary>
+    private static void OptionLines(IReadOnlyList<LibraryFacts> facts, int index, List<string> warnings)
+    {
+        LibraryFacts b = facts[index];
+        void Line<T>(string key, Func<RoomLibraryOptions, T?> value, Func<T, string> text)
+            where T : struct
+        {
+            int source = OptionSource(facts, value) ?? index;
+            if (value(b.Options) is T theirs && source != index)
+            {
+                LibraryFacts a = facts[source];
+                string ours = text(value(a.Options)!.Value);
+                if (text(theirs) != ours)
+                {
+                    warnings.Add($"library {b.Key}: {key} {text(theirs)} is ignored; the level takes library {a.Key}'s, {ours}.");
+                }
+            }
+        }
+
+        Line(RoomLibraryOptions.EntityReserveKey, o => o.EntityReserve, v => v.ToString(CultureInfo.InvariantCulture));
+        Line(RoomLibraryOptions.FoldLogicKey, o => o.FoldLogic, Switch);
+        Line(RoomLibraryOptions.DoorPortalsKey, o => o.DoorPortals, Switch);
     }
 
     /// <summary>

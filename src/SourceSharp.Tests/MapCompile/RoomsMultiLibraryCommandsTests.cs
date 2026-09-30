@@ -9,6 +9,7 @@ using System.Text;
 
 using SourceSharp.MapCompile;
 using SourceSharp.MapFormats.Bsp;
+using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapGen.Rooms;
 using SourceSharp.MapTools.Io;
 using SourceSharp.MapTools.Rooms;
@@ -108,8 +109,11 @@ public sealed class RoomsMultiLibraryCommandsTests
 
         (int exit, string text) = await LinkAsync(fs, level, "-rooms", "/sample/rooms.roompack");
         Assert.Equal(1, exit);
+        // The pack is opened to learn it has no namespaces, so the message
+        // names it by its full host path, as the CLI prints every pack.
+        string plain = Path.GetFullPath("/sample/rooms.roompack");
         Assert.Contains(
-            $"room pack {"/sample/rooms.roompack"} holds one library without a namespace; give it to one key with -rooms base={"/sample/rooms.roompack"}.",
+            $"ssmap link: room pack {plain} holds one library without a namespace; give it to one key with -rooms base={plain}.",
             text,
             StringComparison.Ordinal);
 
@@ -143,11 +147,22 @@ public sealed class RoomsMultiLibraryCommandsTests
         Assert.Equal(Program.ExitUsage, exit);
         Assert.Contains("names one library; give -rooms once, with its pack.", text, StringComparison.Ordinal);
 
-        // ssmap rooms over a level: a -rooms that names no key, a pack per key, a level that does not read.
+        // ssmap rooms over a level: a plain pack for every key, a key the
+        // level does not list, a pack per key, a level that does not read.
+        // The listing finds packs as the link does (the rooms design, 17.10).
         using (StringWriter list = new())
         {
-            Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomsAsync(fs, [level, "-rooms", "/sample/rooms.roompack"], list));
-            Assert.Contains("-rooms \"/sample/rooms.roompack\" names no library of the level; write -rooms <key>=<pack>.", list.ToString(), StringComparison.Ordinal);
+            Assert.Equal(1, await RoomCommands.RunRoomsAsync(fs, [level, "-rooms", "/sample/rooms.roompack"], list));
+            Assert.Contains(
+                $"ssmap rooms: room pack {plain} holds one library without a namespace; give it to one key with -rooms base={plain}.",
+                list.ToString(),
+                StringComparison.Ordinal);
+        }
+
+        using (StringWriter list = new())
+        {
+            Assert.Equal(Program.ExitUsage, await RoomCommands.RunRoomsAsync(fs, [level, "-rooms", "halls=/sample/rooms.roompack"], list));
+            Assert.Contains("ssmap rooms: -rooms names library halls, which the level does not list; its libraries are base and caves.", list.ToString(), StringComparison.Ordinal);
         }
 
         using (StringWriter list = new())
@@ -182,7 +197,10 @@ public sealed class RoomsMultiLibraryCommandsTests
         Assert.Contains("names skybox room \"nosuch\" but does not hold it", text, StringComparison.Ordinal);
         fs.AddFile(Rooted("/sample/caves.roompack"), caves0);
 
-        // A later library with its own sun: warned by link, flatten and ssmap rooms alike.
+        // A later library with its own sun, which the first lacks: the level's
+        // (D29), in the linked map and the flattened VMF alike, and no line
+        // from link, flatten or ssmap rooms. (Before D29 it was dropped with
+        // a "which has none" line from all three.)
         string caves = Encoding.UTF8.GetString(fs.GetBytes(VPath.Create(Rooted("/sample/caves.vmf")))!);
         fs.AddFile(
             Rooted("/sample/caves.vmf"),
@@ -193,16 +211,19 @@ public sealed class RoomsMultiLibraryCommandsTests
                 fs, [], ["/sample/caves.vmf", "-game", "/sample", "-nolight", "-out", "/sample/caves.roompack"], room));
         }
 
-        string line = "warning: library caves: its light_environment is dropped; the level's singletons come from library base, which has none.";
         (exit, text) = await LinkAsync(fs, level);
         Assert.True(exit == Program.ExitSuccess, text);
-        Assert.Contains("ssmap link: " + line, text, StringComparison.Ordinal);
+        Assert.DoesNotContain("warning", text, StringComparison.Ordinal);
+        BspData withSun = await BspFile.LoadAsync(new MemoryStream(fs.GetBytes(VPath.Create(Rooted("/sample/out/x.bsp")))!));
+        Assert.Equal("0 45 0", Assert.Single(EntityLump.Parse(withSun[BspLump.Entities]), e => e.ClassName == "light_environment").Get("angles"));
         (exit, text) = await FlattenAsync(fs, level);
         Assert.True(exit == Program.ExitSuccess, text);
-        Assert.Contains("ssmap link: " + line, text, StringComparison.Ordinal);
+        Assert.DoesNotContain("warning", text, StringComparison.Ordinal);
+        string flattened = Encoding.UTF8.GetString(fs.GetBytes(VPath.Create(Rooted("/sample/out/x.vmf")))!);
+        Assert.Contains("\"angles\" \"0 45 0\"", flattened, StringComparison.Ordinal);
         using StringWriter listing = new();
         Assert.Equal(Program.ExitSuccess, await RoomCommands.RunRoomsAsync(fs, [level], listing));
-        Assert.Contains("ssmap rooms: " + line, listing.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("warning", listing.ToString(), StringComparison.Ordinal);
     }
 
     /// <summary>

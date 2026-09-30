@@ -54,45 +54,10 @@ public static partial class RoomCommands
             return ExitFailed;
         }
 
-        string?[] packArgs = new string?[keys.Count];
-        foreach (string arg in roomsPacks)
+        (PackChoice[]? choices, int choiceExit) = await ChoosePacksAsync("ssmap link", keys, libraryPaths, roomsPacks, output).ConfigureAwait(false);
+        if (choices is null)
         {
-            int equals = arg.IndexOf('=', StringComparison.Ordinal);
-            string key = equals > 0 ? arg[..equals] : string.Empty;
-            if (equals > 0 && LevelLibraries.KeyProblem(key) is null)
-            {
-                int index = IndexOfKey(keys, key);
-                if (index < 0)
-                {
-                    await output.WriteLineAsync(
-                        $"ssmap link: -rooms names library {key}, which the level does not list; its libraries are {And([.. keys.Select(k => k.Key)])}.")
-                        .ConfigureAwait(false);
-                    return Program.ExitUsage;
-                }
-
-                packArgs[index] = arg[(equals + 1)..];
-            }
-            else if (keys.Count == 1)
-            {
-                packArgs[0] = arg;
-            }
-            else
-            {
-                await output.WriteLineAsync(
-                    $"ssmap link: room pack {arg} holds one library without a namespace; give it to one key with -rooms {keys[0].Key}={arg}.")
-                    .ConfigureAwait(false);
-                return ExitFailed;
-            }
-        }
-
-        VPath[] packPaths = new VPath[keys.Count];
-        for (int i = 0; i < keys.Count; i++)
-        {
-            if (!TryHostPath(packArgs[i] ?? DefaultPack(libraryPaths[i]), out packPaths[i]))
-            {
-                await output.WriteLineAsync($"ssmap link: -rooms \"{packArgs[i]}\" for library {keys[i].Key} is not a usable path").ConfigureAwait(false);
-                return Program.ExitUsage;
-            }
+            return choiceExit;
         }
 
         if (!level.Placed.Any())
@@ -101,46 +66,52 @@ public static partial class RoomCommands
             return ExitFailed;
         }
 
-        List<Stream> streams = [];
+        // Each pack opened once, however many keys it serves: a combined
+        // pack serves every key of the level.
+        Dictionary<string, OpenedPack> opened = new(StringComparer.Ordinal);
         try
         {
-            // Every pack's index and library sections, in level order.
-            List<RoomPackIndex> indexes = [];
-            List<(RoomLibraryOptions Options, IReadOnlyList<VmfChunk> Entities)> settings = [];
-            List<string?> skyboxes = [];
-            List<(string Key, Guid? Pack)> packIds = [];
+            KeySource[] sources = new KeySource[keys.Count];
+            List<string> moved = [];
             for (int i = 0; i < keys.Count; i++)
             {
-                string pack = HostPaths.Display(packPaths[i]);
+                string pack = HostPaths.Display(choices[i].Path);
                 try
                 {
-                    if (!await disk.ExistsAsync(packPaths[i], cancellationToken).ConfigureAwait(false))
+                    if (!opened.TryGetValue(pack, out OpenedPack? open))
                     {
-                        await output.WriteLineAsync(
-                            $"ssmap link: {levelPath}: there is no room pack {pack} for library {keys[i].Key};"
-                            + $" compile the library with ssmap room, or point -rooms {keys[i].Key}= at its pack")
-                            .ConfigureAwait(false);
+                        if (!await disk.ExistsAsync(choices[i].Path, cancellationToken).ConfigureAwait(false))
+                        {
+                            await output.WriteLineAsync(
+                                $"ssmap link: {levelPath}: there is no room pack {pack} for library {keys[i].Key};"
+                                + $" compile the library with ssmap room, or point -rooms {keys[i].Key}= at its pack")
+                                .ConfigureAwait(false);
+                            return ExitFailed;
+                        }
+
+                        open = await OpenedPack.OpenAsync(disk, choices[i].Path, !nav.Skip, cancellationToken).ConfigureAwait(false);
+                        opened[pack] = open;
+                    }
+
+                    if (KeySource.Find(open, keys[i].Key, choices[i].Shared && keys.Count > 1, !sources.Take(i).Any(x => ReferenceEquals(x.Pack, open))) is not { } found)
+                    {
+                        await output.WriteLineAsync($"ssmap link: {KeySource.Missing(open, keys[i].Key, keys[0].Key)}").ConfigureAwait(false);
                         return ExitFailed;
                     }
 
-                    Stream stream = await disk.OpenReadAsync(packPaths[i], cancellationToken).ConfigureAwait(false);
-                    streams.Add(stream);
-                    RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
-                    IReadOnlyList<VmfChunk> entities = await RoomPack.ReadLibraryEntitiesAsync(stream, index, cancellationToken).ConfigureAwait(false);
-                    RoomLibraryOptions options = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken).ConfigureAwait(false);
-                    string? skybox = await RoomPack.ReadLibrarySkyboxAsync(stream, index, cancellationToken).ConfigureAwait(false);
-                    if (skybox is not null && index.Find(skybox) is null)
+                    sources[i] = found;
+                    if (found.MovedFrom(keys[i].Path) is { } recorded)
+                    {
+                        moved.Add($"library {keys[i].Key}: the level names {keys[i].Path}, but room pack {pack} built it from {recorded}.");
+                    }
+
+                    if (found.Skybox is { } skybox && open.Index.Find(found.PackName(skybox)) is null)
                     {
                         await output.WriteLineAsync(
-                            $"ssmap link: the room pack {pack} names skybox room \"{skybox}\" but does not hold it; recompile the library with ssmap room")
+                            $"ssmap link: the room pack {pack} names skybox room \"{found.PackName(skybox)}\" but does not hold it; recompile the library with ssmap room")
                             .ConfigureAwait(false);
                         return ExitFailed;
                     }
-
-                    indexes.Add(index);
-                    skyboxes.Add(skybox);
-                    packIds.Add((keys[i].Key, nav.Skip ? null : await RoomNavPack.ReadPackIdAsync(stream, index, cancellationToken).ConfigureAwait(false)));
-                    settings.Add((options, entities));
                 }
                 catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
                 {
@@ -158,7 +129,7 @@ public static partial class RoomCommands
             LevelGrid resolved;
             try
             {
-                resolved = LevelLibraries.Resolve(level, [.. indexes.Select(x => (IReadOnlyList<string>)[.. x.Entries.Select(e => e.Name)])]);
+                resolved = LevelLibraries.Resolve(level, [.. sources.Select(x => x.Names)]);
             }
             catch (LevelFileException exception)
             {
@@ -166,33 +137,36 @@ public static partial class RoomCommands
                 return ExitFailed;
             }
 
-            // Each pack's placed rooms, at their turns, and the first
-            // library's skybox; then every library with its rooms.
+            // Each pack's placed rooms, at their turns, and the level's
+            // skybox (the first library's, or the earliest library's with one
+            // when the first has none); then every library with its rooms.
             (List<LevelCell> first, Dictionary<string, HashSet<int>> turns) = PlacedRooms(resolved);
+            int? skyboxSource = LevelLibraries.SkyboxSource([.. sources.Select(s => s.Skybox)]);
             List<IReadOnlyList<RoomObject>> loaded = [];
             for (int i = 0; i < keys.Count; i++)
             {
+                KeySource source = sources[i];
                 string prefix = keys[i].Key + LevelLibraries.Separator;
                 List<RoomPackRequest> requests = [.. first
                     .Where(c => c.Room.StartsWith(prefix, StringComparison.Ordinal))
-                    .Select(c => new RoomPackRequest(c.Room[prefix.Length..], turns[c.Room]) { Navigation = !nav.Skip })];
-                if (i == 0 && skyboxes[0] is { } skybox && !turns.ContainsKey(prefix + skybox))
+                    .Select(c => new RoomPackRequest(source.PackName(c.Room[prefix.Length..]), turns[c.Room]) { Navigation = !nav.Skip })];
+                if (i == skyboxSource && source.Skybox is { } skybox && !turns.ContainsKey(prefix + skybox))
                 {
-                    requests.Add(new RoomPackRequest(skybox, [0]));
+                    requests.Add(new RoomPackRequest(source.PackName(skybox), [0]));
                 }
 
                 try
                 {
-                    loaded.Add(requests.Count == 0 ? [] : await RoomPack.LoadRoomsAsync(streams[i], indexes[i], requests, cancellationToken).ConfigureAwait(false));
+                    loaded.Add(requests.Count == 0 ? [] : await RoomPack.LoadRoomsAsync(source.Pack.Stream, source.Pack.Index, requests, cancellationToken).ConfigureAwait(false));
                 }
                 catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
                 {
-                    await output.WriteLineAsync($"ssmap link: cannot read the room pack {HostPaths.Display(packPaths[i])}: {exception.Message}").ConfigureAwait(false);
+                    await output.WriteLineAsync($"ssmap link: cannot read the room pack {HostPaths.Display(choices[i].Path)}: {exception.Message}").ConfigureAwait(false);
                     return ExitFailed;
                 }
                 catch (Exception exception) when (exception is LinkException or ArgumentException)
                 {
-                    await output.WriteLineAsync($"ssmap link: {HostPaths.Display(packPaths[i])}: {exception.Message}").ConfigureAwait(false);
+                    await output.WriteLineAsync($"ssmap link: {HostPaths.Display(choices[i].Path)}: {exception.Message}").ConfigureAwait(false);
                     return ExitFailed;
                 }
             }
@@ -204,20 +178,29 @@ public static partial class RoomCommands
                 RoomDefinition grid = loaded[i].Count > 0 ? loaded[i][0].Definition : sample;
                 RoomLibrary library = new(grid.Kit, grid.CellSize)
                 {
-                    Options = settings[i].Options,
-                    LibraryEntities = settings[i].Entities,
-                    SkyboxRoom = skyboxes[i],
+                    Options = sources[i].Options,
+                    LibraryEntities = sources[i].Entities,
+                    SkyboxRoom = sources[i].Skybox,
                 };
                 try
                 {
                     foreach (RoomObject room in loaded[i])
                     {
-                        library.Add(room);
+                        // A namespace's room is held under its name within
+                        // its library, as the level's cells name it.
+                        if (sources[i].Space is { } space)
+                        {
+                            library.Add(room.Definition.Name[space.Prefix.Length..], room, 0);
+                        }
+                        else
+                        {
+                            library.Add(room);
+                        }
                     }
                 }
                 catch (ArgumentException exception)
                 {
-                    await output.WriteLineAsync($"ssmap link: {HostPaths.Display(packPaths[i])}: {exception.Message}").ConfigureAwait(false);
+                    await output.WriteLineAsync($"ssmap link: {HostPaths.Display(choices[i].Path)}: {exception.Message}").ConfigureAwait(false);
                     return ExitFailed;
                 }
 
@@ -236,23 +219,249 @@ public static partial class RoomCommands
             }
 
             // Every stream is done with: the link reads nothing more.
-            foreach (Stream stream in streams)
+            foreach (OpenedPack pack in opened.Values)
             {
-                await stream.DisposeAsync().ConfigureAwait(false);
+                await pack.Stream.DisposeAsync().ConfigureAwait(false);
             }
 
-            streams.Clear();
+            opened.Clear();
             return await LinkLoadedAsync(
-                disk, resolved, levelBytes, levelPath, set.Rooms, nav.Skip ? null : RoomCompileIds.LevelPackId(packIds), set.Warnings,
-                linkOptions, mapPath, nav, output, cancellationToken).ConfigureAwait(false);
+                disk, resolved, levelBytes, levelPath, set.Rooms,
+                nav.Skip ? null : RoomCompileIds.LevelPackId([.. keys.Select((k, i) => (k.Key, sources[i].Pack.PackId))]),
+                [.. moved, .. set.Warnings], linkOptions, mapPath, nav, output, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            foreach (Stream stream in streams)
+            foreach (OpenedPack pack in opened.Values)
             {
-                await stream.DisposeAsync().ConfigureAwait(false);
+                await pack.Stream.DisposeAsync().ConfigureAwait(false);
             }
         }
+    }
+
+    /// <summary>
+    /// A pack that cannot give a key its library: a combined pack without
+    /// that namespace, or a plain pack given to every key of a level of
+    /// several. The message is the whole line after the verb.
+    /// </summary>
+    /// <param name="message">17.10's text.</param>
+    private sealed class PackKeyException(string message) : Exception(message);
+
+    /// <summary>Where a level's key finds its pack, and whether a plain <c>-rooms</c> gave it.</summary>
+    /// <param name="Path">The pack.</param>
+    /// <param name="Shared">Whether the pack came from a <c>-rooms &lt;pack&gt;</c> that names no key.</param>
+    private sealed record PackChoice(VPath Path, bool Shared);
+
+    /// <summary>
+    /// Each key's pack (the rooms design, 17.10): <c>-rooms &lt;key&gt;=&lt;pack&gt;</c>
+    /// for that key, else a <c>-rooms &lt;pack&gt;</c> that names no key (a
+    /// combined pack, whose namespaces serve every key), else the pack beside
+    /// the key's library; or null, with the message printed.
+    /// </summary>
+    private static async Task<(PackChoice[]? Choices, int Exit)> ChoosePacksAsync(
+        string verb, IReadOnlyList<LevelLibrary> keys, IReadOnlyList<string> libraryPaths, IReadOnlyList<string> roomsPacks, TextWriter output)
+    {
+        string?[] packArgs = new string?[keys.Count];
+        string? shared = null;
+        foreach (string arg in roomsPacks)
+        {
+            int equals = arg.IndexOf('=', StringComparison.Ordinal);
+            string key = equals > 0 ? arg[..equals] : string.Empty;
+            if (equals > 0 && LevelLibraries.KeyProblem(key) is null)
+            {
+                int index = IndexOfKey(keys, key);
+                if (index < 0)
+                {
+                    await output.WriteLineAsync(
+                        $"{verb}: -rooms names library {key}, which the level does not list; its libraries are {And([.. keys.Select(k => k.Key)])}.")
+                        .ConfigureAwait(false);
+                    return (null, Program.ExitUsage);
+                }
+
+                packArgs[index] = arg[(equals + 1)..];
+            }
+            else if (shared is null)
+            {
+                shared = arg;
+            }
+            else
+            {
+                await output.WriteLineAsync(
+                    $"{verb}: -rooms {shared} and -rooms {arg} each name a pack for every library of the level; give one, or -rooms <key>=<pack> for each key.")
+                    .ConfigureAwait(false);
+                return (null, Program.ExitUsage);
+            }
+        }
+
+        PackChoice[] choices = new PackChoice[keys.Count];
+        for (int i = 0; i < keys.Count; i++)
+        {
+            string? given = packArgs[i] ?? shared;
+            if (!TryHostPath(given ?? DefaultPack(libraryPaths[i]), out VPath path))
+            {
+                await output.WriteLineAsync($"{verb}: -rooms \"{given}\" for library {keys[i].Key} is not a usable path").ConfigureAwait(false);
+                return (null, Program.ExitUsage);
+            }
+
+            choices[i] = new PackChoice(path, packArgs[i] is null && shared is not null);
+        }
+
+        return (choices, Program.ExitSuccess);
+    }
+
+    /// <summary>A pack open for a link: its stream, index, namespaces and library sections.</summary>
+    private sealed class OpenedPack
+    {
+        private OpenedPack(
+            string display,
+            Stream stream,
+            RoomPackIndex index,
+            IReadOnlyList<RoomPackNamespace>? namespaces,
+            IReadOnlyList<VmfChunk> entities,
+            RoomLibraryOptions options,
+            string? skybox,
+            Guid? packId)
+        {
+            Display = display;
+            Stream = stream;
+            Index = index;
+            Namespaces = namespaces;
+            Entities = entities;
+            Options = options;
+            Skybox = skybox;
+            PackId = packId;
+        }
+
+        public string Display { get; }
+
+        public Stream Stream { get; }
+
+        public RoomPackIndex Index { get; }
+
+        /// <summary>The pack's namespaces, or null for a plain pack.</summary>
+        public IReadOnlyList<RoomPackNamespace>? Namespaces { get; }
+
+        public IReadOnlyList<VmfChunk> Entities { get; }
+
+        public RoomLibraryOptions Options { get; }
+
+        /// <summary>The skybox room as the pack's index names it (qualified in a pack with namespaces).</summary>
+        public string? Skybox { get; }
+
+        public Guid? PackId { get; }
+
+        /// <summary>Opens a pack and reads its index and library sections; the stream is the caller's to dispose.</summary>
+        public static async Task<OpenedPack> OpenAsync(IFileSystem disk, VPath path, bool packId, CancellationToken cancellationToken)
+        {
+            Stream stream = await disk.OpenReadAsync(path, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                // In the order the library sections are written, so a pack
+                // on a stream that cannot seek reads too.
+                RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+                Guid? id = packId ? await RoomNavPack.ReadPackIdAsync(stream, index, cancellationToken).ConfigureAwait(false) : null;
+                IReadOnlyList<VmfChunk> entities = await RoomPack.ReadLibraryEntitiesAsync(stream, index, cancellationToken).ConfigureAwait(false);
+                RoomLibraryOptions options = await RoomPack.ReadLibraryOptionsAsync(stream, index, cancellationToken).ConfigureAwait(false);
+                string? skybox = await RoomPack.ReadLibrarySkyboxAsync(stream, index, cancellationToken).ConfigureAwait(false);
+                IReadOnlyList<RoomPackNamespace>? namespaces = await RoomPack.ReadNamespacesAsync(stream, index, cancellationToken).ConfigureAwait(false);
+                return new OpenedPack(HostPaths.Display(path), stream, index, namespaces, entities, options, skybox, id);
+            }
+            catch
+            {
+                await stream.DisposeAsync().ConfigureAwait(false);
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    /// One key's library in its pack: the whole of a plain pack, or one
+    /// namespace of a combined one. A namespace's rooms are named
+    /// <c>key.room</c> in the pack and <c>room</c> here, as the level's
+    /// cells name them within the library.
+    /// </summary>
+    private sealed class KeySource
+    {
+        private KeySource(OpenedPack pack, RoomPackNamespace? space, bool holdsSingletons)
+        {
+            Pack = pack;
+            Space = space;
+            if (space is null)
+            {
+                Names = [.. pack.Index.Entries.Select(e => e.Name)];
+                Entities = pack.Entities;
+                Options = pack.Options;
+                Skybox = pack.Skybox;
+                return;
+            }
+
+            Names = [.. pack.Index.Entries.Skip(space.FirstRoom).Take(space.RoomCount).Select(e => e.Name[space.Prefix.Length..])];
+
+            // The pack's library entities and options are the singletons every
+            // namespace was compiled under (the level's by D29, 17.10), one
+            // set for the whole pack: they go to the earliest of the level's
+            // keys this pack serves, so the level takes exactly that set
+            // whatever its keys' order and whichever namespaces it lists, and
+            // no other namespace repeats them. Each keeps its own name keys.
+            // The skybox is a room, so it is its own namespace's: the one
+            // its qualified name starts with.
+            Entities = holdsSingletons ? pack.Entities : [];
+            Options = (holdsSingletons ? pack.Options : RoomLibraryOptions.None) with { NameKeys = space.NameKeys };
+            Skybox = pack.Skybox is { } sky && sky.StartsWith(space.Prefix, StringComparison.Ordinal) ? sky[space.Prefix.Length..] : null;
+        }
+
+        public OpenedPack Pack { get; }
+
+        /// <summary>The key's namespace, or null for a plain pack.</summary>
+        public RoomPackNamespace? Space { get; }
+
+        /// <summary>The library's rooms, as the level names them.</summary>
+        public IReadOnlyList<string> Names { get; }
+
+        public IReadOnlyList<VmfChunk> Entities { get; }
+
+        public RoomLibraryOptions Options { get; }
+
+        /// <summary>The library's skybox room, as the level names it, or null.</summary>
+        public string? Skybox { get; }
+
+        /// <summary>A room's name in the pack's index.</summary>
+        public string PackName(string room) => Space is { } space ? space.Prefix + room : room;
+
+        /// <summary>
+        /// The source the namespace was built from, when its file name is not
+        /// the level's (paths move between machines; the namespace is the
+        /// identity, so the link warns and links); else null.
+        /// </summary>
+        public string? MovedFrom(string levelPath) =>
+            Space is { } space && !string.Equals(FileName(space.Source), FileName(levelPath), StringComparison.Ordinal) ? space.Source : null;
+
+        /// <summary>
+        /// A key's library in a pack, or null when the pack cannot give it:
+        /// a combined pack without that namespace, or a plain pack given to
+        /// every key of a level of several (<paramref name="plainRefused"/>).
+        /// </summary>
+        /// <param name="pack">The pack.</param>
+        /// <param name="key">The level's key.</param>
+        /// <param name="plainRefused">Whether a plain pack is refused for it.</param>
+        /// <param name="holdsSingletons">Whether this key is the earliest of the level's keys the pack serves, which carries the pack's singletons.</param>
+        public static KeySource? Find(OpenedPack pack, string key, bool plainRefused, bool holdsSingletons)
+        {
+            if (pack.Namespaces is not { } namespaces)
+            {
+                return plainRefused ? null : new KeySource(pack, null, true);
+            }
+
+            return RoomPackNamespaces.Find(namespaces, key) is { } space ? new KeySource(pack, space, holdsSingletons) : null;
+        }
+
+        /// <summary>Why <see cref="Find"/> gave nothing: 17.10's texts.</summary>
+        public static string Missing(OpenedPack pack, string key, string firstKey) =>
+            pack.Namespaces is { } namespaces
+                ? $"room pack {pack.Display} combines libraries {And([.. namespaces.Select(n => n.Key)])}; it has none named {key}."
+                : $"room pack {pack.Display} holds one library without a namespace; give it to one key with -rooms {firstKey}={pack.Display}.";
+
+        private static string FileName(string path) => path[(path.LastIndexOfAny(['/', '\\']) + 1)..];
     }
 
     private static async Task<int> FlattenLibrariesAsync(
@@ -414,31 +623,35 @@ public static partial class RoomCommands
             return ExitFailed;
         }
 
-        string?[] packArgs = new string?[keys.Count];
-        foreach (string arg in roomsPacks)
+        // Each key's pack as ssmap link finds it; a library: level takes
+        // -rooms as its one pack, as it always did.
+        PackChoice[] choices;
+        if (level.Libraries is null)
         {
-            int equals = arg.IndexOf('=', StringComparison.Ordinal);
-            int index = equals > 0 && level.Libraries is not null ? IndexOfKey(keys, arg[..equals]) : -1;
-            if (index >= 0)
+            string? given = roomsPacks.Count == 0 ? null : roomsPacks[^1];
+            if (!TryHostPath(given ?? DefaultPack(libraryPaths[0]), out VPath only))
             {
-                packArgs[index] = arg[(equals + 1)..];
-            }
-            else if (keys.Count == 1)
-            {
-                packArgs[0] = arg;
-            }
-            else
-            {
-                await output.WriteLineAsync($"ssmap rooms: -rooms \"{arg}\" names no library of the level; write -rooms <key>=<pack>.").ConfigureAwait(false);
+                await output.WriteLineAsync($"ssmap rooms: \"{libraryPaths[0]}\" or its pack is not a usable path").ConfigureAwait(false);
                 return Program.ExitUsage;
             }
+
+            choices = [new PackChoice(only, false)];
+        }
+        else if ((await ChoosePacksAsync("ssmap rooms", keys, libraryPaths, roomsPacks, output).ConfigureAwait(false)) is { Choices: { } chosen })
+        {
+            choices = chosen;
+        }
+        else
+        {
+            return Program.ExitUsage;
         }
 
         List<VmfDocument> vmfs = [];
         System.Text.StringBuilder listing = new();
         for (int i = 0; i < keys.Count; i++)
         {
-            if (!VPath.TryCreate(libraryPaths[i], out VPath libraryVPath) || !TryHostPath(packArgs[i] ?? DefaultPack(libraryPaths[i]), out VPath packPath))
+            VPath packPath = choices[i].Path;
+            if (!VPath.TryCreate(libraryPaths[i], out VPath libraryVPath))
             {
                 await output.WriteLineAsync($"ssmap rooms: \"{libraryPaths[i]}\" or its pack is not a usable path").ConfigureAwait(false);
                 return Program.ExitUsage;
@@ -460,7 +673,13 @@ public static partial class RoomCommands
             PackCounts? counts;
             try
             {
-                counts = await ReadPackCountsAsync(disk, packPath, cancellationToken).ConfigureAwait(false);
+                string key = level.Libraries is null ? Path.GetFileNameWithoutExtension(level.Library) : keys[i].Key;
+                counts = await ReadPackCountsAsync(disk, packPath, key, choices[i].Shared && keys.Count > 1, cancellationToken).ConfigureAwait(false);
+            }
+            catch (PackKeyException exception)
+            {
+                await output.WriteLineAsync($"ssmap rooms: {exception.Message}").ConfigureAwait(false);
+                return ExitFailed;
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or LinkException)
             {
