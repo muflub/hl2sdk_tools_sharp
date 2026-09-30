@@ -283,8 +283,10 @@ public static class LevelMapBuilder
                     markers.Add(Marker(LevelMap.ArrivalKind, transition.Map, p, at, cellSize, arrival.Origin, arrival.Yaw));
                 }
 
+                // An exit is a place, not a facing: yaw 0 whatever the turn.
                 string exit = transition.Direction == TransitionDirection.Up ? LevelMap.ExitUpKind : LevelMap.ExitDownKind;
-                markers.Add(Marker(exit, transition.Map, p, at, cellSize, transit.VolumeCentre, 0));
+                Vec3 centre = new RoomTransform(at, cellSize).Apply(transit.VolumeCentre);
+                markers.Add(new Map2dMarker(exit, transition.Map, p, centre.X, centre.Y, centre.Z, 0));
             }
         }
 
