@@ -6,6 +6,7 @@
 //=============================================================================//
 
 using System.Buffers.Binary;
+using System.Globalization;
 
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
@@ -327,6 +328,43 @@ public sealed class RoomHeightsTests
         Assert.Equal("640 384 256", LevelLinker.CellCentre(turned, Shaped("tall", Tall)));
         Assert.Equal("640 384 128", LevelLinker.CellCentre(turned, Hub));
         Assert.Equal("640 384 192", LevelLinker.CellCentre(turned, Shaped("mid", Mid)));
+    }
+
+    /// <summary>
+    /// With the mod's entities, each placement's <c>logic_room</c> stands at
+    /// its room's centre, half the room's height up, and the link and the
+    /// flatten write the same origins. The linker writes a room's
+    /// <c>logic_room</c> only when something in the room names it, so each
+    /// room carries a <c>logic_auto</c> that fires its hub.
+    /// </summary>
+    [Fact]
+    public async Task TheLogicRoomStandsHalfTheRoomUpInLinkAndFlatten()
+    {
+        VmfDocument library = Library((0, FiresItsRoom(1)), (1, FiresItsRoom(2)), (2, FiresItsRoom(3)));
+        RoomLibrary rooms = await RoomPropHarness.CompileAsync(library);
+        LevelGrid level = Level("hub, tall@90, mid@270");
+        LinkedLevel linked = await LevelLinker.LinkAsync(
+            RoomPropHarness.Layout(rooms, level), rooms, await RoomHarness.ContextAsync(), new LevelLinkOptions { ModEntities = true });
+        FlattenedLevel flat = LevelFlattener.FlattenLevel(level, library, new LevelFlattenOptions { ModEntities = true });
+
+        List<string> ours = [.. EntityLump.Parse(linked.Bsp[BspLump.Entities])
+            .Where(e => e.ClassName == SourceSharp.RoomContracts.LogicRoom.ClassName).Select(e => e.Get("origin")!)];
+        List<string> theirs = [.. flat.Vmf.GetChunks("entity")
+            .Where(e => e.GetValue("classname") == SourceSharp.RoomContracts.LogicRoom.ClassName).Select(e => e.GetValue("origin")!)];
+        Assert.Equal(["128 128 128", "384 128 256", "640 128 192"], ours);
+        Assert.Equal(ours, theirs);
+    }
+
+    /// <summary>A <c>logic_auto</c> at the room's floor that fires the room's own <c>logic_room</c> on spawn.</summary>
+    private static VmfChunk FiresItsRoom(int id)
+    {
+        VmfChunk entity = new(MapFileLoader.EntityChunk);
+        entity.AddKey("id", id.ToString(CultureInfo.InvariantCulture));
+        entity.AddKey("classname", "logic_auto");
+        entity.AddKey("origin", "40 40 40");
+        entity.AddKey("spawnflags", "1");
+        entity.AddChunk("connections").AddKey("OnMapSpawn", "cxry_room,Trigger1,,0,-1");
+        return entity;
     }
 
     /// <summary>

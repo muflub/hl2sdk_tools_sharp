@@ -3813,7 +3813,8 @@ check` with its one warning (no cubemap sample). A copy of the 3x3 library
 with its cross room 512 tall and its end room 384 packs at version 5
 (610 KB against 578 KB), the same bytes at `-threads` 1 and 4, and every
 level of it links to a version 3 `.nav3d` and passes `ssmap check` with the
-same one warning.
+same one warning. The stress library's 33 x 33 level links in 1.6 to 1.8 s
+against 1.65 to 1.7 s, alternating runs, to the same bytes.
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
