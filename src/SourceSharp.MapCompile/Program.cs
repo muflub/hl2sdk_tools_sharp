@@ -308,6 +308,16 @@ public static class Program
                     .ConfigureAwait(false);
             }
 
+            case "map2d":
+            {
+                // The level map overlay of a compiled map: reads the map, and
+                // with -level its level file and libraries; mounts no game.
+                PhysicalFileSystem disk = new("/");
+
+                return await Map2dCommand.RunAsync(disk, args[1..], output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             case "layout":
             {
                 // A seeded level needs only the library's socket sets, which
@@ -573,8 +583,10 @@ public static class Program
                                                       order (-out: <level>.roompack)
               link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-out <map.bsp>]
                    [-no-nav | -require-nav] [-nav-codec <c>] [-mod-entities] [-nofold] [-nodoorvis]
+                   [-no-map2d | -map2d-svg]
                                                       the level's rooms -> one linked map
-                                                      and its <map>.nav3d beside it;
+                                                      and its <map>.nav3d and <map>.map2d
+                                                      (the level map overlay) beside it;
                                                       reports its edicts against 2048 less
                                                       the reserve (512, or the library's);
                                                       joints are the sockets that face;
@@ -609,6 +621,9 @@ public static class Program
               layout <library.vmf> ... -sequence K -name <base> [-out <folder>]
                                                       K levels <base>_01 .. <base>_K from
                                                       seeds N.., chained by up_map/down_map
+              map2d <map.bsp> [-level <level.yaml>] [-out <file.map2d>] [-svg]
+                                                      a compiled map's level map overlay,
+                                                      cut into the level's cells with -level
               nav <map.nav3d | level.yaml> [-rooms <pack>] [--obj <out.obj>] [--floor] [--agent N]
                                                       a level navigation's cells, free volume,
                                                       components and door links; OBJ export

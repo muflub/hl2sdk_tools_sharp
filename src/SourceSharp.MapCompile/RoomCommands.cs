@@ -11,6 +11,7 @@ using System.Text;
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
+using SourceSharp.MapFormats.Map2d;
 using SourceSharp.MapFormats.Nav;
 using SourceSharp.MapFormats.Text;
 
@@ -449,6 +450,14 @@ public static partial class RoomCommands
             {
                 nav = nav with { Require = true };
             }
+            else if (IsFlag(args[i], "no-map2d"))
+            {
+                nav = nav with { SkipMap = true };
+            }
+            else if (IsFlag(args[i], "map2d-svg"))
+            {
+                nav = nav with { MapSvg = true };
+            }
             else if (Take(args, i, "out", out string o))
             {
                 outPath = o;
@@ -476,10 +485,11 @@ public static partial class RoomCommands
             }
         }
 
-        if (rest.Count != 1 || (flatten && (roomsPacks.Count > 0 || reserveText is not null || noFold || noDoorVis)))
+        if (rest.Count != 1 || (flatten && (roomsPacks.Count > 0 || reserveText is not null || noFold || noDoorVis || nav.SkipMap || nav.MapSvg))
+            || (nav.SkipMap && nav.MapSvg))
         {
             await output.WriteLineAsync(
-                "usage: ssmap link <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
+                "usage: ssmap link <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>] [-no-map2d | -map2d-svg]\n"
                 + "       ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
@@ -1841,6 +1851,14 @@ public static partial class RoomCommands
                 }
             }
 
+            // The level map (the rooms design, section 18): from the rooms'
+            // map sections, written beside the map once its checksum is known.
+            LevelMapPlan? mapPlan = nav.SkipMap ? null : LevelMapBuilder.Plan(layout, level.Columns, level.Rows, library.Get);
+            if (mapPlan?.Warning is { } mapWarning)
+            {
+                await output.WriteLineAsync($"ssmap link: warning: {mapWarning}").ConfigureAwait(false);
+            }
+
             // The ids tie the map to its .nav3d, so they are written only
             // with one: a link without navigation writes the map it always did.
             if (navPlan.WritesNavigation)
@@ -1922,6 +1940,15 @@ public static partial class RoomCommands
                 $"ssmap link: visibility {link.Vis.TotalVisibleClusters} of {pairs} cluster pairs,"
                 + $" {link.Vis.VisDataSize} bytes")
                 .ConfigureAwait(false);
+
+            // The level map, bound to the map just written by its checksum.
+            // Before the navigation: it is a copy and a turn, and a navigation
+            // that fails leaves the map and its overlay as written.
+            if (mapPlan is { WritesMap: true })
+            {
+                await WriteLevelMapAsync(disk, mapPath, mapPlan.Build(BspMapChecksum.Compute(bytes)), nav.MapSvg, "ssmap link", output, cancellationToken)
+                    .ConfigureAwait(false);
+            }
             if (navPlan.WritesNavigation)
             {
                 // The map is on disk; now the navigation. A failure here
@@ -1984,6 +2011,46 @@ public static partial class RoomCommands
 #pragma warning disable CA1308 // mapbase is lower case, as vbsp's strlwr makes it
         return Path.GetFileNameWithoutExtension(mapPath.FileName).ToLowerInvariant();
 #pragma warning restore CA1308
+    }
+
+    /// <summary>Where a linked map's level map goes: beside it, <c>&lt;map&gt;.map2d</c>.</summary>
+    /// <param name="mapPath">The map.</param>
+    /// <returns>The level map's path.</returns>
+    public static VPath Map2dPathOf(VPath mapPath) =>
+        VPath.Create(Path.ChangeExtension(mapPath.ToString(), Map2dFormat.Extension));
+
+    /// <summary>
+    /// Writes a level map beside its map, and its SVG preview when asked,
+    /// and reports each file: what <c>ssmap link</c> and <c>ssmap map2d</c>
+    /// both do with a map they made.
+    /// </summary>
+    /// <param name="disk">Where the files go.</param>
+    /// <param name="mapPath">The map; the files take its name.</param>
+    /// <param name="map">The level map.</param>
+    /// <param name="svg">Whether to write <c>&lt;map&gt;.svg</c> too.</param>
+    /// <param name="verb">The command, for the report lines.</param>
+    /// <param name="output">Where the report goes.</param>
+    /// <param name="cancellationToken">Cancels the writes.</param>
+    /// <returns>A task that completes when the files are written.</returns>
+    internal static async Task WriteLevelMapAsync(
+        IFileSystem disk, VPath mapPath, Map2dLevel map, bool svg, string verb, TextWriter output, CancellationToken cancellationToken)
+    {
+        byte[] file = Map2dWriter.Write(map);
+        VPath path = Map2dPathOf(mapPath);
+        await disk.ReplaceAsync(path, async (stream, token) => await stream.WriteAsync(file, token).ConfigureAwait(false), cancellationToken)
+            .ConfigureAwait(false);
+        await output.WriteLineAsync(
+            $"{verb}: wrote {HostPaths.Display(path)} ({map.Rooms.Length} rooms, {map.Rings.Length} rings, {map.Doors.Length} doors,"
+            + $" {map.Markers.Length} markers, {file.Length} bytes)")
+            .ConfigureAwait(false);
+        if (svg)
+        {
+            byte[] preview = Encoding.UTF8.GetBytes(Map2dSvg.Write(map));
+            VPath svgPath = VPath.Create(Path.ChangeExtension(mapPath.ToString(), ".svg"));
+            await disk.ReplaceAsync(svgPath, async (stream, token) => await stream.WriteAsync(preview, token).ConfigureAwait(false), cancellationToken)
+                .ConfigureAwait(false);
+            await output.WriteLineAsync($"{verb}: wrote {HostPaths.Display(svgPath)} ({preview.Length} bytes)").ConfigureAwait(false);
+        }
     }
 
     /// <summary>Where a linked map's navigation goes: beside it, <c>&lt;map&gt;.nav3d</c>.</summary>
@@ -2059,6 +2126,16 @@ public static partial class RoomCommands
 
         /// <summary>The switches that shape the outputs, as level id inputs.</summary>
         public IReadOnlyList<string> IdOptions => LevelNavFromPack.IdOptions(!Skip, Compression);
+
+        /// <summary>
+        /// <c>-no-map2d</c>: write no <c>.map2d</c>. The level map's switches
+        /// ride with the navigation's: both are sidecars of the linked map,
+        /// planned with the rooms and written after it.
+        /// </summary>
+        public bool SkipMap { get; init; }
+
+        /// <summary><c>-map2d-svg</c>: also write the map's SVG preview, <c>&lt;map&gt;.svg</c>.</summary>
+        public bool MapSvg { get; init; }
     }
 
     private static async Task<int> FlattenAsync(

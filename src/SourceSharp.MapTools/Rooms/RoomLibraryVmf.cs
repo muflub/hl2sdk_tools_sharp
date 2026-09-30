@@ -47,6 +47,13 @@ public sealed record LibraryRoom(RoomDefinition Definition, Vec3 Corner, VmfDocu
     public IReadOnlyDictionary<string, RoomWaterSocket> WaterSockets { get; init; } = new Dictionary<string, RoomWaterSocket>();
 
     /// <summary>
+    /// The room's display label on the level map, from its <c>info_room</c>'s
+    /// <c>map_label</c> key (<see cref="SourceSharp.RoomContracts.LevelMap.LabelKey"/>);
+    /// empty without the key.
+    /// </summary>
+    public string MapLabel { get; init; } = string.Empty;
+
+    /// <summary>
     /// The namespace the room is compiled into, for a room of a pack with
     /// namespaces (<see cref="RoomPackCombiner"/>), or null for a room of a
     /// plain pack, which every library split gives.
@@ -434,7 +441,7 @@ public static class RoomLibraryVmf
                 continue;
             }
 
-            rooms.Add(new LibraryRoom(definition, marker.Corner, document) { Role = marker.Role, WaterSockets = waterSockets });
+            rooms.Add(new LibraryRoom(definition, marker.Corner, document) { Role = marker.Role, WaterSockets = waterSockets, MapLabel = marker.MapLabel });
         }
 
         return new RoomLibrarySplit(rooms, libraryWide) { Options = options, Skybox = skybox };
@@ -962,7 +969,18 @@ public static class RoomLibraryVmf
             waterWalls[wall] = ParseWaterSocket(key, who);
         }
 
-        return new Marker(name, corner, cell, kit, socketNames) { Role = role, Height = Height(entity, name, cell, kit), WaterWalls = waterWalls };
+        // The room's label on the level map (the rooms design, 18.1): display
+        // text, carried as written, held to the contract's length.
+        string mapLabel = entity.GetValue(SourceSharp.RoomContracts.LevelMap.LabelKey) is { } labelText ? Utf8(labelText) : string.Empty;
+        if (!SourceSharp.RoomContracts.LevelMap.IsLabel(mapLabel))
+        {
+            throw new RoomLibraryException(RoomMapView.LabelProblem(who, mapLabel));
+        }
+
+        return new Marker(name, corner, cell, kit, socketNames)
+        {
+            Role = role, Height = Height(entity, name, cell, kit), WaterWalls = waterWalls, MapLabel = mapLabel,
+        };
     }
 
     /// <summary>A <c>water_&lt;wall&gt;</c> key's value: a finite height, then a material.</summary>
@@ -1072,5 +1090,7 @@ public static class RoomLibraryVmf
         public RoomRole Role { get; init; }
 
         public Dictionary<string, RoomWaterSocket> WaterWalls { get; init; } = new(StringComparer.Ordinal);
+
+        public string MapLabel { get; init; } = string.Empty;
     }
 }

@@ -303,6 +303,13 @@ public static class RoomCompiler
         // rebased by the link; the rest is the room's lumps byte for byte).
         RoomDisplacements? displacements = RoomDisplacements.Build(definition.Name, vbsp.Bsp);
 
+        // The room's part of its level's map (the rooms design, 18.2): its
+        // walkable faces unioned in its own frame, and its doors. The
+        // markers and the label are its library's (a library compile adds
+        // them, RoomLibraryCompiler); a room compiled alone has the markers
+        // of the document it was given and no label.
+        RoomMapView? mapView = RoomMapView.Build(definition, vbsp.Bsp, document, RoomMapView.MarkersOf(document), string.Empty);
+
         return new RoomObject(
             definition,
             vbsp.Bsp,
@@ -318,6 +325,7 @@ public static class RoomCompiler
             AreaPortals = areaPortals,
             Water = water,
             Displacements = displacements,
+            MapView = mapView,
         };
     }
 
