@@ -3645,8 +3645,8 @@ plain `ssmap room` writes the bytes and log it wrote before.
   pack has an `NSPC` section links as a level of one library keyed by its
   file's stem, and a library VMF's listing and layout take their stem as
   the key. Only the pack's first namespace has singletons (every other
-  library's were dropped when it was built); every namespace has its own
-  name keys. The link reads each pack once however many keys it serves.
+  library's were dropped when it was built; D29 changed this, below);
+  every namespace has its own name keys. The link reads each pack once however many keys it serves.
 - **Equivalence.** A level of two lit libraries with door light, sunlit
   rooms, rooms of one name in both, every quarter turn, links from a
   combined pack, from plain separate packs and from `-namespace` separate
@@ -3677,7 +3677,7 @@ plain `ssmap room` writes the bytes and log it wrote before.
   build's; only the compile is limited. When the level's first key is not
   the combined pack's first namespace, the level takes its first key's
   singletons as always, and that namespace has none in the pack, so the
-  dropped lines say so. A level of one library keyed by a stem that is not
+  dropped lines say so (D29 changed this, below). A level of one library keyed by a stem that is not
   a key finds no namespace and is refused with 17.10's text. Messages the
   section did not give, each held by a fact: `ssmap roompack: -only copies
   the other libraries from {pack}, and there is none; build it once without
@@ -3721,11 +3721,30 @@ decided per category:
   placement, and D26 compares every other library's sun to it, so the
   supplying library's sunlit rooms link and another library's sunlit rooms
   under a different sun are refused naming it.
+- **Combined packs** (stacked on PR 18): `RoomPackCombiner.Plan` writes the
+  D29 set as the pack's `LENT` and `LOPT`, packs a later library's skybox
+  in its own namespace and names it in `SKYB`, and lights every room under
+  the level's sun. The singleton digest now covers the filled `LENT`
+  and, only when a later library supplies it, the skybox's name, so a
+  pack whose first library has everything keeps its digest and bytes; the
+  `-only` staleness text reads `the level's singletons`. The link gives the
+  pack's set to the earliest of the level's keys it serves (it gave it to
+  the pack's first namespace), and the skybox to the namespace its name
+  starts with, so a level whose first key is not the pack's first
+  namespace, the case PR 18 recorded, now takes the pack's singletons
+  without a line. `ssmap rooms` and `ssmap layout` over one namespace list
+  the set with the pack's first namespace, as before.
+- **Found on the way:** a lit level with door light and a skybox was
+  refused (`room sky at cell (0, 0) has no socket ...`): the door-light
+  plan found neighbours by cell with the skybox among them, which shares
+  its cell's column and row. It now uses the grid's cells only
+  (`GridCells`), as the joints and areas already did.
 
 A level of one library, and a level where no later library fills a gap
 of the first (the first has every singleton and option any library has),
 links and flattens to the same bytes as before: the combined library then carries the first library's own
-entity list and options record, and the sun source is 0. The facts that
+entity list and options record, and the sun source is 0. The same holds for
+plain packs and for combined packs whose first library has every singleton. The facts that
 held "only in a later library is dropped" now hold the opposite.
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
@@ -4332,7 +4351,7 @@ not landed with it, the verb in them is the one PR 18 adds.
 | 17.10 key twice | R | `ssmap roompack: the key {key} is given twice.` |
 | 17.10 no key | R | `ssmap roompack: {path} gives no key ({stem} is not a key); write key={path}.` |
 | 17.10 only unknown | R | `ssmap roompack: -only names {key}, which is not one of {keys}.` |
-| 17.10 only stale | R | `ssmap roompack: library {key} changed since {pack} was built ({what}); rebuild it too, or leave out -only.` (`{what}`: `its VMF` or `the first library's singletons`) |
+| 17.10 only stale | R | `ssmap roompack: library {key} changed since {pack} was built ({what}); rebuild it too, or leave out -only.` (`{what}`: `its VMF` or `the level's singletons`; PR 18 wrote `the first library's singletons`, D29 changed it) |
 
 ### 17.4 Singletons across libraries
 
@@ -4728,10 +4747,16 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
   (`RoomLibraryCompiler`, `-threads` at once), each with the **first
   library's worldspawn** (D26) and its `MapBase` the qualified name, lower
   cased; write one pack. The level-wide `LENT`, `LOPT` and `SKYB` of the
-  pack are the first library's; each namespace keeps its own name keys.
-  Rooms are lit (PR 9) under the first library's sun, so the combined
-  pack's id and every room's cache key carry that sun (D26: a combined
-  pack never holds a sunlit room baked under a dropped sun).
+  pack are the level's singletons by D29 (`LevelLibraries.Singletons`): the
+  first library's, each it lacks entirely taken from the earliest library
+  that has it; a skybox a later library supplies is packed last among that
+  library's rooms, in its namespace, and `SKYB` names it qualified. Each
+  namespace keeps its own name keys. The worldspawn is not filled (every
+  library has one): it stays the first library's. Rooms are lit (PR 9)
+  under the level's sun (the first library's, or the earliest library's
+  with one), so the combined pack's id and every room's cache key carry
+  that sun (D26: a combined pack never holds a sunlit room baked under a
+  dropped sun).
 - **Namespacing.** A room of a combined pack is named `key.room` in the
   pack index and in its own definition, so every message names it
   qualified and its room-named files (`materials/maps/<mapbase>/...`, 4.13)
@@ -4750,8 +4775,8 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
   library then costs its changed rooms' compiles and a copy of the rest.
   **`-only <keys>`** is the fast path: only those namespaces are split and
   compiled; every other namespace's sections are copied byte for byte from
-  the existing pack, after checking that its VMF's SHA-256 and the first
-  library's singleton digest (17.11) are what that pack recorded, refused
+  the existing pack, after checking that its VMF's SHA-256 and the
+  singleton digest (17.11) are what that pack recorded, refused
   otherwise (17.3). It trusts the copied namespaces' game content, which is
   why it is opt-in.
 - **How `ssmap link` finds rooms.** For each library key of the level:
@@ -4774,10 +4799,14 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
   of several packs uses an id derived (`RoomCompileIds.Derive`) from every
   library's key and pack id in library order, so re-packing any library
   changes the level's ids, as re-packing its one library does today.
-- **Singletons with a combined pack** come from the level's first key, as
-  always; when that is the pack's first namespace (the normal case, and
-  always with `-level`) there is nothing to warn about, because the rooms
-  were compiled under it.
+- **Singletons with a combined pack.** The pack's `LENT` and `LOPT` are one
+  set, the singletons every namespace was compiled under; the link gives
+  them to the earliest of the level's keys that the pack serves, and no
+  other namespace of it has any (D29). With D29 filling gaps, the level
+  then takes exactly that set whatever its keys' order and whichever of
+  the pack's namespaces it lists, so it links without a singleton line.
+  The skybox is a room, so it belongs to the namespace its qualified name
+  starts with.
 
 ### 17.11 Pack and file format changes
 
@@ -4789,8 +4818,9 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
   version bump; PR 10's door-light sections are added the same way on their
   own branch), with the 1.1 framing: per namespace in order, its key, the
   source path as given (relative to the pack, `/` separators), the SHA-256
-  of the library VMF's bytes, the SHA-256 of the first library's singletons
-  the namespace was compiled under, its first room index and room count
+  of the library VMF's bytes, the SHA-256 of the singletons the namespace
+  was compiled under (the first library's worldspawn, the pack's `LENT`
+  and, when a later library supplies it, the skybox room's name, D29), its first room index and room count
   (rooms are grouped by namespace, in library order within each), and its
   own name keys. An older build skips `NSPC` and reads the rooms under their
   qualified names, which are legal room names, with the pack's `LENT` and

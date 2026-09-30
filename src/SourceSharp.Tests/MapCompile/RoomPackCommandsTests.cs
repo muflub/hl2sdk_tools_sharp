@@ -190,6 +190,112 @@ public sealed class RoomPackCommandsTests
         Assert.Equal(packId.ToString("D"), EntityLump.Parse(withIds[BspLump.Entities])[0].Get(RoomCompileIds.PackIdKey));
     }
 
+    // ---- D29: a later library fills the first's gaps -----------------------------
+
+    /// <summary>
+    /// D29 in a combined pack: the first library (<c>base</c>) has no sun, no
+    /// skybox and no entity reserve; the second (<c>caves</c>) has all three.
+    /// <c>ssmap roompack</c> packs caves' sun and reserve as the pack's
+    /// singletons and caves' skybox in caves' namespace, without a line. The
+    /// level links from the combined pack to the same bytes as from the two
+    /// separate packs: unlit, the level of both libraries at every turn, in
+    /// the pack's key order and reversed (a level whose first key is not the
+    /// pack's first namespace, which before D29 lost the pack's singletons);
+    /// lit, a level of caves' rooms (separate packs of a sunless and a
+    /// sunlit library never share a lit level, PR 9), under caves' sun.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ACombinedPackFillsTheFirstLibrarysGapsAsSeparatePacksDo(bool lit)
+    {
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/base.vmf"), SunlessBase().ToBytes());
+        fs.AddFile(Rooted("/game/maps/caves.vmf"), SunlitCaves().ToBytes());
+        string[] light = lit ? [] : ["-nolight"];
+
+        (int exit, string log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf", .. light]);
+        Assert.True(exit == Program.ExitSuccess, log);
+        Assert.DoesNotContain("warning", log, StringComparison.Ordinal);
+        using (MemoryStream stream = new(Bytes(fs, "/packs/both.roompack")))
+        {
+            RoomPackIndex index = await RoomPack.ReadIndexAsync(stream);
+            Assert.Equal(["base.hub", "base.other", "caves.hub", "caves.other", "caves.sky"], index.Entries.Select(e => e.Name));
+            Assert.Equal("caves.sky", await RoomPack.ReadLibrarySkyboxAsync(stream, index));
+            Assert.Equal(300, (await RoomPack.ReadLibraryOptionsAsync(stream, index)).EntityReserve);
+            Assert.Equal("light_environment", Assert.Single(await RoomPack.ReadLibraryEntitiesAsync(stream, index)).GetValue("classname"));
+        }
+
+        foreach (string key in new[] { "base", "caves" })
+        {
+            (exit, log) = await RoomAsync(fs, [$"/game/maps/{key}.vmf", "-out", $"/packs/{key}.roompack", .. light]);
+            Assert.True(exit == Program.ExitSuccess, log);
+        }
+
+        string[] levels = lit
+            ? ["libraries:\n  base: ../maps/base.vmf\n  caves: ../maps/caves.vmf\nrows: 1\ncolumns: 2\ngrid:\n  - [caves.hub, caves.other@90]\n"]
+            : [MultiLevel, MultiLevel.Replace("  base: ../maps/base.vmf\n  caves: ../maps/caves.vmf\n", "  caves: ../maps/caves.vmf\n  base: ../maps/base.vmf\n", StringComparison.Ordinal)];
+        foreach (string level in levels)
+        {
+            fs.AddText(Rooted("/game/levels/multi.yaml"), level);
+            (exit, log) = await LinkAsync(fs, "combined", "-no-nav", "-rooms", "/packs/both.roompack");
+            Assert.True(exit == Program.ExitSuccess, log);
+            Assert.DoesNotContain("warning", log, StringComparison.Ordinal);
+            (exit, log) = await LinkAsync(fs, "plain", "-no-nav", "-rooms", "base=/packs/base.roompack", "-rooms", "caves=/packs/caves.roompack");
+            Assert.True(exit == Program.ExitSuccess, log);
+            Assert.DoesNotContain("warning", log, StringComparison.Ordinal);
+            byte[] map = Bytes(fs, "/out/combined.bsp");
+            Assert.Equal(Bytes(fs, "/out/plain.bsp"), map);
+
+            List<BspEntity> entities = EntityLump.Parse((await BspFile.LoadAsync(new MemoryStream(map)))[BspLump.Entities]);
+            Assert.Single(entities, e => e.ClassName == "light_environment");
+            Assert.Single(entities, e => e.ClassName == "sky_camera");
+            if (lit)
+            {
+                Assert.NotEmpty((await BspFile.LoadAsync(new MemoryStream(map)))[BspLump.WorldLights].Data.ToArray());
+            }
+        }
+    }
+
+    /// <summary>
+    /// <c>-only</c> under D29: the singleton digest covers the singletons a
+    /// later library supplies. Base gaining a sun of its own, or a skybox of
+    /// its own, changes what caves' rooms were compiled under (the sun) or
+    /// what caves' namespace holds (its skybox room), so <c>-only base</c>
+    /// refuses to copy caves; a change to base that fills no gap copies it.
+    /// </summary>
+    [Fact]
+    public async Task OnlySeesASingletonALaterLibrarySupplies()
+    {
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/base.vmf"), SunlessBase().ToBytes());
+        fs.AddFile(Rooted("/game/maps/caves.vmf"), SunlitCaves().ToBytes());
+        string[] both = ["base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf", "-nolight"];
+        string pack = Path.GetFullPath("/packs/both.roompack");
+        Assert.Equal(Program.ExitSuccess, (await PackAsync(fs, ["-out", "/packs/both.roompack", .. both])).Exit);
+        string stale = $"ssmap roompack: library caves changed since {pack} was built (the level's singletons); rebuild it too, or leave out -only.";
+
+        // A change that fills no gap: caves copied.
+        fs.AddFile(Rooted("/game/maps/base.vmf"), WithEntity(SunlessBase(), 0, RoomPropHarness.Entity("info_target", 830, new Vec3(40, 40, 40), ("targetname", "spot"))).ToBytes());
+        (int exit, string log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-only", "base", .. both]);
+        Assert.True(exit == Program.ExitSuccess, log);
+        Assert.Contains($"ssmap roompack: library caves: copied 3 room(s) from {pack}", log, StringComparison.Ordinal);
+
+        // Base's own sun: the level's sun is now base's.
+        VmfDocument sunlit = SunlessBase();
+        sunlit.Chunks.Add(RoomLightHarness.Sun(angles: "0 90 0"));
+        fs.AddFile(Rooted("/game/maps/base.vmf"), sunlit.ToBytes());
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-only", "base", .. both]);
+        Assert.Equal(1, exit);
+        Assert.Contains(stale, log, StringComparison.Ordinal);
+
+        // Base's own skybox: caves' skybox room leaves its namespace.
+        fs.AddFile(Rooted("/game/maps/base.vmf"), RoomSkyboxHarness.AddSkybox(SunlessBase()).ToBytes());
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-only", "base", .. both]);
+        Assert.Equal(1, exit);
+        Assert.Contains(stale, log, StringComparison.Ordinal);
+    }
+
     // ---- rebuilding one library -------------------------------------------------
 
     /// <summary>
@@ -245,7 +351,7 @@ public sealed class RoomPackCommandsTests
         (exit, log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-only", "base", .. both]);
         Assert.Equal(1, exit);
         Assert.Contains(
-            $"ssmap roompack: library caves changed since {pack} was built (the first library's singletons); rebuild it too, or leave out -only.",
+            $"ssmap roompack: library caves changed since {pack} was built (the level's singletons); rebuild it too, or leave out -only.",
             log,
             StringComparison.Ordinal);
 
@@ -711,6 +817,19 @@ public sealed class RoomPackCommandsTests
         VmfChunk world = library.GetChunk("world")!;
         world.AddKey("comment", "caves");
         world.AddKey(RoomLibraryOptions.NameKeysKey, "friend");
+        return library;
+    }
+
+    /// <summary>A lit library without a sun, a skybox or an entity reserve (D29's first library).</summary>
+    private static VmfDocument SunlessBase() =>
+        RoomLightHarness.Library(false, [], (0, RoomLightHarness.Light(800, LitRoomsFixture.HubLight)));
+
+    /// <summary>A lit library with the sun, a skybox and an entity reserve the sunless one lacks, and the same worldspawn otherwise.</summary>
+    private static VmfDocument SunlitCaves()
+    {
+        VmfDocument library = RoomSkyboxHarness.AddSkybox(
+            RoomLightHarness.Library(true, [1], (0, RoomLightHarness.Light(900, new Vec3(60, 190, 150)))));
+        library.GetChunk("world")!.AddKey(RoomLibraryOptions.EntityReserveKey, "300");
         return library;
     }
 

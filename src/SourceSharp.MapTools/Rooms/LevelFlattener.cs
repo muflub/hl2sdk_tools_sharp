@@ -129,8 +129,9 @@ public static class LevelFlattener
     /// <para>
     /// A level of several libraries is flattened as the link links it: every
     /// room under its qualified name, the rooms' names read with their own
-    /// library's name keys, and the first library's singletons (its library
-    /// entities, options and skybox). The worldspawn is the first placed
+    /// library's name keys, and the level's singletons (its library
+    /// entities, options and skybox: the first library's, each it lacks
+    /// entirely taken from the earliest library that has it, D29). The worldspawn is the first placed
     /// room's library's, the one the link takes, with the first library's
     /// save counter. The warnings of the compatibility check and the
     /// singleton rule (<see cref="LevelLibraries.Check"/>) come first, as the

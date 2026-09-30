@@ -93,7 +93,7 @@ public static partial class RoomCommands
                         opened[pack] = open;
                     }
 
-                    if (KeySource.Find(open, keys[i].Key, choices[i].Shared && keys.Count > 1) is not { } found)
+                    if (KeySource.Find(open, keys[i].Key, choices[i].Shared && keys.Count > 1, !sources.Take(i).Any(x => ReferenceEquals(x.Pack, open))) is not { } found)
                     {
                         await output.WriteLineAsync($"ssmap link: {KeySource.Missing(open, keys[i].Key, keys[0].Key)}").ConfigureAwait(false);
                         return ExitFailed;
@@ -382,7 +382,7 @@ public static partial class RoomCommands
     /// </summary>
     private sealed class KeySource
     {
-        private KeySource(OpenedPack pack, RoomPackNamespace? space)
+        private KeySource(OpenedPack pack, RoomPackNamespace? space, bool holdsSingletons)
         {
             Pack = pack;
             Space = space;
@@ -397,13 +397,17 @@ public static partial class RoomCommands
 
             Names = [.. pack.Index.Entries.Skip(space.FirstRoom).Take(space.RoomCount).Select(e => e.Name[space.Prefix.Length..])];
 
-            // The pack's singletons are its first namespace's (every other
-            // library's were dropped when it was built, 17.10), so only the
-            // first namespace has any; each keeps its own name keys.
-            bool first = ReferenceEquals(space, pack.Namespaces![0]);
-            Entities = first ? pack.Entities : [];
-            Options = (first ? pack.Options : RoomLibraryOptions.None) with { NameKeys = space.NameKeys };
-            Skybox = first && pack.Skybox is { } sky && sky.StartsWith(space.Prefix, StringComparison.Ordinal) ? sky[space.Prefix.Length..] : null;
+            // The pack's library entities and options are the singletons every
+            // namespace was compiled under (the level's by D29, 17.10), one
+            // set for the whole pack: they go to the earliest of the level's
+            // keys this pack serves, so the level takes exactly that set
+            // whatever its keys' order and whichever namespaces it lists, and
+            // no other namespace repeats them. Each keeps its own name keys.
+            // The skybox is a room, so it is its own namespace's: the one
+            // its qualified name starts with.
+            Entities = holdsSingletons ? pack.Entities : [];
+            Options = (holdsSingletons ? pack.Options : RoomLibraryOptions.None) with { NameKeys = space.NameKeys };
+            Skybox = pack.Skybox is { } sky && sky.StartsWith(space.Prefix, StringComparison.Ordinal) ? sky[space.Prefix.Length..] : null;
         }
 
         public OpenedPack Pack { get; }
@@ -437,14 +441,18 @@ public static partial class RoomCommands
         /// a combined pack without that namespace, or a plain pack given to
         /// every key of a level of several (<paramref name="plainRefused"/>).
         /// </summary>
-        public static KeySource? Find(OpenedPack pack, string key, bool plainRefused)
+        /// <param name="pack">The pack.</param>
+        /// <param name="key">The level's key.</param>
+        /// <param name="plainRefused">Whether a plain pack is refused for it.</param>
+        /// <param name="holdsSingletons">Whether this key is the earliest of the level's keys the pack serves, which carries the pack's singletons.</param>
+        public static KeySource? Find(OpenedPack pack, string key, bool plainRefused, bool holdsSingletons)
         {
             if (pack.Namespaces is not { } namespaces)
             {
-                return plainRefused ? null : new KeySource(pack, null);
+                return plainRefused ? null : new KeySource(pack, null, true);
             }
 
-            return RoomPackNamespaces.Find(namespaces, key) is { } space ? new KeySource(pack, space) : null;
+            return RoomPackNamespaces.Find(namespaces, key) is { } space ? new KeySource(pack, space, holdsSingletons) : null;
         }
 
         /// <summary>Why <see cref="Find"/> gave nothing: 17.10's texts.</summary>
