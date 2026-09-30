@@ -171,11 +171,27 @@ public sealed class LevelLinkerDetailPropTests(ITestOutputHelper output)
             Assert.True(Math.Abs(count - other) <= noise, $"{key}: {count} linked against {other} flattened");
         }
 
-        // Every prop stands on its surface, in both maps.
+        // Every prop stands on its surface, in both maps, and each surface's
+        // props spread over it alike: per quadrant of each grass box (in its
+        // room's frame), the same count within the draw's noise.
         LevelLayout layout = RoomPropHarness.Layout(rooms, level);
-        foreach (DetailPropLump map in new[] { a, b })
+        Dictionary<string, int>[] quadrants = [new(StringComparer.Ordinal), new(StringComparer.Ordinal)];
+        foreach ((DetailPropLump map, Dictionary<string, int> counts) in new[] { (a, quadrants[0]), (b, quadrants[1]) })
         {
-            Assert.All(map.Props, p => Assert.True(OnGrass(layout, p.Origin), $"a prop at {p.Origin} off the grass"));
+            foreach (DetailObjectLump p in map.Props)
+            {
+                string? where = Where(layout, p.Origin);
+                Assert.True(where is not null, $"a prop at {p.Origin} off the grass");
+                counts[where!] = counts.GetValueOrDefault(where!) + 1;
+            }
+        }
+
+        Assert.Equal(quadrants[0].Keys.Order(StringComparer.Ordinal), quadrants[1].Keys.Order(StringComparer.Ordinal));
+        foreach ((string key, int count) in quadrants[0])
+        {
+            int other = quadrants[1][key];
+            output.WriteLine($"turn {rotation} {key}: link {count}, flat {other}");
+            Assert.True(Math.Abs(count - other) <= (4 * Math.Sqrt(count + other)) + 4, $"{key}: {count} linked against {other} flattened");
         }
     }
 
@@ -207,15 +223,60 @@ public sealed class LevelLinkerDetailPropTests(ITestOutputHelper output)
     /// </summary>
     [Theory]
     [InlineData("prop_detail")]
+    [InlineData("detail_prop")]
     [InlineData("prop_detail_sprite")]
     public async Task ADetailPropWithRoomNeedsIsRefused(string className)
     {
-        VmfChunk entity = className == "prop_detail" ? DetailProp(9200, new Vec3(120, 120, 16)) : DetailSprite(9200, new Vec3(120, 120, 16));
+        VmfChunk entity = className == "prop_detail_sprite" ? DetailSprite(9200, new Vec3(120, 120, 16)) : DetailProp(9200, new Vec3(120, 120, 16));
+        entity.Keys.Single(k => k.Name == "classname").Value = className;
         entity.AddKey("room_needs", "east");
         RoomLintException refused = await Assert.ThrowsAsync<RoomLintException>(() => CompileAsync(Library(entities: [(0, entity)])));
         Assert.Equal(
             $"room hub: entity 9200 ({className}) has room_needs, but a detail prop is built into its room's compile and cannot be dropped.",
             refused.Message);
+    }
+
+    /// <summary>
+    /// Rooms with detail props through a pack: the pack stores a room's
+    /// detail props (four turns) in their own section, the rooms it loads
+    /// carry them, and the level links to the same bytes as from the rooms
+    /// in memory; a pack holding only turn 0 (the rotation count of 1, the
+    /// link turning them) links to the same bytes too, so storing once or
+    /// four times is a choice of speed alone. A room without detail props
+    /// gets no section.
+    /// </summary>
+    [Fact]
+    public async Task DetailPropsRoundTripThroughAPack()
+    {
+        RoomLibrary rooms = await CompileAsync(Library(entities: []));
+        LevelGrid level = RoomPropHarness.Level("hub@90, other@180", "other, hub@270");
+        byte[] expected = await RoomOverlayHarness.BytesAsync(await RoomPropHarness.LinkAsync(rooms, level));
+
+        using MemoryStream pack = new();
+        List<RoomPackItem> items = [];
+        foreach (RoomObject room in rooms.Rooms)
+        {
+            items.Add(await RoomPackItem.CreateAsync(room));
+        }
+
+        await RoomPack.SaveAsync(items, pack);
+        pack.Position = 0;
+        RoomPackIndex index = await RoomPack.ReadIndexAsync(pack);
+        Assert.NotNull(index.Find("hub")!.Find(RoomDetailProps.SectionTag));
+        Assert.Null(index.Find("hub")!.Find(RoomDetailLighting.SectionTag));
+        IReadOnlyList<RoomObject> loaded = await RoomPack.LoadRoomsAsync(
+            pack, index, [new RoomPackRequest("hub", [1, 3]), new RoomPackRequest("other", [0, 2])]);
+        Assert.Equal(4, loaded[0].DetailPropsOfCompile!.TurnCount);
+        Assert.Equal(expected, await RoomOverlayHarness.BytesAsync(await RoomPropHarness.LinkAsync(RoomPropHarness.RoomsOf([.. loaded]), level)));
+
+        RoomLibrary once = RoomPropHarness.RoomsOf(
+            [.. rooms.Rooms.Select(r => r.DetailProps is { } d ? r with { DetailProps = d.WithTurnZeroOnly() } : r)]);
+        Assert.Equal(1, once.Get("hub").DetailPropsOfCompile!.TurnCount);
+        Assert.Equal(expected, await RoomOverlayHarness.BytesAsync(await RoomPropHarness.LinkAsync(once, level)));
+
+        RoomObject bare = (await CompileAsync(Library([], []))).Get("hub");
+        Assert.Null(bare.DetailPropsOfCompile);
+        Assert.DoesNotContain((await RoomPackItem.CreateAsync(bare)).Extra, e => e.Tag == RoomDetailProps.SectionTag);
     }
 
     /// <summary>
@@ -246,6 +307,11 @@ public sealed class LevelLinkerDetailPropTests(ITestOutputHelper output)
         LinkedLevel grown = await RoomPropHarness.LinkAsync(await CompileAsync(Library()), level);
         Assert.NotEmpty(Lump(grown.Bsp).Props);
         Assert.Empty(Lump(bare.Bsp).Props);
+
+        // A level whose rooms have none keeps its first room's game lumps
+        // byte for byte, as before detail props were carried.
+        RoomObject first = (await CompileAsync(Library([], []))).Get("hub");
+        Assert.Equal(first.Bsp.GameLumps.Select(g => g.Data.ToArray()), bare.Bsp.GameLumps.Select(g => g.Data.ToArray()));
         Assert.Equal(bare.Bsp[BspLump.Entities].Data.ToArray(), grown.Bsp[BspLump.Entities].Data.ToArray());
         Assert.Equal(bare.EntityBudget!.Edicts, grown.EntityBudget!.Edicts);
         Assert.Equal(bare.EntityBudget.Listed, grown.EntityBudget.Listed);
@@ -271,24 +337,26 @@ public sealed class LevelLinkerDetailPropTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Whether a point stands on a room's grass or at one of its detail
-    /// entities, wherever the layout placed the room: the point turned back
-    /// into its room's frame, inside a grass box's footprint at its top
-    /// (the displacement's anywhere over its brush).
+    /// Where a point stands, wherever the layout placed its room: the point
+    /// turned back into its room's frame, on a grass box's top (anywhere
+    /// over the displacement's brush) and in which quadrant of the box, or
+    /// at one of the room's detail entities; null for a point on none.
     /// </summary>
-    private static bool OnGrass(LevelLayout layout, Vec3 point)
+    private static string? Where(LevelLayout layout, Vec3 point)
     {
-        foreach (RoomInstance instance in layout.Rooms)
+        for (int i = 0; i < layout.Rooms.Count; i++)
         {
+            RoomInstance instance = layout.Rooms[i];
             RoomTransform transform = new(instance.Placement, RoomHarness.Cell);
             Vec3 local = transform.Unapply(point);
             bool hub = instance.Placement.Room == "hub";
-            foreach ((Box box, bool displaced) in hub ? new[] { (HubSlab, false), (HubPatch, true) } : new[] { (OtherSlab, false) })
+            foreach ((string name, Box box, bool displaced) in hub ? new[] { ("slab", HubSlab, false), ("patch", HubPatch, true) } : new[] { ("slab", OtherSlab, false) })
             {
                 bool inside = local.X >= box.Mins.X - 0.01f && local.X <= box.Maxs.X + 0.01f && local.Y >= box.Mins.Y - 0.01f && local.Y <= box.Maxs.Y + 0.01f;
                 if (inside && (displaced ? local.Z >= box.Maxs.Z - 0.01f : Math.Abs(local.Z - box.Maxs.Z) < 0.01f))
                 {
-                    return true;
+                    Vec3 centre = (box.Mins + box.Maxs) * 0.5f;
+                    return $"{i} {name} {(local.X < centre.X ? "w" : "e")}{(local.Y < centre.Y ? "s" : "n")}";
                 }
             }
 
@@ -297,11 +365,11 @@ public sealed class LevelLinkerDetailPropTests(ITestOutputHelper output)
                 Vec3 origin = VmfPlacement.Origin(entity)!.Value;
                 if ((room == 0) == hub && (local - origin).Length() < 0.01f)
                 {
-                    return true;
+                    return $"{i} entity {entity.GetValue("id")}";
                 }
             }
         }
 
-        return false;
+        return null;
     }
 }
