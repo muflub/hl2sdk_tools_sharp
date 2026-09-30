@@ -414,6 +414,30 @@ internal sealed class RoomDetailProps
     /// cut short, another prop count, a turn count other than 1 or 4, bytes
     /// after its end; or a room lump out of the shape vbsp writes.
     /// </exception>
+    /// <summary>
+    /// How many detail props a room's section holds, read without the room's
+    /// compile (what <c>ssmap rooms</c> lists); null when the section is
+    /// absent or of a revision this build does not read.
+    /// </summary>
+    /// <param name="section">The section's bytes, or null.</param>
+    /// <param name="room">The room's name, for messages.</param>
+    /// <returns>The count, or null.</returns>
+    /// <exception cref="LinkException">
+    /// The section is cut short, or holds no prop: a room without detail
+    /// props gets no section, so a count of 0 is damage, as the full reader
+    /// says.
+    /// </exception>
+    internal static int? ReadCount(ArraySegment<byte>? section, string room)
+    {
+        if (RoomLinkSections.Open(section, room, SectionTag) is not { } r)
+        {
+            return null;
+        }
+
+        int count = r.Int();
+        return count > 0 ? count : throw r.Mismatch($"{count} detail props");
+    }
+
     internal static RoomDetailProps? Read(ArraySegment<byte>? section, string room, BspData bsp)
     {
         if (RoomLinkSections.Open(section, room, SectionTag) is not { } r)

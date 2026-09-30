@@ -271,24 +271,24 @@ or research).
 
 | Feature | Today | Pack (per room / rotation) | Link | Entities | Size |
 | --- | --- | --- | --- | --- | --- |
-| Point entities | carried (origin, yaw); names duplicated | name and I/O positions, parsed placeholders | resolve names, drop/keep, fold, singletons | 1 each; logic may fold to 0 | M |
+| Point entities | carried (origin, yaw); `cxry_` names, neighbour flags, `room_needs` and folding since PR 3 | name and I/O positions, parsed placeholders | resolve names, drop/keep, fold, singletons | 1 each; logic may fold to 0 | M |
 | Brush entities | carried since PR 7 (own models, origin-relative in the entity's frame, per-model collision, (c) omission, socket furniture) | models, subtrees, per-model collision, origin class | rebase models, `model` keys, texinfo split for origin models | 1 each | L |
-| `func_ladder` | silently wrong (`info_ladder` bounds) | bounds per rotation | none | 1 (`info_ladder`) | S |
+| `func_ladder` | carried; `info_ladder` bounds moved since PR 1 | bounds per rotation | none | 1 (`info_ladder`) | S |
 | Static props | carried since PR 6 (moved, filtered, dictionaries merged, leaves recomputed, `.vhv` renamed) | props per rotation, dictionary, hulls; lighting ×1, or ×4 if sunlit | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
 | Detail props | carried since PR 16 (moved and turned, leaves the linked tree's, re-sorted, dictionaries merged, lit from the rooms' bakes with the door light added per prop) | props per rotation; lighting ×1, or ×4 if sunlit; door receivers and responses | leaves, re-sort, merge dictionaries, replay vrad's passes | 0 | M |
 | Displacements | carried since PR 15 (moved and turned, runs, faces and neighbours rebased, collision hulls and lighting the room's; no stitching across a joint, which is refused) | starts and vertex vectors per rotation | rebase; cross-room neighbours only if allowed | 0 | L |
-| Water | carried since PR 14 (records merged, leaf and face ids renumbered, fluids moved into the collision, water overlays carried, vvis's water passes run over the level; water touching a door plug refused) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
+| Water | carried since PR 14 (records merged, leaf and face ids renumbered, fluids moved into the collision, water overlays carried, vvis's water passes run over the level; water touching a door plug refused unless the room declares that socket's water, which a joint carries through the doorway as one body of water) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
 | Overlays | carried since PR 11 (moved and turned, ids, texinfos and faces rebased, accessors renumbered; water overlays since PR 14) | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
 | Decals (`infodecal`) | carried | nothing | nothing | 1 each (**uncertain** after spawn) | S |
 | `env_cubemap` | carried since PR 12 (samples moved, patches and copies renamed to the level) | samples per rotation, patch list | rename VTFs and patched VMTs to the level | 0 | M-L |
 | Area portals | carried since PR 13 (areas joined at joints, portals and `portalnumber`s rebased, clip verts moved; door portals opt-in) | areas, portals, clip verts per rotation | area union across joints, optional door portals | 1 per portal | L |
-| Occluders | carried; `occludernumber` wrong | occluders per rotation | rebase the key | 1 each (strip candidate) | S |
+| Occluders | carried; `occludernumber` rebased since PR 1 | occluders per rotation | rebase the key | 1 each (strip candidate) | S |
 | Packed files | carried since PR 5 (merged, deduped, default cubemaps renamed) | the room's pak entries | merge, dedupe, rename | 0 | M |
-| 2D sky | faces carried; no leaf sky flags (no vrad) | sky leaves per room | propagate sky flags across doors | 0 | S |
+| 2D sky | faces carried; leaf sky flags since PR 9 | sky leaves per room | propagate sky flags across doors | 0 | S |
 | 3D skybox | carried since PR 13 (the library's `info_room_skybox` room, placed below the grid, its own area) | the skybox as a library section | place it, its own area | 1 `sky_camera` per level | M |
-| Transition rooms and spawn | not possible | volume, arrival and spawn POIs per rotation | destinations, emission per mode, spawn | 2 per level (mod), 3 to 5 (stock) | M |
-| Navigation (3D) and points of interest | none | in `<library>.roomnav`: volumes, door portals and POIs per rotation | stitch at joined doors into the `<map>.nav3d` sidecar | 0 (POIs stripped) | L, blocked (section 10) |
-| Lighting | none (no vrad at pack time) | base and capture ×1, or ×4 if sunlit; door response ×1 or ×4 by measurement | sum captures × responses | lights: see 6.3 | L |
+| Transition rooms and spawn | carried since PR 8 (both emission modes) | volume, arrival and spawn POIs per rotation | destinations, emission per mode, spawn | 2 per level (mod), 3 to 5 (stock) | M |
+| Navigation (3D) and points of interest | carried: each room's navigation stitched at joined doors into the `<map>.nav3d` sidecar, POIs stripped from the map | in `<library>.roomnav`: volumes, door portals and POIs per rotation | stitch at joined doors into the `<map>.nav3d` sidecar | 0 (POIs stripped) | L, blocked (section 10) |
+| Lighting | carried since PR 9 (the base bake) and PR 10 (door light); the skybox in sky rooms' bakes since the skybox bake | base and capture ×1, or ×4 if sunlit; door response ×1 or ×4 by measurement | sum captures × responses | lights: see 6.3 | L |
 
 ---
 

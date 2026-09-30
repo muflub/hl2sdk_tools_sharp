@@ -501,8 +501,9 @@ the library's pack is there (`-rooms`, else `<library>.roompack` beside
 it), the listing opens with the library's entity budget and gives each
 room's entities as the room compile counted them: how many reach a linked
 map, and how many of those take an edict; and, for a room that has them,
-its displacements (`displacements: 2`), its water (`water: 1 volume(s)`)
-and its level map (`map: 3 floor ring(s), 1 marker(s), label "Atrium"`).
+its displacements (`displacements: 2`), its water (`water: 1 volume(s)`),
+its detail props (`detail props: 228`) and its level map (`map: 3 floor
+ring(s), 1 marker(s), label "Atrium"`).
 
 A room pack is a function of its inputs: the same library and `ssmap`
 build write the same bytes at any `-threads` and on every run, and so does
@@ -566,9 +567,11 @@ library has it; `ssmap link` refuses anything else with the line and
 column. Each library is packed on its own with `ssmap room`, and the link
 takes `<library>.roompack` beside each VMF unless `-rooms <key>=<pack>`
 names another. The libraries a level places rooms of must share the cell
-size, the door kit and the navigation grid; the first library's sun,
-controllers, options and skybox are the level's, and every other
-library's copy is dropped with a warning (one line for the equal ones).
+size, the door kit and the navigation grid. The level's sun, controllers,
+options and skybox are the first library's; one the first library does not
+have is taken from the earliest listed library that has it, and every
+later copy of one the level already has is dropped with a warning (one
+line for the equal ones).
 `ssmap link --flatten` and `ssmap rooms <level.yaml>` apply the same rules
 and print the same lines. The rooms design, section 17, has the details.
 
@@ -808,9 +811,19 @@ surfaces), so the two maps agree in distribution, not prop for prop; a
 detail entity is the same in both. `ssmap room` refuses `room_needs` on a
 detail entity. A map holds at most 65,535 detail props, and the link
 refuses a level past that.
-The link refuses what it cannot carry:
-water (and its water overlays), and a mix of cooked and
-`-cooker none` rooms. The doorway's side walls have no faces of their
+Water is carried: each placed room's water records, fluids and water
+overlays are moved and turned with it, and vvis's water passes run again
+over the level, so a leaf that sees water through a door knows it. Water
+may not touch a door plug unless the room declares that socket's water on
+its `info_room` (`water_east "48 nature/water_canals_cheap001"`: the
+surface's height above the floor and its material); a joint then carries
+the water through the doorway, the two sides at one level (a water socket
+jointed to a dry one, or to another level, is refused), and the rooms'
+water becomes one body. A water socket's water is unlit.
+The link refuses what it cannot carry: a room packed before the link
+carried one of its features (recompile the library with `ssmap room`), a
+game lump other than the static and detail prop lumps with content, and a
+mix of cooked and `-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a
 gap unless something placed in the socket (a door frame model, say) covers
 them.
@@ -1009,7 +1022,14 @@ byte (but for the checksum). The format is specified in
 `samples/rooms-3x3/` is a worked example: a library of five room kinds, a
 3x3 level, its turns and some seeded levels. Its README runs it through
 `room`, `link`, `link --flatten`, `vbsp` and `layout`, and the test suite
-checks every linked level against its flattened compile.
+checks every linked level against its flattened compile. Beside it,
+`samples/rooms-transit/` is a three-level run of transition rooms,
+`samples/rooms-features/` a library on the same kit whose rooms carry the
+features the 3x3 kinds do not (a tall room, a displacement ridge, water
+through a water socket, grass detail props, map markers and labels), and
+`samples/rooms-multi/` two libraries with a shared sun and one skybox,
+combined with `ssmap roompack`, with levels of both and one laid out with
+`-large`. The suite links, flattens and checks every level of each.
 
 ### Instruments
 

@@ -14,8 +14,8 @@ using Xunit;
 namespace SourceSharp.Tests.MapTools.Rooms;
 
 /// <summary>
-/// What <c>ssmap rooms</c> lists of a room's displacement, water and map
-/// sections (<see cref="RoomPack.ReadFeatureSummariesAsync"/>): read from the
+/// What <c>ssmap rooms</c> lists of a room's displacement, water, detail
+/// prop and map sections (<see cref="RoomPack.ReadFeatureSummariesAsync"/>): read from the
 /// sections alone, a room without them not listed.
 /// </summary>
 public sealed class RoomFeatureSummaryTests
@@ -41,6 +41,26 @@ public sealed class RoomFeatureSummaryTests
         RoomFeatureSummary wet = (await SummariesAsync(pool.Get("hub")))["hub"];
         Assert.Equal((0, (int?)1), (wet.Displacements, wet.WaterVolumes));
         Assert.NotNull(wet.Map);
+        Assert.Equal(0, wet.DetailProps);
+    }
+
+    /// <summary>
+    /// A pack of the detail prop harness's rooms says how many detail props
+    /// each room's <c>DPRP</c> section holds (the room's own lump's count),
+    /// and a room without detail props says none.
+    /// </summary>
+    [Fact]
+    public async Task APacksDetailPropSectionsSayHowManyPropsEachRoomHas()
+    {
+        RoomLibrary grassed = await RoomDetailHarness.CompileAsync(RoomDetailHarness.Library());
+        IReadOnlyDictionary<string, RoomFeatureSummary> summaries = await SummariesAsync(grassed.Get("hub"), grassed.Get("other"));
+        Assert.True(summaries["hub"].DetailProps > 0);
+        Assert.Equal(RoomDetailProps.CountOf(grassed.Get("hub").Bsp), summaries["hub"].DetailProps);
+        Assert.Equal(RoomDetailProps.CountOf(grassed.Get("other").Bsp), summaries["other"].DetailProps);
+        Assert.NotEqual(summaries["hub"].DetailProps, summaries["other"].DetailProps);
+
+        RoomLibrary bare = await RoomDisplacementHarness.CompileAsync(RoomDisplacementHarness.Library([]), cook: false);
+        Assert.Equal(0, (await SummariesAsync(bare.Get("hub")))["hub"].DetailProps);
     }
 
     /// <summary>A room packed with its container alone (a pack written before the sections) is not listed.</summary>
@@ -100,6 +120,14 @@ public sealed class RoomFeatureSummaryTests
         Assert.Equal(1, RoomWater.ReadVolumeCount(water, "hub"));
         Assert.Null(RoomWater.ReadVolumeCount(null, "hub"));
         Assert.Throws<LinkException>(() => RoomWater.ReadVolumeCount(WithFirstCount(water, -1), "hub"));
+
+        RoomLibrary grassed = await RoomDetailHarness.CompileAsync(RoomDetailHarness.Library());
+        RoomObject hub = grassed.Get("hub");
+        byte[] props = hub.DetailPropsOfCompile!.ToSection().Bytes.ToArray();
+        Assert.Equal(hub.DetailPropsOfCompile!.Count, RoomDetailProps.ReadCount(props, "hub"));
+        Assert.Null(RoomDetailProps.ReadCount(null, "hub"));
+        LinkException none = Assert.Throws<LinkException>(() => RoomDetailProps.ReadCount(WithFirstCount(props, 0), "hub"));
+        Assert.Contains(RoomDetailProps.SectionTag, none.Message, StringComparison.Ordinal);
     }
 
     private static async Task<IReadOnlyDictionary<string, RoomFeatureSummary>> SummariesAsync(params RoomObject[] rooms)

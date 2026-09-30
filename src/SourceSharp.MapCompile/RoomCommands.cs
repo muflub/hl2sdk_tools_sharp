@@ -1415,7 +1415,7 @@ public static partial class RoomCommands
     /// <param name="names">The rooms' names from the pack.</param>
     /// <param name="libraryEntities">The library-wide entities from the pack.</param>
     /// <param name="lighting">Per lit room, its lighting's rotation count.</param>
-    /// <param name="features">Per room, its displacement, water and map sections (<see cref="RoomPack.ReadFeatureSummariesAsync"/>).</param>
+    /// <param name="features">Per room, its displacement, water, detail prop and map sections (<see cref="RoomPack.ReadFeatureSummariesAsync"/>).</param>
     /// <returns>The listing.</returns>
     /// <remarks>
     /// <para>
@@ -1538,7 +1538,7 @@ public static partial class RoomCommands
         return text.ToString();
     }
 
-    /// <summary>A room's displacement, water and map lines for <c>ssmap rooms</c>, each only when the room has the section.</summary>
+    /// <summary>A room's displacement, water, detail prop and map lines for <c>ssmap rooms</c>, each only when the room has the section.</summary>
     private static string FeatureLines(RoomFeatureSummary feature)
     {
         StringBuilder text = new();
@@ -1550,6 +1550,11 @@ public static partial class RoomCommands
         if (feature.WaterVolumes is int volumes)
         {
             text.Append(CultureInfo.InvariantCulture, $"  water: {volumes} volume(s)\n");
+        }
+
+        if (feature.DetailProps > 0)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"  detail props: {feature.DetailProps}\n");
         }
 
         if (feature.Map is { } map)
@@ -1602,7 +1607,7 @@ public static partial class RoomCommands
         /// <summary>The library's skybox room, which every level carries once, or null.</summary>
         public string? Skybox { get; init; }
 
-        /// <summary>Per room with a displacement, water or map section, what those say (<see cref="RoomPack.ReadFeatureSummariesAsync"/>).</summary>
+        /// <summary>Per room with a displacement, water, detail prop or map section, what those say (<see cref="RoomPack.ReadFeatureSummariesAsync"/>).</summary>
         public IReadOnlyDictionary<string, RoomFeatureSummary> Features { get; init; } = new Dictionary<string, RoomFeatureSummary>();
     }
 
