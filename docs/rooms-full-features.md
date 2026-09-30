@@ -2292,8 +2292,8 @@ One PR per feature or small group. Already queued, and assumed:
 | 17 | **Multiple libraries per level** (17.2 to 17.5): `libraries` and `aliases` in the level file, cell resolution, the compatibility check (height excluded; the navigation grid refused, the other navigation settings warned, D25), the singleton rule at link and flatten (the skybox and the door portals option among the singletons; D24's summary line), PR 9's lighting rule across libraries with D26's sun warning, one pack per library found beside its VMF or named by `-rooms <key>=<pack>`, the level's pack id over every pack, `ssmap rooms` over several libraries. No pack format change. | M | 4, **8** | Pure text and lookup, no geometry: the cheapest of the five decisions, and the one the others build on. After PR 8 because both change `LevelYaml`'s keys and its unknown-key message (17.2). | 15.2 multiple-libraries row; 17.3 messages |
 | 18 | **Combined packs** (17.10): `ssmap roompack`, the `NSPC` section, namespaced room names and `MapBase`, singletons applied at pack time, per-namespace reuse and `-only`, `ssmap room -namespace`, `-rooms` lookup of namespaces. | M | 17 | Makes a multi-library level consistent at pack time (one worldspawn and sun for every room) instead of warning at link. | 15.2 combined-packs row; 15.5 for the combined pack |
 | 19 | **Room heights** (17.6): `room_height`, the door box fixed to the library's standard cell, the `SHAP` section and the pack version for shaped rooms, top-tree and solid-leaf bounds, the cell box in split, lint, props and furniture, the world-extent refusal, navigation columns taller than a cell and `.nav3d` version 3. | M | 7, **8** | One-cell rooms only, so no linker structure changes: the smallest step that gives varying heights, and the base the larger rooms extend. After PR 8 so its transit sample and `RoomTransit` are what the new cell box is applied to. Before PR 9 (Q4), whose bakes take the room's box. | 15.2 heights row |
-| 20 | **Multi-cell rooms** (17.8): `room_footprint`, sockets per cell edge, the cell-block room compile and per-cell subtree roots, the top tree routing each covered cell, block-node omission, the footprint transform, joints along shared edges, `+` in the level file, the anchor cell for names and the refusals of neighbour names, navigation and props over the footprint, flatten. | L | 19, 3, 7, **8** | The large-area design. The biggest structural change since brush entities; everything it touches is already carried, so it lands after them. If Q3 has landed, its per-room door pairs are extended to several sockets on a face here. | 15.2 multi-cell row; 17.3 messages |
-| 21 | **Height-aware generator over several libraries** (17.9): candidates from every library, the area stream and its groups, `-large`, `-group`, `-max-height`, `key=path` operands and the `libraries` output, the budget over every library. | M | 17, 20, **8** | Last, because it places what 17 to 20 make linkable; PR 8's role stream is kept as it is and runs on the unit tree. | 15.2 generator row; 15.5 layout determinism |
+| 20 | **Dropped by the owner (D30).** Was: **multi-cell rooms** (17.8): `room_footprint`, sockets per cell edge, the cell-block room compile and per-cell subtree roots, the top tree routing each covered cell, block-node omission, the footprint transform, joints along shared edges, `+` in the level file, the anchor cell for names and the refusals of neighbour names, navigation and props over the footprint, flatten. | L | 19, 3, 7, **8** | The large-area design. The biggest structural change since brush entities; everything it touches is already carried, so it lands after them. If Q3 has landed, its per-room door pairs are extended to several sockets on a face here. | 15.2 multi-cell row; 17.3 messages |
+| 21 | **Height-aware generator over several libraries** (17.9, one-cell rooms since D30): candidates from every library, `key=path` operands and the `libraries` output in the shortest spelling, the budget and the pack lookup over every library; large rooms (taller than the cell) only in groups of adjacent large rooms from the area stream, `-large`, `-group`, `-max-height`; the spanning tree over cells with a large room's walls eligible only at its sockets; `ssmap rooms` listing each room's height. | M | 17, 18, 19, **8** | Last, because it places what 17 to 19 make linkable; PR 8's role stream is kept as it is and runs on the same tree. Needs no linker change: every room is still one cell. | 15.2 generator row; 15.5 layout determinism |
 | 22 | **Level map overlay** (18): the walkable-face rule and integer union at pack time, the `MAPV` room section, the `.map2d` sidecar written by `ssmap link` (doors open or closed, marker POIs, automatic markers, per-placement ids and labels), `ssmap map2d` over a compiled map, the SVG preview, `docs/map2d-format.md` and its reader, the `map_marker` and `map_label` keys in `RoomContracts`. | M | 2, 11, 19 | Needs the POIs (2), the transition markers (11) and room heights for the z bands (19); independent of lighting and of 14 to 16, so it can land in parallel with them. | 18.6 |
 
 **PR 4 landed** (singletons and the library section). The split applies
@@ -3870,8 +3870,9 @@ hubs along x, past the engine's coordinates, which the extent check now
 refuses first; their lines are folded into rows of 64, the same joints and
 so the same totals, and their refusals name the crossing hub's cell in its
 row. Not done here: `ssmap rooms` does
-not list heights, the generator knows nothing of them (PR 21), and no sample
-has a tall room (the multi-library sample of 17.12 is later work).
+not list heights, the generator knows nothing of them (both done by PR 21,
+below), and no sample has a tall room (the multi-library sample of 17.12 is
+later work).
 
 Measured against the base (main at the section 17 merge), the whole
 `ssmap` process: `ssmap all` on 2fort and the sandbox writes the same maps,
@@ -4262,6 +4263,99 @@ the base's map and `.nav3d` byte for byte (both modes for transit), and the
 stress library's 33 x 33 level links to the same bytes (1.5 to 1.6 s, as
 the base) and passes `ssmap check`.
 
+**PR 21 landed** (the height-aware generator over several libraries, 17.9,
+for one-cell rooms after D30 dropped PR 20). `ssmap layout` takes
+`key=path` operands (a bare path among them keyed by its stem) and draws
+from every library: the candidates are each library's rooms in operand
+order, then room order, under their qualified names, and the level is
+written with `libraries` in operand order, each path relative to the level
+and each cell in its shortest spelling (`LevelLibraries.Shorten`). A single
+bare path is the `library:` level it always was. `-rooms` finds each key's
+pack as the link does (`-rooms <key>=<pack>`, a combined pack for every
+key, else the pack beside each library, with 17.10's texts). The generator
+(`LevelGenerator`, `LevelGeneratorOptions.LargeShare`, `GroupSize`,
+`MaxHeight`) does the rest; the linker does not change, since every room is
+still one cell.
+
+- **Large rooms.** A room is large when taller than its cell
+  (`LevelGenerator.IsLarge`). Without `-large` they are dropped from the
+  candidates before any draw, as is every room taller than `-max-height`,
+  so a library that gains tall rooms lays out the levels it did without
+  them. With `-large`, the area stream (`LevelGenerator.AreaStream`) grows
+  the groups before the first tree (`PlaceLargeGroups`), 17.9's steps as
+  written; the tree then lists a wall touching a large room only where it
+  has a socket, the role cells and the fill take only the other cells, and
+  the fill holds each room to the large rooms on all four sides (`Fits`'
+  fixed cells). The groups cover exactly `floor(share × occupied)` cells.
+- **Pinned.** The generator at `-large 0`, with a library that has tall rooms
+  anywhere in its order or none, with explicit defaults and a height limit no
+  room reaches, is the frozen old generator (`LegacyLevelGenerator`) level
+  for level and refusal for refusal over 7 grids, 3 empty shares and 12
+  seeds; `ssmap layout` of the checked-in 3x3 library writes, for five
+  seeds, the SHA-256 the build before it wrote. Facts over many seeds hold
+  the group rules (exact coverage, size, apart, joined inside, sockets
+  matched, every room reachable), the height clustering (at least 95% of
+  grouped rooms share their group's height where the library offers two
+  heights equally), the same file on sixteen threads at once, the empty
+  cells unmoved by `-large`, role rooms outside groups, and the budget.
+- **Budget.** Every library's rooms are costed from its key's pack; the
+  level's own entities are the singleton rule's over every library
+  (`LevelLibraries.LevelSingletonsOf`, public for this; D29's fillers
+  counted), with the reserve, the door portals option and the skybox room
+  of the level, not the first library's alone. For one library that is what
+  it counted before. The large rooms' edicts are spent before the fill's
+  first cell and counted in the up-front refusal.
+- **`ssmap rooms`** lists each room's own box, `256 x 256 x 512` for a tall
+  room; a cube's line is unchanged.
+- **Decisions taken where 17.9 left a detail.**
+  - A group is kept only if every occupied cell still reaches every other
+    through walls that could be doorways (`LevelGenerator.Joined`): 17.9's
+    "a socket facing a free cell", strengthened, since a group that walls
+    off part of the grid would leave no spanning tree. A group that fails it
+    is undone and the pass moves on.
+  - The start list is every occupied cell, shuffled; a start that is taken
+    or shares a wall with a group is skipped. Each growth step shuffles the
+    frontier (listed in cell order first) and, for each frontier cell, the
+    large candidates, then stably sorts them by whole cells of height from
+    the group's first room, `floor(|h − h₀| / c)` (`HeightSteps`).
+  - Role rooms are standard rooms: a large room with a role is never placed
+    (neither the fill's nor a group's), and the groups leave one cell per
+    role the level keeps (the target is capped below the occupied count by
+    that many).
+  - A single `key=path` operand writes `libraries` with that one key, since
+    only then does the key reach the link; one bare path writes `library`.
+  - The header also gains `rooms at most {h} tall` when `-max-height` is
+    given, since the limit changes the level as much as the share does.
+  - The libraries are held to one cell size, door kit and navigation grid
+    before any draw, each by its first room (`LevelLibraries.CheckCandidates`,
+    17.5's texts naming the paths as the level writes them), and to the
+    dotted-name guard of 17.2, so the level written always links. The
+    singleton and worldspawn warnings are left to the link and `ssmap rooms`:
+    without `-out` the level goes to the same output.
+  - An operand that starts with `-` is a usage error (an unknown option
+    would otherwise read as a library).
+- **Messages** the section did not give, each held by a fact: `ssmap layout:
+  -large is a share of the occupied cells, at least 0 and below 1`, `-group
+  is a whole number of rooms from 1`, `-max-height is a whole number of
+  units from 1`, `the key {key} is given twice.`, `{operand} gives no key
+  ({stem} is not a key); write key={operand}.`, `libraries {a} and {b} name
+  the same file, {path}.`; the generator's `none of the library's {n}
+  room(s) has a socket and stands no taller than its cell ...` (17.3); and
+  for several libraries the budget's `there is no room pack {pack} for
+  library {key}; compile the library with ssmap room, or point -rooms {key}=
+  at its pack.` A refusal of a level of several libraries is printed after
+  `ssmap layout: ` without a library path, since it is the level's.
+
+Measured against main (PR 19 merged): `ssmap layout` of the 3x3 library
+(4 grids, 10 seeds, two empty shares) and of the transit library (10 seeds,
+with roles) writes the same bytes as main's. A copy of the 3x3 library with
+every room tall (512, the hall 768) beside the original, both packed with
+`ssmap room`, laid out as `base=rooms.vmf tall=tall.vmf` at 5 x 5 with
+`-large 0.35 -group 4` (four seeds) and at 4 x 4 with `-max-height 600`:
+each level links without a warning, to a map `ssmap check` passes with its
+one warning (no cubemap sample) and a version 3 `.nav3d`, and flattens; the
+same seed gives the same file every run.
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
@@ -4311,6 +4405,7 @@ hardest and their refusals are safe meanwhile.
 | D27 | (2026-09-29, was O31) Raised or sunken floors and stacked storeys are not planned; storeys are authored inside a tall room (17.6). |
 | D28 | (2026-09-29, was O32) The combine verb is `ssmap roompack`, with `ssmap room -namespace` for one library (17.10). |
 | D29 | (2026-09-30, was O25) Don't drop singletons across libraries: a singleton only a later library has (the sun, an environment controller, fog) is used, taken from the earliest listed library that has it; the first library still wins wherever it has one, and duplicates keep D24's one summary line per library. The same holds for a library option the first library does not write and for the skybox room; `mapversion` is not filled. The level's sun world lights come from the library that supplied the sun, and D26 holds the other libraries to that sun (17.4). `ssmap roompack`'s level-wide sections and sun (17.10) are the level's singletons by this rule. |
+| D30 | (2026-09-30) Drop multi-cell rooms: "I don't think we want PR 20 so drop that." PR 20 (17.8) is not built, and every room stays one cell. Large open areas are 17.7's option B: groups of adjacent tall one-cell rooms (a room taller than its cell, 17.6), which `ssmap layout` gathers by height and reaches through standard rooms (17.9). PR 21 no longer waits for PR 20: its groups, spanning tree and level file are over cells, with no footprints, units or `+` cells. O28, O29 and O30, which only multi-cell rooms raised, are moot. |
 | D31 | (2026-09-30, was O34) The level map is a binary `.map2d` for the game, with an optional SVG preview from the same data (18.4). |
 | D32 | (2026-09-30, was O35) The map's playable area is the compiled room's walkable faces, not the navigation voxels (18.2). |
 | D33 | (2026-09-30, was O36) The map shows `info_poi` entities with a `map_marker` key, plus the spawn, the arrivals and the transition exits; other POIs stay navigation-only (18.1). |
@@ -4348,9 +4443,9 @@ hardest and their refusals are safe meanwhile.
 | O25 | (Decided: D29.) | |
 | O26 | (Decided: D25.) | |
 | O27 | (Decided: D26.) | |
-| O28 | Neighbour names in rooms larger than one cell (17.8). | Refused for now; `joined_<socket>` works; a socket-based grammar later. |
-| O29 | Level-file mark for a covered cell (17.8). | `+`, the room written in its south-west cell. |
-| O30 | Larger role rooms in `ssmap layout` (17.8). | Linked when hand-placed; the generator offers one-cell role rooms only. |
+| O28 | (Moot: D30.) | |
+| O29 | (Moot: D30.) | |
+| O30 | (Moot: D30.) | |
 | O31 | (Decided: D27.) | |
 | O32 | (Decided: D28.) | |
 | O33 | Tall one-cell rooms outside groups (17.9). | Only in groups, under `-large`. |
@@ -4428,8 +4523,8 @@ R = rotations, M = both modes, D = determinism, B = budget counts.
 | Multiple libraries (17.2 to 17.5) | key and alias parsing, resolution order, dotted-name guard, compatibility, singleton rule, every 17.3 text | two packs linked; singletons and options from the first; worldspawn warning; lookup per key | multi-library sample (17.12) | the level linked from two libraries equals the same level from one library holding both room sets, less the warned singletons | yes | yes | yes | yes |
 | Combined packs (17.10) | `NSPC` round trip, namespaced names and `MapBase` | combined and separate packs; `-rooms` forms; `-only` and reuse copy sections byte for byte | multi-library sample | a combined pack and namespaced separate packs link to the same map | | | yes | yes |
 | Room heights (17.6) | door box against today's, height rules, extent limit | tall rooms at every rotation beside short ones: node and solid-leaf bounds, props, nav columns | tall variants (17.12) | lumps, traces and `.nav3d` against the flattened compile; cube-only levels byte-identical | yes | | yes | yes |
-| Multi-cell rooms (17.8) | footprint transform, `+` cells, socket offsets and names, anchor | per-cell subtree routing, block-node omission, joints along edges, capacity | 2 x 2 and 3 x 1 rooms (17.12) | traces at every lattice point, vis a superset, entities, `.nav3d` | yes | yes | yes | yes |
-| Height-aware generator (17.9) | streams, groups, filters, the shortest spelling | | seeded multi-library levels | YAML byte-identical to today's for one library without large rooms, and for `-large 0` | | | yes | yes |
+| Multi-cell rooms (17.8), **dropped (D30)** | footprint transform, `+` cells, socket offsets and names, anchor | per-cell subtree routing, block-node omission, joints along edges, capacity | 2 x 2 and 3 x 1 rooms (17.12) | traces at every lattice point, vis a superset, entities, `.nav3d` | yes | yes | yes | yes |
+| Height-aware generator (17.9) | streams, groups, filters, the shortest spelling | | seeded multi-library levels, tall rooms | YAML byte-identical to today's for one library without large rooms, and for `-large 0` | | | yes | yes |
 
 ### 15.3 Correctness fixes, red first
 
@@ -4715,7 +4810,9 @@ a dropped sun refused once the door light lands, no stacked storeys, and
 `ssmap roompack` as the verb. It builds on PR 8's level file keys
 (section 11) and on what PRs 9 to 13 landed (the base bake and its pack id,
 the door portals option, the skybox room), and changes nothing they decide.
-The implementation order is PRs 17 to 21 in section 13.
+The implementation order is PRs 17 to 21 in section 13; the owner dropped
+PR 20, multi-cell rooms, on 2026-09-30 (D30), so every room stays one cell
+and large areas are groups of tall rooms (17.7, 17.9).
 
 ### 17.1 What the code assumes today about height and footprint
 
@@ -4744,7 +4841,8 @@ size. The assumptions, and what each means for taller or larger rooms:
 
 PR 19 lifted the height rows of this table: the room's box replaces the
 cube wherever it is assumed, and the top tree's bounds follow the rooms'
-heights (section 13, its landed note). The footprint rows stand until PR 20.
+heights (section 13, its landed note). The footprint rows stand: multi-cell
+rooms were dropped (D30), so every room keeps its one cell.
 
 In short: **height** is fixed by the kit and assumed in the cell box (split,
 lint, props, furniture, navigation, linker entities) and in the top tree's
@@ -4786,8 +4884,9 @@ grid:
   rules below. An alias may not be the name of any room of any listed
   library (D19: aliases cannot shadow room names); it may equal a library
   key, since a key only matters before a dot.
-- **A cell** is `~`, `+` (a cell a larger room covers, 17.8), or a token
-  with an optional `@` rotation. The token is resolved in this order:
+- **A cell** is `~` or a token with an optional `@` rotation. (17.8 planned
+  a third form, `+`, for a cell a larger room covers; D30 dropped multi-cell
+  rooms, so there is none, and `+` is refused as a name no library has.) The token is resolved in this order:
   1. **Qualified**: it holds a dot, and the part before the first dot is a
      library key. The rest is a room of that library; if it has none, the
      cell is refused.
@@ -4819,8 +4918,7 @@ grid:
   place between `columns` and `grid`, and `aliases` goes before them, after
   `columns`. The unknown-key message lists every key in that order (17.3).
 - **Transitions.** Role rooms (section 11) may come from any library; the
-  level rule counts placements, not libraries. `spawn: [column, row]` may
-  name a `+` cell; it means the room covering it.
+  level rule counts placements, not libraries.
 
 ### 17.3 Messages
 
@@ -4871,14 +4969,15 @@ not landed with it, the verb in them is the one PR 18 adds.
 | 17.6 voxels | R | `room {room}: room_height {h} is not a whole number of navigation voxels ({v} units each).` |
 | 17.6 too tall | R | `room {room}: room_height {h} is taller than {max}, the most {limit}.` (`{limit}`: `the engine's coordinates allow`, or `navigation describes (255 voxels)`) |
 | 17.6 extent | R | `level {level}: reaches {axis} = {v} at cell ({x}, {y}); the engine's coordinates stop at 16384.` |
-| 17.8 footprint | R | `room {room}: room_footprint "{v}" is not two whole numbers of cells from 1 to 16, like "2 3".` |
-| 17.8 `+` alone | R | `+ is in no room's footprint; + marks the cells a larger room covers besides its south-west one.` |
-| 17.8 covered | R | `room {room} at cell ({x}, {y}) covers cell ({cx}, {cy}), which holds {token}; write + there.` |
-| 17.8 off grid | R | `room {room} at cell ({x}, {y}) turned {deg} covers {w} x {d} cells and runs off the {rows}x{columns} grid.` |
-| 17.8 neighbour name | R | `room {room}: entity {id} ({class}) key "{key}": "{value}" names a neighbour cell; a room of {w} x {d} cells names only its own cell (cxry_).` |
-| 17.8 side | R | `room {room}: entity {id} ({class}) room_needs "{value}": a room of {w} x {d} cells has several neighbours on a side; name a socket, joined_<socket>.` |
-| 17.8 blocks | R | `room {room}: its compile does not split at every cell face of its {w} x {d} footprint (cell ({i}, {j})); this is a bug in the room compile.` |
-| 17.9 no large rooms | R | `layout: -large asks for large areas, but no library of the level has a room taller or wider than one cell.` |
+| 17.8 footprint (dropped, D30) | R | `room {room}: room_footprint "{v}" is not two whole numbers of cells from 1 to 16, like "2 3".` |
+| 17.8 `+` alone (dropped, D30) | R | `+ is in no room's footprint; + marks the cells a larger room covers besides its south-west one.` |
+| 17.8 covered (dropped, D30) | R | `room {room} at cell ({x}, {y}) covers cell ({cx}, {cy}), which holds {token}; write + there.` |
+| 17.8 off grid (dropped, D30) | R | `room {room} at cell ({x}, {y}) turned {deg} covers {w} x {d} cells and runs off the {rows}x{columns} grid.` |
+| 17.8 neighbour name (dropped, D30) | R | `room {room}: entity {id} ({class}) key "{key}": "{value}" names a neighbour cell; a room of {w} x {d} cells names only its own cell (cxry_).` |
+| 17.8 side (dropped, D30) | R | `room {room}: entity {id} ({class}) room_needs "{value}": a room of {w} x {d} cells has several neighbours on a side; name a socket, joined_<socket>.` |
+| 17.8 blocks (dropped, D30) | R | `room {room}: its compile does not split at every cell face of its {w} x {d} footprint (cell ({i}, {j})); this is a bug in the room compile.` |
+| 17.9 no large rooms | R | `layout: -large asks for large areas, but no library of the level has a room taller than one cell.` (with `-max-height {h}`: `... taller than one cell and at most {h} tall (-max-height).`; PR 21 dropped `or wider` with D30) |
+| 17.9 no fill room | R | `none of the library's {n} room(s) has a socket and stands no taller than its cell{ and {h} (-max-height)}, so {placed} rooms cannot be joined; a room taller than its cell stands only in a group of large rooms (-large).` (when height left the fill no room; the socketless text otherwise, as before) |
 | 17.9 no fit | R | `layout: no level of {rows}x{columns} with seed {seed} covers {k} cells with large rooms in groups of {g}; lower -large or grow the grid.` |
 | 17.10 key twice | R | `ssmap roompack: the key {key} is given twice.` |
 | 17.10 no key | R | `ssmap roompack: {path} gives no key ({stem} is not a key); write key={path}.` |
@@ -5123,7 +5222,18 @@ top tree's algorithm; tall one-cell rooms (17.6) are its `1 × 1` case, so
 heights and footprints are one chain of work; and the cost sits at pack
 time (block splits, larger compiles), where D1 and D16 want it.
 
+**Decided otherwise (D30, 2026-09-30).** The owner dropped A ("I don't think
+we want PR 20"). Large areas are B: groups of tall one-cell rooms, gathered
+by height and reached through standard rooms by the generator (17.9, PR 21).
+The seams B leaves (a doorway between every two cells of a group, light
+one door deep) are accepted with it. A stays written as the analysis of what
+a seamless area would take, should it ever be wanted.
+
 ### 17.8 Multi-cell rooms
+
+**Dropped by D30 (2026-09-30): not built.** The design below is kept as the
+starting point a later change would have; nothing in the code reads
+`room_footprint`, and a level file has no `+` cells.
 
 - **Authoring.** The `info_room` key **`room_footprint`**, `"W D"`: cells
   along the room's own +x and +y, 1 to 16 each (a guard, like
@@ -5189,7 +5299,10 @@ time (block splits, larger compiles), where D1 and D16 want it.
 ### 17.9 The generator: several libraries, heights, large areas
 
 `ssmap layout` gains the libraries and three options; with neither it
-writes exactly what it writes today.
+writes exactly what it writes today. Written for multi-cell rooms and
+rewritten for one-cell rooms when the owner dropped them (D30): a large room
+is a tall one-cell room, every group and every tree is over cells, and a
+level file has no `+` cells. PR 21 built it (section 13, its landed note).
 
 ```
 ssmap layout <library.vmf> ...                            (one library, as today)
@@ -5201,14 +5314,16 @@ ssmap layout <key>=<library.vmf> [<key>=<library.vmf> ...] -rows R -columns C -s
 
 - **Candidates.** Every room of every library, in library order then room
   order, each under its qualified name. A room is **standard** when it is
-  one cell and no taller than the cell size, **large** otherwise (a low
-  hallway is standard). `-max-height H` drops rooms taller than H.
+  no taller than its cell, **large** when it is taller (17.6's
+  `room_height`); a low hallway is standard. `-max-height H` drops rooms
+  taller than H, standard or large.
 - **`-large <share>`**, in `[0, 1)`, default 0: the share of occupied cells
   large rooms cover. At 0 the large rooms are dropped from the candidate
   lists before anything is drawn, so a library that gains large rooms still
   generates exactly the levels it did, and a single-library run is
   byte-identical to today's. **`-group <n>`**, default 3: the most large
-  rooms in one group.
+  rooms in one group. Large rooms are never offered to the fill: they stand
+  only in groups (O33's default).
 - **Order of work**, each step drawing from its own stream so that a step
   that does not run leaves the others' draws alone:
   1. **Empty cells**, main stream, as today.
@@ -5217,44 +5332,45 @@ ssmap layout <key>=<library.vmf> [<key>=<library.vmf> ...] -rows R -columns C -s
      `0x6A09E667F3BCC908`, beside PR 8's `RoleStream`), created only when
      `-large` is above 0. Until the covered cells reach
      `floor(share × occupied)`:
-     - **Start a group**: the next cell of a shuffled list of free cells;
-       a large candidate (room and turn, shuffled) whose footprint, anchored
-       there, lies on free occupied cells and whose sockets agree with every
-       large room it touches (a socket on both sides of a shared edge or on
+     - **Start a group**: the next cell of a shuffled list of the occupied
+       cells that is free and shares no wall with a group; a large
+       candidate (room and turn, shuffled) whose sockets agree with every
+       large room it touches (a socket on both sides of a shared wall or on
        neither).
-     - **Grow it** to at most `-group` rooms: the free cells sharing an edge
-       with the group, shuffled; for each, the candidates that fit there and
-       have a socket meeting one of the group's on the shared edge (so the
-       group is joined inside), ordered by how close their height is to the
-       group's first room (in whole cells of height, a stable sort after the
-       shuffle, so ties stay random): **height-aware grouping**, tall halls
-       with tall halls.
-     - **Keep groups apart and connected**: a group may not share an edge
+     - **Grow it** to at most `-group` rooms: the free cells sharing a wall
+       with the group and none with another group, shuffled; for each, the
+       candidates that agree there and have a socket meeting one of the
+       group's on the shared wall (so the group is joined inside), ordered
+       by how close their height is to the group's first room (in whole
+       cells of height, a stable sort after the shuffle, so ties stay
+       random): **height-aware grouping**, tall halls with tall halls.
+     - **Keep groups apart and connected**: a group may not share a wall
        with another group, and needs at least one socket on its boundary
        facing a free cell, so every large area is reached through standard
-       rooms or hallways (unless one group covers every occupied cell).
+       rooms or hallways. (The share is below 1 and rounded down, so some
+       cell is always free.)
      - A group that cannot start is skipped; when the target is not reached
        the phase restarts with the stream running on, up to
        `LevelGenerator.Attempts`, then refuses (17.3).
-  3. **Spanning tree**, main stream, over **units**: a large room is one
-     unit, a free cell another. The shared edges between units are shuffled
-     and kept as today, except that an edge touching a large room is
-     eligible only where that room has a socket. With no large rooms the
-     edge list and the draws are today's.
-  4. **Roles**, PR 8's role stream, on the unit tree, unchanged.
+  3. **Spanning tree**, main stream, over the occupied cells. The shared
+     walls are shuffled and kept as today, except that a wall touching a
+     large room is listed only where that room has a socket. With no large
+     rooms the wall list and the draws are today's.
+  4. **Roles**, PR 8's role stream, on that tree, unchanged; role cells are
+     drawn among the cells no large room holds.
   5. **Fill**, main stream: today's backtracking over the free cells with
      the standard candidates; the placed large rooms act as neighbours
-     already placed (a shared edge has a socket on both sides or neither).
+     already placed on every side (a shared wall has a socket on both sides
+     or neither).
 - **Determinism.** A seed, the libraries in order and their rooms in order
   always give the same file, at any thread count; the header gains
   `large share {s}, groups of {g}` only when `-large` is above 0.
 - **Budget.** `RoomEdicts` covers every library's rooms; `LevelEdicts` is
-  the first library's entities (17.4). `-rooms` reads counts from a
-  combined pack or one pack per key.
+  the level's singletons (17.4, the first library's with D29's fillers).
+  `-rooms` reads counts from a combined pack or one pack per key.
 - **Output.** One library: `library`, as today. Several: `libraries` in
-  operand order, cells in their shortest spelling (17.2), `+` for covered
-  cells. A bare path among `key=path` operands takes the file's stem as its
-  key.
+  operand order, cells in their shortest spelling (17.2). A bare path among
+  `key=path` operands takes the file's stem as its key.
 
 ### 17.10 Combining libraries into one pack
 
@@ -5369,14 +5485,17 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
   refuse a larger room's second socket on a face only by luck. A pack of
   cube rooms keeps the current version and its bytes, so no golden digest
   moves. The room container (`SSROOM01`) does not change, so the room cache
-  keeps every cube room's entries.
+  keeps every cube room's entries. Since D30 no room is larger than one
+  cell: `SHAP` holds a footprint of 1 × 1 and no per-cell roots, as PR 19
+  wrote it.
 - **Navigation.** A shaped room's navigation section (`NVRr`) raises its
   revision for that room only (taller columns, the footprint's region). The
   `.nav3d` stays version 2 for a level of cubes; a level placing a shaped
   room is written at **version 3**, whose one addition is a per-placed-cell
   voxel height (a `CHGT` section); `docs/nav3d-format.md` 1, 2 and 16 are
   updated in PR 19.
-- **Level file**: new keys only (17.2), `+` cells (17.8).
+- **Level file**: new keys only (17.2); 17.8's `+` cells were dropped with
+  multi-cell rooms (D30).
 
 ### 17.12 Tests
 
@@ -5386,9 +5505,9 @@ exact text (15.4). Beyond them:
 - **Samples.** A multi-library sibling, `samples/rooms-multi`: a second
   library beside the 3x3 one (same cell and kit) with rooms of the same
   names as some of the 3x3's (to exercise bare-name ambiguity, aliases and
-  `MapBase` namespacing), two tall rooms, a `2 x 2` hall and a `3 x 1`
-  gallery; levels using both libraries at every rotation of the shaped
-  rooms, one seeded with `-large`. The 3x3 library stays as it is, so its
+  `MapBase` namespacing), and tall rooms of two heights (the `2 x 2` hall and
+  `3 x 1` gallery went with D30); levels using both libraries at every
+  rotation of the tall rooms, one seeded with `-large`. The 3x3 library stays as it is, so its
   seeded levels keep holding (15.7), and a fact holds `ssmap layout` on it
   byte for byte with and without `-large 0`.
 - **Equivalence.** Each multi-library level links to the same map as the
@@ -5398,7 +5517,8 @@ exact text (15.4). Beyond them:
   every lattice point, vis a superset, entities, `.nav3d`).
 - **Exactness.** A `W x D` room at every rotation: every moved vertex is
   bit for bit `Apply` of the room's; a 1 × 1 room's `Translate` bits are
-  unchanged; a tall room's plug boxes equal a cube room's.
+  unchanged; a tall room's plug boxes equal a cube room's. (The `W x D`
+  part, here and in the next item, was multi-cell rooms', dropped by D30.)
 - **Top tree.** Every covered cell descends to its own subtree root; no node
   is reached twice; block nodes are omitted and every index shifted; node
   and solid-leaf bounds enclose the tallest room; a level of cubes has
@@ -5419,7 +5539,8 @@ exact text (15.4). Beyond them:
 These are also rows of section 14's open table (O24 to O33). The owner
 answered five of them on 2026-09-29; they are decisions D24 to D28 now,
 and their rows here say what was decided. O25 was built as recommended and
-decided the other way on 2026-09-30 (D29).
+decided the other way on 2026-09-30 (D29). O28 to O30 asked only about
+multi-cell rooms, which D30 dropped the same day.
 
 | # | Question | Recommended default, or the decision |
 | --- | --- | --- |
@@ -5427,9 +5548,9 @@ decided the other way on 2026-09-30 (D29).
 | O25 | A singleton only a later library has. | **Decided (D29, 2026-09-30):** used, not dropped: taken from the earliest listed library that has it, the first library still winning wherever it has one; the same for an option the first library does not write and for the skybox. Built before as this point's default, dropped with a warning. |
 | O26 | Navigation settings across libraries. | **Decided (D25):** the voxel grid is compatibility (refused); step and jump heights, costs and agent presets follow the singleton rule (warned). |
 | O27 | Rooms of other libraries compiled under a worldspawn and sun the level drops. | **Decided (D26):** `ssmap roompack` compiles every namespace under the first library's worldspawn and singletons; separate packs link with a warning, except that a sunlit room baked under a dropped sun is refused once the door light (PR 10) lands, and warned until then. |
-| O28 | Neighbour names and sides in a room larger than one cell. | Refused at pack time for now; `joined_<socket>` works. A later grammar could name a neighbour by socket (`cxry_<socket>_`). |
-| O29 | The mark for a covered cell in the level file. | `+`, with the room in its south-west cell. |
-| O30 | Role rooms larger than one cell in `ssmap layout`. | Link accepts them; the generator offers only one-cell role rooms. |
+| O28 | Neighbour names and sides in a room larger than one cell. | **Moot (D30):** no room is larger than one cell. (Was: refused at pack time; `joined_<socket>` works; a later grammar could name a neighbour by socket.) |
+| O29 | The mark for a covered cell in the level file. | **Moot (D30).** (Was: `+`, with the room in its south-west cell.) |
+| O30 | Role rooms larger than one cell in `ssmap layout`. | **Moot (D30).** PR 21 keeps role rooms out of the groups: a role room is a standard room, and a tall one is never placed. |
 | O31 | Rooms whose floor is not at z = 0, and stacked storeys. | **Decided (D27):** not planned: both need a vertical kit and z splits in the top tree. Storeys are authored inside a tall room. |
 | O32 | The combine verb's name. | **Decided (D28):** `ssmap roompack`, with `ssmap room -namespace` for one library. |
 | O33 | Scattering tall one-cell rooms outside groups. | Only in groups (`-large`); revisit if levels look too regular. |

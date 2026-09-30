@@ -18,7 +18,43 @@ namespace SourceSharp.MapTools.Rooms;
 /// <c>floor(ratio × cells)</c> cells are left empty, and at least one room is
 /// always placed.
 /// </param>
-public sealed record LevelGeneratorOptions(int Rows, int Columns, ulong Seed, double EmptyRatio = 0);
+public sealed record LevelGeneratorOptions(int Rows, int Columns, ulong Seed, double EmptyRatio = 0)
+{
+    /// <summary>The group size <c>ssmap layout</c> uses when <c>-group</c> is not given.</summary>
+    public const int DefaultGroupSize = 3;
+
+    /// <summary>
+    /// The share of the occupied cells large rooms cover (<c>-large</c>),
+    /// from 0 up to but not including 1; 0 by default.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A <b>large</b> room is one taller than its cell
+    /// (<see cref="RoomDefinition.Height"/> above
+    /// <see cref="RoomDefinition.CellSize"/>); every other room, a low
+    /// hallway included, is <b>standard</b>. Large rooms stand only in
+    /// groups of adjacent large rooms (the rooms design, 17.9), each group
+    /// reached through standard rooms.
+    /// </para>
+    /// <para>
+    /// At 0 the large rooms are dropped before anything is drawn, so a
+    /// library that gains tall rooms still generates, seed for seed, the
+    /// levels it generated before it had them, and a library without any
+    /// generates exactly what it always did.
+    /// </para>
+    /// </remarks>
+    public double LargeShare { get; init; }
+
+    /// <summary>The most large rooms one group holds (<c>-group</c>), 1 or more; <see cref="DefaultGroupSize"/> by default.</summary>
+    public int GroupSize { get; init; } = DefaultGroupSize;
+
+    /// <summary>
+    /// The tallest room the level may place, in units (<c>-max-height</c>),
+    /// or null for no limit: a room taller than this is dropped from every
+    /// candidate list, standard or large, before anything is drawn.
+    /// </summary>
+    public float? MaxHeight { get; init; }
+}
 
 /// <summary>An entity budget a generated level must keep within.</summary>
 /// <param name="Budget">
@@ -100,7 +136,6 @@ public sealed record LayoutTransitions(IReadOnlyList<RoomRole> Roles)
 /// its step budget gives up on that tree and draws another.</item>
 /// </list>
 /// <para>
-/// <para>
 /// <b>Transition rooms</b> (<see cref="LayoutTransitions"/>) come from a
 /// <b>second</b> <see cref="SplitMix64"/> sequence, seeded from the seed and
 /// a fixed constant (<see cref="RoleStream"/>), created only when the library
@@ -114,6 +149,21 @@ public sealed record LayoutTransitions(IReadOnlyList<RoomRole> Roles)
 /// second sequence, offers the candidates it always offered, and gets the
 /// level it always got from a seed.
 /// </para>
+/// <para>
+/// <b>Large rooms</b> (the rooms design, 17.9, one-cell rooms only since the
+/// owner dropped multi-cell rooms, D30): a room taller than its cell stands
+/// only in a group of adjacent large rooms, and only when
+/// <see cref="LevelGeneratorOptions.LargeShare"/> asks for some. The groups
+/// come from a <b>third</b> sequence (<see cref="AreaStream"/>), grown after
+/// the empty cells and before any tree (<see cref="PlaceLargeGroups"/>); the
+/// trees then take a wall touching a large room only where it has a socket,
+/// the role cells and the fill take only the cells left, and the fill holds
+/// every room it places to the large rooms around it on all four sides.
+/// Without a large share nothing of this runs: large rooms are dropped from
+/// the candidates before any draw, the third sequence is never created,
+/// and every list and draw is what it was before heights existed.
+/// </para>
+/// <para>
 /// This replaces the sample's exhaustive enumerator for drawing levels: the
 /// enumerator can only permute a fixed set of rooms on a full 3x3 grid,
 /// where this places any of the library's rooms, as often as it likes, on
@@ -173,6 +223,20 @@ public static class LevelGenerator
     /// </summary>
     public const ulong RoleStream = 0x7F4A7C159E3779B9UL;
 
+    /// <summary>
+    /// What the area sequence's seed is the level's seed exclusive-or'd
+    /// with: the first 64 bits of the fractional part of √2, so the large
+    /// groups are a function of the seed and never share a draw with the
+    /// main or the role sequence (the rooms design, 17.9).
+    /// </summary>
+    /// <remarks>
+    /// Its own sequence so that a level with large rooms leaves every draw
+    /// of the steps that do not involve them alone: the empty cells come
+    /// from the main sequence before the groups are grown, and the role
+    /// cells from theirs; and a level without large rooms never creates it.
+    /// </remarks>
+    public const ulong AreaStream = 0x6A09E667F3BCC908UL;
+
     private const int East = 1, West = 2, North = 4, South = 8;
 
     /// <summary>The comment lines a generated level file starts with: how it was made, and how to read the grid.</summary>
@@ -183,11 +247,19 @@ public static class LevelGenerator
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(level);
+        // The large-room settings are named only when they were used, so a
+        // level made without them keeps the header it always had.
+        string large = options.LargeShare > 0
+            ? string.Create(CultureInfo.InvariantCulture, $", large share {options.LargeShare}, groups of {options.GroupSize}")
+            : string.Empty;
+        string height = options.MaxHeight is float most
+            ? string.Create(CultureInfo.InvariantCulture, $", rooms at most {most} tall")
+            : string.Empty;
         return
         [
             string.Create(CultureInfo.InvariantCulture,
                 $"generated by ssmap layout: seed {options.Seed}, {options.Rows} rows x {options.Columns} columns,"
-                + $" {level.Cells.Count(c => c is null)} empty cell(s)"),
+                + $" {level.Cells.Count(c => c is null)} empty cell(s){large}{height}"),
             "the grid's first line is the north row; each line runs west to east",
         ];
     }
@@ -225,6 +297,27 @@ public static class LevelGenerator
         {
             throw new ArgumentException(
                 string.Create(CultureInfo.InvariantCulture, $"the empty ratio {options.EmptyRatio} is not in [0, 1)"),
+                nameof(options));
+        }
+
+        if (!(options.LargeShare >= 0 && options.LargeShare < 1))
+        {
+            throw new ArgumentException(
+                string.Create(CultureInfo.InvariantCulture, $"the large share {options.LargeShare} is not in [0, 1)"),
+                nameof(options));
+        }
+
+        if (options.GroupSize < 1)
+        {
+            throw new ArgumentException(
+                string.Create(CultureInfo.InvariantCulture, $"a group of {options.GroupSize} large rooms is not 1 or more"),
+                nameof(options));
+        }
+
+        if (options.MaxHeight is float most && !(most > 0 && float.IsFinite(most)))
+        {
+            throw new ArgumentException(
+                string.Create(CultureInfo.InvariantCulture, $"the most height {most} is not a positive number of units"),
                 nameof(options));
         }
     }
@@ -311,7 +404,10 @@ public static class LevelGenerator
     /// <exception cref="LinkException">
     /// As for the overload without transitions; or the library has no room
     /// of a role the level keeps; or no level of the grid and seed places
-    /// the up and down rooms the minimum distance apart.
+    /// the up and down rooms the minimum distance apart; or a large share is
+    /// asked for and no room is large, or no pass of the area sequence
+    /// covers the share with groups; or every room with a socket is too tall
+    /// for the fill (large, or past <see cref="LevelGeneratorOptions.MaxHeight"/>).
     /// </exception>
     public static LevelGrid Generate(
         IReadOnlyList<RoomDefinition> rooms,
@@ -349,9 +445,16 @@ public static class LevelGenerator
 
         // Every (room, rotation), as room * 4 + rotation, and the world walls
         // it has sockets on, by that index. A room with no socket can only
-        // stand alone.
+        // stand alone. A room taller than -max-height is dropped outright;
+        // a large room (taller than its cell) is never offered to the fill:
+        // it stands only in a group, which only a large share asks for, and
+        // never in a role cell (role rooms are the fill's). Dropping them
+        // here, before any draw, is what keeps a library that gains tall
+        // rooms generating the levels it generated without them.
         int[] maskOf = new int[checked(rooms.Count * 4)];
         List<int> candidateList = [];
+        List<int> largeList = [];
+        int droppedForHeight = 0;
         for (int r = 0; r < rooms.Count; r++)
         {
             if (rooms[r].Sockets.Count == 0 && placed > 1)
@@ -359,21 +462,44 @@ public static class LevelGenerator
                 continue;
             }
 
+            bool tooTall = options.MaxHeight is float most && rooms[r].Height > most;
+            bool isLarge = IsLarge(rooms[r]);
+            bool grouped = isLarge && !tooTall && options.LargeShare > 0 && RoleOf(transitions, rooms.Count, r) == RoomRole.None;
+            if (tooTall || (isLarge && !grouped))
+            {
+                droppedForHeight++;
+                continue;
+            }
+
             for (int rotation = 0; rotation < 4; rotation++)
             {
                 int candidate = (r * 4) + rotation;
                 maskOf[candidate] = Mask(rooms[r], rotation);
-                candidateList.Add(candidate);
+                (grouped ? largeList : candidateList).Add(candidate);
             }
+        }
+
+        if (options.LargeShare > 0 && !rooms.Any(r => IsLarge(r) && !(options.MaxHeight is float most && r.Height > most)))
+        {
+            throw new LinkException(options.MaxHeight is float most
+                ? string.Create(CultureInfo.InvariantCulture,
+                    $"layout: -large asks for large areas, but no library of the level has a room taller than one cell and at most {most} tall (-max-height).")
+                : "layout: -large asks for large areas, but no library of the level has a room taller than one cell.");
         }
 
         if (candidateList.Count == 0)
         {
-            throw new LinkException(
-                $"none of the library's {rooms.Count} room(s) has a socket, so {placed} rooms cannot be joined.");
+            string limit = options.MaxHeight is float most
+                ? string.Create(CultureInfo.InvariantCulture, $" and {most} (-max-height)")
+                : string.Empty;
+            throw new LinkException(droppedForHeight == 0
+                ? $"none of the library's {rooms.Count} room(s) has a socket, so {placed} rooms cannot be joined."
+                : $"none of the library's {rooms.Count} room(s) has a socket and stands no taller than its cell{limit},"
+                    + $" so {placed} rooms cannot be joined; a room taller than its cell stands only in a group of large rooms (-large).");
         }
 
         int[] candidates = [.. candidateList];
+        int[] large = [.. largeList];
 
         // The roles: which candidates are role rooms, and which cells must
         // hold one. Null for a library without roles, whose fill is exactly
@@ -425,20 +551,56 @@ public static class LevelGenerator
 
         bool distanceFailed = false;
 
+        // The large groups, from their own sequence, before the tree: the
+        // cells they take are fixed for every tree drawn after. Null when no
+        // large share is asked for, and then nothing below differs from a
+        // generator that never heard of large rooms.
+        int[]? largeAt = null;
+        bool[] fillable = occupied;
+        int covered = 0;
+        if (options.LargeShare > 0)
+        {
+            // A role room is a standard room, so the groups leave a cell for
+            // each role the level keeps; the share can never take every
+            // cell anyway (it is below 1 and rounded down).
+            int roles = (wantUp ? 1 : 0) + (wantDown ? 1 : 0);
+            int target = Math.Max(0, Math.Min((int)Math.Floor(options.LargeShare * placed), placed - roles));
+            largeAt = PlaceLargeGroups(
+                new SplitMix64(options.Seed ^ AreaStream), rooms, large, maskOf, occupied, rows, columns, target, options.GroupSize)
+                ?? throw new LinkException(string.Create(CultureInfo.InvariantCulture,
+                    $"layout: no level of {rows}x{columns} with seed {options.Seed} covers {target} cells with large rooms"
+                    + $" in groups of {options.GroupSize}; lower -large or grow the grid."));
+            fillable = new bool[cellCount];
+            for (int cell = 0; cell < cellCount; cell++)
+            {
+                fillable[cell] = occupied[cell] && largeAt[cell] < 0;
+                covered += largeAt[cell] >= 0 ? 1 : 0;
+            }
+        }
+
         // Each candidate's edicts, by candidate, when there is a budget; and
         // the refusal of a level whose cheapest rooms already pass it, which
         // no search could make.
         int[]? costOf = null;
+        long largeEdicts = 0;
         if (budget is not null)
         {
             int[] costs = new int[maskOf.Length];
-            foreach (int candidate in candidates)
+            foreach (int candidate in candidates.Concat(large))
             {
                 costs[candidate] = budget.RoomEdicts[candidate / 4];
             }
 
             costOf = costs;
-            long least = 1 + (long)budget.LevelEdicts + ((long)placed * candidates.Min(c => costs[c]));
+            if (largeAt is not null)
+            {
+                foreach (int candidate in largeAt)
+                {
+                    largeEdicts += candidate >= 0 ? costs[candidate] : 0;
+                }
+            }
+
+            long least = 1 + (long)budget.LevelEdicts + largeEdicts + ((long)(placed - covered) * candidates.Min(c => costs[c]));
             if (least > budget.Budget)
             {
                 string included = budget.LevelEdicts == 0 ? "the worldspawn included" : "the worldspawn and the library's own entities included";
@@ -448,11 +610,11 @@ public static class LevelGenerator
             }
         }
 
-        // One order per occupied cell, reused by every tree.
+        // One order per cell the fill fills, reused by every tree.
         int[]?[] order = new int[]?[cellCount];
         for (int cell = 0; cell < cellCount; cell++)
         {
-            if (occupied[cell])
+            if (fillable[cell])
             {
                 order[cell] = new int[candidates.Length];
             }
@@ -462,9 +624,26 @@ public static class LevelGenerator
         int[] masks = new int[cellCount];
         int[] next = new int[cellCount];
         long[]? spent = costOf is null ? null : new long[cellCount];
+
+        // A placed large room is a neighbour the fill must agree with on
+        // every side, the ones after it in cell order included.
+        bool[]? fixedCells = null;
+        if (largeAt is not null)
+        {
+            fixedCells = new bool[cellCount];
+            for (int cell = 0; cell < cellCount; cell++)
+            {
+                if (largeAt[cell] >= 0)
+                {
+                    fixedCells[cell] = true;
+                    masks[cell] = maskOf[largeAt[cell]];
+                }
+            }
+        }
+
         for (int attempt = 0; attempt < Attempts; attempt++)
         {
-            int[] required = SpanningTree(random, rows, columns, occupied);
+            int[] required = SpanningTree(random, rows, columns, occupied, largeAt, maskOf);
             for (int cell = 0; cell < cellCount; cell++)
             {
                 if (order[cell] is int[] tries)
@@ -477,12 +656,12 @@ public static class LevelGenerator
             bool rolesPlaced = true;
             if (roleDraws is not null)
             {
-                rolesPlaced = PickRoleCells(roleDraws, occupied, required, columns, wantUp, wantDown, minDistance, cellRole!);
+                rolesPlaced = PickRoleCells(roleDraws, fillable, required, columns, wantUp, wantDown, minDistance, cellRole!);
                 distanceFailed |= !rolesPlaced;
             }
 
             bool filled = rolesPlaced
-                && Fill(occupied, order, required, maskOf, columns, chosen, masks, next, costOf, (budget?.Budget ?? 0) - (budget?.LevelEdicts ?? 0), spent, roleOf, cellRole);
+                && Fill(fillable, order, required, maskOf, columns, chosen, masks, next, costOf, (budget?.Budget ?? 0) - (budget?.LevelEdicts ?? 0), spent, roleOf, cellRole, fixedCells, 1 + largeEdicts);
 
             // The tree's doors are a bound, not the level's: the fill may
             // join walls the tree left out, so the distance is measured again
@@ -500,7 +679,7 @@ public static class LevelGenerator
                 {
                     if (occupied[cell])
                     {
-                        int candidate = order[cell]![chosen[cell]];
+                        int candidate = fillable[cell] ? order[cell]![chosen[cell]] : largeAt![cell];
                         cells[cell] = new LevelCell(rooms[candidate / 4].Name, candidate % 4);
                     }
                 }
@@ -557,6 +736,15 @@ public static class LevelGenerator
     /// search reaches the cell, and still right when it backs up to it,
     /// since only the cells after it have changed since.
     /// </para>
+    /// <para>
+    /// With large rooms placed, <paramref name="occupied"/> is the cells the
+    /// fill fills (the occupied ones no large room stands in),
+    /// <paramref name="fixedCells"/> marks the large rooms' cells, whose
+    /// sockets <paramref name="masks"/> already holds, and
+    /// <paramref name="firstSpent"/> is the worldspawn's edict plus the large
+    /// rooms' own, which every level of this tree spends before the first
+    /// cell is filled.
+    /// </para>
     /// <returns>Whether every occupied cell was filled; <paramref name="chosen"/> then holds each one's position in its order.</returns>
     internal static bool Fill(
         bool[] occupied,
@@ -571,7 +759,9 @@ public static class LevelGenerator
         long budget = 0,
         long[]? spent = null,
         int[]? roleOf = null,
-        int[]? cellRole = null)
+        int[]? cellRole = null,
+        bool[]? fixedCells = null,
+        long firstSpent = 1)
     {
         int cellCount = occupied.Length;
         int steps = 0;
@@ -584,7 +774,7 @@ public static class LevelGenerator
         next[cell] = 0;
         if (spent is not null)
         {
-            spent[cell] = 1;
+            spent[cell] = firstSpent;
         }
 
         while (true)
@@ -599,7 +789,7 @@ public static class LevelGenerator
                 }
 
                 int mask = maskOf[tries[i]];
-                if (Fits(occupied, required, masks, columns, cell, mask)
+                if (Fits(occupied, required, masks, columns, cell, mask, fixedCells)
                     && (costOf is null || spent![cell] + costOf[tries[i]] <= budget)
                     && (roleOf is null || roleOf[tries[i]] == cellRole![cell]))
                 {
@@ -803,6 +993,334 @@ public static class LevelGenerator
         return baseName + "_" + index.ToString(CultureInfo.InvariantCulture).PadLeft(width, '0');
     }
 
+    /// <summary>Whether a room is large: taller than its cell. A room as tall as its cell, or lower (a low hallway), is standard.</summary>
+    /// <param name="room">The room.</param>
+    /// <returns>True for a large room.</returns>
+    public static bool IsLarge(RoomDefinition room)
+    {
+        ArgumentNullException.ThrowIfNull(room);
+        return room.Height > room.CellSize;
+    }
+
+    /// <summary>A room's role, or none when the level has no transitions (or gives roles that do not match, which the caller refuses).</summary>
+    private static RoomRole RoleOf(LayoutTransitions? transitions, int roomCount, int room) =>
+        transitions?.Roles is { } roles && roles.Count == roomCount ? roles[room] : RoomRole.None;
+
+    /// <summary>
+    /// Whether a wall between two occupied cells can be a doorway given the
+    /// large rooms already placed: a large room on either side must have a
+    /// socket on it. Every wall is eligible when no large room is placed.
+    /// </summary>
+    private static bool Eligible(int[]? largeAt, int[]? maskOf, int a, int b, int bitOfA, int bitOfB) =>
+        largeAt is null
+        || ((largeAt[a] < 0 || (maskOf![largeAt[a]] & bitOfA) != 0) && (largeAt[b] < 0 || (maskOf![largeAt[b]] & bitOfB) != 0));
+
+    /// <summary>
+    /// Places the large groups (the rooms design, 17.9, step 2) from the area
+    /// sequence: groups of adjacent large rooms until they cover
+    /// <paramref name="target"/> cells, restarting with the sequence running
+    /// on when a pass falls short, up to <see cref="Attempts"/> passes.
+    /// </summary>
+    /// <param name="area">The area sequence.</param>
+    /// <param name="rooms">The rooms, in library order.</param>
+    /// <param name="large">The large candidates, as room × 4 + rotation, in library order.</param>
+    /// <param name="maskOf">Each candidate's world socket mask.</param>
+    /// <param name="occupied">Which cells hold a room.</param>
+    /// <param name="rows">The grid's rows.</param>
+    /// <param name="columns">The grid's columns.</param>
+    /// <param name="target">How many cells the groups cover, below the occupied count.</param>
+    /// <param name="groupSize">The most rooms in one group.</param>
+    /// <returns>Per cell, the large candidate standing in it or -1; null when no pass reached the target.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>A group</b> starts at the next cell of a shuffled list of the
+    /// occupied cells that is free and shares no wall with a group already
+    /// placed, with the first large candidate of a shuffled order (it touches
+    /// no large room, so any fits). It grows one room at a time, to at most
+    /// <paramref name="groupSize"/> rooms: the free cells sharing a wall with
+    /// the group and none with another group, in cell order, shuffled; for
+    /// each in turn the large candidates, shuffled and then stably sorted by
+    /// how many whole cells their height is from the group's first room's
+    /// (so ties stay in shuffled order), the first that agrees with every
+    /// large room it touches (a socket on both sides of a shared wall or on
+    /// neither) and has a socket meeting one of the group's. That is the
+    /// height-aware grouping: tall halls gather with halls of their own
+    /// height, and a group is joined inside by construction.
+    /// </para>
+    /// <para>
+    /// <b>Kept apart and reached.</b> No two groups share a wall, and a
+    /// group is kept only if every occupied cell can still reach every other
+    /// through walls that could be doorways (<see cref="Joined"/>): a wall
+    /// touching a large room only where it has a socket. That is 17.9's rule
+    /// that each group has a socket facing a free cell, strengthened: a
+    /// group that walls off part of the grid is dropped as well, since no
+    /// tree could then span the level. Some cell is always free (the target
+    /// is below the occupied count), so every group is reached through
+    /// standard rooms. A group that fails is undone and the pass moves on to
+    /// the next start cell.
+    /// </para>
+    /// <para>
+    /// Every draw is from <paramref name="area"/>, in an order fixed by the
+    /// grid and the candidates alone, so the groups are a function of the
+    /// seed, the rooms and the options, whatever thread runs it.
+    /// </para>
+    /// </remarks>
+    internal static int[]? PlaceLargeGroups(
+        SplitMix64 area,
+        IReadOnlyList<RoomDefinition> rooms,
+        int[] large,
+        int[] maskOf,
+        bool[] occupied,
+        int rows,
+        int columns,
+        int target,
+        int groupSize)
+    {
+        int cellCount = occupied.Length;
+        int[] largeAt = new int[cellCount];
+        int[] groupOf = new int[cellCount];
+        Array.Fill(largeAt, -1);
+        if (target <= 0)
+        {
+            return largeAt;
+        }
+
+        for (int attempt = 0; attempt < Attempts; attempt++)
+        {
+            Array.Fill(largeAt, -1);
+            Array.Fill(groupOf, -1);
+            int covered = 0, groups = 0;
+            List<int> starts = [.. Enumerable.Range(0, cellCount).Where(c => occupied[c])];
+            area.Shuffle(starts);
+            foreach (int start in starts)
+            {
+                if (covered >= target)
+                {
+                    break;
+                }
+
+                if (largeAt[start] >= 0 || !Apart(groupOf, rows, columns, start, groups))
+                {
+                    continue;
+                }
+
+                int[] tries = [.. large];
+                area.Shuffle(tries);
+                int first = -1;
+                foreach (int candidate in tries)
+                {
+                    if (Agrees(largeAt, maskOf, rows, columns, start, maskOf[candidate]))
+                    {
+                        first = candidate;
+                        break;
+                    }
+                }
+
+                if (first < 0)
+                {
+                    continue;
+                }
+
+                List<int> members = [start];
+                largeAt[start] = first;
+                groupOf[start] = groups;
+                covered++;
+                float firstHeight = rooms[first / 4].Height, cell = rooms[first / 4].CellSize;
+                while (members.Count < groupSize && covered < target)
+                {
+                    List<int> frontier = [];
+                    foreach (int member in members)
+                    {
+                        foreach (int there in Neighbours(rows, columns, member))
+                        {
+                            if (occupied[there] && largeAt[there] < 0 && !frontier.Contains(there) && Apart(groupOf, rows, columns, there, groups))
+                            {
+                                frontier.Add(there);
+                            }
+                        }
+                    }
+
+                    frontier.Sort();
+                    area.Shuffle(frontier);
+                    bool grown = false;
+                    foreach (int there in frontier)
+                    {
+                        int[] order = [.. large];
+                        area.Shuffle(order);
+                        foreach (int candidate in order.OrderBy(c => HeightSteps(rooms[c / 4].Height, firstHeight, cell)))
+                        {
+                            int mask = maskOf[candidate];
+                            if (Agrees(largeAt, maskOf, rows, columns, there, mask) && Meets(largeAt, groupOf, maskOf, rows, columns, there, mask, groups))
+                            {
+                                largeAt[there] = candidate;
+                                groupOf[there] = groups;
+                                members.Add(there);
+                                covered++;
+                                grown = true;
+                                break;
+                            }
+                        }
+
+                        if (grown)
+                        {
+                            break;
+                        }
+                    }
+
+                    if (!grown)
+                    {
+                        break;
+                    }
+                }
+
+                if (!Joined(occupied, largeAt, maskOf, rows, columns))
+                {
+                    foreach (int member in members)
+                    {
+                        largeAt[member] = -1;
+                        groupOf[member] = -1;
+                    }
+
+                    covered -= members.Count;
+                    continue;
+                }
+
+                groups++;
+            }
+
+            if (covered >= target)
+            {
+                return largeAt;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>How many whole cells of height lie between a room's height and the group's first room's: the grouping's sort key.</summary>
+    internal static int HeightSteps(float height, float firstHeight, float cellSize) =>
+        (int)Math.Floor(Math.Abs(height - firstHeight) / cellSize);
+
+    /// <summary>A cell's neighbours on the grid, east, west, north, south.</summary>
+    private static IEnumerable<int> Neighbours(int rows, int columns, int cell)
+    {
+        int x = cell % columns, y = cell / columns;
+        if (x + 1 < columns)
+        {
+            yield return cell + 1;
+        }
+
+        if (x > 0)
+        {
+            yield return cell - 1;
+        }
+
+        if (y + 1 < rows)
+        {
+            yield return cell + columns;
+        }
+
+        if (y > 0)
+        {
+            yield return cell - columns;
+        }
+    }
+
+    /// <summary>The wall bit from a cell towards one of its neighbours, and back.</summary>
+    private static (int Bit, int Back) Towards(int columns, int cell, int there) =>
+        (there - cell) switch
+        {
+            1 => (East, West),
+            -1 => (West, East),
+            _ when there > cell => (North, South),
+            _ => (South, North),
+        };
+
+    /// <summary>Whether a cell shares a wall with no group but <paramref name="group"/> (every placed group, for a new group's number).</summary>
+    private static bool Apart(int[] groupOf, int rows, int columns, int cell, int group)
+    {
+        foreach (int there in Neighbours(rows, columns, cell))
+        {
+            if (groupOf[there] >= 0 && groupOf[there] != group)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether a mask at a cell agrees with every large room it touches: a socket on both sides of a shared wall, or on neither.</summary>
+    private static bool Agrees(int[] largeAt, int[] maskOf, int rows, int columns, int cell, int mask)
+    {
+        foreach (int there in Neighbours(rows, columns, cell))
+        {
+            if (largeAt[there] >= 0)
+            {
+                (int bit, int back) = Towards(columns, cell, there);
+                if (((mask & bit) != 0) != ((maskOf[largeAt[there]] & back) != 0))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Whether a mask at a cell has a socket meeting one of the group's rooms across a shared wall.</summary>
+    private static bool Meets(int[] largeAt, int[] groupOf, int[] maskOf, int rows, int columns, int cell, int mask, int group)
+    {
+        foreach (int there in Neighbours(rows, columns, cell))
+        {
+            if (groupOf[there] == group)
+            {
+                (int bit, int back) = Towards(columns, cell, there);
+                if ((mask & bit) != 0 && (maskOf[largeAt[there]] & back) != 0)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether every occupied cell reaches every other through walls that
+    /// could be doorways (<see cref="Eligible"/>): the condition for a
+    /// spanning tree of the level to exist once the large rooms are placed.
+    /// </summary>
+    internal static bool Joined(bool[] occupied, int[] largeAt, int[] maskOf, int rows, int columns)
+    {
+        int first = Array.IndexOf(occupied, true);
+        if (first < 0)
+        {
+            return true;
+        }
+
+        bool[] seen = new bool[occupied.Length];
+        seen[first] = true;
+        int reached = 1;
+        Queue<int> queue = new([first]);
+        while (queue.Count > 0)
+        {
+            int at = queue.Dequeue();
+            foreach (int there in Neighbours(rows, columns, at))
+            {
+                (int bit, int back) = Towards(columns, at, there);
+                if (occupied[there] && !seen[there] && Eligible(largeAt, maskOf, at, there, bit, back))
+                {
+                    seen[there] = true;
+                    reached++;
+                    queue.Enqueue(there);
+                }
+            }
+        }
+
+        return reached == occupied.Count(o => o);
+    }
+
     /// <summary>The first occupied cell at or after <paramref name="cell"/>, or the cell count when there is none.</summary>
     private static int NextOccupied(bool[] occupied, int cell)
     {
@@ -826,8 +1344,14 @@ public static class LevelGenerator
     /// grid's edge or onto an empty cell is free. The tree walls are the
     /// cell's <paramref name="required"/> bits, which only ever name walls
     /// between two occupied cells.
+    /// <para>
+    /// With large rooms placed (<paramref name="fixedCells"/>), a cell they
+    /// stand in is a neighbour already placed on whichever side it is: the
+    /// fill never fills it, and <paramref name="masks"/> holds its sockets
+    /// from the start, so its east and north neighbours are held to it too.
+    /// </para>
     /// </remarks>
-    private static bool Fits(bool[] occupied, int[] required, int[] masks, int columns, int cell, int mask)
+    private static bool Fits(bool[] occupied, int[] required, int[] masks, int columns, int cell, int mask, bool[]? fixedCells = null)
     {
         if ((mask & required[cell]) != required[cell])
         {
@@ -835,13 +1359,27 @@ public static class LevelGenerator
         }
 
         int x = cell % columns;
-        if (x > 0 && occupied[cell - 1] && ((mask & West) != 0) != ((masks[cell - 1] & East) != 0))
+        if (x > 0 && (occupied[cell - 1] || (fixedCells?[cell - 1] ?? false)) && ((mask & West) != 0) != ((masks[cell - 1] & East) != 0))
         {
             return false;
         }
 
+        if (fixedCells is not null)
+        {
+            if (x + 1 < columns && fixedCells[cell + 1] && ((mask & East) != 0) != ((masks[cell + 1] & West) != 0))
+            {
+                return false;
+            }
+
+            int north = cell + columns;
+            if (north < occupied.Length && fixedCells[north] && ((mask & North) != 0) != ((masks[north] & South) != 0))
+            {
+                return false;
+            }
+        }
+
         int south = cell - columns;
-        return south < 0 || !occupied[south] || ((mask & South) != 0) == ((masks[south] & North) != 0);
+        return south < 0 || !(occupied[south] || (fixedCells?[south] ?? false)) || ((mask & South) != 0) == ((masks[south] & North) != 0);
     }
 
     /// <summary>The world walls a room has sockets on, turned.</summary>
@@ -1137,8 +1675,17 @@ public static class LevelGenerator
     /// shuffled order when they join two groups not yet joined. A set of
     /// wall pairs used to hold the result; per-cell masks are what the fill
     /// reads, and hold the same walls.
+    /// <para>
+    /// With large rooms placed (<paramref name="largeAt"/>), a wall touching
+    /// one is listed only where that room has a socket (both rooms, for a
+    /// wall between two), since only there can the level have a doorway;
+    /// every other wall is listed as it always was, so without large rooms
+    /// the list, and the draws, are exactly today's. The groups were placed
+    /// so that the walls left still join every occupied cell
+    /// (<see cref="Joined"/>), so the tree still spans them.
+    /// </para>
     /// </remarks>
-    private static int[] SpanningTree(SplitMix64 random, int rows, int columns, bool[] occupied)
+    private static int[] SpanningTree(SplitMix64 random, int rows, int columns, bool[] occupied, int[]? largeAt = null, int[]? maskOf = null)
     {
         List<(int, int)> walls = [];
         for (int y = 0; y < rows; y++)
@@ -1151,12 +1698,12 @@ public static class LevelGenerator
                     continue;
                 }
 
-                if (x + 1 < columns && occupied[here + 1])
+                if (x + 1 < columns && occupied[here + 1] && Eligible(largeAt, maskOf, here, here + 1, East, West))
                 {
                     walls.Add((here, here + 1));
                 }
 
-                if (y + 1 < rows && occupied[here + columns])
+                if (y + 1 < rows && occupied[here + columns] && Eligible(largeAt, maskOf, here, here + columns, North, South))
                 {
                     walls.Add((here, here + columns));
                 }
