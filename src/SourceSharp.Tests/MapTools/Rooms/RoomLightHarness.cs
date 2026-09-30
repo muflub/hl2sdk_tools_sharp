@@ -186,7 +186,7 @@ internal static class RoomLightHarness
         return points;
     }
 
-    /// <summary>A compile context with the harness materials, the sky and the prop models.</summary>
+    /// <summary>A compile context with the harness materials, the sky, the prop models and the detail props' files.</summary>
     /// <remarks>
     /// With <paramref name="reflectivity"/> (a VMT vector, <c>".6 .55 .5"</c>),
     /// the rooms' plain shell material reflects that much, so vrad bounces
@@ -195,7 +195,7 @@ internal static class RoomLightHarness
     /// </remarks>
     public static async Task<VbspContext> ContextAsync(string mapBase = "roomtest", int degree = 1, string? reflectivity = null)
     {
-        Dictionary<string, byte[]> files = new(RoomBrushHarness.Files(), StringComparer.Ordinal)
+        Dictionary<string, byte[]> files = new(RoomDetailHarness.Files(), StringComparer.Ordinal)
         {
             [$"materials/{Sky}.vmt"] = "\"UnlitGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compileSky\" \"1\"\n}\n"u8.ToArray(),
             [$"materials/{Sky2D}.vmt"] = "\"UnlitGeneric\"\n{\n\t\"$basetexture\" \"unit/missing\"\n\t\"%compile2DSky\" \"1\"\n}\n"u8.ToArray(),

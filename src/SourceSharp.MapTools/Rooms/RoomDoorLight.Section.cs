@@ -100,7 +100,7 @@ internal sealed partial class RoomDoorLight
         return new RoomPackSectionData(SectionTag, RoomLinkSections.Encode(w.ToArray(), RoomLinkCodec.None));
     }
 
-    private static void WriteSeen(RoomLinkSections.Writer w, DoorSeen seen)
+    internal static void WriteSeen(RoomLinkSections.Writer w, DoorSeen seen)
     {
         w.Int(seen.Codes.Length);
         w.Raw(seen.Codes);
@@ -272,7 +272,7 @@ internal sealed partial class RoomDoorLight
         return new DoorLightRange(captures, ambient, responses);
     }
 
-    private static DoorSeen ReadSeen(RoomLinkSections.Reader r, int expected, string what)
+    internal static DoorSeen ReadSeen(RoomLinkSections.Reader r, int expected, string what)
     {
         byte[] codes = r.Structs<byte>(what, expected);
         int partial = 0;

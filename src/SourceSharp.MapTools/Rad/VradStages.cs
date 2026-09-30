@@ -52,6 +52,9 @@ public sealed class RadPass
     /// <summary>Told the pass's static prop lighting before it is written (<see cref="VradContext.StaticPropLightingObserver"/>).</summary>
     internal Action<bool, Props.StaticPropLightingResult>? StaticPropLightingObserver { get; init; }
 
+    /// <summary>Told the pass's detail prop lighting before it is written (<see cref="VradContext.DetailPropLightingObserver"/>).</summary>
+    internal Action<bool, Props.DetailPropLightingResult>? DetailPropLightingObserver { get; init; }
+
     /// <summary>True for the HDR pass.</summary>
     public bool Hdr => World.Settings.Hdr;
 

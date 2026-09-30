@@ -84,9 +84,16 @@ namespace SourceSharp.MapTools.Rooms;
 /// other side), in which every cluster of a level sees every other.
 /// </para>
 /// <para>
-/// A room whose compile left anything outside the relocation set — detail
-/// props — is refused rather than silently dropped: the linked map must be
-/// the rooms, not an approximation of them.
+/// A room whose compile left anything outside the relocation set (a lump or
+/// a game lump the link does not know) is refused rather than silently
+/// dropped: the linked map must be the rooms, not an approximation of them.
+/// </para>
+/// <para>
+/// <b>Detail props</b> are carried: every placed room's detail props, each
+/// moved and turned with its room, its leaf the linked tree's, the
+/// dictionaries merged and the props re-sorted by leaf, lit from the rooms'
+/// bakes in a lit level (<see cref="WriteDetailProps"/>,
+/// <see cref="RoomDetailProps"/>).
 /// </para>
 /// <para>
 /// <b>Displacements</b> are carried: every placed room's displacements in
@@ -162,8 +169,10 @@ public static partial class LevelLinker
     /// <remarks>
     /// Several of these are carried only in their empty form, and
     /// <see cref="PlanRoom"/> checks that: every game lump but the static
-    /// props' is all zeros (no detail props); the static prop lump is rebuilt for the
-    /// level from the rooms' (<see cref="WritePropsAsync"/>).
+    /// and detail props' is all zeros; the static prop lump is rebuilt for the
+    /// level from the rooms' (<see cref="WritePropsAsync"/>), and so is the
+    /// detail prop lump, with its lighting lumps in a lit level
+    /// (<see cref="WriteDetailProps"/>).
     /// <see cref="BspLump.PakFile"/> is carried whole: the rooms'
     /// archives are merged (<see cref="LevelPakFiles"/>).
     /// <see cref="BspLump.Cubemaps"/> is every placement's samples at their
@@ -512,6 +521,12 @@ public static partial class LevelLinker
         {
             await WritePropsAsync(linked, props, plans, cancellationToken).ConfigureAwait(false);
         }
+
+        // The level's detail props: every placement's, moved, in the linked
+        // tree's leaves, re-sorted, lit from the rooms' bakes when the level
+        // is lit; a level whose rooms have none keeps its first room's empty
+        // lump, as before detail props were carried.
+        WriteDetailProps(linked, plans, lit, styles, door, cancellationToken);
 
         if (lit is not null)
         {
@@ -1047,6 +1062,9 @@ public static partial class LevelLinker
         /// <summary>The room's displacements, which the link appends as they are.</summary>
         public int Displacements { get; init; }
 
+        /// <summary>The room's detail props, which the link appends (<see cref="RoomDetailProps.CountOf"/>).</summary>
+        public int DetailProps { get; init; }
+
         /// <summary>
         /// A compiled room's counts of the lumps it appends, read as
         /// <see cref="PlanRoom"/> reads them; the shared tables' counts are
@@ -1068,6 +1086,7 @@ public static partial class LevelLinker
             Clusters = clusters,
             Overlays = BspStructView.Count<DOverlay>(bsp[BspLump.Overlays]),
             Displacements = BspStructView.Count<DispInfo>(bsp[BspLump.DispInfo]),
+            DetailProps = RoomDetailProps.CountOf(bsp),
         };
     }
 
@@ -1151,7 +1170,7 @@ public static partial class LevelLinker
         private readonly int _nodeCap = Cap(BspLump.Nodes);
 
         private long _vertices, _texDatas, _faces, _brushes, _brushSides, _leafFaces, _leaves = 1,
-            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters, _nodes = -1, _overlays, _displacements;
+            _stringTable, _primitives, _primitiveIndices, _primitiveVertices, _vertexNormals, _clusters, _nodes = -1, _overlays, _displacements, _detailProps;
 
         /// <summary>Adds one room, refusing the first total it pushes past its limit.</summary>
         public void Add(LinkCounts counts, string room, int cellX, int cellY)
@@ -1172,6 +1191,7 @@ public static partial class LevelLinker
             _clusters += counts.Clusters;
             _overlays += counts.Overlays;
             _displacements += counts.Displacements;
+            _detailProps += counts.DetailProps;
 
             Limit(room, cellX, cellY, "vertices", _vertices, ushort.MaxValue + 1);
             LoaderLimit(room, cellX, cellY, "texdatas", _texDatas, _texDataCap, "MAX_MAP_TEXDATA");
@@ -1191,6 +1211,7 @@ public static partial class LevelLinker
             LoaderLimit(room, cellX, cellY, "nodes", _nodes, _nodeCap, "MAX_MAP_NODES");
             OverlayLimit(room, cellX, cellY, _overlays);
             DisplacementLimit(room, cellX, cellY, _displacements);
+            Limit(room, cellX, cellY, "detail props", _detailProps, RoomDetailProps.MaxDetailProps);
         }
 
         /// <summary>

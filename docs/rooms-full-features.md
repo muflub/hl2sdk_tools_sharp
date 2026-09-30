@@ -162,7 +162,8 @@ In the order it checks:
 5. any non-zero byte in any game lump (`RefuseGameLumpContent`: static and
    detail props; since PR 6 static props are carried, and a static prop lump
    with content is refused only when the room carries no static prop data
-   from its compile);
+   from its compile; since PR 16 detail props likewise, `DetailPropsOf`;
+   a game lump of any other id with content is still refused);
 6. displacement collision (`RefuseDisplacementCollision`; since PR 15
    the collision is carried with its displacements, and only a collision
    lump for displacements the room does not have is refused,
@@ -274,7 +275,7 @@ or research).
 | Brush entities | carried since PR 7 (own models, origin-relative in the entity's frame, per-model collision, (c) omission, socket furniture) | models, subtrees, per-model collision, origin class | rebase models, `model` keys, texinfo split for origin models | 1 each | L |
 | `func_ladder` | silently wrong (`info_ladder` bounds) | bounds per rotation | none | 1 (`info_ladder`) | S |
 | Static props | carried since PR 6 (moved, filtered, dictionaries merged, leaves recomputed, `.vhv` renamed) | props per rotation, dictionary, hulls; lighting ×1, or ×4 if sunlit | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
-| Detail props | refused (game lump) | props per rotation, leaf-local runs; lighting ×1, or ×4 if sunlit | renumber leaves, re-sort, merge dictionaries | 0 | M |
+| Detail props | carried since PR 16 (moved and turned, leaves the linked tree's, re-sorted, dictionaries merged, lit from the rooms' bakes with the door light added per prop) | props per rotation; lighting ×1, or ×4 if sunlit; door receivers and responses | leaves, re-sort, merge dictionaries, replay vrad's passes | 0 | M |
 | Displacements | carried since PR 15 (moved and turned, runs, faces and neighbours rebased, collision hulls and lighting the room's; no stitching across a joint, which is refused) | starts and vertex vectors per rotation | rebase; cross-room neighbours only if allowed | 0 | L |
 | Water | carried since PR 14 (records merged, leaf and face ids renumbered, fluids moved into the collision, water overlays carried, vvis's water passes run over the level; water touching a door plug refused) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
 | Overlays | carried since PR 11 (moved and turned, ids, texinfos and faces rebased, accessors renumbered; water overlays since PR 14) | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
@@ -509,7 +510,8 @@ scale). Placement is seeded per face by its **Hammer face id**
 the CRT's unstable `qsort` (`DetailPropEmitter` remarks). vrad writes
 `dplt`/`dplh` and the prop's lighting field (`DetailPropLighting`).
 
-**Today.** Refused by `RefuseGameLumpContent`.
+**Today.** Carried since PR 16 (section 13, its landed note). Before it,
+refused by `RefuseGameLumpContent`.
 
 **Pack vs link.** Per rotation: the props, moved, with their room-local
 leaf and lighting. At link: merge dictionaries, rebase each prop's leaf by
@@ -4986,6 +4988,201 @@ patches unions in 15 to 21 ms at power 2 (512 triangles) and 26 to 44 ms
 at power 3 (2,048), minimum to median of twelve warm runs, three runs, on a
 busy 4-core machine, against a room compile of seconds.
 
+**PR 16 landed** (detail props). `ssmap room` describes a room whose
+compile wrote detail props (the props vbsp scatters over its `%detailtype`
+faces, displacements included, and its `prop_detail` and
+`prop_detail_sprite` entities) in an optional **`DPRP`** section
+(`RoomDetailProps`, the 1.1 framing: codec byte, decoded length, revision;
+codec none): the prop count, then the rotation count (4) and per turn every
+prop's origin turned (not moved) and its angles turned as the flatten turns
+an entity's (`RoomDetailProps.TurnAngle`: the yaw plus 90 a turn by the
+flatten's formula, kept in [0, 360), pitch and roll without a negative
+zero; turn 0 as compiled). The `dprp` lump itself, dictionaries and records,
+stays in the room's container byte for byte, checked against what vbsp
+writes (version 4, every record's type and dictionary entry and leaf the
+room's). A lit room whose bake lit its detail props adds a **`DPLT`**
+section (`RoomDetailLighting`, same framing): per stored turn of `LITE`
+(1, or 4 for a sunlit room) and per range, each prop's colour as vrad
+encoded it, its style count and the runs; then, for a room that records its
+door light, its detail props as door receivers and each response emitter's
+detail props (below). A room without detail props gets neither section, so
+a library without them packs to the same bytes, and `LITE` and `DLIT` are
+unchanged for every room. The pack format version is unchanged (4, or 5
+for a pack holding a shaped room): both tags are ones an older build skips,
+and that build refuses a room with detail props by its lump. A pack written
+before this PR has no `DPRP` for such a room, which this build refuses with
+`room {room} has detail props but no detail prop data from its compile (a
+pack written before the link carried detail props, or a room built without
+ssmap room); recompile the library with ssmap room.` (any non-zero byte of
+the lump counts, so a damaged lump is refused the same way). The old
+refusal named detail props (`... (static or detail props); the relocation
+carries only empty game lumps`); a game lump of another id with content is
+now refused with `room {room} has content in game lump '{id}', which the
+relocation does not carry; it carries the static and detail prop lumps and
+empty game lumps.`
+
+The link (`LevelLinker.WriteDetailProps`, after the static props, once the
+tree is final) writes the level's `dprp` in place of the first room's:
+
+- **Order.** Placements in link order, each room's props in its lump's
+  order (vbsp's sort by leaf); then a stable sort by linked leaf, ties in
+  that order. vbsp sorts with the C runtime's unstable `qsort`, and the
+  engine needs each leaf's props together; a stable sort keeps a room
+  placed alone in its own compile's order and makes the lump a function of
+  the layout.
+- **Dictionaries.** Models by exact name and sprites by their bytes (as
+  vbsp dedupes each), merged in the order the placements bring them, each
+  room's in its own dictionary's order, so a room alone keeps its
+  dictionary. vbsp adds an entry only for a prop it writes, so no entry of
+  the level's is unused.
+- **Leaves: walked, not rebased.** Each moved origin goes through the
+  linked tree with vbsp's own descent (`BspTreeView.LeafOf`), which is the
+  leaf vbsp would give the point in the linked map. Below the top tree a
+  cell's tree is the room's, so this is the room's leaf rebased except
+  where a joint's carve changed a leaf or the translation's rounding moves a
+  point across a plane it lay on; the walk is right in both, where a rebase
+  is right only in the first (the design's "rebase each prop's leaf").
+- **Pose.** The stored turn's origin plus the placement's translation (the
+  float additions every moved point takes, a zero unsigned); the angles are
+  final; every other field is the room's, the dictionary entry renumbered.
+- **Lighting.** vrad lights a map's detail props once a range, LDR then
+  HDR: each pass writes every prop's colour and count and, for a prop with
+  styles, the start of the run it appends to the range's style lump; a prop
+  without styles keeps the start it had. The link replays those passes over
+  the level's props in their linked order from each placement's stored turn,
+  every run's styles renumbered for the level (`LevelLightStyles`) and
+  listed in ascending order as vrad lists them, and writes `dplh` and `dplt`
+  in vrad's directory order. The bake keeps each pass as vrad gave it
+  (`VradContext.DetailPropLightingObserver`): after `-both` a map holds only
+  the HDR pass's colours and counts, and the LDR runs cannot be told apart
+  in its lump. A library lit with `-nodetaillight` keeps vbsp's white and
+  gets no style lump, as vrad leaves such a map; a level of rooms lit both
+  ways is refused: `rooms {a} and {b} were lit with different settings (one
+  bake lit its detail props, the other did not); a level's rooms are lit
+  alike. Recompile the library with ssmap room.`
+- **The bake frame.** vrad's detail stage now honours `FrameTurns` (the
+  ambient rays and the sun's jitter turned into the room's frame, as PR 9
+  did for static props and leaf ambient); only a room bake sets it, so
+  `ssmap vrad` is unchanged. Without it a sunlit room's props at 90 and 270
+  were up to 40% off vrad of the turned map (p95 0.29); with it, exact.
+- **Door light (9.4).** A detail prop is one sample point, so it is a door
+  receiver as a face's cells are: the room records, per prop, its lighting
+  centre and up vector (`DetailPropLighting.WorldCentre`, the models read
+  from the game content at pack time) and, per socket, which cells of the
+  opening the centre sees (`RoomDoorLight.DetailReceiversAsync`, traced as
+  a leaf ambient sample's are), and the link evaluates every source the
+  neighbour's capture holds (its lights of every style, its stand-ins) at
+  that point, through the cells the prop sees and the source reaches
+  (`DoorLightMath.Through`, the faces' evaluation). A room that stores
+  responses also records each emitter's detail props' ambient light (what
+  its surfaces reflect onto a prop; the emitter's direct light is the
+  link's, as a face's is), pruned as a face's, and the link adds it. Style
+  0's light goes into a prop's colour, decoded exactly, summed, encoded
+  once with vrad's encoder; any other style's into its run, halved as vrad
+  halves a style's light, under the level's number. A room with detail
+  props (lit, not `-nodetaillight`) now stores responses even when nothing
+  in it reflects, as a room with lit static props does. Both parts live in
+  `DPLT`: `DLIT` did not change, so every existing door-lit room reads as
+  before.
+
+Refusals the table does not list, each held by a fact: `room {room}: entity
+{id} ({class}) has room_needs, but a detail prop is built into its room's
+compile and cannot be dropped.` (`prop_detail`, `detail_prop`,
+`prop_detail_sprite`: vbsp consumes the entity into the lump, where no
+condition survives, so the link would keep what the flattened compile
+drops), and the limit, 65,535 props (vbsp's own cap), refused in the
+capacity check naming the placement that crossed it (`room {room} at cell
+({x}, {y}) pushes the link to {n} detail props; the format carries at most
+65535.`). Detail props cost no entity: a level with them has the entity lump
+and budget of the same level without them (a fact).
+
+What is exact and what is statistical, measured on the harness (the hub and
+the other room on the walkable kit, a grass slab in each, a grass
+displacement in the hub, three detail entities; 228 and 225 props;
+`LevelLinkerDetailPropTests`, `LevelLinkerDetailLightingTests`):
+
+- **Exact.** A room alone links to its own compile's detail props prop for
+  prop at every quarter turn: the same dictionary, the records in the
+  room's order with each origin, angle and field as the transform gives it,
+  each leaf the linked tree's and in the room's cluster. A level of both
+  rooms placed three times each at mixed turns holds every placement's own
+  props, sorted by leaf, the dictionaries merged. A detail entity's record
+  is the flattened compile's, bit for bit. Links are the same bytes at one
+  thread and eight, and packs, lit or not, at one and four; a pose count of
+  1 (turn 0 stored, the link turning it) links to the same bytes. Lighting:
+  a room alone, capped, links to vrad of its own link with every prop's
+  colour, count and run start and both style lumps the same bytes at turn 0
+  and at every turn of the sunlit room (225 props); the hub, stored once,
+  is exact at 0 and 180 and at 90 and 270 all but one prop of 228 (a prop
+  on the displacement at a shadow's edge, lit in one map and black in the
+  other: vrad of a turned map is not quarter-turn invariant to the last
+  bit).
+- **Statistical** (the design's equivalence for the flattened compile,
+  whose face ids and face cuts give another random draw): the same
+  dictionaries; per room and entry the same count within four standard
+  deviations of the difference plus four (measured: at most 11 apart on
+  about 100); every prop on its surface in both maps; per quadrant of each
+  grass surface the same bound (at most 27 apart on about 110). Both
+  compiles are seeded, so the facts are deterministic, not flaky.
+- **Door light**, against vrad of the linked level (two rooms jointed, at
+  turns 0 and 90/180): props near a joint p95 0.006 and 0.006, elsewhere
+  0.005 and 0.006, energy 1.000 and 1.002; 443 and 438 of 453 props list
+  the styles vrad lists; the base alone p95 1.0, energy 0.76 and 0.70. The
+  door light only adds to a prop's colour and runs. Reflecting rooms
+  (0.6/0.55/0.5): near p95 0.074, elsewhere 0.040, energy 1.000; without
+  the detail responses p95 0.14 to 0.20, energy 0.978.
+
+Storage: poses four turns, the 1.1 default: on a 16 x 16 level of the two
+rooms at mixed turns (57,984 props) on a busy 4-core machine, the minimum of
+fifteen warm links is 68 ms with either storage and 42 to 45 ms without
+detail props (the walk, the sort and the merge; the walk is a few node
+visits a prop); a lit 8 x 8 level with door light links in 225 to 231 ms
+against 182 ms without detail props.
+
+Measured against main (the merge base, with PR 15 and PR 22), the whole
+`ssmap` process on a busy 4-core machine: `ssmap vbsp` on 2fort (as
+`c.vmf`) gives `a491f59df3b484dc`, vrad on 2fort's vis'd map the same bytes
+at 4 threads and 1 (`13dd86de1bde7eb2`), and `ssmap all` on 2fort and the
+sandbox writes the same maps (`7955274d...`, `09c58ee2...`); the 3x3,
+transit and stress packs (unlit and lit) are the same sizes and differ only
+in the build identity, no room of them gaining a `DPRP` or `DPLT` section;
+every level of the 3x3 and transit samples (both modes for transit), linked
+by this build from main's packs, is main's map, `.nav3d` and `.map2d` byte
+for byte, and so is the stress library's 33 x 33 level, unlit and lit,
+each passing `ssmap check` with its one warning (no cubemap sample); the
+stress pack and link times are main's within the noise (lit pack 14.0 and
+24.9 s against 15.5 and 28.0 s interleaved on a machine at load 8 to 11;
+links 1.7 s unlit and 3.1 to 4.2 s lit on both). Through the CLI (`ssmap
+room` lighting as it does by default, `ssmap link` from the pack alone,
+`ssmap check`, `--flatten` compiled whole), a level of the grassed rooms at
+mixed turns links clean, every prop lit, and matches its flatten's
+dictionary and per-cell counts; `ssmap room` refuses `room_needs` on a
+detail entity with its text.
+
+Decisions taken where this document is open, or where it left a detail:
+leaves walked rather than rebased, and a stable sort (above); dictionaries
+in the rooms' own order; colours stored as vrad's encoded bytes rather than
+PR 9's linear halves (an 8-bit mantissa times a power of two decodes
+exactly in a float, which a half does not for a very dim style, and the
+door terms sum onto the decoded float); the detail lighting in its own
+section beside `LITE` and `DLIT` rather than a new revision of either, so
+no existing lit pack changes; detail props as door receivers (the design's
+"one sample point each") plus ambient-only responses, where static props
+still take the responses alone; `room_needs` on a detail entity refused; a
+plug with a side of a detail material refused before the compile (`room
+{room}: socket "{socket}"'s plug has side {side} of material {material},
+which grows detail props (%detailtype {type}); a joint removes the plug.`;
+the kit's plug is a trigger, whose faces vbsp does not draw); and, as 4.4
+says, no props in a joined doorway: its floor had no face in the room's
+compile (it faced the plug), so the link has none there and the flattened
+compile does (the doorway-face exception). Not done here: `ssmap
+rooms` does not list detail props; the 3x3 sample's `end` room did not grow
+its grass floor (15.2's fixture; the harness carries every fact at every
+turn, and the sample's unchanged digests show a level without detail props
+links as before); the stress library has none; whether the engine draws a
+level's detail props from a lump sorted stably by leaf is on the 15.8
+checklist.
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
@@ -6092,8 +6289,8 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
 - **Combined packs: no version change.** The pack layout is `RoomPack`'s,
   version 4 (PR 4 raised it to 2, PR 5 to 3 and Q3 to 4 with `DVIS`; the
   `PROP`, `BMOD`, `TRAN`, `CUBE`, `OVLY`, `LITE`, `APRT` and `SKYB`
-  sections of PRs 6 to 13, and PR 15's `DISP`, are optional tags an older
-  build skips). New
+  sections of PRs 6 to 13, PR 15's `DISP`, PR 22's `MAPV` and PR 16's
+  `DPRP` and `DPLT`, are optional tags an older build skips). New
   library section **`NSPC`**, an optional known tag in the same way (no
   version bump; PR 10's door-light sections are added the same way on their
   own branch), with the 1.1 framing: per namespace in order, its key, the

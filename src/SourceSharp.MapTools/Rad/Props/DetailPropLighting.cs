@@ -28,7 +28,19 @@ namespace SourceSharp.MapTools.Rad.Props;
 /// <param name="LightStyles">This pass's <c>dplt</c> (LDR) or <c>dplh</c> (HDR) records.</param>
 /// <param name="BogusProps">Props whose centre or normal was not finite.</param>
 public sealed record DetailPropLightingResult(
-    DetailObjectLump[] Props, DetailPropLightstylesLump[] LightStyles, int BogusProps);
+    DetailObjectLump[] Props, DetailPropLightstylesLump[] LightStyles, int BogusProps)
+{
+    /// <summary>
+    /// Each prop's style 0 ambient light (the rays' part of its colour, before
+    /// the direct light is added and the sum encoded), in prop order; null
+    /// for a result not built by <see cref="DetailPropLighting"/>. A room's
+    /// door response keeps it: the light an emitter behind a door sends a
+    /// prop directly is evaluated at link from the neighbour's own lights,
+    /// and only what the room's surfaces reflect onto the prop is the
+    /// response's.
+    /// </summary>
+    internal Vec3[]? Ambient { get; init; }
+}
 
 /// <summary>
 /// <c>ComputeDetailPropLighting</c>: each detail
@@ -176,6 +188,28 @@ public static class DetailPropLighting
     /// at <paramref name="batchSegments"/> segments; the facts use it to
     /// trace each prop alone, and no answer depends on it.
     /// </summary>
+    internal static Task<DetailPropLightingResult> ComputeAsync(
+        AmbientScene scene,
+        DetailPropLump lump,
+        IReadOnlyList<Vec3> modelCentres,
+        IReadOnlyList<PropLight> lights,
+        PropLightSampler sampler,
+        ComplianceOptions compliance,
+        int parallelism,
+        CompilePool? pool,
+        int batchSegments,
+        CancellationToken cancellationToken) =>
+        ComputeAsync(scene, lump, modelCentres, lights, sampler, compliance, parallelism, pool, batchSegments, 0, cancellationToken);
+
+    /// <summary>
+    /// Lights every detail prop for one pass in a room bake's frame: the
+    /// ambient rays turned into the room's frame by <paramref name="frameTurns"/>
+    /// quarter turns (<see cref="Light.BakeFrame"/>), in their order, as the
+    /// leaf ambient's and the static props' are, so a room lit for a turned
+    /// placement sees the sky and the room as the turned map does. The
+    /// sampler carries the same turns for the sun's jitter. 0 is the
+    /// arithmetic vrad always ran.
+    /// </summary>
     internal static async Task<DetailPropLightingResult> ComputeAsync(
         AmbientScene scene,
         DetailPropLump lump,
@@ -186,6 +220,7 @@ public static class DetailPropLighting
         int parallelism,
         CompilePool? pool,
         int batchSegments,
+        int frameTurns,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(scene);
@@ -215,7 +250,7 @@ public static class DetailPropLighting
             props.Length,
             null,
             degree,
-            w => new DetailWorker(scene, props, modelCentres, spriteCentres, lights, clusterLights, sampler, w),
+            w => new DetailWorker(scene, props, modelCentres, spriteCentres, lights, clusterLights, sampler, w, frameTurns),
             batchSegments,
             TestLineStage.DefaultBatchItems,
             "detail prop lighting",
@@ -253,7 +288,7 @@ public static class DetailPropLighting
         }
 
         _ = compliance;
-        return new DetailPropLightingResult(props, [.. styles], bogus);
+        return new DetailPropLightingResult(props, [.. styles], bogus) { Ambient = [.. colours.Select(c => c.Ambient[0])] };
     }
 
     /// <summary>
@@ -528,10 +563,11 @@ public static class DetailPropLighting
         IReadOnlyList<PropLight> lights,
         PropClusterLights clusterLights,
         PropLightSampler sampler,
-        int workerIndex)
+        int workerIndex,
+        int frameTurns)
         : TestLineWorker<DetailPlan, PropColours>(sampler.CreateBatch(workerIndex))
     {
-        private readonly PropAmbient _ambient = new(scene);
+        private readonly PropAmbient _ambient = new(scene, frameTurns);
 
         public override DetailPlan Plan(int item, CancellationToken cancellationToken) =>
             DetailPropLighting.Plan(scene, in props[item], modelCentres, spriteCentres, lights, clusterLights, sampler, Lines);
@@ -612,19 +648,24 @@ public static class DetailPropLighting
         private readonly DispTestedScratch _scratch;
         private readonly Vec3? _sky;
         private readonly float _tanTheta;
+        private readonly Vec3[]? _turned;
 
-        public PropAmbient(AmbientScene scene)
+        public PropAmbient(AmbientScene scene, int frameTurns)
         {
             _scene = scene;
             _scratch = scene.Tracer.Displacements.CreateScratch();
             _sky = RayAmbientLighting.FindSkyAmbient(scene);
             _tanTheta = DetMathF.Tan(VertexNormals.ConeInnerAngleRadians);
+
+            // The ray directions in a room bake's frame, in the table's order;
+            // none turned (the table itself) in every other compile.
+            _turned = (frameTurns & 3) == 0 ? null : Light.BakeFrame.ToRoom(VertexNormals.All, frameTurns);
         }
 
         public void Compute(Vec3 origin, Vec3[] color)
         {
             Array.Clear(color);
-            ReadOnlySpan<Vec3> anorms = VertexNormals.All;
+            ReadOnlySpan<Vec3> anorms = _turned ?? VertexNormals.All;
             for (int i = 0; i < VertexNormals.Count; i++)
             {
                 // VectorMA( origin, COORD_EXTENT * 1.74, g_anorms[i], upend ).

@@ -712,6 +712,15 @@ internal static class RoomNameAnalysis
                 $"room {room}: entity {entity.Id} ({className}) has room_needs, but an area portal is built into its room's compile and cannot be dropped.");
         }
 
+        // A detail prop entity is consumed by vbsp into its room's detail
+        // prop lump, where no key survives, so the link cannot leave it out
+        // while the flattened compile would. Refused, like an overlay.
+        if (className is "prop_detail" or "prop_detail_sprite" or "detail_prop")
+        {
+            throw new RoomLintException(
+                $"room {room}: entity {entity.Id} ({className}) has room_needs, but a detail prop is built into its room's compile and cannot be dropped.");
+        }
+
         if (string.Equals(className, "prop_static", StringComparison.Ordinal)
             && !string.Equals(entity.Get("disableshadows")?.Trim(), "1", StringComparison.Ordinal))
         {

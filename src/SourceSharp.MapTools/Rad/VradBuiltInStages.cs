@@ -56,10 +56,14 @@ internal static class VradBuiltInStages
             IRayTracer environment = pass.Tracer;
             Vec3[] centres = await DetailPropLighting.LoadModelCentresAsync(lump, pass.Content, cancellationToken)
                 .ConfigureAwait(false);
+            // A room bake's frame (FrameTurns, 0 in every other compile):
+            // the sun's jitter and the ambient rays turned into the room's
+            // frame, as the static props' and the leaf ambient's are.
             PropLightSampler sampler = new(
                 environment, pass.Options.Compliance, pass.World.Lights.SunAngularExtent, pass.Options.Fast)
             {
                 ScratchPool = pass.ScratchPool,
+                FrameTurns = pass.World.Settings.FrameTurns,
             };
 
             DetailPropLightingResult result = await DetailPropLighting.ComputeAsync(
@@ -71,7 +75,10 @@ internal static class VradBuiltInStages
                 pass.Options.Compliance,
                 pass.Parallelism.MaxDegree,
                 pass.Parallelism.Pool,
+                TestLineStage.DefaultBatchSegments,
+                pass.World.Settings.FrameTurns,
                 cancellationToken).ConfigureAwait(false);
+            pass.DetailPropLightingObserver?.Invoke(pass.Hdr, result);
             DetailPropLighting.WriteInto(bsp, lump, result, pass.Hdr);
         }
     }

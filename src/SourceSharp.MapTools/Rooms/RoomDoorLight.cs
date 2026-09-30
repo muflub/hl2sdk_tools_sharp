@@ -112,11 +112,34 @@ internal sealed record DoorResponseSample(int Leaf, Vec3 Position, Half[] Cube);
 /// <param name="Colours">Every vertex's colour, strip group after strip group as the bake stores them, three halves each.</param>
 internal sealed record DoorResponseProp(int Prop, Half[] Colours);
 
+/// <summary>One detail prop's colour in a response run, per unit of the emitter's intensity.</summary>
+/// <param name="Prop">The prop's index in the room's detail prop lump.</param>
+/// <param name="Colour">Its colour: three halves.</param>
+internal sealed record DoorResponseDetail(int Prop, Half[] Colour);
+
+/// <summary>
+/// A room's detail props as receivers of the light its neighbours send
+/// through its doors: one sample point a prop (the rooms design, 4.4), where
+/// vrad lights it, and which cells of each opening it sees.
+/// </summary>
+/// <param name="Centres">Each prop's lighting centre, room-local, in the room's lump order: where vrad samples its light (<see cref="DetailPropLighting.WorldCentre"/>).</param>
+/// <param name="Normals">Each prop's up vector, which vrad takes its direct light's cosine against.</param>
+/// <param name="Seen">Per socket, which cells of the opening each prop's centre sees.</param>
+internal sealed record DoorDetailReceivers(Vec3[] Centres, Vec3[] Normals, DoorSeen[] Seen);
+
 /// <summary>A room's answer to one response emitter at one socket (<see cref="DoorLightMath.Node"/>).</summary>
 /// <param name="Faces">The faces the emitter's light bounced onto.</param>
 /// <param name="Ambient">The leaf ambient samples it lit.</param>
 /// <param name="Props">The props it lit.</param>
-internal sealed record DoorResponseEmitter(DoorResponseFace[] Faces, DoorResponseSample[] Ambient, DoorResponseProp[] Props);
+internal sealed record DoorResponseEmitter(DoorResponseFace[] Faces, DoorResponseSample[] Ambient, DoorResponseProp[] Props)
+{
+    /// <summary>
+    /// The detail props it lit (a prop it left black is left out). Stored
+    /// in the room's detail prop lighting section (<see cref="RoomDetailLighting"/>),
+    /// not in <c>DLIT</c>, whose bytes did not change with it.
+    /// </summary>
+    public DoorResponseDetail[] Details { get; init; } = [];
+}
 
 /// <summary>
 /// One range's door light for a room: what leaves by each socket (per
@@ -239,6 +262,18 @@ internal sealed partial class RoomDoorLight
     /// <summary>Whether this is the door light of <paramref name="room"/>'s own compile.</summary>
     public bool IsFor(RoomObject room) => _bsp is not null && ReferenceEquals(_bsp, room.Bsp);
 
+    /// <summary>
+    /// The room's detail props as receivers (<see cref="DoorDetailReceivers"/>),
+    /// or null for a room without detail props or whose bake lights none.
+    /// Stored in the room's detail prop lighting section
+    /// (<see cref="RoomDetailLighting"/>), not in <c>DLIT</c>, whose bytes
+    /// did not change with it.
+    /// </summary>
+    internal DoorDetailReceivers? Details { get; init; }
+
+    /// <summary>The same door light with other ranges and detail receivers (attached from the detail props' own section).</summary>
+    internal RoomDoorLight With(DoorLightRange? ldr, DoorLightRange? hdr, DoorDetailReceivers? details) => new(Receivers, ldr, hdr, _bsp) { Details = details };
+
     /// <summary>The same door light bound to another BSP of the same room (a pack's read-back container).</summary>
     internal RoomDoorLight BoundTo(BspData bsp) => new(Receivers, Ldr, Hdr, bsp);
 
@@ -312,7 +347,11 @@ internal sealed partial class RoomDoorLight
     /// <param name="Lit">The lit copy.</param>
     /// <param name="Props">Each pass's static prop lighting.</param>
     /// <param name="Bounce">Per range, per face, its bounced light: per page and luxel, three floats; null where none was added.</param>
-    internal sealed record OpenRun(BspData Lit, List<(bool Hdr, StaticPropLightingResult Result)> Props, float[]?[][] Bounce);
+    internal sealed record OpenRun(BspData Lit, List<(bool Hdr, StaticPropLightingResult Result)> Props, float[]?[][] Bounce)
+    {
+        /// <summary>Each pass's detail prop lighting.</summary>
+        public List<(bool Hdr, DetailPropLightingResult Result)> Details { get; init; } = [];
+    }
 
     /// <summary>
     /// One vrad run of an open room with the given entities, the room's own
@@ -335,6 +374,7 @@ internal sealed partial class RoomDoorLight
         BspData lit = RoomLighting.Copy(open);
         lit[BspLump.Entities] = EntityLump.Write([.. entities]);
         List<(bool, StaticPropLightingResult)> props = [];
+        List<(bool, DetailPropLightingResult)> details = [];
         ReadOnlySpan<DFace> faceStructs = BspStructView.As<DFace>(open[BspLump.Faces]);
         ReadOnlySpan<TexInfo> texInfos = BspStructView.As<TexInfo>(open[BspLump.TexInfo]);
         float[]?[][] bounce = [new float[faceStructs.Length][], new float[faceStructs.Length][]];
@@ -374,10 +414,17 @@ internal sealed partial class RoomDoorLight
                     props.Add((hdr, result));
                 }
             },
+            DetailPropLightingObserver = (hdr, result) =>
+            {
+                lock (details)
+                {
+                    details.Add((hdr, result));
+                }
+            },
         };
 
         _ = await Vrad.LightAsync(lit, context, cancellationToken).ConfigureAwait(false);
-        return new OpenRun(lit, props, bounce);
+        return new OpenRun(lit, props, bounce) { Details = details };
     }
 
     /// <summary>How many lightmap pages a face's style holds: four on a bumped face, else one.</summary>
@@ -441,6 +488,8 @@ internal sealed partial class RoomDoorLight
             cancellationToken.ThrowIfCancellationRequested();
             receivers[s] = await ReceiversAsync(tracer, cells, frames[s], cancellationToken).ConfigureAwait(false);
         }
+
+        DoorDetailReceivers? details = await DetailReceiversAsync(room, settings, content, tracer, frames, cancellationToken).ConfigureAwait(false);
 
         DLeaf[] leaves = AmbientScene.ReadLeaves(room.Bsp);
         bool ldr = lighting.Payloads[0].Ldr is not null, hdr = lighting.Payloads[0].Hdr is not null;
@@ -519,12 +568,52 @@ internal sealed partial class RoomDoorLight
             receivers,
             ldr ? new DoorLightRange(captures[0], ambient[0], responses[0]) : null,
             hdr ? new DoorLightRange(captures[1], ambient[1], responses[1]) : null,
-            room.Bsp);
+            room.Bsp)
+        {
+            Details = details,
+        };
     }
 
     /// <summary>
-    /// Whether a room needs responses: it lights static props, or vrad
-    /// bounces light (<c>-bounce</c> above zero) and some lit face reflects.
+    /// A room's detail props as receivers of its doors' light, or null for a
+    /// room without detail props or lit with <c>-nodetaillight</c>: each
+    /// prop's lighting centre and up vector as vrad takes them (its model's
+    /// or sprite's centre offset along its axes; the models read from the
+    /// game content, as vrad reads them), and per socket which cells of the
+    /// opening each centre sees, traced against the open room's casters as
+    /// a leaf ambient sample's are (no normal: the cosine is the link's).
+    /// </summary>
+    internal static async Task<DoorDetailReceivers?> DetailReceiversAsync(
+        RoomObject room, RoomLightingSettings settings, IContentFileSystem content, IRayTracer tracer, DoorFrame[] frames, CancellationToken cancellationToken)
+    {
+        if (settings.Options.NoDetailLighting || RoomDetailProps.ReadLump(room.Definition.Name, room.Bsp) is not { Props.Count: > 0 } lump)
+        {
+            return null;
+        }
+
+        Vec3[] models = await DetailPropLighting.LoadModelCentresAsync(lump, content, cancellationToken).ConfigureAwait(false);
+        Vec3[] sprites = DetailPropLighting.SpriteCentres(lump);
+        Vec3[] centres = new Vec3[lump.Props.Count];
+        Vec3[] normals = new Vec3[lump.Props.Count];
+        for (int i = 0; i < centres.Length; i++)
+        {
+            (centres[i], normals[i]) = DetailPropLighting.WorldCentre(lump.Props[i], models, sprites);
+        }
+
+        (Vec3 Point, Vec3 Normal)[] points = [.. centres.Select(c => (c, Vec3.Zero))];
+        DoorSeen[] seen = new DoorSeen[frames.Length];
+        for (int s = 0; s < frames.Length; s++)
+        {
+            seen[s] = await SeenAsync(tracer, points, frames[s], cancellationToken).ConfigureAwait(false);
+        }
+
+        return new DoorDetailReceivers(centres, normals, seen);
+    }
+
+    /// <summary>
+    /// Whether a room needs responses: it lights static props or detail
+    /// props, or vrad bounces light (<c>-bounce</c> above zero) and some lit
+    /// face reflects.
     /// A room of surfaces that reflect nothing (every material without a
     /// texture, as the samples' are) sends none of the light entering it
     /// anywhere, and the link evaluates the direct light itself.
@@ -533,6 +622,13 @@ internal sealed partial class RoomDoorLight
     {
         BspData bsp = room.Bsp;
         if (settings.Options.StaticPropLighting && RoomStaticProps.ReadLump(bsp) is { } props && props.Props.Count > 0)
+        {
+            return true;
+        }
+
+        // Detail props take the door's light from the responses alone, as
+        // static props do (one sample point each, the rooms design's 4.4).
+        if (!settings.Options.NoDetailLighting && RoomDetailProps.CountOf(bsp) > 0)
         {
             return true;
         }
@@ -1034,7 +1130,10 @@ internal sealed partial class RoomDoorLight
             return new DoorResponseEmitter(
                 ResponseFaces(run.Bounce[hdr ? 1 : 0], open, scale),
                 ResponseAmbient(run.Lit, hdr, scale),
-                ResponseProps(run.Props, hdr, scale));
+                ResponseProps(run.Props, hdr, scale))
+            {
+                Details = ResponseDetails(run.Details, hdr, scale),
+            };
         }
 
         return (Range(false), Range(true));
@@ -1180,6 +1279,44 @@ internal sealed partial class RoomDoorLight
         }
 
         kept.Sort((a, b) => a.Prop.CompareTo(b.Prop));
+        return [.. kept];
+    }
+
+    /// <summary>
+    /// A response run's detail props of one range, scaled, by prop index:
+    /// each prop's ambient light (what the room's surfaces reflect onto it:
+    /// the emitter's direct light, as a face's, is left to the link, which
+    /// evaluates the neighbour's own lights at the prop), a prop below
+    /// <see cref="Prune"/> of the run's brightest left out, as a face is.
+    /// The emitter is a light of style 0 and the room's own lights are out.
+    /// </summary>
+    private static DoorResponseDetail[] ResponseDetails(List<(bool Hdr, DetailPropLightingResult Result)> details, bool hdr, float scale)
+    {
+        List<DoorResponseDetail> kept = [];
+        foreach ((bool passHdr, DetailPropLightingResult result) in details)
+        {
+            if (passHdr != hdr)
+            {
+                continue;
+            }
+
+            Vec3[] ambient = result.Ambient ?? throw new InvalidOperationException("a detail prop lighting result without its ambient part");
+            float peak = 0;
+            foreach (Vec3 c in ambient)
+            {
+                peak = MathF.Max(peak, MathF.Max(c.X, MathF.Max(c.Y, c.Z)));
+            }
+
+            for (int i = 0; i < ambient.Length; i++)
+            {
+                Vec3 c = ambient[i];
+                if (peak > 0 && MathF.Max(c.X, MathF.Max(c.Y, c.Z)) >= peak * Prune)
+                {
+                    kept.Add(new DoorResponseDetail(i, [(Half)(c.X * scale), (Half)(c.Y * scale), (Half)(c.Z * scale)]));
+                }
+            }
+        }
+
         return [.. kept];
     }
 

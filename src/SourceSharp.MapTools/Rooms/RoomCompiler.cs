@@ -206,6 +206,14 @@ public static class RoomCompiler
         // which is how a room of a game whose sky textures resolve links
         // with its level's default cubemaps and without game files.
 
+        // A detail material on a socket's plug (the rooms design, 4.4),
+        // refused before the compile: the materials say which sides grow
+        // detail props.
+        if (await RoomDetailProps.PlugProblemAsync(definition, document, context.Materials, cancellationToken).ConfigureAwait(false) is { } detailProblem)
+        {
+            throw new RoomLintException(detailProblem);
+        }
+
         // G1 + G4 on the model, before any compile time is spent.
         MapFile map = await MapFileLoader
             .LoadAsync(context, document, cancellationToken).ConfigureAwait(false);
@@ -303,6 +311,11 @@ public static class RoomCompiler
         // rebased by the link; the rest is the room's lumps byte for byte).
         RoomDisplacements? displacements = RoomDisplacements.Build(definition.Name, vbsp.Bsp);
 
+        // The detail props the link carries: every origin and angles turned
+        // four ways (the leaves, dictionaries and lighting are the link's;
+        // the rest is the room's lump byte for byte).
+        RoomDetailProps? detailProps = RoomDetailProps.Build(definition.Name, vbsp.Bsp);
+
         // The room's part of its level's map (the rooms design, 18.2): its
         // walkable faces unioned in its own frame, and its doors. The
         // markers and the label are its library's (a library compile adds
@@ -325,6 +338,7 @@ public static class RoomCompiler
             AreaPortals = areaPortals,
             Water = water,
             Displacements = displacements,
+            DetailProps = detailProps,
             MapView = mapView,
         };
     }

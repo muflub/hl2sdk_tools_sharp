@@ -797,7 +797,18 @@ into a socket's plug box (the doorway's floor stays a brush; running up to
 the doorway is fine), one whose surface leaves its cell, and one of power 4,
 whose collision vbsp builds another way. A map holds at most 2048
 displacements (`MAX_MAP_DISPINFO`), and the link refuses a level past that.
-The link refuses what it cannot carry: detail props,
+Detail props are carried: the props vbsp scatters over a room's
+`%detailtype` surfaces (displacements included) and its `prop_detail` and
+`prop_detail_sprite` entities are moved and turned with the room, put in
+the linked map's leaves, their models and sprites merged, and lit from the
+room's bake, with the light a jointed neighbour sends through a door added
+at each prop; they cost no entity. The flattened level's compile scatters
+its own props (another random draw of the same density over the same
+surfaces), so the two maps agree in distribution, not prop for prop; a
+detail entity is the same in both. `ssmap room` refuses `room_needs` on a
+detail entity. A map holds at most 65,535 detail props, and the link
+refuses a level past that.
+The link refuses what it cannot carry:
 water (and its water overlays), and a mix of cooked and
 `-cooker none` rooms. The doorway's side walls have no faces of their
 own, because in the room's compile they faced the plug, so they draw as a

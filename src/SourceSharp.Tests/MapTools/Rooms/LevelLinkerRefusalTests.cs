@@ -88,25 +88,21 @@ public sealed class LevelLinkerRefusalTests
     }
 
     /// <summary>
-    /// A room with detail props (a non-zero byte in the detail prop game
-    /// lump) is still refused by lump id, with the message it always had,
-    /// until the link carries detail props.
+    /// A room with content in a game lump the link does not carry (here one
+    /// with an id no compile writes) is refused by lump id; the static and
+    /// detail prop lumps are carried (the old text, which named them, is
+    /// gone), so the message no longer mentions them.
     /// </summary>
     [Fact]
-    public async Task ARoomWithDetailPropsIsStillRefused()
+    public async Task ARoomWithContentInAnotherGameLumpIsRefused()
     {
         RoomObject hub = await HubAsync();
-        RoomObject props = RoomHarness.WithLumps(hub, bsp =>
-        {
-            GameLumpEntry dprp = bsp.GameLumps.First(g => g.IdString() == "dprp");
-            byte[] data = dprp.Data.ToArray();
-            data[0] = 1;
-            bsp.GameLumps[bsp.GameLumps.IndexOf(dprp)] = dprp with { Data = data };
-        });
+        RoomObject other = RoomHarness.WithLumps(hub, bsp =>
+            bsp.GameLumps.Add(new GameLumpEntry(GameLumpId.MakeId("tst1"), 0, 1, new byte[] { 0, 1 })));
 
-        LinkException refused = await LinkPairAsync(props);
+        LinkException refused = await LinkPairAsync(other);
         Assert.Equal(
-            "room hub has content in game lump 'dprp' (static or detail props); the relocation carries only empty game lumps",
+            "room hub has content in game lump 'tst1', which the relocation does not carry; it carries the static and detail prop lumps and empty game lumps.",
             refused.Message);
     }
 

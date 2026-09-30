@@ -216,6 +216,20 @@ public sealed class RoomSkyboxParallaxTests(SkyboxLitFixture fixture, ITestOutpu
     }
 
     /// <summary>
+    /// Attaching the detail props' payloads (PR 16) keeps the parallax a
+    /// lighting holds: a sky room with detail props would otherwise lose its
+    /// sun layer and the skybox its sun map, whichever wrapper ran first.
+    /// </summary>
+    [Fact]
+    public void NewPayloadsKeepTheSunLayerAndTheSunMap()
+    {
+        RoomLighting other = fixture.Lit.Get("other").LightingOfCompile!;
+        RoomLighting sky = fixture.Lit.Get("sky").LightingOfCompile!;
+        Assert.Same(other.SunLayer, other.WithPayloads(other.Payloads).SunLayer);
+        Assert.Same(sky.SunMap, sky.WithPayloads(sky.Payloads).SunMap);
+    }
+
+    /// <summary>
     /// The layer's section reads back to the same bytes; an absent section
     /// or another revision is no layer; one for a room without lighting, of
     /// another turn count, with a range the lighting lacks, or a face past

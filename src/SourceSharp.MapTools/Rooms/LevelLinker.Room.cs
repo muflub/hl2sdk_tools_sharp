@@ -116,6 +116,7 @@ public static partial class LevelLinker
             Overlays = RoomOverlaysOf(room),
             Water = RoomWaterOf(room),
             Displacements = RoomDisplacementsOf(room),
+            DetailProps = DetailPropsOf(room),
             AreaPortals = areaPortals,
             AreaLumps = areaPortals is null ? null : RoomAreaPortals.Lumps(room.Definition.Name, bsp),
         };
@@ -138,27 +139,30 @@ public static partial class LevelLinker
     }
 
     /// <summary>
-    /// Refuses detail props (and any other game-lump content but the static
-    /// props the room's compile described): the game lumps are carried only
-    /// when every room's are all zeros, except the static prop lump, which
-    /// the link rebuilds for the level (<see cref="WritePropsAsync"/>).
+    /// Refuses game-lump content the link does not carry: the static prop
+    /// lump is rebuilt for the level from the rooms' (<see cref="WritePropsAsync"/>)
+    /// and the detail prop lump likewise (<see cref="WriteDetailProps"/>),
+    /// each when the room's compile described its props; every other game
+    /// lump is carried only when every room's is all zeros.
     /// </summary>
     /// <remarks>
     /// vbsp always writes the static-prop and detail-prop game lumps, even
-    /// empty; empty is every count zero, which for these formats is every byte
-    /// zero. Relocating detail props would mean moving their origins and
-    /// angles, merging their dictionaries and renumbering their leaves, which
-    /// the link does not do yet, so a room with any is refused by name rather
-    /// than having them silently dropped. Static props are carried when the
-    /// room's compile left their data with the room
-    /// (<see cref="RoomObject.Props"/>): the models' hulls and the keys vbsp
-    /// consumed are not in the lump, so a room without it is refused
-    /// (<see cref="RefuseUndescribedProps"/>).
+    /// empty; empty is every count zero, which for these formats is every
+    /// byte zero. Static props are carried when the room's compile left their
+    /// data with the room (<see cref="RoomObject.Props"/>): the models' hulls
+    /// and the keys vbsp consumed are not in the lump, so a room without it
+    /// is refused (<see cref="RefuseUndescribedProps"/>). Detail props are
+    /// carried when the room's compile left their turned poses with it
+    /// (<see cref="RoomObject.DetailProps"/>), which also says the room was
+    /// held to the pack's rules; a room without them is refused
+    /// (<see cref="DetailPropsOf"/>). A lump of any other id with content
+    /// is refused by id, since the link knows nothing of what it holds.
     /// </remarks>
     private static void RefuseGameLumpContent(RoomObject room)
     {
         string name = room.Definition.Name;
         int staticProps = GameLumpId.MakeId(GameLumpId.StaticProps);
+        int detailProps = GameLumpId.MakeId(GameLumpId.DetailProps);
         foreach (GameLumpEntry entry in room.Bsp.GameLumps)
         {
             if (entry.Id == staticProps)
@@ -171,11 +175,17 @@ public static partial class LevelLinker
                 continue;
             }
 
+            if (entry.Id == detailProps)
+            {
+                _ = DetailPropsOf(room);
+                continue;
+            }
+
             if (entry.Data.Span.ContainsAnyExcept((byte)0))
             {
                 throw new LinkException(
-                    $"room {name} has content in game lump '{entry.IdString()}' (static or detail props);"
-                    + " the relocation carries only empty game lumps");
+                    $"room {name} has content in game lump '{entry.IdString()}', which the relocation does not carry;"
+                    + " it carries the static and detail prop lumps and empty game lumps.");
             }
         }
     }
@@ -615,6 +625,9 @@ public static partial class LevelLinker
 
         /// <summary>The room's displacements (<see cref="RoomDisplacements"/>), or null for a room with none.</summary>
         public RoomDisplacements? Displacements { get; init; }
+
+        /// <summary>The room's detail props (<see cref="RoomDetailProps"/>), or null for a room with none.</summary>
+        public RoomDetailProps? DetailProps { get; init; }
 
         /// <summary>The linked index of the room's displacement 0: the displacements of every placement before this one.</summary>
         public int DispBase;
