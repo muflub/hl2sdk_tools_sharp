@@ -319,7 +319,7 @@ public static partial class RoomCommands
         }
 
         return await PackLibrariesAsync(
-            disk, searchRoots, run, ["roompack", .. args], inputs, only, packPath, vrad, parsed, stock, openCache, output, cancellationToken)
+            disk, searchRoots, run, ["roompack", .. args], inputs, only, Path.GetFullPath(target), packPath, vrad, parsed, stock, openCache, output, cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -474,6 +474,7 @@ public static partial class RoomCommands
         IReadOnlyList<string> relaunch,
         IReadOnlyList<PackInput> inputs,
         IReadOnlyList<string> only,
+        string packHost,
         VPath packPath,
         VradOptions? vradOptions,
         StockArgsResult<VbspOptions> parsed,
@@ -484,7 +485,7 @@ public static partial class RoomCommands
     {
         string verb = run.Verb;
         string pack = HostPaths.Display(packPath);
-        string packFolder = Path.GetDirectoryName(packPath.ToString())!;
+        string packFolder = Path.GetDirectoryName(packHost)!;
 
         // Every library read and hashed first.
         List<RoomPackSource> sources = [];

@@ -238,7 +238,7 @@ public static partial class RoomCommands
             }
 
             return await PackLibrariesAsync(
-                disk, searchRoots, run, ["room", .. args], [new PackInput(space, source, libraryPath)], [], packPath, vradOptions, parsed,
+                disk, searchRoots, run, ["room", .. args], [new PackInput(space, source, libraryPath)], [], Path.GetFullPath(run.Out ?? DefaultPack(source)), packPath, vradOptions, parsed,
                 [.. stock.Where(a => a != parsed.MapPath)], openCache, output, cancellationToken).ConfigureAwait(false);
         }
 
