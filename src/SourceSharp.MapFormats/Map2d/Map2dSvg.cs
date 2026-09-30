@@ -48,8 +48,12 @@ public static class Map2dSvg
         long minX = (long)e.MinX - Margin, minY = (long)e.MinY - Margin;
         long width = (long)e.MaxX - e.MinX + (2 * Margin), height = (long)e.MaxY - e.MinY + (2 * Margin);
         long flip = (long)e.MinY + e.MaxY;
-        int lowest = level.Rings.Length == 0 ? 0 : level.Rings.Min(r => r.ZLow);
-        int highest = level.Rings.Length == 0 ? 0 : level.Rings.Max(r => r.ZLow);
+        int lowest = int.MaxValue, highest = int.MinValue;
+        foreach (Map2dRing ring in level.Rings)
+        {
+            lowest = Math.Min(lowest, ring.ZLow);
+            highest = Math.Max(highest, ring.ZLow);
+        }
 
         StringBuilder svg = new();
         svg.Append(CultureInfo.InvariantCulture,
@@ -79,7 +83,9 @@ public static class Map2dSvg
             path.Append(" Z");
         }
 
-        foreach ((int zLow, _, StringBuilder d) in floors.OrderBy(f => f.ZLow).ThenBy(f => f.Order))
+        // Lowest band first, then in file order: a stable sort on the band.
+        floors.Sort(new FloorOrder());
+        foreach ((int zLow, _, StringBuilder d) in floors)
         {
             int shade = highest == lowest ? 200 : 150 + (int)(80L * (zLow - lowest) / (highest - lowest));
             svg.Append(CultureInfo.InvariantCulture, $"<path class=\"floor\" fill=\"rgb({shade},{shade},{Math.Min(255, shade + 20)})\" d=\"{d}\"/>\n");
@@ -108,8 +114,13 @@ public static class Map2dSvg
 
         if (level.CellSize > 0)
         {
-            foreach (Map2dRoom room in level.Rooms.Where(r => r.Label.Length > 0))
+            foreach (Map2dRoom room in level.Rooms)
             {
+                if (room.Label.Length == 0)
+                {
+                    continue;
+                }
+
                 double cx = (room.CellX + 0.5) * level.CellSize;
                 double cy = (room.CellY + 0.5) * level.CellSize;
                 svg.Append(CultureInfo.InvariantCulture,
@@ -119,6 +130,13 @@ public static class Map2dSvg
 
         svg.Append("</svg>\n");
         return svg.ToString();
+    }
+
+    /// <summary>Floors by band, then file order; a struct comparer, since a cached delegate would be a static field.</summary>
+    private readonly struct FloorOrder : IComparer<(int ZLow, int Order, StringBuilder Path)>
+    {
+        public int Compare((int ZLow, int Order, StringBuilder Path) x, (int ZLow, int Order, StringBuilder Path) y) =>
+            x.ZLow != y.ZLow ? x.ZLow.CompareTo(y.ZLow) : x.Order.CompareTo(y.Order);
     }
 
     private static string Num(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);

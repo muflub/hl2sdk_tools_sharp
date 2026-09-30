@@ -32,7 +32,22 @@ public sealed record Map2dRoom(int CellX, int CellY, int Rotation, float Height,
 /// <param name="ZHigh">The highest z, in whole units.</param>
 /// <param name="IsHole">Whether it is a hole.</param>
 /// <param name="Points">Its points, at least three, the first not repeated at the end.</param>
-public sealed record Map2dRing(int Placement, int ZLow, int ZHigh, bool IsHole, ImmutableArray<Map2dPoint> Points);
+public sealed record Map2dRing(int Placement, int ZLow, int ZHigh, bool IsHole, ImmutableArray<Map2dPoint> Points)
+{
+    /// <summary>Whether two rings are the same: every field, and the same points in the same order.</summary>
+    /// <param name="other">The other ring.</param>
+    /// <returns>True when they are equal.</returns>
+    /// <remarks>
+    /// Written out because <see cref="ImmutableArray{T}"/> compares by the
+    /// array it wraps: two rings read from two files would never be equal.
+    /// </remarks>
+    public bool Equals(Map2dRing? other) =>
+        other is not null && Placement == other.Placement && ZLow == other.ZLow && ZHigh == other.ZHigh && IsHole == other.IsHole
+        && Points.AsSpan().SequenceEqual(other.Points.AsSpan());
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => HashCode.Combine(Placement, ZLow, ZHigh, IsHole, Points.Length);
+}
 
 /// <summary>A door: a segment across a socket's opening, on the cell face.</summary>
 /// <param name="Placement">The placement whose socket it is.</param>
@@ -112,8 +127,44 @@ public sealed record Map2dLevel
     public ImmutableArray<Map2dMarker> Markers { get; init; } = [];
 
     /// <summary>Whether every ring point fits an <c>int16</c>: the file then stores them in half the bytes.</summary>
-    public bool ShortPoints =>
-        Rings.All(r => r.Points.All(p => p.X is >= short.MinValue and <= short.MaxValue && p.Y is >= short.MinValue and <= short.MaxValue));
+    /// <remarks>
+    /// Loops rather than LINQ here and elsewhere in this assembly: a lambda
+    /// the compiler caches is a static field, which the no-mutable-statics
+    /// rule rightly cannot tell from shared state.
+    /// </remarks>
+    public bool ShortPoints
+    {
+        get
+        {
+            foreach (Map2dRing ring in Rings)
+            {
+                foreach (Map2dPoint p in ring.Points)
+                {
+                    if (p.X is < short.MinValue or > short.MaxValue || p.Y is < short.MinValue or > short.MaxValue)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>How many points the rings hold together.</summary>
+    public int PointCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (Map2dRing ring in Rings)
+            {
+                count += ring.Points.Length;
+            }
+
+            return count;
+        }
+    }
 
     /// <summary>
     /// The box the contents fill: every ring point and band, every door end

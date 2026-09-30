@@ -59,7 +59,7 @@ public static class Map2dWriter
         }
 
         bool shortPoints = level.ShortPoints;
-        int points = level.Rings.Sum(r => r.Points.Length);
+        int points = level.PointCount;
 
         byte[] rooms = new byte[level.Rooms.Length * Map2dFormat.RoomBytes];
         for (int i = 0; i < level.Rooms.Length; i++)

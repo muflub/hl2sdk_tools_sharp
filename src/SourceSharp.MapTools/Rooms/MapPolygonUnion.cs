@@ -323,7 +323,9 @@ internal static class MapPolygonUnion
             }
         }
 
-        // The pieces, each once, with the direction of the line it lies on.
+        // The pieces, each once, with the direction of the line it lies on,
+        // reduced (divided by the gcd of its parts), so two pieces of one line
+        // have equal directions.
         Dictionary<(Rational, Rational), (long Dx, long Dy)> pieces = [];
         for (int s = 0; s < segments.Count; s++)
         {
@@ -519,11 +521,13 @@ internal static class MapPolygonUnion
             }
 
             List<Rational> ring = [];
+            List<(long, long)> directions = [];
             int current = start;
             while (true)
             {
                 used[current] = true;
                 ring.Add(boundary[current].From);
+                directions.Add((boundary[current].Dx, boundary[current].Dy));
                 (_, Rational at, long dx, long dy) = boundary[current];
                 int next = -1;
                 foreach (int candidate in outgoing.GetValueOrDefault(at) ?? [])
@@ -545,7 +549,21 @@ internal static class MapPolygonUnion
                 current = next;
             }
 
-            if (Round(ring) is { } rounded)
+            // A point between two pieces of one line is no corner: another
+            // triangle's edge split the line there. It goes before the
+            // rounding, exactly (the pieces' directions are reduced, so equal
+            // directions are one line), or a split point that is not whole
+            // would round off the line and bend a straight wall.
+            List<Rational> corners = [];
+            for (int i = 0; i < ring.Count; i++)
+            {
+                if (directions[i] != directions[(i + ring.Count - 1) % ring.Count])
+                {
+                    corners.Add(ring[i]);
+                }
+            }
+
+            if (Round(corners) is { } rounded)
             {
                 rings.Add(rounded);
             }

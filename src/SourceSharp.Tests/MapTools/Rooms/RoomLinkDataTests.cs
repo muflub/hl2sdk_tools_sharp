@@ -513,10 +513,11 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
     }
 
     /// <summary>
-    /// A room's pack item carries, by default, the shared census and each
-    /// turn's geometry and collision, uncompressed, and not the entities (the
-    /// measured choice, <see cref="RoomLinkSections.StoredParts"/>); a room
-    /// without collision has no collision sections. The item uses the link
+    /// A room's pack item carries, by default, its part of the level map, the
+    /// shared census and each turn's geometry and collision, uncompressed, and
+    /// not the entities (the measured choice, <see cref="RoomLinkSections.StoredParts"/>);
+    /// a room without collision has no collision sections (and, its lumps
+    /// edited, no map bound to its compile). The item uses the link
     /// data the library compile already worked out when it still fits.
     /// </summary>
     [Fact]
@@ -525,7 +526,7 @@ public sealed class RoomLinkDataTests(RoomLinkDataFixture fixture) : IClassFixtu
         RoomObject hub = fixture.Library.Get("hub");
         RoomPackItem item = await RoomPackItem.CreateAsync(hub);
         Assert.Equal(
-            ["ECNT", "LNKA", "DVIS", "GEO0", "COL0", "NAM0", "GEO1", "COL1", "NAM1", "GEO2", "COL2", "NAM2", "GEO3", "COL3", "NAM3"],
+            ["ECNT", "MAPV", "LNKA", "DVIS", "GEO0", "COL0", "NAM0", "GEO1", "COL1", "NAM1", "GEO2", "COL2", "NAM2", "GEO3", "COL3", "NAM3"],
             item.Extra.Select(s => s.Tag));
         Assert.All(item.Extra, s => Assert.Equal((byte)RoomLinkCodec.None, s.Bytes.Span[0]));
 
