@@ -91,6 +91,34 @@ public sealed class RoomLightingSettings
     /// </summary>
     public bool DoorLight { get; init; } = true;
 
+    /// <summary>
+    /// The library's 3D skybox room (<see cref="RoomLibrarySplit.Skybox"/>),
+    /// or null for a library without one. Every sky room's bake recasts its
+    /// sky rays into it as vrad of a level does (the rooms design, 4.12;
+    /// <see cref="RoomSkybox"/>), so its content shapes those bakes: it is in
+    /// <see cref="Describe"/>, and so in the pack's id and every room's
+    /// cache key. A library compile (<see cref="RoomLibraryCompiler"/>)
+    /// compiles it before any other room is lit.
+    /// </summary>
+    public LibraryRoom? Skybox { get; init; }
+
+    /// <summary>
+    /// The skybox compiled, which the bakes place under each sky room, or
+    /// null until the library compile has compiled it (<see cref="WithSkybox"/>).
+    /// A room lit before then, or without a skybox, is lit sealed and alone,
+    /// as every room was before the skybox joined the bake.
+    /// </summary>
+    internal RoomSkybox? SkyboxScene { get; private init; }
+
+    /// <summary>These settings with the skybox compiled, every other member as it is.</summary>
+    internal RoomLightingSettings WithSkybox(RoomSkybox scene) => new(Options)
+    {
+        Sun = Sun,
+        DoorLight = DoorLight,
+        Skybox = Skybox,
+        SkyboxScene = scene,
+    };
+
     /// <summary>The library's sun among its entities (<see cref="RoomLibrary.LibraryEntities"/>): the first <c>light_environment</c>, or null.</summary>
     /// <param name="libraryEntities">The library-wide entities.</param>
     /// <returns>The sun, or null.</returns>
@@ -124,6 +152,13 @@ public sealed class RoomLightingSettings
             {
                 text.Append(key.Name).Append('=').Append(key.Value).Append(';');
             }
+        }
+
+        // The skybox's content, as the room cache digests a room's: only for
+        // a library with one, so every other library keeps its ids and keys.
+        if (Skybox is not null)
+        {
+            text.Append("|skybox:").Append(RoomCacheKey.RoomDigest(Skybox));
         }
 
         return text.ToString();
@@ -380,6 +415,17 @@ internal sealed class RoomLighting
         bool sun = settings.Sun is not null;
         int turns = sun && HasSkyFace(source) ? 4 : 1;
 
+        // A sky room of a library with a 3D skybox is lit only with the
+        // skybox's compile under it: lit without, it would link as if the
+        // level had no skybox, which is the difference the bake closes.
+        if (turns == 4 && settings.Skybox is { } skybox && settings.SkyboxScene is null
+            && !string.Equals(skybox.Definition.Name, room.Definition.Name, StringComparison.Ordinal))
+        {
+            throw new Diagnostics.MapCompileException(
+                $"room {room.Definition.Name} is lit under the library's 3D skybox \"{skybox.Definition.Name}\", which did not compile;"
+                + " its sky rays are recast into the skybox, so the skybox must compile first.");
+        }
+
         RoomLightingPayload[] payloads = new RoomLightingPayload[turns];
         Vec3[] normals = [];
         ushort[] normalIndices = [];
@@ -439,6 +485,10 @@ internal sealed class RoomLighting
             Content = content,
             Parallelism = parallelism,
             FrameTurns = turn,
+
+            // The library's skybox, placed where a level of this room alone
+            // at this turn places it, for a room whose sky rays reach it.
+            Skybox = settings.SkyboxScene is { } skybox && skybox.Lights(room, settings) ? skybox.For(room, turn) : null,
             StaticPropLightingObserver = (hdr, result) =>
             {
                 lock (props)

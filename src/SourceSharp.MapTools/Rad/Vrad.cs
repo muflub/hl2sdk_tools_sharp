@@ -410,7 +410,7 @@ public static class Vrad
 
         // The density was applied to the map above; the settings see a plain map.
         DirectLightingSettings settings = DirectLightingSettings.FromVrad(options with { LuxelDensity = 1.0f }, hdr)
-            with { FrameTurns = context.FrameTurns };
+            with { FrameTurns = context.FrameTurns, OutsideSkyCameras = context.Skybox?.Cameras ?? [] };
 
         Report(context, StartStage, 0);
         RadWorld world = await RadWorld.StartAsync(
@@ -695,11 +695,29 @@ public static class Vrad
             [.. texFile.NonShadowCastingMaterials],
             transparency: null,
             cancellationToken).ConfigureAwait(false);
+        ShadowCasterSet set = casters.Set;
+
+        // A room's bake: the library's skybox, which the room's sky rays are
+        // recast into, loaded as this map's own casters are (the same
+        // switches and noshadow list) and appended after them, moved into
+        // the room's frame (VradSkybox).
+        if (context.Skybox is { } skybox)
+        {
+            ShadowCasterLoadReport sky = await ShadowCasterLoader.LoadAsync(
+                skybox.Map,
+                options,
+                content,
+                context.PropCollision ?? NullPropCollisionSource.Instance,
+                [.. texFile.NonShadowCastingMaterials],
+                transparency: null,
+                cancellationToken).ConfigureAwait(false);
+            set = skybox.AppendTo(set, sky.Set);
+        }
 
         // g_RtEnv.SetupAccelerationStructure: on a worker, never
         // on the caller's thread.
-        string? digest = context.TransferCache is null ? null : CasterDigest(casters.Set);
-        if (casters.Set.Count == 0)
+        string? digest = context.TransferCache is null ? null : CasterDigest(set);
+        if (set.Count == 0)
         {
             EmptySceneTracer empty = new();
             return (empty, TracerKey(empty, digest));
@@ -712,7 +730,7 @@ public static class Vrad
         // every batch whose options the GPU cannot express -- the prop
         // samplers' skipped ids and sky pass-through (HybridRayTracer.TracerFor).
         using WorkQueue queue = new(context.Parallelism);
-        KdRayTracer cpu = await casters.Set.BuildTracerAsync(options.Compliance, queue, cancellationToken)
+        KdRayTracer cpu = await set.BuildTracerAsync(options.Compliance, queue, cancellationToken)
             .ConfigureAwait(false);
 
         // The -gpu seam (plan 10c): the host's factory, asked with the casters
@@ -722,7 +740,7 @@ public static class Vrad
         // driver that cannot prove itself is not a reason to crash.
         if (context.GpuTracerFactory is { } factory)
         {
-            GpuTracerOffer offer = await factory.TryCreateAsync(casters.Set, cancellationToken).ConfigureAwait(false);
+            GpuTracerOffer offer = await factory.TryCreateAsync(set, cancellationToken).ConfigureAwait(false);
             if (offer.Tracer is { } gpu)
             {
                 HybridRayTracer hybrid = new(gpu, cpu);

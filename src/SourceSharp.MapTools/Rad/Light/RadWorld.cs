@@ -342,7 +342,7 @@ public sealed partial class RadWorld
             Warnings.Add(w);
         }
 
-        SkyCameras = SkyCameras.Build(Entities, Tree, Geometry.Leaves, Geometry.AreaCount);
+        SkyCameras = SkyCameras.Build(Entities, Tree, Geometry.Leaves, Geometry.AreaCount).WithOutside(s.OutsideSkyCameras);
         Gatherer = new DirectLightGatherer(
             Lights.Active, Lights.SunAngularExtent, s, Tree, Geometry.Leaves, SkyCameras);
         WorldLights = WorldLightExporter.Export(Lights);
