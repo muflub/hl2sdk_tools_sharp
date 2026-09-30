@@ -722,6 +722,33 @@ public sealed class RoomCommandsTests
         Assert.Equal(["hub"], (await ReadIndexAsync(fs, "/rooms.roompack")).Entries.Select(e => e.Name));
     }
 
+    /// <summary>
+    /// A library cell marked as a room but holding no brushes fails as that
+    /// room, by name, and the others are packed. Before the refusal the
+    /// room's vbsp threw an <see cref="ArgumentOutOfRangeException"/>, and
+    /// the whole command ended with an internal error and no pack.
+    /// </summary>
+    [Fact]
+    public async Task ARoomWithNoBrushesFailsAsThatRoom()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Hub);
+        RoomHarness.AddEmptyRoom(library, "void", 1);
+        InMemoryFileSystem fs = Game();
+        fs.AddFile(Rooted("/game/maps/rooms.vmf"), library.ToBytes());
+        using StringWriter output = new();
+
+        int exit = await RoomCommands.RunRoomAsync(fs, [], ["-cooker", "none", "/game/maps/rooms.vmf", "-out", "/rooms.roompack"], output);
+
+        Assert.Equal(RoomCommands.ExitFailed, exit);
+        string[] lines = output.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        Assert.Equal(
+            "ssmap room: room \"void\" is not linkable: rule 2 (ShellSealedExceptAtSockets): room void has no world brushes;"
+            + " a room is a shell of world brushes around its cell, and a compile of none has no world to build.",
+            lines[^3]);
+        Assert.Equal("ssmap room: 1 of 2 room(s) failed", lines[^1]);
+        Assert.Equal(["hub"], (await ReadIndexAsync(fs, "/rooms.roompack")).Entries.Select(e => e.Name));
+    }
+
     // ---- ssmap room: rooms side by side --------------------------------------
 
     /// <summary>

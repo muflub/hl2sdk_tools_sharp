@@ -238,6 +238,36 @@ public sealed class RoomLibraryCompilerTests
         Assert.All(delivered.Where(o => o.Index != 1), o => Assert.Null(o.Error));
     }
 
+    /// <summary>
+    /// A room with no brushes is that room's failure, named, and the rooms
+    /// around it still compile. Before the refusal its vbsp threw an
+    /// <see cref="ArgumentOutOfRangeException"/>, which is not a room
+    /// failure, so it ended the whole library's run.
+    /// </summary>
+    [Fact]
+    public async Task ARoomWithNoBrushesIsRefusedByNameAndTheOthersCompile()
+    {
+        VmfDocument library = RoomHarness.LibraryVmf(Definitions[0], Definitions[1]);
+        RoomHarness.AddEmptyRoom(library, "void", 2);
+        (_, CountingContent content) = await LibraryAsync();
+        IReadOnlyList<LibraryRoom> rooms = RoomLibraryVmf.Split(library);
+
+        List<RoomCompileOutcome> delivered = await CompileAsync(rooms, new RoomLibraryCompileSettings(VbspOptions.Default, content)
+        {
+            Parallelism = new CompileParallelism { MaxDegree = 4 },
+        });
+
+        Assert.Equal([0, 1, 2], delivered.Select(o => o.Index));
+        Assert.Equal("void", delivered[2].Room.Definition.Name);
+        Assert.Null(delivered[2].Compiled);
+        RoomLintException lint = Assert.IsType<RoomLintException>(delivered[2].Error);
+        Assert.Equal(
+            "rule 2 (ShellSealedExceptAtSockets): room void has no world brushes; a room is a shell of world brushes"
+            + " around its cell, and a compile of none has no world to build.",
+            lint.Message);
+        Assert.All(delivered.Take(2), o => Assert.NotNull(o.Compiled));
+    }
+
     /// <summary>The exceptions that are one room's failure, and one that is the run's.</summary>
     [Fact]
     public void TheRoomFailuresAreTheOnesTheCommandReportedPerRoom()
