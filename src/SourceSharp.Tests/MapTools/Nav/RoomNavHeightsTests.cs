@@ -227,18 +227,33 @@ public sealed class RoomNavHeightsTests
     /// </summary>
     private static async Task SameAsFlattenedAsync(VmfDocument library, LevelGrid level, LevelLayout layout, Nav3dReader nav)
     {
-        BspData flat = await CompileFlatAsync(library, level);
+        Assert.Equal(level.Placed.Count(), layout.Rooms.Count);
+        AssertSameAsFlattened(await CompileFlatAsync(library, level), level, nav);
+    }
+
+    /// <summary>
+    /// A level's stitched navigation against the grid built straight from
+    /// its flattened compile, every placed cell over its own height: the
+    /// same runs, floors, costs and clearance records, column by column,
+    /// and no leaf of the stitched level left uncompared. What the rooms'
+    /// samples hold their <c>.nav3d</c> files to.
+    /// </summary>
+    /// <param name="flat">The flattened level's whole-map compile.</param>
+    /// <param name="level">The level: its placed cells are the cells compared.</param>
+    /// <param name="nav">The stitched navigation.</param>
+    internal static void AssertSameAsFlattened(BspData flat, LevelGrid level, Nav3dReader nav)
+    {
         NavGeometry whole = NavGeometry.FromBsp(flat);
         IReadOnlyList<NavBrush> overhang = NavClearanceBuilder.OverhangBrushes(whole);
         Nav3dLevel stitched = nav.ToLevel();
         int n = nav.CellVoxels;
         int runs = 0;
-        foreach (RoomInstance room in layout.Rooms)
+        foreach ((int cellX, int cellY, LevelCell placed) in level.Placed)
         {
-            int cell = (room.Placement.CellY * level.Columns) + room.Placement.CellX;
+            int cell = (cellY * level.Columns) + cellX;
             int nz = nav.CellHeight(cell);
             NavRegion region = new(
-                nav.Origin.X + (room.Placement.CellX * nav.CellSize), nav.Origin.Y + (room.Placement.CellY * nav.CellSize), nav.Origin.Z,
+                nav.Origin.X + (cellX * nav.CellSize), nav.Origin.Y + (cellY * nav.CellSize), nav.Origin.Z,
                 n, n, nz, nav.VoxelSize);
             NavGrid grid = NavClearanceBuilder.Build(whole, region, NavSettings.Default);
             NavColumns columns = NavColumns.Of(grid);
@@ -271,7 +286,7 @@ public sealed class RoomNavHeightsTests
                             Rooms3x3NavTests.Record(nav.ClearanceRecord(l, Nav3dClipClass.Npc), i => Rooms3x3NavTests.ObstacleKey(nav.Obstacle(i)), b => stitched.Brushes[b])));
                     }
 
-                    string where = string.Create(CultureInfo.InvariantCulture, $"{room.Placement.Room} at ({room.Placement.CellX}, {room.Placement.CellY}), column {x} {y}");
+                    string where = string.Create(CultureInfo.InvariantCulture, $"{level.Name}: {placed.Room}@{placed.Rotation * 90} at ({cellX}, {cellY}), column {x} {y}");
                     Assert.True(expected.SequenceEqual(actual),
                         $"{where}:\n  whole-map {string.Join("\n            ", expected)}\n  stitched  {string.Join("\n            ", actual)}");
                     runs += actual.Count;

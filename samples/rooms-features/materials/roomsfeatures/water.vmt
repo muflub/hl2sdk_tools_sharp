@@ -1,0 +1,11 @@
+"Water"
+{
+	"%compilewater" "1"
+	"$abovewater" "1"
+	"$bottommaterial" "roomsfeatures/water_beneath"
+	"$surfaceprop" "water"
+	"$fogenable" "1"
+	"$fogcolor" "{40 50 40}"
+	"$fogstart" "0"
+	"$fogend" "400"
+}

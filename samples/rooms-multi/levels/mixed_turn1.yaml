@@ -1,0 +1,13 @@
+# the multi-library sample level turned 90 degrees
+# the grid's first line is the north row; each line runs west to east
+libraries:
+  base: ../base.vmf
+  caves: ../caves.vmf
+rows: 3
+columns: 3
+aliases:
+  H: caves.hall
+grid:
+  - [shaft@270,   cavern@180, caves.end@270]
+  - [gallery@180, cross@90,   H@90]
+  - [base.end,    tee,        corner@90]

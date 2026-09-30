@@ -261,16 +261,28 @@ public static class Rooms3x3Kit
     /// </summary>
     /// <param name="kind">The room.</param>
     /// <param name="open">Room-local faces whose plug is left out: the jointed ones, in a merged level.</param>
-    public static IReadOnlyList<KitBrush> Brushes(RoomKind kind, IReadOnlySet<KitSide>? open = null)
+    /// <param name="height">
+    /// The room's height (its <c>room_height</c>), the cell size for a cube.
+    /// A taller room's walls and jambs run to its own ceiling, and each door
+    /// gets a lintel from the opening's top (the cube's ceiling) up to it:
+    /// the door stays where a cube room's is, as the pipeline's door box
+    /// does, so a tall room's plugs are a cube's and joints between rooms of
+    /// different heights match. A cube's brushes are the ones this always
+    /// returned.
+    /// </param>
+    /// <param name="ceilingMaterial">The ceiling's underside, the kit's ceiling by default (a sky room's is sky).</param>
+    public static IReadOnlyList<KitBrush> Brushes(
+        RoomKind kind, IReadOnlySet<KitSide>? open = null, float height = CellSize, string ceilingMaterial = CeilingMaterial)
     {
         ArgumentNullException.ThrowIfNull(kind);
 
         const float c = CellSize;
         const float t = Wall;
+        float h = height;
         List<KitBrush> brushes =
         [
             new(new Bounds(new(0, 0, 0), new(c, c, t)), FloorMaterial),
-            new(new Bounds(new(0, 0, c - t), new(c, c, c)), CeilingMaterial),
+            new(new Bounds(new(0, 0, h - t), new(c, c, h)), ceilingMaterial),
         ];
 
         foreach (KitSide side in new[] { KitSide.East, KitSide.West, KitSide.North, KitSide.South })
@@ -287,18 +299,26 @@ public static class Rooms3x3Kit
 
             if (!kind.Sockets.Contains(side))
             {
-                brushes.Add(new(new Bounds(new(x0, y0, t), new(x1, y1, c - t)), WallMaterial));
+                brushes.Add(new(new Bounds(new(x0, y0, t), new(x1, y1, h - t)), WallMaterial));
                 continue;
             }
 
             // Two jambs either side of the opening; the door is the full
-            // interior height, so there is no lintel or sill to add.
+            // interior height of a cube, so a cube has no lintel or sill to
+            // add, and a taller room's lintel fills the wall above the
+            // opening, after the jambs so a cube's list is unchanged.
             brushes.Add(alongY
-                ? new(new Bounds(new(x0, y0, t), new(x1, DoorLow, c - t)), WallMaterial)
-                : new(new Bounds(new(x0, y0, t), new(DoorLow, y1, c - t)), WallMaterial));
+                ? new(new Bounds(new(x0, y0, t), new(x1, DoorLow, h - t)), WallMaterial)
+                : new(new Bounds(new(x0, y0, t), new(DoorLow, y1, h - t)), WallMaterial));
             brushes.Add(alongY
-                ? new(new Bounds(new(x0, DoorHigh, t), new(x1, y1, c - t)), WallMaterial)
-                : new(new Bounds(new(DoorHigh, y0, t), new(x1, y1, c - t)), WallMaterial));
+                ? new(new Bounds(new(x0, DoorHigh, t), new(x1, y1, h - t)), WallMaterial)
+                : new(new Bounds(new(DoorHigh, y0, t), new(x1, y1, h - t)), WallMaterial));
+            if (h > c)
+            {
+                brushes.Add(alongY
+                    ? new(new Bounds(new(x0, DoorLow, c - t), new(x1, DoorHigh, h - t)), WallMaterial)
+                    : new(new Bounds(new(DoorLow, y0, c - t), new(DoorHigh, y1, h - t)), WallMaterial));
+            }
         }
 
         foreach (KitSide side in kind.Sockets)
@@ -396,10 +416,14 @@ public static class Rooms3x3Kit
     /// <param name="placement">Where it stands and how it is turned.</param>
     /// <param name="open">Room-local faces whose plug is left out.</param>
     /// <param name="offset">Added after the placement: where the library puts the room's cell.</param>
-    internal static void Place(VmfMap map, RoomKind kind, Rooms3x3Placement placement, IReadOnlySet<KitSide>? open, Point offset = default)
+    /// <param name="height">The room's height, the cell size for a cube (<see cref="Brushes"/>).</param>
+    /// <param name="ceilingMaterial">The ceiling's material (<see cref="Brushes"/>).</param>
+    internal static void Place(
+        VmfMap map, RoomKind kind, Rooms3x3Placement placement, IReadOnlySet<KitSide>? open, Point offset = default,
+        float height = CellSize, string ceilingMaterial = CeilingMaterial)
     {
         List<VmfSolid> detail = [];
-        foreach (KitBrush brush in Brushes(kind, open))
+        foreach (KitBrush brush in Brushes(kind, open, height, ceilingMaterial))
         {
             Bounds placed = placement.Apply(brush.Box);
             Bounds world = new(placed.Mins + offset, placed.Maxs + offset);

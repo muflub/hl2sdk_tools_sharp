@@ -1479,9 +1479,9 @@ public static class RoomPack
     /// <summary>
     /// What each room of a pack carries that <c>ssmap rooms</c> lists on the
     /// room's own lines, by name: its displacements (<c>DISP</c>), its water
-    /// (<c>WATR</c>) and its level map (<c>MAPV</c>). A room with none of the
-    /// three sections is not listed, so a pack written before them lists as
-    /// it did.
+    /// (<c>WATR</c>), its detail props (<c>DPRP</c>) and its level map
+    /// (<c>MAPV</c>). A room with none of the four sections is not listed, so
+    /// a pack written before them lists as it did.
     /// </summary>
     /// <param name="r">The pack.</param>
     /// <param name="index">Its index.</param>
@@ -1499,7 +1499,7 @@ public static class RoomPack
     {
         ArgumentNullException.ThrowIfNull(r);
         ArgumentNullException.ThrowIfNull(index);
-        string[] tags = [RoomDisplacements.SectionTag, RoomWater.SectionTag, RoomMapView.SectionTag];
+        string[] tags = [RoomDisplacements.SectionTag, RoomWater.SectionTag, RoomDetailProps.SectionTag, RoomMapView.SectionTag];
         List<(string Name, RoomPackSection Section)> wanted = [];
         foreach (RoomPackEntry entry in index.Entries)
         {
@@ -1521,11 +1521,13 @@ public static class RoomPack
                 ? RoomDisplacements.ReadCount(disp, entry.Name) : null;
             int? water = read.TryGetValue((entry.Name, RoomWater.SectionTag), out ArraySegment<byte> watr)
                 ? RoomWater.ReadVolumeCount(watr, entry.Name) : null;
+            int? details = read.TryGetValue((entry.Name, RoomDetailProps.SectionTag), out ArraySegment<byte> dprp)
+                ? RoomDetailProps.ReadCount(dprp, entry.Name) : null;
             RoomMapSummary? map = read.TryGetValue((entry.Name, RoomMapView.SectionTag), out ArraySegment<byte> mapv)
                 ? RoomMapView.ReadSummary(mapv, entry.Name) : null;
-            if (displacements is not null || water is not null || map is not null)
+            if (displacements is not null || water is not null || details is not null || map is not null)
             {
-                summaries[entry.Name] = new RoomFeatureSummary(displacements ?? 0, water, map);
+                summaries[entry.Name] = new RoomFeatureSummary(displacements ?? 0, water, map, details ?? 0);
             }
         }
 

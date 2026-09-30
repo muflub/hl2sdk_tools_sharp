@@ -25,4 +25,10 @@ public sealed record RoomMapSummary(int Polygons, int Rings, int Markers, string
 /// <param name="Displacements">Its displacements (the <c>DISP</c> section's count), 0 when it has none.</param>
 /// <param name="WaterVolumes">Its water volumes (the <c>WATR</c> section's water data count), or null when it has no water.</param>
 /// <param name="Map">Its level map (<c>MAPV</c>), or null when the pack holds none for it.</param>
-public sealed record RoomFeatureSummary(int Displacements, int? WaterVolumes, RoomMapSummary? Map);
+/// <param name="DetailProps">
+/// Its detail props (the <c>DPRP</c> section's count: the props vbsp
+/// scattered over its <c>%detailtype</c> faces and its detail entities), 0
+/// when it has none. Last and optional because it was added after the
+/// others, so a host that built a summary before keeps compiling.
+/// </param>
+public sealed record RoomFeatureSummary(int Displacements, int? WaterVolumes, RoomMapSummary? Map, int DetailProps = 0);

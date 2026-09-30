@@ -271,24 +271,24 @@ or research).
 
 | Feature | Today | Pack (per room / rotation) | Link | Entities | Size |
 | --- | --- | --- | --- | --- | --- |
-| Point entities | carried (origin, yaw); names duplicated | name and I/O positions, parsed placeholders | resolve names, drop/keep, fold, singletons | 1 each; logic may fold to 0 | M |
+| Point entities | carried (origin, yaw); `cxry_` names, neighbour flags, `room_needs` and folding since PR 3 | name and I/O positions, parsed placeholders | resolve names, drop/keep, fold, singletons | 1 each; logic may fold to 0 | M |
 | Brush entities | carried since PR 7 (own models, origin-relative in the entity's frame, per-model collision, (c) omission, socket furniture) | models, subtrees, per-model collision, origin class | rebase models, `model` keys, texinfo split for origin models | 1 each | L |
-| `func_ladder` | silently wrong (`info_ladder` bounds) | bounds per rotation | none | 1 (`info_ladder`) | S |
+| `func_ladder` | carried; `info_ladder` bounds moved since PR 1 | bounds per rotation | none | 1 (`info_ladder`) | S |
 | Static props | carried since PR 6 (moved, filtered, dictionaries merged, leaves recomputed, `.vhv` renamed) | props per rotation, dictionary, hulls; lighting ×1, or ×4 if sunlit | merge dictionary, recompute leaf lists, rename `.vhv` | 0 | M |
 | Detail props | carried since PR 16 (moved and turned, leaves the linked tree's, re-sorted, dictionaries merged, lit from the rooms' bakes with the door light added per prop) | props per rotation; lighting ×1, or ×4 if sunlit; door receivers and responses | leaves, re-sort, merge dictionaries, replay vrad's passes | 0 | M |
 | Displacements | carried since PR 15 (moved and turned, runs, faces and neighbours rebased, collision hulls and lighting the room's; no stitching across a joint, which is refused) | starts and vertex vectors per rotation | rebase; cross-room neighbours only if allowed | 0 | L |
-| Water | carried since PR 14 (records merged, leaf and face ids renumbered, fluids moved into the collision, water overlays carried, vvis's water passes run over the level; water touching a door plug refused) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
+| Water | carried since PR 14 (records merged, leaf and face ids renumbered, fluids moved into the collision, water overlays carried, vvis's water passes run over the level; water touching a door plug refused unless the room declares that socket's water, which a joint carries through the doorway as one body of water) | water data, fog ids, patched materials, fluid collision | doorway water carve, distance to water | 0 (1 `water_lod_control` per level) | L |
 | Overlays | carried since PR 11 (moved and turned, ids, texinfos and faces rebased, accessors renumbered; water overlays since PR 14) | overlays per rotation | rebase faces, texinfos, ids, fades | 0 unnamed, 1 named | M |
 | Decals (`infodecal`) | carried | nothing | nothing | 1 each (**uncertain** after spawn) | S |
 | `env_cubemap` | carried since PR 12 (samples moved, patches and copies renamed to the level) | samples per rotation, patch list | rename VTFs and patched VMTs to the level | 0 | M-L |
 | Area portals | carried since PR 13 (areas joined at joints, portals and `portalnumber`s rebased, clip verts moved; door portals opt-in) | areas, portals, clip verts per rotation | area union across joints, optional door portals | 1 per portal | L |
-| Occluders | carried; `occludernumber` wrong | occluders per rotation | rebase the key | 1 each (strip candidate) | S |
+| Occluders | carried; `occludernumber` rebased since PR 1 | occluders per rotation | rebase the key | 1 each (strip candidate) | S |
 | Packed files | carried since PR 5 (merged, deduped, default cubemaps renamed) | the room's pak entries | merge, dedupe, rename | 0 | M |
-| 2D sky | faces carried; no leaf sky flags (no vrad) | sky leaves per room | propagate sky flags across doors | 0 | S |
+| 2D sky | faces carried; leaf sky flags since PR 9 | sky leaves per room | propagate sky flags across doors | 0 | S |
 | 3D skybox | carried since PR 13 (the library's `info_room_skybox` room, placed below the grid, its own area) | the skybox as a library section | place it, its own area | 1 `sky_camera` per level | M |
-| Transition rooms and spawn | not possible | volume, arrival and spawn POIs per rotation | destinations, emission per mode, spawn | 2 per level (mod), 3 to 5 (stock) | M |
-| Navigation (3D) and points of interest | none | in `<library>.roomnav`: volumes, door portals and POIs per rotation | stitch at joined doors into the `<map>.nav3d` sidecar | 0 (POIs stripped) | L, blocked (section 10) |
-| Lighting | none (no vrad at pack time) | base and capture ×1, or ×4 if sunlit; door response ×1 or ×4 by measurement | sum captures × responses | lights: see 6.3 | L |
+| Transition rooms and spawn | carried since PR 8 (both emission modes) | volume, arrival and spawn POIs per rotation | destinations, emission per mode, spawn | 2 per level (mod), 3 to 5 (stock) | M |
+| Navigation (3D) and points of interest | carried: each room's navigation stitched at joined doors into the `<map>.nav3d` sidecar, POIs stripped from the map | in `<library>.roomnav`: volumes, door portals and POIs per rotation | stitch at joined doors into the `<map>.nav3d` sidecar | 0 (POIs stripped) | L, blocked (section 10) |
+| Lighting | carried since PR 9 (the base bake) and PR 10 (door light); the skybox in sky rooms' bakes since the skybox bake | base and capture ×1, or ×4 if sunlit; door response ×1 or ×4 by measurement | sum captures × responses | lights: see 6.3 | L |
 
 ---
 
@@ -5176,12 +5176,118 @@ the kit's plug is a trigger, whose faces vbsp does not draw); and, as 4.4
 says, no props in a joined doorway: its floor had no face in the room's
 compile (it faced the plug), so the link has none there and the flattened
 compile does (the doorway-face exception). Not done here: `ssmap
-rooms` does not list detail props; the 3x3 sample's `end` room did not grow
+rooms` does not list detail props (the samples' note, below, adds it); the 3x3 sample's `end` room did not grow
 its grass floor (15.2's fixture; the harness carries every fact at every
 turn, and the sample's unchanged digests show a level without detail props
 links as before); the stress library has none; whether the engine draws a
 level's detail props from a lump sorted stably by leaf is on the 15.8
 checklist.
+**The samples landed** (checked-in content for every rooms feature, on
+PR 16 and the map follow-ups). Two generated siblings of the 3x3 sample,
+each a game folder of its own that `tools/RoomsSample` writes and a fact
+holds to its generator, and each run end to end through the CLI by the
+suite.
+
+- **`samples/rooms-features`** (`RoomsFeaturesSample`, `--features`): the
+  3x3 kit with `garden` (four doors, a slab of grass whose `%detailtype`
+  names a sprite-only detail type in the sample's `detail.vbsp`, an
+  `info_poi` with `map_marker fountain` and `map_label Fountain`, its own
+  `map_label Garden`, a player start), `tower` (`room_height 512`, doors
+  east and west under a lintel, `map_label Tower`), `ridge` (a power 3
+  displacement with a 40-unit crest whose flanks are too steep to stand on,
+  and a power 2 patch sharing its edge) and `pool` (water from the west
+  plug to the east one, declared `water_east` and `water_west` at 64); one
+  level, written by hand because `ssmap layout` does not read water
+  sockets (the pools' water jointed, each pool's other water socket
+  capped), and its three whole-level turns, so every feature is linked at
+  every rotation.
+- **`samples/rooms-multi`** (`RoomsMultiSample`, `--multi`): `base.vmf`,
+  the 3x3 kit's five rooms (their room documents the 3x3 sample's, a fact)
+  and a `light_environment`; `caves.vmf`, its own `hall` and `end` (names
+  base has too), `cavern` and `gallery` 512 tall, `shaft` 768 tall with a
+  sky ceiling, the 3D skybox `sky`, and the same `light_environment`.
+  Levels: `mixed` (a 3 x 3 of both, cells bare, qualified and by the alias
+  `H`) and its turns, which put each tall room at every rotation, and
+  `large_1` and `large_2`, what `ssmap layout base=../base.vmf
+  caves=../caves.vmf -rows 4 -columns 4 -seed N -large 0.4 -group 3`
+  writes. The singleton rules each do something here: caves' sun equals
+  base's (D24's one line, from the link, the flatten, `ssmap rooms` and
+  once from `ssmap roompack`), and only caves has a skybox, so the level
+  takes it (D29); `shaft` is baked under the level's sun and over that
+  skybox packed apart or combined.
+- **Decided where the task left it: siblings, not the 3x3 sample grown**
+  (section 16 now says so). Growing the 3x3 kinds would have moved every
+  3x3 pin at once (the monolithic map draws boxes only, the equivalence
+  facts sample every level, the seeded levels are pinned as `ssmap
+  layout` wrote them), for no check the siblings do not make. No pinned
+  hash moved: the 3x3 and transit samples are the bytes they were
+  (`tools/RoomsSample --check` and the checked-in facts), and the kit's
+  `Brushes` and `Place` gained a height and a ceiling material whose
+  defaults give the brushes they always gave (a fact). The MapGen VMF
+  writer gained a side's `dispinfo` chunk, written only when a side has
+  one.
+- **Facts.** `RoomsFeaturesSampleCommandsTests` and
+  `RoomsMultiSampleCommandsTests` run `ssmap room` (lit, cooked, with
+  navigation, as by default), `ssmap rooms`, `ssmap link`, `ssmap link
+  --flatten`, `ssmap vbsp` and `ssmap check` on in-memory copies. Every
+  level links (the features' without a warning, the multi's with the one
+  sun line from separate packs and none from the combined pack), passes
+  `ssmap check` with the one warning every sample level has (no cubemap
+  sample), as does its flattened compile; the linked `.map2d` is the
+  flattened compile's cut by the level file byte for byte; the `.nav3d`
+  is the flattened compile's grid run for run and record for record
+  (`RoomNavHeightsTests.AssertSameAsFlattened`, shared now, each placed
+  cell to its own height; version 3 wherever a tall room is placed). The
+  features levels also hold every point of the water facts' lattice to
+  the flattened compile, one water record for the jointed pools, the
+  garden's detail props and four displacements. Every multi level links
+  from the combined pack to the map it links to from separate packs but
+  for `ss_pack_id` and `ss_level_id`, with the same `.map2d`; the
+  `-large` levels are what `ssmap layout` writes (packs beside, so
+  budgeted) and each places tall rooms. `RoomsFeaturesSampleTests` and
+  `RoomsMultiSampleTests` hold the folders to the generators and the
+  libraries to the pipeline's readers (heights, water sockets, labels,
+  displacements, skybox, the singleton choice, the mixed level's names
+  resolved, each tall room at four turns).
+- **Found on the way: a water socket's doorway was dry in the
+  navigation.** A room's navigation is built alone with its open doorways
+  assumed air, so the stitched `.nav3d` had the doorway's voxels below the
+  water level dry (no water flag, dry cost) where the flattened level's
+  grid had them water. `RoomNavBuilder` now assumes water in an open water
+  socket's plug box up to its level (`DoorwayWater`), since the joint rule
+  lets a water socket meet only another at the same level; the library
+  compile passes each room's `WaterSockets`. Red first:
+  `RoomNavWaterSocketTests` (the harness's water joint at four turns
+  against the flattened grid, and the doorway column wet to the level and
+  dry above). Only rooms that declare water sockets build other
+  navigation; no checked-in sample before this had one.
+- **Small gaps closed.** `ssmap rooms` lists `detail props: {n}` from each
+  room's `DPRP` count (`RoomDetailProps.ReadCount`, read without the
+  compile, as the displacement and water counts), after the water line;
+  `RoomFeatureSummary` gains `DetailProps`, last and optional. README no
+  longer lists water among the link's refusals (a paragraph says how water
+  and water sockets are carried), states D29's singleton rule, names the
+  new samples; the feature matrix (section 3) says what the link carries
+  today for every row. 15.8 is one list, with the items the landed notes
+  left to the game.
+
+Measured on a busy 4-core machine (load 3 to 5), the whole `ssmap`
+process, three runs each: the features library packs in 3.3 to 3.5 s
+(577 KB) and its level links in 0.83 to 0.84 s (147 KB `.bsp`, 1,916-byte
+`.map2d`, 2,985-byte `.nav3d`); base packs in 2.2 to 2.6 s (581 KB), caves
+in 3.2 to 3.6 s (804 KB), both combined in 3.7 to 3.9 s (1.38 MB); the
+mixed level links in 0.79 to 0.85 s (237 KB, 2,108 and 4,890 bytes), a
+`-large` level from the combined pack in 0.80 to 0.89 s (354 KB, 3,896
+and 7,938 bytes). Against the base (PR 16 with the map follow-ups
+merged): `ssmap vbsp` on 2fort (as `c.vmf`) gives `a491f59df3b484dc`,
+`ssmap all` writes `7955274d...` (2fort as `sdk_ctf_2fort`) and
+`09c58ee2...` (the sandbox); the 3x3 and transit packs differ only in the
+build identity (`CMPL` and each room container; the same sizes), and
+every level of both linked by this build from the base's packs is the
+base's `.bsp`, `.nav3d` and `.map2d` byte for byte (42 files, both modes
+for transit); packing the 3x3 and transit libraries takes the base's time
+within the noise (2.0 to 2.2 s against 2.0 to 2.1 s, 2.4 to 2.8 s against
+2.5 to 2.8 s, interleaved).
 
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
@@ -5464,11 +5570,15 @@ a level over it.
 
 ### 15.7 Fixtures
 
-- **`samples/rooms-3x3`** keeps its five kinds, its levels and its seeds.
-  Features are added to the kinds off the centre and out of the doorways
-  (section 16); the sockets do not change, so the layouts (which read
-  sockets, not contents) stay the same and the seeded-level facts keep
-  holding.
+- **`samples/rooms-3x3`** keeps its five kinds, its levels and its seeds,
+  unchanged. The features section 16 planned to add to its kinds went to
+  a sibling instead (the samples' landed note, section 13):
+- **A features sibling** (`samples/rooms-features`, landed): the 3x3 kit
+  with a tall room, a displacement ridge, water through a water socket,
+  grass detail props, a map marker and labels; one level and its turns.
+- **A multi-library sibling** (`samples/rooms-multi`, landed, 17.12): two
+  libraries, one sun and one skybox under the singleton rules, a combined
+  pack, a mixed level and its turns, and `-large` levels.
 - **A naming sibling** (`samples/rooms-names`): one room with references in
   all eight directions, its flags, a foldable and a stateful relay, and
   `room_needs` entities; levels with it at the centre of a 3x3 grid at each
@@ -5487,9 +5597,11 @@ a level over it.
 
 ### 15.8 Only verifiable in game
 
-The uncertain engine and game behaviours, as a manual checklist to run in
+The uncertain engine and game behaviours, as one manual checklist to run in
 Source Sharp (and a stock game for the fallback) before the matching
-default is relied on:
+default is relied on. Every landed note that leaves something to the game
+adds its item here, so this is the whole list; each names the section or
+PR that depends on it.
 
 - [ ] Name matching is case-insensitive for targets and outputs (5.2).
 - [ ] An entity key value longer than 1023 bytes is refused or truncated
@@ -5505,27 +5617,63 @@ default is relied on:
       removed after applying (4.8).
 - [ ] A named overlay toggled through its `info_overlay_accessor` after the
       link renumbered its `OverlayID`, and the accessor's `sides` key not
-      read at runtime (4.9).
+      read at runtime (4.9, PR 11).
 - [ ] A relay without fast retrigger drops a second `Trigger` inside its
       longest delay; same-tick event order after folding (6.5).
 - [ ] `func_door_rotating` and `func_rotating` axis flags read in the
       entity's frame; which brush-entity classes apply `angles` to the
-      model (4.1).
+      model, each class joining PR 7's known-direction table once checked
+      (4.1, PR 7).
 - [ ] An area portal whose entity has `StartOpen 1` and no target is open
       (4.11).
-- [ ] The sky is drawn from leaves flagged by pass two (4.12).
-- [ ] Detail props render with a stable sort by leaf (4.4).
+- [ ] The sky is drawn from leaves flagged by pass two (4.12, PR 9).
 - [ ] A static prop straddling leaves of two rooms is drawn from both
       (4.3).
 - [ ] `buildcubemaps` on a linked map writes the names the patched VMTs
-      expect (4.10).
+      expect (4.10, PR 12).
+- [ ] A map past 1024 cubemap samples or 2048 displacements loads, or
+      fails, as `ssmap check`'s warnings (BSP0039, BSP0040) assume: the link
+      refuses past vbsp's caps, and whether the engine reads more is not
+      settled here (PR 12, PR 15).
 - [ ] Fog, tonemap and shadow controllers: which one wins with several (8).
 - [ ] Unknown worldspawn keys (`ssmap_entities`) are ignored (7.1).
 - [ ] Stock `trigger_changelevel` with "disable touch" fires on
       `ChangeLevel`; the landmark lands the player at the arrival;
-      facing is kept or not; multiplayer changelevel behaviour (11.4).
+      facing is kept or not; the stock upward trip, whose landmark stands
+      at the lower level's down-room changelevel rather than at the
+      arrival; multiplayer changelevel behaviour (11.4, PR 8).
 - [ ] The runtime reserve: peak edicts with a full server and bots, to set
       `rooms_entity_reserve` (6.7).
+- [ ] A water socket's doorway: its surface, which takes the room's own
+      surface face's texture alignment where the flattened compile's is cut
+      from the doorway brush, draws without a seam from above and below;
+      an object floats across the joint, though the doorway's convexes
+      belong to one room's fluid rather than to one fluid for the body of
+      water (4.6, PR 14).
+- [ ] Displacement collision: the engine builds a displacement's collision
+      from the packed hull the link carries, which the flattened compile
+      cuts differently wherever a move rounds its vertices differently
+      (the same convex hull, other triangles), and a player walks and a
+      physics object rests on a linked patch as on the whole compile's
+      (4.5, PR 15).
+- [ ] Detail props: the engine draws a level's detail props from a `dprp`
+      lump the link sorts stably by leaf (vbsp's sort is unstable), each
+      leaf's props together, lit from the replayed passes, with no
+      flicker or missing props at a joint (4.4, PR 16).
+- [ ] The level map: the mod's `.map2d` loader reads the file beside the
+      map, checks its binding (the map checksum) and draws the overlay:
+      floors per height band, doors open and closed, the markers by kind
+      and label, per-room reveal by placement (18.5, PR 22 and its
+      follow-ups).
+- [ ] The 3D skybox seen from a sky room away from the bake's cell: a
+      per-turn bake sees the skybox from cell (0, 0), so a room elsewhere
+      is shaded by the skybox as the bake's cell sees it (the skybox
+      bake's note, its parallax row); once the parallax correction lands,
+      the shading in game matches where the room stands.
+- [ ] The mod mode's transitions and spawns: `logic_level_transition`
+      moves the player to the arrival the `.nav3d` names, the level spawns
+      at its spawn points, and a `logic_room`'s flags and relays behave as
+      the stock fallback's entities do (7.2, 7.6, PR 3, PR 8).
 
 ### 15.9 Storage and compression
 
@@ -5563,6 +5711,19 @@ default is relied on:
 ---
 
 ## 16. Growing the 3x3 sample
+
+**Decided when the samples landed: a sibling, not the 3x3 sample grown.**
+The 3x3 kinds did not grow; `samples/rooms-features` carries the features
+below on the same kit (a tall room, a displacement ridge, water through a
+water socket, grass detail props, a map marker and labels), and
+`samples/rooms-multi` the multi-library work of 17.12. The 3x3 sample is
+pinned from too many sides for a feature a PR: the generator's monolithic
+map (`Rooms3x3Arrangement.MonolithicVmf`) draws boxes only and would need
+its own displacement and water writer, the equivalence facts sample
+contents and traces over every level, the seeded levels are pinned by
+SHA-256, and every PR since 14 recorded its levels linking to the base's
+bytes. The rest of this section is the plan as it was written; the
+samples' landed note says what each sibling checks.
 
 The sample is generated (`SourceSharp.MapGen.Rooms`: `Rooms3x3Kit`,
 `Rooms3x3Sample`, `Rooms3x3Arrangement`, `Rooms3x3Permutations`;
@@ -6331,12 +6492,13 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [...]
 Rows for 15.2 are in that table; every message of 17.3 is asserted by its
 exact text (15.4). Beyond them:
 
-- **Samples.** A multi-library sibling, `samples/rooms-multi`: a second
-  library beside the 3x3 one (same cell and kit) with rooms of the same
-  names as some of the 3x3's (to exercise bare-name ambiguity, aliases and
-  `MapBase` namespacing), and tall rooms of two heights (the `2 x 2` hall and
-  `3 x 1` gallery went with D30); levels using both libraries at every
-  rotation of the tall rooms, one seeded with `-large`. The 3x3 library stays as it is, so its
+- **Samples.** A multi-library sibling, `samples/rooms-multi` (landed; the
+  samples' note in section 13): a second library beside one of the 3x3
+  kinds (same cell and kit) with rooms of the same names as some of them
+  (to exercise bare-name ambiguity, aliases and `MapBase` namespacing),
+  and tall rooms of two heights (the `2 x 2` hall and `3 x 1` gallery went
+  with D30); levels using both libraries at every rotation of the tall
+  rooms, two seeded with `-large`. The 3x3 library stays as it is, so its
   seeded levels keep holding (15.7), and a fact holds `ssmap layout` on it
   byte for byte with and without `-large 0`.
 - **Equivalence.** Each multi-library level links to the same map as the

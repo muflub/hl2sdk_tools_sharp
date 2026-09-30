@@ -1,0 +1,11 @@
+"GameInfo"
+{
+	game	"Rooms features sample"
+	FileSystem
+	{
+		SearchPaths
+		{
+			game	|gameinfo_path|.
+		}
+	}
+}

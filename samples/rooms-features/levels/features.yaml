@@ -1,0 +1,8 @@
+# the rooms features sample level
+# the grid's first line is the north row; each line runs west to east
+library: ../rooms.vmf
+rows: 2
+columns: 3
+grid:
+  - [garden, tower, ridge@180]
+  - [pool,   pool,  ridge]

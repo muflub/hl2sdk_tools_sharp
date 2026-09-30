@@ -27,6 +27,30 @@ samples/rooms-transit/levels/*.bsp
 samples/rooms-transit/levels/*.vmf
 samples/rooms-transit/levels/*.nav3d
 samples/rooms-transit/levels/*.prt
+samples/rooms-features/out/
+samples/rooms-features/maps/
+samples/rooms-features/*.roompack
+samples/rooms-features/*.roomnav
+samples/rooms-features/*.sscache.db
+samples/rooms-features/levels/*.bsp
+samples/rooms-features/levels/*.vmf
+samples/rooms-features/levels/*.nav3d
+samples/rooms-features/levels/*.map2d
+samples/rooms-features/levels/*.svg
+samples/rooms-features/levels/*.prt
+samples/rooms-multi/out/
+samples/rooms-multi/maps/
+samples/rooms-multi/*.roompack
+samples/rooms-multi/*.roomnav
+samples/rooms-multi/*.sscache.db
+samples/rooms-multi/levels/*.bsp
+samples/rooms-multi/levels/*.vmf
+samples/rooms-multi/levels/*.nav3d
+samples/rooms-multi/levels/*.map2d
+samples/rooms-multi/levels/*.svg
+samples/rooms-multi/levels/*.prt
+samples/rooms-multi/comb/
+samples/rooms-multi/generated/
 # Compile output beside the corpus maps: maps/ is test corpus, and a compile
 # run in place (ssmap all maps/ss_sandbox.vmf) writes these next to the .vmf.
 maps/*.bsp

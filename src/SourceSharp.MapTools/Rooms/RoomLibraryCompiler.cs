@@ -534,7 +534,7 @@ public static class RoomLibraryCompiler
                 IReadOnlyDictionary<string, (Vec3 Mins, Vec3 Maxs)?> hulls = await NavModelBounds
                     .LoadAsync(settings.Content, NavModelBounds.PropModels(compiled.Bsp), cancellationToken).ConfigureAwait(false);
                 nav = RoomNavBuilder.Build(
-                    room.Definition, compiled.Bsp, pois, room.Role, navSettings, m => hulls.GetValueOrDefault(m), cancellationToken);
+                    room.Definition, compiled.Bsp, pois, room.Role, navSettings, m => hulls.GetValueOrDefault(m), room.WaterSockets, cancellationToken);
             }
 
             // The room's part of its level's map (the rooms design, 18.3):

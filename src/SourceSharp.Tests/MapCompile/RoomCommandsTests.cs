@@ -1756,7 +1756,7 @@ public sealed class RoomCommandsTests
 
     /// <summary>
     /// The feature lines, pinned: displacements only when there are some,
-    /// water with its volumes, a map with its rings, markers and label, a map
+    /// water with its volumes, detail props only when there are some, a map with its rings, markers and label, a map
     /// with no floor said so, and a room the summaries do not name (no
     /// section) with no line at all.
     /// </summary>
@@ -1768,16 +1768,19 @@ public sealed class RoomCommandsTests
         Dictionary<string, RoomEntityCounts?> counts = new() { ["hub"] = null, ["end"] = null, ["hall"] = null };
         Dictionary<string, RoomFeatureSummary> features = new()
         {
-            ["hub"] = new RoomFeatureSummary(3, 2, new RoomMapSummary(2, 3, 1, "Atrium")),
+            ["hub"] = new RoomFeatureSummary(3, 2, new RoomMapSummary(2, 3, 1, "Atrium"), 228),
             ["end"] = new RoomFeatureSummary(0, null, new RoomMapSummary(0, 0, 0, string.Empty)),
         };
         string text = RoomCommands.DescribeLibrary(
             rooms, counts, RoomLibraryOptions.None, EntityClassTable.Default, new Dictionary<string, RoomNameSummary>(), [], new Dictionary<string, int>(), features);
         string[] lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         int hub = Array.FindIndex(lines, l => l.StartsWith("hub: ", StringComparison.Ordinal));
-        Assert.Equal(["  displacements: 3", "  water: 2 volume(s)", "  map: 3 floor ring(s), 1 marker(s), label \"Atrium\""], lines[(hub + 2)..(hub + 5)]);
+        Assert.Equal(
+            ["  displacements: 3", "  water: 2 volume(s)", "  detail props: 228", "  map: 3 floor ring(s), 1 marker(s), label \"Atrium\""],
+            lines[(hub + 2)..(hub + 6)]);
         int end = Array.FindIndex(lines, l => l.StartsWith("end: ", StringComparison.Ordinal));
         Assert.Equal("  map: no walkable floor, 0 marker(s)", lines[end + 2]);
+        Assert.DoesNotContain(lines, l => l.StartsWith("  detail props: 0", StringComparison.Ordinal));
         int hall = Array.FindIndex(lines, l => l.StartsWith("hall: ", StringComparison.Ordinal));
         Assert.DoesNotContain(lines[(hall + 1)..], l => l.StartsWith("  map: ", StringComparison.Ordinal));
 
