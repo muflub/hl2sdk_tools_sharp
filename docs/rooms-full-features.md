@@ -3753,6 +3753,124 @@ unlit), linked by this build from main's packs, is main's map byte for
 byte, and the stress level linked from this build's own packs is too. The facts that
 held "only in a later library is dropped" now hold the opposite.
 
+**PR 19 landed** (room heights for one-cell rooms, 17.6 and 17.11). An
+`info_room` may give its room a `room_height` (`RoomLibraryVmf.RoomHeightKey`),
+in whole units, the cell size by default; the room's box is then
+`[0, c] × [0, c] × [0, h]` (`RoomDefinition.Height`, `Bounds`), and a room
+whose height is the cell size is a cube (`IsShaped` false) whatever spelled
+it, the same definition, pack entry and cache key as a room without the key.
+The box is what the split owns brushes and entities by and holds cells apart
+by (a tall room may not overlap the room built above it in the library, a
+brush above a low room's ceiling belongs to no room), what the model lint
+and the compiled lint hold the shell and the interior leaves to, what the
+prop rule (hull and doorway regions, and the link's own-leaves shortcut)
+and the arrival's clearance use, and where the linker's own entities stand
+(`LevelLinker.CellCentre`: `(c/2, c/2, h/2)`, turned, one spelling for the
+link and the flatten). The door box is not the room's: `SealBox` keeps
+computing it from `OpeningUnit` and the cell size, so a tall room's plugs are
+a cube room's bit for bit, its doors stay on the floor (the kit's sill rule,
+`PlayerHull.DoorProblem`, unchanged), and joints between rooms of different
+heights match exactly; `RoomModel` writes a lintel from the door's top to the
+room's ceiling.
+
+- **Rules** (17.3's texts, each asserted): `room {room}: room_height "{v}"
+  is not a whole number of units.` (the text as written; a number is read
+  first, so `high` and `300.5` both say so), `... room_height {h} leaves no
+  room for the door; a room is at least {min} tall (door_height + 2 x
+  wall_depth).`, `... is taller than 16384, the most the engine's
+  coordinates allow.`, and with navigation `... is not a whole number of
+  navigation voxels ({v} units each).` and `... is taller than {max}, the
+  most navigation describes (255 voxels).`, refused by the split, and the
+  navigation ones by the library compile before any room compiles
+  (`NavSettings.ColumnVoxels`).
+- **The top tree** (`BuildTopNodes`, `CellHeights`): each node is bounded in
+  z by the tallest room in its region, a region with no room by the cell
+  size, and the shared solid leaf and the skybox's root by the tallest room
+  of the level. The planes do not change. A level of cubes passes no
+  heights and builds the tree it always did; a level of rooms lower than
+  the cell is bounded lower than today, as the region's rooms are. A fact
+  holds the engine's culling promise (every node's bounds hold every open
+  leaf below it) on levels of mixed heights, and fails without the heights.
+- **The extent** (`LevelLinker.CheckExtent`, first in `CheckCapacity`, and in
+  the flatten before reachability, so both refuse alike): every placement's
+  cell in x and y and its room's height in z within ±16,384, touching
+  allowed; refused as `level {level}: reaches {axis} = {v} at cell ({x},
+  {y}); the engine's coordinates stop at 16384.`, naming the first
+  placement in link order and its first axis past the limit. The skybox is
+  held to it in the link too; it cannot pass it where the rooms do not.
+- **Lighting.** Nothing new in kind, as 17.6 said. The base bake is vrad of
+  the room as compiled; the door capture's black box is the room's box, not
+  the cube (`RoomDoorLight.Inside`), so a tall room's upper walls send their
+  light through the opening like any other surface; the response grid stays
+  on the unchanged opening and the standard cube beyond it (a source above
+  the grid's top is shared out to its top nodes, flux-matched), and the sky
+  passes are height-independent. Facts: a capped, sunlit tall room links to
+  vrad of its own link at every turn, luxel for luxel; a tall room with a
+  lamp above the hub's top, joined to the hub, meets PR 10's tolerances
+  against vrad of the link (measured near p95 0.006, elsewhere p95 0.028,
+  energy 0.998 to 0.999; the base alone near p95 0.40); its sky flags, high
+  and low, are the flattened compile's.
+- **Navigation.** A room's columns run its height in voxels
+  (`RoomNav.ColumnVoxels`; the kit's assumed outside has its top slab at the
+  room's height); a shaped room's `NVR`r section is revision 3, one `int32`
+  more after the voxels per edge, a cube room's stays revision 2. A level
+  placing a shaped room writes a version 3 `.nav3d` whose one addition is
+  `CHGT`, an `int32` per cell (its height in voxels, 0 for an empty cell),
+  after `JUMP`; a level of cubes writes version 2, byte for byte. The reader
+  reads both, holds every leaf under its cell's height, answers no leaf at
+  or above it, and reaches up to its tallest cell
+  (`Nav3dReader.CellHeight`, `TallestCell`); `ssmap nav` prints the range.
+  `docs/nav3d-format.md` 1, 2, 3, 4, 6, 13, 16 and 17.3 say so. A fact holds
+  the stitched grid of a level of three heights to the one built straight
+  from its flattened compile, run for run and record for record, at every
+  turn.
+
+Storage: a shaped room carries **`SHAP`** (`RoomShape`) right after its
+entity counts, with the link sections' framing (codec none, revision 1),
+then a rotation count of 1 and one payload behind its byte length: the
+height, the footprint (1 and 1) and each socket's cell offset (0 and 0). The
+room container does not change: the loader reads the section first and
+gives the height to the container's check of its compile
+(`RoomObjectStore.LoadShapedAsync`), so every cube room's container is its
+old bytes, and a container read alone is the cube it describes. A pack
+holding a `SHAP` is written at **version 5** (`RoomPack.Version`), one of
+cubes at version 4 (`RoomPack.CubeVersion`); this build reads 3 to 5, a
+build that reads only 4 refuses a version 5 pack by its version check
+(`CheckVersion`, parameterised by the newest version so a fact holds that
+text), and a `SHAP` in a pack of version 4 or older is refused as damage. A
+section of another revision, rotation count, footprint, socket count or a
+height the kit refuses is refused naming the room and `SHAP`. The room
+cache key folds the height only for a shaped room, so every cube room keeps
+its rows, and the compile's input keys add `|h{height}` likewise.
+
+Decisions taken where this document left a detail: the height lives in
+`SHAP`, not in the room container's manifest (17.11's "the container does
+not change"); an empty region of the top tree keeps the cell's top; the
+extent refusal names one axis and is checked by the flatten too;
+`CHGT` covers every cell rather than only placed ones, so it is indexed like
+`ROOT`; the lint's "crosses a cell face" message adds `, 0..{h} tall` for a
+shaped room and keeps its text for a cube. Two capacity facts laid lines of 400 and more
+hubs along x, past the engine's coordinates, which the extent check now
+refuses first; their lines are folded into rows of 64, the same joints and
+so the same totals, and their refusals name the crossing hub's cell in its
+row. Not done here: `ssmap rooms` does
+not list heights, the generator knows nothing of them (PR 21), and no sample
+has a tall room (the multi-library sample of 17.12 is later work).
+
+Measured against the base (main at the section 17 merge), the whole
+`ssmap` process: `ssmap all` on 2fort and the sandbox writes the same maps,
+and 2fort's vbsp is `a491f59df3b484dc`; the 3x3, transit and stress packs
+stay version 4 and every section but the compile id and the containers'
+build identity is the same bytes; every level of the three, linked by this
+build from the base's packs, is the same map and `.nav3d` as the base's
+link (both modes for the transit run); every linked map passes `ssmap
+check` with its one warning (no cubemap sample). A copy of the 3x3 library
+with its cross room 512 tall and its end room 384 packs at version 5
+(610 KB against 578 KB), the same bytes at `-threads` 1 and 4, and every
+level of it links to a version 3 `.nav3d` and passes `ssmap check` with the
+same one warning. The stress library's 33 x 33 level links in 1.6 to 1.8 s
+against 1.65 to 1.7 s, alternating runs, to the same bytes.
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
@@ -4220,6 +4338,10 @@ size. The assumptions, and what each means for taller or larger rooms:
 | Linker entities stand at the cell centre | `LevelLinker.CellCentre`: `(c/2, c/2, c/2)`, turned | One spelling shared by link and flatten (5.9). |
 | Names and neighbour logic are per cell | 5.2: `cxry_` with ±1 offsets; (b) flags and `room_needs` name four sides, one neighbour each | A room with two neighbours on a side has no name for either. |
 | Props and furniture stay in the cell | PR 6 and PR 7's cell rule (the hull or brush inside the cell box, furniture only into its doorway) | The cell box is the cube. |
+
+PR 19 lifted the height rows of this table: the room's box replaces the
+cube wherever it is assumed, and the top tree's bounds follow the rooms'
+heights (section 13, its landed note). The footprint rows stand until PR 20.
 
 In short: **height** is fixed by the kit and assumed in the cell box (split,
 lint, props, furniture, navigation, linker entities) and in the top tree's

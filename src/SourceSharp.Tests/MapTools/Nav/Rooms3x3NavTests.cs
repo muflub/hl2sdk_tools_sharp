@@ -347,17 +347,17 @@ public sealed class Rooms3x3NavTests(Rooms3x3Fixture fixture) : IClassFixture<Ro
         }
     }
 
-    private static string ObstacleKey(NavObstacleSource o) =>
+    internal static string ObstacleKey(NavObstacleSource o) =>
         string.Create(CultureInfo.InvariantCulture, $"{o.ClassName} {o.Bounds.Mins} {o.Bounds.Maxs}");
 
-    private static string ObstacleKey(Nav3dObstacle o) =>
+    internal static string ObstacleKey(Nav3dObstacle o) =>
         string.Create(CultureInfo.InvariantCulture, $"{o.ClassName} {o.Mins} {o.Maxs}");
 
-    private static string Describe(int zLo, int height, Nav3dLeafFlags flags, ushort cost, float playerFloor, float npcFloor, string player, string npc) =>
+    internal static string Describe(int zLo, int height, Nav3dLeafFlags flags, ushort cost, float playerFloor, float npcFloor, string player, string npc) =>
         string.Create(CultureInfo.InvariantCulture, $"z {zLo}+{height} {flags} cost {cost} floors {playerFloor:R}/{npcFloor:R} player {player} npc {npc}");
 
     /// <summary>A record as text with its obstacles and brushes by identity, not index: the two grids number them differently.</summary>
-    private static string Record(ReadOnlySpan<byte> bytes, Func<int, string> obstacle, Func<int, float[]> brush)
+    internal static string Record(ReadOnlySpan<byte> bytes, Func<int, string> obstacle, Func<int, float[]> brush)
     {
         NavRecord record = NavRecord.Decode(bytes);
         IEnumerable<string> corners = record.Corners.Select(c => string.Create(CultureInfo.InvariantCulture, $"({c.Width:R} {c.Top:R})"));

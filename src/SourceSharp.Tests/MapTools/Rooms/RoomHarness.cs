@@ -97,12 +97,13 @@ internal static class RoomHarness
             RenumberMaterials(chunk, RoomModel.PlugMaterial, plug);
         }
 
-        // The leak reporter walks from a player start; every room's cell center
-        // is (cell/2, cell/2, cell/2), room-local.
+        // The leak reporter walks from a player start; every room's centre is
+        // (cell/2, cell/2, height/2), room-local: the cube's (cell/2)³ unless
+        // the room has a height of its own.
         VmfChunk start = new(MapFileLoader.EntityChunk);
         start.AddKey("id", "900000");
         start.AddKey("classname", "info_player_start");
-        start.AddKey("origin", RoomModel.Tuple(definition.CellSize / 2f, definition.CellSize / 2f, definition.CellSize / 2f + 1f));
+        start.AddKey("origin", RoomModel.Tuple(definition.CellSize / 2f, definition.CellSize / 2f, definition.Height / 2f + 1f));
         document.Chunks.Add(start);
         return document;
     }
@@ -238,6 +239,10 @@ internal static class RoomHarness
         marker.AddKey(RoomLibraryVmf.DoorWidthKey, VmfPlacement.Format(room.Kit.Width));
         marker.AddKey(RoomLibraryVmf.DoorHeightKey, VmfPlacement.Format(room.Kit.Height));
         marker.AddKey(RoomLibraryVmf.WallDepthKey, VmfPlacement.Format(room.Kit.Depth));
+        if (room.IsShaped)
+        {
+            marker.AddKey(RoomLibraryVmf.RoomHeightKey, VmfPlacement.Format(room.Height));
+        }
 
         // A socket named other than its wall is named on the marker, as an
         // author would; the default name needs no key.

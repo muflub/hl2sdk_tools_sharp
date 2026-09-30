@@ -135,9 +135,63 @@ public readonly record struct RoomSocket(RoomFacing Facing, string Name)
 /// </remarks>
 public sealed record RoomDefinition(string Name, float CellSize, SocketKit Kit, IReadOnlyList<RoomSocket> Sockets)
 {
+    /// <summary>
+    /// The most units a room may be tall: the engine's coordinates stop at
+    /// ±16,384 (<see cref="GeometryEpsilons.MaxCoordInteger"/>), and every
+    /// floor is at z = 0.
+    /// </summary>
+    public const float MaxHeight = GeometryEpsilons.MaxCoordInteger;
+
+    /// <summary>
+    /// The room's own height, in units: its <c>info_room</c>'s
+    /// <c>room_height</c> key (the rooms design, 17.6), the cell size when it
+    /// has none. The room's box is <c>[0, c] × [0, c] × [0, Height]</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Only the box changes, never the door.</b> The door box is the one a
+    /// cube room of the library has: <see cref="RoomLinter.SealBox"/> keeps
+    /// computing its z range from <see cref="SocketKit.OpeningUnit"/> and the
+    /// <see cref="CellSize"/>, never from this height. So a tall room's plugs
+    /// are bit for bit a cube room's, joints between rooms of different
+    /// heights match exactly, and the kit's sill rule
+    /// (<see cref="PlayerHull.DoorProblem"/>) keeps every door on the floor.
+    /// Recomputing the sill as the wall depth would be cleaner, but could move
+    /// a plug by its last bit where the sill tolerance let a library through,
+    /// and so change every room's compile.
+    /// </para>
+    /// <para>
+    /// <b>Why an init property with the cube's default</b> rather than a
+    /// constructor argument: every room built before heights, and every one
+    /// that does not ask, is a cube, and must stay equal to the definition it
+    /// always was (the pack, the room cache and the link compare definitions).
+    /// A room whose height is the cell size is a cube, not a shaped room
+    /// (<see cref="IsShaped"/>), whatever spelled it.
+    /// </para>
+    /// </remarks>
+    public float Height { get; init; } = CellSize;
+
+    /// <summary>
+    /// Whether the room is shaped: taller or lower than its cell. A shaped
+    /// room carries the pack's <c>SHAP</c> section (<see cref="RoomShape"/>),
+    /// and a pack holding one is written at version 5 (<see cref="RoomPack"/>);
+    /// a cube room is what it always was, to the byte.
+    /// </summary>
+    public bool IsShaped => Height != CellSize;
+
+    /// <summary>
+    /// The room's box, room-local: <c>[0, c] × [0, c] × [0, h]</c>. What the
+    /// split, the lint, the prop and furniture cell rules and navigation hold
+    /// the room to; the cube <c>[0, c]³</c> for a room that is not shaped.
+    /// </summary>
+    public Box Bounds => new(Vec3.Zero, new Vec3(CellSize, CellSize, Height));
+
     /// <summary>Validates the definition.</summary>
     /// <exception cref="ArgumentException">The name is blank or two sockets share a face.</exception>
-    /// <exception cref="ArgumentOutOfRangeException">The cell size is not a positive finite number.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The cell size is not a positive finite number, or the height breaks
+    /// a rule of <see cref="HeightProblem"/>.
+    /// </exception>
     public void Validate()
     {
         if (string.IsNullOrWhiteSpace(Name))
@@ -147,6 +201,10 @@ public sealed record RoomDefinition(string Name, float CellSize, SocketKit Kit, 
 
         RoomNumbers.RequirePositiveFinite(CellSize, nameof(CellSize));
         Kit.Validate();
+        if (IsShaped && HeightProblem(Height, Kit) is { } problem)
+        {
+            throw new ArgumentOutOfRangeException(nameof(Height), Height, $"room {Name}: room_height {problem}");
+        }
         HashSet<RoomFacing> seen = [];
         foreach (RoomSocket socket in Sockets)
         {
@@ -158,6 +216,49 @@ public sealed record RoomDefinition(string Name, float CellSize, SocketKit Kit, 
                     nameof(Sockets));
             }
         }
+    }
+
+    /// <summary>
+    /// What is wrong with a room height for a kit, as the tail of the rooms
+    /// design's 17.3 texts (after <c>room_height {h} </c>), or null when it
+    /// is a height: a whole number of units, at least the door plus the floor
+    /// and ceiling slabs (<c>door_height + 2 × wall_depth</c>), and at most
+    /// <see cref="MaxHeight"/>.
+    /// </summary>
+    /// <param name="height">The height.</param>
+    /// <param name="kit">The library's door kit.</param>
+    /// <returns>The problem, or null.</returns>
+    /// <remarks>
+    /// <para>
+    /// A room lower than its cell is allowed (a low hallway), as long as the
+    /// door fits. Whole units because nothing finer is authored, and so that
+    /// every bound the link writes from it (node and leaf bounds are shorts)
+    /// is the height itself, not a rounding of it.
+    /// </para>
+    /// <para>
+    /// Navigation's rules (a whole number of voxels, at most 255 of them) are
+    /// the library's, not the room's: they depend on its settings, so the
+    /// split checks them (<see cref="RoomLibraryVmf"/>).
+    /// </para>
+    /// </remarks>
+    public static string? HeightProblem(float height, SocketKit kit)
+    {
+        if (!float.IsFinite(height) || height != MathF.Floor(height))
+        {
+            return string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{height:0.###} is not a whole number of units.");
+        }
+
+        float least = kit.Height + (2 * kit.Depth);
+        if (height < least)
+        {
+            return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"{height:0.###} leaves no room for the door; a room is at least {least:0.###} tall (door_height + 2 x wall_depth).");
+        }
+
+        return height > MaxHeight
+            ? string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"{height:0.###} is taller than {MaxHeight:0.###}, the most the engine's coordinates allow.")
+            : null;
     }
 }
 

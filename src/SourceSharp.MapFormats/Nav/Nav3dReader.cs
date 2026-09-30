@@ -73,12 +73,15 @@ public sealed class Nav3dReader
     private readonly int[] _obstacleLeaves;
     private readonly int[][] _components;
     private readonly int[] _componentCounts;
+    private readonly int[]? _cellHeights;
 
-    private Nav3dReader(ReadOnlyMemory<byte> file, Header header, Sections sections, NavBrush[] brushes)
+    private Nav3dReader(ReadOnlyMemory<byte> file, Header header, Sections sections, NavBrush[] brushes, int[]? cellHeights)
     {
         _file = file;
         _s = sections;
         _brushes = brushes;
+        _cellHeights = cellHeights;
+        TallestCell = cellHeights is null ? header.CellVoxels : Math.Max(1, cellHeights.Max());
         Version = header.Version;
         Codec = header.Codec;
         CellSize = header.CellSize;
@@ -130,6 +133,30 @@ public sealed class Nav3dReader
 
     /// <summary>Voxels along a cell's edge.</summary>
     public int CellVoxels { get; }
+
+    /// <summary>
+    /// The most voxels up any cell's columns: <see cref="CellVoxels"/> in a
+    /// version 2 file, the tallest cell's height in a version 3 one.
+    /// </summary>
+    public int TallestCell { get; }
+
+    /// <summary>
+    /// A cell's height in voxels: how far up its columns run from the floor.
+    /// <see cref="CellVoxels"/> for every placed cell of a version 2 file;
+    /// in a version 3 file the cell's own (the rooms design, 17.6: a room
+    /// may be taller or lower than its cell), 0 for an empty cell.
+    /// </summary>
+    /// <param name="cell">The cell, <c>row × columns + column</c>.</param>
+    /// <returns>The height, in voxels.</returns>
+    public int CellHeight(int cell)
+    {
+        if ((uint)cell >= (uint)CellCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(cell), cell, "no such cell.");
+        }
+
+        return _cellHeights is { } heights ? heights[cell] : CellRoot(cell) < 0 ? 0 : CellVoxels;
+    }
 
     /// <summary>The grid's columns, west to east.</summary>
     public int Columns { get; }
@@ -216,7 +243,7 @@ public sealed class Nav3dReader
         }
 
         int version = BinaryPrimitives.ReadInt32LittleEndian(envelope[8..]);
-        if (version != Nav3dFormat.Version)
+        if (version != Nav3dFormat.Version && version != Nav3dFormat.CubeVersion)
         {
             throw new InvalidDataException($".nav3d version {version}; this build reads version {Nav3dFormat.Version}.");
         }
@@ -347,10 +374,29 @@ public sealed class Nav3dReader
             throw new InvalidDataException("the .nav3d spawn or arrival index names no point of interest.");
         }
 
-        ValidateGrid(b, s, header, cells);
+        // Version 3: each cell's own height, required; version 2 has none,
+        // and a stray one there is another version's section, ignored.
+        int[]? cellHeights = null;
+        if (version == Nav3dFormat.Version)
+        {
+            Section heights = Require(sections, Nav3dFormat.CellHeightsTag, 4, cells);
+            cellHeights = new int[cells];
+            for (int c = 0; c < cells; c++)
+            {
+                cellHeights[c] = BinaryPrimitives.ReadInt32LittleEndian(b[(heights.Offset + (c * 4))..]);
+                bool empty = BinaryPrimitives.ReadInt32LittleEndian(b[(s.Roots.Offset + (c * 4))..]) == -1;
+                if (empty ? cellHeights[c] != 0 : cellHeights[c] is < 1 or > Nav3dFormat.MaxColumnVoxels)
+                {
+                    throw new InvalidDataException(
+                        $"cell {c} is {cellHeights[c]} voxels tall; a placed cell is 1 to {Nav3dFormat.MaxColumnVoxels}, an empty one 0.");
+                }
+            }
+        }
+
+        ValidateGrid(b, s, header, cells, cellHeights);
         NavBrush[] brushes = ValidateBrushes(b, s, header.BrushCount);
         ValidateRecords(b, s, header, cells);
-        return new Nav3dReader(file, header, s, brushes);
+        return new Nav3dReader(file, header, s, brushes, cellHeights);
     }
 
     /// <summary>One agent preset.</summary>
@@ -457,7 +503,7 @@ public sealed class Nav3dReader
     public int FindLeaf(int cell, int x, int y, int z)
     {
         if ((uint)cell >= (uint)CellCount || (uint)x >= (uint)CellVoxels || (uint)y >= (uint)CellVoxels
-            || (uint)z >= (uint)CellVoxels)
+            || (uint)z >= (uint)(_cellHeights is { } heights ? heights[cell] : CellVoxels))
         {
             return -1;
         }
@@ -836,12 +882,12 @@ public sealed class Nav3dReader
         Vec3 p = PoiPosition(poi);
         int column = (int)(cell % (uint)Columns);
         int row = (int)(cell / (uint)Columns);
-        int Voxel(double at) => (int)Math.Clamp(Math.Floor(at / VoxelSize), 0, CellVoxels - 1);
+        int Voxel(double at, int n) => (int)Math.Clamp(Math.Floor(at / VoxelSize), 0, Math.Max(1, n) - 1);
         return FindLeaf(
             (int)cell,
-            Voxel(p.X - Origin.X - (column * (double)CellSize)),
-            Voxel(p.Y - Origin.Y - (row * (double)CellSize)),
-            Voxel(p.Z - Origin.Z));
+            Voxel(p.X - Origin.X - (column * (double)CellSize), CellVoxels),
+            Voxel(p.Y - Origin.Y - (row * (double)CellSize), CellVoxels),
+            Voxel(p.Z - Origin.Z, CellHeight((int)cell)));
     }
 
     /// <summary>A whole point of interest, strings and all.</summary>
@@ -959,6 +1005,7 @@ public sealed class Nav3dReader
             CellSize = CellSize,
             VoxelSize = VoxelSize,
             CellVoxels = CellVoxels,
+            CellHeights = _cellHeights is null ? null : [.. _cellHeights],
             Columns = Columns,
             Rows = Rows,
             Origin = Origin,
@@ -987,7 +1034,9 @@ public sealed class Nav3dReader
 
     /// <summary>
     /// The cell and in-cell voxel holding a level point, or false when the
-    /// point is outside the grid. Voxels are half-open, low side in.
+    /// point is outside the grid. Voxels are half-open, low side in. The grid
+    /// reaches up to its tallest cell (<see cref="TallestCell"/>); a point
+    /// above a lower cell's top is in the grid but in no leaf of it.
     /// </summary>
     /// <param name="point">The point.</param>
     /// <param name="column">The cell's column.</param>
@@ -1010,7 +1059,7 @@ public sealed class Nav3dReader
         long gx = (long)Math.Floor(lx / VoxelSize);
         long gy = (long)Math.Floor(ly / VoxelSize);
         long gz = (long)Math.Floor(lz / VoxelSize);
-        if (gx >= (long)Columns * CellVoxels || gy >= (long)Rows * CellVoxels || gz >= CellVoxels)
+        if (gx >= (long)Columns * CellVoxels || gy >= (long)Rows * CellVoxels || gz >= TallestCell)
         {
             return false;
         }
@@ -1038,11 +1087,13 @@ public sealed class Nav3dReader
         return section;
     }
 
-    private static void ValidateGrid(ReadOnlySpan<byte> b, Sections s, Header header, int cells)
+    private static void ValidateGrid(ReadOnlySpan<byte> b, Sections s, Header header, int cells, int[]? cellHeights)
     {
         int block = header.CellVoxels * header.CellVoxels;
         int columns = header.ColumnCount;
         bool[] used = new bool[(columns / block) + 1];
+        int[] blockHeight = new int[(columns / block) + 1];
+        Array.Fill(blockHeight, header.CellVoxels);
         int placed = 0;
         for (int c = 0; c < cells; c++)
         {
@@ -1058,6 +1109,7 @@ public sealed class Nav3dReader
             }
 
             used[root / block] = true;
+            blockHeight[root / block] = cellHeights?[c] ?? header.CellVoxels;
             placed++;
         }
 
@@ -1081,7 +1133,7 @@ public sealed class Nav3dReader
                 for (uint l = previous; l < start; l++)
                 {
                     ReadOnlySpan<byte> r = b.Slice(s.Leaves.Offset + ((int)l * Nav3dFormat.LeafRecordBytes), Nav3dFormat.LeafRecordBytes);
-                    if (r[1] < 1 || r[0] <= last || r[0] + r[1] > header.CellVoxels)
+                    if (r[1] < 1 || r[0] <= last || r[0] + r[1] > blockHeight[(j - 1) / block])
                     {
                         throw new InvalidDataException($"leaf {l} runs from voxel {r[0]} for {r[1]}, overlapping its column's last or leaving its cell.");
                     }
