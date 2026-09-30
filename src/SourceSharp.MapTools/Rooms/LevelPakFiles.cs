@@ -232,6 +232,34 @@ public static class LevelPakFiles
         IReadOnlyDictionary<string, IReadOnlyList<(int RoomProp, int Linked)>>? propFiles,
         IReadOnlyDictionary<string, IReadOnlyList<PlacementCubemaps>>? cubemaps,
         IReadOnlyList<(string Room, string Name, byte[] Data)>? bakedFiles,
+        CancellationToken cancellationToken) =>
+        Merge(rooms, mapBase, propFiles, cubemaps, bakedFiles, compileNames: null, cancellationToken);
+
+    /// <summary>
+    /// The merge with each room known by the name the level places it by
+    /// and its files renamed by the name it was compiled under: the two
+    /// differ in a level of several libraries, whose rooms are placed by
+    /// qualified names (<c>base.corner</c>) but were compiled, and named
+    /// their map files, as <c>corner</c>.
+    /// </summary>
+    /// <param name="rooms">As for the overload without props, each room under the name the level places it by.</param>
+    /// <param name="mapBase">As for the overload without props.</param>
+    /// <param name="propFiles">As for the overload without cubemaps, by the same names.</param>
+    /// <param name="cubemaps">As for the overload without baked files, by the same names.</param>
+    /// <param name="bakedFiles">The files the bake adds, by the same names.</param>
+    /// <param name="compileNames">
+    /// Each room's compile name by the name <paramref name="rooms"/> lists it
+    /// under, or null when they are the same (a level of one library).
+    /// </param>
+    /// <param name="cancellationToken">Cancels the merge.</param>
+    /// <returns>As for the overload without props.</returns>
+    internal static (byte[]? Pak, int Files) Merge(
+        IReadOnlyList<(string Room, ZipArchiveReader Pak)> rooms,
+        string mapBase,
+        IReadOnlyDictionary<string, IReadOnlyList<(int RoomProp, int Linked)>>? propFiles,
+        IReadOnlyDictionary<string, IReadOnlyList<PlacementCubemaps>>? cubemaps,
+        IReadOnlyList<(string Room, string Name, byte[] Data)>? bakedFiles,
+        IReadOnlyDictionary<string, string>? compileNames,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rooms);
@@ -257,6 +285,7 @@ public static class LevelPakFiles
         foreach ((string room, ZipArchiveReader pak) in rooms)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            string compiled = compileNames?.GetValueOrDefault(room) ?? room;
             IReadOnlyList<(int RoomProp, int Linked)>? props = null;
             _ = propFiles?.TryGetValue(room, out props);
             IReadOnlyList<PlacementCubemaps>? placed = null;
@@ -295,12 +324,12 @@ public static class LevelPakFiles
                     continue;
                 }
 
-                if (IsRenamed(entry.Name, room))
+                if (IsRenamed(entry.Name, compiled))
                 {
                     RefuseWithoutMapName(room, entry.Name, mapBase);
                 }
 
-                Add(room, LinkedName(entry.Name, room, mapBase), entry);
+                Add(room, LinkedName(entry.Name, compiled, mapBase), entry);
             }
         }
 

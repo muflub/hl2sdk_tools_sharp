@@ -411,8 +411,9 @@ the libraries only ever see options.
 ssmap room <library.vmf> [-out <pack.roompack>] [-nav-turn0] [-nav-codec <codec>]
            [-incremental [-cache-dir <dir>] | -nocache] [vbsp options]
 ssmap rooms <library.vmf> [-rooms <pack.roompack>]
+ssmap rooms <level.yaml> [-rooms <key>=<pack.roompack> ...]
 ssmap rooms -rooms <pack.roompack>
-ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
+ssmap link <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
 ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
              [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
@@ -470,6 +471,33 @@ share one store file. On the 256-room stress library (4 cores), a clean
 compile takes about 5 s, a recompile with nothing changed about 1.7 s, and
 one with one room edited about 2.1 s; the store holds about 44 MB beside
 the 40 MB pack.
+
+**Several libraries.** A level file may name its libraries with
+`libraries:` instead of `library:`, a key for each VMF, and give short
+names with `aliases:`:
+
+```yaml
+libraries:            # the first supplies the sun, the other singletons and the skybox
+  base: ../rooms.vmf
+  caves: ../caves.vmf
+aliases:
+  C: base.corner
+rows: 1
+columns: 3
+grid:
+  - [C@90, caves.corner, hall]    # hall: a room only one library has
+```
+
+A cell names a room as `key.room`, by an alias, or bare when exactly one
+library has it; `ssmap link` refuses anything else with the line and
+column. Each library is packed on its own with `ssmap room`, and the link
+takes `<library>.roompack` beside each VMF unless `-rooms <key>=<pack>`
+names another. The libraries a level places rooms of must share the cell
+size, the door kit and the navigation grid; the first library's sun,
+controllers, options and skybox are the level's, and every other
+library's copy is dropped with a warning (one line for the equal ones).
+`ssmap link --flatten` and `ssmap rooms <level.yaml>` apply the same rules
+and print the same lines. The rooms design, section 17, has the details.
 
 `ssmap rooms -rooms <pack>` without a library prints the pack's section
 table: each library and room section's tag, offset, stored length, codec,

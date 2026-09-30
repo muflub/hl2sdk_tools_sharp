@@ -77,6 +77,28 @@ public sealed class LevelFileException : Exception
 /// level has them.
 /// </para>
 /// <para>
+/// <b>Several libraries</b> (the rooms design, 17.2): <c>libraries:</c>
+/// in place of <c>library:</c>, a mapping of a key to each library VMF in
+/// the order that decides the singletons, and optionally <c>aliases:</c>, a
+/// mapping of a short name to a room. A cell then names a room as
+/// <c>key.room</c>, by an alias, or bare when one library alone has it; the
+/// file only checks the syntax here, and the names resolve where the rooms
+/// are known (<see cref="LevelLibraries.Resolve"/>). <c>libraries</c> goes
+/// where <c>library</c> goes, <c>aliases</c> after <c>columns</c> and
+/// before the transition keys.
+/// </para>
+/// <code>
+/// libraries:
+///   base:  ../rooms.vmf
+///   caves: ../caves.vmf
+/// aliases:
+///   C: base.corner
+/// rows: 1
+/// columns: 2
+/// grid:
+///   - [C@270, caves.cross]
+/// </code>
+/// <para>
 /// <b>Why <c>~</c> for an empty cell</b>: the owner's choice, YAML's own
 /// null. Any spelling of it the core schema allows reads the same (<c>~</c>,
 /// <c>null</c>, <c>Null</c>, <c>NULL</c>, unquoted); a quoted <c>'~'</c> is a
@@ -106,6 +128,12 @@ public static class LevelYaml
 {
     /// <summary>The key naming the room library.</summary>
     public const string LibraryKey = "library";
+
+    /// <summary>The key naming several room libraries, each under a key (the rooms design, 17.2).</summary>
+    public const string LibrariesKey = "libraries";
+
+    /// <summary>The key giving short names for rooms.</summary>
+    public const string AliasesKey = "aliases";
 
     /// <summary>The key giving the row count.</summary>
     public const string RowsKey = "rows";
@@ -185,6 +213,8 @@ public static class LevelYaml
         YamlScalarNode? library = null, rows = null, columns = null;
         YamlNode? grid = null;
         LevelTransitions? transitions = null;
+        List<LevelLibrary>? libraries = null;
+        List<LevelAlias> aliases = [];
         // A key given twice never gets here: the reader refuses a duplicate
         // key as it builds the mapping, and that refusal is the "not YAML"
         // above, at the second key.
@@ -194,7 +224,23 @@ public static class LevelYaml
             switch (key)
             {
                 case LibraryKey:
+                    if (libraries is not null)
+                    {
+                        throw At(keyNode, Both);
+                    }
+
                     library = Scalar(value, LibraryKey);
+                    break;
+                case LibrariesKey:
+                    if (library is not null)
+                    {
+                        throw At(keyNode, Both);
+                    }
+
+                    libraries = Libraries(value);
+                    break;
+                case AliasesKey:
+                    aliases = Aliases(value);
                     break;
                 case RowsKey:
                     rows = Scalar(value, RowsKey);
@@ -209,15 +255,15 @@ public static class LevelYaml
                     transitions = Transition(transitions ?? new LevelTransitions(), key, value);
                     break;
                 default:
-                    throw At(keyNode, $"unknown key \"{key}\"; a level has {LibraryKey}, {RowsKey}, {ColumnsKey} and {GridKey},"
-                        + $" and may have {UpKey}, {DownKey}, {UpMapKey}, {DownMapKey}, {SpawnKey} and {SpawnCountKey}.");
+                    throw At(keyNode, $"unknown key \"{key}\"; a level has {LibraryKey} (or {LibrariesKey}), {RowsKey}, {ColumnsKey} and {GridKey},"
+                        + $" and may have {AliasesKey}, {UpKey}, {DownKey}, {UpMapKey}, {DownMapKey}, {SpawnKey} and {SpawnCountKey}.");
             }
         }
 
         List<string> missing = [];
-        if (library is null)
+        if (library is null && libraries is null)
         {
-            missing.Add(LibraryKey);
+            missing.Add($"{LibraryKey} or {LibrariesKey}");
         }
 
         if (rows is null)
@@ -240,7 +286,7 @@ public static class LevelYaml
             throw At(root, $"the level has no {string.Join(", ", missing)}.");
         }
 
-        if (string.IsNullOrWhiteSpace(library!.Value))
+        if (library is not null && string.IsNullOrWhiteSpace(library.Value))
         {
             throw At(library, $"{LibraryKey} is empty; it names the room library VMF.");
         }
@@ -290,7 +336,119 @@ public static class LevelYaml
                 $"{SpawnKey} names cell ({spawnColumn}, {spawnRow}), which is off the {rowCount}x{columnCount} grid."));
         }
 
-        return new LevelGrid(name, library.Value!, rowCount, columnCount, cells) { Transitions = transitions };
+        return new LevelGrid(name, library?.Value ?? libraries![0].Path, rowCount, columnCount, cells)
+        {
+            Transitions = transitions,
+            Libraries = libraries,
+            Aliases = aliases,
+        };
+    }
+
+    /// <summary>The refusal of a level that names its libraries both ways.</summary>
+    private const string Both = $"a level names its libraries once: {LibraryKey} or {LibrariesKey}, not both.";
+
+    /// <summary>
+    /// The <c>libraries</c> mapping: each key checked by the key rule and
+    /// against the keys before it ignoring case, each path not blank. The
+    /// order is the file's (the representation model keeps it), which is the
+    /// order that decides the singletons. Two keys naming one file are
+    /// refused where the paths resolve (<see cref="LevelLibraries.CheckFiles"/>),
+    /// since only the caller knows the level file's folder.
+    /// </summary>
+    private static List<LevelLibrary> Libraries(YamlNode value)
+    {
+        const string Shape = $"{LibrariesKey} is a mapping of a key to a room library VMF, like base: ../rooms.vmf.";
+        if (value is not YamlMappingNode mapping)
+        {
+            throw At(value, Shape);
+        }
+
+        if (mapping.Children.Count == 0)
+        {
+            throw At(value, $"{LibrariesKey} names no library.");
+        }
+
+        List<LevelLibrary> libraries = [];
+        foreach ((YamlNode keyNode, YamlNode pathNode) in mapping.Children)
+        {
+            if (keyNode is not YamlScalarNode { Value: { } key })
+            {
+                throw At(keyNode, Shape);
+            }
+
+            if (LevelLibraries.KeyProblem(key) is not null)
+            {
+                throw At(keyNode, $"the library key \"{key}\" is not a key; a key starts with a letter and holds only letters, digits, '_' and '-'.");
+            }
+
+            if (libraries.FirstOrDefault(l => string.Equals(l.Key, key, StringComparison.OrdinalIgnoreCase)) is { } twin)
+            {
+                throw At(keyNode, $"the library keys \"{twin.Key}\" and \"{key}\" differ only in case.");
+            }
+
+            if (pathNode is not YamlScalarNode path)
+            {
+                throw At(pathNode, Shape);
+            }
+
+            if (string.IsNullOrWhiteSpace(path.Value))
+            {
+                throw At(pathNode, $"library {key} is empty; it names a room library VMF.");
+            }
+
+            libraries.Add(new LevelLibrary(key, path.Value, (int)keyNode.Start.Line, (int)keyNode.Start.Column));
+        }
+
+        return libraries;
+    }
+
+    /// <summary>
+    /// The <c>aliases</c> mapping: each name by the alias rule, each value a
+    /// room name (qualified or bare) without a turn. Whether a value names a
+    /// room, and whether an alias hides one, needs the libraries' rooms, so
+    /// it is checked where they are known (<see cref="LevelLibraries.Resolve"/>).
+    /// </summary>
+    private static List<LevelAlias> Aliases(YamlNode value)
+    {
+        const string Shape = $"{AliasesKey} is a mapping of a short name to a room, like C: base.corner.";
+        if (value is not YamlMappingNode mapping)
+        {
+            throw At(value, Shape);
+        }
+
+        List<LevelAlias> aliases = [];
+        foreach ((YamlNode nameNode, YamlNode roomNode) in mapping.Children)
+        {
+            if (nameNode is not YamlScalarNode { Value: { } alias })
+            {
+                throw At(nameNode, Shape);
+            }
+
+            if (LevelLibraries.AliasProblem(alias) is not null)
+            {
+                throw At(nameNode, $"the alias \"{alias}\" is not a name; an alias starts with a letter, a digit or '_' and holds only letters, digits, '_' and '-'.");
+            }
+
+            if (roomNode is not YamlScalarNode room)
+            {
+                throw At(roomNode, Shape);
+            }
+
+            string target = room.Value ?? string.Empty;
+            if (target.Contains('@', StringComparison.Ordinal))
+            {
+                throw At(roomNode, $"the alias \"{alias}\" names \"{target}\"; an alias names a room, and the cell gives the turn, like {alias}@90.");
+            }
+
+            if (RoomNames.Problem(target) is { } problem)
+            {
+                throw At(roomNode, $"the room name \"{target}\" {problem}.");
+            }
+
+            aliases.Add(new LevelAlias(alias, target, (int)nameNode.Start.Line, (int)nameNode.Start.Column));
+        }
+
+        return aliases;
     }
 
     /// <summary>One transition key read into the level's transitions (<see cref="LevelTransitions"/>).</summary>
@@ -330,6 +488,14 @@ public static class LevelYaml
     }
 
     /// <summary>Writes a level file: the schema's shape, deterministic, LF line ends.</summary>
+    /// <remarks>
+    /// A level with <see cref="LevelGrid.Libraries"/> is written with
+    /// <c>libraries</c> in level order, where <c>library</c> goes, and its
+    /// aliases, if it has any, after <c>columns</c>; each cell as the grid
+    /// holds it (a resolved grid holds qualified names; for the shortest
+    /// spelling, <see cref="LevelLibraries.Shorten"/> first). A level that
+    /// names one library with <c>library</c> is written exactly as before.
+    /// </remarks>
     /// <param name="grid">The level.</param>
     /// <param name="comments">Lines to write first, each as a <c>#</c> comment.</param>
     /// <returns>The file text.</returns>
@@ -344,9 +510,30 @@ public static class LevelYaml
             text.Append("# ").Append(comment).Append('\n');
         }
 
-        text.Append(LibraryKey).Append(": ").Append(Quote(grid.Library)).Append('\n');
+        if (grid.Libraries is { } libraries)
+        {
+            text.Append(LibrariesKey).Append(":\n");
+            foreach (LevelLibrary library in libraries)
+            {
+                text.Append("  ").Append(library.Key).Append(": ").Append(Quote(library.Path)).Append('\n');
+            }
+        }
+        else
+        {
+            text.Append(LibraryKey).Append(": ").Append(Quote(grid.Library)).Append('\n');
+        }
+
         text.Append(RowsKey).Append(": ").Append(grid.Rows.ToString(CultureInfo.InvariantCulture)).Append('\n');
         text.Append(ColumnsKey).Append(": ").Append(grid.Columns.ToString(CultureInfo.InvariantCulture)).Append('\n');
+        if (grid.Aliases.Count > 0)
+        {
+            text.Append(AliasesKey).Append(":\n");
+            foreach (LevelAlias alias in grid.Aliases)
+            {
+                text.Append("  ").Append(alias.Name).Append(": ").Append(Quote(alias.Value)).Append('\n');
+            }
+        }
+
         if (grid.Transitions is { } transitions)
         {
             WriteTransitions(text, transitions);

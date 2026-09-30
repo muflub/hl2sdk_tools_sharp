@@ -22,6 +22,31 @@ public sealed record LevelCell(string Room, int Rotation, int Line = 0, int Colu
         : string.Empty;
 }
 
+/// <summary>One library of a level that names several (<c>libraries:</c>): its key and its VMF.</summary>
+/// <param name="Key">
+/// The key: what a cell writes before a dot to name one of its rooms
+/// (<c>base.corner</c>), and the front of every room's name in the linked
+/// level. It starts with a letter and holds only letters, digits, <c>_</c>
+/// and <c>-</c> (<see cref="LevelLibraries.KeyProblem"/>).
+/// </param>
+/// <param name="Path">The library VMF, as the level file wrote it (relative to the level file's folder).</param>
+/// <param name="Line">Where the level file names it, for messages; 0 when it was not read from a file.</param>
+/// <param name="Column">The column on that line.</param>
+public sealed record LevelLibrary(string Key, string Path, int Line = 0, int Column = 0)
+{
+    /// <summary>Where the library was written, as a message prefix, or empty.</summary>
+    public string Where => Line > 0
+        ? string.Create(CultureInfo.InvariantCulture, $"line {Line}, column {Column}: ")
+        : string.Empty;
+}
+
+/// <summary>A short name for a room (<c>aliases:</c>): what a cell may write in its place.</summary>
+/// <param name="Name">The alias, a name by the room-name rule without a dot.</param>
+/// <param name="Value">What it stands for, as written: <c>lib.room</c> or a bare room name, without a turn.</param>
+/// <param name="Line">Where the level file gives it, for messages; 0 when it was not read from a file.</param>
+/// <param name="Column">The column on that line.</param>
+public sealed record LevelAlias(string Name, string Value, int Line = 0, int Column = 0);
+
 /// <summary>
 /// A level as a grid: rows and columns of cells, each holding one room of
 /// the library, turned, or nothing.
@@ -85,8 +110,30 @@ public sealed class LevelGrid
     /// <summary>The level's name.</summary>
     public string Name { get; }
 
-    /// <summary>The room library the level's rooms come from, as written.</summary>
+    /// <summary>
+    /// The room library the level's rooms come from, as written; for a level
+    /// that names several (<see cref="Libraries"/>), the first one's path,
+    /// the library whose singletons the level takes.
+    /// </summary>
     public string Library { get; }
+
+    /// <summary>
+    /// The libraries a level file names with <c>libraries:</c>, in the order
+    /// written (the first supplies the singletons, the rooms design's 17.4),
+    /// or null for a level that names one with <c>library:</c>, as every
+    /// level file written before several libraries did.
+    /// </summary>
+    /// <remarks>
+    /// Null and a list of one are different levels on purpose: a
+    /// <c>library:</c> level's cells are bare room names and it links and
+    /// writes exactly as it always did, while a <c>libraries:</c> level's
+    /// cells resolve to qualified names (<see cref="LevelLibraries.Resolve"/>)
+    /// even when it lists one library.
+    /// </remarks>
+    public IReadOnlyList<LevelLibrary>? Libraries { get; init; }
+
+    /// <summary>The level file's <c>aliases:</c>, in the order written; empty when it has none.</summary>
+    public IReadOnlyList<LevelAlias> Aliases { get; init; } = [];
 
     /// <summary>The row count.</summary>
     public int Rows { get; }
@@ -109,7 +156,13 @@ public sealed class LevelGrid
     /// <param name="transitions">The settings, or null for none.</param>
     /// <returns>A new grid with the same name, library and cells.</returns>
     public LevelGrid WithTransitions(LevelTransitions? transitions) =>
-        new(Name, Library, Rows, Columns, _cells) { Transitions = transitions };
+        new(Name, Library, Rows, Columns, _cells) { Transitions = transitions, Libraries = Libraries, Aliases = Aliases };
+
+    /// <summary>The same level with other cells: what resolving its cells' names gives (<see cref="LevelLibraries.Resolve"/>).</summary>
+    /// <param name="cells">The cells, row by row from the south-west, x fastest.</param>
+    /// <returns>A new grid with the same name, libraries, aliases and transitions.</returns>
+    public LevelGrid WithCells(IReadOnlyList<LevelCell?> cells) =>
+        new(Name, Library, Rows, Columns, cells) { Transitions = Transitions, Libraries = Libraries, Aliases = Aliases };
 
     /// <summary>The cell at a column and row, or null for no room.</summary>
     /// <param name="x">The column, from the west.</param>

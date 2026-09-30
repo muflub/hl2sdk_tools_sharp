@@ -122,7 +122,9 @@ internal sealed class PlacementCubemaps
             return null;
         }
 
-        string name = room.Definition.Name;
+        // The name the level places the room by (a qualified name in a level
+        // of several libraries): the pak merge finds the room's files by it.
+        string name = transform.Placement.Room;
         if (room.CubemapsOfCompile is not { } cubemaps)
         {
             throw new LinkException(

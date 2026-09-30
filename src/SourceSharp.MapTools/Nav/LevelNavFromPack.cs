@@ -43,9 +43,12 @@ public sealed class LevelNavPlan
     private readonly int _columns;
     private readonly int _rows;
     private readonly Func<string, RoomObject>? _rooms;
+    private readonly Func<string, int>? _libraryOf;
 
-    internal LevelNavPlan(Guid? packId, Guid levelId, string? warning, LevelLayout? layout, int columns, int rows, Func<string, RoomObject>? rooms)
+    internal LevelNavPlan(
+        Guid? packId, Guid levelId, string? warning, LevelLayout? layout, int columns, int rows, Func<string, RoomObject>? rooms, Func<string, int>? libraryOf = null)
     {
+        _libraryOf = libraryOf;
         PackId = packId;
         LevelId = levelId;
         Warning = warning;
@@ -90,8 +93,9 @@ public sealed class LevelNavPlan
         Guid levelId = LevelId;
         int columns = _columns;
         int rows = _rows;
+        Func<string, int>? libraryOf = _libraryOf;
         return Task.Run(
-            () => LevelNavLinker.Link(layout, columns, rows, (room, turn) => rooms(room).Nav!.At(turn), packId, levelId, cancellationToken),
+            () => LevelNavLinker.Link(layout, columns, rows, (room, turn) => rooms(room).Nav!.At(turn), packId, levelId, libraryOf, cancellationToken),
             cancellationToken);
     }
 
@@ -153,6 +157,11 @@ public static class LevelNavFromPack
     /// <param name="levelFile">The level file's bytes, as read: an input of the level id.</param>
     /// <param name="options">The link options that shape the outputs (<see cref="IdOptions"/>): an input of the level id.</param>
     /// <param name="includeNavigation">False to derive the ids only.</param>
+    /// <param name="libraryOf">
+    /// Which of the level's libraries a placed room comes from, for a level
+    /// of several (<see cref="LevelNavLinker.Link(LevelLayout, int, int, Func{string, int, RoomNav}, Guid?, Guid, Func{string, int}?, CancellationToken)"/>);
+    /// null for a level of one.
+    /// </param>
     /// <returns>The plan.</returns>
     /// <exception cref="LinkException">A point of interest stands in a capped doorway.</exception>
     public static LevelNavPlan Plan(
@@ -163,7 +172,8 @@ public static class LevelNavFromPack
         Guid? packId,
         ReadOnlySpan<byte> levelFile,
         IReadOnlyList<string> options,
-        bool includeNavigation = true)
+        bool includeNavigation = true,
+        Func<string, int>? libraryOf = null)
     {
         ArgumentNullException.ThrowIfNull(layout);
         ArgumentNullException.ThrowIfNull(rooms);
@@ -186,6 +196,6 @@ public static class LevelNavFromPack
 
         LevelNavLinker.CheckCappedDoorways(
             layout, [.. layout.Rooms.Select(r => rooms(r.Placement.Room).Nav!.At(r.Placement.NormalizedRotation))]);
-        return new LevelNavPlan(packId, levelId, null, layout, columns, rows, rooms);
+        return new LevelNavPlan(packId, levelId, null, layout, columns, rows, rooms, libraryOf);
     }
 }

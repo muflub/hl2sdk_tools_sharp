@@ -40,14 +40,27 @@ public static partial class LevelLinker
     /// different settings (ranges, sun or map flags): one level is lit one
     /// way, as one vrad run would light it.
     /// </exception>
-    internal static LevelLight? PlanLighting(ResolvedPlacement[] resolved)
+    internal static LevelLight? PlanLighting(ResolvedPlacement[] resolved, RoomLibrary? library = null)
     {
         RoomLighting? first = null;
         string? firstRoom = null;
         string? unlit = null;
-        foreach (ResolvedPlacement placement in resolved)
+
+        // The level's sun world lights and sky are the first lit placement's
+        // bake; in a level of several libraries, the first lit placement of
+        // the first library when it places one, so they are the bake of the
+        // sun the level writes (the rooms design, 17.4). Compared first, so
+        // every other placement is held to it.
+        IEnumerable<ResolvedPlacement> order = resolved;
+        if (library is not null
+            && Array.FindIndex(resolved, p => library.SourceOf(p.Instance.Placement.Room) == 0 && p.Room.LightingOfCompile is not null) is > 0 and var preferred)
         {
-            string name = placement.Room.Definition.Name;
+            order = [resolved[preferred], .. resolved.Where((_, i) => i != preferred)];
+        }
+
+        foreach (ResolvedPlacement placement in order)
+        {
+            string name = placement.Instance.Placement.Room;
             if (placement.Room.LightingOfCompile is not { } lighting)
             {
                 unlit ??= name;
@@ -155,7 +168,7 @@ public static partial class LevelLinker
         {
             RoomLighting lighting = plan.Lighting!;
             int payload = plan.Transform.Placement.NormalizedRotation % lighting.RotationCount;
-            (string, int) key = (plan.Placement.Room.Definition.Name, payload);
+            (string, int) key = (plan.Placement.Instance.Placement.Room, payload);
             if (!bases.TryGetValue(key, out (int Ldr, int Hdr) at))
             {
                 RoomLightingPayload stored = lighting.Payloads[payload];
@@ -445,7 +458,7 @@ public static partial class LevelLinker
             }
 
             int rotation = plan.Transform.Placement.NormalizedRotation;
-            (string, int) key = (plan.Placement.Room.Definition.Name, rotation);
+            (string, int) key = (plan.Placement.Instance.Placement.Room, rotation);
 
             // A placement the door light reached has a run of its own: its
             // stored samples with the neighbours' light added before the turn.
@@ -768,7 +781,7 @@ public static partial class LevelLinker
                     meshes.Add((colours.Lods[m], mesh));
                 }
 
-                files.Add((placement.Room.Definition.Name, StaticPropLighting.FileName(k, hdr), StaticPropLighting.EncodeVhv(colours.Checksum, meshes)));
+                files.Add((placement.Instance.Placement.Room, StaticPropLighting.FileName(k, hdr), StaticPropLighting.EncodeVhv(colours.Checksum, meshes)));
             }
         }
 

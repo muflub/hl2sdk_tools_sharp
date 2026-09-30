@@ -86,7 +86,7 @@ public sealed class LevelYamlTransitionTests
     {
         LevelFileException refused = Assert.Throws<LevelFileException>(() => LevelYaml.Parse("next_map: b\n", "l"));
         Assert.Equal(
-            "unknown key \"next_map\"; a level has library, rows, columns and grid, and may have up, down, up_map, down_map, spawn and spawn_count.",
+            "unknown key \"next_map\"; a level has library (or libraries), rows, columns and grid, and may have aliases, up, down, up_map, down_map, spawn and spawn_count.",
             refused.Problem);
     }
 

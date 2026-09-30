@@ -134,12 +134,13 @@ public static partial class LevelLinker
             return null;
         }
 
-        // What depends on the room alone, once a room.
+        // What depends on the room alone, once a room, by the name the level
+        // places it by (two libraries' rooms may share a compile name).
         Dictionary<string, DoorFaceCells?[]> cells = new(StringComparer.Ordinal);
         Dictionary<string, DLeaf[]> leaves = new(StringComparer.Ordinal);
         foreach (ResolvedPlacement placement in resolved)
         {
-            string name = placement.Room.Definition.Name;
+            string name = placement.Instance.Placement.Room;
             if (placement.Room.DoorLightOfCompile is not null && !cells.ContainsKey(name))
             {
                 cells[name] = RoomDoorLight.FaceCellsOf(placement.Room.Bsp);
@@ -195,7 +196,7 @@ public static partial class LevelLinker
             return null;
         }
 
-        string name = room.Definition.Name;
+        string name = receiver.Instance.Placement.Room;
         int payload = receiver.Instance.Placement.NormalizedRotation % lighting.RotationCount;
         (int Leaf, Vec3 Position)[] samples = RoomDoorLight.SamplePositions(own, leaves[name]);
         DoorLightTerms terms = new() { Ambient = new Vec3[]?[samples.Length] };

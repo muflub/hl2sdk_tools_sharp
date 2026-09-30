@@ -75,6 +75,38 @@ public static class LevelNavLinker
         Func<string, int, RoomNav> navOf,
         Guid? packId,
         Guid levelId,
+        CancellationToken cancellationToken = default) =>
+        Link(layout, columns, rows, navOf, packId, levelId, libraryOf: null, cancellationToken);
+
+    /// <summary>
+    /// Links a level of several libraries' rooms: as the overload for one,
+    /// except that only rooms of one library must share every setting.
+    /// </summary>
+    /// <param name="layout">As for the overload for one library.</param>
+    /// <param name="columns">As for the overload for one library.</param>
+    /// <param name="rows">As for the overload for one library.</param>
+    /// <param name="navOf">As for the overload for one library.</param>
+    /// <param name="packId">As for the overload for one library.</param>
+    /// <param name="levelId">As for the overload for one library.</param>
+    /// <param name="libraryOf">
+    /// Which of the level's libraries a placed room comes from, in level
+    /// order, or null for a level of one. Rooms of different libraries must
+    /// share the grid (the voxel and the voxels per cell, which a level of
+    /// several refuses to differ before it links, the rooms design's D25);
+    /// their other settings may differ, and the header takes the first
+    /// placed library's, as the level takes its singletons.
+    /// </param>
+    /// <param name="cancellationToken">Cancels the link between rooms.</param>
+    /// <returns>The level's navigation.</returns>
+    /// <exception cref="LinkException">As for the overload for one library.</exception>
+    public static Nav3dLevel Link(
+        LevelLayout layout,
+        int columns,
+        int rows,
+        Func<string, int, RoomNav> navOf,
+        Guid? packId,
+        Guid levelId,
+        Func<string, int>? libraryOf,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(layout);
@@ -102,10 +134,17 @@ public static class LevelNavLinker
             placed[i] = new Placed(layout.Rooms[i], nav, (p.CellY * columns) + p.CellX, new RoomTransform(p, nav.CellSize));
         }
 
-        RoomNav first = placed[0].Nav;
+        // The header's settings: the first placed room's of the earliest
+        // listed library the level places (placement 0's for one library).
+        int Library(Placed p) => libraryOf?.Invoke(p.Instance.Placement.Room) ?? 0;
+        int headerLibrary = placed.Min(Library);
+        RoomNav first = placed.First(p => Library(p) == headerLibrary).Nav;
+        Dictionary<int, RoomNav> firstOf = [];
         foreach (Placed p in placed)
         {
-            CheckSame(first, p.Nav, p.Instance.Placement.Room);
+            RoomNav own = firstOf.TryGetValue(Library(p), out RoomNav? held) ? held : firstOf[Library(p)] = p.Nav;
+            CheckSame(own, p.Nav, p.Instance.Placement.Room);
+            CheckSameGrid(first, p.Nav, p.Instance.Placement.Room);
         }
 
         int n = first.CellVoxels;
@@ -365,6 +404,16 @@ public static class LevelNavLinker
         RoomRole.Down => Nav3dRoomRole.Down,
         _ => Nav3dRoomRole.None,
     };
+
+    /// <summary>Refuses a room on another voxel grid than the level's: the one setting rooms of several libraries must share.</summary>
+    private static void CheckSameGrid(RoomNav first, RoomNav other, string room)
+    {
+        if (first.CellSize != other.CellSize || first.VoxelSize != other.VoxelSize || first.CellVoxels != other.CellVoxels)
+        {
+            throw new LinkException(
+                $"room \"{room}\"'s navigation was built on another voxel grid than the level's; a level's navigation is one grid.");
+        }
+    }
 
     private static void CheckSame(RoomNav first, RoomNav other, string room)
     {

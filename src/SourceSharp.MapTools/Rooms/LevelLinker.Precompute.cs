@@ -383,6 +383,17 @@ public static partial class LevelLinker
         StoredLink(room)?.Rotation(rotation)?.Entities ?? ComputeEntities(room, rotation);
 
     /// <summary>
+    /// A compiled room's worldspawn keys, in its lump's order (a position
+    /// key read as empty): what a level of several libraries compares one
+    /// library's worldspawn against another's by (<see cref="LevelLibraries"/>).
+    /// Empty when the room's lump has no worldspawn.
+    /// </summary>
+    internal static List<KeyValuePair<string, string>> WorldspawnOf(RoomObject room) =>
+        EntitiesFor(room, 0).Items.FirstOrDefault(i => i.IsWorld) is { } world
+            ? [.. world.Pairs.Select(p => new KeyValuePair<string, string>(p.Key, p.Value ?? string.Empty))]
+            : [];
+
+    /// <summary>
     /// The plug census of one socket: the census <c>PlanRoom</c> made for a
     /// jointed socket, made for any socket and without refusing one that
     /// faces nothing (the link refuses that only if the level joints it).

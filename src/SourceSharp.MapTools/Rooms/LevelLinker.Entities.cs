@@ -113,10 +113,18 @@ public static partial class LevelLinker
         // every room's, where the flatten writes them.
         List<(BspEntity Entity, int Placement)> skyboxEntities = [];
         List<ResolverRoom> resolverRooms = [];
+
+        // The level's worldspawn is the first placed room's of the earliest
+        // listed library the level places (the rooms design, 17.4); for a
+        // level of one library, the first room's, as always. Rooms of that
+        // library must agree with it; another library's worldspawn is its
+        // own and only warned of (LevelLibraries.Check).
+        int worldSource = plans.Where(p => !p.IsSkybox).Select(p => naming?.SourceOf(p) ?? 0).DefaultIfEmpty(0).Min();
         for (int index = 0; index < plans.Length; index++)
         {
             RoomPlan plan = plans[index];
-            string name = plan.Placement.Room.Definition.Name;
+            bool worldLibrary = (naming?.SourceOf(plan) ?? 0) == worldSource;
+            string name = plan.Placement.Instance.Placement.Room;
             List<LevelEntity> entities = [];
 
             // Parsed and turned at room compile time (or now, for a room
@@ -172,7 +180,12 @@ public static partial class LevelLinker
                     entity.Pairs.Add(new BspKeyValue(pair.Key, pair.Value!));
                 }
 
-                if (world is null)
+                if (!worldLibrary)
+                {
+                    // Another library's rooms were compiled under its own
+                    // worldspawn; the level keeps the first's.
+                }
+                else if (world is null)
                 {
                     world = entity;
                     worldOwner = name;
@@ -218,7 +231,7 @@ public static partial class LevelLinker
                     continue;
                 }
 
-                string room = plan.Placement.Room.Definition.Name;
+                string room = plan.Placement.Instance.Placement.Room;
                 AddUnlessDuplicate(
                     merged,
                     singletons,
@@ -344,9 +357,20 @@ public static partial class LevelLinker
     /// reads for its warnings and the entity budget.
     /// </summary>
     /// <param name="options">The resolver's options.</param>
-    /// <param name="nameKeys">The library's name keys, for rooms whose names are read at link.</param>
-    internal sealed class LevelNaming(LevelNamingOptions options, IReadOnlySet<string>? nameKeys)
+    /// <param name="library">
+    /// The level's rooms: each room's library's name keys, for rooms whose
+    /// names are read at link (<see cref="RoomLibrary.NameKeysOf"/>), and
+    /// which library each comes from; null for none.
+    /// </param>
+    internal sealed class LevelNaming(LevelNamingOptions options, RoomLibrary? library)
     {
+        /// <summary>
+        /// Which of the level's libraries a placement's room comes from (0 for
+        /// a level of one): the worldspawn is the first placed library's, and
+        /// only rooms of one library must agree on it.
+        /// </summary>
+        public int SourceOf(RoomPlan plan) => library?.SourceOf(plan.Placement.Instance.Placement.Room) ?? 0;
+
         private readonly Dictionary<int, RoomNameTurn> _names = [];
 
         /// <summary>The resolver's options.</summary>
@@ -374,7 +398,10 @@ public static partial class LevelLinker
             RoomPlacement where = placement.Instance.Placement;
             return new ResolverRoom
             {
-                Room = placement.Room.Definition.Name,
+                // The name the level places it by: in a level of several
+                // libraries its qualified name, which the mod's logic_room
+                // carries and the flatten writes the same.
+                Room = where.Room,
                 Column = where.CellX,
                 Row = where.CellY,
                 Turns = where.NormalizedRotation,
@@ -389,7 +416,8 @@ public static partial class LevelLinker
         {
             if (!_names.TryGetValue(index, out RoomNameTurn? names))
             {
-                _names[index] = names = plan.Placement.Room.NamesFor(plan.Transform.Placement.NormalizedRotation, nameKeys);
+                _names[index] = names = plan.Placement.Room.NamesFor(
+                    plan.Transform.Placement.NormalizedRotation, library?.NameKeysOf(plan.Placement.Instance.Placement.Room));
             }
 
             return names;
