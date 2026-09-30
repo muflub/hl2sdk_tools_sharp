@@ -168,7 +168,9 @@ public sealed class RoomsMultiLibraryCommandsTests
         fs.AddFile(Rooted("/sample/caves.roompack"), "not a pack"u8.ToArray());
         (exit, text) = await LinkAsync(fs, level);
         Assert.Equal(1, exit);
-        Assert.Contains("ssmap link: /sample/caves.roompack: ", text, StringComparison.Ordinal);
+        // The CLI names a pack by its full host path (Path.GetFullPath), which on
+        // Windows carries the drive letter, so the fact expects the same.
+        Assert.Contains($"ssmap link: {Path.GetFullPath("/sample/caves.roompack")}: ", text, StringComparison.Ordinal);
         using (MemoryStream skyless = new())
         {
             await RoomPack.SaveAsync([RoomLibrarySkybox.ToSection("nosuch")], [await RoomPackItem.CreateAsync(await CrossAsync())], skyless, CancellationToken.None);
