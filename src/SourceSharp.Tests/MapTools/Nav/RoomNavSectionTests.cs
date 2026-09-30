@@ -237,7 +237,7 @@ public sealed class RoomNavSectionTests(NavRoomsFixture fixture) : IClassFixture
     public void ASectionOfAnotherRevisionReadsAsAbsent()
     {
         byte[] section = RoomNavSection.Write(fixture.Nav("east"), NavCompression.None);
-        BinaryPrimitives.WriteInt32BigEndian(section.AsSpan(9), RoomNavSection.Revision + 1);
+        BinaryPrimitives.WriteInt32BigEndian(section.AsSpan(9), RoomNavSection.ShapedRevision + 1);
         Assert.Null(RoomNavSection.Read(section));
 
         // Version 1's octree sections are revision 1: absent to this build.

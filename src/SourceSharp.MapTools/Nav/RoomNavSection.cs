@@ -61,6 +61,15 @@ namespace SourceSharp.MapTools.Nav;
 /// A string is a <c>uint16</c> byte count and UTF-8.
 /// </para>
 /// <para>
+/// <b>Revision 3</b> is revision 2 with one field more, written only for a
+/// shaped room's navigation (<see cref="RoomNav.IsShaped"/>, the rooms
+/// design 17.6 and 17.11): an <c>int32</c> of voxels up its columns right
+/// after the voxels per cell edge. Its runs reach that high and its capped
+/// voxels index that many layers. A cube room's section stays revision 2,
+/// its bytes what they were; an older build reads a revision 3 section as
+/// absent (it cannot read the version 5 pack holding one anyway).
+/// </para>
+/// <para>
 /// <b>Why one section per turn.</b> The link reads only the section for the
 /// turn a placement uses, when the pack has it, and turns the <c>NVR0</c>
 /// copy itself otherwise. Whether the pack carries the turned copies is the
@@ -70,8 +79,11 @@ namespace SourceSharp.MapTools.Nav;
 /// </remarks>
 public static class RoomNavSection
 {
-    /// <summary>The payload revision this build writes and reads; a section of another reads as absent.</summary>
+    /// <summary>The payload revision this build writes for a cube room, and reads; a section of a revision it does not read reads as absent.</summary>
     public const int Revision = 2;
+
+    /// <summary>The payload revision of a shaped room's navigation: <see cref="Revision"/> and its columns' height.</summary>
+    public const int ShapedRevision = 3;
 
     /// <summary>The codec byte and the <c>int64</c> decoded length every section starts with.</summary>
     private const int HeaderBytes = 1 + 8;
@@ -99,11 +111,16 @@ public static class RoomNavSection
     {
         ArgumentNullException.ThrowIfNull(nav);
         Writer w = new();
-        w.I32(Revision);
+        w.I32(nav.IsShaped ? ShapedRevision : Revision);
         w.U8((byte)nav.Turn);
         w.F32(nav.CellSize);
         w.F32(nav.VoxelSize);
         w.I32(nav.CellVoxels);
+        if (nav.IsShaped)
+        {
+            w.I32(nav.ColumnVoxels);
+        }
+
         w.F32(nav.FloorNormalZ);
         w.F32(nav.StepHeight);
         w.F32(nav.JumpHeight);
@@ -241,7 +258,8 @@ public static class RoomNavSection
 
         byte[] raw = NavCompression.Decompress((NavCodec)section[0], section[HeaderBytes..], (int)length);
         Reader r = new(raw);
-        if (r.I32() != Revision)
+        int revision = r.I32();
+        if (revision is not (Revision or ShapedRevision))
         {
             return null;
         }
@@ -255,6 +273,7 @@ public static class RoomNavSection
         float cell = r.F32();
         float voxel = r.F32();
         int n = r.I32();
+        int nz = revision == ShapedRevision ? r.I32() : n;
         float floor = r.F32();
         float step = r.F32();
         float jumpHeight = r.F32();
@@ -264,6 +283,12 @@ public static class RoomNavSection
         if (n is < 1 or > NavSettings.MaxCellVoxels || !(cell > 0) || !(voxel > 0))
         {
             throw new InvalidDataException($"a room nav section of {n} voxels a side; a cell has 1 to {NavSettings.MaxCellVoxels}.");
+        }
+
+        if (nz is < 1 or > NavSettings.MaxColumnVoxels || (revision == ShapedRevision && nz == n))
+        {
+            throw new InvalidDataException(
+                $"a room nav section of revision {revision} with columns {nz} voxels tall; a shaped room's are 1 to {NavSettings.MaxColumnVoxels}, and not its {n} voxels a side.");
         }
 
         RoomRole role = (RoomRole)r.U8();
@@ -374,7 +399,7 @@ public static class RoomNavSection
             {
                 byte zLo = r.U8();
                 byte height = r.U8();
-                if (height < 1 || zLo <= top || zLo + height > n)
+                if (height < 1 || zLo <= top || zLo + height > nz)
                 {
                     throw new InvalidDataException($"a room nav run from voxel {zLo} for {height} overlaps its column's last or leaves the cell.");
                 }
@@ -392,7 +417,7 @@ public static class RoomNavSection
             for (int i = 0; i < count; i++)
             {
                 int voxelIndex = r.I32();
-                if (voxelIndex < 0 || voxelIndex >= n * n * n)
+                if (voxelIndex < 0 || voxelIndex >= n * n * nz)
                 {
                     throw new InvalidDataException($"a room nav cap change at voxel {voxelIndex}, outside a cell of {n}.");
                 }
@@ -451,6 +476,7 @@ public static class RoomNavSection
             CellSize = cell,
             VoxelSize = voxel,
             CellVoxels = n,
+            ColumnVoxels = nz,
             FloorNormalZ = floor,
             StepHeight = step,
             JumpHeight = jumpHeight,

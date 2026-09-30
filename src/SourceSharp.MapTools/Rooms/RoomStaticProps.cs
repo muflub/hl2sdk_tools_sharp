@@ -664,11 +664,13 @@ internal sealed class RoomStaticProps
     private static async Task<Box> CheckCellAsync(
         RoomDefinition definition, RoomProp prop, string model, IStaticPropHull hull, StaticProp record, CancellationToken cancellationToken)
     {
+        // The room's box (17.6): the cell in x and y, the room's height in z.
         float cell = definition.CellSize;
+        float top = definition.Height;
         (Vec3 mins, Vec3 maxs) = await hull.GetAabbAsync(record.Origin, record.Angles, cancellationToken).ConfigureAwait(false);
         float reach = Math.Max(
             Math.Max(Math.Max(-mins.X, maxs.X - cell), Math.Max(-mins.Y, maxs.Y - cell)),
-            Math.Max(-mins.Z, maxs.Z - cell));
+            Math.Max(-mins.Z, maxs.Z - top));
         Box bounds = new(mins, maxs);
         if (reach <= RoomLinter.CellEpsilon)
         {
@@ -706,7 +708,10 @@ internal sealed class RoomStaticProps
     /// the five half-spaces beyond the cell's other faces, the space beyond
     /// the socket's face deeper than the doorway, and the four slabs beyond
     /// that face on either side of the doorway's opening; they overlap,
-    /// which a test for "touches any" does not mind.
+    /// which a test for "touches any" does not mind. The cell's top face is
+    /// the room's ceiling (<see cref="RoomDefinition.Height"/>), so a tall
+    /// room's props may reach as high as the room does; the doorway is a
+    /// cube room's, wherever the ceiling is.
     /// </remarks>
     internal static IReadOnlyList<(Vec3 Normal, float Dist)[]> OutsideDoorway(RoomDefinition definition, RoomSocket socket)
     {
@@ -732,7 +737,7 @@ internal sealed class RoomStaticProps
                     continue;
                 }
 
-                regions.Add([Beyond(a, s, s > 0 ? cell + e : -e)]);
+                regions.Add([Beyond(a, s, s > 0 ? (a == 2 ? definition.Height : cell) + e : -e)]);
             }
         }
 

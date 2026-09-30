@@ -137,7 +137,9 @@ public sealed record Nav3dPoi(
 /// <see cref="Rows"/> south to north, each <see cref="CellSize"/> units on a
 /// side and split into <see cref="CellVoxels"/> voxels along each edge. Cell
 /// (column, row) spans <c>Origin + (column × CellSize, row × CellSize, 0)</c>
-/// to that plus <c>CellSize</c> on every axis.
+/// to that plus <c>CellSize</c> on every axis; a cell whose room has a
+/// height of its own (<see cref="CellHeights"/>, version 3) is that many
+/// voxels tall instead.
 /// </para>
 /// <para>
 /// Each placed cell has <c>CellVoxels²</c> voxel columns, stored as a block
@@ -158,6 +160,27 @@ public sealed class Nav3dLevel
 
     /// <summary>Voxels along a cell's edge.</summary>
     public int CellVoxels { get; init; }
+
+    /// <summary>
+    /// Each cell's height in voxels, <c>row × columns + column</c>, 0 for an
+    /// empty cell; or null when every placed cell is <see cref="CellVoxels"/>
+    /// tall (a level of cube rooms). Set, the file is version 3 with a
+    /// <see cref="Nav3dFormat.CellHeightsTag"/> section; null, it is version
+    /// 2, as it always was.
+    /// </summary>
+    /// <remarks>
+    /// A cell's columns run from the floor (z = 0) to its height: a room
+    /// taller than its cell has more voxels up than along, a low room fewer.
+    /// Floors all stand at z = 0 (the rooms design, 17.6), so the columns of
+    /// two cells side by side line up voxel for voxel as far as the lower
+    /// one goes.
+    /// </remarks>
+    public IReadOnlyList<int>? CellHeights { get; init; }
+
+    /// <summary>A cell's height in voxels: its <see cref="CellHeights"/> entry, or <see cref="CellVoxels"/> without them.</summary>
+    /// <param name="cell">The cell, <c>row × columns + column</c>.</param>
+    /// <returns>The height.</returns>
+    public int CellHeight(int cell) => CellHeights is { } heights ? heights[cell] : CellVoxels;
 
     /// <summary>The grid's columns, west to east.</summary>
     public int Columns { get; init; }

@@ -153,13 +153,34 @@ public static class RoomObjectStore
     /// file's content is this one type, so a caller that loads a directory of
     /// rooms needs one catch for "this file is bad".
     /// </exception>
-    public static async Task<RoomObject> LoadAsync(Stream r, CancellationToken cancellationToken = default)
+    public static Task<RoomObject> LoadAsync(Stream r, CancellationToken cancellationToken = default) =>
+        LoadShapedAsync(r, null, cancellationToken);
+
+    /// <summary>
+    /// <see cref="LoadAsync(Stream, CancellationToken)"/> for a room of a
+    /// pack, with its <c>SHAP</c> section (<see cref="RoomShape"/>), when it
+    /// has one, applied to the definition before the compile is checked
+    /// against it: a tall room's leaves reach above its cell, which the lint
+    /// holds to the room's own box.
+    /// </summary>
+    /// <param name="r">The stream, positioned at the container's magic; the caller owns it.</param>
+    /// <param name="shape">The room's shape, read from its section (<see cref="RoomShape.Read"/>), or null for a cube room.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The room, its definition shaped as its section says.</returns>
+    /// <exception cref="LinkException">The container is bad, or the shape section is (<see cref="RoomShape.Apply"/>).</exception>
+    /// <remarks>
+    /// The container itself does not change with heights: a room's height
+    /// is not in its manifest, so every cube room's container is the bytes
+    /// it always was, and a room read alone (without its pack) is the cube
+    /// its container describes.
+    /// </remarks>
+    internal static async Task<RoomObject> LoadShapedAsync(Stream r, RoomShapeData? shape, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(r);
 
         try
         {
-            return await LoadCheckedAsync(r, cancellationToken).ConfigureAwait(false);
+            return await LoadCheckedAsync(r, shape, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidBspException or RoomLintException)
         {
@@ -170,7 +191,7 @@ public static class RoomObjectStore
         }
     }
 
-    private static async Task<RoomObject> LoadCheckedAsync(Stream r, CancellationToken cancellationToken)
+    private static async Task<RoomObject> LoadCheckedAsync(Stream r, RoomShapeData? shape, CancellationToken cancellationToken)
     {
         byte[] magic = await ReadFixedAsync(r, 8, "magic", cancellationToken).ConfigureAwait(false);
         if (!MatchesMagic(magic))
@@ -264,6 +285,7 @@ public static class RoomObjectStore
             roomName, cellSize.Value, new SocketKit(kit.Value.Width, kit.Value.Height, kit.Value.Depth), sockets);
 
         definition.Validate();
+        definition = RoomShape.Apply(shape, definition);
 
         BspData bsp = ParseBspBlob(bspBlob);
         VisResult vis = ParseVisBlob(visBlob);
@@ -298,7 +320,8 @@ public static class RoomObjectStore
 
         // §10a: keys rebuild in RoomCompiler's format from the persisted strings,
         // so "same keys ⇒ same room bytes" keeps meaning the same thing here.
-        string claimed = "room:" + roomName + "|" + CellText(definition.CellSize) + "|" + KitText(definition.Kit);
+        string claimed = "room:" + roomName + "|" + CellText(definition.CellSize) + "|" + KitText(definition.Kit)
+            + (definition.IsShaped ? "|h" + CellText(definition.Height) : string.Empty);
         IReadOnlyList<string> inputKeys = sourceHash is null
             ? [claimed]
             : ["vmf:" + sourceHash, claimed];

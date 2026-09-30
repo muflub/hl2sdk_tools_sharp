@@ -28,7 +28,14 @@ namespace SourceSharp.MapFormats.Nav;
 /// under a new tag without a version change; readers skip tags they do not
 /// know, as the room pack's readers do. Version 2 replaced version 1's
 /// per-agent octrees with one clearance grid shared by every agent size, so
-/// a version 1 file is refused rather than misread.
+/// a version 1 file is refused rather than misread. Version 3 (the rooms
+/// design, 17.11) adds each placed cell's own height in voxels
+/// (<see cref="CellHeightsTag"/>), for a level placing a room taller or
+/// lower than its cell; an older reader would take a tall cell's runs above
+/// the cell's edge for damage, or a low cell's space above its ceiling for
+/// solid it was never told about. It is written only for such a level: a
+/// level of cube rooms is version 2, byte for byte what it was
+/// (<see cref="CubeVersion"/>).
 /// </para>
 /// </remarks>
 public static class Nav3dFormat
@@ -36,8 +43,15 @@ public static class Nav3dFormat
     /// <summary>The file's eight magic bytes: <c>SSNAV3D</c> and a NUL.</summary>
     public static ReadOnlySpan<byte> Magic => "SSNAV3D\0"u8;
 
-    /// <summary>The only version this build reads and writes.</summary>
-    public const int Version = 2;
+    /// <summary>The newest version this build reads and writes: a level whose cells differ in height.</summary>
+    public const int Version = 3;
+
+    /// <summary>
+    /// The version of a level whose every cell is a cube: version 2, which
+    /// this build still writes for such a level and reads, as does every
+    /// earlier build.
+    /// </summary>
+    public const int CubeVersion = 2;
 
     /// <summary>The file extension <c>ssmap link</c> writes beside the map.</summary>
     public const string Extension = ".nav3d";
@@ -66,6 +80,19 @@ public static class Nav3dFormat
 
     /// <summary>The most voxels along a cell's edge: a leaf's height is one byte.</summary>
     public const int MaxCellVoxels = 128;
+
+    /// <summary>
+    /// The most voxels up one placed cell's columns (version 3): a leaf's low
+    /// voxel and its height are bytes, so a run ends at voxel 255 at most.
+    /// </summary>
+    public const int MaxColumnVoxels = 255;
+
+    /// <summary>
+    /// Section, version 3: each cell's height in voxels, <c>int32</c>, 1 to
+    /// <see cref="MaxColumnVoxels"/> for a placed cell, 0 for an empty one.
+    /// A version 2 file has none: every placed cell is <c>cellVoxels</c> tall.
+    /// </summary>
+    public const string CellHeightsTag = "CHGT";
 
     /// <summary>Section: the string table (NUL-terminated UTF-8; offset 0 is the empty string).</summary>
     public const string StringsTag = "STRS";

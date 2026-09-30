@@ -7,6 +7,7 @@
 
 using System.Buffers.Binary;
 using System.Collections.Immutable;
+using System.Globalization;
 
 using SourceSharp.MapFormats.Bsp;
 using SourceSharp.MapFormats.Bsp.Structs;
@@ -746,6 +747,10 @@ public static partial class LevelLinker
                 placed.Add((room, new RoomTransform(instance.Placement, room.Definition.CellSize)));
             }
 
+            // The level's extent first (17.6): nothing else is worth counting
+            // for a level the engine cannot hold.
+            CheckExtent(layout.Name, instances.Select(i => (i.Placement, library.Get(i.Placement.Room).Definition)));
+
             // The cubemaps first: a room without its cubemap data, a patch
             // name too long and too many samples are refused here, before
             // anything is counted against them.
@@ -792,6 +797,57 @@ public static partial class LevelLinker
         }
 
         return LevelEntityBudget.Check(placements, reserve, classes, LibraryCounts(library, layout));
+    }
+
+    /// <summary>
+    /// Refuses a level that reaches past the engine's coordinates: every
+    /// placement's box, its cell in x and y and its room's height in z (the
+    /// rooms design, 17.6), must lie within ±16,384
+    /// (<see cref="GeometryEpsilons.MaxCoordInteger"/>).
+    /// </summary>
+    /// <param name="level">The level's name, for the message.</param>
+    /// <param name="rooms">Every placement, the skybox's included, with its room, in link order.</param>
+    /// <exception cref="LinkException">
+    /// A placement reaches past the limit: the first in link order, on the
+    /// first axis (x, y, then z) it passes, named by the coordinate it reaches
+    /// and its cell.
+    /// </exception>
+    /// <remarks>
+    /// <para>
+    /// Before heights nothing checked this: a wide grid could pass every lump
+    /// limit and still put rooms where the engine's coordinates (and the
+    /// shorts of every node and leaf bound) stop, and a tall room could do
+    /// the same upward. The check reads the placements alone, so it costs
+    /// nothing next to the rest of the capacity pass.
+    /// </para>
+    /// <para>
+    /// Touching the limit is allowed; passing it is not. The skybox, one
+    /// cell below the grid, is held to the same rule as the rooms.
+    /// </para>
+    /// </remarks>
+    internal static void CheckExtent(string level, IEnumerable<(RoomPlacement Placement, RoomDefinition Definition)> rooms)
+    {
+        const float Limit = GeometryEpsilons.MaxCoordInteger;
+        foreach ((RoomPlacement placement, RoomDefinition definition) in rooms)
+        {
+            float cell = definition.CellSize;
+            float floor = placement.Level * cell;
+            (string Axis, float Lo, float Hi)[] axes =
+            [
+                ("x", placement.CellX * cell, (placement.CellX + 1) * cell),
+                ("y", placement.CellY * cell, (placement.CellY + 1) * cell),
+                ("z", floor, floor + definition.Height),
+            ];
+            foreach ((string axis, float lo, float hi) in axes)
+            {
+                if (hi > Limit || lo < -Limit)
+                {
+                    float reached = hi > Limit ? hi : lo;
+                    throw new LinkException(string.Create(CultureInfo.InvariantCulture,
+                        $"level {level}: reaches {axis} = {reached:0.###} at cell ({placement.CellX}, {placement.CellY}); the engine's coordinates stop at {Limit:0}."));
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -1417,8 +1473,20 @@ public static partial class LevelLinker
     /// built (pre-order: a parent's children have larger indices than it, and
     /// the root is node 0, which is what makes <c>model0.HeadNode = 0</c>).
     /// </para>
+    /// <para>
+    /// <b>Bounds.</b> A node bounds its region's footprint in x and y, and in
+    /// z the floor (0) to the tallest room in its region
+    /// (<paramref name="heights"/>, the rooms design 17.6); a region with no
+    /// room, or a level whose rooms are all cubes (<paramref name="heights"/>
+    /// null), is bounded by the cell size, today's value. The engine culls a
+    /// node by its bounds, so a node bounded by the cell over a taller room
+    /// would drop the room's upper part from view whenever only that part is
+    /// on screen. The planes do not change: z needs none, a point above a
+    /// room's ceiling falls into its tree, which answers solid.
+    /// </para>
     /// </remarks>
-    internal static List<DNode> BuildTopNodes(LevelLayout layout, float cellSize, List<Plane> planes)
+    internal static List<DNode> BuildTopNodes(
+        LevelLayout layout, float cellSize, List<Plane> planes, IReadOnlyDictionary<(int X, int Y), float>? heights = null)
     {
         Dictionary<(int, int), int> occupants = [];
         int order = 0;
@@ -1429,8 +1497,65 @@ public static partial class LevelLinker
 
         (int minx, int miny, int maxx, int maxy) = Extent(layout);
         List<DNode> nodes = [];
-        BuildRegion(nodes, occupants, (minx, miny, maxx, maxy), cellSize, planes);
+        BuildRegion(nodes, occupants, (minx, miny, maxx, maxy), cellSize, planes, heights);
         return nodes;
+    }
+
+    /// <summary>
+    /// Each grid cell's room height, for the top tree's bounds
+    /// (<see cref="BuildTopNodes"/>), or null when every placed room is a
+    /// cube, so a level of cubes takes exactly the path it always took.
+    /// </summary>
+    /// <param name="rooms">The level's placements on the grid, with their rooms.</param>
+    /// <returns>The heights by cell, or null.</returns>
+    internal static Dictionary<(int X, int Y), float>? CellHeights(IEnumerable<(RoomPlacement Placement, RoomDefinition Definition)> rooms)
+    {
+        Dictionary<(int X, int Y), float> heights = [];
+        bool shaped = false;
+        foreach ((RoomPlacement placement, RoomDefinition definition) in rooms)
+        {
+            heights[(placement.CellX, placement.CellY)] = definition.Height;
+            shaped |= definition.IsShaped;
+        }
+
+        return shaped ? heights : null;
+    }
+
+    /// <summary>
+    /// The top of the level's rooms: the tallest room's height, or the cell
+    /// size when <paramref name="heights"/> is null (a level of cubes). What
+    /// the shared solid leaf and the skybox's root are bounded to.
+    /// </summary>
+    internal static float TallestRoom(IReadOnlyDictionary<(int X, int Y), float>? heights, float cellSize) =>
+        heights is null ? cellSize : heights.Values.Max();
+
+    /// <summary>
+    /// The top of a region's bounds: its tallest room, or the cell size when
+    /// it holds none or the level is all cubes.
+    /// </summary>
+    private static float RegionTop(
+        IReadOnlyDictionary<(int X, int Y), float>? heights,
+        (int minx, int miny, int maxx, int maxy) rect,
+        float cellSize)
+    {
+        if (heights is null)
+        {
+            return cellSize;
+        }
+
+        float top = float.NegativeInfinity;
+        for (int x = rect.minx; x <= rect.maxx; x++)
+        {
+            for (int y = rect.miny; y <= rect.maxy; y++)
+            {
+                if (heights.TryGetValue((x, y), out float h))
+                {
+                    top = Math.Max(top, h);
+                }
+            }
+        }
+
+        return float.IsNegativeInfinity(top) ? cellSize : top;
     }
 
     /// <summary>The room-local rows of one room, shifted into the linked cluster space.</summary>
@@ -1960,13 +2085,14 @@ public static partial class LevelLinker
         Dictionary<(int, int), int> occupants,
         (int minx, int miny, int maxx, int maxy) rect,
         float cellSize,
-        List<Plane> planes)
+        List<Plane> planes,
+        IReadOnlyDictionary<(int X, int Y), float>? heights)
     {
         int index = nodes.Count;
         nodes.Add(default);
 
         Vec3 mins = new(rect.minx * cellSize, rect.miny * cellSize, 0);
-        Vec3 maxs = new((rect.maxx + 1) * cellSize, (rect.maxy + 1) * cellSize, cellSize);
+        Vec3 maxs = new((rect.maxx + 1) * cellSize, (rect.maxy + 1) * cellSize, RegionTop(heights, rect, cellSize));
 
         if (!HasOccupant(occupants, rect))
         {
@@ -2029,8 +2155,8 @@ public static partial class LevelLinker
 
         planes.Add(split);
         int planeNumber = TopPlaneNum(planes.Count - 1);
-        int front = BuildRegion(nodes, occupants, frontRect, cellSize, planes);
-        int back = BuildRegion(nodes, occupants, backRect, cellSize, planes);
+        int front = BuildRegion(nodes, occupants, frontRect, cellSize, planes, heights);
+        int back = BuildRegion(nodes, occupants, backRect, cellSize, planes, heights);
         IntArray2 children = default;
         children[0] = front;
         children[1] = back;
