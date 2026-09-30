@@ -77,6 +77,14 @@ public sealed class RoomsMultiLibraryCommandsTests
         Assert.True(one == Program.ExitSuccess, single.ToString());
         Assert.StartsWith("library: ../rooms.vmf\n", single.ToString(), StringComparison.Ordinal);
 
+        using StringWriter nav = new();
+        Assert.Equal(1, await NavCommand.RunAsync(fs, ["/sample/levels/multi.yaml"], nav));
+        Assert.Contains("the level names several libraries; ssmap nav stitches a level of one library, and ssmap link writes the .nav3d of any level.", nav.ToString(), StringComparison.Ordinal);
+        using StringWriter aliasNav = new();
+        Assert.True(
+            await NavCommand.RunAsync(fs, ["/sample/levels/alias.yaml", "-rooms", "/sample/rooms.roompack"], aliasNav) == Program.ExitSuccess,
+            aliasNav.ToString());
+
         using StringWriter alias = new();
         int aliased = await RoomCommands.RunLinkAsync(fs, ["/sample/levels/alias.yaml", "-no-nav", "-out", "/sample/out/alias.bsp"], alias);
         Assert.True(aliased == Program.ExitSuccess, alias.ToString());

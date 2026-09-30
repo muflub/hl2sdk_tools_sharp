@@ -3341,6 +3341,79 @@ to the same bytes, and passes `ssmap check`; `ssmap all` on 2fort and the
 sandbox writes the same maps as before. The link spends nothing on areas
 for a level without area portals, door portals or a skybox.
 
+**PR 17 landed** (multiple libraries per level, 17.2 to 17.5). A level
+file may name its libraries with `libraries:` (a mapping of key to VMF, in
+the order that decides the singletons) and give `aliases:`; `LevelYaml`
+reads both with 17.3's texts and writes them back where 17.2 puts them.
+Cells resolve where the rooms are known (`LevelLibraries.Resolve`: link,
+flatten and `ssmap rooms` over a level) to qualified names, `key.room`,
+which is the name the level places a room by from then on: the linker, the
+flatten and every message see `base.corner` and `caves.corner` as two
+rooms. A `library:` level keeps bare names and links, flattens and writes
+exactly as before; only its aliases, when it has any, are replaced by the
+rooms they name. `LevelLibraries.Check` holds the placed libraries to one
+cell size, one kit and one navigation grid (D21, D25) and gives the
+singleton, option, skybox, navigation and worldspawn lines of 17.3 in
+that order per library (D20, D24, O25 as its default); the link reads it
+from each library's pack and a room it places, the flatten from the VMFs,
+and both print the same lines before their others. `LevelLibraries.Combine`
+puts every loaded room of every library into one `RoomLibrary` under its
+qualified name, with its library's index and name keys
+(`RoomLibrary.SourceOf`, `NameKeysOf`), and the first library's entities,
+options and skybox; the linker then runs as for one library.
+
+- **Two rooms of one name.** Everything the link keeps per room is now
+  keyed by the name the level places it by, not the name it was compiled
+  under: the pak list, the static prop lighting files, the cubemap
+  placements, the light blocks and ambient runs, the entity counts, the
+  plug censuses and the naming tables. The pak merge renames a room's
+  default cubemaps by its compile name (`LevelPakFiles.Merge`'s
+  `compileNames`). For a level of one library the two names are the same,
+  so no byte moved; a fact holds a level of two libraries, lit and unlit,
+  byte for byte to the level of one library holding both room sets under
+  other names. The `logic_room`'s `room` key (with `-mod-entities`) carries
+  the qualified name, in link and flatten alike.
+- **Worldspawn and sun.** The worldspawn is the first placed room's of the
+  earliest listed library the level places; only rooms of that library are
+  held to it (`RequireSameWorld`), another library's differing key is the
+  worldspawn line. The save counter is the first library's in both maps.
+  The level's sun world lights and sky are the first library's first lit
+  placement's bake (`PlanLighting`), else the first lit placement's as
+  before. PR 9's lighting rule is unchanged across libraries. D26's line
+  is the link's only (the flatten bakes nothing); the switch to a refusal
+  once PR 10 is on main is one line, `LevelLibraries.RefusesDroppedSun`,
+  and the refusal's text is written and held by a fact already.
+- **Navigation.** `LevelNavLinker.Link` takes which library each room
+  comes from: rooms of one library are held to one another's settings as
+  before, rooms of different libraries only to one grid, and the header
+  takes the first placed library's settings. The level's pack id is
+  `RoomCompileIds.LevelPackId` over every key and pack id in order; for one
+  pack it is that pack's id, so a `library:` level's ids do not move.
+- **Packs.** Each key's pack is `<library>.roompack` beside its VMF unless
+  `-rooms <key>=<pack>` names another. Until PR 18 no pack has namespaces,
+  so a plain `-rooms <pack>` is taken only for a level that lists one
+  library, and refused with 17.10's plain-pack text otherwise. A key the
+  level does not list is refused: `-rooms names library {key}, which the
+  level does not list; its libraries are {keys}.`; a missing pack names its
+  key: `there is no room pack {pack} for library {key}; compile the
+  library with ssmap room, or point -rooms {key}= at its pack`. Every pack
+  stream is closed before the link starts. The pack format does not change.
+- **`ssmap rooms <level.yaml>`** lists every library of the level under a
+  `library {key}: {path}` line (a `library:` level's under `library:
+  {path}`) and then prints the level's library lines as warnings, or fails
+  with a compatibility refusal; `-rooms <key>=<pack>` finds a key's pack.
+- **Decisions taken where this section left a detail.** An alias's value
+  resolves as a qualified or bare name, never as another alias, so the
+  order aliases are written in never matters. Every alias is resolved and
+  every library checked whether or not a cell uses it. The same-file check
+  compares the paths as the host resolves them and names the resolved
+  path. `mapversion` gets no option line (the table's row says why). The
+  compatibility check runs over the libraries the level places (17.5).
+
+Measured: the 2fort and sandbox `ssmap all` maps, the 3x3 and transit
+samples' packs and maps (both modes) and the stress library's 33 x 33
+level are the same bytes as before this PR; see the PR for the digests.
+
 Reasoning: correctness first (cheap, each a failing fact today); then the
 budget and the naming and logic feature, because the owner ranks entity
 count first and every later feature is measured against it; then the other
@@ -3871,9 +3944,11 @@ grid:
   `ssmap rooms`) and reports with the same `line L, column C: ` prefix
   (`LevelFileException`).
 - **Writing.** `LevelYaml.Write` writes `library` for a one-library level,
-  as today. For several it writes `libraries` in level order, no aliases
-  (the generator makes none), and each cell as its shortest unambiguous
-  spelling: bare when one library has the name, else `key.room`. The keys
+  as today. For several it writes `libraries` in level order, the
+  level's aliases if it has any (the generator makes none), and each cell
+  as the grid holds it; `LevelLibraries.Shorten` first gives each cell its
+  shortest unambiguous spelling: bare when one library has the name, else
+  `key.room`. The keys
   go where `library` goes, before `rows`; PR 8's transition keys keep their
   place between `columns` and `grid`, and `aliases` goes before them, after
   `columns`. The unknown-key message lists every key in that order (17.3).
@@ -3955,7 +4030,7 @@ everything a level has once, whichever room it came through:
 | --- | --- | --- |
 | Library entities (`LENT`: the sun, fog, tonemap, `shadow_control`, `postprocess_controller`) | written once after the worldspawn, as today (`LevelSingletons`) | dropped; warned as differing, equal (one summary line, D24) or one the first lacks (O25) |
 | The skybox room (PR 13's `info_room_skybox`, named in the `SKYB` section) | placed below the grid, as today (`LevelLinker.SkyboxPlacement`) | never loaded or placed; warned with the skybox lines (a compiled room has no keys to call two copies equal, so every other library's skybox warns) |
-| Library options (`LOPT`): entity reserve (`rooms_entity_reserve`), logic folding (`rooms_fold_logic`), door portals (`rooms_door_portals`, PR 13: a joint between two libraries gets a portal exactly when the first library asks), `mapversion` | the level's | dropped with the option warning when different, the key and value spelt as the library keys are |
+| Library options (`LOPT`): entity reserve (`rooms_entity_reserve`), logic folding (`rooms_fold_logic`), door portals (`rooms_door_portals`, PR 13: a joint between two libraries gets a portal exactly when the first library asks), `mapversion` | the level's | dropped with the option warning when a later library sets it to other than the level's value, the key and value spelt as the library keys are; `mapversion` is dropped without one (it is the editor's save counter and differs on every save, so the line would print on every link) |
 | Worldspawn keys (the linked map has one) | the worldspawn of the first library's first placed room, as `MergeEntities` takes the first room's today; when the level places no room of the first library, the first placed room's of the earliest listed library it places | a room of another library whose worldspawn differs is linked as compiled, with one warning per library naming the first differing key in its worldspawn's order (`world_mins`, `world_maxs`, `hammerid`, the ids the link stamps and the `nav_` keys, which the navigation line reports, are not compared) |
 | Navigation settings that are not the grid (slope, step and jump heights and distance, costs, agent presets, D25) | the `.nav3d` header's, from the first library | the rooms' records are carried as built, with the navigation warning |
 
@@ -4005,8 +4080,10 @@ everything a level has once, whichever room it came through:
   sun. A **sunlit** room (rotation count 4, 1.1) baked under a sun that
   differs from the first library's (`LevelSingletons`' equality) is lit by
   a sun the level does not have: D26 refuses it once the door light
-  (PR 10) lands, and until then the link and the flatten warn, one line
-  per library naming its first such room (17.3). The level's two sun world
+  (PR 10) lands, and until then the link warns, one line per library
+  naming its first such room (17.3); the flatten bakes nothing, so it has
+  no such line, and vrad of the flattened level lights every room under
+  the level's sun. The level's two sun world
   lights and its sky are the bake's (PR 9 takes them from the first lit
   placement); across libraries they are taken from the first placed room of
   the first library when the level places one, so they match the sun

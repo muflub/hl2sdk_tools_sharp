@@ -1602,7 +1602,7 @@ public sealed class RoomCommandsTests
     [InlineData("-1", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
     [InlineData("2049", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
     [InlineData("half", "ssmap link: -entity-reserve is a whole number of edicts from 0 to 2048")]
-    [InlineData("flatten", "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>]")]
+    [InlineData("flatten", "usage: ssmap link <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>]")]
     public async Task ABadEntityReserveIsAUsageError(string value, string expected)
     {
         string[] args = value == "flatten"

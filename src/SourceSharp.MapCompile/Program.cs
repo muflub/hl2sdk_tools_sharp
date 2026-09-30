@@ -555,13 +555,19 @@ public static class Program
                                                       touching box brushes fold into one
                                                       (-nofold keeps them apart);
                                                       visibility through the doorways
-                                                      (-nodoorvis: every cluster sees all)
+                                                      (-nodoorvis: every cluster sees all);
+                                                      a level of several libraries takes
+                                                      a pack per key: beside each VMF, or
+                                                      -rooms <key>=<pack.roompack> (repeatable)
               link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
                                                       the same level as one VMF, for vbsp
               rooms <library.vmf> [-rooms <pack.roompack>]
                                                       list a library's rooms: name, cell,
                                                       each door's box and size, and with
                                                       its pack each room's entities and names
+              rooms <level.yaml> [-rooms <key>=<pack.roompack> ...]
+                                                      every library of a level, then its
+                                                      singleton and compatibility warnings
               rooms -rooms <pack.roompack>             a pack's section table: tag, offset,
                                                       length, codec, revision, hash
               layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]

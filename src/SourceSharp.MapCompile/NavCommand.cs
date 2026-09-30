@@ -145,10 +145,23 @@ public static class NavCommand
         LevelGrid level = LevelYaml.Parse(
             await new StreamReader(new MemoryStream(levelBytes), Encoding.UTF8).ReadToEndAsync(cancellationToken).ConfigureAwait(false),
             Path.GetFileNameWithoutExtension(levelFile));
+
+        // A level of several libraries has a pack per key; its navigation is
+        // what ssmap link writes beside its map (the rooms design, 17.10).
+        if (level.Libraries is not null)
+        {
+            return (null, "the level names several libraries; ssmap nav stitches a level of one library, and ssmap link writes the .nav3d of any level.");
+        }
+
         string library = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(levelFile)!, level.Library));
         VPath pack = VPath.Create(Path.GetFullPath(roomsPack ?? Path.ChangeExtension(library, RoomPack.Extension)));
         await using Stream stream = await disk.OpenReadAsync(pack, cancellationToken).ConfigureAwait(false);
         RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+        if (level.Aliases.Count > 0)
+        {
+            level = LevelLibraries.Resolve(level, [[.. index.Entries.Select(e => e.Name)]]);
+        }
+
         Dictionary<string, HashSet<int>> turns = new(StringComparer.Ordinal);
         foreach ((_, _, LevelCell cell) in level.Placed)
         {
