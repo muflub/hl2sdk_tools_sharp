@@ -138,6 +138,9 @@ Readers and writers for every file the chain touches, and nothing else.
   ([`docs/nav3d-format.md`](docs/nav3d-format.md)); the game mod references
   this assembly for `Nav3dReader`, which answers from the file's bytes
   without allocating.
+- `Map2d/` reads and writes the `.map2d` level map overlay
+  ([`docs/map2d-format.md`](docs/map2d-format.md)) and draws its SVG
+  preview; `Bsp/BspMapChecksum` is the map checksum the file binds to.
 
 ### `SourceSharp.MapTools`
 
@@ -477,13 +480,14 @@ ssmap roompack -level <level.yaml> [-out <pack.roompack>] [room options]
 ssmap rooms <library.vmf> [-rooms <pack.roompack>]
 ssmap rooms <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...]
 ssmap rooms -rooms <pack.roompack>
-ssmap link <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]
+ssmap link <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>] [-no-map2d | -map2d-svg]
 ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]
 ssmap layout <library.vmf> -rows R -columns C -seed N [-empty <ratio>]
              [-rooms <pack.roompack>] [-entity-budget <n>] [-mod-entities] [-out <level.yaml>]
              [-up-map <map> | -no-up] [-down-map <map> | -no-down] [-transition-distance <n>]
 ssmap layout <library.vmf> ... -sequence K -name <base> [-out <folder>]
 ssmap nav <map.nav3d | level.yaml> [-rooms <pack.roompack>] [--obj <out.obj>] [--floor] [--agent <index|name>]
+ssmap map2d <map.bsp> [-level <level.yaml>] [-out <file.map2d>] [-svg]
 ```
 
 `ssmap rooms` lists a library without compiling it: each room's name, its
@@ -942,6 +946,24 @@ and its pack, and exports the free leaves or the floors as OBJ. The format
 is specified in [`docs/nav3d-format.md`](docs/nav3d-format.md), with a C++
 walk-through and the C# reader the mod uses (`Nav3dReader` in
 `SourceSharp.MapFormats`).
+
+`link` also writes `<map>.map2d` beside the map: the level map overlay, a
+2D vector map seen from above that the game draws. Each room's floors
+(the faces a player stands on, unioned exactly on whole units, one polygon
+set per height band) are worked out once by `ssmap room` and stored in the
+pack (`MAPV`); the link turns and places them, marks each door open or
+closed, and adds the markers: `info_poi` entities with a `map_marker`
+(and `map_label`), and the level spawn, the arrivals and the transition
+exits. Every polygon, door and marker names its placement, and an
+`info_room`'s `map_label` labels its room, so a game can reveal the map room
+by room. The file is bound to the map by the engine's map checksum, so a
+stale one is refused. `-map2d-svg` also writes an SVG preview, `-no-map2d`
+skips the file, and a pack without the map links without it, saying so.
+`ssmap map2d` makes the same file from any compiled map: given the level
+file, the flattened level's compile gives the linked level's file byte for
+byte (but for the checksum). The format is specified in
+[`docs/map2d-format.md`](docs/map2d-format.md), with the C# reader
+(`Map2dReader`).
 
 `samples/rooms-3x3/` is a worked example: a library of five room kinds, a
 3x3 level, its turns and some seeded levels. Its README runs it through

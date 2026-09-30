@@ -5051,7 +5051,9 @@ level, seen from above**: the playable area, with points of interest
 marked, in a file the game loads to draw a map overlay. This section is the
 plan; PR 22 (section 13) builds it. The choices the owner has not made yet
 were O34 to O38; the owner took every recommended default on 2026-09-30
-(D31 to D35).
+(D31 to D35). **Landed** with PR 22 (section 13, its landed note, which
+records the details this section left open); the file is specified in
+[`docs/map2d-format.md`](map2d-format.md).
 
 ### 18.1 What the map shows
 
