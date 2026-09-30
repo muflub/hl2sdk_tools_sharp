@@ -252,6 +252,13 @@ public static class RoomCompiler
         // (the areas themselves, the listings and the keys are the link's).
         RoomAreaPortals? areaPortals = RoomAreaPortals.Build(definition.Name, vbsp.Bsp);
 
+        // The room's part of its level's map (the rooms design, 18.2): its
+        // walkable faces unioned in its own frame, and its doors. The
+        // markers and the label are its library's (a library compile adds
+        // them, RoomLibraryCompiler); a room compiled alone has the markers
+        // of the document it was given and no label.
+        RoomMapView? mapView = RoomMapView.Build(definition, vbsp.Bsp, document, RoomMapView.MarkersOf(document), string.Empty);
+
         return new RoomObject(
             definition,
             vbsp.Bsp,
@@ -265,6 +272,7 @@ public static class RoomCompiler
             Cubemaps = cubemaps,
             Overlays = overlays,
             AreaPortals = areaPortals,
+            MapView = mapView,
         };
     }
 

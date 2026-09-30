@@ -850,6 +850,14 @@ public static partial class RoomCommands
                     await output.WriteLineAsync($"{verb}: warning: room \"{definition.Name}\": {warning}").ConfigureAwait(false);
                 }
 
+                // A room with no floor on the level map (a player cannot
+                // stand in it), read from its map section, so a reused room
+                // says it too.
+                foreach (string warning in outcome.MapWarnings)
+                {
+                    await output.WriteLineAsync($"{verb}: warning: {warning}").ConfigureAwait(false);
+                }
+
                 return;
             }
 

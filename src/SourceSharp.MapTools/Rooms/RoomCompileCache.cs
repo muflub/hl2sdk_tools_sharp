@@ -181,6 +181,15 @@ public static class RoomCacheKey
 
         fold.Int((int)room.Role);
 
+        // The room's label on the level map (18.1), from its info_room like
+        // the claims above and so not in the document: folded only when the
+        // room has one, so a room without keeps its key and its row.
+        if (room.MapLabel.Length > 0)
+        {
+            fold.Text("map_label");
+            fold.Text(room.MapLabel);
+        }
+
         // A room's own height (17.6), folded only for a shaped room, so a
         // cube room keeps the key, and the cache row, it always had.
         if (definition.IsShaped)

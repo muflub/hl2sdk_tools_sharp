@@ -78,6 +78,33 @@ public static class Crc32
         return crc ^ FinalXorValue;
     }
 
+    /// <summary>
+    /// Continues a checksum over more bytes: the CRC-32 of the bytes
+    /// <paramref name="crc"/> was computed over followed by <paramref name="data"/>.
+    /// </summary>
+    /// <param name="crc">
+    /// A finished checksum (<see cref="Compute"/> of the bytes so far, or of
+    /// several appends); 0, the checksum of no bytes, to start.
+    /// </param>
+    /// <param name="data">The bytes that follow.</param>
+    /// <returns>The checksum of everything so far.</returns>
+    /// <remarks>
+    /// For a checksum over pieces that are not one span, such as a map's
+    /// lumps (<c>BspMapChecksum</c>), without copying them together: the
+    /// final XOR is undone, the bytes are run, and it is applied again, so
+    /// <c>Append(Compute(a), b) == Compute(a + b)</c>.
+    /// </remarks>
+    public static uint Append(uint crc, ReadOnlySpan<byte> data)
+    {
+        crc ^= FinalXorValue;
+        foreach (byte b in data)
+        {
+            crc = Table[(int)((crc ^ b) & 0xFF)] ^ (crc >> 8);
+        }
+
+        return crc ^ FinalXorValue;
+    }
+
     private static uint[] BuildTable()
     {
         uint[] table = new uint[256];

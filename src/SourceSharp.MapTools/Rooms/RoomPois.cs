@@ -121,7 +121,7 @@ public static class RoomPois
         {
             if (string.Equals(chunk.Name, MapFileLoader.EntityChunk, StringComparison.OrdinalIgnoreCase) && IsPoi(chunk))
             {
-                pois.Add(Read(chunk));
+                pois.Add(ReadPoi(chunk));
                 continue;
             }
 
@@ -143,7 +143,11 @@ public static class RoomPois
         _ => throw new RoomLibraryException($"\"{RoleKey}\" is \"{value}\"; a room's role is up, down or none."),
     };
 
-    private static AuthoredPoi Read(VmfChunk entity)
+    /// <summary>One point of interest read from its entity, checked as <see cref="Extract"/> checks it.</summary>
+    /// <param name="entity">The <c>info_poi</c> chunk.</param>
+    /// <returns>The point.</returns>
+    /// <exception cref="RoomLintException">The point is malformed; the message names its entity.</exception>
+    internal static AuthoredPoi ReadPoi(VmfChunk entity)
     {
         string id = entity.GetValue("id") ?? "?";
         string who = $"{Entity} {id}";

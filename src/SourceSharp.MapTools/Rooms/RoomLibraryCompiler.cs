@@ -391,6 +391,11 @@ public static class RoomLibraryCompiler
             // interest never reach the compile, and the transition rules
             // (the rooms design, 11.3) are about what the author wrote.
             RoomTransit? transit = RoomTransit.FromVmf(room.Definition, room.Role, room.Document);
+
+            // The room's markers on the level map (the rooms design, 18.1),
+            // from the same VMF and before the compile for the same reason:
+            // they are points of interest, which never reach it.
+            IReadOnlyList<RoomMapMarker> markers = RoomMapView.MarkersOf(room.Document);
             RoomObject compiled = await RoomCompiler
                 .CompileAsync(document, room.Definition, context, room.NameKeysOr(settings.NameKeys), cancellationToken).ConfigureAwait(false);
             if (transit is not null)
@@ -438,6 +443,14 @@ public static class RoomLibraryCompiler
                     .LoadAsync(settings.Content, NavModelBounds.PropModels(compiled.Bsp), cancellationToken).ConfigureAwait(false);
                 nav = RoomNavBuilder.Build(
                     room.Definition, compiled.Bsp, pois, room.Role, navSettings, m => hulls.GetValueOrDefault(m), cancellationToken);
+            }
+
+            // The room's part of its level's map (the rooms design, 18.3):
+            // the compile unioned its floors; the markers and the label are
+            // the library's, which the compile never sees.
+            if (compiled.MapViewOfCompile is { } map)
+            {
+                compiled = compiled with { MapView = map.With(markers, room.MapLabel) };
             }
 
             RoomObject delivered = link is null ? compiled : compiled with { Link = link };
