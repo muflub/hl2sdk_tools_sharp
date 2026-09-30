@@ -191,11 +191,18 @@ public sealed class RoomLayoutCommandsTests
     [InlineData(new[] { "/game/maps/base.vmf", "-group", "0" }, "ssmap layout: -group is a whole number of rooms from 1")]
     [InlineData(new[] { "/game/maps/base.vmf", "-max-height", "0" }, "ssmap layout: -max-height is a whole number of units from 1")]
     [InlineData(new[] { "/game/maps/base.vmf", "-max-height", "300.5" }, "ssmap layout: -max-height is a whole number of units from 1")]
+    [InlineData(new[] { "a=/game/maps/base.vmf", "b=/game/maps/halls.vmf", "-threads", "4" }, "usage: ssmap layout <library.vmf> -rows <n>")]
     [InlineData(new[] { "a=/game/maps/base.vmf", "b=/game/maps/halls.vmf", "-rooms", "c=/p.roompack" }, "ssmap layout: -rooms names library c, which the level does not list; its libraries are a and b.")]
     public async Task BadOperandsAndOptionsAreUsageErrors(string[] operands, string expected)
     {
         using StringWriter output = new();
         Assert.Equal(Program.ExitUsage, await RoomCommands.RunLayoutAsync(Game(), [.. operands, "-rows", "2", "-columns", "2", "-seed", "1"], output));
+        if (expected.StartsWith("usage: ", StringComparison.Ordinal))
+        {
+            Assert.StartsWith(expected, output.ToString(), StringComparison.Ordinal);
+            return;
+        }
+
         Assert.Equal(expected + Environment.NewLine, output.ToString());
     }
 

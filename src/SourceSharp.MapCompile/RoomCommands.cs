@@ -725,7 +725,9 @@ public static partial class RoomCommands
             i++;
         }
 
-        if (rest.Count == 0 || rows is null || columns is null || seed is null
+        // An option the verb does not know is a usage error, not a library:
+        // with several operands allowed it would otherwise read as one.
+        if (rest.Count == 0 || rest.Any(r => r.StartsWith('-')) || rows is null || columns is null || seed is null
             || (sequenceText is null) != (baseName is null)
             || (sequenceText is not null && (upMap is not null || downMap is not null || noUp || noDown))
             || (noUp && upMap is not null) || (noDown && downMap is not null))
