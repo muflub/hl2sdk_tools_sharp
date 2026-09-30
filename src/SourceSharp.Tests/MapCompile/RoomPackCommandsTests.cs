@@ -592,6 +592,53 @@ public sealed class RoomPackCommandsTests
     }
 
     /// <summary>
+    /// A lit combined pack's sky rooms are baked over the level's skybox, so
+    /// its content is one of the singletons every namespace is built under:
+    /// after the first library's skybox is edited, <c>-only</c> of the first
+    /// library refuses to copy the other library, whose sky room was baked
+    /// over the old skybox, rather than keep that bake. Unlit, nothing is
+    /// baked over the skybox, and <c>-only</c> copies as before.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task OnlyRefusesToCopySkyRoomsBakedOverAnEditedSkybox(bool lit)
+    {
+        InMemoryFileSystem fs = Game();
+        string[] light = lit ? ["-nodoorlight"] : ["-nolight"];
+        fs.AddFile(Rooted("/game/maps/base.vmf"), SkyBase(SkyboxLitFixture.Overhang).ToBytes());
+        string[] both = ["base=/game/maps/base.vmf", "caves=/game/maps/caves.vmf", .. light];
+        (int exit, string log) = await PackAsync(fs, ["-out", "/packs/both.roompack", .. both]);
+        Assert.True(exit == Program.ExitSuccess, log);
+
+        // The skybox's overhang moved; the first library's worldspawn, sun
+        // and caves' VMF are as they were.
+        fs.AddFile(Rooted("/game/maps/base.vmf"), SkyBase(new Box(new Vec3(16, 16, 160), new Vec3(150, 240, 176))).ToBytes());
+        (exit, log) = await PackAsync(fs, ["-out", "/packs/both.roompack", "-only", "base", .. both]);
+        if (lit)
+        {
+            Assert.Equal(1, exit);
+            Assert.Contains(
+                $"ssmap roompack: library caves changed since {Path.GetFullPath("/packs/both.roompack")} was built (the level's singletons); rebuild it too, or leave out -only.",
+                log,
+                StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.True(exit == Program.ExitSuccess, log);
+        }
+
+        static VmfDocument SkyBase(Box overhang)
+        {
+            VmfDocument library = RoomSkyboxHarness.AddSkybox(Base());
+            library.GetChunk("world")!.Children.Add(VmfPlacement.MoveSolid(
+                RoomModel.Slab(RoomHarness.Plain, overhang.Mins, overhang.Maxs, 7102), QuarterTurn.Translation(RoomSkyboxHarness.Corner)));
+            RoomLightHarness.WorldAlign(library);
+            return library;
+        }
+    }
+
+    /// <summary>
     /// <c>-level</c> takes the libraries from a level file, in its order,
     /// and writes the pack beside it, which the level then links from; a
     /// level of one library keys it by its stem, and one whose stem is not a
