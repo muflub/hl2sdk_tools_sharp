@@ -32,6 +32,9 @@ namespace SourceSharp.Tests.MapTools.Rooms;
 public sealed class SkyboxLitFixture : IAsyncLifetime
 {
     private readonly ConcurrentDictionary<string, Lazy<Task<BspData>>> _maps = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Lazy<Task<LinkedLevel>>> _levels = new(StringComparer.Ordinal);
+    private readonly Lazy<Task<RoomLibrary>> _doorLit = new(() => CompileAsync(Library, light: true, doorLight: true));
+    private readonly Lazy<Task<RoomLibrary>> _doorLitSealed = new(() => CompileAsync(Library, light: true, doorLight: true, recast: false));
 
     /// <summary>The switches the fixture's rooms are lit with.</summary>
     public static VradOptions Options => RoomLightHarness.Options;
@@ -102,7 +105,7 @@ public sealed class SkyboxLitFixture : IAsyncLifetime
         {
             Sun = RoomLightingSettings.SunOf(split.LibraryEntities),
             DoorLight = doorLight,
-            Skybox = split.Skybox,
+            Skybox = recast ? split.Skybox : null,
         };
 
         RoomObject skybox = await LightAsync(split.Skybox, settings);
@@ -140,6 +143,17 @@ public sealed class SkyboxLitFixture : IAsyncLifetime
                 : compiledRoom;
         }
     }
+
+    /// <summary>The rooms lit with their door light, the skybox under every sky room's bakes; compiled on first use.</summary>
+    public Task<RoomLibrary> DoorLitAsync() => _doorLit.Value;
+
+    /// <summary>The rooms lit with their door light sealed and alone, as before the skybox joined the bake; compiled on first use.</summary>
+    public Task<RoomLibrary> DoorLitSealedAsync() => _doorLitSealed.Value;
+
+    /// <summary>A level of the given rows linked from the rooms lit with their door light.</summary>
+    public Task<LinkedLevel> DoorLinkedAsync(string row, bool sealedBake = false) =>
+        _levels.GetOrAdd((sealedBake ? "sealed:" : "door:") + row, _ => new Lazy<Task<LinkedLevel>>(async () =>
+            await RoomLightHarness.LinkAsync(await (sealedBake ? DoorLitSealedAsync() : DoorLitAsync()), RoomPropHarness.Level(row)))).Value;
 
     /// <summary>A level of the given rows linked from the lit rooms.</summary>
     public Task<BspData> LinkedAsync(string row) => MapAsync("lit:" + row, async () => (await RoomLightHarness.LinkAsync(Lit, RoomPropHarness.Level(row))).Bsp);

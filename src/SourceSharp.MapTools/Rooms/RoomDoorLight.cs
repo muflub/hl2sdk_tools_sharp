@@ -328,7 +328,8 @@ internal sealed partial class RoomDoorLight
         ITransferCache? transfers,
         bool noTextureLights,
         int turn,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        VradSkybox? skybox = null)
     {
         BspData lit = RoomLighting.Copy(open);
         lit[BspLump.Entities] = EntityLump.Write([.. entities]);
@@ -353,6 +354,7 @@ internal sealed partial class RoomDoorLight
             Content = content,
             Parallelism = parallelism,
             FrameTurns = turn,
+            Skybox = skybox,
             TransferCache = transfers,
             NoTextureLights = noTextureLights,
             BounceObserver = (hdr, face, bump, luxel, light) =>
@@ -452,8 +454,17 @@ internal sealed partial class RoomDoorLight
                 entities.Insert(Math.Min(1, entities.Count), RoomLibraryEntities.ToLinked(sun));
             }
 
+            // A sky room's capture sees the library's skybox as its base bake
+            // does: the open room lit with its sky rays recast into it, and
+            // the capture's own sky rays (the sun reaching a cell, the sky a
+            // cell sees) recast into it too (RoomSkybox).
+            RoomSkybox? skybox = settings.SkyboxScene is { } scene && scene.Lights(room, settings) ? scene : null;
+            SkyboxRecast? recast = skybox is null
+                ? null
+                : await skybox.RecastAsync(room, turn, settings.Options, content, cancellationToken).ConfigureAwait(false);
             OpenRun run = await LightAsync(
-                open, definition.Name, entities, settings, content, parallelism, transfers: null, noTextureLights: false, turn, cancellationToken)
+                open, definition.Name, entities, settings, content, parallelism, transfers: null, noTextureLights: false, turn, cancellationToken,
+                skybox?.For(room, turn))
                 .ConfigureAwait(false);
             for (int r = 0; r < 2; r++)
             {
@@ -468,7 +479,7 @@ internal sealed partial class RoomDoorLight
                 for (int s = 0; s < frames.Length; s++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    captures[r][turn][s] = Capture(run.Lit, r == 1, frames[s], definition.CellSize);
+                    captures[r][turn][s] = Capture(run.Lit, r == 1, frames[s], definition.CellSize, recast);
                     ambient[r][turn][s] = await SeenAsync(tracer, samples, frames[s], cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -690,9 +701,13 @@ internal sealed partial class RoomDoorLight
     /// sky send through it, each gathering a point source as bright as the
     /// light it sends through the opening. The room is open at every
     /// doorway, and what a ray meets beyond the room's cell (out through
-    /// another opening) is the black box of 9.1: it sends nothing.
+    /// another opening) is the black box of 9.1: it sends nothing. With
+    /// <paramref name="skybox"/> (a sky room of a library with a 3D skybox,
+    /// at this turn), the sun and the sky a cell sees are recast into the
+    /// skybox as vrad recasts a sky ray, and what the skybox stops is not
+    /// sent.
     /// </summary>
-    internal static DoorSource[] Capture(BspData lit, bool hdr, DoorFrame frame, float cell)
+    internal static DoorSource[] Capture(BspData lit, bool hdr, DoorFrame frame, float cell, SkyboxRecast? skybox = null)
     {
         AmbientScene scene = AmbientScene.Create(lit, hdr ? LightingMode.Hdr : LightingMode.Ldr);
         DispTestedScratch scratch = new(scene.Tracer.Displacements.Count);
@@ -709,7 +724,7 @@ internal sealed partial class RoomDoorLight
             UInt128 cells = UInt128.Zero;
             for (int c = 0; c < centres.Length; c++)
             {
-                if (Reaches(scene, scratch, light, centres[c], frame.Out, reach))
+                if (Reaches(scene, scratch, light, centres[c], frame.Out, reach, skybox))
                 {
                     cells |= UInt128.One << c;
                 }
@@ -727,7 +742,7 @@ internal sealed partial class RoomDoorLight
                 light.ConstantAttn, light.LinearAttn, light.QuadraticAttn, light.StopDot, light.StopDot2, light.Exponent, cells));
         }
 
-        sources.AddRange(StandIns(scene, scratch, frame, centres, reach, cell));
+        sources.AddRange(StandIns(scene, scratch, frame, centres, reach, cell, skybox));
         return [.. sources];
     }
 
@@ -735,9 +750,11 @@ internal sealed partial class RoomDoorLight
     /// Whether a light reaches a point travelling out of the room: a point,
     /// spot or surface light in front of it that the point sees and whose
     /// falloff there is not zero, or the sun when a ray back along its light
-    /// meets the sky.
+    /// meets the sky and, for a sky room of a library with a 3D skybox,
+    /// nothing stops it once recast into the skybox (<see cref="SkyboxRecast"/>),
+    /// as vrad's sky test of a luxel beyond the door would recast it.
     /// </summary>
-    private static bool Reaches(AmbientScene scene, DispTestedScratch scratch, DWorldLight light, Vec3 point, Vec3 @out, float reach)
+    private static bool Reaches(AmbientScene scene, DispTestedScratch scratch, DWorldLight light, Vec3 point, Vec3 @out, float reach, SkyboxRecast? skybox)
     {
         switch ((EmitType)light.Type)
         {
@@ -771,7 +788,7 @@ internal sealed partial class RoomDoorLight
                 }
 
                 AmbientHit hit = scene.Tracer.Trace(point, light.Normal * -reach, scratch);
-                return hit.IsHit && (scene.TexInfo[scene.Faces[hit.Surface].TexInfo].Flags & (int)SurfaceFlags.Sky) != 0;
+                return hit.IsHit && IsSky(scene, hit) && skybox?.Blocks(point, -light.Normal) != true;
             }
 
             default:
@@ -790,7 +807,8 @@ internal sealed partial class RoomDoorLight
     /// it sends through the cells it was seen from. Only style 0: vrad
     /// bounces only style 0, and leaf ambient keeps only style 0.
     /// </summary>
-    private static List<DoorSource> StandIns(AmbientScene scene, DispTestedScratch scratch, DoorFrame frame, Vec3[] centres, float reach, float cell)
+    private static List<DoorSource> StandIns(
+        AmbientScene scene, DispTestedScratch scratch, DoorFrame frame, Vec3[] centres, float reach, float cell, SkyboxRecast? skybox)
     {
         Vec3? skyAmbient = RayAmbientLighting.FindSkyAmbient(scene);
         Vec3[] directions = Hemisphere(CaptureRays);
@@ -807,6 +825,14 @@ internal sealed partial class RoomDoorLight
                 Vec3 end = point - (travel * reach);
                 AmbientHit hit = scene.Tracer.Trace(point, end - point, scratch);
                 if (!hit.IsHit || HitPoint(scene, point, -travel, reach, hit) is not { } at || !Inside(at, cell))
+                {
+                    continue;
+                }
+
+                // Sky the skybox shades: what a luxel beyond the door would
+                // see there once vrad recasts its sky ray is the skybox's
+                // geometry, which sends nothing.
+                if (skybox is not null && IsSky(scene, hit) && skybox.Blocks(point, -travel))
                 {
                     continue;
                 }
@@ -851,6 +877,10 @@ internal sealed partial class RoomDoorLight
 
         return standIns;
     }
+
+    /// <summary>Whether a ray's hit is a sky face.</summary>
+    private static bool IsSky(AmbientScene scene, AmbientHit hit) =>
+        (scene.TexInfo[scene.Faces[hit.Surface].TexInfo].Flags & (int)SurfaceFlags.Sky) != 0;
 
     /// <summary>
     /// Where a leaf ambient ray met what it hit: along the ray for a surface

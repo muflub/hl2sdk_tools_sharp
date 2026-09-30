@@ -328,6 +328,10 @@ public static partial class RoomCommands
                 {
                     Sun = RoomLightingSettings.SunOf(libraryEntities),
                     DoorLight = doorLight,
+
+                    // Every sky room's bake recasts into the skybox, which
+                    // the library compile therefore compiles first.
+                    Skybox = split.Skybox,
                 };
             packId = RoomCompileIds.PackId(
                 libraryBytes,

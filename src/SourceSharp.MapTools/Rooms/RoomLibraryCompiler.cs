@@ -149,13 +149,18 @@ public sealed class RoomLibraryCompileSettings(VbspOptions options, IContentFile
     /// </summary>
     /// <param name="content">The content the rooms read instead.</param>
     /// <returns>A copy with every other member as it is here.</returns>
-    internal RoomLibraryCompileSettings WithContent(IContentFileSystem content) => new(Options, content)
+    internal RoomLibraryCompileSettings WithContent(IContentFileSystem content) => With(content, Lighting);
+
+    /// <summary>These settings lighting the rooms otherwise: the library compile's, once it has compiled the skybox.</summary>
+    internal RoomLibraryCompileSettings WithLighting(RoomLightingSettings lighting) => With(Content, lighting);
+
+    private RoomLibraryCompileSettings With(IContentFileSystem content, RoomLightingSettings? lighting) => new(Options, content)
     {
         CollisionCooker = CollisionCooker,
         PropHullCache = PropHullCache,
         Nav = Nav,
         NameKeys = NameKeys,
-        Lighting = Lighting,
+        Lighting = lighting,
         Parallelism = Parallelism,
         BeforeRoomProbe = BeforeRoomProbe,
         RoomCompiledProbe = RoomCompiledProbe,
@@ -297,27 +302,68 @@ public static class RoomLibraryCompiler
             Delivery delivery = new(rooms.Count, roomFinished);
             try
             {
+                // The library's 3D skybox before every other room: each sky
+                // room's bake recasts into its compile (RoomSkybox). Listed,
+                // it is compiled, lit and delivered in its place as any room;
+                // not listed (the cache holds it, and only other rooms are
+                // compiled this run), its geometry alone is compiled for the
+                // bakes and not delivered.
+                RoomLibraryCompileSettings run = settings;
+                int skyboxIndex = -1;
+                if (settings.Lighting is { Skybox: { } skyboxRoom, SkyboxScene: null } lighting)
+                {
+                    for (int i = 0; i < rooms.Count; i++)
+                    {
+                        skyboxIndex = string.Equals(rooms[i].Definition.Name, skyboxRoom.Definition.Name, StringComparison.Ordinal) ? i : skyboxIndex;
+                    }
+
+                    RoomObject? skybox;
+                    if (skyboxIndex >= 0)
+                    {
+                        RoomCompileOutcome outcome = await CompileRoomAsync(
+                            skyboxIndex, rooms[skyboxIndex], settings, materials, cooker, roomParallelism, cancellationToken).ConfigureAwait(false);
+                        settings.RoomCompiledProbe?.Invoke(skyboxIndex);
+                        skybox = outcome.Compiled;
+                        await delivery.FinishAsync(outcome, cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        skybox = await CompileGeometryAsync(skyboxRoom, settings, materials, cooker, roomParallelism, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    // A skybox that did not compile leaves the settings
+                    // without its compile, and each sky room's bake refuses
+                    // (RoomLighting.BakeAsync) rather than light it as if
+                    // the level had no skybox.
+                    if (skybox is not null)
+                    {
+                        run = settings.WithLighting(lighting.WithSkybox(RoomSkybox.Of(skybox)));
+                    }
+                }
+
+                int[] order = [.. Enumerable.Range(0, rooms.Count).Where(i => i != skyboxIndex)];
                 // The loop's own token is not passed on: it also fires when
                 // another room's body throws, and a room before that one in
                 // the library should still finish and be delivered, as it
                 // would have been one room at a time. The loop still stops
                 // starting rooms when it fires.
-                async ValueTask CompileOneAsync(int index, CancellationToken loopToken)
+                async ValueTask CompileOneAsync(int slot, CancellationToken loopToken)
                 {
+                    int index = order[slot];
                     if (settings.BeforeRoomProbe is { } before)
                     {
                         await before(index, cancellationToken).ConfigureAwait(false);
                     }
 
                     RoomCompileOutcome outcome = await CompileRoomAsync(
-                        index, rooms[index], settings, materials, cooker, roomParallelism, cancellationToken).ConfigureAwait(false);
+                        index, rooms[index], run, materials, cooker, roomParallelism, cancellationToken).ConfigureAwait(false);
                     settings.RoomCompiledProbe?.Invoke(index);
                     await delivery.FinishAsync(outcome, cancellationToken).ConfigureAwait(false);
                 }
 
                 if (pool is not null)
                 {
-                    await pool.ForAsync(rooms.Count, degree, CompileOneAsync, cancellationToken).ConfigureAwait(false);
+                    await pool.ForAsync(order.Length, degree, CompileOneAsync, cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -327,7 +373,7 @@ public static class RoomLibraryCompiler
                         TaskScheduler = scheduler,
                         CancellationToken = cancellationToken,
                     };
-                    await System.Threading.Tasks.Parallel.ForAsync(0, rooms.Count, options, CompileOneAsync).ConfigureAwait(false);
+                    await System.Threading.Tasks.Parallel.ForAsync(0, order.Length, options, CompileOneAsync).ConfigureAwait(false);
                 }
             }
             finally
@@ -350,6 +396,46 @@ public static class RoomLibraryCompiler
         exception is MapCompileException or RoomLintException or LinkException
             or IOException or UnauthorizedAccessException;
 
+    /// <summary>
+    /// A room's compile alone, nothing lit or precomputed: the skybox's
+    /// geometry, when the cache serves the skybox and other rooms still
+    /// need it for their bakes. The same compile <see cref="CompileRoomAsync"/>
+    /// makes first, so the same map; null when it fails as a room fails.
+    /// </summary>
+    private static async Task<RoomObject?> CompileGeometryAsync(
+        LibraryRoom room,
+        RoomLibraryCompileSettings settings,
+        SharedMaterialFacts materials,
+        ICollisionCooker? cooker,
+        CompileParallelism parallelism,
+        CancellationToken cancellationToken)
+    {
+        VbspContext context = Context(room, settings, materials, cooker, parallelism);
+        try
+        {
+            (VmfDocument document, _) = RoomPois.Extract(room.Document);
+            return await RoomCompiler.CompileAsync(document, room.Definition, context, settings.NameKeys, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (IsRoomFailure(exception))
+        {
+            return null;
+        }
+    }
+
+    /// <summary>A room's own compile context over the run's shared content, material facts and cooker.</summary>
+    private static VbspContext Context(
+        LibraryRoom room, RoomLibraryCompileSettings settings, SharedMaterialFacts materials, ICollisionCooker? cooker, CompileParallelism parallelism) =>
+        new(settings.Options, settings.Content, materials)
+        {
+            // mapbase: the room's name, lowercased
+#pragma warning disable CA1308 // strlwr
+            MapBase = room.Definition.Name.ToLowerInvariant(),
+#pragma warning restore CA1308
+            CollisionCooker = cooker,
+            PropHullCache = settings.PropHullCache,
+            Parallelism = parallelism,
+        };
+
     private static async Task<RoomCompileOutcome> CompileRoomAsync(
         int index,
         LibraryRoom room,
@@ -363,16 +449,7 @@ public static class RoomLibraryCompiler
         // (texinfos, planes, the loading map), which two rooms must not
         // share. The content, the material facts and the cooker are
         // read-only or thread-safe, and are.
-        VbspContext context = new(settings.Options, settings.Content, materials)
-        {
-            // mapbase: the room's name, lowercased
-#pragma warning disable CA1308 // strlwr
-            MapBase = room.Definition.Name.ToLowerInvariant(),
-#pragma warning restore CA1308
-            CollisionCooker = cooker,
-            PropHullCache = settings.PropHullCache,
-            Parallelism = parallelism,
-        };
+        VbspContext context = Context(room, settings, materials, cooker, parallelism);
 
         try
         {

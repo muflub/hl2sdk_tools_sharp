@@ -10,6 +10,7 @@ using SourceSharp.MapFormats.Bsp.Structs;
 using SourceSharp.MapFormats.Geometry;
 
 using SourceSharp.MapTools.Bsp;
+using SourceSharp.MapTools.Rooms;
 
 using Xunit;
 using Xunit.Abstractions;
@@ -83,6 +84,132 @@ public sealed class LevelLinkerSkyboxLightingTests(SkyboxLitFixture fixture, ITe
         Assert.True(p99 <= 0.05 && max <= 0.25, $"{row}: p99 {p99}, max {max}");
         Assert.True(exact >= both * 0.98, $"{row}: {exact} of {both} exact");
     }
+
+    /// <summary>
+    /// The sky room and the hub jointed, the sky room at its bakes' cell
+    /// (the grid's south-west cell, above the skybox), lit with their door
+    /// light: against vrad of the linked level within PR 10's tolerances
+    /// (near and elsewhere p95 under 0.08, energy within 2%, under 3% of
+    /// luxels more than 5% brighter), where the rooms baked sealed, as
+    /// before the skybox joined the bake, are far off near the joint (the
+    /// hub's floor lit by the sun the overhang shades) and too bright.
+    /// Measured: near p95 0.008 to 0.009, elsewhere 0.035 to 0.056, energy
+    /// 0.995 to 0.997; sealed near p95 0.64 to 0.76, energy 1.12 to 1.13.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(90)]
+    public async Task AJointedLevelWithTheSkyboxAgreesWithVradOfTheLinkWithinTheTolerances(int rotation)
+    {
+        string row = $"other@{rotation}, hub@{rotation}";
+        LinkedLevel level = await fixture.DoorLinkedAsync(row);
+        List<DoorLightCompare.Joint> joints = DoorLightCompare.Joints(level);
+        Assert.Equal(2, joints.Count);
+        BspData relit = await fixture.RelitAsync(row);
+        DoorLightCompare.Metric door = DoorLightCompare.Measure(level.Bsp, relit, joints, allStyles: true);
+        DoorLightCompare.Metric sealedBake = DoorLightCompare.Measure((await fixture.DoorLinkedAsync(row, sealedBake: true)).Bsp, relit, joints, allStyles: true);
+        output.WriteLine($"{row} with the skybox: {door}");
+        output.WriteLine($"{row} sealed:          {sealedBake}");
+        AssertWithinDoorLightTolerances(door);
+        Assert.True(sealedBake.NearP95 > 0.5, $"sealed near p95 {sealedBake.NearP95}");
+        Assert.True(sealedBake.Energy > 1.1, $"sealed energy {sealedBake.Energy}");
+    }
+
+    /// <summary>
+    /// The same level against the full compile of its flattened map (vbsp,
+    /// vvis, vrad), held to the same tolerances. Measured: near p95 0.009
+    /// to 0.013, elsewhere 0.036 to 0.054, energy 0.992 to 0.994; sealed
+    /// near p95 0.51 to 0.64, energy 1.11 to 1.13.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(90)]
+    public async Task AJointedLevelWithTheSkyboxAgreesWithItsFlattenedFullCompile(int rotation)
+    {
+        string row = $"other@{rotation}, hub@{rotation}";
+        LinkedLevel level = await fixture.DoorLinkedAsync(row);
+        List<DoorLightCompare.Joint> joints = DoorLightCompare.Joints(level);
+        BspData flat = await fixture.FlatAsync(row);
+        DoorLightCompare.Metric door = DoorLightCompare.Measure(level.Bsp, flat, joints, allStyles: true);
+        DoorLightCompare.Metric sealedBake = DoorLightCompare.Measure((await fixture.DoorLinkedAsync(row, sealedBake: true)).Bsp, flat, joints, allStyles: true);
+        output.WriteLine($"{row} with the skybox: {door}");
+        output.WriteLine($"{row} sealed:          {sealedBake}");
+        AssertWithinDoorLightTolerances(door);
+        Assert.True(sealedBake.NearP95 > 0.5, $"sealed near p95 {sealedBake.NearP95}");
+    }
+
+    /// <summary>
+    /// The known difference the bake cannot hold: a sky room one cell east
+    /// of its bakes' cell. vrad recasts a sample at <c>p</c> to
+    /// <c>camera + p / scale</c>, so the room's recast starts lie 16 units
+    /// further east in the skybox (its 256-unit cell over the scale of 16),
+    /// past the overhang's edge, and vrad of the level shades the room far
+    /// less than its bake does: measured, elsewhere p95 0.42 to 0.46, energy
+    /// 0.90, the sealed bake nearer (p95 0.02). Held here so the parallax
+    /// stays what the design note says it is: the linked room's own light is
+    /// the bake's, cell for cell, and only darker than vrad's (the overhang
+    /// the bake saw), never brighter.
+    /// </summary>
+    [Fact]
+    public async Task ASkyRoomAwayFromItsBakesCellSeesTheSkyboxFromThere()
+    {
+        const string row = "hub@0, other@0";
+        LinkedLevel level = await fixture.DoorLinkedAsync(row);
+        List<DoorLightCompare.Joint> joints = DoorLightCompare.Joints(level);
+        DoorLightCompare.Metric door = DoorLightCompare.Measure(level.Bsp, await fixture.RelitAsync(row), joints, allStyles: true);
+        output.WriteLine($"{row}: {door}");
+        Assert.True(door.FarP95 > 0.3, $"far p95 {door.FarP95}");
+        Assert.InRange(door.Energy, 0.85, 0.95);
+        Assert.True(door.ExcessP99 <= 0.05, $"excess p99 {door.ExcessP99}");
+    }
+
+    private static void AssertWithinDoorLightTolerances(DoorLightCompare.Metric metric)
+    {
+        Assert.True(metric.NearP95 <= 0.08, $"near p95 {metric.NearP95}");
+        Assert.True(metric.FarP95 <= 0.08, $"far p95 {metric.FarP95}");
+        Assert.InRange(metric.Energy, 0.98, 1.02);
+        Assert.True(metric.Brighter <= metric.Count * 3 / 100, $"{metric.Brighter} of {metric.Count} brighter");
+    }
+
+    /// <summary>
+    /// Only a sky room's bake changes: the hub, which no sky reaches, bakes
+    /// and records its door light to the same bytes with the skybox as
+    /// sealed and alone; the sky room's base and door light both change
+    /// (its lightmaps shaded by the overhang, and the sun and sky it sends
+    /// through its doors recast into the skybox).
+    /// </summary>
+    [Fact]
+    public async Task OnlyTheSkyRoomsBakeChanges()
+    {
+        RoomLibrary recast = await fixture.DoorLitAsync();
+        RoomLibrary sealedBake = await fixture.DoorLitSealedAsync();
+        Assert.Equal(Section(sealedBake.Get("hub").Lighting!.ToSection()), Section(recast.Get("hub").Lighting!.ToSection()));
+        Assert.Equal(Section(sealedBake.Get("hub").DoorLight!.ToSection()), Section(recast.Get("hub").DoorLight!.ToSection()));
+        Assert.NotEqual(Section(sealedBake.Get("other").Lighting!.ToSection()), Section(recast.Get("other").Lighting!.ToSection()));
+        Assert.NotEqual(Section(sealedBake.Get("other").DoorLight!.ToSection()), Section(recast.Get("other").DoorLight!.ToSection()));
+        Assert.Equal(Section(sealedBake.Get("sky").Lighting!.ToSection()), Section(recast.Get("sky").Lighting!.ToSection()));
+    }
+
+    /// <summary>
+    /// A sky room's bake and door light with the skybox are the same bytes at
+    /// one thread and at four.
+    /// </summary>
+    [Fact]
+    public async Task TheBakeWithTheSkyboxIsTheSameAtAnyThreadCount()
+    {
+        RoomLibrary one = await fixture.DoorLitAsync();
+        RoomLibrary four = await SkyboxLitFixture.CompileAsync(SkyboxLitFixture.Library, light: true, degree: 4, doorLight: true);
+        foreach (string room in (string[])["hub", "other", "sky"])
+        {
+            Assert.Equal(Section(one.Get(room).Lighting!.ToSection()), Section(four.Get(room).Lighting!.ToSection()));
+            if (one.Get(room).DoorLight is { } door)
+            {
+                Assert.Equal(Section(door.ToSection()), Section(four.Get(room).DoorLight!.ToSection()));
+            }
+        }
+    }
+
+    private static byte[] Section(RoomPackSectionData section) => section.Bytes.ToArray();
 
     /// <summary>The luxels two maps hold at the same points (thin faces left out): how many, how many exact, and each one's relative difference, sorted.</summary>
     internal static (int Both, int Exact, List<double> Relative) Compare(BspData a, BspData b)

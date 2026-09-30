@@ -415,6 +415,17 @@ internal sealed class RoomLighting
         bool sun = settings.Sun is not null;
         int turns = sun && HasSkyFace(source) ? 4 : 1;
 
+        // A sky room of a library with a 3D skybox is lit only with the
+        // skybox's compile under it: lit without, it would link as if the
+        // level had no skybox, which is the difference the bake closes.
+        if (turns == 4 && settings.Skybox is { } skybox && settings.SkyboxScene is null
+            && !string.Equals(skybox.Definition.Name, room.Definition.Name, StringComparison.Ordinal))
+        {
+            throw new Diagnostics.MapCompileException(
+                $"room {room.Definition.Name} is lit under the library's 3D skybox \"{skybox.Definition.Name}\", which did not compile;"
+                + " its sky rays are recast into the skybox, so the skybox must compile first.");
+        }
+
         RoomLightingPayload[] payloads = new RoomLightingPayload[turns];
         Vec3[] normals = [];
         ushort[] normalIndices = [];
