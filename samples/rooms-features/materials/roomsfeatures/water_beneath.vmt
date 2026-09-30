@@ -1,0 +1,10 @@
+"Water"
+{
+	"%compilewater" "1"
+	"$abovewater" "0"
+	"$surfaceprop" "water"
+	"$fogenable" "1"
+	"$fogcolor" "{40 50 40}"
+	"$fogstart" "0"
+	"$fogend" "400"
+}

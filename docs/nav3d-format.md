@@ -852,9 +852,14 @@ obstacles no nearer one dominates, and beside a doorway the door's jambs
 opening's width away and block every height, so anything in the
 neighbour's room farther than the jambs is dominated. The stitched grid
 therefore equals the whole level's wherever a room keeps the inside of
-each door clear out to the jambs' distance plus a voxel. The flatten
-equivalence fact (5.4) checks it on every 3x3 sample level, records
-included.
+each door clear out to the jambs' distance plus a voxel. An open water
+socket's doorway (a door whose room declares `water_<wall>`) is assumed
+full of water from its floor to the declared level, as the link carves it
+and the flattened level's compile fills it: the joint rule lets a water
+socket meet only another at the same level, so its voxels below the level
+are water. A capped one keeps its plug, solid. The flatten equivalence
+fact (5.4) checks it on every 3x3 sample level, records included, and on
+every level of the features and multi-library samples.
 
 ### 17.5 The map first, the navigation after
 

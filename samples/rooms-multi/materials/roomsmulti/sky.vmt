@@ -1,0 +1,5 @@
+"UnlitGeneric"
+{
+	"$basetexture" "roomsmulti/sky"
+	"%compileSky" "1"
+}

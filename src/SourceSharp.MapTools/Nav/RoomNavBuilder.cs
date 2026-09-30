@@ -69,6 +69,11 @@ public static class RoomNavBuilder
     /// <param name="role">The room's transition role.</param>
     /// <param name="settings">The library's navigation settings.</param>
     /// <param name="modelBounds">A prop model's hull by its path, or null when unknown; null leaves props out.</param>
+    /// <param name="waterSockets">
+    /// The room's water sockets by socket name (<see cref="LibraryRoom.WaterSockets"/>),
+    /// or null for none: an open one's doorway holds water up to its level
+    /// (<see cref="DoorwayWater"/>).
+    /// </param>
     /// <param name="cancellationToken">Cancels the build.</param>
     /// <returns>The room's navigation at turn 0.</returns>
     /// <exception cref="RoomLibraryException">The settings do not fit the room's cell.</exception>
@@ -80,10 +85,11 @@ public static class RoomNavBuilder
         RoomRole role,
         NavSettings settings,
         Func<string, (Vec3 Mins, Vec3 Maxs)?>? modelBounds = null,
+        IReadOnlyDictionary<string, RoomWaterSocket>? waterSockets = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(bsp);
-        return Build(definition, NavGeometry.FromBsp(bsp, modelBounds), pois, role, settings, cancellationToken);
+        return Build(definition, NavGeometry.FromBsp(bsp, modelBounds), pois, role, settings, waterSockets, cancellationToken);
     }
 
     /// <summary>Builds a room's navigation from its geometry (room-local, plugs in).</summary>
@@ -92,6 +98,7 @@ public static class RoomNavBuilder
     /// <param name="pois">The room's points of interest.</param>
     /// <param name="role">The room's transition role.</param>
     /// <param name="settings">The library's navigation settings.</param>
+    /// <param name="waterSockets">The room's water sockets by socket name, or null for none (<see cref="DoorwayWater"/>).</param>
     /// <param name="cancellationToken">Cancels the build.</param>
     /// <returns>The room's navigation at turn 0.</returns>
     public static RoomNav Build(
@@ -100,6 +107,7 @@ public static class RoomNavBuilder
         IReadOnlyList<AuthoredPoi> pois,
         RoomRole role,
         NavSettings settings,
+        IReadOnlyDictionary<string, RoomWaterSocket>? waterSockets = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -140,14 +148,14 @@ public static class RoomNavBuilder
             Warnings = geometry.Warnings,
         };
         NavRecordTable records = new();
-        NavGeometry open = fixedGeometry.With(Outside(definition, capped: -1));
+        NavGeometry open = fixedGeometry.With([.. Outside(definition, capped: -1), .. DoorwayWater(definition, waterSockets, capped: -1)]);
         NavGrid grid = NavClearanceBuilder.Build(open, region, settings, records, cancellationToken);
         IReadOnlyList<NavBrush> overhang = NavClearanceBuilder.OverhangBrushes(open);
 
         List<RoomNavSocket> sockets = [];
         for (int s = 0; s < definition.Sockets.Count; s++)
         {
-            List<NavBrush> shut = [.. Outside(definition, capped: s)];
+            List<NavBrush> shut = [.. Outside(definition, capped: s), .. DoorwayWater(definition, waterSockets, capped: s)];
             if (plugOf[s] >= 0)
             {
                 shut.Add(geometry.Brushes[plugOf[s]]);
@@ -227,6 +235,65 @@ public static class RoomNavBuilder
 
         return true;
     }
+
+    /// <summary>
+    /// The water in each open water socket's doorway: the socket's plug box,
+    /// from its floor up to the declared level (the whole box when the
+    /// level is at or above the door's top), as water. <paramref name="capped"/>
+    /// names the one socket shut, or -1 for every socket open.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why the room assumes it.</b> A room is built with its plugs in, and
+    /// its open state takes the plug out and assumes what a joint puts there
+    /// (<see cref="Outside"/>). At an ordinary door that is air. At a water
+    /// socket it is water: the joint rule lets a water socket meet only
+    /// another water socket at the same level, the link carves the doorway's
+    /// water leaves up to that level, and the flattened level's compile fills
+    /// both plug boxes with water to it. Assuming air there left the
+    /// doorway's voxels dry in the stitched navigation (no water flag, dry
+    /// cost) where the flattened level's grid had them wet; the samples'
+    /// equivalence facts found it.
+    /// </para>
+    /// <para>
+    /// Only the room's own plug box: the navigation covers the room's cell,
+    /// and the neighbour's half of the doorway is in the neighbour's cell,
+    /// which its own navigation, built the same way, covers. The contents are
+    /// water's whatever the declared material: the grid reads water and
+    /// slime alike (<see cref="Nav3dFormat.WaterContents"/>), and neither is
+    /// solid to any agent. A capped water socket keeps its plug, so its
+    /// doorway is solid and holds no water.
+    /// </para>
+    /// </remarks>
+    internal static List<NavBrush> DoorwayWater(
+        RoomDefinition definition, IReadOnlyDictionary<string, RoomWaterSocket>? waterSockets, int capped)
+    {
+        List<NavBrush> water = [];
+        if (waterSockets is null || waterSockets.Count == 0)
+        {
+            return water;
+        }
+
+        for (int s = 0; s < definition.Sockets.Count; s++)
+        {
+            if (s == capped || !waterSockets.TryGetValue(definition.Sockets[s].Name, out RoomWaterSocket? socket))
+            {
+                continue;
+            }
+
+            Box plug = RoomLinter.SealBox(definition, definition.Sockets[s], definition.CellSize);
+            float top = Math.Min(socket.Level, plug.Maxs.Z);
+            if (top > plug.Mins.Z)
+            {
+                water.Add(NavBrush.Box(plug.Mins, new Vec3(plug.Maxs.X, plug.Maxs.Y, top), WaterContents));
+            }
+        }
+
+        return water;
+    }
+
+    /// <summary>The contents a doorway's water takes: <c>CONTENTS_WATER</c>.</summary>
+    private const int WaterContents = 0x20;
 
     /// <summary>
     /// The solid the room assumes beyond its cell: a thick slab past each of

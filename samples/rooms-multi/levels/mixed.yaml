@@ -1,0 +1,13 @@
+# a level of two libraries: base's rooms, caves' tall rooms, an alias and qualified names
+# the grid's first line is the north row; each line runs west to east
+libraries:
+  base: ../base.vmf
+  caves: ../caves.vmf
+rows: 3
+columns: 3
+aliases:
+  H: caves.hall
+grid:
+  - [base.end@270, gallery@90, shaft@180]
+  - [tee@270,      cross,      cavern@90]
+  - [corner,       H,          caves.end@180]

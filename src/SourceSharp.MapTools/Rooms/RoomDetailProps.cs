@@ -401,20 +401,6 @@ internal sealed class RoomDetailProps
     }
 
     /// <summary>
-    /// A room's detail props from its section, bound to <paramref name="bsp"/>;
-    /// or null when the section is absent or of a revision this build does not read.
-    /// </summary>
-    /// <param name="section">The section's bytes, or null when the room has none.</param>
-    /// <param name="room">The room's name, for messages.</param>
-    /// <param name="bsp">The room's compiled BSP, whose lump the section must fit.</param>
-    /// <returns>The props, or null.</returns>
-    /// <exception cref="LinkException">
-    /// A codec this build does not read, a payload that decodes to another
-    /// length than recorded, or a payload that does not fit the room's lump:
-    /// cut short, another prop count, a turn count other than 1 or 4, bytes
-    /// after its end; or a room lump out of the shape vbsp writes.
-    /// </exception>
-    /// <summary>
     /// How many detail props a room's section holds, read without the room's
     /// compile (what <c>ssmap rooms</c> lists); null when the section is
     /// absent or of a revision this build does not read.
@@ -438,6 +424,20 @@ internal sealed class RoomDetailProps
         return count > 0 ? count : throw r.Mismatch($"{count} detail props");
     }
 
+    /// <summary>
+    /// A room's detail props from its section, bound to <paramref name="bsp"/>;
+    /// or null when the section is absent or of a revision this build does not read.
+    /// </summary>
+    /// <param name="section">The section's bytes, or null when the room has none.</param>
+    /// <param name="room">The room's name, for messages.</param>
+    /// <param name="bsp">The room's compiled BSP, whose lump the section must fit.</param>
+    /// <returns>The props, or null.</returns>
+    /// <exception cref="LinkException">
+    /// A codec this build does not read, a payload that decodes to another
+    /// length than recorded, or a payload that does not fit the room's lump:
+    /// cut short, another prop count, a turn count other than 1 or 4, bytes
+    /// after its end; or a room lump out of the shape vbsp writes.
+    /// </exception>
     internal static RoomDetailProps? Read(ArraySegment<byte>? section, string room, BspData bsp)
     {
         if (RoomLinkSections.Open(section, room, SectionTag) is not { } r)

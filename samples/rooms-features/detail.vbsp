@@ -1,0 +1,20 @@
+detail.vbsp
+{
+	"roomsfeatures_grass"
+	{
+		"density" "8000.0"
+		"low"
+		{
+			"alpha" "0"
+			"tuft"
+			{
+				"sprite" "0 0 64 64 512"
+				"spritesize" "0.5 0 24 24"
+				"spriterandomscale" "0.2"
+				"amount" "1"
+				"upright" "1"
+				"detailOrientation" "2"
+			}
+		}
+	}
+}

@@ -1,0 +1,9 @@
+# the rooms features sample level turned 90 degrees
+# the grid's first line is the north row; each line runs west to east
+library: ../rooms.vmf
+rows: 3
+columns: 2
+grid:
+  - [ridge@270, ridge@90]
+  - [tower@90,  pool@90]
+  - [garden@90, pool@90]

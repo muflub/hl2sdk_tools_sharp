@@ -35,6 +35,13 @@ public sealed class VmfSide
     public required string Material { get; set; }
     public required string UAxis { get; init; }
     public required string VAxis { get; init; }
+
+    /// <summary>
+    /// The side's <c>dispinfo</c> chunk when the side is a displacement, or
+    /// null. Written inside the side after its keys, where Hammer writes it;
+    /// a side without one writes exactly what it always did.
+    /// </summary>
+    public VmfChunkNode? Displacement { get; set; }
 }
 
 /// <summary>A convex brush: the intersection of its faces' half-spaces.</summary>
@@ -317,6 +324,8 @@ public sealed class VmfMap
             text.Append($"{tab}\t\t\"rotation\" \"0\"\n");
             text.Append($"{tab}\t\t\"lightmapscale\" \"16\"\n");
             text.Append($"{tab}\t\t\"smoothing_groups\" \"0\"\n");
+            if (side.Displacement is { } displacement)
+                WriteChunk(text, displacement, depth + 2);
             text.Append($"{tab}\t}}\n");
         }
 
