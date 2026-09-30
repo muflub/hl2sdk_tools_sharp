@@ -36,7 +36,35 @@ public sealed record LibraryRoom(RoomDefinition Definition, Vec3 Corner, VmfDocu
     /// without the key.
     /// </summary>
     public RoomRole Role { get; init; }
+
+    /// <summary>
+    /// The namespace the room is compiled into, for a room of a pack with
+    /// namespaces (<see cref="RoomPackCombiner"/>), or null for a room of a
+    /// plain pack, which every library split gives.
+    /// </summary>
+    /// <remarks>
+    /// It carries the room's own library's name keys: a combined pack
+    /// compiles every library's rooms in one run, and each library's name
+    /// keys stay with its rooms (the rooms design, 17.4), so the run's own
+    /// (<see cref="RoomLibraryCompileSettings.NameKeys"/>) cannot serve them
+    /// all. The compile and the room cache's key read the room's through
+    /// <see cref="NameKeysOr"/>.
+    /// </remarks>
+    public RoomNamespace? Namespace { get; init; }
+
+    /// <summary>
+    /// The name keys the room compiles with: its namespace's when it has
+    /// one, else the run's.
+    /// </summary>
+    /// <param name="run">The run's name keys (<see cref="RoomLibraryCompileSettings.NameKeys"/>).</param>
+    /// <returns>The keys, or null when neither adds any.</returns>
+    public IReadOnlySet<string>? NameKeysOr(IReadOnlySet<string>? run) => Namespace is { } space ? space.NameKeys : run;
 }
+
+/// <summary>The namespace a room of a combined pack is compiled into.</summary>
+/// <param name="Key">The namespace: its library's key, the front of the room's name.</param>
+/// <param name="NameKeys">Its library's name-valued keys (<see cref="RoomLibraryOptions.NameKeySet"/>), or null when it adds none.</param>
+public sealed record RoomNamespace(string Key, IReadOnlySet<string>? NameKeys);
 
 /// <summary>A room library split: its rooms, and what the whole library shares.</summary>
 /// <param name="Rooms">The rooms, in the order their <c>info_room</c> entities appear.</param>
@@ -322,12 +350,9 @@ public static class RoomLibraryVmf
             // editor's save counter stays, at a fixed value, where it was
             // (RoomLibraryOptions.MapVersionKey says why).
             VmfChunk roomWorld = new(world.Name);
-            foreach (VmfKey key in world.Keys)
+            foreach (KeyValuePair<string, string> key in RoomWorldKeys(world))
             {
-                if (!RoomLibraryOptions.IsLibraryKey(key.Name))
-                {
-                    roomWorld.AddKey(key.Name, IsMapVersion(key) ? RoomLibraryOptions.RoomMapVersion : key.Value);
-                }
+                roomWorld.AddKey(key.Key, key.Value);
             }
 
             List<Box> localSolids = [];
@@ -374,6 +399,78 @@ public static class RoomLibraryVmf
         }
 
         return new RoomLibrarySplit(rooms, libraryWide) { Options = options, Skybox = skybox };
+    }
+
+    /// <summary>
+    /// A library's worldspawn keys as each of its rooms carries them: every
+    /// key but the library's own settings (<see cref="RoomLibraryOptions.IsLibraryKey"/>),
+    /// in the library's order, with the editor's save counter at its fixed
+    /// room value (<see cref="RoomLibraryOptions.RoomMapVersion"/>).
+    /// </summary>
+    /// <param name="world">The library's world chunk.</param>
+    /// <returns>The keys, in order.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="world"/> is null.</exception>
+    /// <remarks>
+    /// The split writes these into every room's world, and a combined pack
+    /// (<see cref="RoomPackCombiner"/>) writes the first library's into every
+    /// other library's rooms: one function, so a room of the first library
+    /// and a room given its worldspawn carry the same keys.
+    /// </remarks>
+    public static IReadOnlyList<KeyValuePair<string, string>> RoomWorldKeys(VmfChunk world)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        return [.. world.Keys
+            .Where(key => !RoomLibraryOptions.IsLibraryKey(key.Name))
+            .Select(key => new KeyValuePair<string, string>(key.Name, IsMapVersion(key) ? RoomLibraryOptions.RoomMapVersion : key.Value))];
+    }
+
+    /// <summary>
+    /// A room with another worldspawn: its world's keys replaced by the given
+    /// ones, its brushes and every other chunk of its document as they were.
+    /// </summary>
+    /// <param name="room">The room, as a split gave it.</param>
+    /// <param name="world">The keys its world takes instead (<see cref="RoomWorldKeys"/> of another library).</param>
+    /// <returns>A room over a new document; the given room is not changed.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="RoomLibraryException">The room's document has no world.</exception>
+    /// <remarks>
+    /// What a combined pack compiles a later library's room from (D26): the
+    /// first library's worldspawn, so every room of the pack is compiled
+    /// under the level's. The brushes keep their order after the keys, as
+    /// the split writes them.
+    /// </remarks>
+    public static LibraryRoom WithWorld(LibraryRoom room, IReadOnlyList<KeyValuePair<string, string>> world)
+    {
+        ArgumentNullException.ThrowIfNull(room);
+        ArgumentNullException.ThrowIfNull(world);
+        VmfDocument document = new();
+        bool found = false;
+        foreach (VmfChunk chunk in room.Document.Chunks)
+        {
+            if (!found && string.Equals(chunk.Name, MapFileLoader.WorldChunk, StringComparison.OrdinalIgnoreCase))
+            {
+                found = true;
+                VmfChunk replaced = new(chunk.Name);
+                foreach (KeyValuePair<string, string> key in world)
+                {
+                    replaced.AddKey(key.Key, key.Value);
+                }
+
+                foreach (VmfChunk child in chunk.Chunks)
+                {
+                    replaced.Children.Add(child);
+                }
+
+                document.Chunks.Add(replaced);
+                continue;
+            }
+
+            document.Chunks.Add(chunk);
+        }
+
+        return found
+            ? room with { Document = document }
+            : throw new RoomLibraryException($"room \"{room.Definition.Name}\" has no world chunk.");
     }
 
     private static bool IsMapVersion(VmfKey key) =>
