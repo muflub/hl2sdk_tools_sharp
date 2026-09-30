@@ -163,17 +163,20 @@ public static partial class LevelLinker
     /// <returns>The distinct blocks in first-placed order, each with its room's lighting and turn.</returns>
     private static List<(RoomLightingPayload Payload, int LdrBase, int HdrBase)> AssignLightBases(RoomPlan[] plans)
     {
-        Dictionary<(string Room, int Payload), (int Ldr, int Hdr)> bases = [];
+        Dictionary<(string Room, int Payload, int Placement), (int Ldr, int Hdr)> bases = [];
         List<(RoomLightingPayload, int, int)> blocks = [];
         long ldr = 0, hdr = 0;
         foreach (RoomPlan plan in plans)
         {
             RoomLighting lighting = plan.Lighting!;
             int payload = plan.Transform.Placement.NormalizedRotation % lighting.RotationCount;
-            (string, int) key = (plan.Placement.Instance.Placement.Room, payload);
+
+            // A placement whose sun the skybox parallax moved has its own
+            // block; every other shares its room's stored turn.
+            (string, int, int) key = (plan.Placement.Instance.Placement.Room, payload, plan.Placement.Parallax is null ? -1 : plan.Placement.Index);
             if (!bases.TryGetValue(key, out (int Ldr, int Hdr) at))
             {
-                RoomLightingPayload stored = lighting.Payloads[payload];
+                RoomLightingPayload stored = plan.Lit!;
                 at = ((int)ldr, (int)hdr);
                 bases[key] = at;
                 blocks.Add((stored, at.Ldr, at.Hdr));
@@ -764,7 +767,7 @@ public static partial class LevelLinker
                 continue;
             }
 
-            RoomLightingPayload payload = lighting.For(placement.Instance.Placement.NormalizedRotation);
+            RoomLightingPayload payload = placement.Parallax ?? lighting.For(placement.Instance.Placement.NormalizedRotation);
             foreach (bool hdr in (ReadOnlySpan<bool>)[false, true])
             {
                 if (payload.Range(hdr)?.Props.FirstOrDefault(p => p.Prop == prop.RoomProp) is not { } colours)

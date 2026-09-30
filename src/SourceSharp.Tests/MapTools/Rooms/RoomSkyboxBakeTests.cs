@@ -138,7 +138,7 @@ public sealed class RoomSkyboxBakeTests(SkyboxLitFixture fixture) : IClassFixtur
         RoomLightingSettings withB = new(VradOptions.Default) { Sun = RoomLightHarness.Sun(), Skybox = b };
 
         Assert.DoesNotContain("skybox", none.Describe(), StringComparison.Ordinal);
-        Assert.Equal(none.Describe() + "|skybox:" + RoomCacheKey.RoomDigest(a), withA.Describe());
+        Assert.Equal(none.Describe() + "|skybox:" + RoomCacheKey.RoomDigest(a) + "|parallax:" + RoomSunLayer.Revision, withA.Describe());
         Assert.NotEqual(withA.Describe(), withB.Describe());
         Assert.Equal(withA.Describe(), new RoomLightingSettings(VradOptions.Default) { Sun = RoomLightHarness.Sun(), Skybox = a2 }.Describe());
 
@@ -223,9 +223,16 @@ public sealed class RoomSkyboxBakeTests(SkyboxLitFixture fixture) : IClassFixtur
         Assert.All(listed, o => Assert.Null(o.Error));
         Assert.Equal(expected, listed[1].Compiled!.Lighting!.ToSection().Bytes.ToArray());
 
+        // The skybox parallax (D36): the skybox's sun map and the sky room's
+        // sun layer, the bytes the harness's bake gives them.
+        Assert.Equal(Parallax("sky"), Sections(listed[2]));
+        Assert.Equal(Parallax("other"), Sections(listed[1]));
+        Assert.Empty(Sections(listed[0]));
+
         List<RoomCompileOutcome> unlisted = await CompileAsync(split.Rooms, settings);
         Assert.Equal(["hub", "other"], unlisted.Select(o => o.Room.Definition.Name));
         Assert.Equal(expected, unlisted[1].Compiled!.Lighting!.ToSection().Bytes.ToArray());
+        Assert.Equal(Parallax("other"), Sections(unlisted[1]));
 
         // A skybox without its floor: it leaks, so it does not compile.
         LibraryRoom broken = split.Skybox! with { Document = await EmptyAsync(split.Skybox!.Document) };
@@ -235,6 +242,10 @@ public sealed class RoomSkyboxBakeTests(SkyboxLitFixture fixture) : IClassFixtur
         Assert.NotNull(failing[2].Error);
         Assert.Contains("which did not compile", failing[1].Error!.Message, StringComparison.Ordinal);
     }
+
+    private byte[][] Parallax(string room) => [.. fixture.Lit.Get(room).Lighting!.ParallaxSections().Select(section => section.Bytes.ToArray())];
+
+    private static byte[][] Sections(RoomCompileOutcome outcome) => [.. outcome.Compiled!.Lighting!.ParallaxSections().Select(section => section.Bytes.ToArray())];
 
     private static async Task<List<RoomCompileOutcome>> CompileAsync(IReadOnlyList<LibraryRoom> rooms, RoomLibraryCompileSettings settings)
     {

@@ -159,6 +159,10 @@ public sealed class RoomLightingSettings
         if (Skybox is not null)
         {
             text.Append("|skybox:").Append(RoomCacheKey.RoomDigest(Skybox));
+
+            // The skybox parallax (the skybox's sun map and each sky room's
+            // sun layer) is baked with it: a pack without them is rebuilt.
+            text.Append("|parallax:").Append(RoomSunLayer.Revision);
         }
 
         return text.ToString();
@@ -275,6 +279,21 @@ internal sealed class RoomLighting
     /// <summary>The room's face count, which every payload's per-face arrays match.</summary>
     public int FaceCount { get; }
 
+    /// <summary>
+    /// A sky room's sun layer (<see cref="RoomSunLayer"/>), baked when its
+    /// bakes recast into the library's skybox; null for every other room.
+    /// Stored in its own section, so <see cref="ToSection"/>'s bytes are
+    /// what they were without it.
+    /// </summary>
+    public RoomSunLayer? SunLayer { get; init; }
+
+    /// <summary>
+    /// The skybox room's sun map (<see cref="RoomSunMap"/>), made when the
+    /// library's skybox is lit under a sun; null for every other room.
+    /// Stored in its own section.
+    /// </summary>
+    public RoomSunMap? SunMap { get; init; }
+
     /// <summary>The room's leaf count, which every payload's ambient index matches.</summary>
     public int LeafCount { get; }
 
@@ -317,7 +336,23 @@ internal sealed class RoomLighting
 
     /// <summary>The same lighting bound to another BSP of the same room (a pack's read-back container).</summary>
     internal RoomLighting BoundTo(BspData bsp) =>
-        new(FaceCount, LeafCount, VertNormals, VertNormalIndices, HasSun, SkyLeaves, MapFlags, Payloads, SkyLdr, SkyHdr, bsp);
+        new(FaceCount, LeafCount, VertNormals, VertNormalIndices, HasSun, SkyLeaves, MapFlags, Payloads, SkyLdr, SkyHdr, bsp)
+        {
+            SunLayer = SunLayer,
+            SunMap = SunMap,
+        };
+
+    /// <summary>The same lighting with the skybox parallax's parts (a pack's read-back sections).</summary>
+    internal RoomLighting WithParallax(RoomSunLayer? layer, RoomSunMap? map) =>
+        new(FaceCount, LeafCount, VertNormals, VertNormalIndices, HasSun, SkyLeaves, MapFlags, Payloads, SkyLdr, SkyHdr, _bsp)
+        {
+            SunLayer = layer,
+            SunMap = map,
+        };
+
+    /// <summary>The skybox parallax's sections, those this lighting holds: the sun layer, then the sun map.</summary>
+    internal IReadOnlyList<RoomPackSectionData> ParallaxSections() =>
+        [.. SunLayer is { } layer ? [layer.ToSection()] : Array.Empty<RoomPackSectionData>(), .. SunMap is { } map ? [map.ToSection()] : Array.Empty<RoomPackSectionData>()];
 
     /// <summary>
     /// Whether sun or sky light can reach a compiled room: a face whose
@@ -446,7 +481,21 @@ internal sealed class RoomLighting
         }
 
         IReadOnlyList<(int, LeafFlags)> skyLeaves = sun ? PassOne(source) : [];
-        return new RoomLighting(faceCount, leafCount, normals, normalIndices, sun, skyLeaves, mapFlags, payloads, skyLdr, skyHdr, source);
+
+        // The skybox parallax (the rooms design, D36): a sky room whose bakes
+        // recast into the skybox gets its sun layer, one sun-only run a turn;
+        // the skybox itself, lit under the library's sun, its sun map.
+        RoomSunLayer? layer = settings.SkyboxScene is { } scene && scene.Lights(room, settings)
+            ? await RoomSunLayer.BakeAsync(room, payloads, skyLdr ?? skyHdr, settings, content, parallelism, cancellationToken).ConfigureAwait(false)
+            : null;
+        RoomSunMap? map = sun && settings.Skybox is { } skyboxRoom && string.Equals(skyboxRoom.Definition.Name, room.Definition.Name, StringComparison.Ordinal)
+            ? await RoomSunMap.BuildAsync(room, skyLdr ?? skyHdr, settings.Options, content, parallelism, cancellationToken).ConfigureAwait(false)
+            : null;
+        return new RoomLighting(faceCount, leafCount, normals, normalIndices, sun, skyLeaves, mapFlags, payloads, skyLdr, skyHdr, source)
+        {
+            SunLayer = layer,
+            SunMap = map,
+        };
     }
 
     /// <summary>
