@@ -82,6 +82,14 @@ public sealed class ShadowCasterSet
         _stats = stats;
     }
 
+    /// <summary>
+    /// Another scene with this one's per-source statistics: what
+    /// <see cref="VradSkybox.AppendTo"/> returns, the statistics being the
+    /// lit map's own load report, which the appended skybox does not change.
+    /// </summary>
+    internal ShadowCasterSet WithTriangles(TracedTriangle[] triangles, float[] coverage, int[] materials) =>
+        new(triangles, coverage, materials, _stats);
+
     /// <summary>How many caster triangles the map has.</summary>
     public int Count => _triangles.Length;
 

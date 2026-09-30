@@ -85,9 +85,11 @@ public sealed class SkyboxLitFixture : IAsyncLifetime
 
     /// <summary>
     /// The library's rooms and skybox compiled, and lit when asked, one at a
-    /// time, the skybox named as the library's.
+    /// time, the skybox named as the library's and compiled first, so each
+    /// sky room's bake recasts into it (<paramref name="recast"/> false lights
+    /// every room sealed and alone, as before the skybox joined the bake).
     /// </summary>
-    public static async Task<RoomLibrary> CompileAsync(VmfDocument library, bool light, int degree = 1, bool doorLight = false)
+    public static async Task<RoomLibrary> CompileAsync(VmfDocument library, bool light, int degree = 1, bool doorLight = false, bool recast = true)
     {
         RoomLibrarySplit split = RoomLibraryVmf.SplitLibrary(library);
         RoomLibrary compiled = new(split.Rooms[0].Definition.Kit, split.Rooms[0].Definition.CellSize)
@@ -96,31 +98,47 @@ public sealed class SkyboxLitFixture : IAsyncLifetime
             Options = split.Options,
             SkyboxRoom = split.Skybox!.Definition.Name,
         };
-        RoomLightingSettings settings = RoomLightHarness.Settings(split, Options);
-        settings = new RoomLightingSettings(settings.Options) { Sun = settings.Sun, DoorLight = doorLight };
-        foreach (LibraryRoom room in (IEnumerable<LibraryRoom>)[.. split.Rooms, split.Skybox])
+        RoomLightingSettings settings = new(Options)
         {
-            VbspContext context = await RoomLightHarness.ContextAsync(room.Definition.Name, degree);
-            RoomObject room1 = await RoomCompiler.CompileAsync(room.Document, room.Definition, context);
-            if (light)
-            {
-                room1 = room1 with
-                {
-                    Lighting = await RoomLighting.BakeAsync(room1, settings, context.Content!, context.Parallelism, CancellationToken.None),
-                };
-                if (doorLight)
-                {
-                    room1 = room1 with
-                    {
-                        DoorLight = await RoomDoorLight.BakeAsync(room1, room1.Lighting!, settings, context.Content!, context.Parallelism, CancellationToken.None),
-                    };
-                }
-            }
+            Sun = RoomLightingSettings.SunOf(split.LibraryEntities),
+            DoorLight = doorLight,
+            Skybox = split.Skybox,
+        };
 
-            compiled.Add(room1);
+        RoomObject skybox = await LightAsync(split.Skybox, settings);
+        if (recast)
+        {
+            settings = settings.WithSkybox(RoomSkybox.Of(skybox));
         }
 
+        foreach (LibraryRoom room in split.Rooms)
+        {
+            compiled.Add(await LightAsync(room, settings));
+        }
+
+        compiled.Add(skybox);
         return compiled;
+
+        async Task<RoomObject> LightAsync(LibraryRoom room, RoomLightingSettings settings)
+        {
+            VbspContext context = await RoomLightHarness.ContextAsync(room.Definition.Name, degree);
+            RoomObject compiledRoom = await RoomCompiler.CompileAsync(room.Document, room.Definition, context);
+            if (!light)
+            {
+                return compiledRoom;
+            }
+
+            compiledRoom = compiledRoom with
+            {
+                Lighting = await RoomLighting.BakeAsync(compiledRoom, settings, context.Content!, context.Parallelism, CancellationToken.None),
+            };
+            return doorLight
+                ? compiledRoom with
+                {
+                    DoorLight = await RoomDoorLight.BakeAsync(compiledRoom, compiledRoom.Lighting!, settings, context.Content!, context.Parallelism, CancellationToken.None),
+                }
+                : compiledRoom;
+        }
     }
 
     /// <summary>A level of the given rows linked from the lit rooms.</summary>

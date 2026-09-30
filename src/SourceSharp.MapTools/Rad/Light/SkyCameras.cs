@@ -59,6 +59,33 @@ public sealed class SkyCameras
     /// <summary>The number of areas the table covers.</summary>
     public int AreaCount => _areaCamera.Length;
 
+    /// <summary>
+    /// These cameras and some from outside the map (<see cref="VradSkybox"/>),
+    /// after them: each stands in no area, so no area's slot names it and
+    /// every camera-less area recasts into it, as every area of a level
+    /// recasts into the level's skybox.
+    /// </summary>
+    /// <param name="outside">The outside cameras, in order; each one's <see cref="SkyCamera.Area"/> must be -1.</param>
+    /// <returns>This table when <paramref name="outside"/> is empty, else the longer one.</returns>
+    /// <exception cref="ArgumentException">An outside camera claims an area of the map.</exception>
+    internal SkyCameras WithOutside(ReadOnlySpan<SkyCamera> outside)
+    {
+        if (outside.IsEmpty)
+        {
+            return this;
+        }
+
+        foreach (SkyCamera camera in outside)
+        {
+            if (camera.Area != -1)
+            {
+                throw new ArgumentException("a camera from outside the map stands in none of its areas", nameof(outside));
+            }
+        }
+
+        return new SkyCameras([.. _cameras, .. outside], _areaCamera);
+    }
+
     /// <summary>Builds the table.</summary>
     /// <param name="entities">The map's entities, in file order.</param>
     /// <param name="tree">The map's BSP, for <c>PointLeafnum</c>.</param>
