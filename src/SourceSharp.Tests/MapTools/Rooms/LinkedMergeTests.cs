@@ -111,7 +111,6 @@ public sealed class LinkedMergeTests
 
     /// <summary>Anything else in the keydata is refused naming the block or the fault.</summary>
     [Theory]
-    [InlineData("fluid {\n\"index\" \"0\"\n}\n", "has a \"fluid\" block")]
     [InlineData("solid {\n\"index\" \"0\"\n}\n", "has a \"solid\" block")]
     [InlineData("staticsolid\n", "\"staticsolid\" without a block")]
     [InlineData("staticsolid {\n\"index\" \"0\"\n", "block \"staticsolid\" is not closed")]

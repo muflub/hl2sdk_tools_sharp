@@ -181,6 +181,18 @@ public static class RoomCacheKey
 
         fold.Int((int)room.Role);
 
+        // The water sockets, only when the room declares any, so the digest
+        // of every room without them is what it was before them.
+        if (room.WaterSockets.Count > 0)
+        {
+            foreach ((string socket, RoomWaterSocket water) in room.WaterSockets.OrderBy(w => w.Key, StringComparer.Ordinal))
+            {
+                fold.Text("water/" + socket);
+                fold.Float(water.Level);
+                fold.Text(water.Material);
+            }
+        }
+
         // A room's own height (17.6), folded only for a shaped room, so a
         // cube room keeps the key, and the cache row, it always had.
         if (definition.IsShaped)
