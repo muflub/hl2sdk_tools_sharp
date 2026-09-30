@@ -1125,6 +1125,98 @@ public static class RoomPack
         return bytes is null ? null : RoomLibrarySkybox.Read(bytes);
     }
 
+    /// <summary>
+    /// Reads a pack's namespaces from a pack whose index was just read: its
+    /// <see cref="RoomPackNamespaces.SectionTag"/> section, held to the index
+    /// (<see cref="RoomPackNamespaces.Check"/>), or null for a plain pack.
+    /// </summary>
+    /// <param name="r">
+    /// The pack, as for <see cref="ReadLibraryOptionsAsync"/>: a stream that
+    /// cannot seek is read forward, in the order the library sections are
+    /// written (the namespaces last).
+    /// </param>
+    /// <param name="index">The pack's index, read from <paramref name="r"/>.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The namespaces in library order, or null when the pack has none (or a revision of them this build does not read).</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="LinkException">The section is cut short, out of shape, or does not match the index.</exception>
+    /// <remarks>
+    /// What <c>ssmap link</c>, <c>ssmap rooms</c> and <c>ssmap layout</c>
+    /// read to find a library's rooms in a combined pack, and what
+    /// <c>ssmap roompack -only</c> reads to copy the namespaces it keeps.
+    /// </remarks>
+    public static async Task<IReadOnlyList<RoomPackNamespace>?> ReadNamespacesAsync(
+        Stream r, RoomPackIndex index, CancellationToken cancellationToken = default)
+    {
+        byte[]? bytes = await ReadLibrarySectionAsync(r, index, RoomPackNamespaces.SectionTag, cancellationToken).ConfigureAwait(false);
+        if (bytes is null || RoomPackNamespaces.Read(bytes) is not { } namespaces)
+        {
+            return null;
+        }
+
+        RoomPackNamespaces.Check(namespaces, index);
+        return namespaces;
+    }
+
+    /// <summary>
+    /// Reads a run of a pack's rooms whole, every section byte for byte, as
+    /// items to write into another pack: what <c>ssmap roompack -only</c>
+    /// copies of the namespaces it does not rebuild.
+    /// </summary>
+    /// <param name="r">The pack; it must be able to seek.</param>
+    /// <param name="index">The pack's index, read from <paramref name="r"/>.</param>
+    /// <param name="first">The first room's index in the pack.</param>
+    /// <param name="count">How many rooms, from <paramref name="first"/>.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The rooms, in pack order, each with every section it has in the pack, in its order.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The run is not inside the pack.</exception>
+    /// <exception cref="NotSupportedException">The stream cannot seek.</exception>
+    /// <exception cref="LinkException">The pack is cut short in a section.</exception>
+    /// <remarks>
+    /// The sections are not decoded, so a copied room is exactly the room the
+    /// pack held, and a pack written from the items puts the same bytes under
+    /// the same tags. The rooms' sections run back to back in the pack
+    /// (<see cref="RoomPack"/>'s one layout), so the run is read in one piece
+    /// and cut up.
+    /// </remarks>
+    public static async Task<IReadOnlyList<RoomPackItem>> ReadItemsAsync(
+        Stream r, RoomPackIndex index, int first, int count, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(r);
+        ArgumentNullException.ThrowIfNull(index);
+        ArgumentOutOfRangeException.ThrowIfNegative(first);
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan((long)first + count, index.Entries.Count, nameof(count));
+        if (index.Start is not long start)
+        {
+            throw new NotSupportedException("copying rooms out of a room pack needs a stream that can seek.");
+        }
+
+        if (count == 0)
+        {
+            return [];
+        }
+
+        long from = index.Entries[first].Sections[0].Offset;
+        RoomPackSection last = index.Entries[first + count - 1].Sections[^1];
+        long length = last.Offset + last.Length - from;
+        r.Seek(start + from, SeekOrigin.Begin);
+        byte[] run = await ReadSectionAsync(r, new RoomPackSection(RoomSection, from, length), "the copied rooms", cancellationToken).ConfigureAwait(false);
+        List<RoomPackItem> items = [];
+        for (int i = first; i < first + count; i++)
+        {
+            RoomPackEntry entry = index.Entries[i];
+            ReadOnlyMemory<byte> Slice(RoomPackSection section) => run.AsMemory((int)(section.Offset - from), (int)section.Length);
+            items.Add(new RoomPackItem(entry.Name, Slice(entry.Sections[0]))
+            {
+                Extra = [.. entry.Sections.Skip(1).Select(s => new RoomPackSectionData(s.Tag, Slice(s)))],
+            });
+        }
+
+        return items;
+    }
+
     /// <summary>One library section's bytes, or null when the pack has no section of that tag.</summary>
     private static async Task<byte[]?> ReadLibrarySectionAsync(Stream r, RoomPackIndex index, string tag, CancellationToken cancellationToken)
     {

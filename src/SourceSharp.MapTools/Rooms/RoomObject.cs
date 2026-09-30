@@ -342,6 +342,14 @@ public sealed class RoomLibrary
     /// <summary>The rooms, in insertion order.</summary>
     public IReadOnlyCollection<RoomObject> Rooms => _rooms.Values;
 
+    /// <summary>
+    /// The names the rooms are held under, in insertion order: each room's
+    /// own name (<see cref="Add(RoomObject)"/>), or the name it was added by
+    /// (<see cref="Add(string, RoomObject, int)"/>), such as a room of a
+    /// combined pack added by its name within its library.
+    /// </summary>
+    public IReadOnlyCollection<string> Names => _rooms.Keys;
+
     /// <summary>Adds or replaces a room.</summary>
     /// <param name="room">The compiled room; its kit and cell must match the library's.</param>
     /// <exception cref="ArgumentException">The room belongs to another kit or cell size.</exception>

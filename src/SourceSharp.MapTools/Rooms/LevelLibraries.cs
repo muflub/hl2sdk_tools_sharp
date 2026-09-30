@@ -410,9 +410,12 @@ public static class LevelLibraries
         combined.SetSources([.. libraries.Select(l => l.Options)]);
         for (int i = 0; i < libraries.Count; i++)
         {
-            foreach (RoomObject room in libraries[i].Rooms)
+            // By the name each library holds a room under, which is its
+            // compile name for a plain pack and its name within the library
+            // for a namespace of a combined pack (compiled as key.room).
+            foreach (string name in libraries[i].Names)
             {
-                combined.Add(Qualified(keys[i].Key, room.Definition.Name), room, i);
+                combined.Add(Qualified(keys[i].Key, name), libraries[i].Get(name), i);
             }
         }
 

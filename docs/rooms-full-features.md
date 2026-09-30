@@ -3606,6 +3606,99 @@ the same bytes), and every level of both, linked by this build from the
 base's packs, is the same bytes as the base's link (both modes for the
 transit run).
 
+**PR 18 landed** (combined packs, 17.10 and 17.11). `ssmap roompack`
+(`RoomCommands.RunRoomPackAsync`) takes `key=path` operands (a bare path
+keyed by its stem) or `-level <level.yaml>`, and `ssmap room -namespace
+<key>` is the same build over one library: the two write the same bytes
+for one library. `RoomPackCombiner.Plan` splits every library first, holds
+them to one cell size and kit (17.5's texts, the paths the pack records),
+applies the singleton rule with `LevelLibraries.Check` (printed once, as
+`ssmap roompack: warning: ...`), renames every room `key.room` in its own
+definition (so its `MapBase` is the qualified name, lower cased), gives
+every later library's room the first library's worldspawn keys
+(`RoomLibraryVmf.RoomWorldKeys`, `WithWorld`) and carries each library's
+name keys on its rooms (`LibraryRoom.Namespace`, which the compile and the
+room cache key read through `NameKeysOr`). Every room of every namespace
+then compiles in one `RoomLibraryBuild` run, lit under the first library's
+sun; the pack's `LENT`, `LOPT` and `SKYB` are the first library's (its
+skybox packed last among its rooms, as `ssmap room` packs it, and named
+qualified), and `NSPC` (`RoomPackNamespaces`) follows them. `ssmap room`
+and `ssmap roompack` share the phases after the split
+(`CompileAndWriteAsync`: mount, cooker, cache, build, write, commit), so a
+plain `ssmap room` writes the bytes and log it wrote before.
+
+- **Pack changes.** One new library section, `NSPC`, revision 1, written
+  last; no version bump, and a plain pack is unchanged. A combined pack's
+  id is `RoomCompileIds.CombinedPackId`, over every key and VMF digest in
+  order, the options and the navigation, under its own purpose string, so
+  a pack of one namespace never shares the plain pack's id. A level whose
+  keys all come from one pack records that pack's id
+  (`RoomCompileIds.LevelPackId` now returns the one id when every key's is
+  the same); a level of several packs is unchanged.
+- **Lookup.** `ssmap link`, `ssmap rooms <level.yaml>` and the listing and
+  `ssmap layout` of one library find a key's pack as 17.10 says: a
+  `-rooms <key>=<pack>`, else a keyless `-rooms <pack>` (for every key),
+  else `<library>.roompack` beside it; a pack with namespaces gives the
+  namespace of the key (its rooms looked up as `key.room`), a plain pack
+  its whole self, refused with the plain-pack text when a keyless `-rooms`
+  gives it to every key of a level of several. A `library:` level whose
+  pack has an `NSPC` section links as a level of one library keyed by its
+  file's stem, and a library VMF's listing and layout take their stem as
+  the key. Only the pack's first namespace has singletons (every other
+  library's were dropped when it was built); every namespace has its own
+  name keys. The link reads each pack once however many keys it serves.
+- **Equivalence.** A level of two lit libraries with door light, sunlit
+  rooms, rooms of one name in both, every quarter turn, links from a
+  combined pack, from plain separate packs and from `-namespace` separate
+  packs to the same bytes without navigation, lit and unlit; with
+  navigation every lump but the entities is the same, and the entities
+  differ only in `ss_pack_id` and `ss_level_id` (one pack against two).
+  The fact's libraries share one worldspawn and sun: separate packs of
+  libraries that do not are compiled under their own, which is what the
+  combined pack exists to change. The combined pack is the same bytes at
+  `-threads` 1 and 4.
+- **Rebuilding one library.** `-incremental` reuses every unchanged room
+  of every library (an edit to one library's room compiles that room; an
+  edit to the first library's worldspawn compiles every room, since every
+  room carries it). `-only` compiles the named libraries and copies the
+  others' rooms whole (`RoomPack.ReadItemsAsync`, every section byte for
+  byte), after checking each copied library's VMF digest and the singleton
+  digest (`RoomPackNamespaces.SingletonDigest`: the first library's
+  worldspawn keys as a room carries them and its `LENT`, so a change to
+  its `LOPT` or skybox leaves the others current). The pack `-only` writes
+  is the one a full build writes.
+- **Decisions taken where the section left a detail.** At pack time the
+  worldspawn and navigation lines of 17.3 are not printed: no room of a
+  combined pack is compiled under another library's worldspawn, the
+  navigation keys included (the first library's navigation settings build
+  every room). Keys are compared ignoring case for "given twice", since
+  they become namespaces and room names are unique ignoring case. `-only`
+  still reads and splits every library, so its checks and lines are a full
+  build's; only the compile is limited. When the level's first key is not
+  the combined pack's first namespace, the level takes its first key's
+  singletons as always, and that namespace has none in the pack, so the
+  dropped lines say so. A level of one library keyed by a stem that is not
+  a key finds no namespace and is refused with 17.10's text. Messages the
+  section did not give, each held by a fact: `ssmap roompack: -only copies
+  the other libraries from {pack}, and there is none; build it once without
+  -only.`, `ssmap roompack: {pack} holds no library {key}; rebuild it too,
+  or leave out -only.`, `ssmap roompack: library {key}: copied {n} room(s)
+  from {pack}`, `ssmap room: -namespace "{key}" is not a key; a key starts
+  with a letter and holds only letters, digits, '_' and '-'.`, and
+  `ssmap link: -rooms {a} and -rooms {b} each name a pack for every library
+  of the level; give one, or -rooms <key>=<pack> for each key.` (also
+  `ssmap rooms`, which now finds packs as the link does, so its PR 17
+  text for a keyless `-rooms` became the plain-pack text).
+
+Measured against the base (main with PR 17): `ssmap vbsp` on 2fort
+(as `c.vmf`) gives `a491f59df3b484dc`, and `ssmap all` on 2fort and the
+sandbox writes the same maps; the 3x3, transit and stress packs differ
+only in the build identity (the `CMPL` section and each room container),
+every level of the 3x3 and transit samples linked by this build from the
+base's packs is the base's map and `.nav3d` byte for byte (both modes for
+transit), the stress library's 33 x 33 level links to the same bytes (1.6
+to 1.7 s) and every map passes `ssmap check`.
+
 **D29 landed** (O25 decided by the owner, 2026-09-30: don't drop
 singletons across libraries). `LevelLibraries.Singletons` gives the level's
 singletons from each library's facts, for the link (`Combine`) and the
