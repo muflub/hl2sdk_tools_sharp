@@ -606,6 +606,10 @@ public static partial class RoomCommands
             {
                 Sun = RoomLightingSettings.SunOf(plan.LibraryEntities),
                 DoorLight = run.DoorLight,
+
+                // The first library's skybox, which every sky room of every
+                // library is baked over, as ssmap room bakes its own.
+                Skybox = plan.SkyboxRoom is { } sky ? plan.Rooms.First(r => r.Definition.Name == sky) : null,
             };
         Guid packId = RoomCompileIds.CombinedPackId(
             [.. sources.Select(s => (s.Key, s.VmfSha256))],
