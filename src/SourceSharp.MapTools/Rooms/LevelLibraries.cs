@@ -409,6 +409,45 @@ public static class LevelLibraries
     }
 
     /// <summary>
+    /// The compatibility check and the singleton rule over a level's library
+    /// VMFs, as the flatten runs them: what <c>ssmap rooms</c> over a level
+    /// prints.
+    /// </summary>
+    /// <param name="level">The level, as read.</param>
+    /// <param name="libraries">Its library VMFs, in level order.</param>
+    /// <returns>The warnings, in the order the link and the flatten print them; none for a <c>library:</c> level.</returns>
+    /// <exception cref="RoomLibraryException">A library cannot be split into rooms.</exception>
+    /// <exception cref="LevelFileException">A cell or alias does not resolve.</exception>
+    /// <exception cref="LinkException">The libraries the level places rooms of are not compatible.</exception>
+    public static IReadOnlyList<string> CheckLibraries(LevelGrid level, IReadOnlyList<VmfDocument> libraries)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(libraries);
+        if (level.Libraries is not { } keys)
+        {
+            return [];
+        }
+
+        if (libraries.Count != keys.Count)
+        {
+            throw new ArgumentException($"the level has {keys.Count} libraries; {libraries.Count} VMFs were given", nameof(libraries));
+        }
+
+        RoomLibrarySplit[] splits = [.. libraries.Select(RoomLibraryVmf.SplitLibrary)];
+        LevelGrid resolved = Resolve(level, [.. splits.Select(s => (IReadOnlyList<string>)[
+            .. s.Rooms.Select(r => r.Definition.Name), .. s.Skybox is { } sky ? [sky.Definition.Name] : Array.Empty<string>()])]);
+        RoomDefinition?[] placed = new RoomDefinition?[keys.Count];
+        foreach ((_, _, LevelCell cell) in resolved.Placed)
+        {
+            TrySplit(cell.Room, out string key, out string room);
+            int i = keys.Select((k, n) => (k, n)).First(x => x.k.Key == key).n;
+            placed[i] ??= splits[i].Rooms.FirstOrDefault(r => r.Definition.Name == room)?.Definition;
+        }
+
+        return Check([.. keys.Select((k, i) => FactsOf(k, libraries[i], splits[i], placed[i]))]);
+    }
+
+    /// <summary>
     /// What the compatibility check and the singleton rule read of one
     /// library: from its pack and a room it places at link, from its VMF in
     /// the flatten.

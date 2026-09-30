@@ -81,6 +81,30 @@ public static class RoomCompileIds
         return Derive("ssmap link level", [ToBytes(packId), level.ToArray(), Encoding.UTF8.GetBytes(string.Join('\n', options))]);
     }
 
+    /// <summary>
+    /// The pack id a level of several libraries records (the rooms design,
+    /// 17.10): the map's <see cref="PackIdKey"/> and the navigation header
+    /// name one pack, and the level id hashes it.
+    /// </summary>
+    /// <param name="packs">Each library's key and its pack's id (null for a pack without one), in level order.</param>
+    /// <returns>
+    /// For one pack, its own id, so a level of one library keeps its ids;
+    /// for several, an id over every key and pack id in order, so re-packing
+    /// any library changes the level's ids; null when no pack has an id.
+    /// </returns>
+    public static Guid? LevelPackId(IReadOnlyList<(string Key, Guid? Pack)> packs)
+    {
+        ArgumentNullException.ThrowIfNull(packs);
+        if (packs.Count == 1 || packs.All(p => p.Pack is null))
+        {
+            return packs.Count == 0 ? null : packs[0].Pack;
+        }
+
+        return Derive(
+            "ssmap link packs",
+            [.. packs.SelectMany(p => new[] { Encoding.UTF8.GetBytes(p.Key), p.Pack is Guid id ? ToBytes(id) : [] })]);
+    }
+
     /// <summary>An id's sixteen bytes in RFC 9562 (big-endian) order, as the pack and the navigation file store it.</summary>
     /// <param name="id">The id.</param>
     /// <returns>The bytes.</returns>

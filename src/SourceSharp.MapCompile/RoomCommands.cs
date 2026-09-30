@@ -59,7 +59,7 @@ namespace SourceSharp.MapCompile;
 /// level places.
 /// </para>
 /// </remarks>
-public static class RoomCommands
+public static partial class RoomCommands
 {
     /// <summary>The exit code for a compile, link, or file the run could not deliver.</summary>
     public const int ExitFailed = 1;
@@ -610,7 +610,7 @@ public static class RoomCommands
         ArgumentNullException.ThrowIfNull(output);
 
         List<string> rest = [];
-        string? roomsPack = null;
+        List<string> roomsPacks = [];
         string? outPath = null;
         string? reserveText = null;
         bool flatten = false;
@@ -622,7 +622,7 @@ public static class RoomCommands
         {
             if (Take(args, i, "rooms", out string r))
             {
-                roomsPack = r;
+                roomsPacks.Add(r);
                 i++;
             }
             else if (Take(args, i, "entity-reserve", out string e))
@@ -677,10 +677,10 @@ public static class RoomCommands
             }
         }
 
-        if (rest.Count != 1 || (flatten && (roomsPack is not null || reserveText is not null || noFold || noDoorVis)))
+        if (rest.Count != 1 || (flatten && (roomsPacks.Count > 0 || reserveText is not null || noFold || noDoorVis)))
         {
             await output.WriteLineAsync(
-                "usage: ssmap link <level.yaml> [-rooms <pack.roompack>] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
+                "usage: ssmap link <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...] [-entity-reserve <n>] [-mod-entities] [-nofold] [-nodoorvis] [-out <map.bsp>] [-no-nav | -require-nav] [-nav-codec <codec>]\n"
                 + "       ssmap link <level.yaml> --flatten [-mod-entities] [-out <map.vmf>]")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
@@ -732,6 +732,23 @@ public static class RoomCommands
             return ExitFailed;
         }
 
+        LevelLinkOptions linkOptions = new() { EntityReserve = reserve, ModEntities = modEntities, FoldBrushes = !noFold, DoorVisibility = !noDoorVis };
+        if (level.Libraries is not null)
+        {
+            // Several libraries (the rooms design, 17.2): one pack per key.
+            return flatten
+                ? await FlattenLibrariesAsync(disk, level, levelPath, targetPath, modEntities, output, cancellationToken).ConfigureAwait(false)
+                : await LinkLibrariesAsync(disk, level, levelBytes, levelPath, roomsPacks, linkOptions, targetPath, nav, output, cancellationToken)
+                    .ConfigureAwait(false);
+        }
+
+        if (roomsPacks.Count > 1)
+        {
+            await output.WriteLineAsync($"ssmap link: {levelPath} names one library; give -rooms once, with its pack.").ConfigureAwait(false);
+            return Program.ExitUsage;
+        }
+
+        string? roomsPack = roomsPacks.Count == 0 ? null : roomsPacks[0];
         string libraryPath;
         try
         {
@@ -749,8 +766,7 @@ public static class RoomCommands
         return flatten
             ? await FlattenAsync(disk, level, levelPath, libraryPath, targetPath, modEntities, output, cancellationToken).ConfigureAwait(false)
             : await LinkAsync(
-                disk, level, levelBytes, levelPath, libraryPath, roomsPack,
-                new LevelLinkOptions { EntityReserve = reserve, ModEntities = modEntities, FoldBrushes = !noFold, DoorVisibility = !noDoorVis }, targetPath, nav, output, cancellationToken)
+                disk, level, levelBytes, levelPath, libraryPath, roomsPack, linkOptions, targetPath, nav, output, cancellationToken)
                 .ConfigureAwait(false);
     }
 
@@ -1188,6 +1204,16 @@ public static class RoomCommands
     /// alone, since entities are counted after the compile.
     /// </para>
     /// <para>
+    /// <c>ssmap rooms &lt;level.yaml&gt;</c> lists every library the level
+    /// names, in its order, each under a <c>library {key}: {path}</c> line
+    /// (a <c>library:</c> level's one library under its path), and then the
+    /// warnings the link and the flatten give for the level's libraries
+    /// (<see cref="LevelLibraries.CheckLibraries"/>); a refusal of theirs
+    /// fails the listing with the same message. Each library's pack is
+    /// found as <c>ssmap link</c> finds it: beside its VMF, or named by
+    /// <c>-rooms &lt;key&gt;=&lt;pack&gt;</c>.
+    /// </para>
+    /// <para>
     /// <c>ssmap rooms -rooms &lt;pack&gt;</c> with no library prints the
     /// pack's section table instead (<see cref="RoomPackSectionTable"/>):
     /// every library and room section with its tag, offset, stored length,
@@ -1208,17 +1234,25 @@ public static class RoomCommands
 
         List<string> rest = [];
         string? roomsPack = null;
+        List<string> roomsPacks = [];
         for (int i = 0; i < args.Count; i++)
         {
             if (Take(args, i, "rooms", out string r))
             {
                 roomsPack = r;
+                roomsPacks.Add(r);
                 i++;
             }
             else
             {
                 rest.Add(args[i]);
             }
+        }
+
+        // A level: every library it names (the rooms design, 17.2).
+        if (rest.Count == 1 && IsLevelFile(rest[0]))
+        {
+            return await RoomsOfLevelAsync(disk, rest[0], roomsPacks, output, cancellationToken).ConfigureAwait(false);
         }
 
         // A pack alone: its section table, which needs no library.
@@ -1229,7 +1263,8 @@ public static class RoomCommands
 
         if (rest.Count != 1 || rest[0].StartsWith('-'))
         {
-            await output.WriteLineAsync("usage: ssmap rooms <library.vmf> [-rooms <pack.roompack>]\n       ssmap rooms -rooms <pack.roompack>")
+            await output.WriteLineAsync(
+                "usage: ssmap rooms <library.vmf> [-rooms <pack.roompack>]\n       ssmap rooms <level.yaml> [-rooms <pack.roompack> | -rooms <key>=<pack.roompack> ...]\n       ssmap rooms -rooms <pack.roompack>")
                 .ConfigureAwait(false);
             return Program.ExitUsage;
         }
@@ -1626,24 +1661,7 @@ public static class RoomCommands
             return Program.ExitUsage;
         }
 
-        // Exactly the rooms the level places, in the order it first places
-        // them, and the turns it places each at: the pack's index is read,
-        // then those rooms and those turns' link sections and nothing else,
-        // so a stale or broken room the level does not name is never read.
-        List<LevelCell> first = [];
-        Dictionary<string, HashSet<int>> turns = new(StringComparer.Ordinal);
-        foreach ((_, _, LevelCell cell) in level.Placed)
-        {
-            if (!turns.TryGetValue(cell.Room, out HashSet<int>? placed))
-            {
-                turns[cell.Room] = placed = [];
-                first.Add(cell);
-            }
-
-            placed.Add(cell.Rotation);
-        }
-
-        if (first.Count == 0)
+        if (!level.Placed.Any())
         {
             await output.WriteLineAsync($"ssmap link: {levelPath}: the level places no room").ConfigureAwait(false);
             return ExitFailed;
@@ -1651,7 +1669,6 @@ public static class RoomCommands
 
         string pack = HostPaths.Display(packPath);
         RoomLibrary library;
-        LevelNavPlan navPlan;
         Guid? packId;
         try
         {
@@ -1666,6 +1683,16 @@ public static class RoomCommands
 
             await using Stream stream = await disk.OpenReadAsync(packPath, cancellationToken).ConfigureAwait(false);
             RoomPackIndex index = await RoomPack.ReadIndexAsync(stream, cancellationToken).ConfigureAwait(false);
+
+            // A level of one library with aliases: each replaced by the room
+            // it names, which the pack's index lists (the rooms design, 17.2).
+            if (level.Aliases.Count > 0)
+            {
+                level = LevelLibraries.Resolve(level, [[.. index.Entries.Select(e => e.Name)]]);
+            }
+
+            (List<LevelCell> first, Dictionary<string, HashSet<int>> turns) = PlacedRooms(level);
+
             // The sun, fog and the other library-wide entities: written once
             // into the level, and counted in its budget. Read before the
             // settings, in the order ssmap room writes the library sections,
@@ -1731,6 +1758,11 @@ public static class RoomCommands
                 .ConfigureAwait(false);
             return ExitFailed;
         }
+        catch (LevelFileException exception)
+        {
+            await output.WriteLineAsync($"ssmap link: {levelPath}: {exception.Message}").ConfigureAwait(false);
+            return ExitFailed;
+        }
         catch (Exception exception) when (exception is LinkException or ArgumentException)
         {
             // A file that is not a room pack, a room in it that is not a room
@@ -1740,6 +1772,71 @@ public static class RoomCommands
             return ExitFailed;
         }
 
+        return await LinkLoadedAsync(disk, level, levelBytes, levelPath, library, packId, [], linkOptions, mapPath, nav, output, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Exactly the rooms a level places, in the order it first places them,
+    /// and the turns it places each at: the pack's index is read, then those
+    /// rooms and those turns' link sections and nothing else, so a stale or
+    /// broken room the level does not name is never read.
+    /// </summary>
+    private static (List<LevelCell> First, Dictionary<string, HashSet<int>> Turns) PlacedRooms(LevelGrid level)
+    {
+        List<LevelCell> first = [];
+        Dictionary<string, HashSet<int>> turns = new(StringComparer.Ordinal);
+        foreach ((_, _, LevelCell cell) in level.Placed)
+        {
+            if (!turns.TryGetValue(cell.Room, out HashSet<int>? placed))
+            {
+                turns[cell.Room] = placed = [];
+                first.Add(cell);
+            }
+
+            placed.Add(cell.Rotation);
+        }
+
+        return (first, turns);
+    }
+
+    /// <summary>
+    /// The link once its rooms are loaded: the navigation planned, the map
+    /// linked and written, the warnings and the report printed, and the
+    /// navigation built after the map.
+    /// </summary>
+    /// <param name="disk">Where the map and its navigation are written.</param>
+    /// <param name="level">The level, its cells as the library names its rooms.</param>
+    /// <param name="levelBytes">The level file's bytes: an input of the level id.</param>
+    /// <param name="levelPath">The level file, for messages.</param>
+    /// <param name="library">The loaded rooms: the pack's, or several libraries' combined.</param>
+    /// <param name="packId">The pack id the map and its navigation record, or null.</param>
+    /// <param name="libraryWarnings">
+    /// What combining several libraries warned of (<see cref="LevelLibraries.Combine"/>),
+    /// printed first; empty for a level of one.
+    /// </param>
+    /// <param name="linkOptions">The link's settings.</param>
+    /// <param name="mapPath">Where the map goes.</param>
+    /// <param name="nav">The navigation switches.</param>
+    /// <param name="output">Where the log goes.</param>
+    /// <param name="cancellationToken">Cancels the link.</param>
+    /// <returns>The process exit code.</returns>
+    private static async Task<int> LinkLoadedAsync(
+        IFileSystem disk,
+        LevelGrid level,
+        byte[] levelBytes,
+        string levelPath,
+        RoomLibrary library,
+        Guid? packId,
+        IReadOnlyList<string> libraryWarnings,
+        LevelLinkOptions linkOptions,
+        VPath mapPath,
+        LinkNavOptions nav,
+        TextWriter output,
+        CancellationToken cancellationToken)
+    {
+        LevelNavPlan navPlan;
+
         // The navigation is planned before the map is linked (ids, and a point
         // of interest in a capped doorway refused), and built after the map
         // is written: the map never waits for navigation work.
@@ -1747,7 +1844,8 @@ public static class RoomCommands
         {
             LevelLayout navLayout = level.ToLayout(name => library.Find(name)?.Definition, library.CellSize, library.Kit);
             navPlan = LevelNavFromPack.Plan(
-                navLayout, level.Columns, level.Rows, library.Get, packId, levelBytes, nav.IdOptions, !nav.Skip);
+                navLayout, level.Columns, level.Rows, library.Get, packId, levelBytes, nav.IdOptions, !nav.Skip,
+                level.Libraries is null ? null : library.SourceOf);
         }
         catch (Exception exception) when (exception is LinkException or ArgumentException)
         {
@@ -1796,10 +1894,16 @@ public static class RoomCommands
                     .WriteAsync(bytes, token).ConfigureAwait(false),
                 cancellationToken).ConfigureAwait(false);
 
-            // What resolving the rooms' names warned of (references to empty
-            // cells dropped, global names repeated), what linking the areas
-            // warned of, then the budget's warnings, then the headroom it
-            // always reports.
+            // What combining several libraries warned of (the singleton rule,
+            // the worldspawn, the sun), what resolving the rooms' names
+            // warned of (references to empty cells dropped, global names
+            // repeated), what linking the areas warned of, then the budget's
+            // warnings, then the headroom it always reports.
+            foreach (string libraryWarning in libraryWarnings)
+            {
+                await output.WriteLineAsync($"ssmap link: warning: {libraryWarning}").ConfigureAwait(false);
+            }
+
             foreach (string nameWarning in link.NameWarnings)
             {
                 await output.WriteLineAsync($"ssmap link: warning: {nameWarning}").ConfigureAwait(false);
