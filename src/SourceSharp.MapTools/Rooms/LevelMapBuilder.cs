@@ -187,12 +187,26 @@ public static class LevelMapBuilder
         LevelLayout layout = level.ToLayout(name => byName.TryGetValue(name, out LibraryRoom? room) ? room.Definition : null, first.CellSize, first.Kit);
         layout.Validate();
 
-        // The faces by the cells their boxes reach, so a placement reads its own.
+        // The faces by the cells their boxes reach, so a placement reads its
+        // own; a displacement by the one cell that owns it (a displacement
+        // is never merged across rooms, and is its room's alone).
         List<MapFaceSource> faces = RoomMapFaces.Walkable(bsp);
         double c = layout.CellSize;
         Dictionary<(long, long), List<MapFaceSource>> byCell = [];
         foreach (MapFaceSource face in faces)
         {
+            if (face.Displacement is not null)
+            {
+                (long, long) owner = RoomMapFaces.OwnerCell(face, c);
+                if (!byCell.TryGetValue(owner, out List<MapFaceSource>? own))
+                {
+                    byCell[owner] = own = [];
+                }
+
+                own.Add(face);
+                continue;
+            }
+
             long x0 = (long)Math.Floor(face.Points.Min(p => p.X) / c), x1 = (long)Math.Floor(face.Points.Max(p => p.X) / c);
             long y0 = (long)Math.Floor(face.Points.Min(p => p.Y) / c), y1 = (long)Math.Floor(face.Points.Max(p => p.Y) / c);
             for (long x = x0; x <= x1 && x - x0 < 4096; x++)

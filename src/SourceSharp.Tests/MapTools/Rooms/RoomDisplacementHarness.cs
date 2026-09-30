@@ -58,7 +58,11 @@ internal static class RoomDisplacementHarness
     /// edge must stay on its brush's box (a shift can carry an edge vertex
     /// half a unit past it).
     /// </param>
-    public static VmfChunk Patch(int id, Box box, int power = 2, int seed = 0, bool offsets = true)
+    /// <param name="heights">
+    /// The distance at each (row, column) in place of the varying few units,
+    /// for a patch with steep parts (a ridge a player cannot stand on).
+    /// </param>
+    public static VmfChunk Patch(int id, Box box, int power = 2, int seed = 0, bool offsets = true, Func<int, int, float>? heights = null)
     {
         VmfChunk solid = RoomModel.Slab(RoomHarness.Plain, box.Mins, box.Maxs, id);
         VmfChunk top = solid.Chunks.First();
@@ -80,7 +84,7 @@ internal static class RoomDisplacementHarness
             string key = "row" + row.ToString(CultureInfo.InvariantCulture);
             normals.AddKey(key, Repeat("0 0 1", n));
             offsetNormals.AddKey(key, Repeat("0 0 1", n));
-            distances.AddKey(key, string.Join(' ', Enumerable.Range(0, n).Select(c => F(Height(row, c, seed)))));
+            distances.AddKey(key, string.Join(' ', Enumerable.Range(0, n).Select(c => F(heights?.Invoke(row, c) ?? Height(row, c, seed)))));
             offsetRows.AddKey(key, string.Join(' ', Enumerable.Range(0, n).Select(c => offsets && (row + c + seed) % 3 == 0 ? "0.5 -0.25 0" : "0 0 0")));
             alphas.AddKey(key, string.Join(' ', Enumerable.Range(0, n).Select(c => F(((row * 37) + (c * 11)) % 256))));
             if (row < n - 1)

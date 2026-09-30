@@ -500,7 +500,9 @@ coordinates) and size. It reads and checks the library exactly as
 the library's pack is there (`-rooms`, else `<library>.roompack` beside
 it), the listing opens with the library's entity budget and gives each
 room's entities as the room compile counted them: how many reach a linked
-map, and how many of those take an edict.
+map, and how many of those take an edict; and, for a room that has them,
+its displacements (`displacements: 2`), its water (`water: 1 volume(s)`)
+and its level map (`map: 3 floor ring(s), 1 marker(s), label "Atrium"`).
 
 A room pack is a function of its inputs: the same library and `ssmap`
 build write the same bytes at any `-threads` and on every run, and so does
@@ -976,8 +978,9 @@ walk-through and the C# reader the mod uses (`Nav3dReader` in
 
 `link` also writes `<map>.map2d` beside the map: the level map overlay, a
 2D vector map seen from above that the game draws. Each room's floors
-(the faces a player stands on, unioned exactly on whole units, one polygon
-set per height band) are worked out once by `ssmap room` and stored in the
+(the faces a player stands on, and the walkable triangles of its
+displacements' surfaces, unioned exactly on whole units, one polygon set
+per height band) are worked out once by `ssmap room` and stored in the
 pack (`MAPV`); the link turns and places them, marks each door open or
 closed, and adds the markers: `info_poi` entities with a `map_marker`
 (and `map_label`), and the level spawn, the arrivals and the transition
